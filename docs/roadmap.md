@@ -721,6 +721,129 @@ came from a different environment, and the manifests record one. The rows they r
 generated under Python 3.11.13 and SciPy 1.17.1. The new rows ran under Python 3.13.7 and SciPy
 1.18.0. The end-of-study control ratio moved in the sixth decimal, from 0.353193 to 0.353196.
 
+#### The runtime isolation, declared before it runs
+
+This subsection declares a diagnostic and the rule that reads it. It precedes every run of that
+diagnostic.
+
+The pooled-code regeneration changed the code and the runtime together. Two weighted cells went
+red, and the end-of-study overfitting cell went green. The diagnostic separates the two changes on
+the two studies that carry those cells. It crosses two code states with two runtimes.
+
+| axis | label | what it pins |
+| --- | --- | --- |
+| code | F | commit `7d5485a`, which fits the fold-local update |
+| code | P | the commit that carries this declaration. Its `src/` is identical to `0e03a15`, which fits the pooled update |
+| runtime | R11 | Python 3.11.13 and SciPy 1.17.1 |
+| runtime | R13 | Python 3.13.7 and SciPy 1.18.0 |
+
+Both runtimes install numpy 2.4.6, pandas 3.0.5 and scikit-learn 1.9.0. Each study therefore runs
+four arms: `F-R11`, `F-R13`, `P-R11` and `P-R13`.
+
+| study | registry name | how each arm gets the `lmtp` rows |
+| --- | --- | --- |
+| `tests/canonical/weighted_lmtp_ltmle` | `weighted-ltmle-crossfit` | the first arm runs `lmtp`, and every later arm reuses that result through `--cache`. This study writes `reference-inference.csv.gz`, so the harness refuses `--skip-reference` for it |
+| `tests/canonical/lmtp_ltmle` | `canonical-ltmle-crossfit` | every arm reads the committed rows through `--skip-reference` |
+
+The committed `lmtp` rows of both studies are identical at `7d5485a` and `0e03a15`. So is the
+committed `reference-inference.csv.gz`.
+
+| held fixed | value |
+| --- | --- |
+| laws, learners, sizes, budgets, seeds, cells and margins | as each study registers them |
+| the `lmtp` comparator rows | identical in the four arms of a study |
+| numpy, pandas and scikit-learn | identical in both runtimes |
+| the machine | one runner. The arms run one at a time, and no other study or test suite runs with them |
+
+Two preconditions validate the harness. Each one also tests a claim that the committed history
+makes.
+
+| arm | must reproduce | which also tests |
+| --- | --- | --- |
+| `F-R11` | the rows committed at `7d5485a`. They came from `f0110bc` for the weighted study and from `eeaa1ce` for the end-of-study study | that the source changes between those commits and `7d5485a` do not move a row of either study |
+| `P-R13` | the rows committed at `0e03a15`. They came from `656674c` | that the refactor in `f8ad497` does not move a row of either study |
+
+A precondition holds when every estimate and every standard error agrees within 1e-9, and no
+verdict differs. The four arms of a study must also draw identical samples. The diagnostic
+compares the decompressed `samples.csv.gz` of each arm, because the gzip header records a time.
+
+When a precondition fails, the diagnostic records the count of rows outside the tolerance and the
+largest difference. It then marks the study "harness not validated, no attribution" and reads no
+attribution from it.
+
+| study | cell | statistic read |
+| --- | --- | --- |
+| weighted | `interval_calibration/static__correctly_specified`, positive | the empirical efficiency ratio and its 99% interval, against the band upper edge of 1.10 |
+| weighted | paired `ey_regimen[never]` | the coverage difference and its 99% lower endpoint, against the non-inferiority margin of -0.025 |
+| end-of-study | `crossfit_overfitting/cross_fitted_ltmle`, positive | the reported SE over the empirical SD and its 99% upper endpoint, against the 1.20 ceiling |
+| end-of-study | `crossfit_overfitting/in_sample_control` | the count of rows that differ from the committed rows, and the largest change in the estimate and in the standard error |
+
+The reading rule uses each verdict alone. It makes four comparisons per cell. The code axis
+compares F with P at R11 and at R13. The runtime axis compares R11 with R13 at F and at P.
+
+| reading | condition |
+| --- | --- |
+| code | the code axis changes the verdict at both runtimes, and the runtime axis changes it at neither code state |
+| runtime | the runtime axis changes the verdict at both code states, and the code axis changes it at neither runtime |
+| both | each axis changes the verdict at least once |
+| neither | no comparison changes the verdict |
+
+A verdict is pass or fail, so a change occurs in zero, two or four of the four comparisons. The
+four readings therefore cover every outcome. The magnitudes and the count of changed rows on each
+axis are descriptive. They do not change a reading.
+
+The diagnostic changes no verdict, publication policy, budget, margin or law. Each arm writes to
+a scratch directory through `--output`, and no committed study artifact changes. The repository
+commits three kinds of output under `tests/diagnostics/rm18_runtime/`: the summary, the run log
+and one manifest per arm.
+
+This diagnostic leaves three studies and two earlier 2x2 reports outside its scope.
+
+| item | status | reason |
+| --- | --- | --- |
+| the survival-curve, competing-risk and categorical studies | deferred | every verdict passes at `7d5485a` and at `0e03a15`, so the rule has no changed verdict to attribute. Their four arms cost about 2.9 hours |
+| the law by fold-policy 2x2 at `4ca7a15`, for the selector study | stays unverified | the repository commits no run log for it, and this diagnostic does not rerun it |
+| the fold-policy 2x2 at `eeaa1ce`, for the end-of-study study | stays unverified | the same |
+
+#### What the committed history already separates
+
+This subsection reads committed artifacts alone, with `git show` and pandas. It fits no
+estimator. It was computed on 2026-09-21 during the scoping of the diagnostic above, and before
+that declaration was written.
+
+Three point-treatment studies changed runtime between two commits. They moved from Python 3.11.13
+and SciPy 1.17.1 to Python 3.13.7 and SciPy 1.18.0. Each study's `manifest.json` records both runtimes, and
+the numpy and pandas versions are identical. The table compares each replication row of the older
+commit with the same row at `0e03a15`.
+
+| study | older commit | rows compared | largest change in an estimate | rows that moved more than 1e-6 | covered flags that changed |
+| --- | --- | --- | --- | --- | --- |
+| multi-arm point-treatment DR-TMLE | `6933968` | 14,400 primary and 10,600 property | 2.1e-12 | 0 | 0 |
+| selector-based multi-arm C-TMLE | `2049349` | 21,600 primary and 5,200 property | 4e-15 | 0 | 0 |
+| DR-TMLE for binary complete data, `cleverly` rows | `99d238c` | 7,200 primary | 4.3e-9 | 0 | 0 |
+| the same, property rows | `99d238c` | 15,200 | 0.0047 | 6 | 0 |
+| the same, `drtmle` R comparator rows | `99d238c` | 7,200 primary | 0.00062 | 6 | 0 |
+
+The rows compared are the rows present at both commits. `0e03a15` adds 16,000 `fold_policy` rows to
+each multi-arm study and 9,600 contraction rows to DR-TMLE.
+
+The runtime change moved no row of either `n_500` study. Each committed `n_500` endpoint therefore
+reads the same rows under both runtimes.
+
+The contraction ladder shares 7,200 rows between `99d238c` and `0e03a15`. They are the first 800
+replications of each rung, and they agree within 7.3e-5. The study's slope rule, applied to those
+800 replications of each rung at `0e03a15`, gives the intervals below.
+
+| cell | `99d238c`, 800 per rung | `0e03a15`, first 800 per rung | `0e03a15`, as committed |
+| --- | --- | --- | --- |
+| `rate_outcome_correct` | -3.040132 to +0.123221 | -3.040131 to +0.123221 | -1.534453 to -0.482268 |
+| `rate_treatment_correct` | -2.207877 to -0.880196 | -2.207860 to -0.880192 | -1.756754 to -1.022105 |
+| `rate_both_wrong`, the control | -0.003031 to +0.014273 | -0.003031 to +0.014273 | +0.003726 to +0.013538 |
+
+At the declared budget of 800, the runtime change leaves each interval within 2e-5. The move of
+`rate_outcome_correct` below zero therefore comes from the extra outer-rung replications that the
+rung design declared, and not from the runtime.
+
 #### What this row asks for
 
 | work | acceptance |
