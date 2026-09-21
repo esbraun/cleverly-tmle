@@ -269,8 +269,13 @@ def _cell_row(arms: Arms, arm: str, cell: Cell) -> pd.Series:
 
 
 def _verdict(row: pd.Series) -> bool:
-    passed = bool(row["passed"])
-    return passed and bool(row["property_passed"]) if "property_passed" in row else passed
+    """The cell's own verdict.
+
+    Not ``property_passed``, which is the verdict of the whole family.  The in-sample control
+    passes its own cell at ``7d5485a`` while its family fails with the positive cell, and the
+    declared rule reads each cell's verdict alone.
+    """
+    return bool(row["passed"])
 
 
 def _control_drift(arms: Arms, arm: str, cell: str) -> list[dict[str, Any]]:
@@ -340,7 +345,7 @@ def compare(root: Path, *, publish: Path | None = None) -> pd.DataFrame:
                 verdicts[arm] = _verdict(row)
                 records += [
                     _record(study.directory, "statistic", f"{cell.name}, {arm}", key, row[key])
-                    for key in cell.statistics
+                    for key in dict.fromkeys((*cell.statistics, *VERDICTS[cell.table][1]))
                 ]
                 records.append(
                     _record(
