@@ -331,7 +331,9 @@ PROPERTIES: dict[str, str] = {
     ),
     "double_robust_contraction": (
         "a bias the equivalence margin rejects at one size contracts as the sample grows, "
-        "which is what separates a second-order remainder from an inconsistent estimator"
+        "which is what separates a second-order remainder from an inconsistent estimator; "
+        "each rung's coverage claim is read at the rung's declared replication budget, and "
+        "any draws beyond that budget serve the fitted slope alone"
     ),
     "double_robustness": (
         "the estimator stays consistent when either the outcome regression or the treatment "
@@ -574,18 +576,22 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("double_robust_contraction", "outcome_correct"): (
         "only the outcome regression is correctly specified",
-        "the exact coverage interval clears the declared floor",
+        "the exact coverage interval clears the declared floor, over the replications this "
+        "rung declares its own verdict at",
     ),
     ("double_robust_contraction", "treatment_correct"): (
         "only the treatment mechanism is correctly specified",
-        "the exact coverage interval clears the declared floor",
+        "the exact coverage interval clears the declared floor, over the replications this "
+        "rung declares its own verdict at",
     ),
     ("double_robust_contraction", "both_wrong"): (
         "both nuisances are misspecified",
-        "the exact coverage interval must fall below the floor",
+        "the exact coverage interval must fall below the floor, over the replications this "
+        "rung declares its own verdict at",
     ),
     ("double_robust_contraction", "rate_outcome_correct"): (
-        "log absolute bias regressed on log n across three sizes, outcome regression correct",
+        "log absolute bias regressed on log n across three sizes, outcome regression correct, "
+        "over every replication each rung ran",
         "slope interval entirely below zero, so the bias contracts",
     ),
     ("double_robust_contraction", "rate_treatment_correct"): (

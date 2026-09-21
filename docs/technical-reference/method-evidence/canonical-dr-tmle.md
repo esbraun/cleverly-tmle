@@ -100,9 +100,9 @@ as an established property.
 | paper binary law, outcome regression correct | `ey1` | counterfactual mean under treatment | `cleverly` | 0.000203 to 0.0028 | 0.9350 | 0.9841 | pass |
 | paper binary law, outcome regression correct | `ey1` | counterfactual mean under treatment | R `drtmle` | 0.000239 to 0.0028 | 0.9337 | 0.9853 | pass |
 | paper binary law, treatment mechanism correct | `ate` | average treatment effect | `cleverly` | 0.0013 to 0.0049 | 0.9450 | 0.9922 | pass |
-| paper binary law, treatment mechanism correct | `ate` | average treatment effect | R `drtmle` | 0.000276 to 0.0039 | 0.9400 | 0.9878 | pass |
+| paper binary law, treatment mechanism correct | `ate` | average treatment effect | R `drtmle` | 0.000277 to 0.0039 | 0.9400 | 0.9878 | pass |
 | paper binary law, treatment mechanism correct | `ey0` | counterfactual mean under no treatment | `cleverly` | -0.0035 to -0.000789 | 0.9450 | 0.9848 | pass |
-| paper binary law, treatment mechanism correct | `ey0` | counterfactual mean under no treatment | R `drtmle` | -0.0031 to -0.000365 | 0.9387 | 0.9744 | pass |
+| paper binary law, treatment mechanism correct | `ey0` | counterfactual mean under no treatment | R `drtmle` | -0.0031 to -0.000366 | 0.9387 | 0.9744 | pass |
 | paper binary law, treatment mechanism correct | `ey1` | counterfactual mean under treatment | `cleverly` | -0.000420 to 0.0023 | 0.9275 | 0.9746 | pass |
 | paper binary law, treatment mechanism correct | `ey1` | counterfactual mean under treatment | R `drtmle` | -0.0010 to 0.0018 | 0.9350 | 0.9656 | pass |
 <!-- /generated -->
@@ -118,8 +118,8 @@ as an established property.
 | paper binary law, outcome regression correct | `ate` | average treatment effect | -0.000092 | 0.0329 | 1.0145 | -0.0087 | 0.0184 vs 0.0500 | equivalent |
 | paper binary law, outcome regression correct | `ey0` | counterfactual mean under no treatment | 0.000059 | 0.0296 | 1.0086 | -0.0013 | 0.0135 vs 0.0500 | equivalent |
 | paper binary law, outcome regression correct | `ey1` | counterfactual mean under treatment | -0.000032 | 0.0151 | 1.0126 | 0.0013 | 0.0094 vs 0.0500 | equivalent |
-| paper binary law, treatment mechanism correct | `ate` | average treatment effect | 0.0010 | 0.3364 | 1.0467 | 0.0050 | 0.0403 vs 0.0500 | equivalent |
-| paper binary law, treatment mechanism correct | `ey0` | counterfactual mean under no treatment | -0.000415 | 0.1867 | 1.0378 | 0.0062 | 0.0468 vs 0.0500 | equivalent |
+| paper binary law, treatment mechanism correct | `ate` | average treatment effect | 0.0010 | 0.3362 | 1.0467 | 0.0050 | 0.0403 vs 0.0500 | equivalent |
+| paper binary law, treatment mechanism correct | `ey0` | counterfactual mean under no treatment | -0.000415 | 0.1864 | 1.0378 | 0.0062 | 0.0468 vs 0.0500 | equivalent |
 | paper binary law, treatment mechanism correct | `ey1` | counterfactual mean under treatment | 0.000590 | 0.2587 | 1.0326 | -0.0075 | 0.0370 vs 0.0500 | equivalent |
 <!-- /generated -->
 
@@ -128,22 +128,22 @@ as an established property.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `double_robust_contraction` | `both_wrong_n1500` | control | both nuisances are misspecified, at n = 1,500 | the exact coverage interval must fall below the floor | coverage 0.0224 to 0.0584, bias 0.2306 | pass |
-| `double_robust_contraction` | `both_wrong_n3000` | control | both nuisances are misspecified, at n = 3,000 | the exact coverage interval must fall below the floor | coverage 0.0148 to 0.0461, bias 0.2321 | pass |
-| `double_robust_contraction` | `both_wrong_n6000` | control | both nuisances are misspecified, at n = 6,000 | the exact coverage interval must fall below the floor | coverage 0.0062 to 0.0300, bias 0.2323 | pass |
-| `double_robust_contraction` | `outcome_correct_n1500` | positive | only the outcome regression is correctly specified, at n = 1,500 | the exact coverage interval clears the declared floor | coverage 0.9208 to 0.9637, bias 0.0036 | pass |
-| `double_robust_contraction` | `outcome_correct_n3000` | positive | only the outcome regression is correctly specified, at n = 3,000 | the exact coverage interval clears the declared floor | coverage 0.9150 to 0.9596, bias 0.0021 | pass |
-| `double_robust_contraction` | `outcome_correct_n6000` | positive | only the outcome regression is correctly specified, at n = 6,000 | the exact coverage interval clears the declared floor | coverage 0.9194 to 0.9627, bias 0.0012 | pass |
-| `double_robust_contraction` | `rate_both_wrong` | control | the same regression with both nuisances misspecified | slope interval must not establish contraction | slope -0.0030 to 0.0143 | pass |
-| `double_robust_contraction` | `rate_outcome_correct` | positive | log absolute bias regressed on log n across three sizes, outcome regression correct | slope interval entirely below zero, so the bias contracts | slope -3.0401 to 0.1232 | **fail** |
-| `double_robust_contraction` | `rate_treatment_correct` | positive | the same regression with only the treatment mechanism correct | slope interval entirely below zero, so the bias contracts | slope -2.2079 to -0.8802 | pass |
-| `double_robust_contraction` | `treatment_correct_n1500` | positive | only the treatment mechanism is correctly specified, at n = 1,500 | the exact coverage interval clears the declared floor | coverage 0.8864 to 0.9385, bias 0.0115 | **fail** |
-| `double_robust_contraction` | `treatment_correct_n3000` | positive | only the treatment mechanism is correctly specified, at n = 3,000 | the exact coverage interval clears the declared floor | coverage 0.9179 to 0.9616, bias 0.0041 | pass |
-| `double_robust_contraction` | `treatment_correct_n6000` | positive | only the treatment mechanism is correctly specified, at n = 6,000 | the exact coverage interval clears the declared floor | coverage 0.9165 to 0.9606, bias 0.0019 | pass |
+| `double_robust_contraction` | `both_wrong_n1500` | control | both nuisances are misspecified, at n = 1,500 | the exact coverage interval must fall below the floor, over the replications this rung declares its own verdict at | coverage 0.0224 to 0.0584, bias 0.2306 | pass |
+| `double_robust_contraction` | `both_wrong_n3000` | control | both nuisances are misspecified, at n = 3,000 | the exact coverage interval must fall below the floor, over the replications this rung declares its own verdict at | coverage 0.0148 to 0.0461, bias 0.2321 | pass |
+| `double_robust_contraction` | `both_wrong_n6000` | control | both nuisances are misspecified, at n = 6,000 | the exact coverage interval must fall below the floor, over the replications this rung declares its own verdict at | coverage 0.0062 to 0.0300, bias 0.2323 | pass |
+| `double_robust_contraction` | `outcome_correct_n1500` | positive | only the outcome regression is correctly specified, at n = 1,500 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.9208 to 0.9637, bias 0.0036 | pass |
+| `double_robust_contraction` | `outcome_correct_n3000` | positive | only the outcome regression is correctly specified, at n = 3,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.9150 to 0.9596, bias 0.0021 | pass |
+| `double_robust_contraction` | `outcome_correct_n6000` | positive | only the outcome regression is correctly specified, at n = 6,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.9194 to 0.9627, bias 0.0012 | pass |
+| `double_robust_contraction` | `rate_both_wrong` | control | the same regression with both nuisances misspecified | slope interval must not establish contraction | slope 0.0037 to 0.0135 | pass |
+| `double_robust_contraction` | `rate_outcome_correct` | positive | log absolute bias regressed on log n across three sizes, outcome regression correct, over every replication each rung ran | slope interval entirely below zero, so the bias contracts | slope -1.5345 to -0.4823 | pass |
+| `double_robust_contraction` | `rate_treatment_correct` | positive | the same regression with only the treatment mechanism correct | slope interval entirely below zero, so the bias contracts | slope -1.7568 to -1.0221 | pass |
+| `double_robust_contraction` | `treatment_correct_n1500` | positive | only the treatment mechanism is correctly specified, at n = 1,500 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.8864 to 0.9385, bias 0.0115 | **fail** |
+| `double_robust_contraction` | `treatment_correct_n3000` | positive | only the treatment mechanism is correctly specified, at n = 3,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.9179 to 0.9616, bias 0.0041 | pass |
+| `double_robust_contraction` | `treatment_correct_n6000` | positive | only the treatment mechanism is correctly specified, at n = 6,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.9165 to 0.9606, bias 0.0019 | pass |
 | `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000292 to 0.0045, margin 0.0066, SE ratio 1.0071 | pass |
 | `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias 0.2280 to 0.2330, margin 0.0068, SE ratio 1.8286 | pass |
 | `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias 0.0026 to 0.0075, margin 0.0067, SE ratio 0.9888 | **fail** |
-| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias 0.0068 to 0.0121, margin 0.0072, SE ratio 0.9674 | **fail** |
+| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias 0.0068 to 0.0121, margin 0.0072, SE ratio 0.9671 | **fail** |
 | `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9448 to 0.9667, SE ratio 0.9857 to 1.0570 | pass |
 | `root_n_and_efficiency` | `n_1500` | positive | bias, coverage and SE calibration at n = 1,500 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.0018, coverage 0.9165 to 0.9606, SE ratio 0.9447 | pass |
 | `root_n_and_efficiency` | `n_4500` | positive | bias, coverage and SE calibration at n = 4,500 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000391, coverage 0.9223 to 0.9647, SE ratio 0.9834 | pass |
@@ -162,8 +162,22 @@ as an established property.
 | `subject_tests_total` | 9 | Cleverly truth tests reported |
 | `paired_tests_passed` | 9 | paired cells concluding equivalent or superior |
 | `paired_tests_total` | 9 | paired comparison cells reported |
-| `property_cells_passed` | 18 | repeated-sampling property cells passing their own and family verdicts |
+| `property_cells_passed` | 19 | repeated-sampling property cells passing their own and family verdicts |
 | `property_cells_total` | 22 | repeated-sampling property cells reported |
+| `properties[double_robust_contraction/rate_outcome_correct]:slope` | -0.9176 | fitted contraction slope, outcome regression correct |
+| `properties[double_robust_contraction/rate_outcome_correct]:slope_ci_lower` | -1.5345 | its 99% lower endpoint |
+| `properties[double_robust_contraction/rate_outcome_correct]:slope_ci_upper` | -0.4823 | its 99% upper endpoint |
+| `properties[double_robust_contraction/rate_outcome_correct]:replicates` | 5600 | replications the contraction slope fits |
+| `properties[double_robust_contraction/rate_treatment_correct]:slope` | -1.3194 | fitted contraction slope, treatment mechanism correct |
+| `properties[double_robust_contraction/rate_treatment_correct]:slope_ci_lower` | -1.7568 | its 99% lower endpoint |
+| `properties[double_robust_contraction/rate_treatment_correct]:slope_ci_upper` | -1.0221 | its 99% upper endpoint |
+| `properties[double_robust_contraction/rate_both_wrong]:slope` | 0.0086 | fitted contraction slope of the control arm |
+| `properties[double_robust_contraction/rate_both_wrong]:slope_ci_lower` | 0.0037 | its 99% lower endpoint |
+| `properties[double_robust_contraction/rate_both_wrong]:slope_ci_upper` | 0.0135 | its 99% upper endpoint |
+| `properties[double_robust_contraction/outcome_correct_n1500]:bias` | 0.0036 | bias scale at the first rung, outcome regression correct |
+| `properties[double_robust_contraction/treatment_correct_n1500]:replicates` | 800 | replications the first rung reads its own coverage verdict from |
+| `properties[double_robust_contraction/treatment_correct_n1500]:coverage` | 0.9150 | exact coverage of the red rung |
+| `properties[double_robust_contraction/treatment_correct_n1500]:coverage_ci_lower` | 0.8864 | its 99% coverage lower endpoint |
 | `min_coverage` | 0.9275 | lowest implementation-estimand coverage |
 | `min_coverage_ci_lower` | 0.9006 | lowest exact 99% coverage lower endpoint |
 | `max_standardized_bias` | 0.1557 | largest absolute standardized bias |
@@ -210,20 +224,43 @@ them. A slope near `-1` is a second-order remainder, near `-1/2` a first-order o
 an estimator that is not consistent. The `both_wrong` arm is the control that must fail to
 contract.
 
-The measured slopes are `-0.82` with the outcome regression correct and `-1.31` with the mechanism
-correct. The control sits at `+0.006` with an interval that straddles zero, and its standardized
-bias *grows* with `n`, from `8.5` to `12.6` to `16.6`. So each red level cell is a second-order
-remainder that has not yet decayed, and the control is what an estimator that never decays looks
-like beside them.
+The measured slopes are `-0.9176` with the outcome regression correct and `-1.3194` with the
+mechanism correct. The control sits at `0.0086`, above zero, and its standardized bias *grows*
+with `n`, from `8.5` to `12.6` to `16.6`. So each red level cell is a second-order remainder that
+has not yet decayed, and the control is what an estimator that never decays looks like beside
+them.
 
-Only one of the two slope intervals establishes that. With the mechanism correct the interval runs
-`-2.21` to `-0.88` and stays below zero. With the outcome regression correct it runs `-3.04` to
-`+0.12` and does not, so that rate cell is red. The reason is arithmetic rather than scientific:
-the bias in that arm is already small at the first rung, `0.0036`, and three points of a small and
-noisy quantity give a wide slope. On the treatment-stratified split this row used before, the same
-interval ran `-3.52` to `-0.06` and cleared zero by `0.06`. The rate cell is one Monte Carlo
-resolution of a measurement that was never far from the boundary, and the coverage rungs below are
-the stronger reading of the same ladder.
+Both slope intervals establish that. With the mechanism correct the interval runs `-1.7568` to
+`-1.0221`. With the outcome regression correct it runs `-1.5345` to `-0.4823`. The second interval
+covered zero on the earlier ladder, which ran 800 replications at every rung. The reason was
+arithmetic rather than scientific. The bias in that arm is already small at the first rung,
+`0.0036`, so three points of a small and noisy quantity gave a wide slope.
+
+`CONTRACTION_REPLICATES` in `tests/studies/drtmle_properties.py` declares the ladder that resolves
+the slope. The sizes stay at 1,500, 3,000 and 6,000. The two outer rungs run 2,400 replications
+and the middle rung keeps 800. A middle rung carries a centred weight of zero in the fitted slope,
+so replications there buy no resolution. The budget rule reads the published bias scale and the
+control arm's spread. It reads neither positive rate cell, so the design cannot tune itself to a
+verdict.
+
+The declaration predicted the narrowing, and the control arm checks it. A slope interval's width
+falls as one over the square root of the replications. Tripling the two outer rungs therefore
+narrows the control interval by about the square root of three. The committed control interval
+runs `0.0037` to `0.0135`, and that is the predicted narrowing. The git history of
+`tests/canonical/drtmle/properties.csv` carries the interval it replaced.
+
+The fitted `-0.9176` sits near the `-1` that a second-order remainder predicts. That agreement is
+independent corroboration, because the budget rule never read this cell.
+
+The extra draws serve the slope alone. Each rung reads its own coverage verdict from `800`
+replications, which `CONTRACTION_VERDICT_REPLICATES` declares beside the budget. A rung's coverage
+gate is a one-sided exact interval against a fixed floor. A larger budget therefore walks the
+lower endpoint towards the floor, and a red rung turns green on budget alone. This study refuses
+to buy a verdict that way.
+
+A slope gate has the opposite shape. A narrower slope interval converges on the true slope, and
+the `both_wrong` control still has to fail to contract. So each rate cell fits `5600` replications
+and each rung keeps its declared budget.
 
 Raising the level margin was considered and rejected. The standardized bias under a correct
 mechanism runs `0.398`, `0.203` and `0.129` across the ladder, so no affordable size brings the
@@ -234,7 +271,8 @@ The ladder also surfaced a result the single-size study could not reach. At `n =
 outcome regression misspecified, the interval does not clear the declared coverage floor: exact
 coverage is `0.9150` with a 99% lower endpoint of `0.8864` against a floor of `0.90`. It clears at
 `n = 3,000` and at `n = 6,000`. That cell is red, and it is a statement about small samples in one
-regime rather than about the construction.
+regime rather than about the construction. Its budget did not move, so the cell stays red under
+the ladder that resolved the slope.
 
 ## Limitations
 
@@ -245,8 +283,9 @@ same initial nuisance predictions isolates the corrected construction; it does n
 two projects' learner wrappers. The study measures finite-sample behavior at its declared sizes
 and cannot verify the theorem's unobservable second-order remainder condition for a future fit.
 
-The contraction family fits three points, so its slope interval is wide and it establishes a
-direction rather than an exponent. It does not identify the remainder's order.
+The contraction family fits three points, so it establishes a direction rather than an exponent.
+Both positive slope intervals now exclude zero. The outcome-correct interval still covers `-1` and
+`-1/2` together, so it does not identify that remainder's order.
 
 ## Reproduction
 

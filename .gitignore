@@ -22,3 +22,9 @@ docs/api/generated/
 
 # Where every canonical study's README sends a disposable regeneration.
 .tmp/
+
+# Where a study regeneration caches its drawn samples and its reference rows, so a
+# reference-process failure can be retried without refitting the paired subject phase.
+# `tests/canonical/drtmle/README.md` sends a regeneration here, and the samples alone run to
+# hundreds of megabytes.
+.evidence-cache/

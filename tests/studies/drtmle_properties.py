@@ -49,7 +49,84 @@ CALIBRATION_N = 3000
 #: That is a small-sample statement in one regime, and it is a result the single-size study
 #: had no way to reach.
 CONTRACTION_SIZES = (1500, 3000, 6000)
-CONTRACTION_REPLICATES = 800
+
+#: How many replications each rung of :data:`CONTRACTION_SIZES` runs, in the same order, and
+#: the rule that sets it.
+#:
+#: The rule reads two kinds of quantity and no others: the bias scale this family already
+#: publishes, and the *control*'s empirical spread.  The bias scale is ``0.0036`` at the
+#: first rung, carried down the ladder by the ``1/n`` decay a second-order remainder
+#: predicts.  The control is ``both_wrong``, whose committed rows give
+#: ``sd(n) * sqrt(n)`` of 1.0444, 1.0082 and 1.0844 at 1,500, 3,000 and 6,000, so
+#: ``sd(n) ~ 1.05 / sqrt(n)``.  The rule does not read the slope, the interval or the verdict
+#: of ``rate_outcome_correct`` or ``rate_treatment_correct``, because those cells are
+#: ``role="positive"`` and the interval *is* their verdict.  Commit ``308467c`` had to undo
+#: exactly that mistake in the bounded generated-design family, where two constants were
+#: chosen by reading the positive cell's own verdict statistic.
+#:
+#: **Why the middle rung keeps 800.**  Three log-equally-spaced rungs give a centred weight
+#: vector of ``(-0.693, 0, +0.693)``, so the middle rung's weight is exactly zero and the
+#: fitted slope is ``(y3 - y1) / log 4``.  Replications there buy no resolution at all.  800
+#: is the floor its own per-rung coverage row needs, and that row is why the rung runs.
+#:
+#: **The arithmetic at the two outer rungs.**  The resolution target is a slope of magnitude
+#: one, which is the separation this family exists to make: the second-order prediction of
+#: ``-1`` against the non-contraction alternative of ``0``.  Write the relative Monte Carlo
+#: error of a rung's bias as ``sigma(n, R) = MCSE / |bias| = 0.1944 * sqrt(n / R)``, which is
+#: ``1.05 / 5.4`` times ``sqrt(n / R)``.  The slope's variance is then
+#: ``Var(slope) = 0.52034 * (sigma_1^2 + sigma_3^2)``, the middle rung contributing nothing.
+#: At ``R = 2,400`` the projected 99% half-width is about 0.88, against about 2.0 at the
+#: shipped 800.  ``R = 2,000`` gives about 1.05 and misses the declared target of 1.00, so
+#: 2,400 is the budget.
+#:
+#: Those three figures are projections from a surrogate, and they are quoted to two digits
+#: because that is the precision two independent simulations agreed on.  One gave 2.022,
+#: 1.049 and 0.876; the other gave 1.93, 1.02 and 0.85.  They differ by about three per cent
+#: and they order the budgets identically, so the 2,400 rung clears the target under both and
+#: the 2,000 rung misses it under both.  The choice does not rest on the third digit, and the
+#: run reports the half-width the ladder actually produces.
+#:
+#: The claim is about the instrument and not about the verdict.  The run publishes what it
+#: produces.  A ``rate_outcome_correct`` interval that still covers zero is a result this
+#: ladder reports, and not a failure of this rule.
+#:
+#: The extra draws at the outer rungs buy the slope and nothing else.  Each rung's own
+#: coverage verdict is read at :data:`CONTRACTION_VERDICT_REPLICATES`, for the reason stated
+#: there.
+CONTRACTION_REPLICATES = (2_400, 800, 2_400)
+
+#: How many replications each rung's *own* coverage verdict is read from.
+#:
+#: **Why 800.**  It is the budget every rung of this ladder published when the family shipped,
+#: and every rung's coverage row was judged at it.  Restoring it restores those verdicts rather
+#: than changing them.
+#:
+#: **Why it must not track** :data:`CONTRACTION_REPLICATES`.  A rung's verdict is a one-sided
+#: exact coverage interval against a fixed floor, and ``docs/roadmap.md`` RM18 refuses raising a
+#: budget under a gate of that shape: a larger budget narrows the interval and walks the lower
+#: endpoint towards the floor, so a red cell turns green on budget alone.  It did.  At 800
+#: replications ``treatment_correct_n1500`` covers 732 of 800, a 99% lower endpoint of 0.8864;
+#: at 2,400 it covers 2,220 of 2,400, a lower endpoint of 0.9101.  The coverage barely moved
+#: and the verdict flipped.  The two outer rungs were raised for the *slope*, which is a
+#: different kind of gate: narrowing a slope interval converges on the true slope, and the
+#: ``both_wrong`` control still has to fail to contract.  So the extra draws serve the slope
+#: alone, and a future change to :data:`CONTRACTION_REPLICATES` must leave this number where it
+#: is unless it means to restate the rungs' coverage claims.
+CONTRACTION_VERDICT_REPLICATES = 800
+
+if len(CONTRACTION_REPLICATES) != len(CONTRACTION_SIZES):  # pragma: no cover - import-time guard
+    raise AssertionError(
+        f"the contraction ladder declares {len(CONTRACTION_SIZES)} sizes and "
+        f"{len(CONTRACTION_REPLICATES)} replication counts; they are indexed together in "
+        f"cells() and a mismatch would silently give a rung the wrong budget"
+    )
+
+if min(CONTRACTION_REPLICATES) < CONTRACTION_VERDICT_REPLICATES:  # pragma: no cover - guard
+    raise AssertionError(
+        f"the contraction ladder reads each rung's verdict at {CONTRACTION_VERDICT_REPLICATES} "
+        f"replications, but its smallest rung runs {min(CONTRACTION_REPLICATES)}; a verdict "
+        f"cannot be read at a budget the rung never drew"
+    )
 
 
 @dataclass(frozen=True)
@@ -106,10 +183,17 @@ def cells() -> tuple[Cell, ...]:
             f"{scenario}_n{size}",
             scenario,
             size,
-            CONTRACTION_REPLICATES,
-            # One offset per rung, so no two rungs share a replication stream. The ladder is
-            # fitted across sizes, and reusing a stream would correlate the rungs and narrow
+            CONTRACTION_REPLICATES[size_index],
+            # What keeps the rungs' replication streams disjoint is `cell.cell` below, which
+            # is part of the hashed label `stream_seed` reads, and not this offset. The
+            # offsets are 1,000 apart and the rungs run 2,400 replications, so their index
+            # ranges overlap: rung 0 spans 40,000..42,399 and rung 1 starts at 41,000. The
+            # labels still differ, so the streams do. Disjointness matters because the ladder
+            # is fitted across sizes, and a shared stream would correlate the rungs and narrow
             # the slope interval for a reason that has nothing to do with the estimator.
+            #
+            # `size_index` is positional, so inserting a rung shifts every rung above it and
+            # silently redraws them. Appending a rung, or replacing the top one, is safe.
             40_000 + scenario_index * 3_000 + size_index * 1_000,
             control_role(scenario),
         )
@@ -153,4 +237,6 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    return summarize_contraction_properties(rows, STUDY)
+    return summarize_contraction_properties(
+        rows, STUDY, verdict_replicates=CONTRACTION_VERDICT_REPLICATES
+    )

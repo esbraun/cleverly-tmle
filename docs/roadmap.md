@@ -464,7 +464,7 @@ law, learner or size after seeing its verdict.
 | [selector-based point-treatment C-TMLE](technical-reference/method-evidence/selector-based-point-treatment-c-tmle.md) | `selector_necessity/collaborative`, positive | standardized bias | 0.1412 | 0.2173 | the 99% bias upper endpoint is 0.0037 against an equivalence margin of 0.0030, which is 0.3086 against 0.25 on the standardized scale | mostly the bounded law. The fold policy adds a little |
 | the same study | `type_i_error/sharp_null`, positive | rejection rate | 0.0275 | 0.0700 | the 99% upper endpoint is 0.1095 against the 0.10 ceiling. Coverage is 0.9300, whose 99% lower endpoint is 0.8905 against the 0.90 floor | the bounded law alone |
 | [selector-based multi-arm C-TMLE](technical-reference/method-evidence/selector-based-multi-arm-c-tmle.md) | `root_n_and_efficiency/n_500`, positive | exact 99% coverage lower endpoint | 0.9057 | 0.8965 | the endpoint against the 0.90 floor. Coverage itself moved 0.9425 to 0.9350 | not isolated. One covered replication of 400 separates the two endpoints |
-| [DR-TMLE for binary complete data](technical-reference/method-evidence/canonical-dr-tmle.md) | `double_robust_contraction/rate_outcome_correct`, positive | 99% contraction-slope interval | -3.52 to -0.06 | -3.04 to +0.12 | the interval must stay below zero | not isolated. The arm's bias is 0.0036 at the first rung |
+| [DR-TMLE for binary complete data](technical-reference/method-evidence/canonical-dr-tmle.md) | `double_robust_contraction/rate_outcome_correct`, positive | 99% contraction-slope interval | -3.52 to -0.06 | -3.04 to +0.12 | the interval must stay below zero | not isolated. The arm's bias is 0.0036 at the first rung. A declared rung design now resolves this cell, and "What the two readings found" gives its interval |
 | [multi-arm point-treatment DR-TMLE](technical-reference/method-evidence/multi-arm-dr-tmle.md) | `root_n_and_efficiency/n_500`, positive | exact 99% coverage lower endpoint | 0.9087 | 0.8965 | the endpoint against the 0.90 floor. Coverage itself moved 0.9450 to 0.9350 | not isolated. The same cell and the same new endpoint as the multi-arm selector row above |
 | [cross-fitted end-of-study longitudinal TMLE](technical-reference/method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md) | `crossfit_overfitting/cross_fitted_ltmle`, positive | reported SE over empirical SD | 1.172522, 99% upper 1.196518 | 1.176650, 99% upper 1.201555 | the shared `se_ratio_sanity` ceiling of 1.2000, exceeded by 0.001555 | the fold policy alone |
 
@@ -504,7 +504,7 @@ reproduces, which used the same override applied by hand.
 | `type_i_error/sharp_null`, selector | the same 2x2 | the bounded law alone. The cell measures 0.0700 under both fold policies, against 0.0375 on the Gaussian law without strata |
 | `crossfit_overfitting/cross_fitted_ltmle` | a fold-policy 2x2 at commit `eeaa1ce`, over the study's 8,000 registered paired draws | the fold policy alone. The first-node-stratified arm gives 1.172543 with a 99% upper endpoint of 1.196538, which reproduces the committed row to 2e-5 relative. The single-fold control arm has no outer split for either policy to change, and it gives 0.353193 under both. These studies never moved to a bounded twin, so there is no second axis |
 | both `n_500` coverage endpoints | none | a boundary resolution at 400 replications. Each study now covers 374 replications of 400, where the two covered 377 and 378 before. The same cell moved the other way on outcome-adaptive multi-arm C-TMLE, where it turned green at 0.9057 |
-| `double_robust_contraction/rate_outcome_correct` | none | three rungs of a small quantity give a wide slope. The arm's bias is 0.0036 at the first rung, and the interval never cleared zero by more than 0.06 before. The coverage rungs of the same study are the stronger reading, and they pass |
+| `double_robust_contraction/rate_outcome_correct` | resolved | three rungs of a small quantity gave a wide slope, and the width was Monte Carlo error at the top rung. A declared rung design raises the two outer rungs, and the interval now sits below zero |
 
 The fold policy has no general direction on the overfitting statistic. `crossfit_overfitting`
 shares one family, one statistic and one ceiling across the four cross-fitted longitudinal studies.
@@ -570,8 +570,8 @@ budget.
 | an inference result for the shipped selector path | an influence curve derived after the stopping-index selection, and a registered study whose `selector_necessity` and `type_i_error` cells pass their existing margins at their existing budgets |
 | an inference result for the generated-design deficit | a derivation of the paired standard-error deficit under an estimated outcome regression, and the `generated_design` pair passing at its existing budget |
 | a targeting result for the fold-local longitudinal recursion | a theorem for the shipped update, a pooled update with registered evidence, or the SDR estimator of [X4](#x4-sequential-doubly-robust-longitudinal-estimation) with its own registered evidence, and `crossfit_overfitting/cross_fitted_ltmle` inside the shared `se_ratio_sanity` ceiling at 8,000 draws. [F24](#f24-fold-local-targeting-of-the-longitudinal-recursion) states what each option needs |
-| a reading of the two `n_500` coverage endpoints | one further registered fold-policy diagnostic that separates a boundary resolution from a fold-policy effect, declared before it runs. The subsection below sets its budget and states why 400 replications cannot answer the question |
-| a reading of the DR-TMLE contraction slope | a rung design that resolves a slope at this bias scale, declared before it runs. The existing coverage rungs stay the stronger reading until then |
+| a reading of the two `n_500` coverage endpoints | delivered. A registered fold-policy diagnostic reads both endpoints as a boundary resolution. "What the two readings found" gives the numbers |
+| a reading of the DR-TMLE contraction slope | delivered. A declared rung design resolves the slope, and its interval now sits below zero. "What the two readings found" gives the numbers |
 
 #### The two readings, declared before they run
 
@@ -663,6 +663,61 @@ between the second-order prediction of minus one and the non-contraction alterna
 The claim is about the instrument and not about the verdict. The run publishes what it produces. A
 `rate_outcome_correct` interval that still covers zero is a result this ladder reports, and not a
 failure of this declaration.
+
+#### What the two readings found
+
+Both readings ran once, under the rules the subsection below declared before them. Each publishes
+what it produced.
+
+##### The `n_500` endpoints are a boundary resolution
+
+| study | paired coverage gain | reading |
+| --- | --- | --- |
+| selector-based multi-arm C-TMLE | -0.006875 to +0.001625 | the interval covers zero and its upper endpoint is below 0.005 |
+| multi-arm point-treatment DR-TMLE | -0.005625 to +0.004500 | the same, and the upper endpoint sits near 0.005 |
+
+The gain is the stratified arm's coverage minus the unstratified arm's, on one law and one set of
+draws. Neither study shows a fold-policy effect large enough to move the endpoint across the 0.90
+floor. The attribution of "none" in the table above therefore stands, and it now rests on a
+measurement. The DR-TMLE reading has little room, and its evidence page says so.
+
+Nothing else moved. No verdict changed on either study, over 12 cells on the selector row and 22
+on the DR-TMLE row. Both gated `n_500` cells keep their 400-replication budget.
+
+##### The DR-TMLE contraction slope resolves
+
+| cell | before | after |
+| --- | --- | --- |
+| `rate_outcome_correct` | -3.040132 to +0.123221 | -1.534453 to -0.482268 |
+| `rate_both_wrong`, the control | -0.003031 to +0.014273 | +0.003726 to +0.013538 |
+
+The positive cell's interval now sits below zero, and the control still fails to contract. The
+fitted slope is -0.917626, near the -1 a second-order remainder predicts.
+
+The declaration made one falsifiable prediction, and the run confirms it. The control's half-width
+had to narrow by about the square root of three, from 0.008650 to about 0.005000. It measures
+0.004906.
+
+##### One correction the run forced
+
+The two outer rungs carry their own coverage verdicts, and raising their replications raised those
+gates too. `double_robust_contraction/treatment_correct_n1500` turned green on budget alone. It covers
+732 of 800 at the declared budget, for a 99% lower endpoint of 0.886433. It covers 2,220 of 2,400
+at the raised one, for 0.910081. This row refuses that remedy, so the budget must not reach that
+gate.
+
+Each rung's coverage verdict is therefore read at its declared 800 replications, and the extra
+draws serve the slope alone. `treatment_correct_n1500` is red again, exactly as it was.
+
+The two gates differ in kind, which is why one budget may rise and the other may not.
+
+| gate | shape | what a larger budget does |
+| --- | --- | --- |
+| a rung's coverage | a one-sided exact interval against a fixed floor | walks the lower endpoint toward the floor, whatever the estimator does |
+| the fitted slope | a two-sided interval around a fitted quantity | narrows toward the true slope. The control must still fail to contract |
+
+The study now passes 19 of 22 property cells, against 18 before. The one verdict that changed is
+`rate_outcome_correct`.
 
 #### What the source search found for the first three asks
 

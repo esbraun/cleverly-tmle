@@ -20,6 +20,7 @@ from tests.studies.evidence.properties import (
     paired_displacement,
     rate,
     ratio_intervals,
+    require_complete,
     se_ratio_interval,
     summarize_cells,
     summary_interval,
@@ -426,6 +427,15 @@ def contraction_verdicts(summary: pd.DataFrame, record: StudyRecord) -> None:
     whether the interval remains usable as ``n`` grows in a one-correct regime, and the
     control adds the case where it must not.
 
+    The rung's coverage claim is read at its declared replication budget, and the extra draws
+    serve the slope alone.  The rule below is a one-sided exact interval against a fixed
+    floor, so a larger budget walks a fixed endpoint towards that floor and can flip a gated
+    cell on budget alone.  ``docs/roadmap.md`` RM18 refuses exactly that.  A rung raised so
+    the fitted slope resolves therefore reaches this function truncated to the budget it
+    published, which ``verdict_replicates`` of
+    :func:`summarize_contraction_properties` does, and the summary's ``replicates`` column
+    reports the truncated count rather than the rows in the artifact.
+
     Shared rather than copied per study: the ``canonical-drtmle`` and
     ``canonical-multi-arm-drtmle`` studies both publish this family, and a verdict written
     twice is a verdict that can be *changed* once.  Only the ladder's sizes and its
@@ -520,6 +530,49 @@ def contraction_rates(
     ]
 
 
+def _at_verdict_budget(rows: pd.DataFrame, verdict_replicates: int | None) -> pd.DataFrame:
+    """Restore every contraction rung to the replication budget its own verdict is read at.
+
+    A rung's coverage verdict is a one-sided exact interval against a fixed floor, so its
+    endpoint moves towards that floor as the budget grows.  A rung whose budget was raised
+    to resolve the fitted slope would therefore buy its own gated verdict with replications
+    the claim never declared.  This returns the frame the *verdicts* are computed from: the
+    first ``verdict_replicates`` replications of every cell of :data:`CONTRACTION_FAMILY`,
+    ordered by ``replicate``, and every other family untouched.  The slope is fitted from
+    the full rows instead, because narrowing a slope interval converges on the true slope
+    rather than walking an endpoint past a margin.
+
+    ``requested_replicates`` is rewritten to the truncated budget, because the published
+    ``replicates`` column and
+    :func:`~tests.studies.evidence.properties.require_complete` both read it, and a summary
+    that attributed a verdict to a budget it did not use would be the defect this function
+    exists to prevent.  The full ladder is checked for completeness first, so a rung that
+    lost replications still fails rather than being hidden by the truncation.
+    """
+    if verdict_replicates is None:
+        return rows
+    if verdict_replicates < 1:
+        raise ValueError(f"verdict_replicates must be positive, not {verdict_replicates}")
+    ladder = rows["property"] == CONTRACTION_FAMILY
+    if not ladder.any():
+        raise ValueError(
+            f"verdict_replicates={verdict_replicates} was declared, but these rows publish no "
+            f"{CONTRACTION_FAMILY} family whose verdicts it could be read at"
+        )
+    require_complete(rows.loc[ladder])
+    rungs = []
+    for cell, group in rows.loc[ladder].groupby("cell", sort=True):
+        if len(group) < verdict_replicates:
+            raise ValueError(
+                f"{CONTRACTION_FAMILY}/{cell} ran {len(group)} replications, fewer than the "
+                f"{verdict_replicates} its own verdict is declared to be read at"
+            )
+        rung = group.sort_values("replicate").head(verdict_replicates).copy()
+        rung["requested_replicates"] = verdict_replicates
+        rungs.append(rung)
+    return pd.concat([rows.loc[~ladder], *rungs], ignore_index=True)
+
+
 @overload
 def summarize_contraction_properties(
     rows: pd.DataFrame,
@@ -527,6 +580,7 @@ def summarize_contraction_properties(
     *,
     scenarios: Sequence[str] = CONTRACTION_SCENARIOS,
     extra_columns: Sequence[str] = (),
+    verdict_replicates: int | None = None,
     return_parts: Literal[False] = False,
 ) -> pd.DataFrame: ...
 
@@ -538,6 +592,7 @@ def summarize_contraction_properties(
     *,
     scenarios: Sequence[str] = CONTRACTION_SCENARIOS,
     extra_columns: Sequence[str] = (),
+    verdict_replicates: int | None = None,
     return_parts: Literal[True],
 ) -> tuple[pd.DataFrame, list[dict[str, Any]]]: ...
 
@@ -548,6 +603,7 @@ def summarize_contraction_properties(
     *,
     scenarios: Sequence[str] = CONTRACTION_SCENARIOS,
     extra_columns: Sequence[str] = (),
+    verdict_replicates: int | None = None,
     return_parts: bool = False,
 ) -> pd.DataFrame | tuple[pd.DataFrame, list[dict[str, Any]]]:
     """The whole published summary for a study whose extra family is the contraction ladder.
@@ -569,6 +625,16 @@ def summarize_contraction_properties(
     keeps the single-call form every current caller uses, and both defaults leave the
     published table byte-identical to what a caller that passed neither already produced.
 
+    ``verdict_replicates`` is the asymmetry a ladder with uneven rungs needs, and only such a
+    study passes it.  The rung's coverage claim is read at its declared budget, and the extra
+    draws serve the slope alone.  A rung's verdict is a one-sided exact interval against a
+    fixed floor, so a rung whose budget was raised to resolve the slope would otherwise buy
+    its own gated verdict with replications the claim never declared.  Given a number, every
+    cell summary of the :data:`CONTRACTION_FAMILY` family is computed from that cell's first
+    ``verdict_replicates`` replications and publishes that count in ``replicates``, while
+    :func:`contraction_rates` keeps every row and publishes the total the fit consumed.  A
+    study whose rungs all run the same budget passes nothing and is unchanged.
+
     Parameters
     ----------
     rows : pandas.DataFrame
@@ -580,6 +646,9 @@ def summarize_contraction_properties(
         :data:`CONTRACTION_SCENARIOS`.
     extra_columns : Sequence[str], optional
         Columns a study's own verdicts write, added to the summary before any of them run.
+    verdict_replicates : int or None, optional
+        The replication budget each contraction rung's own verdict is read at.  ``None``
+        reads every rung at every replication it ran.
     return_parts : bool, optional
         Return the unfinished summary and its rate rows rather than the published table.
 
@@ -595,8 +664,13 @@ def summarize_contraction_properties(
     contraction_verdicts : The per-rung coverage rule this applies.
     contraction_rates : The fitted slopes this appends.
     """
-    summary, rates = apply_shared_verdicts(rows, record, extra_columns=extra_columns)
+    summary, rates = apply_shared_verdicts(
+        _at_verdict_budget(rows, verdict_replicates), record, extra_columns=extra_columns
+    )
     contraction_verdicts(summary, record)
+    # The full rows, deliberately.  The slope is what the extra replications were bought for,
+    # and narrowing its interval converges on the true slope rather than walking a fixed
+    # endpoint towards a margin.
     rates.extend(contraction_rates(rows, record, summary.columns, scenarios=scenarios))
     return (summary, rates) if return_parts else finish(summary, rates)
 
