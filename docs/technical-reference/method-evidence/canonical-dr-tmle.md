@@ -227,17 +227,19 @@ larger than the margin.
 One size cannot say what kind of failure that is. A second-order remainder that has not yet
 decayed and an inconsistent estimator look identical at one `n` and mean opposite things. The
 `double_robust_contraction` family fits log absolute bias on log `n` over three sizes to separate
-them. A slope near `-1` is a second-order remainder, near `-1/2` a first-order one, and near `0`
-an estimator that is not consistent. The `both_wrong` arm is the control that must fail to
-contract.
+their predicted behavior. A second-order remainder predicts a slope near `-1`, and a first-order
+term predicts one near `-1/2`. An inconsistent estimator can produce a slope near `0`. The
+`both_wrong` arm is the control that must fail to contract.
+
+Three finite-sample points do not identify which term produced an observed slope.
 
 The measured slopes are `-0.9176` with the outcome regression correct and `-1.3194` with the
 mechanism correct. The control sits at `0.0086`, above zero, and its standardized bias *grows*
-with `n`, from `8.5` to `12.6` to `16.6`. So each red level cell is a second-order remainder that
-has not yet decayed, and the control is what an estimator that never decays looks like beside
-them.
+with `n`, from `8.5` to `12.6` to `16.6`. Both positive biases contract over this ladder, while
+the control does not. This result distinguishes contraction from non-contraction. It does not
+identify either bias as the theorem's second-order remainder.
 
-Both slope intervals establish that. With the mechanism correct the interval runs `-1.7568` to
+Both slope intervals establish contraction. With the mechanism correct the interval runs `-1.7568` to
 `-1.0221`. With the outcome regression correct it runs `-1.5345` to `-0.4823`. The second interval
 covered zero on the earlier ladder, which ran 800 replications at every rung. The reason was
 arithmetic rather than scientific. The bias in that arm is already small at the first rung,
@@ -276,13 +278,13 @@ slope, and `property-replicates.csv.gz` carries those replications.
 
 The extra draws serve the slope alone. Each rung reads its own coverage verdict from `800`
 replications, which `CONTRACTION_VERDICT_REPLICATES` declares beside the budget. A rung's coverage
-gate is a one-sided exact interval against a fixed floor. A larger budget therefore walks the
-lower endpoint towards the floor, and a red rung turns green on budget alone. This study refuses
-to buy a verdict that way.
+gate is a one-sided exact interval against a fixed floor. A larger budget narrows that interval
+around the true coverage and can resolve an inconclusive verdict. The study refuses the extra
+coverage budget because nobody declared it before the run.
 
-A slope gate has the opposite shape. A narrower slope interval converges on the true slope, and
-the `both_wrong` control still has to fail to contract. So each rate cell fits `5600` replications
-and each rung keeps its declared budget.
+The slope budget was declared before the run under the rule above. Each rate cell therefore fits
+`5600` replications, while each rung keeps its declared coverage budget. The `both_wrong` control
+still has to fail to contract.
 
 Raising the level margin was considered and rejected. The standardized bias under a correct
 mechanism runs `0.398`, `0.203` and `0.129` across the ladder, so no affordable size brings the

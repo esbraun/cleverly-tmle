@@ -350,10 +350,13 @@ def selector_cells(*, seed: int) -> tuple[PropertyCell, ...]:
 #: owns the reporting rule; only the policies, the size and the budget belong here.
 #:
 #: 8,000 paired draws, because the quantity has to be resolved rather than merely reported.
-#: ``docs/roadmap.md`` records the pilot: the two policies disagree about coverage on 0.0117
-#: of the selector study's draws and 0.0250 of the DR-TMLE study's, and the gate-relevant
-#: difference is 0.005.  At 400 draws the 99% interval is three to four times wider than
-#: that; at 8,000 it is 0.0038 and 0.0046, which resolves it.  The gated
+#: ``docs/roadmap.md`` records the pilot sizing: the two policies disagreed about coverage
+#: on 0.0117 of the selector study's draws and 0.0250 of the DR-TMLE study's, and the
+#: gate-relevant difference is 0.005.  At 400 draws the projected 99% interval was three to
+#: four times wider than that; the 8,000-draw run produced half-widths of 0.0038 and 0.0051.
+#: The selector instrument met the projected resolution target and the DR-TMLE instrument
+#: narrowly missed it, while both point estimates supported the registered boundary reading.
+#: The gated
 #: ``root_n_and_efficiency/n_500`` cell keeps its own law, learners, size and 400-draw
 #: budget.  This family declares no margin and states no verdict, so its budget buys a
 #: narrower interval on a paired difference rather than a step toward a fixed endpoint.

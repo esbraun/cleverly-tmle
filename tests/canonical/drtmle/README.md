@@ -53,10 +53,10 @@ proportional to n, that budget is 2.429 times the flat 800-per-cell ladder, so t
 
 The extra draws serve the fitted slope alone. Each rung's own coverage verdict is read at 800
 replications, which `CONTRACTION_VERDICT_REPLICATES` in `tests/studies/drtmle_properties.py`
-declares. A rung's verdict is a one-sided exact interval against a fixed floor, so a larger
-budget walks its lower endpoint towards that floor and can turn a red cell green on budget
-alone. The published `replicates` column reports the 800 each rung's verdict used, and the
-three rate rows report every replication the slope consumed.
+declares. A larger budget narrows the exact interval around the rung's true coverage and can
+resolve an inconclusive verdict. The extra budget was declared for the slope and not for the
+rung verdicts. The published `replicates` column reports the 800 each rung's verdict used, and
+the three rate rows report every replication the slope consumed.
 
 The run that produced these rows also moved the environment. SciPy moved from 1.17.1 to 1.18.0,
 and Python moved from 3.11.13 to 3.13.7, on that run. `manifest.json` records the versions the

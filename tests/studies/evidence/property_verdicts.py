@@ -430,11 +430,11 @@ def contraction_verdicts(summary: pd.DataFrame, record: StudyRecord) -> None:
     control adds the case where it must not.
 
     The rung's coverage claim is read at its declared replication budget, and the extra draws
-    serve the slope alone.  The rule below is a one-sided exact interval against a fixed
-    floor, so a larger budget walks a fixed endpoint towards that floor and can flip a gated
-    cell on budget alone.  ``docs/roadmap.md`` RM18 refuses exactly that.  A rung raised so
-    the fitted slope resolves therefore reaches this function truncated to the budget it
-    published, which ``verdict_replicates`` of
+    serve the slope alone.  A larger budget narrows the exact interval around the true
+    coverage and can resolve an inconclusive verdict.  RM18 declared the extra draws for the
+    slope, not for the rung's coverage claim.  A rung raised so the fitted slope resolves
+    therefore reaches this function truncated to the budget it published, which
+    ``verdict_replicates`` of
     :func:`summarize_contraction_properties` does, and the summary's ``replicates`` column
     reports the truncated count rather than the rows in the artifact.
 
@@ -467,8 +467,8 @@ def _contracts(fitted: Rate) -> bool:
 
     A *direction*, not an exponent.  Three points give a wide interval, so requiring the
     second-order ``-1`` would fail a correct estimator on Monte Carlo error; requiring the
-    whole interval below zero is what this ladder can actually support and is enough to
-    separate a decaying remainder from an inconsistent estimator.
+    whole interval below zero is what this ladder can actually support.  It establishes
+    contraction over the measured sizes and does not identify the term that produced it.
     """
     return bool(fitted.interval.high < 0.0)
 
@@ -535,14 +535,13 @@ def contraction_rates(
 def _at_verdict_budget(rows: pd.DataFrame, verdict_replicates: int | None) -> pd.DataFrame:
     """Restore every contraction rung to the replication budget its own verdict is read at.
 
-    A rung's coverage verdict is a one-sided exact interval against a fixed floor, so its
-    endpoint moves towards that floor as the budget grows.  A rung whose budget was raised
-    to resolve the fitted slope would therefore buy its own gated verdict with replications
-    the claim never declared.  This returns the frame the *verdicts* are computed from: the
-    first ``verdict_replicates`` replications of every cell of :data:`CONTRACTION_FAMILY`,
-    ordered by ``replicate``, and every other family untouched.  The slope is fitted from
-    the full rows instead, because narrowing a slope interval converges on the true slope
-    rather than walking an endpoint past a margin.
+    A rung's coverage verdict is a one-sided exact interval against a fixed floor.  A rung
+    whose budget was raised to resolve the fitted slope would also change its coverage gate
+    with replications that claim never declared.  This returns the frame the *verdicts* are
+    computed from: the first ``verdict_replicates`` replications of every cell of
+    :data:`CONTRACTION_FAMILY`, ordered by ``replicate``, and every other family untouched.
+    The slope is fitted from the full rows because its larger budget was declared for that
+    purpose.
 
     ``requested_replicates`` is rewritten to the truncated budget, because the published
     ``replicates`` column and
@@ -629,9 +628,9 @@ def summarize_contraction_properties(
 
     ``verdict_replicates`` is the asymmetry a ladder with uneven rungs needs, and only such a
     study passes it.  The rung's coverage claim is read at its declared budget, and the extra
-    draws serve the slope alone.  A rung's verdict is a one-sided exact interval against a
-    fixed floor, so a rung whose budget was raised to resolve the slope would otherwise buy
-    its own gated verdict with replications the claim never declared.  Given a number, every
+    draws serve the slope alone.  A rung whose budget was raised to resolve the slope would
+    otherwise change its coverage gate with replications the claim never declared.  Given a
+    number, every
     cell summary of the :data:`CONTRACTION_FAMILY` family is computed from that cell's first
     ``verdict_replicates`` replications and publishes that count in ``replicates``, while
     :func:`contraction_rates` keeps every row and publishes the total the fit consumed.  A
@@ -670,9 +669,8 @@ def summarize_contraction_properties(
         _at_verdict_budget(rows, verdict_replicates), record, extra_columns=extra_columns
     )
     contraction_verdicts(summary, record)
-    # The full rows, deliberately.  The slope is what the extra replications were bought for,
-    # and narrowing its interval converges on the true slope rather than walking a fixed
-    # endpoint towards a margin.
+    # The full rows, deliberately.  The extra replications were declared for the slope, while
+    # each rung's coverage claim keeps its separately declared budget.
     rates.extend(contraction_rates(rows, record, summary.columns, scenarios=scenarios))
     return (summary, rates) if return_parts else finish(summary, rates)
 

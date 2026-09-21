@@ -33,14 +33,16 @@ CALIBRATION_N = 3000
 #: what Theorem 1 predicts and leaves the interval eventually valid, or an estimator that is
 #: not consistent at all.  Those have the same appearance at one size and opposite meanings.
 #:
-#: Fitting log |bias| on log ``n`` separates them.  A second-order remainder gives a slope near
-#: ``-1``, a first-order one near ``-1/2``, and an inconsistent estimator near ``0``.  The
-#: ``both_wrong`` arm rides along as the control that must fail to contract.
+#: Fitting log |bias| on log ``n`` tests whether the observed bias contracts.  A second-order
+#: remainder predicts a slope near ``-1``, a first-order term predicts one near ``-1/2``, and an
+#: inconsistent estimator can produce one near ``0``.  Three finite-sample points do not identify
+#: which term produced the slope.  The ``both_wrong`` arm rides along as the control that must fail
+#: to contract.
 #:
 #: Raising the level margin instead was considered and rejected: measured over ``n`` in
 #: (1500, 3000, 6000), the standardized bias under a correct mechanism runs 0.357, 0.171 and
 #: 0.135, so no size on any affordable ladder brings the 99% interval inside 0.25.  The level
-#: cell is left red and this family says what kind of red it is.
+#: cell is left red and this family says whether its observed bias contracts.
 #:
 #: The rungs are judged on *coverage* rather than on that bias -- see
 #: :func:`~tests.studies.evidence.property_verdicts.contraction_verdicts`. One rung is red:

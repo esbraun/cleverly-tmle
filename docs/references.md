@@ -516,9 +516,13 @@ previous reader had is not a citation; a page number is.
   outcome transform with known bounds. Theorem 3, page 853, gives the TMLE limit under its stated
   conditions. The section pools its fluctuation over all rows after nuisance prediction. The
   shipped longitudinal cross-fitted estimator instead targets a recursion in each training fold.
-  The authors' `lmtp` 1.5.4 also targets within each training fold, and the registered comparison
-  uses it ([method evidence](technical-reference/method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md)).
-  The theorem does not certify the fold-local targeting.
+  The registered comparison uses `lmtp` 1.5.4, which also targets within each training fold
+  ([method evidence](technical-reference/method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md)).
+  Upstream commit [`9996b04`](https://github.com/nt-williams/lmtp/commit/9996b04dcbb3ae0b1ef8862097c36d95e9f2fcf9)
+  changed that behavior on 2026-06-09. The commit calls the training-fold fluctuation a bug because
+  the EIF was not mean zero. It moves the fluctuation to validation rows and adds a mean-EIF test.
+  The forthcoming 1.5.5 [NEWS](https://nt-williams.r-universe.dev/lmtp/NEWS) records the same fix.
+  Agreement with 1.5.4 is implementation provenance. It does not certify the training-fold update.
 
   The same article gives a second estimator in Section 5.3, journal page 854. The section is
   titled "Sequential Regression Estimator Using SDR Unbiased Transformations". The locators below
@@ -544,11 +548,9 @@ previous reader had is not a citation; a page number is.
   [X4](roadmap.md#x4-sequential-doubly-robust-longitudinal-estimation) plans `lmtp_sdr`, and no
   SDR path ships today.
 
-  The preprint differs in substance, and not only in numbering. The published Section 5.2, Step 3,
-  page 852, fits the fluctuation "using all the data points in the sample". The preprint's Section
-  4.2 omits that clause. The preprint also defines its SDR estimate as a plug-in. Two claims here
-  therefore rest on the published version: the pooled fluctuation, and the influence-function
-  average.
+  [arXiv v4](https://arxiv.org/abs/2006.01366v4) matches these algorithm details. It has Sections
+  5.2 and 5.3, the all-row pooling clause, the influence-function average, and Lemma 4. The
+  published article supplies the journal page locators above.
 
   The package no longer stratifies the first-node split, which the
   [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules)
