@@ -411,14 +411,55 @@ def require_complete(rows: pd.DataFrame) -> None:
     cell that lost replications is not merely noisier -- for a bias claim it is *easier*,
     because the interval it has to sit inside is estimated from the same shrunken sample.
     """
+
+    def count(value: Any, *, field: str, property_name: str, cell: str) -> int:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                f"{property_name}/{cell} has a non-integer {field}: {value!r}"
+            ) from error
+        if not np.isfinite(numeric) or not numeric.is_integer() or numeric < 0:
+            raise ValueError(f"{property_name}/{cell} has a non-integer {field}: {value!r}")
+        return int(numeric)
+
     for (property_name, cell), group in rows.groupby(["property", "cell"], sort=True):
-        requested = int(group["requested_replicates"].iloc[0])
-        failed = int(group["failed_replicates"].iloc[0])
+        requested_values = group["requested_replicates"].unique()
+        if len(requested_values) != 1:
+            raise ValueError(
+                f"{property_name}/{cell} has inconsistent requested replication counts: "
+                f"{sorted(int(value) for value in requested_values)}"
+            )
+        failed_values = group["failed_replicates"].unique()
+        if len(failed_values) != 1:
+            raise ValueError(
+                f"{property_name}/{cell} has inconsistent failed replication counts: "
+                f"{sorted(int(value) for value in failed_values)}"
+            )
+        requested = count(
+            requested_values[0],
+            field="requested replication count",
+            property_name=str(property_name),
+            cell=str(cell),
+        )
+        failed = count(
+            failed_values[0],
+            field="failed replication count",
+            property_name=str(property_name),
+            cell=str(cell),
+        )
         if failed or len(group) != requested:
             raise ValueError(
                 f"{property_name}/{cell} has {len(group)} of {requested} replications "
                 f"({failed} fits failed); a study that lost replications cannot be summarised "
                 f"as though it had not"
+            )
+        replicate_ids = np.sort(group["replicate"].to_numpy())
+        expected_ids = np.arange(requested)
+        if not np.array_equal(replicate_ids, expected_ids):
+            raise ValueError(
+                f"{property_name}/{cell} has duplicate or missing replicate ids; expected "
+                f"0..{requested - 1} exactly once"
             )
 
 

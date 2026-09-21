@@ -594,6 +594,24 @@ class TestResamplingStreams:
 
 
 class TestReplicationAccounting:
+    @staticmethod
+    def _complete_rows() -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "property": "p",
+                "cell": "c",
+                "replicate": [0, 1, 2],
+                "n": 100,
+                "requested_replicates": 3,
+                "failed_replicates": 0,
+                "truth": 0.0,
+                "estimate": [0.1, -0.1, 0.0],
+                "std_error": [0.1, 0.1, 0.1],
+                "covered": [1, 1, 1],
+                "rejected": [0, 0, 0],
+            }
+        )
+
     def test_a_lost_replication_stops_the_summary(self) -> None:
         rows = pd.DataFrame(
             {
@@ -612,6 +630,75 @@ class TestReplicationAccounting:
         )
         with pytest.raises(ValueError, match="fits failed"):
             require_complete(rows)
+
+    def test_duplicate_and_missing_replication_ids_stop_the_summary(self) -> None:
+        rows = self._complete_rows()
+        rows.loc[1, "replicate"] = 0
+        with pytest.raises(ValueError, match="duplicate or missing replicate ids"):
+            require_complete(rows)
+
+    def test_fractional_replication_ids_stop_the_summary(self) -> None:
+        rows = self._complete_rows()
+        rows["replicate"] += 0.1
+        with pytest.raises(ValueError, match="duplicate or missing replicate ids"):
+            require_complete(rows)
+
+    @pytest.mark.parametrize("column", ["requested_replicates", "failed_replicates"])
+    def test_inconsistent_replication_metadata_stops_the_summary(self, column: str) -> None:
+        rows = self._complete_rows()
+        rows.loc[1, column] = 17
+        with pytest.raises(ValueError, match=f"inconsistent {column.split('_')[0]}"):
+            require_complete(rows)
+
+    @pytest.mark.parametrize("column", ["requested_replicates", "failed_replicates"])
+    def test_fractional_replication_metadata_stops_the_summary(self, column: str) -> None:
+        rows = self._complete_rows()
+        rows[column] = rows[column].astype(float) + 0.5
+        with pytest.raises(ValueError, match="non-integer"):
+            require_complete(rows)
+
+
+class TestScoreAuditAccounting:
+    @staticmethod
+    def _record() -> StudyRecord:
+        return _seed_record(reference="reference", extra_artifacts=(claims.FIT_DIAGNOSTICS_FILE,))
+
+    @staticmethod
+    def _data() -> dict[str, pd.DataFrame]:
+        return {
+            claims.FIT_DIAGNOSTICS: pd.DataFrame(
+                {
+                    "implementation": ["cleverly", "reference"] * 2,
+                    "scenario": ["z0", "z0", "z1", "z1"],
+                    "replicate": [0, 0, 1, 1],
+                    "score_passed": [True, False, False, True],
+                }
+            )
+        }
+
+    def test_one_count_describes_two_paired_score_audits(self) -> None:
+        record = self._record()
+        data = self._data()
+        assert claims.value(record, "score_audited_fits", data) == 2
+        assert claims.value(record, "subject_score_failures", data) == 1
+        assert claims.value(record, "reference_score_failures", data) == 1
+
+    def test_a_missing_reference_audit_row_is_refused(self) -> None:
+        record = self._record()
+        data = self._data()
+        data[claims.FIT_DIAGNOSTICS] = data[claims.FIT_DIAGNOSTICS].drop(index=3)
+        with pytest.raises(ValueError, match="not paired"):
+            claims.value(record, "score_audited_fits", data)
+
+    def test_a_duplicate_audit_key_is_refused(self) -> None:
+        record = self._record()
+        data = self._data()
+        duplicate = data[claims.FIT_DIAGNOSTICS].iloc[[0]]
+        data[claims.FIT_DIAGNOSTICS] = pd.concat(
+            [data[claims.FIT_DIAGNOSTICS], duplicate], ignore_index=True
+        )
+        with pytest.raises(ValueError, match="duplicate score-audit"):
+            claims.value(record, "subject_score_failures", data)
 
 
 class TestPrintedValues:

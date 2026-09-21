@@ -185,17 +185,47 @@ def _score_audit_aggregates(
         frame = data[FIT_DIAGNOSTICS]
         return frame.loc[frame["implementation"] == implementation]
 
-    def failures(data: Mapping[str, pd.DataFrame], implementation: str) -> float:
-        rows = audited(data, implementation)
+    def paired(data: Mapping[str, pd.DataFrame]) -> tuple[pd.DataFrame, pd.DataFrame | None]:
+        subject_rows = audited(data, record.implementation)
+        reference_rows = None if record.reference is None else audited(data, record.reference)
+        for implementation, rows in (
+            (record.implementation, subject_rows),
+            (record.reference, reference_rows),
+        ):
+            if rows is None:
+                continue
+            keys = rows.loc[:, ["scenario", "replicate"]]
+            if keys.duplicated().any():
+                raise ValueError(f"{implementation} has duplicate score-audit replication keys")
+        if reference_rows is not None:
+            subject_keys = set(
+                subject_rows.loc[:, ["scenario", "replicate"]].itertuples(False, None)
+            )
+            reference_keys = set(
+                reference_rows.loc[:, ["scenario", "replicate"]].itertuples(False, None)
+            )
+            if subject_keys != reference_keys:
+                raise ValueError(
+                    "the subject and reference score audits are not paired on scenario and "
+                    "replicate"
+                )
+        return subject_rows, reference_rows
+
+    def failures(rows: pd.DataFrame) -> float:
         return float((~rows["score_passed"].astype(bool)).sum())
 
+    def reference_failures(data: Mapping[str, pd.DataFrame]) -> float:
+        reference_rows = paired(data)[1]
+        if reference_rows is None:
+            raise ValueError("a reference score audit was requested without a reference")
+        return failures(reference_rows)
+
     out: dict[str, Callable[[Mapping[str, pd.DataFrame]], float]] = {
-        "score_audited_fits": lambda data: float(len(audited(data, record.implementation))),
-        "subject_score_failures": lambda data: failures(data, record.implementation),
+        "score_audited_fits": lambda data: float(len(paired(data)[0])),
+        "subject_score_failures": lambda data: failures(paired(data)[0]),
     }
     if record.reference is not None:
-        reference = record.reference
-        out["reference_score_failures"] = lambda data: failures(data, reference)
+        out["reference_score_failures"] = reference_failures
     return out
 
 
