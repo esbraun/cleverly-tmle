@@ -695,7 +695,7 @@ The positive cell's interval now sits below zero, and the control still fails to
 fitted slope is -0.917626, near the -1 a second-order remainder predicts.
 
 The declaration made one falsifiable prediction, and the run confirms it. The control's half-width
-had to narrow by about the square root of three, from 0.008650 to about 0.005000. It measures
+had to narrow by about the square root of three, from 0.008652 to about 0.004995. It measures
 0.004906.
 
 ##### One correction the run forced
