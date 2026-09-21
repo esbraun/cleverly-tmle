@@ -135,6 +135,25 @@ identified parameter, its influence function, the targeting or estimating equati
 remainder and rate conditions needed for the claimed interval. If one is absent, the item is to
 locate published theory, not create it here.
 
+One exception applies. A trivial or natural extension of a published derivation can close the gap.
+Such an extension needs no new fundamental proof. It must satisfy every condition in the table
+below.
+
+| condition | what it requires |
+| --- | --- |
+| a published base | the extension starts from one published result, and it cites that result's exact locator |
+| an established argument | each step reuses the base result's own argument, or a standard result such as linearity, the delta method, a fixed-dimension stack by Cramér–Wold, or the chain rule for influence functions |
+| no new fundamental proof | no step needs a new kind of limit theorem, and no source records a step as open or as a defect |
+| inherited conditions | the remainder and rate conditions carry over from the base result, and the contract states each one |
+| a written record | the item's contract states the base result, each step, and the argument that carries it |
+| its own evidence | the extension has a registered study, and each step that can vanish at the truth has a nonzero witness |
+
+An extension that fails one condition is new theory. It stays in the future investigations grid.
+Three examples fail. A data-adaptive selection step has no established argument. A fold-local
+update replaces a pooled one, and upstream `lmtp` commit `9996b04` records its training-fold update
+as a bug. A growing target
+dimension needs a new kind of limit theorem.
+
 A canonical public implementation is valuable provenance for control flow, data layout, and named
 conventions, but it is not acceptance evidence by itself. Where code and paper disagree, the
 published derivation governs and the discrepancy becomes a nonzero regression or mutation test.
@@ -570,6 +589,57 @@ update leaves a stitched score. That score would be a mean-zero residual rather 
 equation, so the reported standard error would run above the sampling spread. No result read here
 establishes that reading. The remediation is one of F24's four options. It is not a larger
 budget.
+
+#### The pooled update, declared before it runs
+
+This subsection declares the pooled update and the rule that publishes its studies. It precedes
+every regeneration of those studies.
+
+The cross-fitted per-regimen fit now follows Section 5.2, Steps 1 to 4, of Díaz, Williams, Hoffman
+and Schenck (2023). Those steps are on journal pages 852 and 853. The functions
+`_fit_regimen_crossfit` and `_pooled_targeting` in `src/cleverly/longitudinal/sequential.py`
+implement them.
+
+| part | what the fit does |
+| --- | --- |
+| fold regressions | each outer fold runs an untargeted backward regression sequence on its training rows |
+| stitching | the held-out predictions of the folds form one out-of-fold initial estimate per node |
+| pooled fluctuation | one fluctuation per node, from the horizon back to node 1, targets the stitched estimate over every follower |
+| loss weight | the observation weight times the inverse of the out-of-fold cumulative mechanism |
+| one fold | `n_folds=1` keeps the canonical single-fold path, which carries each targeted prediction back |
+
+Theorem 3, on journal page 853, states the result for this construction. Its proof in the
+supplement holds each fold's fit fixed given its training rows. That condition covers untargeted
+fold regressions followed by one pooled fluctuation per node. It does not cover a pooled epsilon
+carried back into later fold regressions. `tests/unit/test_pooled_longitudinal_targeting.py`
+checks each part of the table against a longhand recomputation.
+
+The change moves five registered studies, so each one regenerates.
+
+| study | artifacts | publication policy before the run |
+| --- | --- | --- |
+| `canonical-ltmle-crossfit` | `tests/canonical/lmtp_ltmle` | `reporting` |
+| `weighted-ltmle-crossfit` | `tests/canonical/weighted_lmtp_ltmle` | `reporting` |
+| `canonical-categorical-ltmle-crossfit` | `tests/canonical/categorical_ltmle_crossfit` | `gated` |
+| `canonical-ltmle-survival-crossfit` | `tests/canonical/lmtp_ltmle_survival` | `gated` |
+| `canonical-ltmle-competing-crossfit` | `tests/canonical/lmtp_ltmle_competing_crossfit` | `gated` |
+
+Each study compares with `lmtp` 1.5.4, and its manifest records that version. That comparator
+runs a training-fold fluctuation and carries its targeted prediction into the fold's next
+regression. After the change, the paired comparison therefore reads two different constructions.
+Each paired margin stays as registered.
+
+The run follows one declared rule.
+
+| item | rule |
+| --- | --- |
+| margins, budgets, laws, learners, sizes, cells and seeds | unchanged in every study |
+| publication as `gated` | only when every independent, paired and property verdict of the study passes |
+| publication as `reporting` | when any verdict fails. RM18 names each failed cell |
+| `crossfit_overfitting/cross_fitted_ltmle` | read at its registered 8,000 draws against the unchanged 1.20 ceiling |
+| the published result | what the run produces, whichever way each verdict falls |
+
+A timing probe runs before the regeneration. It sizes the run and reads no verdict.
 
 #### What this row asks for
 
