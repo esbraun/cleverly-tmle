@@ -29,9 +29,10 @@ RM18 carries both sets. Each affected study publishes its red cell and that cell
 
 The pooled longitudinal update then replaced the fold-local one. The regeneration recorded a
 green end-of-study overfitting cell and two newly red weighted-longitudinal cells. It also moved
-from Python 3.11.13 and SciPy 1.17.1 to Python 3.13.7 and SciPy 1.18.0, so the before-and-after
-rows alone do not attribute those changes to the estimator. RM18 records both results and the
-runtime confounding.
+from Python 3.11.13 and SciPy 1.17.1 to Python 3.13.7 and SciPy 1.18.0. A declared diagnostic then
+crossed the two code states with the two runtimes. It attributes all three verdict changes to the
+code and none to the runtime. RM18 records the results, and both weighted cells stay red under
+`reporting`.
 
 The 2026-09-13 review of the example notebooks exposed RM11 to RM16. These rows correct defects in
 shipped estimators, diagnostics, and messages. Each detail section names its source evidence and
@@ -39,7 +40,7 @@ the probe that measured it.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Red property cells after the fold, scale and law changes | locate published selector-path and generated-design results, and publish each red cell with its interval until a source supplies them | four of the six property cells that went red after the fold, scale and law changes are still red, across three registered studies, and the cells that were already red stay red. The pooled-code, new-runtime regeneration recorded a green end-of-study cell and two newly red weighted longitudinal cells; it does not isolate the cause | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
+| 0.1 | Red property cells after the fold, scale and law changes | locate published selector-path and generated-design results, and publish each red cell with its interval until a source supplies them | four of the six property cells that went red after the fold, scale and law changes are still red, across three registered studies, and the cells that were already red stay red. The pooled-code, new-runtime regeneration recorded a green end-of-study cell and two newly red weighted longitudinal cells. A declared code-by-runtime diagnostic attributes all three changes to the code and none to the runtime | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
 | 0.2 | Sensitivity bounds outside their derivation | refuse every omitted-variable operation on DR-TMLE, C-TMLE, and missing-outcome fits, refuse the standardized E-value conversion on missing-outcome fits, and correct the refusal messages for the other parameter axes | the bound runs where no derivation covers it, and on DR-TMLE and C-TMLE fits it understates the bias | [RM11](#rm11-sensitivity-bounds-outside-their-derivation) |
 | 0.3 | Collaborative intervals at an inconsistent working mechanism | label every collaborative interval in its output, and correct the path-risk docstrings | the curve at an intercept-only working mechanism gives a standard-error ratio of 0.844 and a coverage of 0.92 over 300 draws | [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism) |
 | 0.4 | Estimated MSM projection weights | require a declaration that a projection weight is known, and refuse an estimated weight before the fit | a callable that closes over estimated weights fits without a message and reports a standard error that is too small | [RM13](#rm13-estimated-msm-projection-weights) |
@@ -547,6 +548,7 @@ reproduces, which used the same override applied by hand.
 | `type_i_error/sharp_null`, selector | the same externally reported 2x2 | the report attributes the move to the bounded law alone. The cell measures 0.0700 under both fold policies, against 0.0375 on the Gaussian law without strata |
 | `crossfit_overfitting/cross_fitted_ltmle` | an externally reported fold-policy 2x2 at commit `eeaa1ce`, over the study's 8,000 registered paired draws | the report attributes the move to the fold policy alone. The first-node-stratified arm gives 1.172543 with a 99% upper endpoint of 1.196538, which reproduces the committed row to 2e-5 relative. The single-fold control arm has no outer split for either policy to change, and it gives 0.353193 under both. These studies never moved to a bounded twin, so there is no second axis |
 | both `n_500` coverage endpoints | a registered `fold_policy` pair, two split policies over 8,000 paired draws of each study | a boundary resolution at 400 replications. Each study now covers 374 replications of 400, where the two covered 377 and 378 before. Neither paired coverage interval reaches the gate-relevant 0.005. "What the two readings found" gives both intervals, and it records the resolution the DR-TMLE instrument missed. The same cell moved the other way on outcome-adaptive multi-arm C-TMLE, where it turned green at 0.9057 |
+| the two newly red weighted cells and the green end-of-study overfitting cell | a declared code-by-runtime diagnostic over each study's registered seeds, four arms per study | the pooled code changes all three verdicts at both runtimes, and the runtime changes none. "[What the runtime isolation found](#what-the-runtime-isolation-found)" gives the rows |
 | `double_robust_contraction/rate_outcome_correct` | a declared rung design, run at 2,400 replications on each outer rung | three rungs of a small quantity gave a wide slope, and the width was Monte Carlo error at the top rung. The raised rungs put the interval below zero. That run also moved the interpreter and SciPy. The committed history separates the two. At 800 replications per rung, the runtime change moves each slope interval by less than 2e-5, so the declared budget moved this interval. "[What the committed history already separates](#what-the-committed-history-already-separates)" gives the rows |
 
 The fold policy has no general direction on the overfitting statistic. `crossfit_overfitting`
@@ -586,7 +588,7 @@ statistic and does not gate on it (`tests/studies/ctmle_selector_properties.py`)
 | the same reversal, again | [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism). The registered row and RM12's own probe now point the same way, so RM12's labelling work covers this study's reported interval |
 | the `generated_design` pair | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference). The paired standard-error deficit under an estimated outcome regression has no derivation |
 | `crossfit_overfitting/cross_fitted_ltmle` | closed. The pooled update implements the construction that Theorem 3 of Díaz, Williams, Hoffman and Schenck (2023) certifies, and the cell passes. "What the pooled update found" gives the numbers |
-| the two weighted longitudinal cells newly red in the pooled-code, new-runtime regeneration | none identified. The attribution is not isolated. "What the pooled update found" gives each value, interval and margin |
+| the two weighted longitudinal cells newly red in the pooled-code, new-runtime regeneration | none identified. The runtime isolation attributes both cells to the pooled code and not to the runtime. No source or diagnostic yet shows whether the pooled update is the right estimator for the weighted law. "What the pooled update found" gives each value, interval and margin, and "[What the runtime isolation found](#what-the-runtime-isolation-found)" gives the attribution |
 | the multi-arm selector's `selector_necessity` family, including `empty_control` | [F18](#f18-selector-path-c-tmle-inference). The greedy and ordered paths miss their bias margins, and the discrete path stops at the empty candidate |
 | the eight DR-TMLE cells that were red before the regeneration | none identified. RM18 carries them, and no other roadmap item owns them. No declared diagnostic reads them yet |
 
@@ -701,10 +703,13 @@ draws against the unchanged 1.20 ceiling.
 
 All four reported standard-error ratios are lower and near one in the pooled-code regeneration.
 That is the direction the stitched-score reading in the fold-local targeting question above
-predicted. The runtime changed at the same time, so this run does not isolate that mechanism.
+predicted. The runtime changed at the same time. The runtime isolation below attributes the
+end-of-study verdict change to the code. It does not test the stitched-score mechanism itself. The
+survival-curve, competing-risk and categorical drops stay unisolated, because that diagnostic
+deferred those three studies.
 
-Two cells of the weighted study are newly red. Neither attribution is isolated. They appeared in
-the pooled-code, new-runtime regeneration, and no controlled run separates a cause.
+Two cells of the weighted study are newly red. They appeared in the pooled-code, new-runtime
+regeneration. The runtime isolation below attributes both to the code and not to the runtime.
 
 | cell | statistic | before | after | margin |
 | --- | --- | --- | --- | --- |
@@ -864,6 +869,89 @@ At the declared budget of 800, the runtime change leaves each interval within 2e
 `rate_outcome_correct` below zero therefore comes from the extra outer-rung replications that the
 rung design declared, and not from the runtime.
 
+#### What the runtime isolation found
+
+The diagnostic ran on 2026-09-21 under the declaration above. Its eight full arms ran one at a
+time on one runner. Every value below comes from `isolation.csv` in
+[`tests/diagnostics/rm18_runtime/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_runtime).
+The `run.log` in that directory records each arm's command, runtime, `pip freeze` digest, wall
+time and exit code.
+
+Both preconditions held for both studies. The harness is therefore validated, and the rule reads
+an attribution from each study.
+
+| study | arm | reproduces the rows at | rows compared | rows that differ | verdicts that differ |
+| --- | --- | --- | --- | --- | --- |
+| weighted | `F-R11` | `7d5485a` | 8,000 primary, 42,400 property and 12,000 reference-inference | 0 | 0 |
+| weighted | `P-R13` | `0e03a15` | the same | 0 | 0 |
+| end-of-study | `F-R11` | `7d5485a` | 16,000 primary and 51,200 property | 0 | 0 |
+| end-of-study | `P-R13` | `0e03a15` | the same | 0 | 0 |
+
+The four arms of each study drew identical samples. Each study's decompressed `samples.csv.gz`
+has one SHA-256 digest in all four arms. The preconditions also confirm two claims of the committed
+history. The source changes from `f0110bc` and `eeaa1ce` to `7d5485a` move no row, and the
+refactor in `f8ad497` moves no row.
+
+The code axis changes the verdict of three cells at both runtimes. The runtime axis changes no
+verdict.
+
+| study | cell | `F-R11` | `F-R13` | `P-R11` | `P-R13` | reading |
+| --- | --- | --- | --- | --- | --- | --- |
+| weighted | `interval_calibration/static__correctly_specified`, positive | pass. Efficiency ratio 1.053468, from 1.013022 to 1.092339 | the same | fail. 1.060724, from 1.019495 to 1.100601 against 1.10 | the same | code |
+| weighted | paired `ey_regimen[never]` | pass. Equivalent, 99% lower endpoint -0.01875 | the same | fail. Underpowered, lower endpoint -0.030 against -0.025 | the same | code |
+| end-of-study | `crossfit_overfitting/cross_fitted_ltmle`, positive | fail. SE ratio 1.176650, 99% upper 1.201555 | fail. 1.176637, upper 1.201516 | pass. 1.016107, from 0.996092 to 1.036997 | the same | code |
+| end-of-study | `crossfit_overfitting/in_sample_control` | pass. SE ratio 0.353193 | pass. 0.353196 | pass. 0.353193 | pass. 0.353196 | neither |
+
+The two weighted cells therefore went red with the pooled code, not with the runtime. At each code
+state, the two runtimes give the same weighted statistics to every printed decimal. This result
+attributes the change and does not judge it. It does not show whether the pooled update is the
+right estimator for the weighted law. Both cells stay red under the `reporting` policy, and no
+margin, budget or law moved.
+
+The end-of-study overfitting cell turned green with the pooled code. At `F`, the runtime moves its
+upper endpoint from 1.201555 to 1.201516, and both values exceed the 1.20 ceiling.
+
+The in-sample control rows move with the runtime and not with the code. Each R11 arm reproduces
+the control rows at `7d5485a`, and each R13 arm reproduces the control rows at `0e03a15`. The two
+runtimes differ on 2 of 8,000 control rows at each code state. The largest change is 0.0020 in an
+estimate and 0.0001 in a standard error, and no covered flag changes. This confirms the
+environment reading of the control table in "What the pooled update found".
+
+The declared rule treats the size of each change as descriptive. The table below gives it for
+each axis. The code axis gives the same counts at R11 and at R13.
+
+| study | comparison | artifact | rows compared | rows that differ | rows moved more than 1e-6 | covered flags changed | largest change in an estimate |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| weighted | code, F against P | primary | 8,000 | 4,000 | 3,999 | 28 | 0.012 |
+| weighted | code, F against P | property | 42,400 | 42,400 | 37,598 | 682 | 0.43 |
+| weighted | code, F against P | reference-inference | 12,000 | 0 | 0 | 0 | none |
+| weighted | runtime at F | primary | 8,000 | 939 | 0 | 0 | 3.3e-16 |
+| weighted | runtime at P | primary | 8,000 | 1,017 | 0 | 0 | 3.9e-16 |
+| weighted | runtime at F and at P | property and reference-inference | 54,400 | 0 | 0 | 0 | none |
+| end-of-study | code, F against P | primary | 16,000 | 8,000 | 7,998 | 54 | 0.0084 |
+| end-of-study | code, F against P | property | 51,200 | 43,200 | 40,785 | 835 | 0.15 |
+| end-of-study | runtime at F | primary | 16,000 | 1,800 | 0 | 0 | 3.3e-16 |
+| end-of-study | runtime at F | property | 51,200 | 110 | 33 | 0 | 0.0070 |
+| end-of-study | runtime at P | primary | 16,000 | 2,057 | 0 | 0 | 3.9e-16 |
+| end-of-study | runtime at P | property | 51,200 | 945 | 1 | 0 | 0.0020 |
+
+One definition in `compare.py` changed after the smoke arms and before the full arms. Each smoke
+arm ran 4 replications at n = 2,000 without property cells. At commit `97a3687`, the cell verdict
+was the cell's `passed` column and its `property_passed` column together. `property_passed` is the
+verdict of the whole property family, and the declared rule reads each cell's verdict alone.
+Commit `65e319b` makes the cell verdict the cell's own `passed` column and records
+`property_passed` beside it.
+
+That commit is dated 22:42:33Z on 2026-09-21, and `run.log` starts the first full arm at
+22:42:47Z. The change moves the reading of one cell. Under the earlier definition, the in-sample
+control fails at F with its family, and it reads code. The other three cells have equal `passed`
+and `property_passed` values in every arm, or no `property_passed` column. Their readings
+therefore do not depend on the definition.
+
+The survival-curve, competing-risk and categorical studies stay outside this result. The
+declaration deferred them, so their overfitting drops in "What the pooled update found" stay
+unisolated.
+
 #### What this row asks for
 
 | work | acceptance |
@@ -873,6 +961,7 @@ rung design declared, and not from the runtime.
 | a targeting result for the fold-local longitudinal recursion | delivered by the pooled route. The package now implements Section 5.2, Steps 1 to 4, which Theorem 3 certifies. `crossfit_overfitting/cross_fitted_ltmle` sits inside the shared ceiling at 8,000 draws, with a 99% interval from 0.996092 to 1.036997. "What the pooled update found" gives every moved cell, including two weighted cells that went red |
 | a reading of the two `n_500` coverage endpoints | delivered. A registered fold-policy diagnostic reads both endpoints as a boundary resolution. "What the two readings found" gives the numbers |
 | a reading of the DR-TMLE contraction slope | delivered. A declared rung design resolves the slope, and its interval now sits below zero. "What the two readings found" gives the numbers |
+| an attribution of the verdicts that changed with the pooled update | delivered for the end-of-study and weighted studies. A declared code-by-runtime diagnostic reads the two weighted cells and the end-of-study overfitting cell as code changes. "What the runtime isolation found" gives the numbers. The weighted cells stay red, and the diagnostic does not settle whether the pooled update suits the weighted law |
 
 The second acceptance row is not consistent with its own sources. This subsection records the
 conflict and leaves the row text unchanged. A rewording is a decision for the maintainer.
@@ -1132,6 +1221,8 @@ F18 and F19 record the same verdicts.
 | every published verdict is recomputed from the committed replication rows | `tests/unit/test_method_evidence.py::test_paper_property_verdicts_are_recomputed_from_the_replication_rows` |
 | the shipped fold and scale rules have mutation-controlled witnesses | `tests/unit/test_fold_policy_rules.py` |
 | the pooled longitudinal update matches a longhand recomputation, and four mutations break it | `tests/unit/test_pooled_longitudinal_targeting.py` |
+| the runtime isolation attributes each changed verdict to the code or the runtime | `tests/diagnostics/rm18_runtime/compare.py` reads the four arms of each study and writes `isolation.csv` in that directory. `run.log` records each arm's command, runtime, `pip freeze` digest and exit code, and `arms/` holds each arm's manifest |
+| the committed history separates the runtime from the code on three point-treatment studies and on the single-fold control rows | `tests/diagnostics/rm18_runtime/row_drift.py` reads the committed rows with `git show` and writes `row-drift.csv` in that directory |
 | the end-of-study fold-policy 2x2 | a controlled run at commit `eeaa1ce` over the study's own 8,000 registered seeds, with the law, learners, size, budget and margins held fixed. The attribution table above gives both arms |
 | a reported acceptance sweep found no refusal in its selected cells | a sweep at commit `6c91a48` reported that 340,600 primary and property replicates from all sixteen cross-fitted studies reached the first nuisance fit, with zero refusals. It counted one cell and one replication index as one replicate, including paired cells that share a sample. An earlier sweep at commit `5f32c14` reported 115,400 replicates from the eleven point-treatment studies |
 | a reported replay matched the sampled committed rows | a replay at commit `5f32c14` reported matches for the first three replicates of every primary and property cell in the eleven point-treatment studies. Its worst relative difference was 1.5e-13, against a 1e-12 tolerance. The replay did not check every committed row |

@@ -143,8 +143,13 @@ The fold-fluctuated construction that the pooled update replaced gave a ratio of
 same cell. Its 99% interval reached 1.201555, so the cell missed the ceiling by 0.001555. The two
 runs share the law, the learner, the seeds, the budget, and the margins.
 [RM18](../../roadmap.md#rm18-red-property-cells-after-the-fold-scale-and-law-changes) records the
-before and after values. The single-fold control has no outer split, and its ratio moved only in
-the sixth decimal, from 0.353193 to 0.353196.
+before and after values. Its
+[code-by-runtime diagnostic](../../roadmap.md#what-the-runtime-isolation-found) attributes the
+verdict change to the pooled code, not to the Python and SciPy change.
+
+The single-fold control has no outer split, and its ratio moved only in the sixth decimal, from
+0.353193 to 0.353196. In the RM18 diagnostic, both code states give 0.353193 under Python 3.11.13
+and 0.353196 under Python 3.13.7.
 
 The replication budget stays at 8,000 rather than the shared 400. That budget was declared before
 the first run of this study, and the pooled update ran at it unchanged. The study keeps the

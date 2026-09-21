@@ -2,7 +2,9 @@
 
 This directory holds the diagnostic that RM18 of `docs/roadmap.md` declares in "The runtime
 isolation, declared before it runs". That subsection fixes the arms, the preconditions, the
-statistics and the reading rule. The code here applies them and changes no study.
+statistics and the reading rule. The code here applies them and changes no study. The committed
+`isolation.csv`, `row-drift.csv`, `run.log` and `arms/` hold the recorded run. RM18's "What the
+runtime isolation found" reads them.
 
 | file | what it does |
 | --- | --- |
