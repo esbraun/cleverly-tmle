@@ -53,7 +53,7 @@ from cleverly.validation import (
 )
 from cleverly.validation.score import DEFAULT_TOLERANCE
 from tests import discrete_law_mar
-from tests.conftest import OracleMissingness, OracleOutcome, OracleTreatment
+from tests.conftest import IN_SAMPLE, OracleMissingness, OracleOutcome, OracleTreatment
 
 
 def _assert_same_graph(left: Any, right: Any, *, path: str = "result") -> None:
@@ -139,6 +139,7 @@ def point_result():  # type: ignore[no-untyped-def]
         learner_folds=2,
         random_state=7,
         simultaneous=False,
+        **IN_SAMPLE,
     )
 
 
@@ -236,6 +237,7 @@ def binary_mean_result():  # type: ignore[no-untyped-def]
         learner_folds=2,
         random_state=7,
         simultaneous=False,
+        **IN_SAMPLE,
     )
 
 
@@ -286,6 +288,7 @@ def categorical_point_result():  # type: ignore[no-untyped-def]
         learner_folds=2,
         random_state=7,
         simultaneous=False,
+        **IN_SAMPLE,
     )
 
 
@@ -315,6 +318,7 @@ def continuous_result():  # type: ignore[no-untyped-def]
         learner_folds=2,
         random_state=7,
         simultaneous=False,
+        **IN_SAMPLE,
     )
 
 

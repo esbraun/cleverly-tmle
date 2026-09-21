@@ -9,6 +9,7 @@ estimands that are known in closed form.
 from __future__ import annotations
 
 import dataclasses
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -24,6 +25,7 @@ from cleverly.datasets import (
     heterogeneous_dgp,
     instrument_dgp,
     linear_dgp,
+    make_biased_sample,
     make_binary_outcome,
     make_cde,
     make_clustered,
@@ -33,15 +35,18 @@ from cleverly.datasets import (
     make_missing_outcome_binary,
     make_multi_arm,
     make_nonlinear_ate,
+    make_nonlinear_bounded,
+    make_shift_dose,
     make_weak_overlap,
     missing_outcome_dgp,
     multi_arm_dgp,
     navigation_data,
+    nonlinear_bounded_dgp,
     nonlinear_dgp,
     weak_overlap_dgp,
 )
 from cleverly.estimators import TMLE
-from tests.conftest import FAST_KWARGS
+from tests.conftest import FAST_KWARGS, IN_SAMPLE
 
 
 class TestTruth:
@@ -418,7 +423,7 @@ class TestSampling:
         the ``a * w2`` term the design effect measured 1.00 rather than the 1.96 here.
         """
         frame, _ = make_clustered(n=20_000, seed=11, cluster_size=10)
-        result = TMLE(**FAST_KWARGS, estimands=("ate",)).fit(
+        result = TMLE(**FAST_KWARGS, **IN_SAMPLE, estimands=("ate",)).fit(
             frame, outcome="Y", treatment="A", covariates=["W1", "W2"]
         )
         curve = np.asarray(result.single()["ate"].influence_curve)
@@ -523,13 +528,16 @@ class TestTheMultiArmBinomialLaw:
 def test_the_program_data_renames_the_nonlinear_draw_and_changes_nothing_else(
     backend: str,
 ) -> None:
-    """``navigation_data`` is ``make_nonlinear_ate`` under the program's names, row for row.
+    """``navigation_data`` is ``make_nonlinear_bounded`` under the program's names, row for row.
 
     The mapping is written out here rather than read from the module, so a swapped pair of
     covariate names fails even though the column set and every value still agree.
+
+    The generator is the bounded one, so the program score has the known support ``(0, 1)``
+    that a cross-fitted tutorial declares as its ``q_bounds``.
     """
     frame, truth = navigation_data(300, seed=21, backend=backend)
-    raw, raw_truth = make_nonlinear_ate(300, seed=21, backend=backend)
+    raw, raw_truth = make_nonlinear_bounded(300, seed=21, backend=backend)
     expected = {
         "Y": "transition_score",
         "A": "transition_navigation",
@@ -545,3 +553,365 @@ def test_the_program_data_renames_the_nonlinear_draw_and_changes_nothing_else(
             np.asarray(frame[program_name]), np.asarray(raw[generator_name])
         )
     assert truth == raw_truth
+
+
+class TestTheBetaFamily:
+    r"""``DGP(family="beta")`` and :func:`make_nonlinear_bounded`.
+
+    ``Y ~ Beta(phi * m, phi * (1 - m))`` has mean ``m`` and variance
+    ``m (1 - m) / (1 + phi)``.  The truth integrates ``m`` and nothing else, so the draw is
+    what has to be checked against it: a draw whose conditional mean is not ``m`` would
+    leave the truth reporting a law nobody sampled.
+    """
+
+    def test_the_draw_has_the_outcome_mean_as_its_conditional_mean(self) -> None:
+        """A large-``n`` moment check at a fixed seed, on the realised covariates.
+
+        The second moment is the nonzero witness.  With the two shapes swapped the draw
+        has mean ``1 - m``; the first moment then still averages near zero wherever ``m``
+        sits symmetrically about one half, but ``E[(Y - m)(m - 1/2)]`` becomes
+        ``-2 E[(m - 1/2)^2]``, which this law puts near ``-0.08``.
+        """
+        dgp = nonlinear_bounded_dgp()
+        phi = 12.0
+        frame, _ = dgp.sample(200_000, seed=3)
+        latent = np.column_stack([frame[name].to_numpy() for name in dgp.covariate_names])
+        a = frame["A"].to_numpy()
+        y = frame["Y"].to_numpy()
+        m = dgp._observed_mean(latent, a, None)
+        standard_error = float(np.sqrt(np.mean(m * (1.0 - m) / (1.0 + phi)) / len(y)))
+        assert abs(float(np.mean(y - m))) < 4.0 * standard_error
+        assert abs(float(np.mean((y - m) * (m - 0.5)))) < 4.0 * standard_error
+        assert float(np.mean((m - 0.5) ** 2)) > 0.02
+        variance = float(np.mean((y - m) ** 2))
+        assert variance == pytest.approx(float(np.mean(m * (1.0 - m))) / (1.0 + phi), rel=0.02)
+
+    def test_the_draws_lie_inside_the_open_unit_interval(self) -> None:
+        frame, _ = make_nonlinear_bounded(100_000, seed=4)
+        y = frame["Y"].to_numpy()
+        assert float(y.min()) > 0.0
+        assert float(y.max()) < 1.0
+
+    def test_every_mean_on_the_integration_rule_lies_in_the_documented_range(self) -> None:
+        dgp = nonlinear_bounded_dgp()
+        latent = dgp.quadrature()
+        for a in (0.0, 1.0):
+            means = dgp.outcome_mean(latent, a, None)
+            assert float(means.min()) > 0.110
+            assert float(means.max()) < 0.943
+
+    def test_the_sobol_truth_agrees_with_plain_monte_carlo(self) -> None:
+        dgp = nonlinear_bounded_dgp()
+        truth = dgp.truth()
+        latent = np.random.default_rng(0).normal(size=(400_000, dgp.n_latent))
+        q1 = dgp.outcome_mean(latent, 1.0, None)
+        q0 = dgp.outcome_mean(latent, 0.0, None)
+        assert truth["ey1"] == pytest.approx(float(np.mean(q1)), abs=2e-3)
+        assert truth["ate"] == pytest.approx(float(np.mean(q1 - q0)), abs=2e-3)
+        assert truth["att"] != pytest.approx(truth["atc"], abs=1e-3)
+
+    def test_the_truth_names_no_ratio_that_no_fit_of_the_draw_reports(self) -> None:
+        """The ratio decision in ``_estimands_from``, and the fit behaviour behind it.
+
+        A proportion resolves to ``family="gaussian"`` in a fit, and ``rr`` requires a
+        binomial fit, so a truth keyed ``rr`` would name a parameter nothing estimates.
+        """
+        frame, truth = make_nonlinear_bounded(300, seed=0)
+        assert not {"rr", "or", "sample_rr", "sample_or"} & set(truth)
+        with pytest.raises(ValueError, match="require a binary outcome"):
+            TMLE(**FAST_KWARGS, estimands=("rr",)).fit(
+                frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3", "W4"]
+            )
+
+    def test_a_mean_outside_the_unit_interval_is_refused(self) -> None:
+        law = dataclasses.replace(nonlinear_dgp(), family="beta", concentration=10.0)
+        with pytest.raises(ValueError, match=r"inside the open interval \(0, 1\)") as raised:
+            law.sample(50, seed=0)
+        assert "A=0" in str(raised.value)
+
+    def test_a_mean_on_the_boundary_is_refused(self) -> None:
+        """The interval is open: a mean of exactly ``1`` has no beta law."""
+
+        def outcome_mean(w: Any, a: float, z: float | None) -> Any:
+            del z
+            return np.where(w[:, 0] > 0.0, 1.0, 0.5) if a == 1.0 else np.full(len(w), 0.5)
+
+        law = dataclasses.replace(
+            nonlinear_bounded_dgp(), name="boundary", outcome_mean=outcome_mean
+        )
+        with pytest.raises(ValueError, match="at A=1 it reaches") as raised:
+            law.sample(50, seed=0)
+        assert "[0.5, 1]" in str(raised.value)
+
+    def test_the_verdict_does_not_depend_on_the_draw(self) -> None:
+        law = dataclasses.replace(nonlinear_dgp(), family="beta", concentration=10.0)
+        for n, seed in ((10, 0), (10, 7), (5_000, 1)):
+            with pytest.raises(ValueError, match="open interval"):
+                law.sample(n, seed=seed)
+
+    @pytest.mark.parametrize("concentration", [None, 0.0, -1.0, float("inf"), float("nan"), True])
+    def test_an_unusable_concentration_is_refused(self, concentration: Any) -> None:
+        with pytest.raises(ValueError, match="positive, finite concentration"):
+            dataclasses.replace(nonlinear_bounded_dgp(), concentration=concentration)
+
+    def test_a_concentration_on_another_family_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="nothing reads it for family='gaussian'"):
+            dataclasses.replace(linear_dgp(), concentration=5.0)
+
+
+class TestTheClusteredBinomialLaw:
+    """``clustered_dgp(family="binomial")``, following ``multi_arm_dgp(family=)``."""
+
+    def test_the_draw_is_binary_and_the_truth_holds_the_ratios(self) -> None:
+        frame, truth = make_clustered(400, seed=0, family="binomial")
+        assert set(np.unique(frame["Y"].to_numpy())) == {0.0, 1.0}
+        assert len(np.unique(frame["cluster"].to_numpy())) == 40
+        assert {"rr", "or"} <= set(truth)
+        assert 0.0 < truth["ey0"] < truth["ey1"] < 1.0
+
+    def test_the_declared_truths_are_the_registered_studys_own(self) -> None:
+        """The quadrature truths the clustered evidence row publishes.
+
+        The arm-by-latent coefficient is declared against the influence-curve design
+        effect, so it is a number a later edit can move without breaking anything else
+        here.  These two integrals are what a move would change, and the registered
+        clustered study's committed rows carry them.
+        """
+        truth = clustered_dgp(10, family="binomial").truth()
+        assert float(truth["ate"]) == pytest.approx(0.1040497, abs=1e-6)
+        assert float(truth["rr"]) == pytest.approx(1.2512880, abs=1e-6)
+
+    def test_the_shared_effect_correlates_outcomes_within_a_cluster(self) -> None:
+        """The same law with the latent not shared is the control.
+
+        Both draws use the same seed and the same contiguous blocks of ten rows.  Only the
+        clustered one shares the third latent within a block, so only it shows a positive
+        intraclass correlation.
+        """
+
+        def intraclass(y: Any, size: int = 10) -> float:
+            groups = y.reshape(-1, size)
+            variance = float(np.var(y, ddof=1))
+            between = float(np.var(groups.mean(axis=1), ddof=1)) * size
+            return (between - variance) / ((size - 1) * variance)
+
+        law = clustered_dgp(10, family="binomial")
+        clustered, _ = law.sample(20_000, seed=11)
+        independent, _ = dataclasses.replace(law, cluster_size=None).sample(20_000, seed=11)
+        assert intraclass(clustered["Y"].to_numpy()) > 0.05
+        assert intraclass(independent["Y"].to_numpy()) < 0.02
+
+    def test_the_shared_effect_reaches_the_influence_curve(self) -> None:
+        """The witness the outcome ICC cannot supply, and the reason the ICC is not enough.
+
+        The outcome intraclass correlation on these rows is ``0.135`` at an arm-by-latent
+        coefficient of ``0.9`` and ``0.313`` at the declared ``8.0``, so it passes the rule
+        above at both and says nothing about either.  What the clustered study rests on is the
+        *influence curve's* correlation, which is ``0.014`` at ``0.9`` and ``0.099`` at
+        ``8.0`` -- beside ``0.101`` for the Gaussian law, which the declared coefficient
+        was chosen to match.  The floor sits between the two, so reverting the coefficient
+        fails here.
+        """
+        frame, _ = make_clustered(n=20_000, seed=11, cluster_size=10, family="binomial")
+        result = TMLE(**FAST_KWARGS, estimands=("ate",)).fit(
+            frame, outcome="Y", treatment="A", covariates=["W1", "W2"]
+        )
+        curve = np.asarray(result.single()["ate"].influence_curve)
+        groups = curve.reshape(-1, 10)
+        variance = float(np.var(curve, ddof=1))
+        icc = (float(np.var(groups.mean(axis=1), ddof=1)) * 10 - variance) / (9 * variance)
+        assert icc > 0.05
+
+    def test_the_shared_latent_stays_out_of_the_propensity(self) -> None:
+        law = clustered_dgp(10, family="binomial")
+        latent = law.quadrature(2**12)
+        moved = latent.copy()
+        moved[:, 2] += 1.0
+        np.testing.assert_array_equal(law.propensity(latent), law.propensity(moved))
+        assert not np.allclose(
+            law.outcome_mean(latent, 1.0, None) - law.outcome_mean(latent, 0.0, None),
+            law.outcome_mean(moved, 1.0, None) - law.outcome_mean(moved, 0.0, None),
+        )
+
+    def test_an_unknown_family_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="family must be"):
+            clustered_dgp(family="beta")
+
+
+#: Fingerprints of each existing law's draw, captured at base commit 0b75095 with
+#: ``n=64`` (400 for the biased sample, whose frame keeps only the selected rows) and
+#: ``seed=20260919``.  Numeric columns hold ``(first, last, sum of finite, count of NaN)``;
+#: a string column holds the first letter of every label.  ``truth`` is the first key in
+#: sorted order and its value.
+_BASE_LAW_FINGERPRINTS: dict[str, dict[str, Any]] = {
+    "biased_sample": {
+        "rows": 171,
+        "Y": (-0.20721816405848348, -0.5249555295676447, 393.72384968260076, 0),
+        "A": (1.0, 0.0, 100.0, 0),
+        "W1": (-0.39496352977016624, 0.8795319087042545, 74.99101420568579, 0),
+        "W2": (-0.8704762306213993, -1.5700961784492875, -16.31250688219244, 0),
+        "sampling_prob": (0.36459691485138934, 0.6437272948316866, 92.8036258186541, 0),
+        "sampling_weight": (2.7427549692997335, 1.5534528487897457, 361.38467134506357, 0),
+        "truth": ("atc", 0.7733966232599618),
+    },
+    "binary_outcome": {
+        "rows": 64,
+        "Y": (1.0, 0.0, 27.0, 0),
+        "A": (0.0, 1.0, 24.0, 0),
+        "W1": (-0.39496352977016624, -0.18473413023286256, -1.2901128392048022, 0),
+        "W2": (-0.8704762306213993, 1.4038836273610036, 2.6557696043070003, 0),
+        "W3": (-0.0709405048572203, 0.7561908692170293, -7.0616491183288606, 0),
+        "truth": ("atc", 0.18414822762712732),
+    },
+    "cde": {
+        "rows": 64,
+        "Y": (0.8031698410753599, -0.7062381201990608, 122.85254052524198, 0),
+        "A": (1.0, 0.0, 31.0, 0),
+        "W1": (-0.39496352977016624, -0.18473413023286256, -1.2901128392048022, 0),
+        "W2": (-0.8704762306213993, 1.4038836273610036, 2.6557696043070003, 0),
+        "W3": (-0.0709405048572203, 0.7561908692170293, -7.0616491183288606, 0),
+        "Z": (0.0, 0.0, 35.0, 0),
+        "truth": ("atc", 0.8999999999999999),
+    },
+    "clustered": {
+        "rows": 64,
+        "Y": (3.300678843456933, -1.230261557490583, 95.95805928295357, 0),
+        "A": (0.0, 1.0, 36.0, 0),
+        "W1": (-0.39496352977016624, -0.18473413023286256, -1.2901128392048022, 0),
+        "W2": (-0.8704762306213993, 1.4038836273610036, 2.6557696043070003, 0),
+        "cluster": (0.0, 6.0, 174.0, 0),
+        "truth": ("atc", 0.9999909338032076),
+    },
+    "heterogeneous": {
+        "rows": 64,
+        "Y": (1.2792186642733274, 4.714678252782257, 93.31460680577513, 0),
+        "A": (0.0, 1.0, 34.0, 0),
+        "W1": (-0.39496352977016624, 0.5181222963632465, 5.685077505546462, 0),
+        "W2": (-0.8704762306213993, 1.0900449275043869, -7.923406562421488, 0),
+        "truth": ("atc", 0.30870383505951265),
+    },
+    "instrument": {
+        "rows": 64,
+        "Y": (-0.00033841469840867333, 1.308302823999506, 74.92366804534366, 0),
+        "A": (1.0, 1.0, 35.0, 0),
+        "W1": (-0.39496352977016624, -0.18473413023286256, -1.2901128392048022, 0),
+        "W2": (-0.8704762306213993, 1.4038836273610036, 2.6557696043070003, 0),
+        "W3": (-0.0709405048572203, 0.7561908692170293, -7.0616491183288606, 0),
+        "truth": ("atc", 1.0),
+    },
+    "linear_ate": {
+        "rows": 64,
+        "Y": (1.4694431939656984, 0.9990091427791946, 181.34342780793162, 0),
+        "A": (1.0, 0.0, 36.0, 0),
+        "W1": (-0.39496352977016624, -0.8732666471911562, -4.7648449284817485, 0),
+        "W2": (-0.8704762306213993, 1.6387912297813598, 5.236705104917342, 0),
+        "W3": (-0.0709405048572203, -0.1924254377796503, 1.0821042746943768, 0),
+        "W4": (-0.593897222035972, -1.351140716157383, -10.524045352071877, 0),
+        "truth": ("atc", 1.5),
+    },
+    "missing_outcome": {
+        "rows": 64,
+        "Y": (-1.2005174293804841, 1.5540444354953908, 54.190641749717784, 11),
+        "A": (0.0, 1.0, 26.0, 0),
+        "W1": (-0.39496352977016624, -0.18473413023286256, -1.2901128392048022, 0),
+        "W2": (-0.8704762306213993, 1.4038836273610036, 2.6557696043070003, 0),
+        "W3": (-0.0709405048572203, 0.7561908692170293, -7.0616491183288606, 0),
+        "Delta": (1.0, 1.0, 53.0, 0),
+        "truth": ("atc", 1.2000000000000004),
+    },
+    "missing_outcome_binary": {
+        "rows": 64,
+        "Y": (1.0, 0.0, 21.0, 10),
+        "A": (0.0, 1.0, 24.0, 0),
+        "W1": (-0.39496352977016624, -0.18473413023286256, -1.2901128392048022, 0),
+        "W2": (-0.8704762306213993, 1.4038836273610036, 2.6557696043070003, 0),
+        "W3": (-0.0709405048572203, 0.7561908692170293, -7.0616491183288606, 0),
+        "Delta": (1.0, 1.0, 54.0, 0),
+        "truth": ("atc", 0.18414822762712732),
+    },
+    "multi_arm": {
+        "rows": 64,
+        "Y": (0.38517391164318315, -0.11107671088981719, 33.65619781402709, 0),
+        "A": "hmhhlmhlmhlmlmhhmmlllhhmhlhhlhhmlhllhlmhmhmlmmmhmmhmhhllhhhhlmmh",
+        "W1": (-0.39496352977016624, -0.18473413023286256, -1.2901128392048022, 0),
+        "W2": (-0.8704762306213993, 1.4038836273610036, 2.6557696043070003, 0),
+        "W3": (-0.0709405048572203, 0.7561908692170293, -7.0616491183288606, 0),
+        "truth": ("ate[low vs high]", -1.4399999999999997),
+    },
+    "multi_arm_binary": {
+        "rows": 64,
+        "Y": (0.0, 1.0, 35.0, 0),
+        "A": "hmhhlmhlmhlmlmhhmmlllhhmhlhhlhhmlhllhlmhmhmlmmmhmmhmhhllhhhhlmmh",
+        "W1": (-0.39496352977016624, -0.18473413023286256, -1.2901128392048022, 0),
+        "W2": (-0.8704762306213993, 1.4038836273610036, 2.6557696043070003, 0),
+        "W3": (-0.0709405048572203, 0.7561908692170293, -7.0616491183288606, 0),
+        "truth": ("ate[low vs high]", -0.21297209783239207),
+    },
+    "nonlinear_ate": {
+        "rows": 64,
+        "Y": (0.2048688473980358, 1.688310169368083, 175.82659175869975, 0),
+        "A": (0.0, 0.0, 27.0, 0),
+        "W1": (-0.39496352977016624, -0.8732666471911562, -4.7648449284817485, 0),
+        "W2": (-0.8704762306213993, 1.6387912297813598, 5.236705104917342, 0),
+        "W3": (-0.0709405048572203, -0.1924254377796503, 1.0821042746943768, 0),
+        "W4": (-0.593897222035972, -1.351140716157383, -10.524045352071877, 0),
+        "truth": ("atc", 1.585907730113686),
+    },
+    "shift_dose": {
+        "rows": 64,
+        "Y": (6.100420610864968, -0.006330416434868702, 198.36622324826936, 0),
+        "A": (3.5903097230947094, 0.09838030447131207, 123.02610158354929, 0),
+        "W1": (-0.39496352977016624, -0.18473413023286256, -1.2901128392048022, 0),
+        "W2": (-0.8704762306213993, 1.4038836273610036, 2.6557696043070003, 0),
+        "W3": (-0.0709405048572203, 0.7561908692170293, -7.0616491183288606, 0),
+        "truth": ("ate_shift[+0.5 vs natural course]", 0.7760761197271981),
+    },
+    "weak_overlap": {
+        "rows": 64,
+        "Y": (-0.8495324938626418, 2.485329190595401, 78.69793238514933, 0),
+        "A": (1.0, 1.0, 34.0, 0),
+        "W1": (-0.39496352977016624, -0.18473413023286256, -1.2901128392048022, 0),
+        "W2": (-0.8704762306213993, 1.4038836273610036, 2.6557696043070003, 0),
+        "W3": (-0.0709405048572203, 0.7561908692170293, -7.0616491183288606, 0),
+        "truth": ("atc", 1.0),
+    },
+}
+
+
+def _draw_existing_law(name: str) -> tuple[Any, dict[str, float]]:
+    seed = 20260919
+    if name == "multi_arm":
+        return make_multi_arm(64, seed=seed, backend="pandas")
+    if name == "multi_arm_binary":
+        return make_multi_arm(64, seed=seed, backend="pandas", family="binomial")
+    if name == "shift_dose":
+        return make_shift_dose(64, seed=seed, backend="pandas")
+    if name == "biased_sample":
+        return make_biased_sample(400, seed=seed, backend="pandas")
+    return GENERATORS[name](64, seed=seed, backend="pandas")
+
+
+@pytest.mark.parametrize("name", sorted(_BASE_LAW_FINGERPRINTS))
+def test_an_existing_law_draws_what_it_drew_before_the_beta_family(name: str) -> None:
+    """Adding a family must not move the random stream of any existing family.
+
+    The beta draw is a new branch after the gaussian and binomial ones, so an existing
+    law consumes the generator exactly as before.  The tolerance only absorbs last-bit
+    differences in transcendental functions across platforms.  A reordered or extra draw
+    changes every value after it by far more.
+    """
+    expected = _BASE_LAW_FINGERPRINTS[name]
+    frame, truth = _draw_existing_law(name)
+    assert len(frame) == expected["rows"]
+    assert list(frame.columns) == [key for key in expected if key not in {"rows", "truth"}]
+    for column in frame.columns:
+        values = frame[column].to_numpy()
+        if isinstance(expected[column], str):
+            assert "".join(str(value)[0] for value in values) == expected[column]
+            continue
+        values = np.asarray(values, dtype=float)
+        finite = values[np.isfinite(values)]
+        observed = (values[0], values[-1], float(np.sum(finite)), int(np.isnan(values).sum()))
+        np.testing.assert_allclose(observed, expected[column], rtol=1e-12, atol=1e-12)
+    key, value = expected["truth"]
+    assert truth[key] == pytest.approx(value, rel=1e-10, abs=1e-12)

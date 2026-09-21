@@ -12,11 +12,17 @@ The Python runner calls `SingleCrossfitTMLE` with one partition. It checks the r
 each native split before it fits a nuisance model. The two-split design makes each nuisance
 training split the complete complement of its validation split.
 
-The double-robustness properties use a bounded nonlinear confounded law with exact ATE 1.75.
-Its treatment mechanism stays between 0.076 and 0.924, so the configured bounds do not clip it.
-The wrong main-effects outcome regression has a constant contrast, while the true contrast varies.
-The treatment-correct cell uses n = 2,000 and 1,200 replications. The other three cells use
-n = 700 and 1,200 replications. All cells use their predeclared seeds and the existing margins.
+The supplied split reads neither the treatment nor the outcome, and the `cleverly` fit records
+that plan. The law is binary, so the outcome scaler is the identity and no `q_bounds` is
+declared.
+
+The property cells draw their own two folds and sample bounded laws, so each declares
+`q_bounds` of 0 to 1. The double-robustness properties use a bounded nonlinear confounded law
+with exact ATE 0.2368749. Its treatment mechanism stays between 0.076 and 0.924, so the
+configured bounds do not clip it. The wrong main-effects outcome regression has a constant
+contrast, while the true contrast varies. The treatment-correct cell uses n = 2,000 and 1,200
+replications. The other three cells use n = 700 and 1,200 replications. All cells use their
+predeclared seeds and the existing margins.
 
 Run a disposable primary smoke from the repository root with Docker running:
 

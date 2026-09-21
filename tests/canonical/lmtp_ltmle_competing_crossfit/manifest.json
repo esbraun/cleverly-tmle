@@ -5,12 +5,12 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-cross-fitted-competing-ltmle",
-      "cleverly_version": "0.1.0",
-      "cleverly_commit": "c355a275dc6ef788d00e913a7c0fec5b5418e97b",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "38a5998d21bad5c7f988b43d933d76141fe5a942",
       "cleverly_worktree_clean": false,
-      "python": "3.13.7",
+      "python": "3.11.13",
       "numpy": "2.4.6",
-      "scipy": "1.18.0",
+      "scipy": "1.17.1",
       "pandas": "3.0.5",
       "scikit_learn": "1.9.0"
     },
@@ -112,40 +112,42 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_ltmle_competing_crossfit.py": "2d86e9709512844eef4942cadbd644dd2cf142b7f819321b9eb2901a5fdb5bcb",
+    "tests/studies/canonical_ltmle_competing_crossfit.py": "b7b602b535d2923f11291ec83e0f6eccf6312b92842a4dbf6b4c5a174ccaf48d",
     "tests/studies/ltmle_competing_crossfit_properties.py": "bbe16ba4e56ad4a9637ca91ce872b43ac53091bc6a4b95626a959459c0a6a713",
-    "tests/studies/canonical_ltmle_competing.py": "f4dc48ceb13bdb9207067bdba582a5e4da389624b458bb4cc3a9d2a107fb9b62",
+    "tests/studies/canonical_ltmle_competing.py": "457eb20db82cd7d2cde37da0394f9b3087302f63877974d107b3db3bd60b08e9",
     "tests/studies/ltmle_competing_properties.py": "fd5e0b93779140c186c635d68036d8e00996431638476f016f0811dfbe8ea363",
-    "tests/studies/canonical_ltmle_crossfit.py": "47eba51631e1f68c504935937c04dc2b6256a65d29694b61a7719e0ebba7c411",
-    "tests/studies/canonical_ltmle.py": "9058761787420541d5d5ea8a1baab66680160592520d90831cd525d6591aa5cc",
+    "tests/studies/canonical_ltmle_crossfit.py": "6543eb265e2f1b14d1fd1be62cb11287a266f832df429e409c7cc1d7719a7da7",
+    "tests/studies/canonical_ltmle.py": "d1adf8f5df9fdaca29eb3d21367e0e479ed669bd572d7b824acf459d4b8b0bbd",
+    "tests/studies/fractional_glm.py": "5570ff1756acad859e627be9d155e1b43f789ffb8626ac3c53a049bb0662488e",
+    "tests/discrete_law_longitudinal.py": "acc9eaaf056050dae69e7bdbe203797e0dc6fe2502423c15369f69dbcc41d59c",
     "tests/discrete_law_competing.py": "cd24ff5b1177f25206f3b29115e645e63749823f7440117deb267fbd733a7092",
     "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
     "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
-    "tests/studies/evidence/properties.py": "f1fb615eebfe49d7f067ba38564e93c80e6f96f2c69e9b195abbd46d1765b3bf",
-    "tests/studies/evidence/property_verdicts.py": "77952c137d7ba39dcdfb44269d47dcf0ecfb68fe1856c54009c247a72e1937d4",
+    "tests/studies/evidence/properties.py": "83ef22a43452bacf9b0e0c06cfe951640d68916472b30c58a8ec7fe6ef462e9c",
+    "tests/studies/evidence/property_verdicts.py": "75eee2068812badd182ac4634f2ce98325c40a4da48c6989fc66f76984d2cc81",
     "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
-    "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936",
-    "tests/canonical/lmtp_crossfit/Dockerfile": "ab293b84b4336a5fb8abd3f414aa58835b153a76df252949720eb150c0a57a5d",
-    "tests/canonical/lmtp_crossfit/audit.py": "8703b3389c17c599b7bf33e5037867be5e56857d4194b45b6e35ec24e65d8275",
-    "tests/canonical/lmtp_crossfit_adapter.R": "788af2d43a3489597231e271769eca5d2b0b15e786be8482233819fe0e023a00",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+    "tests/canonical/lmtp_crossfit/audit.py": "90dade86cbbe4beaa7936eef7e943e03e9ab5730d536503a96c1c82fc1ac6f54",
+    "tests/canonical/lmtp_crossfit_adapter.R": "7f5d2b663e4dca986ade973a8d263ea132a666ff8d59444ecaa407f607b0f8dc",
     "tests/canonical/lmtp_competing_adapter.R": "c4f5d807b1810a77baf408ff65322958f8dcbae68620ec64bd7cbe98f4a30f01",
     "tests/canonical/lmtp_ltmle_competing/run_study.R": "505c195b6b7016dca96d169fb5529c591731b1e70501708c44ddc8b4abe15522"
   },
   "reference_sha256": {
-    "tests/canonical/lmtp_crossfit/Dockerfile": "ab293b84b4336a5fb8abd3f414aa58835b153a76df252949720eb150c0a57a5d",
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
     "tests/canonical/lmtp_ltmle_competing/run_study.R": "505c195b6b7016dca96d169fb5529c591731b1e70501708c44ddc8b4abe15522",
-    "tests/canonical/lmtp_crossfit_adapter.R": "788af2d43a3489597231e271769eca5d2b0b15e786be8482233819fe0e023a00",
+    "tests/canonical/lmtp_crossfit_adapter.R": "7f5d2b663e4dca986ade973a8d263ea132a666ff8d59444ecaa407f607b0f8dc",
     "tests/canonical/lmtp_competing_adapter.R": "c4f5d807b1810a77baf408ff65322958f8dcbae68620ec64bd7cbe98f4a30f01",
     "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878",
-    "tests/canonical/ltmle_regimen_adapter.R": "03f1b3d2ae35ae8f63096b42c1e00875845e916a9c74b5ffb947ac2a1f28baab"
+    "tests/canonical/ltmle_regimen_adapter.R": "d0edd452d315cb6b3c19e4c1ef4794a618031d6f2a9a3f13ec5a7b08b45362c6"
   },
   "sha256": {
-    "replicates.csv.gz": "0aa2737356977c60065aad87bb845e6427bf2c022e9e9ba555ae483c6d57b2c6",
-    "summary.csv": "3dd531f57e5598c193dfa4e32a606d00950cc163e098ee9f082b7b531d72b503",
-    "equivalence.csv": "e2a25942501b84600da4d98dc502dd58f7a869c5674700bac543316aa52d2c41",
-    "performance-tests.csv": "3d4b2e086cede392dfb5c7d69c9ca691c28d4984a04b5cff9ef95c5d3cd286e5",
-    "property-replicates.csv.gz": "b3effc29fc5771aa1dd109babafbc71651427210e7cc1fd80d06a3d3181e0fe7",
-    "properties.csv": "05074cb5b457d01c576613bfc02cbd7ad656185c607f83d3e70ed471349b5509"
+    "replicates.csv.gz": "6df7b85648aee4eaf17a3c392757004450dd41e3c30a32d6c63cfe0e4c90accd",
+    "summary.csv": "6cd157ff5f5d7f5ca8fa9743e96d3bcf27b4cc30f9d3fc1f237308d5a4e1995c",
+    "equivalence.csv": "bf448a84909e1b442a1bc15aec1723375b92092f680d646ef5296d48286e1546",
+    "performance-tests.csv": "d43e1ed8cd871fac15d830fbf8c352b3a8265ff2aa94873a41eef2f42d85e3cc",
+    "property-replicates.csv.gz": "03d593894158b05bbda36a31b761f083a54e25a00f3bc5d2b09d0efaadc8337e",
+    "properties.csv": "4e94486b46b7c2f3d896411320e7f6bcba0958123ec83df69ab7736416bebd92"
   }
 }

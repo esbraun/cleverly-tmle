@@ -190,36 +190,252 @@ class TestFoldInvariants:
             folds = make_folds(200, 5, random_state=0, **kwargs)
             check_integrity(folds, cluster=kwargs.get("cluster"))
 
-    def test_the_pre_1_6_grouped_fallback_still_keeps_clusters_intact(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Pin the path taken on scikit-learn before ``GroupKFold`` gained ``shuffle``.
-
-        ``pyproject.toml`` declares ``scikit-learn>=1.3``, so this fallback is supported
-        rather than vestigial -- and on a modern install it is never reached, which is
-        exactly why it needs forcing. What it gives up is shuffling strength; what it
-        must not give up is cluster integrity.
-        """
-        import sklearn.model_selection
-
-        from cleverly.learners import crossfit
-
-        real = sklearn.model_selection.GroupKFold
-
-        class NoShuffle(real):  # type: ignore[misc, valid-type]
-            def __init__(self, n_splits: int = 5, **kwargs: object) -> None:
-                if "shuffle" in kwargs:
-                    raise TypeError("__init__() got an unexpected keyword 'shuffle'")
-                super().__init__(n_splits=n_splits)
-
-        monkeypatch.setattr(crossfit, "GroupKFold", NoShuffle)
-        cluster = np.repeat(np.arange(40), 5)
-        folds = make_folds(200, 5, cluster=cluster, random_state=0)
-        # The post-condition inside make_folds already ran; assert it directly too, so
-        # this test fails on the claim rather than on an exception from elsewhere.
+    def test_a_grouped_split_keeps_clusters_intact_at_unequal_sizes(self) -> None:
+        # The grouped split is package code now, so cluster integrity is this package's
+        # own guarantee. Unequal sizes are the case a size-aware splitter treats
+        # differently, so they are the case to check.
+        cluster = _unequal_clusters(np.random.default_rng(3), n_clusters=40)
+        folds = make_folds(cluster.size, 5, cluster=cluster, random_state=0)
         check_integrity(folds, cluster=cluster)
         for train, test in folds:
             assert set(cluster[train]).isdisjoint(set(cluster[test]))
+
+
+#: Seeds for the generator grids: small, arbitrary, the largest seed
+#: ``CrossFitPlan.seeds`` can return, and the largest ``RandomState`` accepts.
+_GRID_SEEDS = (0, 1, 7, 2024, 2**31 - 2, 2**32 - 1)
+
+
+def _unequal_clusters(rng: np.random.Generator, *, n_clusters: int) -> np.ndarray:
+    """Cluster codes with sizes from one to nine, sparse labels, and shuffled rows.
+
+    Sparse labels check that the split reads the sorted distinct labels rather than the
+    codes ``0..m-1``. Shuffled rows check that it reads labels rather than row order.
+    """
+    labels = 3 + 7 * np.arange(n_clusters)
+    sizes = rng.integers(1, 10, size=n_clusters)
+    return rng.permutation(np.repeat(labels, sizes))
+
+
+def _sklearn_assignment(splitter, n: int, groups: np.ndarray | None = None) -> np.ndarray:  # type: ignore[no-untyped-def]
+    assignment = np.full(n, -1, dtype=np.int64)
+    for fold, (_, test) in enumerate(splitter.split(np.zeros((n, 1)), None, groups)):
+        assignment[test] = fold
+    assert (assignment >= 0).all()
+    return assignment
+
+
+def _assert_row_split_matches_kfold() -> None:
+    """W-gen1: the row-level generator is ``KFold(shuffle=True)`` under an integer seed.
+
+    The grid runs through the production names at call time, ``make_folds`` included, so
+    a mutant patched into ``crossfit.random_partition`` reaches both.
+    """
+    from sklearn.model_selection import KFold
+
+    from cleverly.learners import crossfit
+
+    for n in (2, 3, 7, 10, 31, 100, 257):
+        for n_folds in (2, 3, 5, 10):
+            if n_folds > n:
+                continue
+            for seed in _GRID_SEEDS:
+                expected = _sklearn_assignment(
+                    KFold(n_splits=n_folds, shuffle=True, random_state=seed), n
+                )
+                drawn = crossfit.random_partition(n, n_folds, seed=seed)
+                routed = crossfit.make_folds(n, n_folds, random_state=seed)
+                assert np.array_equal(drawn.assignment, expected), (n, n_folds, seed)
+                assert np.array_equal(routed.assignment, expected), (n, n_folds, seed)
+
+
+def _assert_grouped_split_matches_groupkfold() -> None:
+    """W-gen2, first half: the grouped generator is 1.6's ``GroupKFold(shuffle=True)``."""
+    from sklearn.model_selection import GroupKFold
+
+    from cleverly.learners import crossfit
+
+    rng = np.random.default_rng(11)
+    for n_clusters in (2, 5, 13, 40):
+        cluster = _unequal_clusters(rng, n_clusters=n_clusters)
+        for n_folds in (2, 3, 5):
+            if n_folds > n_clusters:
+                continue
+            for seed in _GRID_SEEDS:
+                splitter = GroupKFold(n_splits=n_folds, shuffle=True, random_state=seed)
+                expected = _sklearn_assignment(splitter, cluster.size, cluster)
+                drawn = crossfit.random_partition(cluster.size, n_folds, cluster=cluster, seed=seed)
+                routed = crossfit.make_folds(
+                    cluster.size, n_folds, cluster=cluster, random_state=seed
+                )
+                assert np.array_equal(drawn.assignment, expected), (n_clusters, n_folds, seed)
+                assert np.array_equal(routed.assignment, expected), (n_clusters, n_folds, seed)
+
+
+def _label_folds(folds: Folds, cluster: np.ndarray) -> dict[int, int]:
+    return {int(label): int(folds.assignment[cluster == label][0]) for label in np.unique(cluster)}
+
+
+def _assert_grouped_split_reads_only_labels_and_seed() -> None:
+    """W-gen2, second half: cluster sizes and row order do not move a cluster's fold.
+
+    Two designs share the same distinct labels and differ in every cluster's size and in
+    row order. Each label must land in the same fold in both. A splitter that balances
+    rows by size, as ``GroupKFold`` without ``shuffle`` does, fails this.
+    """
+    from cleverly.learners import crossfit
+
+    rng = np.random.default_rng(5)
+    labels = 3 + 7 * np.arange(30)
+    first = rng.permutation(np.repeat(labels, rng.integers(1, 12, size=labels.size)))
+    second = rng.permutation(np.repeat(labels, rng.integers(1, 12, size=labels.size)))
+    assert not np.array_equal(
+        np.unique(first, return_counts=True)[1], np.unique(second, return_counts=True)[1]
+    )
+    for n_folds in (2, 3, 5):
+        for seed in _GRID_SEEDS:
+            one = crossfit.random_partition(first.size, n_folds, cluster=first, seed=seed)
+            two = crossfit.random_partition(second.size, n_folds, cluster=second, seed=seed)
+            assert _label_folds(one, first) == _label_folds(two, second), (n_folds, seed)
+
+
+def _default_rng_mutant(
+    n: int, n_folds: int, *, cluster: np.ndarray | None = None, seed: int
+) -> Folds:
+    """A plausible rewrite that draws the row order from ``default_rng`` instead."""
+    from cleverly.learners import crossfit
+
+    resolved = resolve_n_folds(n_folds, n, cluster=cluster)
+    order = np.random.default_rng(seed).permutation(n)
+    assignment = np.empty(n, dtype=np.int64)
+    assignment[order] = crossfit._contiguous_blocks(n, resolved)
+    return Folds(assignment, resolved)
+
+
+def _greedy_size_mutant(
+    n: int, n_folds: int, *, cluster: np.ndarray | None = None, seed: int
+) -> Folds:
+    """The removed scikit-learn < 1.6 fallback: relabel, then assign greedily by size."""
+    from sklearn.model_selection import GroupKFold
+
+    assert cluster is not None
+    resolved = resolve_n_folds(n_folds, n, cluster=cluster)
+    unique = np.unique(cluster)
+    relabel = np.random.default_rng(seed).permutation(unique.size)
+    lookup = dict(zip(unique.tolist(), relabel.tolist(), strict=True))
+    shuffled = np.array([lookup[int(code)] for code in cluster], dtype=np.int64)
+    assignment = _sklearn_assignment(GroupKFold(n_splits=resolved), n, shuffled)
+    return Folds(assignment, resolved)
+
+
+class TestTheOuterFoldGenerator:
+    """``random_partition`` owns the unstratified outer split, row-level and grouped.
+
+    Each witness has a mutation control that patches a plausible wrong generator into
+    production and requires the witness to fail. A witness that passes on the mutant
+    would pass on a generator that does not do what the witness names.
+    """
+
+    def test_the_row_split_is_kfold_with_an_integer_seed(self) -> None:
+        _assert_row_split_matches_kfold()
+
+    def test_the_row_split_witness_rejects_a_default_rng_generator(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from cleverly.learners import crossfit
+
+        monkeypatch.setattr(crossfit, "random_partition", _default_rng_mutant)
+        with pytest.raises(AssertionError):
+            _assert_row_split_matches_kfold()
+
+    def test_the_grouped_split_is_shuffled_groupkfold(self) -> None:
+        import sklearn
+
+        major, minor = (int(part) for part in sklearn.__version__.split(".")[:2])
+        if (major, minor) < (1, 6):
+            pytest.skip("GroupKFold(shuffle=True) arrived in scikit-learn 1.6")
+        _assert_grouped_split_matches_groupkfold()
+
+    def test_the_grouped_split_reads_only_labels_and_seed(self) -> None:
+        _assert_grouped_split_reads_only_labels_and_seed()
+
+    @pytest.mark.parametrize(
+        "witness",
+        [
+            _assert_grouped_split_matches_groupkfold,
+            _assert_grouped_split_reads_only_labels_and_seed,
+        ],
+    )
+    def test_each_grouped_witness_rejects_the_greedy_size_fallback(
+        self, monkeypatch: pytest.MonkeyPatch, witness
+    ) -> None:  # type: ignore[no-untyped-def]
+        from cleverly.learners import crossfit
+
+        monkeypatch.setattr(crossfit, "random_partition", _greedy_size_mutant)
+        with pytest.raises(AssertionError):
+            witness()
+
+    def test_the_origin_records_the_request_before_the_cap(self) -> None:
+        from cleverly.learners import FoldOrigin, random_partition
+
+        cluster = np.repeat(np.array([4, 9, 20]), [2, 5, 3])
+        with pytest.warns(UserWarning, match="only 3 clusters"):
+            folds = random_partition(cluster.size, 5, cluster=cluster, seed=17)
+        assert folds.n_folds == 3
+        assert folds.origin == FoldOrigin(
+            generator="cleverly.random_partition/1",
+            scheme="grouped",
+            requested_n_folds=5,
+            seed=17,
+        )
+        row = random_partition(10, 4, seed=3)
+        assert row.origin is not None
+        assert (row.origin.scheme, row.origin.requested_n_folds, row.origin.seed) == (
+            "vfold",
+            4,
+            3,
+        )
+
+    def test_a_stratified_split_carries_no_origin(self, sample) -> None:
+        # The origin names the package generator, and a stratified split is scikit-learn's.
+        _, _, a = sample
+        assert make_folds(a.size, 5, stratify=a, random_state=0).origin is None
+
+    def test_an_unseeded_split_records_a_seed_that_reproduces_it(self) -> None:
+        from cleverly.learners import random_partition
+
+        folds = make_folds(50, 5, random_state=None)
+        assert folds.origin is not None
+        again = random_partition(50, 5, seed=folds.origin.seed)
+        assert np.array_equal(again.assignment, folds.assignment)
+
+    def test_equality_ignores_the_origin(self) -> None:
+        from dataclasses import fields
+
+        assert {spec.name: spec.compare for spec in fields(Folds)}["origin"] is False
+
+    def test_a_pickle_that_predates_the_origin_restores_with_none(self) -> None:
+        import pickle
+
+        restored = object.__new__(Folds)
+        restored.__setstate__({"assignment": np.array([0, 1, 0, 1]), "n_folds": 2})
+        assert restored.origin is None
+        assert pickle.loads(pickle.dumps(restored)).origin is None
+
+    @pytest.mark.parametrize(
+        ("seed", "match"),
+        [
+            (-1, "must lie in"),
+            (2**32, "must lie in"),
+            (1.5, "must be an integer"),
+            (True, "integer"),
+        ],
+    )
+    def test_a_seed_outside_the_generator_range_is_refused(self, seed, match: str) -> None:  # type: ignore[no-untyped-def]
+        from cleverly.learners import random_partition
+
+        with pytest.raises(ValueError, match=match):
+            random_partition(10, 2, seed=seed)
 
 
 class TestRefusedSchemes:
@@ -311,14 +527,19 @@ class TestTheDeclaredPlanIsRecordedOnAFit:
     """
 
     def _frame(self, n_clusters: int = 3, per_cluster: int = 20):  # type: ignore[no-untyped-def]
+        # A binary outcome: this class fits with cross_fit=True (the default), and a
+        # cross-fitted continuous outcome now needs a declared q_bounds. What this class
+        # is about -- the declared fold plan beside the realised one -- does not depend
+        # on the outcome's family, so a binary law keeps the fit accepted without one.
         pd = pytest.importorskip("pandas")
         n = n_clusters * per_cluster
         rng = np.random.default_rng(0)
         w = rng.normal(size=n)
         a = rng.binomial(1, 0.5, n).astype(float)
+        y = rng.binomial(1, 1.0 / (1.0 + np.exp(-(w + a)))).astype(float)
         return pd.DataFrame(
             {
-                "Y": w + a + rng.normal(scale=0.5, size=n),
+                "Y": y,
                 "A": a,
                 "W": w,
                 "pid": np.repeat(np.arange(n_clusters), per_cluster),
@@ -334,8 +555,8 @@ class TestTheDeclaredPlanIsRecordedOnAFit:
     def test_an_ordinary_fit_declares_what_it_ran(self) -> None:
         config = self._fit(self._frame(), n_folds=3).config
         assert config.crossfit.n_folds == 3 == config.n_folds
-        assert config.crossfit.scheme == "stratified"
-        assert config.crossfit.stratify_by == ("A",)
+        assert config.crossfit.scheme == "vfold"
+        assert config.crossfit.stratify_by == ()
 
     def test_a_capped_split_records_both_counts(self) -> None:
         # Three clusters cannot support ten folds. Before the plan, the realised 3 was
@@ -345,7 +566,7 @@ class TestTheDeclaredPlanIsRecordedOnAFit:
             config = self._fit(frame, n_folds=10, cluster_id="pid").config
         assert config.crossfit.n_folds == 10
         assert config.n_folds == 3
-        assert config.crossfit.scheme == "stratified-grouped"
+        assert config.crossfit.scheme == "grouped"
 
     def test_the_summary_says_so_only_when_they_disagree(self) -> None:
         frame = self._frame(n_clusters=3, per_cluster=20)
@@ -360,6 +581,73 @@ class TestTheDeclaredPlanIsRecordedOnAFit:
         assert not config.crossfit.cross_fit
         assert config.crossfit.scheme == "none"
         assert config.crossfit.stratify_by == ()
+
+
+class TestAnUndeclaredSeedIsResolved:
+    """``random_state=None`` still draws every split from a concrete, recorded seed.
+
+    The recorded seed is checked by replay: a fit declared with that seed must reproduce
+    the unseeded fit exactly. A seed that reached the folds but not the learners or the
+    selection folds would fail the replay, because those stages would then draw from
+    unrecorded entropy.
+    """
+
+    def _frame(self):  # type: ignore[no-untyped-def]
+        # A binary outcome: some tests here cross-fit (the default), and a cross-fitted
+        # continuous outcome now needs a declared q_bounds, which is beside what seed
+        # replay is about.
+        pd = pytest.importorskip("pandas")
+        rng = np.random.default_rng(4)
+        n = 120
+        w = rng.normal(size=n)
+        a = rng.binomial(1, 1.0 / (1.0 + np.exp(-w))).astype(float)
+        y = rng.binomial(1, 1.0 / (1.0 + np.exp(-(w + a)))).astype(float)
+        return pd.DataFrame({"Y": y, "A": a, "W": w})
+
+    def _fit(self, estimator, frame):  # type: ignore[no-untyped-def]
+        return estimator.fit(frame, outcome="Y", treatment="A", covariates=["W"]).single()
+
+    @pytest.mark.parametrize("cross_fit", [True, False])
+    def test_the_recorded_seed_replays_the_unseeded_fit(self, cross_fit: bool) -> None:
+        frame = self._frame()
+        unseeded = self._fit(fast_tmle(random_state=None, cross_fit=cross_fit), frame)
+        seed = unseeded.repeats[0].seed
+        assert isinstance(seed, int)
+        assert 0 <= seed < 2**31 - 1
+        assert unseeded.config.crossfit.random_state is None
+        replay = self._fit(fast_tmle(random_state=seed, cross_fit=cross_fit), frame)
+        assert replay.repeats[0].seed == seed
+        assert np.array_equal(replay.nuisance.folds.assignment, unseeded.nuisance.folds.assignment)
+        assert replay["ate"].psi == unseeded["ate"].psi
+        assert replay["ate"].std_error == unseeded["ate"].std_error
+
+    def test_each_unseeded_repeat_gets_its_own_seed(self) -> None:
+        result = self._fit(fast_tmle(random_state=None, repeats=3), self._frame())
+        seeds = [repeat.seed for repeat in result.repeats]
+        assert all(isinstance(seed, int) for seed in seeds)
+        assert len(set(seeds)) == 3
+
+    def test_a_declared_seed_passes_through(self) -> None:
+        result = self._fit(fast_tmle(random_state=5), self._frame())
+        assert result.repeats[0].seed == 5
+        repeated = self._fit(fast_tmle(random_state=5, repeats=2), self._frame())
+        plan = repeated.config.crossfit
+        assert tuple(repeat.seed for repeat in repeated.repeats) == plan.seeds()
+
+    def test_the_collaborative_selection_replays_from_the_recorded_seed(self) -> None:
+        # C-TMLE draws selection folds even at cross_fit=False, and the selector reads the
+        # draw seed. The replay therefore fails if the resolved seed misses the selector.
+        from cleverly.estimators import CTMLE
+        from tests.conftest import FAST_KWARGS
+
+        frame = self._frame()
+        kwargs = {**FAST_KWARGS, "estimands": ("ate",), "selection_folds": 3, "cross_fit": False}
+        unseeded = self._fit(CTMLE(**{**kwargs, "random_state": None}), frame)
+        seed = unseeded.repeats[0].seed
+        assert isinstance(seed, int)
+        replay = self._fit(CTMLE(**{**kwargs, "random_state": seed}), frame)
+        assert replay["ate"].psi == unseeded["ate"].psi
+        assert replay["ate"].std_error == unseeded["ate"].std_error
 
 
 class TestStratifyingOnARareOutcome:
@@ -395,29 +683,35 @@ class TestStratifyingOnARareOutcome:
         per_fold = [data.outcome[assignment == f].sum() for f in range(assignment.max() + 1)]
         assert min(per_fold) == 0
 
-    def test_crossing_the_outcome_in_puts_an_event_in_every_fold(self) -> None:
+    def test_crossing_the_outcome_in_is_refused_under_cross_fitting(self) -> None:
+        """ "treatment+outcome" used to reach every rare cell; cross-fitting refuses it now.
+
+        No fold count can revive it: the policy is refused before any split is drawn,
+        which is why the refusal reaches the caller through :meth:`TMLE._folds` exactly
+        where the old capped assignment used to come from.
+        """
         data = self._rare_event_data(n=300, n_events=8)
-        with pytest.warns(UserWarning, match="reducing n_folds"):
-            assignment = self._assignment(data, n_folds=10, stratify_folds="treatment+outcome")
-        per_fold = [data.outcome[assignment == f].sum() for f in range(assignment.max() + 1)]
-        assert min(per_fold) >= 1
+        with pytest.raises(ValueError, match=r"stratify_folds='treatment\+outcome'"):
+            self._assignment(data, n_folds=10, stratify_folds="treatment+outcome")
 
     def test_the_fold_count_is_capped_at_the_rarest_cell(self) -> None:
-        data = self._rare_event_data(n=300, n_events=8)
-        est = fast_tmle(n_folds=10, stratify_folds="treatment+outcome")
-        with pytest.warns(UserWarning, match="reducing n_folds"):
-            realised = est._folds(data).n_folds
-        # Ten declared, eight events in the rarest cell, so eight folds ran -- and both
-        # numbers are recoverable rather than only the one that happened.
-        assert est.crossfit_plan(data).n_folds == 10
-        assert realised == 8
-        assert est.crossfit_plan(data).stratify_by == ("A", "Y")
+        """The old cap never runs: the declaration is refused before ``data`` is read.
 
-    def test_the_default_is_unchanged_bit_for_bit(self) -> None:
+        ``n_folds=10`` and eight events in the rarest cell used to leave eight folds
+        capped from ten.  Refusing the declaration at construction, with no ``data``
+        argument at all, is stricter than that cap and makes it unreachable.
+        """
+        with pytest.raises(ValueError, match=r"stratify_folds='treatment\+outcome'"):
+            fast_tmle(n_folds=10, stratify_folds="treatment+outcome")
+
+    def test_the_default_is_now_none_and_the_old_default_is_refused(self) -> None:
+        """``stratify_folds="treatment"`` was the default; it is refused under cross-fitting now."""
         data = self._rare_event_data()
-        explicit = self._assignment(data, n_folds=5, stratify_folds="treatment")
+        explicit_none = self._assignment(data, n_folds=5, stratify_folds="none")
         implied = self._assignment(data, n_folds=5)
-        np.testing.assert_array_equal(explicit, implied)
+        np.testing.assert_array_equal(explicit_none, implied)
+        with pytest.raises(ValueError, match=r"stratify_folds='treatment'"):
+            self._assignment(data, n_folds=5, stratify_folds="treatment")
 
     def test_a_missing_outcome_is_its_own_stratum_not_a_zero(self) -> None:
         # A fold with no *observed* outcomes in an arm cannot fit the regression either,
@@ -437,7 +731,10 @@ class TestStratifyingOnARareOutcome:
         )
         frame.loc[:5, "D"] = 0.0
         frame.loc[:5, "Y"] = np.nan
-        est = fast_tmle(stratify_folds="treatment+outcome")
+        # cross_fit=False: this checks _fold_strata's own per-row coding, which is
+        # unaffected by the policy migration, and not the now-refused declaration of
+        # stratify_folds="treatment+outcome" under cross-fitting.
+        est = fast_tmle(stratify_folds="treatment+outcome", cross_fit=False)
         data = CausalData.from_frame(frame, outcome="Y", treatment="A", covariates=["W"], delta="D")
         codes = est._fold_strata(data)
         assert codes is not None
@@ -446,18 +743,6 @@ class TestStratifyingOnARareOutcome:
         unobserved = set(np.unique(codes[~data.observed]).tolist())
         observed = set(np.unique(codes[data.observed]).tolist())
         assert unobserved.isdisjoint(observed)
-
-    def test_a_continuous_outcome_is_refused_by_name(self) -> None:
-        from cleverly.data import CausalData
-
-        rng = np.random.default_rng(0)
-        data = CausalData.from_arrays(
-            outcome=rng.normal(size=200),
-            treatment=rng.binomial(1, 0.5, 200).astype(float),
-            covariates=rng.normal(size=(200, 1)),
-        )
-        with pytest.raises(DataError, match="needs a binary outcome"):
-            fast_tmle(stratify_folds="treatment+outcome")._fold_strata(data)
 
     def test_an_unknown_value_is_refused(self) -> None:
         with pytest.raises(ValueError, match="stratify_folds must be"):

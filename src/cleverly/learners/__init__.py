@@ -17,10 +17,12 @@ from ._threads import (
 )
 from .crossfit import (
     CrossFitPlan,
+    FoldOrigin,
     Folds,
     SplitPlan,
     check_integrity,
     make_folds,
+    random_partition,
     refuse_scheme,
     resolve_n_folds,
 )
@@ -39,6 +41,7 @@ __all__ = [
     "CorrelationScreener",
     "CrossFitPlan",
     "DensityDiagnostics",
+    "FoldOrigin",
     "Folds",
     "SplitPlan",
     "SuperLearner",
@@ -53,6 +56,7 @@ __all__ = [
     "infer_task",
     "make_folds",
     "predict_mean",
+    "random_partition",
     "refresh_thread_pools",
     "refuse_scheme",
     "resolve_n_folds",

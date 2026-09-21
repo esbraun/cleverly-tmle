@@ -221,18 +221,18 @@ previous reader had is not a citation; a page number is.
   in Definitions 3.1 and 3.2, pages 23–24. Each says "Take a K-fold random partition" of the indices,
   with folds of size $N/K$. Neither definition stratifies the partition. This audit did not compare
   that page with the journal version.
-  [RM17](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) cites
-  this wording.
+  The [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules)
+  cite this wording.
 - Rafi (2023), [*Efficient Semiparametric Estimation of Average Treatment Effects Under Covariate
   Adaptive Randomization*](https://arxiv.org/abs/2305.08340), arXiv:2305.08340v1. Read first-hand.
   The paper treats a binary treatment under covariate-adaptive randomization, with target
   proportions set by design. Assumption 4.2, page 20, splits each treatment-by-stratum cell into
   folds. The folds "depend only on" an independent uniform draw and the cell size. The estimator is
   a cross-fitted AIPW estimator, not a TMLE. The strata are covariate strata, not outcome strata.
-  The paper therefore does not cover the package's treatment-stratified folds for observational
-  data. The completed
-  [RM17 audit](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting)
-  records this gap.
+  The paper therefore does not cover an observational cross-fitted fit, which is what the package
+  draws its folds for. The
+  [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules)
+  record this gap.
 - zEpid 0.9.1, repeated cross-fit aggregation at commit
   [`16a0f96`, lines 1602-1641](https://github.com/pzivich/zEpid/blob/16a0f96f8b2c65df8715085801f21757d1478e1e/zepid/causal/doublyrobust/crossfit.py#L1602-L1641).
   The `calculate_joint_estimate` median branch implements the same point and variance
@@ -414,14 +414,14 @@ previous reader had is not a citation; a page number is.
   | binary outcome; `ey`, `ey0`, `ey1`, `ate` | source-supported | the five links |
   | binary outcome; `rr` and `or` on the log scale | source-supported | the five links and Appendix A, page 34 |
   | bounded continuous outcome with a fixed `q_bounds`; `ey`, `ey0`, `ey1`, `ate` | source-supported | Zheng and van der Laan, Theorem 2 with the `(W, T_a, U)` reduction; their Theorem 4 and Gruber and van der Laan (2010), Section 2 and Lemma 1, for the transform |
-  | continuous outcome with `q_bounds=None` | no reviewed interval result | the scale depends on held-out outcomes, as the next paragraph states; the [RM17 audit](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) requires prespecified bounds |
+  | continuous outcome with `q_bounds=None` | no reviewed interval result | the scale depends on held-out outcomes, as the next paragraph states; the [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules) require prespecified bounds |
   | three or more arms, with a binary outcome or a bounded continuous outcome with a fixed `q_bounds`; `ey`, and `ate` against the reference arm; `rr` and `or` against the reference arm for a binary outcome | source-supported | the three-arm table above, with the contrast curve as a standard consequence; the planned R comparator runs the population-mean path once for each arm |
   | simultaneous bands over the reported estimands, with the centered rule | source-supported via the vector expansion | Zheng and van der Laan, Theorem 2, give a joint expansion of the vector with curve `D`, so the estimates are jointly asymptotically normal; the default Rademacher multiplier band then follows from a conditional multiplier central limit theorem for a fixed number of estimands, a standard consequence that the paper does not state |
   | ATT or ATC | no source read | the clever covariate carries an empirical arm share, so the Levy overlap statement does not cover it |
   | more than one repeat, or fold-specific targeting | no source read | no direct interval result |
   | fold-evaluated construction | source-supported, separate estimator | Zheng and van der Laan, Sections 2 and 2.1 |
   | supplied split plan | no source read | the balance and weighting requirements are unaudited |
-  | folds stratified on treatment or outcome | no reviewed result for this fit | the [RM17 audit](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) requires generated unstratified folds for this contract |
+  | folds stratified on treatment or outcome | no reviewed result for this fit | the [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules) require generated unstratified folds for every cross-fitted fit |
   | one fold with cross-fitting | not cross-fitting | one fold trains and evaluates on the same rows |
   | weights, clusters, or baseline strata | no source read | every source treats unweighted iid rows |
   | bootstrap inference | no source read | no source covers a bootstrap of this estimator |
@@ -440,9 +440,9 @@ previous reader had is not a citation; a page number is.
   | --- | --- |
   | shift, incremental, regime, MSM, and controlled-direct-effect targets | they fit today under cross-fitting with missing outcomes, and tests cover them |
   | ordinary arm-indexed missing-outcome study | it registers only binary `ey1`, `ey0`, and `ate` |
-  | registered complete-outcome stacked study | it uses treatment-stratified folds and bounds from the sample outcome range (`tests/studies/canonical_cvtmle.py:100-101`); [RM17](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) holds this gap |
+  | registered complete-outcome stacked study | it now declares unstratified folds and `q_bounds=(0, 1)` on a bounded law, and it asserts the realized scheme before it reports a row (`tests/studies/canonical_cvtmle.py`). The gap this row recorded is closed |
   | ordinary C-TMLE with missing outcomes | the audit did not read a source for it |
-  | the `learner_folds` split inside a Super Learner | it stratifies on the outcome for a binary outcome learner (`src/cleverly/learners/super_learner.py:238-241`). In an iid point-treatment or fold-local longitudinal cross-fitted fit, the [RM17 audit](roadmap.md#rm17-data-dependent-fold-strata-and-outcome-scales-under-cross-fitting) finds that its fold assignment reads no outer-held-out outcome. That finding requires an outer split that reads no outcome. The C-TMLE selection folds cross the outer split ([F18](roadmap.md#f18-selector-path-c-tmle-inference)). The audit finds no stratified Super Learner oracle result. The implemented preflight requires two rows in each class of the role target in every training complement, for each role whose resolved learner is a package `SuperLearner` with a classification task. At that count every inner training set holds both classes. The preflight cannot see a `SuperLearner` nested inside a user pipeline, which can still fail inside the fit |
+  | the `learner_folds` split inside a Super Learner | it stratifies on the outcome for a binary outcome learner (`src/cleverly/learners/super_learner.py:238-241`). In an iid point-treatment or fold-local longitudinal cross-fitted fit, the [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules) find that its fold assignment reads no outer-held-out outcome. That finding requires an outer split that reads no outcome. The C-TMLE selection folds cross the outer split ([F18](roadmap.md#f18-selector-path-c-tmle-inference)). The audit finds no stratified Super Learner oracle result. The implemented preflight requires two rows in each class of the role target in every training complement, for each role whose resolved learner is a package `SuperLearner` with a classification task. At that count every inner training set holds both classes. The preflight cannot see a `SuperLearner` nested inside a user pipeline, which can still fail inside the fit |
 - Díaz & van der Laan (2017), [*Doubly robust inference for targeted minimum loss-based estimation
   in randomized trials with missing outcome data*](https://doi.org/10.1002/sim.7389), *Statistics
   in Medicine* 36:3807–3819 ([author manuscript](https://arxiv.org/abs/1704.01538)). Read
@@ -518,9 +518,107 @@ previous reader had is not a citation; a page number is.
   shipped longitudinal cross-fitted estimator instead targets a recursion in each training fold.
   The authors' `lmtp` 1.5.4 also targets within each training fold, and the registered comparison
   uses it ([method evidence](technical-reference/method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md)).
-  The theorem does not certify the fold-local targeting or the first-node treatment strata.
+  The theorem does not certify the fold-local targeting. The package no longer stratifies the
+  first-node split, which the
+  [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules)
+  record.
 - van der Laan & Rose (2011), *Targeted Learning: Causal Inference for Observational and
   Experimental Data*, Springer. Chapter 12 covers marginal structural model targets.
+
+## Grouped folds and clustered cross-fitting
+
+A declared `id=` makes the cluster the independent unit, and it makes the outer split a draw of
+whole clusters. The sources below were read for that composition. The
+[fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules) carry
+the audit table and the verdicts. This section gives each source in full.
+
+Each entry names the version whose section numbers the locators come from. A section number and a
+theorem number are stable across an author manuscript and its published article. An internal page
+number is not, so no entry below quotes one.
+
+- Wang, Park, Small & Li (2024), [*Model-Robust and Efficient Covariate Adjustment for
+  Cluster-Randomized Experiments*](https://doi.org/10.1080/01621459.2023.2289693), *Journal of the
+  American Statistical Association* 119(548):2959-2971, DOI 10.1080/01621459.2023.2289693. Read
+  first-hand in the NIHMS author manuscript
+  ([PMC11795269](https://pmc.ncbi.nlm.nih.gov/articles/PMC11795269/)), which carries the published
+  volume, issue, pages and DOI. Section 4.2 partitions "m clusters into K parts with roughly equal
+  sizes (the size difference is at most 1)". That is the law a grouped `random_partition` draw
+  follows. Theorem 4(b) gives asymptotic normality and the efficiency bound when the nuisance
+  estimators converge at the fourth root of the cluster count. The estimator is AIPW-type with a
+  cluster-level treatment under cluster randomization, and not a TMLE with a row-level treatment.
+  Remark 5 says a stratified cluster randomization needs treatment balance within each stratum of
+  each fold, and it defers that construction to Rafi (2023). This source supports the split law.
+  It does not prove the package's estimator.
+- Chiang, Kato, Ma & Sasaki (2022), [*Multiway Cluster Robust Double/Debiased Machine
+  Learning*](https://doi.org/10.1080/07350015.2021.1895815), *Journal of Business and Economic
+  Statistics* 40(3):1046-1056, DOI 10.1080/07350015.2021.1895815. Read first-hand in the Taylor and
+  Francis online-first PDF, whose pagination differs from the issue, so the locators are sections.
+  Sections 3.1.2 and 3.2 and Algorithm 1 partition the cluster indices at random into equal parts.
+  Assumptions 1 and 3(i) and Theorem 1 give the result. It covers two-way clustering and linear
+  Neyman-orthogonal DML scores. It has no stratification, no TMLE, and no one-way theorem.
+- Park & Kang, [*A More Efficient, Doubly Robust, Nonparametric Estimator of Treatment Effects in
+  Multilevel Studies*](https://arxiv.org/abs/2110.07740), arXiv:2110.07740. Read first-hand in v3,
+  which version 4 supersedes. Section 3.3 splits "at the cluster level instead of at the
+  individual-level". Supplement A.1, Theorem A.1 under its modified condition (M1), gives the
+  result for independent clusters of bounded size. It weights cluster averages, which equals row
+  weighting only at equal cluster sizes. It is an unrefereed AIPW or DML result rather than a
+  TMLE.
+- Karim (2026), [*Cross-Fitted Survey-Weighted TMLE with Design-Based Variance for Causal Machine
+  Learning*](https://arxiv.org/abs/2606.30918), arXiv:2606.30918. Read first-hand in the v2 main
+  text. The proofs are in a web appendix this project did not read. Section 3.3 and condition (C2)
+  ask that folds be "formed of whole PSUs, assigned by a data-independent rule and balanced within
+  every stratum". Theorems 1 and 2 give the result. This is the closest estimator read: a row-level
+  TMLE with a pooled fluctuation. Its strata are survey sampling strata, and (C2) excludes
+  treatment strata. The preprint is unrefereed.
+- Benitez, Nugent & Balzer (2023), [*Defining and estimating effects in cluster randomized trials:
+  A methods comparison*](https://doi.org/10.1002/sim.9813), *Statistics in Medicine*
+  42(19):3443-3466, DOI 10.1002/sim.9813. Read first-hand in the NIHMS author manuscript
+  ([PMC10898620](https://pmc.ncbi.nlm.nih.gov/articles/PMC10898620/)). Section 3.1.2 and Section
+  3.2.1 give the cluster-sum aggregation for a row-weighted estimand. Section 3.2.1 states that
+  sample splitting and variance estimation "must respect the cluster as the independent unit". The
+  paper gives no fold law and no theorem for one. It also recommends a $t$ reference when the
+  cluster count is small.
+- Balzer, Zheng, van der Laan & Petersen (2019), [*A new approach to hierarchical data analysis:
+  Targeted maximum likelihood estimation for the causal effect of a cluster-level
+  exposure*](https://doi.org/10.1177/0962280218774936), *Statistical Methods in Medical Research*
+  28(6):1761-1780, DOI 10.1177/0962280218774936. Read first-hand in the NIHMS author manuscript
+  ([PMC6173669](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6173669/)). Section 3.1, Equation (9),
+  and Section 4.2, Equations (20) and (21), give a cluster-level exposure and a cluster-level
+  estimand. There is no cross-fitting and no split law.
+- Balzer, van der Laan & Petersen (2016), [*Adaptive pre-specification in randomized trials with
+  and without pair-matching*](https://doi.org/10.1002/sim.7023), *Statistics in Medicine*
+  35(25):4528-4545, DOI 10.1002/sim.7023. Read first-hand in the NIHMS author manuscript
+  ([PMC5084457](https://pmc.ncbi.nlm.nih.gov/articles/PMC5084457/)). Sections 3.1, 4.1, 5.1 and 6
+  select an adjustment variable by cross-validation over independent units, where a row is a
+  cluster, in a randomized trial with a fixed GLM library. There is no post-selection theorem and
+  no row-level C-TMLE.
+- Balzer, van der Laan, Ayieko, Kamya, Chamie, Schwab, Havlir & Petersen (2023), [*Two-Stage TMLE
+  to reduce bias and improve efficiency in cluster randomized
+  trials*](https://doi.org/10.1093/biostatistics/kxab043), *Biostatistics* 24(2):502-517, DOI
+  10.1093/biostatistics/kxab043. Sections 3.2 and 3.3 give a two-stage cluster-level estimator.
+  There is no cross-fitting.
+- Nugent, Marquez, Charlebois, Abbott & Balzer (2024), [*Blurring cluster randomized trials and
+  observational studies: Two-Stage TMLE for subsampling, missingness, and few independent
+  units*](https://doi.org/10.1093/biostatistics/kxad015), *Biostatistics* 25(3):599-616, DOI
+  10.1093/biostatistics/kxad015. Sections 2.1.3 and 2.2 treat subsampling, missingness and few
+  independent units. There is no cross-fitting. The paper recommends a $t$ reference with $J-2$
+  degrees of freedom when the cluster count is small.
+- Schnitzer, van der Laan, Moodie & Platt (2014), [*Effect of breastfeeding on gastrointestinal
+  infection in infants: A targeted maximum likelihood approach for clustered longitudinal
+  data*](https://doi.org/10.1214/14-AOAS727), *The Annals of Applied Statistics* 8(2):703-725, DOI
+  10.1214/14-AOAS727. Read first-hand in the [arXiv reprint](https://arxiv.org/abs/1407.8371),
+  which reproduces the journal text. Section 3.4.1 gives a clustered longitudinal TMLE with a
+  sandwich variance and no sample splitting. There is no cross-fitting theorem.
+
+No source above covers treatment-stratified grouped folds for an observational estimator. None
+covers cross-fitted longitudinal TMLE with whole-cluster folds. The package refuses both.
+
+The grouped point-treatment split rests on Wang et al. (2024) for the partition, and on the
+package's own estimating-equation argument for the rest. The
+[fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules) state
+that argument with its four conditions. The registered
+[clustered point-treatment CV-TMLE study](technical-reference/method-evidence/clustered-point-treatment-cv-tmle.md)
+is the only empirical witness for it.
 
 ## Collaborative TMLE
 
@@ -554,8 +652,10 @@ previous reader had is not a citation; a page number is.
   the pre-ordering and the number of covariates with one cross-validation. To save computation,
   the authors "do not rely on a nested cross-validation procedure to select k for each
   pre-ordering strategy m". The source does not describe inner folds that cross-fit nuisances
-  within each selection-training fold, as the shipped selector does. It specifies no treatment-
-  or outcome-stratified fold rule for the shipped selector.
+  within each selection-training fold, as the shipped selector does. It specifies no fold rule for
+  the shipped selector at all. The selector now draws both layers unstratified, which the
+  [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules)
+  record.
 - Ju, Benkeser & van der Laan (2020), [*Robust inference on the average treatment effect using the
   outcome highly adaptive lasso*](https://arxiv.org/abs/1806.06784), *Biometrics* 76(1):109-118,
   DOI 10.1111/biom.13121. This is another adaptive-propensity construction with explicit

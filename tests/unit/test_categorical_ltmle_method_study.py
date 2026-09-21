@@ -31,7 +31,7 @@ def test_each_categorical_outer_fold_recovers_the_exact_law_and_gateaux_curve() 
     base = law.frame()
     frame = pd.concat([base] * common.N_FOLDS, ignore_index=True)
     folds = Folds(np.repeat(np.arange(common.N_FOLDS), len(base)), common.N_FOLDS)
-    with patch("cleverly.longitudinal.estimator.make_folds", return_value=folds):
+    with patch("cleverly.longitudinal.estimator.random_partition", return_value=folds):
         result = common.fit(frame, cross_fit=True, configuration="both_correct")
 
     for name in common.CONTRASTS.values():
@@ -56,7 +56,7 @@ def _first_follower(frame: pd.DataFrame) -> int:
 
     Which row this is matters, and it is the whole reason this helper exists.  Three levels
     at each of two nodes give nine arm pairs and the study declares five plans, so most rows
-    follow none of them: at ``n=500`` on this law, 235 of them leave every plan at one node
+    follow none of them: at ``n=500`` on this law, 228 of them leave every plan at one node
     or the other.  A perturbation to such a row's outcome enters no sequential regression at
     all, and the equality assertions below would then hold because the two fits are bit for
     bit the same fit -- not because a fold kept its held-out rows out of its own training
@@ -81,7 +81,7 @@ def test_a_held_out_outcome_cannot_enter_its_categorical_recursion() -> None:
     which is what makes it evidence about anything; and it must not reach the fitted values
     of the row it belongs to, which is what fold isolation means.
     """
-    frame, _ = crossfit.draw_scenario(common.SCENARIO, 500, 1)
+    frame, _ = crossfit.draw_scenario(common.SCENARIO, 500, 16)
     original = crossfit.fit_cleverly(frame)
     changed = frame.copy()
     row = _first_follower(frame)
@@ -120,7 +120,7 @@ def test_serialized_folds_are_the_fitted_assignments_for_both_constructions() ->
         patch(
             "tests.studies.categorical_longitudinal_common.draw_for", return_value=(frame, truth)
         ),
-        patch("cleverly.longitudinal.estimator.make_folds", return_value=planted),
+        patch("cleverly.longitudinal.estimator.random_partition", return_value=planted),
     ):
         sample, truths, _ = common._replicate(crossfit.STUDY, True, common.SCENARIO, 0, len(frame))
     np.testing.assert_array_equal(sample["fold"].to_numpy(), planted.assignment)

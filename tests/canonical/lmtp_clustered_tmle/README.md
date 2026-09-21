@@ -1,9 +1,11 @@
 # Clustered point-treatment CV-TMLE evidence
 
 This fixture compares `cleverly` with pinned R `lmtp` 1.5.4 and `ife` 0.2.3. Both
-implementations use the same clustered samples, exact treatment mechanism, and five grouped
-folds. The R runner keeps the cluster identifier in each `ife` estimate. It forms the ATE by
-subtracting the two arm objects, so the joint influence curve supplies cluster-robust inference.
+implementations use the same clustered binary-outcome samples, exact treatment mechanism, and
+five grouped folds. Every replication shares one grouped partition, drawn once from the cluster
+identifier and the fixed seed 0. The R runner keeps the cluster identifier in each `ife` estimate.
+It forms the ATE by subtracting the two arm objects, so the joint influence curve supplies
+cluster-robust inference.
 
 Run a disposable comparison before the full study.
 

@@ -1,4 +1,12 @@
-"""Paired evidence for fold-targeted, fold-evaluated point-treatment CV-TMLE."""
+"""Paired evidence for fold-targeted, fold-evaluated point-treatment CV-TMLE.
+
+The primary rows fit one supplied partition rather than a generated one:
+:class:`FixedFoldTMLE` overrides the split with the assignment zEpid drew, so the pair
+compares two targeting steps on identical folds.  That assignment reads neither the
+treatment nor the outcome, and the realized plan the fit records says so.  The law is
+binary, so the outcome scaler is the identity and no ``q_bounds`` is declared.  The property
+cells are the shared cross-fitted families, which sample bounded laws and do declare it.
+"""
 
 from __future__ import annotations
 
@@ -15,7 +23,7 @@ from cleverly.estimators import TMLE
 from cleverly.learners.crossfit import Folds, check_integrity
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
-from tests.studies.canonical_cvtmle import G_BOUNDS, cv_fit, rows_from_result
+from tests.studies.canonical_cvtmle import G_BOUNDS, STRATIFY_FOLDS, cv_fit, rows_from_result
 from tests.studies.canonical_tmle import draw_from_seed as canonical_tmle_draw_from_seed
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
@@ -67,8 +75,12 @@ STUDY = StudyRecord(
         "tests/studies/canonical_cvtmle.py",
         "tests/studies/canonical_tmle.py",
         "tests/studies/canonical_properties.py",
+        "tests/studies/bounded_cv_laws.py",
         "tests/studies/cvtmle_properties.py",
         "tests/studies/fold_targeted_cvtmle_properties.py",
+        "tests/studies/fractional_glm.py",
+        "tests/studies/point_study_helpers.py",
+        "tests/conftest.py",
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/inference.py",
         "tests/studies/evidence/performance.py",
@@ -97,8 +109,12 @@ CONFIGURATION = {
     "cv_evaluation": True,
     "simultaneous_intervals": False,
     "g_bounds": list(G_BOUNDS),
-    "q_bounds": "binary outcome",
-    "folds": "identical equal-size row assignments supplied to both implementations",
+    "stratify_folds": STRATIFY_FOLDS,
+    "q_bounds": "none: the law is binary, so the outcome scaler is already the identity",
+    "folds": (
+        "identical equal-size row assignments supplied to both implementations, drawn "
+        "without reading the treatment or the outcome"
+    ),
     "fold_aggregation": (
         "equal 1/V plug-in average; identical to size weighting here only because folds are equal"
     ),

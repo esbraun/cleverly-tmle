@@ -23,6 +23,7 @@ import pytest
 from cleverly.datasets import nonlinear_dgp
 from cleverly.utils.bounds import expit, logit
 from tests.studies import (
+    bounded_cv_laws,
     canonical_cvtmle,
     canonical_properties,
     cvtmle_properties,
@@ -207,7 +208,14 @@ def test_the_double_robustness_bound_envelope_covers_every_consumer_of_the_law()
     of the only two bounds they pass, so each comparison below is an identity until a study
     introduces a third one. The membership assertion is what carries this test today.
     """
-    law = canonical_properties.double_robustness_dgp().name
+    # Two names, one mechanism. The bounded twin the cross-fitted rows sample from is a
+    # ``replace`` over the Gaussian law that changes the outcome mean and the family and
+    # carries the propensity through unchanged, so both laws are clipped by the bounds this
+    # envelope covers and both belong in the candidate set.
+    laws = {
+        canonical_properties.double_robustness_dgp().name,
+        bounded_cv_laws.double_robustness_dgp().name,
+    }
     # ``cells`` and ``estimator`` take a variant that names the overfitting cell alone. The
     # calls here exclude that cell, and no arm's bounds vary with it, so one label serves.
     variant = "envelope_probe"
@@ -215,7 +223,12 @@ def test_the_double_robustness_bound_envelope_covers_every_consumer_of_the_law()
     for record in registered():
         if "tests/studies/canonical_properties.py" not in record.modules:
             continue
-        if "tests/studies/cvtmle_properties.py" in record.modules:
+        # ``VARIANT`` is what a CV-TMLE variant module declares, and it is the thing that
+        # says this study's cells *are* ``cvtmle_properties``'.  Recording the module says
+        # less: the outcome-adaptive row imports it for the overfitting cell's size and
+        # budget alone, and reading CV-TMLE's four arms off that import would file a
+        # study's bounds under a family it does not declare.
+        if getattr(record.properties(), "VARIANT", None) is not None:
             declared = cvtmle_properties.cells(variant, include_overfitting=False)
             build = cvtmle_properties.estimator(variant)
         elif record.properties_module == canonical_properties.__name__:
@@ -227,7 +240,7 @@ def test_the_double_robustness_bound_envelope_covers_every_consumer_of_the_law()
         arms = [
             cell
             for cell in declared
-            if cell.property == "double_robustness" and cell.dgp.name == law
+            if cell.property == "double_robustness" and cell.dgp.name in laws
         ]
         if not arms:
             continue
@@ -250,7 +263,10 @@ def test_the_double_robustness_bound_envelope_covers_every_consumer_of_the_law()
 def test_the_fold_targeted_property_driver_runs_every_deterministic_control() -> None:
     cvtmle_properties.assert_double_robustness_preflight(
         "fold_targeted",
-        canonical_properties.cells(),
+        # The bounded cells, because the preflight fits them: it declares ``q_bounds`` and
+        # reads the bounded design thresholds, and a Gaussian law handed to it would be
+        # scaled onto a support it does not have.
+        bounded_cv_laws.bounded_cells("cvtmle_properties"),
         repeats=1,
         n_folds=fold_targeted_cvtmle.N_FOLDS,
         targeting_scheme="fold",

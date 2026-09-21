@@ -43,12 +43,24 @@ FRAMEWORK_FILES = frozenset({"tests/parallel.py"})
 
 #: Ratchet: study slug -> modules its runner or properties import that its manifest omits.
 #:
-#: Each entry predates this gate.  An entry leaves when the ``StudyRecord`` and its manifest both
+#: Most entries predate this gate.  An entry leaves when the ``StudyRecord`` and its manifest both
 #: name the module: at the study's next regeneration, or by recording the hash of a file that git
 #: shows unchanged since the run and declaring it in ``tests/canonical/provenance-revisions.md``.
 #: Never add a hash of bytes that differ from the run.  The test fails on a gap that is not
-#: listed here or declared in the ledger, and on a listed entry that is no longer a gap, so this
-#: mapping only shrinks.  A gap that a later result-neutral refactor opens goes in the ledger.
+#: listed here or declared in the ledger, and on a listed entry that is no longer a gap.
+#:
+#: Two routes open a gap, and they are not interchangeable.  A gap that a *result-neutral*
+#: refactor opens goes in the ledger, because the study's committed rows still describe what the
+#: code computes.  A gap that a *result-determining* change to a shared module opens cannot: the
+#: ledger's judgement column must say ``result-neutral:`` and that would be false.  Such a gap is
+#: listed here instead, and the entry leaves when the study is regenerated.  Selective
+#: regeneration is the policy that makes this legal.
+#:
+#: The entries below predate that rule.  Each records a module a study reaches whose hash the
+#: run never wrote, and none of them names the regeneration that would close it, because the
+#: studies they belong to have not been regenerated since the rule was written.  A *new* entry
+#: must name one.  The list can only shrink, because the test fails on a listed gap that is no
+#: longer a gap.
 KNOWN_GAPS: Mapping[str, frozenset[str]] = {
     "canonical-tmle": frozenset(
         {
@@ -60,53 +72,6 @@ KNOWN_GAPS: Mapping[str, frozenset[str]] = {
     "weighted-tmle": frozenset(
         {
             "tests/conftest.py",
-        }
-    ),
-    "canonical-cvtmle": frozenset(
-        {
-            "tests/conftest.py",
-            "tests/studies/point_study_helpers.py",
-        }
-    ),
-    "clustered-tmle": frozenset(
-        {
-            "tests/conftest.py",
-            "tests/studies/point_study_helpers.py",
-        }
-    ),
-    "fold-evaluated-cvtmle": frozenset(
-        {
-            "tests/conftest.py",
-            "tests/studies/point_study_helpers.py",
-        }
-    ),
-    "fold-targeted-cvtmle": frozenset(
-        {
-            "tests/conftest.py",
-            "tests/studies/point_study_helpers.py",
-        }
-    ),
-    "repeated-crossfit-tmle": frozenset(
-        {
-            "tests/conftest.py",
-            "tests/studies/point_study_helpers.py",
-        }
-    ),
-    "canonical-ctmle-selector": frozenset(
-        {
-            "tests/conftest.py",
-            "tests/studies/canonical_cvtmle.py",
-            "tests/studies/canonical_tmle.py",
-            "tests/studies/point_study_helpers.py",
-        }
-    ),
-    "canonical-ctmle-oat": frozenset(
-        {
-            "tests/conftest.py",
-            "tests/studies/canonical_cvtmle.py",
-            "tests/studies/canonical_tmle.py",
-            "tests/studies/cvtmle_properties.py",
-            "tests/studies/point_study_helpers.py",
         }
     ),
     "mar-tmle": frozenset(
@@ -167,32 +132,12 @@ KNOWN_GAPS: Mapping[str, frozenset[str]] = {
             "tests/studies/ltmle_properties.py",
         }
     ),
-    "weighted-ltmle-crossfit": frozenset(
-        {
-            "tests/studies/canonical_ltmle_crossfit.py",
-        }
-    ),
-    "canonical-categorical-ltmle-crossfit": frozenset(
-        {
-            "tests/studies/canonical_ltmle.py",
-        }
-    ),
     "canonical-ltmle-survival": frozenset(
         {
             "tests/discrete_law_longitudinal.py",
         }
     ),
-    "canonical-ltmle-survival-crossfit": frozenset(
-        {
-            "tests/discrete_law_longitudinal.py",
-        }
-    ),
     "canonical-ltmle-competing": frozenset(
-        {
-            "tests/discrete_law_longitudinal.py",
-        }
-    ),
-    "canonical-ltmle-competing-crossfit": frozenset(
         {
             "tests/discrete_law_longitudinal.py",
         }

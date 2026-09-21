@@ -41,7 +41,7 @@ from cleverly.estimators import TMLE
 from cleverly.interventions import Incremental, Shift, Static
 from cleverly.longitudinal import LTMLE
 from cleverly.msm import MSM
-from tests.conftest import FAST_KWARGS
+from tests.conftest import FAST_KWARGS, IN_SAMPLE
 
 POINT_SETTINGS = {**FAST_KWARGS, "simultaneous": False}
 LONG_SETTINGS: dict[str, Any] = {
@@ -189,11 +189,14 @@ def test_incremental_targets_are_bit_for_bit_unchanged(target: str, estimand: An
     ],
 )
 def test_shift_targets_are_bit_for_bit_unchanged(target: str, estimand: Any) -> None:
+    # In sample, not cross-fitted: make_shift_dose's Y is Gaussian and unbounded, and a
+    # cross-fitted continuous outcome needs a declared q_bounds (the fold and outcome-scale rules).
+    settings = {**POINT_SETTINGS, **IN_SAMPLE}
     frame, _ = make_shift_dose(n=180, seed=24)
     columns = ("W1", "W2", "W3")
     shifts = (Shift(0.0, cap=None), Shift(0.5, cap=5.0))
     old = (
-        TMLE(estimands=(target,), shifts=shifts, **POINT_SETTINGS)
+        TMLE(estimands=(target,), shifts=shifts, **settings)
         .fit(
             frame,
             outcome="Y",
@@ -212,7 +215,7 @@ def test_shift_targets_are_bit_for_bit_unchanged(target: str, estimand: Any) -> 
             treatment_kind="continuous",
         ),
     )
-    new = study.estimate(estimand(shifts), **POINT_SETTINGS)
+    new = study.estimate(estimand(shifts), **settings)
     assert_identical(old, new)
 
 
@@ -262,7 +265,12 @@ def test_longitudinal_msm_is_bit_for_bit_unchanged(tmp_path: Any) -> None:
     settings = {**LONG_SETTINGS, "n_folds": 1}
     old = LTMLE(regimens, msm=model, **settings).fit(frame, **LONG_COLUMNS)
     study = CausalStudy(frame, design=LongitudinalTreatment(**LONG_COLUMNS))
-    new = study.estimate(MSMProjection(model, regimens=regimens), **settings)
+    # The study facade's CrossFitting group refuses enabled=True with n_folds=1 at
+    # construction, so its in-sample spelling also declares cross_fit=False; LTMLE's own
+    # constructor has no such field and reads n_folds=1 as in sample directly.
+    new = study.estimate(
+        MSMProjection(model, regimens=regimens), **{**settings, "cross_fit": False}
+    )
     assert_identical(old, new)
     assert_identical(new, load(new.save(tmp_path / "longitudinal-msm.joblib")))
 
@@ -309,7 +317,11 @@ def test_a_longitudinal_fit_draws_the_multipliers_its_engine_declares() -> None:
     settings = {**BAND_LONG_SETTINGS, "n_folds": 1}
     old = LTMLE(regimens, msm=model, **settings).fit(frame, **LONG_COLUMNS)
     study = CausalStudy(frame, design=LongitudinalTreatment(**LONG_COLUMNS))
-    new = study.estimate(MSMProjection(model, regimens=regimens), **settings)
+    # See test_longitudinal_msm_is_bit_for_bit_unchanged on why the study path also
+    # declares cross_fit=False here.
+    new = study.estimate(
+        MSMProjection(model, regimens=regimens), **{**settings, "cross_fit": False}
+    )
     assert new.simultaneous is not None
     assert new.simultaneous.n_replicates == 2000
     assert_identical(old, new, check_bands=True)

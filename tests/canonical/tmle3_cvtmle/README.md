@@ -5,12 +5,17 @@ point-treatment CV-TMLE construction with R [`tmle3`](https://github.com/tlverse
 commit `ed72f8a` and [`sl3`](https://github.com/tlverse/sl3) at commit `0e8f236`.  The R
 image is pinned by digest in the manifest and Dockerfile.
 
-Python generates every sample and its treatment-stratified ten-fold assignment.  The R
+Python generates every sample and its unstratified ten-fold assignment.  The R
 runner reconstructs those exact validation indices with `origami`, wraps the corresponding
 GLM learners in `Lrnr_cv`, and uses `tmle3_Update(cvtmle = TRUE)`.  Both implementations
 therefore use out-of-fold nuisance predictions, one update over the stacked validation rows,
 and a whole-sample plug-in evaluation.  The runner aborts on any failed fit, missing estimand,
 or changed fold assignment.
+
+The continuous law draws a proportion, so both implementations declare its support rather than
+infer it.  `cleverly` passes `q_bounds=(0, 1)` and the runner passes
+`variable_type("continuous", bounds = c(0, 1))`.  The binary law is passed neither, because a
+binary outcome already sits on the unit interval on both sides.
 
 The study covers arm means, ATE, ATT, ATC, observed mean, and PAR under binary and bounded
 continuous outcome laws, plus PAF, RR, and OR under the binary law.  PAF interval scales are

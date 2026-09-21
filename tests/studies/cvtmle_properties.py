@@ -1,9 +1,18 @@
-"""Shared repeated-sampling claims for point-treatment CV-TMLE reports."""
+"""Shared repeated-sampling claims for point-treatment CV-TMLE reports.
+
+Every cell here is cross-fitted, so every cell samples from a **bounded** law and declares
+``q_bounds=(0, 1)``.  :mod:`tests.studies.bounded_cv_laws` says why at length: without a
+declared outcome support the estimator reads the scale off every observed outcome, and
+each fold's training predictions then depend on the rows it is predicting.  The inherited
+canonical cells come through :func:`~tests.studies.bounded_cv_laws.bounded_cells` and the
+overfitting cells through :func:`~tests.studies.bounded_cv_laws.bounded_twin`, so each one
+keeps the budget, seed, role and size its Gaussian original declared.  The in-sample
+Gaussian rows are unaffected: they stay in :mod:`tests.studies.canonical_properties`.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import replace
 from typing import Any, Literal, overload
 
 import numpy as np
@@ -14,8 +23,9 @@ from cleverly.datasets import nonlinear_dgp
 from cleverly.estimators import TMLE
 from cleverly.inference import cross_validated_variance
 from tests.parallel import STUDY_JOBS
-from tests.studies import canonical_properties
+from tests.studies import bounded_cv_laws, canonical_properties
 from tests.studies.canonical_cvtmle import G_BOUNDS as CV_G_BOUNDS
+from tests.studies.canonical_cvtmle import STRATIFY_FOLDS
 from tests.studies.evidence.properties import PropertyCell, run_cells
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
@@ -29,8 +39,13 @@ OVERFIT_N = 500
 
 
 def cells(variant: str, *, include_overfitting: bool = True) -> tuple[PropertyCell, ...]:
-    """The ordinary TMLE claims plus the overfitting experiment CV-TMLE exists for."""
-    inherited = tuple(replace(cell) for cell in canonical_properties.cells())
+    """The ordinary TMLE claims plus the overfitting experiment CV-TMLE exists for.
+
+    Both blocks are stated on the Gaussian originals and transformed, rather than retyped
+    on the bounded laws.  A budget or a seed written twice is a budget that can be changed
+    in one copy, and a moved seed publishes rows that no longer redraw.
+    """
+    inherited = bounded_cv_laws.bounded_cells("cvtmle_properties")
     dgp = nonlinear_dgp()
     overfit = (
         PropertyCell(
@@ -58,7 +73,8 @@ def cells(variant: str, *, include_overfitting: bool = True) -> tuple[PropertyCe
             role="control",
         ),
     )
-    return (*inherited, *overfit) if include_overfitting else inherited
+    bounded = tuple(bounded_cv_laws.bounded_twin(cell) for cell in overfit)
+    return (*inherited, *bounded) if include_overfitting else inherited
 
 
 def estimator(
@@ -84,6 +100,12 @@ def estimator(
             estimands=cell.estimand,
             simultaneous=False,
             g_bounds=CV_G_BOUNDS,
+            # Every cell here samples from a beta law, so every cell declares the support.
+            # The in-sample control declares it too: the two arms of the overfitting claim
+            # differ in whether the tree saw the rows it predicts, and nothing else, so a
+            # control on a derived scale would confound the comparison with a second change.
+            q_bounds=bounded_cv_laws.Q_BOUNDS,
+            stratify_folds=STRATIFY_FOLDS,
             max_iter=100,
             tol=1e-10,
             random_state=0,
@@ -112,7 +134,12 @@ def assert_double_robustness_preflight(
             cv_evaluation=cv_evaluation,
         ),
         g_bounds=CV_G_BOUNDS,
+        design=bounded_cv_laws.DESIGN,
     )
+    # The condition ``OracleOutcomeUnit`` cannot check for itself, and the one the whole
+    # bounded family rests on: a scaler derived from the observed range maps the outcome
+    # into a subset of what the identity produces, so no prediction distinguishes the two.
+    bounded_cv_laws.assert_unit_outcome_scaler(result)
 
     fluctuation = result.fluctuations["mean"]
     if targeting_scheme == "fold":

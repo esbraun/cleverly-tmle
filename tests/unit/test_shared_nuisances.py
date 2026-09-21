@@ -19,15 +19,35 @@ from dataclasses import replace
 import numpy as np
 import pytest
 import sklearn.linear_model
+from scipy.special import expit
 
-from cleverly.datasets import GENERATORS
+from cleverly.datasets import DGP, GENERATORS
 from cleverly.estimators import CTMLE, TMLE
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
+#: A bounded restatement of ``GENERATORS["cde"]``: same propensity, same intermediate
+#: mechanism, and the same outcome-mean formula mapped through ``expit`` so the outcome
+#: lies in the open interval (0, 1) instead of on the whole line. A cross-fitted fit of
+#: this test's subject -- nuisance sharing across CDE levels -- needs a declared
+#: ``q_bounds``, and ``GENERATORS["cde"]`` draws a Gaussian outcome, so declaring one for
+#: it would state a support the law does not have (the fold and outcome-scale rules).
+_BOUNDED_CDE = DGP(
+    name="bounded_controlled_direct_effect",
+    n_latent=3,
+    covariate_names=("W1", "W2", "W3"),
+    propensity=lambda w: expit(0.3 * w[:, 0] + 0.2 * w[:, 1]),
+    outcome_mean=lambda w, a, z: expit(
+        0.5 + 0.9 * a + 1.4 * z + 0.6 * a * z + 0.8 * w[:, 0] - 0.5 * w[:, 1] + 0.3 * w[:, 2]
+    ),
+    intermediate=lambda w, a: expit(-0.3 + 1.1 * a + 0.5 * w[:, 0] - 0.4 * w[:, 2]),
+    family="beta",
+    concentration=20.0,
+)
+
 
 def _frame():  # type: ignore[no-untyped-def]
-    frame, _ = GENERATORS["cde"](n=400, seed=5)
+    frame, _ = _BOUNDED_CDE.sample(n=400, seed=5)
     return frame, [c for c in frame.columns if c.startswith("W")]
 
 
@@ -39,6 +59,7 @@ def _fit(shared: bool):  # type: ignore[no-untyped-def]
         intermediate_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         n_folds=4,
         random_state=7,
+        q_bounds=(0.0, 1.0),
     )
     if not shared:
         estimator._shares_nuisances_across_levels = lambda: False  # type: ignore[method-assign]
@@ -122,12 +143,17 @@ class TestAtLevel:
         )
 
     def test_a_plain_fit_carries_no_levels(self) -> None:
-        """No intermediate, no per-level bookkeeping."""
-        frame, _ = GENERATORS["linear_ate"](n=200, seed=1)
+        """No intermediate, no per-level bookkeeping.
+
+        A binary outcome, not ``GENERATORS["linear_ate"]``'s Gaussian one: this fit
+        cross-fits with ``n_folds=4``, and a cross-fitted continuous outcome needs a
+        declared ``q_bounds`` that a binary outcome does not (the fold and outcome-scale rules).
+        """
+        frame, _ = GENERATORS["binary_outcome"](n=200, seed=1)
         covariates = [c for c in frame.columns if c.startswith("W")]
         result = (
             TMLE(
-                outcome_learner=sklearn.linear_model.LinearRegression(),
+                outcome_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=4,
                 random_state=7,

@@ -27,7 +27,7 @@ from cleverly.datasets import (
 )
 from cleverly.estimators import TMLE
 from cleverly.estimators.base import TMLEResultSet
-from tests.conftest import OracleTreatment, fast_tmle
+from tests.conftest import IN_SAMPLE, OracleTreatment, fast_tmle
 
 COVARIATES = ["W1", "W2", "W3"]
 
@@ -205,8 +205,12 @@ class _MeanOnly:
 class TestControlledDirectEffect:
     @pytest.fixture(scope="class")
     def fits(self) -> object:
+        # This class is about the controlled-direct-effect estimand, not about
+        # cross-fitting, and its outcome is Gaussian with unbounded support, so a
+        # cross-fitted fit would need a declared q_bounds it cannot truthfully state
+        # (the fold and outcome-scale rules). Fit in sample instead.
         frame, _ = make_cde(n=2500, seed=63)
-        return fast_tmle(estimands=("ate",)).fit(
+        return fast_tmle(estimands=("ate",), **IN_SAMPLE).fit(
             frame,
             outcome="Y",
             treatment="A",
@@ -230,7 +234,7 @@ class TestControlledDirectEffect:
         estimates: dict[float, list[float]] = {0.0: [], 1.0: []}
         for seed in range(70, 78):
             frame, _ = make_cde(n=1500, seed=seed)
-            result = fast_tmle(estimands=("ate",)).fit(
+            result = fast_tmle(estimands=("ate",), **IN_SAMPLE).fit(
                 frame,
                 outcome="Y",
                 treatment="A",
@@ -292,11 +296,11 @@ class TestControlledDirectEffect:
 
     def test_ignoring_the_intermediate_gives_a_different_estimand(self) -> None:
         frame, _ = make_cde(n=2500, seed=64)
-        controlled = fast_tmle(estimands=("ate",)).fit(
+        controlled = fast_tmle(estimands=("ate",), **IN_SAMPLE).fit(
             frame, outcome="Y", treatment="A", covariates=COVARIATES, intermediate="Z"
         )
         total = (
-            fast_tmle(estimands=("ate",))
+            fast_tmle(estimands=("ate",), **IN_SAMPLE)
             .fit(frame, outcome="Y", treatment="A", covariates=COVARIATES)
             .single()
         )
@@ -339,6 +343,7 @@ class TestCoverageStudiesRunPerLevel:
                 random_state=0,
                 simultaneous=False,
                 estimands=("ate",),
+                **IN_SAMPLE,
             ),
             n=400,
             n_replicates=3,

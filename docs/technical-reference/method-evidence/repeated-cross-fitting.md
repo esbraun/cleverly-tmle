@@ -29,6 +29,8 @@ full-method comparator.
 | setting | declaration |
 | --- | --- |
 | primary construction | five folds, three complete fold draws, pooled targeting and whole-sample evaluation |
+| primary folds | unstratified, drawn from the estimator's own seed |
+| primary outcome scale | declared `q_bounds` of 0 to 1 on the continuous law, identity and no declaration on the binary law |
 | primary variance | median within-draw variance plus squared split displacement |
 | primary estimands | arm means, ATE, ATT, ATC, observed mean, PAR, PAF, RR, and OR where defined by the law |
 | primary laws | binary and bounded-continuous point-treatment laws with exact truth |
@@ -39,60 +41,75 @@ full-method comparator.
 <!-- generated: accuracy -->
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law | `atc` | average effect on the untreated | `cleverly` repeated stacked CV-TMLE | -0.0017 to 0.0038 | 0.9475 | 1.0131 | pass |
-| binary-outcome law | `ate` | average treatment effect | `cleverly` repeated stacked CV-TMLE | -0.0015 to 0.0040 | 0.9537 | 1.0101 | pass |
-| binary-outcome law | `att` | average effect on the treated | `cleverly` repeated stacked CV-TMLE | -0.0014 to 0.0043 | 0.9513 | 1.0125 | pass |
-| binary-outcome law | `ey0` | counterfactual mean under no treatment | `cleverly` repeated stacked CV-TMLE | -0.0027 to 0.0014 | 0.9513 | 0.9925 | pass |
-| binary-outcome law | `ey1` | counterfactual mean under treatment | `cleverly` repeated stacked CV-TMLE | -0.0014 to 0.0026 | 0.9525 | 1.0256 | pass |
+| binary-outcome law | `atc` | average effect on the untreated | `cleverly` repeated stacked CV-TMLE | -0.0017 to 0.0039 | 0.9487 | 1.0148 | pass |
+| binary-outcome law | `ate` | average treatment effect | `cleverly` repeated stacked CV-TMLE | -0.0015 to 0.0040 | 0.9563 | 1.0114 | pass |
+| binary-outcome law | `att` | average effect on the treated | `cleverly` repeated stacked CV-TMLE | -0.0014 to 0.0043 | 0.9587 | 1.0146 | pass |
+| binary-outcome law | `ey0` | counterfactual mean under no treatment | `cleverly` repeated stacked CV-TMLE | -0.0027 to 0.0014 | 0.9487 | 0.9929 | pass |
+| binary-outcome law | `ey1` | counterfactual mean under treatment | `cleverly` repeated stacked CV-TMLE | -0.0013 to 0.0026 | 0.9500 | 1.0239 | pass |
 | binary-outcome law | `ey_obs` | observed outcome mean under the natural course | `cleverly` repeated stacked CV-TMLE | -0.0014 to 0.0016 | 0.9387 | 0.9705 | pass |
-| binary-outcome law | `or` | marginal odds ratio, reported on the log scale | `cleverly` repeated stacked CV-TMLE | -0.0045 to 0.0182 | 0.9550 | 1.0100 | pass |
-| binary-outcome law | `paf` | population attributable fraction | `cleverly` repeated stacked CV-TMLE | -0.0014 to 0.0048 | 0.9500 | 1.0089 | pass |
-| binary-outcome law | `par` | population attributable risk | `cleverly` repeated stacked CV-TMLE | -0.000726 to 0.0022 | 0.9525 | 1.0106 | pass |
-| binary-outcome law | `rr` | marginal risk ratio, reported on the log scale | `cleverly` repeated stacked CV-TMLE | -0.0024 to 0.0101 | 0.9513 | 1.0025 | pass |
-| bounded continuous-outcome law with effect modification | `atc` | average effect on the untreated | `cleverly` repeated stacked CV-TMLE | -0.000320 to 0.000947 | 0.9550 | 1.0178 | pass |
-| bounded continuous-outcome law with effect modification | `ate` | average treatment effect | `cleverly` repeated stacked CV-TMLE | -0.000325 to 0.000857 | 0.9600 | 1.0324 | pass |
-| bounded continuous-outcome law with effect modification | `att` | average effect on the treated | `cleverly` repeated stacked CV-TMLE | -0.000315 to 0.000952 | 0.9500 | 1.0062 | pass |
-| bounded continuous-outcome law with effect modification | `ey0` | counterfactual mean under no treatment | `cleverly` repeated stacked CV-TMLE | -0.000865 to 0.000471 | 0.9363 | 0.9596 | pass |
-| bounded continuous-outcome law with effect modification | `ey1` | counterfactual mean under treatment | `cleverly` repeated stacked CV-TMLE | -0.000669 to 0.000816 | 0.9563 | 1.0151 | pass |
+| binary-outcome law | `or` | marginal odds ratio, reported on the log scale | `cleverly` repeated stacked CV-TMLE | -0.0045 to 0.0183 | 0.9550 | 1.0113 | pass |
+| binary-outcome law | `paf` | population attributable fraction | `cleverly` repeated stacked CV-TMLE | -0.0014 to 0.0048 | 0.9513 | 1.0104 | pass |
+| binary-outcome law | `par` | population attributable risk | `cleverly` repeated stacked CV-TMLE | -0.000726 to 0.0022 | 0.9563 | 1.0122 | pass |
+| binary-outcome law | `rr` | marginal risk ratio, reported on the log scale | `cleverly` repeated stacked CV-TMLE | -0.0024 to 0.0101 | 0.9537 | 1.0042 | pass |
+| bounded continuous-outcome law with effect modification | `atc` | average effect on the untreated | `cleverly` repeated stacked CV-TMLE | -0.000375 to 0.000887 | 0.9563 | 1.0197 | pass |
+| bounded continuous-outcome law with effect modification | `ate` | average treatment effect | `cleverly` repeated stacked CV-TMLE | -0.000364 to 0.000816 | 0.9650 | 1.0336 | pass |
+| bounded continuous-outcome law with effect modification | `att` | average effect on the treated | `cleverly` repeated stacked CV-TMLE | -0.000340 to 0.000925 | 0.9487 | 1.0099 | pass |
+| bounded continuous-outcome law with effect modification | `ey0` | counterfactual mean under no treatment | `cleverly` repeated stacked CV-TMLE | -0.000855 to 0.000482 | 0.9375 | 0.9590 | pass |
+| bounded continuous-outcome law with effect modification | `ey1` | counterfactual mean under treatment | `cleverly` repeated stacked CV-TMLE | -0.000701 to 0.000783 | 0.9550 | 1.0164 | pass |
 | bounded continuous-outcome law with effect modification | `ey_obs` | observed outcome mean under the natural course | `cleverly` repeated stacked CV-TMLE | -0.000874 to 0.000607 | 0.9337 | 0.9607 | pass |
-| bounded continuous-outcome law with effect modification | `par` | population attributable risk | `cleverly` repeated stacked CV-TMLE | -0.000347 to 0.000474 | 0.9513 | 0.9911 | pass |
+| bounded continuous-outcome law with effect modification | `par` | population attributable risk | `cleverly` repeated stacked CV-TMLE | -0.000356 to 0.000462 | 0.9550 | 0.9985 | pass |
 <!-- /generated -->
 
 ## Theory properties
 
-The double-robustness cells use a bounded nonlinear confounded law with exact ATE 1.75.
-Its treatment mechanism stays between 0.076 and 0.924, so the configured bounds do not clip it.
-The wrong main-effects outcome regression imposes a constant contrast, while the true contrast
-varies with `W1` and `I(W2 > 0)`. The treatment-correct cell uses n = 2,000. The other three cells
-use n = 700. Each cell uses 1,200 replications and the existing predeclared margin.
+Every inherited cell samples an outcome in the open interval 0 to 1, drawn as a beta variate
+around the law's conditional mean. A proportion has a known support, so each cell declares
+`q_bounds` of 0 to 1 and the outcome scaler is the identity. Each law is a bounded twin of the
+Gaussian law the ordinary point-treatment row samples, and it keeps that law's treatment
+mechanism unchanged. `tests/studies/bounded_cv_laws.py` records the pilot measurement behind
+every declared constant.
 
-The repeat-stability cells hold one binary-law sample of 1,000 rows fixed across 400 fold-seed
-trials. Each control uses the first actual fold draw from its paired three-repeat fit. The 99%
+The double-robustness cells use a bounded nonlinear confounded law with exact ATE 0.2368749. Its
+treatment mechanism stays between 0.076 and 0.924, so the configured bounds do not clip it. Its
+conditional mean stays between 0.088 and 0.924 on the quadrature grid, so both beta shapes stay
+away from zero.
+
+The wrong main-effects outcome regression imposes a constant contrast, while the true contrast
+varies with `W1` and `I(W2 > 0)`. The treatment-correct cell uses n = 2,000. The other three
+cells use n = 700. Each cell uses 1,200 replications and the existing predeclared margin.
+
+The root-n ladder and the calibration cell sample a bounded linear law with exact ATE 0.1072047.
+A quasibinomial solver recovers that law's six coefficients to 1.4e-15 on a quadrature grid, so
+both nuisances are correctly specified there.
+
+The repeat-stability cells stay on the binary law, because they vary the fold seed rather than
+the sample. They hold one binary-law sample of 1,000 rows fixed across 400 fold-seed trials.
+Each control uses the first actual fold draw from its paired three-repeat fit. The 99%
 paired-bootstrap interval compares the three-repeat ATE spread with the control spread.
 
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0043 to 0.0088, margin 0.0218, SE ratio 1.0001 | pass |
-| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias -0.3029 to -0.2844, margin 0.0310, SE ratio 1.0007 | pass |
-| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0058 to 0.0076, margin 0.0225, SE ratio 0.9424 | pass |
-| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0087 to 0.0032, margin 0.0200, SE ratio 0.9994 | pass |
-| `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9430 to 0.9652, SE ratio 0.9760 to 1.0468 | pass |
+| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000589 to 0.0011, margin 0.0029, SE ratio 0.9687 | pass |
+| `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias -0.0359 to -0.0335, margin 0.0040, SE ratio 1.0162 | pass |
+| `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000840 to 0.000728, margin 0.0026, SE ratio 1.0531 | pass |
+| `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000818 to 0.000668, margin 0.0025, SE ratio 0.9704 | pass |
+| `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9351 to 0.9589, SE ratio 0.9675 to 1.0427 | pass |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
-| `repeat_stability` | `one_repeat_control` | control | the ATE from each repeated fit's first actual fold draw | the paired spread-ratio upper endpoint must fall below the declared boundary | spread ratio 0.5841, 0.5161 to 0.6592, boundary 1 | pass |
-| `repeat_stability` | `three_repeats` | positive | the median ATE over three fold draws across labelled base seeds | the paired spread-ratio upper endpoint must fall below the declared boundary | spread ratio 0.5841, 0.5161 to 0.6592, boundary 1 | pass |
-| `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000524, coverage 0.9208 to 0.9637, SE ratio 0.9822 | pass |
-| `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias -0.000832, coverage 0.9238 to 0.9657, SE ratio 1.0184 | pass |
-| `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000276, coverage 0.9297 to 0.9698, SE ratio 1.0093 | pass |
-| `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5375 to -0.4732 | pass |
-| `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5098 to -0.5072 | pass |
-| `type_i_error` | `sharp_null` | positive | a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0300, 0.0125 to 0.0594 | pass |
+| `repeat_stability` | `one_repeat_control` | control | the ATE from each repeated fit's first actual fold draw | the paired spread-ratio upper endpoint must fall below the declared boundary | spread ratio 0.6349, 0.5643 to 0.7150, boundary 1 | pass |
+| `repeat_stability` | `three_repeats` | positive | the median ATE over three fold draws across labelled base seeds | the paired spread-ratio upper endpoint must fall below the declared boundary | spread ratio 0.6349, 0.5643 to 0.7150, boundary 1 | pass |
+| `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000054, coverage 0.9107 to 0.9565, SE ratio 0.9692 | pass |
+| `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias -0.000305, coverage 0.9401 to 0.9767, SE ratio 1.0212 | pass |
+| `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000055, coverage 0.9223 to 0.9647, SE ratio 1.0001 | pass |
+| `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5356 to -0.4707 | pass |
+| `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5113 to -0.5089 | pass |
+| `type_i_error` | `sharp_null` | positive | a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0425, 0.0208 to 0.0757 | pass |
 <!-- /generated -->
 
 ## Result
 
 The median repeated estimator and every declared repeated-sampling property passed. The
-repeat-stability ratio was 0.5841, with a 99% interval from 0.5161 to 0.6592. Mean aggregation is
+repeat-stability ratio was 0.6349, with a 99% interval from 0.5643 to 0.7150. Mean aggregation is
 not a public option. This record tests the method that the library ships.
 
 ## Measured values
@@ -110,11 +127,11 @@ from the committed results and checked at the precision printed.
 | `paired_tests_passed` | 0 | external comparisons passing |
 | `property_cells_total` | 14 | repeated-sampling property cells |
 | `property_cells_passed` | 14 | cells whose own and family verdicts pass |
-| `max_standardized_bias` | 0.0560 | largest absolute primary bias in empirical standard deviations |
+| `max_standardized_bias` | 0.0557 | largest absolute primary bias in empirical standard deviations |
 | `min_coverage` | 0.9337 | lowest measured primary-study coverage |
 | `min_coverage_ci_lower` | 0.9078 | lowest exact 99% primary coverage endpoint |
 | `min_se_ratio_ci_lower` | 0.8960 | lowest bootstrap primary SE-ratio endpoint |
-| `max_se_ratio_ci_upper` | 1.1016 | highest bootstrap primary SE-ratio endpoint |
+| `max_se_ratio_ci_upper` | 1.1009 | highest bootstrap primary SE-ratio endpoint |
 | `margin:confidence_level` | 0.9900 | confidence level of every Monte Carlo interval |
 | `margin:alpha` | 0.0500 | nominal size of the estimator's own intervals |
 | `margin:nominal_coverage` | 0.9500 | nominal coverage those intervals claim |
@@ -150,6 +167,8 @@ from the committed results and checked at the precision printed.
 | There is no full-method cross-implementation evidence | zEpid corroborates the aggregation formula, not the complement-trained stacked pooled estimator |
 | The study does not claim median superiority | Median is the source-backed reporting standard, not an option chosen because this law makes it beat a mean alternative |
 | The stability law and repeat budget are fixed | Spread reduction is measured on one fixed binary-law sample at one versus three fold draws. It does not establish behavior for other samples, laws, or arbitrary repeat counts |
+| The continuous evidence needs a known outcome support | The continuous primary law and every inherited property cell draw a proportion and declare `q_bounds` of 0 to 1. The row says nothing about a continuous outcome whose support the analyst does not know, because the package refuses that composition under cross-fitting |
+| Each draw uses one unstratified split | The outer split reads neither the treatment nor the outcome, and the fit asserts the realized scheme. The row does not establish a stratified or grouped split, or a supplied plan |
 | Inference is marginal | Coordinatewise medians do not supply joint covariance or post-fit contrasts; the central-draw curve does not support simultaneous bands for the split-adjusted estimator |
 | The scientific scope is point treatment | The row does not validate clustering, observation weights, missing outcomes, longitudinal data, bootstrap inference, or severe positivity violations outside the declared law |
 

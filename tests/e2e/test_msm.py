@@ -28,7 +28,7 @@ from cleverly.estimators import TMLE
 from cleverly.exceptions import PositivityWarning
 from cleverly.interventions import Shift, Static
 from cleverly.msm import MSM
-from tests.conftest import FAST_KWARGS
+from tests.conftest import FAST_KWARGS, IN_SAMPLE
 
 #: ``make_multi_arm`` labels its arms, so the dose has to be declared rather than read off
 #: the labels -- which is the refusal ``MSM.linear`` makes, taken up.
@@ -159,11 +159,22 @@ def projection(means: dict[str, float]) -> np.ndarray:
 #: the propensity is fitted one-vs-rest.  Nothing here turns on the fold count.
 SETTINGS: dict[str, object] = {**FAST_KWARGS, "random_state": SEED}
 
+#: ``SETTINGS`` for the Gaussian branch only (the fold and outcome-scale rules): a cross-fitted continuous outcome
+#: needs a declared ``q_bounds``, and ``make_multi_arm``'s default law is Gaussian with
+#: unbounded support, so a fit on it that is not itself about cross-fitting fits in
+#: sample. The binary-outcome fits below keep ``SETTINGS`` unchanged and stay
+#: cross-fitted, since their pinned numbers must not move.
+GAUSSIAN_SETTINGS: dict[str, object] = {**SETTINGS, **IN_SAMPLE}
+
 
 @pytest.fixture(scope="module")
 def fitted():
     frame, truth = make_multi_arm(n=N, seed=SEED)
-    result = TMLE(msm=dose_response(), **SETTINGS).fit(frame, outcome="Y", treatment="A").single()
+    result = (
+        TMLE(msm=dose_response(), **GAUSSIAN_SETTINGS)
+        .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
     return result, truth
 
 
@@ -241,8 +252,16 @@ class TestASaturatedModelIsTheArmReport:
     @pytest.fixture(scope="class")
     def pair(self):
         frame, _ = make_multi_arm(n=N, seed=SEED)
-        arms = TMLE(estimands=("ey",), **SETTINGS).fit(frame, outcome="Y", treatment="A").single()
-        model = TMLE(msm=saturated(), **SETTINGS).fit(frame, outcome="Y", treatment="A").single()
+        arms = (
+            TMLE(estimands=("ey",), **GAUSSIAN_SETTINGS)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        model = (
+            TMLE(msm=saturated(), **GAUSSIAN_SETTINGS)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
         return arms, model
 
     def test_the_point_estimates_agree(self, pair) -> None:
@@ -469,7 +488,11 @@ class TestTheExponentiatedView:
 
     def test_a_fit_with_no_working_model_has_no_coefficients(self) -> None:
         frame, _ = make_multi_arm(n=200, seed=SEED)
-        result = TMLE(estimands=("ey",), **SETTINGS).fit(frame, outcome="Y", treatment="A").single()
+        result = (
+            TMLE(estimands=("ey",), **GAUSSIAN_SETTINGS)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
         with pytest.raises(ValueError, match="no working model"):
             result.coefficients()
 
@@ -605,12 +628,12 @@ class TestEachMSMScoreEquationIsDiagnosedSeparately:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", PositivityWarning)
             ordinary = (
-                TMLE(msm=centred_dose_response(), **SETTINGS)
+                TMLE(msm=centred_dose_response(), **GAUSSIAN_SETTINGS)
                 .fit(frame, outcome="Y", treatment="A")
                 .single()
             )
             scaled = (
-                TMLE(msm=scaled_centred_dose_response(), **SETTINGS)
+                TMLE(msm=scaled_centred_dose_response(), **GAUSSIAN_SETTINGS)
                 .fit(frame, outcome="Y", treatment="A")
                 .single()
             )

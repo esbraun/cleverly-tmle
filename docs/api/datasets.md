@@ -10,7 +10,7 @@ Three functions serve the navigation program that the [examples](../examples/ind
 
 | function | what it returns |
 | --- | --- |
-| `navigation_data` | the `make_nonlinear_ate` draw, with the columns under the program's names |
+| `navigation_data` | the `make_nonlinear_bounded` draw, with the columns under the program's names |
 | `navigation_protocol` | the `StudyProtocol` of the one-decision program |
 | `longitudinal_navigation_protocol` | the `StudyProtocol` of the two-decision program |
 
@@ -21,6 +21,7 @@ Three functions serve the navigation program that the [examples](../examples/ind
    cleverly.datasets.available
    cleverly.datasets.make_linear_ate
    cleverly.datasets.make_nonlinear_ate
+   cleverly.datasets.make_nonlinear_bounded
    cleverly.datasets.make_binary_outcome
    cleverly.datasets.make_multi_arm
    cleverly.datasets.make_heterogeneous

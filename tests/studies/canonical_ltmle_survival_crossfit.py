@@ -86,6 +86,8 @@ STUDY = StudyRecord(
         "tests/studies/canonical_ltmle_crossfit.py",
         "tests/studies/canonical_ltmle.py",
         "tests/studies/canonical_ltmle_survival.py",
+        "tests/studies/fractional_glm.py",
+        "tests/discrete_law_longitudinal.py",
         "tests/discrete_law_survival.py",
         "src/cleverly/datasets/longitudinal.py",
         "tests/studies/evidence/comparison.py",

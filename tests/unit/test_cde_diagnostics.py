@@ -120,6 +120,7 @@ def _fit(z: float) -> Any:
         random_state=0,
         simultaneous=False,
         estimands=("ate",),
+        cross_fit=False,
     )
     return estimator.fit(_frame(), outcome="Y", treatment="A", covariates=["W"], intermediate="Z")[
         z
@@ -230,6 +231,7 @@ def overlapping_fit() -> Any:
             random_state=0,
             simultaneous=False,
             estimands=("ate",),
+            cross_fit=False,
         ).fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"], intermediate="Z")
 
 
@@ -338,6 +340,7 @@ def missing_cde_fit() -> Any:
             random_state=0,
             simultaneous=False,
             estimands=("ate",),
+            cross_fit=False,
         ).fit(
             frame,
             outcome="Y",

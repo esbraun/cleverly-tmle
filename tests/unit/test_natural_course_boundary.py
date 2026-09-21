@@ -78,7 +78,6 @@ def _fit(frame: pd.DataFrame, **estimator_overrides: Any) -> Any:
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"cross_fit": True}, "stratify_folds='none'"),
         ({"fluctuation": "linear"}, "fluctuation='logistic'"),
         ({"targeting": "one_step"}, "targeting='iterative'"),
         ({"target_weights": True}, "target_weights=False"),
@@ -91,6 +90,21 @@ def test_unsupported_method_settings_refuse_before_fitting(
 ) -> None:
     with pytest.raises(CapabilityError, match=message):
         _fit(_frame(), **never_fit_learners(), **overrides)
+    assert NeverFit.calls == 0
+
+
+def test_cross_fitting_with_stratified_folds_refuses_before_the_natural_course_contract() -> None:
+    """Fold-strata enforcement for a cross-fitted fit moved out of this contract.
+
+    ``stratify_folds != 'none'`` used to be one of this contract's own clauses, reached
+    because the package default for it was ``'treatment'``. The default flipped to
+    ``'none'`` (the fold and outcome-scale rules), and the check itself moved to the engine-wide
+    fold-strata refusal that now fires at construction, before ``fit`` -- and this
+    contract -- are ever reached, so ``cross_fit=True`` alone no longer breaks anything
+    here. This declares the old default explicitly to still exercise the boundary.
+    """
+    with pytest.raises(ValueError, match="stratify_folds='none'"):
+        _fit(_frame(), **never_fit_learners(), cross_fit=True, stratify_folds="treatment")
     assert NeverFit.calls == 0
 
 

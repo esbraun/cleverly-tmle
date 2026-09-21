@@ -855,8 +855,10 @@ class NaturalCourseMean:
     observation indicator that is one on every row leaves nothing missing, so the fit
     takes the complete-outcome branch above and the narrow boundary does not apply to
     it. The two agree there: with no missing outcome the empirical mean *is*
-    ``E[m(A, W)]``. That branch is not the stacked estimator, so it refuses
-    ``stratify_by="none"``.
+    ``E[m(A, W)]``. That branch is not the stacked estimator, so it follows the ordinary
+    cross-fitting rules rather than the contract above. Those rules include the outcome
+    scale: a cross-fitted fit of a continuous outcome needs a declared ``q_bounds``, or
+    ``cross_fit=False``.
     """
 
     name: str = field(default="ey_obs", init=False)
@@ -2526,14 +2528,24 @@ class IdentifiedEffect(_DefaultingUnpickle):  # numpydoc ignore=PR01
             and self.functional.axis == "arm"
             and target in {"ate", "ey", "ey1", "ey0", "rr", "or"}
         )
+        # Read off the declared design rather than off a fitted result, so a caller who
+        # asks which methods are available before fitting is told the same thing the fit
+        # would tell them. Metadata restored from disk carries no study, and then this
+        # cannot be answered and is not claimed.
+        design = getattr(self._study, "design", None)
+        clustered = getattr(design, "cluster", None) is not None
+        collaborative_blocker = (
+            "C-TMLE has no clustered result: the search draws selection and nested folds "
+            "of its own, and no reviewed result covers a grouped draw of them"
+            if clustered
+            else blocker or "no collaborative score is evidenced for this functional"
+        )
         return (
             MethodAvailability("tmle", True),
             MethodAvailability(
                 "collaborative_tmle",
-                variants,
-                None
-                if variants
-                else blocker or "no collaborative score is evidenced for this functional",
+                variants and not clustered,
+                None if variants and not clustered else collaborative_blocker,
             ),
             MethodAvailability(
                 "drtmle",
@@ -2644,7 +2656,7 @@ class IdentifiedEffect(_DefaultingUnpickle):  # numpydoc ignore=PR01
         >>> result = effect.estimate(
         ...     outcome_learner=LinearRegression(),
         ...     treatment_learner=LogisticRegression(max_iter=1000),
-        ...     n_folds=2,
+        ...     cross_fit=False,
         ...     random_state=0,
         ... )
         >>> sorted(result.estimates)

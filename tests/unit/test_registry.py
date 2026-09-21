@@ -435,7 +435,9 @@ class TestACustomFluctuation:
 
         frame, _ = make_linear_ate(n=400, seed=3)
         result = (
-            fast_tmle(estimands=["ey1", self.NAME]).fit(frame, outcome="Y", treatment="A").single()
+            fast_tmle(estimands=["ey1", self.NAME], cross_fit=False)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
         )
         assert self.GROUP in result.fluctuations
         assert result.fluctuations[self.GROUP].converged
@@ -547,6 +549,7 @@ class TestTheScalingContract:
                     n_folds=4,
                     random_state=7,
                     estimands=["ate", "nnt"],
+                    cross_fit=False,
                 )
                 .fit(frame, outcome="Y", treatment="A", covariates=covariates)
                 .single()

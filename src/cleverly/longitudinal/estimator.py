@@ -70,7 +70,7 @@ import numpy as np
 from sklearn.base import clone
 
 from .._typing import BoolArray, CumulativeGBounds, FloatArray, Learner
-from ..exceptions import CapabilityError, PositivityWarning
+from ..exceptions import CapabilityError, LongitudinalError, PositivityWarning
 from ..inference.cluster import influence_covariance
 from ..inference.influence import ParameterEstimate, Scale, make_estimate
 from ..inference.multiplier import SimultaneousBands, simultaneous_bands
@@ -84,7 +84,7 @@ from ..inference.results import (
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..assessment import AssessmentReport
-from ..learners.crossfit import Folds, make_folds, resolve_n_folds
+from ..learners.crossfit import Folds, _fresh_seed, random_partition
 from ..learners.library import _validate_learner
 from ..learners.super_learner import resolve_learner
 from ..msm import MSM
@@ -109,7 +109,14 @@ from .regimen import (
     resolve_plans,
     resolve_regimens,
 )
-from .sequential import Mechanism, RegimenFit, fit_mechanism, fit_regimen
+from .sequential import (
+    Mechanism,
+    RegimenFit,
+    fit_mechanism,
+    fit_regimen,
+    preflight_mechanism_support,
+    preflight_terminal_outcomes,
+)
 
 __all__ = ["LTMLE", "LongitudinalConfig", "LongitudinalResult", "ltmle"]
 
@@ -1885,6 +1892,7 @@ class LTMLE:
         # mechanism was evaluated at cannot disagree about what the regimen assigned.
         plans = resolve_plans(regimens, prepared)
 
+        self._refuse_cross_fitted_design(prepared)
         folds = self._folds(prepared)
         scaler = self._scaler(prepared)
         # A cumulative path probability is not a point-treatment propensity.  There is no
@@ -1918,6 +1926,9 @@ class LTMLE:
             n_jobs=self.n_jobs,
         )
 
+        horizons = self._horizons(prepared)
+        preflight_mechanism_support(prepared, prepared.regimen_masks(prepared.treatment), folds)
+        preflight_terminal_outcomes(prepared, plans, horizons, folds, scaler)
         mechanism = fit_mechanism(
             prepared,
             plans,
@@ -1938,7 +1949,6 @@ class LTMLE:
             n_jobs=self.n_jobs,
         )
 
-        horizons = self._horizons(prepared)
         # One projection per cause -- a cause is a different estimand, not a further column
         # of the design -- over a grid whose cells cross the regimens with the horizons.
         # Evaluated here because the design is a closure and the driver below takes arrays.
@@ -2250,19 +2260,60 @@ class LTMLE:
             f"{[regimen.label for regimen in regimens]}"
         )
 
+    def _refuse_cross_fitted_design(self, data: LongitudinalData) -> None:
+        """Refuse the cross-fitted designs this package has no result for.
+
+        Both facts are about the data rather than the declaration, so neither can be
+        asked at construction: ``family`` may be inferred from the outcome, and ``id=``
+        is named when ``fit`` is called. Both are asked before the split is drawn, so a
+        refused design pays for no fold generation and no learner.
+
+        A single-fold fit is left alone in each case. It trains on every row, so there is
+        no held-out row whose outcome sets the scale it is scored on, and no fold boundary
+        for a cluster to be split across.
+        """
+        if self.n_folds <= 1:
+            return
+        if data.cluster is not None:
+            raise LongitudinalError(
+                "cross-fitted longitudinal TMLE has no clustered result. A grouped draw "
+                "keeps each cluster whole, and what has not been established for the "
+                "sequential recursion is the cluster-robust variance of its targeted "
+                "estimate under one; docs/roadmap.md F22 tracks this stop. "
+                "Fit in sample (CrossFitting(enabled=False), or "
+                "n_folds=1 on the engine), which is clustered and evidenced, or drop id= "
+                "from fit."
+            )
+        if data.family != "binomial" and self.q_bounds is None:
+            raise LongitudinalError(
+                f"a cross-fitted longitudinal fit of a continuous outcome "
+                f"(family={data.family!r}) needs a declared q_bounds. With q_bounds=None "
+                "the outcome scale is taken from every observed outcome, held-out rows "
+                "included, so each fold's recursion is fitted on a scale the rows it "
+                "predicts helped set, and no shipped result covers that scale "
+                "(docs/technical-reference/cv-tmle.md, fold and outcome-scale "
+                "rules). Declare the known outcome support "
+                "(Targeting(q_bounds=(lower, upper))), or fit in sample "
+                "(CrossFitting(enabled=False), or n_folds=1 on the engine)."
+            )
+
     def _folds(self, data: LongitudinalData) -> Folds:
+        """One unstratified draw of the outer split, or the in-sample single fold.
+
+        The split reads ``n`` and the seed and nothing else.  It used to be stratified on
+        the first treatment node, which made the assignment a function of the treatment
+        the fit then conditions on; what that stratification bought -- every training
+        complement carrying every first-node arm -- is now *checked* on the realized draw
+        by :func:`~cleverly.longitudinal.sequential.preflight_mechanism_support`, before
+        the first learner runs.
+        """
         if self.n_folds <= 1:
             return Folds.single(data.n)
-        # Stratified on the first treatment node: it is the one every unit is at risk
-        # for, so it is the only stratum a fold can be checked to carry.  The later
-        # nodes are stratified only as far as the first one carries them.
-        resolved = resolve_n_folds(self.n_folds, data.n, np.nan_to_num(data.treatment[:, 0]))
-        return make_folds(
+        return random_partition(
             data.n,
-            resolved,
-            stratify=np.nan_to_num(data.treatment[:, 0]),
+            self.n_folds,
             cluster=data.cluster,
-            random_state=self.random_state,
+            seed=_fresh_seed() if self.random_state is None else int(self.random_state),
         )
 
 

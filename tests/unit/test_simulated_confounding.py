@@ -80,7 +80,7 @@ from cleverly.study import (
 )
 from cleverly.targets import TARGETS
 from cleverly.utils import resolve_g_bounds
-from tests.conftest import assert_scale_normalizes_away, mean_one_weights, unweight
+from tests.conftest import IN_SAMPLE, assert_scale_normalizes_away, mean_one_weights, unweight
 from tests.pickles import (
     _FORGED_FUNCTIONAL_VALUES,
     FUNCTIONAL_TAMPERINGS,
@@ -104,6 +104,7 @@ def _fit(
     seed: int = 7,
     method: str = "tmle",
     repeats: int = 1,
+    n: int = 120,
     weight_scale: float | None = None,
     weights_estimated: bool = False,
     constant_weights: bool = False,
@@ -111,11 +112,11 @@ def _fit(
     collaborative_kwargs: dict[str, Any] | None = None,
 ) -> Any:
     if family == "gaussian":
-        frame, _ = make_linear_ate(n=120, seed=seed, backend=backend)
+        frame, _ = make_linear_ate(n=n, seed=seed, backend=backend)
         covariates = ("W1", "W2", "W3", "W4")
         outcome_learner = LinearRegression()
     else:
-        frame, _ = make_binary_outcome(n=120, seed=seed, backend=backend)
+        frame, _ = make_binary_outcome(n=n, seed=seed, backend=backend)
         covariates = ("W1", "W2", "W3")
         outcome_learner = LogisticRegression(max_iter=1000)
     weight_name = None
@@ -152,6 +153,7 @@ def _fit(
         random_state=seed,
         repeats=repeats,
         simultaneous=False,
+        **(IN_SAMPLE if family == "gaussian" else {}),
     )
 
 
@@ -206,6 +208,7 @@ def _fit_binary_mean(
         learner_folds=2,
         random_state=seed,
         simultaneous=False,
+        **(IN_SAMPLE if family != "binomial" else {}),
     )
 
 
@@ -274,6 +277,7 @@ def _fit_att(*, seed: int = 7) -> Any:
         learner_folds=2,
         random_state=seed,
         simultaneous=False,
+        **IN_SAMPLE,
     )
 
 
@@ -388,6 +392,7 @@ def _fit_continuous(
         random_state=seed,
         repeats=repeats,
         simultaneous=False,
+        **(IN_SAMPLE if family != "binomial" else {}),
     )
 
 
@@ -521,7 +526,12 @@ class _UnsupportedTMLE(TMLE):
 def test_each_supported_estimator_runs_a_real_refit_surface(
     method: str, estimator_name: str
 ) -> None:
-    result = _fit(method=method, repeats=3)
+    # repeats > 1 takes the median over independent cross-fitting draws, so this fit stays
+    # cross-fitted. A cross-fitted continuous outcome needs a declared q_bounds
+    # (the fold and outcome-scale rules), so the subject moves to the binary law that is exempt, at
+    # n=400 rather than the file's usual 120: the flip below has to clear fold noise, and
+    # fold noise falls with the sample size a binary outcome needs it to.
+    result = _fit(method=method, family="binomial", n=400, repeats=3)
     surface = simulated_confounding(
         result,
         grid=ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,)),
@@ -542,15 +552,14 @@ def test_each_supported_estimator_runs_a_real_refit_surface(
     assert surface.cells[0].estimate == result["ate"].psi
     assert surface.cells[0].displacement == 0.0
 
-    # A flip of the upper 10% latent tail moves this fixture by -0.7528 on tmle, -0.6835 on
-    # collaborative_tmle, and -0.6211 on drtmle, all at repeats=3. The surface seed differs
-    # from the seed of the fit, so -0.1050, -0.0140, and -0.0481 of those three are fold
-    # noise rather than the flip. The gate sits far below the remainder and far above
-    # numerical noise, and it is signed, so a perturbation that never reaches the refit
-    # fails it.
+    # A flip of the upper 10% latent tail moves this fixture by -0.0530 on tmle, -0.0548 on
+    # collaborative_tmle, and -0.0529 on drtmle, all at repeats=3. The surface seed differs
+    # from the seed of the fit, so 0.0025, 0.0017, and 0.0112 of those three are fold noise
+    # rather than the flip. The gate sits far below the remainder and far above numerical
+    # noise, and it is signed, so a perturbation that never reaches the refit fails it.
     displacement = surface.cells[1].displacement
     assert displacement is not None
-    assert displacement < -0.3
+    assert displacement < -0.02
     assert surface.cells[1].estimate == pytest.approx(result["ate"].psi + displacement)
     assert surface.successful_cells == surface.cells
 
@@ -578,7 +587,9 @@ def _manual_repeated_refit(result: Any, surface: Any, *, treatment: float, outco
 
 
 def test_binary_additive_repeat_surface_equals_the_estimator_median() -> None:
-    result = _fit(repeats=3)
+    # repeats > 1 needs cross-fitting, and a cross-fitted continuous outcome needs a
+    # declared q_bounds (the fold and outcome-scale rules); the binary law is exempt.
+    result = _fit(family="binomial", repeats=3)
     grid = ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.2))
     surface = simulated_confounding(result, grid=grid, random_state=31)
     manual = _manual_repeated_refit(result, surface, treatment=0.1, outcome=0.0)
@@ -594,8 +605,9 @@ def test_binary_additive_repeat_surface_equals_the_estimator_median() -> None:
     assert len(set(per_draw)) == 3
     assert sorted(per_draw).index(cell.estimate) == 1
 
-    # The outcome axis runs ``Y' = Y - k_Y U``. Without a nonzero outcome strength every
-    # repeat test would exercise ``_gaussian_outcome`` as an identity transform only.
+    # The outcome axis flips the upper tail of the latent draw with ``_flip_binary``.
+    # Without a nonzero outcome strength every repeat test would exercise that flip as an
+    # identity transform only.
     outcome_manual = _manual_repeated_refit(result, surface, treatment=0.1, outcome=0.2)
     outcome_cell = surface.cells[3]
     outcome_per_draw = [repeat.psi["ate"] for repeat in outcome_manual.repeats]
@@ -615,8 +627,11 @@ def test_binary_additive_repeat_surface_equals_the_estimator_median() -> None:
         manual.estimator.crossfit_plan(manual.data).seeds()
         == second_manual.estimator.crossfit_plan(second_manual.data).seeds()
     )
-    assert any(
-        not np.array_equal(first.folds.assignment, second.folds.assignment)
+    # stratify_folds defaults to "none" (the fold and outcome-scale rules): the split is drawn from the
+    # seed alone and reads neither the perturbed treatment nor the outcome, so two refits
+    # that share their seeds but differ in treatment strength draw the identical partition.
+    assert all(
+        np.array_equal(first.folds.assignment, second.folds.assignment)
         for first, second in zip(manual.repeats, second_manual.repeats, strict=True)
     )
 
@@ -638,7 +653,9 @@ def test_binary_ratio_repeat_surface_equals_the_estimator_log_median() -> None:
 
 
 def test_continuous_policy_repeat_surface_equals_the_estimator_median() -> None:
-    result = _fit_continuous(repeats=3)
+    # repeats > 1 needs cross-fitting, and a cross-fitted continuous outcome needs a
+    # declared q_bounds (the fold and outcome-scale rules); the binary law is exempt.
+    result = _fit_continuous(family="binomial", repeats=3)
     alias = _shift_alias(result)
     grid = ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0,))
     surface = simulated_confounding(result, estimand=alias, grid=grid, random_state=31)
@@ -655,7 +672,9 @@ def test_continuous_policy_repeat_surface_equals_the_estimator_median() -> None:
 
 
 def test_repeated_surface_metadata_cache_and_serialization_round_trip() -> None:
-    result = _fit(repeats=3)
+    # repeats > 1 needs cross-fitting, and a cross-fitted continuous outcome needs a
+    # declared q_bounds (the fold and outcome-scale rules); the binary law is exempt.
+    result = _fit(family="binomial", repeats=3)
     kwargs = {
         "grid": ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,)),
         "random_state": 31,
@@ -674,7 +693,9 @@ def test_repeated_surface_metadata_cache_and_serialization_round_trip() -> None:
 
 
 def test_fixed_weight_surface_repeats_cache_and_serialization_round_trip() -> None:
-    result = _fit(repeats=3, weight_scale=4.0)
+    # repeats > 1 needs cross-fitting, and a cross-fitted continuous outcome needs a
+    # declared q_bounds (the fold and outcome-scale rules); the binary law is exempt.
+    result = _fit(family="binomial", repeats=3, weight_scale=4.0)
     kwargs = {
         # A nonzero outcome strength runs the weighted outcome replacement under repeats,
         # which the treatment axis alone never reaches.
@@ -1040,7 +1061,9 @@ def test_fixed_weight_drtmle_preserves_weight_provenance_on_every_replacement(
 
 
 def test_fixed_weight_drtmle_repeat_median_cache_and_serialization_round_trip() -> None:
-    result = _fit(method="drtmle", repeats=3, weight_scale=4.0)
+    # repeats > 1 needs cross-fitting, and a cross-fitted continuous outcome needs a
+    # declared q_bounds (the fold and outcome-scale rules); the binary law is exempt.
+    result = _fit(method="drtmle", family="binomial", repeats=3, weight_scale=4.0)
     kwargs = {
         "grid": ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,)),
         "random_state": 31,
@@ -1783,6 +1806,7 @@ def _fit_split_mass_ctmle(*, seed: int = 7, overrides: dict[str, Any] | None = N
         learner_folds=2,
         random_state=seed,
         simultaneous=False,
+        **IN_SAMPLE,
     )
 
 
@@ -1873,8 +1897,11 @@ def test_fixed_weight_ctmle_partial_correlation_preorder_follows_the_row_mass(
 def test_fixed_weight_ctmle_preserves_provenance_repeat_cache_and_persistence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # repeats > 1 needs cross-fitting, and a cross-fitted continuous outcome needs a
+    # declared q_bounds (the fold and outcome-scale rules); the binary law is exempt.
     result = _fit(
         method="collaborative_tmle",
+        family="binomial",
         repeats=3,
         weight_scale=4.0,
         collaborative_kwargs={"strategy": "ordered", "preorder": "partial_correlation"},
@@ -1985,8 +2012,11 @@ def test_fixed_weight_oat_control_detects_dropped_mechanism_weights(
 ) -> None:
     """The outcome-adaptive treatment model must read the row mass.
 
-    The gate is relative for the same reason the selector control's gate is. The measured
-    movement on this fixture is 0.00324 on a psi of 1.0615, which is 0.31 percent.
+    The gate is relative for the same reason the selector control's gate is. In sample
+    (this fit's fixture, the fold and outcome-scale rules), the movement at treatment=0.2,
+    outcome=0.3 falls to 0.015 percent, under the gate rather than over it, so the probe
+    strengths move to 0.4 and 0.4. The measured movement there is 0.000174 on a psi of
+    0.08398, which is 0.21 percent.
     """
     result = _fit(
         method="collaborative_tmle",
@@ -1994,10 +2024,10 @@ def test_fixed_weight_oat_control_detects_dropped_mechanism_weights(
         collaborative_kwargs={"strategy": "oat"},
     )
     surface = simulated_confounding(result, grid=_ANCHOR_GRID, random_state=31)
-    baseline = _manual_repeated_refit(result, surface, treatment=0.2, outcome=0.3)
+    baseline = _manual_repeated_refit(result, surface, treatment=0.4, outcome=0.4)
 
     unweight(monkeypatch, CTMLE, "_outcome_adaptive_nuisances")
-    dropped = _manual_repeated_refit(result, surface, treatment=0.2, outcome=0.3)
+    dropped = _manual_repeated_refit(result, surface, treatment=0.4, outcome=0.4)
 
     assert abs(baseline["ate"].psi - dropped["ate"].psi) > 1e-3 * abs(baseline["ate"].psi)
 
@@ -2397,6 +2427,7 @@ def _fit_with_a_support_constant_covariate(*, seed: int = 7) -> Any:
         learner_folds=2,
         random_state=seed,
         simultaneous=False,
+        **IN_SAMPLE,
     )
 
 
@@ -2427,7 +2458,9 @@ def test_a_covariate_constant_on_the_positive_weight_support_is_refused(
 def test_repeated_surface_retains_a_complete_refit_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    repeated = _fit(repeats=3)
+    # repeats > 1 needs cross-fitting, and a cross-fitted continuous outcome needs a
+    # declared q_bounds (the fold and outcome-scale rules); the binary law is exempt.
+    repeated = _fit(family="binomial", repeats=3)
     calls = _record_refits(repeated, monkeypatch, fail_call=1)
     surface = simulated_confounding(
         repeated,
@@ -2455,7 +2488,9 @@ def test_a_median_dropped_estimand_reports_the_median_rule_and_not_a_missing_req
     monkeypatch: pytest.MonkeyPatch, repeats: int
 ) -> None:
     """``median_estimates`` omits a name absent from one draw, and the cell says so."""
-    result = _fit(repeats=repeats)
+    # repeats=3 needs cross-fitting, and a cross-fitted continuous outcome needs a declared
+    # q_bounds (the fold and outcome-scale rules); the binary law is exempt at both parametrizations.
+    result = _fit(family="binomial", repeats=repeats)
 
     def refit(data: Any, **kwargs: Any) -> Any:
         del kwargs
@@ -2488,7 +2523,9 @@ def test_repeat_provenance_checks_each_count_before_the_latent_draw(
     monkeypatch: pytest.MonkeyPatch,
     layer: str,
 ) -> None:
-    result = _fit(repeats=3)
+    # repeats > 1 needs cross-fitting, and a cross-fitted continuous outcome needs a
+    # declared q_bounds (the fold and outcome-scale rules); the binary law is exempt.
+    result = _fit(family="binomial", repeats=3)
     if layer == "stored":
         result = replace(result, repeats=result.repeats[:1])
     elif layer == "config":
@@ -2543,7 +2580,13 @@ def test_each_ratio_runs_a_real_log_movement_surface(
     assert surface.cells[0].displacement == 0.0
     assert any(abs(cell.displacement or 0.0) > 0.01 for cell in surface.cells[1:])
 
-    witness = surface.cells[1]
+    # cells[2] is the pure treatment-strength=0.1 cell. cells[1] (outcome-strength=0.2
+    # alone) moves the rr-tmle combination by too little to separate the log and linear
+    # scales past the 1e-3 gate below (a 0.00045 gap on the bounded fixture the fold
+    # and scale rules require), which would make that combination blind to a mutation
+    # that dropped the log.
+    # cells[2] clears the gate by at least 24x on every method and ratio this test covers.
+    witness = surface.cells[2]
     assert witness.estimate is not None
     assert witness.displacement == pytest.approx(
         np.log(witness.estimate) - result[target].inference_value
@@ -4911,6 +4954,7 @@ def _treated_fraction_fit(fraction: float, *, n: int = 800, seed: int = 5) -> An
         learner_folds=2,
         random_state=seed,
         simultaneous=False,
+        **IN_SAMPLE,
     )
 
 

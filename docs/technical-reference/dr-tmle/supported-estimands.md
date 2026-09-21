@@ -47,9 +47,15 @@ res = study.estimate(
     method=DRTMLEMethod(guard=("Q", "g")),
     outcome_learner=LinearRegression(),
     treatment_learner=LogisticRegression(max_iter=1000),
+    cross_fit=False,
     random_state=0,
 )
 ```
+
+`make_nonlinear_ate` has a Gaussian outcome, whose support is the whole real line, so this fit
+turns cross-fitting off. A cross-fitted fit of a continuous outcome is refused unless `q_bounds`
+declares the support. `DRTMLE` inherits that refusal from `TMLE`. The
+[fold and outcome-scale rules](../cv-tmle.md#fold-and-outcome-scale-rules) give the message.
 
 `guard=` says which extra equations to solve, in `drtmle`'s vocabulary and crossed the way that
 package crosses it. Both apply by default. It also names the corrections the reported curve
@@ -68,6 +74,8 @@ guard is a plain `TMLE`, bit for bit.
 | `reduction="bivariate"` | supported for complete outcomes and discrete treatment. It fits one reduced probability on the two-column `(Qbar-hat(a,W), g-hat(a|W))` design and uses van der Laan's distinct `D_Y`, once per arm as the pinned R implementation does; univariate remains the default because its reduced regressions can converge faster. The cited theorem is binary, so the multi-arm case is an implementation-backed armwise extension rather than a claim about that theorem's literal scope. |
 | a random-forest reduction learner | computes, but steps **outside** the cross-fitting argument of [section 3](targeting.md#reduced-regression-cross-fitting), because its fitted class grows with `n`. Not refused; scoped. |
 | `g_bounds=` a fixed value | permitted, and it puts the fit outside the asymptotic half of the [bound-inactive scope](targeting.md#the-bound-inactive-scope): the argument needs a bound *sequence* going to zero, which `"auto"` supplies and a fixed bound above `ess inf g_0` does not. |
+| `q_bounds=` | **required** with `cross_fit=True` on a continuous outcome, and equal to the outcome's known support. Refused on a binary outcome, which already sits on the unit interval. |
+| `stratify_folds=` | `"none"` only, which is the default. The other two policies are refused whenever the fit draws a split. |
 
 **What `delta=` accepts.** Set `randomized=True` to estimate the treatment probabilities. You can
 instead pass row-aligned known probabilities as `treatment_probabilities=` to `fit`. Three shapes
@@ -122,4 +130,6 @@ caller estimated the weights, and no interval claim here covers that estimation.
 | composition with `CTMLE` | a reduced regression conditions on `ĝ` *as a covariate*, and C-TMLE's `ĝ` is deliberately not an estimate of `g_0`. C-TMLE also scores its path by the loss of the targeted `Q̄`, so the criterion choosing `ĝ` presupposes that `Q̄` is informative. That is precisely the case this variant insures against. |
 | estimated weights (`weights_estimated=`) | **not refused at `fit`; no interval claim covers it.** The ordinary answer is that the interval conditions on the weights, and that answer is an argument about `D*` rather than about `Q_r`, `g_{r,1}` and `g_{r,2}`. `simulated_confounding` refuses the composition before it draws |
 | `evaluation=` with `repeats>1`, `targeting="one_step"`, or `target_weights=True` | each by name; the middle one on cost, up to 20,000 adaptive steps |
-| `reduced_crossfit="nested"` with `cross_fit=False` or `n_folds < 3` | there is no complement to leave a fold out of; nested leaves two folds out at a time |
+| `reduced_crossfit="nested"` with `cross_fit=False` or `n_folds < 3` | there is no complement to leave a fold out of; nested leaves two folds out at a time. `cross_fit=True` with fewer than two folds is refused earlier, when the declaration is constructed, so this row's fold clause reaches only `n_folds=2` |
+| a continuous outcome with `cross_fit=True` and `q_bounds=None` | the scale would come from every observed outcome, held-out rows included, and no shipped result covers it. See the [fold and outcome-scale rules](../cv-tmle.md#fold-and-outcome-scale-rules) |
+| `stratify_folds="treatment"` or `"treatment+outcome"` with `cross_fit=True` | the partition would be a function of the data the fit then conditions on. Refused when the declaration is constructed |

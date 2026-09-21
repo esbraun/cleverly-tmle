@@ -32,7 +32,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from scipy import stats
@@ -56,6 +56,7 @@ __all__ = [
     "make_missing_outcome_binary",
     "make_multi_arm",
     "make_nonlinear_ate",
+    "make_nonlinear_bounded",
     "make_shift_dose",
     "make_weak_overlap",
 ]
@@ -92,9 +93,16 @@ class DGP:
         ``E[Y | A = a, Z = z, latent]``.  ``z`` is ``None`` for processes without an
         intermediate variable.
     family:
-        ``"binomial"`` when ``outcome_mean`` returns a probability, else ``"gaussian"``.
+        ``"binomial"`` when ``outcome_mean`` returns a probability and ``Y`` is its 0/1
+        draw; ``"beta"`` when ``Y`` is a proportion drawn from
+        ``Beta(concentration * m, concentration * (1 - m))`` with ``m = outcome_mean``, so
+        ``E[Y | A, latent] = m`` and ``Y`` lies in ``(0, 1)``; else ``"gaussian"``.
     noise_scale:
         Standard deviation of the additive error, for a gaussian outcome.
+    concentration:
+        The beta family's precision ``phi``: ``Var(Y | A, latent) = m (1 - m) / (1 + phi)``.
+        Required, positive and finite for ``family="beta"``, and refused for any other
+        family, where nothing would read it.
     missingness:
         ``P(Delta = 1 | A = a, latent)``, or ``None`` when outcomes are always observed.
     intermediate:
@@ -116,6 +124,25 @@ class DGP:
     intermediate: Callable[[FloatArray, float], FloatArray] | None = None
     cluster_size: int | None = None
     hidden_names: tuple[str, ...] = field(default=())
+    concentration: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.family != "beta":
+            if self.concentration is not None:
+                raise ValueError(
+                    f"concentration is the beta family's precision and nothing reads it for "
+                    f"family={self.family!r}; drop it or declare family='beta'"
+                )
+            return
+        phi = self.concentration
+        if (
+            phi is None
+            or isinstance(phi, bool)
+            or not isinstance(phi, (int, float))
+            or not np.isfinite(phi)
+            or phi <= 0.0
+        ):
+            raise ValueError(f"family='beta' needs a positive, finite concentration; got {phi!r}")
 
     # ------------------------------------------------------------------ truth
 
@@ -299,6 +326,11 @@ class DGP:
         mean = self._observed_mean(latent, a, z)
         if self.family == "binomial":
             y = rng.binomial(1, np.clip(mean, 0.0, 1.0)).astype(float)
+        elif self.family == "beta":
+            _refuse_means_outside_the_open_unit_interval(self)
+            # __post_init__ has already refused a beta law without a usable concentration.
+            phi = float(cast(float, self.concentration))
+            y = rng.beta(phi * mean, phi * (1.0 - mean))
         else:
             y = mean + rng.normal(scale=self.noise_scale, size=n)
 
@@ -371,6 +403,12 @@ def _estimands_from(q1: FloatArray, q0: FloatArray, g: FloatArray, family: str) 
         "att": float(np.sum(g * contrast) / np.sum(g)),
         "atc": float(np.sum((1.0 - g) * contrast) / np.sum(1.0 - g)),
     }
+    # Ratios for the binomial family only, not for "beta" although its means are positive
+    # too.  A proportion in (0, 1) resolves to family="gaussian" in a fit
+    # (data.validate.infer_family), declaring "binomial" over it is refused
+    # (data.validate.resolve_family), and rr and or declare requires_family="binomial"
+    # (targets.builtin).  No fit of a beta draw reports them, so a truth keyed "rr" would
+    # name a parameter nothing estimates.
     if family == "binomial":
         risk_one, risk_zero = truth["ey1"], truth["ey0"]
         truth["rr"] = float(risk_one / risk_zero)
@@ -409,6 +447,34 @@ def _refuse_non_probability_means(dgp: MultiArmDGP) -> None:
                 f"three-armed process, multi_arm_dgp(family='binomial') is the binary "
                 f"law -- the same design on the logit scale, not this one squashed"
             )
+
+
+@lru_cache(maxsize=32)
+def _refuse_means_outside_the_open_unit_interval(dgp: DGP) -> None:
+    """Refuse a beta law whose ``outcome_mean`` leaves the open interval ``(0, 1)``.
+
+    :func:`_refuse_non_probability_means` for :class:`DGP`, and cached for the same reason.
+    The interval is open because both beta shapes ``phi * m`` and ``phi * (1 - m)`` must be
+    positive: a mean of exactly ``0`` or ``1`` has no beta law.  The check runs on the
+    quadrature points :meth:`DGP.truth` integrates over, at every treatment value and every
+    intermediate value the law draws, so the verdict does not depend on ``n`` or the seed.
+    Refused rather than clipped, because :meth:`DGP.truth` integrates the unclipped mean.
+    """
+    latent = _sobol_normal(dgp.n_latent, _TRUTH_POINTS)
+    intermediates: tuple[float | None, ...] = (None,) if dgp.intermediate is None else (0.0, 1.0)
+    for a in (0.0, 1.0):
+        for z in intermediates:
+            means = np.asarray(dgp.outcome_mean(latent, a, z), dtype=float)
+            low, high = float(means.min()), float(means.max())
+            if not (low > 0.0 and high < 1.0):
+                where = f"A={a:g}" if z is None else f"A={a:g}, Z={z:g}"
+                raise ValueError(
+                    f"family='beta' needs an outcome_mean inside the open interval (0, 1), "
+                    f"and at {where} it reaches [{low:.4g}, {high:.4g}]. This is refused "
+                    f"rather than clipped because truth() integrates the mean you passed: "
+                    f"clipping would draw from one law and report another. Map the mean "
+                    f"into (0, 1), for example through expit, or use family='gaussian'"
+                )
 
 
 # 32 rather than 8 because a caller measuring the rule's own error walks a *ladder* of point
@@ -593,6 +659,102 @@ def make_nonlinear_ate(
         Exact causal parameters for the data-generating process.
     """
     return _make(nonlinear_dgp(), n, seed, backend)
+
+
+def nonlinear_bounded_dgp(concentration: float = 12.0) -> DGP:
+    r"""The law behind :func:`make_nonlinear_bounded`: a proportion with a nonlinear mean.
+
+    The propensity is :func:`nonlinear_dgp`'s.  The outcome mean is the expit of a
+    predictor with the same four kinds of term as :func:`nonlinear_dgp`'s outcome: a sine,
+    a square, an interaction and an absolute value, and an effect that varies with ``W1``
+    and ``W2``.  Each unbounded term passes through ``tanh``, so the predictor lies in
+    ``(-2.09, 2.8)`` and every mean lies in ``(0.110, 0.943)``.  ``Y`` is then drawn as
+    ``Beta(phi * m, phi * (1 - m))``, whose mean is ``m``, so the support is ``(0, 1)``.
+
+    The bound on the mean is deliberate.  With ``phi = 12`` the smaller beta shape exceeds
+    ``0.68``, which keeps a draw from rounding to exactly ``0`` or ``1`` in double
+    precision.  An unbounded predictor would put some means next to ``0`` or ``1``, where
+    a shape near zero puts real probability on such a rounded draw.
+    """
+
+    def outcome_mean(w: FloatArray, a: float, z: float | None) -> FloatArray:
+        del z
+        baseline = (
+            -0.5
+            + 0.8 * np.sin(1.5 * w[:, 0])
+            + 0.5 * np.tanh(w[:, 1] ** 2 - 1.0)
+            - 0.4 * np.tanh(w[:, 2] * w[:, 3])
+            + 0.3 * np.tanh(np.abs(w[:, 3]))
+        )
+        effect = 0.9 + 0.4 * np.tanh(w[:, 0]) - 0.3 * (w[:, 1] > 0)
+        return expit(baseline + effect * a)
+
+    return DGP(
+        name=f"nonlinear_bounded(concentration={concentration})",
+        n_latent=4,
+        covariate_names=("W1", "W2", "W3", "W4"),
+        propensity=nonlinear_dgp().propensity,
+        outcome_mean=outcome_mean,
+        family="beta",
+        concentration=concentration,
+    )
+
+
+def make_nonlinear_bounded(
+    n: int = 1000,
+    *,
+    seed: int | np.random.Generator | None = None,
+    backend: Backend | str | None = None,
+) -> tuple[Any, dict[str, float]]:
+    """Generate a bounded outcome with nonlinear nuisance functions.
+
+    Parameters
+    ----------
+    n : int
+        Number of observations.
+    seed : int, Generator, or None
+        Seed or NumPy random generator.
+    backend : {"pandas", "polars", "pyarrow"} or None, default=None
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
+
+    Returns
+    -------
+    dataframe
+        Simulated observations with a proportion outcome, treatment, and covariates.
+    truth : dict of str to float
+        Exact causal parameters for the data-generating process.
+
+    See Also
+    --------
+    cleverly.datasets.make_nonlinear_ate : The unbounded outcome with the same propensity.
+
+    Notes
+    -----
+    The outcome ``Y`` is a proportion. Its known support is the open interval ``(0, 1)``.
+    The prespecified outcome bounds for this law are therefore ``q_bounds=(0, 1)``. They
+    come from the law, not from the observed outcomes.
+
+    The conditional mean of ``Y`` is the expit of a nonlinear predictor, and
+    :func:`nonlinear_bounded_dgp` gives its terms. A linear model is misspecified for the
+    propensity and for the outcome mean. The effect varies with ``W1`` and ``W2``, so
+    ``ate``, ``att``, and ``atc`` differ.
+
+    The truth holds ``ey1``, ``ey0``, ``ate``, ``att``, and ``atc``. It holds no ``rr`` or
+    ``or``, because a fit treats a proportion as a continuous outcome and refuses those
+    estimands for it.
+
+    Examples
+    --------
+    >>> from cleverly.datasets import make_nonlinear_bounded
+    >>> frame, truth = make_nonlinear_bounded(n=200, seed=1)
+    >>> list(frame.columns)
+    ['Y', 'A', 'W1', 'W2', 'W3', 'W4']
+    >>> bool(frame["Y"].between(0.0, 1.0, inclusive="neither").all())
+    True
+    >>> sorted(key for key in truth if not key.startswith("sample_"))
+    ['atc', 'ate', 'att', 'ey0', 'ey1']
+    """
+    return _make(nonlinear_bounded_dgp(), n, seed, backend)
 
 
 def heterogeneous_dgp(slope: float = 1.5) -> DGP:
@@ -1007,7 +1169,7 @@ def make_cde(
     return _make(cde_dgp(), n, seed, backend, intermediate_value=intermediate_value)
 
 
-def clustered_dgp(cluster_size: int = 10) -> DGP:
+def clustered_dgp(cluster_size: int = 10, *, family: str = "gaussian") -> DGP:
     """Within-cluster dependence through a shared latent *effect modifier*.
 
     The third latent is shared within a cluster and is not among the covariates, and it is
@@ -1023,21 +1185,63 @@ def clustered_dgp(cluster_size: int = 10) -> DGP:
     exactly once ``g`` is well specified.  Interacting with the arm leaves the ``A``-selected
     half of the residual, which the weight does not annihilate.  Measured design effect at
     ``cluster_size=10``: ``1.96``, against ``1.00`` for the additive form.
+
+    ``family="binomial"`` follows :func:`multi_arm_dgp`: the same terms become a linear
+    predictor and the mean is its expit.  The shared latent still enters interacted with the
+    arm and still stays out of the propensity, so the binary law keeps both properties
+    above.  Its effect is not constant on the risk scale, so its ``ate`` is not ``1.0``; the
+    truth also holds ``rr`` and ``or``.
+
+    The binary law's arm-by-latent coefficient is ``8.0``, and a declared rule sets it.  The
+    rule is the one commit ``8f8ba31`` used to set the Gaussian law's ``2.0``: choose the
+    coefficient that reproduces the influence-curve design effect the clustered study rests
+    on.  That design effect is the squared ratio of the mean cluster-robust standard error to
+    the mean i.i.d. standard error.  One pilot of 800 replications at ``n=2000``, with five
+    unstratified grouped folds and the exact propensity, measures ``1.954`` for the binomial
+    law at ``8.0`` and ``1.949`` for the Gaussian law at ``2.0``.  The committed Gaussian
+    property rows give ``1.950`` for the same quantity, and the earlier measurement recorded
+    above gives ``1.96``.
+
+    The same pilot measures the binary law's i.i.d. standard error at ``0.7059`` empirical
+    standard deviations, with a 99 percent percentile interval of ``0.662`` to ``0.757``.
+    That is the statistic the study's i.i.d. control has to fall below, and it is a control
+    quantity rather than a verdict statistic.  The law's quadrature truths at
+    ``cluster_size=10`` are ``ate = 0.10405`` and ``rr = 1.2513``.
+
+    The outcome intraclass correlation is **not** the design effect, and a reader who treats
+    it as one overstates the dependence by about a factor of two.  At ``cluster_size=10`` the
+    measured outcome ICC is ``0.319`` for the binomial law and ``0.645`` for the Gaussian one
+    (``n=200000``, ``seed=11``), so the naive ``1 + (k - 1) * rho`` would predict ``3.87`` and
+    ``6.80`` against influence-curve design effects near ``1.95``.  The clever covariate
+    annihilates the additive share of the shared latent, and only the arm-selected half
+    reaches the influence curve.
     """
+    if family not in {"gaussian", "binomial"}:
+        raise ValueError(f"family must be 'gaussian' or 'binomial'; got {family!r}")
 
     def propensity(w: FloatArray) -> FloatArray:
         return expit(0.3 * w[:, 0] + 0.6 * w[:, 1])
 
-    def outcome_mean(w: FloatArray, a: float, z: float | None) -> FloatArray:
+    def gaussian_mean(w: FloatArray, a: float, z: float | None) -> FloatArray:
         del z
         return 1.0 + 1.0 * a + 0.8 * w[:, 0] + 0.5 * w[:, 1] + 1.5 * w[:, 2] + 2.0 * a * w[:, 2]
 
+    def binomial_mean(w: FloatArray, a: float, z: float | None) -> FloatArray:
+        del z
+        return expit(
+            -0.4 + 0.8 * a + 0.5 * w[:, 0] + 0.3 * w[:, 1] + 0.6 * w[:, 2] + 8.0 * a * w[:, 2]
+        )
+
+    gaussian = family == "gaussian"
     return DGP(
-        name=f"clustered(size={cluster_size})",
+        name=f"clustered(size={cluster_size})"
+        if gaussian
+        else f"clustered_binary(size={cluster_size})",
         n_latent=3,
         covariate_names=("W1", "W2"),
         propensity=propensity,
-        outcome_mean=outcome_mean,
+        outcome_mean=gaussian_mean if gaussian else binomial_mean,
+        family=family,
         cluster_size=cluster_size,
         hidden_names=("cluster_effect",),
     )
@@ -1049,6 +1253,7 @@ def make_clustered(
     seed: int | np.random.Generator | None = None,
     cluster_size: int = 10,
     backend: Backend | str | None = None,
+    family: str = "gaussian",
 ) -> tuple[Any, dict[str, float]]:
     """Clustered data with an *unobserved* shared effect modifying the treatment effect.
 
@@ -1061,6 +1266,9 @@ def make_clustered(
     covariates that are emitted; see :func:`clustered_dgp` for why both of those are
     necessary and why an additive shared effect would give neither.
 
+    ``family="binomial"`` gives a 0/1 outcome with the same cluster structure, so the risk
+    ratio and the odds ratio have a clustered law to be checked on.
+
     Parameters
     ----------
     n : int
@@ -1071,6 +1279,8 @@ def make_clustered(
         Number of rows per cluster.
     backend : {"pandas", "polars", "pyarrow"} or None, default=None
         Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
+    family : {"gaussian", "binomial"}
+        Outcome family of the generated outcome.
 
     Returns
     -------
@@ -1079,7 +1289,7 @@ def make_clustered(
     truth : dict of str to float
         Exact causal parameters for the data-generating process.
     """
-    return _make(clustered_dgp(cluster_size), n, seed, backend)
+    return _make(clustered_dgp(cluster_size, family=family), n, seed, backend)
 
 
 def binary_outcome_dgp() -> DGP:
@@ -1686,6 +1896,7 @@ def make_shift_dose(
 GENERATORS: dict[str, Callable[..., tuple[Any, dict[str, float]]]] = {
     "linear_ate": make_linear_ate,
     "nonlinear_ate": make_nonlinear_ate,
+    "nonlinear_bounded": make_nonlinear_bounded,
     "weak_overlap": make_weak_overlap,
     "instrument": make_instrument,
     "missing_outcome": make_missing_outcome,

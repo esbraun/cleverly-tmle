@@ -1,4 +1,15 @@
-"""Registered multi-arm selector C-TMLE evidence with an explicit empty R comparison."""
+"""Registered multi-arm selector C-TMLE evidence with an explicit empty R comparison.
+
+The fit is not cross-fitted, and it still draws a split: the selector scores its candidate
+path over five *selection* folds.  That split reads the treatment unless the fit says
+otherwise, which makes a candidate's cross-validated loss a function of the rows it is
+scored on.  :func:`fit_cleverly` therefore passes ``stratify_folds="none"`` and
+:func:`assert_unstratified_selection` reads the realized partition back off every result.
+
+The binary selector row states the same rule in its own module rather than sharing this
+one.  A shared helper would put every module the other study reaches into this study's
+manifest, and the two rows would then record each other's sources as their own provenance.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +19,7 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 
 from cleverly.estimators import CTMLE
+from cleverly.learners.crossfit import RANDOM_PARTITION_GENERATOR
 from tests.parallel import STUDY_JOBS
 from tests.studies import multi_arm_common
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
@@ -16,6 +28,12 @@ from tests.studies.evidence.seeds import draw_replicate
 PRIMARY_REPLICATES = 800
 PRIMARY_N = 1500
 SEED = 20260829
+SELECTION_FOLDS = 5
+
+#: What every split this study draws is held to.  ``"none"`` is passed explicitly rather
+#: than left to the estimator's default, so this study's declaration does not move when that
+#: default does.
+STRATIFY_FOLDS = "none"
 SCENARIOS = {
     "multi_arm_selector_greedy": multi_arm_common.ALL_ESTIMANDS,
     "multi_arm_selector_ordered": multi_arm_common.ALL_ESTIMANDS,
@@ -67,9 +85,19 @@ CONFIGURATION = {
     "treatment_levels": list(multi_arm_common.LABELS),
     "reference": multi_arm_common.REFERENCE,
     "cross_fit": False,
-    "selection_folds": 5,
+    "selection_folds": SELECTION_FOLDS,
     "selection_inner_folds": 2,
     "penalty": False,
+    "stratify_folds": STRATIFY_FOLDS,
+    "q_bounds": (
+        "none anywhere in this row; the outcome is binary on the primary law and on every "
+        "property law, so the scaler is already the identity"
+    ),
+    "folds": (
+        f"unstratified {SELECTION_FOLDS}-fold selection assignments drawn from the "
+        "estimator's own seed; no outer cross-fitting on the primary, and unstratified "
+        "five-fold outer assignments in the property cells"
+    ),
     "comparison_scope": "none; R ctmle 0.1.2 is binary-treatment only",
 }
 
@@ -93,13 +121,13 @@ def _strategy(scenario: str) -> tuple[str, dict[str, Any]]:
 
 def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
     strategy, options = _strategy(scenario)
-    return (
+    result = (
         CTMLE(
             strategy=strategy,
             outcome_learner=LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs"),
             treatment_learner=LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs"),
             cross_fit=False,
-            selection_folds=5,
+            selection_folds=SELECTION_FOLDS,
             selection_inner_folds=2,
             penalty=False,
             estimands=("ey", "ate", "rr", "or"),
@@ -107,6 +135,10 @@ def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
             reference=multi_arm_common.REFERENCE,
             simultaneous=False,
             g_bounds=multi_arm_common.G_BOUNDS,
+            # The outcome is binary here, so no ``q_bounds``: the scaler is already the
+            # identity and ``TMLE._scaler`` refuses a second declaration of it.  The split
+            # is the declaration this fit needs.
+            stratify_folds=STRATIFY_FOLDS,
             max_iter=100,
             tol=1e-10,
             random_state=0,
@@ -115,6 +147,43 @@ def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
         .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
         .single()
     )
+    assert_unstratified_selection(result)
+    return result
+
+
+def assert_unstratified_selection(result: Any) -> None:
+    """Refuse a fit whose selection split was not the declared unstratified one.
+
+    ``stratify_folds="none"`` is a keyword the caller passes, and the realized partition is
+    what the fit did with it.  A balanced split carries no origin at all, because it comes
+    from scikit-learn rather than from the package's own generator, so the absence of one is
+    itself the finding.  Reading it back is what makes the published ``folds`` line in
+    ``CONFIGURATION`` a checked statement rather than a description.
+
+    Parameters
+    ----------
+    result : Any
+        A fitted single-parameter C-TMLE result carrying a selector path.
+
+    Raises
+    ------
+    RuntimeError
+        When the selection folds were not drawn by
+        :func:`~cleverly.learners.random_partition` as a plain v-fold split.
+    """
+    origin = result.extra["ctmle"].folds.origin
+    if origin is None:
+        raise RuntimeError(
+            "the selection folds carry no generator record, which is what a split balanced "
+            "on the treatment or the outcome leaves behind. This study draws them with "
+            f"stratify_folds={STRATIFY_FOLDS!r}"
+        )
+    if origin.generator != RANDOM_PARTITION_GENERATOR or origin.scheme != "vfold":
+        raise RuntimeError(
+            f"the selection folds came from generator={origin.generator!r} as "
+            f"scheme={origin.scheme!r}, and this study's rows are evidence about a plain "
+            f"v-fold split of iid rows drawn by {RANDOM_PARTITION_GENERATOR!r}"
+        )
 
 
 def cleverly_rows(

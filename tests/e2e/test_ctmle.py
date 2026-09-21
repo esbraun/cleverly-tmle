@@ -17,13 +17,15 @@ selector that always returns the empty propensity model; it takes that escape ro
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import numpy as np
 import pytest
 import sklearn.linear_model
+from scipy.special import expit
 
 from cleverly import CapabilityError, SuperLearner, load
+from cleverly._typing import FloatArray
 from cleverly.datasets import (
     instrument_dgp,
     make_instrument,
@@ -44,9 +46,35 @@ TMLE_SETTINGS = {**FAST_KWARGS, "estimands": ("ate", "ey1", "ey0")}
 SETTINGS = {**TMLE_SETTINGS, "selection_folds": 3}
 
 
+def _binary_instrument_dgp():
+    """``instrument_dgp`` mapped onto a probability, for a fit that keeps cross-fitting.
+
+    ``instrument_dgp``'s outcome is Gaussian and unbounded, so a cross-fitted fit of it
+    needs a declared ``q_bounds`` it cannot state truthfully. Most of this module fits in
+    sample instead, but the diagnostics tests below read the *propensity* model's
+    cross-validated calibration, which is a property of holding folds out and does not
+    survive turning cross-fitting off. This process keeps the same confounder, instrument
+    and predictor roles on the probability scale, so the propensity fold structure is
+    unchanged and the fit no longer needs a bound it cannot state.
+    """
+    base = instrument_dgp()
+
+    def outcome_mean(w: FloatArray, a: Any, z: Any) -> FloatArray:
+        del z
+        return expit(-0.2 + 0.6 * a + 0.9 * w[:, 0] + 0.5 * w[:, 2])
+
+    return replace(base, family="binomial", outcome_mean=outcome_mean)
+
+
+def _make_binary_instrument(
+    n: int, *, seed: int | None = None, backend: str | None = None
+) -> tuple[Any, dict[str, float]]:
+    return _binary_instrument_dgp().sample(n, seed=seed, backend=backend)
+
+
 @pytest.fixture(scope="module")
 def frame_and_truth() -> tuple[object, dict[str, float]]:
-    return make_instrument(n=900, seed=5)
+    return _make_binary_instrument(n=900, seed=5)
 
 
 @pytest.fixture(scope="module")
@@ -215,10 +243,15 @@ class TestDownstreamMachineryStillWorks:
         far from one on every arm.  Narrowing the suppression to the exact name would make
         this report state, three times, that a model nobody fitted is poorly calibrated.
         """
-        frame, _ = make_multi_arm(n=600, seed=5)
+        # A binary outcome, not the Gaussian default: a cross-fitted fit of a continuous
+        # outcome now needs a declared q_bounds (the fold and scale rules), and
+        # make_multi_arm's Gaussian outcome has none to declare truthfully. The switch
+        # leaves the propensity fold structure -- and so the calibration slopes this test
+        # reads -- unchanged.
+        frame, _ = make_multi_arm(n=600, seed=5, family="binomial")
         result = (
             CTMLE(
-                outcome_learner=sklearn.linear_model.LinearRegression(),
+                outcome_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=3,
                 learner_folds=2,
@@ -408,6 +441,9 @@ class TestDownstreamMachineryStillWorks:
                     "n_folds": 3,
                     "selection_folds": 2,
                     "targeting": targeting,
+                    # This is about the retarget solving the score after truncation, not
+                    # about cross-fitting; the Gaussian outcome has no q_bounds to declare.
+                    "cross_fit": False,
                 }
             )
             .fit(frame, outcome="Y", treatment="A")
@@ -430,8 +466,11 @@ class TestBackendParity:
         pandas_frame, _ = make_instrument(n=500, seed=6, backend="pandas")
         polars_frame, _ = make_instrument(n=500, seed=6, backend="polars")
         columns = {"outcome": "Y", "treatment": "A"}
-        from_pandas = CTMLE(**SETTINGS).fit(pandas_frame, **columns).single()
-        from_polars = CTMLE(**SETTINGS).fit(polars_frame, **columns).single()
+        # Backend parity, not cross-fitting: fit in sample so the Gaussian outcome needs
+        # no declared q_bounds.
+        settings = {**SETTINGS, "cross_fit": False}
+        from_pandas = CTMLE(**settings).fit(pandas_frame, **columns).single()
+        from_polars = CTMLE(**settings).fit(polars_frame, **columns).single()
 
         assert from_pandas.psi("ate") == from_polars.psi("ate")
         assert (
@@ -450,20 +489,33 @@ class TestBackendParity:
 
 
 def test_the_documented_seed_reports_chance_auc_without_a_finding() -> None:
-    """The exact numbers ``docs/examples/collaborative-tmle.ipynb`` asks a reader to read.
+    """The two values a suppressed working-model report would otherwise misread.
 
     At this seed the search cuts at the intercept-only candidate, so the working
-    mechanism is a constant: AUC lands on chance and the calibration slope on ``-2``.
-    Those are the two values the page tells the reader not to interpret as a treatment
-    law, and they are also the two values that would each raise a finding under the
-    ordinary role.  Pinning them together with a ``completed`` status is the claim the
-    page makes; the mutated-role report below is the control that shows the numbers are
-    extreme enough for the suppression to be doing the work.
+    mechanism is a constant: AUC lands on chance and the calibration slope near ``-2``.
+    Those are the two values that would each raise a finding under the ordinary role, and
+    pinning them together with a ``completed`` status is the claim this test makes. The
+    mutated-role report below is the control that shows the numbers are extreme enough
+    for the suppression to be doing the work.
+
+    ``docs/examples/collaborative-tmle.ipynb`` makes the *same* claim on a different fit.
+    Its search stops at ``social_support`` rather than at the intercept, so its selected
+    mechanism reports an AUC of ``0.516`` and a calibration slope near ``1``, and the
+    suppression is what keeps those two numbers from raising a finding there. The extreme
+    end of that behaviour is pinned here and not there.
+
+    The fit here is on a binary outcome rather than the notebook's continuous one: a
+    cross-fitted fit of a continuous outcome now needs a declared ``q_bounds``
+    (the fold and scale rules), which ``instrument_dgp``'s unbounded outcome cannot state
+    truthfully. This test keeps cross-fitting, because its subject is a cross-validated
+    calibration slope, which an in-sample fit does not have. The notebook needs a
+    continuous outcome for its own closing step, so it fits in sample instead. Each is the
+    honest choice for its own subject, and the two therefore describe different fits.
     """
-    frame, _ = make_instrument(n=2_000, seed=44)
+    frame, _ = _make_binary_instrument(n=2_000, seed=44)
     result = (
         CTMLE(
-            outcome_learner=sklearn.linear_model.LinearRegression(),
+            outcome_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             n_folds=3,
             learner_folds=2,
@@ -480,7 +532,7 @@ def test_the_documented_seed_reports_chance_auc_without_a_finding() -> None:
 
     report = result.diagnostics.nuisance_models()
     metrics = report["propensity"].metrics
-    assert metrics["auc"] == pytest.approx(0.499, abs=5e-3)
+    assert metrics["auc"] == pytest.approx(0.490, abs=5e-3)
     assert metrics["calibration_slope"] == pytest.approx(-2.00, abs=5e-2)
     assert report.findings == ()
 
@@ -550,17 +602,27 @@ class TestCombinedWithOtherOptions:
     def test_cross_fitted_missingness_is_refused_before_selection(
         self, stratify_folds: str
     ) -> None:
-        """No audited selection and inference result covers this composition (arm-indexed contract)."""
+        """No audited selection and inference result covers this composition (arm-indexed contract).
+
+        ``stratify_folds='treatment'`` is refused earlier still: C-TMLE now refuses every
+        stratified fold policy at construction, before the missingness-specific refusal
+        this test is otherwise about ever runs. Both branches still refuse before any
+        nuisance is fitted, which is what ``NeverFit.calls == 0`` checks either way.
+        """
         frame, _ = make_missing_outcome(n=300, seed=17)
-        estimator = CTMLE(
-            **{
-                **SETTINGS,
-                **never_fit_learners(),
-                "selection_folds": 2,
-                "n_folds": 3,
-                "stratify_folds": stratify_folds,
-            }
-        )
+        settings = {
+            **SETTINGS,
+            **never_fit_learners(),
+            "selection_folds": 2,
+            "n_folds": 3,
+            "stratify_folds": stratify_folds,
+        }
+        if stratify_folds == "treatment":
+            with pytest.raises(ValueError, match="balances the selection and nested folds"):
+                CTMLE(**settings)
+            assert NeverFit.calls == 0
+            return
+        estimator = CTMLE(**settings)
         with pytest.raises(CapabilityError, match=r"C-TMLE \(CTMLE, or CollaborativeTMLEMethod\)"):
             estimator.fit(frame, outcome="Y", treatment="A", delta="Delta")
         assert NeverFit.calls == 0
@@ -571,8 +633,12 @@ class TestCombinedWithOtherOptions:
         # The bootstrap can, because each replicate re-runs the search -- which is why
         # _bootstrap_point_estimates goes through the selection hook.
         frame, _ = make_instrument(n=400, seed=7)
+        # About the bootstrap re-running the selection, not about cross-fitting; the
+        # Gaussian outcome has no q_bounds to declare.
         result = (
-            CTMLE(**{**SETTINGS, "n_bootstrap": 4}).fit(frame, outcome="Y", treatment="A").single()
+            CTMLE(**{**SETTINGS, "n_bootstrap": 4, "cross_fit": False})
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
         )
         assert result.bootstrap is not None
         assert result["ate"].bootstrap is not None
@@ -600,18 +666,24 @@ class TestSelectionIsForcedWhenTheOutcomeModelCannotHelp:
     This class removes the escape route.  The outcome learner is reduced to a constant, so
     every bit of confounding adjustment has to come through ``g``, and the empty model goes
     from optimal to badly biased.  A working search must now *include* the confounder, and
-    the measured gap is not subtle: mean absolute error 0.017 for the collaborative fit
-    against 0.696 for a selector restricted to the empty candidate, a factor of forty-one.
+    the measured gap is not subtle: mean absolute error 0.036 for the collaborative fit
+    against 0.695 for a selector restricted to the empty candidate, a factor of nineteen.
+    The fits below are in sample (``cross_fit=False``): this class is about the selection's
+    bias under confounding, not about cross-fitting, and ``instrument_dgp``'s Gaussian
+    outcome has no ``q_bounds`` a cross-fitted fit could declare (the fold and scale rules).
     """
 
     SEEDS = (0, 1, 2)
     N = 1500
 
     #: Settings whose only unusual feature is an outcome model that cannot fit anything.
+    #: About the selection's bias under confounding, not about cross-fitting: fit in
+    #: sample, since the Gaussian outcome has no q_bounds to declare.
     FORCED: ClassVar[dict[str, object]] = {
         "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
         "n_folds": 5,
         "learner_folds": 3,
+        "cross_fit": False,
         "estimands": ("ate",),
         "simultaneous": False,
         "random_state": 0,

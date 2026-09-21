@@ -230,6 +230,7 @@ Examples
 >>> res = CTMLE(
 ...     outcome_learner=LinearRegression(),
 ...     treatment_learner=LogisticRegression(max_iter=1000),
+...     cross_fit=False,
 ...     estimands=["ate"],
 ... ).fit(
 ...     frame, outcome="Y", treatment="A"
@@ -259,6 +260,7 @@ from sklearn.linear_model import LogisticRegression
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
+from ..exceptions import CapabilityError
 from ..fluctuation.iterative import InitialFit, apply_logistic, check_matching_arms
 from ..fluctuation.submodel import Submodel, restrict, weighted_form
 from ..inference.delta import log_odds_ratio_influence, log_ratio_influence
@@ -322,6 +324,13 @@ class CTMLESelection:
         partition the fit actually used, not a rule for rebuilding one, so a paired
         study can hand another implementation the same fold assignment instead of
         recomputing its own and hoping the two agree.
+
+        Its :attr:`~cleverly.learners.Folds.origin` records the generator, the scheme,
+        the requested fold count and the seed, at **every** cross-fitting setting.  A
+        collaborative fit draws this split whether or not the outer nuisances are
+        cross-fitted, so ``cross_fit=False`` -- which records no outer split on
+        :class:`~cleverly.learners.CrossFitPlan`, because there is none -- would
+        otherwise leave the one split the fit did draw unrecorded.
     """
 
     strategy: CTMLEStrategy
@@ -584,8 +593,10 @@ class CTMLE(TMLE):
                 "CTMLE does not support cv_evaluation=True: canonical CV-TMLE selection "
                 "requires a separate fold-specific collaborative derivation."
             )
-        super().__init__(**kwargs)
+        # The base constructor validates the fold policy. OAT has no selector folds,
+        # so it must know the strategy before that validation runs.
         self.strategy = strategy
+        super().__init__(**kwargs)
         self.preorder = preorder
         self.ordering = ordering
         self.candidates = candidates
@@ -695,16 +706,8 @@ class CTMLE(TMLE):
         one fixed would leave every draw choosing its stopping point against the same
         partition, which is the noise ``repeats=`` exists to reduce.
         """
-        if self.incremental:
-            raise ValueError(
-                "CTMLE and incremental= are not combined. C-TMLE cross-validates the "
-                "*choice* of g against a loss for the targeted Qbar, and under an "
-                "incremental intervention each candidate g defines a different "
-                "parameter: Psi(delta) is built out of g. The search would be selecting "
-                "between estimands rather than between estimators of one, and the risk "
-                "it minimises would have no fixed target. Use a plain TMLE."
-            )
-        self._check_estimands(data)
+        if self.strategy != "oat":
+            self._preflight_selection_folds(data, seed)
         # Every collaborative strategy replaces the ordinary treatment mechanism: the
         # selectors fit their candidate path and OAT fits A on the Qbar vector.  Fit only
         # the shared outcome/missingness nuisances here so g(W) is not paid for and thrown
@@ -761,6 +764,86 @@ class CTMLE(TMLE):
             covariates=data.covariate_names,
         )
         return nuisance, {"ctmle": selection}
+
+    def _selection_partition(self, data: CausalData, seed: int | None) -> Folds:
+        """The split the cross-validated selection risk is scored over.
+
+        One source for the partition, so the preflight below and
+        :meth:`_Selector.cross_validate` cannot disagree about which split the search
+        used. The same stratum the outer folds use, which under every accepted policy is
+        none of them: the draw reads ``n``, the cluster labels and the seed.
+
+        Parameters
+        ----------
+        data : CausalData
+            The rows to split.
+        seed : int or None
+            The draw's seed. ``None`` means this estimator's own ``random_state``.
+
+        Returns
+        -------
+        Folds
+            The realized selection split, carrying its generator record.
+        """
+        return make_folds(
+            data.n,
+            self.selection_folds,
+            stratify=self._fold_strata(data),
+            cluster=data.cluster,
+            random_state=self.random_state if seed is None else seed,
+        )
+
+    def _nested_partition(self, train_data: CausalData, seed: int | None) -> Folds:
+        """The inner split that makes one selection fold's training predictions out of fold.
+
+        Parameters
+        ----------
+        train_data : CausalData
+            One selection fold's training rows.
+        seed : int or None
+            The draw's seed. ``None`` means this estimator's own ``random_state``.
+
+        Returns
+        -------
+        Folds
+            The realized inner split over those rows.
+        """
+        return make_folds(
+            train_data.n,
+            self.selection_inner_folds,
+            stratify=self._fold_strata(train_data),
+            cluster=train_data.cluster,
+            random_state=self.random_state if seed is None else seed,
+        )
+
+    def _preflight_selection_folds(self, data: CausalData, seed: int | None) -> None:
+        """Check the search's own splits before the first nuisance fit.
+
+        The outer preflight in :meth:`~cleverly.estimators.TMLE._repeat_draws` covers the
+        cross-fitting split, and a selector-based collaborative fit draws two more:
+        the selection split the candidate risk is scored over, and the inner split each
+        selection fold's training predictions are made out of. Both are drawn here rather
+        than deep inside the search, so a partition that cannot carry the search is
+        refused before any learner runs rather than after a candidate path has been built.
+
+        The nested split is asked of each selection fold's training rows, which is the set
+        it actually partitions.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+        seed : int or None
+            The draw's seed.
+        """
+        selection = self._selection_partition(data, seed)
+        self._check_training_support(data, (selection,), subject="C-TMLE selection")
+        for fold, (train, _) in enumerate(selection):
+            train_data = data.subset(train)
+            nested = self._nested_partition(train_data, seed)
+            self._check_training_support(
+                train_data, (nested,), subject=f"the nested split of C-TMLE selection fold {fold}"
+            )
 
     def _outcome_adaptive_nuisances(
         self, data: CausalData, base: NuisanceEstimates, *, seed: int | None
@@ -867,8 +950,12 @@ class CTMLE(TMLE):
             outcome_rows = train[data.observed[train]]
             if outcome_rows.size == 0:
                 raise ValueError(
-                    "a cross-fitting fold has no observed training outcomes; reduce "
-                    "n_folds or use stratify_folds='treatment+outcome'"
+                    "a cross-fitting fold has no observed training outcomes. The split "
+                    "is drawn from the seed alone and reads no treatment or outcome, so "
+                    "trying fold counts or seeds until one fits would choose the "
+                    "partition by the values it must not read. Fit in sample instead "
+                    "(cross_fit=False on the engine, CrossFitting(enabled=False)), or "
+                    "collect more observed outcomes"
                 )
             outcome_model = fit_on_rows(
                 outcome_learner,
@@ -952,6 +1039,45 @@ class CTMLE(TMLE):
             return super()._retarget_detailed(data, nuisance, **kwargs)
         working = replace(nuisance, outcome=initial, targeting_outcome=None)
         return super()._retarget_detailed(data, working, **kwargs)
+
+    def _resolve_estimands_for_data(self, data: CausalData) -> tuple[str, ...]:
+        """Resolve targets, and refuse the designs a collaborative search has no result for.
+
+        Runs before any split is drawn, so a refused design pays for no fold generation
+        and no learner.
+        """
+        if self.incremental:
+            # Asked before every other collaborative refusal, and before the estimand
+            # resolution below, because ``_check_estimands`` reads the arm-indexed
+            # estimand names and an incremental fit reports none of them. It would
+            # otherwise refuse the tilt for having the wrong estimand list rather than
+            # for the reason the tilt is refused.
+            raise ValueError(
+                "CTMLE and incremental= are not combined. C-TMLE cross-validates the "
+                "*choice* of g against a loss for the targeted Qbar, and under an "
+                "incremental intervention each candidate g defines a different "
+                "parameter: Psi(delta) is built out of g. The search would be selecting "
+                "between estimands rather than between estimators of one, and the risk "
+                "it minimises would have no fixed target. Use a plain TMLE."
+            )
+        if data.cluster is not None:
+            reason = (
+                "No reviewed result covers clustered inference for the outcome-adaptive mechanism"
+                if self.strategy == "oat"
+                else (
+                    "The search draws selection folds and, inside each of them, nested folds, "
+                    "and no reviewed result covers a grouped draw of those splits or the "
+                    "cluster-robust variance of the candidate the search then stops at"
+                )
+            )
+            raise CapabilityError(
+                f"C-TMLE has no clustered result. {reason}; docs/roadmap.md F22 tracks this "
+                "stop. Drop id= from fit "
+                "(PointTreatment(cluster=None)), or use the ordinary TMLE (TMLE, or "
+                "TMLEMethod), which has a clustered result."
+            )
+        self._check_estimands(data)
+        return super()._resolve_estimands_for_data(data)
 
     def _check_estimands(self, data: CausalData) -> None:
         if data.is_continuous_treatment:
@@ -1462,18 +1588,7 @@ class _Selector:
         evidence that it is the split this fit used.
         """
         data = self.data
-        folds = make_folds(
-            data.n,
-            self.est.selection_folds,
-            # The same stratum the outer folds use, rather than data.treatment again: a
-            # selection fold with no events makes both the loss and the per-fold
-            # influence curve below degenerate, which is the failure stratify_folds
-            # exists to prevent, and it would be odd for the option to protect one split
-            # and not the other.
-            stratify=self.est._fold_strata(data),
-            cluster=data.cluster,
-            random_state=self.seed,
-        )
+        folds = self.est._selection_partition(data, self.seed)
         loss = np.zeros(len(path))
         dimension = len(self.target_names)
         influence = np.zeros((len(path), data.n, dimension))
@@ -1517,13 +1632,7 @@ class _Selector:
         """Inner cross-fit on ``train`` plus one full-training fit for validation rows."""
         data = self.data
         train_data = data.subset(train)
-        inner = make_folds(
-            train.size,
-            self.est.selection_inner_folds,
-            stratify=self.est._fold_strata(train_data),
-            cluster=train_data.cluster,
-            random_state=self.seed,
-        )
+        inner = self.est._nested_partition(train_data, self.seed)
         assignment = np.full(data.n, inner.n_folds, dtype=np.int64)
         assignment[train] = inner.assignment
         mask = np.zeros(data.n, dtype=bool)

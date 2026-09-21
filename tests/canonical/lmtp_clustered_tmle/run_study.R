@@ -6,7 +6,7 @@ options(digits = 17)
 
 paths <- study_arguments("usage: run_study.R SAMPLES.csv.gz TRUTH.csv OUTPUT.csv")
 truths <- read.csv(paths$truths, stringsAsFactors = FALSE, check.names = FALSE)
-scenario <- "clustered_continuous"
+scenario <- "clustered_binary"
 
 truth_for <- function(replicate, estimand) {
   selected <- truths$replicate == replicate & truths$scenario == scenario & truths$estimand == estimand
@@ -28,7 +28,7 @@ fit_arm <- function(frame, arm) {
     outcome = "Y",
     baseline = c("W1", "W2"),
     id = "cluster",
-    outcome_type = "continuous",
+    outcome_type = "binomial",
     fold_assignment = frame$fold,
     learners_outcome = "SL.glm",
     learners_trt = "SL.glm",

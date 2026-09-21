@@ -11,7 +11,7 @@ implementation comparison declares, so the two halves of the study cannot drift 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -137,7 +137,113 @@ def double_robustness_dgp() -> DGP:
     )
 
 
-def _assert_double_robustness_design(cells: tuple[PropertyCell, ...]) -> None:
+#: The deterministic covariate rows the wrong-Q witness is read at.
+#:
+#: A main-effects regression has one treatment coefficient and therefore a constant arm
+#: contrast.  These four rows make that restriction visible against a law's varying
+#: contrast without relying on a noisy realized sample.  Shared by every law the
+#: double-robustness family is declared over, because the witness is a statement about the
+#: *regression*, and only the thresholds it is read against belong to the law.
+CONTRAST_WITNESS_ROWS = np.array(
+    [
+        [0.0, -1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [1.0, -1.0, 0.0, 0.0],
+        [-1.0, 1.0, 0.0, 0.0],
+    ]
+)
+
+
+@dataclass(frozen=True)
+class DoubleRobustnessDesign:
+    """The half of the double-robustness design check that belongs to the law.
+
+    The family is declared over more than one law.  The Gaussian law below is what the
+    ordinary and in-sample rows sample from, and
+    :mod:`tests.studies.bounded_cv_laws` declares a bounded twin for the cross-fitted rows,
+    whose outcome lies in ``(0, 1)`` and whose contrast is therefore an order of magnitude
+    smaller.  A single pair of constants cannot read both: the Gaussian law's 0.5 would
+    reject every bounded law, and a threshold loose enough for both would reject neither a
+    good law nor a broken one.
+
+    The *structure* of the check stays shared -- the budgets, the seeds, the one-law rule,
+    the treatment-mechanism range, and the contrast witness -- so a law supplies two
+    thresholds and one witness of its own and inherits everything else.
+
+    Parameters
+    ----------
+    contrast_spread : float
+        The smallest ``numpy.ptp`` of the law's true arm contrast this law's design
+        accepts, read both at :data:`CONTRAST_WITNESS_ROWS` and on a realized preflight
+        sample.  Below it, a constant-contrast regression is not visibly wrong.
+    wrong_q_error : float
+        The smallest root-mean-square error between the law's true contrast and the fitted
+        main-effects contrast this law's design accepts, on a realized preflight sample.
+    witness : Callable
+        Further deterministic checks, called with the law the four arms share.  This is
+        where a law states the value its own contrast has to reach, which is the clause
+        that fails when the law degenerates.
+    """
+
+    contrast_spread: float
+    wrong_q_error: float
+    witness: Callable[[Any], None]
+
+
+def _assert_gaussian_contrast(dgp: DGP) -> None:
+    """The Gaussian law's own witness: the deterministic contrast still averages 1.75."""
+    contrast = dgp.outcome_mean(CONTRAST_WITNESS_ROWS, 1.0, None) - dgp.outcome_mean(
+        CONTRAST_WITNESS_ROWS, 0.0, None
+    )
+    if not np.isclose(float(np.mean(contrast[[0, 1]])), 1.75):
+        raise RuntimeError("the deterministic outcome contrast no longer witnesses ATE 1.75")
+
+
+#: What :func:`double_robustness_dgp` is read against.  The constants are the ones this
+#: module has always applied, so the ordinary and in-sample rows keep their checks exactly.
+GAUSSIAN_DESIGN = DoubleRobustnessDesign(
+    contrast_spread=0.5,
+    wrong_q_error=0.25,
+    witness=_assert_gaussian_contrast,
+)
+
+
+def main_effects_contrast(dgp: DGP) -> tuple[np.ndarray, np.ndarray]:
+    """The law's true arm contrast and a main-effects regression's, at the witness rows.
+
+    Parameters
+    ----------
+    dgp : DGP
+        The law the double-robustness arms share.
+
+    Returns
+    -------
+    tuple of ndarray
+        The true contrast and the fitted constant contrast, one value per witness row.
+    """
+    w = CONTRAST_WITNESS_ROWS
+    true_contrast = np.asarray(
+        dgp.outcome_mean(w, 1.0, None) - dgp.outcome_mean(w, 0.0, None), dtype=float
+    )
+    design = np.vstack(
+        [
+            np.column_stack([np.zeros(len(w)), w]),
+            np.column_stack([np.ones(len(w)), w]),
+        ]
+    )
+    means = np.concatenate([dgp.outcome_mean(w, 0.0, None), dgp.outcome_mean(w, 1.0, None)])
+    wrong = LinearRegression().fit(design, means)
+    wrong_contrast = wrong.predict(np.column_stack([np.ones(len(w)), w])) - wrong.predict(
+        np.column_stack([np.zeros(len(w)), w])
+    )
+    return true_contrast, np.asarray(wrong_contrast, dtype=float)
+
+
+def assert_double_robustness_design(
+    cells: tuple[PropertyCell, ...],
+    *,
+    design: DoubleRobustnessDesign = GAUSSIAN_DESIGN,
+) -> None:
     """Refuse a driver whose declared robustness law loses a design witness."""
     robust = tuple(cell for cell in cells if cell.property == "double_robustness")
     expected = {
@@ -175,33 +281,16 @@ def _assert_double_robustness_design(cells: tuple[PropertyCell, ...]) -> None:
     ):
         raise RuntimeError("the treatment law no longer attains its analytic limiting range")
 
-    # A main-effects regression has one treatment coefficient and therefore a constant
-    # arm contrast.  These deterministic points make that restriction visible against the
-    # law's varying contrast, without relying on a noisy realized sample.
-    w = np.array(
-        [
-            [0.0, -1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0, 0.0],
-            [1.0, -1.0, 0.0, 0.0],
-            [-1.0, 1.0, 0.0, 0.0],
-        ]
-    )
-    true_contrast = dgp.outcome_mean(w, 1.0, None) - dgp.outcome_mean(w, 0.0, None)
-    design = np.vstack(
-        [
-            np.column_stack([np.zeros(len(w)), w]),
-            np.column_stack([np.ones(len(w)), w]),
-        ]
-    )
-    means = np.concatenate([dgp.outcome_mean(w, 0.0, None), dgp.outcome_mean(w, 1.0, None)])
-    wrong = LinearRegression().fit(design, means)
-    wrong_contrast = wrong.predict(np.column_stack([np.ones(len(w)), w])) - wrong.predict(
-        np.column_stack([np.zeros(len(w)), w])
-    )
-    if np.ptp(true_contrast) <= 0.5 or np.ptp(wrong_contrast) > 1e-12:
+    true_contrast, wrong_contrast = main_effects_contrast(dgp)
+    # The two clauses are not the same kind of statement, and only the first reads the law.
+    # A main-effects fit has no treatment interaction, so its contrast is constant for *every*
+    # law and the second clause measures exactly 0.0 whatever is declared: it checks
+    # ``main_effects_contrast``'s own design matrix rather than the law's shape.  It is kept
+    # because a helper that started fitting an interaction would make the "wrong" learner right
+    # and the family's control vacuous, and nothing else would notice.
+    if np.ptp(true_contrast) <= design.contrast_spread or np.ptp(wrong_contrast) > 1e-12:
         raise RuntimeError("the main-effects wrong-Q contrast witness no longer discriminates")
-    if not np.isclose(float(np.mean(true_contrast[[0, 1]])), 1.75):
-        raise RuntimeError("the deterministic outcome contrast no longer witnesses ATE 1.75")
+    design.witness(dgp)
 
 
 def assert_double_robustness_fit(
@@ -209,6 +298,7 @@ def assert_double_robustness_fit(
     result: Any,
     *,
     g_bounds: tuple[float, float],
+    design: DoubleRobustnessDesign = GAUSSIAN_DESIGN,
 ) -> None:
     """Assert the oracle mechanism, wrong-Q witness, and solved targeting step."""
     w = np.asarray(result.data.covariates, dtype=float)
@@ -229,7 +319,7 @@ def assert_double_robustness_fit(
     arms = result.nuisance.outcome.arms
     wrong_contrast = scaler.unscale_levels(arms[1.0]) - scaler.unscale_levels(arms[0.0])
     wrong_q_error = float(np.sqrt(np.mean((true_contrast - wrong_contrast) ** 2)))
-    if np.ptp(true_contrast) <= 0.5 or wrong_q_error <= 0.25:
+    if np.ptp(true_contrast) <= design.contrast_spread or wrong_q_error <= design.wrong_q_error:
         raise RuntimeError("the fitted main-effects wrong-Q contrast witness vanished")
 
     fluctuation = result.fluctuations["mean"]
@@ -355,7 +445,7 @@ def cells() -> tuple[PropertyCell, ...]:
         )
     )
     result = tuple(out)
-    _assert_double_robustness_design(result)
+    assert_double_robustness_design(result)
     return result
 
 
@@ -381,11 +471,14 @@ def run_double_robustness_preflight(
     *,
     g_bounds: tuple[float, float],
     n: int = 400,
+    design: DoubleRobustnessDesign = GAUSSIAN_DESIGN,
 ) -> Any:
     """Fit the treatment-correct arm once and assert its deterministic controls.
 
     The fitted result is returned so a cross-fitted caller can add its own fold and
     cross-validated evaluation checks to the same fit rather than paying for a second one.
+    ``design`` carries the thresholds the fitted witnesses are read against, which belong
+    to the law the cells declare rather than to this module.
     """
     cell = next(
         cell
@@ -394,7 +487,7 @@ def run_double_robustness_preflight(
     )
     frame, _ = cell.dgp.sample(n, seed=cell.seed)
     result = build(cell)().fit(frame, **cell.fit_kwargs).single()
-    assert_double_robustness_fit(cell, result, g_bounds=g_bounds)
+    assert_double_robustness_fit(cell, result, g_bounds=g_bounds, design=design)
     return result
 
 

@@ -158,8 +158,55 @@ FAST_KWARGS: dict[str, Any] = {
 }
 
 
+#: Fit every nuisance on all the rows. The setting a test reaches for when its subject is
+#: not cross-fitting: a refutation, a sensitivity analysis, a diagnostic, a serialization
+#: round trip. A cross-fitted fit of a continuous outcome needs a declared ``q_bounds``,
+#: and the Gaussian laws here have unbounded support, so a test that neither declares one
+#: nor turns cross-fitting off is refused before its first learner.
+IN_SAMPLE: dict[str, Any] = {"cross_fit": False}
+
+#: The known support of the bounded laws below, for a fit that *is* about cross-fitting.
+#: Pass it only with a bounded or binary outcome: :meth:`cleverly.estimators.TMLE._scaler`
+#: refuses ``q_bounds`` on a binary outcome, and declaring a finite support for a Gaussian
+#: law would state something the law does not satisfy.
+BOUNDED: dict[str, Any] = {"q_bounds": (0.0, 1.0)}
+
+
+def bounded_frame(n: int = 200, seed: int = 0, **kwargs: Any) -> Any:
+    """A proportion-outcome law a cross-fitted fit can declare the support of.
+
+    :func:`~cleverly.datasets.make_nonlinear_bounded` draws ``Y`` from a Beta law, so its
+    support is ``(0, 1)`` by construction and :data:`BOUNDED` states a fact rather than an
+    assumption. Use it where a Gaussian fixture would have been cross-fitted.
+
+    Parameters
+    ----------
+    n : int, default=200
+        Rows to draw.
+    seed : int, default=0
+        Seed of the draw.
+    **kwargs : Any
+        Passed to :func:`~cleverly.datasets.make_nonlinear_bounded`.
+
+    Returns
+    -------
+    tuple
+        The frame and its truth mapping, as the generator returns them.
+    """
+    from cleverly.datasets import make_nonlinear_bounded
+
+    return make_nonlinear_bounded(n=n, seed=seed, **kwargs)
+
+
 def fast_tmle(**overrides: Any) -> TMLE:
-    """A quick, reproducible estimator for tests."""
+    """A quick, reproducible estimator for tests.
+
+    :data:`FAST_KWARGS` sets no ``cross_fit`` key, so a fit takes :class:`cleverly.TMLE`'s
+    own default of ``True`` at the ``n_folds=5`` declared above. A caller whose subject is
+    not cross-fitting passes ``**IN_SAMPLE``, and one whose subject is it passes a bounded
+    or binary law. Deciding the switch here would put every caller's subject on one line
+    neither of them wrote.
+    """
     return TMLE(**{**FAST_KWARGS, **overrides})
 
 
@@ -351,6 +398,64 @@ class OracleOutcomeContinuous(BaseEstimator):
     def predict(self, X: Any) -> Any:
         design = np.asarray(X, dtype=float)
         return np.clip(self._intercept + self._slope * self._raw_mean(design), 1e-9, 1 - 1e-9)
+
+
+class OracleOutcomeUnit(BaseEstimator):
+    """The true conditional mean for an outcome the estimator does not rescale.
+
+    Between :class:`OracleOutcome` and :class:`OracleOutcomeContinuous`, and it exists
+    because a *bounded* continuous law sits between the two cases they cover.  A
+    proportion has a known support, so a fit declares ``q_bounds=(0, 1)`` and
+    :meth:`~cleverly.estimators.TMLE._scaler` builds the identity scaler from it.  The
+    structural mean is then already on the scale ``Qbar`` is fitted on, and returning it
+    is *exact* -- where :class:`OracleOutcomeContinuous` has to recover an affine map it
+    cannot know in advance, and pays one regression's worth of arithmetic for a map that
+    is the identity here.
+
+    Two guards, because the class is exact only under two conditions and each fails in a
+    way the other cannot see.
+
+    :meth:`fit` refuses a law whose conditional means leave ``(0, 1)``.  That is the
+    condition on the *law*: a Gaussian outcome mean of 2.5 is not a unit-interval mean,
+    and clipping it would return one law's oracle while the study sampled another.
+
+    The condition on the *fit* is that the scaler is the identity, and a learner cannot
+    see the scaler: it is handed the already-scaled outcome, and a scaler derived from the
+    observed range maps that outcome into ``[1/12, 11/12]``, which is a subset of the
+    values the identity produces.  No input distinguishes them.  A study therefore asserts
+    it on the fitted result instead, through
+    :func:`tests.studies.bounded_cv_laws.assert_unit_outcome_scaler`.
+    """
+
+    def __init__(self, dgp: Any) -> None:
+        self.dgp = dgp
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> OracleOutcomeUnit:
+        del y, sample_weight
+        means = self._mean(np.asarray(X, dtype=float))
+        low, high = float(np.min(means)), float(np.max(means))
+        if not (low > 0.0 and high < 1.0):
+            raise ValueError(
+                f"OracleOutcomeUnit returns the structural mean unchanged, which is the "
+                f"fitted quantity only for an outcome the estimator does not rescale. This "
+                f"law's conditional mean reaches [{low:.4g}, {high:.4g}], outside the open "
+                f"unit interval. Use OracleOutcomeContinuous for an unbounded outcome."
+            )
+        self.classes_ = np.array([0.0, 1.0])
+        return self
+
+    def _mean(self, design: Any) -> Any:
+        a, w = design[:, 0], design[:, 1:]
+        one = np.asarray(self.dgp.outcome_mean(w, 1.0, None), dtype=float)
+        zero = np.asarray(self.dgp.outcome_mean(w, 0.0, None), dtype=float)
+        return np.where(a == 1.0, one, zero)
+
+    def predict(self, X: Any) -> Any:
+        return self._mean(np.asarray(X, dtype=float))
+
+    def predict_proba(self, X: Any) -> Any:
+        p = self.predict(X)
+        return np.column_stack([1.0 - p, p])
 
 
 class OracleMissingness(BaseEstimator):

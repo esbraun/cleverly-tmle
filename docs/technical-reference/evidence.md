@@ -51,7 +51,7 @@ follows from it.
 | `ey` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux_multi.py`, `tests/unit/test_influence_gateaux_multi_collaborative.py` | `tests/unit/test_remainder.py`, `tests/unit/test_remainder_multi.py` | none | no identity of its own; it is the per-arm level the contrasts are built from, so its errors surface in them |
 | `ey1` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux.py` | `tests/unit/test_remainder.py` | `IC_ate == IC_ey1 - IC_ey0` (`tests/unit/test_influence_gateaux.py`) | binary-only by declaration; the multi-arm path reports `ey` instead |
 | `ey0` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux.py` | `tests/unit/test_remainder.py` | `IC_ate == IC_ey1 - IC_ey0` (`tests/unit/test_influence_gateaux.py`) | binary-only by declaration, as `ey1`; and the identity it shares with `ey1` is symmetric in the two arms, so a defect that swaps them survives it |
-| `ey_obs` | `tests/discrete_law.py`, `tests/discrete_law_mar.py` | `tests/unit/test_influence_gateaux.py`, `tests/unit/test_influence_gateaux_natural_course_mar.py`, `tests/unit/test_natural_course_crossfit.py` | `tests/unit/test_remainder_natural_course_mar.py` for ordinary missing outcomes; `tests/unit/test_natural_course_crossfit.py` for the signed fold-specific remainder | the complete-data curve is `w(Y - E_w[Y])`; at `pi == 1` the natural-course construction itself returns that estimate and curve. Respondent-mask, all-row plug-in, response-score, fold-rotation, removed-response, independent leakage, and fail-if-fit treatment-learner controls distinguish the MAR paths | the MAR intervals cover one scalar ordinary-TMLE configuration and one binary, one-repeat stacked CV-TMLE configuration. Weighting, clusters, strata, `intermediate=`, joint targeting, and bootstrap remain refused. The stacked fit also refuses bounded-continuous outcomes, one outer fold, stratified or supplied folds, fold targeting, fold evaluation, and repeated splits |
+| `ey_obs` | `tests/discrete_law.py`, `tests/discrete_law_mar.py` | `tests/unit/test_influence_gateaux.py`, `tests/unit/test_influence_gateaux_natural_course_mar.py`, `tests/unit/test_natural_course_crossfit.py` | `tests/unit/test_remainder_natural_course_mar.py` for ordinary missing outcomes; `tests/unit/test_natural_course_crossfit.py` for the signed fold-specific remainder | the complete-data curve is `w(Y - E_w[Y])`; at `pi == 1` the natural-course construction itself returns that estimate and curve. Respondent-mask, all-row plug-in, response-score, fold-rotation, removed-response, independent leakage, and fail-if-fit treatment-learner controls distinguish the MAR paths | the MAR intervals cover one scalar ordinary-TMLE configuration and one binary, one-repeat stacked CV-TMLE configuration. Weighting, clusters, strata, `intermediate=`, joint targeting, and bootstrap remain refused. The stacked fit also refuses bounded-continuous outcomes, supplied folds, fold targeting, fold evaluation, and repeated splits. One outer fold and a stratified fold policy are refused for every cross-fitted fit, and not by this contract |
 | `par` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux.py` | none | `IC_par == IC_ey_obs - IC_ey0` on the binary oracle | missing outcomes and controlled intermediates are refused; the exact-law identity is blind to a defect shared by both component curves |
 | `paf` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux.py` | none | its curve is the delta-method transform of `ey_obs` and the reference-arm mean | defined only for a binary outcome with positive observed risk; small-sample coverage near zero risk is not established |
 | `rr` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux.py` | `tests/unit/test_remainder.py` | the ratio's curve is the delta-method transform of the levels' (`tests/unit/test_influence_gateaux.py`) | the log-scale interval's small-sample coverage is a simulation claim, not an identity |
@@ -311,14 +311,21 @@ of `L2`'s own noise, and preserve its conditional law exactly, so a clustered dr
 
 The second half is the part that is easy to lose. Removing the confounding *also removes the
 clustering*, because a shared additive residual reaches the influence curve only through
-`E[H | W]`, which is zero for a well-specified `g`. The measured design effect fell from 1.87 to
-1.00. So each generator carries a nonzero within-cluster witness beside its identification
-test; without one, a correct-looking fix leaves the study measuring nothing.
+`E[H | W]`, which is zero for a well-specified `g`. An additive shared residual measures a design
+effect of 1.00. The arm-interacted form `clustered_dgp` ships measures about 1.95 at ten rows per
+cluster, which its docstring records. So each generator carries a nonzero within-cluster witness
+beside its identification test; without one, a correct-looking fix leaves the study measuring
+nothing.
 
 The registered [clustered point-treatment study](method-evidence/clustered-point-treatment-cv-tmle.md)
-adds repeated-sampling evidence for that witness. It compares five-fold clustered TMLE against
-pinned R `lmtp` with identical grouped folds and the exact treatment mechanism. Its IID control
-reuses the same rows, estimates, and influence curves. Only cluster aggregation changes.
+adds repeated-sampling evidence for that witness. It runs on the **binary** law
+`clustered_dgp(family="binomial")`, whose quadrature truths are `ate = 0.10405` and `rr = 1.2513`,
+and not on the Gaussian law above. The move is the outcome-scale rule: a cross-fitted continuous
+outcome needs a declared support, and this law has none.
+
+The study compares five-fold clustered TMLE against pinned R `lmtp` on one grouped partition that
+`cleverly` draws and the R adapter retains. The partition balances nothing. Its IID control reuses
+the same rows, estimates, and influence curves. Only cluster aggregation changes.
 
 ## What this table says is missing
 

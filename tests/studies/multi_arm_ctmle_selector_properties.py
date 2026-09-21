@@ -1,4 +1,11 @@
-"""Repeated-sampling properties for selector-based multi-arm C-TMLE."""
+"""Repeated-sampling properties for selector-based multi-arm C-TMLE.
+
+Every cell here is cross-fitted, and every one of them declares its split through
+``stratify_folds="none"``.  The declaration reaches the outer folds, the selection folds
+and the nested folds of each candidate alike.  No cell declares ``q_bounds``: the outcome
+is binary on every law this study samples, so the outcome scaler is already the identity
+and :meth:`~cleverly.estimators.TMLE._scaler` refuses a second declaration of it.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +17,7 @@ import pandas as pd
 from cleverly.estimators import CTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import multi_arm_common, multi_arm_properties
-from tests.studies.canonical_multi_arm_ctmle_selector import STUDY
+from tests.studies.canonical_multi_arm_ctmle_selector import STRATIFY_FOLDS, STUDY
 from tests.studies.evidence.properties import PropertyCell, run_cells
 from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
 
@@ -39,6 +46,17 @@ def cells() -> tuple[PropertyCell, ...]:
     )
 
 
+def declared_cells() -> tuple[PropertyCell, ...]:
+    """Every cell this study runs, so each committed truth is read back against its law.
+
+    Returns
+    -------
+    tuple of PropertyCell
+        The four selector paths and the inherited asymptotic block, in the order they run.
+    """
+    return cells()
+
+
 def _estimator(cell: PropertyCell):  # type: ignore[no-untyped-def]
     # Every other family keeps the discrete ladder the row's asymptotic cells were declared
     # with, so this factory varies the selector path only where the path is the subject.
@@ -60,6 +78,10 @@ def _estimator(cell: PropertyCell):  # type: ignore[no-untyped-def]
         reference=multi_arm_common.REFERENCE,
         simultaneous=False,
         g_bounds=multi_arm_common.G_BOUNDS,
+        # No ``q_bounds``: every law here has a binary outcome, whose scaler is already the
+        # identity.  The split is declared instead, and it reaches the outer folds, the
+        # selection folds and the nested folds of each candidate.
+        stratify_folds=STRATIFY_FOLDS,
         max_iter=100,
         tol=1e-10,
         random_state=0,

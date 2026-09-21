@@ -113,14 +113,17 @@ class TestTheClusterCodesReachTheSplitter:
     def test_a_clustered_fit_keeps_every_cluster_in_one_fold(self) -> None:
         pytest.importorskip("pandas")
         import pandas as pd
+        from scipy.special import expit
 
         rng = np.random.default_rng(0)
         cluster = np.repeat(np.arange(N_CLUSTERS), PER_CLUSTER)
         w = rng.normal(size=N)
         a = rng.binomial(1, 0.5, N).astype(float)
-        frame = pd.DataFrame(
-            {"Y": w + a + rng.normal(scale=0.5, size=N), "A": a, "W": w, "pid": cluster}
-        )
+        # A binary outcome, not a Gaussian one: a cross-fitted fit of a Gaussian outcome
+        # needs a declared q_bounds, and this test is about the fold assignment reaching
+        # the splitter, not about the outcome scale.
+        y = rng.binomial(1, expit(w + a)).astype(float)
+        frame = pd.DataFrame({"Y": y, "A": a, "W": w, "pid": cluster})
         result = (
             fast_tmle(n_folds=3)
             .fit(frame, outcome="Y", treatment="A", covariates=["W"], id="pid")

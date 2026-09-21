@@ -20,6 +20,7 @@ from cleverly import (
     CausalStudy,
     CrossFitting,
     DataError,
+    MethodConfigurationError,
     NaturalCourseMean,
     PointTreatment,
     PopulationAttributableFraction,
@@ -204,23 +205,29 @@ def check(namespace: dict[str, Any]) -> None:
     with pytest.raises(CapabilityError, match=r"does not yet support PointTreatment\(missingness"):
         box_study.identify(PopulationAttributableFraction(reference=0))
 
-    # Step 6: "cleverly refuses `q_bounds=None` there. This Gaussian score has no known finite
-    # support to declare". The refusal names q_bounds=None, and it comes from the arm-indexed
-    # contract.
+    # Step 6: "Step 4 recorded a standardized score, which has no such support, so the fit stays
+    # in sample". The refusal names q_bounds=None, and it comes from the arm-indexed contract.
     study = namespace["study"]
     method = namespace["method"]
     box_method = namespace["box_method"]
     assert method.cross_fitting == CrossFitting(enabled=False)
-    for folds in (CrossFitting(n_folds=5), CrossFitting(n_folds=5, stratify_by="none")):
-        with pytest.raises(CapabilityError, match="q_bounds=None"):
-            effect.estimate(method=replace(method, cross_fitting=folds))
+    with pytest.raises(CapabilityError, match="q_bounds=None"):
+        effect.estimate(method=replace(method, cross_fitting=CrossFitting(n_folds=5)))
 
-    # Step 9: the binary fit is cross-fitted over five folds with stratify_by="none", and
-    # "cleverly refuses the default stratify_by='treatment' here".
+    # Step 9: "The fold policy is the shipped default, `stratify_by='none'`", so the binary fit
+    # names no policy and gets that one.
     assert box_method.cross_fitting == CrossFitting(n_folds=5, stratify_by="none")
-    default_folds = replace(box_method, cross_fitting=CrossFitting(n_folds=5))
-    with pytest.raises(CapabilityError, match="stratify_folds='none'"):
-        box_study.identify(ATE(reference=0)).estimate(method=default_folds)
+    assert CrossFitting(n_folds=5).stratify_by == "none"
+    # "cleverly refuses stratify_by='treatment' on any fit", and it refuses at construction,
+    # before a study or a learner exists. The binary outcome is the nonzero witness that the
+    # q_bounds rule refuses nothing here: the same five folds fit without a declared support.
+    with pytest.raises(MethodConfigurationError, match="balances the outer folds"):
+        CrossFitting(n_folds=5, stratify_by="treatment")
+    assert box_method.targeting.q_bounds is None
+    assert (
+        "stacked CV-TMLE"
+        in box_study.identify(ATE(reference=0)).estimate(method=box_method).summary()
+    )
 
     # Step 10: "box_method" fits the natural-course mean under the cross-fitted contract, and
     # "method" is refused because the in-sample contract needs q_bounds for a continuous outcome.

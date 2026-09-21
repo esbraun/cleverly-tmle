@@ -5,6 +5,12 @@ implementations receive the same realized rows and fold assignment.  Each side f
 same declared GLM nuisance class; the comparison is about the corrected construction, not
 about two unrelated learner libraries.
 
+The shared fold assignment is drawn by :func:`~cleverly.learners.random_partition` from the
+sample's own seed and nothing else.  It used to be a ``StratifiedKFold`` draw balanced on the
+treatment, which reads a column the estimator is about to model.  The outcome is binary, so
+no ``q_bounds`` is declared: :meth:`~cleverly.estimators.TMLE._scaler` refuses a second
+declaration of a scaler the outcome already has.
+
 This module is intentionally importable without R or Docker.  The container is used only by
 ``tests/canonical/drtmle/regenerate.py`` when the registered evidence is regenerated.
 """
@@ -19,11 +25,10 @@ import pandas as pd
 from scipy.integrate import quad
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.model_selection import StratifiedKFold
 
 from cleverly.data import CausalData
 from cleverly.estimators import DRTMLE
-from cleverly.learners.crossfit import Folds, check_integrity
+from cleverly.learners.crossfit import Folds, check_integrity, random_partition
 from cleverly.utils.bounds import expit
 from cleverly.utils.parallel import map_parallel
 from cleverly.validation.score import DEFAULT_TOLERANCE, score_threshold
@@ -40,6 +45,11 @@ PRIMARY_N = 3000
 SEED = 20260824
 G_BOUNDS = (0.01, 0.99)
 N_FOLDS = 10
+#: The outer fold policy, declared rather than defaulted.  ``"none"`` is what makes the
+#: recorded :class:`~cleverly.learners.CrossFitPlan` agree with the supplied vector: the
+#: vector is a :func:`~cleverly.learners.random_partition` draw, so the plan must not claim
+#: the split was balanced on the treatment.
+STRATIFY_FOLDS = "none"
 #: Rounds of the three-equation alternation, matching the ``maxIter = 100`` the R runner
 #: passes.  It is declared here because it is now reachable: the alternation used to run at a
 #: hard-coded 50 while this study's manifest published ``max_iter: 100``, which is the
@@ -161,6 +171,12 @@ CONFIGURATION = {
     "max_iter": 100,
     "score_audit": "score_check's own bar, 1e-3 x se / sqrt(n), applied to both implementations",
     "g_bounds": list(G_BOUNDS),
+    "stratify_folds": STRATIFY_FOLDS,
+    "q_bounds": "none: the law is binary, so the outcome scaler is already the identity",
+    "folds": (
+        "identical unstratified ten-fold assignments supplied to both implementations, drawn "
+        "by cleverly.random_partition from the sample's seed alone"
+    ),
     "nuisance_models": {
         "correct": "unpenalized logistic GLM with W1:W2",
         "misspecified": "unpenalized main-effects logistic GLM",
@@ -235,13 +251,53 @@ def truth() -> dict[str, float]:
     return {"ey0": ey0, "ey1": ey1, "ate": ey1 - ey0}
 
 
-def fixed_folds(treatment: np.ndarray, seed: int) -> np.ndarray:
-    """The exact zero-based fold vector shared with R."""
-    splitter = StratifiedKFold(n_splits=N_FOLDS, shuffle=True, random_state=seed)
-    assignment = np.empty(len(treatment), dtype=np.int64)
-    for fold, (_, test) in enumerate(splitter.split(np.zeros(len(treatment)), treatment)):
-        assignment[test] = fold
-    return assignment
+def fixed_folds(n: int, seed: int) -> Folds:
+    """The exact zero-based fold vector shared with R.
+
+    The draw reads ``n`` and ``seed`` and no column of the sample.  It used to read the
+    treatment, through ``StratifiedKFold``, which balances the arms of the very variable the
+    mechanism is about to be fitted to.
+
+    Parameters
+    ----------
+    n : int
+        Rows in the replication.
+    seed : int
+        Seed of the draw, one per replication.
+
+    Returns
+    -------
+    Folds
+        The ten-fold split, carrying the generator and seed that produced it.
+    """
+    return random_partition(n, N_FOLDS, seed=seed)
+
+
+def assert_unstratified_scheme(result: Any) -> None:
+    """Refuse a fit whose declared fold policy was not the unstratified one.
+
+    The split itself is supplied, so what this reads back is the *policy* the fit recorded
+    beside it.  A stratified policy on a supplied unstratified vector would publish a
+    ``folds`` line the recorded plan contradicts, and the manifest's ``stratify_folds`` is
+    the only place a reader can check which of the two ran.
+
+    Parameters
+    ----------
+    result : Any
+        A fitted single-parameter result.
+
+    Raises
+    ------
+    RuntimeError
+        When the recorded scheme is not ``"vfold"``, or the plan was balanced on anything
+        at all.
+    """
+    plan = result.config.crossfit
+    if plan.scheme != "vfold" or plan.stratify_by != ():
+        raise RuntimeError(
+            f"this study supplies an unstratified v-fold split, and this fit recorded "
+            f"scheme={plan.scheme!r} balanced on {plan.stratify_by!r}"
+        )
 
 
 def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
@@ -253,7 +309,7 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
     linear = _linear_predictor(w1, w2)
     a = rng.binomial(1, expit(linear)).astype(float)
     y = rng.binomial(1, expit(0.2 * a + linear)).astype(float)
-    folds = fixed_folds(a, seed + 1)
+    folds = fixed_folds(n, seed + 1).assignment
     return (
         pd.DataFrame(
             {
@@ -304,6 +360,7 @@ def fit_cleverly(
             reduced_treatment_learner=ColumnLogistic(),
             cross_fit=True,
             n_folds=N_FOLDS,
+            stratify_folds=STRATIFY_FOLDS,
             estimands=ESTIMANDS,
             simultaneous=False,
             g_bounds=G_BOUNDS,
@@ -324,6 +381,7 @@ def fit_cleverly(
         )
         .single()
     )
+    assert_unstratified_scheme(result)
     score_check = result.diagnostics.score_equations()
     worst_score = max(abs(float(row.score)) for row in score_check.rows)
     if not np.isfinite(worst_score):

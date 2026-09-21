@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -33,9 +35,46 @@ def test_a_primary_fit_keeps_clusters_whole_and_uses_the_exact_mechanism() -> No
     assert result.nuisance.propensity.arm(1.0) == pytest.approx(
         study.law().propensity(frame[["W1", "W2"]].to_numpy()), rel=1e-12
     )
-    assert truth["ey0"] == pytest.approx(1.0)
-    assert truth["ey1"] == pytest.approx(2.0)
-    assert truth["ate"] == pytest.approx(1.0)
+    assert set(np.unique(frame["Y"].to_numpy())) == {0.0, 1.0}
+    assert truth["ey0"] == pytest.approx(0.4140653, abs=1e-6)
+    assert truth["ey1"] == pytest.approx(0.5181150, abs=1e-6)
+    assert truth["ate"] == pytest.approx(0.1040497, abs=1e-6)
+
+
+def test_every_replication_shares_one_grouped_partition() -> None:
+    """The witness behind the evidence page's conditional-coverage statement.
+
+    The page says the published coverage is conditional on one fixed external partition.
+    Two different draws are what makes that a claim rather than a restatement of the
+    seed: the split has to be the same assignment, not merely the same seed.
+    """
+    first, _ = study.draw_from_seed(study.SCENARIO, 200, 123)
+    second, _ = study.draw_from_seed(study.SCENARIO, 200, 456)
+    assert not np.array_equal(first["Y"].to_numpy(), second["Y"].to_numpy())
+    plans = [study.fit_cleverly(frame) for frame in (first, second)]
+    assignments = [np.asarray(plan.nuisance.folds.assignment) for plan in plans]
+    np.testing.assert_array_equal(*assignments)
+    for plan in plans:
+        assert plan.config.crossfit.scheme == "grouped"
+        assert plan.config.crossfit.stratify_by == ()
+        assert plan.nuisance.folds.origin is not None
+        assert plan.nuisance.folds.origin.seed == study.RANDOM_STATE
+
+
+def test_a_partition_that_is_not_the_declared_one_is_refused() -> None:
+    """Deliberate mutation: rotate the realized assignment and require the refusal.
+
+    Rotating by whole clusters keeps every cluster in one fold, so ``check_integrity``
+    still passes and only the fixed-partition statement can catch it.
+    """
+    frame, _ = study.draw_from_seed(study.SCENARIO, 200, 123)
+    result = study.fit_cleverly(frame)
+    rotated = np.roll(np.asarray(result.nuisance.folds.assignment), study.CLUSTER_SIZE)
+    mutated = dataclasses.replace(result.nuisance.folds, assignment=rotated)
+    check_integrity(mutated, cluster=frame["cluster"].to_numpy())
+    broken = SimpleNamespace(config=result.config, nuisance=SimpleNamespace(folds=mutated))
+    with pytest.raises(RuntimeError, match="a different grouped partition"):
+        study.assert_the_declared_fixed_partition(broken, frame)
 
 
 def test_the_iid_property_control_reuses_the_clustered_estimate() -> None:

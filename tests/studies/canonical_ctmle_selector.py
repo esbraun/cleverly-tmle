@@ -3,6 +3,14 @@
 The comparison is deliberately bounded to the common unpenalized construction.  Cleverly's
 published penalty is validated independently because it follows the paper equation rather than
 the implementation-specific adjustment in R ``ctmle``.
+
+The fit is not cross-fitted, and it still draws a split: the selector scores its candidate
+path over five *selection* folds.  That split reads the treatment unless the fit says
+otherwise, which makes a candidate's cross-validated loss a function of the rows it is
+scored on.  :func:`fit_cleverly` therefore passes ``stratify_folds="none"`` and
+:func:`assert_unstratified_selection` reads the realized partition back off every result.
+R selects against the same assignment, carried over in the ``selection_fold`` column, so
+the two sides keep comparing one split rather than two.
 """
 
 from __future__ import annotations
@@ -16,8 +24,10 @@ from sklearn.linear_model import LogisticRegression
 
 from cleverly._typing import EstimandName
 from cleverly.estimators import CTMLE
+from cleverly.learners.crossfit import RANDOM_PARTITION_GENERATOR
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
+from tests.studies.canonical_cvtmle import Q_BOUNDS, STRATIFY_FOLDS
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
@@ -31,6 +41,7 @@ PRIMARY_REPLICATES = 800
 PRIMARY_N = 2000
 SEED = 20240822
 G_BOUNDS = (0.025, 0.975)
+SELECTION_FOLDS = 5
 
 SCENARIO_ESTIMANDS: Mapping[str, tuple[EstimandName, ...]] = {
     "binary_greedy": ("ate",),
@@ -66,10 +77,24 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-ctmle-selector",
     reference="r-ctmle",
+    # Reporting rather than gated, declared before the run that measured the red cells.
+    # Two property cells fail on the bounded laws under unstratified folds, and every
+    # margin here is interval-shaped, so a larger budget makes a verdict easier: raising
+    # one after seeing a failure would buy a pass rather than earn it.  The complete
+    # result is published instead, both red cells and their intervals, and the evidence
+    # page and the validation grid name them.  ``multi-arm-ctmle-selector`` already
+    # publishes the same two families red under the same policy.
+    publication_policy="reporting",
     modules=(
         "tests/studies/canonical_ctmle_selector.py",
         "tests/studies/ctmle_selector_properties.py",
         "tests/studies/canonical_properties.py",
+        "tests/studies/bounded_cv_laws.py",
+        "tests/studies/canonical_cvtmle.py",
+        "tests/studies/canonical_tmle.py",
+        "tests/studies/fractional_glm.py",
+        "tests/studies/point_study_helpers.py",
+        "tests/conftest.py",
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/performance.py",
         "tests/studies/evidence/properties.py",
@@ -90,10 +115,20 @@ REFERENCE_METADATA = {
 CONFIGURATION = {
     "cross_fit": False,
     "simultaneous_intervals": False,
-    "selection_folds": 5,
+    "selection_folds": SELECTION_FOLDS,
     "selection_inner_folds": 2,
     "penalty": False,
     "g_bounds": list(G_BOUNDS),
+    "stratify_folds": STRATIFY_FOLDS,
+    "q_bounds": (
+        "none on the binary primary law, whose scaler is already the identity; "
+        f"declared {list(Q_BOUNDS)} on the bounded property laws, whose outcome is a "
+        "proportion"
+    ),
+    "folds": (
+        f"unstratified {SELECTION_FOLDS}-fold selection assignments drawn from the "
+        "estimator's own seed; no outer cross-fitting"
+    ),
     "comparison_scope": "binary ATE; continuous outcomes are assessed independently",
 }
 
@@ -129,19 +164,23 @@ def _strategy(scenario: str) -> tuple[str, dict[str, Any]]:
 
 def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
     strategy, options = _strategy(scenario)
-    return (
+    result = (
         CTMLE(
             strategy=strategy,
             outcome_learner=LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs"),
             treatment_learner=LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs"),
             cross_fit=False,
-            selection_folds=5,
+            selection_folds=SELECTION_FOLDS,
             selection_inner_folds=2,
             penalty=False,
             estimands=("ate",),
             ctmle_estimand="ate",
             simultaneous=False,
             g_bounds=G_BOUNDS,
+            # The outcome is binary here, so no ``q_bounds``: the scaler is already the
+            # identity and :meth:`~cleverly.estimators.TMLE._scaler` refuses a second
+            # declaration of it.  The split is the declaration this fit needs.
+            stratify_folds=STRATIFY_FOLDS,
             max_iter=100,
             tol=1e-10,
             random_state=0,
@@ -150,6 +189,45 @@ def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
         .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
         .single()
     )
+    assert_unstratified_selection(result)
+    return result
+
+
+def assert_unstratified_selection(result: Any) -> None:
+    """Refuse a fit whose selection split was not the declared unstratified one.
+
+    ``stratify_folds="none"`` is a keyword the caller passes, and the realized partition is
+    what the fit did with it.  A balanced split carries no origin at all, because it comes
+    from scikit-learn rather than from the package's own generator, so the absence of one
+    is itself the finding.  Reading it back is what makes the published ``folds`` line in
+    ``CONFIGURATION`` a checked statement rather than a description, and this row needs
+    that: the same assignment is handed to R, and a split that quietly started reading the
+    treatment again would move both sides together and leave every paired gate green.
+
+    Parameters
+    ----------
+    result : Any
+        A fitted single-parameter C-TMLE result carrying a selector path.
+
+    Raises
+    ------
+    RuntimeError
+        When the selection folds were not drawn by
+        :func:`~cleverly.learners.random_partition` as a plain v-fold split.
+    """
+    origin = result.extra["ctmle"].folds.origin
+    if origin is None:
+        raise RuntimeError(
+            "the selection folds carry no generator record, which is what a split "
+            "balanced on the treatment or the outcome leaves behind. This study draws "
+            f"them with stratify_folds={STRATIFY_FOLDS!r}"
+        )
+    if origin.generator != RANDOM_PARTITION_GENERATOR or origin.scheme != "vfold":
+        raise RuntimeError(
+            f"the selection folds came from generator={origin.generator!r} as "
+            f"scheme={origin.scheme!r}, and this study's rows are evidence about a plain "
+            f"v-fold split of iid rows drawn by {RANDOM_PARTITION_GENERATOR!r}"
+        )
 
 
 def _rows_from_result(

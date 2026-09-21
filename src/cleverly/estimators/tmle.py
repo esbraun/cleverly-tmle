@@ -61,17 +61,24 @@ The alternative -- returning a bare result when there is one and a set when ther
 Example
 -------
 >>> from cleverly.estimators import TMLE
->>> from cleverly.datasets import make_nonlinear_ate
+>>> from cleverly.datasets import make_nonlinear_bounded
 >>> from sklearn.linear_model import LinearRegression, LogisticRegression
->>> frame, _ = make_nonlinear_ate(n=200, seed=0)
+>>> frame, _ = make_nonlinear_bounded(n=200, seed=0)
 >>> res = TMLE(
 ...     outcome_learner=LinearRegression(),
 ...     treatment_learner=LogisticRegression(max_iter=1000),
+...     q_bounds=(0.0, 1.0),
 ...     n_folds=2,
 ...     random_state=0,
 ... ).fit(frame, outcome="Y", treatment="A").single()
 >>> sorted(res.estimates)
 ['atc', 'ate', 'att', 'ey0', 'ey1']
+
+``Y`` is a proportion here, so ``q_bounds=(0.0, 1.0)`` states its support rather than
+assuming one.  A cross-fitted fit needs that: with ``q_bounds=None`` the outcome scale
+comes from every observed outcome, held-out rows included, and each fold's nuisance would
+be fitted on a scale the rows it predicts helped set.  A continuous outcome with no known
+support is fitted in sample instead, with ``cross_fit=False``.
 """
 
 from __future__ import annotations
@@ -132,11 +139,12 @@ from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as
 from ..interventions.incremental import refuse_multi_arm_tilt
 from ..learners._fitting import Task, infer_task
 from ..learners.crossfit import (
-    _LARGER_COMPLEMENT_NOTE,
+    _POST_DRAW_REMEDY,
     CrossFitPlan,
     Folds,
     SplitPlan,
     _cross_fit_policy_refusal,
+    _fresh_seed,
     make_folds,
     missing_training_support,
 )
@@ -190,12 +198,10 @@ DEFAULT_NUISANCE_BOUND = 0.01
 _TRUNCATION_WARN_FRACTION = 0.05
 
 #: The remedy a stacked natural-course refusal names when the in-sample estimator can run.
-#: Disabling cross-fitting alone is not enough: ``stratify_folds='none'`` is reserved for
-#: the stacked estimator, so the fold stratification must return to a stratified policy.
+#: The in-sample fit reads one fold, and one fold balances nothing, so the fold policy is
+#: not part of the remedy: disabling cross-fitting is the whole of it.
 _IN_SAMPLE_NATURAL_COURSE_REMEDY = (
-    "disable cross-fitting and restore fold stratification "
-    "(CrossFitting(enabled=False, stratify_by='treatment'), or cross_fit=False with "
-    "stratify_folds='treatment' on the engine)"
+    "disable cross-fitting (CrossFitting(enabled=False), or cross_fit=False on the engine)"
 )
 
 
@@ -276,12 +282,44 @@ _ARM_INDEXED_CONTRACT = (
 )
 
 #: The remedy an arm-indexed missing-outcome refusal names when the in-sample estimator
-#: can run. ``stratify_folds='none'`` stays reserved for cross-fitted fits.
+#: can run. One fold balances nothing, so the fold policy is not part of the remedy.
 _IN_SAMPLE_ARM_INDEXED_REMEDY = (
-    "fit in sample with cross_fit=False and stratify_folds='treatment' on the engine "
-    "(CrossFitting(enabled=False, stratify_by='treatment'))"
+    "fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))"
 )
 
+
+def _independent_units(data: CausalData) -> tuple[IntArray, str]:
+    """One label per row naming the unit a split moves as a whole, and what to call it.
+
+    A row is the unit of an iid sample, and a *cluster* is the unit once ``id=`` declares
+    one: a grouped draw moves every row of a cluster together, so an arm held by one
+    cluster is an arm some training complement must lack however the split falls. Reading
+    the right unit is what separates a sample that cannot be cross-fitted from one that
+    can, so it is written once and named.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+
+    Returns
+    -------
+    tuple
+        The unit label of each row, and the singular noun a refusal calls it.
+    """
+    if data.cluster is None:
+        return np.arange(int(np.asarray(data.treatment).size), dtype=np.int64), "row"
+    return np.asarray(data.cluster).reshape(-1), "cluster"
+
+
+#: Why a package classification Super Learner needs two rows of every class in a training
+#: complement. Written once because three refusals state it: the arm-indexed contract's
+#: sample and complement checks, and the generic cross-fitting preflight.
+_SUPER_LEARNER_INNER_SPLIT_RULE = (
+    "The {role} learner is a package SuperLearner with a classification task, and its "
+    "inner stratified split needs at least two rows in each class of its target in each "
+    "training complement."
+)
 
 #: Why a repeated fit cannot carry a simultaneous band.  Written once because the refusal
 #: is raised twice: cheaply from the requested estimands before the fit, and again at the
@@ -428,36 +466,28 @@ class TMLE:
         With ``cv_evaluation=True``, each draw contributes its fold-evaluated point and
         cross-validated variance to the same median combination rule.
     stratify_folds:
-        What the outer folds are balanced on.  ``"treatment"``, the default, balances the
-        arms so no fold is left without one and the propensity model is fittable
-        everywhere.  ``"treatment+outcome"`` crosses the outcome in, which matters when
-        events are rare: an arm-balanced fold can still contain none of them, and an
-        outcome regression fitted on a fold with no events is degenerate.  The fold count
-        is then capped at the rarest *cell* rather than the rarer arm, so asking for ten
-        folds on a 2% event rate will reduce them, with a warning saying so.
+        What the outer folds are balanced on.  ``"none"`` is the default and the only
+        value a cross-fitted fit accepts.  It draws ordinary unstratified V-folds from
+        the seed alone, so the assignment reads neither the treatment nor the outcome
+        and the cross-fitting argument conditions on a split the data did not choose.
 
-        Binary outcomes only, and refused on a continuous dose -- both refusals name what
-        they would need.  An unobserved outcome (``delta=``) is its own stratum rather
-        than being pooled with ``Y = 0``, since a fold with no *observed* outcomes in an
-        arm cannot fit the regression either.
-
-        Worth stating plainly: this makes the fold assignment a function of the outcome,
-        and the cross-fitting argument conditions on the split.  That is a statement about
-        which splits are conditioned on, not a bias -- and the alternative it is weighed
-        against is a fold that cannot fit the regression at all.
-
-        ``"none"`` generates ordinary unstratified V-folds. It is currently reserved for
-        two audited cross-fitted estimators with missing outcomes: the one-repeat, pooled,
-        whole-sample binary :class:`~cleverly.NaturalCourseMean`, and the stacked
-        CV-TMLE of arm-indexed means and contrasts. That second estimator requires
-        ``"none"``, because no result covers folds stratified on the treatment or the
-        outcome (``docs/roadmap.md`` RM17).
+        ``"treatment"`` and ``"treatment+outcome"`` balance the arms, and the arms
+        crossed with the outcome, across folds.  Both are refused under cross-fitting.
+        No shipped result covers a partition read off the data the fit then conditions
+        on (``docs/technical-reference/cv-tmle.md``, fold and outcome-scale rules), and a
+        rare level is a reason to fit in sample or
+        to collect more of it rather than to let the outcome choose the folds.  A fit
+        with ``cross_fit=False`` draws no split, so it accepts any value and uses none
+        of them. Selector-based :class:`~cleverly.CTMLE` draws selection folds at every
+        setting and refuses the two everywhere. Outcome-adaptive C-TMLE draws no
+        selection folds, so its in-sample fit accepts an unused policy.
     g_bounds:
         Propensity truncation.  ``"auto"`` uses ``5 / (sqrt(n) log n)`` for the
         ATE family and ``0.025`` for the ATT/ATC, matching R's ``tmle``.
     q_bounds:
         Assumed support of a continuous outcome (R's ``Qbounds``).  ``None`` widens the
-        observed range by 10%.
+        observed range by 10%, which reads the held-out rows, so a cross-fitted fit of a
+        continuous outcome requires the support to be declared here.
     alpha:
         Predicted probabilities are bounded into ``[1 - alpha, alpha]`` before the
         logit is taken.
@@ -512,7 +542,7 @@ class TMLE:
         n_folds: int = 10,
         learner_folds: int = 5,
         repeats: int = 1,
-        stratify_folds: FoldStrata = "treatment",
+        stratify_folds: FoldStrata = "none",
         split_plan: SplitPlan | None = None,
         g_bounds: GBounds = "auto",
         q_bounds: tuple[float, float] | None = None,
@@ -704,16 +734,33 @@ class TMLE:
         # One ordered message source for the declaration and the engine, under two
         # exception contracts: the declaration raises MethodConfigurationError and the
         # engine raises ValueError.  See ``_cross_fit_policy_refusal``.
-        reason = _cross_fit_policy_refusal(
+        reason = self._cross_fit_policy_reason()
+        if reason is not None:
+            raise ValueError(reason)
+
+    def _cross_fit_policy_reason(self) -> str | None:
+        """Why this estimator's declared fold policy cannot run, or ``None``.
+
+        Asked twice on purpose.  :meth:`_validate_settings` asks it at construction, so a
+        declaration that cannot run is refused where it was written.  A fit asks it again
+        in :meth:`_resolve_estimands_for_data`, because two supported operations reach a
+        fit without running ``__init__``: :meth:`refit` copies an estimator, and a result
+        restored from a pickle written by an earlier version arrives with whatever policy
+        that version allowed.  Neither may fit under a policy this one refuses.
+        """
+        return _cross_fit_policy_refusal(
             cross_fit=self.cross_fit,
             n_folds=self.n_folds,
             repeats=self.repeats,
             split_plan=self.split_plan,
             n_bootstrap=self.n_bootstrap,
+            stratify_folds=self.stratify_folds,
+            collaborative=(
+                self._assessment_method == "collaborative_tmle"
+                and getattr(self, "strategy", None) != "oat"
+            ),
             option_name="cross_fit",
         )
-        if reason is not None:
-            raise ValueError(reason)
 
     # ------------------------------------------------------------------- fit
 
@@ -787,10 +834,10 @@ class TMLE:
             return TMLEResultSet({None: self._fit_single(prepared, intermediate_value=None)})
 
         # The intermediate path otherwise fits shared nuisances before `_fit_single`.
-        # Resolve this boundary here as well, which includes the fold-policy reservation,
-        # so every unsupported intermediate composition fails before any learner is
-        # fitted. The ordinary path resolves in `_fit_single`, after its axis-specific
-        # structural checks have named their own refusals.
+        # Resolve this boundary here as well, so every unsupported intermediate
+        # composition fails before any learner is fitted. The ordinary path resolves in
+        # `_fit_single`, after its axis-specific structural checks have named their own
+        # refusals.
         estimands = self._resolve_estimands_for_data(prepared)
 
         # The controlled direct effect at z = 0 and at z = 1 are different parameters,
@@ -826,10 +873,10 @@ class TMLE:
 
     def _prepare_shared(
         self, data: CausalData, levels: Sequence[float], estimands: tuple[str, ...]
-    ) -> tuple[OutcomeScaler, tuple[tuple[Folds, NuisanceEstimates], ...]]:
+    ) -> tuple[OutcomeScaler, tuple[tuple[Folds, NuisanceEstimates, int], ...]]:
         """Fit the level-independent nuisances once, for every requested level.
 
-        One ``(folds, nuisance)`` pair per repeat: the levels share nuisances *within* a
+        One ``(folds, nuisance, seed)`` triple per repeat: the levels share nuisances *within* a
         draw, which is what this method exists for, and the draws remain separate, which
         is what makes them repeats.  The scaler is a function of the outcome alone and so
         is shared across both.
@@ -843,6 +890,7 @@ class TMLE:
                     self._fit_nuisances(
                         data, folds, scaler, levels[0], tuple(levels[1:]), seed=seed
                     ),
+                    seed,
                 )
             )
         return scaler, tuple(draws)
@@ -885,12 +933,14 @@ class TMLE:
         refutations for a change that moves no row.  What a refit cannot do is change the
         row *set*: the count check inside ``validate`` still refuses that, and
         :func:`~cleverly.validation.refute` refuses the subsampling test up front.
+        :meth:`~cleverly.SplitPlan.unbound` keeps the plan's generator record, so the
+        refit accepts the plan and draws its labels again to check them.
         """
         estimator = self
         plan = self.split_plan
         if plan is not None and plan.source_fingerprint is not None:
             estimator = copy.copy(self)
-            estimator.split_plan = SplitPlan(plan.assignments)
+            estimator.split_plan = plan.unbound()
         if random_state is not None and random_state != self.random_state:
             if estimator is self:
                 estimator = copy.copy(self)
@@ -972,7 +1022,9 @@ class TMLE:
         data: CausalData,
         *,
         intermediate_value: float | None,
-        shared: tuple[OutcomeScaler, tuple[tuple[Folds, NuisanceEstimates], ...]] | None = None,
+        shared: (
+            tuple[OutcomeScaler, tuple[tuple[Folds, NuisanceEstimates, int], ...]] | None
+        ) = None,
     ) -> TMLEResult:
         """Fit for one value of the intermediate (or for no intermediate at all).
 
@@ -1069,15 +1121,17 @@ class TMLE:
         extra: dict[str, Any] = {}
         if shared is not None:
             scaler, pooled = shared
-            fold_draws = [folds for folds, _ in pooled]
+            fold_draws = [folds for folds, _, _ in pooled]
+            draw_seeds = [seed for _, _, seed in pooled]
             nuisances = [
-                nuisance.at_level(cast("float", intermediate_value)) for _, nuisance in pooled
+                nuisance.at_level(cast("float", intermediate_value)) for _, nuisance, _ in pooled
             ]
             config = self._config(data, estimands, scaler, fold_draws[0])
         else:
             scaler = self._scaler(data)
             draws = self._repeat_draws(data, estimands)
             fold_draws = [folds for folds, _ in draws]
+            draw_seeds = [seed for _, seed in draws]
             # The realised fold count can differ between draws when a cap fires on one and
             # not another, so the config -- like every read-through attribute on the result
             # -- describes the first draw.  It is then the *same* config for every draw,
@@ -1099,7 +1153,7 @@ class TMLE:
         per_repeat: list[dict[str, ParameterEstimate]] = []
         repeats: list[RepeatFit] = []
         details: list[CVTargeting | None] = []
-        for nuisance in nuisances:
+        for nuisance, seed in zip(nuisances, draw_seeds, strict=True):
             estimates, fluctuations, detail = self._retarget_detailed(
                 data,
                 nuisance,
@@ -1114,6 +1168,7 @@ class TMLE:
                     nuisance=nuisance,
                     fluctuations=fluctuations,
                     psi={name: value.psi for name, value in estimates.items()},
+                    seed=seed,
                 )
             )
             details.append(detail)
@@ -1219,15 +1274,51 @@ class TMLE:
         return OutcomeScaler.from_outcome(observed, self.q_bounds)
 
     def _resolve_estimands_for_data(self, data: CausalData) -> tuple[str, ...]:
-        """Resolve targets and enforce every data-dependent refusal that precedes fitting.
+        """Resolve targets and enforce every refusal that precedes fitting.
 
-        The natural-course and arm-indexed missing-outcome contracts run first, so the
-        fold-policy reservation after them can rely on every condition they enforce.
+        The declared fold policy is checked first and without reading the data, because a
+        fit can arrive here without having run ``__init__``: :meth:`refit` copies an
+        estimator, and an estimator restored from a pickle written by an earlier version
+        carries whatever policy that version allowed.
+
+        The natural-course contract runs next, because it resolves the target list the
+        arm-indexed missing-outcome contract then reads.  Both name a narrower surface
+        than the outcome-scale rule below, so each keeps its own sentence and the general
+        rule catches what is left.
         """
+        reason = self._cross_fit_policy_reason()
+        if reason is not None:
+            raise ValueError(
+                f"{reason}. This fit was configured under a fold policy this version "
+                "refuses, which a restored result or a copied estimator can still carry"
+            )
         estimands = self._resolve_natural_course_contract(data)
         self._resolve_arm_indexed_missing_contract(data, estimands)
-        self._validate_fold_strata_for_data(data, estimands)
+        self._refuse_unbounded_cross_fitted_scale(data)
         return estimands
+
+    def _refuse_unbounded_cross_fitted_scale(self, data: CausalData) -> None:
+        """Refuse a cross-fitted continuous outcome whose scale the held-out rows set.
+
+        :meth:`_scaler` maps a continuous outcome onto ``[0, 1]`` before ``Qbar`` is
+        fitted, and with ``q_bounds=None`` it takes the endpoints from the observed
+        outcomes of the whole sample.  Every fold's nuisance is then fitted on a scale the
+        rows it predicts helped choose, so the split no longer separates what a fold saw
+        from what it is scored on.  Declaring the support is the remedy that keeps the
+        separation, and fitting in sample is the one that needs no support.
+        """
+        if not self.cross_fit or data.family == "binomial" or self.q_bounds is not None:
+            return
+        raise CapabilityError(
+            f"a cross-fitted fit of a continuous outcome ({data.outcome_name}, "
+            f"family={data.family!r}) needs a declared q_bounds. With q_bounds=None the "
+            "outcome scale is taken from every observed outcome, held-out rows included, "
+            "so each fold's nuisance is fitted on a scale the rows it predicts helped set, "
+            "and no shipped result covers that scale "
+            "(docs/technical-reference/cv-tmle.md, fold and outcome-scale rules). Declare the "
+            "known outcome support (Targeting(q_bounds=(lower, upper))). Without a known "
+            f"finite support, {_IN_SAMPLE_ARM_INDEXED_REMEDY}"
+        )
 
     def _on_arm_indexed_stacked_surface(self, data: CausalData, estimands: tuple[str, ...]) -> bool:
         """Whether the arm-indexed stacked MAR contract governs this ordinary TMLE fit.
@@ -1302,24 +1393,15 @@ class TMLE:
             refuse(
                 "a continuous outcome with q_bounds=None takes its scale from every observed "
                 "outcome, held-out rows included, and no reviewed result covers that scale "
-                "(RM17). Declare q_bounds equal to the known outcome support "
+                "(docs/technical-reference/cv-tmle.md, fold and outcome-scale "
+                "rules). Declare q_bounds equal to the known outcome support "
                 "(Targeting(q_bounds=(lower, upper))). Without a known finite support, "
                 f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}"
-            )
-        if self.stratify_folds != "none":
-            refuse(
-                f"no audited result covers stratify_folds={self.stratify_folds!r} (RM17). "
-                "Set stratify_folds='none' (CrossFitting(stratify_by='none'))"
             )
         if self.split_plan is not None:
             refuse(
                 "no audit covers the balance and weighting of a supplied split plan. Leave "
                 "split_plan=None (CrossFitting(split_plan=None)) for package-generated folds"
-            )
-        if self.n_folds < 2:
-            refuse(
-                "one fold fits every nuisance on the rows it predicts. Set n_folds of at "
-                "least 2 (CrossFitting(n_folds=...))"
             )
         if self.repeats != 1:
             refuse(
@@ -1383,17 +1465,6 @@ class TMLE:
             )
         if not data.is_binary_treatment:
             refuse("the treatment must have exactly two arms")
-        if self.cross_fit and self.n_folds < 2:
-            # One fold realizes the in-sample split, but ``cross_fit`` alone selects the
-            # stacked estimator's second-moment covariance rule. Refuse rather than report
-            # an in-sample estimate under the cross-fitted variance.
-            refuse(
-                "the cross-fitted estimator requires n_folds of at least 2, because one fold "
-                "fits every nuisance on the rows it predicts. For the in-sample estimator, "
-                f"{_IN_SAMPLE_NATURAL_COURSE_REMEDY}"
-            )
-        if self.cross_fit and self.stratify_folds != "none":
-            refuse("the cross-fitted estimator requires stratify_folds='none'")
         if self.repeats != 1:
             refuse("set repeats=1")
         if self.cross_fit and self.targeting_scheme != "pooled":
@@ -1426,31 +1497,6 @@ class TMLE:
             if self.q_bounds is None:
                 refuse("continuous outcomes require fixed, analyst-declared q_bounds")
         return estimands
-
-    def _validate_fold_strata_for_data(self, data: CausalData, estimands: tuple[str, ...]) -> None:
-        """Reserve unstratified outer folds for the two audited stacked MAR estimators.
-
-        Only :meth:`_resolve_estimands_for_data` calls this, after
-        :meth:`_resolve_natural_course_contract` and
-        :meth:`_resolve_arm_indexed_missing_contract` have refused every cross-fitted
-        composition outside those contracts. The one remaining condition is therefore
-        that this fit is one of those estimators.
-        """
-        if self.stratify_folds != "none":
-            return
-        if self.cross_fit and _is_natural_course(data, estimands):
-            return
-        if self._assessment_method == "tmle" and self._on_arm_indexed_stacked_surface(
-            data, estimands
-        ):
-            return
-        raise CapabilityError(
-            "stratify_folds='none' is currently reserved for the one-repeat, pooled, "
-            "whole-sample, package-generated cross-fitted binary NaturalCourseMean with "
-            "missing outcomes on iid unweighted data, and for the stacked CV-TMLE of "
-            "arm-indexed means and contrasts with missing outcomes under its audited "
-            "contract; use the established fold policy for every other estimator"
-        )
 
     def _preflight_missing_outcome_folds(
         self,
@@ -1516,10 +1562,11 @@ class TMLE:
         # c_v of them in validation fold v, so fold v's complement holds c - c_v of them,
         # and some fold holds c_v >= 1: every partition leaves a complement with at most
         # c - 1. A complement minimum of k therefore needs c >= k + 1 in the sample. That
-        # is also enough: with one row per fold (n_folds = n) every complement drops
-        # exactly one row and keeps c - 1 >= k. So "increase n_folds" is a remedy that
-        # can succeed exactly when every class reaches k + 1: two for the binary outcome
-        # classes (k = 1) and three for a Super Learner classification role (k = 2).
+        # is also the whole of the sample condition: the minimum is k + 1, two for the
+        # binary outcome classes (k = 1) and three for a Super Learner classification role
+        # (k = 2). Below it no partition succeeds, which is what lets this refusal state a
+        # minimum; at or above it whether a *particular* drawn split succeeds is the
+        # question the complement checks below ask, and they name no redraw.
         binary = data.family == "binomial"
         if binary:
             responses = np.asarray(data.outcome, dtype=float)[observed]
@@ -1541,31 +1588,21 @@ class TMLE:
                         "so no fold count or random_state can fit the outcome regression; "
                         f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}"
                     )
-        inner_roles = self._super_learner_inner_split_roles(data)
-        for role, task, rows, target, label in inner_roles:
-            if (task or infer_task(target[rows])) != "classification":
-                continue
-            for value in np.unique(target[rows]):
-                count = int(np.count_nonzero(target[rows] == value))
-                if count <= 2:
-                    # An in-sample Super Learner splits all c rows itself, and its own
-                    # stratified split needs two, so that remedy holds only at c = 2.
-                    in_sample = f", or {_IN_SAMPLE_ARM_INDEXED_REMEDY}" if count == 2 else ""
-                    raise DataError(
-                        f"{subject} cannot fit the {role} learner: the sample holds {count} "
-                        f"{label(float(value))}. The {role} learner is a package "
-                        "SuperLearner with a classification task, and its inner stratified "
-                        "split needs at least two rows in each class of its target in each "
-                        "training complement. Every partition leaves some complement with "
-                        f"at most {count - 1}, so no fold count or random_state can fit it. "
-                        f"Replace the {role} learner with one that is not a package "
-                        f"classification SuperLearner{in_sample}."
-                    )
+        sample_gap = self._super_learner_sample_shortfall(data)
+        if sample_gap is not None:
+            role, described, count = sample_gap
+            # An in-sample Super Learner splits all c rows itself, and its own
+            # stratified split needs two, so that remedy holds only at c = 2.
+            in_sample = f", or {_IN_SAMPLE_ARM_INDEXED_REMEDY}" if count == 2 else ""
+            raise DataError(
+                f"{subject} cannot fit the {role} learner: the sample holds {count} "
+                f"{described}. {_SUPER_LEARNER_INNER_SPLIT_RULE.format(role=role)} Every "
+                f"partition leaves some complement with at most {count - 1}, so no fold "
+                f"count or random_state can fit it. Replace the {role} learner with one "
+                f"that is not a package classification SuperLearner{in_sample}."
+            )
 
-        remedy = (
-            f"{_LARGER_COMPLEMENT_NOTE} Increase n_folds, use a different random_state, or "
-            f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}"
-        )
+        remedy = _POST_DRAW_REMEDY.format(remedy=_IN_SAMPLE_ARM_INDEXED_REMEDY)
         responding_arm = np.where(observed, treatment, -1.0)
         support: list[tuple[str, FloatArray | BoolArray, FloatArray | BoolArray]] = [
             ("response", observed, np.array([False, True])),
@@ -1595,34 +1632,17 @@ class TMLE:
                     f"{describe(name, float(missing[0]))}. {remedy}"
                 )
 
-        for role, task, rows, target, label in inner_roles:
-            sample_classes = np.unique(target[rows])
-            sample_classifies = (task or infer_task(target[rows])) == "classification"
-            for repeat, draw in enumerate(folds):
-                for fold, (train, _) in enumerate(draw):
-                    kept = np.zeros(observed.size, dtype=bool)
-                    kept[train] = True
-                    values = target[kept & rows]
-                    if (task or infer_task(values)) != "classification":
-                        continue
-                    # A task-free learner can switch from regression on the sample to
-                    # classification on a complement that loses an intermediate level.
-                    # In that case only the complement's classes enter its inner split.
-                    classes = sample_classes if sample_classifies else np.unique(values)
-                    for value in classes:
-                        count = int(np.count_nonzero(values == value))
-                        if count < 2:
-                            raise DataError(
-                                f"{subject} cannot fit the {role} learner because repeat "
-                                f"{repeat}, fold {fold}'s training complement holds {count} "
-                                f"{label(float(value))}. The {role} learner is a package "
-                                "SuperLearner with a classification task, and the Super "
-                                "Learner's inner stratified split needs at least two rows "
-                                f"in each class of its target. {remedy}"
-                            )
+        complement_gap = self._super_learner_complement_shortfall(data, folds)
+        if complement_gap is not None:
+            role, repeat, fold, described, count = complement_gap
+            raise DataError(
+                f"{subject} cannot fit the {role} learner because repeat {repeat}, fold "
+                f"{fold}'s training complement holds {count} {described}. "
+                f"{_SUPER_LEARNER_INNER_SPLIT_RULE.format(role=role)} {remedy}"
+            )
 
     def _super_learner_inner_split_roles(
-        self, data: CausalData
+        self, data: CausalData, *, fits_treatment: bool = True
     ) -> tuple[tuple[str, Task | None, BoolArray, FloatArray, Callable[[float], str]], ...]:
         """The package Super Learner roles and the targets each outer fit trains on.
 
@@ -1655,13 +1675,18 @@ class TMLE:
                 scaler.scale(data.outcome),
                 lambda value: f"respondent(s) with outcome {scaler.unscale_level(value):g}",
             ),
-            (
-                "treatment",
-                self._resolve_learner(self.treatment_learner, task="classification"),
-                everyone,
-                np.asarray(data.treatment, dtype=float),
-                lambda value: f"row(s) in arm {data.arm_label(value)}",
-            ),
+        ]
+        if fits_treatment and not data.is_continuous_treatment:
+            roles.append(
+                (
+                    "treatment",
+                    self._resolve_learner(self.treatment_learner, task="classification"),
+                    everyone,
+                    np.asarray(data.treatment, dtype=float),
+                    lambda value: f"row(s) in arm {data.arm_label(value)}",
+                )
+            )
+        roles.append(
             (
                 "response",
                 self._resolve_learner(
@@ -1672,21 +1697,236 @@ class TMLE:
                 everyone,
                 observed.astype(float),
                 lambda value: "respondent(s)" if value else "nonrespondent(s)",
-            ),
-        ]
+            )
+        )
         return tuple(
             (role, learner.task, rows, target, label)
             for role, learner, rows, target, label in roles
             if isinstance(learner, SuperLearner)
         )
 
-    @staticmethod
-    def _preflight_natural_course_folds(
+    def _super_learner_sample_shortfall(
+        self, data: CausalData, *, fits_treatment: bool = True
+    ) -> tuple[str, str, int] | None:
+        """The first Super Learner class the whole sample holds too few rows of.
+
+        A class with ``c`` rows leaves at most ``c - 1`` in some training complement,
+        whatever the partition, and the inner stratified split needs two. So ``c <= 2`` is
+        a fact about the sample rather than about the split, which is why it is asked
+        before any split is drawn and why its refusal may state a minimum.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+
+        Returns
+        -------
+        tuple or None
+            ``(role, described class, count)`` for the first shortfall in role order, or
+            ``None``.
+        """
+        for role, task, rows, target, label in self._super_learner_inner_split_roles(
+            data, fits_treatment=fits_treatment
+        ):
+            if (task or infer_task(target[rows])) != "classification":
+                continue
+            for value in np.unique(target[rows]):
+                count = int(np.count_nonzero(target[rows] == value))
+                if count <= 2:
+                    return role, label(float(value)), count
+        return None
+
+    def _super_learner_complement_shortfall(
+        self, data: CausalData, folds: Sequence[Folds], *, fits_treatment: bool = True
+    ) -> tuple[str, int, int, str, int] | None:
+        """The first training complement too thin for a Super Learner's inner split.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+        folds : sequence of Folds
+            One realized draw per repeat.
+
+        Returns
+        -------
+        tuple or None
+            ``(role, repeat, fold, described class, count)`` for the first shortfall, or
+            ``None`` when every complement carries two rows of every class.
+        """
+        size = int(np.asarray(data.observed, dtype=bool).size)
+        for role, task, rows, target, label in self._super_learner_inner_split_roles(
+            data, fits_treatment=fits_treatment
+        ):
+            sample_classes = np.unique(target[rows])
+            sample_classifies = (task or infer_task(target[rows])) == "classification"
+            for repeat, draw in enumerate(folds):
+                for fold, (train, _) in enumerate(draw):
+                    kept = np.zeros(size, dtype=bool)
+                    kept[train] = True
+                    values = target[kept & rows]
+                    if (task or infer_task(values)) != "classification":
+                        continue
+                    # A task-free learner can switch from regression on the sample to
+                    # classification on a complement that loses an intermediate level.
+                    # In that case only the complement's classes enter its inner split.
+                    classes = sample_classes if sample_classifies else np.unique(values)
+                    for value in classes:
+                        count = int(np.count_nonzero(values == value))
+                        if count < 2:
+                            return role, repeat, fold, label(float(value)), count
+        return None
+
+    def _preflight_training_support(
+        self,
         data: CausalData,
         estimands: tuple[str, ...],
         folds: Sequence[Folds],
     ) -> None:
-        """Check response support in every training complement before nuisance fitting."""
+        """Check what every generated split owes a discrete-treatment fit, before learners.
+
+        Unstratified folds are drawn from the seed alone, so nothing in the draw promises
+        that each training complement carries every arm, both outcome classes of a binary
+        outcome, or two rows of every class a package Super Learner stratifies its inner
+        split on. Stratification used to buy the first of those and ``resolve_n_folds``
+        capped the fold count to keep it. Neither is available to a split that must not
+        read the treatment, so the property is *checked* on the realized draw instead, and
+        checked before the first learner rather than reported from inside one.
+
+        Three questions in one pass, in the order a reader can act on:
+
+        1. the sample minimum, which no partition can repair: each arm, and each class of
+           a binary outcome, has to appear in two independent units, rows when the data
+           are iid and *clusters* when ``id=`` declared them, because a cluster is atomic
+           and a split moves whole clusters;
+        2. the support of each training complement, for the arms, for the rows whose
+           outcome was observed, and for the binary outcome classes among them;
+        3. the two-rows-per-class rule of a package classification Super Learner.
+
+        The first is a statement about the sample, so its refusal states the minimum. The
+        other two are statements about one drawn split, so they name no redraw.
+
+        A continuous dose has no arms, so its check still covers outcome and response
+        support but omits treatment-arm support. What a density fit needs from a fold is
+        chosen inside that fold. A single-fold draw is skipped because it trains on every
+        row.
+        """
+        if any(draw.is_single for draw in folds):
+            return
+        # The arm-indexed stacked contract and the natural-course mean each run their own
+        # preflight and name their own contract, so this general one does not follow them
+        # with a wider sentence about the same draw. What the two cover differs, and
+        # neither is this check with a different name. The stacked contract asks the arm,
+        # responding-arm, response and outcome-class questions itself, and states its own
+        # sample minimums. The natural-course preflight asks about response and outcome
+        # support without treatment-arm questions: that mean fits no treatment mechanism.
+        if _is_natural_course(data, estimands) or self._on_arm_indexed_stacked_surface(
+            data, estimands
+        ):
+            return
+        names = {"collaborative_tmle": "C-TMLE", "drtmle": "DR-TMLE"}
+        self._check_training_support(
+            data, folds, subject=f"cross-fitted {names.get(self._assessment_method, 'TMLE')}"
+        )
+
+    def _check_training_support(
+        self, data: CausalData, folds: Sequence[Folds], *, subject: str
+    ) -> None:
+        """Ask one realized partition the three questions above, under a caller's name.
+
+        Separate from :meth:`_preflight_training_support` because a collaborative fit has a
+        second partition to ask them of. Its selection folds are drawn from the same seed
+        and read the data no more than the outer folds do, and a selection fold whose
+        training rows lack an arm makes the candidate's propensity unfittable inside the
+        search rather than in the outer loop.
+
+        Parameters
+        ----------
+        data : CausalData
+            The rows the partition labels.
+        folds : sequence of Folds
+            One realized partition per repeat.
+        subject : str
+            What the refusal calls the fit, as the reader would name it.
+        """
+        treatment = np.asarray(data.treatment, dtype=float)
+        arms = np.asarray(data.arm_codes, dtype=float)
+        observed = np.asarray(data.observed, dtype=bool)
+        unit_of, unit = _independent_units(data)
+        for arm in arms:
+            count = int(np.unique(unit_of[treatment == arm]).size)
+            if count < 2:
+                raise DataError(
+                    f"{subject} needs each treatment arm in at least two independent "
+                    f"units, and arm {data.arm_label(arm)} appears in {count} {unit}(s). "
+                    f"A split moves whole {unit}s, so every partition leaves some training "
+                    "complement without that arm and no fold count or seed can fit the "
+                    f"treatment mechanism; {_IN_SAMPLE_ARM_INDEXED_REMEDY}"
+                )
+        if data.family == "binomial":
+            # The sample minimum the outcome classes owe, stated for the same reason the
+            # arm minimum above is: a split moves whole units, so one unit holding a class
+            # leaves the complement of its own fold without it, whatever the fold count
+            # and whatever the seed. The remedy is the only one that can work. Fitting in
+            # sample is not offered here, because a package classification SuperLearner
+            # splits the same rows again and its inner split needs two of each class too.
+            outcome_values = np.asarray(data.outcome, dtype=float)
+            for value in (0.0, 1.0):
+                count = int(np.unique(unit_of[observed & (outcome_values == value)]).size)
+                if count < 2:
+                    raise DataError(
+                        f"{subject} needs each outcome class in at least two independent "
+                        f"units with an observed outcome, and outcome {value:g} appears in "
+                        f"{count} {unit}(s). A split moves whole {unit}s, so every partition "
+                        "leaves some training complement without that class and no fold "
+                        "count or seed can fit the outcome regression; collect more "
+                        f"observations with outcome {value:g}."
+                    )
+        support: list[tuple[str, FloatArray | BoolArray, FloatArray | BoolArray]] = [
+            # Every family, not the binomial one alone. The outcome regression trains on
+            # the rows whose outcome was observed, on whatever scale they are on, so a
+            # complement holding none of them cannot fit it. Under no missingness this
+            # asks nothing, because every row is then a respondent.
+            ("response", observed, np.array([True])),
+        ]
+        if not data.is_continuous_treatment:
+            support.insert(0, ("arm", treatment, arms))
+        if data.family == "binomial":
+            outcome = np.where(observed, np.asarray(data.outcome, dtype=float), -1.0)
+            support.append(("outcome", outcome, np.array([0.0, 1.0])))
+        remedy = _POST_DRAW_REMEDY.format(remedy=_IN_SAMPLE_ARM_INDEXED_REMEDY)
+        for repeat, draw in enumerate(folds):
+            gap = missing_training_support(draw, support)
+            if gap is not None:
+                fold, name, missing = gap
+                value = float(missing[0])
+                if name == "arm":
+                    described = f"row in arm {data.arm_label(value)}"
+                elif name == "response":
+                    described = "row with an observed outcome"
+                else:
+                    described = f"observed outcome {value:g}"
+                raise DataError(
+                    f"{subject} cannot fit its nuisances because repeat {repeat}, fold "
+                    f"{fold}'s training complement contains no {described}. {remedy}"
+                )
+        complement_gap = self._super_learner_complement_shortfall(data, folds)
+        if complement_gap is not None:
+            role, repeat, fold, described, count = complement_gap
+            raise DataError(
+                f"{subject} cannot fit the {role} learner because repeat {repeat}, fold "
+                f"{fold}'s training complement holds {count} {described}. "
+                f"{_SUPER_LEARNER_INNER_SPLIT_RULE.format(role=role)} {remedy}"
+            )
+
+    def _preflight_natural_course_folds(
+        self,
+        data: CausalData,
+        estimands: tuple[str, ...],
+        folds: Sequence[Folds],
+    ) -> None:
+        """Check natural-course response and outcome support before nuisance fitting."""
         if not _is_natural_course(data, estimands) or any(draw.is_single for draw in folds):
             return
         observed = np.asarray(data.observed, dtype=bool)
@@ -1700,19 +1940,56 @@ class TMLE:
                 "complement without one, so no fold count or random_state can fit the "
                 f"response and outcome nuisances; {_IN_SAMPLE_NATURAL_COURSE_REMEDY}"
             )
-        labels = {False: "nonrespondent", True: "respondent"}
-        support = (("response", observed, np.unique(observed)),)
+        outcome = np.asarray(data.outcome, dtype=float)
+        if data.family == "binomial":
+            for value in (0.0, 1.0):
+                count = int(np.count_nonzero(observed & (outcome == value)))
+                if count < 2:
+                    raise DataError(
+                        "cross-fitted NaturalCourseMean needs at least two respondents "
+                        f"with each outcome, and the sample has {count} respondent(s) "
+                        f"with outcome {value:g}. Every partition leaves some training "
+                        "complement without that outcome, so no fold count or random_state "
+                        f"can fit the outcome regression; {_IN_SAMPLE_NATURAL_COURSE_REMEDY}"
+                    )
+        sample_gap = self._super_learner_sample_shortfall(data, fits_treatment=False)
+        if sample_gap is not None:
+            role, described, count = sample_gap
+            raise DataError(
+                f"cross-fitted NaturalCourseMean cannot fit the {role} learner: the sample "
+                f"holds {count} {described}. "
+                f"{_SUPER_LEARNER_INNER_SPLIT_RULE.format(role=role)} Collect more "
+                "observations or use a learner without that inner split."
+            )
+        support: list[tuple[str, FloatArray | BoolArray, FloatArray | BoolArray]] = [
+            ("response", observed, np.array([False, True])),
+        ]
+        if data.family == "binomial":
+            support.append(("outcome", np.where(observed, outcome, -1.0), np.array([0.0, 1.0])))
         for repeat, draw in enumerate(folds):
             gap = missing_training_support(draw, support)
             if gap is not None:
-                fold, _, missing = gap
+                fold, name, missing = gap
+                if name == "response":
+                    described = "respondent" if bool(missing[0]) else "nonrespondent"
+                else:
+                    described = f"respondent with outcome {float(missing[0]):g}"
                 raise DataError(
                     "cross-fitted NaturalCourseMean cannot fit its response and outcome "
                     f"nuisances because repeat {repeat}, fold {fold}'s training complement "
-                    f"contains no {labels[bool(missing[0])]}. {_LARGER_COMPLEMENT_NOTE} "
-                    "Increase n_folds, use a different random_state, or "
-                    f"{_IN_SAMPLE_NATURAL_COURSE_REMEDY}"
+                    f"contains no {described}. "
+                    + _POST_DRAW_REMEDY.format(remedy=_IN_SAMPLE_NATURAL_COURSE_REMEDY)
                 )
+        complement_gap = self._super_learner_complement_shortfall(data, folds, fits_treatment=False)
+        if complement_gap is not None:
+            role, repeat, fold, described, count = complement_gap
+            raise DataError(
+                "cross-fitted NaturalCourseMean cannot fit the "
+                f"{role} learner because repeat {repeat}, fold {fold}'s training "
+                f"complement holds {count} {described}. "
+                f"{_SUPER_LEARNER_INNER_SPLIT_RULE.format(role=role)} "
+                + _POST_DRAW_REMEDY.format(remedy=_IN_SAMPLE_NATURAL_COURSE_REMEDY)
+            )
 
     @property
     def _axis(self) -> ParameterAxis:
@@ -1841,9 +2118,10 @@ class TMLE:
     def _folds(self, data: CausalData, seed: int | None = None) -> Folds:
         """One draw of the split, from ``seed`` or from the plan's own.
 
-        ``seed=None`` means "the plan's", which is unambiguous rather than merely
-        convenient: :meth:`CrossFitPlan.seeds` hands a repeat ``None`` in exactly the case
-        where ``random_state`` is ``None`` too, so the two readings never disagree.
+        ``seed=None`` means "the plan's".  :meth:`_repeat_draws` always passes a concrete
+        seed, because it resolves an undeclared seed before it draws.  An unstratified
+        draw goes through :func:`~cleverly.learners.random_partition` inside
+        :func:`make_folds`, so its :attr:`Folds.origin` records the seed.
         """
         plan = self.crossfit_plan(data)
         if not plan.cross_fit:
@@ -1858,26 +2136,41 @@ class TMLE:
 
     def _repeat_draws(
         self, data: CausalData, estimands: tuple[str, ...]
-    ) -> tuple[tuple[Folds, int | None], ...]:
+    ) -> tuple[tuple[Folds, int], ...]:
         """Realize and validate all outer draws before fitting any nuisance model.
 
-        Every realized draw also passes :meth:`_preflight_missing_outcome_folds`, so each
-        fit path that draws folds checks response support before its first learner fit.
+        Every realized draw also passes :meth:`_preflight_missing_outcome_folds` and
+        :meth:`_preflight_training_support`, so each fit path that draws folds checks what
+        its nuisances need from every training complement before its first learner fit.
 
-        The supplied path asks :meth:`SplitPlan.validate` whether the labels can serve
-        these rows, and asks nothing else.  It does *not* compare the plan's fold count
+        The supplied path first asks :meth:`SplitPlan.verify` whether the plan's generator
+        record draws exactly these labels on these rows.  It then asks
+        :meth:`SplitPlan.validate` whether the labels can serve these rows, and asks
+        nothing else.  It does *not* compare the plan's fold count
         against :func:`resolve_n_folds`, which answers "how many folds could a generated
         stratified split make here" -- a question about a split nobody is generating.  A
         usable plan may hold more folds than that: the rarest stratum has to reach every
         training complement, not to appear once in every fold, and ``validate`` checks
         that property directly.  Declaration time rules out the one direction no cap can
         produce, more folds than declared, which ``SplitPlan._policy_refusal`` does.
+
+        Every draw gets a concrete seed, the single-fold draw of ``cross_fit=False``
+        included.  Under ``random_state=None``, :meth:`CrossFitPlan.seeds` returns ``None``
+        per repeat, and this method replaces each one with a fresh seed from
+        operating-system entropy.  The same seed then reaches the folds, the learners and
+        the C-TMLE selection folds, and :attr:`RepeatFit.seed` records it on the result.
+        A caller-declared seed passes through unchanged.
         """
-        seeds = self.crossfit_plan(data).seeds()
+        seeds = tuple(
+            _fresh_seed() if seed is None else seed for seed in self.crossfit_plan(data).seeds()
+        )
         supplied = self.split_plan
         if supplied is None:
             folds = tuple(self._folds(data, seed) for seed in seeds)
         else:
+            # The record check comes first: labels the recorded generator does not draw
+            # are refused whatever support they would give.
+            supplied.verify(n=data.n, cluster=data.cluster)
             stratify = self._fold_strata(data)
             folds = supplied.validate(
                 n=data.n,
@@ -1887,6 +2180,7 @@ class TMLE:
                 source_fingerprint=data_fingerprint(data),
             )
         self._preflight_missing_outcome_folds(data, estimands, folds)
+        self._preflight_training_support(data, estimands, folds)
         return tuple(zip(folds, seeds, strict=True))
 
     def _resolve_learner(
@@ -2528,33 +2822,16 @@ class TMLE:
         from the training rows of each fold, so they cannot be known here without leaking
         the split into itself.
 
-        With ``stratify_folds="treatment+outcome"`` the code is the treatment crossed with
-        the outcome, and an unobserved outcome is its own level rather than being folded
-        in with ``Y = 0``: a fold with no *observed* outcomes in an arm cannot fit the
-        outcome regression either, which is the failure the option exists to prevent.
-        ``resolve_n_folds`` then caps the fold count at the rarest cell rather than the
-        rarer arm, which is the whole mechanism -- no other code changes.
+        Every fit reaches this method with ``stratify_folds="none"`` and leaves at the
+        first branch below.  :meth:`_cross_fit_policy_reason` refuses the other two
+        policies at construction, and again in :meth:`_resolve_estimands_for_data` for a
+        restored result or a copied estimator, and it refuses them under cross-fitting and
+        at every selector-based collaborative setting. The remaining branches are therefore
+        reachable only by replacing this method, which is what the deliberate-mutation controls in
+        ``tests/unit/test_fold_policy_rules.py`` do to put a stratified split into
+        production.  The two ``"treatment+outcome"`` refusals that used to stand here
+        were deleted for the same reason: no fit could meet them.
         """
-        if self.stratify_folds == "treatment+outcome":
-            # Refused rather than quietly ignored: a caller who asked for this asked
-            # because they have a rare level to protect, and silently not protecting it
-            # is the worst of the three outcomes.
-            if data.is_continuous_treatment:
-                raise DataError(
-                    "stratify_folds='treatment+outcome' needs arms to cross the outcome "
-                    "with, and this fit declared a continuous dose with shifts=. A dose "
-                    "has no strata: every value is its own, which caps the fold count at "
-                    "one row. What a continuous treatment balances on in spirit is the "
-                    "density's bins, and those are chosen inside each training fold."
-                )
-            if data.family != "binomial":
-                raise DataError(
-                    "stratify_folds='treatment+outcome' needs a binary outcome to have a "
-                    f"rare level worth balancing, and this fit's family is "
-                    f"{data.family!r}. Crossing a continuous outcome in would make every "
-                    "distinct value its own stratum and refuse to split at all; leave "
-                    "stratify_folds='treatment'."
-                )
         if self.stratify_folds == "none":
             return None
         if data.is_continuous_treatment:
@@ -2580,12 +2857,14 @@ class TMLE:
         balance at all.  Both decisions are made here and in :meth:`_folds`, which is one
         place too many, so :meth:`_folds` reads them off the plan.
 
-        ``stratify_by`` records what the folds were held to, which under a supplied plan
-        is what :meth:`SplitPlan.validate` checked rather than what a splitter balanced:
-        the plan's assignments have to carry every one of these values into every training
-        complement, which is the property balancing exists to produce.  ``scheme`` already
-        carries the fact that nothing was generated, so recording ``()`` here as well
-        would say the fit was held to nothing.
+        ``stratify_by`` records what the folds were held to.  It is empty on every fit
+        this version runs, because :meth:`_cross_fit_policy_reason` refuses the two
+        balancing policies wherever a split is drawn.  The field stays because a result
+        restored from an earlier version carries the policy that version allowed, and
+        :class:`~cleverly.learners.crossfit.CrossFitPlan` reads it back.  ``scheme`` names
+        only the splits this version draws for the same reason: ``"stratified"`` and
+        ``"stratified-grouped"`` needed a nonempty ``stratify_by``, so no fit could record
+        them, and they were deleted.
         """
         cross_fit = self.cross_fit
         supplied = self.split_plan
@@ -2601,12 +2880,8 @@ class TMLE:
             scheme = "supplied"
         elif not cross_fit:
             scheme = "none"
-        elif clustered and stratify_by:
-            scheme = "stratified-grouped"
         elif clustered:
             scheme = "grouped"
-        elif stratify_by:
-            scheme = "stratified"
         else:
             scheme = "vfold"
         return CrossFitPlan(
@@ -3573,6 +3848,7 @@ def tmle(
     ...     W,
     ...     outcome_learner=LinearRegression(),
     ...     treatment_learner=LogisticRegression(max_iter=1000),
+    ...     cross_fit=False,
     ... ).single()
     >>> bool(np.isfinite(res.psi("ate")))
     True

@@ -50,6 +50,8 @@ STUDY = StudyRecord(
         "tests/studies/ltmle_competing_properties.py",
         "tests/studies/canonical_ltmle_crossfit.py",
         "tests/studies/canonical_ltmle.py",
+        "tests/studies/fractional_glm.py",
+        "tests/discrete_law_longitudinal.py",
         "tests/discrete_law_competing.py",
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/inference.py",

@@ -47,7 +47,7 @@ def test_each_outer_fold_recovers_the_exact_law_and_gateaux_curve(
     base = law.frame()
     frame = pd.concat([base] * 5, ignore_index=True)
     folds = Folds(np.repeat(np.arange(5), len(base)), 5)
-    with patch("cleverly.longitudinal.estimator.make_folds", return_value=folds):
+    with patch("cleverly.longitudinal.estimator.random_partition", return_value=folds):
         result = fit(frame, "both_correct")
 
     for name in names:
@@ -77,9 +77,9 @@ def test_primary_folds_are_balanced_and_the_r_payload_uses_them(study: Any) -> N
     assert counts.max() - counts.min() <= 1
 
     # Contiguous blocks: balanced, so the estimator accepts it, and in an order
-    # ``make_folds`` does not generate for any seed.
+    # ``random_partition`` does not generate for any seed.
     planted = Folds(np.repeat(np.arange(5), len(frame) // 5), 5)
-    with patch("cleverly.longitudinal.estimator.make_folds", return_value=planted):
+    with patch("cleverly.longitudinal.estimator.random_partition", return_value=planted):
         sample, _, _ = study._replicate((study.SCENARIO, 0, len(frame)))
     np.testing.assert_array_equal(sample["fold"].to_numpy(), planted.assignment)
 
@@ -178,7 +178,7 @@ def test_the_untargeted_plug_in_is_the_cross_fitted_fit_without_its_fluctuation(
     base = end_law.frame()
     frame = pd.concat([base] * 5, ignore_index=True)
     folds = Folds(np.repeat(np.arange(5), len(base)), 5)
-    with patch("cleverly.longitudinal.estimator.make_folds", return_value=folds):
+    with patch("cleverly.longitudinal.estimator.random_partition", return_value=folds):
         result = end_properties.fit(frame, "both_correct")
 
     for label in end_properties.REGIMENS:

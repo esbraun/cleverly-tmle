@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, ClassVar, Literal, Protocol, runtime_checkable
 
 from ._typing import FluctuationKind, FoldStrata, GBounds, TargetingMethod, TargetingScheme
 from .exceptions import MethodConfigurationError
@@ -139,19 +139,24 @@ class CrossFitting:
     repeats : int, default=1
         Independent outer-fold assignments to combine by their median. A value above one
         requires ``enabled=True``.
-    stratify_by : {"none", "treatment", "treatment+outcome"}, default="treatment"
-        Fold-stratification policy. ``"none"`` is reserved for two audited cross-fitted
-        estimators with missing outcomes: the binary natural-course mean, and the
-        stacked CV-TMLE of arm-indexed means and contrasts. The second one refuses
-        ``"treatment"`` and ``"treatment+outcome"``, so a cross-fitted missing-outcome
-        fit of ``ATE``, a counterfactual mean, a risk ratio, or an odds ratio needs
-        ``stratify_by="none"``.
+    stratify_by : {"none", "treatment", "treatment+outcome"}, default="none"
+        Fold-stratification policy. ``"none"`` draws folds that read neither the
+        treatment nor the outcome, and it is the only value a fit that draws a split
+        accepts. ``"treatment"`` and ``"treatment+outcome"`` are refused with
+        ``enabled=True``, and refused at every setting by selector-based
+        :class:`CollaborativeTMLEMethod` fits, whose search draws selection folds without
+        cross-fitting. In-sample outcome-adaptive fits draw no such split and accept the
+        unused declaration. No shipped result covers a partition read off the data the
+        fit then conditions on.
     targeting_scheme : {"pooled", "fold"}, default="pooled"
         Pooled or fold-specific targeting scheme.
     fold_evaluation : bool, default=False
         Whether to retain fold-evaluated CV-TMLE estimates.
     split_plan : SplitPlan, optional
-        Reusable outer-fold assignments in repeat-major order.
+        Reusable outer-fold assignments in repeat-major order. The plan must record
+        how :func:`~cleverly.learners.random_partition` drew each repeat, as
+        ``result.split_plan`` from an unstratified fit does. A plan without that record
+        is refused here.
 
     See Also
     --------
@@ -179,7 +184,7 @@ class CrossFitting:
     n_folds: int = 10
     learner_folds: int = 5
     repeats: int = 1
-    stratify_by: FoldStrata = "treatment"
+    stratify_by: FoldStrata = "none"
     targeting_scheme: TargetingScheme = "pooled"
     fold_evaluation: bool = False
     split_plan: SplitPlan | None = None
@@ -187,13 +192,16 @@ class CrossFitting:
     def __post_init__(self) -> None:
         # One ordered message source, two exception contracts: the engine raises
         # ValueError for the same inputs. ``n_bootstrap`` lives on ``Inference``, so
-        # ``TMLEMethod.__post_init__`` asks the bootstrap question.
+        # ``TMLEMethod.__post_init__`` asks the bootstrap question, and whether the
+        # method is a collaborative one is a fact about the method rather than about
+        # this group, so ``CollaborativeTMLEMethod`` asks the selection-fold question.
         # See ``_cross_fit_policy_refusal``.
         reason = _cross_fit_policy_refusal(
             cross_fit=self.enabled,
             n_folds=self.n_folds,
             repeats=self.repeats,
             split_plan=self.split_plan,
+            stratify_folds=self.stratify_by,
             option_name="enabled",
         )
         if reason is not None:
@@ -213,7 +221,11 @@ class Targeting:
     g_bounds : {"auto"}, float, or tuple of float, default="auto"
         Treatment or cumulative-mechanism bounds.
     q_bounds : tuple of float or None, default=None
-        Optional outcome-regression bounds.
+        The known support of a continuous outcome. ``None`` widens the observed range by
+        ten percent, which reads every observed outcome, so a cross-fitted fit of a
+        continuous outcome requires the support here. Refused on a binary outcome, which
+        the estimator does not rescale. ``cleverly.datasets.make_nonlinear_bounded`` draws
+        a proportion, for which ``q_bounds=(0.0, 1.0)`` states a fact about the law.
     nuisance_bound : float, default=0.01
         Lower bound used by auxiliary nuisance regressions.
     submodel_alpha : float, default=0.9995
@@ -549,6 +561,10 @@ class TMLEMethod:
     True
     """
 
+    #: Whether this method can draw collaborative selection folds. The fold-policy
+    #: refusal also checks the strategy: OAT selects nothing and draws none of them.
+    _collaborative: ClassVar[bool] = False
+
     models: ModelSpec = ModelSpec()
     cross_fitting: CrossFitting = CrossFitting()
     targeting: Targeting = Targeting()
@@ -575,6 +591,8 @@ class TMLEMethod:
             repeats=cross.repeats,
             split_plan=cross.split_plan,
             n_bootstrap=self.inference.n_bootstrap,
+            stratify_folds=cross.stratify_by,
+            collaborative=self._collaborative and getattr(self, "strategy", None) != "oat",
             option_name="enabled",
         )
         if reason is not None:
@@ -779,6 +797,8 @@ class CollaborativeTMLEMethod(TMLEMethod):
     >>> CollaborativeTMLEMethod(cross_fitting=CrossFitting(n_folds=5)).cross_fitting.n_folds
     5
     """
+
+    _collaborative: ClassVar[bool] = True
 
     strategy: str = "greedy"
     preorder: str | None = None

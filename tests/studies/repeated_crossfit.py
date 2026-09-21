@@ -1,4 +1,12 @@
-"""Registered evidence for repeated point-treatment cross-fitted TMLE."""
+"""Registered evidence for repeated point-treatment cross-fitted TMLE.
+
+The construction comes from :mod:`tests.studies.canonical_cvtmle`, so this row inherits that
+module's two declarations as well: each draw's outer split reads neither the treatment nor
+the outcome, and the continuous law's outcome scale is declared rather than derived.
+:func:`~tests.studies.canonical_cvtmle.cv_fit` passes both and reads the realized plan back
+off every fit.  What is this study's own is the repetition: three complete fold draws per
+sample, a median point, and the median within-draw variance plus squared split displacement.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +16,14 @@ from typing import Any
 import pandas as pd
 
 from tests.parallel import STUDY_JOBS
-from tests.studies.canonical_cvtmle import G_BOUNDS, cv_fit, fitted_rows, rows_from_result
+from tests.studies.canonical_cvtmle import (
+    G_BOUNDS,
+    Q_BOUNDS,
+    STRATIFY_FOLDS,
+    cv_fit,
+    fitted_rows,
+    rows_from_result,
+)
 from tests.studies.canonical_tmle import SCENARIO_ESTIMANDS
 from tests.studies.canonical_tmle import draw_from_seed as canonical_tmle_draw_from_seed
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
@@ -58,7 +73,11 @@ STUDY = StudyRecord(
         "tests/studies/canonical_cvtmle.py",
         "tests/studies/canonical_tmle.py",
         "tests/studies/canonical_properties.py",
+        "tests/studies/bounded_cv_laws.py",
         "tests/studies/cvtmle_properties.py",
+        "tests/studies/fractional_glm.py",
+        "tests/studies/point_study_helpers.py",
+        "tests/conftest.py",
         "tests/studies/evidence/inference.py",
         "tests/studies/evidence/performance.py",
         "tests/studies/evidence/properties.py",
@@ -80,7 +99,12 @@ CONFIGURATION = {
     "cv_evaluation": False,
     "simultaneous_intervals": False,
     "g_bounds": list(G_BOUNDS),
-    "q_bounds": "sample outcome range",
+    "stratify_folds": STRATIFY_FOLDS,
+    "q_bounds": (
+        f"declared {list(Q_BOUNDS)} on the continuous law, whose outcome is a proportion; "
+        "none on the binary law, whose scaler is already the identity"
+    ),
+    "folds": "unstratified five-fold assignments drawn from the estimator's own seed",
     "repeat_aggregation": (
         "median point; median of within-draw variance plus squared split displacement; "
         "ratios use the log scale"

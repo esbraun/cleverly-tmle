@@ -18,6 +18,7 @@ import hashlib
 import json
 import math
 import re
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -63,8 +64,11 @@ def _revisions() -> dict[tuple[str, str], str]:
 
     Keyed on the *recorded* hash rather than on the source alone, so one source may be judged
     more than once as different studies are regenerated at different times.  The shared
-    ``drtmle`` context is the case: one study records the edited Dockerfile because it was
-    regenerated after the edit, and the other still records the Dockerfile that built its image.
+    ``drtmle`` Dockerfile used to be the worked example: two studies shared it and recorded
+    different hashes of it.  Regenerating the second one closed that split, and its ledger row
+    was deleted at commit ``99d238c``, so all three sharers now record one hash.  The key is
+    still the pair, because the next shared source to be regenerated one study at a time will
+    split the same way.
     """
     table: dict[tuple[str, str], str] = {}
     for row in pipe_table(REVISIONS, REVISION_COLUMNS):
@@ -411,12 +415,32 @@ class TestPublishedVerdicts:
             return [bool(value) for value in published.loc[mask, column]]
 
         families = set(study.property_cells)
-        unclassified = sorted(families - BIAS_GATED_PROPERTIES - ENDPOINT_GATED_PROPERTIES)
+        unclassified = sorted(
+            families - BIAS_GATED_PROPERTIES - ENDPOINT_GATED_PROPERTIES - DIAGNOSTIC_PROPERTIES
+        )
         assert unclassified == [], (
             f"{unclassified} declare cells but no per-row rule this test knows how to check. "
             f"A family arriving without one is how a control came to publish the positive "
             f"arm's verdict; classify it above rather than leaving it ungated"
         )
+
+        # A reported family has the opposite failure mode to a gated one, so it gets the
+        # opposite check.  A gated row must not publish another row's verdict; a reported
+        # row must not publish a verdict at all.  Every cell carries the diagnostic role,
+        # which is what the rendered table reads to print "reported" instead of "pass", and
+        # every cell publishes the coverage interval the family exists to report.
+        for family in sorted(families & DIAGNOSTIC_PROPERTIES):
+            reported = published.loc[published["property"] == family]
+            assert set(reported["role"]) == {property_verdicts.DIAGNOSTIC_ROLE}, (
+                f"{family} publishes roles {sorted(set(reported['role']))}; a reported "
+                f"family whose rows carry a gated role reads as a claim it does not make"
+            )
+            assert reported["passed"].all() and reported["property_passed"].all(), (
+                f"{family} publishes a failed verdict, and it declares no margin to fail"
+            )
+            assert reported[["coverage_ci_lower", "coverage_ci_upper"]].notna().all().all(), (
+                f"{family} publishes no coverage interval, which is what it reports"
+            )
         for family in sorted(families & BIAS_GATED_PROPERTIES):
             rows = published["property"] == family
             assert verdicts(rows & ~control, "passed") == verdicts(
@@ -852,6 +876,14 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
     }
 )
 
+#: Families that publish numbers and no verdict.  A third list rather than a third entry in
+#: one of the two above, because the rule is not "which endpoint decides this row" but
+#: "this row decides nothing".  See
+#: :data:`~tests.studies.evidence.property_verdicts.FOLD_POLICY_FAMILY` for why a fold
+#: policy cannot be gated: two of the three policies it compares are refused, so no cell
+#: establishes that any of them is valid.
+DIAGNOSTIC_PROPERTIES = frozenset({property_verdicts.FOLD_POLICY_FAMILY})
+
 
 class TestNegativeControls:
     """Corrupt one implementation and leave the other implementation's verdict unchanged."""
@@ -1034,6 +1066,126 @@ class TestNegativeControls:
         )
 
 
+#: The tolerance a committed truth is read back at.
+#:
+#: The truth a replication row carries and the truth :meth:`~cleverly.datasets.DGP.truth`
+#: returns are the same quasi-Monte Carlo integral of the same law, so the only difference
+#: either is entitled to is the decimal round trip through the committed CSV.
+TRUTH_BINDING_TOLERANCE = 1e-12
+
+#: How a study says which law each of its property cells samples from.
+#:
+#: A property module that defines this returns its declared
+#: :class:`~tests.studies.evidence.properties.PropertyCell` objects, and the test below
+#: recomputes every committed truth from the law each one names.
+DECLARED_CELLS = "declared_cells"
+
+#: Studies whose declared cells the truth-binding test reads.  Built by attribute rather
+#: than listed, and ratcheted by
+#: ``test_every_bounded_law_study_declares_the_cells_it_ran``: a study that moved onto the
+#: bounded cross-fitted laws has to expose its cells, so a regeneration cannot publish a
+#: truth belonging to the law it replaced.
+TRUTH_BOUND = tuple(study for study in STUDIES if hasattr(study.properties(), DECLARED_CELLS))
+TRUTH_BOUND_IDS = [study.slug for study in TRUTH_BOUND]
+
+#: The module whose presence in a study's manifest means its property cells are bounded.
+BOUNDED_LAW_MODULE = "tests/studies/bounded_cv_laws.py"
+
+
+def _truth_findings(study: StudyRecord, rows: pd.DataFrame) -> list[str]:
+    """Every committed property truth that is not its declared law's own.
+
+    Returned rather than asserted, so the deliberate-mutation control below can perturb one
+    truth and require the same function to find it.
+    """
+    declared = {
+        (cell.property, cell.cell): cell for cell in getattr(study.properties(), DECLARED_CELLS)()
+    }
+    published = {tuple(key) for key in rows.groupby(["property", "cell"]).groups}
+    if published != set(declared):
+        return [f"{sorted(published ^ set(declared))} appear in one of the row file and the cells"]
+    findings: list[str] = []
+    for key, cell in declared.items():
+        expected = float(cell.dgp.truth()[cell.estimand])
+        observed = rows.loc[
+            (rows["property"] == key[0]) & (rows["cell"] == key[1]), "truth"
+        ].to_numpy(dtype=float)
+        if not np.allclose(observed, expected, rtol=TRUTH_BINDING_TOLERANCE, atol=0.0):
+            findings.append(
+                f"{key[0]}/{key[1]} publishes truth {observed[0]!r} for {cell.estimand!r}, "
+                f"and {cell.dgp.name} integrates to {expected!r}"
+            )
+    return findings
+
+
+class TestPropertyTruthsAreTheDeclaredLawsOwn:
+    """A committed truth is the law's integral, not a number left over from another law."""
+
+    def test_every_bounded_law_study_declares_the_cells_it_ran(self, study: StudyRecord) -> None:
+        """The ratchet, so the check below cannot go quiet by covering nothing.
+
+        A cross-fitted row that swaps its Gaussian law for a bounded twin changes every
+        truth it publishes. Nothing else here would notice: the coverage flag is rebuilt
+        from the same joined truth, and a summary recomputed from the rows agrees with
+        itself whatever the truth column holds.
+        """
+        if BOUNDED_LAW_MODULE not in study.modules:
+            return
+        assert hasattr(study.properties(), DECLARED_CELLS), (
+            f"{study.slug} records {BOUNDED_LAW_MODULE}, so its property cells name bounded "
+            f"laws. Give {study.properties_module} a {DECLARED_CELLS}() function returning "
+            f"them, so its committed truths are read back against the laws that produced them"
+        )
+
+    @pytest.mark.parametrize("study", TRUTH_BOUND, ids=TRUTH_BOUND_IDS)
+    def test_each_committed_truth_is_the_declared_laws_integral(self, study: StudyRecord) -> None:
+        assert TRUTH_BOUND, "no study exposes its declared cells, so this test checks nothing"
+        findings = _truth_findings(study, _property_rows(study.slug))
+        assert findings == [], "\n".join(findings)
+
+    @staticmethod
+    def _rows_from(study: StudyRecord) -> pd.DataFrame:
+        """One row per declared cell, carrying that cell's own law's truth.
+
+        Built here rather than read from the committed file, so the control states what the
+        checker does and not what a particular study last published.
+        """
+        cells = getattr(study.properties(), DECLARED_CELLS)()
+        return pd.DataFrame(
+            {
+                "property": [cell.property for cell in cells],
+                "cell": [cell.cell for cell in cells],
+                "truth": [float(cell.dgp.truth()[cell.estimand]) for cell in cells],
+            }
+        )
+
+    def test_a_truth_displaced_below_the_tolerance_is_reported(self) -> None:
+        """Deliberate mutation: shift one family's truth, and require the shift to be found.
+
+        ``1e-9`` relative is three orders above the tolerance and far below anything a
+        reader would see in a printed table, so the control shows the check resolves a
+        wrong law rather than only a grossly wrong number.
+        """
+        study = TRUTH_BOUND[0]
+        clean = self._rows_from(study)
+        assert _truth_findings(study, clean) == []
+        mutated = clean.copy()
+        target = mutated["property"] == "double_robustness"
+        assert target.any()
+        mutated.loc[target, "truth"] *= 1.0 + 1e-9
+        findings = _truth_findings(study, mutated)
+        assert len(findings) == int(target.sum())
+        assert all("double_robustness" in finding for finding in findings)
+
+    def test_a_cell_missing_from_the_rows_is_reported(self) -> None:
+        """The other half: a declared cell the row file never published."""
+        study = TRUTH_BOUND[0]
+        clean = self._rows_from(study)
+        findings = _truth_findings(study, clean.iloc[1:])
+        assert len(findings) == 1
+        assert str(clean["cell"].iloc[0]) in findings[0]
+
+
 class TestTheStudyStillMeasuresTheCode:
     """The study declarations remain reproducible inputs to selective regeneration."""
 
@@ -1183,10 +1335,72 @@ HEADLINE = {
     "lowest coverage": "min_coverage",
 }
 
+#: Number words the limitations cell may count with, and what each one counts to.  The cell is
+#: prose, so it spells its count rather than writing a numeral.
+LIMIT_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+    "thirteen": 13,
+    "fourteen": 14,
+    "fifteen": 15,
+    "sixteen": 16,
+    "seventeen": 17,
+    "eighteen": 18,
+    "nineteen": 19,
+    "twenty": 20,
+}
+
+DECLARED_LIMITS = re.compile(r"(\w+) declared limit")
+
+LIMIT_HEADING = re.compile(r"^##\s+Limit")
+
 MEASURED_COLUMNS = ("quantity", "value", "source")
 
 LINK = re.compile(r"\]\(([^)\s]+)\)")
 COUNT = re.compile(r"(\d+)/(\d+)")
+
+
+def _declared_limits(path: Path) -> int:
+    """How many limits a study's page declares, counting only what a reader can count.
+
+    A section written as a list declares one limit per top-level bullet, and one written as a
+    table declares one per data row.  A section written as paragraphs declares a number nobody
+    can count the same way twice, and this returns zero for it.
+    """
+    lines = path.read_text(encoding="utf-8").splitlines()
+    start = next((index for index, line in enumerate(lines) if LIMIT_HEADING.match(line)), None)
+    if start is None:
+        return 0
+    body: list[str] = []
+    for line in lines[start + 1 :]:
+        if line.startswith("## "):
+            break
+        body.append(line)
+    bullets = sum(1 for line in body if line.startswith("- "))
+    if bullets:
+        return bullets
+    rows, inside = 0, False
+    for line in body:
+        if not line.startswith("|"):
+            inside = False
+            continue
+        cells = line.strip().strip("|").split("|")
+        if all(cell.strip() and set(cell.strip()) <= set("-: ") for cell in cells):
+            inside = True
+            continue
+        if inside:
+            rows += 1
+    return rows
 
 
 def _grid() -> dict[str, dict[str, str]]:
@@ -1252,6 +1466,60 @@ class TestTheMethodEvidenceGrid:
             f"{column!r} claims {passed} passed; {passed_name} is "
             f"{int(value(study, passed_name, data))}"
         )
+
+    def test_the_limitations_cell_counts_what_the_page_declares(self, study: StudyRecord) -> None:
+        """The limitations column is the one the grid exists for, so its count is gated.
+
+        Five rows carried a count that no longer matched the page: a sibling was corrected by
+        hand at commit ``38a5998`` and the rest drifted on.  The rule is conditional, because
+        five pages state their limits as paragraphs rather than as a list.  A page a reader can
+        count must carry the count, and a page nobody can count the same way twice must not.
+        """
+        cell = _grid()[study.name]["limitations"]
+        declared = _declared_limits(study.document_path)
+        found = DECLARED_LIMITS.search(cell)
+        if not declared:
+            assert found is None, (
+                f"{study.slug}'s row claims {found.group(0)!r} while its page states its "
+                f"limits as prose, so the claim counts nothing a reader can check"
+            )
+            return
+        assert found is not None, (
+            f"{study.slug}'s page declares {declared} countable limits and its row states no "
+            f"count. Write '{declared} declared limits' into the cell"
+        )
+        claimed = LIMIT_WORDS.get(found.group(1).casefold())
+        assert claimed is not None, (
+            f"{study.slug}'s row counts its limits with {found.group(1)!r}, which is not a "
+            f"number word this gate reads"
+        )
+        assert claimed == declared, (
+            f"{study.slug}'s row claims {claimed} declared limits; its page declares {declared}"
+        )
+
+    def test_the_limit_counter_reads_a_list_a_table_and_a_paragraph(self, tmp_path: Path) -> None:
+        """The counter itself, on the three shapes a page uses.
+
+        Without this the conditional rule above passes on a counter that returned zero for
+        everything: every row would then be required to carry no count, and the five corrected
+        counts would be deleted rather than kept right.
+        """
+        listed = tmp_path / "listed.md"
+        listed.write_text(
+            "## Limits\n\n- first\n- second\n  - not a top-level limit\n- third\n",
+            encoding="utf-8",
+        )
+        tabled = tmp_path / "tabled.md"
+        tabled.write_text(
+            "## Limitations\n\n| limitation | what it means |\n| --- | --- |\n"
+            "| a | b |\n| c | d |\n\nA closing paragraph.\n",
+            encoding="utf-8",
+        )
+        prose = tmp_path / "prose.md"
+        prose.write_text("## Limitations\n\nOne paragraph, then another.\n", encoding="utf-8")
+        assert _declared_limits(listed) == 3
+        assert _declared_limits(tabled) == 2
+        assert _declared_limits(prose) == 0
 
     def test_confidence_level_is_described_as_a_bound_not_a_pass_rate(
         self, study: StudyRecord
@@ -1475,6 +1743,20 @@ def _agreement_result(row: Any) -> str:
     return f"*{conclusion}*" if conclusion == "underpowered" else f"**{conclusion}**"
 
 
+def _committed_property_result(row: Any) -> str:
+    """How one committed property verdict must read in the published table.
+
+    Two states and one non-state.  A gated row reads ``pass`` when it met its declared
+    margin and ``**fail**`` when it did not.  A row of a reported family declares no margin,
+    so it reads ``reported``: spelling it ``pass`` would use the word every gated row beside
+    it uses to mean something this row never established.  Written here rather than imported
+    from the renderer, for the reason :func:`_agreement_result` gives.
+    """
+    if str(row.role) == property_verdicts.DIAGNOSTIC_ROLE:
+        return "reported"
+    return "pass" if bool(row.passed) else "**fail**"
+
+
 class TestThePublishedTestTables:
     """One documentation row per committed test, against the results it was rendered from.
 
@@ -1565,11 +1847,12 @@ class TestThePublishedTestTables:
             f"committed tests"
         )
         published = [row["result"] for row in rows]
-        expected = (
-            [_agreement_result(row) for row in frame.itertuples()]
-            if name == "agreement"
-            else ["pass" if bool(passed) else "**fail**" for passed in frame["passed"]]
-        )
+        if name == "agreement":
+            expected = [_agreement_result(row) for row in frame.itertuples()]
+        elif name == "properties":
+            expected = [_committed_property_result(row) for row in frame.itertuples()]
+        else:
+            expected = ["pass" if bool(passed) else "**fail**" for passed in frame["passed"]]
         assert sorted(published) == sorted(expected), (
             f"{study.slug}'s {name} results are not the committed ones"
         )

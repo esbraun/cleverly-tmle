@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from cleverly.learners.crossfit import RANDOM_PARTITION_GENERATOR, random_partition
 from tests.studies.canonical_drtmle import (
     G_BOUNDS,
     MAX_OUTER,
@@ -19,6 +20,7 @@ from tests.studies.canonical_drtmle import (
     draw_scenario,
     extra_artifacts,
     fit_cleverly,
+    fixed_folds,
     scientific_failures,
     truth,
 )
@@ -33,15 +35,29 @@ def test_the_paper_law_has_an_independent_quadrature_truth() -> None:
     assert target["ate"] == pytest.approx(0.03802642731065542, abs=1e-14)
 
 
-def test_the_sample_carries_one_deterministic_treatment_stratified_fold_vector() -> None:
+def test_the_sample_carries_one_deterministic_unstratified_fold_vector() -> None:
     first, target = draw_scenario("both_correct", 1000, 3)
     second, repeated_target = draw_scenario("both_correct", 1000, 3)
     assert np.array_equal(first["fold"], second["fold"])
     assert target == repeated_target == truth()
     assert set(first["fold"]) == set(range(N_FOLDS))
-    by_fold = first.groupby("fold")["A"].agg(["min", "max"])
-    assert (by_fold["min"] == 0.0).all()
-    assert (by_fold["max"] == 1.0).all()
+    sizes = first.groupby("fold").size()
+    assert sizes.min() == sizes.max() == len(first) // N_FOLDS
+
+
+def test_the_shared_fold_vector_is_the_packages_own_blind_draw() -> None:
+    """The vector both implementations receive reads ``n`` and the seed and nothing else.
+
+    Blindness is structural here -- :func:`fixed_folds` takes no column -- so the check that
+    earns its place is the one a hand-rolled splitter would fail: the vector is the package
+    generator's own draw, and it carries that generator's record.
+    """
+    folds = fixed_folds(1000, 77)
+    assert np.array_equal(folds.assignment, random_partition(1000, N_FOLDS, seed=77).assignment)
+    assert folds.origin is not None
+    assert folds.origin.generator == RANDOM_PARTITION_GENERATOR
+    assert folds.origin.scheme == "vfold"
+    assert folds.origin.seed == 77
 
 
 def test_the_misspecified_glms_drop_only_the_interaction() -> None:

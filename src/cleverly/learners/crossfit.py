@@ -25,8 +25,8 @@ deliver it and an imbalanced split is still a usable one.
 Four objects, and the distinction between the first two is the point of the module.
 :class:`CrossFitPlan` is what a caller *declares*: a policy, made of numbers, that says
 nothing about any particular dataset.  :class:`Folds` is what that policy *realises* on
-one: an actual assignment of rows to folds, which depends on the row order and on the
-scikit-learn version that made it as much as on the seed -- which is why
+one: an actual assignment of rows to folds, which depends on the row order as much as on
+the seed, and for a stratified split on the scikit-learn version that made it -- which is why
 :mod:`cleverly.provenance` fingerprints the realisation separately from the seed, and why
 a fit records the plan it declared beside the fold count it got.  :func:`make_folds` is
 the map from one to the other, and calls :func:`check_integrity` on its way out, so every
@@ -40,7 +40,17 @@ a caller reads off one result and gives to the next.  Handing back the seed woul
 it, for the reason above.  The generated and the supplied paths both check the assignments
 before any nuisance is fitted, by different routes -- :func:`make_folds` checks what it
 built, and :meth:`SplitPlan.validate` checks what it was given against the data it is
-about to label.
+about to label.  A supplied plan must also carry the :class:`FoldOrigin` of every repeat,
+and :meth:`SplitPlan.verify` draws each repeat again from that record: labels that no
+recorded draw produces could have been chosen by looking at the outcome.  The record
+holds the fold count and the seed the caller declared, so that check rules out a
+hand-built, a stratified and an edited assignment, and it cannot audit the declaration
+itself.  ``result.split_plan`` of an earlier fit is the source it is written for.
+
+The unstratified outer splits, row-level and grouped, are the package's own:
+:func:`random_partition` draws them from the seed alone and records how on
+:class:`FoldOrigin`.  Their assignment depends on ``n``, the cluster labels and the seed,
+and not on the installed scikit-learn.  The stratified splits stay on scikit-learn.
 """
 
 from __future__ import annotations
@@ -51,34 +61,124 @@ import warnings
 # dataclass field annotation, and a documentation build that resolves those annotations
 # needs the name to exist.
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from numbers import Integral
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
-from sklearn.model_selection import (
-    GroupKFold,
-    KFold,
-    StratifiedGroupKFold,
-    StratifiedKFold,
-)
+from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
 
 from .._typing import BoolArray, FloatArray, IntArray
 from ..exceptions import DataError
+from ..utils.records import _DefaultingUnpickle
 
 __all__ = [
     "CrossFitPlan",
+    "FoldOrigin",
     "Folds",
     "SplitPlan",
     "check_integrity",
     "make_folds",
     "missing_training_support",
+    "random_partition",
     "refuse_scheme",
     "resolve_n_folds",
 ]
 
+#: The generator name and version :func:`random_partition` writes on every
+#: :class:`FoldOrigin`.  The version changes when the same inputs would give a different
+#: assignment, so a recorded origin never names an algorithm that no longer runs.
+RANDOM_PARTITION_GENERATOR = "cleverly.random_partition/1"
 
-_LARGER_COMPLEMENT_NOTE = "A larger fold count gives each training complement more rows."
+#: The largest seed :func:`random_partition` accepts, which is the range
+#: :class:`numpy.random.RandomState` accepts.
+_MAX_SEED = 2**32 - 1
+
+
+#: How a caller turns cross-fitting off, in both spellings, for a refusal that names it.
+#: A refusal raised *after* a split was drawn never names a redraw: a fold count and a
+#: seed that happen to succeed were chosen by looking at the data the split must not read.
+_IN_SAMPLE_REMEDY = "fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))"
+
+#: What a refusal raised *after* the split was drawn may offer, and why it offers no
+#: redraw. A fold count or a seed that happens to give every complement what it needs was
+#: chosen by looking at the treatment and the outcome, which is the dependence the
+#: unstratified draw exists to remove; searching for one would put it back by hand.
+#: Written here rather than beside one of its callers because four of them raise it:
+#: the engine's preflights, the collaborative fold loop, the nuisance fold loop and the
+#: reduced-regression fold loop, and none of those modules can import another.
+_POST_DRAW_REMEDY = (
+    "The split is drawn from the seed alone and reads no treatment or outcome, so trying "
+    "fold counts or seeds until one fits would choose the partition by the values it must "
+    "not read. Either {remedy}, or collect more observations at the rare level."
+)
+
+#: Why a plan without a generator record is refused, and how to get one that has it.
+#: The record names a fold count and a seed the caller declared, so drawing the labels
+#: again rules out an assignment nothing generated. It does not audit the declaration,
+#: which is why the message names ``result.split_plan`` as the source rather than any
+#: pair of numbers that happens to reproduce the labels.
+_UNRECORDED_PLAN_REASON = (
+    "split_plan carries no generator record, so the fit cannot draw its labels again and "
+    "check that they are the split the record describes. A hand-built assignment has no "
+    "record, and neither has a stratified split. Pass result.split_plan from a fit with "
+    "unstratified folds (stratify_by='none'), or build the plan with "
+    "SplitPlan.from_folds over random_partition draws"
+)
+
+
+def fold_strata_refusal(stratify_folds: str, *, collaborative: bool) -> str | None:
+    """Return why a fold-stratification policy cannot run, or ``None``.
+
+    ``"none"`` is the only policy any fit draws folds under. ``"treatment"`` and
+    ``"treatment+outcome"`` make the assignment a function of the treatment, and of the
+    outcome as well, while the cross-fitting argument conditions on the split. No shipped
+    result covers a partition read off the data it is then used to analyse
+    (``docs/technical-reference/cv-tmle.md``, fold and outcome-scale rules).
+
+    The caller says whether the fit draws a split at all. An ordinary point-treatment fit
+    and an outcome-adaptive C-TMLE fit draw one only under cross-fitting, so
+    ``cross_fit=False`` leaves nothing for a policy to apply to. Selector-based C-TMLE
+    draws selection and nested folds at every setting.
+
+    Parameters
+    ----------
+    stratify_folds : str
+        The declared policy.
+    collaborative : bool
+        Whether the fit draws collaborative selection folds even without cross-fitting.
+
+    Returns
+    -------
+    str or None
+        The reason to refuse, or ``None`` when the policy can run.
+    """
+    if stratify_folds == "none":
+        return None
+    reads = (
+        "the treatment and the outcome"
+        if stratify_folds == "treatment+outcome"
+        else "the treatment"
+    )
+    where = (
+        "the selection and nested folds a collaborative search draws at every setting"
+        if collaborative
+        else "the outer folds"
+    )
+    tail = (
+        "A collaborative fit draws those folds whether or not cross_fit is set, so "
+        "cross_fit=False does not make this policy available."
+        if collaborative
+        else f"Otherwise {_IN_SAMPLE_REMEDY}, which draws no split for a policy to apply to."
+    )
+    return (
+        f"stratify_folds={stratify_folds!r} balances {where} on {reads}, which makes the "
+        "partition a function of the data the fit then conditions on. No shipped result "
+        "covers that split "
+        "(docs/technical-reference/cv-tmle.md, fold and outcome-scale rules). "
+        "Set stratify_folds='none' "
+        f"(CrossFitting(stratify_by='none')), which is the default. {tail}"
+    )
 
 
 def _cross_fit_policy_refusal(
@@ -88,6 +188,8 @@ def _cross_fit_policy_refusal(
     repeats: int,
     split_plan: object,
     n_bootstrap: int = 0,
+    stratify_folds: str = "none",
+    collaborative: bool = False,
     option_name: str,
 ) -> str | None:
     """Return why a declared cross-fitting policy cannot run, or ``None``.
@@ -102,7 +204,10 @@ def _cross_fit_policy_refusal(
     2. a ``split_plan`` that is not a :class:`SplitPlan`;
     3. a plan that cannot serve the declared policy (:meth:`SplitPlan._policy_refusal`);
     4. a plan combined with the targeted bootstrap;
-    5. ``repeats`` above one without cross-fitting.
+    5. ``repeats`` above one without cross-fitting;
+    6. cross-fitting declared with fewer than two folds;
+    7. a fold-stratification policy this package draws no split under
+       (:func:`fold_strata_refusal`).
 
     ``n_bootstrap`` belongs to a different configuration group than the other arguments.
     :class:`~cleverly.CrossFitting` does not hold it and leaves it at zero, and
@@ -120,6 +225,10 @@ def _cross_fit_policy_refusal(
         The supplied plan, or ``None``. Any other type is refused.
     n_bootstrap : int, default=0
         Targeted-bootstrap replicates the declaration asks for.
+    stratify_folds : str, default="none"
+        The declared fold-stratification policy.
+    collaborative : bool, default=False
+        Whether the fit draws collaborative selection folds.
     option_name : str
         The caller's spelling of the cross-fitting switch, ``"enabled"`` on
         :class:`~cleverly.CrossFitting` and ``"cross_fit"`` on the engine.
@@ -149,11 +258,52 @@ def _cross_fit_policy_refusal(
             f"{option_name}=False makes no split to draw or repeat. Enable cross-fitting or "
             "set repeats=1"
         )
+    if cross_fit and n_folds < 2:
+        return (
+            f"{option_name}=True with n_folds={n_folds} leaves one fold, so every nuisance "
+            "is fitted on the rows it predicts while the fit reports the cross-fitted "
+            "estimator's name and variance rule. Set n_folds to at least 2, or fit in "
+            "sample with CrossFitting(enabled=False)"
+        )
+    if cross_fit or collaborative:
+        return fold_strata_refusal(stratify_folds, collaborative=collaborative)
     return None
 
 
 @dataclass(frozen=True)
-class Folds:
+class FoldOrigin(_DefaultingUnpickle):
+    """The record of how :func:`random_partition` drew one split.
+
+    The four fields and the rows' cluster labels determine the assignment.  A caller
+    can therefore draw the split again from this record and compare the result.
+
+    Parameters
+    ----------
+    generator : str
+        The generator name and version, ``"cleverly.random_partition/1"`` for every
+        split this package draws.
+    scheme : str
+        ``"vfold"`` for a row-level split, and ``"grouped"`` for a split of whole
+        clusters.
+    requested_n_folds : int
+        The fold count the caller asked for, before :func:`resolve_n_folds` capped it.
+    seed : int
+        The seed of the draw.
+
+    See Also
+    --------
+    random_partition : The generator that writes this record.
+    Folds : The split that carries this record as its ``origin``.
+    """
+
+    generator: str
+    scheme: str
+    requested_n_folds: int
+    seed: int
+
+
+@dataclass(frozen=True)
+class Folds(_DefaultingUnpickle):
     """A cross-fitting partition.
 
     ``assignment[i]`` is the index of the fold that holds out observation ``i``.
@@ -165,10 +315,16 @@ class Folds:
         ``assignment[i]`` is the index of the fold that holds out observation ``i``.
     n_folds : int
         Number of folds the assignment ranges over.
+    origin : FoldOrigin or None, default=None
+        How :func:`random_partition` drew the split.  ``None`` for a split from any other
+        source: a stratified split, a hand-built one, or a pickle that predates the field.
+        Equality ignores it, because two splits with the same labels hold out the same
+        rows.
     """
 
     assignment: IntArray
     n_folds: int
+    origin: FoldOrigin | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
         """Check what an assignment on its own can be wrong about.
@@ -274,8 +430,14 @@ class Folds:
 
 
 @dataclass(frozen=True, repr=False)
-class SplitPlan:
+class SplitPlan(_DefaultingUnpickle):
     """Reusable cross-fitting assignments for every repeat.
+
+    A fit accepts a plan only when the plan records how :func:`random_partition` drew
+    each repeat. :attr:`~cleverly.estimators.TMLEResult.split_plan` and
+    :meth:`from_folds` write that record. Before any learner runs, :meth:`verify` draws
+    each repeat again and refuses labels that differ. A plan built from labels alone
+    stays constructible, and every fit refuses it.
 
     Parameters
     ----------
@@ -289,7 +451,11 @@ class SplitPlan:
         :attr:`~cleverly.Provenance.data_fingerprint` records it.
         :attr:`~cleverly.estimators.TMLEResult.split_plan` fills it in, and
         :meth:`validate` then refuses data that fingerprint differently. ``None`` is a
-        plan bound to no data, which is what a hand-built plan is.
+        plan bound to no data, which is what :meth:`unbound` returns.
+    provenance : tuple of FoldOrigin or None, default=None
+        One generator record per repeat, in repeat order. ``None`` for labels with no
+        record: a hand-built plan, a stratified split, or a pickle that predates the
+        field. A fit refuses a plan whose provenance is ``None``.
 
     Attributes
     ----------
@@ -302,19 +468,23 @@ class SplitPlan:
     --------
     cleverly.learners.CrossFitPlan : Policy that generates folds from data.
     cleverly.learners.Folds : Mutable-array materialization of one repeat.
+    cleverly.learners.random_partition : The generator a plan must record.
 
     Examples
     --------
     >>> from cleverly import SplitPlan
-    >>> plan = SplitPlan(((0, 1, 0, 1),))
-    >>> plan.n_folds, plan.n_repeats
-    (2, 1)
-    >>> plan.to_folds()[0].test_index(0).tolist()
-    [0, 2]
+    >>> from cleverly.learners import random_partition
+    >>> plan = SplitPlan.from_folds([random_partition(6, 3, seed=0)])
+    >>> plan.assignments
+    ((2, 1, 0, 1, 2, 0),)
+    >>> plan.provenance[0].seed
+    0
+    >>> plan.verify(n=6)
     """
 
     assignments: Sequence[Sequence[int]] | Sequence[IntArray] | IntArray
     source_fingerprint: str | None = None
+    provenance: tuple[FoldOrigin, ...] | None = None
 
     def __post_init__(self) -> None:
         """Copy and validate the complete repeat-major assignment.
@@ -393,6 +563,28 @@ class SplitPlan:
             normalized.append(assignment)
         object.__setattr__(self, "assignments", tuple(normalized))
 
+        if self.provenance is not None:
+            if isinstance(self.provenance, (str, bytes)):
+                raise DataError("split-plan provenance must be a sequence of FoldOrigin records")
+            try:
+                records = tuple(self.provenance)
+            except TypeError as exc:
+                raise DataError(
+                    "split-plan provenance must be a sequence of FoldOrigin records"
+                ) from exc
+            if len(records) != len(normalized):
+                raise DataError(
+                    f"split-plan provenance holds {len(records)} record(s) for "
+                    f"{len(normalized)} repeat(s); a plan records one origin per repeat"
+                )
+            for repeat, record in enumerate(records):
+                if not isinstance(record, FoldOrigin):
+                    raise DataError(
+                        f"split-plan provenance for repeat {repeat} must be a FoldOrigin; "
+                        f"got {type(record).__name__}"
+                    )
+            object.__setattr__(self, "provenance", records)
+
     @property
     def n(self) -> int:
         """Return the number of rows in each repeat."""
@@ -421,32 +613,42 @@ class SplitPlan:
         A plan holds one label per row per repeat, so the generated ``__repr__`` prints
         the whole dataset back: 150 KB for a 50,000-row plan, in a traceback or a
         notebook cell that asked for one line.  What identifies a plan is its shape and
-        its fingerprint, and both are here.
+        its fingerprint, and both are here.  The generator says whether a fit can accept
+        the plan at all: ``generator=None`` is a plan with no record, which every fit
+        refuses.
         """
+        if self.provenance is None:
+            generator = "None"
+        else:
+            generator = "+".join(sorted({origin.generator for origin in self.provenance}))
         bound = "" if self.source_fingerprint is None else f", source={self.source_fingerprint}"
         return (
             f"SplitPlan(n={self.n}, n_folds={self.n_folds}, n_repeats={self.n_repeats}, "
-            f"fingerprint={self.fingerprint}{bound})"
+            f"fingerprint={self.fingerprint}, generator={generator}{bound})"
         )
 
     def to_folds(self) -> tuple[Folds, ...]:
         """Return fresh mutable-array fold objects for every repeat.
+
+        Each fold object carries its repeat's :class:`FoldOrigin` when the plan records
+        one, so a fit on this plan returns a plan with the same record.
 
         Returns
         -------
         tuple of Folds
             Independent materializations in repeat order.
         """
+        origins = (None,) * self.n_repeats if self.provenance is None else self.provenance
         return tuple(
-            Folds(np.asarray(assignment, dtype=np.int64), self.n_folds)
-            for assignment in self.assignments
+            Folds(np.asarray(assignment, dtype=np.int64), self.n_folds, origin=origin)
+            for assignment, origin in zip(self.assignments, origins, strict=True)
         )
 
     @classmethod
     def from_folds(
         cls, folds: Iterable[Folds], *, source_fingerprint: str | None = None
     ) -> SplitPlan:
-        """Copy repeat assignments from realized folds.
+        """Copy repeat assignments, and their generator records, from realized folds.
 
         Parameters
         ----------
@@ -459,12 +661,135 @@ class SplitPlan:
         Returns
         -------
         SplitPlan
-            Immutable copies of the assignments.
+            Immutable copies of the assignments. :attr:`provenance` holds each repeat's
+            :attr:`Folds.origin` when every repeat has one, and is ``None`` otherwise.
+
+        Examples
+        --------
+        >>> from cleverly import SplitPlan
+        >>> from cleverly.learners import random_partition
+        >>> plan = SplitPlan.from_folds([random_partition(4, 2, seed=s) for s in (1, 2)])
+        >>> plan.n_repeats, [origin.seed for origin in plan.provenance]
+        (2, [1, 2])
         """
+        draws = tuple(folds)
+        origins = tuple(draw.origin for draw in draws)
         return cls(
-            tuple(draw.assignment for draw in folds),
+            tuple(draw.assignment for draw in draws),
             source_fingerprint=source_fingerprint,
+            provenance=(
+                None
+                if any(origin is None for origin in origins)
+                else cast("tuple[FoldOrigin, ...]", origins)
+            ),
         )
+
+    def unbound(self) -> SplitPlan:
+        """Return this plan bound to no data, with its generator record kept.
+
+        A refit on the same rows with one column replaced changes the data fingerprint
+        and moves no row. The unbound plan serves that refit, and a caller who means to
+        reuse the labels on other rows asks for it by name. :meth:`verify` still draws
+        every repeat again, so an unbound plan cannot carry labels the record does not
+        produce.
+
+        Returns
+        -------
+        SplitPlan
+            The same assignments and :attr:`provenance`, with
+            :attr:`source_fingerprint` set to ``None``.
+
+        Examples
+        --------
+        >>> from cleverly import SplitPlan
+        >>> from cleverly.learners import random_partition
+        >>> bound = SplitPlan.from_folds([random_partition(4, 2, seed=3)], source_fingerprint="ab")
+        >>> free = bound.unbound()
+        >>> free.source_fingerprint is None, free.provenance == bound.provenance
+        (True, True)
+        """
+        return replace(self, source_fingerprint=None)
+
+    def verify(self, *, n: int, cluster: IntArray | None = None) -> None:
+        """Refuse labels that the recorded generator does not produce on these rows.
+
+        Each repeat is drawn again with :func:`random_partition`, from its recorded fold
+        count and seed, and compared label for label. The recorded scheme must be
+        ``"grouped"`` when the data declare clusters and ``"vfold"`` when they do not. The
+        draw reads ``n`` and the cluster labels only, so a plan that passes holds labels
+        the recorded fold count and seed produce.
+
+        What this rules out is an assignment no draw of this package made: a hand-built
+        one, a stratified one, and one edited after the draw. What it cannot rule out is
+        the declaration itself. The fold count and the seed come from the caller, so a
+        caller who searched for a seed gets a plan this method accepts. A fit records
+        that declaration and has nothing local to audit it against.
+        ``result.split_plan`` of an earlier fit is the source this contract is written
+        for.
+
+        Parameters
+        ----------
+        n : int
+            Number of data rows.
+        cluster : ndarray or None, default=None
+            Cluster code for each row, or ``None`` for data without clusters.
+
+        Raises
+        ------
+        DataError
+            If the plan has no generator record, if the row count differs, or if a
+            repeat names another generator, the other scheme, or labels its record does
+            not produce. The message names the repeat.
+
+        Examples
+        --------
+        >>> from cleverly import SplitPlan
+        >>> from cleverly.learners import random_partition
+        >>> SplitPlan.from_folds([random_partition(6, 2, seed=5)]).verify(n=6)
+        """
+        if self.provenance is None:
+            raise DataError(_UNRECORDED_PLAN_REASON)
+        if self.n != n:
+            raise DataError(f"split plan has {self.n} rows but the data have {n} rows")
+        scheme = "vfold" if cluster is None else "grouped"
+        for repeat, (assignment, origin) in enumerate(
+            zip(self.assignments, self.provenance, strict=True)
+        ):
+            if origin.generator != RANDOM_PARTITION_GENERATOR:
+                raise DataError(
+                    f"split-plan repeat {repeat} records generator {origin.generator!r}, and "
+                    f"this version draws with {RANDOM_PARTITION_GENERATOR!r}, so it cannot "
+                    "draw the labels again to check them"
+                )
+            if origin.scheme != scheme:
+                declared = "declare clusters" if cluster is not None else "declare no clusters"
+                raise DataError(
+                    f"split-plan repeat {repeat} records a {origin.scheme!r} draw, and these "
+                    f"data {declared}, which a {scheme!r} draw serves. A row-level draw cuts "
+                    "across clusters, and a grouped draw needs the cluster labels it split"
+                )
+            # The cap warning belongs to the fit that drew the split. This draw repeats it
+            # to check the labels, and resolves no fold count for the fit.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                try:
+                    redrawn = random_partition(
+                        n, origin.requested_n_folds, cluster=cluster, seed=origin.seed
+                    )
+                except (ValueError, DataError) as exc:
+                    raise DataError(
+                        f"split-plan repeat {repeat} records a draw that cannot run on these "
+                        f"rows: {exc}"
+                    ) from exc
+            differing = int(np.count_nonzero(redrawn.assignment != np.asarray(assignment)))
+            if differing:
+                raise DataError(
+                    f"split-plan repeat {repeat} differs from the split its record draws "
+                    f"(seed {origin.seed}, {origin.requested_n_folds} requested folds) at "
+                    f"{differing} row(s). A fit accepts only the labels the recorded fold "
+                    "count and seed draw, because other labels could have been chosen by "
+                    "reading the outcome"
+                )
 
     def _policy_refusal(self, *, cross_fit: bool, n_folds: int, repeats: int) -> str | None:
         """Return why this plan cannot serve a declared fold policy, or ``None``.
@@ -484,6 +809,11 @@ class SplitPlan:
         the labels can serve a particular dataset is :meth:`validate`'s question, and
         :meth:`~cleverly.estimators.TMLE._repeat_draws` asks it there.
 
+        A plan with no generator record is refused first, whatever else it holds. No
+        declaration can make such a plan acceptable, so a caller who fixes its shape
+        would only meet this refusal next. Whether the record reproduces the labels is
+        :meth:`verify`'s question, and it needs the rows.
+
         Parameters
         ----------
         cross_fit : bool
@@ -498,6 +828,8 @@ class SplitPlan:
         str or None
             The reason to refuse, or ``None`` when the plan can serve the policy.
         """
+        if self.provenance is None:
+            return _UNRECORDED_PLAN_REASON
         if not cross_fit or n_folds < 2:
             return "split_plan requires enabled cross-fitting with at least two folds"
         if self.n_folds > n_folds:
@@ -555,8 +887,8 @@ class SplitPlan:
                 "position, so a reordering, a replaced column or an added covariate leaves "
                 "every label pointing at a different unit, and the row count cannot see it. "
                 "Fit without split_plan= to draw a split for these data, or, when the rows "
-                "are the same units in the same order, hand over SplitPlan(plan.assignments) "
-                "to reuse the labels unbound"
+                "are the same units in the same order, hand over plan.unbound() to reuse "
+                "the labels unbound"
             )
         # Each vector is read once here rather than once per (repeat x fold): none of them
         # changes as the loop below walks the folds, and neither does the set of values a
@@ -638,11 +970,11 @@ def check_integrity(folds: Folds, *, cluster: IntArray | None = None) -> None:
     and pays nothing.
 
     Called as a post-condition of :func:`make_folds`, so every split this library builds
-    is checked at construction.  It should never fire -- ``GroupKFold`` and
-    ``StratifiedGroupKFold`` both guarantee it -- which is the point: the one place the
-    guarantee is this library's own is the ``_grouped_splitter`` fallback for
-    scikit-learn before 1.6, and a post-condition is what turns that from a hope into a
-    checked claim.  Also exposed for the three holders of a :class:`Folds` that
+    is checked at construction.  It should never fire -- :func:`random_partition` and
+    ``StratifiedGroupKFold`` both guarantee it -- which is the point: the unstratified
+    grouped split is this library's own code, and a post-condition is what turns its
+    guarantee from a hope into a checked claim.  Also exposed for the three holders of a
+    :class:`Folds` that
     :func:`make_folds` never saw: a result reloaded from disk, a caller who built one by
     hand, and a :class:`SplitPlan` handed back to a later fit, which
     :meth:`SplitPlan.validate` puts through this check once per repeat.
@@ -728,15 +1060,18 @@ def resolve_n_folds(
         counts = np.unique(np.asarray(stratify), return_counts=True)[1]
         cap = int(counts.min())
     resolved = int(min(n_folds, cap))
+    # Two callers, two caps, and the message has to name the one that bound. An
+    # unstratified draw caps at ``n``, and :func:`random_partition` is now the only outer
+    # path, so "the rarer class" would describe a stratum nobody asked for.
+    binding = "the rarer class has only" if stratify is not None else "the data hold only"
+    counted = "member(s)" if stratify is not None else "row(s)"
     if resolved < 2:
         raise ValueError(
-            "cannot cross-fit: the rarer class has fewer than 2 members, so no "
-            "stratified split exists"
+            f"cannot cross-fit: {binding} {cap} {counted}, so no split into two folds exists"
         )
     if resolved < n_folds:
         warnings.warn(
-            f"reducing n_folds from {n_folds} to {resolved}: the rarer class has only "
-            f"{cap} member(s)",
+            f"reducing n_folds from {n_folds} to {resolved}: {binding} {cap} {counted}",
             UserWarning,
             stacklevel=2,
         )
@@ -775,36 +1110,40 @@ def make_folds(
     cluster : ndarray or None
         Cluster codes; every row of a cluster lands in the same fold.
     random_state : int, Generator, or None
-        Seed or generator.  With ``cluster`` and ``stratify`` both given the
-        split is deterministic given the seed, so a fit is reproducible.
+        Seed or generator.  The split is deterministic given an integer seed, so a fit
+        is reproducible.  ``None`` draws a fresh seed for an unstratified split, which
+        the returned :attr:`Folds.origin` records.
 
     Returns
     -------
     Folds
         A checked partition, cluster-respecting and stratified as asked.
+
+    Notes
+    -----
+    Without ``stratify`` the split comes from :func:`random_partition`, which does not
+    depend on the installed scikit-learn.  With ``stratify`` it comes from
+    ``StratifiedKFold`` or, with ``cluster``, from ``StratifiedGroupKFold``.
     """
     if n < 2:
         raise ValueError(f"need at least 2 observations to cross-fit; got {n}")
     seed = _as_seed(random_state)
+    if stratify is None:
+        return random_partition(
+            n, n_folds, cluster=cluster, seed=_fresh_seed() if seed is None else seed
+        )
     resolved = resolve_n_folds(n_folds, n, stratify, cluster=cluster)
     x = np.zeros((n, 1))
     assignment = np.empty(n, dtype=np.int64)
 
     if cluster is not None:
-        if stratify is not None:
-            splitter = StratifiedGroupKFold(n_splits=resolved, shuffle=True, random_state=seed)
-            iterator = splitter.split(x, np.asarray(stratify), groups=cluster)
-        else:
-            # GroupKFold gained shuffle support in scikit-learn 1.6; fall back to
-            # a seeded permutation of the group labels when it is unavailable.
-            splitter, groups = _grouped_splitter(resolved, cluster, seed)
-            iterator = splitter.split(x, None, groups=groups)
-    elif stratify is not None:
+        splitter: StratifiedGroupKFold | StratifiedKFold = StratifiedGroupKFold(
+            n_splits=resolved, shuffle=True, random_state=seed
+        )
+        iterator = splitter.split(x, np.asarray(stratify), groups=cluster)
+    else:
         splitter = StratifiedKFold(n_splits=resolved, shuffle=True, random_state=seed)
         iterator = splitter.split(x, np.asarray(stratify))
-    else:
-        splitter = KFold(n_splits=resolved, shuffle=True, random_state=seed)
-        iterator = splitter.split(x)
 
     for fold, (_, test) in enumerate(iterator):
         assignment[test] = fold
@@ -813,28 +1152,145 @@ def make_folds(
     return folds
 
 
-def _grouped_splitter(
-    n_splits: int, cluster: IntArray, seed: int | None
-) -> tuple[GroupKFold, IntArray]:
-    """A shuffled group split that works across scikit-learn versions.
+def random_partition(
+    n: int,
+    n_folds: int,
+    *,
+    cluster: IntArray | None = None,
+    seed: int,
+) -> Folds:
+    """Draw an unstratified split of rows, or of whole clusters, from a seed.
 
-    ``GroupKFold`` gained ``shuffle`` in scikit-learn 1.6 and ``pyproject.toml`` declares
-    ``scikit-learn>=1.3``, so the fallback is supported rather than vestigial.  What it
-    gives up is worth being precise about: older ``GroupKFold`` assigns groups to folds
-    greedily by descending size, so permuting the group *labels* only reorders groups of
-    equal size.  The shuffling is therefore weaker than 1.6's -- but cluster integrity,
-    the prohibition that leaks, is a property of ``GroupKFold`` itself and is untouched.
-    :func:`check_integrity` is what holds that claim to account on both paths.
+    The draw reads no outcome, treatment or covariate.  The assignment depends on ``n``,
+    the cluster labels and ``seed`` alone, so the same inputs give the same split on
+    every supported scikit-learn.
+
+    Parameters
+    ----------
+    n : int
+        Number of rows to split.
+    n_folds : int
+        Folds requested.  :func:`resolve_n_folds` caps it at ``n`` and at the number of
+        clusters, with a warning.
+    cluster : ndarray or None, default=None
+        One cluster code per row.  Every row of a cluster lands in the same fold.
+    seed : int
+        Seed of the draw, in ``[0, 2**32 - 1]``.
+
+    Returns
+    -------
+    Folds
+        A checked split whose :attr:`~Folds.origin` records the generator, the scheme,
+        the requested fold count and the seed.
+
+    Raises
+    ------
+    ValueError
+        If ``n`` is below two, the seed is not an integer in range, or fewer than two
+        folds are possible.
+
+    See Also
+    --------
+    make_folds : Builds a split with or without strata, and calls this function
+        for an unstratified split.
+    FoldOrigin : The record this function attaches to the split.
+
+    Notes
+    -----
+    The row-level draw shuffles ``numpy.arange(n)`` with
+    ``numpy.random.RandomState(seed)``.  It then cuts the order into ``K`` contiguous
+    blocks of ``n // K`` rows, and the first ``n % K`` blocks take one extra row.  This
+    is the split ``sklearn.model_selection.KFold(K, shuffle=True, random_state=seed)``
+    makes.
+
+    The grouped draw permutes the sorted distinct cluster labels with
+    ``numpy.random.RandomState(seed)`` and cuts the permutation into ``K`` parts with
+    ``numpy.array_split``.  This is the split
+    ``sklearn.model_selection.GroupKFold(K, shuffle=True, random_state=seed)`` makes in
+    scikit-learn 1.6 and later.  The number of clusters in two folds differs by at most
+    one, and a cluster's size does not change where it lands.
+
+    Examples
+    --------
+    >>> from cleverly.learners import random_partition
+    >>> folds = random_partition(6, 3, seed=0)
+    >>> folds.assignment.tolist()
+    [2, 1, 0, 1, 2, 0]
+    >>> folds.origin.scheme, folds.origin.seed
+    ('vfold', 0)
     """
-    try:
-        return GroupKFold(n_splits=n_splits, shuffle=True, random_state=seed), cluster
-    except TypeError:
-        rng = np.random.default_rng(seed)
-        unique = np.unique(cluster)
-        relabel = rng.permutation(unique.size)
-        lookup = dict(zip(unique.tolist(), relabel.tolist(), strict=True))
-        shuffled = np.array([lookup[int(c)] for c in cluster], dtype=np.int64)
-        return GroupKFold(n_splits=n_splits), shuffled
+    if n < 2:
+        raise ValueError(f"need at least 2 observations to cross-fit; got {n}")
+    if isinstance(seed, (bool, np.bool_)) or not isinstance(seed, Integral):
+        raise ValueError(f"seed must be an integer; got {type(seed).__name__}")
+    if not 0 <= int(seed) <= _MAX_SEED:
+        raise ValueError(f"seed must lie in [0, {_MAX_SEED}]; got {seed}")
+    seed = int(seed)
+    resolved = resolve_n_folds(n_folds, n, cluster=cluster)
+    rng = np.random.RandomState(seed)
+    if cluster is None:
+        order = np.arange(n)
+        rng.shuffle(order)
+        assignment = np.empty(n, dtype=np.int64)
+        assignment[order] = _contiguous_blocks(n, resolved)
+        scheme = "vfold"
+    else:
+        codes = np.asarray(cluster).reshape(-1)
+        if codes.shape[0] != n:
+            raise DataError(f"cluster has {codes.shape[0]} row(s) but n is {n}")
+        labels, inverse = np.unique(codes, return_inverse=True)
+        permuted = rng.permutation(labels)
+        label_fold = np.empty(labels.size, dtype=np.int64)
+        label_fold[np.searchsorted(labels, permuted)] = _contiguous_blocks(labels.size, resolved)
+        assignment = label_fold[inverse.reshape(-1)]
+        scheme = "grouped"
+    origin = FoldOrigin(
+        generator=RANDOM_PARTITION_GENERATOR,
+        scheme=scheme,
+        requested_n_folds=int(n_folds),
+        seed=seed,
+    )
+    folds = Folds(assignment, resolved, origin=origin)
+    check_integrity(folds, cluster=cluster)
+    return folds
+
+
+def _contiguous_blocks(size: int, n_folds: int) -> IntArray:
+    """Return fold labels for ``size`` ordered items cut into ``n_folds`` blocks.
+
+    The blocks are contiguous.  Each holds ``size // n_folds`` items, and the first
+    ``size % n_folds`` blocks hold one more.  ``KFold`` and ``numpy.array_split`` both
+    cut this way.
+
+    Parameters
+    ----------
+    size : int
+        Number of ordered items.
+    n_folds : int
+        Number of blocks.
+
+    Returns
+    -------
+    ndarray
+        The block label of each item, in order.
+    """
+    sizes = np.full(n_folds, size // n_folds, dtype=np.int64)
+    sizes[: size % n_folds] += 1
+    return np.repeat(np.arange(n_folds, dtype=np.int64), sizes)
+
+
+def _fresh_seed() -> int:
+    """Draw a concrete seed from operating-system entropy.
+
+    The value lies in ``[0, 2**31 - 2]``, the range :meth:`CrossFitPlan.seeds` reduces
+    to, so a resolved seed is valid wherever a declared one is.
+
+    Returns
+    -------
+    int
+        A new seed.
+    """
+    return int(np.random.SeedSequence().generate_state(1)[0]) % (2**31 - 1)
 
 
 @dataclass(frozen=True)
@@ -866,15 +1322,15 @@ class CrossFitPlan:
         target -- the treatment for the mechanism, the outcome for the regression.
     scheme : str
         Which family of split the fit used.  ``"supplied"`` means a caller handed over
-        exact assignments and nothing was generated.  Every other value is resolved from
-        what the data declared rather than chosen: ``"grouped"`` whenever ``id=`` named
-        clusters, otherwise ``"stratified"`` or ``"vfold"``.
+        exact assignments and nothing was generated.  ``"none"`` means the fit drew no
+        split.  The other two are resolved from what the data declared rather than
+        chosen: ``"grouped"`` whenever ``id=`` named clusters, and ``"vfold"`` otherwise.
+        A result restored from an earlier version can carry a stratified value, which this
+        version draws no split under.
     stratify_by : tuple of str
-        What the outer folds were checked against, as user-facing names.  Under a
-        generated scheme the split was balanced on these; under ``"supplied"`` the
-        assignments were checked for every one of these values in every training
-        complement, which is the property balancing exists to give.  Empty when there was
-        nothing to balance, as for a continuous dose.
+        What the outer folds were checked against, as user-facing names.  Empty on every
+        fit this version runs, because it draws no split that balances the data it then
+        conditions on.  A result restored from an earlier version can carry names here.
     random_state : int or None
         Seed for generated outer splits and repeat-specific learner state. Under
         ``scheme="supplied"``, the assignments ignore it while learner and collaborative
@@ -922,9 +1378,15 @@ class CrossFitPlan:
 
         Spawned from ``random_state`` rather than derived by addition, so the draws are
         independent rather than merely different, and a repeated fit stays reproducible
-        under a seed.  ``random_state=None`` yields ``None`` per repeat: the draws differ
-        anyway, since :func:`make_folds` always shuffles, and pinning them here would
-        invent a reproducibility the caller declined.
+        under a seed.  ``random_state=None`` yields ``None`` per repeat, because the plan
+        is a declaration and the caller declared no seed.  The engine does not draw with
+        ``None``: :meth:`~cleverly.estimators.TMLE._repeat_draws` replaces each ``None``
+        with a fresh seed from operating-system entropy, in the same ``[0, 2**31 - 2]``
+        range, before it draws the folds.  That seed reaches the folds, the learners and
+        the C-TMLE selection folds, and
+        :attr:`~cleverly.estimators._nuisance.RepeatFit.seed` records it on the result.
+        The plan keeps ``random_state=None``, so the result still says that the caller
+        fixed no seed.
 
         One repeat passes ``random_state`` straight through rather than spawning from it,
         which is what makes ``repeats=1`` bit-for-bit an ordinary fit rather than merely

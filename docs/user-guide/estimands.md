@@ -17,8 +17,12 @@ quick = TMLEMethod(
 )
 ```
 
-Passing no method instead inherits the default Super Learner library over ten outer folds, which
-is the right default for an analysis and slow enough to be surprising in an example. See
+Passing no method instead inherits the default Super Learner library over ten unstratified outer
+folds, which is the right default for an analysis and slow enough to be surprising in an example.
+This study's outcome is binary. A cross-fitted fit of a continuous outcome also needs a declared
+`Targeting(q_bounds=(lower, upper))`, which
+[fold and outcome-scale rules](../technical-reference/cv-tmle.md#fold-and-outcome-scale-rules)
+states. See
 [methods and learners](methods-learners.md).
 
 ## Arm-indexed questions
@@ -77,15 +81,16 @@ lists every refused composition for both configurations. See the
 
 `ATE`, `CounterfactualMean`, `RiskRatio`, and `OddsRatio` also accept `missingness=`. Under
 cross-fitting with missing outcomes, only `TMLEMethod` fits these targets.
-`CollaborativeTMLEMethod` and `DRTMLEMethod` are refused. A cross-fitted fit needs
-`CrossFitting(stratify_by="none")`. A continuous outcome also needs
-`Targeting(q_bounds=(lower, upper))` equal to its known support. `ATT` and `ATC` are refused under
-cross-fitting with missing outcomes.
+`CollaborativeTMLEMethod` and `DRTMLEMethod` are refused. `ATT` and `ATC` are refused under
+cross-fitting with missing outcomes. Two further requirements are not special to this surface.
+Every cross-fitted fit draws `CrossFitting(stratify_by="none")` folds, which is the default, and
+every cross-fitted continuous outcome needs `Targeting(q_bounds=(lower, upper))` equal to its known
+support.
 
 The [arm-indexed contract](../technical-reference/scope-and-refusals.md#missing-outcome-arm-indexed-contract)
 lists every refusal. Without a known finite support, fit in sample with
-`CrossFitting(enabled=False, stratify_by="treatment")`. The in-sample fit refuses
-`stratify_by="none"`.
+`CrossFitting(enabled=False)`. The in-sample fit keeps whichever fold policy you declare, because
+one fold balances nothing.
 
 ## Known regimes
 
@@ -120,7 +125,8 @@ term for a $g^\star$ that depends on $P$.
 ## Modified treatment policies
 
 For a continuous dose, `Shift` maps each observed dose to a policy dose. `cap=` is part of the
-policy and its support argument; it is not estimated from the sample maximum.
+policy and its support argument; it is not estimated from the sample maximum. `q_bounds` follows
+the same rule for the outcome. Declare it from known support, and never from the observed range.
 
 ```python
 from cleverly import ModifiedTreatmentPolicyEffect

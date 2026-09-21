@@ -43,7 +43,7 @@ import numpy as np
 import pytest
 import sklearn.linear_model
 
-from cleverly.datasets import make_linear_ate, make_weak_overlap
+from cleverly.datasets import make_binary_outcome, make_weak_overlap
 from cleverly.estimators import DRTMLE
 
 #: Small, cross-fitted, and ``glm`` throughout: every claim here is an exact identity, so
@@ -95,7 +95,12 @@ def _held_out(result: Any, fold: int) -> np.ndarray:
 
 @pytest.fixture(scope="module")
 def frame() -> Any:
-    return make_linear_ate(N, seed=11)[0]
+    # A binary outcome: this module's subject is DR-TMLE's cross-fitting companion, and
+    # a cross-fitted continuous outcome now needs a declared q_bounds, which the
+    # Gaussian make_linear_ate law this used to draw does not satisfy. Every check here
+    # is a self-referential identity between the production fit and its companion, so
+    # the law's family carries no pinned number for the switch to move.
+    return make_binary_outcome(N, seed=11)[0]
 
 
 @pytest.fixture(scope="module")
@@ -254,7 +259,7 @@ class TestTheFoldWeightsAreTheEstimators:
         which is a property of the *split* -- reading them off the companion instead would
         make them uniform whatever the split did.
         """
-        smaller = make_linear_ate(60, seed=12)[0]
+        smaller = make_binary_outcome(60, seed=12)[0]
         result = _fit(frame, evaluation=smaller)
         companion = result.nuisance.companion
         assert companion.n == 60
@@ -274,7 +279,22 @@ class TestABoundActiveFitKeepsTheIdentity:
 
     @pytest.fixture(scope="class")
     def pinched(self) -> Any:
+        # A binary outcome: what this class needs is the propensity mechanism
+        # make_weak_overlap crowds against its bounds, not the family of Y, and a
+        # cross-fitted continuous outcome now needs a declared q_bounds that this
+        # Gaussian law does not satisfy. Y is redrawn over the same covariates so the
+        # propensity mechanism, and the bound it binds, are untouched.
         frame = make_weak_overlap(N, seed=5)[0]
+        rng = np.random.default_rng(5)
+        w1, w2, w3 = (np.asarray(frame[name]) for name in ("W1", "W2", "W3"))
+        a = np.asarray(frame["A"], dtype=float)
+        # Mirrors weak_overlap_dgp's own outcome mean, centred so the Bernoulli draw is
+        # not degenerate, rather than an arbitrary substitute: it reproduces the
+        # original fixture's clipped-at-the-bound propensity closely enough for
+        # test_the_bound_binds_at_all's margin to hold.
+        mean = 1.0 * a + 1.5 * w1 + 1.0 * w2 + 0.5 * w3
+        y = rng.binomial(1, 1.0 / (1.0 + np.exp(-(mean - mean.mean())))).astype(float)
+        frame = frame.assign(Y=y)
         return _fit(frame, evaluation=frame, g_bounds=(0.15, 0.85))
 
     def test_the_bound_binds_at_all(self, pinched: Any) -> None:

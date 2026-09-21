@@ -355,11 +355,11 @@ class DRTMLE(TMLE):
         cannot claim one cap while another ran.
 
         Raising it changes only the fits that reached it, and on those it can matter.  Measured
-        on the paper law at ``n = 3000`` over 120 draws, going from 50 to 100 left every fit
-        that exited on tolerance bit for bit and moved the 7 that had hit the cap by up to
-        ``1.3e-3``, which is 7% of one sampling standard deviation.  So a ``"cap"`` exit is
-        worth acting on rather than noting: it says this draw had not settled, and the
-        estimate it reports is the one the loop happened to stop at.
+        on the paper law at ``n = 3000`` over 120 draws per nuisance regime, going from 50 to
+        100 left all 336 fits that exited on tolerance bit for bit and moved the 24 that had
+        hit the cap by up to ``1.7e-3``, which is 8% of one sampling standard deviation.  So a
+        ``"cap"`` exit is worth acting on rather than noting: it says this draw had not
+        settled, and the estimate it reports is the one the loop happened to stop at.
 
     Notes
     -----

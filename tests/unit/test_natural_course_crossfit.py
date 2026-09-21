@@ -8,16 +8,13 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.base import BaseEstimator
+from sklearn.linear_model import LogisticRegression
 
 from cleverly import (
     CapabilityError,
-    CausalStudy,
     CrossFitting,
     DataError,
-    Inference,
-    ModelSpec,
-    NaturalCourseMean,
-    PointTreatment,
+    MethodConfigurationError,
     SplitPlan,
     TMLEMethod,
 )
@@ -27,7 +24,7 @@ from cleverly.inference.cluster import (
     influence_variance,
 )
 from cleverly.inference.influence import make_estimate
-from cleverly.learners import make_folds
+from cleverly.learners import make_folds, random_partition
 from cleverly.utils.bounds import logit
 from tests import discrete_law_mar as law
 from tests.conftest import OracleMissingness, OracleOutcome
@@ -59,9 +56,7 @@ def _fit(
 
 #: The in-sample remedy every stacked natural-course refusal names, in both spellings.
 IN_SAMPLE_REMEDY = (
-    "disable cross-fitting and restore fold stratification "
-    "(CrossFitting(enabled=False, stratify_by='treatment'), or cross_fit=False with "
-    "stratify_folds='treatment' on the engine)"
+    "disable cross-fitting (CrossFitting(enabled=False), or cross_fit=False on the engine)"
 )
 
 
@@ -104,35 +99,39 @@ def test_the_audited_engine_cell_records_generated_unstratified_folds() -> None:
     ids=("marginal", "baseline-strata"),
 )
 @pytest.mark.parametrize(
-    ("overrides", "message"),
+    ("overrides", "message", "raised"),
     [
-        ({"n_folds": 1}, "requires n_folds of at least 2"),
-        ({"stratify_folds": "treatment"}, "stratify_folds='none'"),
-        ({"stratify_folds": "treatment+outcome"}, "stratify_folds='none'"),
-        ({"repeats": 2}, "repeats=1"),
-        ({"targeting_scheme": "fold"}, "targeting_scheme='pooled'"),
-        ({"cv_evaluation": True}, "cv_evaluation=False"),
+        ({"n_folds": 1}, "Set n_folds to at least 2", ValueError),
+        ({"stratify_folds": "treatment"}, "stratify_folds='none'", ValueError),
+        ({"stratify_folds": "treatment+outcome"}, "stratify_folds='none'", ValueError),
+        ({"repeats": 2}, "repeats=1", CapabilityError),
+        ({"targeting_scheme": "fold"}, "targeting_scheme='pooled'", CapabilityError),
+        ({"cv_evaluation": True}, "cv_evaluation=False", CapabilityError),
         (
-            {"split_plan": SplitPlan((tuple(np.arange(law.N) % 2),))},
+            {"split_plan": SplitPlan.from_folds([random_partition(law.N, 2, seed=0)])},
             "package-generated folds",
+            CapabilityError,
         ),
     ],
 )
 def test_cross_fitted_variants_outside_the_audited_cell_refuse_before_fitting(
-    overrides: dict[str, Any], message: str, strata: str | None
+    overrides: dict[str, Any], message: str, raised: type[Exception], strata: str | None
 ) -> None:
     """Each contract refusal fires before any learner, and before the generic strata gate.
 
-    With baseline strata the contract's own refusal must still win. The generic gate in
-    ``TMLE.fit`` also refuses ``targeting_scheme='fold'`` and ``cv_evaluation=True``, and it
-    would name the strata rather than the audited cell.
+    ``n_folds`` and ``stratify_folds`` are validated by the engine itself, at
+    construction, so they raise a plain ``ValueError`` before the estimator-specific
+    natural-course contract ever runs. Every other override here reaches that contract's
+    own ``CapabilityError``, raised inside ``fit`` once the split is drawn. With baseline
+    strata the earliest refusal that applies must still win, so the generic strata gate in
+    ``TMLE.fit`` never gets a turn.
     """
     frame = law.frame()
     fit_kwargs: dict[str, Any] = {}
     if strata is not None:
         frame = frame.assign(S=(np.arange(law.N) % 2).astype(float))
         fit_kwargs = {"covariates": ("W", "S"), "strata": strata}
-    with pytest.raises(CapabilityError, match=message):
+    with pytest.raises(raised, match=message):
         _fit(frame, fit_kwargs=fit_kwargs, **never_fit_learners(), **overrides)
     assert NeverFit.calls == 0
 
@@ -140,67 +139,75 @@ def test_cross_fitted_variants_outside_the_audited_cell_refuse_before_fitting(
 def test_one_fold_under_the_stacked_contract_is_refused_rather_than_fitted_in_sample() -> None:
     """``n_folds=1`` realizes the in-sample split while ``cross_fit=True`` stays declared.
 
-    Before this refusal the fit ran in sample and still reported the stacked estimator's
-    second-moment covariance rule. The witness uses learners that fail on fit, so a fit
-    that ran would raise AssertionError instead of CapabilityError.
+    The engine now refuses this at construction, before the natural-course contract or
+    any learner ever runs: one fold fits every nuisance on the rows it predicts, which the
+    cross-fitted estimator's name and variance rule would then misreport. The witness uses
+    learners that fail on fit, so a fit that ran regardless would raise AssertionError
+    rather than this ValueError.
     """
-    with pytest.raises(CapabilityError) as caught:
+    with pytest.raises(ValueError, match="cross_fit=True with n_folds=1") as caught:
         _fit(n_folds=1, **never_fit_learners())
 
     assert str(caught.value) == (
-        "NaturalCourseMean with missing outcomes currently supports one scalar TMLE under "
-        "its audited implementation contracts; the cross-fitted estimator requires n_folds "
-        "of at least 2, because one fold fits every nuisance on the rows it predicts. For "
-        f"the in-sample estimator, {IN_SAMPLE_REMEDY}"
+        "cross_fit=True with n_folds=1 leaves one fold, so every nuisance is fitted on the "
+        "rows it predicts while the fit reports the cross-fitted estimator's name and "
+        "variance rule. Set n_folds to at least 2, or fit in sample with "
+        "CrossFitting(enabled=False)"
     )
     assert NeverFit.calls == 0
 
 
 def test_one_fold_through_the_public_method_is_refused_before_any_learner_fits() -> None:
-    """The public declaration reaches the same refusal as the engine keywords above."""
-    study = CausalStudy(
-        law.frame(),
-        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",), missingness="Delta"),
-    )
-    method = TMLEMethod(
-        models=ModelSpec(**never_fit_learners()),
-        cross_fitting=CrossFitting(enabled=True, n_folds=1, stratify_by="none"),
-        inference=Inference(simultaneous=False),
-    )
+    """The public declaration reaches the same refusal as the engine keyword above.
 
-    with pytest.raises(CapabilityError, match="requires n_folds of at least 2"):
-        study.identify(NaturalCourseMean()).estimate(method=method)
+    ``CrossFitting`` validates eagerly, at construction, so the refusal fires before a
+    ``TMLEMethod`` or a ``CausalStudy.estimate`` call exists to run it, and before any
+    learner in ``never_fit_learners()`` could fit.
+    """
+    with pytest.raises(MethodConfigurationError, match="enabled=True with n_folds=1") as caught:
+        CrossFitting(enabled=True, n_folds=1, stratify_by="none")
+
+    assert str(caught.value) == (
+        "enabled=True with n_folds=1 leaves one fold, so every nuisance is fitted on the "
+        "rows it predicts while the fit reports the cross-fitted estimator's name and "
+        "variance rule. Set n_folds to at least 2, or fit in sample with "
+        "CrossFitting(enabled=False)"
+    )
     assert NeverFit.calls == 0
 
 
-@pytest.mark.parametrize(
-    ("stratify_folds", "error", "message"),
-    [
-        ("none", CapabilityError, "stratify_folds='none' is currently reserved"),
-        ("treatment", NotImplementedError, "baseline strata currently use one joint pooled"),
-    ],
-    ids=("fold-policy-reservation-wins", "generic-strata-gate-wins"),
-)
+@pytest.mark.parametrize("stratify_folds", ["none", "treatment"])
 @pytest.mark.parametrize(
     "overrides",
     [{"targeting_scheme": "fold"}, {"cv_evaluation": True}],
     ids=("fold-targeting", "fold-evaluation"),
 )
-def test_a_complete_outcome_fit_with_strata_meets_the_fold_policy_before_the_strata_gate(
+def test_a_complete_outcome_fit_with_strata_meets_the_generic_strata_gate(
     stratify_folds: str,
-    error: type[Exception],
-    message: str,
     overrides: dict[str, Any],
 ) -> None:
     """Pin which refusal a non-natural-course stratified fold-targeted fit receives.
 
-    The natural-course contract does not apply without missing outcomes. The fold-policy
-    reservation runs in the resolver, so it wins under ``stratify_folds='none'``.
-    Otherwise the generic strata gate in ``TMLE.fit`` refuses, before any learner fits.
+    The natural-course contract does not apply without missing outcomes. Under unstratified
+    folds no fold policy is reserved either, so the generic strata gate in ``TMLE.fit``
+    refuses, before any learner fits. ``stratify_folds='treatment'`` never reaches that
+    gate: the engine refuses the policy itself at construction, before a frame or strata
+    exist for the gate to read.
     """
     frame = law.frame().assign(
         Y=lambda value: value["Y"].fillna(0.0), S=(np.arange(law.N) % 2).astype(float)
     )
+    if stratify_folds == "treatment":
+        with pytest.raises(ValueError, match="stratify_folds='none'"):
+            stacked_tmle(
+                estimands=("ate",),
+                stratify_folds=stratify_folds,
+                **never_fit_learners(),
+                **overrides,
+            )
+        assert NeverFit.calls == 0
+        return
+
     estimator = stacked_tmle(
         estimands=("ate",),
         stratify_folds=stratify_folds,
@@ -208,30 +215,51 @@ def test_a_complete_outcome_fit_with_strata_meets_the_fold_policy_before_the_str
         **overrides,
     )
 
-    with pytest.raises(error, match=message):
+    with pytest.raises(NotImplementedError, match="baseline strata currently use one joint pooled"):
         estimator.fit(frame, outcome="Y", treatment="A", covariates=("W", "S"), strata="S")
     assert NeverFit.calls == 0
 
 
-def test_unstratified_folds_refuse_an_established_complete_outcome_fit() -> None:
+def test_unstratified_folds_are_accepted_by_an_established_complete_outcome_fit() -> None:
+    """A fit outside both audited contracts may draw the unstratified split it asked for.
+
+    The frame observes every outcome, so the natural-course contract does not govern it.
+    The fit reports an estimate, and the recorded scheme shows the policy reached fold
+    generation rather than being ignored.
+    """
     frame = law.frame().assign(Y=lambda value: value["Y"].fillna(0.0), Delta=1.0)
-    with pytest.raises(CapabilityError, match="reserved"):
-        _fit(frame, **never_fit_learners())
-    assert NeverFit.calls == 0
+
+    result = _fit(
+        frame,
+        estimands=("ate",),
+        outcome_learner=LogisticRegression(),
+        treatment_learner=LogisticRegression(),
+        missingness_learner=LogisticRegression(),
+    )
+
+    assert np.isfinite(result["ate"].psi)
+    assert result.config.crossfit.scheme == "vfold"
+    assert result.config.crossfit.stratify_by == ()
 
 
-def test_unstratified_folds_refuse_an_intermediate_fit_before_its_shared_nuisances() -> None:
+def test_the_resolver_refuses_an_intermediate_fit_before_its_shared_nuisances() -> None:
     """The intermediate path fits shared nuisances before ``_fit_single`` runs.
 
-    The fold-policy reservation must therefore run in the resolver that precedes that
-    shared fit, or this fit trains every learner and only then refuses.
+    The natural-course contract must therefore run in the resolver that precedes that
+    shared fit, or this fit trains every learner and only then refuses ``intermediate=``.
     """
-    frame = law.frame().assign(
-        Y=lambda value: value["Y"].fillna(0.0), Z=(np.arange(law.N) % 2).astype(float)
-    )
-    estimator = stacked_tmle(estimands=("ate",), **never_fit_learners())
-    with pytest.raises(CapabilityError, match="reserved"):
-        estimator.fit(frame, outcome="Y", treatment="A", covariates=("W",), intermediate="Z")
+    frame = law.frame().assign(Z=(np.arange(law.N) % 2).astype(float))
+    estimator = stacked_tmle(**never_fit_learners())
+
+    with pytest.raises(CapabilityError, match="intermediate= is not implemented"):
+        estimator.fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=("W",),
+            delta="Delta",
+            intermediate="Z",
+        )
     assert NeverFit.calls == 0
 
 
@@ -269,31 +297,48 @@ def test_a_training_complement_without_a_response_kind_refuses_before_any_learne
 ) -> None:
     folds = _preflight_folds()
     last = PREFLIGHT_FOLDS - 1
-    # Both rare rows sit in the last validation fold, so only that fold's complement lacks
-    # them. The earlier validation folds lack them too, which a validation-fold check
-    # would report as fold 0.
-    frame = _response_frame(rare, folds.test_index(last)[:2])
+    # The rare rows sit in the last validation fold, so only that fold's complement lacks
+    # them. Four respondents preserve both binary outcome classes at the sample level.
+    # The earlier validation folds lack the rare response kind too, which a
+    # validation-fold check would report as fold 0.
+    rare_rows = folds.test_index(last)[: (4 if rare == "response" else 2)]
+    frame = _response_frame(rare, rare_rows)
+    if rare == "response":
+        frame.loc[rare_rows, "Y"] = [0.0, 1.0, 0.0, 1.0]
     absent = "respondent" if rare == "response" else "nonrespondent"
 
     with pytest.raises(DataError, match=f"repeat 0, fold {last}'s training complement") as caught:
         _fit(frame, n_folds=PREFLIGHT_FOLDS, **never_fit_learners())
     message = str(caught.value)
     assert f"contains no {absent}" in message
+    # No refusal raised after a split is drawn names a repartition remedy: trying fold
+    # counts or seeds until one fits would choose the partition by the values it must not
+    # read, so the only remedies left are turning cross-fitting off or collecting more data.
     assert message.endswith(
-        f"Increase n_folds, use a different random_state, or {IN_SAMPLE_REMEDY}"
+        "The split is drawn from the seed alone and reads no treatment or outcome, so "
+        "trying fold counts or seeds until one fits would choose the partition by the "
+        f"values it must not read. Either {IN_SAMPLE_REMEDY}, or collect more observations "
+        "at the rare level."
     )
     assert "n_folds=1" not in message
     assert "reduce n_folds" not in message
+    assert "Increase n_folds" not in message
+    assert "use a different random_state" not in message
     assert NeverFit.calls == 0
 
 
 @pytest.mark.parametrize("rare", ["response", "nonresponse"])
 def test_a_validation_fold_without_a_response_kind_still_fits(rare: str) -> None:
     folds = _preflight_folds()
-    # One rare row in each of the first two validation folds: every training complement
-    # holds at least one, while the last validation fold holds none.
-    rows = np.array([folds.test_index(0)[0], folds.test_index(1)[0]])
+    # Each of the first two validation folds holds the rare response kind. For the
+    # respondent case, each also holds both outcome classes, so every training
+    # complement can fit the outcome regression.
+    per_fold = 2 if rare == "response" else 1
+    rows = np.concatenate([folds.test_index(i)[:per_fold] for i in (0, 1)])
     frame = _response_frame(rare, rows)
+    if rare == "response":
+        for i in (0, 1):
+            frame.loc[folds.test_index(i)[:2], "Y"] = [0.0, 1.0]
     rare_rows = (frame["Delta"] == 1.0) if rare == "response" else (frame["Delta"] == 0.0)
     assert not rare_rows.to_numpy()[folds.test_index(PREFLIGHT_FOLDS - 1)].any()
 

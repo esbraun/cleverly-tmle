@@ -1000,6 +1000,17 @@ def _validate_generated_eligibility(
             f"{name} cannot refit an estimator configured with family={configured_family!r} "
             f"under the declared {process.family!r} process"
         )
+    if getattr(estimator, "q_bounds", None) is not None:
+        raise CapabilityError(
+            f"{name} replaces the outcome with a draw from the registered Gaussian "
+            "process, whose support is the whole real line, and this fit declares "
+            f"q_bounds={estimator.q_bounds!r}. The refit would scale the generated "
+            "outcome into a range it is not confined to and report the refutation under "
+            "bounds the process does not satisfy. Leave q_bounds=None on the fit you "
+            "refute (Targeting(q_bounds=None)). A cross-fitted continuous fit has to "
+            "declare them, so refute a continuous outcome on a fit with cross_fit=False "
+            "(CrossFitting(enabled=False))"
+        )
     outcome_learner = getattr(estimator, "outcome_learner", None)
     incompatible_learner = _classification_only_learner(outcome_learner)
     if incompatible_learner is not None:

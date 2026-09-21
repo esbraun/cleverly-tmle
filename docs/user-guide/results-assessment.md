@@ -391,6 +391,7 @@ ate_result = gaussian_study.estimate(
     ATE(),
     outcome_learner=LinearRegression(),
     treatment_learner=LogisticRegression(max_iter=1000),
+    cross_fit=False,
     random_state=21,
 )
 generated = ate_result.diagnostics.refute(
@@ -505,8 +506,10 @@ The surface keeps the fitted estimator's `repeats` setting. Each non-anchor cell
 refit, and the estimator combines its draws with a coordinatewise median. Read `surface.n_repeats`
 and `surface.repeat_aggregation` to confirm that provenance. `repeat_aggregation` names the rule
 for more than one draw. A single draw needs no aggregation. The shared root seed gives every
-non-anchor cell the same repeat seed sequence. A treatment or outcome perturbation can still
-change stratified folds.
+non-anchor cell the same repeat seed sequence.
+
+The folds themselves do not move. The draw reads the row count, the cluster labels and the seed,
+so a treatment or outcome perturbation leaves the realized partition alone.
 
 Pass the seed of the original fit, or pass no `random_state` at all. The surface reproduces the
 folds of that fit under the seed of that fit alone. A different seed gives every non-anchor cell new folds, and
@@ -572,7 +575,7 @@ policy_result = (
     .estimate(
         outcome_learner=LinearRegression(),
         treatment_learner=LogisticRegression(max_iter=1000),
-        n_folds=2,
+        cross_fit=False,
         learner_folds=2,
         random_state=31,
     )
@@ -635,7 +638,7 @@ attributable_result = CausalStudy(
     PopulationAttributableRisk(reference=0),
     outcome_learner=LinearRegression(),
     treatment_learner=LogisticRegression(max_iter=1000),
-    n_folds=2,
+    cross_fit=False,
     random_state=21,
     simultaneous=False,
 )
@@ -689,7 +692,7 @@ population_result = CausalStudy(
     ATT(),
     outcome_learner=LinearRegression(),
     treatment_learner=LogisticRegression(max_iter=1000),
-    n_folds=2,
+    cross_fit=False,
     random_state=21,
     simultaneous=False,
 )
@@ -730,7 +733,7 @@ shift_result = shift_study.estimate(
     ),
     outcome_learner=LinearRegression(),
     treatment_learner=LogisticRegression(max_iter=1000),
-    n_folds=2,
+    cross_fit=False,
     learner_folds=2,
     random_state=21,
     simultaneous=False,

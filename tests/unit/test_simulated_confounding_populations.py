@@ -13,6 +13,8 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import PolynomialFeatures
 
 from cleverly import (
     ATC,
@@ -64,6 +66,29 @@ from tests.unit._confounding_support import (
 )
 
 
+def _estimate_gaussian_population(study: Any, target: Any, *, repeats: int, method: Any) -> Any:
+    """Mirror :func:`confounding_estimate`'s Gaussian branch, fitted in sample.
+
+    A cross-fitted continuous outcome needs a declared ``q_bounds`` (the fold and outcome-scale rules), and this
+    module's subject is the simulated-confounding population contract, not
+    cross-fitting, so this fits in sample (``cross_fit=False``) rather than declare a
+    bound the Gaussian law here does not have. Written out instead of reached through
+    :func:`confounding_estimate`, which is shared by other test modules that still want
+    its cross-fitted default and takes no ``cross_fit=`` override.
+    """
+    return study.identify(target).estimate(
+        method=method,
+        outcome_learner=make_pipeline(PolynomialFeatures(2), LinearRegression()),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        n_folds=2,
+        learner_folds=2,
+        random_state=12,
+        simultaneous=False,
+        repeats=repeats,
+        cross_fit=False,
+    )
+
+
 @cache
 def _fit_population(
     target: str = "att",
@@ -91,15 +116,25 @@ def _fit_population(
     configured: Any = method
     if method in _STRATEGY_OVERRIDES:
         configured = _strategy_method(method, selection_estimand=target)
-    return confounding_estimate(
-        confounding_study(
-            law="population", continuous=continuous, binary=binary, strata=strata, weighted=True
-        ),
-        targets[target],
-        method=configured,
+    # ``repeats`` redraws the cross-fitting split on every draw, so ``repeats != 1``
+    # needs ``cross_fit=True`` (``crossfit.py``: ``repeats > 1 and not cross_fit`` is
+    # refused). A cross-fitted Gaussian outcome needs a declared q_bounds this law does
+    # not state, so a repeated draw on an otherwise-continuous target moves to the
+    # binary outcome instead of widening the in-sample fit to something it structurally
+    # cannot support.
+    binary = binary or repeats != 1
+    study = confounding_study(
+        law="population",
+        continuous=continuous and not binary,
         binary=binary,
-        repeats=repeats,
+        strata=strata,
+        weighted=True,
     )
+    if binary:
+        return confounding_estimate(
+            study, targets[target], method=configured, binary=binary, repeats=repeats
+        )
+    return _estimate_gaussian_population(study, targets[target], repeats=repeats, method=configured)
 
 
 def _alias(result: Any, target: str, stratum: tuple[str, ...] | None) -> str:
@@ -156,6 +191,10 @@ def _fit_string_arms(target: str) -> tuple[Any, np.ndarray]:
             learner_folds=2,
             random_state=12,
             simultaneous=False,
+            # In sample (the fold and outcome-scale rules): the subject is string-labelled arms, not cross-fitting,
+            # and a cross-fitted continuous outcome needs a declared q_bounds this
+            # Gaussian law does not have.
+            cross_fit=False,
         )
     )
     return result, arms
@@ -383,10 +422,15 @@ def test_weighted_repeated_population_surface_cache_and_persistence() -> None:
         "estimand": alias,
         "grid": ConfounderStrengthGrid(treatment=(0.0, 0.22), outcome=(0.0,)),
         "benchmark_covariates": ("W",),
-        "random_state": 32,
+        # Not 32: on the binary population law this fit now draws (the fold and outcome-scale rules: repeats>1
+        # needs cross_fit=True, which needs a binary or bounded outcome rather than a
+        # q_bounds this Gaussian law does not have), seed 32 puts the first repeat
+        # exactly at the three draws' median, which is the value this test's last
+        # assertion has to tell apart from it.
+        "random_state": 20,
     }
     surface = result.sensitivity.simulated_confounding(**kwargs)
-    manual = result.estimator.refit(_replacement(result, surface, 0.22, 0.0), random_state=32)
+    manual = result.estimator.refit(_replacement(result, surface, 0.22, 0.0), random_state=20)
     assert surface.n_repeats == 3
     assert surface.cells[-1].estimate == manual[alias].psi
     assert surface.cells[-1].estimate == float(

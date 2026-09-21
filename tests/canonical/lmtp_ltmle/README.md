@@ -47,6 +47,14 @@ units, and the same screen rejected a correct matrix at 0.3188 against an expect
 `lmtp_competing_adapter.R` carries the corrected form, which screens the first column, whose
 expectation is exactly one whatever the event process does downstream.
 
-The shared adapter keeps the wrong anchor because its bytes are hashed into four manifests, and
-correcting it invalidates this study's provenance. Take the corrected form across when this row is
-next regenerated for a reason of its own.
+The shared adapter keeps the wrong anchor because its bytes are hashed into **eight** manifests:
+`categorical_ltmle`, `categorical_ltmle_crossfit`, `lmtp_clustered_tmle`, `lmtp_ltmle`,
+`lmtp_ltmle_competing`, `lmtp_ltmle_competing_crossfit`, `lmtp_ltmle_survival` and
+`weighted_lmtp_ltmle`. Correcting it invalidates all eight at once. An earlier draft of this
+paragraph counted four and said to take the corrected form across at this row's next regeneration.
+
+This row was regenerated for the unstratified first-node folds, and the anchor was deliberately
+not corrected then. Six of the eight moved in that work and two did not, so a correction made
+there would have left two manifests recording bytes that no longer exist. The fix needs one task
+that corrects the anchor and regenerates all eight together. `docs/roadmap.md` RM18 records it
+under the findings that pull request deferred.

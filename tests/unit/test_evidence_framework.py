@@ -16,6 +16,7 @@ import pandas as pd
 import pytest
 from scipy.stats import binom, norm
 
+from tests.studies.evidence import claims
 from tests.studies.evidence.claims import matches
 from tests.studies.evidence.document import render
 from tests.studies.evidence.inference import (
@@ -33,6 +34,7 @@ from tests.studies.evidence.inference import (
 from tests.studies.evidence.pairing import paired_wide
 from tests.studies.evidence.properties import Rate, rate, require_complete, summarize_cells
 from tests.studies.evidence.property_verdicts import (
+    DIAGNOSTIC_ROLE,
     ROOT_N_SLOPE_MARGIN,
     alternative_target_necessity_verdicts,
     calibration_verdicts,
@@ -672,3 +674,64 @@ class TestPrintedValues:
     def test_a_student_interval_needs_more_than_one_value(self) -> None:
         with pytest.raises(ValueError, match="at least two"):
             student_interval(np.array([1.0]), confidence_level=CONFIDENCE)
+
+
+class TestDiagnosticRowsDoNotScore:
+    """A row with no rule to fail must not raise the published pass ratio.
+
+    ``fold_policy_diagnostics`` writes ``passed`` and ``property_passed`` ``True`` on every
+    fold-policy row, because the family reports a comparison and decides no verdict.  Before
+    the exclusion below, the stacked CV-TMLE row published ``17/17`` where the same study had
+    published ``14/14`` with no diagnostic family at all, so the ratio improved by three rows
+    that cannot fail.  The mutation control is the second test: it restores the arithmetic
+    that produced ``17/17``, and it must move the count.
+    """
+
+    @staticmethod
+    def _properties(diagnostics: int, *, diagnostic_passed: bool = True) -> pd.DataFrame:
+        scored = pd.DataFrame(
+            {
+                "property": ["double_robustness", "double_robustness"],
+                "cell": ["both_correct", "both_wrong"],
+                "role": ["positive", "control"],
+                "passed": [True, False],
+                "property_passed": [True, True],
+            }
+        )
+        if not diagnostics:
+            return scored
+        reported = pd.DataFrame(
+            {
+                "property": "fold_policy",
+                "cell": [f"policy_{index}" for index in range(diagnostics)],
+                "role": DIAGNOSTIC_ROLE,
+                "passed": diagnostic_passed,
+                "property_passed": diagnostic_passed,
+            }
+        )
+        return pd.concat([scored, reported], ignore_index=True)
+
+    def _counts(self, frame: pd.DataFrame) -> tuple[float, float, float]:
+        record = registered()[0]
+        data = {"properties": frame}
+        return tuple(  # type: ignore[return-value]
+            claims.value(record, name, data)
+            for name in ("property_cells_passed", "property_cells_total", "property_cells_reported")
+        )
+
+    def test_adding_diagnostic_rows_cannot_move_the_pass_count(self) -> None:
+        assert self._counts(self._properties(0)) == (1.0, 2.0, 0.0)
+        assert self._counts(self._properties(3)) == (1.0, 2.0, 3.0)
+        assert self._counts(self._properties(9)) == (1.0, 2.0, 9.0)
+
+    def test_a_failing_diagnostic_row_cannot_move_it_either(self) -> None:
+        """The exclusion is by role, not by the value of ``passed``.
+
+        A diagnostic row that arrived ``False`` would otherwise lower the ratio, which is the
+        same defect in the other direction: the count would report a verdict nobody declared.
+        """
+        assert self._counts(self._properties(3, diagnostic_passed=False)) == (1.0, 2.0, 3.0)
+
+    def test_the_arithmetic_it_replaced_counts_them(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(claims, "_scored", lambda frame: frame)
+        assert self._counts(self._properties(3)) == (4.0, 5.0, 3.0)

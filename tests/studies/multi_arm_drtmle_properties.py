@@ -1,4 +1,9 @@
-"""Repeated-sampling properties for multi-arm DR-TMLE."""
+"""Repeated-sampling properties for multi-arm DR-TMLE.
+
+Every cell draws its own split from the estimator, so the cells declare
+``stratify_folds="none"`` rather than supplying a vector.  The law is binary, so no cell
+declares ``q_bounds``: the outcome scaler is already the identity.
+"""
 
 from __future__ import annotations
 
@@ -13,7 +18,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly.estimators import DRTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import multi_arm_common, multi_arm_properties
-from tests.studies.canonical_multi_arm_drtmle import STUDY
+from tests.studies.canonical_multi_arm_drtmle import STRATIFY_FOLDS, STUDY
 from tests.studies.evidence.properties import PropertyCell, run_cells
 from tests.studies.evidence.property_verdicts import (
     CONTRACTION_SCENARIOS,
@@ -134,6 +139,23 @@ def cells() -> tuple[PropertyCell, ...]:
     )
 
 
+def declared_cells() -> tuple[PropertyCell, ...]:
+    """The cells :func:`generate_property_rows` runs, named for the truth-binding check.
+
+    The same tuple :func:`cells` returns, exposed under the name
+    ``tests/unit/test_method_evidence.py`` reads so that every committed truth is checked
+    against the law the cell that produced it names.  The ``root_n_rate`` rows the document
+    publishes are not here: :func:`summarize_properties` derives them from the size cells and
+    they reach no replication file.
+
+    Returns
+    -------
+    tuple of PropertyCell
+        One entry per published ``(property, cell)`` pair in the replication rows.
+    """
+    return cells()
+
+
 def _estimator(cell: PropertyCell):  # type: ignore[no-untyped-def]
     return lambda: DRTMLE(
         outcome_learner=cell.outcome_learner(),
@@ -142,6 +164,7 @@ def _estimator(cell: PropertyCell):  # type: ignore[no-untyped-def]
         reduced_treatment_learner=LogisticRegression(C=1e6, max_iter=2000),
         cross_fit=True,
         n_folds=5,
+        stratify_folds=STRATIFY_FOLDS,
         estimands="ate",
         reference=multi_arm_common.REFERENCE,
         simultaneous=False,

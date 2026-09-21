@@ -8,7 +8,11 @@ narwhals. Table-returning output comes back in the backend the study was built f
 validation happens before nuisance fitting.
 
 The input must have one row per independent observational unit unless `cluster=` declares the unit
-at which inference is independent. Missing values are supported only in roles whose design
+at which inference is independent. A cross-fitted fit needs each treatment arm in at least two of
+those units, because a split moves whole units. It also needs the outcome's known support when the
+outcome is continuous.
+[Fold and outcome-scale rules](../technical-reference/cv-tmle.md#fold-and-outcome-scale-rules)
+gives both requirements and their refusals. Missing values are supported only in roles whose design
 explicitly models missingness; a missing adjustment or treatment value is not silently imputed.
 
 ## Point treatment
@@ -32,7 +36,10 @@ study = CausalStudy(
 - `adjustment` is the measured pre-treatment set used by the identification argument.
 - `weights` defines the target population and flows through nuisance losses, targeting, influence
   curves, and covariance.
-- `cluster` selects cluster-robust inference; it is not another adjustment variable.
+- `cluster` selects cluster-robust inference, and it selects a grouped fold draw that keeps each
+  cluster whole. It is not another adjustment variable. A cluster is then the independent unit a
+  cross-fitted fit counts, so each treatment arm must appear in at least two clusters. C-TMLE
+  refuses `cluster=` at every setting, and longitudinal TMLE refuses it above one fold.
 - `strata` requests subgroup parameters and preserves the stratum in structured parameter keys.
   A stratum variable must also appear in `adjustment`: it conditions the reported parameter, so a
   design that stratified on a variable it did not adjust for is refused rather than fitted.

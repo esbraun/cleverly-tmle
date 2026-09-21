@@ -22,8 +22,8 @@ exact_folds <- function(assignment) {
   })
 }
 
-fit_cv <- function(spec, data, nodes, folds, conditional = FALSE) {
-  task <- point_tx_task(data, nodes, folds = folds)
+fit_cv <- function(spec, data, nodes, folds, conditional = FALSE, variable_types = NULL) {
+  task <- point_tx_task(data, nodes, variable_types = variable_types, folds = folds)
   stopifnot(all(vapply(seq_along(folds), function(v) {
     identical(task$folds[[v]]$validation_set, folds[[v]]$validation_set)
   }, logical(1))))
@@ -85,6 +85,16 @@ fit_one <- function(frame, scenario, replicate) {
   covariates <- covariates[!vapply(frame[covariates], function(x) all(is.na(x)), logical(1))]
   data <- frame[c(covariates, "A", "Y")]
   nodes <- list(W = covariates, A = "A", Y = "Y")
+  # The continuous law draws a proportion, so (0, 1) is the law's own support and both
+  # implementations target on the same scale. Left NULL, tmle3 would take the scale from
+  # the realized outcomes while cleverly takes the declared q_bounds, and the pair would
+  # compare two scales rather than two targeting steps. The binary law is passed nothing:
+  # its scaler is already the identity on both sides.
+  variable_types <- if (scenario == "binary") {
+    NULL
+  } else {
+    list(Y = variable_type("continuous", bounds = c(0, 1)))
+  }
   n <- nrow(data)
   rows <- list()
   stage <- function(label, expression) {
@@ -93,32 +103,36 @@ fit_one <- function(frame, scenario, replicate) {
     })
   }
 
-  tsm <- stage("TSM", fit_cv(tmle_TSM_all(), data, nodes, folds))
+  tsm <- stage("TSM", fit_cv(tmle_TSM_all(), data, nodes, folds,
+    variable_types = variable_types))
   rows[[length(rows) + 1]] <- extract(tsm, c("ey0", "ey1"), scenario, replicate, truth, n)
   rows[[length(rows) + 1]] <- extract(
-    stage("ATE", fit_cv(tmle_ATE(1, 0), data, nodes, folds)),
+    stage("ATE", fit_cv(tmle_ATE(1, 0), data, nodes, folds, variable_types = variable_types)),
     "ate", scenario, replicate, truth, n
   )
   rows[[length(rows) + 1]] <- extract(
-    stage("ATT", fit_cv(tmle_ATT(1, 0), data, nodes, folds, conditional = TRUE)),
+    stage("ATT", fit_cv(tmle_ATT(1, 0), data, nodes, folds, conditional = TRUE,
+      variable_types = variable_types)),
     "att", scenario, replicate, truth, n
   )
   rows[[length(rows) + 1]] <- extract(
-    stage("ATC", fit_cv(tmle_ATC(1, 0), data, nodes, folds, conditional = TRUE)),
+    stage("ATC", fit_cv(tmle_ATC(1, 0), data, nodes, folds, conditional = TRUE,
+      variable_types = variable_types)),
     "atc", scenario, replicate, truth, n
   )
-  par <- stage("PAR", fit_cv(tmle_PAR(0), data, nodes, folds))
+  par <- stage("PAR", fit_cv(tmle_PAR(0), data, nodes, folds,
+    variable_types = variable_types))
   par_rows <- extract(par, c("ey0", "ey_obs", "par", "paf"), scenario, replicate, truth, n)
   if (scenario != "binary") par_rows <- par_rows[par_rows$estimand != "paf", ]
   rows[[length(rows) + 1]] <- par_rows[par_rows$estimand != "ey0", ]
 
   if (scenario == "binary") {
     rows[[length(rows) + 1]] <- extract(
-      stage("RR", fit_cv(tmle_RR(0, 1), data, nodes, folds)),
+      stage("RR", fit_cv(tmle_RR(0, 1), data, nodes, folds, variable_types = variable_types)),
       c("ey0", "ey1", "rr"), scenario, replicate, truth, n
     )[3, ]
     rows[[length(rows) + 1]] <- extract(
-      stage("OR", fit_cv(tmle_OR(0, 1), data, nodes, folds)),
+      stage("OR", fit_cv(tmle_OR(0, 1), data, nodes, folds, variable_types = variable_types)),
       c("ey0", "ey1", "or"), scenario, replicate, truth, n
     )[3, ]
   }

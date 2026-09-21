@@ -95,6 +95,11 @@ Every mechanism training fold must contain every observed level. A missing level
 fitting, because probability-column alignment cannot identify an arm that is absent from that
 training law.
 
+The split reads no treatment, so it cannot deliver that property. The fit checks the realized draw
+instead. `preflight_mechanism_support` runs once, over every node, before the first learner. It
+checks the first node at any level count under cross-fitting, and a later node from three levels
+up.
+
 `g_bounds` defaults to the explicit fixed pair `(0.01, 1.0)`, matching R `ltmle`. It is a
 **heuristic convention**. It is not an automatic procedure and not a derived rate. It does not
 depend on the row count, the effective sample size, the fitted probabilities, or the follow-up
@@ -120,7 +125,10 @@ preferred bound, selection correction, or positivity verdict. The
 algorithm provenance and the boundary of that claim.
 
 This replay keeps the realized data, resolved plans, folds, weights, clusters, and parameter
-structure fixed. A cross-fitted replay uses every complete fold-specific mechanism slab. It does
+structure fixed. A clustered fit runs at one fold alone, so a clustered replay is an in-sample
+replay.
+
+A cross-fitted replay uses every complete fold-specific mechanism slab. It does
 not read the stitched out-of-fold pair alone. The result must retain a replay recipe, and that
 recipe's outcome and pseudo-outcome learners must be cloneable.
 [Replay-only unavailability](scope-and-refusals.md#replay-only-unavailability) states the
@@ -203,8 +211,8 @@ der Laan (2012) is the survival implementation reference.
 | `horizons=` | which time points a survival fit reports cumulative risk at. `None` reports the whole curve. Name the horizons you will report: the cost is $T(T+1)/2$ regressions per regimen rather than $T$ |
 | `msm=` | a working model over the regimen and horizon cells. It requires `n_folds=1`. See [MSM projections](msm-projections.md) |
 | four learner slots | `outcome_learner`, `pseudo_learner`, `treatment_learner`, `censoring_learner`. The pseudo learner fits the intermediate regressions, whose outcome is a bounded prediction rather than the outcome itself |
-| `n_folds=`, `learner_folds=` | one outer split serves every node and regimen. Each fold fits a complete mechanism, backward recursion, and targeting sequence on its training rows. The result stitches predictions only on held-out rows. The fit keeps one mechanism slab per fold, so the mechanism costs $K$ times the memory of a single-fold fit and the saved result grows by the same factor |
-| `g_bounds=`, `q_bounds=`, `alpha=` | cumulative truncation, outcome scaling, and the logistic shrink |
+| `n_folds=`, `learner_folds=` | one outer split serves every node and regimen. The split is unstratified: `random_partition` draws it from the row count and the seed, and it balances no treatment node. Each fold fits a complete mechanism, backward recursion, and targeting sequence on its training rows. The result stitches predictions only on held-out rows. The fit keeps one mechanism slab per fold, so the mechanism costs $K$ times the memory of a single-fold fit and the saved result grows by the same factor |
+| `g_bounds=`, `q_bounds=`, `alpha=` | cumulative truncation, outcome scaling, and the logistic shrink. Above one fold, a continuous outcome must declare `q_bounds` |
 | `alpha_sig=`, `simultaneous=`, `n_multiplier=`, `multiplier_kind=` | interval level, and the simultaneous bands across the reported regimens |
 
 ### What cross-fitting splits
@@ -213,6 +221,17 @@ The whole backward recursion is the unit of splitting for regimen means. Fold $k
 mechanism, regression, and fluctuation on its training complement. Only its held-out rows reach the
 report. Each fold must also carry enough events for each declared cause, which
 [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) states with its remedy.
+
+The split balances nothing. It used to balance the first treatment node, and the reviewed
+longitudinal theorem defines a random near-balanced row partition instead. The audit in
+[fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) found no source for the
+first-node strata, so the package now draws the partition from the seed alone.
+
+Two designs are refused above one fold. A fit with `id=` is refused, because the cluster-robust
+variance of this targeted recursion under a grouped draw is not established. A continuous outcome
+with `q_bounds=None` is refused, because the sample outcome range would take the scale from
+held-out rows. Each message names the in-sample fit, which is `CrossFitting(enabled=False)`, or
+`n_folds=1` on the engine.
 
 Longitudinal `msm=` requires `n_folds=1`. A saturated identity shows that two constructions reduce
 to the same regimen means. It does not validate an unsaturated coefficient projection under
@@ -245,6 +264,8 @@ The refusals that are statements about the *question* rather than about coverage
 | `mechanism=True` on `truncation_curve()` | a different question | a longitudinal fit holds one cumulative treatment-and-censoring bound, and it fits no separate observation mechanism to sweep. The option names a point-treatment axis, so the call raises `CapabilityError` rather than sweeping the cumulative bound under another name |
 | an outcome missing for a reason other than censoring | wrong by construction | left as it is, the probability of observing it is silently taken to be one. Encode it as a final censoring column, so it is estimated and enters the cumulative product |
 | the targeted bootstrap and longitudinal sensitivity-bound estimation | not written yet | the bootstrap needs a resampling and replay contract. Sensitivity-bound estimation needs a sample estimator and sampling theory for its bound functionals |
+| `id=` above one fold | not written yet | a grouped draw keeps each cluster whole, and the cluster-robust variance of the targeted sequential recursion under one is not established. The in-sample clustered fit is evidenced and stays available |
+| a continuous outcome with `q_bounds=None` above one fold | not written yet | with `q_bounds=None` the scale comes from every observed outcome, held-out rows included, and no shipped result covers that scale |
 
 See [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) for what each `kind` means.
 

@@ -7,9 +7,14 @@ tutorial changes only the fields its question changes with :func:`dataclasses.re
 :func:`longitudinal_navigation_protocol` does the same for the tutorials whose time zero is the
 discharge and whose navigation is offered at more than one decision.
 
-Several tutorials draw :func:`~cleverly.datasets.make_nonlinear_ate` and read its columns under
-the program's names.  :func:`navigation_data` holds that one mapping.  Other generators give their
-``W`` columns other meanings, so each of those tutorials keeps its own mapping.
+Several tutorials draw :func:`~cleverly.datasets.make_nonlinear_bounded` and read its columns
+under the program's names.  :func:`navigation_data` holds that one mapping.  Other generators give
+their ``W`` columns other meanings, so each of those tutorials keeps its own mapping.
+
+The program records the transition score as a share of the maximum score, so the outcome has the
+known support ``(0, 1)``.  A cross-fitted fit of a continuous outcome must declare that support as
+``q_bounds``, because an undeclared scale is read from the held-out rows as well.  The tutorials
+that cross-fit these data therefore pass ``Targeting(q_bounds=(0.0, 1.0))``.
 """
 
 from __future__ import annotations
@@ -21,11 +26,11 @@ import numpy as np
 from .._typing import Backend
 from ..protocol import StudyProtocol
 from ..utils.frames import as_frame
-from .synthetic import make_nonlinear_ate
+from .synthetic import make_nonlinear_bounded
 
 __all__ = ["longitudinal_navigation_protocol", "navigation_data", "navigation_protocol"]
 
-#: The program name of each :func:`make_nonlinear_ate` column, in the generator's column order.
+#: The program name of each :func:`make_nonlinear_bounded` column, in the generator's order.
 _PROGRAM_COLUMNS = {
     "Y": "transition_score",
     "A": "transition_navigation",
@@ -56,19 +61,22 @@ def navigation_data(
     Returns
     -------
     dataframe
-        The draw of :func:`make_nonlinear_ate` with each column renamed. The values and the column
-        order are unchanged.
+        The draw of :func:`make_nonlinear_bounded` with each column renamed. The values and the
+        column order are unchanged.
     truth : dict of str to float
         Exact causal parameters for the data-generating process.
 
     See Also
     --------
-    cleverly.datasets.make_nonlinear_ate : The generator this function renames.
+    cleverly.datasets.make_nonlinear_bounded : The generator this function renames.
     cleverly.datasets.navigation_protocol : The protocol of the program these data describe.
 
     Notes
     -----
-    The same seed gives the same rows as :func:`make_nonlinear_ate`.  Only the names change.
+    The same seed gives the same rows as :func:`make_nonlinear_bounded`.  Only the names change.
+
+    The transition score is a share of the maximum score, so every value lies in ``(0, 1)``.  A
+    cross-fitted fit of it declares ``q_bounds=(0.0, 1.0)``.
 
     ========= =======================
     generator program
@@ -95,9 +103,9 @@ def navigation_data(
     >>> frame.shape
     (500, 6)
     >>> round(truth["ate"], 3)
-    1.75
+    0.163
     """
-    frame, truth = make_nonlinear_ate(n, seed=seed, backend=backend)
+    frame, truth = make_nonlinear_bounded(n, seed=seed, backend=backend)
     return as_frame(frame).rename(_PROGRAM_COLUMNS).to_native(), truth
 
 
@@ -123,6 +131,10 @@ def navigation_protocol() -> StudyProtocol:
     result to :func:`dataclasses.replace`.  The synthetic generators make the identification
     assumptions true by construction.  The rationale here describes the program, not the draw.
 
+    The outcome field states the score's support.  A cross-fitted fit of a continuous outcome
+    declares that support as ``q_bounds``, so a tutorial whose synthetic stand-in has another
+    support replaces this field and says which fit that support allows.
+
     Examples
     --------
     >>> from dataclasses import replace
@@ -131,7 +143,7 @@ def navigation_protocol() -> StudyProtocol:
     >>> protocol.horizon
     '30 days after discharge'
     >>> protocol.fingerprint
-    '2dd268e1f5ab29ae'
+    '623fc2c240615d26'
 
     A tutorial with another question replaces only the fields that question changes:
 
@@ -161,7 +173,7 @@ def navigation_protocol() -> StudyProtocol:
             "Bedside transition plan and two scheduled navigator contacts within 30 days",
             "No access to the transition-navigation offer",
         ),
-        outcome="Patient-reported transition score",
+        outcome="Patient-reported transition score, as a share of the maximum score",
         horizon="30 days after discharge",
         intercurrent_event_handling=(
             "Use the transition score regardless of readmission",

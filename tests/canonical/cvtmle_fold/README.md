@@ -1,9 +1,14 @@
 # Fold-evaluated point-treatment CV-TMLE
 
 This directory freezes the independent repeated-sampling study for cleverly's original
-fold-evaluated CV-TMLE report.  It uses treatment-stratified ten-fold nuisance fitting and one
+fold-evaluated CV-TMLE report.  It uses unstratified ten-fold nuisance fitting and one
 pooled targeting update, then averages the fold-specific plug-in reports equally and uses the
 cross-validated influence-curve variance.
+
+The outer split reads neither the treatment nor the outcome, and the fit reads the realized
+plan back rather than trusting the keyword.  The continuous law draws a proportion, so the
+study declares `q_bounds=(0, 1)` for it.  The binary law is passed no `q_bounds`, because a
+binary outcome already sits on the unit interval.
 
 The study tests `ey1`, `ey0`, `ate`, `att`, and `atc` against exact truth under binary and
 bounded continuous outcome laws.  It also measures double robustness with a both-wrong

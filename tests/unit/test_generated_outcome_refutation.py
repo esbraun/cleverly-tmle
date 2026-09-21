@@ -421,6 +421,20 @@ class TestGeneratedOutcomeRefusals:
             refute(result, tests=("dummy_outcome",), n_replicates=1)
         assert result.estimator.calls == []
 
+    def test_a_declared_q_bounds_is_refused_before_a_refit(self) -> None:
+        """A saved ``q_bounds`` states a scale the registered Gaussian process ignores.
+
+        ``q_bounds`` is only ever non-``None`` on a fit this package itself refuses to
+        cross-fit unbounded, so the estimator stand-in here carries one that a real fit
+        could not: the point is to check the refusal, not to reach it through a fit that
+        is refused earlier for an unrelated reason.
+        """
+        result = _eligible_result()
+        result.estimator.q_bounds = (0.0, 1.0)
+        with pytest.raises(CapabilityError, match=r"declares q_bounds=\(0\.0, 1\.0\)"):
+            refute(result, tests=("dummy_outcome",), n_replicates=1)
+        assert result.estimator.calls == []
+
     @pytest.mark.parametrize(
         "outcome_learner",
         [
@@ -641,6 +655,9 @@ def _linear_ate_fit(estimand: Any, *, labels: bool = False, n: int = 300, seed: 
     return study.identify(estimand).estimate(
         outcome_learner=LinearRegression(),
         treatment_learner=LogisticRegression(max_iter=1000),
+        # In sample: q_bounds stays None so the refit draws a Gaussian outcome onto the
+        # real line unscaled, and a cross-fitted continuous fit refuses q_bounds=None.
+        cross_fit=False,
         n_folds=2,
         simultaneous=False,
         random_state=seed,

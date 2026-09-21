@@ -65,7 +65,7 @@ import pytest
 import sklearn.linear_model
 
 from cleverly.data import CausalData
-from cleverly.datasets import make_linear_ate
+from cleverly.datasets import make_binary_outcome
 from cleverly.estimators import DRTMLE
 from cleverly.estimators import _nuisance as nuisance_module
 from cleverly.estimators import drtmle as drtmle_module
@@ -105,8 +105,12 @@ def source_cv_fit() -> Any:
     those rows, and takes ``cov(IC) / n``.  At 101 rows and three folds, an equal ``1/V``
     average and the cross-validated variance are different numbers, so the alternatives are
     nonzero mutations rather than descriptions that happen to coincide on balanced folds.
+
+    The outcome is binary (the fold and outcome-scale rules): a cross-fitted continuous outcome needs a declared
+    ``q_bounds``, and this fit's subject is the CV contract itself, not a scale choice, so
+    it moves to a law whose family the scaler never asks a bound of.
     """
-    frame, _ = make_linear_ate(n=101, seed=17)
+    frame, _ = make_binary_outcome(n=101, seed=17)
     return (
         DRTMLE(
             estimands=("ey1", "ey0"),

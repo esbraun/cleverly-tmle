@@ -14,11 +14,16 @@ module answers each one:
 * Does the plan refuse the rows it cannot label?  A fold label is a position, so a plan
   reused on other rows, on a different row count, or on a refit that drops rows is
   refused, and each refusal is asserted by message rather than only by type.
+* Does the fit know where the labels came from?  A fit accepts a plan only when the plan
+  records how :func:`~cleverly.learners.random_partition` drew each repeat, and draws each
+  repeat again to check it.  ``TestOnlyARecordedDrawIsAccepted`` is the witness: a
+  hand-built plan and a forged one are refused before any learner runs.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import re
 import warnings
 from collections.abc import Callable
 from typing import Any
@@ -47,12 +52,13 @@ from cleverly import (
     Runtime,
     SplitPlan,
     SuperLearner,
+    Targeting,
     TMLEMethod,
 )
-from cleverly._typing import FoldStrata
+from cleverly._typing import FoldStrata, IntArray
 from cleverly.datasets import (
     make_longitudinal,
-    make_nonlinear_ate,
+    make_nonlinear_bounded,
     make_shift_dose,
     multi_arm_dgp,
 )
@@ -60,6 +66,11 @@ from cleverly.estimators.serialize import dumps, loads
 from cleverly.estimators.tmle import TMLE as TMLEEngine
 from cleverly.exceptions import DataError, MethodConfigurationError
 from cleverly.interventions import Shift
+from cleverly.learners import FoldOrigin, random_partition
+from cleverly.learners.crossfit import (
+    _UNRECORDED_PLAN_REASON,
+    RANDOM_PARTITION_GENERATOR,
+)
 from cleverly.provenance import data_fingerprint, fold_fingerprint
 from cleverly.validation import refute
 
@@ -108,7 +119,8 @@ def _method(
     fold_evaluation: bool = False,
     enabled: bool = True,
     n_folds: int = N_FOLDS,
-    stratify_by: FoldStrata = "treatment",
+    stratify_by: FoldStrata = "none",
+    q_bounds: tuple[float, float] | None = (0.0, 1.0),
     random_state: int = SEED,
     models: ModelSpec | None = None,
     kind: type[TMLEMethod] = TMLEMethod,
@@ -118,6 +130,12 @@ def _method(
 
     ``kind`` and ``extra`` reach the collaborative and reduced-dimension configurations,
     which add fields to the same five groups rather than replacing them.
+
+    ``stratify_by`` defaults to ``"none"``, the only value a cross-fitted fit accepts
+    (the fold and outcome-scale rules); ``q_bounds`` defaults to ``(0.0, 1.0)``, this module's frames now being drawn
+    from :func:`~cleverly.datasets.make_nonlinear_bounded`, whose proportion outcome has
+    that support. Both default to what a cross-fitted fit needs, since ``enabled=True``
+    is this helper's own default.
     """
     return kind(
         models=_models() if models is None else models,
@@ -130,13 +148,14 @@ def _method(
             fold_evaluation=fold_evaluation,
             split_plan=split_plan,
         ),
+        targeting=Targeting(q_bounds=q_bounds),
         inference=Inference(simultaneous=False, n_bootstrap=n_bootstrap),
         runtime=Runtime(random_state=random_state, n_jobs=n_jobs),
         **extra,
     )
 
 
-def _effect(frame: Any, *, cluster: str | None = None) -> Any:
+def _study(frame: Any, *, cluster: str | None = None) -> Any:
     return CausalStudy(
         frame,
         design=PointTreatment(
@@ -145,7 +164,11 @@ def _effect(frame: Any, *, cluster: str | None = None) -> Any:
             adjustment=("W1", "W2", "W3"),
             cluster=cluster,
         ),
-    ).identify(ATE())
+    )
+
+
+def _effect(frame: Any, *, cluster: str | None = None) -> Any:
+    return _study(frame, cluster=cluster).identify(ATE())
 
 
 def _backed(frame: pd.DataFrame, backend: str) -> Any:
@@ -162,12 +185,64 @@ def _never_called(reason: str) -> Callable[..., Any]:
     return unexpected
 
 
+def _package_plan(
+    n: int,
+    *,
+    n_folds: int = N_FOLDS,
+    repeats: int = 1,
+    cluster: IntArray | None = None,
+    seed: int = SEED,
+) -> SplitPlan:
+    """Return a plan the package drew, which is the only kind a fit accepts.
+
+    ``random_partition`` is the generator every accepted plan records, and
+    :meth:`SplitPlan.from_folds` copies that record off the draw.  A fit draws each
+    repeat again from the record and compares it label for label, so a plan built any
+    other way is refused before its first learner.
+    """
+    return SplitPlan.from_folds(
+        random_partition(n, n_folds, cluster=cluster, seed=seed + repeat)
+        for repeat in range(repeats)
+    )
+
+
+def _cluster_codes(frame: Any, *, cluster: str | None) -> IntArray | None:
+    """Return the cluster codes a fit on ``frame`` will draw grouped folds from.
+
+    A grouped draw reads the codes the data carry, so the plan has to be drawn from the
+    same vector the fit will hand to ``verify``.
+    """
+    if cluster is None:
+        return None
+    return _study(frame, cluster=cluster).data.cluster
+
+
 def _generated_then_supplied(
-    frame: Any, *, cluster: str | None = None, **knobs: Any
+    frame: Any, *, cluster: str | None = None, plan_seed: int = SEED, **knobs: Any
 ) -> tuple[Any, Any]:
-    """Fit once to draw a split, then again on the plan that first fit realised."""
+    """Fit once on a generated draw, then again on the plan that first fit realised.
+
+    ``stratify_by="none"`` is the default here, so the first fit draws its own split
+    through the generator a plan has to record.  That is the pair the reuse contract is
+    about: nothing is supplied until the second fit reads ``result.split_plan``.  A
+    caller that declares a stratified policy supplies the first draw instead, because a
+    stratified split records no generator and no fit accepts it back.
+    """
+    knobs.setdefault("stratify_by", "none")
     effect = _effect(frame, cluster=cluster)
-    generated = effect.estimate(method=_method(**knobs))
+    if knobs["stratify_by"] == "none":
+        generated = effect.estimate(method=_method(random_state=plan_seed, **knobs))
+        assert generated.split_plan.provenance is not None
+    else:
+        plan = _package_plan(
+            len(frame),
+            n_folds=knobs.get("n_folds", N_FOLDS),
+            repeats=knobs.get("repeats", 1),
+            cluster=_cluster_codes(frame, cluster=cluster),
+            seed=plan_seed,
+        )
+        generated = effect.estimate(method=_method(split_plan=plan, **knobs))
+        assert generated.split_plan.provenance == plan.provenance
     supplied = effect.estimate(method=_method(split_plan=generated.split_plan, **knobs))
     return generated, supplied
 
@@ -291,9 +366,19 @@ class TestSplitPlanRecord:
 
         assert text == (
             "SplitPlan(n=5000, n_folds=4, n_repeats=1, "
-            f"fingerprint={plan.fingerprint}, source=abc123)"
+            f"fingerprint={plan.fingerprint}, generator=None, source=abc123)"
         )
         assert len(text) < 200
+
+    def test_the_representation_names_the_generator_a_plan_records(self) -> None:
+        """``generator=`` is what says whether a fit can accept the plan at all."""
+        plan = _package_plan(120, n_folds=4)
+        text = repr(plan)
+
+        assert text == (
+            "SplitPlan(n=120, n_folds=4, n_repeats=1, "
+            f"fingerprint={plan.fingerprint}, generator={RANDOM_PARTITION_GENERATOR})"
+        )
 
     def test_a_hand_built_plan_is_bound_to_no_data(self) -> None:
         plan = SplitPlan([[0, 1, 0, 1]])
@@ -316,6 +401,253 @@ class TestSplitPlanRecord:
             plan.validate(n=4, strata=balanced)  # type: ignore[call-arg]
 
 
+#: Every learner fit these tests observe, in call order. A refusal witness reads it empty.
+_LEARNER_CALLS: list[str] = []
+
+
+class _CountedRegression(LinearRegression):
+    """A learner that records each fit, so a refusal can be shown to precede all of them."""
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> Any:
+        _LEARNER_CALLS.append("outcome")
+        return super().fit(X, y, sample_weight)
+
+
+class _CountedLogistic(LogisticRegression):
+    """The propensity half of the same counter."""
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> Any:
+        _LEARNER_CALLS.append("treatment")
+        return super().fit(X, y, sample_weight)
+
+
+def _counted_models() -> ModelSpec:
+    """The cheap pair, counting every fit.
+
+    Cloning keeps the class, so a counter on the class reaches every clone the estimator
+    makes. An instance counter would stay at zero however many fits ran.
+    """
+    return ModelSpec(
+        outcome_learner=_CountedRegression(),
+        treatment_learner=_CountedLogistic(max_iter=1000),
+    )
+
+
+class TestOnlyARecordedDrawIsAccepted:
+    """A plan is accepted for where its labels came from, not only for their shape.
+
+    ``SplitPlan.validate`` reads the labels against the data and cannot see what chose
+    them: an assignment that puts every treated unit in one fold passes cluster integrity
+    and training support, and labels chosen by reading the outcome pass both as well. The
+    generator record narrows that to the splits one recorded fold count and seed draw,
+    and drawing the split again from the record is how a fit checks it. The record cannot
+    audit the declared fold count and seed, which is why ``result.split_plan`` is the
+    documented source.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_counter(self) -> Any:
+        _LEARNER_CALLS.clear()
+        yield
+        _LEARNER_CALLS.clear()
+
+    def test_a_package_draw_carries_its_record_through_the_plan_and_back(self) -> None:
+        folds = random_partition(120, N_FOLDS, seed=SEED)
+        plan = SplitPlan.from_folds([folds])
+
+        assert plan.provenance == (folds.origin,)
+        assert plan.provenance[0] == FoldOrigin(
+            generator=RANDOM_PARTITION_GENERATOR,
+            scheme="vfold",
+            requested_n_folds=N_FOLDS,
+            seed=SEED,
+        )
+        # And back out again, so a fit on this plan returns a plan with the same record.
+        assert [draw.origin for draw in plan.to_folds()] == [folds.origin]
+
+    def test_a_hand_built_plan_records_nothing(self) -> None:
+        plan = SplitPlan([[0, 1, 0, 1]])
+
+        assert plan.provenance is None
+        assert [draw.origin for draw in plan.to_folds()] == [None]
+
+    def test_one_unrecorded_repeat_leaves_the_whole_plan_unrecorded(self) -> None:
+        """A plan is accepted repeat by repeat, so a partial record is no record."""
+        drawn = random_partition(120, N_FOLDS, seed=SEED)
+        hand_built = dataclasses.replace(drawn, origin=None)
+
+        assert SplitPlan.from_folds([drawn, hand_built]).provenance is None
+
+    @pytest.mark.parametrize(
+        ("provenance", "match"),
+        [
+            ((), "one origin per repeat"),
+            (
+                (
+                    FoldOrigin(RANDOM_PARTITION_GENERATOR, "vfold", 2, 0),
+                    FoldOrigin(RANDOM_PARTITION_GENERATOR, "vfold", 2, 1),
+                ),
+                "one origin per repeat",
+            ),
+            (("cleverly.random_partition/1",), "must be a FoldOrigin"),
+        ],
+        ids=("no-records", "too-many-records", "not-a-record"),
+    )
+    def test_a_malformed_record_is_refused_at_construction(
+        self, provenance: Any, match: str
+    ) -> None:
+        with pytest.raises(DataError, match=match):
+            SplitPlan([[0, 1, 0, 1]], provenance=provenance)
+
+    def test_a_pickle_that_predates_the_field_restores_unrecorded(self) -> None:
+        """An old stored plan reads as what it is: labels with no generator record."""
+        plan = _package_plan(120)
+        state = {
+            "assignments": plan.assignments,
+            "source_fingerprint": plan.source_fingerprint,
+        }
+        restored = SplitPlan.__new__(SplitPlan)
+        restored.__setstate__(state)
+
+        assert restored.provenance is None
+        assert restored.assignments == plan.assignments
+
+    def test_verify_accepts_the_draw_it_records(self) -> None:
+        _package_plan(120).verify(n=120)
+
+    def test_verify_refuses_a_plan_with_no_record(self) -> None:
+        with pytest.raises(DataError, match="no generator record"):
+            SplitPlan([[0, 1, 0, 1]]).verify(n=4)
+
+    def test_verify_refuses_one_changed_label(self) -> None:
+        """The forgery a shape check cannot see: a valid split, drawn by nobody."""
+        plan = _package_plan(120)
+        forged = list(plan.assignments[0])
+        forged[0] = (forged[0] + 1) % N_FOLDS
+        plan = SplitPlan([forged], provenance=plan.provenance)
+
+        with pytest.raises(DataError, match=r"repeat 0 differs .* at 1 row"):
+            plan.verify(n=120)
+
+    def test_verify_refuses_a_record_naming_another_seed(self) -> None:
+        plan = _package_plan(120)
+        origin = dataclasses.replace(plan.provenance[0], seed=plan.provenance[0].seed + 1)
+
+        with pytest.raises(DataError, match="repeat 0 differs"):
+            SplitPlan(plan.assignments, provenance=(origin,)).verify(n=120)
+
+    def test_verify_refuses_a_record_naming_another_generator(self) -> None:
+        plan = _package_plan(120)
+        origin = dataclasses.replace(plan.provenance[0], generator="somebody.else/3")
+
+        with pytest.raises(DataError, match=re.escape("records generator 'somebody.else/3'")):
+            SplitPlan(plan.assignments, provenance=(origin,)).verify(n=120)
+
+    def test_verify_requires_the_grouped_scheme_exactly_when_clusters_are_declared(self) -> None:
+        codes = np.repeat(np.arange(40), 3)
+        grouped = _package_plan(120, cluster=codes)
+        rows = _package_plan(120)
+
+        grouped.verify(n=120, cluster=codes)
+        rows.verify(n=120)
+        with pytest.raises(DataError, match="records a 'vfold' draw"):
+            rows.verify(n=120, cluster=codes)
+        with pytest.raises(DataError, match="records a 'grouped' draw"):
+            grouped.verify(n=120)
+
+    def test_verify_names_the_repeat_that_differs(self) -> None:
+        plan = _package_plan(120, repeats=3)
+        forged = list(plan.assignments[2])
+        forged[5] = (forged[5] + 1) % N_FOLDS
+        plan = SplitPlan(
+            [plan.assignments[0], plan.assignments[1], forged], provenance=plan.provenance
+        )
+
+        with pytest.raises(DataError, match="repeat 2 differs"):
+            plan.verify(n=120)
+
+    def test_verify_refuses_another_row_count_before_it_draws(self) -> None:
+        with pytest.raises(DataError, match="120 rows but the data have 119 rows"):
+            _package_plan(120).verify(n=119)
+
+    def test_verify_resolves_no_fold_count_for_the_fit(self) -> None:
+        """The cap belongs to the draw that made the plan, not to the check of it."""
+        codes = np.repeat(np.arange(4), 30)
+        with pytest.warns(UserWarning, match="only 4 clusters"):
+            plan = _package_plan(120, n_folds=10, cluster=codes)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            plan.verify(n=120, cluster=codes)
+
+        assert not caught
+        assert plan.n_folds == 4
+
+    def test_unbound_keeps_the_record_and_drops_the_binding(self) -> None:
+        bound = SplitPlan.from_folds(
+            [random_partition(120, N_FOLDS, seed=SEED)], source_fingerprint="abc123"
+        )
+        free = bound.unbound()
+
+        assert free.source_fingerprint is None
+        assert free.provenance == bound.provenance
+        assert free.assignments == bound.assignments
+
+    def test_a_hand_built_plan_is_refused_at_declaration_before_any_learner(self) -> None:
+        frame, _ = make_nonlinear_bounded(n=120, seed=61)
+        plan = SplitPlan([list(np.arange(120) % N_FOLDS)])
+
+        with pytest.raises(MethodConfigurationError, match="no generator record"):
+            _effect(frame).estimate(method=_method(split_plan=plan, models=_counted_models()))
+
+        assert _LEARNER_CALLS == []
+
+    def test_a_forged_plan_is_refused_before_any_learner(self) -> None:
+        """Valid record, one label moved: the fit draws the split again and sees it."""
+        frame, _ = make_nonlinear_bounded(n=120, seed=61)
+        drawn = _package_plan(120)
+        forged = list(drawn.assignments[0])
+        forged[0] = (forged[0] + 1) % N_FOLDS
+        plan = SplitPlan([forged], provenance=drawn.provenance)
+
+        with pytest.raises(DataError, match="repeat 0 differs"):
+            _effect(frame).estimate(method=_method(split_plan=plan, models=_counted_models()))
+
+        assert _LEARNER_CALLS == []
+
+    def test_the_counter_is_a_live_witness_under_the_plan_that_was_drawn(self) -> None:
+        """The nonzero control: the same fit on the unforged plan fits learners."""
+        frame, _ = make_nonlinear_bounded(n=120, seed=61)
+        result = _effect(frame).estimate(
+            method=_method(split_plan=_package_plan(120), models=_counted_models())
+        )
+
+        assert result.split_plan.provenance == _package_plan(120).provenance
+        assert _LEARNER_CALLS.count("outcome") >= N_FOLDS
+        assert _LEARNER_CALLS.count("treatment") >= N_FOLDS
+
+    def test_neutering_the_record_check_lets_the_forgery_through(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The deliberate mutation that shows the refusal above is ``verify``'s work.
+
+        With the comparison removed, the forged labels pass every remaining check: they
+        are contiguous, they carry both arms into every training complement, and they
+        fingerprint as a plan.  The fit runs, which is the failure the record prevents.
+        """
+        frame, _ = make_nonlinear_bounded(n=120, seed=61)
+        drawn = _package_plan(120)
+        forged = list(drawn.assignments[0])
+        forged[0] = (forged[0] + 1) % N_FOLDS
+        plan = SplitPlan([forged], provenance=drawn.provenance)
+
+        monkeypatch.setattr(SplitPlan, "verify", lambda self, **kwargs: None)
+        result = _effect(frame).estimate(method=_method(split_plan=plan, models=_counted_models()))
+
+        assert result.split_plan.assignments == plan.assignments
+        assert _LEARNER_CALLS
+
+
 class TestCrossFittingConfiguration:
     def test_disabled_cross_fitting_refuses_repeated_splits_at_declaration(self) -> None:
         with pytest.raises(MethodConfigurationError, match="enabled=False makes no split"):
@@ -325,14 +657,14 @@ class TestCrossFittingConfiguration:
             TMLEMethod().with_overrides(cross_fit=False, repeats=2)
 
     def test_flat_shortcut_sets_the_plan_on_the_normalized_configuration(self) -> None:
-        plan = SplitPlan([[0, 1, 0, 1]])
+        plan = _package_plan(120, n_folds=2)
 
         method = TMLEMethod().with_overrides(n_folds=2, repeats=1, split_plan=plan)
 
         assert method.cross_fitting.split_plan is plan
 
     def test_more_folds_than_declared_is_refused(self) -> None:
-        plan = SplitPlan([[0, 1, 2, 0, 1, 2]])
+        plan = _package_plan(120, n_folds=3)
         with pytest.raises(MethodConfigurationError, match="n_folds"):
             CrossFitting(n_folds=2, split_plan=plan)
 
@@ -345,24 +677,35 @@ class TestCrossFittingConfiguration:
         What the fit then needs of the plan is not a count at all: ``SplitPlan.validate``
         checks the labels against the data once they are in hand.
         """
-        plan = SplitPlan([[0, 1, 2, 0, 1, 2]])
+        plan = _package_plan(120, n_folds=3)
 
         assert CrossFitting(n_folds=10, split_plan=plan).split_plan is plan
 
     def test_repeat_count_must_match_the_supplied_plan(self) -> None:
-        plan = SplitPlan([[0, 1, 0, 1], [1, 0, 1, 0]])
+        plan = _package_plan(120, n_folds=2, repeats=2)
         with pytest.raises(MethodConfigurationError, match="repeats"):
             CrossFitting(n_folds=2, repeats=1, split_plan=plan)
 
     def test_a_plan_conflicts_with_disabled_cross_fitting(self) -> None:
-        plan = SplitPlan([[0, 1, 0, 1]])
+        plan = _package_plan(120, n_folds=2)
         with pytest.raises(MethodConfigurationError, match=r"enabled|cross.?fit"):
             CrossFitting(enabled=False, n_folds=2, split_plan=plan)
 
-    def test_a_one_fold_plan_cannot_be_supplied_as_cross_fitting(self) -> None:
-        plan = SplitPlan([[0, 0, 0]])
+    def test_one_declared_fold_cannot_carry_a_supplied_plan(self) -> None:
+        plan = _package_plan(120, n_folds=2)
         with pytest.raises(MethodConfigurationError, match=r"n_folds|cross.?fit"):
             CrossFitting(enabled=True, n_folds=1, split_plan=plan)
+
+    def test_a_one_fold_plan_records_no_draw_and_is_refused_for_that(self) -> None:
+        """``random_partition`` draws two folds at least, so a one-fold plan is hand-built."""
+        plan = SplitPlan([[0, 0, 0]])
+        with pytest.raises(MethodConfigurationError, match="no generator record"):
+            CrossFitting(enabled=True, n_folds=2, split_plan=plan)
+
+    def test_a_plan_without_a_generator_record_is_refused(self) -> None:
+        plan = SplitPlan([list(np.arange(120) % N_FOLDS)])
+        with pytest.raises(MethodConfigurationError, match="no generator record"):
+            CrossFitting(n_folds=N_FOLDS, split_plan=plan)
 
     def test_only_a_split_plan_is_accepted(self) -> None:
         with pytest.raises(MethodConfigurationError, match="split_plan"):
@@ -386,8 +729,20 @@ class TestOneInputEarnsOneReasonAtBothLayers:
         ("settings", "expected"),
         [
             (
-                {"enabled": False, "repeats": 2, "split_plan": SplitPlan([[0, 1, 0, 1]] * 2)},
+                {
+                    "enabled": False,
+                    "repeats": 2,
+                    "split_plan": _package_plan(120, n_folds=2, repeats=2),
+                },
                 "split_plan requires enabled cross-fitting with at least two folds",
+            ),
+            (
+                {
+                    "enabled": False,
+                    "repeats": 2,
+                    "split_plan": SplitPlan([list(np.arange(120) % 2)] * 2),
+                },
+                _UNRECORDED_PLAN_REASON,
             ),
             (
                 {"repeats": 0, "split_plan": [[0, 1, 0, 1]]},
@@ -398,7 +753,7 @@ class TestOneInputEarnsOneReasonAtBothLayers:
                 "split_plan must be a SplitPlan",
             ),
             (
-                {"split_plan": SplitPlan([[0, 1, 0, 1]]), "n_bootstrap": 4},
+                {"split_plan": _package_plan(120, n_folds=2), "n_bootstrap": 4},
                 "n_bootstrap cannot be combined with split_plan: targeted bootstrap "
                 "replicates duplicate sampled rows, while the supplied assignments "
                 "identify only the original row positions",
@@ -410,7 +765,14 @@ class TestOneInputEarnsOneReasonAtBothLayers:
                 "set repeats=1",
             ),
         ],
-        ids=("plan-before-repeats", "repeats-first", "not-a-plan", "bootstrap", "no-split"),
+        ids=(
+            "plan-before-repeats",
+            "record-before-everything",
+            "repeats-first",
+            "not-a-plan",
+            "bootstrap",
+            "no-split",
+        ),
     )
     def test_the_declaration_and_the_engine_give_the_same_reason(
         self, settings: dict[str, Any], expected: str
@@ -459,20 +821,22 @@ class TestTheEngineRefusesAPlanItCannotServe:
         ("settings", "match"),
         [
             ({"split_plan": [[0, 1, 0, 1]]}, "split_plan must be a SplitPlan"),
-            ({"split_plan": SplitPlan([[0, 1, 0, 1]]), "cross_fit": False}, "cross-fitting"),
-            ({"split_plan": SplitPlan([[0, 1, 0, 1]]), "n_folds": 1}, "cross-fitting"),
+            ({"split_plan": SplitPlan([[0, 1, 0, 1]])}, "no generator record"),
+            ({"split_plan": _package_plan(120, n_folds=2), "cross_fit": False}, "cross-fitting"),
+            ({"split_plan": _package_plan(120, n_folds=2), "n_folds": 1}, "cross-fitting"),
             (
-                {"split_plan": SplitPlan([[0, 1, 2, 0, 1, 2]]), "n_folds": 2},
+                {"split_plan": _package_plan(120, n_folds=3), "n_folds": 2},
                 "3 folds but n_folds is 2",
             ),
-            ({"split_plan": SplitPlan([[0, 1, 0, 1]] * 2), "repeats": 1}, "2 repeats"),
+            ({"split_plan": _package_plan(120, n_folds=2, repeats=2), "repeats": 1}, "2 repeats"),
             (
-                {"split_plan": SplitPlan([[0, 1, 0, 1]]), "n_bootstrap": 4},
+                {"split_plan": _package_plan(120, n_folds=2), "n_bootstrap": 4},
                 "n_bootstrap cannot be combined",
             ),
         ],
         ids=(
             "not-a-plan",
+            "no-record",
             "cross-fit-disabled",
             "one-fold",
             "more-folds-than-declared",
@@ -493,7 +857,7 @@ class TestTheEngineRefusesAPlanItCannotServe:
             )
 
     def test_the_engine_reuses_a_plan_it_accepts(self) -> None:
-        frame, _ = make_nonlinear_ate(n=120, seed=41)
+        frame, _ = make_nonlinear_bounded(n=120, seed=41)
         covariates = ["W1", "W2", "W3"]
 
         def fit(plan: SplitPlan | None) -> Any:
@@ -506,18 +870,29 @@ class TestTheEngineRefusesAPlanItCannotServe:
                     split_plan=plan,
                     random_state=SEED,
                     simultaneous=False,
+                    q_bounds=(0.0, 1.0),
                 )
                 .fit(frame, outcome="Y", treatment="A", covariates=covariates)
                 .single()
             )
 
-        generated = fit(None)
+        generated = fit(_package_plan(120))
         supplied = fit(generated.split_plan)
 
         _assert_same_fit(generated, supplied)
 
 
 class TestDataBoundValidationPrecedesNuisanceFitting:
+    """Two checks stand between a supplied plan and the first learner, in this order.
+
+    :meth:`SplitPlan.verify` draws each repeat again from its record, and
+    :meth:`SplitPlan.validate` reads the labels against the data.  The fit-level tests
+    here trip ``verify``, because a plan that reaches ``validate`` at all is one the
+    recorded generator drew, and a draw that reads no column cannot be built to strand an
+    arm on demand.  ``validate``'s own refusals are therefore checked on the method, which
+    is public and takes the data as arguments.
+    """
+
     @pytest.fixture
     def frame(self) -> pd.DataFrame:
         rng = np.random.default_rng(9)
@@ -539,62 +914,88 @@ class TestDataBoundValidationPrecedesNuisanceFitting:
         frame: pd.DataFrame,
         plan: SplitPlan,
         *,
-        stratify_by: FoldStrata = "treatment",
+        match: str,
+        stratify_by: FoldStrata = "none",
         cluster: str | None = None,
     ) -> None:
         monkeypatch.setattr(
             TMLEEngine,
             "_nuisances",
-            _never_called("nuisance fitting began before the supplied split was validated"),
+            _never_called("nuisance fitting began before the supplied split was checked"),
         )
         method = _method(
             n_folds=plan.n_folds,
             repeats=plan.n_repeats,
             stratify_by=stratify_by,
             split_plan=plan,
+            q_bounds=None,  # this class's frame has a binary outcome
         )
-        with pytest.raises(DataError):
+        with pytest.raises(DataError, match=match):
             _effect(frame, cluster=cluster).estimate(method=method)
 
     def test_row_count_is_checked_before_fit(
         self, frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        assignment = np.arange(len(frame) - 1) % N_FOLDS
-        self._refuse_before_fit(monkeypatch, frame, SplitPlan([assignment]))
+        plan = _package_plan(len(frame) - 1)
+        self._refuse_before_fit(monkeypatch, frame, plan, match="rows but the data have")
 
-    def test_each_training_complement_keeps_every_treatment_arm(
+    def test_a_changed_label_is_caught_before_fit(
         self, frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        drawn = _package_plan(len(frame))
+        forged = list(drawn.assignments[0])
+        forged[0] = (forged[0] + 1) % N_FOLDS
+        plan = SplitPlan([forged], provenance=drawn.provenance)
+        self._refuse_before_fit(monkeypatch, frame, plan, match="repeat 0 differs")
+
+    def test_a_declared_cluster_needs_a_grouped_draw(
+        self, frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A row-level draw cuts across clusters, and the record says it is one."""
+        plan = _package_plan(len(frame), n_folds=2)
+        self._refuse_before_fit(
+            monkeypatch, frame, plan, cluster="pid", match="records a 'vfold' draw"
+        )
+
+    def test_each_training_complement_keeps_every_treatment_arm(self, frame: pd.DataFrame) -> None:
         assignment = np.ones(len(frame), dtype=int)
         assignment[frame["A"].to_numpy() == 1] = 0
-        self._refuse_before_fit(monkeypatch, frame, SplitPlan([assignment]))
+
+        with pytest.raises(DataError, match="treatment arm"):
+            SplitPlan([assignment]).validate(
+                n=len(frame), treatment=frame["A"].to_numpy(), stratify=frame["A"].to_numpy()
+            )
 
     def test_each_training_complement_keeps_every_requested_stratum(
-        self, frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
+        self, frame: pd.DataFrame
     ) -> None:
         assignment = np.ones(len(frame), dtype=int)
         rare_cell = (frame["A"].to_numpy() == 1) & (frame["Y"].to_numpy() == 1)
         assignment[rare_cell] = 0
         # Keep both treatment arms in fold 0, so the treatment-support check alone passes.
         assignment[[0, 2]] = 0
-        self._refuse_before_fit(
-            monkeypatch,
-            frame,
-            SplitPlan([assignment]),
-            stratify_by="treatment+outcome",
-        )
+        crossed = np.unique(
+            np.column_stack([frame["A"].to_numpy(), frame["Y"].to_numpy()]),
+            axis=0,
+            return_inverse=True,
+        )[1].astype(float)
 
-    def test_a_declared_cluster_cannot_be_split(
-        self, frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+        with pytest.raises(DataError, match="stratum"):
+            SplitPlan([assignment]).validate(
+                n=len(frame), treatment=frame["A"].to_numpy(), stratify=crossed
+            )
+
+    def test_a_declared_cluster_cannot_be_split(self, frame: pd.DataFrame) -> None:
         assignment = np.arange(len(frame)) % 2
-        self._refuse_before_fit(monkeypatch, frame, SplitPlan([assignment]), cluster="pid")
+
+        with pytest.raises(DataError, match="more than one fold"):
+            SplitPlan([assignment]).validate(n=len(frame), cluster=frame["pid"].to_numpy())
 
 
 def test_generated_folds_do_not_acquire_supplied_plan_support_validation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    frame, _ = make_nonlinear_ate(n=120, seed=14)
+    frame, _ = make_nonlinear_bounded(n=120, seed=14)
 
     monkeypatch.setattr(
         SplitPlan,
@@ -607,7 +1008,7 @@ def test_generated_folds_do_not_acquire_supplied_plan_support_validation(
 
 
 def test_in_sample_gaussian_fit_ignores_crossfit_only_outcome_strata() -> None:
-    frame, _ = make_nonlinear_ate(n=120, seed=15)
+    frame, _ = make_nonlinear_bounded(n=120, seed=15)
 
     result = _effect(frame).estimate(method=_method(enabled=False, stratify_by="treatment+outcome"))
 
@@ -616,7 +1017,7 @@ def test_in_sample_gaussian_fit_ignores_crossfit_only_outcome_strata() -> None:
 
 @pytest.mark.parametrize("backend", ["pandas", "polars"])
 def test_generated_and_supplied_binary_plans_are_exactly_identical(backend: str) -> None:
-    frame, _ = make_nonlinear_ate(n=180, seed=4, backend=backend)
+    frame, _ = make_nonlinear_bounded(n=180, seed=4, backend=backend)
     generated, supplied = _generated_then_supplied(frame)
 
     _assert_same_fit(generated, supplied)
@@ -628,8 +1029,15 @@ def test_generated_and_supplied_binary_plans_are_exactly_identical(backend: str)
 def test_generated_and_supplied_multi_arm_plans_are_exactly_identical(backend: str) -> None:
     # Split replay is the subject. Mild confounding keeps this fixture inside the
     # automatic bounds instead of coupling the identity check to truncation.
-    frame, _ = multi_arm_dgp(confounding=0.1).sample(n=180, seed=7, backend=backend)
-    generated, supplied = _generated_then_supplied(frame)
+    # The draw is named because the claim below is about this split: at another seed one
+    # unit falls outside the automatic bounds and the truncation assertion is not about
+    # the plan any more.
+    # A binary outcome: this fit is cross-fitted, and Targeting refuses a declared
+    # q_bounds on a binary outcome outright rather than merely not needing one.
+    frame, _ = multi_arm_dgp(confounding=0.1, family="binomial").sample(
+        n=180, seed=7, backend=backend
+    )
+    generated, supplied = _generated_then_supplied(frame, plan_seed=6, q_bounds=None)
 
     _assert_same_fit(generated, supplied)
     assert generated.nuisance.propensity.values.shape[1] == 3
@@ -642,7 +1050,7 @@ def test_generated_and_supplied_multi_arm_plans_are_exactly_identical(backend: s
 
 @pytest.mark.parametrize("backend", ["pandas", "polars"])
 def test_generated_and_supplied_clustered_plans_are_exactly_identical(backend: str) -> None:
-    frame, _ = make_nonlinear_ate(n=180, seed=11)
+    frame, _ = make_nonlinear_bounded(n=180, seed=11)
     frame = frame.copy()
     frame["pid"] = np.repeat(np.arange(60), 3)
     generated, supplied = _generated_then_supplied(_backed(frame, backend), cluster="pid")
@@ -656,20 +1064,21 @@ def test_generated_and_supplied_clustered_plans_are_exactly_identical(backend: s
 
 
 def test_generated_and_supplied_repeated_plans_are_exactly_identical() -> None:
-    frame, _ = make_nonlinear_ate(n=180, seed=19)
+    frame, _ = make_nonlinear_bounded(n=180, seed=19)
     generated, supplied = _generated_then_supplied(frame, repeats=3)
 
     _assert_same_fit(generated, supplied)
     assert supplied.split_plan.n_repeats == supplied.n_repeats == 3
+    # The scheme separates the two fits: one generated its own draws, the other reused
+    # them. stratify_by carries what the folds were held to, which is nothing under this
+    # policy, and the supplied fit records the same answer the generated fit did.
+    assert generated.config.crossfit.scheme == "vfold"
     assert supplied.config.crossfit.scheme == "supplied"
-    # The scheme carries "nothing was generated". stratify_by carries what the folds were
-    # held to, which the supplied path checks rather than balances, so it records the same
-    # treatment name the generated fit balanced on.
-    assert supplied.config.crossfit.stratify_by == generated.config.crossfit.stratify_by == ("A",)
+    assert supplied.config.crossfit.stratify_by == generated.config.crossfit.stratify_by == ()
 
 
 def test_generated_and_supplied_fold_diagnostics_are_exactly_identical() -> None:
-    frame, _ = make_nonlinear_ate(n=180, seed=21)
+    frame, _ = make_nonlinear_bounded(n=180, seed=21)
     generated, supplied = _generated_then_supplied(frame, fold_evaluation=True)
 
     _assert_same_fit(generated, supplied)
@@ -698,7 +1107,7 @@ def test_generated_and_supplied_fold_diagnostics_are_exactly_identical() -> None
 
 def test_collaborative_selection_reuses_a_supplied_plan_exactly() -> None:
     """The collaborative selector adds folds of its own, and reuses the outer ones."""
-    frame, _ = make_nonlinear_ate(n=180, seed=43)
+    frame, _ = make_nonlinear_bounded(n=180, seed=43)
     generated, supplied = _generated_then_supplied(
         frame,
         kind=CollaborativeTMLEMethod,
@@ -717,7 +1126,7 @@ def test_collaborative_selection_reuses_a_supplied_plan_exactly() -> None:
 
 
 def test_reduced_dimension_correction_reuses_a_supplied_plan_exactly() -> None:
-    frame, _ = make_nonlinear_ate(n=180, seed=45)
+    frame, _ = make_nonlinear_bounded(n=180, seed=45)
     generated, supplied = _generated_then_supplied(
         frame,
         kind=DRTMLEMethod,
@@ -732,7 +1141,15 @@ def test_reduced_dimension_correction_reuses_a_supplied_plan_exactly() -> None:
 @pytest.mark.parametrize("backend", ["pandas", "polars"])
 def test_a_continuous_dose_reuses_a_supplied_plan_exactly(backend: str) -> None:
     """A dose has no arms to balance, so the plan is the only thing holding the split."""
-    frame, _ = make_shift_dose(n=180, seed=47, backend=backend)
+    # A binary outcome: this identity compares the generated and supplied fits to each
+    # other, never to a population truth, so replacing Y costs nothing. A cross-fitted
+    # continuous outcome now needs a declared q_bounds that make_shift_dose's Gaussian Y
+    # does not have.
+    frame, _ = make_shift_dose(n=180, seed=47, backend="pandas")
+    rng = np.random.default_rng(47)
+    w1 = np.asarray(frame["W1"])
+    frame = frame.assign(Y=rng.binomial(1, 1.0 / (1.0 + np.exp(-w1))).astype(float))
+    frame = _backed(frame, backend)
     effect = CausalStudy(
         frame,
         design=PointTreatment(
@@ -749,8 +1166,8 @@ def test_a_continuous_dose_reuses_a_supplied_plan_exactly(backend: str) -> None:
             )
         )
     )
-    generated = effect.estimate(method=_method())
-    supplied = effect.estimate(method=_method(split_plan=generated.split_plan))
+    generated = effect.estimate(method=_method(q_bounds=None))
+    supplied = effect.estimate(method=_method(split_plan=generated.split_plan, q_bounds=None))
 
     assert generated.estimates.keys() == supplied.estimates.keys()
     for name, expected in generated.estimates.items():
@@ -776,11 +1193,13 @@ class TestASuppliedPlanFreezesTheOuterSplit:
 
     @pytest.fixture(scope="class")
     def effect(self) -> Any:
-        frame, _ = make_nonlinear_ate(n=180, seed=4)
+        frame, _ = make_nonlinear_bounded(n=180, seed=4)
         return _effect(frame)
 
     def test_the_learner_folds_still_follow_the_seed(self, effect: Any) -> None:
-        generated = effect.estimate(method=_method(models=_ensemble_models()))
+        generated = effect.estimate(
+            method=_method(split_plan=_package_plan(180), models=_ensemble_models())
+        )
         plan = generated.split_plan
         eleven = effect.estimate(
             method=_method(split_plan=plan, models=_ensemble_models(), random_state=11)
@@ -835,8 +1254,14 @@ class TestASuppliedPlanFreezesTheOuterSplit:
             "strategy": "greedy",
             "selection_folds": 3,
             "selection_inner_folds": 2,
+            # An ensemble outcome learner: on this bounded law the greedy search always
+            # selects zero covariates regardless of seed, so a single deterministic
+            # learner would make every candidate's fit -- and so the final psi -- tie
+            # across seeds too, leaving no witness. A Super Learner's own inner split
+            # is still seed-sensitive even at the empty candidate.
+            "models": _ensemble_models(),
         }
-        generated = effect.estimate(method=_method(**knobs))
+        generated = effect.estimate(method=_method(split_plan=_package_plan(180), **knobs))
         plan = generated.split_plan
         eleven = effect.estimate(method=_method(split_plan=plan, random_state=11, **knobs))
         seventy_seven = effect.estimate(method=_method(split_plan=plan, random_state=77, **knobs))
@@ -861,12 +1286,12 @@ class TestAPlanIsBoundToTheRowsThatRealisedIt:
 
     @pytest.fixture(scope="class")
     def frame(self) -> pd.DataFrame:
-        built, _ = make_nonlinear_ate(n=180, seed=49)
+        built, _ = make_nonlinear_bounded(n=180, seed=49)
         return built
 
     @pytest.fixture(scope="class")
     def fitted(self, frame: pd.DataFrame) -> Any:
-        return _effect(frame).estimate(method=_method())
+        return _effect(frame).estimate(method=_method(split_plan=_package_plan(len(frame))))
 
     def test_the_result_plan_carries_the_fingerprint_provenance_recorded(self, fitted: Any) -> None:
         assert fitted.split_plan.source_fingerprint == fitted.provenance.data_fingerprint
@@ -884,12 +1309,18 @@ class TestAPlanIsBoundToTheRowsThatRealisedIt:
     def test_an_unbound_plan_reuses_the_labels_wherever_the_caller_says(
         self, frame: pd.DataFrame, fitted: Any
     ) -> None:
-        """The declared way to mean "reuse these labels on other rows"."""
+        """The declared way to mean "reuse these labels on other rows".
+
+        The record travels with the labels, so the second fit draws the same split again
+        and finds the same assignment: a row-level draw reads the row count and the seed,
+        and neither one moved.
+        """
         order = np.random.default_rng(0).permutation(len(frame))
         shuffled = frame.iloc[order].reset_index(drop=True)
-        unbound = SplitPlan(fitted.split_plan.assignments)
+        unbound = fitted.split_plan.unbound()
 
         assert unbound.source_fingerprint is None
+        assert unbound.provenance == fitted.split_plan.provenance
         assert unbound.assignments == fitted.split_plan.assignments
         result = _effect(shuffled).estimate(method=_method(split_plan=unbound))
 
@@ -914,7 +1345,7 @@ class TestTheFoldCountIsCheckedAgainstTheDeclarationOnly:
 
     @pytest.fixture(scope="class")
     def frame(self) -> pd.DataFrame:
-        built, _ = make_nonlinear_ate(n=180, seed=51)
+        built, _ = make_nonlinear_bounded(n=180, seed=51)
         built = built.copy()
         built["four"] = np.repeat(np.arange(4), 45)
         built["two"] = np.repeat(np.arange(2), 90)
@@ -924,7 +1355,12 @@ class TestTheFoldCountIsCheckedAgainstTheDeclarationOnly:
         self, frame: pd.DataFrame
     ) -> None:
         with pytest.warns(UserWarning, match="only 4 clusters"):
-            generated = _effect(frame, cluster="four").estimate(method=_method(n_folds=10))
+            drawn = _package_plan(
+                len(frame), n_folds=10, cluster=_cluster_codes(frame, cluster="four")
+            )
+        generated = _effect(frame, cluster="four").estimate(
+            method=_method(n_folds=10, split_plan=drawn)
+        )
         assert generated.split_plan.n_folds == 4
         # The declaration is recorded as declared, not as resolved.
         assert generated.config.crossfit.n_folds == 10
@@ -947,13 +1383,15 @@ class TestTheFoldCountIsCheckedAgainstTheDeclarationOnly:
         Clustering is not part of the data fingerprint, so declaring ``id=`` on the same
         columns leaves the binding satisfied and leaves the labels unchanged.  The labels
         were drawn without the clusters, so they cut across them, and cluster integrity is
-        the prohibition cross-fitting exists to enforce.  The refusal names the leakage
-        rather than a fold count, which is what makes it readable.
+        the prohibition cross-fitting exists to enforce.  The refusal names the scheme the
+        record holds rather than a fold count, which is what makes it readable.
         """
-        unclustered = _effect(frame).estimate(method=_method(n_folds=N_FOLDS))
+        unclustered = _effect(frame).estimate(
+            method=_method(n_folds=N_FOLDS, split_plan=_package_plan(len(frame)))
+        )
         assert unclustered.split_plan.n_folds == N_FOLDS
 
-        with pytest.raises(DataError, match="rows in more than one fold"):
+        with pytest.raises(DataError, match="records a 'vfold' draw"):
             _effect(frame, cluster="two").estimate(
                 method=_method(n_folds=N_FOLDS, split_plan=unclustered.split_plan)
             )
@@ -961,35 +1399,40 @@ class TestTheFoldCountIsCheckedAgainstTheDeclarationOnly:
     def test_nothing_is_reduced_on_the_supplied_path(self, frame: pd.DataFrame) -> None:
         """A supplied plan generates no split, so there is no count to cap.
 
-        The generated fit that drew this plan warns that four clusters cap ten folds at
-        four.  Handing the realised plan back must not repeat that warning: it describes
-        a resolution step the supplied path does not run.
+        The draw that made this plan warns that four clusters cap ten folds at four.
+        Handing the realised plan to a fit must not repeat that warning: it describes a
+        resolution step the supplied path does not run, and the fit draws the split again
+        only to compare it.
         """
         with pytest.warns(UserWarning, match="only 4 clusters"):
-            generated = _effect(frame, cluster="four").estimate(method=_method(n_folds=10))
+            drawn = _package_plan(
+                len(frame), n_folds=10, cluster=_cluster_codes(frame, cluster="four")
+            )
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            _effect(frame, cluster="four").estimate(
-                method=_method(n_folds=10, split_plan=generated.split_plan)
-            )
+            _effect(frame, cluster="four").estimate(method=_method(n_folds=10, split_plan=drawn))
 
         assert not [one for one in caught if "reducing n_folds" in str(one.message)]
 
 
 class TestARefitThatMovesTheStratumVectorKeepsTheSuppliedPlan:
-    """A refit can move the balancing vector without moving a row.
+    """Retired: ``stratify_by="treatment+outcome"`` no longer reaches a supplied plan.
 
-    Under ``stratify_by="treatment+outcome"`` the balancing code is the treatment crossed
-    with the outcome, so the placebo permutation re-counts the crossed cells.  Here it
-    leaves the rarest cell with two members, one fewer than a *generated* three-fold split
-    would need.  No row moved, and the plan's own labels still carry every cell into every
-    training complement, so the refit runs.  A fit-time comparison against
-    ``resolve_n_folds`` refused it instead, and refused with a ``DataError``, which the
-    combined battery does not catch -- so one rare cell took down every later row of it.
+    This class used to fit a ``stratify_by="treatment+outcome"`` supplied plan, whose
+    balancing code crosses the treatment with the outcome, on a sample engineered so a
+    placebo permutation's re-count left the rarest crossed cell with two members -- one
+    fewer than a *generated* three-fold split would need, while the plan's own labels
+    still carried every cell into every training complement.  The package refuses
+    ``stratify_by="treatment+outcome"`` under cross-fitting outright now (both under
+    ``CrossFitting`` and from the engine), so that scenario cannot be built any more:
+    the refusal fires at declaration, before any plan is drawn and before the permutation
+    the old tests read.  The permutation is kept below because it is what made the
+    scenario the refusal now forecloses; the other two tests assert the refusal itself,
+    from the two contracts this module's other refusals are checked under.
     """
 
-    #: The permutation the refutations below draw, and the one the cell counts describe.
+    #: The permutation the retired scenario read, and the one the cell count describes.
     PLACEBO_SEED = 24
 
     @pytest.fixture(scope="class")
@@ -1009,18 +1452,13 @@ class TestARefitThatMovesTheStratumVectorKeepsTheSuppliedPlan:
             }
         )
 
-    @pytest.fixture(scope="class")
-    def supplied(self, frame: pd.DataFrame) -> Any:
-        _, result = _generated_then_supplied(frame, stratify_by="treatment+outcome")
-        return result
-
     def test_the_permutation_leaves_a_cell_below_the_supplied_fold_count(
-        self, frame: pd.DataFrame, supplied: Any
+        self, frame: pd.DataFrame
     ) -> None:
-        """Without this the two tests below would pass against any implementation.
+        """The crossed-cell scenario the retired capability used to be exercised on.
 
-        They observe a refit that a generated split could not have produced, and that is
-        only true while the seeded permutation leaves a crossed cell with two members.
+        Kept as a fact about this fixture rather than about any fit: it is what made the
+        retired scenario a genuine edge case rather than an ordinary one.
         """
         permuted = np.random.default_rng(self.PLACEBO_SEED).permutation(np.asarray(frame["A"]))
         crossed = np.unique(
@@ -1028,32 +1466,27 @@ class TestARefitThatMovesTheStratumVectorKeepsTheSuppliedPlan:
         )[1]
 
         assert int(np.bincount(crossed).min()) == 2
-        assert supplied.split_plan.n_folds == N_FOLDS == 3
 
-    def test_a_placebo_refutation_runs_on_a_supplied_plan(self, supplied: Any) -> None:
-        report = refute(
-            supplied, tests=("placebo",), n_replicates=1, random_state=self.PLACEBO_SEED
-        )
+    def test_the_declaration_is_refused_before_any_plan_is_drawn(self, frame: pd.DataFrame) -> None:
+        """The configuration contract: ``MethodConfigurationError`` from ``CrossFitting``."""
+        with pytest.raises(MethodConfigurationError, match=r"stratify_folds='treatment\+outcome'"):
+            _generated_then_supplied(frame, stratify_by="treatment+outcome", plan_seed=1)
 
-        assert [test.name for test in report.tests] == ["placebo"]
-        assert len(report["placebo"].values) == 1
+    def test_the_engine_gives_the_same_refusal(self) -> None:
+        """The engine contract: ``ValueError`` at the same declaration, with no data at all.
 
-    def test_the_combined_battery_reports_the_refutation_rather_than_dying(
-        self, supplied: Any
-    ) -> None:
-        """``_run_all`` catches ``CapabilityError`` and nothing else, by design."""
-        report = supplied.diagnostics.run_all(
-            include_refits=True,
-            arguments={
-                "refute": {
-                    "tests": ("placebo",),
-                    "n_replicates": 1,
-                    "random_state": self.PLACEBO_SEED,
-                }
-            },
-        )
-
-        assert report["refute"].status is AssessmentStatus.PASSED
+        No frame is needed, which is itself evidence: the refusal is a fact about the
+        declared policy, not about anything the retired scenario's sample supplied.
+        """
+        with pytest.raises(ValueError, match=r"stratify_folds='treatment\+outcome'"):
+            TMLEEngine(
+                outcome_learner=LinearRegression(),
+                treatment_learner=LogisticRegression(max_iter=1000),
+                n_folds=N_FOLDS,
+                stratify_folds="treatment+outcome",
+                random_state=SEED,
+                simultaneous=False,
+            )
 
 
 class TestARefutationThatChangesTheRowSetIsRefusedUpFront:
@@ -1070,7 +1503,7 @@ class TestARefutationThatChangesTheRowSetIsRefusedUpFront:
 
     @pytest.fixture(scope="class")
     def supplied(self) -> Any:
-        frame, _ = make_nonlinear_ate(n=180, seed=53)
+        frame, _ = make_nonlinear_bounded(n=180, seed=53)
         _, result = _generated_then_supplied(frame)
         return result
 
@@ -1127,7 +1560,7 @@ class TestARefutationThatChangesTheRowSetIsRefusedUpFront:
 
     def test_an_unsupplied_fit_still_refutes_on_a_subsample(self) -> None:
         """The negative control: the refusal is about the plan, not about the test."""
-        frame, _ = make_nonlinear_ate(n=180, seed=53)
+        frame, _ = make_nonlinear_bounded(n=180, seed=53)
         generated = _effect(frame).estimate(method=_method())
 
         report = refute(generated, tests=("subset",), n_replicates=1)
@@ -1136,19 +1569,50 @@ class TestARefutationThatChangesTheRowSetIsRefusedUpFront:
 
     def test_an_unsupplied_fit_reaches_the_declaration_check_instead(self) -> None:
         """The other half of that control: no plan, no plan refusal."""
-        frame, _ = make_nonlinear_ate(n=180, seed=53)
+        frame, _ = make_nonlinear_bounded(n=180, seed=53)
         generated = _effect(frame).estimate(method=_method())
 
         with pytest.raises(CapabilityError, match="requires the exact registered"):
             refute(generated, tests=("bootstrap_measurement_error",), n_replicates=1)
 
 
+def test_a_refit_keeps_the_generator_record_and_drops_the_binding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A refutation refits on the same rows with one column replaced.
+
+    The binding goes, because the replaced column changes the data fingerprint. The
+    record stays, because the refit still has to show that the labels it reuses are the
+    labels the recorded generator draws.
+    """
+    frame, _ = make_nonlinear_bounded(n=120, seed=55)
+    plan = _package_plan(120)
+    result = _effect(frame).estimate(method=_method(split_plan=plan))
+    seen: list[Any] = []
+    original = TMLEEngine._fit_single
+
+    def record(self: Any, *args: Any, **kwargs: Any) -> Any:
+        seen.append(self.split_plan)
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(TMLEEngine, "_fit_single", record)
+    report = refute(result, tests=("placebo",), n_replicates=1)
+
+    assert [test.name for test in report.tests] == ["placebo"]
+    assert seen
+    for refitted in seen:
+        assert refitted.source_fingerprint is None
+        assert refitted.provenance == plan.provenance
+        assert refitted.assignments == plan.assignments
+
+
 def test_the_realized_plan_and_fingerprint_survive_result_persistence() -> None:
-    frame, _ = make_nonlinear_ate(n=120, seed=23)
+    frame, _ = make_nonlinear_bounded(n=120, seed=23)
     generated, supplied = _generated_then_supplied(frame, repeats=2)
     restored = loads(dumps(supplied))
 
     assert restored.split_plan == supplied.split_plan == generated.split_plan
+    assert restored.split_plan.provenance == supplied.split_plan.provenance
     assert restored.method.cross_fitting.split_plan == supplied.split_plan
     assert restored.split_plan.fingerprint == restored.provenance.fold_fingerprint
     for expected, actual in zip(supplied.repeats, restored.repeats, strict=True):
@@ -1156,7 +1620,7 @@ def test_the_realized_plan_and_fingerprint_survive_result_persistence() -> None:
 
 
 def test_an_in_sample_result_exposes_the_realized_one_fold_plan() -> None:
-    frame, _ = make_nonlinear_ate(n=120, seed=27)
+    frame, _ = make_nonlinear_bounded(n=120, seed=27)
     result = _effect(frame).estimate(method=_method(enabled=False))
 
     assert result.split_plan.n_folds == 1
@@ -1166,9 +1630,9 @@ def test_an_in_sample_result_exposes_the_realized_one_fold_plan() -> None:
 
 
 def test_a_supplied_plan_is_exact_under_serial_and_parallel_scheduling() -> None:
-    frame, _ = make_nonlinear_ate(n=180, seed=29)
+    frame, _ = make_nonlinear_bounded(n=180, seed=29)
     effect = _effect(frame)
-    generated = effect.estimate(method=_method())
+    generated = effect.estimate(method=_method(split_plan=_package_plan(180)))
     serial = effect.estimate(method=_method(split_plan=generated.split_plan, n_jobs=1))
     parallel = effect.estimate(method=_method(split_plan=generated.split_plan, n_jobs=2))
 
@@ -1192,7 +1656,7 @@ def test_a_split_plan_is_refused_for_a_longitudinal_fit_before_engine_constructi
             censoring=("C1", "C2"),
         ),
     ).identify(RegimeMean({"always": 1}))
-    plan = SplitPlan([np.arange(len(frame)) % N_FOLDS])
+    plan = _package_plan(len(frame))
 
     monkeypatch.setattr(
         "cleverly.study.LTMLE",
@@ -1205,9 +1669,8 @@ def test_a_split_plan_is_refused_for_a_longitudinal_fit_before_engine_constructi
 def test_a_split_plan_is_refused_for_bootstrap_before_engine_construction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    frame, _ = make_nonlinear_ate(n=120, seed=37)
-    assignment = np.arange(len(frame)) % N_FOLDS
-    plan = SplitPlan([assignment])
+    frame, _ = make_nonlinear_bounded(n=120, seed=37)
+    plan = _package_plan(len(frame))
 
     monkeypatch.setattr(
         "cleverly.study.TMLE",
@@ -1224,7 +1687,7 @@ def test_the_bootstrap_refusal_belongs_to_the_declaration_that_holds_both_groups
     of translating the declaration for an engine.  ``DRTMLEMethod.__post_init__`` is the
     precedent, and the test above shows the refusal still reaches a study fit.
     """
-    plan = SplitPlan([[0, 1, 2, 0, 1, 2]])
+    plan = _package_plan(120, n_folds=3)
 
     with pytest.raises(MethodConfigurationError, match="bootstrap"):
         _method(split_plan=plan, n_bootstrap=4)

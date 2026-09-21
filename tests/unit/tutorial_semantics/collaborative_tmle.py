@@ -41,9 +41,14 @@ def check(namespace: dict[str, Any]) -> None:
     # The protocol step prints the record, and the collaborative fit carries its digest.
     # The reading names the fields this page changes in the program protocol.
     assert changed_fields(namespace["protocol"], navigation_protocol()) == {
+        "outcome",
         "time_zero",
         "assumption_rationale",
     }
+    # "A standardized score takes its scale from the data, so the analyst can declare no finite
+    # support for it": the page's own reason for fitting in sample, and the fit reports it.
+    assert not namespace["collaborative_method"].cross_fitting.enabled
+    assert "in-sample nuisances" in namespace["collaborative"].summary()
     assert_protocol_recorded(
         NOTEBOOK,
         "protocol",
@@ -63,10 +68,13 @@ def check(namespace: dict[str, Any]) -> None:
     assert "no collaborative score is evidenced" in att_collaborative.reason
 
     selection = namespace["selection"]
-    assert selection.selected_covariates == ()
+    assert selection.selected_covariates == ("social_support",)
     assert selection.path[-1] == ("social_support", "baseline_readiness", "queue_lottery_draw")
-    # "The first two candidates are nearly tied."
-    assert 0.0 < selection.cv_risk[1] - selection.cv_risk[0] < 1e-3
+    # "The search kept it, and it left out both the confounder and the instrument."
+    assert "baseline_readiness" not in selection.selected_covariates
+    assert "queue_lottery_draw" not in selection.selected_covariates
+    # "The first two candidates are nearly tied", and the second one wins by that margin.
+    assert -1e-3 < selection.cv_risk[1] - selection.cv_risk[0] < 0.0
     # "`risk` can rise along the path": the greedy search adds a variable after a step that
     # did not lower the in-sample loss.  Nonzero witness for the forced addition.
     assert any(later > earlier for earlier, later in pairwise(selection.train_risk))
@@ -91,9 +99,11 @@ def check(namespace: dict[str, Any]) -> None:
     assert tails.loc["share of g below 0.1", "collaborative TMLE"] == 0.0
     assert tails.loc["share of g above 0.9", "collaborative TMLE"] == 0.0
     assert tails.loc["truncated fraction", "collaborative TMLE"] == 0.0
-    # "that ratio is 1 by construction" for an intercept-only g.
-    assert tails.loc["treated ESS / n", "collaborative TMLE"] > 0.9999
-    assert tails.loc["control ESS / n", "collaborative TMLE"] > 0.9999
+    # "every row in an arm carries nearly the same weight" under a g that does not move
+    # assignment.  The forced control below is the nonzero witness: its g does move, and both
+    # ratios fall below 0.95 there.
+    assert tails.loc["treated ESS / n", "collaborative TMLE"] > 0.99
+    assert tails.loc["control ESS / n", "collaborative TMLE"] > 0.99
     overall = namespace["plain"].diagnostics.support().propensity_quantiles["overall"]
     assert overall[0.05] < 0.1 and overall[0.95] > 0.9
     # "The plain g has an AUC of 0.843, so it predicts the offer well."
@@ -125,13 +135,15 @@ def check(namespace: dict[str, Any]) -> None:
     assert namespace["nuisance"].treatment_role == "collaborative_working_model"
     # "no row is truncated" in the support report of the collaborative fit.
     assert namespace["support"].truncated["fraction"] == 0.0
-    # "its AUC is about 0.5" for the intercept-only working model. The page says the
-    # calibration slope is not meaningful for a constant model, so no relation is asserted.
-    assert 0.45 < namespace["nuisance"]["propensity"].metrics["auc"] < 0.55
+    # "its AUC sits near 0.5 and its calibration slope near 1" for a working model built on a
+    # variable that does not move assignment.
+    metrics = namespace["nuisance"]["propensity"].metrics
+    assert 0.45 < metrics["auc"] < 0.55
+    assert 0.9 < metrics["calibration_slope"] < 1.1
 
-    # "The difference comes from `nu2`", because the representer reads the selected constant
-    # g: "`nu2` equals 1/p + 1/(1 - p) for the treated share p".  The nonzero witness: for a constant g equal to the treated share p,
-    # nu2 is 1/p + 1/(1 - p), which a representer built from the full mechanism would not give.
+    # "The difference comes from `nu2`", because the representer reads the selected near-constant
+    # g: "`nu2` lands close to 1/p + 1/(1 - p)" for the treated share p.  The nonzero witness: a
+    # representer built from the full mechanism gives 11.963 on the same draw.
     rows = namespace["sensitivity_rows"]
     plain_row, collaborative_row = rows["plain TMLE"], rows["collaborative TMLE"]
     assert collaborative_row["nu2"] < 0.5 * plain_row["nu2"]
@@ -139,8 +151,8 @@ def check(namespace: dict[str, Any]) -> None:
     share = float(namespace["frame"]["transition_navigation"].mean())
     constant_g_nu2 = 1.0 / share + 1.0 / (1.0 - share)
     assert abs(collaborative_row["nu2"] - constant_g_nu2) < 0.01 * constant_g_nu2
-    # "optimistic by construction": the intercept-only representer is the within-arm mean of
-    # the full representer, so its second moment cannot exceed the full one (projection).
+    # "optimistic by construction": a near-constant representer is close to the within-arm mean
+    # of the full representer, so its second moment cannot exceed the full one (projection).
     assert collaborative_row["nu2"] <= plain_row["nu2"]
 
     # "The same representer sets the collaborative standard error" and the regression gives

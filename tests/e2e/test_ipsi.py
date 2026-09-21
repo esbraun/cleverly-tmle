@@ -30,8 +30,8 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.linear_model import LinearRegression
 
 from cleverly import SuperLearner
-from cleverly.datasets import make_missing_outcome, make_nonlinear_ate, make_weak_overlap
-from cleverly.datasets.synthetic import missing_outcome_dgp, nonlinear_dgp
+from cleverly.datasets import make_missing_outcome, make_nonlinear_bounded, make_weak_overlap
+from cleverly.datasets.synthetic import missing_outcome_dgp, nonlinear_bounded_dgp
 from cleverly.estimators import TMLE
 from cleverly.interventions import Incremental
 from tests.conftest import FAST_KWARGS
@@ -47,6 +47,14 @@ N = 3000
 #: the way that has no fallback.  ``TestTheMechanismIsTheHalfThatMustBeRight`` measures
 #: what that costs; the tests here need it right so they can measure something else.
 #: One flexible nuisance rather than two keeps the fit at ~2s.
+#:
+#: ``q_bounds`` is declared because this fit is cross-fitted: the flexible treatment
+#: learner needs the sample split to avoid the mechanism overfitting its own rows, which
+#: an in-sample fit here measurably does (the truth-recovery checks below fail by tens of
+#: standard errors under ``cross_fit=False``). ``make_nonlinear_bounded`` is drawn from
+#: the same nonlinear propensity as the retired ``make_nonlinear_ate``, over a proportion
+#: outcome whose known support is ``(0, 1)`` -- the declared ``q_bounds`` states that
+#: support rather than assuming it.
 LEARNERS = {
     **FAST_KWARGS,
     "n_folds": 5,
@@ -58,18 +66,19 @@ LEARNERS = {
         random_state=0,
     ),
     "treatment_learner": HistGradientBoostingClassifier(random_state=0),
+    "q_bounds": (0.0, 1.0),
 }
 
 
 @pytest.fixture(scope="module")
 def fit():
-    frame, _ = make_nonlinear_ate(n=N, seed=11)
+    frame, _ = make_nonlinear_bounded(n=N, seed=11)
     return TMLE(**LEARNERS, incremental=TILTS).fit(frame, outcome="Y", treatment="A").single()
 
 
 @pytest.fixture(scope="module")
 def truth():
-    return nonlinear_dgp().incremental_truth(DELTAS)
+    return nonlinear_bounded_dgp().incremental_truth(DELTAS)
 
 
 class TestTheScoreEquationsAreSolved:
@@ -164,7 +173,7 @@ class TestTheDegenerateTilt:
 
     def test_it_survives_canonical_common_targeting(self) -> None:
         """The canonical common update preserves an identity needing no truth."""
-        frame, _ = make_nonlinear_ate(n=1200, seed=3)
+        frame, _ = make_nonlinear_bounded(n=1200, seed=3)
         fit = (
             TMLE(**LEARNERS, incremental=TILTS, cv_evaluation=True)
             .fit(frame, outcome="Y", treatment="A")
@@ -180,7 +189,7 @@ class TestTheDegenerateTilt:
 
     def test_it_survives_repeated_cross_fitting(self) -> None:
         """Averaging over draws must not break an identity each draw satisfies."""
-        frame, _ = make_nonlinear_ate(n=1200, seed=4)
+        frame, _ = make_nonlinear_bounded(n=1200, seed=4)
         fit = (
             TMLE(**LEARNERS, incremental=TILTS, repeats=2)
             .fit(frame, outcome="Y", treatment="A")
@@ -194,9 +203,10 @@ class TestTheDegenerateTilt:
 class TestTheMechanismIsTheHalfThatMustBeRight:
     """The estimand's one-sided robustness, measured rather than asserted from theory.
 
-    ``make_nonlinear_ate``'s propensity is nonlinear, so a ``glm`` mechanism is genuinely
-    misspecified on it.  The outcome regression is left at ``glm`` throughout -- that half
-    *is* protected, and holding it fixed is what isolates the mechanism as the cause.
+    ``make_nonlinear_bounded``'s propensity is nonlinear, so a ``glm`` mechanism is
+    genuinely misspecified on it.  The outcome regression is left at ``glm`` throughout
+    -- that half *is* protected, and holding it fixed is what isolates the mechanism as
+    the cause.
 
     The shape of the damage is worth recording too: the per-tilt *means* barely move,
     because they are dominated by a level that a wrong ``g`` mixes only slightly; it is
@@ -204,11 +214,18 @@ class TestTheMechanismIsTheHalfThatMustBeRight:
     only ``ey_ipsi`` would conclude the fit was fine.
     """
 
+    #: Larger than the module's ``N``: the bounded law's mixing bias from a misspecified
+    #: mechanism is a smaller absolute number than the retired Gaussian law's, because
+    #: every mean here passes through ``expit`` and so is compressed towards (0, 1).
+    #: ``test_a_misspecified_mechanism_biases_the_contrast`` needs the standard error
+    #: small enough to still call that bias significant; the fit costs under a second.
+    MISSPECIFIED_N = 10_000
+
     @pytest.fixture(scope="class")
     def misspecified(self):
-        frame, _ = make_nonlinear_ate(n=N, seed=11)
+        frame, _ = make_nonlinear_bounded(n=self.MISSPECIFIED_N, seed=11)
         return (
-            TMLE(**{**FAST_KWARGS, "n_folds": 5}, incremental=TILTS)
+            TMLE(**{**FAST_KWARGS, "n_folds": 5, "q_bounds": (0.0, 1.0)}, incremental=TILTS)
             .fit(frame, outcome="Y", treatment="A")
             .single()
         )
@@ -244,9 +261,14 @@ class TestWhatTheTiltBuysUnderWeakOverlap:
     """
 
     def test_the_tilt_covariate_is_bounded_where_the_arm_covariate_is_not(self) -> None:
+        # In sample: this test's subject is the clever covariate's leverage on one
+        # realised sample, not cross-fitting, and make_weak_overlap's Gaussian outcome
+        # would otherwise need a declared q_bounds it does not have.
         frame, _ = make_weak_overlap(n=1500, seed=7, strength=4.0)
         fit = (
-            TMLE(**{**FAST_KWARGS, "n_folds": 5}, incremental=[Incremental(2.0)])
+            TMLE(
+                **{**FAST_KWARGS, "n_folds": 5, "cross_fit": False}, incremental=[Incremental(2.0)]
+            )
             .fit(frame, outcome="Y", treatment="A")
             .single()
         )
@@ -292,8 +314,11 @@ class TestAMissingOutcomeIsCarriedByTheMissingnessModel:
 
     @pytest.fixture(scope="class")
     def missing_fit(self, missing):
+        # In sample: this class is about the delta= mechanism rescuing a misspecified
+        # Qbar, not about cross-fitting, and make_missing_outcome's Gaussian outcome
+        # would otherwise need a declared q_bounds it does not have.
         return (
-            TMLE(**FAST_KWARGS, incremental=TILTS)
+            TMLE(**{**FAST_KWARGS, "cross_fit": False}, incremental=TILTS)
             .fit(missing, outcome="Y", treatment="A", delta="Delta")
             .single()
         )
@@ -302,7 +327,11 @@ class TestAMissingOutcomeIsCarriedByTheMissingnessModel:
     def complete_case(self, missing):
         """The same estimator on the recorded rows only, with no missingness model."""
         rows = missing[missing["Delta"] == 1].drop(columns=["Delta"])
-        return TMLE(**FAST_KWARGS, incremental=TILTS).fit(rows, outcome="Y", treatment="A").single()
+        return (
+            TMLE(**{**FAST_KWARGS, "cross_fit": False}, incremental=TILTS)
+            .fit(rows, outcome="Y", treatment="A")
+            .single()
+        )
 
     def test_the_process_is_hard_enough_to_be_testing_something(self, missing) -> None:
         observed = float((missing["Delta"] == 1).mean())

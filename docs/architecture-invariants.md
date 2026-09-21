@@ -122,11 +122,46 @@ logistic-submodel bound.
 A supplied `SplitPlan` fixes outer validation assignments by input row position, and a plan read
 off a result binds to that fit's data fingerprint. It does not fix inner learner or
 collaborative-selection folds. Validate every repeat against that fingerprint before nuisance
-fitting, including training support and cluster integrity. Results derive the public plan from
+fitting, including cluster integrity. Results derive the public plan from
 retained folds, and provenance fingerprints those same assignments. Targeted bootstrap,
 longitudinal fits, and any refutation that changes the row set refuse a supplied plan until they
 define their own row-mapping and validation contracts.
-*Reconsider when* either engine records enough identity to validate a supplied plan before fitting.
+
+A fit accepts a supplied plan only when the plan records how `random_partition` drew each repeat.
+Draw each repeat again from that record before nuisance fitting, and refuse labels the record does
+not produce. Labels no recorded draw produces could have been chosen by reading the outcome, which
+is the leak cross-fitting prevents. A result carries the record of every retained draw, and a
+refit keeps the record and drops the fingerprint binding. `SplitPlan` stays constructible from
+labels alone, and every layer that accepts a plan refuses one with no record.
+*Reconsider when* another generator records enough identity to be drawn again from its record.
+
+An outer split reads the row count, the cluster labels and a seed, and it reads no treatment,
+outcome or covariate value. No fit draws a partition that balances the data it then conditions on.
+The declaration layer refuses a balancing policy before any split exists, and the fit layer refuses
+it again, because a restored result or a copied estimator can carry a policy this version does not
+draw under. A selector-based collaborative fit draws selection folds without cross-fitting, so the
+refusal reaches it at every setting. Outcome-adaptive C-TMLE draws no selection folds, so its
+in-sample fit accepts an unused policy. *Reconsider when* a reviewed result covers a partition read off the analysed
+data for a shipped estimator.
+
+A cross-fitted fit of a continuous outcome works on a scale the caller declared, and never on one
+the sample supplied. Refuse `q_bounds=None` before nuisance fitting, in every engine that
+cross-fits. No package or study code derives an outcome support from a realized sample. The package
+checks only that a declared interval contains the observed outcomes. *Reconsider when* a reviewed
+result covers a cross-fitted transform whose endpoints the held-out rows helped choose.
+
+What stratification used to guarantee is now checked on the realized draw, before the first
+learner. Each treatment arm, and each class of a binary outcome, must reach two independent units.
+Each training complement must carry every arm, a row whose outcome was observed, and every class a
+learner's inner split needs. The independent unit is the row, and
+it is the cluster where `id=` declares one. A refusal raised after a draw names no redraw, no seed
+and no fold count, because a split that happens to fit was chosen by reading the values the draw
+must not read. *Reconsider when* a split law that reads the treatment acquires a reviewed result.
+
+A composition the package cannot support is refused by name before it costs a learner. Collaborative
+TMLE refuses declared clusters at every setting, and cross-fitted longitudinal TMLE refuses them
+above one fold, because no reviewed result covers a grouped draw of those splits.
+*Reconsider when* a cluster-level result covers the selection path or the sequential recursion.
 
 A normalized method declaration either changes the selected engine request or fails before that
 engine is constructed. Shared configuration groups do not imply shared implementation: every

@@ -1112,6 +1112,101 @@ def clustered_inference_verdicts(
     )
 
 
+#: The fold-policy family, the arm every other arm is differenced against, and the role
+#: every one of its cells carries.
+#:
+#: The family is **reported, not gated**, and that is a scientific statement rather than a
+#: convenience.  A fold policy that reads the treatment or the outcome is refused, so the
+#: comparison cannot be a claim about a construction the package supplies.  What it can do
+#: is detect a failure: ``docs/roadmap.md`` records that such a diagnostic can show a
+#: policy behaving badly and cannot supply an inference result.  Gating it would publish a
+#: verdict of the shape "this policy is valid", which no cell here establishes -- a paired
+#: coverage difference inside its interval is equally consistent with both policies being
+#: right and with both being wrong in the same direction.
+#:
+#: ``role`` is what keeps that visible in the committed rows.  A third role is worth its
+#: cost for the reason :class:`~tests.studies.evidence.properties.PropertyCell` gives for
+#: the second: published without the distinction, a ``passed`` column says the same word
+#: about an estimator that met a declared margin and about one whose numbers were merely
+#: recorded.
+FOLD_POLICY_FAMILY = "fold_policy"
+FOLD_POLICY_REFERENCE_CELL = "unstratified"
+DIAGNOSTIC_ROLE = "diagnostic"
+
+
+def fold_policy_diagnostics(
+    summary: pd.DataFrame,
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    *,
+    reference_cell: str = FOLD_POLICY_REFERENCE_CELL,
+) -> None:
+    """Report each fold policy's coverage and its paired difference from the reference.
+
+    Every cell of the family keeps the exact coverage interval
+    :func:`~tests.studies.evidence.properties.summarize_cells` already computed, and every
+    cell but the reference gains the resampled difference between its coverage and the
+    reference's.  The difference is paired on ``replicate``, which is why the three cells
+    share a seed: the samples are identical and only the outer split differs, so the
+    difference is a statement about the split rather than two rates subtracted.
+
+    No margin is read and no verdict is formed.  ``passed`` and ``property_passed`` are set
+    to ``True`` for every row, meaning the diagnostic was computed and its numbers are
+    published, and the published ``role`` is what says so.
+    :func:`tests.studies.evidence.document.property_table` renders a diagnostic row as
+    "reported" rather than "pass" for the same reason.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The cell summary, which this writes the paired interval and both flags on.
+    rows : pandas.DataFrame
+        The replication rows every arm was emitted from, paired on ``replicate``.
+    record : StudyRecord
+        Supplies the resampling budget, the confidence level and the seed stream.
+    reference_cell : str
+        The arm the others are differenced against.
+
+    Raises
+    ------
+    ValueError
+        When the reference arm is missing, or when a cell of the family was published
+        under a role other than :data:`DIAGNOSTIC_ROLE`.
+    """
+    mask = summary["property"] == FOLD_POLICY_FAMILY
+    if not mask.any():
+        return
+    margins = record.margins
+    selected = rows.loc[rows["property"] == FOLD_POLICY_FAMILY]
+    reference = selected.loc[selected["cell"] == reference_cell]
+    if reference.empty:
+        raise ValueError(
+            f"{FOLD_POLICY_FAMILY} has no {reference_cell!r} arm, so there is nothing to "
+            f"difference the other policies against"
+        )
+    roles = set(summary.loc[mask, "role"].astype(str))
+    if roles != {DIAGNOSTIC_ROLE}:
+        raise ValueError(
+            f"{FOLD_POLICY_FAMILY} publishes roles {sorted(roles)}; every cell of a "
+            f"reported family carries {DIAGNOSTIC_ROLE!r}, because the column is what "
+            f"tells a reader the row states no verdict"
+        )
+    for cell in sorted(summary.loc[mask, "cell"]):
+        row_mask = mask & (summary["cell"] == cell)
+        if cell != reference_cell:
+            low, high = coverage_gain_interval(
+                selected.loc[selected["cell"] == cell],
+                reference,
+                replicates=margins.bootstrap_replicates,
+                confidence_level=margins.confidence_level,
+                seed=stream_seed(record, FOLD_POLICY_FAMILY, cell),
+            )
+            summary.loc[row_mask, "coverage_gain_ci_lower"] = low
+            summary.loc[row_mask, "coverage_gain_ci_upper"] = high
+        summary.loc[row_mask, "passed"] = True
+        summary.loc[row_mask, "property_passed"] = True
+
+
 def finish(summary: pd.DataFrame, rates: list[dict[str, Any]]) -> pd.DataFrame:
     """Append the rate rows and put the table in its published order.
 

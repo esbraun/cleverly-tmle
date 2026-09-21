@@ -10,6 +10,12 @@ and odds ratios against the `high` arm. Its property design separately checks th
 outcome-regression robustness contract and the precision cost of estimating the generated
 outcome-adaptive design.
 
+The primary fit draws no split at all. It is not cross-fitted, and the outcome-adaptive strategy
+scores no candidate path, so it needs no selection folds. Every property cell is cross-fitted and
+declares `stratify_folds="none"`, which reaches its outer folds and the Super Learner's inner
+folds. No cell declares `q_bounds`, because every law in this row has a binary outcome, whose
+outcome scaler is already the identity.
+
 ## Accuracy against known truth
 
 <!-- generated: accuracy -->
@@ -56,18 +62,18 @@ outcome-adaptive design.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `generated_design` | `estimated` | control | the same design is estimated from the data, as a real fit does | the SE-ratio deficit must reach the declared shortfall | SE ratio 0.9669 to 1.0969 | **fail** |
-| `generated_design` | `oracle_design` | positive | the outcome-adaptive design is supplied rather than estimated | SE ratio interval inside the calibration band | SE ratio 0.9719 to 1.1046 | **fail** |
-| `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9343 to 0.9630, SE ratio 0.9650 to 1.0553 | pass |
+| `generated_design` | `estimated` | control | the same design is estimated from the data, as a real fit does | the SE-ratio deficit must reach the declared shortfall | SE ratio 0.9694 to 1.1026 | **fail** |
+| `generated_design` | `oracle_design` | positive | the outcome-adaptive design is supplied rather than estimated | SE ratio interval inside the calibration band | SE ratio 0.9797 to 1.1151 | **fail** |
+| `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9357 to 0.9641, SE ratio 0.9668 to 1.0575 | pass |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
-| `robustness_contract` | `outcome_correct` | positive | the outcome regression is correct and the mechanism is not | bias interval inside the equivalence margin, SE ratio must remain between 0.1 and 10.0 | bias -0.0022 to 0.0022, margin 0.0052, SE ratio 0.9632 | pass |
-| `robustness_contract` | `outcome_wrong` | control | the outcome regression is misspecified | bias interval must fall entirely outside the margin, SE ratio must remain between 0.1 and 10.0 | bias 0.0664 to 0.0738, margin 0.0088, SE ratio 1.0366 | pass |
-| `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.0021, coverage 0.9212 to 0.9774, SE ratio 0.9798 | pass |
-| `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias -0.0039, coverage 0.8996 to 0.9646, SE ratio 1.0022 | **fail** |
-| `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000044, coverage 0.9212 to 0.9774, SE ratio 1.0291 | pass |
-| `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5667 to -0.4726 | pass |
-| `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5127 to -0.5074 | pass |
-| `type_i_error` | `sharp_null` | positive | a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0550, 0.0298 to 0.0913 | pass |
+| `robustness_contract` | `outcome_correct` | positive | the outcome regression is correct and the mechanism is not | bias interval inside the equivalence margin, SE ratio must remain between 0.1 and 10.0 | bias -0.0022 to 0.0022, margin 0.0052, SE ratio 0.9641 | pass |
+| `robustness_contract` | `outcome_wrong` | control | the outcome regression is misspecified | bias interval must fall entirely outside the margin, SE ratio must remain between 0.1 and 10.0 | bias 0.0659 to 0.0733, margin 0.0088, SE ratio 1.0382 | pass |
+| `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.0020, coverage 0.9149 to 0.9738, SE ratio 0.9825 | pass |
+| `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias -0.0041, coverage 0.9057 to 0.9683, SE ratio 1.0097 | pass |
+| `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000055, coverage 0.9180 to 0.9756, SE ratio 1.0294 | pass |
+| `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5645 to -0.4715 | pass |
+| `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5136 to -0.5090 | pass |
+| `type_i_error` | `sharp_null` | positive | a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0575, 0.0317 to 0.0943 | pass |
 <!-- /generated -->
 
 ## Measured values
@@ -81,7 +87,7 @@ outcome-adaptive design.
 | `paired_tests_total` | 9 | paired comparison tests |
 | `paired_tests_passed` | 9 | paired tests passing |
 | `property_cells_total` | 12 | repeated-sampling property cells |
-| `property_cells_passed` | 9 | property cells passing |
+| `property_cells_passed` | 10 | property cells passing |
 | `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |
 | `margin:alpha` | 0.0500 | nominal estimator size |
 | `margin:nominal_coverage` | 0.9500 | nominal estimator coverage |
@@ -113,10 +119,19 @@ outcome-adaptive design.
 
 This row has reporting policy, so its red cells publish. The generated-design pair did not
 resolve: the oracle design's SE-ratio interval leaves the calibration band, and the estimated
-design showed no measurable deficit against it. The n = 500 coverage bound also misses the floor.
-The row therefore prices no cost for estimating the treatment design.
+design showed no measurable deficit against it. The row therefore prices no cost for estimating
+the treatment design.
 [F19](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) records what a
 source must settle before that changes.
+
+The n = 500 coverage bound was red on the treatment-stratified split this row used before, and it
+clears the floor on the unstratified split it now declares. The budget, the size, the seed and the
+margins did not move, so read that cell as one Monte Carlo resolution at 400 replications rather
+than as a demonstrated gain.
+
+The row draws every cross-fitted split without reading a label. It does not establish a stratified
+split, a grouped split, or a supplied plan. It says nothing about a continuous outcome whose
+support the analyst does not know, because every law here has a binary outcome.
 
 The archived R comparison requires numeric arm codes because of its counterfactual-prediction
 adapter. The study covers one binary-outcome law, ordinary GLM nuisance fits, pointwise intervals,

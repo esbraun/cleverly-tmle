@@ -24,10 +24,13 @@ from cleverly.estimators import ctmle as ctmle_module
 from cleverly.estimators._nuisance import Propensity, UnfittedPropensity
 from cleverly.estimators.ctmle import _Selector, _weighted_partial_correlation
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.learners.crossfit import SplitPlan, make_folds
+from cleverly.learners.crossfit import SplitPlan, make_folds, random_partition
 from tests.conftest import FAST_KWARGS, mean_one_weights
 
-TMLE_KWARGS = {**FAST_KWARGS, "estimands": ("ate",)}
+#: In sample: q_bounds stays None, and a cross-fitted continuous fit refuses that.
+#: Selector-based collaborative fits draw selection and nested folds whether or not
+#: cross_fit is set. Outcome-adaptive fits select nothing and draw neither split.
+TMLE_KWARGS = {**FAST_KWARGS, "estimands": ("ate",), "cross_fit": False}
 
 #: Three selection folds rather than the default five: the searches below are the
 #: dominant cost in this file and the claims resolve identically either way.
@@ -200,12 +203,15 @@ def instrument_frame() -> object:
 
 @pytest.fixture(scope="module")
 def selector(instrument_frame) -> _Selector:
-    return _selector(instrument_frame)[0]
+    # Cross-fitted: _selector builds a fit from the estimator's internals directly and
+    # never reaches TMLE._resolve_estimands_for_data, so the q_bounds refusal a public
+    # .fit() call would raise on this Gaussian law never fires here.
+    return _selector(instrument_frame, cross_fit=True)[0]
 
 
 @pytest.fixture(scope="module")
 def weighted_selector(instrument_frame) -> _Selector:
-    return _selector(_weighted(instrument_frame), weights="weight")[0]
+    return _selector(_weighted(instrument_frame), weights="weight", cross_fit=True)[0]
 
 
 class TestLoss:
@@ -720,10 +726,14 @@ class TestOutcomeAdaptiveCrossFitting:
         from cleverly.datasets import make_binary_outcome
 
         frame, _ = make_binary_outcome(n=180, seed=31)
-        assignment = np.arange(len(frame), dtype=int) % 3
-        plan = SplitPlan((tuple(assignment),))
+        drawn = random_partition(len(frame), 3, seed=31)
+        assignment = drawn.assignment
+        plan = SplitPlan.from_folds([drawn])
         settings = {
             **TMLE_KWARGS,
+            # Cross-fitted: this is the leakage witness itself, on a binary law so the
+            # q_bounds refusal TMLE_KWARGS otherwise avoids does not apply here anyway.
+            "cross_fit": True,
             "strategy": "oat",
             "n_folds": 3,
             "split_plan": plan,
@@ -842,7 +852,12 @@ class TestReporting:
 
     def test_the_footer_reports_only_the_quantity_the_selector_observed(self, selection) -> None:
         """The omitted candidates have different causal roles under the instrument law."""
-        assert selection.dropped == ("W1", "W2")
+        # Re-measured for the in-sample fit CTMLE_KWARGS now runs (the fold and outcome-scale rules): the correctly
+        # specified outcome model makes the empty propensity optimal in sample too, so
+        # all three covariates, not two, are left out. See TestSelection's
+        # test_the_right_outcome_model_makes_the_empty_propensity_optimal for why an
+        # empty selection is the expected answer on this process.
+        assert selection.dropped == ("W1", "W2", "W3")
         footer = selection.summary().split("left out:", maxsplit=1)[1]
         assert "targeted cross-validated penalized squared-error loss" in footer
         assert "does not determine why a covariate was left out" in footer

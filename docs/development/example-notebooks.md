@@ -72,7 +72,7 @@ Take the program's column names from one place, so every page uses the same name
 
 | generator | what to write |
 | --- | --- |
-| `make_nonlinear_ate` | `frame, truth = navigation_data(n=..., seed=...)`, imported from `cleverly.datasets`. Do not rename its columns in the notebook |
+| `make_nonlinear_bounded` | `frame, truth = navigation_data(n=..., seed=...)`, imported from `cleverly.datasets`. Do not rename its columns in the notebook |
 | another generator | `frame.rename(columns=...)` with that generator's mapping. Each generator gives its `W` columns other meanings, so no shared mapping fits them |
 
 Print the column names in the data step, such as `print(list(frame.columns))`. The printed names

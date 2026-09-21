@@ -18,7 +18,7 @@ from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import DataError
 from cleverly.interventions import Rule, Static, Stochastic
-from tests.conftest import FAST_KWARGS
+from tests.conftest import FAST_KWARGS, IN_SAMPLE
 
 
 def _positive_w1(w):
@@ -31,7 +31,16 @@ def frame():
 
 
 def fit(frame, **overrides):
-    return TMLE(**{**FAST_KWARGS, **overrides}).fit(frame, outcome="Y", treatment="A").single()
+    """Fit in sample: this module is about the regime machinery, not cross-fitting.
+
+    ``make_linear_ate`` draws a Gaussian outcome, so a cross-fitted fit would need a
+    declared ``q_bounds`` it has no reason to state.
+    """
+    return (
+        TMLE(**{**FAST_KWARGS, **IN_SAMPLE, **overrides})
+        .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
 
 
 class TestAStaticFitIsTheArmFit:

@@ -907,7 +907,7 @@ class ValidationReport:
     >>> result = study.identify(ATE()).estimate(
     ...     outcome_learner=LinearRegression(),
     ...     treatment_learner=LogisticRegression(max_iter=1000),
-    ...     n_folds=2,
+    ...     cross_fit=False,
     ...     random_state=0,
     ... )
     >>> report = result.validate()
@@ -1960,7 +1960,7 @@ class DiagnosticsFacade(_CapabilityFacade):
     >>> result = study.identify(ATE()).estimate(
     ...     outcome_learner=LinearRegression(),
     ...     treatment_learner=LogisticRegression(max_iter=1000),
-    ...     n_folds=2,
+    ...     cross_fit=False,
     ...     random_state=0,
     ... )
     >>> support = result.diagnostics.support()
@@ -2413,7 +2413,7 @@ class DiagnosticsFacade(_CapabilityFacade):
         >>> result = study.identify(ATE()).estimate(
         ...     outcome_learner=LinearRegression(),
         ...     treatment_learner=LogisticRegression(max_iter=1000),
-        ...     n_folds=2,
+        ...     cross_fit=False,
         ...     random_state=0,
         ... )
         >>> report = result.diagnostics.run_all()
@@ -3303,7 +3303,7 @@ class SensitivityFacade(_CapabilityFacade):
     >>> result = study.identify(ATE()).estimate(
     ...     outcome_learner=LinearRegression(),
     ...     treatment_learner=LogisticRegression(max_iter=1000),
-    ...     n_folds=2,
+    ...     cross_fit=False,
     ...     random_state=0,
     ... )
     >>> capability = result.sensitivity.capability("omitted_confounding")
@@ -3625,7 +3625,7 @@ class SensitivityFacade(_CapabilityFacade):
         >>> result = study.identify(ATE()).estimate(
         ...     outcome_learner=LinearRegression(),
         ...     treatment_learner=LogisticRegression(max_iter=1000),
-        ...     n_folds=2,
+        ...     cross_fit=False,
         ...     random_state=0,
         ... )
         >>> bounds = result.sensitivity.omitted_confounding(cf_y=0.05, cf_d=0.05)

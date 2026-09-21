@@ -1,4 +1,12 @@
-"""Repeated-sampling properties for outcome-adaptive multi-arm C-TMLE."""
+"""Repeated-sampling properties for outcome-adaptive multi-arm C-TMLE.
+
+Every cell here is cross-fitted, and every one of them declares its split through
+``stratify_folds="none"``.  ``strategy="oat"`` draws no selection folds, so the declaration
+reaches the outer folds and the Super Learner's inner folds alone.  No cell declares
+``q_bounds``: the outcome is binary on every law this study samples, so the outcome scaler
+is already the identity and :meth:`~cleverly.estimators.TMLE._scaler` refuses a second
+declaration of it.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +17,7 @@ import pandas as pd
 from cleverly.estimators import CTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import multi_arm_common, multi_arm_properties
-from tests.studies.canonical_multi_arm_ctmle_oat import STUDY
+from tests.studies.canonical_multi_arm_ctmle_oat import STRATIFY_FOLDS, STUDY
 from tests.studies.evidence.properties import (
     PropertyCell,
     run_cells,
@@ -41,6 +49,18 @@ def cells() -> tuple[PropertyCell, ...]:
     )
 
 
+def declared_cells() -> tuple[PropertyCell, ...]:
+    """Every cell this study runs, so each committed truth is read back against its law.
+
+    Returns
+    -------
+    tuple of PropertyCell
+        The robustness pair, the asymptotic block and the generated-design pair, in the
+        order they run.
+    """
+    return cells()
+
+
 def _estimator(cell: PropertyCell):  # type: ignore[no-untyped-def]
     return lambda: CTMLE(
         strategy="oat",
@@ -52,6 +72,9 @@ def _estimator(cell: PropertyCell):  # type: ignore[no-untyped-def]
         reference=multi_arm_common.REFERENCE,
         simultaneous=False,
         g_bounds=multi_arm_common.G_BOUNDS,
+        # No ``q_bounds``: every law here has a binary outcome, whose scaler is already
+        # the identity.  The split is declared instead.
+        stratify_folds=STRATIFY_FOLDS,
         max_iter=100,
         tol=1e-10,
         random_state=0,

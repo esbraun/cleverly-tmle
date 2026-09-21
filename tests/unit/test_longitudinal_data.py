@@ -350,8 +350,14 @@ def test_a_crossfit_refuses_a_training_fold_without_every_level() -> None:
             random_state=0,
         ).fit(frame, **COLUMNS)
     message = str(caught.value)
-    assert "A larger fold count gives each training complement more rows" in message
-    assert "Increase n_folds" in message and "use n_folds=1" in message
+    assert (
+        "The split reads none of the data, so trying fold counts or seeds until one "
+        "fits would choose the partition by the values it must not read." in message
+    )
+    assert (
+        "Fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine), or collect "
+        "more observations at the rare level"
+    ) in message
 
 
 def test_single_fold_categorical_support_advice_starts_a_sentence() -> None:
@@ -385,7 +391,13 @@ def test_a_binary_node_keeps_the_degenerate_fold_fallback() -> None:
     """
     from cleverly.longitudinal import LTMLE, LongitudinalError
 
-    frame = panel(n=80)
+    # A larger panel than the file's other fixtures use. At n=80, the same seed that
+    # zeroes out A2's rarer level also leaves C2's rarer censoring class thin enough
+    # that the censoring learner's own inner split degenerates first, which is a
+    # collision with the unstratified outer split rather than anything this test is
+    # about. n=160 keeps that class populated while still reaching the "treat
+    # throughout" regimen with no follower.
+    frame = panel(n=160)
     frame.loc[frame["A2"] == 1.0, "A2"] = 0.0
     with pytest.raises(LongitudinalError, match="no unit followed regimen") as caught:
         LTMLE(
@@ -406,8 +418,14 @@ def test_a_binary_node_keeps_the_degenerate_fold_fallback() -> None:
             random_state=0,
         ).fit(frame, **COLUMNS)
     message = str(caught.value)
-    assert "A larger fold count gives each training complement more rows" in message
-    assert "Increase n_folds, use n_folds=1, or choose a supported regimen" in message
+    assert (
+        "The split reads none of the data, so trying fold counts or seeds until one "
+        "fits would choose the partition by the values it must not read." in message
+    )
+    assert (
+        "Fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine), or choose a "
+        "supported regimen"
+    ) in message
 
 
 def test_the_refusal_names_the_arms_a_rule_wanted() -> None:

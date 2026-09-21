@@ -9,7 +9,6 @@ mechanism-fitting pipelines.  Statistical properties are checked independently i
 
 from __future__ import annotations
 
-import math
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
@@ -25,6 +24,7 @@ from tests.parallel import STUDY_JOBS
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.fractional_glm import QuasiBinomialGLM
 
 LTMLE_VERSION = "1.3-0"
 LTMLE_SOURCE_COMMIT = "338c029dae9692ef20714125773da7037688993b"
@@ -135,59 +135,6 @@ CONFIGURATION = {
     "regimens": list(REGIMENS),
     "q_formulas": ["Q.kplus1 ~ W1 + W2", "Q.kplus1 ~ W1 + W2 + L2"],
 }
-
-
-class QuasiBinomialGLM(BaseEstimator):
-    """Small scikit-compatible unpenalized quasibinomial IRLS learner.
-
-    R ``ltmle`` uses ``glm(..., family=quasibinomial())`` for both the binary final
-    outcome and fractional earlier pseudo-outcomes.  Scikit-learn's logistic classifier
-    refuses fractional targets, so the canonical study carries the corresponding score
-    solver rather than silently comparing different regression families.
-    """
-
-    def __init__(self, *, max_iter: int = 100, tol: float = 1e-10) -> None:
-        self.max_iter = max_iter
-        self.tol = tol
-
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> QuasiBinomialGLM:
-        matrix = np.asarray(X, dtype=float)
-        target = np.asarray(y, dtype=float).reshape(-1)
-        weights = (
-            np.ones_like(target)
-            if sample_weight is None
-            else np.asarray(sample_weight, dtype=float).reshape(-1)
-        )
-        design = np.column_stack([np.ones(len(matrix)), matrix])
-        mean = float(np.average(target, weights=weights))
-        coefficient = np.zeros(design.shape[1], dtype=float)
-        coefficient[0] = math.log(np.clip(mean, 1e-8, 1.0 - 1e-8) / np.clip(1.0 - mean, 1e-8, 1.0))
-        for _ in range(self.max_iter):
-            fitted = expit(design @ coefficient)
-            variance = np.clip(fitted * (1.0 - fitted), 1e-10, None)
-            working = design @ coefficient + (target - fitted) / variance
-            root_weight = np.sqrt(weights * variance)
-            updated = np.linalg.lstsq(
-                design * root_weight[:, None], working * root_weight, rcond=None
-            )[0]
-            if np.max(np.abs(updated - coefficient)) <= self.tol:
-                coefficient = updated
-                break
-            coefficient = updated
-        else:
-            raise RuntimeError("quasibinomial IRLS did not converge")
-        self.coef_ = coefficient[1:][None, :]
-        self.intercept_ = coefficient[:1]
-        self.classes_ = np.array([0.0, 1.0])
-        return self
-
-    def predict(self, X: Any) -> np.ndarray:
-        matrix = np.asarray(X, dtype=float)
-        return expit(self.intercept_[0] + matrix @ self.coef_[0])
-
-    def predict_proba(self, X: Any) -> np.ndarray:
-        probability = self.predict(X)
-        return np.column_stack([1.0 - probability, probability])
 
 
 class KnownLongitudinalMechanism(BaseEstimator):

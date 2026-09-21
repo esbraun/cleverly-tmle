@@ -43,7 +43,10 @@ CANONICAL = (*LINEAR, "att", "atc")
 
 @pytest.fixture(scope="module")
 def cv_fit() -> object:
-    frame, _ = make_linear_ate(n=600, seed=17)
+    # A binary outcome, not a Gaussian one: this fit cross-fits at FAST_KWARGS's
+    # n_folds=5, and a cross-fitted continuous outcome needs a declared q_bounds that a
+    # binary outcome does not (the fold and outcome-scale rules).
+    frame, _ = make_binary_outcome(n=600, seed=17)
     return (
         TMLE(**{**FAST_KWARGS, "targeting_scheme": "fold", "estimands": ("ate", "ey1")})
         .fit(frame, outcome="Y", treatment="A")
@@ -53,7 +56,7 @@ def cv_fit() -> object:
 
 @pytest.fixture(scope="module")
 def weighted_fold_fit() -> object:
-    frame, _ = make_linear_ate(n=300, seed=17)
+    frame, _ = make_binary_outcome(n=300, seed=17)
     frame = frame.assign(wt=mean_one_weights(len(frame), spread=(0.1, 1.9)))
     return (
         TMLE(
@@ -189,7 +192,7 @@ class TestFoldWiseTargeting:
         np.testing.assert_array_equal(fluctuation.absolute_score_weights, expected_load)
 
     def test_a_pooled_fit_records_no_fold_detail(self) -> None:
-        frame, _ = make_linear_ate(n=400, seed=18)
+        frame, _ = make_binary_outcome(n=400, seed=18)
         result = (
             TMLE(**{**FAST_KWARGS, "estimands": ("ate",)})
             .fit(frame, outcome="Y", treatment="A")
@@ -222,7 +225,7 @@ class TestCanonicalTargeting:
 
     def test_absolute_score_weights_keep_the_equal_fold_risk_measure(self) -> None:
         """The artifact retains validation weights, not the unequal input fold masses."""
-        frame, _ = make_linear_ate(n=300, seed=17)
+        frame, _ = make_binary_outcome(n=300, seed=17)
         settings = {**FAST_KWARGS, "cv_evaluation": True, "estimands": ("ate",)}
         draft = TMLE(**settings).fit(frame, outcome="Y", treatment="A").single()
         weights = np.ones(len(frame))

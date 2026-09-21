@@ -6,11 +6,11 @@
     "subject": {
       "implementation": "cleverly-multi-arm-ctmle-oat",
       "cleverly_version": "0.1.2",
-      "cleverly_commit": "e43b04fc32a215b9d0549c04d389e76c9d1b177b",
+      "cleverly_commit": "a01177b6ce7fc8be25e81093ea87bcca651b2db1",
       "cleverly_worktree_clean": false,
-      "python": "3.13.7",
+      "python": "3.11.13",
       "numpy": "2.4.6",
-      "scipy": "1.18.0",
+      "scipy": "1.17.1",
       "pandas": "3.0.5",
       "scikit_learn": "1.9.0"
     },
@@ -55,6 +55,9 @@
       0.025,
       0.975
     ],
+    "stratify_folds": "none",
+    "q_bounds": "none anywhere in this row; the outcome is binary on the primary law and on every property law, so the scaler is already the identity",
+    "folds": "none on the primary: it is not cross-fitted and the outcome-adaptive strategy draws no selection folds. The property cells draw unstratified five-fold outer assignments",
     "initial_treatment_model": "empirical arm probabilities (matched to sl3 Lrnr_mean)",
     "margins": {
       "confidence_level": 0.99,
@@ -84,13 +87,13 @@
   },
   "study_module_sha256": {
     "tests/studies/multi_arm_common.py": "5fc5f7bd9d60cf334a3067aae1632d4bc7e8b214213a43ea73422924088a3680",
-    "tests/studies/canonical_multi_arm_ctmle_oat.py": "57b50044609d535bce97cbb63cc672da12e50bf653297881001bddcdb289fb67",
-    "tests/studies/multi_arm_ctmle_oat_properties.py": "5a8cb2c998a3ae24edc0087ddcb60602655d032fd6300087dc5e1090cb0e266f",
-    "tests/studies/multi_arm_properties.py": "0ae74135e3da7502c01eaf00db379d94deecf75da1e7ad9761d16c529093d7ad",
+    "tests/studies/canonical_multi_arm_ctmle_oat.py": "a1fc1a29dccc15d990be7daed70abb4b04550a715eef9cac6cceedfb9b3ebcaa",
+    "tests/studies/multi_arm_ctmle_oat_properties.py": "431a72314916855e745ad7fc07aeebe7ec2ebce2a764a2d58f392b5664e5d8ee",
+    "tests/studies/multi_arm_properties.py": "ec78fdf09eb947b3dc47154d8920e387262f83d81e42a04984ee61f19eea19b3",
     "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
-    "tests/studies/evidence/properties.py": "92758fa96c493d26633e0f8b6bf372ddcfc37a8f06e856d311885de964ae7c52",
-    "tests/studies/evidence/property_verdicts.py": "79735103a47cf01784dc1ece8b50e6f20214258e308cf54a533d7c87023535d1",
+    "tests/studies/evidence/properties.py": "83ef22a43452bacf9b0e0c06cfe951640d68916472b30c58a8ec7fe6ef462e9c",
+    "tests/studies/evidence/property_verdicts.py": "75eee2068812badd182ac4634f2ce98325c40a4da48c6989fc66f76984d2cc81",
     "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
     "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9"
   },
@@ -101,11 +104,11 @@
     "tests/canonical/multi_arm_helpers.R": "1dcda209b2cf34d969c1582d65a42f825915a276ba1b4557a09f17930422d1a3"
   },
   "sha256": {
-    "replicates.csv.gz": "6964a392f26b6425e92970e4b14e5557ea0a2828a02be5fce816aeb54e2ece6c",
-    "summary.csv": "6355748acebb105000c89c1b0df65d533af7e6d6933acaabb8993f2b65dd4e44",
-    "equivalence.csv": "1e41685c17a5b7f3910fcbbb353fafbb0476a4f6a60d8b20b76dccb20053b741",
-    "performance-tests.csv": "677c1559c074bdf39d8c44869fca930bbe6b4de8561da2572808cec3e06eebc9",
-    "property-replicates.csv.gz": "0b65b3de02e9396846654e1562c378da246ef281b57cb2b269bda9e8aae81c16",
-    "properties.csv": "054d63f8ae2fe84a7170c9bdc14e53a9be603c4e97ac78404d46aa5d55f56132"
+    "replicates.csv.gz": "20df7ec8aacc455b501634385e75a876a9ff76bd0d56a57562c1b58fbbe0a938",
+    "summary.csv": "d4e618a03cf2b70185a61730f55d5778dd1a90a60f9d2a904a342eaf1825a120",
+    "equivalence.csv": "b59edd75f74eca5fc3656b16e2d22995e0b1b919c3db39d740cae457d8038377",
+    "performance-tests.csv": "085810929aa20b5f2dbd529d0b725024cd7407572add878b9ba2a0da7f456d1c",
+    "property-replicates.csv.gz": "d4ddf55b32760a070e43bf22f0f5aa4f1e7dc38d7f14c0641b4aa4b3d6352c84",
+    "properties.csv": "dfc2cd92a73867b588d2c33d68de90c6d1d93590508e797b16f1b5999d305dff"
   }
 }

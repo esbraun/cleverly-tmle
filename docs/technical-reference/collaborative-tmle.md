@@ -47,10 +47,25 @@ The implementation follows the published pooled construction step by step.
 **Selection folds are separate from nuisance cross-fitting.** Inside each selection-training set, a
 dedicated inner split produces out-of-fold predictions for its training rows, and one additional
 model trained on the whole set predicts the selection-validation rows. Matching fold counts or
-seeds is never relied on for independence. A selection-validation observation or cluster
-contributes to no nuisance fit used to score it, and no training row contributes to the model that
-predicts that row. The outcome support transform is fixed from the outer fit, so every fold's loss
-and influence curve stay in the same unit.
+seeds is never relied on for independence. A selection-validation observation contributes to no
+nuisance fit used to score it, and no training row contributes to the model that predicts that row.
+The outcome support transform is fixed from the outer fit, so every fold's loss and influence curve
+stay in the same unit.
+
+**Selector-based searches draw folds at every setting, so the fold rules bind in sample.** Both the
+selection split and the nested split come from `random_partition`, which reads the row count and
+the seed and no column. `cross_fit=False` removes the outer split, and it leaves these two. A
+selector-based fit therefore refuses `stratify_by="treatment"` and `stratify_by="treatment+outcome"`
+at every `cross_fit` setting. The message says so: "A collaborative fit draws those folds whether
+or not cross_fit is set, so cross_fit=False does not make this policy available." This is the one
+fit whose fold policy is refused in sample. Outcome-adaptive C-TMLE selects nothing and draws no
+selection folds. Its in-sample fit accepts an unused policy. The
+[fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give the audit behind it.
+
+**The selection split gets its own preflight.** `CTMLE._preflight_selection_folds` asks the
+realized selection partition the same support questions the outer split answers, before the first
+learner. A selection fold whose training rows lack an arm makes the candidate's propensity
+unfittable inside the search, and the fit refuses it up front instead.
 
 **Selection is joint across arms.** With `K` arms, every candidate is one `n x K` categorical
 mechanism, and the mean fluctuation solves all `K` arm equations. For curve matrix `D` the penalty
@@ -77,14 +92,23 @@ Theory: van der Laan and Gruber (2010), Gruber and van der Laan (2010), and Ju e
 | `strategy="discrete"` | selection among explicitly supplied candidate covariate sets |
 | `strategy="oat"` | the outcome-adaptive categorical mechanism of the archived `ctmle3`, fitted on the matrix of arm-specific outcome predictions. It has no candidate path and no parameter-specific selector |
 | `candidates=`, `ordering=` | supply the candidate sets or the preorder explicitly |
-| `selection_folds=` | folds for the stopping-index cross-validation. Default 5 |
-| `selection_inner_folds=` | the explicit cost control. Default 2, so a selection path uses three fits per nuisance or candidate rather than silently borrowing the outer nuisance fold count |
+| `selection_folds=` | folds for the stopping-index cross-validation. Default 5. The draw is unstratified, and it reads the row count and the seed |
+| `selection_inner_folds=` | the explicit cost control. Default 2, so a selection path uses three fits per nuisance or candidate rather than silently borrowing the outer nuisance fold count. This draw is unstratified as well |
 | `loss=`, `penalty=` | the selection loss, and whether the variance-plus-squared-mean penalty is applied |
 | `selection_estimand=` | which parameter vector the selection optimizes |
 
 **Only the pooled collaborative estimator is exposed.** `targeting_scheme="fold"` and
 `cv_evaluation=True` are refused. Composing collaborative model selection with fold-targeted or
 canonical CV-TMLE changes the estimator and needs a separate derivation.
+
+**Two other refusals reach every collaborative fit.** The first is `id=`: C-TMLE has no clustered
+result. No reviewed result covers clustered inference for the outcome-adaptive mechanism.
+Selector-based fits also lack a result for grouped selection and nested folds or candidate-selection
+variance. The message names two ways out: "Drop id= from fit (PointTreatment(cluster=None)), or use
+the ordinary TMLE (TMLE, or TMLEMethod), which has a clustered result." `available_methods` reports
+`collaborative_tmle` as unavailable with the same reason when the design declares `cluster=`, so a
+study reader sees it before anyone fits. The second is inherited from ordinary TMLE: a cross-fitted
+continuous outcome needs a declared `q_bounds`.
 
 **Retargeting holds the selection fixed.** A sensitivity analysis begins each perturbed targeting
 step from the selected candidate's own targeted regression, not from the initial one. Both the
@@ -98,8 +122,8 @@ therefore overstates robustness for the declared adjustment set. Do not report i
 [RM11](../roadmap.md#rm11-sensitivity-bounds-outside-their-derivation) tracks the refusal.
 
 **A simulated common-cause surface reruns selection.** Binary complete-outcome fits accept fixed
-probability weights for this operation. The operation refuses a clustered fit, and it refuses
-estimated weights.
+probability weights for this operation. The operation refuses estimated weights. Its clustered
+refusal is now unreachable through C-TMLE, because the fit itself refuses `id=`.
 
 Each cell keeps the weight with its observed row and refits the complete collaborative estimator.
 Selector strategies use the normalized weights in their nuisance fits, losses, penalties,

@@ -26,12 +26,14 @@ truncation of [the previous section](targeting.md#the-bound-inactive-scope).
 The alternation is **not guaranteed to converge.** Equation (10)'s covariate becomes small on
 exactly the fits anybody wants, so its inner solve can be singular or stop at working precision.
 The archived 96-fit sweep had 87 tolerance exits, 8 stalls, and 1 cap. It had cross-fitting disabled
-and therefore did not cover the shipped 10-fold default.
+and therefore did not cover the shipped ten-fold default.
 
-A fixed-seed `glm` check of the current source produced the following default-path evidence. The
+A fixed-seed `glm` check produced the table below. The
 counter's historical name is `ill_conditioned`, but it counts every equation-(10) inner failure,
 including a tolerance-limited full-rank solve; `res.validate()` therefore describes these as
-numerically difficult rather than asserting that every Hessian was singular.
+numerically difficult rather than asserting that every Hessian was singular. The three ten-fold
+rows were measured when the default draw balanced the treatment. The shipped draw is unstratified,
+so those three rows are dated and the `off` rows are not.
 
 | n | primary folds | exit | numerically difficult rounds | final score check |
 | ---: | ---: | --- | ---: | --- |
@@ -93,26 +95,29 @@ other. And compare at the **same nuisances**: same data, same `random_state`.
 **How far the two routes agree depends on which nuisance is wrong.** An earlier reading of one
 draw at `n = 600` recorded that they agree on `ψ` and differ on `σ²_n`, and generalised from it.
 The registered study measures the same comparison on the paper law at `n = 3000` over 120 paired
-draws, and the generalisation does not hold.
+draws in each nuisance regime, and the generalisation does not hold. The
+[canonical DR-TMLE study](../method-evidence/canonical-dr-tmle.md) was regenerated under the
+package's drawn unstratified ten-fold split, and the table below is that measurement. The
+[fold and outcome-scale rules](../cv-tmle.md#fold-and-outcome-scale-rules) give the split.
 
 | regime | route difference in `ate`, as a share of one sampling standard deviation | worst draw |
 | --- | ---: | ---: |
-| both nuisances correct | 5.4% | 19% |
-| outcome regression correct | 5.4% | 27% |
-| treatment mechanism correct | 40.6% | 162% |
+| both nuisances correct | 7.4% | 34% |
+| outcome regression correct | 5.8% | 29% |
+| treatment mechanism correct | 45.0% | 196% |
 
 Both routes solve all three equations to about `1e-11` on those draws, so this is not one route
 failing to converge. **The three equations do not pin down a single answer when the outcome
 regression is misspecified.** Step 7 states its termination as the three empirical means being
 approximately zero, and on this law more than one state satisfies that: the route decides which
 one is reached. For scale, the disagreement between this package and R `drtmle` in the same cell
-is 47.6% of a sampling standard deviation, so *cleverly against cleverly* and *cleverly against
+is 51.7% of a sampling standard deviation, so *cleverly against cleverly* and *cleverly against
 R* are the same size of difference and have the same cause.
 
 The reported `σ²_n` differs for the reason it always did, and that part stands: the exit condition
 constrains the three empirical *means*, while the reported variance is the second moment of a
 curve built from the reductions, which the two routes leave at different vintages by construction.
-The median `|Δσ|/σ` is 0.02% and 0.21% where the outcome regression is right, and 2.54% where it
+The median `|Δσ|/σ` is 0.02% and 0.25% where the outcome regression is right, and 3.02% where it
 is not. Both routes ran at the registered `max_outer = 100`.
 
 Read `update_order` as a diagnostic, and read a large route difference as a statement about the
@@ -129,8 +134,9 @@ ran at a hard-coded 50 that no caller could reach. The value that applied is now
 `result.repeats[0].fluctuations["mean"].reduction.max_outer`.
 
 Raising the cap changes only the fits that reached it. Measured on the paper law at `n = 3000`
-over 120 draws, going from 50 to 100 left every tolerance exit bit for bit and moved the 7 fits
-that had hit the cap by up to `1.3e-3`, which is 7% of one sampling standard deviation. Act on a
+over 120 draws per nuisance regime, under the package's drawn unstratified ten-fold split, going
+from 50 to 100 left all 336 tolerance exits bit for bit and moved the 24 fits that had hit the cap
+by up to `1.7e-3`, which is 8% of one sampling standard deviation. Act on a
 `"cap"` exit rather than noting it: it says the draw had not settled, and the estimate reported
 is the one the loop stopped at. Read it beside `score_check`, which says whether the scores the
 fit left are small enough to matter.
@@ -138,7 +144,8 @@ fit left are small enough to matter.
 ## The canonical `cvFolds` mapping
 
 R `drtmle`'s `cvFolds` path maps to `cross_fit=True, reduced_crossfit="pooled",
-targeting_scheme="pooled", cv_evaluation=False`. The
+targeting_scheme="pooled", cv_evaluation=False, stratify_folds="none"`. `cvFolds` draws an
+unstratified V-fold split, and `"none"` is the only policy a cross-fitted `cleverly` fit accepts. The
 [evidence manifest](../evidence.md#estimator-variants-over-registered-targets) states the map, the
 test that pins it, and which settings the source audit refuses.
 

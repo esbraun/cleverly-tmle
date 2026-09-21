@@ -82,6 +82,9 @@ def _study(
         estimator=lambda: TMLE(
             outcome_learner=outcome_learner,
             treatment_learner=treatment_learner,
+            # In sample: the subject is double robustness, not cross-fitting, and
+            # q_bounds stays None so a misspecified linear Qbar keeps its own bias.
+            cross_fit=False,
             n_folds=4,
             learner_folds=3,
             estimands=("ate",),

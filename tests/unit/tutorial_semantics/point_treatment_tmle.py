@@ -10,9 +10,10 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import pytest
 
 from cleverly.datasets import navigation_protocol
-from cleverly.datasets.synthetic import nonlinear_dgp
+from cleverly.datasets.synthetic import nonlinear_bounded_dgp
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -25,7 +26,7 @@ NOTEBOOK = EXAMPLES / "point-treatment-tmle.ipynb"
 
 def _untreated_selection_bias(n: int = 400_000) -> float:
     """``E[Y^0 | A=1] - E[Y^0 | A=0]`` in the law behind ``navigation_data``, by Monte Carlo."""
-    law = nonlinear_dgp()
+    law = nonlinear_bounded_dgp()
     latent = np.random.default_rng(0).standard_normal((n, law.n_latent))
     g = law.propensity(latent)
     untreated = law.outcome_mean(latent, 0.0, None)
@@ -47,10 +48,12 @@ def check(namespace: dict[str, Any]) -> None:
     assert unadjusted > truth["ate"]
     assert by_arm.loc[0.0, "discharge_risk"] < 0.0 < by_arm.loc[1.0, "discharge_risk"]
     assert by_arm.loc[1.0, "discharge_risk"] > by_arm.loc[0.0, "discharge_risk"] + 0.3
-    # "the ATT exceeds the ATE", and "Other terms of the law give the offered patients lower
-    # scores without the offer": the two distortions have opposite signs in the law.
-    assert truth["att"] > truth["ate"] + 0.1
-    assert _untreated_selection_bias() < -0.05
+    # "the ATT exceeds the ATE", and "The offered patients would also score higher than the
+    # others under usual support alone": both distortions have the same sign in this law, so
+    # both raise the unadjusted difference.  The margins are the retired Gaussian law's, scaled
+    # by the ratio of the two ATEs (0.1629 against 1.750).
+    assert truth["att"] > truth["ate"] + 0.01
+    assert _untreated_selection_bias() > 0.01
     # "On this draw, the unadjusted difference is closer to the ATT than to the ATE."
     assert abs(unadjusted - truth["att"]) < abs(unadjusted - truth["ate"])
 
@@ -82,18 +85,24 @@ def check(namespace: dict[str, Any]) -> None:
     for key, point in points.items():
         assert covers(point, spread_truth[key]), key
 
-    # Step 8: "misses by several times more than either fit with one flexible learner"; about 6x here.
+    # Step 8: "misses ... by about three times either fit with one flexible learner"; 2.6x here.
     ate = truth["ate"]
     errors = {label: abs(point.psi - ate) for label, point in namespace["dr_points"].items()}
     one_flexible = max(errors["flexible Q, linear g"], errors["linear Q, flexible g"])
-    assert errors["both linear"] > 3.0 * one_flexible
-    # "its interval ... excludes the true value", while the Step 6 interval contains it.
+    assert errors["both linear"] > 2.0 * one_flexible
+    # "each interval contains the true value", and the both-linear interval excludes it.  The
+    # coverage claim is the sharper half of the reading and holds on this draw for all three.
+    for label in ("flexible Q, linear g", "linear Q, flexible g"):
+        assert covers(namespace["dr_points"][label], ate), label
     assert not covers(namespace["dr_points"]["both linear"], ate)
     assert covers(namespace["estimate"], ate)
-    # The summary prints padded scaling bounds, not the observed outcome range. The signed
-    # endpoints witness both the padding and the direction of the narrated negative value.
+    # "The summary prints no `outcome scaled` line": the declared q_bounds are the score's own
+    # support, so the scaler is the identity.  The outcome range is the nonzero witness that the
+    # declared support really holds the data rather than being padded around it.
     scaler = namespace["result"].nuisance.scaler
-    assert (round(scaler.lower, 3), round(scaler.upper, 2)) == (-4.372, 14.81)
+    assert (scaler.lower, scaler.upper) == (0.0, 1.0)
+    assert scaler.is_identity
+    assert "outcome scaled" not in namespace["result"].summary()
     outcome = np.asarray(namespace["frame"]["transition_score"], dtype=float)
     assert scaler.lower < outcome.min() < outcome.max() < scaler.upper
 
@@ -109,36 +118,44 @@ def check(namespace: dict[str, Any]) -> None:
     assert propensity.metrics["calibration_slope"] < 1.0
     assert 0.0 < namespace["support"].truncated["fraction"] < 0.05
 
-    # Step 9b: "The standard error falls ... as the bound clips more rows", "more than a quarter
+    # Step 9b: "From the fitted bound onward it falls at every step", "more than a quarter
     # of the patients" at the largest bound, and the fitted bound comes from 5 / (sqrt(n) log n).
+    # The two margins are the retired Gaussian law's, scaled by the ratio of the two ATEs.
     curve = namespace["curve"]
-    assert curve["std_err"].is_monotonic_decreasing
-    assert curve["std_err"].iloc[0] > curve["std_err"].iloc[-1] + 0.1
-    assert float(np.ptp(curve["psi"].to_numpy())) > 0.02
-    assert np.all(np.diff(curve["truncated_fraction"].to_numpy()) > 0.0)
-    assert curve["truncated_fraction"].iloc[-1] > 0.25
     n = len(namespace["frame"])
     fitted_bound = 5.0 / (np.sqrt(n) * np.log(n))
+    position = int(curve.index.get_loc((curve["bound"] - fitted_bound).abs().idxmin()))
+    assert curve["std_err"].iloc[position:].is_monotonic_decreasing
+    assert curve["std_err"].iloc[0] > curve["std_err"].iloc[-1] + 0.003
+    assert float(np.ptp(curve["psi"].to_numpy())) > 0.001
+    assert np.all(np.diff(curve["truncated_fraction"].to_numpy()) > 0.0)
+    assert curve["truncated_fraction"].iloc[-1] > 0.25
     nearest = curve.loc[(curve["bound"] - fitted_bound).abs().idxmin()]
     assert abs(nearest["bound"] - fitted_bound) < 1e-12
     # Nonzero witness: a retarget at the fitted bound reproduces the Step 6 estimate.
     assert abs(nearest["psi"] - namespace["estimate"].psi) < 1e-10
 
-    # Step 10: "equal strengths of 0.264 move the point estimate to zero" at rho = 1.
+    # Step 10: "equal strengths of 0.233 move the point estimate to zero" at rho = 1.
     result = namespace["result"]
     robustness = namespace["robustness"]
     assert 0.2 < robustness["rv"] < 0.33
     at_rv = result.sensitivity.omitted_confounding(cf_y=robustness["rv"], cf_d=robustness["rv"])
     assert abs(at_rv.lower) < 1e-3
+    # "The implied cf_y reaches 1.0000 ... so this covariate calibrates no bound here": the
+    # refusal is the bound formula's own, and it is what sends the step to a second covariate.
+    strong = namespace["strong"]
+    assert strong.covariates == ("discharge_risk",)
+    assert strong.cf_y == 1.0
+    with pytest.raises(ValueError, match=r"cf_y must lie in \[0, 1\)"):
+        result.sensitivity.omitted_confounding(cf_y=strong.cf_y, cf_d=strong.cf_d, rho=1.0)
     benchmark = namespace["benchmark"]
-    assert benchmark.covariates == ("discharge_risk",)
+    assert benchmark.covariates == ("medication_burden",)
     bounds = namespace["bounds"]
     assert (bounds.cf_y, bounds.cf_d, bounds.rho) == (benchmark.cf_y, benchmark.cf_d, 1.0)
-    # "much of the remaining outcome variation but little of the remaining treatment variation",
-    # so "Its combined strength is therefore below that of equal strengths of 0.264".
-    assert benchmark.cf_y > 0.5 > 0.1 > benchmark.cf_d
-    assert bounds.confounding_strength < at_rv.confounding_strength
-    assert 0.0 < bounds.lower < bounds.psi < bounds.upper
-    # "the limits ... still exclude zero", and each one-sided limit lies outside its bound.
-    assert 0.0 < bounds.ci_lower < bounds.lower
+    # "little of the remaining outcome variation and much of the remaining treatment variation".
+    assert benchmark.cf_y < 0.2 < 0.4 < benchmark.cf_d
+    # "Both ranges contain zero", and each one-sided limit lies outside its bound.
+    assert bounds.confounding_strength > at_rv.confounding_strength
+    assert bounds.lower < 0.0 < bounds.psi < bounds.upper
+    assert bounds.ci_lower < bounds.lower
     assert bounds.ci_upper > bounds.upper

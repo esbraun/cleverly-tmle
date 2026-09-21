@@ -91,6 +91,7 @@ from cleverly.targets.population_intervention import (
 from tests import discrete_law_cde, discrete_law_mar
 from tests.conftest import (
     FAST_KWARGS,
+    IN_SAMPLE,
     OracleDirectOutcome,
     OracleIntermediate,
     OracleMissingness,
@@ -282,6 +283,7 @@ def test_the_reserved_intercept_column_survives_the_constant_sweep() -> None:
         ATE(),
         outcome_learner=sklearn.linear_model.LinearRegression(),
         treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+        **IN_SAMPLE,
     )
     assert np.isfinite(result.psi("ate"))
     # The design still says what it claimed: no adjustment variables at all.
@@ -309,7 +311,7 @@ def test_identification_is_inspectable_before_estimation() -> None:
     assert "0 < P(A = 1 | W) < 1" not in summary
     assert "required nuisances" in summary
 
-    result = effect.estimate(**FAST_KWARGS)
+    result = effect.estimate(**FAST_KWARGS, **IN_SAMPLE)
     assert _fitted_nuisance_names(result) == effect.identification.required_nuisances
 
 
@@ -328,7 +330,7 @@ def test_multi_arm_identification_names_every_level_and_fitted_mechanism() -> No
     assert "both counterfactual means" not in summary
     assert "treatment_mechanism" in summary
 
-    result = effect.estimate(**FAST_KWARGS)
+    result = effect.estimate(**FAST_KWARGS, **IN_SAMPLE)
     assert result.nuisance.propensity.values.shape == (len(frame), 3)
     assert _fitted_nuisance_names(result) == effect.identification.required_nuisances
 
@@ -446,7 +448,7 @@ def test_design_bound_identification_provenance_requires_the_complete_record(tmp
         functional=_LegacyPickle(type(effect.functional), state),
         identification=registered,
     )
-    result = effect.estimate(**FAST_KWARGS)
+    result = effect.estimate(**FAST_KWARGS, **IN_SAMPLE)
     legacy_result = dataclasses.replace(result, identified_effect=legacy_effect)
     restored = cleverly.load(legacy_result.save(tmp_path / "legacy-identification.joblib"))
     restored_effect = restored.identified_effect
@@ -854,7 +856,7 @@ def test_stratified_parameter_keys_are_structured_before_the_alias_is_displayed(
             strata=("S",),
         ),
     )
-    result = study.identify(ATE()).estimate(**FAST_KWARGS)
+    result = study.identify(ATE()).estimate(**FAST_KWARGS, **IN_SAMPLE)
     assert result.parameter_keys["ate[S=0]"].stratum == (0,)
     assert result.parameter_keys["ate[S=1]"].stratum == (1,)
 
@@ -1136,10 +1138,15 @@ def test_every_point_only_option_is_refused_by_longitudinal_translation(
     accepted and omitted from the longitudinal kwargs; ``repeats`` alone had a bespoke
     refusal. Pinning the whole list prevents a future field from disappearing just because
     the two engine signatures differ.
+
+    ``stratify_folds`` is refused earlier than the rest: :class:`CrossFitting` now checks
+    the fold policy in ``__post_init__``, so ``with_overrides`` itself raises rather than
+    waiting for ``estimator_kwargs(longitudinal=True)``. The other options still refuse at
+    translation, so wrapping both statements finds whichever one raises.
     """
     name = next(iter(option))
-    method = TMLEMethod().with_overrides(**option)
     with pytest.raises(MethodConfigurationError, match=name) as raised:
+        method = TMLEMethod().with_overrides(**option)
         method.estimator_kwargs(longitudinal=True)
     assert isinstance(raised.value, CleverlyError)
 
@@ -1301,7 +1308,7 @@ def test_one_refusal_sentence_and_one_exception_type_serve_all_three_call_sites(
     with pytest.raises(CapabilityError) as identified:
         study.identify(PopulationAttributableRisk())
     with pytest.raises(CapabilityError) as fitted:
-        TMLE(estimands=("par",), **FAST_KWARGS).fit(
+        TMLE(estimands=("par",), **FAST_KWARGS, **IN_SAMPLE).fit(
             frame,
             outcome="Y",
             treatment="A",
@@ -1330,7 +1337,7 @@ def test_the_sibling_intermediate_refusal_is_a_cleverly_error_too() -> None:
     frame, _ = make_linear_ate(n=120, seed=21)
     frame = frame.assign(Z=(frame["W1"] > 0).astype(int))
     with pytest.raises(CapabilityError) as raised:
-        TMLE(estimands=("par",), **FAST_KWARGS).fit(
+        TMLE(estimands=("par",), **FAST_KWARGS, **IN_SAMPLE).fit(
             frame,
             outcome="Y",
             treatment="A",
@@ -1477,7 +1484,7 @@ def test_an_unavailable_treatment_is_refused_when_the_narrowing_runs() -> None:
     )
     effect = study.identify(CounterfactualMean(treatment="medium"))
     assert effect.functional.target == "ey"
-    result = effect.estimate(**FAST_KWARGS)
+    result = effect.estimate(**FAST_KWARGS, **IN_SAMPLE)
     tampered = dataclasses.replace(effect, estimand=CounterfactualMean(treatment="nowhere"))
     with pytest.raises(DataError, match=r"treatment 'nowhere' is not available; choose from"):
         tampered._select_point_parameters(result, result.method)

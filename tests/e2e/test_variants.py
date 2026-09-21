@@ -15,20 +15,36 @@ import numpy as np
 import pytest
 import sklearn.linear_model
 
-from cleverly.datasets import make_linear_ate, make_nonlinear_ate, make_weak_overlap
+from cleverly.datasets import (
+    make_linear_ate,
+    make_nonlinear_ate,
+    make_nonlinear_bounded,
+    make_weak_overlap,
+)
 from cleverly.estimators import TMLE
 from cleverly.exceptions import PositivityWarning
-from tests.conftest import fast_tmle
+from tests.conftest import BOUNDED, fast_tmle
 
 
 @pytest.fixture(scope="module")
 def frame_and_truth() -> tuple[object, dict[str, float]]:
-    return make_nonlinear_ate(n=1500, seed=31)
+    """A bounded law, not the module's Gaussian one (the fold and outcome-scale rules).
+
+    :class:`TestVariantsAgree` and :class:`TestReproducibility` below fit some of their
+    variants cross-fitted -- ``targeting_scheme="fold"`` needs it, and the
+    reproducibility claim about fold assignment moving the answer only makes a claim
+    when a fold is drawn. A cross-fitted continuous outcome needs a declared, true
+    ``q_bounds``, so this shared fixture draws from
+    :func:`~cleverly.datasets.make_nonlinear_bounded` -- a proportion outcome on the
+    same propensity as ``make_nonlinear_ate``, with known support ``(0, 1)`` -- rather
+    than state a bound the Gaussian law does not have.
+    """
+    return make_nonlinear_bounded(n=1500, seed=31)
 
 
 def _fit(frame: object, **overrides: object) -> object:
     return (
-        fast_tmle(estimands=("ate", "att"), **overrides)
+        fast_tmle(estimands=("ate", "att"), **BOUNDED, **overrides)
         .fit(frame, outcome="Y", treatment="A")
         .single()
     )
@@ -114,7 +130,7 @@ class TestReproducibility:
 
     def test_an_estimator_can_be_reused(self, frame_and_truth) -> None:
         frame, _ = frame_and_truth
-        estimator = fast_tmle(estimands=("ate",))
+        estimator = fast_tmle(estimands=("ate",), **BOUNDED)
         first = estimator.fit(frame, outcome="Y", treatment="A").single()
         second = estimator.fit(frame, outcome="Y", treatment="A").single()
         assert first.psi("ate") == second.psi("ate")
@@ -125,7 +141,7 @@ class TestBoundsAndScaling:
         frame, _ = make_weak_overlap(n=1200, seed=32)
         with pytest.warns(PositivityWarning):
             loose = (
-                fast_tmle(estimands=("ate",), g_bounds=0.001)
+                fast_tmle(estimands=("ate",), g_bounds=0.001, cross_fit=False)
                 .fit(frame, outcome="Y", treatment="A")
                 .single()
             )
@@ -133,7 +149,7 @@ class TestBoundsAndScaling:
             # A bound of 0.1 truncates most of this sample, which is exactly the
             # situation the warning exists to flag.
             tight = (
-                fast_tmle(estimands=("ate",), g_bounds=0.1)
+                fast_tmle(estimands=("ate",), g_bounds=0.1, cross_fit=False)
                 .fit(frame, outcome="Y", treatment="A")
                 .single()
             )
@@ -160,7 +176,11 @@ class TestBoundsAndScaling:
 
     def test_counterfactual_means_stay_inside_the_outcome_bounds(self) -> None:
         frame, _ = make_linear_ate(n=800, seed=35)
-        result = fast_tmle(estimands=("ey1", "ey0")).fit(frame, outcome="Y", treatment="A").single()
+        result = (
+            fast_tmle(estimands=("ey1", "ey0"), cross_fit=False)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
         lower, upper = result.config.q_bounds
         # The logistic fluctuation is bounded by construction, so this cannot fail
         # unless the unscaling is wrong.
@@ -169,7 +189,11 @@ class TestBoundsAndScaling:
 
     def test_auto_bounds_differ_between_the_ate_and_the_att(self) -> None:
         frame, _ = make_linear_ate(n=1000, seed=36)
-        result = fast_tmle(estimands=("ate", "att")).fit(frame, outcome="Y", treatment="A").single()
+        result = (
+            fast_tmle(estimands=("ate", "att"), cross_fit=False)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
         assert result.config.g_bounds != result.config.g_bounds_conditional
         assert result.config.g_bounds_conditional[0] == pytest.approx(0.025)
 
@@ -233,7 +257,11 @@ class TestBoundsAndScaling:
 
     def test_an_explicit_grid_is_not_expanded_with_fitted_bounds(self) -> None:
         frame, _ = make_linear_ate(n=1000, seed=36)
-        result = fast_tmle(estimands=("ate", "att")).fit(frame, outcome="Y", treatment="A").single()
+        result = (
+            fast_tmle(estimands=("ate", "att"), cross_fit=False)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
 
         curve = result.diagnostics.truncation_curve(bounds=[0.05, 0.01, 0.05])
 
@@ -275,6 +303,7 @@ class TestBoundsAndScaling:
                 n_folds=2,
                 learner_folds=2,
                 random_state=3,
+                cross_fit=False,
             )
             .fit(frame, outcome="Y", treatment="A")
             .single()
@@ -311,12 +340,12 @@ class TestWeightsAndClusters:
         rng = np.random.default_rng(0)
         weighted_frame = frame.assign(w=rng.uniform(0.3, 2.0, len(frame)))
         plain = (
-            fast_tmle(estimands=("ate",))
+            fast_tmle(estimands=("ate",), cross_fit=False)
             .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3", "W4"])
             .single()
         )
         weighted = (
-            fast_tmle(estimands=("ate",))
+            fast_tmle(estimands=("ate",), cross_fit=False)
             .fit(
                 weighted_frame,
                 outcome="Y",
@@ -332,12 +361,12 @@ class TestWeightsAndClusters:
     def test_uniform_weights_reproduce_the_unweighted_fit(self) -> None:
         frame, _ = make_linear_ate(n=800, seed=38)
         plain = (
-            fast_tmle(estimands=("ate",))
+            fast_tmle(estimands=("ate",), cross_fit=False)
             .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3", "W4"])
             .single()
         )
         weighted = (
-            fast_tmle(estimands=("ate",))
+            fast_tmle(estimands=("ate",), cross_fit=False)
             .fit(
                 frame.assign(w=2.5),
                 outcome="Y",
@@ -367,9 +396,11 @@ class TestWeightsAndClusters:
         frame, truth = make_biased_sample(6000, seed=40)
         columns = {"outcome": "Y", "treatment": "A", "covariates": ["W1", "W2"]}
         weighted = (
-            fast_tmle(estimands=("ate",)).fit(frame, weights="sampling_weight", **columns).single()
+            fast_tmle(estimands=("ate",), cross_fit=False)
+            .fit(frame, weights="sampling_weight", **columns)
+            .single()
         )
-        unweighted = fast_tmle(estimands=("ate",)).fit(frame, **columns).single()
+        unweighted = fast_tmle(estimands=("ate",), cross_fit=False).fit(frame, **columns).single()
 
         assert truth["ate_selected"] - truth["ate"] > 0.3
         assert weighted.psi("ate") == pytest.approx(
@@ -385,24 +416,21 @@ class TestWeightsAndClusters:
 
         frame, _ = make_clustered(n=1500, seed=39, cluster_size=15)
         columns = {"outcome": "Y", "treatment": "A", "covariates": ["W1", "W2"]}
-        ignoring = fast_tmle(estimands=("ate",)).fit(frame, **columns).single()
-        clustered = fast_tmle(estimands=("ate",)).fit(frame, id="cluster", **columns).single()
+        # In sample (the fold and outcome-scale rules: this test's subject is clustering, not cross-fitting), so
+        # id= has no fold split to keep a cluster whole inside, and the two nuisance
+        # fits read exactly the same rows either way.
+        ignoring = fast_tmle(estimands=("ate",), cross_fit=False).fit(frame, **columns).single()
+        clustered = (
+            fast_tmle(estimands=("ate",), cross_fit=False)
+            .fit(frame, id="cluster", **columns)
+            .single()
+        )
         # The DGP shares an unobserved latent within clusters, so ignoring the structure
         # understates the uncertainty.
         assert clustered["ate"].std_error > 1.2 * ignoring["ate"].std_error
-        # The point estimates are close but not identical: passing id= also keeps
-        # clusters intact when building the cross-fitting folds, which changes the
-        # out-of-fold nuisance predictions slightly.
-        #
-        # How *much* they differ is a property of the fold split, and the fold split is a
-        # property of the installed scikit-learn rather than of this package -- so the
-        # number here has to leave room for a resolver that picks a different one. It did:
-        # the gap is 0.09 standard errors on Python 3.11 and 0.29 on 3.10, deterministically
-        # and identically across runs, which the old `0.2` sat exactly between. That `0.2`
-        # was never derived; it was whatever one interpreter happened to produce, and it
-        # spent the outage failing on a quarter of the matrix with nothing to say so.
-        # `0.5` still fails on the thing this line is for -- clustering moving the estimate
-        # rather than the interval -- which would be a shift of several standard errors.
+        # The point estimates agree, in sample, to the tolerance below: clustering moving
+        # the estimate rather than the interval would be a shift of several standard
+        # errors, which is what this margin still catches.
         assert clustered.psi("ate") == pytest.approx(
             ignoring.psi("ate"), abs=0.5 * ignoring["ate"].std_error
         )
@@ -442,7 +470,7 @@ class TestBootstrapAndBands:
         # test in the fast tier; 40 replicates is the minimum that makes the
         # standard-error comparison below meaningful.
         result = (
-            fast_tmle(estimands=("ate",), n_bootstrap=40)
+            fast_tmle(estimands=("ate",), n_bootstrap=40, cross_fit=False)
             .fit(frame, outcome="Y", treatment="A")
             .single()
         )
@@ -467,6 +495,7 @@ class TestBootstrapAndBands:
                 estimands=("ate", "att", "atc", "ey1", "ey0"),
                 simultaneous=True,
                 n_multiplier=400,
+                cross_fit=False,
             )
             .fit(frame, outcome="Y", treatment="A")
             .single()
@@ -484,7 +513,7 @@ class TestBootstrapAndBands:
 
         frame, _ = make_clustered(n=900, seed=45, cluster_size=15)
         result = (
-            fast_tmle(estimands=("ate",), n_bootstrap=20)
+            fast_tmle(estimands=("ate",), n_bootstrap=20, cross_fit=False)
             .fit(
                 frame,
                 outcome="Y",
@@ -559,6 +588,9 @@ class TestArrayEntryPoint:
             outcome_learner=sklearn.linear_model.LinearRegression(),
             treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             n_folds=4,
+            # In sample: the subject is the array entry point, not cross-fitting. A
+            # cross-fitted continuous outcome needs a known q_bounds (the fold and outcome-scale rules).
+            cross_fit=False,
             estimands=("ate",),
             simultaneous=False,
             random_state=0,
@@ -597,7 +629,7 @@ class TestScreening:
             **{f"noise{i}": np.random.default_rng(i).normal(size=len(frame)) for i in range(5)}
         )
         result = (
-            fast_tmle(estimands=("ate",), screen_treatment=True, min_retain=2)
+            fast_tmle(estimands=("ate",), screen_treatment=True, min_retain=2, cross_fit=False)
             .fit(noisy, outcome="Y", treatment="A")
             .single()
         )
