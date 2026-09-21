@@ -38,7 +38,7 @@
         "ate_regimen[treat then continue if l2 positive vs never]"
       ]
     },
-    "construction": "pooled_cross_fit_weighted",
+    "construction": "pooled_cross_fit",
     "reference_construction": "training_fold_fluctuation",
     "selection_probability": {
       "W1_positive": 0.3,

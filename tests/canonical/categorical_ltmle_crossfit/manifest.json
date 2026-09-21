@@ -41,7 +41,7 @@
         "ate_regimen[respond vs low]"
       ]
     },
-    "construction": "cross_fitted",
+    "construction": "pooled_cross_fit",
     "outcome_kind": "end_of_study",
     "cross_fit": true,
     "n_folds": 5,

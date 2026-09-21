@@ -516,9 +516,11 @@ previous reader had is not a citation; a page number is.
   outcome transform with known bounds. Section 5.2, Steps 1 to 4, journal pages 852 and 853, give
   the cross-fitted TMLE. Step 3 fits each node's fluctuation "using all the data points in the
   sample". That fit uses the out-of-fold predictions as offset and the out-of-fold cumulative
-  density ratio as weight. Theorem 3, page 853, gives the TMLE limit under its stated conditions. The proof of
-  Theorem 3 in the supplement (Section 6 of arXiv v4) holds each fold's fit fixed given its
-  training data. The shipped cross-fitted longitudinal estimator implements these steps, and the
+  density ratio as weight. Theorem 3, page 853, gives the TMLE limit under its stated conditions.
+  The proof in Section 6 of the arXiv v4 supplement conditions on each fold's initial nuisance
+  fit being fixed given its training data. The pooled fluctuation still depends on the full sample
+  and is handled as a low-dimensional class. The shipped cross-fitted longitudinal estimator
+  implements these steps, and the
   [cross-fitting section](technical-reference/longitudinal-tmle.md#cross-fitting-the-recursion)
   gives the mapping. The registered comparison uses `lmtp` 1.5.4, which targets within each
   training fold instead
@@ -937,6 +939,15 @@ is the only empirical witness for it.
 - Stitelman, De Gruttola & van der Laan (2012), *A General Implementation of TMLE for
   Longitudinal Data Applied to Causal Inference in Survival Analysis*, DOI
   [10.1515/1557-4679.1334](https://doi.org/10.1515/1557-4679.1334).
+- Díaz, Hoffman, Hejazi & Williams (2024), [*Causal survival analysis under competing risks
+  using longitudinal modified treatment policies*](https://doi.org/10.1007/s10985-023-09606-7),
+  *Lifetime Data Analysis* 30:213–236. The corrected
+  [arXiv v3](https://arxiv.org/abs/2202.03513v3) supplies the version this project follows.
+  Proposition 1 identifies the cause-specific cumulative incidence target. Appendix E gives the
+  cross-fitted TMLE directly: out-of-fold initial nuisances, one all-row fluctuation per node,
+  pooled backward carry, and the score and remainder argument. The
+  [2025 author correction](https://doi.org/10.1007/s10985-025-09651-4) corrects the outcome
+  definition and dependent results in the original article.
 - Petersen, Schwab, Gruber, Blaser, Schomaker & van der Laan (2014), *Targeted Maximum
   Likelihood Estimation for Dynamic and Static Longitudinal Marginal Structural Working
   Models*, DOI [10.1515/jci-2013-0007](https://doi.org/10.1515/jci-2013-0007). Section 3
@@ -948,6 +959,15 @@ is the only empirical witness for it.
   [10.18637/jss.v081.i01](https://doi.org/10.18637/jss.v081.i01). Section 2.4, page 6,
   carries an updated later-node regression into each earlier regression. Section 3.3, page 13,
   defines `gbounds` as bounds on estimated mechanism components.
+- Williams & Díaz (2023), [*lmtp: An R Package for Estimating the Causal Effects of Modified
+  Treatment Policies*](https://doi.org/10.1353/obs.2023.0019), *Observational Studies*
+  9(2):103–122. This is the software reference for the comparator used by the registered studies;
+  exact algorithm claims below remain pinned to the named source release.
+- Williams & Díaz (2025), [*Erratum: lmtp: An R Package for Estimating the Causal Effects of
+  Modified Treatment Policies*](https://doi.org/10.1353/obs.2025.a973072), *Observational
+  Studies* 11(3):365–367. The erratum corrects identification and positivity assumptions. It does
+  not change the targeting construction, which is why code-history claims remain tied to the
+  versioned source and commit below.
 - Schomaker, Luque-Fernandez, Leroy & Davies (2019), [*Using Longitudinal Targeted Maximum
   Likelihood Estimation in Complex Settings with Dynamic Interventions*](https://doi.org/10.1002/sim.8340),
   *Statistics in Medicine* 38(24):4888-4911. Sections 3.4 and 4.3.2 define the complete

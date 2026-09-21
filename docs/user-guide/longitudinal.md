@@ -4,6 +4,9 @@
 
 `LongitudinalTreatment` aligns treatment nodes, time-varying histories, censoring indicators, and
 outcome processes. At treatment node `t`, a dynamic rule sees only history available by `t`.
+For the reported influence-curve inference, the rule must be fixed before the fit and rowwise. A
+callable may vectorize over the history frame, but it must not estimate a threshold from the
+sample or otherwise make one row's assignment depend on other rows.
 
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -33,7 +36,8 @@ result = study.estimate(
 ```
 
 The resolved regimen matrix is shared by nuisance fitting, follower masks, targeting, and report
-keys. A regimen cannot look ahead or change interpretation between stages.
+keys. A regimen cannot look ahead or change interpretation between stages. An empirically learned
+policy needs inference for the policy-learning step and is outside this estimator's contract.
 
 With `n_folds > 1`, each outer training fold runs an untargeted backward regression sequence. One
 pooled fluctuation per node then targets the out-of-fold predictions over every follower. The fit

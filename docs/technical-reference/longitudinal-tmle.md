@@ -15,7 +15,7 @@ treatment plan followed at every node, by iterating a regression backward throug
 | --- | --- | --- |
 | repeated treatment with time-varying confounders | the mean outcome under a plan, identified by the g-formula and estimated as a plug-in | one regression per node per regimen, and positivity is now a statement about a *cumulative* product |
 | units drop out over time | censoring enters the same cumulative product as treatment, and each node's regression uses only its uncensored followers | a censoring model per node |
-| the plan depends on the history | dynamic rules receive the history available at their node, and no static plan can express them | the rule is part of the estimand. Two rules are two parameters |
+| the plan depends on the history | fixed, rowwise dynamic rules receive the history available at their node, and no static plan can express them | the prespecified rule is part of the estimand. A rule learned from the same sample needs additional inference that this estimator does not provide |
 | you want a survival curve | the same recursion, seeded at the horizon, reports cumulative risk at each horizon you name | each horizon is its own backward pass. The cost is quadratic in the node count |
 | several causes of failure compete | cause-specific cumulative incidence, with the competing causes left alone | that is a *total* effect. Eliminating the competing event is a different question, and is refused by name |
 | you want the effects summarised across regimens | a working model over regimen and horizon cells | see [MSM projections](msm-projections.md) |
@@ -69,7 +69,7 @@ accumulating.
 
 Bang and Robins (2005) supplies the sequential-regression foundation. Van der Laan and Gruber
 (2012) gives longitudinal TMLE for multiple intervention points. Chaffee and van der Laan (2012)
-covers dynamic rules. See the
+covers prespecified rowwise dynamic rules. See the
 [longitudinal references](../references.md#longitudinal-survival-and-marginal-structural-models).
 Implementation:
 [`longitudinal/sequential.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/longitudinal/sequential.py),
@@ -207,7 +207,7 @@ der Laan (2012) is the survival implementation reference.
 
 | option | what it does |
 | --- | --- |
-| `regimens=` | static plans, dynamic rules, or categorical arms. A plan is a sequence of arms, or one arm meaning that arm at every node |
+| `regimens=` | static plans, prespecified rowwise dynamic rules, or categorical arms. A plan is a sequence of arms, or one arm meaning that arm at every node. Sample-adaptive thresholds and learned rules need additional inference and are outside this contract |
 | `reference=` | which regimen the contrasts are taken against. It is part of the estimand rather than a display setting |
 | `horizons=` | which time points a survival fit reports cumulative risk at. `None` reports the whole curve. Name the horizons you will report: the cost is $T(T+1)/2$ regressions per regimen rather than $T$ |
 | `msm=` | a working model over the regimen and horizon cells. It requires `n_folds=1`. See [MSM projections](msm-projections.md) |
@@ -237,10 +237,11 @@ estimated efficient score equation, as a single-fold fit does.
 `res.diagnostics.score_equations()` reports one `solver` row per node on both fits.
 
 Theorem 3, on journal page 853, gives weak convergence at the nonparametric efficiency bound for
-this construction. Its proof in the supplement, Section 6 of arXiv v4, uses the fact that each
-fold's fit "is fixed given the training data". The untargeted fold regressions meet that condition.
-A pooled coefficient carried back into a later fold regression would make that regression depend
-on held-out rows, so the package does not carry it back.
+this construction. Its proof in the supplement, Section 6 of arXiv v4, conditions on each fold's
+initial nuisance fit being fixed given its training data. The pooled coefficients depend on the
+full sample and are handled as a low-dimensional fluctuation class. The untargeted fold
+regressions meet the conditional requirement. Carrying a pooled coefficient back into a fold's
+initial regression would not, so the package does not carry it back.
 
 `tests/unit/test_pooled_longitudinal_targeting.py` recomputes each row of the table by hand. It
 also carries four mutation controls. One fits the coefficient on one fold's training rows. The
@@ -250,21 +251,25 @@ the folds.
 `n_folds=1` keeps the canonical single-fold recursion. Each node regresses the targeted prediction
 from node $t + 1$, and each fluctuation solves over the rows its regression was fitted on.
 
-The package also computes parameters that Section 5.2 does not state. The
+The package also computes specializations and compositions that Section 5.2 does not state. The
 [Eligibility rule](../roadmap.md#eligibility) admits a natural extension of a published result.
-The table gives each one with its base, its step, and the argument that carries the step.
+The table identifies a direct specialized source where one exists and otherwise gives the base,
+step, and established argument.
 
 | composition | base result | the step | the established argument | evidence |
 | --- | --- | --- | --- | --- |
-| cumulative risk at a horizon | Theorem 3 for the mean of a bounded outcome $Y$ | $Y$ is the indicator of an event by the horizon. The survival pseudo-outcome is $Z_t = Y_t + (1 - Y_t)\,\bar Q^*_{t+1}$ | the base's own argument. Section 3, journal pages 849 and 850, codes a time-to-event outcome and monotone censoring as nodes, truncates at the horizon, and notes that the regressions are known after an event | [survival-curve study](method-evidence/cross-fitted-survival-curve-longitudinal-tmle.md) |
-| cause-specific cumulative incidence | the same | $Y$ is the indicator of an event of one cause by the horizon. A competing event ends follow-up, and the regression is zero after it | the base's own argument. The competing event adds a second known restriction of the kind that Section 3 notes for the event | [competing-risk study](method-evidence/cross-fitted-competing-risk-longitudinal-tmle.md) |
+| cumulative risk at a horizon | Díaz, Hoffman, Hejazi and Williams (2024), corrected in 2025, with one cause | $Y$ is the indicator of an event by the horizon. The survival pseudo-outcome is $Z_t = Y_t + (1 - Y_t)\,\bar Q^*_{t+1}$ | Appendix E gives the cross-fitted pooled TMLE directly; a single event type is its one-cause reduction | [survival-curve study](method-evidence/cross-fitted-survival-curve-longitudinal-tmle.md) |
+| cause-specific cumulative incidence | Díaz, Hoffman, Hejazi and Williams (2024), corrected in 2025 | $Y$ is the indicator of an event of one cause by the horizon. A competing event ends follow-up, and the regression is zero after it | Proposition 1 identifies the target and Appendix E gives the out-of-fold nuisances, all-row per-node fluctuation, pooled backward carry, and score argument | [competing-risk study](method-evidence/cross-fitted-competing-risk-longitudinal-tmle.md) |
 | known observation weights | Theorem 3 under iid sampling | the target is a weighted mean of the node-1 regression, and every fluctuation carries the weight in its loss | the chain rule for influence functions, applied to a ratio of two means under iid draws of the observation and its known, bounded weight | [weighted study](method-evidence/cross-fitted-weighted-end-of-study-longitudinal-tmle.md), which fails two property cells and three paired comparisons that conclude underpowered, and publishes them under a `reporting` policy |
-| categorical treatments and deterministic dynamic rules | Theorem 3 for a modified treatment policy $d(a_t, h_t)$ | a rule assigns one level from the history | none is needed. Section 2 lets the policy depend on the history, and Section 4, journal page 850, gives the intervention density for a discrete exposure | [categorical study](method-evidence/cross-fitted-categorical-longitudinal-tmle.md), and the dynamic rule in the [end-of-study study](method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md) |
+| categorical treatments and deterministic dynamic rules | Theorem 3 for a fixed modified treatment policy $d(a_t, h_t)$ that does not depend on $P$ | a prespecified rowwise rule assigns one level from that unit's history | Section 2 lets a fixed policy depend on the unit's history, and Section 4, journal page 850, gives the intervention density for a discrete exposure. A sample-adaptive threshold or learned rule is outside this result | [categorical study](method-evidence/cross-fitted-categorical-longitudinal-tmle.md), and the fixed dynamic rule in the [end-of-study study](method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md) |
 | several horizons, causes, regimens, and their contrasts | Theorem 3 for each parameter | each parameter has its own recursion on one shared split, and the report stacks their influence curves | a fixed-dimension stack by Cramér–Wold, then linearity or the delta method for each contrast | the survival-curve and competing-risk studies |
 
-Each extension inherits the rate condition of Theorem 3. The sum over nodes of the mechanism error
-times the regression error must be $o_P(n^{-1/2})$, and the density ratios must stay bounded. The
-weighted row also needs weights that are known and bounded.
+Theorem 3 also requires every mechanism ratio and targeted sequential regression to be consistent,
+the sum over nodes of their error products to be $o_P(n^{-1/2})$, and the density ratios to stay
+bounded. Those are conditions on the targeted regressions. Appendix E of the competing-risk paper
+shows that a sufficient condition stated in terms of the initial recursive learners can contain
+cross-time products between a mechanism error at node $t$ and regression errors at later nodes.
+The weighted row additionally needs weights that are known and bounded.
 
 The split balances nothing. It used to balance the first treatment node, and the reviewed
 longitudinal theorem defines a random near-balanced row partition instead. The audit in

@@ -21,6 +21,10 @@ from tests.studies.canonical_ltmle import (
     regimen_initials,
     regimen_rows,
 )
+from tests.studies.evidence.constructions import (
+    POOLED_LONGITUDINAL_CROSS_FIT,
+    TRAINING_FOLD_FLUCTUATION,
+)
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
@@ -145,8 +149,8 @@ REFERENCE_METADATA = {
 }
 
 CONFIGURATION = {
-    "construction": "pooled_cross_fit",
-    "reference_construction": "training_fold_fluctuation",
+    "construction": POOLED_LONGITUDINAL_CROSS_FIT,
+    "reference_construction": TRAINING_FOLD_FLUCTUATION,
     "outcome_kind": "end_of_study",
     "horizon_mode": "terminal_only",
     "r_survival_outcome": False,

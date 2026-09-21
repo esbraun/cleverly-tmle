@@ -58,9 +58,10 @@ held-out row enters any regression that predicts it.  The held-out predictions o
 pooled fluctuation per node, from :math:`t = T` down to :math:`1`, targets those stitched
 predictions over *every* follower.  Its offset is the stitched initial prediction, its
 outcome is the pooled targeted prediction from :math:`t + 1`, and its loss weight is the
-out-of-fold cumulative mechanism.  Each fold's regression is therefore fixed given its
-training rows, which is the condition the proof of the paper's Theorem 3 uses, and the
-pooled fluctuation solves :math:`P_n D^* = 0` exactly as the single-fold fit does.
+out-of-fold cumulative mechanism.  Each fold's initial nuisance fit is therefore fixed given its
+training rows, which is the conditional-independence step in the proof of the paper's
+Theorem 3.  The pooled coefficient still depends on the full sample, as the theorem permits,
+and its fluctuation solves :math:`P_n D^* = 0` exactly as the single-fold fit does.
 
 The clever covariate is the reciprocal of a **cumulative** product, and that is the whole
 positivity story of a longitudinal fit: :math:`T` probabilities multiply, so a mechanism
@@ -307,6 +308,19 @@ class Mechanism:
             raw_columns.append(running)
             bounded_columns.append(bound(running, lower, upper))
         return np.column_stack(raw_columns), np.column_stack(bounded_columns)
+
+
+@dataclass(frozen=True)
+class _NodeRegression:
+    """One node's fitted regression, before any targeting quantities are built."""
+
+    time: int
+    at_risk: BoolArray
+    trained_on: BoolArray
+    fitted_on: BoolArray
+    pseudo_outcome: FloatArray
+    initial: FloatArray
+    learner_diagnostics: tuple[SuperLearnerDiagnostics, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -881,6 +895,70 @@ def _require_regimen_followers(
     )
 
 
+def _fit_node_regression(
+    data: LongitudinalData,
+    plan: Plan,
+    carried: FloatArray,
+    time: int,
+    horizon: int,
+    *,
+    outcome_learner: Learner,
+    pseudo_learner: Learner,
+    folds: Folds,
+    cause: str | None = None,
+    masks: RegimenMasks | None = None,
+    fit_rows: BoolArray | None = None,
+    outer_fold: int | None = None,
+    n_jobs: int = 1,
+) -> _NodeRegression:
+    """Fit one node's regression without constructing targeting-only arrays.
+
+    The outer cross-fitted recursion needs only this result: it stitches the held-out
+    predictions and builds the clever covariate once in the parent during pooled targeting.
+    Keeping that path here prevents each worker from constructing and profiling arrays that it
+    immediately discards.
+    """
+    if masks is None:
+        with phase("mask_construction"):
+            masks = data.regimen_masks(plan.values)
+    at_risk = masks.at_risk(time)
+    trained_on = masks.following(time)
+    fitted_on = trained_on if fit_rows is None else trained_on & fit_rows
+    _require_regimen_followers(data, plan, time, at_risk, fitted_on, outer_fold=outer_fold)
+    with phase("pseudo_outcome"):
+        next_outcome = _pseudo_outcome(data, carried, time, cause)
+    design = data.covariate_history(time)
+    learner = outcome_learner if time == horizon else pseudo_learner
+    task = "classification" if time == horizon and data.family == "binomial" else "regression"
+    if task == "classification":
+        _check_outcome_varies(
+            data, next_outcome, fitted_on, plan, time, horizon, cause, outer_fold=outer_fold
+        )
+    with phase("outcome_learner_fit"):
+        predictions, diagnostics = cross_fit_predictions(
+            learner,
+            design,
+            next_outcome,
+            data.weights,
+            folds,
+            task=task,  # type: ignore[arg-type]
+            predict_designs={"history": design},
+            fit_mask=fitted_on,
+            groups=data.cluster,
+            clip=(0.0, 1.0),
+            n_jobs=n_jobs,
+        )
+    return _NodeRegression(
+        time=time,
+        at_risk=at_risk,
+        trained_on=trained_on,
+        fitted_on=fitted_on,
+        pseudo_outcome=next_outcome,
+        initial=np.where(at_risk, predictions["history"], _FILLER),
+        learner_diagnostics=tuple(diagnostics),
+    )
+
+
 def prepare_node(
     data: LongitudinalData,
     plan: Plan,
@@ -924,53 +1002,35 @@ def prepare_node(
     ``fitted_on``, so under cross-fitting both are statements about one fold's training
     rows, and neither may call that set the sample.
     """
-    if masks is None:
-        # Only around the scan, and only when there is one: reading two prefix slices off
-        # masks the caller already built is not mask construction, and counting it as such
-        # reports one entry per node for the work the once-per-regimen scan exists to
-        # avoid -- which is the opposite of what the phase was added to show.
-        with phase("mask_construction"):
-            masks = data.regimen_masks(plan.values)
-    at_risk = masks.at_risk(time)
-    trained_on = masks.following(time)
-    fitted_on = trained_on if fit_rows is None else trained_on & fit_rows
-    _require_regimen_followers(data, plan, time, at_risk, fitted_on, outer_fold=outer_fold)
-    with phase("pseudo_outcome"):
-        next_outcome = _pseudo_outcome(data, carried, time, cause)
-    design = data.covariate_history(time)
-    learner = outcome_learner if time == horizon else pseudo_learner
-    task = "classification" if time == horizon and data.family == "binomial" else "regression"
-    if task == "classification":
-        _check_outcome_varies(
-            data, next_outcome, fitted_on, plan, time, horizon, cause, outer_fold=outer_fold
-        )
-    with phase("outcome_learner_fit"):
-        predictions, diagnostics = cross_fit_predictions(
-            learner,
-            design,
-            next_outcome,
-            data.weights,
-            folds,
-            task=task,  # type: ignore[arg-type]
-            predict_designs={"history": design},
-            fit_mask=fitted_on,
-            groups=data.cluster,
-            clip=(0.0, 1.0),
-            n_jobs=n_jobs,
-        )
+    regression = _fit_node_regression(
+        data,
+        plan,
+        carried,
+        time,
+        horizon,
+        outcome_learner=outcome_learner,
+        pseudo_learner=pseudo_learner,
+        folds=folds,
+        cause=cause,
+        masks=masks,
+        fit_rows=fit_rows,
+        outer_fold=outer_fold,
+        n_jobs=n_jobs,
+    )
     with phase("clever_covariate"):
-        initial = np.where(at_risk, predictions["history"], _FILLER)
-        counterfactual, clever = _clever_covariate(at_risk, trained_on, cumulative, time)
+        counterfactual, clever = _clever_covariate(
+            regression.at_risk, regression.trained_on, cumulative, time
+        )
     return NodeInputs(
-        time=time,
-        at_risk=at_risk,
-        trained_on=trained_on,
-        fitted_on=fitted_on,
-        pseudo_outcome=next_outcome,
-        initial=initial,
+        time=regression.time,
+        at_risk=regression.at_risk,
+        trained_on=regression.trained_on,
+        fitted_on=regression.fitted_on,
+        pseudo_outcome=regression.pseudo_outcome,
+        initial=regression.initial,
         counterfactual=counterfactual,
         clever=clever,
-        learner_diagnostics=tuple(diagnostics),
+        learner_diagnostics=regression.learner_diagnostics,
     )
 
 
@@ -1151,6 +1211,44 @@ def _check_outcome_varies(
     )
 
 
+def _finish_regimen_fit(
+    data: LongitudinalData,
+    plan: Plan,
+    steps: Sequence[SequentialStep],
+    cumulative_unbounded: FloatArray,
+    cumulative: FloatArray,
+    *,
+    horizon: int,
+    cause: str | None,
+) -> RegimenFit:
+    """Assemble one regimen estimate and influence curve from its targeted steps."""
+    retained = tuple(steps)
+    # Every unit is at risk at the first node, so this averages predictions rather than
+    # fillers. ``np.average`` against mean-one weights is bit-for-bit the old unweighted
+    # mean when the weights are constant.
+    psi = float(np.average(retained[0].targeted, weights=data.weights))
+    influence = retained[0].targeted - psi
+    for step in retained:
+        # The t-th term reads the target the t-th regression was fitted to: the later
+        # targeted prediction, or that prediction composed with this node's event.
+        influence = influence + step.clever * (step.pseudo_outcome - step.targeted)
+    # The weighted EIF is (w / E[w]) D*(P_w). The weight multiplies the whole centred
+    # curve, not only its residual terms.
+    influence = data.weights * influence
+    return RegimenFit(
+        regimen=plan.regimen,
+        psi_scaled=psi,
+        influence_curve_scaled=influence,
+        horizon=horizon,
+        cause=cause,
+        steps=retained,
+        cumulative_unbounded=cumulative_unbounded,
+        cumulative=cumulative,
+        assignment=np.asarray(plan.values),
+        obs_weights=np.asarray(data.weights, dtype=float),
+    )
+
+
 def fit_regimen(
     data: LongitudinalData,
     plan: Plan,
@@ -1267,34 +1365,14 @@ def fit_regimen(
         carried = np.where(node.at_risk, targeted, _FILLER)
 
     steps.reverse()
-    # Every unit is at risk at the first node, so this averages predictions rather than
-    # fillers.  ``np.average`` against a mean-one weight vector is the ``np.mean`` it
-    # replaced entry for entry when the weights are constant, which is what keeps an
-    # unweighted fit bit-for-bit what it was.
-    psi = float(np.average(steps[0].targeted, weights=data.weights))
-    influence = steps[0].targeted - psi
-    for step in steps:
-        # The ``t``-th term of the efficient influence function reads the very array the
-        # ``t``-th regression was fitted to -- the later node's targeted prediction, or,
-        # on a survival fit, that prediction composed with this node's event indicator.
-        influence = influence + step.clever * (step.pseudo_outcome - step.targeted)
-    # Row-wise at the end rather than term by term: the weighted EIF is
-    # ``(w / E[w]) D*(P_w)``, one factor multiplying the whole curve, and the *centring*
-    # inside the bracket is what linearises the Hajek ratio above.  Multiplying only the
-    # residual terms, or subtracting ``psi`` outside the weight, is the classic error and
-    # would leave a curve whose mean is not zero.
-    influence = data.weights * influence
-    return RegimenFit(
-        regimen=plan.regimen,
-        psi_scaled=psi,
-        influence_curve_scaled=influence,
+    return _finish_regimen_fit(
+        data,
+        plan,
+        steps,
+        cumulative_unbounded,
+        cumulative,
         horizon=horizon,
         cause=cause,
-        steps=tuple(steps),
-        cumulative_unbounded=cumulative_unbounded,
-        cumulative=cumulative,
-        assignment=np.asarray(plan.values),
-        obs_weights=np.asarray(data.weights, dtype=float),
     )
 
 
@@ -1427,10 +1505,10 @@ def _fit_regimen_crossfit(
     This is the cross-fitted construction of Díaz, Williams, Hoffman and Schenck (2023,
     *JASA* 118(542), Section 5.2, Steps 1-4).  Each outer fold runs a complete *untargeted*
     backward recursion on its training complement: node ``t - 1`` of fold ``k`` regresses
-    fold ``k``'s own untargeted prediction at node ``t``.  So fold ``k``'s regressions are
-    fixed given its training rows, which is the condition the proof of the paper's
-    Theorem 3 uses.  No fold solves a fluctuation.  The parent stitches each fold's
-    held-out predictions into one out-of-fold initial estimate per node, and
+    fold ``k``'s own untargeted prediction at node ``t``.  So fold ``k``'s initial nuisance
+    fits are fixed given its training rows, which is the conditional-independence step the
+    proof of the paper's Theorem 3 uses.  No fold solves a fluctuation.  The parent stitches
+    each fold's held-out predictions into one out-of-fold initial estimate per node, and
     :func:`_pooled_targeting` then solves one fluctuation per node over every follower.
 
     The node arithmetic inside a fold is :func:`prepare_node`'s, called with the fold's
@@ -1506,13 +1584,9 @@ def _fit_regimen_crossfit(
         with collect_phases(wanted) as profile:
             carried = seed_carried(data, scaler)
             for time in range(horizon, 0, -1):
-                # `cumulative` only feeds the node's clever covariate, which a fold
-                # recursion discards: the covariate that targets is built once, in the
-                # parent, by `_pooled_targeting`.
-                node = prepare_node(
+                node = _fit_node_regression(
                     data,
                     plan,
-                    cumulative,
                     carried,
                     time,
                     horizon,
@@ -1567,23 +1641,14 @@ def _fit_regimen_crossfit(
         max_iter=max_iter,
         tol=tol,
     )
-    weights = np.asarray(data.weights, dtype=float)
-    psi = float(np.average(steps[0].targeted, weights=data.weights))
-    influence = steps[0].targeted - psi
-    for step in steps:
-        influence = influence + step.clever * (step.pseudo_outcome - step.targeted)
-    influence = data.weights * influence
-    return RegimenFit(
-        regimen=plan.regimen,
-        psi_scaled=psi,
-        influence_curve_scaled=influence,
+    return _finish_regimen_fit(
+        data,
+        plan,
+        steps,
+        cumulative_unbounded,
+        cumulative,
         horizon=horizon,
         cause=cause,
-        steps=steps,
-        cumulative_unbounded=cumulative_unbounded,
-        cumulative=cumulative,
-        assignment=np.asarray(plan.values),
-        obs_weights=weights,
     )
 
 

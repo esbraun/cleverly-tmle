@@ -27,9 +27,11 @@ red for the first time, across five of those studies. Every cell that was alread
 RM18 carries both sets. Each affected study publishes its red cell and that cell's interval under a
 `reporting` policy, so no verdict is hidden and no margin moved.
 
-The pooled longitudinal update then replaced the fold-local one. It turned the end-of-study
-overfitting cell green, and it turned two cells of the weighted longitudinal study red. RM18
-records both results.
+The pooled longitudinal update then replaced the fold-local one. The regeneration recorded a
+green end-of-study overfitting cell and two newly red weighted-longitudinal cells. It also moved
+from Python 3.11.13 and SciPy 1.17.1 to Python 3.13.7 and SciPy 1.18.0, so the before-and-after
+rows alone do not attribute those changes to the estimator. RM18 records both results and the
+runtime confounding.
 
 The 2026-09-13 review of the example notebooks exposed RM11 to RM16. These rows correct defects in
 shipped estimators, diagnostics, and messages. Each detail section names its source evidence and
@@ -37,7 +39,7 @@ the probe that measured it.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Red property cells after the fold, scale and law changes | derive the missing selector-path and generated-design results, and publish each red cell with its interval until then | four of the six property cells that went red after the fold, scale and law changes are still red, across three registered studies, and the cells that were already red stay red. The pooled longitudinal update turned the end-of-study cell green and turned two weighted longitudinal cells red | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
+| 0.1 | Red property cells after the fold, scale and law changes | derive the missing selector-path and generated-design results, and publish each red cell with its interval until then | four of the six property cells that went red after the fold, scale and law changes are still red, across three registered studies, and the cells that were already red stay red. The pooled-code, new-runtime regeneration recorded a green end-of-study cell and two newly red weighted longitudinal cells; it does not isolate the cause | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
 | 0.2 | Sensitivity bounds outside their derivation | refuse every omitted-variable operation on DR-TMLE, C-TMLE, and missing-outcome fits, refuse the standardized E-value conversion on missing-outcome fits, and correct the refusal messages for the other parameter axes | the bound runs where no derivation covers it, and on DR-TMLE and C-TMLE fits it understates the bias | [RM11](#rm11-sensitivity-bounds-outside-their-derivation) |
 | 0.3 | Collaborative intervals at an inconsistent working mechanism | label every collaborative interval in its output, and correct the path-risk docstrings | the curve at an intercept-only working mechanism gives a standard-error ratio of 0.844 and a coverage of 0.92 over 300 draws | [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism) |
 | 0.4 | Estimated MSM projection weights | require a declaration that a projection weight is known, and refuse an estimated weight before the fit | a callable that closes over estimated weights fits without a message and reports a standard error that is too small | [RM13](#rm13-estimated-msm-projection-weights) |
@@ -566,7 +568,7 @@ statistic and does not gate on it (`tests/studies/ctmle_selector_properties.py`)
 | the same reversal, again | [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism). The registered row and RM12's own probe now point the same way, so RM12's labelling work covers this study's reported interval |
 | the `generated_design` pair | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference). The paired standard-error deficit under an estimated outcome regression has no derivation |
 | `crossfit_overfitting/cross_fitted_ltmle` | closed. The pooled update implements the construction that Theorem 3 of Díaz, Williams, Hoffman and Schenck (2023) certifies, and the cell passes. "What the pooled update found" gives the numbers |
-| the two weighted longitudinal cells that went red under the pooled update | none identified. The attribution is not isolated. "What the pooled update found" gives each value, interval and margin |
+| the two weighted longitudinal cells newly red in the pooled-code, new-runtime regeneration | none identified. The attribution is not isolated. "What the pooled update found" gives each value, interval and margin |
 
 #### The fold-local longitudinal targeting question
 
@@ -614,9 +616,11 @@ implement them.
 | one fold | `n_folds=1` keeps the canonical single-fold path, which carries each targeted prediction back |
 
 Theorem 3, on journal page 853, states the result for this construction. Its proof in the
-supplement holds each fold's fit fixed given its training rows. That condition covers untargeted
-fold regressions followed by one pooled fluctuation per node. It does not cover a pooled epsilon
-carried back into later fold regressions. `tests/unit/test_pooled_longitudinal_targeting.py`
+supplement conditions on each fold's initial nuisance fit being fixed given its training rows;
+the pooled coefficients depend on the full sample and are handled as a low-dimensional class.
+That condition covers untargeted fold regressions followed by one pooled fluctuation per node. It
+does not cover a pooled epsilon carried back into later fold regressions.
+`tests/unit/test_pooled_longitudinal_targeting.py`
 checks each part of the table against a longhand recomputation.
 
 The change moves five registered studies, so each one regenerates.
@@ -675,13 +679,12 @@ draws against the unchanged 1.20 ceiling.
 | competing risks | 1.092332 | 0.987990, from 0.968219 to 1.009389 | 0.964625 to 0.946000 |
 | categorical, at 40,000 draws | 1.179559 | 0.982141, from 0.973370 to 0.991073 | 0.976825 to 0.942225 |
 
-The fold-local update overstated the standard error on all four laws, and the pooled update brings
-each ratio near one. That is the direction the stitched-score reading in the fold-local targeting
-question above predicted. This run does not isolate that mechanism from other differences
-between the two constructions.
+All four reported standard-error ratios are lower and near one in the pooled-code regeneration.
+That is the direction the stitched-score reading in the fold-local targeting question above
+predicted. The runtime changed at the same time, so this run does not isolate that mechanism.
 
-Two cells of the weighted study went red. Neither attribution is isolated. Each appeared under the
-pooled update, and no controlled run separates a cause.
+Two cells of the weighted study are newly red. Neither attribution is isolated. They appeared in
+the pooled-code, new-runtime regeneration, and no controlled run separates a cause.
 
 | cell | statistic | before | after | margin |
 | --- | --- | --- | --- | --- |
