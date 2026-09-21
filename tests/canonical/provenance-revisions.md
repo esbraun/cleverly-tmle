@@ -70,6 +70,20 @@ test parses this table. The gated table above keeps its own header.
 | study | manifest field | correction | judgement |
 | --- | --- | --- | --- |
 
+## Study module edits after a run
+
+A manifest's `study_module_sha256` block records the Python modules that ran. No test gates those
+hashes against the working tree. A result-neutral edit to such a module therefore fails nothing.
+Record the edit in the table below, so that a reader who compares the hashes finds the reason.
+Remove the row when you regenerate the study. No test parses this table.
+
+| study | source | recorded | current | judgement |
+| --- | --- | --- | --- | --- |
+| `canonical-ltmle-crossfit` | `tests/studies/canonical_ltmle_crossfit.py` | `dd078bd6927a522b08157b7ba2bb9ca4388a8d221bf3d8520ebeef089310ef4d` | `7d4bca7ef858834474a3af2058650edcbdded468592b5de862bf1635b66ce032` | result-neutral: only the two comments above `quoted_decimals` and `publication_policy` changed. They described the SE-ratio breach that the pooled update removed. Python ignores comments, so every law, cell, margin, seed, and registry value is unchanged |
+| `weighted-ltmle-crossfit` | `tests/studies/canonical_ltmle_crossfit.py` | `dd078bd6927a522b08157b7ba2bb9ca4388a8d221bf3d8520ebeef089310ef4d` | `7d4bca7ef858834474a3af2058650edcbdded468592b5de862bf1635b66ce032` | result-neutral: only the two comments above `quoted_decimals` and `publication_policy` changed. Python ignores comments, so every name this study imports from the module is unchanged |
+| `canonical-ltmle-survival-crossfit` | `tests/studies/canonical_ltmle_crossfit.py` | `dd078bd6927a522b08157b7ba2bb9ca4388a8d221bf3d8520ebeef089310ef4d` | `7d4bca7ef858834474a3af2058650edcbdded468592b5de862bf1635b66ce032` | result-neutral: only the two comments above `quoted_decimals` and `publication_policy` changed. Python ignores comments, so every name this study imports from the module is unchanged |
+| `canonical-ltmle-competing-crossfit` | `tests/studies/canonical_ltmle_crossfit.py` | `dd078bd6927a522b08157b7ba2bb9ca4388a8d221bf3d8520ebeef089310ef4d` | `7d4bca7ef858834474a3af2058650edcbdded468592b5de862bf1635b66ce032` | result-neutral: only the two comments above `quoted_decimals` and `publication_policy` changed. Python ignores comments, so every name this study imports from the module is unchanged |
+
 ## Completed manifest provenance
 
 The stacked missing-outcome natural-course manifest initially omitted two Python helpers that

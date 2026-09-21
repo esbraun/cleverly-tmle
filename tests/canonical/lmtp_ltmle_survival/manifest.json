@@ -6,11 +6,11 @@
     "subject": {
       "implementation": "cleverly-cross-fitted-ltmle-survival",
       "cleverly_version": "0.1.2",
-      "cleverly_commit": "f3fa572cf588af4c41079aaaa33e1ecf40135564",
+      "cleverly_commit": "fbf0c5c40eb00cd4d901c791a47a63e1346f6964",
       "cleverly_worktree_clean": false,
-      "python": "3.11.13",
+      "python": "3.13.7",
       "numpy": "2.4.6",
-      "scipy": "1.17.1",
+      "scipy": "1.18.0",
       "pandas": "3.0.5",
       "scikit_learn": "1.9.0"
     },
@@ -39,7 +39,8 @@
         "ate_regimen[treat then continue if l2 positive vs never @ t=2]"
       ]
     },
-    "construction": "fold_specific_cross_fit",
+    "construction": "pooled_cross_fit",
+    "reference_construction": "training_fold_fluctuation",
     "outcome_kind": "absorbing_event",
     "horizon_mode": "all_prefixes",
     "r_survival_outcome": true,
@@ -102,9 +103,9 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_ltmle_survival_crossfit.py": "8bc758616d03611c71a569e4b48f768ae345a2bff189df35af91dc53fc8eb232",
+    "tests/studies/canonical_ltmle_survival_crossfit.py": "895dc6cf912cd305a8e7b9ea3ed3860e5bb6c8fbe467e312065fc66222f9a45c",
     "tests/studies/ltmle_survival_crossfit_properties.py": "4c6963543bd37ebf0a3961f37c8a34a864841e81420ae5f31dea7aaaed81111a",
-    "tests/studies/canonical_ltmle_crossfit.py": "6543eb265e2f1b14d1fd1be62cb11287a266f832df429e409c7cc1d7719a7da7",
+    "tests/studies/canonical_ltmle_crossfit.py": "dd078bd6927a522b08157b7ba2bb9ca4388a8d221bf3d8520ebeef089310ef4d",
     "tests/studies/canonical_ltmle.py": "d1adf8f5df9fdaca29eb3d21367e0e479ed669bd572d7b824acf459d4b8b0bbd",
     "tests/studies/canonical_ltmle_survival.py": "6cb38965635bbfb5c1ca71e47d40050b001dd12c9bca7dd5016534c0501db7e3",
     "tests/studies/fractional_glm.py": "5570ff1756acad859e627be9d155e1b43f789ffb8626ac3c53a049bb0662488e",
@@ -114,8 +115,8 @@
     "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
     "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
-    "tests/studies/evidence/properties.py": "83ef22a43452bacf9b0e0c06cfe951640d68916472b30c58a8ec7fe6ef462e9c",
-    "tests/studies/evidence/property_verdicts.py": "75eee2068812badd182ac4634f2ce98325c40a4da48c6989fc66f76984d2cc81",
+    "tests/studies/evidence/properties.py": "845ada560a119863e432071d4cc6184b82a45f457866f2311ec060d02f4db522",
+    "tests/studies/evidence/property_verdicts.py": "429a9f55d25bf9f1f9255927571506514809935876bce7ddb56e48b78b41745c",
     "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
     "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
     "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
@@ -131,11 +132,11 @@
     "tests/canonical/ltmle_regimen_adapter.R": "d0edd452d315cb6b3c19e4c1ef4794a618031d6f2a9a3f13ec5a7b08b45362c6"
   },
   "sha256": {
-    "replicates.csv.gz": "15689a088f1f08c1f34ac832b3d071d71c75ceee2d3de1905da916d49f82b5af",
-    "summary.csv": "8418822fb4ef10885eba23b0e76dce7f97acb71502202d9f1f653fe5b06f0000",
-    "equivalence.csv": "aaf93504a5094fed99776c055bd39aeb09223a938db61c43d810ecd4f9a9d21e",
-    "performance-tests.csv": "ea09453f5df39c1d4d89af022e5b97fd7eec4dc2a827978ced4c5d52b49ca554",
-    "property-replicates.csv.gz": "4d4b52eedd00a2c93299fd0b0ded7aeb3b44a4a690269d542e6908b0bfb7c90a",
-    "properties.csv": "074fd6ec3385e93f0afab3efddfc15b58c8deecfb164c87cfc7cd5a4af7818d9"
+    "replicates.csv.gz": "d151e4934c3541220faf294731b445a7ce10866e396f04dae2b19f7a487fa914",
+    "summary.csv": "7907d9a25aadca7f7fc7b334484c00fc41c634760b8e8f137d2e80705fbe74ed",
+    "equivalence.csv": "da73db958b6b94762bc6e7484b92f31267d4fc314e56d6b0a205ea53fa3e55e4",
+    "performance-tests.csv": "d4a428191acc19bc4037e43f276d88493f49483c380cb44a262487b2a9fd5984",
+    "property-replicates.csv.gz": "e197b0acd555cee0051ac01f3e37a7885be097f2d354db02709b268d35ade407",
+    "properties.csv": "e07a0a2a56162bc29ad3d100177087a6356cee43f41c2e3906b5dc70059e7bae"
   }
 }
