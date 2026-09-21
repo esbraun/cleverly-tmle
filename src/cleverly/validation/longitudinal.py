@@ -2,9 +2,9 @@ r"""Did a sequential fit's targeting work, node by node?
 
 The counterpart of :mod:`cleverly.validation.score` for a longitudinal fit.  The
 point-treatment battery asks one question of one solved score equation.  A sequential fit
-poses the question once per regimen and node, and a cross-fitted one poses a second
-question about the *stitched* score that no single fold solved, so the verdicts arrive as
-frames rather than as a scalar.
+poses the question once per regimen and node, so the verdicts arrive as frames rather than
+as a scalar.  The engine-level cross-fitted working model poses a second question about a
+*stitched* score that no single fold solved.
 
 Three reports live here, one per question a stored sequential fit can answer without
 refitting anything:
@@ -66,16 +66,24 @@ LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING = (
 )
 
 
-#: How far a cross-fitted longitudinal fit's *stitched* score may sit from zero, in
-#: standard errors of its own residual, before :func:`_longitudinal_scores` calls it a
-#: defect rather than sampling.
+#: How far a fold-fluctuated fit's *stitched* score may sit from zero, in standard errors
+#: of its own residual, before :func:`_longitudinal_scores` calls it a defect rather than
+#: sampling.
+#:
+#: Only a fluctuation that carries per-fold solves has a stitched score.  A new fit produces
+#: one only on the engine-level cross-fitted working model in
+#: :mod:`cleverly.longitudinal.msm`, which the public estimator refuses above one fold.  An
+#: artifact written before the pooled construction also carries them.  A
+#: cross-fitted per-regimen fit solves one pooled fluctuation per node over every follower,
+#: so its score is a solved equation and it emits no stitching row.
 #:
 #: The stitched score is not a solved equation.  Each outer fold fits its ``epsilon`` on
 #: the rows it does not report, so what the pooled residual has to be is a mean-zero draw,
 #: and the scale to judge a mean-zero draw on is its own standard error.  Measured over 300
-#: replications of ``make_longitudinal`` at ``n=500`` and five folds, the mean ``|z|`` per
+#: replications of ``make_longitudinal`` at ``n=500`` and five folds, under the per-regimen
+#: fold fluctuation this package used before the pooled construction, the mean ``|z|`` per
 #: parameter ran from 0.006 to 0.08.  Four standard errors is therefore a long way outside
-#: anything the construction produces, while a fold-mapping or stitching defect -- which
+#: anything that construction produced, while a fold-mapping or stitching defect -- which
 #: multiplies the residual by a constant rather than perturbing it -- moves ``z`` by orders
 #: of magnitude and cannot hide under it.
 #:
@@ -83,7 +91,7 @@ LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING = (
 #: :meth:`~cleverly.assessment.DiagnosticsFacade.score_equations` is a *relative-score*
 #: tolerance, and one number cannot mean both "close enough to solved" and "consistent with
 #: noise"; passing it to both gates would silently apply ``1e-3`` standard errors here and
-#: fail every cross-fitted fit.
+#: fail every fold-fluctuated fit.
 STITCHED_SCORE_Z_TOLERANCE = 4.0
 
 
@@ -173,22 +181,26 @@ class LongitudinalScoreRow:
     disagree, and because only their conjunction is safe -- a caller tolerance may tighten
     the verdict and may never license a fluctuation whose step failed.
 
-    ``kind`` says which question the row answers, because a cross-fitted fit poses two and
-    they have different right answers.
+    ``kind`` says which question the row answers, because a fold-fluctuated fit poses two
+    and they have different right answers.
 
     ``component`` names an MSM score component. Such a row pools all live regimen cells,
     so ``regimen`` and ``horizon`` are ``None``. Ordinary regimen rows have no component.
 
     ``"solver"``
         Did the fluctuation reach the root of the equation it was *given*?  On an ordinary
-        fit that equation is the node's own score and ``relative_score`` is it.  On a
-        cross-fitted fit it is each outer fold's score on its training complement, and
-        ``relative_score`` is the largest across the folds.  Either way the answer should
-        be at solver tolerance, and a failure here is a solver failure.
+        fit, and on a cross-fitted per-regimen fit, whose one pooled fluctuation per node
+        solves over every follower, that equation is the node's own score and
+        ``relative_score`` is it.  On the engine-level cross-fitted working model it is each
+        outer fold's score on its training complement, and ``relative_score`` is the
+        largest across the folds.  Either way the answer should be at solver tolerance, and
+        a failure here is a solver failure.
 
     ``"stitching"``
         Is the score of the *stitched* fit where sampling alone would leave it?  Emitted
-        only on a cross-fitted fit, where the answer is not zero and is not meant to be:
+        only on a fluctuation that carries per-fold solves, which the engine-level
+        cross-fitted working model alone produces.  There the answer is not zero and is
+        not meant to be:
         every fold fits its ``epsilon`` on rows it does not report, so the pooled residual
         is noise about zero rather than a solved equation.  ``z`` is that residual over its
         own standard error and ``relative_score`` is the raw magnitude, reported so the
@@ -226,8 +238,8 @@ class LongitudinalScoreDiagnostics:
 
     ``z_tolerance`` bounds a ``"stitching"`` row instead, in standard errors, because that
     row's score is not a solved equation and holding it to a relative tolerance would fail
-    every cross-fitted fit for doing exactly what it is supposed to do.  A fit with no
-    cross-fitting emits no such row and ``z_tolerance`` never binds.
+    every fold-fluctuated fit for doing exactly what it is supposed to do.  A fit with no
+    per-fold solves emits no such row and ``z_tolerance`` never binds.
     """
 
     rows: tuple[LongitudinalScoreRow, ...]
@@ -431,16 +443,12 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
     """One row per node: how heavy the weights got and how much the bounds moved.
 
     ``max_weight`` and ``effective_n`` read ``step.clever``, and ``share_truncated`` reads
-    ``fit.cumulative``.  On the rows the report is built from these agree: ``cumulative`` is
-    the row-wise out-of-fold gather of the slabs each fold's recursion read, so
-    ``1 / cumulative`` does reproduce the covariate there.  They are still read separately,
-    because ``step.clever`` carries no unbounded counterpart, and a truncation share needs
-    the bounded prefix against :attr:`~cleverly.longitudinal.RegimenFit.cumulative_unbounded`
-    to say how far the bounds moved it.
-
-    Read this share as the held-out one.  The stitched pair holds one of the ``K`` copies of
-    each scored row, so a cross-fitted fit truncated cells this share cannot see.  The
-    longitudinal truncation curve reports every copy the recursion divided by.
+    ``fit.cumulative``.  These agree: ``1 / cumulative`` is ``step.clever`` on the
+    followers, because a cross-fitted fit targets with the out-of-fold prefixes it reports.
+    They are still read separately, because ``step.clever`` carries no unbounded
+    counterpart, and a truncation share needs the bounded prefix against
+    :attr:`~cleverly.longitudinal.RegimenFit.cumulative_unbounded` to say how far the
+    bounds moved it.
     """
     terms = () if result.msm is None else result.msm.terms
     epsilon_names = ("epsilon",) if result.msm is None else tuple(f"epsilon[{t}]" for t in terms)
@@ -637,11 +645,22 @@ def _longitudinal_scores(result: Any, *, tolerance: float) -> LongitudinalScoreD
     tolerance would be reported as passing, which is the one answer this diagnostic must
     never give.
 
-    A cross-fitted node earns a second row, because the first one stops being able to see
-    the thing that can go wrong.  Its ``K`` solves each reach their own root on their own
-    training complement, so the solver row is at machine precision whatever the stitched fit
-    looks like -- including when the folds were stitched back in the wrong order, or a slab
-    was read for the wrong fold.  The stitching row is where that shows.
+    A cross-fitted per-regimen node gets the solver row alone.  Its one pooled fluctuation
+    solves the node's score over every follower against the stitched out-of-fold
+    predictions, so that score is the equation the node solved.  A misplaced fold changes
+    the stitched ``initial`` array itself, which
+    ``tests/unit/test_pooled_longitudinal_targeting.py`` checks against a longhand
+    recursion.
+
+    A fluctuation that carries per-fold solves earns a second row, because the first one
+    stops being able to see the thing that can go wrong.  On this per-regimen path the one
+    producer is an artifact written before the pooled construction, whose folds each solved
+    their own fluctuation.  The engine-level cross-fitted working model reports the same two
+    rows through :func:`_longitudinal_msm_scores`.  Such a node's ``K`` solves each reach
+    their own root on their own training complement, so the solver row is at machine
+    precision whatever the stitched fit looks like -- including when the folds were
+    stitched back in the wrong order, or a slab was read for the wrong fold.  The stitching
+    row is where that shows.
     """
     if result.msm is not None:
         return _longitudinal_msm_scores(result, tolerance=tolerance)
@@ -653,10 +672,11 @@ def _longitudinal_scores(result: Any, *, tolerance: float) -> LongitudinalScoreD
             fluctuation = step.fluctuation
             horizon = fit.horizon if result.data.is_survival else None
             converged = bool(fluctuation.converged)
-            # On a cross-fitted node the solved equations are the folds' own, and the
+            # On a fold-fluctuated node the solved equations are the folds' own, and the
             # aggregate `score` is the stitched fit's -- a different quantity, reported on
-            # the row below.  The worst fold is the honest summary of `K` solves: an
-            # average would let nine good folds hide one that did not move.
+            # the row below.  A pooled cross-fitted node carries no fold solves.  The worst
+            # fold is the honest summary of `K` solves: an average would let nine good folds
+            # hide one that did not move.
             solver_relative = (
                 max(
                     float(
@@ -883,11 +903,19 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
                 + "]"
             )
             binary = role == "outcome" and result.data.family == "binomial"
+            # What the regression was fitted to.  On a cross-fitted fit each fold regresses
+            # its own untargeted recursion, so the pooled-targeted `pseudo_outcome` is not
+            # that target and scoring `initial` against it would mix two recursions.
+            target = (
+                step.pseudo_outcome
+                if getattr(step, "regression_target", None) is None
+                else step.regression_target
+            )
             report = (
                 _binary_report(
                     name,
                     step.initial,
-                    step.pseudo_outcome,
+                    target,
                     result.data.weights,
                     step.learner_diagnostics,
                     mask=mask,
@@ -896,7 +924,7 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
                 else _continuous_report(
                     name,
                     step.initial,
-                    step.pseudo_outcome,
+                    target,
                     result.data.weights,
                     step.learner_diagnostics,
                     mask=mask,

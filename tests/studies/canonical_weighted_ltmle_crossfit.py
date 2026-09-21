@@ -83,7 +83,8 @@ REFERENCE_METADATA = {
 }
 
 CONFIGURATION = {
-    "construction": "fold_specific_cross_fit_weighted",
+    "construction": "pooled_cross_fit_weighted",
+    "reference_construction": "training_fold_fluctuation",
     "selection_probability": {
         "W1_positive": common.SELECTION_LOW,
         "otherwise": common.SELECTION_HIGH,

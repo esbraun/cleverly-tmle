@@ -436,13 +436,11 @@ def test_longitudinal_score_and_nuisance_adapters_cover_every_node(longitudinal_
         "outcome",
         "pseudo_outcome",
     }
-    # One row per node per question the node poses.  A cross-fitted node poses two -- did
-    # every fold's solve reach its root, and is the stitched residual where sampling would
-    # leave it -- and a single-fold node poses only the first.
+    # One row per node.  A per-regimen node solves one fluctuation over every follower at
+    # any fold count, so its one question is whether that solve reached its root.  Only a
+    # fluctuation that carries per-fold solves adds a stitching row.
     kinds = [row.kind for row in scores.rows]
-    assert kinds.count("solver") == expected
-    assert kinds.count("stitching") in {0, expected}
-    assert len(scores.rows) == len(kinds)
+    assert kinds == ["solver"] * expected
     assert all(row.score >= 0 and row.relative_score >= 0 for row in scores.rows)
     assert all(row.n > 0 and row.reported_loss >= 0 for row in nuisances.rows)
 

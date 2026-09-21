@@ -204,7 +204,12 @@ class TestMapParallel:
 
 
 def test_the_longitudinal_outer_recursions_are_parallel_invariant() -> None:
-    """Scheduling complete outer-fold recursions cannot change stitched held-out rows."""
+    """Scheduling the untargeted outer-fold recursions cannot change stitched held-out rows.
+
+    ``initial`` and ``regression_target`` are the arrays the workers return, so they are
+    compared directly.  The targeted values and the curves follow from them through the
+    pooled pass in the parent.
+    """
     serial = _fit_longitudinal(1)
     parallel = _fit_longitudinal(PARALLEL_JOBS)
     np.testing.assert_array_equal(serial.folds.assignment, parallel.folds.assignment)
@@ -212,4 +217,6 @@ def test_the_longitudinal_outer_recursions_are_parallel_invariant() -> None:
         np.testing.assert_allclose(curve, parallel.influence_curves[name], rtol=0.0, atol=0.0)
     for label, fit in serial.fits.items():
         for left, right in zip(fit.steps, parallel.fits[label].steps, strict=True):
+            np.testing.assert_array_equal(left.initial, right.initial)
+            np.testing.assert_array_equal(left.regression_target, right.regression_target)
             np.testing.assert_allclose(left.targeted, right.targeted, rtol=0.0, atol=0.0)

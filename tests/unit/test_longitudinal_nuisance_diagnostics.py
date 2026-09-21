@@ -231,11 +231,21 @@ def test_each_role_reports_its_stored_weighted_loss(weighted_result) -> None:  #
             if fit.regimen.label == row.regimen and fit.cause == row.cause
         )
         step = next(step for step in fit.steps if step.time == row.time)
+        # A cross-fitted regression was fitted to its fold's untargeted target, which is
+        # retained beside the pooled pseudo-outcome, and its loss is read against that.
+        assert step.regression_target is not None
         expected = np.average(
-            np.square(step.pseudo_outcome[step.trained_on] - step.initial[step.trained_on]),
+            np.square(step.regression_target[step.trained_on] - step.initial[step.trained_on]),
             weights=data.weights[step.trained_on],
         )
         assert row.loss == pytest.approx(expected)
+        if role == "pseudo_outcome":
+            # The witness that the choice of target is observable on this fixture.
+            pooled = np.average(
+                np.square(step.pseudo_outcome[step.trained_on] - step.initial[step.trained_on]),
+                weights=data.weights[step.trained_on],
+            )
+            assert row.loss != pytest.approx(pooled)
         assert row.model is not None
         assert row.model.calibration
 

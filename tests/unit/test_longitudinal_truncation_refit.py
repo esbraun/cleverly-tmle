@@ -95,9 +95,7 @@ def _assert_active_curve(result: Any, bound: float = 0.3, cells: Any = None) -> 
     assert recipe is not None
     replay = longitudinal_estimator._refit_bound(result, recipe, (bound, 1.0))
     estimates, fits, msm_fits = replay.estimates, replay.fits, replay.msm_fits
-    consumed = _consumed_prefixes(
-        result.data, result.mechanism, recipe.plans, result.folds, (bound, 1.0)
-    )
+    consumed = _consumed_prefixes(result.data, result.mechanism, recipe.plans, (bound, 1.0))
     if cells is not None:
         assert set(payload["estimand"]) == set(cells)
     for index, name in enumerate(payload["estimand"]):
@@ -118,21 +116,19 @@ def _assert_active_curve(result: Any, bound: float = 0.3, cells: Any = None) -> 
     assert all(row.converged and row.passed for row in score_rows)
     assert all(row.relative_score <= recipe.tol for row in score_rows)
 
-    # The solver rows above are each fold's own equation, so they stay at solver tolerance
-    # however the folds were mapped.  Only the stitched row can expose a fold-mapping or
-    # slab defect, and it is emitted on a cross-fitted replay alone.
-    stitching_rows = [row for row in rows if row.kind == "stitching"]
-    if result.folds.n_folds == 1:
-        assert stitching_rows == []
-        return
-    assert stitching_rows
-    # ``passed`` is the production ``z`` tolerance, so this is the gate the diagnostic owns
-    # rather than a second number invented here.
-    assert all(row.passed for row in stitching_rows)
-    assert all(np.isfinite(row.z) for row in stitching_rows)
-    # A stitched score is noise about zero, never a solved equation.  A stitching row that
-    # sat at solver tolerance would mean it was computed from the folds' own residuals.
-    assert all(row.relative_score > recipe.tol for row in stitching_rows)
+    # A cross-fitted replay solves one pooled fluctuation per node over every follower, as
+    # a single-fold one does, so each solver row is the node's own equation and no replay
+    # emits a stitching row.  The solver rows are recomputed from the replayed arrays here,
+    # so a replay that reported a score its arrays do not pose fails as well.  A working
+    # model pools each node's score across its cells, so no single cell's arrays pose it.
+    assert [row for row in rows if row.kind == "stitching"] == []
+    for fit in fits.values() if result.msm is None else ():
+        weights = np.asarray(fit.obs_weights, dtype=float)
+        for step in fit.steps:
+            assert step.fluctuation.folds == ()
+            multiplier = weights * step.clever
+            score = float(np.mean(multiplier * (step.pseudo_outcome - step.targeted)))
+            assert abs(score) <= recipe.tol * float(np.mean(np.abs(multiplier)))
 
 
 def _independent_cell_census(
@@ -140,8 +136,10 @@ def _independent_cell_census(
 ) -> tuple[int, int]:
     """Census the truncated and evaluated cells without any production counting helper.
 
-    Rebuilt here from the mechanism method the recursion calls and from each step's own
-    ``trained_on`` mask, so that a count read off the wrong mechanism fails this.
+    Rebuilt here from the stored out-of-fold mechanism factors, by ``np.cumprod`` and
+    ``np.clip`` rather than through the production product, and from each step's own
+    ``trained_on`` mask.  A count read off the wrong mechanism, or off ``K`` fold slabs as
+    the fold-fluctuated construction did, fails this.
 
     ``cells`` is a sequence of ``(regimen, cause, horizon)`` triples, which is the index a
     fit carries.  A reported name owes the cells its caller writes out rather than the ones
@@ -159,44 +157,45 @@ def _independent_cell_census(
             if (fit.regimen.label, fit.cause, fit.horizon) == (label, cause, horizon)
         ]
         assert len(contributing) == 1
-        plan = next(item for item in result.replay_recipe.plans if item.label == label)
-        slabs = (
-            [result.mechanism.cumulative_with_unbounded(result.data, plan, bound)]
-            if result.folds.n_folds == 1
-            else [
-                result.mechanism.cumulative_with_unbounded(result.data, plan, bound, fold=fold)
-                for fold in range(result.folds.n_folds)
-            ]
-        )
-        for unbounded, bounded in slabs:
-            for step in contributing[0].steps:
-                rows = step.trained_on
-                column = step.time - 1
-                truncated += int(np.count_nonzero(unbounded[rows, column] != bounded[rows, column]))
-                evaluated += int(np.count_nonzero(rows))
+        unbounded, bounded = _longhand_cumulative(result, label, bound)
+        for step in contributing[0].steps:
+            rows = step.trained_on
+            column = step.time - 1
+            truncated += int(np.count_nonzero(unbounded[rows, column] != bounded[rows, column]))
+            evaluated += int(np.count_nonzero(rows))
     return truncated, evaluated
 
 
+def _longhand_cumulative(
+    result: Any, label: str, bound: tuple[float, float]
+) -> tuple[np.ndarray, np.ndarray]:
+    """The raw and bounded out-of-fold cumulative mechanism, from the stored factors."""
+
+    data = result.data
+    factors = []
+    for time in range(data.n_times):
+        factors.append(result.mechanism.treatment[time][label])
+        factors.append(
+            result.mechanism.censoring[time][label] if data.censoring_names else np.ones(data.n)
+        )
+    raw = np.cumprod(np.column_stack(factors), axis=1)[:, 1::2]
+    return raw, np.clip(raw, *bound)
+
+
 def _clip_directions(result: Any, bound: tuple[float, float]) -> tuple[int, int]:
-    """How many cumulative cells each endpoint of ``bound`` moved, over every consumed slab.
+    """How many out-of-fold cumulative cells each endpoint of ``bound`` moved.
 
     A raised cell sat below the lower endpoint and a lowered one above the upper endpoint,
     so the two counts say which endpoints of a pair actually bind on this sample.  A census
     whose truncated counts come only from one of them is no witness for the other.
     """
 
-    folds: list[int | None] = (
-        [None] if result.folds.n_folds == 1 else list(range(result.folds.n_folds))
-    )
     raised = 0
     lowered = 0
     for plan in result.replay_recipe.plans:
-        for fold in folds:
-            unbounded, bounded = result.mechanism.cumulative_with_unbounded(
-                result.data, plan, bound, fold=fold
-            )
-            raised += int(np.count_nonzero(unbounded < bounded))
-            lowered += int(np.count_nonzero(unbounded > bounded))
+        unbounded, bounded = _longhand_cumulative(result, plan.label, bound)
+        raised += int(np.count_nonzero(unbounded < bounded))
+        lowered += int(np.count_nonzero(unbounded > bounded))
     return raised, lowered
 
 
@@ -375,11 +374,15 @@ def test_delta_from_fitted_points_from_the_fitted_estimate_to_the_replayed_one(r
 
     # Pinned rather than recomputed: ``estimate - fitted`` and ``fitted - estimate`` agree on
     # the magnitude and differ only here, so only the direction and the literal are evidence.
-    assert payload["fitted_psi"][row] == pytest.approx(0.80024129, rel=1e-6)
-    assert payload["psi"][row] == pytest.approx(0.80375313, rel=1e-6)
+    # The literals are the pooled cross-fitted construction's.  An independent longhand of
+    # it -- weighted least-squares fold recursions, a hand Newton solve per node against the
+    # out-of-fold mechanism by ``np.cumprod`` -- gives 0.5630412924858 and 0.7403837710467,
+    # within 4e-13 of the fit.  The node-2 ``epsilon`` is -1.70 on these 140 rows.
+    assert payload["fitted_psi"][row] == pytest.approx(0.56304129, rel=1e-6)
+    assert payload["psi"][row] == pytest.approx(0.74038377, rel=1e-6)
     assert payload["psi"][row] > payload["fitted_psi"][row]
     assert payload["delta_from_fitted"][row] > 0.0
-    assert payload["delta_from_fitted"][row] == pytest.approx(0.0035118456, rel=1e-6)
+    assert payload["delta_from_fitted"][row] == pytest.approx(0.17734248, rel=1e-6)
 
 
 def test_delta_from_fitted_is_negative_where_the_replayed_estimate_falls(  # type: ignore[no-untyped-def]
@@ -439,23 +442,24 @@ def test_fitted_bound_gate_refuses_a_nonpoint_artifact_mismatch(result, monkeypa
         longitudinal_estimator.longitudinal_truncation_curve(result, [0.25])
 
 
-def test_crossfit_active_replay_rejects_a_stitched_oof_slab_mutation(result, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_crossfit_active_replay_rejects_a_fold_slab_mutation(result, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """A replay that divided by fold 0's slab instead of the out-of-fold pair is caught."""
     recipe = result.replay_recipe
     assert recipe is not None
     active = (0.25, 1.0)
     correct = longitudinal_estimator._refit_bound(result, recipe, active).fits
     real = Mechanism.cumulative_with_unbounded
 
-    def stitched(self: Mechanism, data: Any, plan: Any, bounds: Any, *, fold: int | None = None):  # type: ignore[no-untyped-def]
+    def slab(self: Mechanism, data: Any, plan: Any, bounds: Any, *, fold: int | None = None):  # type: ignore[no-untyped-def]
         return real(
             self,
             data,
             plan,
             bounds,
-            fold=None if tuple(bounds) == active else fold,
+            fold=0 if tuple(bounds) == active and fold is None else fold,
         )
 
-    monkeypatch.setattr(Mechanism, "cumulative_with_unbounded", stitched)
+    monkeypatch.setattr(Mechanism, "cumulative_with_unbounded", slab)
     mutated = longitudinal_estimator._refit_bound(result, recipe, active).fits
     with pytest.raises(AssertionError):
         assert _exact_replay_equal(mutated, correct)
@@ -515,27 +519,32 @@ def test_end_of_study_crossfit_active_replay_solves_every_node_and_stitched_scor
 
 
 def test_reusing_one_earlier_outcome_prediction_breaks_active_replay(result, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """An active replay must rebuild node 1's pooled outcome from node 2's new targeted fit.
+
+    Under the pooled construction the untargeted fold recursions read no mechanism, so node
+    1's ``initial`` is the same at every bound and reusing it is harmless: the pooled pass
+    reads it as an offset.  The bound-dependent array is the pooled outcome, the targeted
+    prediction of node 2.  The mutation hands node 1's fluctuation the fitted bound's stale
+    pooled outcome, and the replayed estimate has to move.
+    """
     correct = _payload(longitudinal_estimator.longitudinal_truncation_curve(result, [0.25]))
-    real = longitudinal_sequential.prepare_node
+    real = longitudinal_sequential._fluctuate_node
+    replaying = {"active": False}
+    real_refit = longitudinal_estimator._refit_bound
 
-    def reused(*args: Any, **kwargs: Any):  # type: ignore[no-untyped-def]
-        node = real(*args, **kwargs)
-        plan = args[1]
-        cumulative = args[2]
-        time = args[4]
-        fitted = result.fits[plan.label]
-        _, fitted_slab = result.mechanism.cumulative_with_unbounded(
-            result.data,
-            plan,
-            result.config.g_bounds,
-            fold=kwargs["outer_fold"],
-        )
-        if time == 1 and not np.array_equal(cumulative, fitted_slab):
-            stale = fitted.steps[0].initial
-            return replace(node, initial=stale)
-        return node
+    def tracked(target: Any, recipe: Any, bounds: Any):  # type: ignore[no-untyped-def]
+        replaying["active"] = tuple(bounds) != result.config.g_bounds
+        return real_refit(target, recipe, bounds)
 
-    monkeypatch.setattr(longitudinal_sequential, "prepare_node", reused)
+    def reused(pseudo_outcome: Any, initial: Any, *args: Any, **kwargs: Any):  # type: ignore[no-untyped-def]
+        if replaying["active"] and kwargs["time"] == 1:
+            stale = result.fits[kwargs["label"]].steps[0].pseudo_outcome
+            assert not np.array_equal(stale, pseudo_outcome)
+            pseudo_outcome = stale
+        return real(pseudo_outcome, initial, *args, **kwargs)
+
+    monkeypatch.setattr(longitudinal_estimator, "_refit_bound", tracked)
+    monkeypatch.setattr(longitudinal_sequential, "_fluctuate_node", reused)
     mutated = _payload(longitudinal_estimator.longitudinal_truncation_curve(result, [0.25]))
     with pytest.raises(AssertionError):
         np.testing.assert_array_equal(mutated["psi"], correct["psi"])
@@ -546,9 +555,7 @@ def test_score_cell_counts_are_alias_specific_and_use_only_scored_rows(result) -
     assert recipe is not None
     replay = longitudinal_estimator._refit_bound(result, recipe, (0.25, 1.0))
     curve = _payload(longitudinal_estimator.longitudinal_truncation_curve(result, [0.25]))
-    consumed = _consumed_prefixes(
-        result.data, result.mechanism, recipe.plans, result.folds, (0.25, 1.0)
-    )
+    consumed = _consumed_prefixes(result.data, result.mechanism, recipe.plans, (0.25, 1.0))
 
     for index, name in enumerate(curve["estimand"]):
         expected = _score_cell_truncation_counts(replay.contributors[name], consumed)
@@ -598,29 +605,30 @@ MSM_CONTRIBUTING_CELLS = {
 }
 
 #: ``(pair, estimand)`` to the ``(truncated, evaluated)`` cell counts a two-fold fit owes.
-#: Every denominator is twice the single-fold one below, because each of the two folds runs
-#: its own complete backward pass on its own slab.  The numerators count truncations in those
-#: two slabs.  A census of the retained stitched out-of-fold pair alone reports fewer, because
-#: it holds one of the two copies of each scored row and misses the truncation only a fold's
-#: own training rows carry.  ``test_crossfit_score_cell_counts_census_every_fold_slab_the_
-#: recursion_read`` states that claim, and nothing pins the stitched count itself.
+#: A cross-fitted fit solves one pooled fluctuation per node with the out-of-fold mechanism,
+#: so its denominators are the single-fold ones below: one pass over each node's followers.
+#: The numerators count truncations in the out-of-fold pair, which differs from the
+#: single-fold fit's in-sample mechanism, so they differ from the single-fold numerators.
+#: Every value was recounted by :func:`_independent_cell_census`, which rebuilds the pair
+#: with ``np.cumprod`` over the stored factors, and agrees with the production count.
+#: The fold-fluctuated construction's census counted ``K`` fold slabs and reported twice
+#: these denominators.
 #:
 #: Every pair here keeps the upper endpoint at ``1.0``, so every truncated cell was *raised*.
 #: ``UPPER_BOUND_CELL_CENSUS`` and ``TWO_SIDED_CELL_CENSUS`` carry the other direction.
 CROSSFIT_CELL_CENSUS = {
-    ((0.01, 1.0), "ey_regimen[always]"): (0, 224),
-    ((0.01, 1.0), "ey_regimen[never]"): (0, 160),
-    ((0.01, 1.0), "ate_regimen[always vs never]"): (0, 384),
-    ((0.12, 1.0), "ey_regimen[always]"): (5, 224),
-    ((0.12, 1.0), "ey_regimen[never]"): (13, 160),
-    ((0.12, 1.0), "ate_regimen[always vs never]"): (18, 384),
-    ((0.3, 1.0), "ey_regimen[always]"): (42, 224),
-    ((0.3, 1.0), "ey_regimen[never]"): (62, 160),
-    ((0.3, 1.0), "ate_regimen[always vs never]"): (104, 384),
+    ((0.01, 1.0), "ey_regimen[always]"): (0, 112),
+    ((0.01, 1.0), "ey_regimen[never]"): (0, 80),
+    ((0.01, 1.0), "ate_regimen[always vs never]"): (0, 192),
+    ((0.12, 1.0), "ey_regimen[always]"): (3, 112),
+    ((0.12, 1.0), "ey_regimen[never]"): (8, 80),
+    ((0.12, 1.0), "ate_regimen[always vs never]"): (11, 192),
+    ((0.3, 1.0), "ey_regimen[always]"): (22, 112),
+    ((0.3, 1.0), "ey_regimen[never]"): (35, 80),
+    ((0.3, 1.0), "ate_regimen[always vs never]"): (57, 192),
 }
 
-#: The same census at one outer fold, where the consumed slab and the retained stitched pair
-#: coincide and the counts are therefore the smaller, single-pass ones.
+#: The same census at one outer fold, where the one mechanism is the in-sample fit.
 SINGLE_FOLD_CELL_CENSUS = {
     ((0.12, 1.0), "ey_regimen[always]"): (1, 112),
     ((0.12, 1.0), "ey_regimen[never]"): (3, 80),
@@ -631,21 +639,21 @@ SINGLE_FOLD_CELL_CENSUS = {
 }
 
 #: The two-fold census of a pair whose *upper* endpoint is the one that binds.  ``0.01`` is
-#: the fitted lower endpoint and raises nothing on this sample, so all ``100`` of the
+#: the fitted lower endpoint and raises nothing on this sample, so all ``46`` of the
 #: contrast's truncated cells were lowered to ``0.5``.
 UPPER_BOUND_CELL_CENSUS = {
-    ((0.01, 0.5), "ey_regimen[always]"): (100, 224),
-    ((0.01, 0.5), "ey_regimen[never]"): (8, 160),
-    ((0.01, 0.5), "ate_regimen[always vs never]"): (108, 384),
+    ((0.01, 0.5), "ey_regimen[always]"): (43, 112),
+    ((0.01, 0.5), "ey_regimen[never]"): (3, 80),
+    ((0.01, 0.5), "ate_regimen[always vs never]"): (46, 192),
 }
 
-#: The two-fold census of a pair whose endpoints both bind.  ``46`` of the contrast's ``94``
-#: truncated cells were raised to ``0.2`` and the other ``48`` were lowered to ``0.6``.  No
+#: The two-fold census of a pair whose endpoints both bind.  ``25`` of the contrast's ``51``
+#: truncated cells were raised to ``0.2`` and the other ``26`` were lowered to ``0.6``.  No
 #: cell is both, because a prefix cannot sit below ``0.2`` and above ``0.6`` at once.
 TWO_SIDED_CELL_CENSUS = {
-    ((0.2, 0.6), "ey_regimen[always]"): (71, 224),
-    ((0.2, 0.6), "ey_regimen[never]"): (27, 160),
-    ((0.2, 0.6), "ate_regimen[always vs never]"): (98, 384),
+    ((0.2, 0.6), "ey_regimen[always]"): (36, 112),
+    ((0.2, 0.6), "ey_regimen[never]"): (15, 80),
+    ((0.2, 0.6), "ate_regimen[always vs never]"): (51, 192),
 }
 
 
@@ -673,17 +681,29 @@ def _assert_cell_census(result: Any, census: Any) -> None:
             assert _independent_cell_census(result, cells, pair, fits) == census[(pair, name)]
 
 
-def test_crossfit_score_cell_counts_census_every_fold_slab_the_recursion_read(result) -> None:  # type: ignore[no-untyped-def]
-    """Two folds, so the pinned counts fail a census of the stitched pair alone.
+def test_crossfit_score_cell_counts_census_the_out_of_fold_mechanism(result) -> None:  # type: ignore[no-untyped-def]
+    """Two folds, and one pass over the followers with the out-of-fold mechanism.
 
-    The stitched pair is the row-wise out-of-fold gather of the two slabs, so every stitched
-    cell *is* a cell the fold that held that row out divided by.  What a census of it alone
-    misses is the other copies: it holds one of the two copies of each scored row, and not
-    the truncation only a fold's own training rows carry.
+    The fold recursions read no mechanism, and the pooled fluctuation reads the out-of-fold
+    pair once per node.  So the denominators equal the single-fold fixture's, and a census
+    of the ``K`` fold slabs would report twice them.  The witness that the slabs would also
+    count differently is that they differ from the out-of-fold pair where a fold trained.
     """
 
     assert result.folds.n_folds == 2
     _assert_cell_census(result, CROSSFIT_CELL_CENSUS)
+    assert {
+        name: counts[1] for (pair, name), counts in CROSSFIT_CELL_CENSUS.items() if pair[0] == 0.12
+    } == {name: counts[1] for (_, name), counts in SINGLE_FOLD_CELL_CENSUS.items()}
+    moved = 0.0
+    for plan in result.replay_recipe.plans:
+        _, pair = result.mechanism.cumulative_with_unbounded(result.data, plan, (0.12, 1.0))
+        for fold, (train, _) in enumerate(result.folds):
+            _, slab = result.mechanism.cumulative_with_unbounded(
+                result.data, plan, (0.12, 1.0), fold=fold
+            )
+            moved = max(moved, float(np.max(np.abs(slab[train] - pair[train]))))
+    assert moved > 1e-6
 
 
 def test_single_fold_score_cell_counts_census_the_one_consumed_slab(single_fold_result) -> None:  # type: ignore[no-untyped-def]
@@ -875,8 +895,8 @@ def test_crossfit_survival_curve_replays_every_horizon_on_three_folds() -> None:
     assert payload["estimand"] == list(result.estimates)
     assert len(set(payload["estimand"])) == len(result.config.horizons) == 2
     assert all(payload["is_fitted_bound"])
-    # Three folds, so each reported horizon's denominator is three complete passes and the
-    # stitched score the report is built from is checked as well.
+    # Three folds, so each reported horizon is three untargeted fold recursions and one
+    # pooled fluctuation per node, whose score is recomputed from the replayed arrays.
     _assert_active_curve(result, cells=SURVIVAL_CONTRIBUTING_CELLS)
 
 

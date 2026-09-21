@@ -10,6 +10,7 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 import pytest
+from scipy.special import expit, logit
 
 from cleverly.learners.crossfit import Folds
 from tests import discrete_law_longitudinal_multivalue as law
@@ -75,11 +76,14 @@ def _first_follower(frame: pd.DataFrame) -> int:
 
 
 def test_a_held_out_outcome_cannot_enter_its_categorical_recursion() -> None:
-    """Each categorical prediction and update uses the row's training complement.
+    """Each categorical initial prediction uses the row's training complement.
 
     Two claims, and the family needs both.  The perturbed outcome must reach the estimate,
-    which is what makes it evidence about anything; and it must not reach the fitted values
-    of the row it belongs to, which is what fold isolation means.
+    which is what makes it evidence about anything; and it must not reach the initial fitted
+    values of the row it belongs to, which is what fold isolation means.  The targeted value
+    at the row moves only through the node's one pooled ``epsilon``, which the cross-fitted
+    construction fits over every follower by design: it is that row's own unchanged initial prediction
+    moved by the pooled coefficient.
     """
     frame, _ = crossfit.draw_scenario(common.SCENARIO, 500, 16)
     original = crossfit.fit_cleverly(frame)
@@ -97,13 +101,27 @@ def test_a_held_out_outcome_cannot_enter_its_categorical_recursion() -> None:
         f"equality checks below would pass on an estimator with no fold isolation at all"
     )
 
+    # The solver bounds its offset and every iterate into ``[1 - alpha, alpha]``, so the
+    # longhand does too.  A row strictly inside both bounds reads the shift unclipped.
+    recipe = original.replay_recipe
+    assert recipe is not None
+    upper = recipe.alpha
+    lower = 1.0 - upper
     displaced = 0.0
     for label in common.REGIMENS:
         for left, right in zip(
             original.fits[label].steps, perturbed.fits[label].steps, strict=True
         ):
             assert left.initial[row] == right.initial[row]
-            assert left.targeted[row] == right.targeted[row]
+            for step in (left, right):
+                offset = np.clip(step.initial, lower, upper)
+                shifted = np.clip(
+                    expit(logit(offset) + float(step.fluctuation.epsilon[0])), lower, upper
+                )
+                np.testing.assert_allclose(step.targeted, shifted, rtol=0.0, atol=1e-10)
+                inside = (offset > lower) & (offset < upper) & (shifted > lower)
+                inside &= shifted < upper
+                assert inside[row], f"row {row} sits on a bound, so the clip decides it"
             displaced = max(displaced, float(np.max(np.abs(left.initial - right.initial))))
     assert displaced > 1e-6, "no fitted value moved anywhere, so the equalities say nothing"
 

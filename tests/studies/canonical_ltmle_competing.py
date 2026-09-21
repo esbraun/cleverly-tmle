@@ -124,8 +124,12 @@ REFERENCE_METADATA = {
 
 def manifest_configuration(*, crossfit: bool) -> dict[str, Any]:
     """What the manifest records about how either row was fitted."""
+    # The ordinary row's configuration is unchanged by the pooled construction, so the
+    # reference construction is recorded on the cross-fitted row only.
+    reference = {"reference_construction": "training_fold_fluctuation"} if crossfit else {}
     return {
-        "construction": "fold_specific_cross_fit" if crossfit else "ordinary",
+        "construction": "pooled_cross_fit" if crossfit else "ordinary",
+        **reference,
         "outcome_kind": "competing_absorbing_events",
         "horizon_mode": "all_prefixes",
         "r_survival_outcome": True,

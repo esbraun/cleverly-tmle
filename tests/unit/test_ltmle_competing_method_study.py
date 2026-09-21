@@ -276,8 +276,7 @@ def test_the_cross_fitted_r_payload_uses_the_realized_outer_folds() -> None:
     assert {row["estimand"] for row in rows} == set(crossfit.ESTIMANDS)
 
 
-@pytest.mark.parametrize("study", [ordinary, crossfit], ids=("ordinary", "cross-fitted"))
-def test_the_frozen_r_study_matches_beyond_its_acceptance_margin(study: Any) -> None:
+def _paired_replicates(study: Any) -> tuple[pd.DataFrame, pd.DataFrame]:
     path = study.STUDY.artifact("replicates.csv.gz")
     if not path.exists():
         pytest.skip("the new study artifacts have not been generated yet")
@@ -287,16 +286,42 @@ def test_the_frozen_r_study_matches_beyond_its_acceptance_margin(study: Any) -> 
         columns="implementation",
         values=["estimate", "std_error"],
     )
-    for column, tolerance in {"estimate": 5e-6, "std_error": 5e-7}.items():
-        difference = paired[(column, study.STUDY.implementation)] - paired[(column, "lmtp")]
-        assert np.max(np.abs(difference)) < tolerance
+    return rows, paired
 
+
+def _assert_targeting_moved(rows: pd.DataFrame) -> None:
+    """Both implementations moved off their initial fit, so agreement is not vacuous."""
     movement = (
         rows.assign(targeting_movement=(rows["estimate"] - rows["initial_estimate"]).abs())
         .groupby("implementation")["targeting_movement"]
         .mean()
     )
     assert (movement > 0.005).all(), movement
+
+
+def test_the_frozen_ordinary_r_study_matches_beyond_its_acceptance_margin() -> None:
+    """At one fold both sides run the same recursion, so they agree to solver precision."""
+    rows, paired = _paired_replicates(ordinary)
+    for column, tolerance in {"estimate": 5e-6, "std_error": 5e-7}.items():
+        difference = paired[(column, ordinary.STUDY.implementation)] - paired[(column, "lmtp")]
+        assert np.max(np.abs(difference)) < tolerance
+    _assert_targeting_moved(rows)
+
+
+def test_the_frozen_cross_fitted_r_study_compares_two_constructions() -> None:
+    """Cross-fitted, the package and ``lmtp`` run different constructions and must differ.
+
+    The package runs the cross-fitted construction of Díaz et al. (2023, Section 5.2):
+    untargeted fold recursions, then one pooled fluctuation per node.  ``lmtp`` 1.5.4 runs a
+    training-fold fluctuation whose targeted prediction is carried into the fold's next
+    regression.  The two agree to first order and not to solver precision, so exact parity
+    here would mean the package still carried a fold-targeted prediction.  The paired
+    comparison belongs to the study's registered margins, not to this gate.
+    """
+    rows, paired = _paired_replicates(crossfit)
+    difference = paired[("estimate", crossfit.STUDY.implementation)] - paired[("estimate", "lmtp")]
+    assert np.max(np.abs(difference)) > 1e-6
+    _assert_targeting_moved(rows)
 
 
 #: The probe command each fixture README documents, as `(replicates, n)`.

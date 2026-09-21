@@ -131,11 +131,12 @@ def test_an_ltmle_fit_reports_every_phase_it_declares() -> None:
         "inference",
     }
     assert expected <= set(profile.counts)
-    # Two folds x two regimens x two nodes for each fold-specific recursion.  Masks are
-    # scanned once per regimen, plus once for the shared mechanism -- the whole point of
-    # the prefix scan, and a per-node count here would mean it had stopped happening.
+    # Two folds x two regimens x two nodes for the untargeted fold recursions, and one
+    # pooled fluctuation per regimen and node after them.  Masks are scanned once per
+    # regimen, plus once for the shared mechanism -- the whole point of the prefix scan,
+    # and a per-node count here would mean it had stopped happening.
     assert profile.counts["outcome_learner_fit"] == 8
-    assert profile.counts["fluctuation"] == 8
+    assert profile.counts["fluctuation"] == 4
     assert profile.counts["mask_construction"] == 3
     # One fan-out per regimen, which is the phase the workers' own phases hang under.
     assert profile.counts["outer_fold_recursion"] == 2
@@ -182,13 +183,18 @@ def test_the_recursion_is_profiled_whether_or_not_it_ran_in_workers() -> None:
     serial, serial_profile = counts(1)
     parallel, parallel_profile = counts(PARALLEL_JOBS)
     assert serial == parallel
-    assert serial["fluctuation"] == 8
+    assert serial["outcome_learner_fit"] == 8
+    assert serial["fluctuation"] == 4
 
-    # Where they ran, which is the difference the profile keeps rather than hides.
+    # Where they ran, which is the difference the profile keeps rather than hides.  The
+    # fold recursions are the workers' regressions; the pooled fluctuation runs in the
+    # parent after the folds are stitched, at any job count.
     assert serial_profile.workers is None
     assert parallel_profile.workers is not None
-    assert parallel_profile.counts.get("fluctuation", 0) == 0
-    assert parallel_profile.workers.counts["fluctuation"] == 8
+    assert parallel_profile.counts.get("outcome_learner_fit", 0) == 0
+    assert parallel_profile.workers.counts["outcome_learner_fit"] == 8
+    assert parallel_profile.counts["fluctuation"] == 4
+    assert parallel_profile.workers.counts.get("fluctuation", 0) == 0
     # Worker time is processor time across the folds and the parent's is wall time, so the
     # merge must never have put one into the other.
     assert sum(parallel_profile.exclusive.values()) <= parallel_profile.total_seconds

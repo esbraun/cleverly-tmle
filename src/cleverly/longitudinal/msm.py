@@ -532,21 +532,20 @@ def fit_regimens_msm(
     regression's target, a round is the whole pass rather than a re-solved fluctuation.
     The mechanism is free of :math:`\beta` and is fitted once, outside.
 
-    **With outer cross-fitting the whole alternation is the unit of splitting**, exactly as
-    :func:`~cleverly.longitudinal.sequential.fit_regimen`'s is.  Fold :math:`k` runs a
-    complete pass -- every regression, every pooled fluctuation, and under a link its own
-    :math:`\beta` -- on its training complement, and only its held-out rows are stitched
-    into the report.  The reported :math:`\beta` is then the projection of the *stitched*
-    fit rather than any fold's, which is the statement
-    :func:`~cleverly.estimators.targeting.reported_beta` makes for the point-treatment
-    fold-targeting path.
+    **With outer cross-fitting the whole alternation is the unit of splitting.**  This
+    fold path is engine-only: :class:`~cleverly.longitudinal.LTMLE` refuses ``msm=`` above
+    one fold, so only a direct call reaches it.  Fold :math:`k` runs a complete pass --
+    every regression, every pooled fluctuation, and under a link its own :math:`\beta` --
+    on its training complement, and only its held-out rows are stitched into the report.
+    The reported :math:`\beta` is then the projection of the *stitched* fit rather than any
+    fold's, which is the statement :func:`~cleverly.estimators.targeting.reported_beta`
+    makes for the point-treatment fold-targeting path.
 
-    Running a *different* construction here was a real defect and not a shortcut.  Taking
-    out-of-fold predictions stitched across all ``K`` models, where the per-regimen path
-    takes fold ``k``'s model everywhere, made the two disagree by ``0.55`` on the initial
-    regression at three folds -- before any targeting -- so a saturated working model
-    stopped reproducing the per-regimen report that
-    ``tests/e2e/test_ltmle_msm.py`` pins.
+    The per-regimen path no longer shares this construction.  A cross-fitted
+    :func:`~cleverly.longitudinal.sequential.fit_regimen` runs untargeted fold recursions
+    and then one pooled fluctuation per node over every follower, so above one fold a
+    saturated working model fitted here does not reproduce the per-regimen report.  At one
+    fold the two still agree, which ``tests/e2e/test_ltmle_msm.py`` pins.
     """
     plan_of = {plan.label: plan for plan in plans}
     missing = sorted({cell.label for cell in model.cells} - set(plan_of))
@@ -557,7 +556,8 @@ def fit_regimens_msm(
     }
     cumulative_unbounded = {label: pair[0] for label, pair in cumulative_pairs.items()}
     # The pooled prefixes, which is what a cell fit *reports*.  Above one fold they are not
-    # what any clever covariate was built from: see `RegimenFit.cumulative`.
+    # what any clever covariate was built from: this engine-only fold path reads fold `k`'s
+    # slab for every row of fold `k`'s pass, through `cumulative_with_unbounded(fold=k)`.
     cumulative = {label: pair[1] for label, pair in cumulative_pairs.items()}
     # Once per regimen for the whole alternation, not once per node per round: a link
     # costs a further backward pass per round, so rebuilding the masks inside `one_pass`

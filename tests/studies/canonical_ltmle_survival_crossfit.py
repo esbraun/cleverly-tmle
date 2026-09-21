@@ -154,7 +154,8 @@ REFERENCE_METADATA = {
 }
 
 CONFIGURATION = {
-    "construction": "fold_specific_cross_fit",
+    "construction": "pooled_cross_fit",
+    "reference_construction": "training_fold_fluctuation",
     "outcome_kind": "absorbing_event",
     "horizon_mode": "all_prefixes",
     "r_survival_outcome": True,
