@@ -518,8 +518,39 @@ previous reader had is not a citation; a page number is.
   shipped longitudinal cross-fitted estimator instead targets a recursion in each training fold.
   The authors' `lmtp` 1.5.4 also targets within each training fold, and the registered comparison
   uses it ([method evidence](technical-reference/method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md)).
-  The theorem does not certify the fold-local targeting. The package no longer stratifies the
-  first-node split, which the
+  The theorem does not certify the fold-local targeting.
+
+  The same article gives a second estimator in Section 5.3, journal page 854. The section is
+  titled "Sequential Regression Estimator Using SDR Unbiased Transformations". The locators below
+  come from it.
+
+  | locator | content |
+  | --- | --- |
+  | Section 5.3, Step 2, page 854 | fits each pseudo-outcome regression "using only data points" that belong to one training fold |
+  | Section 5.3, Step 3, page 854 | defines the estimate as an average of influence-function values, and not as a plug-in of a targeted regression |
+  | Lemma 4, page 854 | gives "$2\tau$-multiply robust consistency of SDR estimator" |
+  | Theorem 4, page 854 | gives weak convergence at the nonparametric efficiency bound |
+
+  This entry paraphrases the conditions of Theorem 4 rather than quoting them. The typeset text
+  omits an equals sign in one condition, and Theorem 3 on the facing page prints that sign. The
+  authors remark on page 854 that Theorems 3 and 4 need the same rates for root-n consistency.
+  They add that the SDR estimator does not seem to confer asymptotic advantages with respect to
+  the TMLE.
+
+  Theorem 3 certifies a pooled fluctuation. The shipped cross-fitted longitudinal TMLE fits each
+  fold's fluctuation on that fold's training rows. Theorem 4 certifies a fold-local recursion, and
+  it covers the SDR estimator rather than the shipped one.
+  [F24](roadmap.md#f24-fold-local-targeting-of-the-longitudinal-recursion) carries that contract.
+  [X4](roadmap.md#x4-sequential-doubly-robust-longitudinal-estimation) plans `lmtp_sdr`, and no
+  SDR path ships today.
+
+  The preprint differs in substance, and not only in numbering. The published Section 5.2, Step 3,
+  page 852, fits the fluctuation "using all the data points in the sample". The preprint's Section
+  4.2 omits that clause. The preprint also defines its SDR estimate as a plug-in. Two claims here
+  therefore rest on the published version: the pooled fluctuation, and the influence-function
+  average.
+
+  The package no longer stratifies the first-node split, which the
   [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules)
   record.
 - van der Laan & Rose (2011), *Targeted Learning: Causal Inference for Observational and
@@ -532,9 +563,15 @@ whole clusters. The sources below were read for that composition. The
 [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules) carry
 the audit table and the verdicts. This section gives each source in full.
 
-Each entry names the version whose section numbers the locators come from. A section number and a
-theorem number are stable across an author manuscript and its published article. An internal page
-number is not, so no entry below quotes one.
+Each entry names the version whose locators it gives. A locator is only meaningful against a named
+version. Numbering can move between an author manuscript and the published article.
+
+The Díaz, Williams, Hoffman and Schenck (2023) entry above gives the worked case. Its published
+Section 5 is the preprint's Section 4. Its published Lemma 4 is the preprint's Lemma 3. The
+theorem numbers match across the two versions.
+
+No entry in this section quotes an internal page number. The Díaz entry sits in a different
+section, and it quotes journal pages, because this project read the published article.
 
 - Wang, Park, Small & Li (2024), [*Model-Robust and Efficient Covariate Adjustment for
   Cluster-Randomized Experiments*](https://doi.org/10.1080/01621459.2023.2289693), *Journal of the
