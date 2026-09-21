@@ -58,22 +58,24 @@ and solver status for every replication.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `double_robust_contraction` | `both_wrong_n2000` | control | both nuisances are misspecified, at n = 2,000 | the exact coverage interval must fall below the floor | coverage 0.4683 to 0.5747, bias 0.0503 | pass |
-| `double_robust_contraction` | `both_wrong_n4000` | control | both nuisances are misspecified, at n = 4,000 | the exact coverage interval must fall below the floor | coverage 0.2089 to 0.3018, bias 0.0487 | pass |
-| `double_robust_contraction` | `both_wrong_n8000` | control | both nuisances are misspecified, at n = 8,000 | the exact coverage interval must fall below the floor | coverage 0.0235 to 0.0674, bias 0.0490 | pass |
-| `double_robust_contraction` | `outcome_correct_n2000` | positive | only the outcome regression is correctly specified, at n = 2,000 | the exact coverage interval clears the declared floor | coverage 0.9245 to 0.9714, bias 0.0011 | pass |
-| `double_robust_contraction` | `outcome_correct_n4000` | positive | only the outcome regression is correctly specified, at n = 4,000 | the exact coverage interval clears the declared floor | coverage 0.8988 to 0.9542, bias 0.000900 | **fail** |
-| `double_robust_contraction` | `outcome_correct_n8000` | positive | only the outcome regression is correctly specified, at n = 8,000 | the exact coverage interval clears the declared floor | coverage 0.9165 to 0.9662, bias 0.0017 | pass |
+| `double_robust_contraction` | `both_wrong_n2000` | control | both nuisances are misspecified, at n = 2,000 | the exact coverage interval must fall below the floor, over the replications this rung declares its own verdict at | coverage 0.4683 to 0.5747, bias 0.0503 | pass |
+| `double_robust_contraction` | `both_wrong_n4000` | control | both nuisances are misspecified, at n = 4,000 | the exact coverage interval must fall below the floor, over the replications this rung declares its own verdict at | coverage 0.2089 to 0.3018, bias 0.0487 | pass |
+| `double_robust_contraction` | `both_wrong_n8000` | control | both nuisances are misspecified, at n = 8,000 | the exact coverage interval must fall below the floor, over the replications this rung declares its own verdict at | coverage 0.0235 to 0.0674, bias 0.0490 | pass |
+| `double_robust_contraction` | `outcome_correct_n2000` | positive | only the outcome regression is correctly specified, at n = 2,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.9245 to 0.9714, bias 0.0011 | pass |
+| `double_robust_contraction` | `outcome_correct_n4000` | positive | only the outcome regression is correctly specified, at n = 4,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.8988 to 0.9542, bias 0.000900 | **fail** |
+| `double_robust_contraction` | `outcome_correct_n8000` | positive | only the outcome regression is correctly specified, at n = 8,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.9165 to 0.9662, bias 0.0017 | pass |
 | `double_robust_contraction` | `rate_both_wrong` | control | the same regression with both nuisances misspecified | slope interval must not establish contraction | slope -0.0619 to 0.0258 | pass |
-| `double_robust_contraction` | `rate_outcome_correct` | positive | log absolute bias regressed on log n across three sizes, outcome regression correct | slope interval entirely below zero, so the bias contracts | slope -1.2342 to 3.7735 | **fail** |
+| `double_robust_contraction` | `rate_outcome_correct` | positive | log absolute bias regressed on log n across three sizes, outcome regression correct, over every replication each rung ran | slope interval entirely below zero, so the bias contracts | slope -1.2342 to 3.7735 | **fail** |
 | `double_robust_contraction` | `rate_treatment_correct` | positive | the same regression with only the treatment mechanism correct | slope interval entirely below zero, so the bias contracts | slope -3.2412 to 3.3387 | **fail** |
-| `double_robust_contraction` | `treatment_correct_n2000` | positive | only the treatment mechanism is correctly specified, at n = 2,000 | the exact coverage interval clears the declared floor | coverage 0.9204 to 0.9688, bias 0.000585 | pass |
-| `double_robust_contraction` | `treatment_correct_n4000` | positive | only the treatment mechanism is correctly specified, at n = 4,000 | the exact coverage interval clears the declared floor | coverage 0.9224 to 0.9701, bias -0.000437 | pass |
-| `double_robust_contraction` | `treatment_correct_n8000` | positive | only the treatment mechanism is correctly specified, at n = 8,000 | the exact coverage interval clears the declared floor | coverage 0.9285 to 0.9740, bias 0.000830 | pass |
+| `double_robust_contraction` | `treatment_correct_n2000` | positive | only the treatment mechanism is correctly specified, at n = 2,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.9204 to 0.9688, bias 0.000585 | pass |
+| `double_robust_contraction` | `treatment_correct_n4000` | positive | only the treatment mechanism is correctly specified, at n = 4,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.9224 to 0.9701, bias -0.000437 | pass |
+| `double_robust_contraction` | `treatment_correct_n8000` | positive | only the treatment mechanism is correctly specified, at n = 8,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.9285 to 0.9740, bias 0.000830 | pass |
 | `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0052 to 0.0024, margin 0.0090, SE ratio 1.0625 | pass |
 | `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias 0.0466 to 0.0544, margin 0.0092, SE ratio 1.0265 | pass |
 | `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000511 to 0.0076, margin 0.0096, SE ratio 0.9980 | pass |
 | `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias 0.0015 to 0.0072, margin 0.0068, SE ratio 0.9998 | **fail** |
+| `fold_policy` | `treatment_stratified` | diagnostic | each split is balanced on the treatment, which the package refuses | reported, not gated: the coverage interval and its paired difference from the unstratified arm are published and no margin is applied | coverage 0.9451 to 0.9576, paired coverage difference -0.0056 to 0.0045 | reported |
+| `fold_policy` | `unstratified` | diagnostic | each split is drawn without reading the treatment or the outcome | reported, not gated: the coverage interval is published and no margin is applied | coverage 0.9458 to 0.9582 | reported |
 | `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9300 to 0.9597, SE ratio 0.9258 to 1.0123 | **fail** |
 | `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000290, coverage 0.9307 to 0.9826, SE ratio 1.0010 | pass |
 | `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias -0.000902, coverage 0.8965 to 0.9627, SE ratio 0.9888 | **fail** |
@@ -94,6 +96,16 @@ and solver status for every replication.
 | `paired_tests_passed` | 9 | paired tests passing |
 | `property_cells_total` | 22 | repeated-sampling property cells |
 | `property_cells_passed` | 16 | property cells passing |
+| `property_cells_reported` | 2 | fold-policy rows reported rather than gated, and excluded from the two counts above |
+| `score_audited_fits` | 800 | fits each side audits against the shared score bar |
+| `subject_score_failures` | 2 | Cleverly fits that miss that bar |
+| `reference_score_failures` | 4 | R `drtmle` fits that miss that bar |
+| `properties[fold_policy/unstratified]:coverage` | 0.9523 | reported coverage of the split this row declares |
+| `properties[fold_policy/treatment_stratified]:coverage` | 0.9516 | reported coverage of the treatment-stratified split |
+| `properties[fold_policy/treatment_stratified]:coverage_gain_ci_lower` | -0.0056 | its paired 99% lower bound against the unstratified arm |
+| `properties[fold_policy/treatment_stratified]:coverage_gain_ci_upper` | 0.0045 | its paired 99% upper bound against the unstratified arm |
+| `properties[fold_policy/treatment_stratified]:replicates` | 8000 | paired replications behind that difference |
+| `properties[root_n_and_efficiency/n_500]:replicates` | 400 | replications behind the gated n = 500 cell |
 | `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |
 | `margin:alpha` | 0.0500 | nominal estimator size |
 | `margin:nominal_coverage` | 0.9500 | nominal estimator coverage |
@@ -152,9 +164,30 @@ endpoint to better than about a point. Read it as one Monte Carlo resolution rat
 property of the estimator. The same cell in the outcome-adaptive multi-arm row moved the other way
 under the same change.
 
-Two `cleverly` replications and four R replications out of 800 exceed the shared empirical-score
-bar. The propensity bound stays inactive throughout, and the subject fit is refused if it does
-not.
+The `fold_policy` family now measures that comparison. It runs the two split policies on one
+binary law and on one set of draws. It reports and it does not gate. Neither cell declares a
+margin, so the pass counts above leave both out.
+
+The measured table above gives the paired coverage difference and its two endpoints. That
+interval covers zero. The upper endpoint stays below the threshold the declared rule names. The
+fold policy does not explain the endpoint move on this law at this size.
+
+This reading has less room than its design asked for. The declaration budgeted 8,000 draws for a
+99% half-width of 0.0046, which would resolve the 0.005 the rule names. The realized half-width
+is 0.0051, because the two policies disagreed on more draws than the pilot predicted. The upper
+endpoint clears 0.005 only because the point estimate fell below zero. So this reading rests on
+where the difference landed, and not on the resolution the instrument achieved.
+[RM18](../../roadmap.md#rm18-red-property-cells-after-the-fold-scale-and-law-changes) records the
+declared and realized numbers.
+
+The diagnostic reads its own coverage over 8,000 draws. That coverage does not re-read the
+`n_500` cell. The gated cell keeps its own 400-replication budget.
+[RM18](../../roadmap.md#rm18-red-property-cells-after-the-fold-scale-and-law-changes) declares
+the rule this reading applies.
+
+Each side audits `score_audited_fits` fits against the shared empirical-score bar. Cleverly misses
+it on `subject_score_failures` fits, and R `drtmle` misses it on `reference_score_failures`. The
+propensity bound stays inactive throughout, and the subject fit is refused if it does not.
 
 The row covers one binary-outcome law, one fold count, pooled reduced cross-fitting, univariate
 reduction, ordinary GLM nuisance fits, and pointwise intervals. It excludes flexible learners,

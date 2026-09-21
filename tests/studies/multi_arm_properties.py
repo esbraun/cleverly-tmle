@@ -11,10 +11,20 @@ import pandas as pd
 from sklearn.dummy import DummyClassifier
 from sklearn.linear_model import LogisticRegression
 
+from cleverly.data import CausalData
 from cleverly.datasets import MultiArmDGP
+from cleverly.estimators import CTMLE, DRTMLE
 from cleverly.utils.bounds import expit
 from tests.studies import multi_arm_common
 from tests.studies.evidence.properties import PropertyCell
+from tests.studies.evidence.property_verdicts import FOLD_POLICY_FAMILY as FOLD_POLICY_FAMILY
+from tests.studies.evidence.property_verdicts import (
+    FOLD_POLICY_REFERENCE_CELL,
+    fold_policy_strata,
+    make_fold_policy_cells,
+)
+from tests.studies.evidence.property_verdicts import fold_policy_seed as fold_policy_seed
+from tests.studies.evidence.registry import StudyRecord
 
 # At 600 draws the 99% bias interval spends about 0.105 empirical SD on Monte
 # Carlo error, leaving more than half of the fixed 0.25-SD equivalence margin for a
@@ -326,4 +336,121 @@ def selector_cells(*, seed: int) -> tuple[PropertyCell, ...]:
             estimand=ESTIMAND,
         )
         for cell in (*SELECTOR_PATHS, SELECTOR_CONTROL)
+    )
+
+
+# ------------------------------------------------------------- fold-policy seam
+
+#: The two split policies the multi-arm diagnostic runs, and how many draws each gets.
+#:
+#: Two policies rather than the three :mod:`tests.studies.bounded_cv_laws` reports.  The
+#: third reads the outcome, and a C-TMLE selection split that reads the outcome is scored
+#: on the candidate loss it then chooses by, which is a second defect on top of the one
+#: this family measures.  The reference arm and the role come from the framework, which
+#: owns the reporting rule; only the policies, the size and the budget belong here.
+#:
+#: 8,000 paired draws, because the quantity has to be resolved rather than merely reported.
+#: ``docs/roadmap.md`` records the pilot sizing: the two policies disagreed about coverage
+#: on 0.0117 of the selector study's draws and 0.0250 of the DR-TMLE study's, and the
+#: gate-relevant difference is 0.005.  At 400 draws the projected 99% interval was three to
+#: four times wider than that; the 8,000-draw run produced half-widths of 0.0038 and 0.0051.
+#: The selector instrument met the projected resolution target and the DR-TMLE instrument
+#: narrowly missed it, while both point estimates supported the registered boundary reading.
+#: The gated
+#: ``root_n_and_efficiency/n_500`` cell keeps its own law, learners, size and 400-draw
+#: budget.  This family declares no margin and states no verdict, so its budget buys a
+#: narrower interval on a paired difference rather than a step toward a fixed endpoint.
+FOLD_POLICIES = (FOLD_POLICY_REFERENCE_CELL, "treatment_stratified")
+FOLD_POLICY_N = 500
+FOLD_POLICY_REPLICATES = 8_000
+
+
+class FoldPolicyMixin:
+    """Study-only seam that draws every split of a fit under a named policy.
+
+    **Why the seam replaces a method rather than configures the estimator.**
+    :func:`~cleverly.learners.crossfit.fold_strata_refusal` rejects any
+    ``stratify_folds`` other than ``"none"`` at construction whenever the fit draws a
+    split, which is whenever ``cross_fit`` is set and at every selector-based
+    collaborative setting.  :meth:`~cleverly.estimators.TMLE._fold_strata` records the
+    consequence: its remaining branches are reachable only by replacing the method.  A
+    diagnostic restricted to the policy the package still permits could report nothing
+    about the one it refuses, which is the one thing this family exists to report.  The
+    estimator is still constructed with ``stratify_folds="none"``, so nothing is refused
+    and no arm is fitted through a path the package rejects.
+
+    **Why :meth:`~cleverly.estimators.TMLE._fold_strata` rather than**
+    ``_folds``.  :class:`~tests.studies.bounded_cv_laws.FoldPolicyTMLE` overrides
+    ``_folds``, which reaches one split.  A selector-based C-TMLE fit draws three, and all
+    three read this method: the outer nuisance folds, the selection folds the candidate
+    path is scored over, and the nested folds each selection fold's training predictions
+    are made out of.  A seam at ``_folds`` would vary the outer layer alone and leave the
+    other two drawing the reference arm's split, so the published difference would name a
+    change the fit made on a strict sub-part of its splits.
+    ``tests/unit/test_fold_policy_rules.py::TestTheFoldPolicySeamReachesEverySplitLayer``
+    records every partition a fit draws and is what holds all three to the policy.
+    Replacing the strata instead
+    leaves each layer to keep drawing the fold count its own configuration declares.  No
+    fold count is pinned here for the same reason: these cells run five outer folds, three
+    selection folds and two nested ones, and the only thing that may differ between the
+    two arms is the policy.
+
+    **What the recorded plan says, and does not.**
+    :meth:`~cleverly.estimators.TMLE.crossfit_plan` reads ``self.stratify_folds``
+    directly rather than this method, so
+    :attr:`~cleverly.learners.crossfit.CrossFitPlan.stratify_by` stays empty on the
+    ``treatment_stratified`` arm and misdescribes the split that arm actually realized.
+    Nothing on the property path reads it: the published rows carry the estimate, its
+    interval and the coverage flag, and the paired difference is computed from those.  The
+    mismatch is recorded here because a reader who opened a restored result would see a
+    plan that names no strata beside a fit that used them.
+    """
+
+    def __init__(self, policy: str, **kwargs: Any) -> None:
+        if policy not in FOLD_POLICIES:
+            raise ValueError(f"policy must be one of {FOLD_POLICIES}; got {policy!r}")
+        self._policy = policy
+        super().__init__(**kwargs)
+
+    def _fold_strata(self, data: CausalData) -> np.ndarray | None:
+        return fold_policy_strata(data, self._policy)
+
+
+class FoldPolicyCTMLE(FoldPolicyMixin, CTMLE):
+    """Selector-based multi-arm C-TMLE whose three splits are drawn under one policy."""
+
+
+class FoldPolicyDRTMLE(FoldPolicyMixin, DRTMLE):
+    """Multi-arm DR-TMLE whose one outer split is drawn under one policy."""
+
+
+def fold_policy_cells(record: StudyRecord) -> tuple[PropertyCell, ...]:
+    """The two fold-policy arms, on the ``n = 500`` law and one set of draws.
+
+    The law, the learners and the size are the gated ``root_n_and_efficiency/n_500``
+    cell's, because the reading this family owes is about that cell's regime.  Only the
+    seed and the budget differ, and both differ on purpose.
+
+    Parameters
+    ----------
+    record : StudyRecord
+        The study registering the family, which supplies the seed stream.
+
+    Returns
+    -------
+    tuple of PropertyCell
+        One cell per policy in :data:`FOLD_POLICIES`, both with role ``"diagnostic"`` and
+        both on :func:`fold_policy_seed`.  The shared seed is what makes the reported
+        coverage difference a *paired* one: the two cells see identical samples and differ
+        only in how their splits were drawn.
+    """
+    return make_fold_policy_cells(
+        record,
+        policies=FOLD_POLICIES,
+        dgp=Sampler(),
+        outcome_learner=correct_outcome(),
+        treatment_learner=correct_treatment(),
+        n=FOLD_POLICY_N,
+        replicates=FOLD_POLICY_REPLICATES,
+        estimand=ESTIMAND,
     )

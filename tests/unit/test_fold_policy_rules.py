@@ -15,6 +15,7 @@ them is the reason the test is named after.
 
 from __future__ import annotations
 
+import importlib
 import re
 import sys
 from typing import Any
@@ -24,6 +25,7 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+from cleverly.data import CausalData
 from cleverly.datasets import make_binary_outcome, make_longitudinal, make_nonlinear_bounded
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError, DataError, LongitudinalError
@@ -32,6 +34,12 @@ from cleverly.learners import SuperLearner, random_partition
 from cleverly.learners.crossfit import _MAX_SEED
 from cleverly.longitudinal import LTMLE
 from cleverly.utils.bounds import OutcomeScaler
+from tests.studies import (
+    multi_arm_common,
+    multi_arm_ctmle_selector_properties,
+    multi_arm_drtmle_properties,
+    multi_arm_properties,
+)
 
 BOUNDED_COVARIATES = ["W1", "W2", "W3"]
 
@@ -1283,3 +1291,346 @@ def test_no_fit_reaches_the_strata_decision_under_a_balancing_policy(
     # The control: the recorder is installed, and an ordinary cross-fitted fit reaches it.
     bounded_fit(n_folds=3).fit(frame, **columns)
     assert seen == ["none"]
+
+
+# --------------------------------- the study seam: every layer one policy has to reach
+
+
+#: The two modules that draw a fold partition, and the fold count each of their call sites
+#: declares.  A selector-based C-TMLE fit draws three splits and a DR-TMLE fit draws one,
+#: and every one of them reads :meth:`~cleverly.estimators.TMLE._fold_strata`, so the count
+#: is what names the layer in a recorded draw.  Imported through :mod:`importlib` because
+#: ``cleverly.estimators`` binds the name ``tmle`` to a function, which shadows the
+#: submodule of that name.
+_CTMLE_MODULE = importlib.import_module("cleverly.estimators.ctmle")
+_TMLE_MODULE = importlib.import_module("cleverly.estimators.tmle")
+
+MULTI_ARM_COVARIATES = ["W1", "W2", "W3"]
+OUTER_FOLDS, SELECTION_FOLDS, NESTED_FOLDS = 5, 3, 2
+
+
+def multi_arm_frame(n: int = 200, seed: int = 5) -> pd.DataFrame:
+    """A draw of the law both study rows sample their fold-policy arms from."""
+    frame, _ = multi_arm_common.law().sample(n, seed=seed, backend="pandas")
+    return frame
+
+
+def selector_settings() -> dict[str, Any]:
+    """The selector study's own configuration, shrunk to what a unit test can afford.
+
+    The fold counts are the study's, because they are the subject: the seam has to reach
+    each of the three layers they declare. The learners are plain regressions rather than
+    ``FAST_KWARGS``, whose super learner would fit a library inside every one of those
+    folds and buy this test nothing.
+    """
+    return {
+        "outcome_learner": LogisticRegression(max_iter=500),
+        "treatment_learner": LogisticRegression(max_iter=500),
+        "cross_fit": True,
+        "n_folds": OUTER_FOLDS,
+        "selection_folds": SELECTION_FOLDS,
+        "selection_inner_folds": NESTED_FOLDS,
+        "penalty": False,
+        "strategy": "discrete",
+        "candidates": ((), ("W1",)),
+        "estimands": "ate",
+        "ctmle_estimand": "ate",
+        "reference": multi_arm_common.REFERENCE,
+        "simultaneous": False,
+        "g_bounds": multi_arm_common.G_BOUNDS,
+        "max_iter": 50,
+        "tol": 1e-8,
+        "random_state": 0,
+    }
+
+
+def drtmle_settings() -> dict[str, Any]:
+    """The DR-TMLE study's own configuration, under the same shrinking rule."""
+    return {
+        "outcome_learner": LogisticRegression(max_iter=500),
+        "treatment_learner": LogisticRegression(max_iter=500),
+        "reduced_outcome_learner": LinearRegression(),
+        "reduced_treatment_learner": LogisticRegression(C=1e6, max_iter=500),
+        "cross_fit": True,
+        "n_folds": OUTER_FOLDS,
+        "estimands": "ate",
+        "reference": multi_arm_common.REFERENCE,
+        "simultaneous": False,
+        "g_bounds": multi_arm_common.G_BOUNDS,
+        "max_outer": 20,
+        "max_iter": 50,
+        "tol": 1e-8,
+        "random_state": 0,
+        "guard": ("Q", "g"),
+        "reduction": "univariate",
+        "reduced_crossfit": "pooled",
+        "update_order": "drtmle",
+    }
+
+
+def record_draws(monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, bool]]:
+    """Record ``(requested folds, the draw read strata)`` for every partition a fit draws.
+
+    Both modules are patched, because the outer split is drawn in one and the selection
+    and nested splits in the other. Recording the *call* rather than the realized labels
+    is what separates "the policy reached this layer" from "this layer's labels moved": a
+    nested draw sits inside a selection fold, so its labels move whenever the selection
+    split above it does, whatever policy the nested draw itself read.
+    """
+    drawn: list[tuple[int, bool]] = []
+
+    def recorder(original: Any) -> Any:
+        def recording(
+            n: int,
+            n_folds: int,
+            *,
+            stratify: Any = None,
+            cluster: Any = None,
+            random_state: Any = None,
+        ) -> Any:
+            drawn.append((n_folds, stratify is not None))
+            return original(
+                n, n_folds, stratify=stratify, cluster=cluster, random_state=random_state
+            )
+
+        return recording
+
+    for module in (_CTMLE_MODULE, _TMLE_MODULE):
+        monkeypatch.setattr(module, "make_folds", recorder(module.make_folds))
+    return drawn
+
+
+def selector_splits(estimator: Any, frame: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """The outer and the selection partition one selector-based C-TMLE fit realized."""
+    result = estimator.fit(
+        frame, outcome="Y", treatment="A", covariates=MULTI_ARM_COVARIATES
+    ).single()
+    return (
+        np.asarray(result.nuisance.folds.assignment),
+        np.asarray(result.extra["ctmle"].folds.assignment),
+    )
+
+
+def outer_split(estimator: Any, frame: pd.DataFrame) -> np.ndarray:
+    """The one partition a DR-TMLE fit realized."""
+    result = estimator.fit(
+        frame, outcome="Y", treatment="A", covariates=MULTI_ARM_COVARIATES
+    ).single()
+    return np.asarray(result.nuisance.folds.assignment)
+
+
+class TestTheFoldPolicySeamReachesEverySplitLayer:
+    """W6. ``FoldPolicyMixin`` varies every split a fit draws, and varies nothing else.
+
+    The seam under test is :class:`tests.studies.multi_arm_properties.FoldPolicyMixin`,
+    which the two multi-arm fold-policy diagnostics are fitted through. Its claim has two
+    halves: the policy reaches every split the method draws, and the policy is the only
+    thing that differs between the two arms of the paired comparison. Neither half is
+    visible in a committed row. A diagnostic whose stratified arm quietly varied one layer
+    of three would publish a coverage difference under the name of a change it never made.
+    """
+
+    @staticmethod
+    def _assert_treatment_strata(estimator: Any, frame: pd.DataFrame) -> None:
+        data = CausalData.from_frame(
+            frame, outcome="Y", treatment="A", covariates=MULTI_ARM_COVARIATES
+        )
+        np.testing.assert_array_equal(estimator._fold_strata(data), data.treatment)
+
+    def test_the_stratified_policy_reads_the_treatment_vector(self) -> None:
+        self._assert_treatment_strata(
+            multi_arm_properties.FoldPolicyCTMLE("treatment_stratified", **selector_settings()),
+            multi_arm_frame(),
+        )
+
+    def test_an_outcome_vector_cannot_pass_as_treatment_strata(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The mask mutation control for the policy's defining input."""
+        monkeypatch.setattr(
+            multi_arm_properties.FoldPolicyMixin,
+            "_fold_strata",
+            lambda self, data: np.asarray(data.outcome, dtype=float),
+        )
+        with pytest.raises(AssertionError):
+            self._assert_treatment_strata(
+                multi_arm_properties.FoldPolicyCTMLE("treatment_stratified", **selector_settings()),
+                multi_arm_frame(),
+            )
+
+    @pytest.mark.parametrize(
+        ("study_module", "estimator_type"),
+        [
+            (multi_arm_ctmle_selector_properties, multi_arm_properties.FoldPolicyCTMLE),
+            (multi_arm_drtmle_properties, multi_arm_properties.FoldPolicyDRTMLE),
+        ],
+    )
+    def test_each_study_pairs_the_policies_and_routes_them_through_the_seam(
+        self, study_module: Any, estimator_type: type[Any]
+    ) -> None:
+        cells = study_module.cells()
+        diagnostic = [
+            cell for cell in cells if cell.property == multi_arm_properties.FOLD_POLICY_FAMILY
+        ]
+        n_500 = next(
+            cell
+            for cell in cells
+            if cell.property == "root_n_and_efficiency" and cell.cell == "n_500"
+        )
+        assert [cell.cell for cell in diagnostic] == list(multi_arm_properties.FOLD_POLICIES)
+        assert len({cell.seed for cell in diagnostic}) == 1
+        assert diagnostic[0].seed != n_500.seed
+        for cell in diagnostic:
+            estimator = study_module._estimator(cell)()
+            assert isinstance(estimator, estimator_type)
+            assert estimator._policy == cell.cell
+
+    def test_the_policy_reaches_all_three_selector_layers(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        drawn = record_draws(monkeypatch)
+        selector_splits(
+            multi_arm_properties.FoldPolicyCTMLE("treatment_stratified", **selector_settings()),
+            multi_arm_frame(),
+        )
+        assert {layer for layer, _ in drawn} == {OUTER_FOLDS, SELECTION_FOLDS, NESTED_FOLDS}, (
+            f"the fit drew {sorted({layer for layer, _ in drawn})} rather than the outer, "
+            f"selection and nested layers this method declares"
+        )
+        unbalanced = sorted({layer for layer, stratified in drawn if not stratified})
+        assert unbalanced == [], (
+            f"the {unbalanced} layer(s) drew an unstratified split on an arm named "
+            f"treatment_stratified, so the published difference would name a change the "
+            f"fit made on a strict sub-part of its splits"
+        )
+
+    def test_the_reference_arm_reproduces_the_shipped_fit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The other half. An arm named ``unstratified`` has to be the shipped estimator."""
+        drawn = record_draws(monkeypatch)
+        frame = multi_arm_frame()
+        shipped = selector_splits(CTMLE(**selector_settings()), frame)
+        reference = selector_splits(
+            multi_arm_properties.FoldPolicyCTMLE("unstratified", **selector_settings()), frame
+        )
+        np.testing.assert_array_equal(shipped[0], reference[0])
+        np.testing.assert_array_equal(shipped[1], reference[1])
+        assert {stratified for _, stratified in drawn} == {False}
+
+    def test_the_stratified_arm_moves_the_splits_the_reference_arm_leaves_alone(self) -> None:
+        frame = multi_arm_frame()
+        shipped = selector_splits(CTMLE(**selector_settings()), frame)
+        stratified = selector_splits(
+            multi_arm_properties.FoldPolicyCTMLE("treatment_stratified", **selector_settings()),
+            frame,
+        )
+        assert not np.array_equal(shipped[0], stratified[0]), "the outer split did not move"
+        assert not np.array_equal(shipped[1], stratified[1]), "the selection split did not move"
+
+    def test_an_always_empty_strata_vector_stops_the_selector_arm_differing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The deliberate-mutation control, which is what makes the witness nonzero.
+
+        A stratified arm differs from the shipped fit only because ``_fold_strata`` hands
+        ``make_folds`` a vector. Emptying it puts the reference arm's behaviour into the
+        stratified arm, and the two assertions above then have nothing to find. Without
+        this control, a witness comparing two fits that differ for some other reason would
+        read exactly like one that pins the policy.
+        """
+        monkeypatch.setattr(
+            multi_arm_properties.FoldPolicyMixin, "_fold_strata", lambda self, data: None
+        )
+        frame = multi_arm_frame()
+        shipped = selector_splits(CTMLE(**selector_settings()), frame)
+        mutated = selector_splits(
+            multi_arm_properties.FoldPolicyCTMLE("treatment_stratified", **selector_settings()),
+            frame,
+        )
+        np.testing.assert_array_equal(shipped[0], mutated[0])
+        np.testing.assert_array_equal(shipped[1], mutated[1])
+
+    def test_the_seam_changes_no_fold_count(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The policy is the only thing that may differ, so no split size may.
+
+        :class:`tests.studies.bounded_cv_laws.FoldPolicyTMLE` pins ten folds inside its
+        own seam. A seam that pinned a count here would hand the diagnostic a second
+        difference between its arms, and the paired coverage difference could not say
+        which of the two it measured.
+        """
+        frame = multi_arm_frame()
+        counts: dict[str, list[Any]] = {}
+        for arm, estimator in (
+            ("shipped", CTMLE(**selector_settings())),
+            (
+                "stratified",
+                multi_arm_properties.FoldPolicyCTMLE("treatment_stratified", **selector_settings()),
+            ),
+        ):
+            drawn = record_draws(monkeypatch)
+            outer, selection = selector_splits(estimator, frame)
+            counts[arm] = [
+                sorted(layer for layer, _ in drawn),
+                len(np.unique(outer)),
+                len(np.unique(selection)),
+            ]
+        assert counts["shipped"] == counts["stratified"]
+        assert counts["shipped"][1:] == [OUTER_FOLDS, SELECTION_FOLDS]
+
+    def test_the_drtmle_seam_moves_its_one_layer_and_its_reference_arm_does_not(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        drawn = record_draws(monkeypatch)
+        frame = multi_arm_frame()
+        shipped = outer_split(DRTMLE(**drtmle_settings()), frame)
+        reference = outer_split(
+            multi_arm_properties.FoldPolicyDRTMLE("unstratified", **drtmle_settings()), frame
+        )
+        stratified = outer_split(
+            multi_arm_properties.FoldPolicyDRTMLE("treatment_stratified", **drtmle_settings()),
+            frame,
+        )
+        np.testing.assert_array_equal(shipped, reference)
+        assert not np.array_equal(shipped, stratified), "the one DR-TMLE split did not move"
+        assert [layer for layer, _ in drawn] == [OUTER_FOLDS] * 3, (
+            "this method draws one split per fit, and the record says otherwise"
+        )
+        assert [balanced for _, balanced in drawn] == [False, False, True]
+        assert len(np.unique(stratified)) == OUTER_FOLDS
+
+    def test_an_always_empty_strata_vector_stops_the_drtmle_arm_differing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The same control, for the method that draws one split."""
+        monkeypatch.setattr(
+            multi_arm_properties.FoldPolicyMixin, "_fold_strata", lambda self, data: None
+        )
+        frame = multi_arm_frame()
+        shipped = outer_split(DRTMLE(**drtmle_settings()), frame)
+        mutated = outer_split(
+            multi_arm_properties.FoldPolicyDRTMLE("treatment_stratified", **drtmle_settings()),
+            frame,
+        )
+        np.testing.assert_array_equal(shipped, mutated)
+
+    def test_the_recorded_plan_still_names_no_strata(self) -> None:
+        """The caveat ``FoldPolicyMixin`` records, pinned so that a reader is not surprised.
+
+        :meth:`~cleverly.estimators.TMLE.crossfit_plan` reads ``self.stratify_folds``
+        rather than the method this seam replaces, so the plan on the stratified arm's
+        result describes a split that arm did not draw. Nothing on the property path reads
+        it. The assertion is here so the mismatch is a recorded fact rather than a
+        discovery.
+        """
+        result = (
+            multi_arm_properties.FoldPolicyDRTMLE("treatment_stratified", **drtmle_settings())
+            .fit(multi_arm_frame(), outcome="Y", treatment="A", covariates=MULTI_ARM_COVARIATES)
+            .single()
+        )
+        assert result.config.crossfit.stratify_by == ()
+
+    @pytest.mark.parametrize("seam", ["FoldPolicyCTMLE", "FoldPolicyDRTMLE"])
+    def test_an_undeclared_policy_is_refused_before_the_estimator_is_built(self, seam: str) -> None:
+        with pytest.raises(ValueError, match="policy must be one of"):
+            getattr(multi_arm_properties, seam)("treatment_outcome_stratified")

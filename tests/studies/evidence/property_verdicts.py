@@ -8,18 +8,21 @@ family depends on another method family's study module to publish the same claim
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any
+from typing import Any, Literal, overload
 
 import numpy as np
 import pandas as pd
 
+from cleverly.data import CausalData
 from tests.studies.evidence.inference import Interval, standardized_bias_verdict
 from tests.studies.evidence.properties import (
+    PropertyCell,
     Rate,
     coverage_gain_interval,
     paired_displacement,
     rate,
     ratio_intervals,
+    require_complete,
     se_ratio_interval,
     summarize_cells,
     summary_interval,
@@ -426,6 +429,15 @@ def contraction_verdicts(summary: pd.DataFrame, record: StudyRecord) -> None:
     whether the interval remains usable as ``n`` grows in a one-correct regime, and the
     control adds the case where it must not.
 
+    The rung's coverage claim is read at its declared replication budget, and the extra draws
+    serve the slope alone.  A larger budget narrows the exact interval around the true
+    coverage and can resolve an inconclusive verdict.  RM18 declared the extra draws for the
+    slope, not for the rung's coverage claim.  A rung raised so the fitted slope resolves
+    therefore reaches this function truncated to the budget it published, which
+    ``verdict_replicates`` of
+    :func:`summarize_contraction_properties` does, and the summary's ``replicates`` column
+    reports the truncated count rather than the rows in the artifact.
+
     Shared rather than copied per study: the ``canonical-drtmle`` and
     ``canonical-multi-arm-drtmle`` studies both publish this family, and a verdict written
     twice is a verdict that can be *changed* once.  Only the ladder's sizes and its
@@ -455,8 +467,8 @@ def _contracts(fitted: Rate) -> bool:
 
     A *direction*, not an exponent.  Three points give a wide interval, so requiring the
     second-order ``-1`` would fail a correct estimator on Monte Carlo error; requiring the
-    whole interval below zero is what this ladder can actually support and is enough to
-    separate a decaying remainder from an inconsistent estimator.
+    whole interval below zero is what this ladder can actually support.  It establishes
+    contraction over the measured sizes and does not identify the term that produced it.
     """
     return bool(fitted.interval.high < 0.0)
 
@@ -520,12 +532,81 @@ def contraction_rates(
     ]
 
 
+def _at_verdict_budget(rows: pd.DataFrame, verdict_replicates: int | None) -> pd.DataFrame:
+    """Restore every contraction rung to the replication budget its own verdict is read at.
+
+    A rung's coverage verdict is a one-sided exact interval against a fixed floor.  A rung
+    whose budget was raised to resolve the fitted slope would also change its coverage gate
+    with replications that claim never declared.  This returns the frame the *verdicts* are
+    computed from: the first ``verdict_replicates`` replications of every cell of
+    :data:`CONTRACTION_FAMILY`, ordered by ``replicate``, and every other family untouched.
+    The slope is fitted from the full rows because its larger budget was declared for that
+    purpose.
+
+    ``requested_replicates`` is rewritten to the truncated budget, because the published
+    ``replicates`` column and
+    :func:`~tests.studies.evidence.properties.require_complete` both read it, and a summary
+    that attributed a verdict to a budget it did not use would be the defect this function
+    exists to prevent.  The full ladder is checked for completeness first, so a rung that
+    lost replications still fails rather than being hidden by the truncation.
+    """
+    if verdict_replicates is None:
+        return rows
+    if verdict_replicates < 1:
+        raise ValueError(f"verdict_replicates must be positive, not {verdict_replicates}")
+    ladder = rows["property"] == CONTRACTION_FAMILY
+    if not ladder.any():
+        raise ValueError(
+            f"verdict_replicates={verdict_replicates} was declared, but these rows publish no "
+            f"{CONTRACTION_FAMILY} family whose verdicts it could be read at"
+        )
+    require_complete(rows.loc[ladder])
+    rungs = []
+    for cell, group in rows.loc[ladder].groupby("cell", sort=True):
+        if len(group) < verdict_replicates:
+            raise ValueError(
+                f"{CONTRACTION_FAMILY}/{cell} ran {len(group)} replications, fewer than the "
+                f"{verdict_replicates} its own verdict is declared to be read at"
+            )
+        rung = group.sort_values("replicate").head(verdict_replicates).copy()
+        rung["requested_replicates"] = verdict_replicates
+        rungs.append(rung)
+    return pd.concat([rows.loc[~ladder], *rungs], ignore_index=True)
+
+
+@overload
 def summarize_contraction_properties(
     rows: pd.DataFrame,
     record: StudyRecord,
     *,
     scenarios: Sequence[str] = CONTRACTION_SCENARIOS,
-) -> pd.DataFrame:
+    extra_columns: Sequence[str] = (),
+    verdict_replicates: int | None = None,
+    return_parts: Literal[False] = False,
+) -> pd.DataFrame: ...
+
+
+@overload
+def summarize_contraction_properties(
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    *,
+    scenarios: Sequence[str] = CONTRACTION_SCENARIOS,
+    extra_columns: Sequence[str] = (),
+    verdict_replicates: int | None = None,
+    return_parts: Literal[True],
+) -> tuple[pd.DataFrame, list[dict[str, Any]]]: ...
+
+
+def summarize_contraction_properties(
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    *,
+    scenarios: Sequence[str] = CONTRACTION_SCENARIOS,
+    extra_columns: Sequence[str] = (),
+    verdict_replicates: int | None = None,
+    return_parts: bool = False,
+) -> pd.DataFrame | tuple[pd.DataFrame, list[dict[str, Any]]]:
     """The whole published summary for a study whose extra family is the contraction ladder.
 
     The shared cells, the ladder's per-rung coverage verdicts, the shared root-n rate rows and
@@ -539,6 +620,22 @@ def summarize_contraction_properties(
     kept out of :func:`apply_shared_verdicts`, which already carries three optional axes and
     is called by every study, including the many that publish no ladder at all.
 
+    ``return_parts`` is the seam a study needs when it publishes a family this function
+    does not know about.  :func:`finish` is terminal, so a study that has one more verdict
+    to write asks for the unfinished parts and calls :func:`finish` itself.  The default
+    keeps the single-call form every current caller uses, and both defaults leave the
+    published table byte-identical to what a caller that passed neither already produced.
+
+    ``verdict_replicates`` is the asymmetry a ladder with uneven rungs needs, and only such a
+    study passes it.  The rung's coverage claim is read at its declared budget, and the extra
+    draws serve the slope alone.  A rung whose budget was raised to resolve the slope would
+    otherwise change its coverage gate with replications the claim never declared.  Given a
+    number, every
+    cell summary of the :data:`CONTRACTION_FAMILY` family is computed from that cell's first
+    ``verdict_replicates`` replications and publishes that count in ``replicates``, while
+    :func:`contraction_rates` keeps every row and publishes the total the fit consumed.  A
+    study whose rungs all run the same budget passes nothing and is unchanged.
+
     Parameters
     ----------
     rows : pandas.DataFrame
@@ -548,11 +645,19 @@ def summarize_contraction_properties(
     scenarios : Sequence[str], optional
         The nuisance regimes the ladder is fitted over.  Defaults to
         :data:`CONTRACTION_SCENARIOS`.
+    extra_columns : Sequence[str], optional
+        Columns a study's own verdicts write, added to the summary before any of them run.
+    verdict_replicates : int or None, optional
+        The replication budget each contraction rung's own verdict is read at.  ``None``
+        reads every rung at every replication it ran.
+    return_parts : bool, optional
+        Return the unfinished summary and its rate rows rather than the published table.
 
     Returns
     -------
-    pandas.DataFrame
-        The published summary, in its published order.
+    pandas.DataFrame or tuple
+        The published summary in its published order, or the summary and its rate rows
+        when ``return_parts`` is set.
 
     See Also
     --------
@@ -560,10 +665,14 @@ def summarize_contraction_properties(
     contraction_verdicts : The per-rung coverage rule this applies.
     contraction_rates : The fitted slopes this appends.
     """
-    summary, rates = apply_shared_verdicts(rows, record)
+    summary, rates = apply_shared_verdicts(
+        _at_verdict_budget(rows, verdict_replicates), record, extra_columns=extra_columns
+    )
     contraction_verdicts(summary, record)
+    # The full rows, deliberately.  The extra replications were declared for the slope, while
+    # each rung's coverage claim keeps its separately declared budget.
     rates.extend(contraction_rates(rows, record, summary.columns, scenarios=scenarios))
-    return finish(summary, rates)
+    return (summary, rates) if return_parts else finish(summary, rates)
 
 
 def _rate_row(
@@ -1132,6 +1241,62 @@ def clustered_inference_verdicts(
 FOLD_POLICY_FAMILY = "fold_policy"
 FOLD_POLICY_REFERENCE_CELL = "unstratified"
 DIAGNOSTIC_ROLE = "diagnostic"
+
+
+def fold_policy_seed(record: StudyRecord) -> int:
+    """Return the sample seed shared by every arm of a fold-policy diagnostic.
+
+    The registering study is part of the hash, so a study-specific family cannot collide
+    with an inherited cell through numeric seed offsets. The family label keeps this stream
+    distinct from a gated cell in the same study, while every diagnostic arm deliberately
+    shares it for paired comparisons.
+    """
+    return stream_seed(record, FOLD_POLICY_FAMILY, "sample")
+
+
+def fold_policy_strata(data: CausalData, policy: str) -> np.ndarray | None:
+    """Resolve a diagnostic fold policy to the strata vector it names."""
+    if policy == FOLD_POLICY_REFERENCE_CELL:
+        return None
+    if policy == "treatment_stratified":
+        return np.asarray(data.treatment, dtype=float)
+    if policy == "treatment_outcome_stratified":
+        outcome = np.where(data.observed, data.outcome, -1.0)
+        codes = np.unique(np.column_stack([data.treatment, outcome]), axis=0, return_inverse=True)[
+            1
+        ]
+        return np.asarray(codes, dtype=float)
+    raise ValueError(f"unknown fold policy: {policy!r}")
+
+
+def make_fold_policy_cells(
+    record: StudyRecord,
+    *,
+    policies: Sequence[str],
+    dgp: Any,
+    outcome_learner: Callable[[], Any],
+    treatment_learner: Callable[[], Any],
+    n: int,
+    replicates: int,
+    estimand: str = "ate",
+) -> tuple[PropertyCell, ...]:
+    """Build paired diagnostic cells with one seed and the shared reporting role."""
+    seed = fold_policy_seed(record)
+    return tuple(
+        PropertyCell(
+            property=FOLD_POLICY_FAMILY,
+            cell=policy,
+            dgp=dgp,
+            outcome_learner=outcome_learner,
+            treatment_learner=treatment_learner,
+            n=n,
+            replicates=replicates,
+            seed=seed,
+            role=DIAGNOSTIC_ROLE,
+            estimand=estimand,
+        )
+        for policy in policies
+    )
 
 
 def fold_policy_diagnostics(

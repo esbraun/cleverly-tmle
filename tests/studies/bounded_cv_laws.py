@@ -156,12 +156,12 @@ from tests.studies import canonical_properties
 from tests.studies.canonical_properties import DoubleRobustnessDesign
 from tests.studies.evidence.properties import PropertyCell
 from tests.studies.evidence.property_verdicts import (
-    DIAGNOSTIC_ROLE,
-    FOLD_POLICY_FAMILY,
     FOLD_POLICY_REFERENCE_CELL,
+    fold_policy_strata,
+    make_fold_policy_cells,
 )
+from tests.studies.evidence.property_verdicts import fold_policy_seed as fold_policy_seed
 from tests.studies.evidence.registry import StudyRecord
-from tests.studies.evidence.seeds import stream_seed
 from tests.studies.fractional_glm import QuasiBinomialGLM
 
 #: The outcome bounds every cell here declares.  A proportion's support is the law's, not
@@ -1046,10 +1046,11 @@ class FoldPolicyTMLE(TMLE):
     the package still permits could report nothing about the ones it refuses, which is the
     one thing it exists to report.
 
-    The strata are built here rather than through
+    The strata are applied here rather than through
     :meth:`~cleverly.estimators.TMLE._fold_strata` for the same reason, and the two are
-    deliberately not shared: this class has to keep drawing a refused split after the
-    estimator stops offering one.
+    deliberately separate seams: this class has to keep drawing a refused split after the
+    estimator stops offering one. The pure policy-to-strata rule is shared with the multi-arm
+    diagnostic so the same policy name cannot acquire two meanings.
     """
 
     def __init__(self, policy: str, **kwargs: Any) -> None:
@@ -1059,15 +1060,7 @@ class FoldPolicyTMLE(TMLE):
         super().__init__(**kwargs)
 
     def _strata(self, data: CausalData) -> np.ndarray | None:
-        if self._policy == "unstratified":
-            return None
-        if self._policy == "treatment_stratified":
-            return np.asarray(data.treatment, dtype=float)
-        outcome = np.where(data.observed, data.outcome, -1.0)
-        codes = np.unique(np.column_stack([data.treatment, outcome]), axis=0, return_inverse=True)[
-            1
-        ]
-        return np.asarray(codes, dtype=float)
+        return fold_policy_strata(data, self._policy)
 
     def _folds(self, data: CausalData, seed: int | None = None) -> Folds:
         return make_folds(
@@ -1077,29 +1070,6 @@ class FoldPolicyTMLE(TMLE):
             cluster=data.cluster,
             random_state=self.random_state if seed is None else seed,
         )
-
-
-def fold_policy_seed(record: StudyRecord) -> int:
-    """The seed the three fold-policy cells draw their shared samples with.
-
-    Hashed from the registering study's own record rather than written as a literal.  The
-    literal it replaces, ``14_100``, was the sum of another study's inherited offset and an
-    inherited cell's seed: ``ctmle_oat_properties`` inherits ``type_i_error/sharp_null`` at
-    ``9_100`` under an offset of ``5_000``, so the two cells drew bit-identical covariates.
-    An offset table cannot prevent that, because it only separates a consumer from the
-    canonical block it inherits, and a study-specific family sits outside every offset.
-
-    Parameters
-    ----------
-    record : StudyRecord
-        The study registering the family.
-
-    Returns
-    -------
-    int
-        The shared sample seed.
-    """
-    return stream_seed(record, FOLD_POLICY_FAMILY, "sample")
 
 
 def fold_policy_cells(record: StudyRecord) -> tuple[PropertyCell, ...]:
@@ -1118,21 +1088,18 @@ def fold_policy_cells(record: StudyRecord) -> tuple[PropertyCell, ...]:
         coverage difference a *paired* one: the three cells see identical samples and
         differ only in how the outer split was drawn.
     """
-    law = fold_policy_dgp()
-    seed = fold_policy_seed(record)
-    return tuple(
-        PropertyCell(
-            property=FOLD_POLICY_FAMILY,
-            cell=policy,
-            dgp=law,
-            outcome_learner=lambda: LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs"),
-            treatment_learner=lambda: LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs"),
-            n=FOLD_POLICY_N,
-            replicates=FOLD_POLICY_REPLICATES,
-            seed=seed,
-            role=DIAGNOSTIC_ROLE,
-        )
-        for policy in FOLD_POLICIES
+
+    def learner() -> LogisticRegression:
+        return LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs")
+
+    return make_fold_policy_cells(
+        record,
+        policies=FOLD_POLICIES,
+        dgp=fold_policy_dgp(),
+        outcome_learner=learner,
+        treatment_learner=learner,
+        n=FOLD_POLICY_N,
+        replicates=FOLD_POLICY_REPLICATES,
     )
 
 

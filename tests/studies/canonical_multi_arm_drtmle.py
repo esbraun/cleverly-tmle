@@ -125,6 +125,11 @@ STUDY = StudyRecord(
             "rate_treatment_correct",
             "rate_both_wrong",
         ),
+        # Reported, not gated.  The stratified arm reads the treatment, which the package
+        # refuses, so no cell here establishes that either policy is valid.  The names are
+        # spelled out because this mapping is the study's declaration of what its committed
+        # summary must contain.
+        "fold_policy": ("unstratified", "treatment_stratified"),
     },
 )
 

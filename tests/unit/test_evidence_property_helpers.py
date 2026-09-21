@@ -264,3 +264,36 @@ def test_contraction_rates_default_scenarios_are_the_shared_declared_ladder(monk
         f"rate_{scenario}" for scenario in property_verdicts.CONTRACTION_SCENARIOS
     ]
     assert [row["role"] for row in defaulted] == ["positive", "positive", "control"]
+
+
+def test_contraction_verdict_budget_truncates_only_the_ladder() -> None:
+    from tests.studies.evidence import property_verdicts
+
+    rows = pd.DataFrame(
+        [
+            {
+                "property": property_name,
+                "cell": cell,
+                "replicate": replicate,
+                "requested_replicates": 3,
+                "failed_replicates": 0,
+            }
+            for property_name, cell in (
+                (property_verdicts.CONTRACTION_FAMILY, "outcome_correct_n20"),
+                (property_verdicts.CONTRACTION_FAMILY, "outcome_correct_n40"),
+                ("other", "untouched"),
+            )
+            for replicate in range(3)
+        ]
+    )
+
+    result = property_verdicts._at_verdict_budget(rows, 2)
+    ladder = result.loc[result["property"] == property_verdicts.CONTRACTION_FAMILY]
+    other = result.loc[result["property"] == "other"]
+    assert ladder.groupby("cell")["replicate"].apply(list).to_dict() == {
+        "outcome_correct_n20": [0, 1],
+        "outcome_correct_n40": [0, 1],
+    }
+    assert set(ladder["requested_replicates"]) == {2}
+    assert other["replicate"].tolist() == [0, 1, 2]
+    assert set(other["requested_replicates"]) == {3}
