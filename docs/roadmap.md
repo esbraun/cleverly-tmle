@@ -570,8 +570,99 @@ budget.
 | an inference result for the shipped selector path | an influence curve derived after the stopping-index selection, and a registered study whose `selector_necessity` and `type_i_error` cells pass their existing margins at their existing budgets |
 | an inference result for the generated-design deficit | a derivation of the paired standard-error deficit under an estimated outcome regression, and the `generated_design` pair passing at its existing budget |
 | a targeting result for the fold-local longitudinal recursion | a theorem for the shipped update, a pooled update with registered evidence, or the SDR estimator of [X4](#x4-sequential-doubly-robust-longitudinal-estimation) with its own registered evidence, and `crossfit_overfitting/cross_fitted_ltmle` inside the shared `se_ratio_sanity` ceiling at 8,000 draws. [F24](#f24-fold-local-targeting-of-the-longitudinal-recursion) states what each option needs |
-| a reading of the two `n_500` coverage endpoints | one further registered measurement at 400 replications that separates a boundary resolution from a fold-policy effect, declared before it runs |
+| a reading of the two `n_500` coverage endpoints | one further registered fold-policy diagnostic that separates a boundary resolution from a fold-policy effect, declared before it runs. The subsection below sets its budget and states why 400 replications cannot answer the question |
 | a reading of the DR-TMLE contraction slope | a rung design that resolves a slope at this bias scale, declared before it runs. The existing coverage rungs stay the stronger reading until then |
+
+#### The two readings, declared before they run
+
+This subsection is the declaration the last two acceptance rows ask for. It precedes the run that
+measures either reading.
+
+##### Why the `n_500` reading needs more than 400 replications
+
+The two policies agree about coverage on almost every draw. A pilot on a throwaway
+`fold_policy_pilot` stream measured that rate over 600 draws of each study. It is 0.0117 on the
+selector study and 0.0250 on the DR-TMLE study. The committed before-and-after pair gives 0.0175
+and 0.0250 over its own 400 draws. The paired difference is nonzero only on a discordant draw, so
+its standard deviation is about the square root of that rate.
+
+The quantity the reading has to resolve is small. The gated endpoint crosses the 0.90 floor
+between 375 and 376 covered replications of 400, so the gate-relevant difference is 0.005. The
+studies moved 0.0075 and 0.0100.
+
+| paired replications | 99% half-width, selector | 99% half-width, DR-TMLE | resolves 0.005 |
+| --- | --- | --- | --- |
+| 400 | 0.0139 to 0.0170 | 0.0204 | no |
+| 1,600 | 0.0070 to 0.0085 | 0.0102 | no |
+| 4,000 | 0.0044 to 0.0054 | 0.0064 | marginal |
+| 8,000 | 0.0031 to 0.0038 | 0.0046 | yes |
+
+At 400 replications the interval is three to four times wider than the effect. The reading would
+report "indeterminate" whatever the fold policy does, so 400 replications cannot separate the two
+explanations. The committed pair says the same thing. An exact McNemar test on its discordant
+draws gives 0.453 on the selector study and 0.344 on the DR-TMLE study. Neither observed move is
+distinguishable from a coin flip.
+
+The diagnostic therefore runs at 8,000 paired replications. The gated `root_n_and_efficiency/n_500`
+cell keeps its law, its learners, its size and its 400-replication budget.
+
+##### Why that budget is not the refused remedy
+
+This row refuses a larger budget, because every gate it names is interval-shaped. A larger budget
+walks a fixed endpoint toward a fixed margin whatever the estimator does. A fold-policy
+diagnostic is not such a gate.
+
+| property | a gated cell | the fold-policy diagnostic |
+| --- | --- | --- |
+| declares a margin | yes | no |
+| states a verdict | yes | no. `passed` and `property_passed` are set for every row |
+| counts toward the published pass fraction | yes | no. `tests/studies/evidence/claims.py` drops a diagnostic row |
+| what a larger budget buys | a fixed endpoint moves toward a fixed margin | a narrower interval on a paired difference |
+
+A budget that cannot reach a margin cannot buy a pass. The diagnostic's budget buys resolution of
+a difference, and the cell whose verdict is in question keeps the budget it published under.
+
+##### What each outcome means
+
+The published interval sits on the `treatment_stratified` row. It covers the coverage of that arm
+minus the coverage of the `unstratified` arm. A positive value means the
+retired stratified policy covered more.
+
+| outcome | condition | reading |
+| --- | --- | --- |
+| a fold-policy effect | the lower endpoint is above zero | the stratified policy raises coverage at `n = 500` on this law. A lower endpoint at or above 0.005 accounts for the endpoint crossing the floor |
+| a boundary resolution | the interval covers zero, and its upper endpoint is below 0.005 | no policy effect large enough to move the endpoint across the floor. RM18's attribution stands |
+| a reversal | the upper endpoint is below zero | the unstratified policy covers more, and the move belongs to something else |
+| indeterminate | the interval covers zero, and its upper endpoint reaches 0.005 | the measurement resolved nothing |
+
+The diagnostic reports its own coverage at 8,000 draws. That number does not re-read the gated
+cell. The gated cell publishes 400 replications under its own budget, and a tighter interval on a
+different budget is not evidence about it.
+
+##### The DR-TMLE contraction rung design
+
+The slope is fitted over three log-equally-spaced rungs, so the middle rung's centred weight is
+exactly zero. The slope is therefore the difference of the outer two rungs, divided by the log of
+four.
+Curvature therefore cannot widen the interval, and the committed rungs are log-linear to 0.002.
+The span is already the cost-optimal one, because the resolution of a rung falls as its size
+rises. The width comes from Monte Carlo noise at the top rung, where the bias is 2.46 times its
+own standard error.
+
+The design therefore raises replications at the two outer rungs and leaves the sizes alone. The
+rule reads two kinds of quantity and no others. It reads the bias scale this row already
+publishes, which is 0.0036 at the first rung, with the decay a second-order remainder predicts. It
+reads the `both_wrong` control arm's empirical spread. It does not read the slope, the interval or
+the verdict of either positive rate cell.
+
+The ladder stays at 1,500, 3,000 and 6,000. The two outer rungs run 2,400 replications and the
+middle rung keeps 800, because a rung with zero weight buys no resolution. The design is declared
+to resolve a slope of magnitude one. That is the separation this family exists to distinguish,
+between the second-order prediction of minus one and the non-contraction alternative of zero.
+
+The claim is about the instrument and not about the verdict. The run publishes what it produces. A
+`rate_outcome_correct` interval that still covers zero is a result this ladder reports, and not a
+failure of this declaration.
 
 #### What the source search found for the first three asks
 
