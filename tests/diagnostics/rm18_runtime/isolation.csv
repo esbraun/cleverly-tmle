@@ -1,0 +1,535 @@
+study,section,subject,statistic,value
+weighted_lmtp_ltmle,provenance,F-R11,cleverly_commit,7d5485abf42545843c7dc801dfdac57ec68fd0f0
+weighted_lmtp_ltmle,provenance,F-R11,cleverly_worktree_clean,True
+weighted_lmtp_ltmle,provenance,F-R11,python,3.11.13
+weighted_lmtp_ltmle,provenance,F-R11,scipy,1.17.1
+weighted_lmtp_ltmle,provenance,F-R11,numpy,2.4.6
+weighted_lmtp_ltmle,provenance,F-R11,pandas,3.0.5
+weighted_lmtp_ltmle,provenance,F-R11,scikit_learn,1.9.0
+weighted_lmtp_ltmle,provenance,F-R13,cleverly_commit,7d5485abf42545843c7dc801dfdac57ec68fd0f0
+weighted_lmtp_ltmle,provenance,F-R13,cleverly_worktree_clean,True
+weighted_lmtp_ltmle,provenance,F-R13,python,3.13.7
+weighted_lmtp_ltmle,provenance,F-R13,scipy,1.18.0
+weighted_lmtp_ltmle,provenance,F-R13,numpy,2.4.6
+weighted_lmtp_ltmle,provenance,F-R13,pandas,3.0.5
+weighted_lmtp_ltmle,provenance,F-R13,scikit_learn,1.9.0
+weighted_lmtp_ltmle,provenance,P-R11,cleverly_commit,56100ce9ddb48e3faba4130db2aa8a8ed07c5f6a
+weighted_lmtp_ltmle,provenance,P-R11,cleverly_worktree_clean,True
+weighted_lmtp_ltmle,provenance,P-R11,python,3.11.13
+weighted_lmtp_ltmle,provenance,P-R11,scipy,1.17.1
+weighted_lmtp_ltmle,provenance,P-R11,numpy,2.4.6
+weighted_lmtp_ltmle,provenance,P-R11,pandas,3.0.5
+weighted_lmtp_ltmle,provenance,P-R11,scikit_learn,1.9.0
+weighted_lmtp_ltmle,provenance,P-R13,cleverly_commit,56100ce9ddb48e3faba4130db2aa8a8ed07c5f6a
+weighted_lmtp_ltmle,provenance,P-R13,cleverly_worktree_clean,True
+weighted_lmtp_ltmle,provenance,P-R13,python,3.13.7
+weighted_lmtp_ltmle,provenance,P-R13,scipy,1.18.0
+weighted_lmtp_ltmle,provenance,P-R13,numpy,2.4.6
+weighted_lmtp_ltmle,provenance,P-R13,pandas,3.0.5
+weighted_lmtp_ltmle,provenance,P-R13,scikit_learn,1.9.0
+weighted_lmtp_ltmle,samples,F-R11,decompressed_sha256,5607a56d9fd80df946c4c0a2f62db4a8b7de7659dd9e16e14bbbdecb0a6e1127
+weighted_lmtp_ltmle,samples,F-R13,decompressed_sha256,5607a56d9fd80df946c4c0a2f62db4a8b7de7659dd9e16e14bbbdecb0a6e1127
+weighted_lmtp_ltmle,samples,P-R11,decompressed_sha256,5607a56d9fd80df946c4c0a2f62db4a8b7de7659dd9e16e14bbbdecb0a6e1127
+weighted_lmtp_ltmle,samples,P-R13,decompressed_sha256,5607a56d9fd80df946c4c0a2f62db4a8b7de7659dd9e16e14bbbdecb0a6e1127
+weighted_lmtp_ltmle,samples,all arms,identical,True
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,replicates.csv.gz: rows_compared,8000
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,replicates.csv.gz: rows_only_older,0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,replicates.csv.gz: rows_only_newer,0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,replicates.csv.gz: max_abs_estimate_change,0.0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,replicates.csv.gz: max_abs_std_error_change,0.0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,replicates.csv.gz: rows_differing,0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,replicates.csv.gz: rows_moved_over_1e-6,0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,replicates.csv.gz: covered_flags_changed,0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,replicates.csv.gz: rows_outside_tolerance,0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,property-replicates.csv.gz: rows_compared,42400
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,property-replicates.csv.gz: rows_only_older,0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,property-replicates.csv.gz: rows_only_newer,0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,property-replicates.csv.gz: max_abs_estimate_change,0.0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,property-replicates.csv.gz: max_abs_std_error_change,0.0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,property-replicates.csv.gz: rows_differing,0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,property-replicates.csv.gz: rows_moved_over_1e-6,0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,property-replicates.csv.gz: covered_flags_changed,0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,property-replicates.csv.gz: rows_outside_tolerance,0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,reference-inference.csv.gz: rows_compared,12000
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,reference-inference.csv.gz: rows_only_older,0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,reference-inference.csv.gz: rows_only_newer,0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,reference-inference.csv.gz: max_abs_estimate_change,0.0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,reference-inference.csv.gz: max_abs_std_error_change,0.0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,reference-inference.csv.gz: rows_differing,0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,reference-inference.csv.gz: rows_moved_over_1e-6,0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,reference-inference.csv.gz: covered_flags_changed,0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,reference-inference.csv.gz: rows_outside_tolerance,0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,properties.csv: verdicts differing,0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,equivalence.csv: verdicts differing,0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,performance-tests.csv: verdicts differing,0
+weighted_lmtp_ltmle,precondition,F-R11 against 7d5485a,held,True
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,replicates.csv.gz: rows_compared,8000
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,replicates.csv.gz: rows_only_older,0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,replicates.csv.gz: rows_only_newer,0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,replicates.csv.gz: max_abs_estimate_change,0.0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,replicates.csv.gz: max_abs_std_error_change,0.0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,replicates.csv.gz: rows_differing,0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,replicates.csv.gz: rows_moved_over_1e-6,0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,replicates.csv.gz: covered_flags_changed,0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,replicates.csv.gz: rows_outside_tolerance,0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,property-replicates.csv.gz: rows_compared,42400
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,property-replicates.csv.gz: rows_only_older,0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,property-replicates.csv.gz: rows_only_newer,0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,property-replicates.csv.gz: max_abs_estimate_change,0.0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,property-replicates.csv.gz: max_abs_std_error_change,0.0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,property-replicates.csv.gz: rows_differing,0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,property-replicates.csv.gz: rows_moved_over_1e-6,0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,property-replicates.csv.gz: covered_flags_changed,0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,property-replicates.csv.gz: rows_outside_tolerance,0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,reference-inference.csv.gz: rows_compared,12000
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,reference-inference.csv.gz: rows_only_older,0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,reference-inference.csv.gz: rows_only_newer,0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,reference-inference.csv.gz: max_abs_estimate_change,0.0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,reference-inference.csv.gz: max_abs_std_error_change,0.0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,reference-inference.csv.gz: rows_differing,0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,reference-inference.csv.gz: rows_moved_over_1e-6,0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,reference-inference.csv.gz: covered_flags_changed,0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,reference-inference.csv.gz: rows_outside_tolerance,0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,properties.csv: verdicts differing,0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,equivalence.csv: verdicts differing,0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,performance-tests.csv: verdicts differing,0
+weighted_lmtp_ltmle,precondition,P-R13 against 0e03a15,held,True
+weighted_lmtp_ltmle,harness,all arms,validated,True
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,replicates.csv.gz: rows_compared,8000
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,replicates.csv.gz: rows_only_older,0
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,replicates.csv.gz: rows_only_newer,0
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,replicates.csv.gz: max_abs_estimate_change,0.012069602401273083
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,replicates.csv.gz: max_abs_std_error_change,0.0002642482996500009
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,replicates.csv.gz: rows_differing,4000
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,replicates.csv.gz: rows_moved_over_1e-6,3999
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,replicates.csv.gz: covered_flags_changed,28
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,replicates.csv.gz: rows_outside_tolerance,4000
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,property-replicates.csv.gz: rows_compared,42400
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,property-replicates.csv.gz: rows_only_older,0
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,property-replicates.csv.gz: rows_only_newer,0
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,property-replicates.csv.gz: max_abs_estimate_change,0.4316680976986004
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,property-replicates.csv.gz: max_abs_std_error_change,49702.449511458886
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,property-replicates.csv.gz: rows_differing,42400
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,property-replicates.csv.gz: rows_moved_over_1e-6,37598
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,property-replicates.csv.gz: covered_flags_changed,682
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,property-replicates.csv.gz: rows_outside_tolerance,42400
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,reference-inference.csv.gz: rows_compared,12000
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,reference-inference.csv.gz: rows_only_older,0
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,reference-inference.csv.gz: rows_only_newer,0
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,reference-inference.csv.gz: max_abs_estimate_change,0.0
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,reference-inference.csv.gz: max_abs_std_error_change,0.0
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,reference-inference.csv.gz: rows_differing,0
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,reference-inference.csv.gz: rows_moved_over_1e-6,0
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,reference-inference.csv.gz: covered_flags_changed,0
+weighted_lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,reference-inference.csv.gz: rows_outside_tolerance,0
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,replicates.csv.gz: rows_compared,8000
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,replicates.csv.gz: rows_only_older,0
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,replicates.csv.gz: rows_only_newer,0
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,replicates.csv.gz: max_abs_estimate_change,0.012069602401272916
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,replicates.csv.gz: max_abs_std_error_change,0.0002642482996500009
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,replicates.csv.gz: rows_differing,4000
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,replicates.csv.gz: rows_moved_over_1e-6,3999
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,replicates.csv.gz: covered_flags_changed,28
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,replicates.csv.gz: rows_outside_tolerance,4000
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,property-replicates.csv.gz: rows_compared,42400
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,property-replicates.csv.gz: rows_only_older,0
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,property-replicates.csv.gz: rows_only_newer,0
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,property-replicates.csv.gz: max_abs_estimate_change,0.4316680976986004
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,property-replicates.csv.gz: max_abs_std_error_change,49702.449511458886
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,property-replicates.csv.gz: rows_differing,42400
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,property-replicates.csv.gz: rows_moved_over_1e-6,37598
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,property-replicates.csv.gz: covered_flags_changed,682
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,property-replicates.csv.gz: rows_outside_tolerance,42400
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,reference-inference.csv.gz: rows_compared,12000
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,reference-inference.csv.gz: rows_only_older,0
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,reference-inference.csv.gz: rows_only_newer,0
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,reference-inference.csv.gz: max_abs_estimate_change,0.0
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,reference-inference.csv.gz: max_abs_std_error_change,0.0
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,reference-inference.csv.gz: rows_differing,0
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,reference-inference.csv.gz: rows_moved_over_1e-6,0
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,reference-inference.csv.gz: covered_flags_changed,0
+weighted_lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,reference-inference.csv.gz: rows_outside_tolerance,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,replicates.csv.gz: rows_compared,8000
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,replicates.csv.gz: rows_only_older,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,replicates.csv.gz: rows_only_newer,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,replicates.csv.gz: max_abs_estimate_change,3.3306690738754696e-16
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,replicates.csv.gz: max_abs_std_error_change,1.0408340855860843e-16
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,replicates.csv.gz: rows_differing,939
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,replicates.csv.gz: rows_moved_over_1e-6,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,replicates.csv.gz: covered_flags_changed,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,replicates.csv.gz: rows_outside_tolerance,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,property-replicates.csv.gz: rows_compared,42400
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,property-replicates.csv.gz: rows_only_older,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,property-replicates.csv.gz: rows_only_newer,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,property-replicates.csv.gz: max_abs_estimate_change,0.0
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,property-replicates.csv.gz: max_abs_std_error_change,0.0
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,property-replicates.csv.gz: rows_differing,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,property-replicates.csv.gz: rows_moved_over_1e-6,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,property-replicates.csv.gz: covered_flags_changed,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,property-replicates.csv.gz: rows_outside_tolerance,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,reference-inference.csv.gz: rows_compared,12000
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,reference-inference.csv.gz: rows_only_older,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,reference-inference.csv.gz: rows_only_newer,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,reference-inference.csv.gz: max_abs_estimate_change,0.0
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,reference-inference.csv.gz: max_abs_std_error_change,0.0
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,reference-inference.csv.gz: rows_differing,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,reference-inference.csv.gz: rows_moved_over_1e-6,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,reference-inference.csv.gz: covered_flags_changed,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,reference-inference.csv.gz: rows_outside_tolerance,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,replicates.csv.gz: rows_compared,8000
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,replicates.csv.gz: rows_only_older,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,replicates.csv.gz: rows_only_newer,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,replicates.csv.gz: max_abs_estimate_change,3.885780586188048e-16
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,replicates.csv.gz: max_abs_std_error_change,1.0408340855860843e-16
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,replicates.csv.gz: rows_differing,1017
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,replicates.csv.gz: rows_moved_over_1e-6,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,replicates.csv.gz: covered_flags_changed,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,replicates.csv.gz: rows_outside_tolerance,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,property-replicates.csv.gz: rows_compared,42400
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,property-replicates.csv.gz: rows_only_older,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,property-replicates.csv.gz: rows_only_newer,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,property-replicates.csv.gz: max_abs_estimate_change,0.0
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,property-replicates.csv.gz: max_abs_std_error_change,0.0
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,property-replicates.csv.gz: rows_differing,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,property-replicates.csv.gz: rows_moved_over_1e-6,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,property-replicates.csv.gz: covered_flags_changed,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,property-replicates.csv.gz: rows_outside_tolerance,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,reference-inference.csv.gz: rows_compared,12000
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,reference-inference.csv.gz: rows_only_older,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,reference-inference.csv.gz: rows_only_newer,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,reference-inference.csv.gz: max_abs_estimate_change,0.0
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,reference-inference.csv.gz: max_abs_std_error_change,0.0
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,reference-inference.csv.gz: rows_differing,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,reference-inference.csv.gz: rows_moved_over_1e-6,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,reference-inference.csv.gz: covered_flags_changed,0
+weighted_lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,reference-inference.csv.gz: rows_outside_tolerance,0
+weighted_lmtp_ltmle,statistic,"interval_calibration/static__correctly_specified, F-R11",efficiency_empirical_ratio,1.0534684466631892
+weighted_lmtp_ltmle,statistic,"interval_calibration/static__correctly_specified, F-R11",efficiency_empirical_ci_lower,1.0130224664347292
+weighted_lmtp_ltmle,statistic,"interval_calibration/static__correctly_specified, F-R11",efficiency_empirical_ci_upper,1.092338628883861
+weighted_lmtp_ltmle,statistic,"interval_calibration/static__correctly_specified, F-R11",passed,True
+weighted_lmtp_ltmle,statistic,"interval_calibration/static__correctly_specified, F-R11",property_passed,True
+weighted_lmtp_ltmle,verdict,"interval_calibration/static__correctly_specified, F-R11",passed,True
+weighted_lmtp_ltmle,statistic,"interval_calibration/static__correctly_specified, F-R13",efficiency_empirical_ratio,1.0534684466631892
+weighted_lmtp_ltmle,statistic,"interval_calibration/static__correctly_specified, F-R13",efficiency_empirical_ci_lower,1.0130224664347292
+weighted_lmtp_ltmle,statistic,"interval_calibration/static__correctly_specified, F-R13",efficiency_empirical_ci_upper,1.092338628883861
+weighted_lmtp_ltmle,statistic,"interval_calibration/static__correctly_specified, F-R13",passed,True
+weighted_lmtp_ltmle,statistic,"interval_calibration/static__correctly_specified, F-R13",property_passed,True
+weighted_lmtp_ltmle,verdict,"interval_calibration/static__correctly_specified, F-R13",passed,True
+weighted_lmtp_ltmle,statistic,"interval_calibration/static__correctly_specified, P-R11",efficiency_empirical_ratio,1.0607242484657566
+weighted_lmtp_ltmle,statistic,"interval_calibration/static__correctly_specified, P-R11",efficiency_empirical_ci_lower,1.0194949742540904
+weighted_lmtp_ltmle,statistic,"interval_calibration/static__correctly_specified, P-R11",efficiency_empirical_ci_upper,1.1006007448971034
+weighted_lmtp_ltmle,statistic,"interval_calibration/static__correctly_specified, P-R11",passed,False
+weighted_lmtp_ltmle,statistic,"interval_calibration/static__correctly_specified, P-R11",property_passed,False
+weighted_lmtp_ltmle,verdict,"interval_calibration/static__correctly_specified, P-R11",passed,False
+weighted_lmtp_ltmle,statistic,"interval_calibration/static__correctly_specified, P-R13",efficiency_empirical_ratio,1.0607242484657566
+weighted_lmtp_ltmle,statistic,"interval_calibration/static__correctly_specified, P-R13",efficiency_empirical_ci_lower,1.0194949742540904
+weighted_lmtp_ltmle,statistic,"interval_calibration/static__correctly_specified, P-R13",efficiency_empirical_ci_upper,1.1006007448971034
+weighted_lmtp_ltmle,statistic,"interval_calibration/static__correctly_specified, P-R13",passed,False
+weighted_lmtp_ltmle,statistic,"interval_calibration/static__correctly_specified, P-R13",property_passed,False
+weighted_lmtp_ltmle,verdict,"interval_calibration/static__correctly_specified, P-R13",passed,False
+weighted_lmtp_ltmle,verdict_change,"interval_calibration/static__correctly_specified, code axis at R11",changed,True
+weighted_lmtp_ltmle,verdict_change,"interval_calibration/static__correctly_specified, code axis at R13",changed,True
+weighted_lmtp_ltmle,verdict_change,"interval_calibration/static__correctly_specified, runtime axis at F",changed,False
+weighted_lmtp_ltmle,verdict_change,"interval_calibration/static__correctly_specified, runtime axis at P",changed,False
+weighted_lmtp_ltmle,reading,interval_calibration/static__correctly_specified,reading,code
+weighted_lmtp_ltmle,statistic,"paired ey_regimen[never], F-R11",coverage_difference,-0.00875
+weighted_lmtp_ltmle,statistic,"paired ey_regimen[never], F-R11",coverage_difference_lower,-0.01875
+weighted_lmtp_ltmle,statistic,"paired ey_regimen[never], F-R11",coverage_noninferiority_margin,-0.025
+weighted_lmtp_ltmle,statistic,"paired ey_regimen[never], F-R11",comparison_conclusion,equivalent
+weighted_lmtp_ltmle,statistic,"paired ey_regimen[never], F-R11",passed,True
+weighted_lmtp_ltmle,verdict,"paired ey_regimen[never], F-R11",passed,True
+weighted_lmtp_ltmle,statistic,"paired ey_regimen[never], F-R13",coverage_difference,-0.00875
+weighted_lmtp_ltmle,statistic,"paired ey_regimen[never], F-R13",coverage_difference_lower,-0.01875
+weighted_lmtp_ltmle,statistic,"paired ey_regimen[never], F-R13",coverage_noninferiority_margin,-0.025
+weighted_lmtp_ltmle,statistic,"paired ey_regimen[never], F-R13",comparison_conclusion,equivalent
+weighted_lmtp_ltmle,statistic,"paired ey_regimen[never], F-R13",passed,True
+weighted_lmtp_ltmle,verdict,"paired ey_regimen[never], F-R13",passed,True
+weighted_lmtp_ltmle,statistic,"paired ey_regimen[never], P-R11",coverage_difference,-0.0174999999999999
+weighted_lmtp_ltmle,statistic,"paired ey_regimen[never], P-R11",coverage_difference_lower,-0.03
+weighted_lmtp_ltmle,statistic,"paired ey_regimen[never], P-R11",coverage_noninferiority_margin,-0.025
+weighted_lmtp_ltmle,statistic,"paired ey_regimen[never], P-R11",comparison_conclusion,underpowered
+weighted_lmtp_ltmle,statistic,"paired ey_regimen[never], P-R11",passed,False
+weighted_lmtp_ltmle,verdict,"paired ey_regimen[never], P-R11",passed,False
+weighted_lmtp_ltmle,statistic,"paired ey_regimen[never], P-R13",coverage_difference,-0.0174999999999999
+weighted_lmtp_ltmle,statistic,"paired ey_regimen[never], P-R13",coverage_difference_lower,-0.03
+weighted_lmtp_ltmle,statistic,"paired ey_regimen[never], P-R13",coverage_noninferiority_margin,-0.025
+weighted_lmtp_ltmle,statistic,"paired ey_regimen[never], P-R13",comparison_conclusion,underpowered
+weighted_lmtp_ltmle,statistic,"paired ey_regimen[never], P-R13",passed,False
+weighted_lmtp_ltmle,verdict,"paired ey_regimen[never], P-R13",passed,False
+weighted_lmtp_ltmle,verdict_change,"paired ey_regimen[never], code axis at R11",changed,True
+weighted_lmtp_ltmle,verdict_change,"paired ey_regimen[never], code axis at R13",changed,True
+weighted_lmtp_ltmle,verdict_change,"paired ey_regimen[never], runtime axis at F",changed,False
+weighted_lmtp_ltmle,verdict_change,"paired ey_regimen[never], runtime axis at P",changed,False
+weighted_lmtp_ltmle,reading,paired ey_regimen[never],reading,code
+lmtp_ltmle,provenance,F-R11,cleverly_commit,7d5485abf42545843c7dc801dfdac57ec68fd0f0
+lmtp_ltmle,provenance,F-R11,cleverly_worktree_clean,True
+lmtp_ltmle,provenance,F-R11,python,3.11.13
+lmtp_ltmle,provenance,F-R11,scipy,1.17.1
+lmtp_ltmle,provenance,F-R11,numpy,2.4.6
+lmtp_ltmle,provenance,F-R11,pandas,3.0.5
+lmtp_ltmle,provenance,F-R11,scikit_learn,1.9.0
+lmtp_ltmle,provenance,F-R13,cleverly_commit,7d5485abf42545843c7dc801dfdac57ec68fd0f0
+lmtp_ltmle,provenance,F-R13,cleverly_worktree_clean,True
+lmtp_ltmle,provenance,F-R13,python,3.13.7
+lmtp_ltmle,provenance,F-R13,scipy,1.18.0
+lmtp_ltmle,provenance,F-R13,numpy,2.4.6
+lmtp_ltmle,provenance,F-R13,pandas,3.0.5
+lmtp_ltmle,provenance,F-R13,scikit_learn,1.9.0
+lmtp_ltmle,provenance,P-R11,cleverly_commit,56100ce9ddb48e3faba4130db2aa8a8ed07c5f6a
+lmtp_ltmle,provenance,P-R11,cleverly_worktree_clean,True
+lmtp_ltmle,provenance,P-R11,python,3.11.13
+lmtp_ltmle,provenance,P-R11,scipy,1.17.1
+lmtp_ltmle,provenance,P-R11,numpy,2.4.6
+lmtp_ltmle,provenance,P-R11,pandas,3.0.5
+lmtp_ltmle,provenance,P-R11,scikit_learn,1.9.0
+lmtp_ltmle,provenance,P-R13,cleverly_commit,56100ce9ddb48e3faba4130db2aa8a8ed07c5f6a
+lmtp_ltmle,provenance,P-R13,cleverly_worktree_clean,True
+lmtp_ltmle,provenance,P-R13,python,3.13.7
+lmtp_ltmle,provenance,P-R13,scipy,1.18.0
+lmtp_ltmle,provenance,P-R13,numpy,2.4.6
+lmtp_ltmle,provenance,P-R13,pandas,3.0.5
+lmtp_ltmle,provenance,P-R13,scikit_learn,1.9.0
+lmtp_ltmle,samples,F-R11,decompressed_sha256,59263e30f30e071f6529bbe1321a005fdf9330a4b84be1fcbda5b7a16c12c921
+lmtp_ltmle,samples,F-R13,decompressed_sha256,59263e30f30e071f6529bbe1321a005fdf9330a4b84be1fcbda5b7a16c12c921
+lmtp_ltmle,samples,P-R11,decompressed_sha256,59263e30f30e071f6529bbe1321a005fdf9330a4b84be1fcbda5b7a16c12c921
+lmtp_ltmle,samples,P-R13,decompressed_sha256,59263e30f30e071f6529bbe1321a005fdf9330a4b84be1fcbda5b7a16c12c921
+lmtp_ltmle,samples,all arms,identical,True
+lmtp_ltmle,precondition,F-R11 against 7d5485a,replicates.csv.gz: rows_compared,16000
+lmtp_ltmle,precondition,F-R11 against 7d5485a,replicates.csv.gz: rows_only_older,0
+lmtp_ltmle,precondition,F-R11 against 7d5485a,replicates.csv.gz: rows_only_newer,0
+lmtp_ltmle,precondition,F-R11 against 7d5485a,replicates.csv.gz: max_abs_estimate_change,0.0
+lmtp_ltmle,precondition,F-R11 against 7d5485a,replicates.csv.gz: max_abs_std_error_change,0.0
+lmtp_ltmle,precondition,F-R11 against 7d5485a,replicates.csv.gz: rows_differing,0
+lmtp_ltmle,precondition,F-R11 against 7d5485a,replicates.csv.gz: rows_moved_over_1e-6,0
+lmtp_ltmle,precondition,F-R11 against 7d5485a,replicates.csv.gz: covered_flags_changed,0
+lmtp_ltmle,precondition,F-R11 against 7d5485a,replicates.csv.gz: rows_outside_tolerance,0
+lmtp_ltmle,precondition,F-R11 against 7d5485a,property-replicates.csv.gz: rows_compared,51200
+lmtp_ltmle,precondition,F-R11 against 7d5485a,property-replicates.csv.gz: rows_only_older,0
+lmtp_ltmle,precondition,F-R11 against 7d5485a,property-replicates.csv.gz: rows_only_newer,0
+lmtp_ltmle,precondition,F-R11 against 7d5485a,property-replicates.csv.gz: max_abs_estimate_change,0.0
+lmtp_ltmle,precondition,F-R11 against 7d5485a,property-replicates.csv.gz: max_abs_std_error_change,0.0
+lmtp_ltmle,precondition,F-R11 against 7d5485a,property-replicates.csv.gz: rows_differing,0
+lmtp_ltmle,precondition,F-R11 against 7d5485a,property-replicates.csv.gz: rows_moved_over_1e-6,0
+lmtp_ltmle,precondition,F-R11 against 7d5485a,property-replicates.csv.gz: covered_flags_changed,0
+lmtp_ltmle,precondition,F-R11 against 7d5485a,property-replicates.csv.gz: rows_outside_tolerance,0
+lmtp_ltmle,precondition,F-R11 against 7d5485a,properties.csv: verdicts differing,0
+lmtp_ltmle,precondition,F-R11 against 7d5485a,equivalence.csv: verdicts differing,0
+lmtp_ltmle,precondition,F-R11 against 7d5485a,performance-tests.csv: verdicts differing,0
+lmtp_ltmle,precondition,F-R11 against 7d5485a,held,True
+lmtp_ltmle,precondition,P-R13 against 0e03a15,replicates.csv.gz: rows_compared,16000
+lmtp_ltmle,precondition,P-R13 against 0e03a15,replicates.csv.gz: rows_only_older,0
+lmtp_ltmle,precondition,P-R13 against 0e03a15,replicates.csv.gz: rows_only_newer,0
+lmtp_ltmle,precondition,P-R13 against 0e03a15,replicates.csv.gz: max_abs_estimate_change,0.0
+lmtp_ltmle,precondition,P-R13 against 0e03a15,replicates.csv.gz: max_abs_std_error_change,0.0
+lmtp_ltmle,precondition,P-R13 against 0e03a15,replicates.csv.gz: rows_differing,0
+lmtp_ltmle,precondition,P-R13 against 0e03a15,replicates.csv.gz: rows_moved_over_1e-6,0
+lmtp_ltmle,precondition,P-R13 against 0e03a15,replicates.csv.gz: covered_flags_changed,0
+lmtp_ltmle,precondition,P-R13 against 0e03a15,replicates.csv.gz: rows_outside_tolerance,0
+lmtp_ltmle,precondition,P-R13 against 0e03a15,property-replicates.csv.gz: rows_compared,51200
+lmtp_ltmle,precondition,P-R13 against 0e03a15,property-replicates.csv.gz: rows_only_older,0
+lmtp_ltmle,precondition,P-R13 against 0e03a15,property-replicates.csv.gz: rows_only_newer,0
+lmtp_ltmle,precondition,P-R13 against 0e03a15,property-replicates.csv.gz: max_abs_estimate_change,0.0
+lmtp_ltmle,precondition,P-R13 against 0e03a15,property-replicates.csv.gz: max_abs_std_error_change,0.0
+lmtp_ltmle,precondition,P-R13 against 0e03a15,property-replicates.csv.gz: rows_differing,0
+lmtp_ltmle,precondition,P-R13 against 0e03a15,property-replicates.csv.gz: rows_moved_over_1e-6,0
+lmtp_ltmle,precondition,P-R13 against 0e03a15,property-replicates.csv.gz: covered_flags_changed,0
+lmtp_ltmle,precondition,P-R13 against 0e03a15,property-replicates.csv.gz: rows_outside_tolerance,0
+lmtp_ltmle,precondition,P-R13 against 0e03a15,properties.csv: verdicts differing,0
+lmtp_ltmle,precondition,P-R13 against 0e03a15,equivalence.csv: verdicts differing,0
+lmtp_ltmle,precondition,P-R13 against 0e03a15,performance-tests.csv: verdicts differing,0
+lmtp_ltmle,precondition,P-R13 against 0e03a15,held,True
+lmtp_ltmle,harness,all arms,validated,True
+lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,replicates.csv.gz: rows_compared,16000
+lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,replicates.csv.gz: rows_only_older,0
+lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,replicates.csv.gz: rows_only_newer,0
+lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,replicates.csv.gz: max_abs_estimate_change,0.00840416808404032
+lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,replicates.csv.gz: max_abs_std_error_change,0.00013341506479980225
+lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,replicates.csv.gz: rows_differing,8000
+lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,replicates.csv.gz: rows_moved_over_1e-6,7998
+lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,replicates.csv.gz: covered_flags_changed,54
+lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,replicates.csv.gz: rows_outside_tolerance,8000
+lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,property-replicates.csv.gz: rows_compared,51200
+lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,property-replicates.csv.gz: rows_only_older,0
+lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,property-replicates.csv.gz: rows_only_newer,0
+lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,property-replicates.csv.gz: max_abs_estimate_change,0.14513078125772272
+lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,property-replicates.csv.gz: max_abs_std_error_change,0.009311847878637605
+lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,property-replicates.csv.gz: rows_differing,43200
+lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,property-replicates.csv.gz: rows_moved_over_1e-6,40785
+lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,property-replicates.csv.gz: covered_flags_changed,835
+lmtp_ltmle,axis_rows,code axis at R11: F-R11 against P-R11,property-replicates.csv.gz: rows_outside_tolerance,43200
+lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,replicates.csv.gz: rows_compared,16000
+lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,replicates.csv.gz: rows_only_older,0
+lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,replicates.csv.gz: rows_only_newer,0
+lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,replicates.csv.gz: max_abs_estimate_change,0.00840416808404032
+lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,replicates.csv.gz: max_abs_std_error_change,0.00013341506479980225
+lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,replicates.csv.gz: rows_differing,8000
+lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,replicates.csv.gz: rows_moved_over_1e-6,7998
+lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,replicates.csv.gz: covered_flags_changed,54
+lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,replicates.csv.gz: rows_outside_tolerance,8000
+lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,property-replicates.csv.gz: rows_compared,51200
+lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,property-replicates.csv.gz: rows_only_older,0
+lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,property-replicates.csv.gz: rows_only_newer,0
+lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,property-replicates.csv.gz: max_abs_estimate_change,0.14513078125772272
+lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,property-replicates.csv.gz: max_abs_std_error_change,0.009311847878637605
+lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,property-replicates.csv.gz: rows_differing,43200
+lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,property-replicates.csv.gz: rows_moved_over_1e-6,40785
+lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,property-replicates.csv.gz: covered_flags_changed,835
+lmtp_ltmle,axis_rows,code axis at R13: F-R13 against P-R13,property-replicates.csv.gz: rows_outside_tolerance,43200
+lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,replicates.csv.gz: rows_compared,16000
+lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,replicates.csv.gz: rows_only_older,0
+lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,replicates.csv.gz: rows_only_newer,0
+lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,replicates.csv.gz: max_abs_estimate_change,3.3306690738754696e-16
+lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,replicates.csv.gz: max_abs_std_error_change,1.0408340855860843e-16
+lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,replicates.csv.gz: rows_differing,1800
+lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,replicates.csv.gz: rows_moved_over_1e-6,0
+lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,replicates.csv.gz: covered_flags_changed,0
+lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,replicates.csv.gz: rows_outside_tolerance,0
+lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,property-replicates.csv.gz: rows_compared,51200
+lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,property-replicates.csv.gz: rows_only_older,0
+lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,property-replicates.csv.gz: rows_only_newer,0
+lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,property-replicates.csv.gz: max_abs_estimate_change,0.006983869174787882
+lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,property-replicates.csv.gz: max_abs_std_error_change,0.00018660633958259704
+lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,property-replicates.csv.gz: rows_differing,110
+lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,property-replicates.csv.gz: rows_moved_over_1e-6,33
+lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,property-replicates.csv.gz: covered_flags_changed,0
+lmtp_ltmle,axis_rows,runtime axis at F: F-R11 against F-R13,property-replicates.csv.gz: rows_outside_tolerance,39
+lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,replicates.csv.gz: rows_compared,16000
+lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,replicates.csv.gz: rows_only_older,0
+lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,replicates.csv.gz: rows_only_newer,0
+lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,replicates.csv.gz: max_abs_estimate_change,3.885780586188048e-16
+lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,replicates.csv.gz: max_abs_std_error_change,1.0408340855860843e-16
+lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,replicates.csv.gz: rows_differing,2057
+lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,replicates.csv.gz: rows_moved_over_1e-6,0
+lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,replicates.csv.gz: covered_flags_changed,0
+lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,replicates.csv.gz: rows_outside_tolerance,0
+lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,property-replicates.csv.gz: rows_compared,51200
+lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,property-replicates.csv.gz: rows_only_older,0
+lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,property-replicates.csv.gz: rows_only_newer,0
+lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,property-replicates.csv.gz: max_abs_estimate_change,0.0019952634856160723
+lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,property-replicates.csv.gz: max_abs_std_error_change,9.854517198589971e-05
+lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,property-replicates.csv.gz: rows_differing,945
+lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,property-replicates.csv.gz: rows_moved_over_1e-6,1
+lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,property-replicates.csv.gz: covered_flags_changed,0
+lmtp_ltmle,axis_rows,runtime axis at P: P-R11 against P-R13,property-replicates.csv.gz: rows_outside_tolerance,2
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, F-R11",se_ratio,1.1766504056264295
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, F-R11",se_ratio_ci_lower,1.1532823836768846
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, F-R11",se_ratio_ci_upper,1.2015545015390263
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, F-R11",coverage,0.976
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, F-R11",passed,False
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, F-R11",property_passed,False
+lmtp_ltmle,verdict,"crossfit_overfitting/cross_fitted_ltmle, F-R11",passed,False
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, F-R13",se_ratio,1.176637462048448
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, F-R13",se_ratio_ci_lower,1.1532510987727784
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, F-R13",se_ratio_ci_upper,1.2015164642349647
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, F-R13",coverage,0.976
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, F-R13",passed,False
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, F-R13",property_passed,False
+lmtp_ltmle,verdict,"crossfit_overfitting/cross_fitted_ltmle, F-R13",passed,False
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, P-R11",se_ratio,1.0161067077998698
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, P-R11",se_ratio_ci_lower,0.996091646333124
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, P-R11",se_ratio_ci_upper,1.036997400554732
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, P-R11",coverage,0.951
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, P-R11",passed,True
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, P-R11",property_passed,True
+lmtp_ltmle,verdict,"crossfit_overfitting/cross_fitted_ltmle, P-R11",passed,True
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, P-R13",se_ratio,1.0161067077998698
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, P-R13",se_ratio_ci_lower,0.996091646333124
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, P-R13",se_ratio_ci_upper,1.036997400554732
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, P-R13",coverage,0.951
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, P-R13",passed,True
+lmtp_ltmle,statistic,"crossfit_overfitting/cross_fitted_ltmle, P-R13",property_passed,True
+lmtp_ltmle,verdict,"crossfit_overfitting/cross_fitted_ltmle, P-R13",passed,True
+lmtp_ltmle,verdict_change,"crossfit_overfitting/cross_fitted_ltmle, code axis at R11",changed,True
+lmtp_ltmle,verdict_change,"crossfit_overfitting/cross_fitted_ltmle, code axis at R13",changed,True
+lmtp_ltmle,verdict_change,"crossfit_overfitting/cross_fitted_ltmle, runtime axis at F",changed,False
+lmtp_ltmle,verdict_change,"crossfit_overfitting/cross_fitted_ltmle, runtime axis at P",changed,False
+lmtp_ltmle,reading,crossfit_overfitting/cross_fitted_ltmle,reading,code
+lmtp_ltmle,statistic,"crossfit_overfitting/in_sample_control, F-R11",se_ratio,0.3531926015735226
+lmtp_ltmle,statistic,"crossfit_overfitting/in_sample_control, F-R11",coverage,0.508125
+lmtp_ltmle,statistic,"crossfit_overfitting/in_sample_control, F-R11",passed,True
+lmtp_ltmle,statistic,"crossfit_overfitting/in_sample_control, F-R11",property_passed,False
+lmtp_ltmle,verdict,"crossfit_overfitting/in_sample_control, F-R11",passed,True
+lmtp_ltmle,statistic,"crossfit_overfitting/in_sample_control, F-R13",se_ratio,0.353196219834799
+lmtp_ltmle,statistic,"crossfit_overfitting/in_sample_control, F-R13",coverage,0.508125
+lmtp_ltmle,statistic,"crossfit_overfitting/in_sample_control, F-R13",passed,True
+lmtp_ltmle,statistic,"crossfit_overfitting/in_sample_control, F-R13",property_passed,False
+lmtp_ltmle,verdict,"crossfit_overfitting/in_sample_control, F-R13",passed,True
+lmtp_ltmle,statistic,"crossfit_overfitting/in_sample_control, P-R11",se_ratio,0.3531926015735226
+lmtp_ltmle,statistic,"crossfit_overfitting/in_sample_control, P-R11",coverage,0.508125
+lmtp_ltmle,statistic,"crossfit_overfitting/in_sample_control, P-R11",passed,True
+lmtp_ltmle,statistic,"crossfit_overfitting/in_sample_control, P-R11",property_passed,True
+lmtp_ltmle,verdict,"crossfit_overfitting/in_sample_control, P-R11",passed,True
+lmtp_ltmle,statistic,"crossfit_overfitting/in_sample_control, P-R13",se_ratio,0.353196219834799
+lmtp_ltmle,statistic,"crossfit_overfitting/in_sample_control, P-R13",coverage,0.508125
+lmtp_ltmle,statistic,"crossfit_overfitting/in_sample_control, P-R13",passed,True
+lmtp_ltmle,statistic,"crossfit_overfitting/in_sample_control, P-R13",property_passed,True
+lmtp_ltmle,verdict,"crossfit_overfitting/in_sample_control, P-R13",passed,True
+lmtp_ltmle,verdict_change,"crossfit_overfitting/in_sample_control, code axis at R11",changed,False
+lmtp_ltmle,verdict_change,"crossfit_overfitting/in_sample_control, code axis at R13",changed,False
+lmtp_ltmle,verdict_change,"crossfit_overfitting/in_sample_control, runtime axis at F",changed,False
+lmtp_ltmle,verdict_change,"crossfit_overfitting/in_sample_control, runtime axis at P",changed,False
+lmtp_ltmle,reading,crossfit_overfitting/in_sample_control,reading,neither
+lmtp_ltmle,control_rows,"F-R11 against 7d5485a, in_sample_control",rows_compared,8000
+lmtp_ltmle,control_rows,"F-R11 against 7d5485a, in_sample_control",rows_only_older,0
+lmtp_ltmle,control_rows,"F-R11 against 7d5485a, in_sample_control",rows_only_newer,0
+lmtp_ltmle,control_rows,"F-R11 against 7d5485a, in_sample_control",max_abs_estimate_change,0.0
+lmtp_ltmle,control_rows,"F-R11 against 7d5485a, in_sample_control",max_abs_std_error_change,0.0
+lmtp_ltmle,control_rows,"F-R11 against 7d5485a, in_sample_control",rows_differing,0
+lmtp_ltmle,control_rows,"F-R11 against 7d5485a, in_sample_control",rows_moved_over_1e-6,0
+lmtp_ltmle,control_rows,"F-R11 against 7d5485a, in_sample_control",covered_flags_changed,0
+lmtp_ltmle,control_rows,"F-R11 against 0e03a15, in_sample_control",rows_compared,8000
+lmtp_ltmle,control_rows,"F-R11 against 0e03a15, in_sample_control",rows_only_older,0
+lmtp_ltmle,control_rows,"F-R11 against 0e03a15, in_sample_control",rows_only_newer,0
+lmtp_ltmle,control_rows,"F-R11 against 0e03a15, in_sample_control",max_abs_estimate_change,0.0019952634856160723
+lmtp_ltmle,control_rows,"F-R11 against 0e03a15, in_sample_control",max_abs_std_error_change,9.854517198589971e-05
+lmtp_ltmle,control_rows,"F-R11 against 0e03a15, in_sample_control",rows_differing,2
+lmtp_ltmle,control_rows,"F-R11 against 0e03a15, in_sample_control",rows_moved_over_1e-6,1
+lmtp_ltmle,control_rows,"F-R11 against 0e03a15, in_sample_control",covered_flags_changed,0
+lmtp_ltmle,control_rows,"F-R13 against 7d5485a, in_sample_control",rows_compared,8000
+lmtp_ltmle,control_rows,"F-R13 against 7d5485a, in_sample_control",rows_only_older,0
+lmtp_ltmle,control_rows,"F-R13 against 7d5485a, in_sample_control",rows_only_newer,0
+lmtp_ltmle,control_rows,"F-R13 against 7d5485a, in_sample_control",max_abs_estimate_change,0.0019952634856160723
+lmtp_ltmle,control_rows,"F-R13 against 7d5485a, in_sample_control",max_abs_std_error_change,9.854517198589971e-05
+lmtp_ltmle,control_rows,"F-R13 against 7d5485a, in_sample_control",rows_differing,2
+lmtp_ltmle,control_rows,"F-R13 against 7d5485a, in_sample_control",rows_moved_over_1e-6,1
+lmtp_ltmle,control_rows,"F-R13 against 7d5485a, in_sample_control",covered_flags_changed,0
+lmtp_ltmle,control_rows,"F-R13 against 0e03a15, in_sample_control",rows_compared,8000
+lmtp_ltmle,control_rows,"F-R13 against 0e03a15, in_sample_control",rows_only_older,0
+lmtp_ltmle,control_rows,"F-R13 against 0e03a15, in_sample_control",rows_only_newer,0
+lmtp_ltmle,control_rows,"F-R13 against 0e03a15, in_sample_control",max_abs_estimate_change,0.0
+lmtp_ltmle,control_rows,"F-R13 against 0e03a15, in_sample_control",max_abs_std_error_change,0.0
+lmtp_ltmle,control_rows,"F-R13 against 0e03a15, in_sample_control",rows_differing,0
+lmtp_ltmle,control_rows,"F-R13 against 0e03a15, in_sample_control",rows_moved_over_1e-6,0
+lmtp_ltmle,control_rows,"F-R13 against 0e03a15, in_sample_control",covered_flags_changed,0
+lmtp_ltmle,control_rows,"P-R11 against 7d5485a, in_sample_control",rows_compared,8000
+lmtp_ltmle,control_rows,"P-R11 against 7d5485a, in_sample_control",rows_only_older,0
+lmtp_ltmle,control_rows,"P-R11 against 7d5485a, in_sample_control",rows_only_newer,0
+lmtp_ltmle,control_rows,"P-R11 against 7d5485a, in_sample_control",max_abs_estimate_change,0.0
+lmtp_ltmle,control_rows,"P-R11 against 7d5485a, in_sample_control",max_abs_std_error_change,0.0
+lmtp_ltmle,control_rows,"P-R11 against 7d5485a, in_sample_control",rows_differing,0
+lmtp_ltmle,control_rows,"P-R11 against 7d5485a, in_sample_control",rows_moved_over_1e-6,0
+lmtp_ltmle,control_rows,"P-R11 against 7d5485a, in_sample_control",covered_flags_changed,0
+lmtp_ltmle,control_rows,"P-R11 against 0e03a15, in_sample_control",rows_compared,8000
+lmtp_ltmle,control_rows,"P-R11 against 0e03a15, in_sample_control",rows_only_older,0
+lmtp_ltmle,control_rows,"P-R11 against 0e03a15, in_sample_control",rows_only_newer,0
+lmtp_ltmle,control_rows,"P-R11 against 0e03a15, in_sample_control",max_abs_estimate_change,0.0019952634856160723
+lmtp_ltmle,control_rows,"P-R11 against 0e03a15, in_sample_control",max_abs_std_error_change,9.854517198589971e-05
+lmtp_ltmle,control_rows,"P-R11 against 0e03a15, in_sample_control",rows_differing,2
+lmtp_ltmle,control_rows,"P-R11 against 0e03a15, in_sample_control",rows_moved_over_1e-6,1
+lmtp_ltmle,control_rows,"P-R11 against 0e03a15, in_sample_control",covered_flags_changed,0
+lmtp_ltmle,control_rows,"P-R13 against 7d5485a, in_sample_control",rows_compared,8000
+lmtp_ltmle,control_rows,"P-R13 against 7d5485a, in_sample_control",rows_only_older,0
+lmtp_ltmle,control_rows,"P-R13 against 7d5485a, in_sample_control",rows_only_newer,0
+lmtp_ltmle,control_rows,"P-R13 against 7d5485a, in_sample_control",max_abs_estimate_change,0.0019952634856160723
+lmtp_ltmle,control_rows,"P-R13 against 7d5485a, in_sample_control",max_abs_std_error_change,9.854517198589971e-05
+lmtp_ltmle,control_rows,"P-R13 against 7d5485a, in_sample_control",rows_differing,2
+lmtp_ltmle,control_rows,"P-R13 against 7d5485a, in_sample_control",rows_moved_over_1e-6,1
+lmtp_ltmle,control_rows,"P-R13 against 7d5485a, in_sample_control",covered_flags_changed,0
+lmtp_ltmle,control_rows,"P-R13 against 0e03a15, in_sample_control",rows_compared,8000
+lmtp_ltmle,control_rows,"P-R13 against 0e03a15, in_sample_control",rows_only_older,0
+lmtp_ltmle,control_rows,"P-R13 against 0e03a15, in_sample_control",rows_only_newer,0
+lmtp_ltmle,control_rows,"P-R13 against 0e03a15, in_sample_control",max_abs_estimate_change,0.0
+lmtp_ltmle,control_rows,"P-R13 against 0e03a15, in_sample_control",max_abs_std_error_change,0.0
+lmtp_ltmle,control_rows,"P-R13 against 0e03a15, in_sample_control",rows_differing,0
+lmtp_ltmle,control_rows,"P-R13 against 0e03a15, in_sample_control",rows_moved_over_1e-6,0
+lmtp_ltmle,control_rows,"P-R13 against 0e03a15, in_sample_control",covered_flags_changed,0
