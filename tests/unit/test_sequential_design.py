@@ -23,6 +23,7 @@ Verified by mutation: changing ``design = data.covariate_history(time)`` to
 from __future__ import annotations
 
 import dataclasses
+import warnings
 from typing import Any
 
 import numpy as np
@@ -193,37 +194,49 @@ def _crossfit_result(frame: pd.DataFrame) -> Any:
 
 
 def test_each_row_uses_one_complete_outer_training_recursion() -> None:
-    """A held-out outcome cannot alter any prediction used for its own row."""
+    """A held-out outcome cannot alter any initial prediction used for its own row.
+
+    The row is a follower of the regimen through the horizon, so its outcome enters the
+    other folds' regressions and the pooled fluctuation.  The witness is that the flip
+    moves the pooled ``epsilon`` at the horizon.  The claim is that it moves no initial
+    prediction at that row, at any node: fold isolation belongs to the untargeted fold
+    recursions.  The targeted value at the row moves through the one pooled ``epsilon``
+    per node, which the cross-fitted construction fits over every follower by design.
+    """
     frame = panel()
-    row = int(np.flatnonzero(frame["Y"].notna().to_numpy())[0])
+    data = LongitudinalData.from_frame(frame, **COLUMNS)
+    followers = data.regimen_masks(np.zeros((data.n, data.n_times))).following(data.n_times)
+    row = int(np.flatnonzero(followers & frame["Y"].notna().to_numpy())[0])
     original = _crossfit_result(frame)
     changed = frame.copy()
     changed.loc[row, "Y"] = 1.0 - changed.loc[row, "Y"]
     perturbed = _crossfit_result(changed)
 
     np.testing.assert_array_equal(original.folds.assignment, perturbed.folds.assignment)
-    for left, right in zip(
-        original.fits["never"].steps, perturbed.fits["never"].steps, strict=True
-    ):
+    left_steps = original.fits["never"].steps
+    right_steps = perturbed.fits["never"].steps
+    assert (
+        abs(
+            float(left_steps[-1].fluctuation.epsilon[0])
+            - float(right_steps[-1].fluctuation.epsilon[0])
+        )
+        > 1e-6
+    )
+    for left, right in zip(left_steps, right_steps, strict=True):
         assert left.initial[row] == right.initial[row]
-        assert left.targeted[row] == right.targeted[row]
+        assert left.regression_target is not None and right.regression_target is not None
+        if left.time < data.n_times:
+            assert left.regression_target[row] == right.regression_target[row]
 
 
-def test_a_fold_that_does_not_converge_is_reported_once_per_regimen() -> None:
-    """The per-fold solves are silenced, so something has to speak for them.
+def test_a_pooled_node_that_does_not_converge_is_reported_on_the_fit() -> None:
+    """The pooled solve speaks for itself, once per node, as a single-fold solve does.
 
-    Each outer solve runs with ``warn=False``: ten folds at ten nodes would otherwise emit
-    a hundred warnings for one problem. The cost of silencing them is that a fit could
-    fail in three folds of ten and say nothing, and the stitched score cannot betray it --
-    that score is a nonzero residual on a perfectly healthy fit, so there is no threshold
-    it crosses. The aggregated warning is the only channel left, which is why it is tested
-    rather than assumed.
-
-    One warning per regimen and not one per fold, because that is the count a reader can
-    act on. The message has to name the nodes, since which node failed is what decides
-    whether the fit is salvageable.
+    Before the pooled construction, each outer fold solved with ``warn=False`` and one
+    aggregated warning spoke for them.  Now a cross-fitted node runs one solve, with its
+    own warning, and ``converged`` on the step and on the fit reads that solve.  The fold
+    warning stays silent because no fold solved anything.
     """
-    from cleverly.exceptions import ConvergenceWarning
     from cleverly.longitudinal import sequential
 
     original = sequential.solve_fluctuation
@@ -235,26 +248,27 @@ def test_a_fold_that_does_not_converge_is_reported_once_per_regimen() -> None:
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(sequential, "solve_fluctuation", never_converges)
-        with pytest.warns(ConvergenceWarning, match="outer-fold targeting solve") as caught:
-            _crossfit_result(panel())
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = _crossfit_result(panel())
 
-    # One regimen, two nodes, two folds: four failed solves, named once.
-    assert len(caught) == 1
-    message = str(caught[0].message)
-    assert "4 outer-fold targeting solve(s) did not converge" in message
-    assert "'never'" in message
-    assert "[1, 2]" in message
-    assert "max_iter_reached" in message
+    assert not any("outer-fold targeting solve" in str(item.message) for item in caught)
+    fit = result.fits["never"]
+    assert [step.fluctuation.converged for step in fit.steps] == [False, False]
+    assert [step.fluctuation.failure for step in fit.steps] == ["max_iter_reached"] * 2
+    assert not fit.converged
+    assert not result.converged
 
 
 def test_fold_artifacts_cover_each_row_and_match_the_stitched_mechanism() -> None:
-    """The public fold record identifies every held-out prediction and update."""
+    """One pooled solve per node, and fold slabs whose held-out rows are the OOF mechanism."""
     result = _crossfit_result(panel())
     fit = result.fits["never"]
     for step in fit.steps:
-        indices = np.concatenate([record.index for record in step.fluctuation.folds])
-        np.testing.assert_array_equal(np.sort(indices), np.arange(result.n))
-        assert step.fluctuation.n_solver_calls == result.folds.n_folds
+        assert step.fluctuation.folds == ()
+        assert step.fluctuation.n_solver_calls == 1
+        assert step.regression_target is not None
+        assert np.isfinite(step.initial).all()
 
     for time, node in enumerate(result.mechanism.treatment):
         slabs = result.mechanism.treatment_by_fold[time]["never"]

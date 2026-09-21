@@ -108,6 +108,11 @@ class Regimen:
 class DynamicRegimen:
     """A plan whose nodes may be *rules* rather than constants.
 
+    For theorem-backed inference, every callable is a prespecified rowwise map of one
+    unit's available history. A rule may not estimate a threshold or otherwise aggregate
+    across the supplied sample. Such a data-adaptive policy is a different estimand whose
+    extra estimation step is not represented in the reported influence curve.
+
     Attributes
     ----------
     label:
@@ -143,7 +148,9 @@ class DynamicRegimen:
         Evaluating it once rather than at each use is not only cheaper: a rule that is
         not a deterministic function of the frame would otherwise let the follower masks
         disagree with the designs the mechanism was evaluated at, and the fit would be
-        answering for no single regimen at all.
+        answering for no single regimen at all. The callable receives a frame for ergonomic
+        vectorization, but its supported contract is rowwise: it must not read sample summaries
+        or learn a rule from those rows.
 
         A rule is asked for an arm on every row that is still *in the study* before the
         node -- uncensored through ``t - 1``, and on a survival fit event-free through

@@ -4,6 +4,9 @@
 
 `LongitudinalTreatment` aligns treatment nodes, time-varying histories, censoring indicators, and
 outcome processes. At treatment node `t`, a dynamic rule sees only history available by `t`.
+For the reported influence-curve inference, the rule must be fixed before the fit and rowwise. A
+callable may vectorize over the history frame, but it must not estimate a threshold from the
+sample or otherwise make one row's assignment depend on other rows.
 
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -33,20 +36,22 @@ result = study.estimate(
 ```
 
 The resolved regimen matrix is shared by nuisance fitting, follower masks, targeting, and report
-keys. A regimen cannot look ahead or change interpretation between stages.
+keys. A regimen cannot look ahead or change interpretation between stages. An empirically learned
+policy needs inference for the policy-learning step and is outside this estimator's contract.
 
-With `n_folds > 1`, each outer training fold runs the complete backward recursion. The fit stores
-the realized assignment in `result.folds`. Each sequential step stores its targeting details in
-`step.fluctuation.folds`.
+With `n_folds > 1`, each outer training fold runs an untargeted backward regression sequence. One
+pooled fluctuation per node then targets the out-of-fold predictions over every follower. The fit
+stores the realized assignment in `result.folds`.
+[Cross-fitting the recursion](../technical-reference/longitudinal-tmle.md#cross-fitting-the-recursion)
+gives the steps and the published result they follow.
 
-Each fold targets on its own training rows, so the fit does not drive the pooled score equation to
-zero. `res.diagnostics.score_equations()` reports one row for the per-fold solves and one for the
-stitched residual.
+Each node's fluctuation solves its score over every follower, as on a single-fold fit.
+`res.diagnostics.score_equations()` reports one `solver` row per node.
 
-One repeated-sampling study observed standard-error ratios from 1.0170 to 1.1007 at `n=2000`.
-Those results apply only to the named `make_longitudinal` law and estimator settings. They do not
-establish conservative variance for other laws, weights, clusters, survival outcomes, or sample
-sizes.
+The [cross-fitted end-of-study study](../technical-reference/method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md)
+measured standard-error ratios from 0.9797 to 1.0130 over 1,600 replications at `n=2000`. Those
+results apply only to that study's law and estimator settings. They do not establish calibrated
+variance for other laws, weights, clusters, survival outcomes, or sample sizes.
 
 ## Survival outcomes
 
@@ -154,3 +159,16 @@ every result, including the assessment cache and the capability rows a restored 
 `tests/unit/test_serialization.py`'s
 `test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment` checks the round trip
 against one cross-fitted, weighted, censored fit.
+
+### Fits from before the pooled fluctuation
+
+Earlier versions fluctuated each outer fold on its own training rows. This version fits one pooled
+fluctuation per node instead. The change applies to every fit with `n_folds > 1`, and the default
+is 10. The same data and seed now give a different estimate and a different standard error. A fit
+with `n_folds=1` keeps its construction.
+
+| what you kept | what this version does |
+| --- | --- |
+| a cross-fitted fit saved before the change | loads it. `score_equations()` still reports its `stitching` rows, and each `solver` row reads the worst fold |
+| the truncation curve of that saved fit | refuses it as `longitudinal_replay_fitted_bound_mismatch`, because the replay runs the pooled fluctuation and cannot reproduce the saved estimate. `run_all()` reports the row as unavailable |
+| a `run_all()` report cached in a saved result | ignores it and computes the report again. The `diagnostics.run_all` cache generation moved from 9 to 10 in `src/cleverly/_assessment_cache.py` |

@@ -27,13 +27,19 @@ red for the first time, across five of those studies. Every cell that was alread
 RM18 carries both sets. Each affected study publishes its red cell and that cell's interval under a
 `reporting` policy, so no verdict is hidden and no margin moved.
 
+The pooled longitudinal update then replaced the fold-local one. The regeneration recorded a
+green end-of-study overfitting cell and two newly red weighted-longitudinal cells. It also moved
+from Python 3.11.13 and SciPy 1.17.1 to Python 3.13.7 and SciPy 1.18.0, so the before-and-after
+rows alone do not attribute those changes to the estimator. RM18 records both results and the
+runtime confounding.
+
 The 2026-09-13 review of the example notebooks exposed RM11 to RM16. These rows correct defects in
 shipped estimators, diagnostics, and messages. Each detail section names its source evidence and
 the probe that measured it.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Red property cells after the fold, scale and law changes | derive the missing selector-path and generated-design results, settle the fold-local longitudinal targeting question, and publish each red cell with its interval until then | six property cells across five registered studies go red for the first time in this pull request, and the cells that were already red stay red | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
+| 0.1 | Red property cells after the fold, scale and law changes | derive the missing selector-path and generated-design results, and publish each red cell with its interval until then | four of the six property cells that went red after the fold, scale and law changes are still red, across three registered studies, and the cells that were already red stay red. The pooled-code, new-runtime regeneration recorded a green end-of-study cell and two newly red weighted longitudinal cells; it does not isolate the cause | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
 | 0.2 | Sensitivity bounds outside their derivation | refuse every omitted-variable operation on DR-TMLE, C-TMLE, and missing-outcome fits, refuse the standardized E-value conversion on missing-outcome fits, and correct the refusal messages for the other parameter axes | the bound runs where no derivation covers it, and on DR-TMLE and C-TMLE fits it understates the bias | [RM11](#rm11-sensitivity-bounds-outside-their-derivation) |
 | 0.3 | Collaborative intervals at an inconsistent working mechanism | label every collaborative interval in its output, and correct the path-risk docstrings | the curve at an intercept-only working mechanism gives a standard-error ratio of 0.844 and a coverage of 0.92 over 300 draws | [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism) |
 | 0.4 | Estimated MSM projection weights | require a declaration that a projection weight is known, and refuse an estimated weight before the fit | a callable that closes over estimated weights fits without a message and reports a standard error that is too small | [RM13](#rm13-estimated-msm-projection-weights) |
@@ -46,7 +52,7 @@ criteria separate inside its group.
 
 | delivery group | items | shared boundary |
 | --- | --- | --- |
-| red property cells | RM18, and the F18, F19 and F24 derivations it waits on | one decision about what a failing positive cell is evidence of, and three derivations that would close it |
+| red property cells | RM18, and the F18 and F19 derivations it waits on | one decision about what a failing positive cell is evidence of, and two derivations that would close it |
 | sensitivity refusals | RM11 and the F5 refusal boundary | one capability route and one family of derivation messages |
 | collaborative inference | RM12 and the F18 audit | one decision about the selected working mechanism and selector |
 | pre-fit declarations | RM13 and RM14 | refuse unsupported requests before any nuisance fit |
@@ -124,7 +130,6 @@ the missing result. Package code and a related estimator do not remove the stop.
 | MNAR and incremental-intermediate compositions | identification and influence-function results for the exact compositions | point-treatment sensitivity and implemented interventions remain separate | [F6](#f6-mnar-and-incremental-intermediate-compositions) |
 | Joint point-treatment parameter axes | a targeting and inference result for one fit that carries an MSM projection together with a regime, shift, or incremental intervention, including its joint score and covariance | single-axis point-treatment fits only | [F17](#f17-joint-point-treatment-parameter-axes) |
 | Time-respecting cross-fitting | dependence and split-specific TMLE inference for blocked-temporal or rolling-origin folds | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
-| Fold-local targeting of the longitudinal recursion | a weak-convergence result for a fluctuation fitted inside each training fold of a sequential regression | the published theorem certifies a pooled all-row fluctuation, and the shipped cross-fitted longitudinal TMLE fits each fold's fluctuation on that fold's training rows | [F24](#f24-fold-local-targeting-of-the-longitudinal-recursion) |
 
 ## Eligibility
 
@@ -134,6 +139,25 @@ covers the estimand and requested inference regime. A new estimator or compositi
 identified parameter, its influence function, the targeting or estimating equations, and the
 remainder and rate conditions needed for the claimed interval. If one is absent, the item is to
 locate published theory, not create it here.
+
+One exception applies. A trivial or natural extension of a published derivation can close the gap.
+Such an extension needs no new fundamental proof. It must satisfy every condition in the table
+below.
+
+| condition | what it requires |
+| --- | --- |
+| a published base | the extension starts from one published result, and it cites that result's exact locator |
+| an established argument | each step reuses the base result's own argument, or a standard result such as linearity, the delta method, a fixed-dimension stack by Cramér–Wold, or the chain rule for influence functions |
+| no new fundamental proof | no step needs a new kind of limit theorem, and no source records a step as open or as a defect |
+| inherited conditions | the remainder and rate conditions carry over from the base result, and the contract states each one |
+| a written record | the item's contract states the base result, each step, and the argument that carries it |
+| its own evidence | the extension has a registered study, and each step that can vanish at the truth has a nonzero witness |
+
+An extension that fails one condition is new theory. It stays in the future investigations grid.
+Three examples fail. A data-adaptive selection step has no established argument. A fold-local
+update replaces a pooled one, and upstream `lmtp` commit `9996b04` records its training-fold update
+as a bug. A growing target
+dimension needs a new kind of limit theorem.
 
 A canonical public implementation is valuable provenance for control flow, data layout, and named
 conventions, but it is not acceptance evidence by itself. Where code and paper disagree, the
@@ -466,13 +490,14 @@ re-declaring a positive cell's law, learner or size after seeing its verdict.
 | [selector-based multi-arm C-TMLE](technical-reference/method-evidence/selector-based-multi-arm-c-tmle.md) | `root_n_and_efficiency/n_500`, positive | exact 99% coverage lower endpoint | 0.9057 | 0.8965 | the endpoint against the 0.90 floor. Coverage itself moved 0.9425 to 0.9350 | not isolated. One covered replication of 400 separates the two endpoints |
 | [DR-TMLE for binary complete data](technical-reference/method-evidence/canonical-dr-tmle.md) | `double_robust_contraction/rate_outcome_correct`, positive | 99% contraction-slope interval | -3.52 to -0.06 | -3.04 to +0.12 at the regeneration, and -1.5345 to -0.4823 in the committed artifact | the interval must stay below zero | not isolated. The arm's bias is 0.0036 at the first rung. A declared rung design now resolves this cell, and "What the two readings found" gives its interval |
 | [multi-arm point-treatment DR-TMLE](technical-reference/method-evidence/multi-arm-dr-tmle.md) | `root_n_and_efficiency/n_500`, positive | exact 99% coverage lower endpoint | 0.9087 | 0.8965 | the endpoint against the 0.90 floor. Coverage itself moved 0.9450 to 0.9350 | not isolated. The same cell and the same new endpoint as the multi-arm selector row above |
-| [cross-fitted end-of-study longitudinal TMLE](technical-reference/method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md) | `crossfit_overfitting/cross_fitted_ltmle`, positive | reported SE over empirical SD | 1.172522, 99% upper 1.196518 | 1.176650, 99% upper 1.201555 | the shared `se_ratio_sanity` ceiling of 1.2000, exceeded by 0.001555 | the external 2x2 report attributes the move to the fold policy alone |
+| [cross-fitted end-of-study longitudinal TMLE](technical-reference/method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md) | `crossfit_overfitting/cross_fitted_ltmle`, positive | reported SE over empirical SD | 1.172522, 99% upper 1.196518 | 1.176650, 99% upper 1.201555 | the shared `se_ratio_sanity` ceiling of 1.2000, exceeded by 0.001555 | the external 2x2 report attributes the move to the fold policy alone. The pooled update resolves the cell at 1.016107, with a 99% interval from 0.996092 to 1.036997. "What the pooled update found" gives the numbers |
 
 Two of those rows carry a second cell with them. `selector_necessity/empty_control` passes its own
 control rule, and it is red through the family's joint clause.
-`crossfit_overfitting/in_sample_control` passes its own rule at a standard-error ratio of 0.353193
-against a 0.75 ceiling, and the pair's coverage gain passes at a 99% lower endpoint of 0.453375
-against a 0.15 floor. Both families are red because their positive arm is.
+`crossfit_overfitting/in_sample_control` passed its own rule at a standard-error ratio of 0.353193
+against a 0.75 ceiling, and the pair's coverage gain passed at a 99% lower endpoint of 0.453375
+against a 0.15 floor. Both families were red because their positive arm was. The selector family
+is still red. The overfitting family is green under the pooled update.
 
 #### The cells that were red before it
 
@@ -483,7 +508,7 @@ against a 0.15 floor. Both families are red because their positive arm is.
 | the same study | `interval_calibration/correctly_specified` | still red |
 | the same study | `type_i_error/sharp_null` | 0.0700 to 0.0625, whose 99% upper endpoint is 0.1004 against the 0.10 ceiling. Still red, and closer |
 | [outcome-adaptive multi-arm C-TMLE](technical-reference/method-evidence/outcome-adaptive-multi-arm-c-tmle.md) | the `generated_design` pair | still red. The oracle interval runs 0.9797 to 1.1151, and the paired deficit runs -0.0240 to 0.0016 |
-| [cross-fitted weighted end-of-study longitudinal TMLE](technical-reference/method-evidence/cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | `double_robustness/static__both_wrong`, a control | still red. Its standardized bias moved -0.2983 to -0.2988 |
+| [cross-fitted weighted end-of-study longitudinal TMLE](technical-reference/method-evidence/cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | `double_robustness/static__both_wrong`, a control | still red. Its standardized bias moved -0.2983 to -0.2988, and to -0.3008 under the pooled update |
 
 #### What each attribution rests on
 
@@ -542,34 +567,159 @@ statistic and does not gate on it (`tests/studies/ctmle_selector_properties.py`)
 | `selector_necessity/collaborative`, `selector_necessity/empty_control`, and the standard-error ratio reversal | [F18](#f18-selector-path-c-tmle-inference). No result derives an influence curve after the shipped stopping-index selection. The population one-step remainder is exactly zero at the nuisance limits on both laws, so the residual is the selector's stopping behaviour rather than a nuisance rate |
 | the same reversal, again | [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism). The registered row and RM12's own probe now point the same way, so RM12's labelling work covers this study's reported interval |
 | the `generated_design` pair | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference). The paired standard-error deficit under an estimated outcome regression has no derivation |
-| `crossfit_overfitting/cross_fitted_ltmle` | [F24](#f24-fold-local-targeting-of-the-longitudinal-recursion). No source read here certifies a fluctuation fitted inside each training fold. The fold-local longitudinal targeting question below states what the cell measures |
+| `crossfit_overfitting/cross_fitted_ltmle` | closed. The pooled update implements the construction that Theorem 3 of Díaz, Williams, Hoffman and Schenck (2023) certifies, and the cell passes. "What the pooled update found" gives the numbers |
+| the two weighted longitudinal cells newly red in the pooled-code, new-runtime regeneration | none identified. The attribution is not isolated. "What the pooled update found" gives each value, interval and margin |
 
 #### The fold-local longitudinal targeting question
 
-This question had no item of its own, and the retired RM17 row held it.
-[F24](#f24-fold-local-targeting-of-the-longitudinal-recursion) now carries its contract, its
-sources and its four remediation options. RM18 keeps the measured cell.
+This question had no item of its own. The retired RM17 row held it, and the retired F24 row then
+carried its contract. The pooled update below settles it.
 
 Díaz, Williams, Hoffman and Schenck (2023), Section 5.2 and Theorem 3, define a random
-near-balanced row partition for a longitudinal TMLE, and the package now draws exactly that
-partition. The theorem's targeting construction is a pooled all-row fluctuation after nuisance
-prediction. The shipped estimator instead fits fold `k`'s epsilon on fold `k`'s training rows
-(`src/cleverly/longitudinal/sequential.py:51-56`, `:1377-1412`, `:919`), as the authors' own `lmtp`
-1.5.4 does.
-
-Upstream commit
+near-balanced row partition for a longitudinal TMLE. The theorem's targeting construction is one
+pooled all-row fluctuation per node after untargeted fold regressions. Before the change, the
+package fitted fold `k`'s epsilon on fold `k`'s training rows, as the authors' own `lmtp` 1.5.4
+does. Upstream commit
 [`9996b04`](https://github.com/nt-williams/lmtp/commit/9996b04dcbb3ae0b1ef8862097c36d95e9f2fcf9)
 calls that behavior a bug because the EIF was not mean zero. It now fits the fluctuation on
-validation rows, which the forthcoming 1.5.5 release records. The point-treatment
-`targeting_scheme="fold"` variant also fits its epsilon on validation rows
-(`src/cleverly/estimators/tmle.py:3033-3050`). Training-fold and validation-fold updates are
-different departures from a pooled update. Theorem 3 certifies neither one.
+validation rows, which the forthcoming 1.5.5 release records. Theorem 3 certifies neither
+fold-local update.
 
-The end-of-study cell above is where that gap shows as a number. One reading is that a fold-local
-update leaves a stitched score. That score would be a mean-zero residual rather than a solved
+The end-of-study overfitting cell was where that gap showed as a number. One reading was that a
+fold-local update leaves a stitched score. That score is a mean-zero residual rather than a solved
 equation, so the reported standard error would run above the sampling spread. No result read here
-establishes that reading. The remediation is one of F24's four options. It is not a larger
-budget.
+established that reading.
+
+Four routes could close the question. They are a theorem for the fold-local update, a
+validation-fold update with its own result, the pooled update, and the SDR estimator of
+[X4](#x4-sequential-doubly-robust-longitudinal-estimation). The pooled update is the one route
+with a published result for the shipped plug-in estimator, so this row took it. The
+[cross-fitting section](technical-reference/longitudinal-tmle.md#cross-fitting-the-recursion) of
+the technical reference holds its contract, its locators, and the natural extensions it carries.
+
+#### The pooled update, declared before it runs
+
+This subsection declares the pooled update and the rule that publishes its studies. It precedes
+every regeneration of those studies.
+
+The cross-fitted per-regimen fit now follows Section 5.2, Steps 1 to 4, of Díaz, Williams, Hoffman
+and Schenck (2023). Those steps are on journal pages 852 and 853. The functions
+`_fit_regimen_crossfit` and `_pooled_targeting` in `src/cleverly/longitudinal/sequential.py`
+implement them.
+
+| part | what the fit does |
+| --- | --- |
+| fold regressions | each outer fold runs an untargeted backward regression sequence on its training rows |
+| stitching | the held-out predictions of the folds form one out-of-fold initial estimate per node |
+| pooled fluctuation | one fluctuation per node, from the horizon back to node 1, targets the stitched estimate over every follower |
+| loss weight | the observation weight times the inverse of the out-of-fold cumulative mechanism |
+| one fold | `n_folds=1` keeps the canonical single-fold path, which carries each targeted prediction back |
+
+Theorem 3, on journal page 853, states the result for this construction. Its proof in the
+supplement conditions on each fold's initial nuisance fit being fixed given its training rows;
+the pooled coefficients depend on the full sample and are handled as a low-dimensional class.
+That condition covers untargeted fold regressions followed by one pooled fluctuation per node. It
+does not cover a pooled epsilon carried back into later fold regressions.
+`tests/unit/test_pooled_longitudinal_targeting.py`
+checks each part of the table against a longhand recomputation.
+
+The change moves five registered studies, so each one regenerates.
+
+| study | artifacts | publication policy before the run |
+| --- | --- | --- |
+| `canonical-ltmle-crossfit` | `tests/canonical/lmtp_ltmle` | `reporting` |
+| `weighted-ltmle-crossfit` | `tests/canonical/weighted_lmtp_ltmle` | `reporting` |
+| `canonical-categorical-ltmle-crossfit` | `tests/canonical/categorical_ltmle_crossfit` | `gated` |
+| `canonical-ltmle-survival-crossfit` | `tests/canonical/lmtp_ltmle_survival` | `gated` |
+| `canonical-ltmle-competing-crossfit` | `tests/canonical/lmtp_ltmle_competing_crossfit` | `gated` |
+
+Each study compares with `lmtp` 1.5.4, and its manifest records that version. That comparator
+runs a training-fold fluctuation and carries its targeted prediction into the fold's next
+regression. After the change, the paired comparison therefore reads two different constructions.
+Each paired margin stays as registered.
+
+The run follows one declared rule.
+
+| item | rule |
+| --- | --- |
+| margins, budgets, laws, learners, sizes, cells and seeds | unchanged in every study |
+| publication as `gated` | only when every independent, paired and property verdict of the study passes |
+| publication as `reporting` | when any verdict fails. RM18 names each failed cell |
+| `crossfit_overfitting/cross_fitted_ltmle` | read at its registered 8,000 draws against the unchanged 1.20 ceiling |
+| the published result | what the run produces, whichever way each verdict falls |
+
+A timing probe runs before the regeneration. It sizes the run and reads no verdict.
+
+#### What the pooled update found
+
+The five studies regenerated once, under the rule the subsection above declared. Each publishes
+what it produced. The values below come from each study's committed `properties.csv` and
+`equivalence.csv`, against the rows they replaced.
+
+| study | policy | property cells | paired comparisons |
+| --- | --- | --- | --- |
+| `canonical-ltmle-crossfit` | `reporting`, as declared | 32 of 32, against 30 before | 5 of 5 |
+| `weighted-ltmle-crossfit` | `reporting`, as declared | 34 of 36, against 35 before | 2 of 5, against 3 before |
+| `canonical-categorical-ltmle-crossfit` | `gated` | 36 of 36 | 9 of 9 |
+| `canonical-ltmle-survival-crossfit` | `gated` | 52 of 52 | 8 of 8 |
+| `canonical-ltmle-competing-crossfit` | `gated` | 38 of 38 | 16 of 16 |
+
+The three gated studies pass every verdict, so each keeps `gated`. The end-of-study study now passes
+every verdict too. The declared rule makes `reporting` mandatory only when a verdict fails, and it
+does not move a study to `gated`. That study therefore keeps the `reporting` policy the registry
+declares, and a move to `gated` is a separate registry decision.
+
+The overfitting cell moved in each of the four studies that carry it. It is read at the registered
+draws against the unchanged 1.20 ceiling.
+
+| study | cross-fitted SE ratio before | after, with its 99% interval | coverage before and after |
+| --- | --- | --- | --- |
+| end-of-study | 1.176650, upper 1.201555 | 1.016107, from 0.996092 to 1.036997 | 0.976000 to 0.951000 |
+| survival curve | 1.102157 | 0.983738, from 0.963806 to 1.003666 | 0.967250 to 0.943000 |
+| competing risks | 1.092332 | 0.987990, from 0.968219 to 1.009389 | 0.964625 to 0.946000 |
+| categorical, at 40,000 draws | 1.179559 | 0.982141, from 0.973370 to 0.991073 | 0.976825 to 0.942225 |
+
+All four reported standard-error ratios are lower and near one in the pooled-code regeneration.
+That is the direction the stitched-score reading in the fold-local targeting question above
+predicted. The runtime changed at the same time, so this run does not isolate that mechanism.
+
+Two cells of the weighted study are newly red. Neither attribution is isolated. They appeared in
+the pooled-code, new-runtime regeneration, and no controlled run separates a cause.
+
+| cell | statistic | before | after | margin |
+| --- | --- | --- | --- | --- |
+| `interval_calibration/static__correctly_specified`, positive | empirical efficiency ratio, 99% interval | 1.053468, from 1.013022 to 1.092339 | 1.060724, from 1.019495 to 1.100601 | the band upper edge of 1.10, exceeded by 0.000601 |
+| paired `ey_regimen[never]` | coverage difference, 99% lower endpoint | -0.00875, lower -0.01875, equivalent | -0.0175, lower -0.030, underpowered | the non-inferiority margin of -0.025 |
+
+The paired mean difference on `ey_regimen[never]` stays small, at -0.000043 against a margin of
+0.004659. The failure is in coverage. `cleverly` covers 0.93125 of draws, and the unchanged `lmtp`
+rows cover 0.94875 with a native standard-error ratio of 1.0316. The paired `ey_regimen[always]`
+and `ey_regimen[treat then continue if l2 positive]` comparisons concluded underpowered before the
+change too, and they still do. The study publishes both cells
+under the `reporting` policy it declared before the run. Its
+[evidence page](technical-reference/method-evidence/cross-fitted-weighted-end-of-study-longitudinal-tmle.md)
+gives the complete tables.
+
+The paired comparator now reads a different construction. On the competing-risk study the two
+implementations had agreed to within 2e-9 on every paired mean. The largest paired mean difference
+is now -0.000195, for `cif_regimen[continue_if_l2, relapse @ t=2]`, against a margin of 0.004029.
+No paired verdict changed on the end-of-study, survival-curve, competing-risk or categorical study.
+
+The single-fold control rows moved on three studies. The in-sample control has no outer split, and
+the change does not touch its code path.
+
+| study | control rows that differ from the committed rows | largest change in the estimate | largest change in the standard error |
+| --- | --- | --- | --- |
+| end-of-study | 2 of 8,000 | 0.002 | 0.0001 |
+| survival curve | 4 of 8,000 | 0.003 | 0.0001 |
+| competing risks | 5 of 8,000 | 0.003 | 0.0002 |
+| categorical | 0 of 40,000 | none | none |
+
+No covered flag changed. A refit of two differing end-of-study rows under the source of the
+previous commit reproduces the new values, not the committed ones. The committed rows therefore
+came from a different environment, and the manifests record one. The rows they replaced were
+generated under Python 3.11.13 and SciPy 1.17.1. The new rows ran under Python 3.13.7 and SciPy
+1.18.0. The end-of-study control ratio moved in the sixth decimal, from 0.353193 to 0.353196.
 
 #### What this row asks for
 
@@ -577,7 +727,7 @@ budget.
 | --- | --- |
 | an inference result for the shipped selector path | an influence curve derived after the stopping-index selection, and a registered study whose `selector_necessity` and `type_i_error` cells pass their existing margins at their existing budgets |
 | an inference result for the generated-design deficit | a derivation of the paired standard-error deficit under an estimated outcome regression, and the `generated_design` pair passing at its existing budget |
-| a targeting result for the fold-local longitudinal recursion | a theorem for the shipped update, a validation-fold update, a pooled update, or the SDR estimator of [X4](#x4-sequential-doubly-robust-longitudinal-estimation). The selected route needs registered evidence, and `crossfit_overfitting/cross_fitted_ltmle` must sit inside the shared `se_ratio_sanity` ceiling at 8,000 draws. [F24](#f24-fold-local-targeting-of-the-longitudinal-recursion) states what each option needs |
+| a targeting result for the fold-local longitudinal recursion | delivered by the pooled route. The package now implements Section 5.2, Steps 1 to 4, which Theorem 3 certifies. `crossfit_overfitting/cross_fitted_ltmle` sits inside the shared ceiling at 8,000 draws, with a 99% interval from 0.996092 to 1.036997. "What the pooled update found" gives every moved cell, including two weighted cells that went red |
 | a reading of the two `n_500` coverage endpoints | delivered. A registered fold-policy diagnostic reads both endpoints as a boundary resolution. "What the two readings found" gives the numbers |
 | a reading of the DR-TMLE contraction slope | delivered. A declared rung design resolves the slope, and its interval now sits below zero. "What the two readings found" gives the numbers |
 
@@ -766,20 +916,30 @@ The study now passes 19 of 22 property cells, against 18 before. The one verdict
 The first three asks each need a derivation. The [Eligibility](#eligibility) rule asks this
 repository to locate published theory, and not to create it here. A 2026-09-20 source search read
 the sources below and found no result for any of the three. A 2026-09-21 follow-up also checked the
-latest upstream `lmtp` correction. The source audit is complete, but these
-three acceptance rows remain open. The investigation row named below carries each contract.
+latest upstream `lmtp` correction. The pooled update has since closed the third ask. The first two
+acceptance rows remain open, and the investigation row named below carries each contract.
 
 | ask | verdict | where the contract lives |
 | --- | --- | --- |
 | an inference result for the shipped selector path | no published result | [F18](#f18-selector-path-c-tmle-inference) |
 | an inference result for the generated-design deficit | a proved binary scalar result, and no result for the shipped construction | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) |
-| a targeting result for the fold-local longitudinal recursion | no result for the shipped update | [F24](#f24-fold-local-targeting-of-the-longitudinal-recursion) |
+| a targeting result for the fold-local longitudinal recursion | no result for the fold-local update. Theorem 3 certifies the pooled update, which now ships | the [cross-fitting section](technical-reference/longitudinal-tmle.md#cross-fitting-the-recursion) of the technical reference |
 
 | ask | sources read, and their exact limits |
 | --- | --- |
 | the shipped selector path | van der Laan and Gruber (2010), *IJB* 6(1), DOI 10.2202/1557-4679.1181: Theorem 4 assumes the expansion that defines the adaptive-mechanism contribution, and Section 4.3 records cross-validation over-selection as an open irregularity. Gruber and van der Laan (2010), *IJB* 6(1), DOI 10.2202/1557-4679.1182, apply the method and state no post-selection inference result. Ju, Chambaz and van der Laan (2018), arXiv:1804.00102: Theorem 1 permits an extra contribution along a twice-differentiable continuous nuisance path for a binary scalar target, and Lemma 2 zeroes it in a correct-outcome product-rate regime. A discrete stopping index is not a differentiable path. Ju et al. (2019), *SMMR* 28(6), DOI 10.1177/0962280217729845, Section 7.4, forms intervals from the ordinary EIF, which is the fixed-candidate curve. Adaptive debiased machine learning, arXiv:2307.12544v2, is the closest positive route, and it needs the working model to approximate a fixed, nonrandom oracle model. Nobody has proved that for a global depth chosen from nested targeted-loss folds. Leeb and Pötscher (2006, *AoS* 34(5); 2008, *ET* 24(2)), Loftus (arXiv:1511.08866), and Markovic, Xia and Taylor (arXiv:1703.06559) supply no transfer, because this selector has no Gaussian quadratic reduction and no randomized or jointly Gaussian criterion-and-target limit. The multi-arm obligation has no published treatment at all |
 | the generated-design deficit | Benkeser, Cai and van der Laan, *Statistical Science* 35(3), DOI 10.1214/19-STS735, preprint arXiv:1901.05056: Theorem 1 proves, for the binary treatment-specific mean, the expansion with the ordinary adaptive-propensity curve and no separate generated-design term. Theorem 1's estimator is a full-sample procedure, and Section 3.1 supplies a cross-validated variance alone. The cross-fitted point estimator appears in Appendix D, where the authors call its proof completely analogous to Zheng and van der Laan (2011) and outline it. Appendix D's binary ATE, which uses both arm predictions with one signed coefficient, is an algorithm with no theorem. No result covers a shared-multinomial vector extension. Four sources do not close it. Ju, Benkeser and van der Laan (2020), *Biometrics* 76(1):109-118, DOI 10.1111/biom.13121, build a different construction, in which outcome information enters through HAL penalty weights. Shortreed and Ertefaie (2017), *Biometrics* 73(4):1111-1122, DOI 10.1111/biom.12679, select variables and prove no inference theorem. Escanciano and Pérez-Izquierdo (2023), arXiv:2301.10643, remove the indirect first-step effect, and the direct effect of learning the generated regressor remains. DOPE, arXiv:2402.12980v2, centers Theorem 4.3 at a data-adaptive target conditional on a representation learned on an independent sample, adds a fixed-target delta-method variance in Proposition 4.4, and leaves the cross-fitted proof open in its appendix |
-| the fold-local longitudinal recursion | Díaz, Williams, Hoffman and Schenck (2023), Section 5.2, Step 3, journal page 852, fits the fluctuation "using all the data points in the sample", and Theorem 3, page 853, certifies that pooled update. Zheng and van der Laan (2011) and Levy (2018), arXiv:1811.04573, both describe the targeting step as a pooled regression over validation folds. Chernozhukov et al. (2018) certifies the cross-fitted orthogonal moment, and not a plug-in of a train-fold-targeted regression. Williams and Díaz (2025), *Observational Studies* 11(3):365-367, correct Assumption 2 and the positivity statement, and say nothing about cross-fitting or targeting. Upstream `lmtp` commit `9996b04` calls its 1.5.4 training-fold fluctuation a bug because the EIF was not mean zero, and it moves the fluctuation to validation rows. [F24](#f24-fold-local-targeting-of-the-longitudinal-recursion) carries the published locators and all four remediation options |
+| the fold-local longitudinal recursion | Díaz, Williams, Hoffman and Schenck (2023), Section 5.2, Step 3, journal page 852, fits the fluctuation "using all the data points in the sample", and Theorem 3, page 853, certifies that pooled update. Zheng and van der Laan (2011) and Levy (2018), arXiv:1811.04573, both describe the targeting step as a pooled regression over validation folds. Chernozhukov et al. (2018) certifies the cross-fitted orthogonal moment, and not a plug-in of a train-fold-targeted regression. Williams and Díaz (2025), *Observational Studies* 11(3):365-367, correct Assumption 2 and the positivity statement, and say nothing about cross-fitting or targeting. Upstream `lmtp` commit `9996b04` calls its 1.5.4 training-fold fluctuation a bug because the EIF was not mean zero, and it moves the fluctuation to validation rows. The [cross-fitting section](technical-reference/longitudinal-tmle.md#cross-fitting-the-recursion) of the technical reference carries the published locators |
+
+On 2026-09-21 the [Eligibility](#eligibility) rule gained its natural-extension exception. The same
+day, this row read F18 and F19 against that exception.
+
+| ask | verdict under the exception | why |
+| --- | --- | --- |
+| the shipped selector path | does not qualify | the selector is a data-adaptive selection step, and the rule names that step as one with no established argument. Van der Laan and Gruber (2010), Section 4.3, "Irregular C-TMLE and super efficiency", records cross-validation over-selection as "an area of study" ([PMC2898626](https://pmc.ncbi.nlm.nih.gov/articles/PMC2898626/)). No published base exists for a stopping index shared across arms |
+| the generated-design deficit | one sub-part meets the base-result and argument conditions, and it does not close this ask | the full-sample fit, `cross_fit=False`, meets the base-result and argument conditions. The written-record and own-evidence conditions remain open. Its base is Theorem 1 of Benkeser, Cai and van der Laan, arXiv:1901.05056 v1. Its steps are a vector generated regressor and a fixed-dimension stack by Cramér–Wold. This row did not verify the published theorem number, because the article is paywalled. The registered `generated_design` study is cross-fitted, and a first-order result predicts no paired standard-error deficit, so the sub-part cannot meet the acceptance row. The cross-fitted default rests on the outlined proof of Appendix D, and the rule needs one published result with no step recorded as open |
+
+F18 and F19 record the same verdicts.
 
 #### Witnesses and evidence
 
@@ -787,6 +947,7 @@ three acceptance rows remain open. The investigation row named below carries eac
 | --- | --- |
 | every published verdict is recomputed from the committed replication rows | `tests/unit/test_method_evidence.py::test_paper_property_verdicts_are_recomputed_from_the_replication_rows` |
 | the shipped fold and scale rules have mutation-controlled witnesses | `tests/unit/test_fold_policy_rules.py` |
+| the pooled longitudinal update matches a longhand recomputation, and four mutations break it | `tests/unit/test_pooled_longitudinal_targeting.py` |
 | the end-of-study fold-policy 2x2 | a controlled run at commit `eeaa1ce` over the study's own 8,000 registered seeds, with the law, learners, size, budget and margins held fixed. The attribution table above gives both arms |
 | a reported acceptance sweep found no refusal in its selected cells | a sweep at commit `6c91a48` reported that 340,600 primary and property replicates from all sixteen cross-fitted studies reached the first nuisance fit, with zero refusals. It counted one cell and one replication index as one replicate, including paired cells that share a sample. An earlier sweep at commit `5f32c14` reported 115,400 replicates from the eleven point-treatment studies |
 | a reported replay matched the sampled committed rows | a replay at commit `5f32c14` reported matches for the first three replicates of every primary and property cell in the eleven point-treatment studies. Its worst relative difference was 1.5e-13, against a 1e-12 tolerance. The replay did not check every committed row |
@@ -1148,59 +1309,6 @@ assumptions match the supported data. The result must specify which rows may tra
 and which asymptotic argument licenses the interval. Ordered indices passed through iid fold
 machinery are not sufficient.
 
-### F24. Fold-local targeting of the longitudinal recursion
-
-The cross-fitted longitudinal TMLE fits each fold's fluctuation on that fold's training rows. No
-source read here certifies that update. The retired RM17 row held this question, and
-[RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) holds the property cell where
-the gap shows as a number. Upstream `lmtp` now classifies the same training-fold behavior as a bug.
-This row holds the contract.
-
-| composition | what ships | what a result must supply |
-| --- | --- | --- |
-| cross-fitted longitudinal TMLE | `LTMLE` offers no `targeting_scheme` and no `cv_evaluation`, so the fold-local update is its only behaviour (`src/cleverly/longitudinal/estimator.py:1704-1729`). Fold `k` fits every mechanism, regression and fluctuation on its training complement (`src/cleverly/longitudinal/sequential.py:51-56`, `:1377-1412`, `:919`) | weak convergence for a fluctuation fitted inside each training fold of a sequential regression, with its remainder and rate conditions |
-| the reported estimate | a plug-in of the targeted regression, and never an influence-function average (`src/cleverly/longitudinal/sequential.py:1172-1173`, `:1486-1487`) | the limit law of that plug-in under the fold-local update |
-| the point-treatment fold variant | `targeting_scheme="fold"` fits its epsilon on each fold's validation rows (`src/cleverly/estimators/tmle.py:3033-3050`) | its own result. A training-fold fluctuation and a validation-fold fluctuation are two different departures from a pooled update |
-| corrected upstream `lmtp` TMLE | commit [`9996b04`](https://github.com/nt-williams/lmtp/commit/9996b04dcbb3ae0b1ef8862097c36d95e9f2fcf9) fits the fluctuation on validation rows and adds a mean-EIF test | a direct result for the validation-fold targeted plug-in, with its remainder and rate conditions |
-
-Díaz, Williams, Hoffman and Schenck (2023), *JASA* 118(542):846-857, govern the shipped
-construction. The locators below come from the typeset published article. ArXiv v4 has the same
-section numbers and algorithm details. Read the page locators against the published version.
-
-| published locator | what it states | journal page |
-| --- | --- | --- |
-| Section 5.2, Step 3 | the TMLE fluctuation is fitted "using all the data points in the sample" | 852 |
-| Theorem 3 | weak convergence of that pooled TMLE | 853 |
-| Section 5.3, Step 2 | each SDR regression uses only the data points of one fold | 854 |
-| Section 5.3, Step 3 | the SDR estimate is an average of influence-function values | 854 |
-| Lemma 4 and Theorem 4 | multiple robustness and weak convergence of the SDR estimator | 854 |
-
-Theorem 3 therefore certifies the split and a pooled fluctuation, and not the shipped update.
-
-Four further sources bound the available routes. Zheng and van der Laan (2011) and Levy (2018),
-arXiv:1811.04573, both describe the targeting step as a pooled regression over validation folds.
-Chernozhukov et al. (2018) certifies the cross-fitted orthogonal moment, and not a plug-in of a
-train-fold-targeted regression. Williams and Díaz (2025), *Observational Studies* 11(3):365-367,
-correct Assumption 2 and the positivity statement of the 2023 paper. That correction says nothing
-about cross-fitting or targeting.
-
-Upstream `lmtp` commit `9996b04`, dated 2026-06-09, says its
-training-fold fluctuation left the EIF nonzero. The patch moves that fluctuation to validation
-rows and adds a mean-EIF test. The forthcoming 1.5.5 `NEWS` file records the same fix.
-
-A result closes this row in one of four ways.
-
-| option | what it needs |
-| --- | --- |
-| a theorem for the shipped update | weak convergence of the fold-local targeted plug-in, with its remainder and rate conditions |
-| a validation-fold update | an implementation that matches corrected upstream `lmtp`, a direct weak-convergence result for that targeted plug-in, and registered evidence |
-| a pooled update | an implementation of the certified Section 5.2 fluctuation, and its own registered evidence |
-| the SDR estimator | Section 5.3, Lemma 4 and Theorem 4 certify a fold-local sequential recursion for that estimator. Its estimate is an influence-function average rather than a plug-in of a targeted regression, so it is covered theory for a different estimator and not a free substitution. [X4](#x4-sequential-doubly-robust-longitudinal-estimation) plans `lmtp_sdr`, and no SDR path ships today |
-
-The SDR option changes the estimator and not the rate conditions. The authors write on page 854
-that the rates required for root-n consistency in Theorems 3 and 4 are the same. They add that the
-SDR estimator does not seem to confer asymptotic advantages with respect to the TMLE.
-
 ## Collaborative and DR-TMLE investigation contracts
 
 ### F18. Selector-path C-TMLE inference
@@ -1208,6 +1316,12 @@ SDR estimator does not seem to confer asymptotic advantages with respect to the 
 Keep the greedy, ordered, and discrete intervals labelled as fixed-candidate plug-in intervals.
 Each fit uses the ordinary EIF covariance after it selects one candidate. That computation does
 not establish conditional-on-selection or unconditional post-selection coverage.
+
+A 2026-09-21 reading found that this item does not qualify as a natural extension under the
+[Eligibility](#eligibility) rule. The selector is a data-adaptive selection step, which the rule
+names as one with no established argument. Van der Laan and Gruber (2010), Section 4.3, records
+cross-validation over-selection as "an area of study". No published base exists for one stopping
+index shared across arms. The item stays in this grid.
 
 Van der Laan and Gruber (2010), Section 4, derive an abstract adaptive-mechanism contribution under
 fixed-limit and regularity assumptions. Their candidate-selection discussion does not derive the
@@ -1378,6 +1492,18 @@ while the direct effect of learning the generated regressor remains and may requ
 mixed-bias nuisance-product remainder is likewise not the first-order expansion of a learned
 representation. Whether the ordinary curve suffices must be derived for this estimator and target,
 not inferred from either generic result.
+
+A 2026-09-21 reading applied the natural-extension exception of the [Eligibility](#eligibility)
+rule. The full-sample fit, `cross_fit=False`, meets the base-result and argument conditions. It
+extends Theorem 1 of Benkeser, Cai and van der Laan, arXiv:1901.05056 v1, by a vector generated
+regressor and a fixed-dimension stack by Cramér–Wold. The published theorem number is not
+verified, because the article is paywalled. The written-record and own-evidence conditions remain
+open.
+
+That sub-part does not close RM18's acceptance row. The registered
+`generated_design` study is cross-fitted, and a first-order result predicts no paired
+standard-error deficit. The cross-fitted default rests on the outlined Appendix D proof, so it
+fails the rule's conditions of one published result and no step recorded as open.
 
 Five items stay open. State each verdict separately.
 
@@ -1563,10 +1689,9 @@ targets, so it adds no estimand. The comparator is the pinned R `lmtp` 1.5.4 tha
 rows already use, and no new container is needed. Read the rate conditions its interval claims
 first, because they differ from the sequential regression conditions.
 
-[F24](#f24-fold-local-targeting-of-the-longitudinal-recursion) names this item as one of its four
-remediation routes. Theorem 4 of the same article certifies a fold-local recursion for the SDR
-estimator. Theorem 3 certifies a pooled fluctuation for the shipped one. So this item answers
-F24's fold-local question by shipping the estimator the theory already covers.
+Theorem 4 of the same article certifies a fold-local recursion for the SDR estimator. Theorem 3
+certifies the pooled fluctuation that the cross-fitted TMLE now runs. This item therefore adds a
+second estimator, and it no longer answers an open targeting question.
 
 ### X5. Natural and interventional mediation effects
 

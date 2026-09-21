@@ -21,6 +21,10 @@ from tests.studies.canonical_ltmle import (
     regimen_initials,
     regimen_rows,
 )
+from tests.studies.evidence.constructions import (
+    POOLED_LONGITUDINAL_CROSS_FIT,
+    TRAINING_FOLD_FLUCTUATION,
+)
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
@@ -119,17 +123,18 @@ STUDY = StudyRecord(
         ),
         "crossfit_overfitting": ("cross_fitted_ltmle", "in_sample_control"),
     },
-    # The breach the limitations table records is 0.001555 wide, and four decimals round both
-    # the measured endpoint and the ceiling to numbers a reader cannot subtract.  The claim
-    # here is a distance between two rows, which is what ``quoted_decimals`` exists for.
+    # The evidence page and RM18 compare this endpoint, 1.036997, with the 1.201555 that the
+    # replaced fold-fluctuated construction recorded on the same cell, and with the 0.001555 by
+    # which that run missed the 1.2000 ceiling.  Those older values are six-decimal records, so
+    # four decimals would print a before-and-after pair a reader cannot compare digit for digit.
     quoted_decimals={
         "properties[crossfit_overfitting/cross_fitted_ltmle]:se_ratio_ci_upper": 6,
     },
-    # The package now draws the first-node folds without stratifying on treatment, and that
-    # alone moves ``crossfit_overfitting/cross_fitted_ltmle`` past the shared SE-ratio ceiling
-    # by 0.001555.  Every route back to green either buys the pass (more replications against
-    # an interval-shaped gate, a wider margin) or re-declares a positive cell's own verdict
-    # statistic.  The study publishes the red cell and its interval instead.
+    # Under the pooled update ``crossfit_overfitting/cross_fitted_ltmle`` passes, at SE ratio
+    # 1.016107 with a 99% interval from 0.996092 to 1.036997.  The study still publishes under
+    # ``reporting`` because the declaration written before that run (docs/roadmap.md, RM18,
+    # "The pooled update, declared before it runs") moves no study to ``gated``.  A move to
+    # ``gated`` is a separate registry decision, not a consequence of one green cell.
     publication_policy="reporting",
 )
 
@@ -144,7 +149,8 @@ REFERENCE_METADATA = {
 }
 
 CONFIGURATION = {
-    "construction": "fold_specific_cross_fit",
+    "construction": POOLED_LONGITUDINAL_CROSS_FIT,
+    "reference_construction": TRAINING_FOLD_FLUCTUATION,
     "outcome_kind": "end_of_study",
     "horizon_mode": "terminal_only",
     "r_survival_outcome": False,

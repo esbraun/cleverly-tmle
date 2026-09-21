@@ -368,7 +368,7 @@ def _truncated_cells(unbounded: FloatArray, bounded: FloatArray) -> BoolArray:
     The one expression every truncation diagnostic agrees on: a cell is truncated when the
     bounded cumulative probability differs from the raw product that produced it.
     :func:`_clipped_prefix` hands in one node's column, and :func:`_consumed_prefixes` hands
-    in a whole ``(n, T)`` slab.
+    in a whole ``(n, T)`` matrix.
 
     Parameters
     ----------
@@ -392,11 +392,10 @@ def _clipped_prefix(
 
     One comparison, in :func:`_truncated_cells`, and three diagnostics that select different
     cells from it.  :meth:`LongitudinalResult._max_truncated` and
-    :meth:`LTMLE._warn_on_truncation` pass the stitched pair the fit retained, which is the
-    mechanism the fit estimated.  :func:`_score_cell_truncation_counts` reads every fold slab
-    the recursion ran a pass on.  The relation between the two is one-way: the stitched pair
-    is the row-wise out-of-fold gather of the slabs, so it follows from them and
-    :attr:`LongitudinalResult.folds`, and they do not follow from it.
+    :meth:`LTMLE._warn_on_truncation` pass the pair the fit retained.
+    :func:`_score_cell_truncation_counts` rebuilds the same out-of-fold pair at each
+    requested bound.  It is the one mechanism a per-regimen recursion divides by, on a
+    cross-fitted fit and a single-fold one alike.
 
     Parameters
     ----------
@@ -1348,10 +1347,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     def _max_truncated(fit: RegimenFit) -> tuple[float, int]:
         """Largest on-score truncation share and its earliest node.
 
-        Of the *stitched* mechanism the fit retained, which is the mechanism it estimated.
-        A cross-fitted fit ran one complete pass per outer fold slab, and
-        :func:`_score_cell_truncation_counts` is the count over all of them.  The stitched
-        pair holds one of those ``K`` copies of each row, so this share is the held-out one.
+        Of the out-of-fold mechanism the fit retained, which is the one its targeting
+        divided by.
         """
         shares = []
         for step in fit.steps:
@@ -1650,23 +1647,19 @@ class LTMLE:
         prediction rather than the outcome itself, and defaults to ``outcome_learner``'s
         library read as a regression.
     n_folds:
-        Outer cross-fitting folds; one split serves every node and every regimen, so a
-        unit is out of fold in all of them at once.  Above one fold each fold runs a
-        complete mechanism, backward regression and targeting sequence on its training
-        rows, and only its held-out rows are stitched into the report.  The fit therefore
-        keeps one mechanism prediction slab per fold, so the mechanism costs ``n_folds``
-        times the memory of a single-fold fit and a saved result grows by the same factor.
-
-        Two properties of this construction are worth knowing before reading its output.
-        Each fold's fluctuation coefficient is fitted on rows the fold does not report, so
-        the *pooled* score equation is not solved -- :meth:`.DiagnosticsFacade.
-        score_equations` reports that residual as its own row rather than folding it into
-        the solver verdict.  Measured over 300 replications of
-        :func:`~cleverly.datasets.make_longitudinal` at ``n=500``, the ratio of reported
-        standard error to the spread of the estimates was 1.01 at one fold and 1.09 at
-        ten.  This finite result applies to that law and configuration.  It does not
-        establish the direction for other laws, weights, clusters, survival outcomes, or
-        sample sizes.
+        Outer cross-fitting folds; one split serves every node and every regimen, so a unit
+        is out of fold in all of them at once.  Above one fold the fit follows the
+        cross-fitted construction of Díaz, Williams, Hoffman and Schenck (2023, *JASA*
+        118(542), Section 5.2, Steps 1-4).  Each fold fits the mechanism and runs an
+        *untargeted* backward regression sequence on its training rows, and the held-out
+        predictions are stitched into one out-of-fold initial estimate per node.  One pooled
+        fluctuation per node then targets those predictions over every follower, with the
+        out-of-fold mechanism in its loss weight, so every node's score equation is solved
+        as on a single-fold fit.  The mechanism fit still builds one prediction slab per
+        fold, so it costs ``n_folds`` times the memory of a single-fold fit and a saved
+        result grows by the same factor.  A per-regimen fit divides by the out-of-fold
+        mechanism alone.  Only the engine-level cross-fitted working-model path reads the
+        slabs.
 
         A longitudinal ``msm=`` fit requires ``n_folds=1``.  Cross-fitted coefficient
         inference remains refused until a dedicated unsaturated projection property and
@@ -2125,8 +2118,9 @@ class LTMLE:
     def _warn_on_truncation(fits: Mapping[str, RegimenFit]) -> None:
         """Warn once with every regimen/node whose scored rows are materially clipped.
 
-        Of the stitched mechanism, for the reason :meth:`LongitudinalResult._max_truncated`
-        gives: this says how much of the mechanism the fit estimated the bounds moved.
+        Of the out-of-fold mechanism, for the reason
+        :meth:`LongitudinalResult._max_truncated` gives: this says how much of the mechanism
+        the fit divided by the bounds moved.
         """
         found: dict[tuple[str, int], tuple[float, bool]] = {}
         for fit in fits.values():
@@ -2464,90 +2458,60 @@ def _consumed_prefixes(
     data: LongitudinalData,
     mechanism: Mechanism,
     plans: Sequence[Plan],
-    folds: Folds,
     bounds: tuple[float, float],
-) -> dict[str, tuple[BoolArray, ...]]:
-    """Per regimen, which cumulative cells a bound replaced in each slab the recursion read.
+) -> dict[str, BoolArray]:
+    """Per regimen, which cumulative cells a bound replaced in the mechanism the fit read.
 
-    Fold ``k`` calls
+    A per-regimen recursion divides by one mechanism at any fold count: the out-of-fold
+    pair from
     :meth:`~cleverly.longitudinal.sequential.Mechanism.cumulative_with_unbounded` with
-    ``fold=k`` and runs a complete backward pass on that slab, so a fit at ``K`` folds
-    consumed ``K`` mechanisms.  The stitched pair on
-    :attr:`~cleverly.longitudinal.sequential.RegimenFit.cumulative` is the row-wise
-    out-of-fold gather of those slabs, so it carries one of the ``K`` copies of each scored
-    row and stands in for none of the other ``K - 1``.  This rebuilds every slab from the
-    same method at the same bounds.
-
-    Each slab is reduced to one ``(n, T)`` boolean, and its float pair is released before the
-    next fold is built.  So the peak holds one float pair rather than ``K`` of them, and what
-    it keeps is 16 times smaller than the pairs it came from.  The mask is all a count reads.
+    ``fold=None``.  A single-fold fit reads it in its one pass.  A cross-fitted fit runs
+    untargeted fold recursions, which read no mechanism, and then one pooled fluctuation
+    per node, which reads this pair.  The fold slabs the mechanism also carries serve only
+    the engine-level cross-fitted working model, and the public estimator refuses a
+    cross-fitted ``msm=`` fit before any replay can reach this function.
 
     Parameters
     ----------
     data : LongitudinalData
         The prepared data the fit ran on.
     mechanism : Mechanism
-        The fitted mechanism, whose fold slabs the recursion read.
+        The fitted mechanism.
     plans : sequence of Plan
         The resolved regimens the replay ran.
-    folds : Folds
-        The realized outer-fold assignment.
     bounds : tuple of float
         The cumulative bound pair this replay ran under.
 
     Returns
     -------
     dict
-        Regimen label to one ``(n, T)`` truncation mask per consumed slab: a single mask
-        without cross-fitting, and one per outer fold with it.
+        Regimen label to one ``(n, T)`` truncation mask.
     """
-    # ``fold=None`` is the whole-sample mechanism, which is the one pass a single-fold fit
-    # ran.  One request list for both cases, so neither gets a second code path.
-    requested: tuple[int | None, ...] = (None,) if folds.is_single else tuple(range(folds.n_folds))
-    consumed: dict[str, tuple[BoolArray, ...]] = {}
-    for plan in plans:
-        masks: list[BoolArray] = []
-        for fold in requested:
-            slab = mechanism.cumulative_with_unbounded(data, plan, bounds, fold=fold)
-            masks.append(_truncated_cells(*slab))
-            # Dropped here rather than at the rebinding, which would otherwise hold the
-            # next fold's pair beside this one at the moment it is built.
-            del slab
-        consumed[plan.label] = tuple(masks)
-    return consumed
+    return {
+        plan.label: _truncated_cells(*mechanism.cumulative_with_unbounded(data, plan, bounds))
+        for plan in plans
+    }
 
 
 def _score_cell_truncation_counts(
     fits: Sequence[RegimenFit],
-    consumed: Mapping[str, tuple[BoolArray, ...]],
+    consumed: Mapping[str, BoolArray],
 ) -> tuple[int, int]:
     """Count the truncated mechanism cells the reported recursion consumed.
 
-    A *cell* is one ``(slab, node, row)`` cumulative probability the backward pass read.
-    The accounting, which is published beside the movement of the estimate, is this.  At
-    one fold there is one slab, and a node's cells are its ``trained_on`` rows: the rows
-    whose clever covariate is nonzero, and so the rows that node's score is summed over.
-    At ``K`` folds each fold runs its own complete pass on its own slab, and every one of
-    that node's ``trained_on`` rows enters a score in that pass: a training row through the
-    fluctuation that fold solves over ``fitted_on``, and a held-out row through the
-    stitched score the report is built from.  So the denominator is ``K`` times the
-    single-fold one, and the numerator counts the truncations in all ``K`` mechanisms.
-
-    The narrower accounting this replaces counted the cells the reported stitched score
-    divides by.  That is defensible, and it is incomplete: the stitched pair is the
-    out-of-fold gather of the slabs, so it holds the held-out copy of each scored row and no
-    fold's training copies.  It therefore misses a truncation that only a fluctuation saw.
-    On the fixture in ``tests/unit/test_longitudinal_truncation_refit.py`` at a lower bound
-    of ``0.12``, it reports no truncated cell for ``ey_regimen[always]`` beside a
-    ``delta_from_fitted`` of ``0.057``.  The two fold slabs truncate two cells there.
+    A *cell* is one ``(node, row)`` cumulative probability the targeting read, and a node's
+    cells are its ``trained_on`` rows: the rows whose clever covariate is nonzero, and so
+    the rows that node's score is summed over.  That holds at every fold count, because a
+    cross-fitted fit solves one pooled fluctuation per node over every follower with the
+    out-of-fold mechanism.  The published count therefore has one denominator for a
+    single-fold fit and a cross-fitted one.
 
     Parameters
     ----------
     fits : sequence of RegimenFit
         The fits behind one reported name.
     consumed : mapping
-        Regimen label to one truncation mask per consumed slab, from
-        :func:`_consumed_prefixes`.
+        Regimen label to its truncation mask, from :func:`_consumed_prefixes`.
 
     Returns
     -------
@@ -2558,11 +2522,11 @@ def _score_cell_truncation_counts(
     truncated = 0
     evaluated = 0
     for fit in fits:
-        for mask in consumed[fit.regimen.label]:
-            for step in fit.steps:
-                clipped = mask[:, step.time - 1][step.trained_on]
-                truncated += int(np.count_nonzero(clipped))
-                evaluated += int(clipped.size)
+        mask = consumed[fit.regimen.label]
+        for step in fit.steps:
+            clipped = mask[:, step.time - 1][step.trained_on]
+            truncated += int(np.count_nonzero(clipped))
+            evaluated += int(clipped.size)
     return truncated, evaluated
 
 
@@ -2657,9 +2621,7 @@ def longitudinal_truncation_curve(
         )
         # Once per bound rather than once per estimand: the masks are a property of the
         # mechanism and the bound, and every estimand at this bound reads the same ones.
-        consumed = _consumed_prefixes(
-            result.data, result.mechanism, recipe.plans, result.folds, (lower, upper)
-        )
+        consumed = _consumed_prefixes(result.data, result.mechanism, recipe.plans, (lower, upper))
         for name in reported:
             truncated, evaluated = _score_cell_truncation_counts(
                 replay.contributors[name], consumed

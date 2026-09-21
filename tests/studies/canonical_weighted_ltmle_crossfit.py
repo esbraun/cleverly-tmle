@@ -11,6 +11,10 @@ import pandas as pd
 
 from tests.parallel import STUDY_JOBS
 from tests.studies import weighted_longitudinal_common as common
+from tests.studies.evidence.constructions import (
+    POOLED_LONGITUDINAL_CROSS_FIT,
+    TRAINING_FOLD_FLUCTUATION,
+)
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.weighted_longitudinal_properties_common import property_cells
 
@@ -83,7 +87,8 @@ REFERENCE_METADATA = {
 }
 
 CONFIGURATION = {
-    "construction": "fold_specific_cross_fit_weighted",
+    "construction": POOLED_LONGITUDINAL_CROSS_FIT,
+    "reference_construction": TRAINING_FOLD_FLUCTUATION,
     "selection_probability": {
         "W1_positive": common.SELECTION_LOW,
         "otherwise": common.SELECTION_HIGH,

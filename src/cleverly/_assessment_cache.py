@@ -96,10 +96,15 @@ def _normalize(value: Any) -> Any:
 #: both a direct call and the corresponding part of ``assess()``.  Every operation that
 #: caches a report carrying assessment items needs a row here, which
 #: ``tests/unit/test_assessment_contract.py`` checks against the cache a real fit writes.
+#:
+#: ``diagnostics.run_all`` moved to 10 with the pooled cross-fitted longitudinal
+#: construction.  Its truncation row now counts cells of the one out-of-fold mechanism, and
+#: a battery cached on an artifact from the fold-fluctuated construction reports a curve
+#: that this version's fitted-bound replay gate refuses.
 _CACHE_GENERATIONS: dict[str, int] = {
     "diagnostics.support": 4,
     "diagnostics.nuisance_models": 2,
-    "diagnostics.run_all": 9,
+    "diagnostics.run_all": 10,
     "sensitivity.run_all": 2,
     "validate": 5,
 }

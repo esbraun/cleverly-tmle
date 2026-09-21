@@ -111,12 +111,17 @@ def check_stored() -> None:
     # Assessment: one assess() call, and the verdicts the readings quote.
     assert ".assess(" in code["diagnostics"] and "run_all" not in code["diagnostics"]
     diagnostics = stored_output(NOTEBOOK, "diagnostics")
-    assert "needs attention: ()" in diagnostics
-    assert "passed  1      validation.score_equations" in diagnostics
-    assert "VERDICT: nuisance fits look reasonable." in diagnostics
+    assert "needs attention: ('nuisance_models',)" in diagnostics
+    assert "warning  1      validation.nuisance_models" in diagnostics
+    assert "passed   1      validation.score_equations" in diagnostics
+    assert "outcome is poorly calibrated" in diagnostics
+    assert "rm15-calibration-slope-warning-rule" in prose, (
+        "the reading must send the calibration flag to the roadmap item that audits its band"
+    )
     overlap = stored_output(NOTEBOOK, "overlap")
     assert "n = 12000; propensity truncated to [0.004859, 0.9951]" in overlap
-    assert re.search(r"^0\.05\s+0\.0000\s+0\.0002\s*$", overlap, re.MULTILINE)
+    assert re.search(r"^0\.05\s+0\.0000\s+0\.0000\s*$", overlap, re.MULTILINE)
+    assert re.search(r"^0\.1\s+0\.0000\s+0\.0012\s*$", overlap, re.MULTILINE)
     assert "truncated: 0 unit(s) (0.00%)" in overlap
 
     # Sensitivity: the sign survives, and the benchmark gives no outcome-side scale.

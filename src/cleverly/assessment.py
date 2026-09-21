@@ -431,8 +431,7 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         "truncation_curve",
         "longitudinal",
         artifacts=(
-            "raw sequential mechanism predictions",
-            "outer-fold prediction slabs",
+            "raw sequential mechanism predictions, out of fold when cross-fitted",
             "unfitted recursive learner templates",
             "resolved regimen plans",
         ),
@@ -2160,14 +2159,20 @@ class DiagnosticsFacade(_CapabilityFacade):
         targeting loop gates on, and it can only tighten a node's verdict beyond the fit's
         own convergence flag.
 
-        **A cross-fitted longitudinal fit gets two rows per node**, because it poses two
-        questions with different right answers.  Its ``"solver"`` row asks whether every
-        outer fold reached the root of its own equation, which ``tolerance`` gates as
-        above.  Its ``"stitching"`` row asks whether the score of the *stitched* fit sits
-        where sampling would leave it -- which is not zero, because each fold fits its
-        coefficient on rows it does not report -- and is gated in standard errors by
-        :data:`STITCHED_SCORE_Z_TOLERANCE` instead.  Holding that row to ``tolerance``
-        would fail every cross-fitted fit for doing what the construction does.
+        **A cross-fitted per-regimen longitudinal fit gets one row per node**, as a
+        single-fold fit does.  Its one pooled fluctuation per node solves the node's score
+        over every follower, so the ``"solver"`` row gates that score with ``tolerance``.
+
+        **A fold-fluctuated node gets two rows**, because it poses two questions with
+        different right answers.  The engine-level cross-fitted working model, which the
+        public estimator refuses, and an artifact written before the pooled construction
+        are the two sources.  Its ``"solver"`` row asks whether every outer fold reached the
+        root of its own equation, which ``tolerance`` gates as above.  Its ``"stitching"``
+        row asks whether the score of the *stitched* fit sits where sampling would leave it
+        -- which is not zero, because each fold fits its coefficient on rows it does not
+        report -- and is gated in standard errors by :data:`STITCHED_SCORE_Z_TOLERANCE`
+        instead.  Holding that row to ``tolerance`` would fail every such fit for doing
+        what the construction does.
         """
         self._require("score_equations")
 

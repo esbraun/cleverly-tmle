@@ -186,6 +186,26 @@ def test_the_untargeted_plug_in_is_the_cross_fitted_fit_without_its_fluctuation(
         assert plug_in == pytest.approx(float(result[f"ey_regimen[{label}]"].psi), abs=1e-9)
 
 
+def test_the_untargeted_plug_in_is_the_stitched_initial_fit_off_the_law() -> None:
+    """Off the exact law, the control is the estimator's own node-1 initial fit.
+
+    Construction (A) runs untargeted recursions in the outer folds and targets only after
+    stitching, so the study's longhand untargeted plug-in must equal the mean of the
+    retained ``steps[0].initial`` on any sample, not only on copies of the law.  A
+    construction that carried fold-targeted predictions backwards would leave a different
+    initial fit, so this is the check that the control audits the recursion the estimator
+    ran.  The outcome regression is misspecified here, so targeting moves the estimate and
+    the two sides of the comparison are distinguishable from the targeted one.
+    """
+    frame = end_properties.sample(end_law.probabilities(), 2_000, 29)
+    result = end_properties.fit(frame, "mechanism_correct")
+    for label in end_properties.REGIMENS:
+        fit = result.fits[label]
+        plug_in = end_properties.untargeted(frame, label, "mechanism_correct", result.folds)
+        assert float(np.mean(fit.steps[0].initial)) == pytest.approx(plug_in, rel=0.0, abs=1e-14)
+        assert abs(float(fit.psi_scaled) - plug_in) > 1e-4
+
+
 def test_the_comparator_audit_table_can_witness_the_failure_it_reports() -> None:
     """The refusal to publish a comparator has to rest on something reproducible.
 

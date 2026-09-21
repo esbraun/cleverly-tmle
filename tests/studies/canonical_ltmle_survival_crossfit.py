@@ -31,6 +31,10 @@ from tests.studies.canonical_ltmle_crossfit import (
     R_BASE_IMAGE,
 )
 from tests.studies.canonical_ltmle_survival import dynamic_survival_truth, horizon_initials
+from tests.studies.evidence.constructions import (
+    POOLED_LONGITUDINAL_CROSS_FIT,
+    TRAINING_FOLD_FLUCTUATION,
+)
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
@@ -154,7 +158,8 @@ REFERENCE_METADATA = {
 }
 
 CONFIGURATION = {
-    "construction": "fold_specific_cross_fit",
+    "construction": POOLED_LONGITUDINAL_CROSS_FIT,
+    "reference_construction": TRAINING_FOLD_FLUCTUATION,
     "outcome_kind": "absorbing_event",
     "horizon_mode": "all_prefixes",
     "r_survival_outcome": True,

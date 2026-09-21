@@ -6,11 +6,11 @@
     "subject": {
       "implementation": "cleverly-cross-fitted-ltmle",
       "cleverly_version": "0.1.2",
-      "cleverly_commit": "5f32c149f90db994a7e29a09adc83a195463c2d2",
+      "cleverly_commit": "fbf0c5c40eb00cd4d901c791a47a63e1346f6964",
       "cleverly_worktree_clean": false,
-      "python": "3.11.13",
+      "python": "3.13.7",
       "numpy": "2.4.6",
-      "scipy": "1.17.1",
+      "scipy": "1.18.0",
       "pandas": "3.0.5",
       "scikit_learn": "1.9.0"
     },
@@ -36,7 +36,8 @@
         "ate_regimen[treat then continue if l2 positive vs never]"
       ]
     },
-    "construction": "fold_specific_cross_fit",
+    "construction": "pooled_cross_fit",
+    "reference_construction": "training_fold_fluctuation",
     "outcome_kind": "end_of_study",
     "horizon_mode": "terminal_only",
     "r_survival_outcome": false,
@@ -95,16 +96,16 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_ltmle_crossfit.py": "6543eb265e2f1b14d1fd1be62cb11287a266f832df429e409c7cc1d7719a7da7",
+    "tests/studies/canonical_ltmle_crossfit.py": "dd078bd6927a522b08157b7ba2bb9ca4388a8d221bf3d8520ebeef089310ef4d",
     "tests/studies/canonical_ltmle.py": "d1adf8f5df9fdaca29eb3d21367e0e479ed669bd572d7b824acf459d4b8b0bbd",
     "tests/studies/fractional_glm.py": "5570ff1756acad859e627be9d155e1b43f789ffb8626ac3c53a049bb0662488e",
-    "tests/studies/ltmle_crossfit_properties.py": "b260645df4356fba8d903d4609e63dd3bfd465892341107266153ab2eb92f0fb",
+    "tests/studies/ltmle_crossfit_properties.py": "f7bf086dcf1827d29f2f23b3c57552ce72df5ff20263218fc39293da559c39b0",
     "tests/discrete_law_longitudinal.py": "acc9eaaf056050dae69e7bdbe203797e0dc6fe2502423c15369f69dbcc41d59c",
     "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
     "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
-    "tests/studies/evidence/properties.py": "83ef22a43452bacf9b0e0c06cfe951640d68916472b30c58a8ec7fe6ef462e9c",
-    "tests/studies/evidence/property_verdicts.py": "75eee2068812badd182ac4634f2ce98325c40a4da48c6989fc66f76984d2cc81",
+    "tests/studies/evidence/properties.py": "845ada560a119863e432071d4cc6184b82a45f457866f2311ec060d02f4db522",
+    "tests/studies/evidence/property_verdicts.py": "429a9f55d25bf9f1f9255927571506514809935876bce7ddb56e48b78b41745c",
     "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
     "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
     "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
@@ -120,11 +121,11 @@
     "tests/canonical/ltmle_regimen_adapter.R": "d0edd452d315cb6b3c19e4c1ef4794a618031d6f2a9a3f13ec5a7b08b45362c6"
   },
   "sha256": {
-    "replicates.csv.gz": "2a6f1be97249cb73cb5f308690da6ed3376b85bdddd834c56f7d4372fbd0896d",
-    "summary.csv": "c7883acfe364eed58bd664e386b7042ee67d1eafed02376d7a4a3da29795d581",
-    "equivalence.csv": "c7684af82a163d6bfc6f073b16f824de8e1e071d1a143a3b304d22cac230f9db",
-    "performance-tests.csv": "fc65a16d81f818332475e403547f15134aa3335e2307e241b41632a5aa6a2eb7",
-    "property-replicates.csv.gz": "1f719f9c759de3cce19f5286d17787ae47929a8ea92eec24060e755f73d0b27f",
-    "properties.csv": "c49807af4f47ae96ef8bef6015f8e16b9fc202fb5e806ce56fbaacfbfff29967"
+    "replicates.csv.gz": "0516d8b991ad94277be626490a9d6d0b6cc6a0c52aafc36bb291444f3ef4455f",
+    "summary.csv": "6241f5238d7874c62e735e7114dc76afe2f9e72b44b104d7429e804ea0f1ee1b",
+    "equivalence.csv": "00ae75c116e464c426696f0e0b96f689509a7f223d0e8d49bec6e4150e1e1521",
+    "performance-tests.csv": "9ecfacbfc702beb2fc6f6598b6f058f47098fcbd6af613548d4cb084076062bb",
+    "property-replicates.csv.gz": "0a26877eab22df6f39d9fa6c4c6ad94d5ecb59210e9208c8eb72f3bfc3a13053",
+    "properties.csv": "af0172867ee00ad06c2fcb9ea6f860ce9e0353b7cbc0432b2169a108fb1b62ff"
   }
 }

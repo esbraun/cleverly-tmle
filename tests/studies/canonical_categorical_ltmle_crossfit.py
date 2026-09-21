@@ -8,6 +8,10 @@ import pandas as pd
 
 from tests.parallel import STUDY_JOBS
 from tests.studies import categorical_longitudinal_common as common
+from tests.studies.evidence.constructions import (
+    POOLED_LONGITUDINAL_CROSS_FIT,
+    TRAINING_FOLD_FLUCTUATION,
+)
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.seeds import draw_replicate
 
@@ -72,12 +76,13 @@ REFERENCE_METADATA = {
 }
 
 CONFIGURATION = {
-    "construction": "cross_fitted",
+    "construction": POOLED_LONGITUDINAL_CROSS_FIT,
     "outcome_kind": "end_of_study",
     "cross_fit": True,
     "n_folds": common.N_FOLDS,
     "learner_folds": 2,
-    "fold_evaluation": "training-fold recursion evaluated on its held-out rows",
+    "fold_evaluation": "untargeted training-fold recursions, one pooled fluctuation per node",
+    "reference_construction": TRAINING_FOLD_FLUCTUATION,
     "treatment_levels": list(common.LEVELS),
     "regimens": list(common.REGIMENS),
     "reference": common.REFERENCE,

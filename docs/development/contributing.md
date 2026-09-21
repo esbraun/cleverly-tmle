@@ -17,6 +17,9 @@ binding sequence. It keeps work without published theory in a separate future gr
 implements established statistical methods. It does not use a package feature as the place to
 invent one.
 
+The eligibility rule admits a trivial or natural extension of a published derivation that needs no
+new fundamental proof. The rule also defines those terms.
+
 ## Set up your environment
 
 ```bash

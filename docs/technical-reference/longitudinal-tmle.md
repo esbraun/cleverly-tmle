@@ -15,7 +15,7 @@ treatment plan followed at every node, by iterating a regression backward throug
 | --- | --- | --- |
 | repeated treatment with time-varying confounders | the mean outcome under a plan, identified by the g-formula and estimated as a plug-in | one regression per node per regimen, and positivity is now a statement about a *cumulative* product |
 | units drop out over time | censoring enters the same cumulative product as treatment, and each node's regression uses only its uncensored followers | a censoring model per node |
-| the plan depends on the history | dynamic rules receive the history available at their node, and no static plan can express them | the rule is part of the estimand. Two rules are two parameters |
+| the plan depends on the history | fixed, rowwise dynamic rules receive the history available at their node, and no static plan can express them | the prespecified rule is part of the estimand. A rule learned from the same sample needs additional inference that this estimator does not provide |
 | you want a survival curve | the same recursion, seeded at the horizon, reports cumulative risk at each horizon you name | each horizon is its own backward pass. The cost is quadratic in the node count |
 | several causes of failure compete | cause-specific cumulative incidence, with the competing causes left alone | that is a *total* effect. Eliminating the competing event is a different question, and is refused by name |
 | you want the effects summarised across regimens | a working model over regimen and horizon cells | see [MSM projections](msm-projections.md) |
@@ -69,7 +69,7 @@ accumulating.
 
 Bang and Robins (2005) supplies the sequential-regression foundation. Van der Laan and Gruber
 (2012) gives longitudinal TMLE for multiple intervention points. Chaffee and van der Laan (2012)
-covers dynamic rules. See the
+covers prespecified rowwise dynamic rules. See the
 [longitudinal references](../references.md#longitudinal-survival-and-marginal-structural-models).
 Implementation:
 [`longitudinal/sequential.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/longitudinal/sequential.py),
@@ -128,8 +128,9 @@ This replay keeps the realized data, resolved plans, folds, weights, clusters, a
 structure fixed. A clustered fit runs at one fold alone, so a clustered replay is an in-sample
 replay.
 
-A cross-fitted replay uses every complete fold-specific mechanism slab. It does
-not read the stitched out-of-fold pair alone. The result must retain a replay recipe, and that
+A cross-fitted replay rebuilds the out-of-fold mechanism pair at each bound. The pooled
+fluctuation divides by that pair alone, and the untargeted fold regressions read no mechanism. The
+result must retain a replay recipe, and that
 recipe's outcome and pseudo-outcome learners must be cloneable.
 [Replay-only unavailability](scope-and-refusals.md#replay-only-unavailability) states the
 `random_state` rule each learner must satisfy, and lists every code that makes the operation
@@ -206,26 +207,76 @@ der Laan (2012) is the survival implementation reference.
 
 | option | what it does |
 | --- | --- |
-| `regimens=` | static plans, dynamic rules, or categorical arms. A plan is a sequence of arms, or one arm meaning that arm at every node |
+| `regimens=` | static plans, prespecified rowwise dynamic rules, or categorical arms. A plan is a sequence of arms, or one arm meaning that arm at every node. Sample-adaptive thresholds and learned rules need additional inference and are outside this contract |
 | `reference=` | which regimen the contrasts are taken against. It is part of the estimand rather than a display setting |
 | `horizons=` | which time points a survival fit reports cumulative risk at. `None` reports the whole curve. Name the horizons you will report: the cost is $T(T+1)/2$ regressions per regimen rather than $T$ |
 | `msm=` | a working model over the regimen and horizon cells. It requires `n_folds=1`. See [MSM projections](msm-projections.md) |
 | four learner slots | `outcome_learner`, `pseudo_learner`, `treatment_learner`, `censoring_learner`. The pseudo learner fits the intermediate regressions, whose outcome is a bounded prediction rather than the outcome itself |
-| `n_folds=`, `learner_folds=` | one outer split serves every node and regimen. The split is unstratified: `random_partition` draws it from the row count and the seed, and it balances no treatment node. Each fold fits a complete mechanism, backward recursion, and targeting sequence on its training rows. The result stitches predictions only on held-out rows. The fit keeps one mechanism slab per fold, so the mechanism costs $K$ times the memory of a single-fold fit and the saved result grows by the same factor |
+| `n_folds=`, `learner_folds=` | one outer split serves every node and regimen. The split is unstratified: `random_partition` draws it from the row count and the seed, and it balances no treatment node. Each fold fits the mechanism and an untargeted backward regression sequence on its training rows. One pooled fluctuation per node then targets the out-of-fold predictions, as [cross-fitting the recursion](#cross-fitting-the-recursion) states. The mechanism fit keeps one prediction slab per fold, so the mechanism costs $K$ times the memory of a single-fold fit and the saved result grows by the same factor |
 | `g_bounds=`, `q_bounds=`, `alpha=` | cumulative truncation, outcome scaling, and the logistic shrink. Above one fold, a continuous outcome must declare `q_bounds` |
 | `alpha_sig=`, `simultaneous=`, `n_multiplier=`, `multiplier_kind=` | interval level, and the simultaneous bands across the reported regimens |
 
-### What cross-fitting splits
+### Cross-fitting the recursion
 
-The whole backward recursion is the unit of splitting for regimen means. Fold $k$ fits every
-mechanism, regression, and fluctuation on its training complement. Only its held-out rows reach the
-report. Each fold must also carry enough events for each declared cause, which
-[scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) states with its remedy.
+Above one fold, a per-regimen fit follows Section 5.2, Steps 1 to 4, of Díaz, Williams, Hoffman
+and Schenck (2023). Those steps are on journal pages 852 and 853. arXiv:2006.01366 v4 uses the
+same section and step numbers. The functions `_fit_regimen_crossfit` and `_pooled_targeting` in
+[`longitudinal/sequential.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/longitudinal/sequential.py)
+implement the steps.
+
+| part of the fit | rows | what the fit does | Section 5.2 |
+| --- | --- | --- | --- |
+| fold regressions | the training rows of fold $k$ | fit the treatment and censoring mechanism, and run an untargeted backward regression sequence. Node $t$ regresses the fold's own untargeted prediction from node $t + 1$ | the cross-fitted nuisance estimates that Step 1 takes as its start |
+| out-of-fold estimate | the held-out rows of fold $k$ | predict each node's regression and each mechanism factor. The $K$ folds give one out-of-fold prediction per row and node | Step 1 |
+| loss weight | every follower of node $t$ | the observation weight times the inverse of the out-of-fold cumulative mechanism | Step 2 |
+| pooled fluctuation | every follower of node $t$, from $t = T$ back to node 1 | fit one logistic fluctuation. Its offset is the out-of-fold prediction, and its outcome is the pooled targeted prediction from node $t + 1$ | Step 3, which fits "using all the data points in the sample" |
+| estimate | every row | average the targeted node-1 prediction | Step 4 |
+
+Each node's fluctuation solves its score over every follower. The fit therefore solves the
+estimated efficient score equation, as a single-fold fit does.
+`res.diagnostics.score_equations()` reports one `solver` row per node on both fits.
+
+Theorem 3, on journal page 853, gives weak convergence at the nonparametric efficiency bound for
+this construction. Its proof in the supplement, Section 6 of arXiv v4, conditions on each fold's
+initial nuisance fit being fixed given its training data. The pooled coefficients depend on the
+full sample and are handled as a low-dimensional fluctuation class. The untargeted fold
+regressions meet the conditional requirement. Carrying a pooled coefficient back into a fold's
+initial regression would not, so the package does not carry it back.
+
+`tests/unit/test_pooled_longitudinal_targeting.py` recomputes each row of the table by hand. It
+also carries four mutation controls. One fits the coefficient on one fold's training rows. The
+others drop the loss weight, read one fold's mechanism slab, or carry targeted values back into
+the folds.
+
+`n_folds=1` keeps the canonical single-fold recursion. Each node regresses the targeted prediction
+from node $t + 1$, and each fluctuation solves over the rows its regression was fitted on.
+
+The package also computes specializations and compositions that Section 5.2 does not state. The
+[Eligibility rule](../roadmap.md#eligibility) admits a natural extension of a published result.
+The table identifies a direct specialized source where one exists and otherwise gives the base,
+step, and established argument.
+
+| composition | base result | the step | the established argument | evidence |
+| --- | --- | --- | --- | --- |
+| cumulative risk at a horizon | Díaz, Hoffman, Hejazi and Williams (2024), corrected in 2025, with one cause | $Y$ is the indicator of an event by the horizon. The survival pseudo-outcome is $Z_t = Y_t + (1 - Y_t)\,\bar Q^*_{t+1}$ | Appendix E gives the cross-fitted pooled TMLE directly; a single event type is its one-cause reduction | [survival-curve study](method-evidence/cross-fitted-survival-curve-longitudinal-tmle.md) |
+| cause-specific cumulative incidence | Díaz, Hoffman, Hejazi and Williams (2024), corrected in 2025 | $Y$ is the indicator of an event of one cause by the horizon. A competing event ends follow-up, and the regression is zero after it | Proposition 1 identifies the target and Appendix E gives the out-of-fold nuisances, all-row per-node fluctuation, pooled backward carry, and score argument | [competing-risk study](method-evidence/cross-fitted-competing-risk-longitudinal-tmle.md) |
+| known observation weights | Theorem 3 under iid sampling | the target is a weighted mean of the node-1 regression, and every fluctuation carries the weight in its loss | the chain rule for influence functions, applied to a ratio of two means under iid draws of the observation and its known, bounded weight | [weighted study](method-evidence/cross-fitted-weighted-end-of-study-longitudinal-tmle.md), which fails two property cells and three paired comparisons that conclude underpowered, and publishes them under a `reporting` policy |
+| categorical treatments and deterministic dynamic rules | Theorem 3 for a fixed modified treatment policy $d(a_t, h_t)$ that does not depend on $P$ | a prespecified rowwise rule assigns one level from that unit's history | Section 2 lets a fixed policy depend on the unit's history, and Section 4, journal page 850, gives the intervention density for a discrete exposure. A sample-adaptive threshold or learned rule is outside this result | [categorical study](method-evidence/cross-fitted-categorical-longitudinal-tmle.md), and the fixed dynamic rule in the [end-of-study study](method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md) |
+| several horizons, causes, regimens, and their contrasts | Theorem 3 for each parameter | each parameter has its own recursion on one shared split, and the report stacks their influence curves | a fixed-dimension stack by Cramér–Wold, then linearity or the delta method for each contrast | the survival-curve and competing-risk studies |
+
+Theorem 3 also requires every mechanism ratio and targeted sequential regression to be consistent,
+the sum over nodes of their error products to be $o_P(n^{-1/2})$, and the density ratios to stay
+bounded. Those are conditions on the targeted regressions. Appendix E of the competing-risk paper
+shows that a sufficient condition stated in terms of the initial recursive learners can contain
+cross-time products between a mechanism error at node $t$ and regression errors at later nodes.
+The weighted row additionally needs weights that are known and bounded.
 
 The split balances nothing. It used to balance the first treatment node, and the reviewed
 longitudinal theorem defines a random near-balanced row partition instead. The audit in
 [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) found no source for the
-first-node strata, so the package now draws the partition from the seed alone.
+first-node strata, so the package now draws the partition from the seed alone. Each fold must also
+carry enough events for each declared cause, which
+[scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) states with its remedy.
 
 Two designs are refused above one fold. A fit with `id=` is refused, because the cluster-robust
 variance of this targeted recursion under a grouped draw is not established. A continuous outcome
@@ -237,18 +288,9 @@ Longitudinal `msm=` requires `n_folds=1`. A saturated identity shows that two co
 to the same regimen means. It does not validate an unsaturated coefficient projection under
 cross-fitting. That composition needs a separate property and repeated-sampling study.
 
-**A cross-fitted fit does not solve the pooled score equation, and is not meant to.** Fold $k$ fits
-its fluctuation coefficient on the rows it does not report, so the score of the stitched fit is a
-mean-zero residual rather than a solved equation. Two consequences follow.
-
-- `res.diagnostics.score_equations()` reports two rows per node. The `solver` row asks whether each
-  fold reached the root of its own equation, and that answer is at solver tolerance. The
-  `stitching` row asks whether the pooled residual sits where sampling would leave it, and reports
-  a $z$ statistic against the residual's own standard error.
-- The reported standard error runs above the actual sampling spread. Measured over 300 replications
-  of `make_longitudinal` at $n = 500$: the ratio of reported standard error to the spread of the
-  estimates was 1.01 at one fold and 1.09 at ten, for `ate_regimen[always vs never]`. The intervals
-  are conservative rather than invalid. Coverage was 0.960 at one fold and 0.967 at ten.
+The engine keeps a fold-fluctuated working-model path for that identity. Its folds each solve their
+own fluctuation, so its score report adds a `stitching` row per node. The public estimator refuses
+the path above one fold.
 
 Seventeen point-treatment keywords are refused **by name** on a longitudinal design, each with its
 own reason. The list is in `_REFUSED` in

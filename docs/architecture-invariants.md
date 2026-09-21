@@ -330,6 +330,18 @@ history available at its node, and downstream mechanism, follower, and outcome-r
 must read the same resolved plan. Outcome designs contain covariate history, not redundant past
 treatment columns that are deterministic under the resolved plan.
 
+A cross-fitted per-regimen fit targets after its folds, not inside them. Each fold runs an
+untargeted backward regression sequence on its training rows. One pooled fluctuation per node then
+targets the out-of-fold predictions over every follower, with the out-of-fold cumulative mechanism
+in its loss weight. This is Section 5.2, Steps 1 to 4, of Díaz, Williams, Hoffman and Schenck
+(2023). The proof of their Theorem 3 needs each fold's fit to be fixed given its training rows.
+So no pooled coefficient returns to a fold regression, and the per-regimen fit divides by the
+out-of-fold mechanism alone. `n_folds=1` keeps the canonical single-fold recursion, which carries
+each targeted prediction back. `tests/unit/test_pooled_longitudinal_targeting.py` holds the
+longhand checks and the mutations. *Reconsider when* a published result certifies a fold-local
+update for this plug-in estimator, or when the sequential doubly robust estimator ships under
+[X4](roadmap.md#x4-sequential-doubly-robust-longitudinal-estimation).
+
 Longitudinal MSMs are projections over regimen/horizon cells. Their fluctuation is pooled and the
 backward recursion proceeds in lockstep over nodes; the horizon belongs in the design and each
 cause receives its own projection while sharing nuisance fits.
