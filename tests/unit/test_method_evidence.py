@@ -1997,6 +1997,44 @@ def test_no_margin_resolver_outlives_the_studies_that_reach_it() -> None:
     )
 
 
+#: A publication-policy label in the implementation matrix, followed by the evidence-page links
+#: it governs.  ``gated [a](...) and [b](...)`` labels both pages; a word between two links, as
+#: in ``and a reporting [c](...)``, starts a new label or ends the list.
+_POLICY_LABEL = re.compile(
+    r"\b(?P<label>gated|reporting(?:-policy)?)\s+"
+    r"(?P<links>\[[^\]]+\]\(method-evidence/[^)]+\)"
+    r"(?:(?:,\s+and\s+|,\s+|\s+and\s+)\[[^\]]+\]\(method-evidence/[^)]+\))*)"
+)
+_EVIDENCE_LINK = re.compile(r"\]\(method-evidence/(?P<page>[^)#]+\.md)")
+
+
+def test_the_implementation_matrix_names_each_study_s_publication_policy() -> None:
+    """A page the matrix calls gated is a study the registry gates, and the same for reporting.
+
+    Both directions of the label were wrong at once: the selector, outcome-adaptive and
+    continuous-policy studies declared ``reporting`` while the matrix still called them gated.
+    The policy is a registry fact, so the label is checked against it rather than re-read.
+    """
+    policies: dict[str, set[str]] = {}
+    for study in STUDIES:
+        policies.setdefault(Path(study.document).name, set()).add(study.publication_policy)
+    matrix = (ROOT / "docs" / "technical-reference" / "index.md").read_text(encoding="utf-8")
+    labelled = [
+        (match["label"], link["page"])
+        for match in _POLICY_LABEL.finditer(matrix)
+        for link in _EVIDENCE_LINK.finditer(match["links"])
+    ]
+    assert labelled, "the implementation matrix labels no evidence page with a policy"
+    wrong = [
+        (page, label, sorted(policies.get(page, set())))
+        for label, page in labelled
+        if policies.get(page) != {"gated" if label == "gated" else "reporting"}
+    ]
+    assert wrong == [], (
+        f"these matrix labels disagree with the registered publication policy: {wrong}"
+    )
+
+
 class TestTheQuantityVocabulary:
     """The name-to-artefact map, which one gate reads and nothing else checks."""
 
