@@ -185,8 +185,8 @@ def check(namespace: dict[str, Any]) -> None:
     score_display = namespace["score_display"]
     displayed_solver = score_display[score_display["kind"] == "solver"]
     assert (displayed_solver["relative_score"] == 0.0).all()
-    # "every row is of one kind" and "A cross-fitted fit adds a second kind, `stitching`".
-    # An in-sample fit holds no rows out, so the report carries no stitched score at all.
+    # "every row is of one kind" and "A cross-fitted fit also reports `solver` rows only".
+    # The pooled cross-fitted fit and this in-sample fit both solve one score per node.
     assert namespace["score_kinds"] == ["solver"]
     assert "kinds of score row: ['solver']" in stored_output(NOTEBOOK, "retained-reports")
     # "Every calibration slope here sits within 0.03 of 1": each model is measured on the rows

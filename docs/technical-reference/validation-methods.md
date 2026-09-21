@@ -273,23 +273,21 @@ mask. That mask is the node's `trained_on` set, which is the rows whose clever c
 Of those cells, `truncated_score_cells` counts the ones whose bounded cumulative product differs
 from the raw product.
 
-Neither count is a count of regression rows. The node regression is fitted on `fitted_on`, which is
-that score mask inside one fold's training rows.
+Neither count is a count of regression rows. On a single-fold fit, the node regression is fitted on
+`fitted_on`, which is that score mask. On a cross-fitted fit, each fold's untargeted regression is
+fitted on the score mask inside its training rows, and the pooled fluctuation solves over the whole
+score mask.
 
-A cross-fitted replay counts one mechanism slab per outer fold, so every scored row counts once per
-fold. Each fold runs a complete backward pass over every row, and that pass divides by its own slab.
+A cross-fitted replay counts one out-of-fold mechanism pair, so every scored row counts once. The
+pooled fluctuation at each node divides by that pair and by nothing else. The untargeted fold
+regressions read no mechanism. The count therefore has one denominator for a single-fold fit and a
+cross-fitted one.
 
-The stitched out-of-fold pair the fit retains is the row-wise out-of-fold gather of those slabs, bit
-for bit. Every stitched cell is therefore a cell the fold that held that row out divided by.
-Counting the stitched pair alone reports the held-out copy of each scored row and no other copy. It
-misses the truncation that only a fold's own training rows carry.
-
-`tests/unit/test_longitudinal_truncation_refit.py` pins the consumed counts on a two-fold fixture,
-measured under the package's drawn unstratified folds. At the bound 0.12 it reports 5 truncated
-cells of 224 for `ey_regimen[always]`, and 42 of 224 at the bound 0.3. The same module pins the
-movement of that estimate at the bound 0.3: the replayed value rises 0.0035 above the fitted
-0.80024. A census of the stitched pair alone reports fewer truncated cells, and no test pins that
-count.
+`tests/unit/test_longitudinal_truncation_refit.py` pins the counts on a two-fold fixture, measured
+under the package's drawn unstratified folds. At the bound 0.12 it reports 3 truncated cells of 112
+for `ey_regimen[always]`, and 22 of 112 at the bound 0.3. The same module pins the movement of that
+estimate at the bound 0.3. The replayed value is 0.74038, against a fitted value of 0.56304. A
+longhand recomputation with its own fold recursions and Newton solves reproduces both values.
 
 An MSM coefficient reads every regimen and horizon cell for its cause, and each cell is its own
 backward pass. Its count adds one pass per cell to the same total. On a survival MSM that total can
@@ -325,8 +323,8 @@ targeted prediction becomes the preceding regression's response. Their capabilit
 `refit` and ask for `include_refits=True`. The longitudinal row also requires explicit `bounds`.
 
 Longitudinal replay needs a stored recipe, a cloneable outcome learner, and a cloneable
-pseudo-outcome learner. The recipe stores no fitted outcome model. Cross-fitted replay reads every
-complete fold-specific mechanism slab rather than the stitched out-of-fold pair alone.
+pseudo-outcome learner. The recipe stores no fitted outcome model. Cross-fitted replay rebuilds
+the out-of-fold mechanism pair at each bound, because the pooled fluctuation divides by that pair.
 [Replay-only unavailability](scope-and-refusals.md#replay-only-unavailability) states the
 `random_state` rule each learner must satisfy, and lists every omission code that makes the
 diagnostic unavailable.

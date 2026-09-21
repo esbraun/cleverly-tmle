@@ -204,8 +204,8 @@ previous reader had is not a citation; a page number is.
   Theorem 1 assumes bounded data, squared-error loss, and a finite grid of metalearner values.
   The dissertation's software offers `stratifyCV` for a binary outcome (Appendix A, PDF pages
   132–134). Theorem 1 does not cover that option. The package's Super Learner stratifies its
-  inner folds on a classification target. In an iid point-treatment or fold-local longitudinal
-  cross-fitted fit, those folds use only the outer-training rows. If the outer split reads no
+  inner folds on a classification target. In an iid point-treatment or longitudinal cross-fitted
+  fit, those folds use only the outer-training rows. If the outer split reads no
   outcome, their fold assignment then reads no outer-held-out outcome. The C-TMLE selection folds
   cross the outer split ([F18](roadmap.md#f18-selector-path-c-tmle-inference)). Polley's oracle
   result does not establish a risk bound for the stratified inner folds.
@@ -442,7 +442,7 @@ previous reader had is not a citation; a page number is.
   | ordinary arm-indexed missing-outcome study | it registers only binary `ey1`, `ey0`, and `ate` |
   | registered complete-outcome stacked study | it now declares unstratified folds and `q_bounds=(0, 1)` on a bounded law, and it asserts the realized scheme before it reports a row (`tests/studies/canonical_cvtmle.py`). The gap this row recorded is closed |
   | ordinary C-TMLE with missing outcomes | the audit did not read a source for it |
-  | the `learner_folds` split inside a Super Learner | it stratifies on the outcome for a binary outcome learner (`src/cleverly/learners/super_learner.py:238-241`). In an iid point-treatment or fold-local longitudinal cross-fitted fit, the [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules) find that its fold assignment reads no outer-held-out outcome. That finding requires an outer split that reads no outcome. The C-TMLE selection folds cross the outer split ([F18](roadmap.md#f18-selector-path-c-tmle-inference)). The audit finds no stratified Super Learner oracle result. The implemented preflight requires two rows in each class of the role target in every training complement, for each role whose resolved learner is a package `SuperLearner` with a classification task. At that count every inner training set holds both classes. The preflight cannot see a `SuperLearner` nested inside a user pipeline, which can still fail inside the fit |
+  | the `learner_folds` split inside a Super Learner | it stratifies on the outcome for a binary outcome learner (`src/cleverly/learners/super_learner.py:238-241`). In an iid point-treatment or longitudinal cross-fitted fit, the [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules) find that its fold assignment reads no outer-held-out outcome. That finding requires an outer split that reads no outcome. The C-TMLE selection folds cross the outer split ([F18](roadmap.md#f18-selector-path-c-tmle-inference)). The audit finds no stratified Super Learner oracle result. The implemented preflight requires two rows in each class of the role target in every training complement, for each role whose resolved learner is a package `SuperLearner` with a classification task. At that count every inner training set holds both classes. The preflight cannot see a `SuperLearner` nested inside a user pipeline, which can still fail inside the fit |
 - Díaz & van der Laan (2017), [*Doubly robust inference for targeted minimum loss-based estimation
   in randomized trials with missing outcome data*](https://doi.org/10.1002/sim.7389), *Statistics
   in Medicine* 36:3807–3819 ([author manuscript](https://arxiv.org/abs/1704.01538)). Read
@@ -513,16 +513,22 @@ previous reader had is not a citation; a page number is.
   policy identification and efficient influence-function theory, not a claim of longitudinal-shift
   support. Read first-hand in the [published PDF](https://epiresearch.org/wp-content/uploads/2024/04/Nonparametric-Causal-Effects-Based-on-Longitudinal-Modified-Treatment-Policies.pdf).
   Section 5.2, journal page 852, defines random, approximately equal row folds and a continuous
-  outcome transform with known bounds. Theorem 3, page 853, gives the TMLE limit under its stated
-  conditions. The section pools its fluctuation over all rows after nuisance prediction. The
-  shipped longitudinal cross-fitted estimator instead targets a recursion in each training fold.
-  The registered comparison uses `lmtp` 1.5.4, which also targets within each training fold
+  outcome transform with known bounds. Section 5.2, Steps 1 to 4, journal pages 852 and 853, give
+  the cross-fitted TMLE. Step 3 fits each node's fluctuation "using all the data points in the
+  sample". That fit uses the out-of-fold predictions as offset and the out-of-fold cumulative
+  density ratio as weight. Theorem 3, page 853, gives the TMLE limit under its stated conditions. The proof of
+  Theorem 3 in the supplement (Section 6 of arXiv v4) holds each fold's fit fixed given its
+  training data. The shipped cross-fitted longitudinal estimator implements these steps, and the
+  [cross-fitting section](technical-reference/longitudinal-tmle.md#cross-fitting-the-recursion)
+  gives the mapping. The registered comparison uses `lmtp` 1.5.4, which targets within each
+  training fold instead
   ([method evidence](technical-reference/method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md)).
   Upstream commit [`9996b04`](https://github.com/nt-williams/lmtp/commit/9996b04dcbb3ae0b1ef8862097c36d95e9f2fcf9)
   changed that behavior on 2026-06-09. The commit calls the training-fold fluctuation a bug because
   the EIF was not mean zero. It moves the fluctuation to validation rows and adds a mean-EIF test.
   The forthcoming 1.5.5 [NEWS](https://nt-williams.r-universe.dev/lmtp/NEWS) records the same fix.
-  Agreement with 1.5.4 is implementation provenance. It does not certify the training-fold update.
+  Neither upstream version runs the pooled update, so agreement with 1.5.4 compares two
+  constructions under the registered paired margins.
 
   The same article gives a second estimator in Section 5.3, journal page 854. The section is
   titled "Sequential Regression Estimator Using SDR Unbiased Transformations". The locators below
@@ -541,12 +547,10 @@ previous reader had is not a citation; a page number is.
   They add that the SDR estimator does not seem to confer asymptotic advantages with respect to
   the TMLE.
 
-  Theorem 3 certifies a pooled fluctuation. The shipped cross-fitted longitudinal TMLE fits each
-  fold's fluctuation on that fold's training rows. Theorem 4 certifies a fold-local recursion, and
-  it covers the SDR estimator rather than the shipped one.
-  [F24](roadmap.md#f24-fold-local-targeting-of-the-longitudinal-recursion) carries that contract.
-  [X4](roadmap.md#x4-sequential-doubly-robust-longitudinal-estimation) plans `lmtp_sdr`, and no
-  SDR path ships today.
+  Theorem 3 certifies the pooled fluctuation that the shipped cross-fitted longitudinal TMLE runs.
+  Theorem 4 certifies a fold-local recursion, and it covers the SDR estimator rather than the
+  shipped one. [X4](roadmap.md#x4-sequential-doubly-robust-longitudinal-estimation) plans
+  `lmtp_sdr`, and no SDR path ships today.
 
   [arXiv v4](https://arxiv.org/abs/2006.01366v4) matches these algorithm details. It has Sections
   5.2 and 5.3, the all-row pooling clause, the influence-function average, and Lemma 4. The
@@ -568,9 +572,10 @@ the audit table and the verdicts. This section gives each source in full.
 Each entry names the version whose locators it gives. A locator is only meaningful against a named
 version. Numbering can move between an author manuscript and the published article.
 
-The Díaz, Williams, Hoffman and Schenck (2023) entry above gives the worked case. Its published
-Section 5 is the preprint's Section 4. Its published Lemma 4 is the preprint's Lemma 3. The
-theorem numbers match across the two versions.
+The Díaz, Williams, Hoffman and Schenck (2023) entry above gives the worked case. arXiv versions
+v1 and v2 number its estimator section as Section 4 and its SDR lemma as Lemma 3. Versions v3 and
+v4 match the published article, with Section 5 and Lemma 4. The theorem numbers match across all
+four preprint versions and the article.
 
 Internal pagination moves with the version as well. Most entries below name an author manuscript,
 a preprint or an online-first PDF as the copy this project read. Each of those paginates
