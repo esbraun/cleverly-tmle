@@ -14,9 +14,11 @@ verdict and no committed row.
 | `reading.csv` | the reproduction control, P1 to P5, two supplementary rows, and the reading |
 | `run.log` | the command, the preflight, the `pip freeze` digests, the wall times and the exit codes |
 
-`tests/unit/test_rm18_learner_weight_se_diagnostic.py` runs in the fast tier and fits nothing. It
-checks the selection against the committed rows, and the reading rule on synthetic tables and
-their mutations.
+`tests/unit/test_rm18_learner_weight_se_diagnostic.py` runs in the fast tier. It checks the
+selection against the committed rows, and the reading rule on synthetic tables and their
+mutations. It checks that `refit.csv` reproduces the committed rows, and that `reading.csv`
+follows from `refit.csv`. Four mutations of the recorded statistics each move the reading. One
+fit of replicate 100, which is outside both sets, checks that each payload reaches the pool whole.
 
 ## Run
 
@@ -66,3 +68,25 @@ pooled code at `0e03a15` reproduces the committed weighted property rows at this
 
 Before the run, one smoke refit fitted replicate 100 in both arms. That replicate is outside both
 sets. `run.log` records it.
+
+## The recorded run
+
+The run of 2026-09-22 used the clean tree at `ff6106b`, with 16 workers. The 52 refits took 7
+seconds of wall time. `run.log` records a first attempt at `ceb0ce2`, a commit that was later
+amended into `ff6106b`. That attempt stopped before any fit returned, because `map_parallel`
+split each payload into seven arguments. `refit_all` now passes each payload whole.
+
+| item | result | value |
+| --- | --- | --- |
+| reproduction control | holds | largest relative difference 1.317e-15 on `estimate` and 1.386e-15 on `std_error`, over 52 refits |
+| P1 | holds | 1 to 3 floored followers in each of the 26 selected replicate and arm pairs |
+| P2 | holds | no floored follower in the 26 comparison replicate and arm pairs |
+| P3 | holds | floored followers carry from 0.999923 to 1.000000 of the squared contrast influence curve |
+| P4 | holds | each floored follower has a raw prefix of exactly zero |
+| P5 | holds | comparison `max_weight` from 13.87 to 373.78 |
+| reading | positivity of the out-of-fold saturated mechanism | P1, P3 and P4 hold |
+
+The selected fits count 44 floored followers, and all of them are in the `always` regimen.
+No `never` or `treat_if_l2` fit has a floored follower.
+Both supplementary rows hold, so the literal three-regimen reading of P2 and P5 agrees.
+`reading.csv` and `refit.csv` carry every value above.

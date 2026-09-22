@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -11,10 +12,12 @@ from tests.diagnostics.rm18_learner_weight_se.refit import (
     COMPARISON,
     CONTRAST_REGIMENS,
     FLOOR_NOT_FIT,
+    HERE,
     NOT_THE_FLOOR,
     NOT_VALIDATED,
     POSITIVITY,
     REFIT_COLUMNS,
+    REPRODUCTION_TOLERANCE,
     SELECTED,
     UNRESOLVED,
     payloads,
@@ -192,3 +195,84 @@ def test_refit_all_passes_each_payload_whole() -> None:
     assert {(record["replicate"], record["cell"]) for record in records} == {
         (100, f"static__{call[1]}")
     }
+
+
+RECORDED_REFIT = HERE / "refit.csv"
+RECORDED_READING = HERE / "reading.csv"
+
+
+@pytest.fixture(scope="module")
+def recorded() -> pd.DataFrame:
+    return pd.read_csv(RECORDED_REFIT)
+
+
+def test_recorded_refit_covers_the_declared_sets(recorded: pd.DataFrame) -> None:
+    assert list(recorded.columns) == list(REFIT_COLUMNS)
+    groups = recorded.groupby("group")["replicate"].agg(lambda values: tuple(sorted(set(values))))
+    assert groups[SELECTED] == DECLARED_SELECTED
+    assert groups[COMPARISON] == DECLARED_COMPARISON
+    assert not recorded.duplicated(["replicate", "cell", "regimen"]).any()
+    assert set(recorded.groupby(["replicate", "cell"])["regimen"].agg(frozenset)) == {
+        frozenset(REGIMENS)
+    }
+
+
+def test_recorded_refit_reproduces_the_committed_rows(
+    recorded: pd.DataFrame, committed: pd.DataFrame
+) -> None:
+    merged = recorded.merge(committed, on=["replicate", "cell"], validate="many_to_one")
+    assert len(merged) == len(recorded)
+    # The committed columns are the artifact's values.  pandas' default CSV parser can move
+    # the last bit of a value on each read, so the check allows a few units of rounding.
+    for column in ("estimate", "std_error"):
+        np.testing.assert_allclose(
+            merged[f"committed_{column}"], merged[column], rtol=1e-14, atol=0.0
+        )
+    for refit, published in (("refit_estimate", "estimate"), ("refit_std_error", "std_error")):
+        relative = (merged[refit] - merged[published]).abs() / merged[published].abs()
+        assert (relative <= REPRODUCTION_TOLERANCE).all(), refit
+    assert reproduced(recorded)
+
+
+def test_recorded_reading_follows_from_the_recorded_statistics(recorded: pd.DataFrame) -> None:
+    published = pd.read_csv(RECORDED_READING, keep_default_na=False)
+    rebuilt = reading_table(recorded).fillna("")
+    assert published.to_dict("records") == rebuilt.to_dict("records")
+
+
+def _without_floor(frame: pd.DataFrame) -> None:
+    mask = (frame["replicate"] == DECLARED_SELECTED[0]) & (frame["cell"] == ARMS[0])
+    frame.loc[mask, ["floored_followers", "zero_prefix_followers"]] = 0
+
+
+def _off_committed(frame: pd.DataFrame) -> None:
+    mask = frame["replicate"] == DECLARED_COMPARISON[0]
+    frame.loc[mask, "std_error_relative_difference"] = 1e-8
+
+
+def _share_below(frame: pd.DataFrame) -> None:
+    frame.loc[frame["replicate"] == DECLARED_SELECTED[-1], "floored_share"] = 0.5
+
+
+def _prefix_above_zero(frame: pd.DataFrame) -> None:
+    mask = (frame["replicate"] == DECLARED_SELECTED[0]) & (frame["floored_followers"] > 0)
+    frame.loc[mask, "zero_prefix_followers"] -= 1
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected"),
+    [
+        pytest.param(_without_floor, NOT_THE_FLOOR, id="no-floor"),
+        pytest.param(_off_committed, NOT_VALIDATED, id="control-miss"),
+        pytest.param(_share_below, UNRESOLVED, id="share"),
+        pytest.param(_prefix_above_zero, FLOOR_NOT_FIT, id="nonzero-prefix"),
+    ],
+)
+def test_mutating_the_recorded_statistics_changes_the_reading(
+    recorded: pd.DataFrame, mutate: Callable[[pd.DataFrame], None], expected: str
+) -> None:
+    before = reading_table(recorded).set_index("item")["result"]["reading"]
+    frame = recorded.copy()
+    mutate(frame)
+    after = reading_table(frame).set_index("item")["result"]["reading"]
+    assert (before, after) == (POSITIVITY, expected)
