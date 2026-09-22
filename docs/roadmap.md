@@ -832,6 +832,7 @@ This diagnostic leaves three studies and two earlier 2x2 reports outside its sco
 | the law by fold-policy 2x2 at `4ca7a15`, for the selector study | stays unverified | the repository commits no run log for it, and this diagnostic does not rerun it |
 | the fold-policy 2x2 at `eeaa1ce`, for the end-of-study study | stays unverified | the same |
 
+(what-the-committed-history-already-separates)=
 #### What the committed history already separates
 
 This subsection reads committed artifacts alone, with `git show` and pandas. It fits no
@@ -877,6 +878,7 @@ At the declared budget of 800, the source and runtime changes together leave eac
 2e-5. The move of `rate_outcome_correct` below zero therefore comes from the extra outer-rung
 replications that the rung design declared. It does not come from the source or the runtime.
 
+(what-the-runtime-isolation-found)=
 #### What the runtime isolation found
 
 The diagnostic ran on 2026-09-21 under the declaration above. Its eight full arms ran one at a
