@@ -71,8 +71,8 @@ library. Their `lmtp` rows must be identical. The module prints each broken cond
 The largest weighted code-axis change in a standard error in `isolation.csv` is 49,702. It does
 not measure the code change. In each `learner_weight_necessity` cell, 13 of 1,200 replicates
 report a standard error above 1 at both code states, and in all four arms. The change of 49,702 is
-replicate 1099 of the control. Its standard error falls to 55.32 at `0e03a15`, with the same
-estimate.
+replicate 1099 of the control. Its standard error falls from 49,757.77 at `7d5485a` to 55.32 at
+`0e03a15`, with the same estimate.
 
 Those replicates set the published SE ratio of both cells in
 `tests/canonical/weighted_lmtp_ltmle/properties.csv`. It is 2,758 and 2,825 at `0e03a15`, and

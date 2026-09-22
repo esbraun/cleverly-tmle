@@ -62,8 +62,8 @@ OWNER_TABLE = ("id", "work", "acceptance")
 
 #: Where a reader finds each owner.  ``F18`` and ``F19`` have rows of their own; every other
 #: owner is a row of RM18's "What this row asks for" table.  MyST anchors headings to level 3
-#: only, so that level-4 heading carries the explicit target ``(what-this-row-asks-for)=``.
-#: The target equals the heading's GitHub anchor, so the link resolves on both renderings.
+#: only, so that level-4 heading carries the explicit target ``(what-this-row-asks-for)=``,
+#: and another page reaches an explicit target through the ``{ref}`` role alone.
 _RM18 = "what-this-row-asks-for"
 _OWNER_ANCHORS = {
     "F18": "f18-selector-path-c-tmle-inference",
@@ -637,8 +637,9 @@ def _link(record: StudyRecord) -> str:
 
 
 def _owner(owner: str) -> str:
-    anchor = _OWNER_ANCHORS.get(owner, _RM18)
-    return _markdown_link(f"`{owner}`", f"../../roadmap.md#{anchor}")
+    if owner in _OWNER_ANCHORS:
+        return _markdown_link(f"`{owner}`", f"../../roadmap.md#{_OWNER_ANCHORS[owner]}")
+    return "".join(("{ref}`", owner, " <", _RM18, ">`"))
 
 
 def _ordered(

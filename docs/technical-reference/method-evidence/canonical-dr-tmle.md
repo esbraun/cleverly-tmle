@@ -225,6 +225,18 @@ its 99% half-width is about `0.0025` against margins of `0.0067` and `0.0072`. T
 larger than the margin. The [red-cell ledger](red-cells.md) lists each red cell of this study
 with the roadmap ask that owns it.
 
+RM18 read the two red one-correct cells against R `drtmle` on the primary rows at `n = 3,000`,
+under a rule declared before the computation. On `outcome_correct`, R `drtmle` shows the same
+bias, and the paired interval covers zero, so the reading is `shared`. On `treatment_correct`,
+R `drtmle` also shows a bias above zero, and the paired interval of `cleverly` minus R runs
+`0.000068` to `0.001942`. Both intervals exclude zero on the side of the bias, so the reading is
+`mixed`. That interval carries no
+multiplicity adjustment, and a Bonferroni interval over the three paired intervals covers zero.
+
+[RM19](../../roadmap.md#rm19-one-sided-robustness-bias-increment-in-dr-tmle) carries the
+increment. {ref}`What the one-sided reading found <what-the-one-sided-reading-found>` gives each
+interval.
+
 One size cannot say what kind of failure that is. A second-order remainder that has not yet
 decayed and an inconsistent estimator look identical at one `n` and mean opposite things. The
 `double_robust_contraction` family fits log absolute bias on log `n` over three sizes to separate

@@ -124,7 +124,8 @@ therefore intentionally empty.
 ## Limitations
 
 This row has reporting policy because multi-arm repeated-sampling evidence was absent when the
-study was declared. Six of its cells are red, and each one measures a different thing.
+study was declared. Six cells fail their own rule, and `selector_necessity/empty_control` is red
+through the family's joint clause. Each one measures a different thing.
 The [red-cell ledger](red-cells.md) lists each red cell of this study with the roadmap ask that
 owns it.
 

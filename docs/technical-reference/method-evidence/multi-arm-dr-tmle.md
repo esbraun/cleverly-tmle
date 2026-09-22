@@ -144,7 +144,17 @@ The contraction ladder explains most of the red cells above. The `treatment_corr
 misses its equivalence margin at n = 2,000 by 0.0004, which is about six per cent of the margin.
 The two figures print four units of the last digit apart in the generated table above.
 The ladder redraws that regime on independent streams at three sizes and puts the bias inside the
-margin at every one, so the level cell records Monte Carlo error rather than a remainder.
+margin at every one.
+
+In this regime the outcome regression is misspecified and the treatment mechanism is correct.
+RM18 read the level cell against the fully specified primary rows at the same size, under a rule
+declared before the computation. That Welch interval runs 0.001160 to 0.008650 and excludes zero,
+so the declared reading is `not consistent`.
+
+The ladder's n = 2,000 rung is the other sample of the same regime, and it does not reproduce the
+excess. Its difference from the primary rows runs -0.002581 to 0.004917. These rows establish
+neither an added bias nor its absence.
+{ref}`What the one-sided reading found <what-the-one-sided-reading-found>` gives each interval.
 
 Both fitted slopes then have nothing to regress. A one-correct bias that sits at the noise floor
 and changes sign across the ladder gives a wide slope interval, and neither interval establishes

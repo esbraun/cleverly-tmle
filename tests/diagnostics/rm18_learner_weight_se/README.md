@@ -81,8 +81,9 @@ sets. `run.log` records it.
 The run started at 2026-09-22 05:42:07 UTC, which is 2026-09-21 22:42 in the local time zone
 (UTC-7). `ff6106b` was committed at 05:42:01 UTC. The run used that clean tree, with 16
 workers. The 52 refits took 7 seconds of wall time. `run.log` records a first attempt at
-2026-09-22 05:34:37 UTC, at `ceb0ce2`, a commit that was later amended into `ff6106b`. That attempt stopped before any fit returned, because `map_parallel`
-split each payload into seven arguments. `refit_all` now passes each payload whole.
+2026-09-22 05:34:37 UTC, at `ceb0ce2`, a commit that was later amended into `ff6106b`. That
+attempt stopped before any fit returned, because `map_parallel` split each payload into seven
+arguments. `refit_all` now passes each payload whole.
 
 | item | result | value |
 | --- | --- | --- |

@@ -953,8 +953,8 @@ is the only empirical witness for it.
   Section 3.3, Proposition 1, shows that cross-validation can select a higher-risk estimator with
   positive probability. This is a neighbor for F18, and not a result for the shipped selector.
 - Zrnic & Jordan (2023), [*Post-selection inference via algorithmic
-  stability*](https://doi.org/10.1214/23-AOS2303), *Annals of Statistics* 51(4), DOI
-  10.1214/23-AOS2303, preprint [arXiv:2011.09462](https://arxiv.org/abs/2011.09462). This entry
+  stability*](https://doi.org/10.1214/23-AOS2303), *Annals of Statistics* 51(4):1666-1691,
+  DOI 10.1214/23-AOS2303, preprint [arXiv:2011.09462](https://arxiv.org/abs/2011.09462). This entry
   records the abstract only. The abstract corrects classical intervals after a selection that is
   randomized to make it stable. The shipped selector is not randomized.
 - Schnitzer, Sango, Ferreira Guerra & van der Laan (2020), [*Data-adaptive longitudinal model
@@ -963,14 +963,15 @@ is the only empirical witness for it.
   10.1111/biom.13135. This entry records the abstract only. The abstract describes a longitudinal
   C-TMLE that selects treatment-model variables, studied by simulation. The abstract states no
   inference result after selection.
-- Van Lancker, Díaz & Vansteelandt, [*Automated, efficient and model-free inference for randomized
-  clinical trials via data-driven covariate adjustment*](https://arxiv.org/abs/2404.11150),
-  arXiv:2404.11150v2. This entry records the abstract only. The abstract treats data-adaptive
-  covariate adjustment in randomized trials, where the design fixes the treatment law.
+- Van Lancker, Díaz & Vansteelandt (2024), [*Automated, efficient and model-free inference for
+  randomized clinical trials via data-driven covariate adjustment*](https://arxiv.org/abs/2404.11150),
+  arXiv:2404.11150v2, revised in May 2026. This entry records the abstract only. The abstract
+  treats data-adaptive covariate adjustment in randomized trials, where the design fixes the
+  treatment law.
 - Schnitzer, Talbot, Liu et al. (2026), [*Adaptive sparsening and smoothing of the treatment model
   for longitudinal causal inference using outcome-adaptive LASSO and marginal fused
-  LASSO*](https://doi.org/10.1002/sim.70316), *Statistics in Medicine* 45(1-2), DOI
-  10.1002/sim.70316. This entry records the abstract only. The abstract selects covariates for a
+  LASSO*](https://doi.org/10.1002/sim.70316), *Statistics in Medicine* 45(1-2):e70316,
+  DOI 10.1002/sim.70316. This entry records the abstract only. The abstract selects covariates for a
   longitudinal treatment model with an outcome-adaptive LASSO. It fits no mechanism on estimated
   outcome predictions.
 - The R `ctmle` 0.1.2 implementation at commit
@@ -1079,11 +1080,10 @@ is the only empirical witness for it.
   outcome-scale rules.
 
   A third 2026-09-21 search read Rothenhäusler (2024) first-hand in the published version, and
-  recorded Zrnic and Jordan (2023), Schnitzer et al. (2020), Van Lancker et al., and Schnitzer et
-  al. (2026) from their abstracts. It found Zhang, Hudson, Petersen and van der Laan (2026),
-  *JASA*, DOI 10.1080/01621459.2026.2657052, irrelevant to F18 and F19. No source it read closes
-  either one. [RM18](roadmap.md#rm18-red-property-cells-after-the-fold-scale-and-law-changes)
-  records its databases, its queries and each verdict.
+  recorded Zrnic and Jordan (2023), Schnitzer et al. (2020), Van Lancker et al. (2024), and
+  Schnitzer et al. (2026) from their abstracts. No source it read closes F18 or F19.
+  [RM18](roadmap.md#rm18-red-property-cells-after-the-fold-scale-and-law-changes) records its
+  databases, its queries and each verdict.
 
 ## Longitudinal, survival and marginal structural models
 
