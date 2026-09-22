@@ -4,7 +4,7 @@ P1,holds,"floored followers per selected replicate and arm: min 1, max 3; arms w
 P2,holds,comparison replicate and arm pairs with a floored follower: 0 of 26
 P3,holds,"floored share per selected replicate and arm: min 0.999923, max 1.000000; below 0.9: 0 of 26"
 P4,holds,selected regimen fits with a floored follower whose raw prefix is not zero: 0 of 52
-P5,holds,"comparison max_weight: min 13.866914, max 373.778274; at or above 2000: 0 of 52"
+P5,holds,"comparison max_weight: min 9.513288, max 373.778274; at or above 2000: 0 of 78"
 "P2 over every fitted regimen, not read",holds,comparison replicate and arm pairs with a floored follower: 0 of 26
-"P5 over every fitted regimen, not read",holds,"comparison max_weight: min 9.513288, max 373.778274; at or above 2000: 0 of 78"
+"P5 over the contrast regimens, not read",holds,"comparison max_weight: min 13.866914, max 373.778274; at or above 2000: 0 of 52"
 reading,positivity of the out-of-fold saturated mechanism,

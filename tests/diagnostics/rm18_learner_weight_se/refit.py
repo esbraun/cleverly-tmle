@@ -9,8 +9,9 @@ whose row the reproduction control checks.
 
 A follower is a unit with a nonzero final-node clever covariate for the regimen.  A floored
 follower is a follower whose ``cumulative_unbounded`` prefix at the final node is below the
-lower ``g_bounds`` limit.  The predictions read the two regimens of the reported contrast,
-``always`` and ``never``.  The README records that choice.
+lower ``g_bounds`` limit.  P1 to P4 read the two regimens of the reported contrast, ``always``
+and ``never``, and P2 also reports every fitted regimen beside it.  P5 reads every fitted
+regimen, because the declaration states that scope for it.  The README records each choice.
 
 ``--output`` is required and names a directory.  The run writes ``refit.csv`` and
 ``reading.csv`` there, so a bare run cannot overwrite the committed record.  ``--jobs`` sets
@@ -241,7 +242,10 @@ def _bounded_weight(frame: pd.DataFrame, regimens: Sequence[str]) -> tuple[bool,
 
 
 def predictions(frame: pd.DataFrame) -> dict[str, tuple[bool, str]]:
-    """Each declared prediction over the contrast regimens: whether it holds, and its values."""
+    """Each declared prediction: whether it holds, and its values.
+
+    P1 to P4 read the contrast regimens.  P5 reads every fitted regimen.
+    """
     chosen = _contrast(frame, SELECTED, CONTRAST_REGIMENS)
     floored = _per_arm(chosen, "floored_followers")
     shares = chosen.groupby(["replicate", "cell"])["floored_share"].first()
@@ -265,16 +269,20 @@ def predictions(frame: pd.DataFrame) -> dict[str, tuple[bool, str]]:
             f"selected regimen fits with a floored follower whose raw prefix is not zero: "
             f"{len(mismatched)} of {len(chosen)}",
         ),
-        "P5": _bounded_weight(frame, CONTRAST_REGIMENS),
+        # The declaration: "in every comparison replicate, arm and regimen".
+        "P5": _bounded_weight(frame, _every(frame)),
     }
 
 
+def _every(frame: pd.DataFrame) -> tuple[str, ...]:
+    return tuple(sorted(set(frame["regimen"])))
+
+
 def supplementary(frame: pd.DataFrame) -> dict[str, tuple[bool, str]]:
-    """P2 and P5 over every fitted regimen.  Reported beside the reading, and never read."""
-    every = tuple(sorted(set(frame["regimen"])))
+    """P2 over every fitted regimen, and P5 over the contrast regimens.  Neither is read."""
     return {
-        "P2 over every fitted regimen, not read": _no_floor(frame, every),
-        "P5 over every fitted regimen, not read": _bounded_weight(frame, every),
+        "P2 over every fitted regimen, not read": _no_floor(frame, _every(frame)),
+        "P5 over the contrast regimens, not read": _bounded_weight(frame, CONTRAST_REGIMENS),
     }
 
 

@@ -177,24 +177,72 @@ def test_reading_follows_the_declared_rule(
         assert set(table.drop(["reproduction control", "reading"])) == {"not read"}
 
 
-def test_supplementary_rows_read_every_regimen() -> None:
+def test_p5_reads_every_regimen_and_p2_reads_the_contrast() -> None:
+    """P5's declared scope is every regimen; P2's read is the contrast regimens.
+
+    A heavy weight in the ``treat_if_l2`` fit fails the declared P5 and leaves the
+    supplementary contrast-only row holding.  A floored ``treat_if_l2`` follower leaves the read
+    P2 holding and fails the supplementary every-regimen row.  Neither moves the reading.
+    """
     frame = _frame()
-    mask = _at(frame, COMPARISON, 0, "treat_if_l2")
-    frame.loc[mask, "max_weight"] = 5_000.0
+    frame.loc[_at(frame, COMPARISON, 0, "treat_if_l2"), "max_weight"] = 5_000.0
     table = reading_table(frame).set_index("item")["result"]
-    assert table["P5"] == "holds"
-    assert table["P5 over every fitted regimen, not read"] == "fails"
+    assert table["P5"] == "fails"
+    assert table["P5 over the contrast regimens, not read"] == "holds"
+    assert table["reading"] == POSITIVITY
+
+    frame = _frame()
+    mask = _at(frame, COMPARISON, 1, "treat_if_l2")
+    frame.loc[mask, ["floored_followers", "zero_prefix_followers"]] = 1
+    table = reading_table(frame).set_index("item")["result"]
+    assert table["P2"] == "holds"
+    assert table["P2 over every fitted regimen, not read"] == "fails"
     assert table["reading"] == POSITIVITY
 
 
-def test_refit_all_passes_each_payload_whole() -> None:
-    # Replicate 100 is outside both sets.  One cross-fitted fit costs well under a second.
-    call = payloads((100,))[0]
+#: The statistics a refit records, which a fresh refit must give again.
+MECHANISM = (
+    "refit_estimate",
+    "refit_std_error",
+    "floored_share",
+    "followers",
+    "floored_followers",
+    "zero_prefix_followers",
+    "min_follower_prefix",
+    "max_weight",
+    "effective_n",
+)
+
+
+def test_one_declared_refit_reproduces_its_recorded_rows() -> None:
+    """Refit selected replicate 17 in one arm, and compare every recorded regimen row.
+
+    The refit goes through :func:`refit_all`, so it also checks that a payload reaches the pool
+    whole.  One cross-fitted fit takes well under a second.
+    """
+    replicate = DECLARED_SELECTED[0]
+    call = payloads((replicate,))[0]
+    cell = f"static__{call[1]}"
     records = refit_all([call], jobs=1)
-    assert {record["regimen"] for record in records} == set(REGIMENS)
-    assert {(record["replicate"], record["cell"]) for record in records} == {
-        (100, f"static__{call[1]}")
-    }
+    assert {(record["replicate"], record["cell"]) for record in records} == {(replicate, cell)}
+    fresh = pd.DataFrame(records).set_index("regimen").sort_index()
+    recorded = pd.read_csv(HERE / "refit.csv")
+    recorded = (
+        recorded.loc[(recorded["replicate"] == replicate) & (recorded["cell"] == cell)]
+        .set_index("regimen")
+        .sort_index()
+    )
+    assert list(fresh.index) == list(recorded.index) == sorted(REGIMENS)
+    # The selected replicate has a floored follower, so the check is not one of zeros.
+    assert recorded.loc["always", "floored_followers"] >= 1
+    for column in MECHANISM:
+        np.testing.assert_allclose(
+            fresh[column].to_numpy(dtype=float),
+            recorded[column].to_numpy(dtype=float),
+            rtol=1e-9,
+            atol=0.0,
+            err_msg=column,
+        )
 
 
 RECORDED_REFIT = HERE / "refit.csv"
