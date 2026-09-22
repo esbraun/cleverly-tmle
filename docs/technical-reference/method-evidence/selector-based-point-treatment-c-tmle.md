@@ -58,7 +58,7 @@ samples a proportion and declares an outcome support of 0 to 1.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000634 to 0.000925, margin 0.0026, SE ratio 0.9850 | pass |
+| `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0011 to 0.000464, margin 0.0026, SE ratio 0.9848 | pass |
 | `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias 0.0072 to 0.0091, margin 0.0032, SE ratio 0.9940 | pass |
 | `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000559 to 0.000978, margin 0.0026, SE ratio 0.9937 | pass |
 | `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias 0.000508 to 0.0017, margin 0.0020, SE ratio 0.9670 | pass |
@@ -98,7 +98,7 @@ the committed results and checked at the precision printed.
 | `max_rmse_ratio_upper` | 1.0069 | largest paired RMSE-ratio upper bound |
 | `min_coverage_difference_lower` | -0.0063 | smallest paired coverage-difference lower bound |
 | `max_calibration_excess_upper` | 0.0100 | largest paired SE-calibration-excess upper bound |
-| `properties[double_robustness/both_correct]:standardized_bias` | 0.0139 | both nuisances correct |
+| `properties[double_robustness/both_correct]:standardized_bias` | -0.0301 | both nuisances correct |
 | `properties[double_robustness/outcome_correct]:standardized_bias` | 0.0203 | only the outcome nuisance correct |
 | `properties[double_robustness/treatment_correct]:standardized_bias` | 0.1390 | only the treatment nuisance correct |
 | `properties[double_robustness/treatment_correct]:n` | 2000 | observations that leg needs to resolve its remainder |

@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly-ctmle-selector",
       "cleverly_version": "0.1.2",
-      "cleverly_commit": "8af2cc5b1fa6a0504a44c90adb7b7442c64a81a4",
+      "cleverly_commit": "d5b115aacf54037de164305f82703f21e5f96723",
       "cleverly_worktree_clean": false,
       "python": "3.11.13",
       "numpy": "2.4.6",
@@ -77,18 +77,18 @@
   },
   "study_module_sha256": {
     "tests/studies/canonical_ctmle_selector.py": "1788edd62280710e3e0b67d4fa8c67d8c7c2ddf303477572fee0dbd210ba781f",
-    "tests/studies/ctmle_selector_properties.py": "e06f66f14e97a21e11a567d8327c8c201e5d7ef46cf459748c32b0d8823aa989",
-    "tests/studies/canonical_properties.py": "9a553dac0b1a701a727e7628052cbf3b9eaf428e372eec9d0c2c50d1c2f9cc3e",
-    "tests/studies/bounded_cv_laws.py": "f384aba4ef7bcadb600f5c0cfcfb3345d929f293b70eff544e17b760b24cf38f",
+    "tests/studies/ctmle_selector_properties.py": "9e08987ad132ffe979685034da385d17c0cdab94d65d58d460fca75ead9d1bd5",
+    "tests/studies/canonical_properties.py": "f8cd5d21cb6f6bc4ef3ff2184fbf21b54dd29547ff5a18dd14a4066023353894",
+    "tests/studies/bounded_cv_laws.py": "3ad6d753e0cf7f1db135c6172502cc671e2e6f5197506fd7f9ead01347129e8a",
     "tests/studies/canonical_cvtmle.py": "156ad2e10eeaa407f10ab4f75d524edd07f2076b9bf41cdb63c6e1b1201e3aa0",
     "tests/studies/canonical_tmle.py": "6f97ea926151ce8b36abfa364e539636787abce34c6677a3cb5a618c44999536",
     "tests/studies/fractional_glm.py": "5570ff1756acad859e627be9d155e1b43f789ffb8626ac3c53a049bb0662488e",
     "tests/studies/point_study_helpers.py": "f7fa94d4116739718c78000f7d51d506a7907af9c8c0a02bf5354eeab4738d5a",
-    "tests/conftest.py": "f12208dd89cad1d495db4341e870d109ef1e458b99d40e6344abe8eff39bfd71",
-    "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
+    "tests/conftest.py": "7320f8c90680b67d4551ea79d96040d8f068b6a34417b551ed66afc368b1c25a",
+    "tests/studies/evidence/comparison.py": "7c2b95880d9605e9991107985a625c6e9930736e7635f44b25995213420ff7e3",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
-    "tests/studies/evidence/properties.py": "83ef22a43452bacf9b0e0c06cfe951640d68916472b30c58a8ec7fe6ef462e9c",
-    "tests/studies/evidence/property_verdicts.py": "75eee2068812badd182ac4634f2ce98325c40a4da48c6989fc66f76984d2cc81",
+    "tests/studies/evidence/properties.py": "845ada560a119863e432071d4cc6184b82a45f457866f2311ec060d02f4db522",
+    "tests/studies/evidence/property_verdicts.py": "429a9f55d25bf9f1f9255927571506514809935876bce7ddb56e48b78b41745c",
     "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
     "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9"
   },
@@ -97,11 +97,11 @@
     "tests/canonical/ctmle_selector/run_ctmle.R": "d8567c5d8a3bdc5765f023729fa222d0b9452d2c6df4dc83b60f9b892e7ab486"
   },
   "sha256": {
-    "replicates.csv.gz": "1fd4c42317e31a9f509c7e5d63ee82e04f37ad68ab8cee64c35f93592aa86b8f",
-    "summary.csv": "98aa27636d7aef8761dcaedb454a34cf241a4b5795824eb8ab3e847c05e08ec5",
-    "equivalence.csv": "63f7d6813b7017f5c5575a476d089f1e4febfe218a35eb31416e81bf87e028c1",
-    "performance-tests.csv": "10d8c592303047a221cc748b89962b3cac5ede63e37d7e02b57b6e4330476f05",
-    "property-replicates.csv.gz": "1fed823b1e615c4778004f0a60096ef7e0519c2711789dd9ff0abcd45a9e2f57",
-    "properties.csv": "0710e9de1f3aa02e16c215a4c62f33739b2f2f40bd2cc39dd55d03c98383bfb7"
+    "replicates.csv.gz": "9c56459c67b70ae28b83e8e523773f2c6cc7ceb01d9de8db6d4b67de09150d45",
+    "summary.csv": "449254a428af7df84e789597fc65db93a776c9db6f0bd78da24d788ee759df6b",
+    "equivalence.csv": "e861e0d2884a98f69059cdcb38895a7e0475bea3417329b627b5ac2b13eaa2db",
+    "performance-tests.csv": "de9f45777400a398e75051f497424dfef8874ba87bb283b980a91ab95b5fe181",
+    "property-replicates.csv.gz": "3ea3d41c8204fe1fba3e36dfe378f5d72e2cd6a9137ae382f8c8c328717c42d5",
+    "properties.csv": "a6433c2db9715d2046c3b70086a1318ab87992867fb051de88c242ea5c99486f"
   }
 }
