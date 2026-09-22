@@ -331,8 +331,10 @@ Apply these corrections:
    is not consistent for the treatment law.
 2. Decide in the [F18](#f18-selector-path-c-tmle-inference) audit whether the interval is refused
    or kept with that label. Do not add an ad hoc variance term in the meantime. Cui and Tchetgen
-   Tchetgen (2024), Section 6 of arXiv:1911.02029v6, support the label. They say that a Wald
-   interval at the selected learners "is completely blind to the model selection step".
+   Tchetgen (2024), Section 6 of arXiv:1911.02029v6, make a related point about selection. A Wald
+   interval at the selected learners "is completely blind to the model selection step". They do
+   not treat an inconsistent working mechanism. Ju, Benkeser and van der Laan (2020), Theorem 1,
+   show that an intentionally inconsistent propensity adds a first-order term $D_r$.
 3. Audit `_forward_path` against van der Laan and Gruber (2010) and the pinned R `ctmle`. If the
    forced addition matches both, correct the two docstrings. If it does not, change the path and
    regenerate the C-TMLE studies whose selections it moves.
@@ -549,7 +551,7 @@ reproduces, which used the same override applied by hand.
 | `crossfit_overfitting/cross_fitted_ltmle` | an externally reported fold-policy 2x2 at commit `eeaa1ce`, over the study's 8,000 registered paired draws | the report attributes the move to the fold policy alone. The first-node-stratified arm gives 1.172543 with a 99% upper endpoint of 1.196538, which reproduces the committed row to 2e-5 relative. The single-fold control arm has no outer split for either policy to change, and it gives 0.353193 under both. These studies never moved to a bounded twin, so there is no second axis |
 | both `n_500` coverage endpoints | a registered `fold_policy` pair, two split policies over 8,000 paired draws of each study | a boundary resolution at 400 replications. Each study now covers 374 replications of 400, where the two covered 377 and 378 before. Neither paired coverage interval reaches the gate-relevant 0.005. "What the two readings found" gives both intervals, and it records the resolution the DR-TMLE instrument missed. The same cell moved the other way on outcome-adaptive multi-arm C-TMLE, where it turned green at 0.9057 |
 | the two newly red weighted cells and the green end-of-study overfitting cell | a declared code-by-runtime diagnostic over each study's registered seeds, four arms per study | the pooled code changes all three verdicts at both runtimes, and the runtime changes none. "[What the runtime isolation found](#what-the-runtime-isolation-found)" gives the rows |
-| `double_robust_contraction/rate_outcome_correct` | a declared rung design, run at 2,400 replications on each outer rung | three rungs of a small quantity gave a wide slope, and the width was Monte Carlo error at the top rung. The raised rungs put the interval below zero. That run also moved the interpreter and SciPy. The committed history separates the two. At 800 replications per rung, the runtime change moves each slope interval by less than 2e-5, so the declared budget moved this interval. "[What the committed history already separates](#what-the-committed-history-already-separates)" gives the rows |
+| `double_robust_contraction/rate_outcome_correct` | a declared rung design, run at 2,400 replications on each outer rung | three rungs of a small quantity gave a wide slope, and the width was Monte Carlo error at the top rung. The raised rungs put the interval below zero. That run also moved the interpreter, SciPy and the `src/` tree. The committed history separates the budget from those changes. At 800 replications per rung, the source and runtime changes together move each slope interval by less than 2e-5. The declared budget therefore moved this interval. "[What the committed history already separates](#what-the-committed-history-already-separates)" gives the rows |
 
 The fold policy has no general direction on the overfitting statistic. `crossfit_overfitting`
 shares one family, one statistic and one ceiling across the four cross-fitted longitudinal studies.
@@ -826,7 +828,7 @@ This diagnostic leaves three studies and two earlier 2x2 reports outside its sco
 
 | item | status | reason |
 | --- | --- | --- |
-| the survival-curve, competing-risk and categorical studies | deferred | every verdict passes at `7d5485a` and at `0e03a15`, so the rule has no changed verdict to attribute. Their four arms cost about 2.9 hours |
+| the survival-curve, competing-risk and categorical studies | deferred | every verdict passes at `7d5485a` and at `0e03a15`, so the rule has no changed verdict to attribute. No committed log times their arms. Each end-of-study arm took 291 to 386 seconds in `run.log` |
 | the law by fold-policy 2x2 at `4ca7a15`, for the selector study | stays unverified | the repository commits no run log for it, and this diagnostic does not rerun it |
 | the fold-policy 2x2 at `eeaa1ce`, for the end-of-study study | stays unverified | the same |
 
@@ -841,6 +843,11 @@ and SciPy 1.17.1 to Python 3.13.7 and SciPy 1.18.0. Each study's `manifest.json`
 the numpy and pandas versions are identical. The table compares each replication row of the older
 commit with the same row at `0e03a15`.
 
+The `src/` tree also changed between each older commit and `0e03a15`. `git diff --stat` reports
+22 changed files from `99d238c` and from `6933968`, and 23 from `2049349`. Each list includes
+`src/cleverly/learners/crossfit.py`. Each comparison below therefore bounds the source and runtime
+changes together. It does not separate the source from the runtime.
+
 | study | older commit | rows compared | largest change in an estimate | rows that moved more than 1e-6 | covered flags that changed |
 | --- | --- | --- | --- | --- | --- |
 | multi-arm point-treatment DR-TMLE | `6933968` | 14,400 primary and 10,600 property | 2.1e-12 | 0 | 0 |
@@ -852,8 +859,9 @@ commit with the same row at `0e03a15`.
 The rows compared are the rows present at both commits. `0e03a15` adds 16,000 `fold_policy` rows to
 each multi-arm study and 9,600 contraction rows to DR-TMLE.
 
-The runtime change moved no row of either `n_500` study. Each committed `n_500` endpoint therefore
-reads the same rows under both runtimes.
+The source and runtime changes together moved no row of either `n_500` study by more than 1e-6,
+and they changed no covered flag. Each committed `n_500` endpoint therefore reads the same rows
+under both commits.
 
 The contraction ladder shares 7,200 rows between `99d238c` and `0e03a15`. They are the first 800
 replications of each rung, and they agree within 7.3e-5. The study's slope rule, applied to those
@@ -865,9 +873,9 @@ replications of each rung, and they agree within 7.3e-5. The study's slope rule,
 | `rate_treatment_correct` | -2.207877 to -0.880196 | -2.207860 to -0.880192 | -1.756754 to -1.022105 |
 | `rate_both_wrong`, the control | -0.003031 to +0.014273 | -0.003031 to +0.014273 | +0.003726 to +0.013538 |
 
-At the declared budget of 800, the runtime change leaves each interval within 2e-5. The move of
-`rate_outcome_correct` below zero therefore comes from the extra outer-rung replications that the
-rung design declared, and not from the runtime.
+At the declared budget of 800, the source and runtime changes together leave each interval within
+2e-5. The move of `rate_outcome_correct` below zero therefore comes from the extra outer-rung
+replications that the rung design declared. It does not come from the source or the runtime.
 
 #### What the runtime isolation found
 
@@ -876,6 +884,10 @@ time on one runner. Every value below comes from `isolation.csv` in
 [`tests/diagnostics/rm18_runtime/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_runtime).
 The `run.log` in that directory records each arm's command, runtime, `pip freeze` digest, wall
 time and exit code.
+
+Each runtime label also stands for the rest of its virtual environment. `run.log` records one
+`pip freeze` digest per runtime, over 132 lines at R11 and 131 at R13. The two records differ in
+the interpreter, SciPy, the editable install path and `backports-tarfile`, which only R11 installs.
 
 Both preconditions held for both studies. The harness is therefore validated, and the rule reads
 an attribution from each study.
@@ -935,18 +947,34 @@ each axis. The code axis gives the same counts at R11 and at R13.
 | end-of-study | runtime at P | primary | 16,000 | 2,057 | 0 | 0 | 3.9e-16 |
 | end-of-study | runtime at P | property | 51,200 | 945 | 1 | 0 | 0.0020 |
 
-One definition in `compare.py` changed after the smoke arms and before the full arms. Each smoke
-arm ran 4 replications at n = 2,000 without property cells. At commit `97a3687`, the cell verdict
-was the cell's `passed` column and its `property_passed` column together. `property_passed` is the
-verdict of the whole property family, and the declared rule reads each cell's verdict alone.
-Commit `65e319b` makes the cell verdict the cell's own `passed` column and records
-`property_passed` beside it.
+The table gives no standard-error column. The largest code-axis change in a weighted standard
+error is 49,702, in `isolation.csv`. It comes from a standard-error pathology that both code
+states share. In each `learner_weight_necessity` cell, 13 of 1,200 replicates report a standard
+error above 1 in all four arms. Replicate 1099 of the control reports 49,757.77 at `7d5485a` and
+55.32 at `0e03a15`, with the same estimate of 0.229714.
 
-That commit is dated 22:42:33Z on 2026-09-21, and `run.log` starts the first full arm at
-22:42:47Z. The change moves the reading of one cell. Under the earlier definition, the in-sample
-control fails at F with its family, and it reads code. The other three cells have equal `passed`
-and `property_passed` values in every arm, or no `property_passed` column. Their readings
-therefore do not depend on the definition.
+Those replicates set the published SE ratio of both cells. It is 2,758 and 2,825 at `0e03a15`, and
+6,772 and 6,925 at `f0110bc`. The verdicts of both cells read the bias intervals and the paired
+displacement, and not the reported standard error. No roadmap item owns this pathology.
+
+One definition in `compare.py` changed after the smoke arms and before the full arms. Each smoke
+arm ran 4 replications at n = 2,000 without property cells.
+
+At commit `97a3687`, the cell verdict was the cell's `passed` column and its `property_passed`
+column together. The declaration says
+the rule "uses each verdict alone". This record reads a cell's verdict as its own `passed` column.
+Commit `65e319b` makes that change and records `property_passed` beside it. The committed rows at
+`7d5485a` already showed that this choice moves the in-sample control from code to neither.
+
+Commit `65e319b` is dated 22:42:33Z on 2026-09-21, and `run.log` starts the first full arm at
+22:42:47Z. Neither `97a3687` nor `65e319b` was pushed before the full arms. Their order therefore
+rests on the local commit timestamps and the `run.log` timestamps alone.
+
+The change moves the reading of one cell. Under the earlier definition, the in-sample control
+fails at F with its family, and it reads code. The other three cells have equal `passed` and
+`property_passed` values in every arm, or no `property_passed` column. Their readings therefore
+do not depend on the definition. Only `F-R13` and `P-R11` carry new information, because `F-R11`
+and `P-R13` reproduce committed rows.
 
 The survival-curve, competing-risk and categorical studies stay outside this result. The
 declaration deferred them, so their overfitting drops in "What the pooled update found" stay
@@ -1078,14 +1106,16 @@ failure of this declaration.
 Both readings ran once, under the rules the subsection below declared before them. Each publishes
 what it produced.
 
-Both runs also moved the environment. SciPy moved from 1.17.1 to 1.18.0, and Python moved from
-3.11.13 to 3.13.7, on the runs that produced these rows. Each study's `manifest.json` records the
-versions its committed rows came from, and its git history records the versions they replaced.
-The committed history separates the environment from the design change on all three studies.
+Both runs also moved the environment and the `src/` tree. SciPy moved from 1.17.1 to 1.18.0, and
+Python moved from 3.11.13 to 3.13.7, on the runs that produced these rows. Each study's
+`manifest.json` records the versions its committed rows came from, and its git history records the
+versions they replaced. On all three studies, the committed history separates the design change
+from the source and environment changes together. It does not separate the source from the
+environment.
 "[What the committed history already separates](#what-the-committed-history-already-separates)"
 gives the comparison.
 
-| study | what the environment move changed |
+| study | what the source and environment changes moved together |
 | --- | --- |
 | both multi-arm `n_500` studies | no row by more than 1e-6, and no covered flag |
 | DR-TMLE contraction ladder | each slope interval by less than 2e-5 at 800 replications per rung |
@@ -1134,8 +1164,9 @@ fitted slope is -0.917626, near the -1 a second-order remainder predicts.
 
 The declaration made one falsifiable prediction, and the run confirms it. The control's half-width
 had to narrow by about the square root of three, from 0.008652 to about 0.004995. It measures
-0.004906. The environment moved on the same run. At 800 replications per rung, it leaves the
-control interval unchanged to six decimals, so the narrowing comes from the budget.
+0.004906. The source and the environment also moved on the same run. At 800 replications per
+rung, the two changes together leave the control interval unchanged to six decimals. The narrowing
+therefore comes from the budget.
 
 ##### One correction the run forced
 
@@ -1185,7 +1216,7 @@ acceptance rows remain open, and the investigation row named below carries each 
 
 | ask | sources read, and their exact limits |
 | --- | --- |
-| the shipped selector path | van der Laan and Gruber (2010), *IJB* 6(1), DOI 10.2202/1557-4679.1181: Theorem 4 assumes the expansion that defines the adaptive-mechanism contribution, and Section 4.3 records cross-validation over-selection as an open irregularity. Gruber and van der Laan (2010), *IJB* 6(1), DOI 10.2202/1557-4679.1182, apply the method and state no post-selection inference result. Ju, Chambaz and van der Laan (2018), arXiv:1804.00102: Theorem 1 permits an extra contribution along a twice-differentiable continuous nuisance path for a binary scalar target, and Lemma 2 zeroes it in a correct-outcome product-rate regime. A discrete stopping index is not a differentiable path. Ju et al. (2019), *SMMR* 28(6), DOI 10.1177/0962280217729845, Section 7.4, forms intervals from the ordinary EIF, which is the fixed-candidate curve. Adaptive debiased machine learning, arXiv:2307.12544v2, is the closest positive route, and it needs the working model to approximate a fixed, nonrandom oracle model. Nobody has proved that for a global depth chosen from nested targeted-loss folds. Leeb and Pötscher (2006, *AoS* 34(5); 2008, *ET* 24(2)), Loftus (arXiv:1511.08866), and Markovic, Xia and Taylor (arXiv:1703.06559) supply no transfer, because this selector has no Gaussian quadratic reduction and no randomized or jointly Gaussian criterion-and-target limit. The multi-arm obligation has no published treatment at all |
+| the shipped selector path | van der Laan and Gruber (2010), *IJB* 6(1), DOI 10.2202/1557-4679.1181: Theorem 4 assumes the expansion that defines the adaptive-mechanism contribution, and Section 4.3 records cross-validation over-selection as an open irregularity. Gruber and van der Laan (2010), *IJB* 6(1), DOI 10.2202/1557-4679.1182, apply the method and state no post-selection inference result. Ju, Chambaz and van der Laan (2018), arXiv:1804.00102: Theorem 1 permits an extra contribution along a twice-differentiable continuous nuisance path for a binary scalar target, and Lemma 2 zeroes it in a correct-outcome product-rate regime. A discrete stopping index is not a differentiable path. Ju et al. (2019), *SMMR* 28(2), DOI 10.1177/0962280217729845, Section 7.4, forms intervals from the ordinary EIF, which is the fixed-candidate curve. Adaptive debiased machine learning, arXiv:2307.12544v2, is the closest positive route, and it needs the working model to approximate a fixed, nonrandom oracle model. Nobody has proved that for a global depth chosen from nested targeted-loss folds. Leeb and Pötscher (2006, *AoS* 34(5); 2008, *ET* 24(2)), Loftus (arXiv:1511.08866), and Markovic, Xia and Taylor (arXiv:1703.06559) supply no transfer, because this selector has no Gaussian quadratic reduction and no randomized or jointly Gaussian criterion-and-target limit. The multi-arm obligation has no published treatment at all |
 | the generated-design deficit | Benkeser, Cai and van der Laan, *Statistical Science* 35(3), DOI 10.1214/19-STS735, preprint arXiv:1901.05056: Theorem 1 proves, for the binary treatment-specific mean, the expansion with the ordinary adaptive-propensity curve and no separate generated-design term. Theorem 1's estimator is a full-sample procedure, and Section 3.1 supplies a cross-validated variance alone. The cross-fitted point estimator appears in Appendix D, where the authors call its proof completely analogous to Zheng and van der Laan (2011) and outline it. Appendix D's binary ATE, which uses both arm predictions with one signed coefficient, is an algorithm with no theorem. No result covers a shared-multinomial vector extension. Four sources do not close it. Ju, Benkeser and van der Laan (2020), *Biometrics* 76(1):109-118, DOI 10.1111/biom.13121, build a different construction, in which outcome information enters through HAL penalty weights. Shortreed and Ertefaie (2017), *Biometrics* 73(4):1111-1122, DOI 10.1111/biom.12679, select variables and prove no inference theorem. Escanciano and Pérez-Izquierdo (2023), arXiv:2301.10643, remove the indirect first-step effect, and the direct effect of learning the generated regressor remains. DOPE, arXiv:2402.12980v2, centers Theorem 4.3 at a data-adaptive target conditional on a representation learned on an independent sample, adds a fixed-target delta-method variance in Proposition 4.4, and leaves the cross-fitted proof open in its appendix |
 | the fold-local longitudinal recursion | Díaz, Williams, Hoffman and Schenck (2023), Section 5.2, Step 3, journal page 852, fits the fluctuation "using all the data points in the sample", and Theorem 3, page 853, certifies that pooled update. Zheng and van der Laan (2011) and Levy (2018), arXiv:1811.04573, both describe the targeting step as a pooled regression over validation folds. Chernozhukov et al. (2018) certifies the cross-fitted orthogonal moment, and not a plug-in of a train-fold-targeted regression. Williams and Díaz (2025), *Observational Studies* 11(3):365-367, correct Assumption 2 and the positivity statement, and say nothing about cross-fitting or targeting. Upstream `lmtp` commit `9996b04` calls its 1.5.4 training-fold fluctuation a bug because the EIF was not mean zero, and it moves the fluctuation to validation rows. The [cross-fitting section](technical-reference/longitudinal-tmle.md#cross-fitting-the-recursion) of the technical reference carries the published locators |
 
@@ -1604,7 +1635,7 @@ influence function after the shipped stopping-index procedure selects a candidat
 
 Ju et al. (2018) permit a continuous-path contribution, but their Lemma 2 makes it zero in one
 correct-outcome, product-rate regime. Their derivative equations and undersmoothing conditions do
-not describe a discrete stopping index. Ju, Gruber et al. (2019), *SMMR* 28(6), report ordinary
+not describe a discrete stopping index. Ju, Gruber et al. (2019), *SMMR* 28(2), report ordinary
 EIF intervals for binary ATE fits. The
 [source audit](references.md#collaborative-tmle) records the exact limits.
 

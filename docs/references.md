@@ -701,7 +701,8 @@ is the only empirical witness for it.
   folds, or joint target vectors.
 - Ju, Gruber, Lendle, Chambaz, Franklin, Wyss, Schneeweiss & van der Laan (2019), [*Scalable
   collaborative targeted learning for high-dimensional data*](https://pmc.ncbi.nlm.nih.gov/articles/PMC6086775/),
-  DOI 10.1177/0962280217729845. Sections 4.1 through 5 define the general, greedy, and preordered
+  *Statistical Methods in Medical Research* 28(2):532-554, DOI 10.1177/0962280217729845,
+  PMID 28936917. Sections 4.1 through 5 define the general, greedy, and preordered
   binary-ATE paths. Section 7.4 forms each interval from the ordinary efficient influence curve.
   Read first-hand in the [author preprint](https://arxiv.org/pdf/1703.02237). Algorithm 1,
   PDF page 6, selects a candidate by cross-validated loss. Section 5.5, PDF pages 10–11, selects
@@ -729,7 +730,7 @@ is the only empirical witness for it.
   the analytic influence curve. The paper states no post-selection theorem.
 
   Three 2019 *SMMR* papers have Cheng Ju as first author. The Ju, Gruber et al. entry above is
-  volume 28(6), DOI 10.1177/0962280217729845. The Ju, Schwab and van der Laan entry is also volume
+  volume 28(2), DOI 10.1177/0962280217729845. The Ju, Schwab and van der Laan entry is also volume
   28(6), and the Ju, Wyss et al. entry is volume 28(4). Cite each one with its second author.
 - Ju, Benkeser & van der Laan (2020), [*Robust inference on the average treatment effect using the
   outcome highly adaptive lasso*](https://arxiv.org/abs/1806.06784), *Biometrics* 76(1):109-118,
@@ -828,7 +829,8 @@ is the only empirical witness for it.
   Section 6 says a Wald interval at the selected learners "is completely blind to the model
   selection step, it may not yield uniformly valid confidence intervals". It describes a
   split-and-swap estimator and a smoothed selector, and leaves their formal comparison outside the
-  paper. This supports the fixed-candidate label that RM12 and F18 require.
+  paper. This supports the fixed-candidate label of F18. It does not address the
+  inconsistent-mechanism case of RM12.
 - Qiu, Luedtke & Carone (2021), [*Universal sieve-based strategies for efficient estimation using
   machine learning tools*](https://doi.org/10.3150/20-BEJ1309), *Bernoulli* 27(4):2300-2336, DOI
   10.3150/20-BEJ1309. Read first-hand in [arXiv:2003.01856v2](https://arxiv.org/abs/2003.01856),

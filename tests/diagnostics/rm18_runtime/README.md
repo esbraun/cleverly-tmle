@@ -54,3 +54,15 @@ python -m tests.diagnostics.rm18_runtime.compare --arms <root>
 
 `compare.py` marks a study "harness not validated, no attribution" when a precondition fails. It
 still records the count of rows outside the 1e-9 tolerance and the largest difference.
+
+## A standard-error pathology in the weighted study
+
+The largest weighted code-axis change in a standard error in `isolation.csv` is 49,702. It does
+not measure the code change. In each `learner_weight_necessity` cell, 13 of 1,200 replicates
+report a standard error above 1 at both code states, and in all four arms. Replicate 1099 of the
+control reports 49,757.77 at `7d5485a` and 55.32 at `0e03a15`, with the same estimate.
+
+Those replicates set the published SE ratio of both cells in
+`tests/canonical/weighted_lmtp_ltmle/properties.csv`. It is 2,758 and 2,825 at `0e03a15`, and
+6,772 and 6,925 at `f0110bc`. The verdicts of both cells read the bias intervals and the paired
+displacement, and not the reported standard error. No roadmap item owns this pathology.
