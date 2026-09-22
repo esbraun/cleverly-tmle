@@ -17,6 +17,7 @@ from tests.unit.tutorial_semantics import (
     assert_protocol_recorded,
     changed_fields,
     covers,
+    stored_output,
 )
 
 NOTEBOOK = EXAMPLES / "collaborative-tmle.ipynb"
@@ -87,10 +88,23 @@ def check(namespace: dict[str, Any]) -> None:
     for unsupported in ("bias", "variance", "confounder", "instrument"):
         assert not re.search(rf"\b{unsupported}\b", summary)
 
-    # "Both intervals contain the true value" and the collaborative standard error is smaller.
+    # Step 6: the greedy path reports no interval, and the page prints the refusal instead.
+    # "The estimate table has no interval column": the diagnostic column is named for what it
+    # is. A mutation that restored the Wald accessors would print an interval here again.
     plain, collaborative = namespace["plain"]["ate"], namespace["collaborative"]["ate"]
-    assert covers(plain, truth["ate"]) and covers(collaborative, truth["ate"])
-    assert collaborative.std_error < plain.std_error
+    assert collaborative.inference == "working_mechanism_plugin"
+    assert plain.inference == "influence_curve"
+    refusal = namespace["inference_refusal"]
+    assert ".ci is not defined here" in refusal
+    assert "no confidence interval, no p-value and no standard error" in refusal
+    assert "plugin_std_error" in refusal and "plugin_interval" in refusal
+    estimate_table = stored_output(NOTEBOOK, "collaborative")
+    assert "working-mechanism se" in estimate_table
+    assert "95% CI" not in estimate_table.split("estimand  psi", 1)[1].split("\n\n", 1)[0]
+    # "Both ranges contain the true value", one as an interval and one as a diagnostic.
+    assert covers(plain, truth["ate"])
+    assert covers(collaborative.plugin_interval, truth["ate"])
+    assert collaborative.plugin_std_error < plain.std_error
 
     # The plain fit's tails against the collaborative fit's none.
     tails = namespace["tail_table"]
@@ -112,9 +126,9 @@ def check(namespace: dict[str, Any]) -> None:
     weak_selection = namespace["weak_selection"]
     assert weak_selection.selected_covariates == ("baseline_readiness", "social_support")
     weak_plain, weak_collaborative = namespace["weak_plain"], namespace["weak_collaborative"]
-    assert weak_collaborative["ate"].std_error < 0.5 * weak_plain["ate"].std_error
+    assert weak_collaborative["ate"].plugin_std_error < 0.5 * weak_plain["ate"].std_error
     assert covers(weak_plain["ate"], truth["ate"])
-    assert covers(weak_collaborative["ate"], truth["ate"])
+    assert covers(weak_collaborative["ate"].plugin_interval, truth["ate"])
     # Leaving out only the draw removes the tails; readiness still moves g.  The ESS ratios
     # below 1 and the clever covariate above the intercept-only value are the nonzero witness
     # that the remaining weight variation is real, not an empty g in disguise.
@@ -141,23 +155,25 @@ def check(namespace: dict[str, Any]) -> None:
     assert 0.45 < metrics["auc"] < 0.55
     assert 0.9 < metrics["calibration_slope"] < 1.1
 
-    # "The difference comes from `nu2`", because the representer reads the selected near-constant
-    # g: "`nu2` lands close to 1/p + 1/(1 - p)" for the treated share p.  The nonzero witness: a
-    # representer built from the full mechanism gives 11.963 on the same draw.
-    rows = namespace["sensitivity_rows"]
-    plain_row, collaborative_row = rows["plain TMLE"], rows["collaborative TMLE"]
-    assert collaborative_row["nu2"] < 0.5 * plain_row["nu2"]
-    assert collaborative_row["robustness value"] > plain_row["robustness value"]
-    share = float(namespace["frame"]["transition_navigation"].mean())
-    constant_g_nu2 = 1.0 / share + 1.0 / (1.0 - share)
-    assert abs(collaborative_row["nu2"] - constant_g_nu2) < 0.01 * constant_g_nu2
-    # "optimistic by construction": a near-constant representer is close to the within-arm mean
-    # of the full representer, so its second moment cannot exceed the full one (projection).
-    assert collaborative_row["nu2"] <= plain_row["nu2"]
+    # Step 11: the plain fit keeps its bound, and the collaborative fit is refused. The page
+    # states the Jensen argument in prose and cites the unit test that carries the number,
+    # because a documentation example is not statistical evidence.
+    plain_row = namespace["plain_row"]
+    assert plain_row["nu2"] > 10.0
+    assert 0.0 < plain_row["robustness value"] < 1.0
+    bound_refusal = namespace["bound_refusal"]
+    assert "'collaborative_tmle'" in bound_refusal
+    assert "cannot exceed the second moment" in bound_refusal
+    assert "optimistic by construction" in bound_refusal
+    # The refusal is the whole of Step 11's collaborative output: exactly one fit prints a
+    # second moment, and it is the plain one.
+    sensitivity_output = stored_output(NOTEBOOK, "sensitivity")
+    assert sensitivity_output.count("nu2") == 1
+    assert f"{plain_row['nu2']:.3f}" in sensitivity_output
+    assert "refused on the collaborative fit" in sensitivity_output
 
-    # "The same representer sets the collaborative standard error" and the regression gives
-    # "the same estimate" with a larger robust standard error on this draw.
+    # "The regression gives the same estimate" with a larger robust standard error on this
+    # draw than the plug-in diagnostic of the selected fit.
     point = namespace["collaborative"]["ate"]
-    assert abs(namespace["implied_se"] - point.std_error) < 0.01 * point.std_error
     assert abs(namespace["coefficient"] - point.psi) < 5e-4
-    assert namespace["robust_se"] > 1.1 * point.std_error
+    assert namespace["robust_se"] > 1.1 * point.plugin_std_error

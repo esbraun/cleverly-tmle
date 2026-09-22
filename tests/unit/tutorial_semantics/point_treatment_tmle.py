@@ -135,11 +135,21 @@ def check(namespace: dict[str, Any]) -> None:
     # Nonzero witness: a retarget at the fitted bound reproduces the Step 6 estimate.
     assert abs(nearest["psi"] - namespace["estimate"].psi) < 1e-10
 
-    # Step 10: "equal strengths of 0.233 move the point estimate to zero" at rho = 1.
+    # Step 10: the default estimator of nu^2 refuses on this fit, and the page says so before
+    # it names the plug-in. "The doubly robust estimator returned -7.96655", which the refusal
+    # prints. A mutation that restores the silent fallback returns a number here instead.
     result = namespace["result"]
+    refusal = namespace["nu2_refusal"]
+    assert "'doubly_robust'" in refusal
+    assert "-7.96655" in refusal
+    assert "not a substitute" in refusal
+    assert result.sensitivity.elements(estimand="ate", nu2_estimator="plugin").nu2 > 0.0
+    # "equal strengths of 0.233 move the point estimate to zero" at rho = 1.
     robustness = namespace["robustness"]
     assert 0.2 < robustness["rv"] < 0.33
-    at_rv = result.sensitivity.omitted_confounding(cf_y=robustness["rv"], cf_d=robustness["rv"])
+    at_rv = result.sensitivity.omitted_confounding(
+        cf_y=robustness["rv"], cf_d=robustness["rv"], nu2_estimator="plugin"
+    )
     assert abs(at_rv.lower) < 1e-3
     # "The implied cf_y reaches 1.0000 ... so this covariate calibrates no bound here": the
     # refusal is the bound formula's own, and it is what sends the step to a second covariate.
@@ -147,7 +157,9 @@ def check(namespace: dict[str, Any]) -> None:
     assert strong.covariates == ("discharge_risk",)
     assert strong.cf_y == 1.0
     with pytest.raises(ValueError, match=r"cf_y must lie in \[0, 1\)"):
-        result.sensitivity.omitted_confounding(cf_y=strong.cf_y, cf_d=strong.cf_d, rho=1.0)
+        result.sensitivity.omitted_confounding(
+            cf_y=strong.cf_y, cf_d=strong.cf_d, rho=1.0, nu2_estimator="plugin"
+        )
     benchmark = namespace["benchmark"]
     assert benchmark.covariates == ("medication_burden",)
     bounds = namespace["bounds"]
