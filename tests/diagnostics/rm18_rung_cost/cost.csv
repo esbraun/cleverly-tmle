@@ -1,0 +1,22 @@
+section,arm,quantity,seed,replications,value
+input,both_wrong,control spread c,,,1.1659502277084426
+input,outcome_correct,first-rung bias,,,0.0011269224884102
+current,outcome_correct,delta half-width,,600,3.924117183864338
+current,outcome_correct,surrogate half-width,20260921,600,3.463899816574724
+cost,outcome_correct,"delta replications, exact",,,9239.217403619627
+cost,outcome_correct,delta replications,,9240,
+cost,outcome_correct,surrogate replications,20260921,19000,
+cost,outcome_correct,surrogate replications,1,20000,
+cost,outcome_correct,surrogate replications,2,19000,
+input,treatment_correct,first-rung bias,,,0.0005851607657
+current,treatment_correct,delta half-width,,600,7.557198228017879
+current,treatment_correct,surrogate half-width,20260921,600,3.4356340873070446
+cost,treatment_correct,"delta replications, exact",,,34266.74703453394
+cost,treatment_correct,delta replications,,34267,
+cost,treatment_correct,surrogate replications,20260921,71000,
+cost,treatment_correct,surrogate replications,1,73000,
+cost,treatment_correct,surrogate replications,2,70000,
+binary check,outcome_correct,surrogate half-width,20260921,800,1.9326324540291235
+binary check,outcome_correct,surrogate half-width,20260921,2000,1.0002706384765072
+binary check,outcome_correct,surrogate half-width,20260921,2400,0.8379842290972283
+binary check,outcome_correct,delta half-width,,2400,0.6386783181163606
