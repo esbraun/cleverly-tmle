@@ -268,7 +268,7 @@ both commits, and their estimates agree within 7.3e-5. At that budget the slope 
 interval within 2e-5 at both commits, and
 `rate_outcome_correct` still runs `-3.0401` to `+0.1232`. The move below zero therefore comes
 from the declared budget. RM18 records the comparison under
-"[What the committed history already separates](../../roadmap.md#what-the-committed-history-already-separates)".
+{ref}`What the committed history already separates <what-the-committed-history-already-separates>`.
 
 The fitted `-0.9176` sits near the `-1` that a second-order remainder predicts. The budget rule
 never read this cell, so the design did not steer that agreement. The interval still covers `-1`

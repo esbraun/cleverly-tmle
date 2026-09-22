@@ -144,7 +144,7 @@ same cell. Its 99% interval reached 1.201555, so the cell missed the ceiling by 
 runs share the law, the learner, the seeds, the budget, and the margins.
 [RM18](../../roadmap.md#rm18-red-property-cells-after-the-fold-scale-and-law-changes) records the
 before and after values. Its
-[code-by-runtime diagnostic](../../roadmap.md#what-the-runtime-isolation-found) attributes the
+{ref}`code-by-runtime diagnostic <what-the-runtime-isolation-found>` attributes the
 verdict change to the pooled code, not to the Python and SciPy change.
 
 The single-fold control has no outer split, and its ratio moved only in the sixth decimal, from

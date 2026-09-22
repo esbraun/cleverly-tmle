@@ -681,7 +681,10 @@ is the only empirical witness for it.
 - van der Laan & Gruber (2010), [*Collaborative double robust targeted maximum likelihood
   estimation*](https://pmc.ncbi.nlm.nih.gov/articles/PMC2898626/), DOI
   10.2202/1557-4679.1181. Section 2.4 selects candidate depth by cross-validated targeted loss.
-  Theorem 4 assumes the expansion that defines the adaptive-mechanism influence contribution.
+  Theorem 2 establishes a population mean-zero identity and collaborative consistency when the
+  outcome regression is correct; it does not establish the variance of the fitted estimator at a
+  fixed inconsistent mechanism. Theorem 4 assumes both the required mean-zero rate and the
+  expansion that defines the adaptive-mechanism influence contribution.
   It does not derive that expansion for the candidate-depth selector. Section 4.1 proposes a
   parametric delta method for a selected parametric mechanism model. Section 4.3 records random
   cross-validation over-selection and leaves its irregularity as an open area.
@@ -728,6 +731,15 @@ is the only empirical witness for it.
   Section 4.2 states that the C-TMLE estimator is asymptotically linear under regularity
   conditions and cites earlier work for it. The data analysis in Section 7 forms its intervals from
   the analytic influence curve. The paper states no post-selection theorem.
+- Liu (2018), [*Contributions to evolutionary dynamics and causal
+  inference*](https://nrs.harvard.edu/urn-3:HUL.InstRepos:41129186), Harvard University
+  dissertation. Chapter 2 derives asymptotic laws for C-TMLE coefficients, squared errors,
+  prediction risks and M-fold cross-validation risks, and studies post-selection AMSE for a binary
+  treatment-specific mean. The construction assumes the propensity candidates, outcome variance
+  and covariate law are known. Its practical post-selection AMSE is obtained by Monte Carlo rather
+  than an analytic formula, and the dissertation leaves practical longitudinal and
+  high-dimensional extensions to future work. It does not establish inference for the package's
+  learned nuisances, discrete stopping rule or joint targets.
 
   Three 2019 *SMMR* papers have Cheng Ju as first author. The Ju, Gruber et al. entry above is
   volume 28(2), DOI 10.1177/0962280217729845. The Ju, Schwab and van der Laan entry is also volume
@@ -744,7 +756,9 @@ is the only empirical witness for it.
   intervals carry no such term.
 - Benkeser, Cai & van der Laan (2020), [*A nonparametric super-efficient estimator of the average
   treatment effect*](https://doi.org/10.1214/19-STS735), DOI 10.1214/19-STS735
-  ([preprint](https://arxiv.org/abs/1901.05056)). Theorem 1 derives asymptotic linearity with the
+  ([published PDF](https://projecteuclid.org/journals/statistical-science/volume-35/issue-3/A-Nonparametric-Super-Efficient-Estimator-of-the-Average-Treatment-Effect/10.1214/19-STS735.pdf),
+  [Supplement A](https://projecteuclid.org/journals/supplementalcontent/10.1214/19-STS735/suppdf_1.pdf),
+  [preprint](https://arxiv.org/abs/1901.05056)). Theorem 1 derives asymptotic linearity with the
   usual TMLE curve evaluated at the adaptive propensity limit for a treatment-specific mean.
   Its six regularity conditions require the relevant score to be negligible, quarter-rate
   convergence of the outcome and adaptive-propensity estimators, influence-curve convergence,
@@ -758,9 +772,9 @@ is the only empirical witness for it.
   Appendix D explicitly constructs the binary ATE with one propensity fit on
   `(Qbar(1, W), Qbar(0, W))` and sketches a cross-validated C-TMLE. It does not derive treatment
   with more than two levels, the shipped joint all-arm fluctuation and covariance, or simultaneous
-  inference. The locators above are those of the preprint, arXiv:1901.05056 v1. The published
-  article is paywalled, and this audit did not check that its theorem, section, and appendix
-  numbers match the preprint.
+  inference. The published article and supplement are open, and this audit checked Theorem 1.
+  The article points to Appendix G for the conditions while Supplement A labels that material
+  Appendix F; this appears to be an internal cross-reference error.
 - van der Vaart, Dudoit & van der Laan (2006), [*Oracle inequalities for multi-fold cross
   validation*](https://doi.org/10.1524/stnd.2006.24.3.351), *Statistics & Decisions*
   24(3):351-371, DOI 10.1524/stnd.2006.24.3.351. The paper bounds the risk of a cross-validation
@@ -933,17 +947,32 @@ is the only empirical witness for it.
   `ctmleGeneral`, `stage2_general`, and `cv_general`. No argument list in those four files takes
   an observation weight, and no fit, sum, mean, or variance in them applies one. This source
   supplies no fixed-weight comparison.
+
   [`calc_varIC`, lines 39-60](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/functions.R#L39-L60)
   adds a binary logistic parameter-estimation term to each candidate's ATE curve.
   [`ctmleDiscrete`, lines 173-185](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/ctmle_discrete.R#L173-L185)
   forms the interval from that variance at `best_k`. Neither block differentiates the
   cross-validated stopping rule.
+
   [`stage1`, lines 84-110](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/functions.R#L84-L110)
   takes a continuous outcome's bounds from `range(Y)` when the caller supplies none, and
   `maptoYstar` rescales by the same sample range.
+
   [`cv`, lines 446-447](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/functions_discrete.R#L446-L447)
   draws its default folds from `sample(1:n, n)` without strata. This source is implementation
   provenance. It states no result for either rule.
+
+  Its `select_terms` and `construct_candidates` functions also confirm the forced-addition path:
+  after a new
+  clever-covariate step retargets the offset, the construction retains the best finite addition.
+  That behavior does not make the recorded penalized selection risk monotone.
+- A 2026-09-21 software-journal and R-ecosystem search found implementation provenance rather than
+  missing theory. The JSS `tmle` article (DOI 10.18637/jss.v051.i13) and JSS `ltmle` article (DOI
+  10.18637/jss.v081.i01) document ordinary TMLE and longitudinal TMLE. The CRAN `ctmle` 0.1.2
+  manual and vignette implement the published C-TMLE algorithms without a new inference theorem.
+  The R Journal `CIMTx` article (DOI 10.32614/RJ-2022-058) calls `tmle` for multiple treatments and
+  uses a nonparametric bootstrap; it does not derive the package's shared-multinomial
+  outcome-adaptive construction or its joint covariance.
 - The `tlverse/ctmle3` implementation at commit
   [`a4ea77b`](https://github.com/tlverse/ctmle3/tree/a4ea77b07747dfee9b2eecb9cbca88262e0559ea).
   [`LF_oat`, lines 110-133](https://github.com/tlverse/ctmle3/blob/a4ea77b07747dfee9b2eecb9cbca88262e0559ea/R/LF_oat.R#L110-L133)
@@ -1006,7 +1035,10 @@ is the only empirical witness for it.
   A 2026-09-21 search added Cui and Tchetgen Tchetgen (2024), Qiu, Luedtke and Carone (2021),
   Bibaut and van der Laan (2017), Ju, Schwab and van der Laan (2019), and Ju, Wyss et al. (2019).
   It read each one first-hand in the arXiv version its entry names. It also read Theorem 1 of Ju,
-  Benkeser and van der Laan (2020) and the `ctmle` outcome-range and fold code.
+  Benkeser and van der Laan (2020), Liu's 2018 dissertation, the published Benkeser, Cai and van
+  der Laan article and supplement, and the `ctmle` outcome-range and fold code. The accompanying
+  JSS, R Journal and CRAN search found implementation provenance and no additional theorem for the
+  selector or shared-multinomial generated design.
 
   It recorded Zhang et al. (2018), Ma et al. (2019), and Bannick et al. (2025) from their
   abstracts. No source it read closes F18, the cross-fitted multi-arm part of F19, or the fold and
@@ -1047,6 +1079,12 @@ is the only empirical witness for it.
   [10.18637/jss.v081.i01](https://doi.org/10.18637/jss.v081.i01). Section 2.4, page 6,
   carries an updated later-node regression into each earlier regression. Section 3.3, page 13,
   defines `gbounds` as bounds on estimated mechanism components.
+- Landsiedel, Petersen & van der Laan (2026), [*Targeted maximum likelihood estimation for
+  longitudinal two-stage designs with outcome subsampling*](https://arxiv.org/abs/2607.02702),
+  arXiv:2607.02702. The preprint develops IPCW-LTMLE and an alternative plug-in LTMLE for a
+  two-stage outcome-subsampling design, with targeted sampling weights and a different variance
+  construction. It is relevant weighted-longitudinal theory, but it does not certify this
+  package's fixed baseline-selection weights, pooled regimen targeting, or comparator contract.
 - Williams & Díaz (2023), [*lmtp: An R Package for Estimating the Causal Effects of Modified
   Treatment Policies*](https://doi.org/10.1353/obs.2023.0019), *Observational Studies*
   9(2):103–122. This is the software reference for the comparator used by the registered studies;

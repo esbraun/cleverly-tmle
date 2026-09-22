@@ -27,15 +27,16 @@ and seed offsets were not chosen from that pilot.
 
 An earlier branch declaration chose the generated-design effect and replication budget
 after reading the positive oracle cell's SE-ratio verdict.  Commit ``308467c`` replaced
-that selection with a rule based on law quadrature and the control's paired deficit,
-then regenerated the study.  The final rule and its reported pilot precede the final
-artifacts; they do not precede every result produced on this branch.
+that selection with a rule based on law quadrature and the comparison arm's paired
+deficit, then regenerated the study.  The negative-deficit verdict was subsequently
+retired as theoretically backwards.  The final law and budget remain part of the
+recorded design history; the paired deficit is now descriptive and both arms are judged
+against their own sampling spreads.
 
-Most of the figures below are design quantities of a law, or a *control* cell's own
+Most of the figures below are design quantities of a law, or a control cell's own
 discrimination.  Two are not, and this section used to claim that none of them were.
-The generated-design figures are the **control**'s paired SE-ratio deficit, which is the
-statistic the rule at :data:`GENERATED_DESIGN_EFFECT` is allowed to read, and that rule
-states which quantities it refuses to read.  The selector-necessity RMSE ratio enters the
+The generated-design figures record the historical paired SE-ratio-deficit selection
+described above; that statistic no longer supplies a verdict.  The selector-necessity RMSE ratio enters the
 joint verdict of a family that also contains a positive cell.  It is reported here as a
 property of the law, and no constant in this module was selected against it.
 
@@ -80,9 +81,9 @@ rejection rate here is evidence about the estimator rather than about a randomiz
 experiment.  The power control rejects ``1.0000`` of 400 replications at
 :data:`ALTERNATIVE_EFFECT`.
 
-:data:`GENERATED_DESIGN_EFFECT` and :data:`GENERATED_DESIGN_REPLICATES` follow the rule
-stated at those two constants.  The rule reads the two laws' quadrature and the control's
-paired SE-ratio deficit, and it names what it refuses to read.  The design floor selects
+:data:`GENERATED_DESIGN_EFFECT` and :data:`GENERATED_DESIGN_REPLICATES` preserve the
+historical rule stated at those two constants.  The rule read the two laws' quadrature and
+the comparison arm's paired SE-ratio deficit.  The design floor selected
 the coefficient ``0.15``, and the pilot measured the deficit there over the declared budget
 ladder at ``n = 1,000``.
 
@@ -94,10 +95,10 @@ budget     paired SE-ratio deficit      half-width    clearance     resolved
 4,800      ``[-0.043227, -0.024355]``   ``0.009436``  ``0.014355``  yes
 =========  ===========================  ============  ============  ==========
 
-The clearance is the distance from the interval's upper endpoint to the ``0.01``
-threshold.  A budget resolves the deficit when the clearance exceeds the interval's own
-half-width, so 4,800 is the first budget on the ladder the rule accepts.  Raising the
-budget cannot buy a pass for a design with no deficit: the interval contracts on zero.
+The clearance is the distance from the interval's upper endpoint to the historical
+``0.01`` threshold.  Under the retired rule, 4,800 was the first budget on the ladder
+whose clearance exceeded the interval's own half-width.  The current calibration verdict
+does not read that threshold.
 
 **Bounded nonlinear law** (:func:`nonlinear_dgp`) is the shipped
 :func:`~cleverly.datasets.nonlinear_bounded_dgp`, mean range ``(0.1314, 0.9377)``,
@@ -264,14 +265,13 @@ NULL_CONFOUNDING_N = 1_000
 #: at ``n = 1,000``; the shared floor is 0.80.
 ALTERNATIVE_EFFECT = 0.2
 
-#: The outcome-adaptive generated-design cells' effect, on the logit, and the rule that
-#: sets it.
+#: The outcome-adaptive generated-design cells' effect, on the logit, and the historical
+#: rule that set it.
 #:
-#: The rule reads two kinds of quantity and no others: a design quantity of the two laws,
-#: and the *control*'s discrimination.  The control is ``generated_design/estimated`` and
-#: its statistic is the paired SE-ratio deficit against the oracle arm.  The rule does not
-#: read the oracle arm's own SE ratio, its resampling interval, or the calibration band
-#: those answer to, because that cell is ``role="positive"`` and the band is its verdict.
+#: The rule read two kinds of quantity and no others: a design quantity of the two laws,
+#: and the ``generated_design/estimated`` arm's paired SE-ratio deficit against the oracle
+#: arm.  That deficit is no longer a verdict; each arm is calibrated to its own sampling
+#: spread, and this comment preserves how the committed law and budget were selected.
 #:
 #: The floor is the design quantity.  The coefficient is at least the value at which this
 #: law's standardized treatment effect -- its ATE over the square root of the population
@@ -281,8 +281,8 @@ ALTERNATIVE_EFFECT = 0.2
 #: not the Gaussian law's own number: that one is an additive shift of an unbounded mean
 #: and this one is a shift of a logit, which is why the two need a common currency at all.
 #:
-#: The choice is the smallest coefficient on that grid, at the smallest budget on the
-#: ladder :data:`GENERATED_DESIGN_REPLICATES` declares, whose control resolves the deficit.
+#: The choice was the smallest coefficient on that grid, at the smallest budget on the
+#: ladder :data:`GENERATED_DESIGN_REPLICATES` declares, whose comparison resolved the deficit.
 #: Smallest rather than largest: a larger coefficient moves the law further from the null
 #: and makes every cell in the family easier, so the rule states the weakest law whose
 #: control still works.  The floor itself qualifies, at 4,800 replications.

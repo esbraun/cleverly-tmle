@@ -80,8 +80,8 @@ nothing else.
 | --- | --- | --- | --- | --- | --- | --- |
 | `crossfit_overfitting` | `cross_fitted_oat` | positive | outcome-adaptive C-TMLE with cross-fitted nuisances and a flexible learner | SE ratio clears the overfitting floor and stays inside the sanity band | SE ratio 0.8966 to 1.0630 | pass |
 | `crossfit_overfitting` | `in_sample_control` | control | the same flexible learner fitted in sample, with no cross-fitting | SE ratio must fall below the overfitting ceiling | SE ratio 0.4184 to 0.5031 | pass |
-| `generated_design` | `estimated` | control | the same design is estimated from the data, as a real fit does | the SE-ratio deficit must reach the declared shortfall | SE ratio 0.9381 to 0.9904 | pass |
-| `generated_design` | `oracle_design` | positive | the outcome-adaptive design is supplied rather than estimated | SE ratio interval inside the calibration band | SE ratio 0.9632 to 1.0153 | pass |
+| `generated_design` | `estimated` | positive | the same design is estimated from the data, as a real fit does | SE ratio and coverage intervals both inside their calibration bands; the paired deficit is reported only | coverage 0.9295 to 0.9475, SE ratio 0.9381 to 0.9904 | pass |
+| `generated_design` | `oracle_design` | positive | the outcome-adaptive design is supplied rather than estimated | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9380 to 0.9549, SE ratio 0.9632 to 1.0153 | pass |
 | `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9269 to 0.9522, SE ratio 0.9328 to 1.0042 | pass |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
 | `robustness_contract` | `outcome_correct` | positive | the outcome regression is correct and the mechanism is not | bias interval inside the equivalence margin, SE ratio must remain between 0.1 and 10.0 | bias -0.000516 to 0.0010, margin 0.0026, SE ratio 0.9834 | pass |
@@ -146,7 +146,7 @@ the committed results and checked at the precision printed.
 | `properties[generated_design/estimated]:se_ratio_ci_lower` | 0.9381 | its 99% lower endpoint |
 | `properties[generated_design/estimated]:se_ratio_ci_upper` | 0.9904 | its 99% upper endpoint |
 | `properties[generated_design/estimated]:se_ratio_deficit_lower` | -0.0346 | paired 99% lower endpoint for estimated minus pinned |
-| `properties[generated_design/estimated]:se_ratio_deficit_upper` | -0.0164 | its upper endpoint, which must clear the floor below |
+| `properties[generated_design/estimated]:se_ratio_deficit_upper` | -0.0164 | its upper endpoint, reported as a paired finite-sample diagnostic |
 | `margin:confidence_level` | 0.9900 | confidence level of Monte Carlo intervals |
 | `margin:alpha` | 0.0500 | nominal estimator size |
 | `margin:nominal_coverage` | 0.9500 | nominal estimator coverage |
@@ -175,7 +175,6 @@ the committed results and checked at the precision printed.
 | `margin:overfit_se_floor` | 0.8500 | cross-fit SE-ratio lower limit |
 | `margin:overfit_control_ceiling` | 0.7500 | in-sample SE-ratio upper limit |
 | `margin:overfit_coverage_gain` | 0.1500 | cross-fit coverage-gain lower limit |
-| `margin:generated_design_deficit` | 0.0100 | smallest paired SE-ratio deficit the control must establish |
 
 The final generated-design law and replication budget followed an earlier branch run.
 That earlier declaration used the positive oracle cell's SE-ratio verdict to choose both.
@@ -193,7 +192,7 @@ are reported in `tests/studies/bounded_cv_laws.py`; this branch commits no pilot
 | OAT has a narrower robustness contract than selector C-TMLE | With the outcome regression correct, the bias interval must fit inside the equivalence margin. With it wrong, the control must be discriminated outside it. No treatment-correct-only claim is made, because OAT's mechanism is a projection on the generated outcome-regression design rather than a fit of treatment on the original covariates |
 | The reported interval uses ordinary EIF plug-in covariance | OAT fits the treatment mechanism on estimated `Qbar` columns. Benkeser, Cai and van der Laan (2020) prove one binary treatment-specific-mean curve under six explicit conditions, and the implementation now follows their fold-local nuisance nesting. The package's two-column joint fluctuation and means, ATE, RR, and OR vector are a finite-dimensional extension rather than literally that theorem. The package does not diagnose the paper's rate, smoothness, remainder, and empirical-process conditions, whose setting is iid, complete-outcome, and unweighted. The `generated_design` cells compare finite-sample behaviour: with the design pinned the SE ratio is `properties[generated_design/oracle_design]:se_ratio`, and with it estimated `properties[generated_design/estimated]:se_ratio`. [F19](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) records the remaining exact-fit and multi-arm boundary |
 | Neither design cell's interval on its own excludes 1 | An SE ratio's Monte Carlo error is dominated by the empirical spread in its denominator, worth about two percent at these replication counts. The *paired* difference resolves, because the two cells share their draws and that common error cancels. It runs from `properties[generated_design/estimated]:se_ratio_deficit_lower` to `properties[generated_design/estimated]:se_ratio_deficit_upper`, entirely below zero. This is a finite-sample generated-design effect, not proof of an omitted first-order term, and it does not show up as invalid coverage |
-| The design control's margin is a detection threshold, not a tolerance | The registered margin detects the paired finite-sample effect. It does not decide whether an asymptotic correction exists. A source-backed resolution of F19 must determine whether and how this study changes |
+| The design comparison is not a negative control | The estimated design is judged by calibration to its own sampling spread. Its paired difference from the oracle design remains a finite-sample diagnostic and is not required to be negative. A source-backed resolution of F19 must determine whether the shipped multi-arm and cross-fitted construction needs an additional representation contribution |
 | The cross-fit overfitting cells are relative evidence | A fully grown tree on this law carries `properties[crossfit_overfitting/cross_fitted_oat]:standardized_bias` empirical standard deviations of nuisance bias. The cell is gated on its SE ratio and on the paired gain rather than on the coverage floor. The primary GLM study carries the absolute gate |
 | The parity claim is narrow | It is binary, two-arm, complete-outcome, GLM, and non-cross-fitted. The archived stack fails the analogous continuous law because its length-two outcome bounds enter a scalar `if` condition; the runner treats that as a reference limitation and not a dropped replication. The row does not establish continuous or multi-arm parity, missing outcomes, weights, clusters, strata, simultaneous or bootstrap intervals, broad learner libraries, or severe practical-positivity behaviour. Cross-fitted public behaviour rests on the property study |
 

@@ -37,9 +37,10 @@ Three ways of building the sequence are available, mirroring the entry points of
     covariate not yet in the model is tried, and the one whose resulting *targeted*
     outcome model has the smallest penalized loss is added.  When no addition improves
     on the current candidate the algorithm **increments the TMLE step** -- it takes the
-    current targeted fit as the new starting point and searches again -- which is what
-    keeps the risk along the sequence monotone.  Costs ``O(V p^2)`` propensity fits for
-    ``p`` covariates and ``V`` selection folds.
+    current targeted fit as the new starting point and searches again -- then accepts the
+    best addition from that step.  The unpenalized likelihood fluctuation cannot worsen
+    its own loss, but the recorded penalized selection risk can rise.  Costs ``O(V p^2)``
+    propensity fits for ``p`` covariates and ``V`` selection folds.
 
     The penalty belongs in this step and not only in the cross-validation that follows.
     Ranked on the bare loss, an instrument wins: extreme clever-covariate values let the
@@ -310,9 +311,9 @@ class CTMLESelection:
         TMLE step to keep making progress.
     train_risk:
         The selection criterion for each candidate, evaluated in sample.
-        Non-increasing by construction for the greedy and ordered searches -- an
-        increase means the search hit its numerical guard rather than finding a
-        genuine improvement.
+        A greedy or ordered search retries from one further targeted fit when no
+        addition improves the criterion, then accepts the best addition.  The recorded
+        penalized risk may therefore increase.
     cv_risk:
         The same criterion, cross-validated.  This is the quantity actually
         minimised, and unlike ``train_risk`` it is free to turn back up -- which is
@@ -1441,8 +1442,8 @@ class _Selector:
     ) -> list[_Candidate]:
         """Build a nested sequence, greedily or in a fixed order.
 
-        The two searches differ only in how the next covariate is picked; the TMLE-step
-        incrementing that keeps the loss monotone is shared.
+        The two searches differ only in how the next covariate is picked; both retry from
+        one further targeted fit before forcing the best available addition.
         """
         pool = list(order) if order is not None else list(self.data.covariate_names)
         first = self._candidate((), self.base.outcome, rows, train, tag, 1)
@@ -1462,8 +1463,9 @@ class _Selector:
             best = min(scored, key=lambda candidate: candidate.risk)
             if best.risk > current.risk and not stepped:
                 # No addition helps from here.  Take a further fluctuation step and
-                # search again from the targeted fit -- this is what makes the risk
-                # along the sequence monotone (van der Laan & Gruber, 2010).
+                # search again from the targeted fit.  The next pass accepts its best
+                # addition even when the recorded penalized risk rises, matching the
+                # forced-addition construction of van der Laan & Gruber (2010).
                 base_fit = current.targeted
                 n_steps += 1
                 stepped = True

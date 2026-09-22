@@ -8,7 +8,7 @@ R11=worktree .venv (3.11.13) ; R13=main checkout .venv (3.13.7), read-only
 === smoke weighted_lmtp_ltmle F-R11  start 2026-09-21T22:39:34Z
 tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F  commit=7d5485abf42545843c7dc801dfdac57ec68fd0f0  status=[]
 python=C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F/src  cwd=/tmp/rm18/rm18-code-F
-cache contents before: 
+cache contents before:
 preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\src\cleverly\__init__.py
 preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\tests\__init__.py
 preflight python 3.11.13
@@ -30,7 +30,7 @@ copied smoke reference-results.csv F-R11 -> P-R13 sha256=c0673e17072b376599de37c
 === smoke weighted_lmtp_ltmle P-R13  start 2026-09-21T22:40:05Z
 tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P  commit=56100ce9ddb48e3faba4130db2aa8a8ed07c5f6a  status=[]
 python=C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P/src  cwd=/tmp/rm18/rm18-code-P
-cache contents before: reference-results.csv 
+cache contents before: reference-results.csv
 preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\src\cleverly\__init__.py
 preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\tests\__init__.py
 preflight python 3.13.7
@@ -52,7 +52,7 @@ copied smoke reference-results.csv F-R11 -> F-R13 sha256=c0673e17072b376599de37c
 === smoke weighted_lmtp_ltmle F-R13  start 2026-09-21T22:40:20Z
 tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F  commit=7d5485abf42545843c7dc801dfdac57ec68fd0f0  status=[]
 python=C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F/src  cwd=/tmp/rm18/rm18-code-F
-cache contents before: reference-results.csv 
+cache contents before: reference-results.csv
 preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\src\cleverly\__init__.py
 preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\tests\__init__.py
 preflight python 3.13.7
@@ -74,7 +74,7 @@ copied smoke reference-results.csv F-R11 -> P-R11 sha256=c0673e17072b376599de37c
 === smoke weighted_lmtp_ltmle P-R11  start 2026-09-21T22:40:32Z
 tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P  commit=56100ce9ddb48e3faba4130db2aa8a8ed07c5f6a  status=[]
 python=C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P/src  cwd=/tmp/rm18/rm18-code-P
-cache contents before: reference-results.csv 
+cache contents before: reference-results.csv
 preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\src\cleverly\__init__.py
 preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\tests\__init__.py
 preflight python 3.11.13
@@ -95,7 +95,7 @@ stdout tail:
 === smoke lmtp_ltmle F-R11  start 2026-09-21T22:40:43Z
 tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F  commit=7d5485abf42545843c7dc801dfdac57ec68fd0f0  status=[]
 python=C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F/src  cwd=/tmp/rm18/rm18-code-F
-cache contents before: 
+cache contents before:
 preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\src\cleverly\__init__.py
 preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\tests\__init__.py
 preflight python 3.11.13
@@ -116,7 +116,7 @@ stdout tail:
 === smoke lmtp_ltmle P-R13  start 2026-09-21T22:40:54Z
 tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P  commit=56100ce9ddb48e3faba4130db2aa8a8ed07c5f6a  status=[]
 python=C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P/src  cwd=/tmp/rm18/rm18-code-P
-cache contents before: 
+cache contents before:
 preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\src\cleverly\__init__.py
 preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\tests\__init__.py
 preflight python 3.13.7
@@ -137,7 +137,7 @@ stdout tail:
 === smoke lmtp_ltmle F-R13  start 2026-09-21T22:41:06Z
 tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F  commit=7d5485abf42545843c7dc801dfdac57ec68fd0f0  status=[]
 python=C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F/src  cwd=/tmp/rm18/rm18-code-F
-cache contents before: 
+cache contents before:
 preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\src\cleverly\__init__.py
 preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\tests\__init__.py
 preflight python 3.13.7
@@ -158,7 +158,7 @@ stdout tail:
 === smoke lmtp_ltmle P-R11  start 2026-09-21T22:41:18Z
 tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P  commit=56100ce9ddb48e3faba4130db2aa8a8ed07c5f6a  status=[]
 python=C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P/src  cwd=/tmp/rm18/rm18-code-P
-cache contents before: 
+cache contents before:
 preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\src\cleverly\__init__.py
 preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\tests\__init__.py
 preflight python 3.11.13
@@ -177,12 +177,12 @@ stdout tail:
   | wrote 6 artefacts and a manifest to C:\Users\erics\AppData\Local\Temp\rm18\smoke\lmtp_ltmle\P-R11\output
 smoke arms: all 8 exit 0; compare.py exercised on smoke (verdict fix committed 65e319b before any full arm)
 
-=== full runs begin 2026-09-21T22:42:47Z; python.exe running before start: 0; containers: vi-postgres 
+=== full runs begin 2026-09-21T22:42:47Z; python.exe running before start: 0; containers: vi-postgres
 
 === full weighted_lmtp_ltmle F-R11  start 2026-09-21T22:42:47Z
 tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F  commit=7d5485abf42545843c7dc801dfdac57ec68fd0f0  status=[]
 python=C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F/src  cwd=/tmp/rm18/rm18-code-F
-cache contents before: 
+cache contents before:
 preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\src\cleverly\__init__.py
 preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\tests\__init__.py
 preflight python 3.11.13
@@ -193,7 +193,7 @@ pip freeze after: identical
 tree status after=[]
 exit=0  wall_seconds=894  end 2026-09-21T22:57:43Z
 stdout tail:
-  | 
+  |
   | paired similarity and non-inferiority:
   |                       scenario                                       estimand                              subject     reference  paired_replicates  dropped_replications  confidence_level  mean_difference  paired_se  paired_ci_lower  paired_ci_upper  mean_margin  margin_utilization  paired_similarity  rmse_ratio  rmse_ratio_upper  rmse_noninferiority_margin  coverage_difference  subject_coverage_shortfall  coverage_difference_lower  coverage_noninferiority_margin  se_comparable  se_ratio_difference  subject_calibration_excess  calibration_excess_upper  calibration_excess_resolution  calibration_resolved  calibration_noninferiority_margin  rmse_screen  coverage_shortfall_screen  subject_valid  reference_valid  coverage_superior  subject_not_inferior comparison_conclusion  passed
   | selected_censored_end_of_study                             ey_regimen[always] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                800                     0              0.99        -0.000029   0.000057        -0.000175         0.000118     0.003129            0.009109               True    1.004006          1.010861                         1.1             -0.03375                     0.03375                      -0.05                          -0.025           True             0.168097                         0.0                  0.100914                       0.112139                 False                               0.05         True                       True           True             True              False                 False          underpowered   False
@@ -204,7 +204,7 @@ copied reference-results.csv F-R11 -> P-R13 sha256=3bcf3b1679ef5da8cffcb6806ed15
 === full weighted_lmtp_ltmle P-R13  start 2026-09-21T22:57:43Z
 tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P  commit=56100ce9ddb48e3faba4130db2aa8a8ed07c5f6a  status=[]
 python=C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P/src  cwd=/tmp/rm18/rm18-code-P
-cache contents before: reference-results.csv 
+cache contents before: reference-results.csv
 preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\src\cleverly\__init__.py
 preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\tests\__init__.py
 preflight python 3.13.7
@@ -226,7 +226,7 @@ copied reference-results.csv F-R11 -> F-R13 sha256=3bcf3b1679ef5da8cffcb6806ed15
 === full weighted_lmtp_ltmle F-R13  start 2026-09-21T23:00:44Z
 tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F  commit=7d5485abf42545843c7dc801dfdac57ec68fd0f0  status=[]
 python=C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F/src  cwd=/tmp/rm18/rm18-code-F
-cache contents before: reference-results.csv 
+cache contents before: reference-results.csv
 preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\src\cleverly\__init__.py
 preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\tests\__init__.py
 preflight python 3.13.7
@@ -237,7 +237,7 @@ pip freeze after: identical
 tree status after=[]
 exit=0  wall_seconds=212  end 2026-09-21T23:04:18Z
 stdout tail:
-  | 
+  |
   | paired similarity and non-inferiority:
   |                       scenario                                       estimand                              subject     reference  paired_replicates  dropped_replications  confidence_level  mean_difference  paired_se  paired_ci_lower  paired_ci_upper  mean_margin  margin_utilization  paired_similarity  rmse_ratio  rmse_ratio_upper  rmse_noninferiority_margin  coverage_difference  subject_coverage_shortfall  coverage_difference_lower  coverage_noninferiority_margin  se_comparable  se_ratio_difference  subject_calibration_excess  calibration_excess_upper  calibration_excess_resolution  calibration_resolved  calibration_noninferiority_margin  rmse_screen  coverage_shortfall_screen  subject_valid  reference_valid  coverage_superior  subject_not_inferior comparison_conclusion  passed
   | selected_censored_end_of_study                             ey_regimen[always] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                800                     0              0.99        -0.000029   0.000057        -0.000175         0.000118     0.003129            0.009109               True    1.004006          1.010861                         1.1             -0.03375                     0.03375                      -0.05                          -0.025           True             0.168097                         0.0                  0.100914                       0.112139                 False                               0.05         True                       True           True             True              False                 False          underpowered   False
@@ -248,7 +248,7 @@ copied reference-results.csv F-R11 -> P-R11 sha256=3bcf3b1679ef5da8cffcb6806ed15
 === full weighted_lmtp_ltmle P-R11  start 2026-09-21T23:04:18Z
 tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P  commit=56100ce9ddb48e3faba4130db2aa8a8ed07c5f6a  status=[]
 python=C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P/src  cwd=/tmp/rm18/rm18-code-P
-cache contents before: reference-results.csv 
+cache contents before: reference-results.csv
 preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\src\cleverly\__init__.py
 preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\tests\__init__.py
 preflight python 3.11.13
@@ -269,7 +269,7 @@ stdout tail:
 === full lmtp_ltmle F-R11  start 2026-09-21T23:07:14Z
 tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F  commit=7d5485abf42545843c7dc801dfdac57ec68fd0f0  status=[]
 python=C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F/src  cwd=/tmp/rm18/rm18-code-F
-cache contents before: 
+cache contents before:
 preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\src\cleverly\__init__.py
 preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\tests\__init__.py
 preflight python 3.11.13
@@ -290,7 +290,7 @@ stdout tail:
 === full lmtp_ltmle P-R13  start 2026-09-21T23:13:42Z
 tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P  commit=56100ce9ddb48e3faba4130db2aa8a8ed07c5f6a  status=[]
 python=C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P/src  cwd=/tmp/rm18/rm18-code-P
-cache contents before: 
+cache contents before:
 preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\src\cleverly\__init__.py
 preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\tests\__init__.py
 preflight python 3.13.7
@@ -307,7 +307,7 @@ stdout tail:
 === full lmtp_ltmle F-R13  start 2026-09-21T23:18:41Z
 tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F  commit=7d5485abf42545843c7dc801dfdac57ec68fd0f0  status=[]
 python=C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F/src  cwd=/tmp/rm18/rm18-code-F
-cache contents before: 
+cache contents before:
 preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\src\cleverly\__init__.py
 preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\tests\__init__.py
 preflight python 3.13.7
@@ -328,7 +328,7 @@ stdout tail:
 === full lmtp_ltmle P-R11  start 2026-09-21T23:25:08Z
 tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P  commit=56100ce9ddb48e3faba4130db2aa8a8ed07c5f6a  status=[]
 python=C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P/src  cwd=/tmp/rm18/rm18-code-P
-cache contents before: 
+cache contents before:
 preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\src\cleverly\__init__.py
 preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\tests\__init__.py
 preflight python 3.11.13

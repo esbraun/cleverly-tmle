@@ -304,7 +304,6 @@ def generated_design_cells(*, seed: int) -> tuple[PropertyCell, ...]:
             1000,
             GENERATED_REPLICATES,
             seed,
-            role="control",
             estimand=ESTIMAND,
         ),
     )

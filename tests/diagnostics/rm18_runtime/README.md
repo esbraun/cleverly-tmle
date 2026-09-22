@@ -61,9 +61,10 @@ cmp <scratch>/isolation.csv tests/diagnostics/rm18_runtime/isolation.csv
 `compare.py` marks a study "harness not validated, no attribution" when a precondition fails. It
 still records the count of rows outside the 1e-9 tolerance and the largest difference. It also
 refuses to validate a study when an arm's manifest breaks a declared fixed condition. Each arm must
-record its pinned code commit, a clean worktree, and its runtime's Python and SciPy versions. The
-four arms must record one numpy, one pandas and one scikit-learn version. The module prints each
-broken condition.
+record its exact code commit, a clean worktree, and its runtime's Python and SciPy versions. Each
+consumed artifact must match its recorded SHA-256 digest. The four arms must record the declared
+study identity and configuration, one comparator provenance, and one version of each fixed
+library. Their `lmtp` rows must be identical. The module prints each broken condition.
 
 ## A standard-error pathology in the weighted study
 

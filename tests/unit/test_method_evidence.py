@@ -709,17 +709,16 @@ class TestPublishedVerdicts:
         if not design.empty:
             margins = study.margins
             for row in design.itertuples():
-                if row.cell == "oracle_design":
-                    expected = (
-                        margins.calibration_se_ratio[0]
-                        <= row.se_ratio_ci_lower
-                        <= row.se_ratio_ci_upper
-                        <= margins.calibration_se_ratio[1]
-                    )
-                else:
-                    expected = (
-                        row.se_ratio_deficit_upper <= -study.properties().GENERATED_DESIGN_DEFICIT
-                    )
+                expected = (
+                    margins.calibration_se_ratio[0]
+                    <= row.se_ratio_ci_lower
+                    <= row.se_ratio_ci_upper
+                    <= margins.calibration_se_ratio[1]
+                    and margins.calibration_coverage[0]
+                    <= row.coverage_ci_lower
+                    <= row.coverage_ci_upper
+                    <= margins.calibration_coverage[1]
+                )
                 assert bool(row.passed) is bool(expected), (
                     f"{row.cell} publishes passed={row.passed} against its own endpoints"
                 )
@@ -1962,7 +1961,6 @@ MARGIN_SOURCES: dict[str, Any] = {
     "margin:clustered_coverage_gain": lambda s: property_verdicts.CLUSTERED_COVERAGE_GAIN,
     "margin:union_model_se_lower": lambda s: property_verdicts.UNION_MODEL_SE_BAND[0],
     "margin:union_model_se_upper": lambda s: property_verdicts.UNION_MODEL_SE_BAND[1],
-    "margin:generated_design_deficit": lambda s: s.properties().GENERATED_DESIGN_DEFICIT,
     "margin:selector_rmse_ratio": lambda s: s.properties().SELECTOR_RMSE_RATIO,
     "margin:repeat_spread_ratio": lambda s: s.properties().MAX_REPEAT_SPREAD_RATIO,
     "margin:shrunken_se_factor": lambda s: s.properties().SHRUNKEN_SE_FACTOR,
@@ -2213,11 +2211,6 @@ class TestTheQuantityVocabulary:
             low, high = property_verdicts.UNION_MODEL_SE_BAND
             assert declared["margin:union_model_se_lower"] == low
             assert declared["margin:union_model_se_upper"] == high
-        if "generated_design" in study.property_cells:
-            assert (
-                declared["margin:generated_design_deficit"]
-                == study.properties().GENERATED_DESIGN_DEFICIT
-            )
         if "selector_necessity" in study.property_cells:
             selector = study.properties()
             assert declared["margin:selector_rmse_ratio"] == selector.SELECTOR_RMSE_RATIO

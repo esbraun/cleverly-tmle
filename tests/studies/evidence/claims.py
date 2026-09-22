@@ -321,8 +321,6 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         low, high = property_verdicts.UNION_MODEL_SE_BAND
         declared["margin:union_model_se_lower"] = low
         declared["margin:union_model_se_upper"] = high
-    if "generated_design" in record.property_cells:
-        declared["margin:generated_design_deficit"] = record.properties().GENERATED_DESIGN_DEFICIT
     if "selector_necessity" in record.property_cells:
         # Through the record, not by name: this constant belongs to the study that declares
         # the cells, unlike the overfitting margins above, which are shared across families

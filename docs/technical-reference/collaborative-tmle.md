@@ -161,13 +161,18 @@ studies. It is not accepted on numerical R parity.
 **Scoring only one contrast is a load-bearing mutation.** The multi-arm selector's joint penalty is
 checked by a mutation that scores only the first contrast. It changes the penalty by more than 100.
 
-**Selector intervals treat the selected candidate as fixed.** The greedy, ordered, and discrete
-paths report ordinary cross-fitted EIF plug-in covariance. Pointwise and simultaneous inference
-use those same curves after selection.
+**Selector-path inferential output is not supported.** The greedy, ordered, and discrete paths
+currently compute ordinary cross-fitted EIF plug-in covariance after selection. Treat that value
+only as a working-mechanism diagnostic. [RM12](../roadmap.md#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism)
+requires confidence intervals and p-values to be refused in a dedicated API follow-up; point
+estimates and path diagnostics remain supported.
 
-Van der Laan and Gruber (2010) describe an additional adaptive-mechanism contribution under
-fixed-limit and regularity assumptions. The pinned R `ctmle` computes a binary parametric term for
-each candidate, then uses the selected candidate's variance. Neither source derives the influence
+Van der Laan and Gruber (2010), Theorem 2, establishes the population mean-zero identity that
+supports collaborative consistency when the outcome regression is correct. It does not establish
+the variance of an estimator using an estimated outcome regression and an inconsistent working
+mechanism. Theorem 4 assumes the needed mean-zero rate and adaptive-mechanism expansion rather
+than proving them for the selector. The pinned R `ctmle` computes a binary parametric term for each
+candidate, then uses the selected candidate's variance. Neither source derives the influence
 function of the package's nested stopping-index procedure. The cross-validation oracle inequality
 does not close that gap either, because it bounds risk and states no limit law.
 
@@ -177,8 +182,8 @@ oracle-model, Gaussian quadratic-selection, and joint-Gaussian-selection conditi
 established for this selector.
 
 Leeb and Pötscher (2006) supply a nonuniformity warning in a finite-dimensional regression
-subset-selection model; their theorem has not been transferred here. The reported interval treats
-the selected candidate as fixed and makes no conditional-coverage claim. Near-ties are an
+subset-selection model; their theorem has not been transferred here. A working-mechanism plug-in
+standard error makes no conditional-coverage claim and is not inferential output. Near-ties are an
 especially important unresolved regime.
 
 **Outcome-adaptive intervals report an ordinary adaptive-propensity curve.** This strategy selects
@@ -190,10 +195,11 @@ conditions.
 
 Three readings narrow that gap, and none closes it. Benkeser, Cai and van der Laan (2020) prove a
 binary treatment-specific-mean result and explicitly construct a two-arm-design ATE using one
-signed fluctuation coefficient. The package uses two arm-specific fluctuation columns and exposes
-a joint means, ATE, RR, and OR vector. Moving from established scalar expansions to a fixed-size
-vector is elementary by Cramér--Wold, but the source does not state the scalar expansions for this
-exact joint fit. Its result is also limited to iid, complete-outcome, unweighted data.
+signed fluctuation coefficient. The package uses a shared categorical mechanism and arm-specific
+fluctuation columns, and exposes a joint means, ATE, RR, and OR vector. Cramér--Wold can combine
+already-established scalar expansions; it cannot establish the missing component expansions,
+remainders, or covariance for this exact joint fit. Its result is also limited to iid,
+complete-outcome, unweighted data.
 
 DOPE allows finitely many treatment levels and fixed contrasts, but its proved ordinary-curve
 result conditions on a representation learned on an independent sample; it also shows how
