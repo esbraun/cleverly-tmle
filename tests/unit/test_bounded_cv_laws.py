@@ -755,7 +755,7 @@ class TestTheFoldPolicyDiagnostics:
         property_verdicts.fold_policy_diagnostics(summary, rows, CANONICAL_CVTMLE)
         rendered = [document._property_verdict(row) for row in summary.itertuples()]
         assert rendered == ["reported", "reported"]
-        measured = document._measured(
+        measured = document.measured(
             next(row for row in summary.itertuples() if row.cell == "treatment_stratified")
         )
         assert "coverage" in measured and "paired coverage difference" in measured

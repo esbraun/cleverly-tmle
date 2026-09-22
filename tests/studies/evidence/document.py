@@ -227,7 +227,7 @@ def property_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[s
                 str(row.role),
                 tested,
                 required,
-                _measured(row),
+                measured(row),
                 _property_verdict(row),
             )
         )
@@ -247,8 +247,23 @@ def _property_verdict(row: Any) -> str:
     return _verdict(row.passed)
 
 
-def _measured(row: Any) -> str:
-    """The endpoint a cell's own verdict was read from, named and valued."""
+def measured(row: Any) -> str:
+    """The endpoint a cell's own verdict was read from, named and valued.
+
+    Public because two tables print it: a study's property table and the red-cell ledger in
+    :mod:`tests.studies.evidence.red_cells`.  One function keeps the two from describing the
+    same failed cell by different numbers.
+
+    Parameters
+    ----------
+    row : Any
+        One ``properties.csv`` row, as ``itertuples`` yields it.
+
+    Returns
+    -------
+    str
+        The endpoint, named and rendered as a published table cell prints it.
+    """
     family = str(row.property)
     if family in _BIAS_GATED:
         measured = (
@@ -514,6 +529,12 @@ def main() -> None:
         print(f"{record.slug}: {len(changed)} value(s) updated in {record.document}")
         for line in changed:
             print(f"  {line}")
+    # The ledger reads the same committed tables, so a regeneration that moves a verdict moves
+    # the ledger in the same run rather than leaving it for a second command nobody remembers.
+    # Imported here because ``red_cells`` imports this module.
+    from tests.studies.evidence import red_cells
+
+    red_cells.report()
 
 
 if __name__ == "__main__":
