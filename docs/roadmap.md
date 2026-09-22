@@ -40,9 +40,9 @@ the probe that measured it.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Red property cells after the fold, scale and law changes | locate published selector-path and generated-design results, and publish each red cell with its interval until a source supplies them | four of the six property cells that went red after the fold, scale and law changes are still red, across three registered studies, and the cells that were already red stay red. The pooled-code, new-runtime regeneration recorded a green end-of-study cell and two newly red weighted longitudinal cells. A declared code-by-runtime diagnostic attributes all three changes to the code and none to the runtime | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
+| 0.1 | Red property cells after the fold, scale and law changes | keep the unresolved selector-path and exact generated-design rows under `reporting`, publish each red cell with its interval, and admit inference only when F18 or F19 supplies the exact result | four of the six property cells that went red after the fold, scale and law changes are still red, across three registered studies, and the cells that were already red stay red. The pooled-code, new-runtime regeneration recorded a green end-of-study cell and two newly red weighted longitudinal cells. A declared code-by-runtime diagnostic attributes all three changes to the code and none to the runtime | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
 | 0.2 | Sensitivity bounds outside their derivation | refuse every omitted-variable operation on DR-TMLE, C-TMLE, and missing-outcome fits, refuse the standardized E-value conversion on missing-outcome fits, and correct the refusal messages for the other parameter axes | the bound runs where no derivation covers it, and on DR-TMLE and C-TMLE fits it understates the bias | [RM11](#rm11-sensitivity-bounds-outside-their-derivation) |
-| 0.3 | Collaborative intervals at an inconsistent working mechanism | label every collaborative interval in its output, and correct the path-risk docstrings | the curve at an intercept-only working mechanism gives a standard-error ratio of 0.844 and a coverage of 0.92 over 300 draws | [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism) |
+| 0.3 | Collaborative intervals at an inconsistent working mechanism | refuse confidence intervals and p-values for greedy, ordered and discrete paths until F18 supplies their influence curve; retain point estimates and explicitly noninferential path diagnostics | the curve at an intercept-only working mechanism gives a standard-error ratio of 0.844 and a coverage of 0.92 over 300 draws | [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism) |
 | 0.4 | Estimated MSM projection weights | require a declaration that a projection weight is known, and refuse an estimated weight before the fit | a callable that closes over estimated weights fits without a message and reports a standard error that is too small | [RM13](#rm13-estimated-msm-projection-weights) |
 | 0.5 | Intervention refusals at identification | refuse mixed intervention kinds in `CausalStudy.identify`, and name the typed estimands in each message | a mixed request passes identification and then fails at estimation, once with an `AttributeError` | [RM14](#rm14-intervention-refusals-at-identification) |
 | 0.6 | Calibration-slope warning rule | replace the fixed band with a rule that a registered calibration study supports | the band flagged 14 of 40 fits of a correctly specified weak-signal propensity model | [RM15](#rm15-calibration-slope-warning-rule) |
@@ -53,9 +53,9 @@ criteria separate inside its group.
 
 | delivery group | items | shared boundary |
 | --- | --- | --- |
-| red property cells | RM18, and the F18 and F19 derivations it waits on | one decision about what a failing positive cell is evidence of, and two derivations that would close it |
+| red property cells | RM18, and the F18 and F19 derivations it waits on | the recorded rule that a red cell is reporting evidence, and two exact derivations that would close the inferential gaps |
 | sensitivity refusals | RM11 and the F5 refusal boundary | one capability route and one family of derivation messages |
-| collaborative inference | RM12 and the F18 audit | one decision about the selected working mechanism and selector |
+| collaborative inference | RM12 and the F18 audit | one refusal boundary for unsupported selector inference, with F18 defining the source-backed reopening condition |
 | pre-fit declarations | RM13 and RM14 | refuse unsupported requests before any nuisance fit |
 | diagnostic reports | RM15 and RM16 | one assessment and summary surface, with one documentation pass |
 
@@ -325,10 +325,10 @@ anyway. The `collaborative-tmle` notebook output shows `risk` rising from 6.5930
 
 Apply these corrections:
 
-1. Print a label with every collaborative interval in the result summary, in `to_frame`, and in
-   the assessment. The label says that the curve is the EIF at the selected working mechanism. It
-   also says that no result shows this curve is the estimator's influence curve when that mechanism
-   is not consistent for the treatment law.
+1. When a result exposes the ordinary curve at the selected working mechanism as a diagnostic,
+   label it in the result summary, in `to_frame`, and in the assessment. The label says that no
+   result shows this curve is the estimator's influence curve when that mechanism is not consistent
+   for the treatment law. It must not render as a confidence interval or p-value.
 2. Refuse confidence intervals and p-values for the greedy, ordered and discrete paths until F18
    supplies the estimator's influence curve. Keep the point estimate and path diagnostics. A
    clearly named working-mechanism plug-in standard error may remain only as a diagnostic, not as
@@ -591,7 +591,7 @@ statistic and does not gate on it (`tests/studies/ctmle_selector_properties.py`)
 | cells | open question |
 | --- | --- |
 | `selector_necessity/collaborative`, `selector_necessity/empty_control`, and the standard-error ratio reversal | [F18](#f18-selector-path-c-tmle-inference). No result derives an influence curve after the shipped stopping-index selection. The population one-step remainder is exactly zero at the nuisance limits on both laws, so the residual is the selector's stopping behaviour rather than a nuisance rate |
-| the same reversal, again | [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism). The registered row and RM12's own probe now point the same way, so RM12's labelling work covers this study's reported interval |
+| the same reversal, again | [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism). The registered row and RM12's own probe point the same way. This row is a nonzero witness for refusing selector-path confidence intervals and p-values; labelling alone does not close it |
 | the `generated_design` pair | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference). Both designs are judged by calibration to their own sampling spread. The exact shared-multinomial generated-design expansion remains open; the paired difference is descriptive and is not required to be negative |
 | `crossfit_overfitting/cross_fitted_ltmle` | closed. The pooled update implements the construction that Theorem 3 of Díaz, Williams, Hoffman and Schenck (2023) certifies, and the cell passes. "What the pooled update found" gives the numbers |
 | the two weighted longitudinal cells newly red in the pooled-code, new-runtime regeneration | a fixed-known-weight pooled-targeting follow-up owned by RM18. Under this study's iid baseline-selection law, normalized fixed weights change the empirical law, and the pooled update applies the corresponding weighted targeting equation. The code attribution therefore does not show that fold-local targeting was correct. The two near-boundary verdicts remain reporting evidence, not a reason to revert. Broader transport to complex surveys, estimated or calibrated weights, clustering, and other longitudinal weight laws remains open. Karim (2026), arXiv:2606.30918v2, is adjacent point-treatment survey theory; Landsiedel, Petersen and van der Laan (2026), arXiv:2607.02702, treats a different two-stage outcome-subsampling estimator. Neither is a result for this exact construction |
@@ -923,10 +923,11 @@ verdict.
 | end-of-study | `crossfit_overfitting/in_sample_control` | pass. SE ratio 0.353193 | pass. 0.353196 | pass. 0.353193 | pass. 0.353196 | neither |
 
 The two weighted cells therefore went red with the pooled code, not with the runtime. At each code
-state, the two runtimes give the same weighted statistics to every printed decimal. This result
-attributes the change and does not judge it. It does not show whether the pooled update is the
-right estimator for the weighted law. Both cells stay red under the `reporting` policy, and no
-margin, budget or law moved.
+state, the two runtimes give the same weighted statistics to every printed decimal. This
+diagnostic attributes the change and does not by itself judge the estimator. The separate
+fixed-known-weight analysis in "The open question each cell belongs to" supports the pooled
+estimating equation for this iid baseline-selection law. Both cells stay red as finite-sample
+reporting evidence; broader weighted laws remain open, and no margin, budget or law moved.
 
 The end-of-study overfitting cell turned green with the pooled code. At `F`, the runtime moves its
 upper endpoint from 1.201555 to 1.201516, and both values exceed the 1.20 ceiling.
@@ -997,7 +998,7 @@ unisolated.
 | a targeting result for the fold-local longitudinal recursion | delivered by the pooled route. The package now implements Section 5.2, Steps 1 to 4, which Theorem 3 certifies. `crossfit_overfitting/cross_fitted_ltmle` sits inside the shared ceiling at 8,000 draws, with a 99% interval from 0.996092 to 1.036997. "What the pooled update found" gives every moved cell, including two weighted cells that went red |
 | a reading of the two `n_500` coverage endpoints | delivered. A registered fold-policy diagnostic reads both endpoints as a boundary resolution. "What the two readings found" gives the numbers |
 | a reading of the DR-TMLE contraction slope | delivered. A declared rung design resolves the slope, and its interval now sits below zero. "What the two readings found" gives the numbers |
-| an attribution of the verdicts that changed with the pooled update | delivered for the end-of-study and weighted studies. A declared code-by-runtime diagnostic reads the two weighted cells and the end-of-study overfitting cell as code changes. "What the runtime isolation found" gives the numbers. The weighted cells stay red, and the diagnostic does not settle whether the pooled update suits the weighted law |
+| an attribution of the verdicts that changed with the pooled update | delivered for the end-of-study and weighted studies. A declared code-by-runtime diagnostic reads the two weighted cells and the end-of-study overfitting cell as code changes. "What the runtime isolation found" gives the numbers. For this iid baseline-selection study with fixed known weights, the weighted empirical-law calculation supports the pooled estimating equation. The weighted cells stay red as finite-sample reporting evidence; complex surveys, estimated or calibrated weights, clustering, and other weight laws remain open |
 
 The second acceptance row previously required a negative paired standard-error deficit. That gate
 was not consistent with its own sources, and it is no longer an acceptance condition.
@@ -1005,20 +1006,21 @@ was not consistent with its own sources, and it is no longer an acceptance condi
 | part of the conflict | what it states | where |
 | --- | --- | --- |
 | the only published result | no first-order generated-design term for one binary treatment-specific mean, so no first-order standard-error deficit | Theorem 1 of Benkeser, Cai and van der Laan, arXiv:1901.05056 v1 |
-| the `estimated` control | passes only when the 99% upper endpoint of the paired deficit is at or below -0.01 | `GENERATED_DESIGN_DEFICIT` and the historical `generated_design` verdict in `tests/studies/multi_arm_ctmle_oat_properties.py` |
+| the historical `estimated` control | passed only when the 99% upper endpoint of the paired deficit was at or below -0.01 | the removed `GENERATED_DESIGN_DEFICIT` and the historical `generated_design` verdict in `tests/studies/multi_arm_ctmle_oat_properties.py` |
 | the F19 acceptance | a result that establishes whether the current curve suffices or a representation contribution is required | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 
-A derivation that extends Theorem 1 would predict no first-order deficit. A future inferential gate
-should instead require calibrated coverage and standard errors for the estimated design. If it
-also compares against the oracle design, use a two-sided equivalence margin or a predeclared
-sample-size ladder that contracts the difference towards zero. A deliberately invalid generated
-design may serve as a negative control; the learned design itself may not.
+A derivation that extends Theorem 1 would predict no first-order deficit. The registered gate now
+requires each design's coverage and standard-error intervals to fit inside their calibration
+bands. The point-treatment pair passes that rule. The multi-arm pair passes its coverage band but
+fails because both standard-error intervals cross the 1.07 upper bound. The paired difference is
+descriptive rather than an acceptance condition.
 
-The `oracle_design` cell has a second constraint, and this row proposes no change to it. Its 99%
-SE-ratio interval runs 0.979701 to 1.115078, which is 0.1354 wide. The band from 0.93 to 1.07 is
-0.14 wide. At that width, the interval fits inside the band only when its midpoint lies within
-0.0023 of 1. This fact describes the resolution of the instrument at the registered 800
-replications.
+A future oracle comparison may use a two-sided equivalence margin or a predeclared sample-size
+ladder that contracts the difference towards zero. A deliberately invalid generated design may
+serve as a negative control; the learned design itself may not. The multi-arm `oracle_design`
+SE-ratio interval runs 0.979701 to 1.115078, while its coverage interval runs 0.928173 to 0.968751.
+The width of the SE interval describes the resolution of the instrument at the registered 800
+replications; its coverage interval is already inside the 0.92 to 0.98 band.
 
 #### The two readings, declared before they run
 
@@ -1883,7 +1885,7 @@ Five items stay open. State each verdict separately.
 | one shared multinomial | one categorical fit on `K` estimated columns supplies every arm's clever covariate, so an inconsistent column for one arm enters the mechanism of every other arm |
 | vector target and simultaneous inference | the joint covariance and the simultaneous critical value, not the per-arm variance alone |
 | uniformity | the estimator is deliberately superefficient, so a pointwise limit law does not give locally uniform coverage |
-| the registered measurement | at `n = 1,000`, the point-treatment generated-design pair resolves a finite-sample standard-error-ratio deficit under a correct outcome regression without showing invalid coverage. Its paired deficit runs -0.0471 to -0.0209. The binary OAT study passes 14 of 14 property cells on the bounded law it now runs, and its sharp-null cell turned green at the unchanged 800-replication budget, at a rejection rate of 0.0712 with a 99% upper endpoint of 0.0980. The multi-arm pair does not resolve a deficit, and the multi-arm study passes 10 of 12 property cells. None of these results identifies a first-order term |
+| the registered measurement | at `n = 1,000`, the point-treatment generated-design pair passes its own coverage and standard-error calibration bands. Its paired standard-error-ratio difference runs -0.0471 to -0.0209 and is descriptive. The binary OAT study passes 14 of 14 property cells on the bounded law it now runs, and its sharp-null cell passes at the unchanged 800-replication budget, at a rejection rate of 0.0712 with a 99% upper endpoint of 0.0980. The multi-arm pair passes its coverage band but both standard-error intervals cross the 1.07 upper bound, so the multi-arm study passes 10 of 12 property cells. None of these results identifies a first-order term |
 | transport beyond the source law | missing-outcome fits need the response-mechanism expansion. Fixed probability weights need a weighted empirical-law result; estimated weights also need a first-stage contribution. Cluster-robust and stratified fits need dependence- and stratum-specific expansions. Repeated cross-fitting needs a result for the package's median and split-dispersion aggregation |
 
 Accept a result only when it covers the exact cross-fitted, multi-arm construction and distinguishes
