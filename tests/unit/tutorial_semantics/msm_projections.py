@@ -225,8 +225,15 @@ def check(namespace: dict[str, Any]) -> None:
     assert f"{slope_curve['delta_from_fitted'].abs().max():.4f}" == "0.0033"
     assert slope_curve["delta_from_fitted"].abs().max() < 0.005
 
-    # No omitted-variable bound is implemented for an MSM coefficient; the arm contrasts have one.
-    assert "Riesz representer" in namespace["sensitivity_refusal"]
+    # No omitted-variable bound is implemented for an MSM coefficient; the arm contrasts
+    # have one. The claim the message makes about the representer reversed: an MSM
+    # coefficient *has* one, so the bound is well posed and only the implementation is
+    # missing. The refusal must not send the reader to ``evalue``, which refuses an ``msm``
+    # target of its own.
+    refusal = namespace["sensitivity_refusal"]
+    assert "Riesz representer" in refusal
+    assert "well posed" in refusal
+    assert "evalue" not in refusal
     robustness = namespace["robustness"]
     assert 0.0 < robustness["ate[medium vs low]"]["rv"] < robustness["ate[high vs low]"]["rv"]
     for values in robustness.values():

@@ -57,6 +57,18 @@ __all__ = ["EValue", "evalue", "evalue_from_rr"]
 #: Chinn's OR-to-SMD factor followed by the common-outcome square-root conversion.
 _SMD_TO_LOG_RR = 1.81 / 2
 
+#: Why the standardized conversion stops on a fit with a response mechanism.  It names
+#: the quantity the conversion lacks, which is the *population* standard deviation of the
+#: outcome, and it says which E-value branches stay open.
+_STANDARDISED_MISSING_REFUSAL = (
+    "the standardized E-value has no population outcome standard deviation for a fit "
+    "with a response mechanism. The conversion divides the difference by sd(Y) computed "
+    "from the observed rows alone, and under missing at random the respondents' standard "
+    "deviation estimates a different quantity from the population standard deviation the "
+    "estimate is standardized against. An E-value computed from a reported risk ratio or "
+    "odds ratio reads only the estimate and its interval, so it stays available."
+)
+
 
 def evalue_from_rr(risk_ratio: float) -> float:
     """E-value for a risk ratio.
@@ -332,6 +344,13 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
     if key.estimand == "or" and explicit:
         return _EValueSelection(source, "reported_or")
     if result.config.family == "gaussian" and key.estimand in {"ate", "att", "atc"}:
+        # Raised here, in the selection, rather than in the execution below.  The
+        # capability row is built from this function, so a refusal placed in
+        # ``_evalue_from_selection`` would leave the row advertising ``available=True``
+        # beside a call that raises.  Branch-scoped rather than fit-wide: the reported and
+        # derived ratio branches read no standard deviation at all.
+        if result.data.has_missing_outcome:
+            raise _EValueRefusal(AssessmentStatus.UNAVAILABLE, _STANDARDISED_MISSING_REFUSAL)
         return _EValueSelection(source, "gaussian_difference")
     if key.estimand in {"att", "atc"}:
         raise _EValueRefusal(

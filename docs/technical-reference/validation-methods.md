@@ -671,15 +671,30 @@ because the median bound needs its own influence function.
 
 The estimate of $\nu^2$ reads the fitted treatment mechanism, so it needs a consistent assignment
 model. A wrong model makes $\nu^2$ too small. The bounds then read too narrow, and the robustness
-value reads too large. No derivation covers these bounds on a DR-TMLE fit, a C-TMLE fit, or a fit
-with a response mechanism.
-[RM11](../roadmap.md#rm11-sensitivity-bounds-outside-their-derivation) tracks the refusal.
+value reads too large. `cleverly` therefore refuses every operation in this group on the fits
+below. The refusal runs in `sensitivity_elements()`, before any computation, so all four entry
+points and the matching capability rows carry one reason.
+
+| refused fit | the result the package does not have |
+| --- | --- |
+| a `drtmle` fit | an estimate of $\nu^2$ for an estimator that does not assume a consistent treatment mechanism. $E[2 m(\hat\alpha) - \hat\alpha^2]$ equals $\nu_0^2 - \lVert \hat\alpha - \alpha_0 \rVert^2$, so it falls where that mechanism is wrong |
+| a `collaborative_tmle` fit | the same estimate. The selected working mechanism gives the representer $E[\alpha_W \mid A]$, whose second moment cannot exceed that of $\alpha_W$, while $\sigma^2$ reads every declared covariate |
+| a fit with a response mechanism | a derivation of the bound with a response mechanism. The cited bound carries one treatment-side strength and no response-side term. The missingness tilt remains the sensitivity analysis for response |
+| a longitudinal fit | any registered longitudinal derivation. See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) |
+| a `regime`, `shift`, or `msm` parameter axis | an implementation. Each of these parameters is a linear functional of the outcome regression and has a Riesz representer, so the bound is well posed here |
+| an `ipsi` parameter axis | a bound that covers it. An incremental intervention tilts the treatment mechanism, so the mechanism is part of the estimand rather than a nuisance |
+
+`nu2_estimator=` accepts `"auto"`, `"doubly_robust"`, and `"plugin"`. `"auto"` resolves to
+`"doubly_robust"`. A value outside those three raises `ValueError`. A `"doubly_robust"` estimate
+that is not positive raises `CapabilityError` and names the estimator. The package returns no
+plug-in value in its place, because the plug-in squares the same fitted representer.
 
 `robustness_value()` inverts the bound for the single strength that flips the conclusion.
 `benchmark()` drops each named observed covariate, refits, and calibrates the strength scale
 against what that covariate was worth. `contour()` returns the grid a contour plot needs.
 
-`benchmark()` is the only member of this group that refits.
+`benchmark()` is the only member of this group that refits. It reads the refusals above before it
+refits, so a refused fit pays for no second fit.
 
 ### Simulated common-cause stress surface
 
@@ -1258,7 +1273,8 @@ The selected path depends on the reported contrast and retained artifacts.
 | unambiguous default binary marginal ATE or odds ratio from ordinary TMLE | retarget cached nuisances to the matching risk ratio and mark the result exact; combined runs include this cheap retarget by default |
 | explicit reported odds ratio, or default odds ratio without exact retarget support | use the common-outcome approximation $\sqrt{OR}$ and mark the result approximate |
 | binary ATE without exact retarget support, with a usable reported reference-arm mean | hold the baseline risk fixed and mark the result approximate; includes DR-TMLE, collaborative TMLE, and CV evaluation |
-| Gaussian ATE, ATT, or ATC | standardize by the observed outcome standard deviation, weighted on a weighted fit, and mark the result approximate |
+| Gaussian ATE, ATT, or ATC with every outcome observed | standardize by the observed outcome standard deviation, weighted on a weighted fit, and mark the result approximate |
+| Gaussian ATE, ATT, or ATC on a fit with a response mechanism | report `unavailable`. The conversion divides by `sd(Y)` from the observed rows alone, and under missing at random the respondents' standard deviation estimates a different quantity from the population standard deviation. The refusal is on this path only, so a ratio E-value on the same fit stays available |
 | binomial ATT or ATC | refuse because the conditional baseline risk and conditional ratio target are absent |
 | level or non-arm parameter | report `not_applicable` because no supported two-arm contrast exists |
 | binomial ATE without exact retarget support or a usable reported baseline; controlled direct effect needing derivation | report `unavailable` and name the missing evidence, artifact, or target |

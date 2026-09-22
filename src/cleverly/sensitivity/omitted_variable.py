@@ -40,10 +40,19 @@ estimand to ask for is ``"ate[medium vs low]"`` rather than ``"ate"``; it is one
 per contrast, because :math:`\nu^2` is the second moment of *that contrast's* Riesz
 representer.  Ratios are not linear functionals of the outcome regression, so use
 :mod:`cleverly.sensitivity.evalue` for those.
+
+Scope of the refusals: the derivation assumes a consistently estimated treatment
+mechanism and a complete outcome, so :data:`_FIT_WIDE_BOUND_RULES` refuses a DR-TMLE fit,
+a collaborative TMLE fit, a fit with a response mechanism, a longitudinal fit, and a fit
+whose parameters are indexed by anything but an arm.  Every entry point in this module
+reaches those rules through :func:`sensitivity_elements`, and
+:class:`~cleverly.assessment.SensitivityFacade` declares the same reason on the matching
+capability rows, so a fit the bound refuses is never advertised as available.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -55,6 +64,7 @@ from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, refuse_after_repeats
 from ..inference.cluster import influence_variance
 from ..targets import parameter_stem
+from ..targets.population_intervention import is_natural_course_fit
 from ..utils.bounds import g_bounds_for
 from ..utils.random import resolve_assessment_seed
 from ..utils.text import format_table
@@ -81,6 +91,183 @@ __all__ = [
 #: representer of its own.  :func:`~cleverly.sensitivity._parameters.arm_parameters` is
 #: what turns a fit's arms into the names these stems produce.
 LINEAR_ESTIMANDS: frozenset[str] = frozenset({"ate", "ey", "ey1", "ey0", "att", "atc"})
+
+#: Accepted values of ``nu2_estimator``, in one place so the five docstrings that list
+#: them and the refusal that rejects the rest cannot drift apart.
+#: ``tests/unit/test_omitted_variable_refusals.py`` parses the ``{...}`` literal out of
+#: every one of those docstrings and compares it with this tuple.
+NU2_ESTIMATORS: tuple[str, ...] = ("auto", "doubly_robust", "plugin")
+
+#: What each non-arm parameter axis reports, named so the refusal says which functional
+#: the bound is missing rather than which one the fit lacks.  ``ipsi`` is absent on
+#: purpose: an incremental intervention is refused for a different reason, and
+#: :func:`_refuse_non_arm_axis` states it separately.
+_AXIS_NOUNS: dict[str, str] = {
+    "regime": "A regime mean",
+    "shift": "A modified-policy mean",
+    "msm": "A point-treatment MSM coefficient",
+}
+
+#: The longitudinal stop, byte for byte what
+#: :class:`~cleverly.assessment.SensitivityFacade` published before the rule table
+#: existed.  ``tests/unit/test_assessment_contract.py`` matches the declared reason
+#: against the raised one, so the string is the contract rather than the sentence.
+_LONGITUDINAL_BOUND_REFUSAL = "no longitudinal sensitivity derivation is registered"
+
+#: The clause both mechanism refusals end on.  Neither estimator assumes a consistent
+#: treatment mechanism, and that assumption is what the published bound's ``nu^2`` and
+#: its standard error are derived under.
+_NO_NU2_DERIVATION = (
+    "No derivation registered here gives nu^2, or the bound's standard error, for an "
+    "estimator that does not assume a consistent treatment mechanism."
+)
+
+_DRTMLE_BOUND_REFUSAL = (
+    "the omitted-variable bound has no nu^2 estimate for a 'drtmle' fit. The default "
+    "estimator E[2 m(alpha_hat) - alpha_hat^2] equals nu_0^2 minus the squared error of "
+    "the fitted representer, by the Riesz identity, so it falls exactly where the fitted "
+    "mechanism is wrong -- the case DR-TMLE guards against. The bound would be too "
+    "narrow and the robustness value too large. " + _NO_NU2_DERIVATION
+)
+
+_CTMLE_BOUND_REFUSAL = (
+    "the omitted-variable bound has no nu^2 estimate for a 'collaborative_tmle' fit. The "
+    "selected working mechanism gives the representer E[alpha_W | A], whose second moment "
+    "cannot exceed the second moment of alpha_W, while sigma^2 still comes from a "
+    "regression on every declared covariate. The product sigma^2 nu^2 belongs to no "
+    "single conditioning set, and the collaborative robustness value is optimistic by "
+    "construction. " + _NO_NU2_DERIVATION
+)
+
+_RESPONSE_BOUND_REFUSAL = (
+    "the omitted-variable bound is not derived for a fit with a response mechanism. The "
+    "identified functional contains P(Delta = 1 | A, W), the representer carries the "
+    "response weight, and sigma^2 averages the respondents alone. Chernozhukov, Cinelli, "
+    "Newey, Sharma and Syrgkanis (2022) carry one treatment-side strength factor and no "
+    "response-side term."
+)
+
+#: Appended to the response refusal on a fit that can still run the tilt.  A
+#: natural-course fit cannot: both tilt rows are unavailable there
+#: (:data:`~cleverly.targets.population_intervention.NATURAL_COURSE_TILT_REFUSAL`), so
+#: the pointer would send the reader to a second refusal.
+_RESPONSE_TILT_POINTER = (
+    " The missingness tilt remains the sensitivity analysis for response: call "
+    "sensitivity.missingness() or sensitivity.tipping_gamma()."
+)
+
+
+def _refuse_longitudinal(result: Any) -> str | None:
+    """Refuse any assessment family but ``point``.
+
+    First in the table, and not by taste: :class:`~cleverly.longitudinal.LongitudinalData`
+    declares no ``has_missing_outcome``, so a later rule would raise ``AttributeError`` on
+    a longitudinal result instead of refusing it.
+    """
+    if getattr(result, "assessment_family", None) != "point":
+        return _LONGITUDINAL_BOUND_REFUSAL
+    return None
+
+
+def _refuse_guarded_mechanism(result: Any) -> str | None:
+    """Refuse a DR-TMLE fit, whose estimator does not assume a consistent mechanism."""
+    if result.fitted_method == "drtmle":
+        return _DRTMLE_BOUND_REFUSAL
+    return None
+
+
+def _refuse_selected_mechanism(result: Any) -> str | None:
+    """Refuse a collaborative fit, whose representer comes from a selected working g."""
+    if result.fitted_method == "collaborative_tmle":
+        return _CTMLE_BOUND_REFUSAL
+    return None
+
+
+def _refuse_response_mechanism(result: Any) -> str | None:
+    """Refuse a fit whose outcome is unobserved on some rows.
+
+    The predicate is the data's own ``has_missing_outcome`` rather than the presence of a
+    fitted missingness nuisance on one repeat.  A response mechanism is a property of the
+    identified functional, so the verdict survives a replacement of the stored
+    :class:`~cleverly.estimators._nuisance.NuisanceEstimates`, and it is the predicate the
+    sibling surface :mod:`~cleverly.sensitivity._simulated_confounding_request` already
+    uses for the same boundary.
+    """
+    if not result.data.has_missing_outcome:
+        return None
+    if is_natural_course_fit(result):
+        return _RESPONSE_BOUND_REFUSAL
+    return _RESPONSE_BOUND_REFUSAL + _RESPONSE_TILT_POINTER
+
+
+def _refuse_non_arm_axis(result: Any) -> str | None:
+    """Refuse a fit whose counterfactuals are indexed by anything but an arm.
+
+    Two reasons, not one.  A regime, a shift, and an MSM coefficient are linear
+    functionals of the outcome regression and each has a Riesz representer, so the bound
+    is well posed and unimplemented.  An incremental intervention builds its density out
+    of the estimated mechanism, so the mechanism is part of the estimand rather than a
+    nuisance the bound conditions on, and the regression-only bound does not cover it.
+    """
+    axis = result.config.parameter_axis
+    if axis == "arm":
+        return None
+    if axis == "ipsi":
+        return (
+            "the omitted-variable bound does not cover a fit whose parameters are indexed "
+            "by 'ipsi'. An incremental intervention tilts the treatment mechanism, so the "
+            "mechanism is part of the estimand rather than a nuisance the bound conditions "
+            "on. Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2022) bound the bias "
+            "of a linear functional of the outcome regression alone."
+        )
+    noun = _AXIS_NOUNS[axis]
+    return (
+        f"the omitted-variable bound is not implemented for a fit whose parameters are "
+        f"indexed by {axis!r}. {noun} is a linear functional of the outcome regression, "
+        f"and it has a Riesz representer, so the bound is well posed here and no "
+        f"implementation of it is registered. The implemented bound covers the "
+        f"arm-indexed linear estimands {sorted(LINEAR_ESTIMANDS)}."
+    )
+
+
+#: Every omitted-variable refusal that the requested estimand cannot change, in the one
+#: order the four entry points and the capability rows both use.  The table is ordered and
+#: each rule assumes its predecessors returned ``None``: ``longitudinal`` establishes that
+#: the result carries a point-treatment ``data`` and ``config`` at all, which every rule
+#: after it reads.  The names are the introspection contract; a test reads them to pin the
+#: order without respelling a message.
+_FIT_WIDE_BOUND_RULES: tuple[tuple[str, Callable[[Any], str | None]], ...] = (
+    ("longitudinal", _refuse_longitudinal),
+    ("drtmle", _refuse_guarded_mechanism),
+    ("collaborative_tmle", _refuse_selected_mechanism),
+    ("response_mechanism", _refuse_response_mechanism),
+    ("parameter_axis", _refuse_non_arm_axis),
+)
+
+
+def fit_wide_bound_refusal(result: Any) -> str | None:
+    """Return the first omitted-variable refusal that applies to the whole fit.
+
+    Every boundary in :data:`_FIT_WIDE_BOUND_RULES` is reachable from capability reporting
+    and from execution, and the requested estimand cannot change its verdict.  One helper
+    answers both callers, so a fit the bound refuses is never advertised as available.
+    Estimand-specific checks stay in :func:`resolve_parameter`.
+
+    Parameters
+    ----------
+    result : Any
+        Fitted result inspected by this module or by its assessment facade.
+
+    Returns
+    -------
+    str or None
+        Exact refusal reason, or ``None`` when no fit-wide boundary applies.
+    """
+    for _name, rule in _FIT_WIDE_BOUND_RULES:
+        reason = rule(result)
+        if reason is not None:
+            return reason
+    return None
 
 
 @dataclass(frozen=True)
@@ -131,14 +318,29 @@ def sensitivity_elements(
 ) -> SensitivityElements:
     r"""Compute :math:`\sigma^2`, :math:`\nu^2` and the maximal bias for one estimand.
 
+    This is where every entry point in this module meets
+    :data:`_FIT_WIDE_BOUND_RULES`, so :func:`omitted_variable_bounds`,
+    :func:`benchmark`, :func:`robustness_value`, and :func:`contour_data` share one
+    refusal and none of them pays a learner before hearing it.
+
     Parameters
     ----------
-    nu2_estimator:
+    result : TMLEResult
+        A fitted result.
+    estimand : str
+        Alias to build the elements for.
+    nu2_estimator : {"auto", "doubly_robust", "plugin"}
         ``"doubly_robust"`` uses :math:`E[2 m(W, \alpha) - \alpha^2]`, which is less
         sensitive to error in the estimated propensity than the plug-in
         :math:`E[\alpha^2]` (``"plugin"``).  Both are consistent; ``"auto"`` picks the
         doubly robust form wherever the functional's :math:`m(W, \alpha)` has a closed
         form, which is all of :data:`LINEAR_ESTIMANDS`.
+
+    Returns
+    -------
+    SensitivityElements
+        The residual outcome variance, the Riesz second moment, the maximal bias, and
+        the influence curve of each.
     """
     refuse_after_repeats(
         result.n_repeats,
@@ -148,6 +350,9 @@ def sensitivity_elements(
             "influence function of the median bound. Fit one split for this analysis."
         ),
     )
+    refusal = fit_wide_bound_refusal(result)
+    if refusal is not None:
+        raise CapabilityError(refusal)
     parameter = resolve_parameter(result, estimand)
     return _elements_for(result, result.repeats[0], parameter, nu2_estimator)
 
@@ -157,14 +362,42 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
 
     One bound is one linear functional, so this is where "which contrast" is decided --
     ``ate`` on a two-armed fit and ``ate[medium vs low]`` on a wider one, each with its
-    own Riesz representer.  The order of the checks matters: a name this bound could
-    never apply to is refused for *that* reason, before the fit is consulted at all, so
-    that asking for a risk ratio is not reported as a missing estimand.
+    own Riesz representer.  The order of the checks matters, and it runs from the fit to
+    the request.  The fit's parameter axis comes first, because a regime, a shift, an
+    incremental tilt, and an MSM coefficient are refused for a reason that no estimand
+    name can change; a name this bound could never apply to is refused next, so that
+    asking for a risk ratio is not reported as a missing estimand; and the arm-indexed
+    coverage message comes last, where it describes an arm-indexed fit and nothing else.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fitted result.
+    estimand : str
+        Alias the caller asked for.
+
+    Returns
+    -------
+    ArmParameter
+        The reported parameter and the arms it is a functional of.
     """
-    if parameter_stem(estimand) not in LINEAR_ESTIMANDS:
+    axis = _refuse_non_arm_axis(result)
+    if axis is not None:
+        raise CapabilityError(axis)
+    stem = parameter_stem(estimand)
+    if stem not in LINEAR_ESTIMANDS:
+        # The pointer is for the two ratio scales an E-value is defined on. Offered for
+        # anything else -- an attributable fraction, say -- it sends the reader from one
+        # refusal to a second one.
+        pointer = (
+            " For a risk ratio or odds ratio use sensitivity.evalue()."
+            if stem in {"rr", "or"}
+            else ""
+        )
         raise CapabilityError(
             f"the omitted-variable bound applies to {sorted(LINEAR_ESTIMANDS)}, not "
-            f"{estimand!r}. For a risk ratio or odds ratio use sensitivity.evalue()."
+            f"{estimand!r}: the bound is on the bias of a linear functional of the "
+            f"outcome regression, and {estimand!r} is not one." + pointer
         )
     known = arm_parameters(result)
     available = {name: parameter for name, parameter in known.items() if name in result.estimates}
@@ -176,12 +409,16 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
     if conditional is not None:
         raise CapabilityError(conditional)
     if not available:
+        # Reached only on an arm-indexed fit, which the axis check above has already
+        # established. A fit reporting only ``par``, ``paf``, ``rr``, ``or`` or ``ey_obs``
+        # is indexed by arms and reports no linear contrast, so a sentence about
+        # counterfactuals that are not arms would contradict itself.
         raise CapabilityError(
-            "the omitted-variable bound applies to the arm-indexed linear estimands, and "
-            f"this fit reports none: its parameters are indexed by "
-            f"{result.config.parameter_axis!r} and it reported {sorted(result.estimates)}. "
-            "The bias is bounded through the Riesz representer of a mean or a contrast of "
-            "arms, which a fit whose counterfactuals are not arms does not have."
+            "the omitted-variable bound applies to the arm-indexed linear estimands "
+            f"{sorted(LINEAR_ESTIMANDS)}, and this arm-indexed fit reported none of them: "
+            f"it reported {sorted(result.estimates)}. One bound is the second moment of "
+            "one contrast's own Riesz representer, so ask the fit for a counterfactual "
+            "mean or a contrast of arms."
         )
     raise CapabilityError(
         f"estimand {estimand!r} was not requested in this fit. The bound is available for "
@@ -255,14 +492,30 @@ def _elements_for(
         m_alpha = _m_alpha(parameter, submodel, propensity, conditioning_share)
         nu2_element = 2.0 * m_alpha - representer**2
         nu2 = float(np.average(nu2_element, weights=weights))
-        if nu2 <= 0:  # pragma: no cover - only with a pathological propensity fit
-            nu2, nu2_element, method = plugin, representer**2, "plugin"
+        if nu2 <= 0:
+            # A refusal rather than the plug-in value. By the Riesz identity this
+            # estimator is nu_0^2 minus the squared error of the fitted representer, so a
+            # nonpositive value reports a mechanism fit further from the truth than the
+            # representer is large. The plug-in E[alpha_hat^2] is built from that same
+            # fitted representer, so substituting it reports a second moment of the wrong
+            # function under the name of the right one.
+            # ``CapabilityError`` rather than ``ValueError``: ``run_all`` catches only the
+            # refusal type, and a bare ``ValueError`` would abort the whole battery.
+            raise CapabilityError(
+                f"the {method!r} estimator of nu^2 returned {nu2:.6g} for "
+                f"{parameter.name!r}, and a second moment cannot be negative. "
+                f"E[2 m(alpha_hat) - alpha_hat^2] equals nu_0^2 minus the squared error of "
+                f"the fitted representer, so this value reports a treatment mechanism the "
+                f"bound's derivation does not cover. The plug-in E[alpha_hat^2] squares "
+                f"that same fitted representer, so it is not a substitute. "
+                f"(nu2_estimator={nu2_estimator!r} resolved to {method!r}.)"
+            )
     elif method == "plugin":
         nu2_element = representer**2
         nu2 = plugin
     else:
         raise ValueError(
-            f"nu2_estimator must be 'auto', 'doubly_robust' or 'plugin'; got {nu2_estimator!r}"
+            f"nu2_estimator must be one of {list(NU2_ESTIMATORS)}; got {nu2_estimator!r}"
         )
     psi_nu2 = (nu2_element - nu2) * weights
 
@@ -515,7 +768,7 @@ def omitted_variable_bounds(
         Coverage level of the reported limits.
     null_hypothesis : float
         Value the robustness values are measured against.
-    nu2_estimator : {"auto", "analytic", "riesz"}
+    nu2_estimator : {"auto", "doubly_robust", "plugin"}
         Which estimator of the Riesz second moment to use.
 
     Returns
@@ -735,7 +988,7 @@ def benchmark(
         Observed covariates to calibrate against.
     estimand : str
         Alias to benchmark.
-    nu2_estimator : {"auto", "analytic", "riesz"}
+    nu2_estimator : {"auto", "doubly_robust", "plugin"}
         Which estimator of the Riesz second moment to use.
     random_state : int or None
         Seed for the short refit.  ``None`` uses the seed the fit was run with.  A fit
@@ -830,7 +1083,7 @@ def robustness_value(
         Coverage level used for the confidence-limit value.
     null_hypothesis : float
         Value the strength is measured against.
-    nu2_estimator : {"auto", "analytic", "riesz"}
+    nu2_estimator : {"auto", "doubly_robust", "plugin"}
         Which estimator of the Riesz second moment to use.
 
     Returns
@@ -860,6 +1113,29 @@ def contour_data(
 
     Returned as a long-format frame (``cf_d``, ``cf_y``, ``value``) rather than a plot, so
     it can be rendered with whatever plotting stack the caller already uses.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fitted result.
+    estimand : str
+        Alias to build the grid for.
+    rho : float
+        How adversarially the two sensitivity parameters are aligned.
+    grid_size : int
+        Points along each axis of the grid.
+    grid_bounds : tuple of float
+        Largest ``cf_d`` and largest ``cf_y`` the grid reaches.
+    bound : {"lower", "upper"}
+        Which end of the bias-adjusted interval each cell reports.
+    nu2_estimator : {"auto", "doubly_robust", "plugin"}
+        Which estimator of the Riesz second moment to use.
+
+    Returns
+    -------
+    DataFrame
+        One row per grid cell, in the frame library the fit was given, with columns
+        ``cf_d``, ``cf_y``, and ``value``.
     """
     if bound not in ("lower", "upper"):
         raise ValueError(f"bound must be 'lower' or 'upper'; got {bound!r}")

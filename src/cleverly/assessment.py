@@ -3333,9 +3333,6 @@ class SensitivityFacade(_CapabilityFacade):
             else getattr(self._result.nuisance, "missingness", None) is not None
         )
         natural_course = missing and is_natural_course_fit(self._result)
-        # Whether a *point* fit is replayable is settled by ``requires_replay`` below.
-        # This row only says whether the analysis exists for the family at all.
-        benchmarkable = not longitudinal
         # ``simulated_confounding`` refuses the bare ``ate`` default on a continuous fit.
         # A binary arm, fixed-regime, incremental, or MSM fit can use the facade's sole-
         # parameter substitution. Several eligible aliases require an explicit choice.
@@ -3348,6 +3345,7 @@ class SensitivityFacade(_CapabilityFacade):
             _eligible_binary_parameter_names,
             _fit_wide_refusal,
         )
+        from .sensitivity.omitted_variable import fit_wide_bound_refusal
 
         simulated_refusal = _fit_wide_refusal(self._result)
         if longitudinal or continuous:
@@ -3360,9 +3358,23 @@ class SensitivityFacade(_CapabilityFacade):
         else:
             binary_parameters = _eligible_binary_parameter_names(self._result)
             needs_estimand = "ate" not in binary_parameters and len(binary_parameters) > 1
-        available = not longitudinal
+        # The four omitted-variable rows carry the refusal the bound itself would raise,
+        # declared rather than executed.  ``run_all`` publishes its own wrapper sentence
+        # around a raised refusal, and it pays ``contour``'s moderate cost before hearing
+        # one.  The first rule of the table returns the longitudinal literal, so that
+        # reason stays byte-identical to the one this facade published before.
+        bound_refusal = fit_wide_bound_refusal(self._result)
+        available = bound_refusal is None
         status = AssessmentStatus.PASSED if available else AssessmentStatus.UNAVAILABLE
-        reason = "no longitudinal sensitivity derivation is registered" if longitudinal else None
+        reason = bound_refusal
+        # A benchmark refits, so its longitudinal stop names the derivation it would have
+        # needed rather than the bound's.  Every other fit-wide boundary is the bound's
+        # own: a benchmark compares two sets of the same elements, so a fit with no nu^2
+        # has no calibration either.  Whether a *point* fit is replayable is settled by
+        # ``requires_replay`` below.
+        benchmark_reason = (
+            "no longitudinal benchmarking derivation is registered" if longitudinal else reason
+        )
 
         def standard(
             operation: str,
@@ -3439,13 +3451,9 @@ class SensitivityFacade(_CapabilityFacade):
                 deterministic=False,
                 cost="expensive",
                 interpretation="calibration against named observed covariates",
-                available=benchmarkable,
-                status=AssessmentStatus.PASSED if benchmarkable else AssessmentStatus.UNAVAILABLE,
-                reason=(
-                    None
-                    if benchmarkable
-                    else "no longitudinal benchmarking derivation is registered"
-                ),
+                available=available,
+                status=status,
+                reason=benchmark_reason,
                 requires_arguments=("covariates",),
                 accepts_random_state=True,
                 requires_replay="refit_nuisances",
