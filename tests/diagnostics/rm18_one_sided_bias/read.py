@@ -12,8 +12,20 @@ no verdict.
   red configuration and on ``both_correct``.
 * (iv) a Welch interval for the property-cell bias minus statistic (i).  Multi-arm study only.
 
-Every interval is a 99% interval.  ``--output`` is required, so a bare run cannot overwrite the
-committed ``readings.csv``.
+Every declared interval is a 99% interval.  ``--output`` is required, so a bare run cannot
+overwrite the committed ``readings.csv``.
+
+The same table also carries supplementary rows, marked ``supplementary`` in its ``scope``
+column.  The declaration names none of them, they carry no reading, and no rule reads them.
+They were added after the declared reading ran, in answer to a review:
+
+* the multi-arm ``double_robust_contraction/treatment_correct_n2000`` rung, the second sample
+  of the same configuration at the same size, against (i) and against the property cell, and
+  both samples pooled against (i);
+* each binary (iii) at a Bonferroni level over the three paired intervals, because the
+  declaration adjusted for no multiplicity;
+* the binary ``treatment_correct`` (iii) against the ``outcome_correct`` and ``both_correct``
+  (iii), by Welch, because the scenarios draw independent samples.
 
     python -m tests.diagnostics.rm18_one_sided_bias.read --output <scratch>/readings.csv
 """
@@ -62,6 +74,15 @@ MULTI_ARM_ESTIMAND = "ate[medium vs high]"
 MULTI_ARM_N = 2_000
 MULTI_ARM_PROPERTY = "double_robustness"
 MULTI_ARM_CELL = "treatment_correct"
+#: The contraction rung that carries the same nuisance configuration at the same size.
+MULTI_ARM_RUNG_PROPERTY = "double_robust_contraction"
+MULTI_ARM_RUNG = "treatment_correct_n2000"
+
+#: The Bonferroni level over the three binary paired intervals.
+BONFERRONI_LEVEL = 1.0 - (1.0 - CONFIDENCE_LEVEL) / 3.0
+
+DECLARED = "declared"
+SUPPLEMENTARY = "supplementary"
 
 SHARED = "shared"
 ESTIMATOR_SPECIFIC = "estimator-specific"
@@ -86,6 +107,7 @@ COLUMNS = (
     "ci_upper",
     "side",
     "reading",
+    "scope",
 )
 
 
@@ -144,8 +166,10 @@ def multi_arm_reading(difference: Statistic) -> str:
     return CONSISTENT if side(difference.interval) == COVERS else NOT_CONSISTENT
 
 
-def _student(name: str, rows: str, values: np.ndarray) -> Statistic:
-    interval = student_interval(values, confidence_level=CONFIDENCE_LEVEL)
+def _student(
+    name: str, rows: str, values: np.ndarray, level: float = CONFIDENCE_LEVEL
+) -> Statistic:
+    interval = student_interval(values, confidence_level=level)
     return Statistic(
         name, rows, len(values), float(len(values) - 1), float(np.mean(values)), interval
     )
@@ -219,22 +243,27 @@ def binary_statistics(rows: pd.DataFrame) -> dict[str, dict[str, Statistic]]:
     return out
 
 
+def _cell_errors(
+    primary: pd.DataFrame, properties: pd.DataFrame, family: str, name: str
+) -> np.ndarray:
+    """Estimate minus truth for one multi-arm property cell, checked against the primary law."""
+    cell = properties.loc[(properties["property"] == family) & (properties["cell"] == name)]
+    if set(cell["n"]) != {MULTI_ARM_N}:
+        raise ValueError(f"{family}/{name} runs at n={sorted(set(cell['n']))}, not {MULTI_ARM_N}")
+    primary_truth = set(
+        primary.loc[primary["estimand"] == MULTI_ARM_ESTIMAND, "truth"].round(12).unique()
+    )
+    if set(cell["truth"].round(12).unique()) != primary_truth:
+        raise ValueError(f"{family}/{name} and the primary estimand have different truths")
+    return (cell["estimate"] - cell["truth"]).to_numpy(dtype=float)
+
+
 def multi_arm_statistics(primary: pd.DataFrame, properties: pd.DataFrame) -> dict[str, Statistic]:
     """Statistic (i) on the primary rows, the property-cell bias it is set against, and (iv)."""
     first_errors = _errors(
         primary, MULTI_ARM_CLEVERLY, MULTI_ARM_SCENARIO, MULTI_ARM_ESTIMAND, MULTI_ARM_N
     )
-    cell = properties.loc[
-        (properties["property"] == MULTI_ARM_PROPERTY) & (properties["cell"] == MULTI_ARM_CELL)
-    ]
-    if set(cell["n"]) != {MULTI_ARM_N}:
-        raise ValueError(f"the property cell runs at n={sorted(set(cell['n']))}, not {MULTI_ARM_N}")
-    primary_truth = set(
-        primary.loc[primary["estimand"] == MULTI_ARM_ESTIMAND, "truth"].round(12).unique()
-    )
-    if set(cell["truth"].round(12).unique()) != primary_truth:
-        raise ValueError("the property cell and the primary estimand have different truths")
-    cell_errors = (cell["estimate"] - cell["truth"]).to_numpy(dtype=float)
+    cell_errors = _cell_errors(primary, properties, MULTI_ARM_PROPERTY, MULTI_ARM_CELL)
     first_label = f"primary {MULTI_ARM_SCENARIO}, {MULTI_ARM_ESTIMAND}, n={MULTI_ARM_N}"
     cell_label = f"property {MULTI_ARM_PROPERTY}/{MULTI_ARM_CELL}, n={MULTI_ARM_N}"
     return {
@@ -249,8 +278,75 @@ def multi_arm_statistics(primary: pd.DataFrame, properties: pd.DataFrame) -> dic
     }
 
 
+def supplementary_statistics(
+    binary: pd.DataFrame, primary: pd.DataFrame, properties: pd.DataFrame
+) -> list[tuple[str, str, Statistic]]:
+    """The supplementary rows: ``(study, configuration, statistic)``, in table order.
+
+    None of them enters a reading.  The module docstring says why each one is here.
+    """
+    out: list[tuple[str, str, Statistic]] = []
+    paired: dict[str, np.ndarray] = {}
+    for scenario in (*BINARY_RED, BOTH_CORRECT):
+        cleverly = _errors(binary, BINARY_CLEVERLY, scenario, BINARY_ESTIMAND, BINARY_N)
+        reference = _errors(binary, BINARY_REFERENCE, scenario, BINARY_ESTIMAND, BINARY_N)
+        paired[scenario] = _paired(cleverly, reference, scenario)
+        label = f"primary {scenario}, {BINARY_ESTIMAND}, n={BINARY_N}"
+        out.append(
+            (
+                BINARY_STUDY,
+                scenario,
+                _student(
+                    "(iii) at the Bonferroni level over three",
+                    f"{label}, {BINARY_CLEVERLY} minus {BINARY_REFERENCE}, "
+                    f"level {BONFERRONI_LEVEL:.6f}",
+                    paired[scenario],
+                    BONFERRONI_LEVEL,
+                ),
+            )
+        )
+    for other in ("outcome_correct", BOTH_CORRECT):
+        out.append(
+            (
+                BINARY_STUDY,
+                "treatment_correct",
+                welch(
+                    f"(iii) minus {other} (iii)",
+                    f"paired differences on primary treatment_correct minus those on {other}",
+                    paired["treatment_correct"],
+                    paired[other],
+                ),
+            )
+        )
+    first = _errors(
+        primary, MULTI_ARM_CLEVERLY, MULTI_ARM_SCENARIO, MULTI_ARM_ESTIMAND, MULTI_ARM_N
+    ).to_numpy()
+    cell = _cell_errors(primary, properties, MULTI_ARM_PROPERTY, MULTI_ARM_CELL)
+    rung = _cell_errors(primary, properties, MULTI_ARM_RUNG_PROPERTY, MULTI_ARM_RUNG)
+    first_label = f"primary {MULTI_ARM_SCENARIO}, {MULTI_ARM_ESTIMAND}, n={MULTI_ARM_N}"
+    cell_label = f"property {MULTI_ARM_PROPERTY}/{MULTI_ARM_CELL}, n={MULTI_ARM_N}"
+    rung_label = f"property {MULTI_ARM_RUNG_PROPERTY}/{MULTI_ARM_RUNG}, n={MULTI_ARM_N}"
+    for statistic in (
+        _student("rung bias", rung_label, rung),
+        welch("rung bias minus (i)", f"{rung_label} minus {first_label}", rung, first),
+        welch("property-cell bias minus rung bias", f"{cell_label} minus {rung_label}", cell, rung),
+        welch(
+            "pooled bias minus (i)",
+            f"{cell_label} and {rung_label} pooled, minus {first_label}",
+            np.concatenate([cell, rung]),
+            first,
+        ),
+    ):
+        out.append((MULTI_ARM_STUDY, MULTI_ARM_CELL, statistic))
+    return out
+
+
 def _record(
-    study: str, configuration: str, statistic: Statistic, reading: str
+    study: str,
+    configuration: str,
+    statistic: Statistic,
+    reading: str,
+    scope: str = DECLARED,
 ) -> dict[str, object]:
     return {
         "study": study,
@@ -264,6 +360,7 @@ def _record(
         "ci_upper": statistic.interval.high,
         "side": side(statistic.interval),
         "reading": reading,
+        "scope": scope,
     }
 
 
@@ -272,7 +369,8 @@ def readings(
 ) -> pd.DataFrame:
     """Every declared statistic as one row, each carrying the reading of its configuration.
 
-    The ``both_correct`` row enters both binary readings and carries none of its own.
+    The ``both_correct`` row enters both binary readings and carries none of its own.  The
+    supplementary rows follow the declared ones, and carry no reading.
     """
     records = []
     statistics = binary_statistics(binary)
@@ -289,6 +387,12 @@ def readings(
     records.extend(
         _record(MULTI_ARM_STUDY, MULTI_ARM_CELL, statistic, reading)
         for statistic in multi_arm.values()
+    )
+    records.extend(
+        _record(study, configuration, statistic, "", SUPPLEMENTARY)
+        for study, configuration, statistic in supplementary_statistics(
+            binary, multi_arm_primary, multi_arm_properties
+        )
     )
     return pd.DataFrame(records, columns=list(COLUMNS))
 

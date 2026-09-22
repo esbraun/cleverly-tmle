@@ -7,13 +7,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
-from scipy.stats import ttest_ind
+from scipy.stats import t, ttest_ind
 
 from tests.diagnostics.rm18_one_sided_bias.read import (
     BINARY_ESTIMAND,
     BINARY_REFERENCE,
     BOTH_CORRECT,
     CONSISTENT,
+    DECLARED,
     ESTIMATOR_SPECIFIC,
     HERE,
     MIXED,
@@ -22,6 +23,7 @@ from tests.diagnostics.rm18_one_sided_bias.read import (
     MULTI_ARM_STUDY,
     NOT_CONSISTENT,
     SHARED,
+    SUPPLEMENTARY,
     UNRESOLVED,
     Statistic,
     binary_reading,
@@ -35,7 +37,7 @@ from tests.studies.evidence.registry import ROOT
 
 COMMITTED = HERE / "readings.csv"
 CANONICAL = ROOT / "tests" / "canonical"
-TEXT = ("study", "configuration", "statistic", "rows", "side", "reading")
+TEXT = ("study", "configuration", "statistic", "rows", "side", "reading", "scope")
 NUMBERS = ("replications", "degrees_of_freedom", "point", "ci_lower", "ci_upper")
 
 
@@ -50,7 +52,11 @@ def rebuilt(artefacts: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]) -> pd.Da
 
 
 def _reading(frame: pd.DataFrame, study: str, configuration: str) -> str:
-    chosen = frame.loc[(frame["study"] == study) & (frame["configuration"] == configuration)]
+    chosen = frame.loc[
+        (frame["study"] == study)
+        & (frame["configuration"] == configuration)
+        & (frame["scope"] == DECLARED)
+    ]
     values = set(chosen["reading"])
     assert len(values) == 1, values
     return str(values.pop())
@@ -268,3 +274,101 @@ def test_statistics_equal_the_intervals_each_study_publishes(rebuilt: pd.DataFra
         ours = _interval(rebuilt, study, configuration, statistic)
         assert ours.low == pytest.approx(published.low, rel=1e-9), (configuration, statistic)
         assert ours.high == pytest.approx(published.high, rel=1e-9), (configuration, statistic)
+
+
+# --- the supplementary rows ------------------------------------------------------------------
+
+
+def _row(frame: pd.DataFrame, study: str, configuration: str, statistic: str) -> pd.Series:
+    chosen = frame.loc[
+        (frame["study"] == study)
+        & (frame["configuration"] == configuration)
+        & (frame["statistic"] == statistic)
+    ]
+    assert len(chosen) == 1, (study, configuration, statistic)
+    return chosen.iloc[0]
+
+
+def test_supplementary_rows_carry_no_reading(rebuilt: pd.DataFrame) -> None:
+    assert set(rebuilt["scope"]) == {DECLARED, SUPPLEMENTARY}
+    extra = rebuilt.loc[rebuilt["scope"] == SUPPLEMENTARY]
+    assert len(extra) == 9
+    assert set(extra["reading"]) == {""}
+    declared = rebuilt.loc[rebuilt["scope"] == DECLARED]
+    # The declared rows come first, and are the ten the declaration names.
+    assert list(declared.index) == list(range(10))
+
+
+def test_the_bonferroni_rows_widen_each_paired_interval(rebuilt: pd.DataFrame) -> None:
+    for scenario in ("outcome_correct", "treatment_correct", BOTH_CORRECT):
+        declared = _row(rebuilt, "canonical-drtmle", scenario, "(iii)")
+        adjusted = _row(
+            rebuilt, "canonical-drtmle", scenario, "(iii) at the Bonferroni level over three"
+        )
+        assert adjusted["point"] == declared["point"]
+        half = (declared["ci_upper"] - declared["ci_lower"]) / 2
+        wider = (adjusted["ci_upper"] - adjusted["ci_lower"]) / 2
+        # The ratio of the two Student quantiles at 799 degrees of freedom.
+        expected = t.ppf(1 - 0.01 / 6, 799) / t.ppf(0.995, 799)
+        assert wider / half == pytest.approx(expected, rel=1e-9)
+    # The declared treatment_correct interval excludes zero; the adjusted one covers it.
+    assert _row(rebuilt, "canonical-drtmle", "treatment_correct", "(iii)")["side"] == "above zero"
+    adjusted = _row(
+        rebuilt, "canonical-drtmle", "treatment_correct", "(iii) at the Bonferroni level over three"
+    )
+    assert adjusted["side"] == "covers zero"
+
+
+def test_the_rung_bias_equals_the_published_rung(rebuilt: pd.DataFrame) -> None:
+    """A nonzero witness that the supplementary rows read the rung, and not the property cell."""
+    published = _published(
+        CANONICAL / "multi_arm_drtmle" / "properties.csv",
+        "bias_ci_lower",
+        "bias_ci_upper",
+        property="double_robust_contraction",
+        cell="treatment_correct_n2000",
+    )
+    ours = _row(rebuilt, MULTI_ARM_STUDY, MULTI_ARM_CELL, "rung bias")
+    assert ours["ci_lower"] == pytest.approx(published.low, rel=1e-9)
+    assert ours["ci_upper"] == pytest.approx(published.high, rel=1e-9)
+
+
+def test_the_supplementary_welch_rows_match_scipy(
+    artefacts: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], rebuilt: pd.DataFrame
+) -> None:
+    binary, primary, properties = artefacts
+
+    def cell(family: str, name: str) -> np.ndarray:
+        chosen = properties.loc[(properties["property"] == family) & (properties["cell"] == name)]
+        return (chosen["estimate"] - chosen["truth"]).to_numpy(dtype=float)
+
+    def paired(scenario: str) -> np.ndarray:
+        rows = binary.loc[(binary["scenario"] == scenario) & (binary["estimand"] == "ate")]
+        wide = rows.pivot(index="replicate", columns="implementation", values="estimate")
+        return (wide["cleverly"] - wide[BINARY_REFERENCE]).to_numpy(dtype=float)
+
+    first_rows = primary.loc[
+        (primary["implementation"] == "cleverly-multi-arm-drtmle")
+        & (primary["estimand"] == "ate[medium vs high]")
+    ]
+    first = (first_rows["estimate"] - first_rows["truth"]).to_numpy(dtype=float)
+    rung = cell("double_robust_contraction", "treatment_correct_n2000")
+    property_cell = cell("double_robustness", MULTI_ARM_CELL)
+    cases = {
+        (MULTI_ARM_STUDY, "rung bias minus (i)"): (rung, first),
+        (MULTI_ARM_STUDY, "property-cell bias minus rung bias"): (property_cell, rung),
+        (MULTI_ARM_STUDY, "pooled bias minus (i)"): (np.concatenate([property_cell, rung]), first),
+        ("canonical-drtmle", "(iii) minus outcome_correct (iii)"): (
+            paired("treatment_correct"),
+            paired("outcome_correct"),
+        ),
+        ("canonical-drtmle", "(iii) minus both_correct (iii)"): (
+            paired("treatment_correct"),
+            paired(BOTH_CORRECT),
+        ),
+    }
+    for (study, statistic), (left, right) in cases.items():
+        theirs = ttest_ind(left, right, equal_var=False).confidence_interval(0.99)
+        ours = _row(rebuilt, study, "treatment_correct", statistic)
+        assert ours["ci_lower"] == pytest.approx(theirs.low, rel=1e-9), statistic
+        assert ours["ci_upper"] == pytest.approx(theirs.high, rel=1e-9), statistic
