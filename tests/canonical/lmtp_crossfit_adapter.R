@@ -24,6 +24,55 @@ fold_list <- function(assignment) {
   })
 }
 
+check_supplied_density_ratios <- function(density_ratios, estimated) {
+  if (!identical(dim(density_ratios), dim(estimated))) {
+    stop(sprintf(
+      "supplied density ratios are %s; lmtp's are %s",
+      paste(dim(density_ratios), collapse = " x "),
+      paste(dim(estimated), collapse = " x ")
+    ))
+  }
+  # A per-node ratio is zero exactly where the unit left the followed path at that node.
+  # lmtp's own matrix has that property, so agreement catches a wrong arm, wrong node, or
+  # missing censoring factor without relying on column labels.
+  disagreeing <- sum(xor(density_ratios == 0, estimated == 0))
+  if (disagreeing > 0) {
+    stop(sprintf(
+      "the supplied density ratios follow a different path from lmtp's: %d of %d cells
+       disagree on whether the unit is still on the regimen at that node",
+      disagreeing, length(estimated)
+    ))
+  }
+  if (!all(is.finite(density_ratios))) {
+    stop("the supplied density ratios contain non-finite values")
+  }
+  # The cumulative products need to track lmtp's fitted ratios, while the expectation-one
+  # screen belongs to the first node.  Later columns may be structurally zero after an event,
+  # so their cumulative product need not average one.
+  supplied <- apply(density_ratios, 1, prod)
+  fitted <- apply(estimated, 1, prod)
+  agreement <- suppressWarnings(cor(supplied, fitted))
+  if (!is.finite(agreement) || agreement < 0.8) {
+    stop(sprintf(
+      "the supplied cumulative density ratio correlates %.4f with lmtp's own estimate of
+       the same quantity; a correct formula tracks it closely even where the two differ
+       on the value", agreement
+    ))
+  }
+  first_node <- density_ratios[, 1]
+  spread <- stats::sd(first_node) / sqrt(length(first_node))
+  distance <- abs(mean(first_node) - 1)
+  if (!is.finite(mean(first_node)) || !is.finite(spread) || distance > 5 * spread) {
+    standard_errors <- if (is.finite(spread) && spread > 0) distance / spread else Inf
+    stop(sprintf(
+      "the supplied first-node density ratio averages %.4f, which is %.1f standard errors
+       from one; that column has no event upstream of it, so a correct one averages one",
+      mean(first_node), standard_errors
+    ))
+  }
+  invisible(TRUE)
+}
+
 lmtp_tmle_with_folds <- function(
   data,
   shifted,
@@ -117,55 +166,7 @@ lmtp_tmle_with_folds <- function(
   )
   if (!is.null(density_ratios)) {
     estimated <- density$density_ratios
-    if (!identical(dim(density_ratios), dim(estimated))) {
-      stop(sprintf(
-        "supplied density ratios are %s; lmtp's are %s",
-        paste(dim(density_ratios), collapse = " x "),
-        paste(dim(estimated), collapse = " x ")
-      ))
-    }
-    # A per-node ratio is zero exactly where the unit left the followed path at that node.
-    # lmtp's own matrix has that property, so requiring the supplied one to agree with it
-    # cell for cell is what catches a ratio built from the wrong arm, the wrong node, or a
-    # missing censoring factor -- none of which changes the shape.
-    # ``any(xor(...))`` rather than ``identical(...)``: the latter compares dimnames too, so
-    # a supplied matrix built with ``cbind(first, second)`` failed on its column labels while
-    # every value agreed.
-    disagreeing <- sum(xor(density_ratios == 0, estimated == 0))
-    if (disagreeing > 0) {
-      stop(sprintf(
-        "the supplied density ratios follow a different path from lmtp's: %d of %d cells
-         disagree on whether the unit is still on the regimen at that node",
-        disagreeing, length(estimated)
-      ))
-    }
-    if (!all(is.finite(density_ratios))) {
-      stop("the supplied density ratios contain non-finite values")
-    }
-    # Agreement in *shape* with lmtp's own estimate.  The zero-pattern check above is the
-    # sharp structural one; this catches a formula that is right about which units follow and
-    # wrong about the weight -- a dropped censoring factor, an inverted arm probability.
-    supplied <- apply(density_ratios, 1, prod)
-    fitted <- apply(estimated, 1, prod)
-    agreement <- suppressWarnings(cor(supplied, fitted))
-    if (!is.finite(agreement) || agreement < 0.8) {
-      stop(sprintf(
-        "the supplied cumulative density ratio correlates %.4f with lmtp's own estimate of
-         the same quantity; a correct formula tracks it closely even where the two differ
-         on the value", agreement
-      ))
-    }
-    # A gross-error screen only, deliberately loose.  The exact weights are heavy tailed --
-    # under the never-treat plan 1/(1 - g_2) grows without bound as L2 does -- so the sample
-    # mean of a correct cumulative ratio wanders well away from its expectation of one at
-    # these sample sizes.  Tightening this rejects correct ratios; the two checks above are
-    # the ones that carry the weight.
-    if (abs(mean(supplied) - 1) > 0.5) {
-      stop(sprintf(
-        "the supplied cumulative density ratio averages %.4f; a correct one averages one",
-        mean(supplied)
-      ))
-    }
+    check_supplied_density_ratios(density_ratios, estimated)
     density$density_ratios <- density_ratios
   }
   regressions <- lmtp_internal("cf_tmle")(
