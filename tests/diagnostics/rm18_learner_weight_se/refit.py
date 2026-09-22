@@ -104,9 +104,7 @@ def payloads(replicates: Iterable[int]) -> list[Payload]:
         for payload in common._payloads(STUDY)
         if payload[0] == PROPERTY and payload[2] in wanted
     ]
-    expected = {
-        (cell.removeprefix("static__"), replicate) for cell in ARMS for replicate in wanted
-    }
+    expected = {(cell.removeprefix("static__"), replicate) for cell in ARMS for replicate in wanted}
     observed = [(payload[1], payload[2]) for payload in calls]
     if len(observed) != len(set(observed)) or set(observed) != expected:
         missing = sorted(expected - set(observed))

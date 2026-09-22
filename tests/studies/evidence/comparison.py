@@ -183,9 +183,7 @@ def comparison_verdict(
             and calibration_excess_resolution <= calibration_noninferiority_margin
         )
     )
-    superior = bool(
-        coverage_difference_lower > 0.0 and subject_valid and rmse and calibration
-    )
+    superior = bool(coverage_difference_lower > 0.0 and subject_valid and rmse and calibration)
     conclusion, passed = comparison_conclusion(
         similar=similar,
         not_inferior=rmse and coverage and calibration,
