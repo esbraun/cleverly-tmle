@@ -1997,42 +1997,128 @@ def test_no_margin_resolver_outlives_the_studies_that_reach_it() -> None:
     )
 
 
-#: A publication-policy label in the implementation matrix, followed by the evidence-page links
-#: it governs.  ``gated [a](...) and [b](...)`` labels both pages; a word between two links, as
-#: in ``and a reporting [c](...)``, starts a new label or ends the list.
-_POLICY_LABEL = re.compile(
-    r"\b(?P<label>gated|reporting(?:-policy)?)\s+"
-    r"(?P<links>\[[^\]]+\]\(method-evidence/[^)]+\)"
-    r"(?:(?:,\s+and\s+|,\s+|\s+and\s+)\[[^\]]+\]\(method-evidence/[^)]+\))*)"
+MATRIX = ROOT / "docs" / "technical-reference" / "index.md"
+MATRIX_COLUMNS = (
+    "implementation family",
+    "theory and citation",
+    "`cleverly` implementation",
+    "external provenance",
+    "correctness evidence",
 )
-_EVIDENCE_LINK = re.compile(r"\]\(method-evidence/(?P<page>[^)#]+\.md)")
+
+#: A publication-policy word in the evidence column of the implementation matrix.
+_POLICY_WORD = re.compile(r"\b(?P<label>gated|reporting(?:-policy)?)\b", re.IGNORECASE)
+_MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\((?P<target>[^)\s]+)\)")
+_EVIDENCE_PAGE = re.compile(r"^method-evidence/(?P<page>[^)#]+\.md)")
 
 
-def test_the_implementation_matrix_names_each_study_s_publication_policy() -> None:
-    """A page the matrix calls gated is a study the registry gates, and the same for reporting.
-
-    Both directions of the label were wrong at once: the selector, outcome-adaptive and
-    continuous-policy studies declared ``reporting`` while the matrix still called them gated.
-    The policy is a registry fact, so the label is checked against it rather than re-read.
-    """
+def _registered_policies() -> dict[str, set[str]]:
     policies: dict[str, set[str]] = {}
     for study in STUDIES:
         policies.setdefault(Path(study.document).name, set()).add(study.publication_policy)
-    matrix = (ROOT / "docs" / "technical-reference" / "index.md").read_text(encoding="utf-8")
-    labelled = [
-        (match["label"], link["page"])
-        for match in _POLICY_LABEL.finditer(matrix)
-        for link in _EVIDENCE_LINK.finditer(match["links"])
-    ]
+    return policies
+
+
+def _matrix_policy_findings(
+    matrix: Path, policies: dict[str, set[str]]
+) -> tuple[list[tuple[str, str, list[str]]], list[str], int]:
+    """Read the policy label of every evidence-page link in the matrix's evidence column.
+
+    A link's label is the last policy word before it in the same clause, where a clause ends
+    at a semicolon.  Link text is not searched, so a page title cannot label itself.  So
+    ``gated ordinary and cross-fitted [a](...) and [b](...)`` labels both pages gated, and
+    ``a gated [a](...) and a reporting [b](...)`` labels them apart.
+
+    Returns the links whose label disagrees with the registry, the registered pages linked
+    with no label, and the count of labelled links.
+    """
+    wrong: list[tuple[str, str, list[str]]] = []
+    unlabelled: list[str] = []
+    labelled = 0
+    for row in pipe_table(matrix, MATRIX_COLUMNS):
+        for clause in row["correctness evidence"].split(";"):
+            label: str | None = None
+            cursor = 0
+            for link in _MARKDOWN_LINK.finditer(clause):
+                words = _POLICY_WORD.findall(clause[cursor : link.start()])
+                if words:
+                    label = words[-1].casefold()
+                cursor = link.end()
+                page = _EVIDENCE_PAGE.match(link["target"])
+                if page is None or page["page"] not in policies:
+                    continue
+                registered_policy = policies[page["page"]]
+                if label is None:
+                    unlabelled.append(page["page"])
+                    continue
+                labelled += 1
+                if registered_policy != {"gated" if label == "gated" else "reporting"}:
+                    wrong.append((page["page"], label, sorted(registered_policy)))
+    return wrong, unlabelled, labelled
+
+
+def test_the_implementation_matrix_names_each_study_s_publication_policy() -> None:
+    """Every registered page the matrix links carries the label of its registered policy.
+
+    Both directions of the label were wrong at once: the selector, outcome-adaptive and
+    continuous-policy studies declared ``reporting`` while the matrix still called them gated.
+    A later audit found links no label reached, including a ``reporting`` study the matrix
+    called only "registered".  The policy is a registry fact, so the label is checked against
+    it rather than re-read, and every linked registered page must carry one.
+    """
+    wrong, unlabelled, labelled = _matrix_policy_findings(MATRIX, _registered_policies())
     assert labelled, "the implementation matrix labels no evidence page with a policy"
-    wrong = [
-        (page, label, sorted(policies.get(page, set())))
-        for label, page in labelled
-        if policies.get(page) != {"gated" if label == "gated" else "reporting"}
-    ]
     assert wrong == [], (
         f"these matrix labels disagree with the registered publication policy: {wrong}"
     )
+    assert unlabelled == [], (
+        f"the matrix links these registered evidence pages with no policy label: {unlabelled}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("original", "mutated", "finding"),
+    [
+        pytest.param(
+            "gated [stochastic-regime study]",
+            "reporting [stochastic-regime study]",
+            "wrong",
+            id="gated-page-called-reporting",
+        ),
+        pytest.param(
+            "reporting-policy [complete-outcome]",
+            "GATED [complete-outcome]",
+            "wrong",
+            id="reporting-page-called-gated-in-capitals",
+        ),
+        pytest.param(
+            "gated ordinary and cross-fitted [survival]",
+            "ordinary and cross-fitted [survival]",
+            "unlabelled",
+            id="label-removed-before-an-adjective",
+        ),
+        pytest.param(
+            "and binary-outcome [clustered CV-TMLE]",
+            "; binary-outcome [clustered CV-TMLE]",
+            "unlabelled",
+            id="clause-break-ends-a-label",
+        ),
+    ],
+)
+def test_the_matrix_policy_check_fails_on_a_mutated_label(
+    tmp_path: Path, original: str, mutated: str, finding: str
+) -> None:
+    """A deliberate mutation of the matrix's labels, on a copy, is reported.
+
+    The live matrix passes, so without this witness a reader that labelled nothing, or that
+    ignored case or clause breaks, would pass too.
+    """
+    text = MATRIX.read_text(encoding="utf-8")
+    assert text.count(original) == 1, f"the mutation target {original!r} moved"
+    copy = tmp_path / "index.md"
+    copy.write_text(text.replace(original, mutated), encoding="utf-8")
+    wrong, unlabelled, _ = _matrix_policy_findings(copy, _registered_policies())
+    assert wrong if finding == "wrong" else unlabelled, f"the mutation {mutated!r} went unreported"
 
 
 class TestTheQuantityVocabulary:
