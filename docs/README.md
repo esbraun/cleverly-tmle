@@ -37,6 +37,7 @@ These are the documents no reader path introduces on its own.
 | [Evidence](technical-reference/evidence.md) | per registered estimand: which oracle, Gateaux, remainder, identity, and variant instruments exist, plus their blind spots |
 | [Implementation validation grid](technical-reference/method-evidence/validation-grid.md) | every registered study in one table: the method, the canonical implementation compared, the counts, and the declared limits |
 | [Implementation validation studies](technical-reference/method-evidence/index.md) | one row per committed test: what it checked, what its own endpoints required, and the verdict |
+| [The red-cell ledger](technical-reference/method-evidence/red-cells.md) | every red verdict the registered studies publish, generated from the committed results, with the roadmap ask that owns each one |
 | [Method benchmarking strategy](development/method-benchmarking.md) | how R comparisons and independent statistical-property studies are designed, registered, and accepted |
 | [Fast tests and validation studies](development/testing-strategy.md) | which checks a change needs, and when to regenerate an affected study |
 | [Contributing](development/contributing.md) | how to set up the project, which checks a change needs, and where each working rule is written down |

@@ -121,7 +121,8 @@ leave the calibration band. Their paired difference includes zero, which is repo
 failure criterion: the relevant question is whether each reported standard error calibrates to
 its own sampling spread.
 [F19](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) records what a
-source must settle before that changes.
+source must settle before that changes. The [red-cell ledger](red-cells.md) lists each red cell
+of this study with the roadmap ask that owns it.
 
 The n = 500 coverage bound was red on the treatment-stratified split this row used before, and it
 clears the floor on the unstratified split it now declares. The budget, the size, the seed and the

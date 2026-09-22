@@ -45,7 +45,10 @@ def cells() -> tuple[PropertyCell, ...]:
             lambda: LogisticRegression(max_iter=1000),
             700,
             canonical_properties.DOUBLE_ROBUST_REPLICATES,
-            12_100,
+            # The inherited root-n cell uses 8_100 plus this study's 4_000 seed offset.
+            # Keep property families independent by taking the next unused seed in this
+            # local double-robustness block.
+            12_104,
         ),
         PropertyCell(
             "double_robustness",

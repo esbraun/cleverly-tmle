@@ -222,7 +222,21 @@ as an established property.
 The two one-correct `double_robustness` cells exceed the equivalence margin at `n = 1,500`. That
 margin is a quarter of an empirical standard deviation, and the test is resolvable at that size:
 its 99% half-width is about `0.0025` against margins of `0.0067` and `0.0072`. The bias really is
-larger than the margin.
+larger than the margin. The [red-cell ledger](red-cells.md) lists each red cell of this study
+with the roadmap ask that owns it.
+
+RM18 read the two red one-correct cells against R `drtmle` on the primary rows at `n = 3,000`,
+under a rule declared before the computation. On `outcome_correct`, R `drtmle` shows the same
+signed bias, and the paired interval covers zero, so the reading is `shared`. That means the bias
+is shared by these two implementations at this size; it does not identify the source. On
+`treatment_correct`, R `drtmle` also shows a bias above zero, and the unadjusted paired interval of
+`cleverly` minus R runs `0.000068` to `0.001942`, so the declared reading is `mixed`. This is an
+exploratory between-implementation signal, not an established implementation defect: the interval
+carries no multiplicity adjustment, and the Bonferroni interval for this comparison covers zero.
+
+[RM19](../../roadmap.md#rm19-one-sided-robustness-bias-increment-in-dr-tmle) carries the
+increment. {ref}`What the one-sided reading found <what-the-one-sided-reading-found>` gives each
+interval.
 
 One size cannot say what kind of failure that is. A second-order remainder that has not yet
 decayed and an inconsistent estimator look identical at one `n` and mean opposite things. The

@@ -12,6 +12,7 @@ Read the pages in this order.
 | --- | --- |
 | [Implementation validation grid](validation-grid.md) | all thirty-seven studies in one table, with the counts and the declared limits |
 | [How to read these studies](how-to-read.md) | the three questions, the verdict rules, and the terms every study below applies |
+| [The red-cell ledger](red-cells.md) | every red verdict the studies publish, and the roadmap ask that owns each one |
 | the thirty-seven study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
 
 To register a new study, follow
@@ -22,6 +23,7 @@ To register a new study, follow
 
 validation-grid
 how-to-read
+red-cells
 canonical-point-treatment-tmle
 weighted-point-treatment-tmle
 learned-weighted-point-treatment-tmle

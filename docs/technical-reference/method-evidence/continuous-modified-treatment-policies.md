@@ -119,7 +119,7 @@ targeting, density-ratio direction, the active cap, and the exact natural-course
 - The primary pooled-hazard density uses 320 bins against R's analytic normal-density ratio. Property controls use 20 bins except for the density-correct, outcome-misspecified arm, where 320 bins keep density approximation error from masking the robustness claim.
 - The study covers ordinary, non-cross-fitted targeting and pointwise Wald intervals.
 - The uncapped shift requires extrapolation at rare sample-edge doses; the support warning is an explicit limitation.
-- One of five paired comparisons is inconclusive at the shared 99% non-inferiority margin. The reporting policy publishes it without changing the observed margin.
+- One of five paired comparisons is inconclusive at the shared 99% non-inferiority margin. The reporting policy publishes it without changing the observed margin. The [red-cell ledger](red-cells.md) names the roadmap ask that owns it.
   - That row is `ate_shift[+0.25 vs natural course]`, and it fails calibration non-inferiority alone.
     Its cause is the density asymmetry this page declares above, not a defect in either targeting
     step. Three measurements locate it. The two natural-course rows are identical to six figures,

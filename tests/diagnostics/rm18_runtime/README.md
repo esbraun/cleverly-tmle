@@ -70,10 +70,15 @@ library. Their `lmtp` rows must be identical. The module prints each broken cond
 
 The largest weighted code-axis change in a standard error in `isolation.csv` is 49,702. It does
 not measure the code change. In each `learner_weight_necessity` cell, 13 of 1,200 replicates
-report a standard error above 1 at both code states, and in all four arms. Replicate 1099 of the
-control reports 49,757.77 at `7d5485a` and 55.32 at `0e03a15`, with the same estimate.
+report a standard error above 1 at both code states, and in all four arms. The change of 49,702 is
+replicate 1099 of the control. Its standard error falls from 49,757.77 at `7d5485a` to 55.32 at
+`0e03a15`, with the same estimate.
 
 Those replicates set the published SE ratio of both cells in
 `tests/canonical/weighted_lmtp_ltmle/properties.csv`. It is 2,758 and 2,825 at `0e03a15`, and
 6,772 and 6,925 at `f0110bc`. The verdicts of both cells read the bias intervals and the paired
-displacement, and not the reported standard error. No roadmap item owns this pathology.
+displacement, and not the reported standard error. `RM18-learner-weight-se` in `docs/roadmap.md`
+owns this pathology. `tests/diagnostics/rm18_learner_weight_se/` holds its diagnostic, which reads
+finite-sample empty-cell instability in the out-of-fold mechanism estimate. That label concerns
+the estimated mechanism in these realized folds, not the causal positivity assumption on the true
+treatment law.

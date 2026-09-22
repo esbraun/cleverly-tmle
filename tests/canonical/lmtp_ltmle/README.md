@@ -33,28 +33,15 @@ python -m tests.studies.evidence.document --slug canonical-ltmle-crossfit
 `tests.canonical.lmtp_crossfit.audit` runs the comparator outside the registered gate and
 summarizes it, for examining a candidate comparator without publishing a row.
 
-## Known defect in the shared adapter, due at the next regeneration
+## Supplied-density validation correction
 
-`lmtp_crossfit_adapter.R` screens the supplied density ratios with
-`abs(mean(supplied) - 1) > 0.5` on the *cumulative* product. That anchor is wrong in general. A
-unit whose follow-up ends at the first node has no second-node arm, so its later columns are
-structurally zero, and the cumulative ratio's expectation is the probability of reaching the
-second node under the plan rather than one.
+The shared adapter formerly screened the cumulative product of supplied density ratios against an
+expectation of one. Later columns can be structurally zero after an event, so that anchor was not
+valid in general. The shared helper now applies the expectation-one screen to the first node at
+five standard errors, while retaining the zero-pattern and correlation checks. The competing
+adapter uses the same helper instead of a duplicate.
 
-This study is unaffected. Its law draws few first-node events, so the cumulative mean stays inside
-the band. The competing-risk rows are not: their law ends follow-up at the first node for most
-units, and the same screen rejected a correct matrix at 0.3188 against an expectation of 0.3125.
-`lmtp_competing_adapter.R` carries the corrected form, which screens the first column, whose
-expectation is exactly one whatever the event process does downstream.
-
-The shared adapter keeps the wrong anchor because its bytes are hashed into **eight** manifests:
-`categorical_ltmle`, `categorical_ltmle_crossfit`, `lmtp_clustered_tmle`, `lmtp_ltmle`,
-`lmtp_ltmle_competing`, `lmtp_ltmle_competing_crossfit`, `lmtp_ltmle_survival` and
-`weighted_lmtp_ltmle`. Correcting it invalidates all eight at once. An earlier draft of this
-paragraph counted four and said to take the corrected form across at this row's next regeneration.
-
-This row was regenerated for the unstratified first-node folds, and the anchor was deliberately
-not corrected then. Six of the eight moved in that work and two did not, so a correction made
-there would have left two manifests recording bytes that no longer exist. The fix needs one task
-that corrects the anchor and regenerates all eight together. `docs/roadmap.md` RM18 records it
-under the findings that pull request deferred.
+This changes only whether an input is refused before fitting; a successful fit receives the same
+supplied ratio matrix. The provenance ledger therefore records the eight shared-adapter manifest
+transitions as result-neutral. The ordinary, weighted, clustered and competing fixture smokes all
+pass, including the competing mutations for an opposite arm and a dropped censoring factor.

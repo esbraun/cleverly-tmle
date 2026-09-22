@@ -137,13 +137,26 @@ and solver status for every replication.
 This is a reporting study. A red scientific verdict publishes rather than prevents the record
 from existing. The source theorem and the original R study are binary-treatment results. Both
 packages expose a vector intervention API, and this row measures their armwise extension. It does
-not claim a new multi-arm theorem.
+not claim a new multi-arm theorem. The [red-cell ledger](red-cells.md) lists each red cell of this
+study with the roadmap ask that owns it.
 
 The contraction ladder explains most of the red cells above. The `treatment_correct` level cell
 misses its equivalence margin at n = 2,000 by 0.0004, which is about six per cent of the margin.
 The two figures print four units of the last digit apart in the generated table above.
 The ladder redraws that regime on independent streams at three sizes and puts the bias inside the
-margin at every one, so the level cell records Monte Carlo error rather than a remainder.
+margin at every one.
+
+In this regime the outcome regression is misspecified and the treatment mechanism is correct.
+RM18 read the level cell against the fully specified primary rows at the same size, under a rule
+declared before the computation. That Welch interval runs 0.001160 to 0.008650 and excludes zero,
+so the fixed-size reading is `finite-sample excess detected`. This comparison does not establish
+asymptotic inconsistency or identify the cause of the difference.
+
+The ladder's n = 2,000 rung is the other sample of the same regime, and it does not reproduce the
+excess. Its difference from the primary rows runs -0.002581 to 0.004917, and the pooled comparison
+covers zero. The overall evidence is inconclusive. These rows establish neither an added bias nor
+its absence.
+{ref}`What the one-sided reading found <what-the-one-sided-reading-found>` gives each interval.
 
 Both fitted slopes then have nothing to regress. A one-correct bias that sits at the noise floor
 and changes sign across the ladder gives a wide slope interval, and neither interval establishes
