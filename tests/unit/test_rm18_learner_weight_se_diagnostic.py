@@ -26,6 +26,7 @@ from tests.diagnostics.rm18_learner_weight_se.refit import (
     reading_table,
     refit_all,
     reproduced,
+    validate_refit_frame,
 )
 from tests.diagnostics.rm18_learner_weight_se.select import (
     ARMS,
@@ -286,6 +287,25 @@ def test_recorded_reading_follows_from_the_recorded_statistics(recorded: pd.Data
     published = pd.read_csv(RECORDED_READING, keep_default_na=False)
     rebuilt = reading_table(recorded).fillna("")
     assert published.to_dict("records") == rebuilt.to_dict("records")
+
+
+def test_a_missing_refit_row_is_refused(recorded: pd.DataFrame) -> None:
+    incomplete = recorded.iloc[1:].copy()
+    with pytest.raises(RuntimeError, match="refit table is incomplete"):
+        reading_table(incomplete)
+
+
+def test_a_missing_declared_replicate_is_refused(recorded: pd.DataFrame) -> None:
+    incomplete = recorded.loc[recorded["replicate"] != DECLARED_SELECTED[0]].copy()
+    with pytest.raises(RuntimeError, match="refit table is incomplete"):
+        validate_refit_frame(incomplete, require_declared=True)
+
+
+def test_a_non_finite_refit_statistic_is_refused(recorded: pd.DataFrame) -> None:
+    invalid = recorded.copy()
+    invalid.loc[invalid.index[0], "effective_n"] = np.nan
+    with pytest.raises(RuntimeError, match="non-finite statistic"):
+        reading_table(invalid)
 
 
 def _without_floor(frame: pd.DataFrame) -> None:

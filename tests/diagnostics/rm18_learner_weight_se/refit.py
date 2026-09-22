@@ -99,11 +99,20 @@ REFIT_COLUMNS = (
 def payloads(replicates: Iterable[int]) -> list[Payload]:
     """The ``_payloads`` entries of both arms for ``replicates``, in payload order."""
     wanted = set(replicates)
-    return [
+    calls = [
         payload
         for payload in common._payloads(STUDY)
         if payload[0] == PROPERTY and payload[2] in wanted
     ]
+    expected = {
+        (cell.removeprefix("static__"), replicate) for cell in ARMS for replicate in wanted
+    }
+    observed = [(payload[1], payload[2]) for payload in calls]
+    if len(observed) != len(set(observed)) or set(observed) != expected:
+        missing = sorted(expected - set(observed))
+        extra = sorted(set(observed) - expected)
+        raise RuntimeError(f"the refit payloads are incomplete; missing={missing}, extra={extra}")
+    return calls
 
 
 def _regimen_statistics(fit: Any) -> dict[str, Any]:
@@ -205,7 +214,46 @@ def assemble(
         ["group", "replicate", "cell", "regimen"], ascending=[False, True, True, True]
     )
     frame["cell"] = frame["cell"].astype(str)
-    return frame.loc[:, list(REFIT_COLUMNS)].reset_index(drop=True)
+    frame = frame.loc[:, list(REFIT_COLUMNS)].reset_index(drop=True)
+    validate_refit_frame(frame, require_declared=True)
+    return frame
+
+
+def validate_refit_frame(frame: pd.DataFrame, *, require_declared: bool = False) -> None:
+    """Refuse an incomplete, duplicated, or non-finite refit table before reading it."""
+    missing_columns = sorted(set(REFIT_COLUMNS) - set(frame.columns))
+    if missing_columns:
+        raise RuntimeError(f"the refit table lacks columns {missing_columns}")
+    groups = set(frame["group"])
+    if groups != {SELECTED, COMPARISON}:
+        raise RuntimeError(f"the refit table has unexpected groups {sorted(groups)}")
+    if require_declared:
+        committed = learner_weight_rows()
+        chosen = selected(committed)
+        compared = comparison(committed, chosen)
+        group_replicates = ((SELECTED, chosen), (COMPARISON, compared))
+    else:
+        group_replicates = tuple(
+            (group, tuple(sorted(set(frame.loc[frame["group"] == group, "replicate"]))))
+            for group in (SELECTED, COMPARISON)
+        )
+    expected = {
+        (group, replicate, cell, regimen)
+        for group, replicates in group_replicates
+        for replicate in replicates
+        for cell in ARMS
+        for regimen in common.REGIMENS
+    }
+    key_columns = ["group", "replicate", "cell", "regimen"]
+    keys = [tuple(row) for row in frame[key_columns].itertuples(index=False, name=None)]
+    observed = set(keys)
+    if len(keys) != len(observed) or observed != expected:
+        missing = sorted(expected - observed)
+        extra = sorted(observed - expected)
+        raise RuntimeError(f"the refit table is incomplete; missing={missing}, extra={extra}")
+    numeric = frame.loc[:, [column for column in REFIT_COLUMNS if column not in key_columns]]
+    if not np.isfinite(numeric.to_numpy(dtype=float)).all():
+        raise RuntimeError("the refit table contains a non-finite statistic")
 
 
 def reproduced(frame: pd.DataFrame) -> bool:
@@ -310,6 +358,7 @@ def _control_detail(frame: pd.DataFrame) -> str:
 
 def reading_table(frame: pd.DataFrame) -> pd.DataFrame:
     """The reproduction control, the five predictions and the reading, one row each."""
+    validate_refit_frame(frame)
     control = reproduced(frame)
     rows = [
         {
@@ -376,6 +425,7 @@ def main() -> None:
             f"min {seconds.min():.1f}, median {seconds.median():.1f}, max {seconds.max():.1f}, "
             f"sum {seconds.sum():.1f}"
         )
+    validate_refit_frame(frame, require_declared=True)
     table = reading_table(frame)
     write_csv(table, arguments.output / "reading.csv")
     with pd.option_context("display.width", 250, "display.max_columns", None):
