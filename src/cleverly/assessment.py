@@ -30,7 +30,7 @@ from ._assessment_cache import (
 )
 from ._typing import CumulativeGBounds
 from .data.weighting import REPORTED_DRAW, format_score_load
-from .exceptions import CapabilityError
+from .exceptions import WORKING_MECHANISM_ASSESSMENT_NOTE, CapabilityError
 from .targets.population_intervention import (
     NATURAL_COURSE_SUPPORT_REFUSAL,
     NATURAL_COURSE_TILT_REFUSAL,
@@ -2618,6 +2618,10 @@ def _nuisance_item(
             facts.append(f"{selection.describe()}{draw}")
         elif getattr(report, "selection_omission", None) is not None:
             facts.append(f"C-TMLE selection unavailable: {report.selection_omission}")
+        # Keyed on the declared inference status, not on the selection artifact: the
+        # outcome-adaptive path has one of those too and keeps its interval.
+        if getattr(report, "inference", "influence_curve") != "influence_curve":
+            facts.append(WORKING_MECHANISM_ASSESSMENT_NOTE)
         spread = tuple(getattr(report, "repeat_spread", ()))
         if spread:
             finite_rows: list[Any] = [

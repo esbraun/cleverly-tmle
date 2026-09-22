@@ -46,6 +46,13 @@ RM18 records. Its acceptance cell states whether the ask is delivered or open.
 A red row stays red under the `reporting` policy. It is read again only under the condition its
 owner names. The ledger moves no margin and changes no verdict.
 
+Every `F18` row measures a working-mechanism plug-in diagnostic. The package does not publish that
+diagnostic as inference: the greedy, ordered, and discrete C-TMLE paths refuse `ci`, `pvalue`, and
+`std_error`. The cells keep their `std_error`, `ci_lower`, `ci_upper`, and `covered` columns, and
+those columns now read `plugin_std_error` and `plugin_interval`. The two accessors call the same
+body the refused ones call, so the reframing changed no number and no study was regenerated. Read a
+red `F18` coverage cell as a measurement of a diagnostic, and not as a refused coverage claim.
+
 The test fails on four states.
 
 | state | why the test refuses it |

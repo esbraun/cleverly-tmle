@@ -229,7 +229,12 @@ def test_explicit_collaborative_or_evalue_is_not_blocked_by_default_derivation()
         _study()
         .identify(OddsRatio())
         .estimate(
-            method=CollaborativeTMLEMethod(selection_estimand="or"),
+            # ``strategy="oat"`` rather than a selector path: RM12 refuses every E-value
+            # branch on greedy, ordered and discrete, so a selector fit here would test
+            # that refusal instead of this test's subject, which is that an *explicitly*
+            # requested odds-ratio E-value is not blocked by the default derivation.
+            # F19 owns the outcome-adaptive path and it keeps every branch.
+            method=CollaborativeTMLEMethod(strategy="oat"),
             outcome_learner=LinearRegression(),
             treatment_learner=LogisticRegression(max_iter=1000),
             n_folds=3,
@@ -918,7 +923,12 @@ def test_reported_baseline_fallback_is_identical_live_saved_and_detached(
 
     engine = {"tmle": TMLE, "drtmle": DRTMLE, "ctmle": CTMLE, "cv": TMLE}[engine_name]
     frame, _ = make_binary_outcome(n=160, seed=3)
-    options = {"cv_evaluation": True} if engine_name == "cv" else {}
+    options: dict[str, object] = {"cv_evaluation": True} if engine_name == "cv" else {}
+    if engine_name == "ctmle":
+        # The outcome-adaptive path. A selector path reports no interval under RM12, and
+        # the E-value this test compares across live, saved and detached results reads
+        # one. The claim being made is about persistence, not about the selector.
+        options["strategy"] = "oat"
     raw = (
         _raw(engine, estimands=("ate", "ey0"), learner_folds=2, **options)
         .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
@@ -1315,7 +1325,9 @@ def test_correction_participation_is_stamped_independently_of_extra(guard):
     "method, options",
     [
         ("drtmle", {}),
-        (CollaborativeTMLEMethod(), {}),
+        # ``oat`` for the reason given at the explicit-odds-ratio test above: this case
+        # is about the missing reported baseline, not about RM12's refusal.
+        (CollaborativeTMLEMethod(strategy="oat"), {}),
         ("tmle", {"cv_evaluation": True}),
     ],
 )

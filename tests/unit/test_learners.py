@@ -647,7 +647,9 @@ class TestAnUndeclaredSeedIsResolved:
         assert isinstance(seed, int)
         replay = self._fit(CTMLE(**{**kwargs, "random_state": seed}), frame)
         assert replay["ate"].psi == unseeded["ate"].psi
-        assert replay["ate"].std_error == unseeded["ate"].std_error
+        # The plug-in accessor: the claim is that the replay reproduces the same number,
+        # and a selector path reports it under a name that makes no coverage claim.
+        assert replay["ate"].plugin_std_error == unseeded["ate"].plugin_std_error
 
 
 class TestStratifyingOnARareOutcome:

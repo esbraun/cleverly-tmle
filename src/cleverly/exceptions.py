@@ -8,6 +8,8 @@ of them can reach it.
 from __future__ import annotations
 
 __all__ = [
+    "WORKING_MECHANISM_ASSESSMENT_NOTE",
+    "WORKING_MECHANISM_NOT_INFERENTIAL",
     "CapabilityError",
     "CleverlyError",
     "ConvergenceWarning",
@@ -19,6 +21,7 @@ __all__ = [
     "PositivityWarning",
     "WeightingWarning",
     "refuse_after_repeats",
+    "refuse_working_mechanism_inference",
 ]
 
 
@@ -81,6 +84,53 @@ class PositivityWarning(UserWarning):
     the influence-curve based confidence intervals anti-conservative. See
     :mod:`cleverly.sensitivity.positivity` for diagnostics.
     """
+
+
+#: Why a selector-path collaborative estimate reports no interval and no p-value.  One text
+#: for the raise in :mod:`cleverly.inference.influence`, the result summary, the assessment
+#: row and the tests that assert the refusal states its cause, on the model of
+#: :data:`cleverly.validation.nuisance.NUISANCE_SELECTION_MISSING`.
+WORKING_MECHANISM_NOT_INFERENTIAL = (
+    "the greedy, ordered and discrete collaborative paths report no confidence interval, "
+    "no p-value and no standard error. The reported curve is the ordinary efficient "
+    "influence curve at the candidate the search stopped at, and no result shows it is "
+    "this estimator's influence curve when that working mechanism is not consistent for "
+    "the treatment law. The point estimate and the selection path stand. The plug-in "
+    "standard error of that curve remains as a diagnostic under plugin_std_error and "
+    "plugin_interval. F18 in docs/roadmap.md reopens this when it supplies the "
+    "estimator's influence curve."
+)
+
+#: The fact the assessment's nuisance-model item adds for the same fit.  Held beside the
+#: refusal so the report and the raise cannot drift apart, and asserted by importing it.
+WORKING_MECHANISM_ASSESSMENT_NOTE = (
+    "the reported curve is a working-mechanism diagnostic: no confidence interval or "
+    "p-value is available for this path, and F18 in the roadmap is the condition that "
+    "reopens it"
+)
+
+
+def refuse_working_mechanism_inference(status: str, *, operation: str) -> None:
+    """Refuse an inferential accessor on an estimate the package supplies no inference for.
+
+    Parameters
+    ----------
+    status : str
+        The estimate's declared
+        :data:`~cleverly.inference.influence.InferenceStatus`. Only
+        ``"influence_curve"`` passes.
+    operation : str
+        The refused accessor, named as the caller writes it.
+
+    Raises
+    ------
+    CapabilityError
+        When the estimate declares any status other than ``"influence_curve"``.
+    """
+    if status != "influence_curve":
+        raise CapabilityError(
+            f"{operation} is not defined here. {WORKING_MECHANISM_NOT_INFERENTIAL}"
+        )
 
 
 def refuse_after_repeats(n_repeats: int, *, operation: str, reason: str) -> None:

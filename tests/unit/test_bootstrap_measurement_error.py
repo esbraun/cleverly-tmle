@@ -30,6 +30,22 @@ from cleverly.validation import (
 from cleverly.validation.refute import _run_empirical_refits
 
 
+def _estimate(psi: float, standard_error: float) -> SimpleNamespace:
+    """A stand-in for :class:`~cleverly.inference.ParameterEstimate`.
+
+    It carries ``plugin_std_error`` beside ``std_error`` because the real class does: RM12
+    split the two so a selector-path collaborative fit can refuse the inferential name and
+    keep the diagnostic.  A stub with only ``std_error`` would pass here while the library
+    reads the accessor it actually uses.
+    """
+    return SimpleNamespace(
+        psi=psi,
+        std_error=standard_error,
+        plugin_std_error=standard_error,
+        inference="influence_curve",
+    )
+
+
 def _rule(draws: int) -> EmpiricalInclusionRule:
     return EmpiricalInclusionRule(alpha=2.0 / draws, minimum_draws=draws)
 
@@ -136,7 +152,7 @@ class _RecordingEstimator:
         self.calls.append((random_state, data))
         if call in self.fail_calls:
             raise RuntimeError(f"failed draw {call}")
-        estimate = SimpleNamespace(psi=self.statistic(data.covariates), std_error=1.0)
+        estimate = _estimate(self.statistic(data.covariates), 1.0)
         return _RefitResult(data, estimate)
 
 
@@ -213,7 +229,7 @@ def _result(data: CausalData, estimator: _RecordingEstimator | None = None) -> _
     fitted = estimator or _RecordingEstimator()
     return _Result(
         estimator=fitted,
-        estimates={"ate": SimpleNamespace(psi=fitted.statistic(data.covariates), std_error=1.0)},
+        estimates={"ate": _estimate(fitted.statistic(data.covariates), 1.0)},
         data=data,
         intermediate_value=None,
     )
@@ -1059,7 +1075,7 @@ class TestPreflightRefusals:
         estimator = _RecordingEstimator()
         result = _Result(
             estimator=estimator,
-            estimates={"ate": SimpleNamespace(psi=0.0, std_error=1.0)},
+            estimates={"ate": _estimate(0.0, 1.0)},
             data=SimpleNamespace(backend=None),
             intermediate_value=None,
         )

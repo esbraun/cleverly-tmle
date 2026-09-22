@@ -336,8 +336,8 @@ folds it used before reported 1.2539. The study reports that ratio and does not 
 [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) records the change.
 
 The path record has a second defect. The `CTMLESelection.train_risk` docstring
-(`src/cleverly/estimators/ctmle.py:311-315`) and the module docstring (`:39-43`) say that the
-in-sample risk does not increase. `_forward_path` (`:1435-1475`) takes one more fluctuation step
+(`src/cleverly/estimators/ctmle.py:312-316`) and the module docstring (`:39-43`) say that the
+in-sample risk does not increase. `_forward_path` (`:1436-1477`) takes one more fluctuation step
 when no addition lowers the risk. If the next addition still raises it, the path adds that covariate
 anyway. The `collaborative-tmle` notebook output shows `risk` rising from 6.59305 to 6.60011.
 
@@ -360,6 +360,25 @@ Apply these corrections:
    and the pinned R `ctmle` construction. The source and both docstrings now say that the
    unpenalized likelihood fluctuation cannot worsen its own loss while the recorded penalized
    selection risk can rise. The path itself does not change.
+
+Corrections 1 and 2 shipped as follows. `ParameterEstimate` carries an `inference` field.
+`CTMLE` sets it to `working_mechanism_plugin` for the greedy, ordered, and discrete paths, and
+leaves it at `influence_curve` for `oat`. `ci`, `pvalue`, and `std_error` then raise
+`CapabilityError`. `plugin_std_error` and `plugin_interval` report the retained diagnostic, from
+the same private body the refused accessors call, so the numbers did not move. `summary()`, the
+`to_frame` columns, the assessment detail, and the nuisance verdict all carry the label. A
+contrast, a simultaneous band, and every E-value branch refuse on these paths.
+
+The refusal keys on the strategy, as correction 2 requires. A `discrete` fit with a single
+full-adjustment candidate is therefore refused although it is bit-identical to a plain TMLE fit.
+The [technical reference](technical-reference/collaborative-tmle.md) records that over-refusal and
+names `TMLE` as the workaround.
+
+No study was regenerated. The reframing changed no arithmetic, so the two registered selector rows
+keep their committed replicate files and report what those columns now measure. The ratio E-value
+that [RM11](#rm11-sensitivity-bounds-outside-their-derivation) correction 3 keeps is
+unavailable on a selector path, because it reads an interval that these paths do not supply. RM11's
+sentence therefore means "keep it for a fit that has an interval".
 
 The witnesses must fail when a component is wrong:
 

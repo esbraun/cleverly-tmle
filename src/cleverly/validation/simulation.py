@@ -38,6 +38,8 @@ import numpy as np
 from .._typing import FloatArray
 from ..estimators.base import TMLEResultSet
 from ..estimators.direct_effect import check_level
+from ..inference.delta import two_sided_pvalue
+from ..inference.influence import InferenceStatus
 from ..utils.parallel import map_parallel
 from ..utils.text import format_table
 
@@ -82,6 +84,11 @@ class ReplicationRecord:
         The estimate on the inference scale.
     alpha : float
         Significance level the interval was built at.
+    inference : {"influence_curve", "working_mechanism_plugin"}
+        Which quantity ``std_error``, ``covered`` and ``rejected`` measured. The
+        ordinary value says the estimator's own reported inference. The other says the
+        estimator supplies none, and the study measured its retained
+        working-mechanism plug-in diagnostic instead.
     """
 
     replicate: int
@@ -94,6 +101,7 @@ class ReplicationRecord:
     rejected: bool
     inference_estimate: float
     alpha: float
+    inference: InferenceStatus = "influence_curve"
 
 
 @dataclass(frozen=True)
@@ -329,6 +337,18 @@ class StudyResult:
             "-" * (18 + len(self.label)),
             f"n = {self.n}; replications = {self.n_replicates}"
             + (f" ({self.n_failed} failed)" if self.n_failed else ""),
+            # Printed beside the budget rather than in a column, because it describes
+            # every row: it says whether "mean se" and the coverage column measured the
+            # estimator's own inference or its retained diagnostic.
+            *(
+                [
+                    "measuring a working-mechanism plug-in diagnostic: this estimator "
+                    "supplies no interval, so the columns below describe the spread of "
+                    "the curve it reports and not a confidence interval"
+                ]
+                if any(record.inference != "influence_curve" for record in self.replications)
+                else []
+            ),
             "",
             format_table(
                 [
@@ -580,7 +600,26 @@ class CoverageStudy:
                     estimate = result[name]
                     prefix = "" if self.truth_key == "population" else "sample_"
                     reference = truth[f"{prefix}{name}"]
-                    low, high = estimate.ci
+                    # This class is the instrument that *measures* the calibration of
+                    # whatever a fit reports, so it reads the retained diagnostic when the
+                    # estimator supplies no inference.  Refusing here would make it
+                    # impossible to measure the diagnostic the package deliberately keeps,
+                    # and, worse, the `except Exception` below would convert the refusal
+                    # into a `ReplicationFailure`: every replication of every selector cell
+                    # would be dropped silently and the cell would publish on a shrunken
+                    # budget.  `inference` on the record says which one was measured.
+                    diagnostic = estimate.inference != "influence_curve"
+                    low, high = estimate.plugin_interval if diagnostic else estimate.ci
+                    error = estimate.plugin_std_error if diagnostic else estimate.std_error
+                    # The same expression ``ParameterEstimate.pvalue`` evaluates, on the
+                    # same two numbers, so the diagnostic branch is that property's
+                    # arithmetic under a name that makes no claim -- and not a second rule
+                    # that could disagree with it at a boundary.
+                    probability = (
+                        two_sided_pvalue(estimate.inference_value, estimate.plugin_std_error)
+                        if diagnostic
+                        else estimate.pvalue
+                    )
                     # The fifth entry is the estimate on the scale `std_error` is on, which is
                     # the log scale for a ratio -- taken off `log_psi`, the same field `ci`
                     # builds the interval from, rather than re-derived here. `se_ratio` is the
@@ -592,11 +631,12 @@ class CoverageStudy:
                             estimand=name,
                             truth=float(reference),
                             estimate=float(estimate.psi),
-                            std_error=float(estimate.std_error),
+                            std_error=float(error),
                             covered=bool(low <= reference <= high),
-                            rejected=bool(estimate.pvalue < estimate.alpha),
+                            rejected=bool(probability < estimate.alpha),
                             inference_estimate=estimate.inference_value,
                             alpha=float(estimate.alpha),
+                            inference=estimate.inference,
                         )
                     )
                 return tuple(out)

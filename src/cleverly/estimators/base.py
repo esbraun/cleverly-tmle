@@ -768,6 +768,11 @@ class TMLEResult:
         mixes rules, or a raw second-moment selection on a clustered result, raises
         ``ValueError``.
 
+        On a selector-path collaborative fit the matrix is the working-mechanism plug-in
+        covariance of the reported curves. It is a diagnostic and it licenses no
+        interval, because no result shows those curves are the estimator's influence
+        curves at a mechanism that is not consistent for the treatment law.
+
         Parameters
         ----------
         names : sequence of str or None
@@ -812,6 +817,8 @@ class TMLEResult:
 
         The result is an ordinary :class:`~cleverly.inference.ParameterEstimate`, so it
         carries its own influence curve and can itself be fed back into a contrast.
+        It inherits the inference status of the estimates it reads, so a contrast of
+        selector-path collaborative estimates refuses an interval exactly as they do.
 
         Parameters
         ----------
@@ -1065,6 +1072,14 @@ class TMLEResult:
     def to_frame(self) -> Any:
         """Tidy results, one row per estimand, in the caller's dataframe backend.
 
+        An ordinary fit emits ``std_err``, ``ci_lower``, ``ci_upper`` and ``p_value``.
+        A selector-path collaborative fit supplies no inference, so it emits an
+        ``inference`` column naming that status, and ``plugin_std_err``,
+        ``plugin_interval_lower`` and ``plugin_interval_upper`` in their place. Those
+        three are a diagnostic and they are not a confidence interval. Exactly one of
+        ``std_err`` and ``inference`` is present in any frame, so a consumer that has to
+        tell the two apart has a total test.
+
         Returns
         -------
         dataframe
@@ -1175,6 +1190,10 @@ class TMLEResult:
     def influence_frame(self) -> Any:
         """One column per estimand of per-observation influence-curve values.
 
+        On a selector-path collaborative fit the column is the plug-in curve at the
+        selected working mechanism. No result shows it is the estimator's influence
+        curve, so this frame emits curves and not inference.
+
         Returns
         -------
         dataframe
@@ -1224,25 +1243,55 @@ class TMLEResult:
         if self.intermediate_value is not None:
             facts.append(describe_direct_effect(self.intermediate_value, data.intermediate_name))
         facts.extend(self.config.describe())
+        # The selector a collaborative fit stopped at, named in the facts block rather than
+        # left to the nuisance report.  ``describe()`` exists on both artifact classes so a
+        # caller renders either without discriminating between them.
+        selection = self.ctmle_selection
+        if selection is not None:
+            facts.append(selection.describe())
         if self.provenance is not None:
             facts.extend(self.provenance.describe())
 
         level = f"{(1 - self.config.alpha_sig) * 100:g}%"
+        # One fit's estimates carry one status: ``median_estimates`` and
+        # ``inference_status`` both refuse a mix, so the table is never half refused.
+        diagnostic = any(
+            estimate.inference != "influence_curve" for estimate in self.estimates.values()
+        )
         rows = []
-        for name, estimate in self.estimates.items():
-            low, high = estimate.ci
-            rows.append(
-                [
-                    name,
-                    f"{estimate.psi:.5g}",
-                    f"{estimate.std_error:.4g}",
-                    f"[{low:.5g}, {high:.5g}]",
-                    format_pvalue(estimate.pvalue),
-                ]
-            )
-        table = format_table(["estimand", "psi", "std_err", f"{level} CI", "p_value"], rows)
+        if diagnostic:
+            for name, estimate in self.estimates.items():
+                rows.append([name, f"{estimate.psi:.5g}", f"{estimate.plugin_std_error:.4g}"])
+            table = format_table(["estimand", "psi", "working-mechanism se"], rows)
+        else:
+            for name, estimate in self.estimates.items():
+                low, high = estimate.ci
+                rows.append(
+                    [
+                        name,
+                        f"{estimate.psi:.5g}",
+                        f"{estimate.std_error:.4g}",
+                        f"[{low:.5g}, {high:.5g}]",
+                        format_pvalue(estimate.pvalue),
+                    ]
+                )
+            table = format_table(["estimand", "psi", "std_err", f"{level} CI", "p_value"], rows)
 
         parts = [*header, *facts, "", table]
+        if diagnostic:
+            # The whole column is refused, so no ``95% CI`` heading is printed with a "-"
+            # under it.  A dash under that heading still tells a reader an interval is the
+            # thing that belongs there.
+            parts.append("")
+            parts.append(
+                "no confidence interval and no p-value: this fit selected its working "
+                "mechanism, and no result shows the reported curve is the estimator's "
+                "influence curve at a mechanism that is not consistent for the treatment "
+                'law. The "working-mechanism se" column is the plug-in standard error of '
+                "that curve, a diagnostic and not a standard error for this estimate. F18 "
+                "in the roadmap reopens this when it supplies the estimator's influence "
+                "curve."
+            )
         if self.n_repeats > 1:
             # Printed under the table rather than left to the scope document, because a
             # reader who subtracts two rows of that table gets a third number the fit
@@ -1262,7 +1311,9 @@ class TMLEResult:
                 "scale (the log scale for a ratio), a diagnostic and not a standard error:"
             )
             for name, value in self.repeat_spread().items():
-                error = self[name].std_error
+                # The plug-in accessor: this share is a diagnostic ratio, and the fit may
+                # be one whose standard error the package refuses to name as one.
+                error = self[name].plugin_std_error
                 # "-" and a named reason, as every other table in this package renders a
                 # cell it has no value for.  A draw this spread could not be taken over
                 # printed "nan (nan% of std_err)" here.
@@ -1271,6 +1322,14 @@ class TMLEResult:
                     continue
                 share = f"{value / error:.0%} of std_err" if error > 0 else "std_err unavailable"
                 parts.append(f"  {name:<5s} {value:.4g}  ({share})")
+        if self.simultaneous is None and diagnostic and len(self.estimates) > 1:
+            # Stated rather than left blank: a reader who asked for bands, or who knows
+            # they are the default, would otherwise have to guess why none are here.
+            parts.append("")
+            parts.append(
+                "no simultaneous bands: a band is a joint confidence statement, and this "
+                "fit reports none."
+            )
         if self.simultaneous is not None:
             parts.append("")
             parts.append(
@@ -1290,6 +1349,19 @@ class TMLEResult:
                 if estimate.bootstrap is None:
                     continue
                 low, high = estimate.bootstrap.ci
+                # A percentile interval is a confidence interval, and this fit reports
+                # none.  The same two numbers are printed as a range under the diagnostic
+                # framing, rather than the bootstrap being refused outright: the refit
+                # bootstrap reruns the selection, which is a genuine diagnostic, and no
+                # reviewed result validates its coverage for this path.
+                if estimate.inference != "influence_curve":
+                    parts.append(
+                        f"  {name:<5s} se {estimate.bootstrap.std_error:.4g}  "
+                        f"percentile range [{low:.5g}, {high:.5g}] (a diagnostic; the "
+                        "refit bootstrap reruns the selection, and no result validates "
+                        "its coverage for this path)"
+                    )
+                    continue
                 parts.append(
                     f"  {name:<5s} se {estimate.bootstrap.std_error:.4g}  "
                     f"percentile CI [{low:.5g}, {high:.5g}]"

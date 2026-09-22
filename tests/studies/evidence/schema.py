@@ -8,6 +8,7 @@ so it is checked here rather than in any single study.
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -40,6 +41,40 @@ PLAUSIBLE_COVERAGE = 0.5
 
 #: Relative slack on truth constancy, for the round trip through the reference container.
 TRUTH_TOLERANCE = 1e-9
+
+
+def reported_inference(estimate: Any) -> tuple[float, float, float]:
+    """``(std_error, low, high)`` for a replicate row, from the estimate's declared status.
+
+    An estimate whose inference the package supplies answers with its own standard error
+    and interval.  A selector-path collaborative estimate answers with its retained
+    working-mechanism diagnostic, which is the same arithmetic on the same curve: RM12
+    factored one body behind both accessors, so this branch renames the number and does
+    not recompute it.
+
+    Branching on the *estimate* and not on the study is what keeps one rule here.
+    ``multi_arm_common.rows_from_result`` is shared with three studies that keep
+    inferential estimates, and they take the ``ci`` branch unchanged.
+
+    The row schema does not move.  ``REPLICATE_COLUMNS`` is the shared contract of every
+    registered study, and ``std_error``/``ci_lower``/``ci_upper``/``covered`` stay: the
+    evidence pages say what those columns measure for the two selector rows.
+
+    Parameters
+    ----------
+    estimate : Any
+        A :class:`~cleverly.inference.ParameterEstimate` from a fitted result.
+
+    Returns
+    -------
+    tuple of float
+        The standard error and the interval endpoints the row records.
+    """
+    if getattr(estimate, "inference", "influence_curve") != "influence_curve":
+        low, high = estimate.plugin_interval
+        return float(estimate.plugin_std_error), float(low), float(high)
+    low, high = estimate.ci
+    return float(estimate.std_error), float(low), float(high)
 
 
 def truth_on_inference_scale(estimand: str, truth: float, scale: str) -> float:

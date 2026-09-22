@@ -1183,7 +1183,7 @@ def _run_empirical_refits(
                 f"{expected_family!r}"
             )
         estimate = refitted[estimand]
-        if not np.isfinite(estimate.psi) or not np.isfinite(estimate.std_error):
+        if not np.isfinite(estimate.psi) or not np.isfinite(estimate.plugin_std_error):
             failures.append(
                 ReplicationFailure(
                     replicate=replicate,
@@ -1199,7 +1199,7 @@ def _run_empirical_refits(
                 seed=child_seed,
                 estimand=estimand,
                 estimate=float(estimate.psi),
-                std_error=float(estimate.std_error),
+                std_error=float(estimate.plugin_std_error),
                 family=fitted_family,
             )
         )
@@ -1629,7 +1629,9 @@ def refute(
             )
 
     original = result[estimand].psi
-    std_error = result[estimand].std_error
+    # A tolerance scale for the refutation comparisons below, not a coverage claim, so
+    # the plug-in accessor answers on a selector-path collaborative fit too.
+    std_error = result[estimand].plugin_std_error
     # The package convention for a stochastic operation on a fitted object: an explicit seed
     # wins, ``None`` inherits the fit's own.  ``is None`` rather than truthiness, because
     # ``random_state=0`` is falsy and still has to win.  Same form as ``ctmle.py:846``.
@@ -1751,7 +1753,7 @@ def refute(
                 random_state=seed,
             )
             value = refitted[estimand].psi
-            control_se = refitted[estimand].std_error
+            control_se = refitted[estimand].plugin_std_error
             passed = bool(abs(value) <= tolerance * control_se)
             outcomes.append(
                 RefutationTest(

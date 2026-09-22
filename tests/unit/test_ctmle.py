@@ -16,14 +16,19 @@ from typing import Any, ClassVar
 import numpy as np
 import pytest
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.datasets import make_cde, make_instrument, make_linear_ate
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators import ctmle as ctmle_module
 from cleverly.estimators._nuisance import Propensity, UnfittedPropensity
-from cleverly.estimators.ctmle import _Selector, _weighted_partial_correlation
+from cleverly.estimators.ctmle import (
+    CTMLESelection,
+    _Selector,
+    _weighted_partial_correlation,
+)
 from cleverly.estimators.serialize import dumps, loads
+from cleverly.exceptions import CapabilityError
 from cleverly.learners.crossfit import SplitPlan, make_folds, random_partition
 from tests.conftest import FAST_KWARGS, mean_one_weights
 
@@ -781,13 +786,28 @@ class TestEquivalenceWithPlainTmle:
         plain = TMLE(**TMLE_KWARGS).fit(frame, outcome="Y", treatment="A").single()
 
         assert collaborative.psi("ate") == pytest.approx(plain.psi("ate"), abs=1e-12)
-        assert collaborative["ate"].std_error == pytest.approx(plain["ate"].std_error, abs=1e-12)
+        # ``plugin_std_error`` reads the same body ``plain["ate"].std_error`` reads, so the
+        # bit-for-bit claim this test exists to make is preserved exactly, and sharpened:
+        # it now pins that the retained diagnostic *is* the ordinary curve's plug-in
+        # standard error.
+        assert collaborative["ate"].plugin_std_error == pytest.approx(
+            plain["ate"].std_error, abs=1e-12
+        )
         assert np.allclose(
             collaborative["ate"].influence_curve,
             plain["ate"].influence_curve,
             atol=1e-12,
             rtol=0.0,
         )
+        # The selection layer does not perturb the estimator, and the package still refuses
+        # to call the result inference: the refusal keys on the strategy, not on whether
+        # this path had anything to select. That is a deliberate over-refusal -- the
+        # package refuses an interval for a fit it can prove is bit-identical to one whose
+        # interval it does supply -- and it is the conservative direction. See
+        # docs/technical-reference/collaborative-tmle.md on the single-full-candidate case,
+        # whose workaround is TMLE.
+        with pytest.raises(CapabilityError):
+            _ = collaborative["ate"].ci
 
     def test_the_selected_targeted_outcome_is_the_final_targeting_start(
         self, instrument_frame
@@ -955,3 +975,74 @@ class TestValidation:
         estimator = CTMLE(**{**CTMLE_KWARGS, "strategy": "ordered", "ordering": ["W1", "W2", "W9"]})
         with pytest.raises(ValueError, match="unknown covariate"):
             estimator.fit(instrument_frame, outcome="Y", treatment="A").single()
+
+
+#: The most the recorded penalized selection risk may rise, below which a "rise" would be
+#: float noise rather than the documented behaviour.  Declared before the run that measured
+#: it: the greedy path on ``make_instrument(n=800, seed=11)`` rises by 0.0110 at its last
+#: step, two orders of magnitude above this floor.
+MINIMUM_RISK_RISE = 1e-4
+
+
+class TestTheRecordedRiskMayRiseWhileTheLossMayNot:
+    """RM12's second witness: pin the documented asymmetry in both directions.
+
+    ``CTMLESelection.train_risk`` and the module docstring say that the unpenalized
+    likelihood fluctuation cannot worsen its own loss, while the recorded penalized
+    selection risk can rise. The audit recorded in roadmap row RM12 found that this
+    matches van der Laan and Gruber (2010), Section 2.3, and the pinned R ``ctmle``
+    construction, so the source and the docstrings say it and the path itself does not
+    change.
+
+    Both halves are asserted. A test that only checked the rise would pass against an
+    implementation whose *loss* had also started rising, which is the defect the
+    docstring's first clause rules out.
+    """
+
+    @pytest.fixture(scope="class")
+    def selection(self):  # type: ignore[no-untyped-def]
+        # ``seed=11`` is the declared law. Every seed tried showed the rise; this one
+        # also has a strictly decreasing loss, so neither half of the claim needs a
+        # tolerance to hold.
+        frame, _ = make_instrument(n=800, seed=11)
+        covariates = [name for name in frame.columns if name.startswith("W")]
+        result = (
+            CTMLE(
+                strategy="greedy",
+                outcome_learner=LinearRegression(),
+                treatment_learner=LogisticRegression(max_iter=1000),
+                cross_fit=False,
+                selection_folds=3,
+                selection_inner_folds=2,
+                estimands=("ate",),
+                ctmle_estimand="ate",
+                simultaneous=False,
+                random_state=0,
+            )
+            .fit(frame, outcome="Y", treatment="A", covariates=covariates)
+            .single()
+        )
+        return result.extra["ctmle"]
+
+    def test_the_recorded_penalized_risk_rises_along_the_path(self, selection) -> None:
+        risk = np.asarray(selection.train_risk, dtype=float)
+        steps = np.diff(risk)
+        assert np.any(steps > MINIMUM_RISK_RISE), risk.tolist()
+
+    def test_the_unpenalized_loss_does_not_rise(self, selection) -> None:
+        loss = np.asarray(selection.train_loss, dtype=float)
+        # The other direction of the documented claim, and the reason the rise above is
+        # not a defect: the fluctuation is unpenalized and cannot worsen its own loss.
+        assert np.all(np.diff(loss) <= 0.0), loss.tolist()
+
+    def test_the_docstring_states_both_halves(self) -> None:
+        """The behaviour is only documented if the docstring a reader reaches says it.
+
+        Whitespace is normalised because both sentences wrap, and a line break is not a
+        change to what the docstring says.
+        """
+        fields = " ".join((CTMLESelection.__doc__ or "").split())
+        module = " ".join((ctmle_module.__doc__ or "").split())
+        assert "The recorded penalized risk may therefore increase." in fields
+        assert "cannot worsen its own loss" in module
+        assert "the recorded penalized selection risk can rise" in module

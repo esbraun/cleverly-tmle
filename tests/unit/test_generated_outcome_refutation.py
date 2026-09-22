@@ -31,6 +31,22 @@ from cleverly.validation import (
 from tests.pickles import FUNCTIONAL_TAMPERINGS
 
 
+def _estimate(psi: float, standard_error: float) -> SimpleNamespace:
+    """A stand-in for :class:`~cleverly.inference.ParameterEstimate`.
+
+    It carries ``plugin_std_error`` beside ``std_error`` because the real class does: RM12
+    split the two so a selector-path collaborative fit can refuse the inferential name and
+    keep the diagnostic.  A stub with only ``std_error`` would pass here while the library
+    reads the accessor it actually uses.
+    """
+    return SimpleNamespace(
+        psi=psi,
+        std_error=standard_error,
+        plugin_std_error=standard_error,
+        inference="influence_curve",
+    )
+
+
 def _small_rule(draws: int) -> EmpiricalInclusionRule:
     """Return the widest-alpha legal rule at ``draws`` successful draws.
 
@@ -70,7 +86,7 @@ class _MeanDifferenceEstimator:
         standard_error = float(
             np.sqrt(np.var(treated, ddof=1) / treated.size + np.var(control, ddof=1) / control.size)
         )
-        estimate = SimpleNamespace(psi=effect, std_error=standard_error)
+        estimate = _estimate(effect, standard_error)
         return _RefitResult(data, estimate)
 
 
@@ -132,7 +148,7 @@ def _result_for(data: CausalData, estimator: Any) -> Any:
     )
     return _Result(
         estimator=estimator,
-        estimates={"ate": SimpleNamespace(psi=2.0, std_error=0.1)},
+        estimates={"ate": _estimate(2.0, 0.1)},
         data=data,
         identified_effect=identified,
         parameter_keys={"ate": ParameterKey("ate", "ate", value=1, reference=0)},

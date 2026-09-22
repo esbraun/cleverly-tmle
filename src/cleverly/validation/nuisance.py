@@ -47,6 +47,8 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray
 from ..data.weighting import REPORTED_DRAW
+from ..exceptions import WORKING_MECHANISM_ASSESSMENT_NOTE
+from ..inference.influence import InferenceStatus
 from ..utils.bounds import logit
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
@@ -269,6 +271,10 @@ class NuisanceDiagnostics:
         Machine-readable reason no split-spread row is available.
     reported_repeat : int
         One-based draw described by the nuisance models and selection artifact.
+    inference : {"influence_curve", "working_mechanism_plugin"}
+        The inference status the fit's estimates declare. Read here rather than off
+        ``treatment_role``, which reads ``"collaborative_working_model"`` for the
+        outcome-adaptive path as well, and that path keeps its inference.
     """
 
     models: tuple[NuisanceModelReport, ...]
@@ -295,6 +301,9 @@ class NuisanceDiagnostics:
     #: Nuisance models and the selection artifact describe this draw. One is the only
     #: draw the fitted result retains method-specific extras for.
     reported_repeat: int = REPORTED_DRAW
+    #: Keyed on what the estimates declare rather than on :attr:`treatment_role`, which
+    #: cannot tell a selector path from the outcome-adaptive one.
+    inference: InferenceStatus = "influence_curve"
 
     def __getitem__(self, name: str) -> NuisanceModelReport:
         for model in self.models:
@@ -412,6 +421,10 @@ class NuisanceDiagnostics:
                     "They do not describe treatment given the complete adjustment set.",
                 ]
             )
+        if self._non_inferential:
+            # Keyed on the declared status and not on ``_working_model``, which is true for
+            # the outcome-adaptive path too, and that path reports an interval.
+            lines.extend(["", WORKING_MECHANISM_ASSESSMENT_NOTE.capitalize() + "."])
         if self.selection is not None:
             # No draw suffix here. The header above already states which draw every
             # method-specific artifact in this report describes, and a repeated
@@ -460,6 +473,12 @@ class NuisanceDiagnostics:
                     "excellent and confounding by these covariates is limited"
                 )
         if not notes:
+            if self._non_inferential:
+                return (
+                    "VERDICT: C-TMLE working-model metrics are descriptive, and this fit "
+                    "reports no confidence interval and no p-value; inspect the selection "
+                    "and support reports."
+                )
             if self._working_model:
                 return (
                     "VERDICT: C-TMLE working-model metrics are descriptive; inspect the "
@@ -472,6 +491,11 @@ class NuisanceDiagnostics:
     def _working_model(self) -> bool:
         """Whether the propensity reports describe a selected C-TMLE working mechanism."""
         return self.treatment_role == "collaborative_working_model"
+
+    @property
+    def _non_inferential(self) -> bool:
+        """Whether the fit's estimates carry a diagnostic rather than inference."""
+        return self.inference != "influence_curve"
 
     def _working_mechanism(self, model: NuisanceModelReport) -> bool:
         """Whether this report is a collaborative fit's own selected propensity.
@@ -667,6 +691,10 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
         repeat_spread=spread_rows,
         selection_omission=selection_omission,
         repeat_spread_omission=spread_omission,
+        inference=next(
+            (estimate.inference for estimate in result.estimates.values()),
+            "influence_curve",
+        ),
     )
 
 
@@ -691,7 +719,9 @@ def _spread_rows(result: TMLEResult) -> tuple[tuple[RepeatSpreadRow, ...], str |
     unavailable: list[str] = []
     not_finite: list[str] = []
     for name in result.estimates:
-        standard_error = float(result.estimates[name].std_error)
+        # The plug-in accessor: this row compares a reported spread against the
+        # between-draw spread, which is a diagnostic at every inference status.
+        standard_error = float(result.estimates[name].plugin_std_error)
         spread = spreads.get(name, float("nan"))
         if name not in spreads:
             unavailable.append(name)

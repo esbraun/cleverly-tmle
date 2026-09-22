@@ -61,8 +61,18 @@ Three ways of building the sequence are available, mirroring the entry points of
     Cross-validated selection among an explicit list of candidate covariate sets --
     the analogue of ``ctmleDiscrete`` / ``ctmleGlmnet``.
 
+The three strategies above build a candidate path and cut it at a data-chosen stopping
+index.  **The package supplies no inference for any of them.**  ``ci``, ``pvalue`` and
+``std_error`` raise :class:`~cleverly.exceptions.CapabilityError`: no result shows the
+reported curve is this estimator's influence curve when the selected working mechanism is
+not consistent for the treatment law.  The point estimate, the selection path and the
+curve remain, and ``plugin_std_error`` and ``plugin_interval`` report the retained
+diagnostic under names that make no coverage claim.  F18 in ``docs/roadmap.md`` is the
+condition that reopens this.
+
 ``strategy="oat"``
-    The outcome-adaptive treatment mechanism from ``ctmle3::LF_oat``.  This is not a
+    The outcome-adaptive treatment mechanism from ``ctmle3::LF_oat``.  **It is unaffected
+    by the refusal above and keeps full inferential output**, which F19 owns.  This is not a
     fourth candidate sequence: it fits categorical treatment on the complete vector
     ``[Qbar(a, W): a in arms]`` and then uses the ordinary all-arm mean fluctuation.
     Consequently it has no candidate path, no parameter-specific selector loss and no
@@ -265,7 +275,7 @@ from ..exceptions import CapabilityError
 from ..fluctuation.iterative import InitialFit, apply_logistic, check_matching_arms
 from ..fluctuation.submodel import Submodel, restrict, weighted_form
 from ..inference.delta import log_odds_ratio_influence, log_ratio_influence
-from ..inference.influence import counterfactual_means
+from ..inference.influence import InferenceStatus, counterfactual_means
 from ..learners._fitting import Task, predict_mean, predict_probabilities
 from ..learners.crossfit import Folds, check_integrity, make_folds
 from ..learners.super_learner import resolve_learner
@@ -280,16 +290,44 @@ from .tmle import TMLE
 
 __all__ = [
     "CTMLE",
+    "CTMLE_SELECTOR_STRATEGIES",
     "CTMLELoss",
     "CTMLEOutcomeAdaptiveFit",
     "CTMLEPreorder",
     "CTMLESelection",
     "CTMLEStrategy",
+    "is_selector_strategy",
 ]
 
 CTMLEStrategy = Literal["greedy", "ordered", "discrete", "oat"]
 CTMLELoss = Literal["auto", "loglik", "squared"]
 CTMLEPreorder = Literal["logistic", "partial_correlation"]
+
+#: The strategies that build a candidate path and cut it at a data-chosen stopping index.
+#: ``"oat"`` is not one: it fits one categorical mechanism on the outcome-prediction vector
+#: and has no path, no selector loss and no stopping index (see the module docstring).
+#: F19 owns its inference; F18 owns these three.
+CTMLE_SELECTOR_STRATEGIES: frozenset[str] = frozenset({"greedy", "ordered", "discrete"})
+
+
+def is_selector_strategy(strategy: str | None) -> bool:
+    """Whether a strategy selects a working mechanism off a candidate path.
+
+    Parameters
+    ----------
+    strategy : str or None
+        A :data:`CTMLEStrategy` value, or ``None`` for an estimator that declares no
+        strategy at all.
+
+    Returns
+    -------
+    bool
+        ``True`` for ``"greedy"``, ``"ordered"`` and ``"discrete"``. ``False`` for
+        ``"oat"``, for ``None`` and for any unrecognised value, so a caller that
+        broadens the Literal does not silently acquire a refusal it never declared.
+    """
+    return strategy in CTMLE_SELECTOR_STRATEGIES
+
 
 #: Floor applied to targeted predictions before taking a logarithm in the loss.
 _LOSS_EPS = 1e-12
@@ -521,6 +559,11 @@ class CTMLE(TMLE):
     :class:`~cleverly.estimators.TMLEResult` with the selection recorded under
     ``result.extra["ctmle"]``.
 
+    On a selector strategy its estimates refuse ``ci``, ``pvalue`` and ``std_error``, and
+    report ``plugin_std_error`` and ``plugin_interval`` instead.  A contrast of them, a
+    simultaneous band and every E-value branch refuse for the same reason.
+    ``strategy="oat"`` keeps all of them.  See the module docstring.
+
     Parameters
     ----------
     strategy:
@@ -572,6 +615,26 @@ class CTMLE(TMLE):
     """
 
     _assessment_method = "collaborative_tmle"
+
+    def _inference_status(self) -> InferenceStatus:
+        """Refuse inference on the selector paths, and supply it on ``"oat"``.
+
+        Keyed on the strategy, which is what F18 and roadmap row RM12 key on. A
+        ``"discrete"`` fit with a single full-adjustment candidate is refused too, even
+        though it is bit-identical to a plain TMLE fit whose interval the package does
+        supply. That over-refusal is deliberate and
+        ``docs/technical-reference/collaborative-tmle.md`` records it.
+
+        Returns
+        -------
+        {"influence_curve", "working_mechanism_plugin"}
+            ``"working_mechanism_plugin"`` for ``"greedy"``, ``"ordered"`` and
+            ``"discrete"``. ``"influence_curve"`` for ``"oat"``, whose inference F19
+            owns.
+        """
+        if is_selector_strategy(self.strategy):
+            return "working_mechanism_plugin"
+        return "influence_curve"
 
     def __init__(
         self,
@@ -656,12 +719,12 @@ class CTMLE(TMLE):
                 "that has not been derived. Use targeting_scheme='pooled'."
             )
 
-        if self.strategy == "oat" and self.ctmle_estimand != "ate":
+        if not is_selector_strategy(self.strategy) and self.ctmle_estimand != "ate":
             raise ValueError(
                 "ctmle_estimand= does not apply to strategy='oat': ctmle3's "
                 "outcome-adaptive construction targets all treatment-specific means together"
             )
-        overridden = self._selector_only_overrides() if self.strategy == "oat" else []
+        overridden = [] if is_selector_strategy(self.strategy) else self._selector_only_overrides()
         if overridden:
             raise ValueError(
                 f"{', '.join(f'{name}=' for name in overridden)} configure selector "
@@ -707,7 +770,7 @@ class CTMLE(TMLE):
         one fixed would leave every draw choosing its stopping point against the same
         partition, which is the noise ``repeats=`` exists to reduce.
         """
-        if self.strategy != "oat":
+        if is_selector_strategy(self.strategy):
             self._preflight_selection_folds(data, seed)
         # Every collaborative strategy replaces the ordinary treatment mechanism: the
         # selectors fit their candidate path and OAT fits A on the Qbar vector.  Fit only
@@ -721,7 +784,7 @@ class CTMLE(TMLE):
             seed=seed,
             fit_treatment=False,
         )
-        if self.strategy == "oat":
+        if not is_selector_strategy(self.strategy):
             return self._outcome_adaptive_nuisances(data, base, seed=seed)
         selector = _Selector(self, data, base, config.g_bounds, intermediate_value, seed=seed)
 
@@ -1064,7 +1127,7 @@ class CTMLE(TMLE):
         if data.cluster is not None:
             reason = (
                 "No reviewed result covers clustered inference for the outcome-adaptive mechanism"
-                if self.strategy == "oat"
+                if not is_selector_strategy(self.strategy)
                 else (
                     "The search draws selection folds and, inside each of them, nested folds, "
                     "and no reviewed result covers a grouped draw of those splits or the "
@@ -1102,7 +1165,7 @@ class CTMLE(TMLE):
                 "selected treatment model cannot serve them alongside the ATE. Request them "
                 f"from a plain TMLE, or set estimands={sorted(MEAN_GROUP_ESTIMANDS)!r}."
             )
-        if self.strategy != "oat" and self.ctmle_estimand not in estimands:
+        if is_selector_strategy(self.strategy) and self.ctmle_estimand not in estimands:
             raise ValueError(
                 f"ctmle_estimand={self.ctmle_estimand!r} is not among the requested estimands "
                 f"{list(estimands)}; the selection has to be made for an estimand you are "
@@ -1111,7 +1174,7 @@ class CTMLE(TMLE):
         supported = {"ate", "ey", "rr", "or"}
         if data.is_binary_treatment:
             supported.update(("ey1", "ey0"))
-        if self.strategy != "oat" and self.ctmle_estimand not in supported:
+        if is_selector_strategy(self.strategy) and self.ctmle_estimand not in supported:
             raise ValueError(
                 f"ctmle_estimand={self.ctmle_estimand!r} has no selector criterion; choose "
                 f"from {sorted(supported)}. ey_obs, par and paf involve the observed law "

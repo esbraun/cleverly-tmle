@@ -530,11 +530,15 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
     n = result.data.n
     rows: list[ScoreCheckRow] = []
 
+    # ``plugin_std_error`` and not ``std_error``: every use of this number here is a
+    # *scale* for a convergence tolerance, which is a diagnostic.  A selector-path
+    # collaborative fit refuses ``std_error``, and reading it would make ``summary()``
+    # raise on every such fit through ``score_verdict``.
     reference_se = max(
         (
-            estimate.std_error
+            estimate.plugin_std_error
             for estimate in result.estimates.values()
-            if np.isfinite(estimate.std_error)
+            if np.isfinite(estimate.plugin_std_error)
         ),
         default=1.0,
     )
@@ -542,7 +546,7 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
     # study auditing this package against another implementation makes -- see
     # :func:`score_threshold`.
     threshold = score_threshold(
-        (estimate.std_error for estimate in result.estimates.values()),
+        (estimate.plugin_std_error for estimate in result.estimates.values()),
         n,
         tolerance=tolerance,
     )
@@ -649,7 +653,7 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
     rows.extend(_correction_rows(corrections, n_repeats=result.n_repeats))
 
     for name, estimate in result.estimates.items():
-        threshold = tolerance * estimate.std_error / np.sqrt(n)
+        threshold = tolerance * estimate.plugin_std_error / np.sqrt(n)
         score = abs(estimate.score)
         rows.append(
             ScoreCheckRow(
@@ -657,7 +661,7 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
                 kind="influence curve",
                 score=float(score),
                 threshold=float(threshold),
-                std_error=estimate.std_error,
+                std_error=estimate.plugin_std_error,
                 passed=bool(score <= threshold),
                 converged=True,
                 n_iter=0,

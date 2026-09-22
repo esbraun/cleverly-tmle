@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 
 from ..assessment import AssessmentStatus
-from ..exceptions import CapabilityError
+from ..exceptions import WORKING_MECHANISM_NOT_INFERENTIAL, CapabilityError
 from ._derived import _derived_risk_ratio, _risk_ratio_refusal
 from ._parameters import arm_parameter_keys
 
@@ -67,6 +67,18 @@ _STANDARDISED_MISSING_REFUSAL = (
     "deviation estimates a different quantity from the population standard deviation the "
     "estimate is standardized against. An E-value computed from a reported risk ratio or "
     "odds ratio reads only the estimate and its interval, so it stays available."
+)
+
+#: Why every E-value branch stops on a selector-path collaborative fit.  Each branch reads
+#: the estimate's interval, or the reference arm's standard error, and this fit supplies
+#: neither.  Raised in :func:`_select_evalue` rather than where the interval is read, so
+#: the capability row reports ``unavailable`` instead of the computation raising under a
+#: row that advertised ``available=True``.
+_WORKING_MECHANISM_EVALUE_REFUSAL = (
+    "an E-value is built from the reported estimate and its interval, and a greedy, "
+    "ordered or discrete collaborative fit supplies no interval and no standard error. "
+    f"{WORKING_MECHANISM_NOT_INFERENTIAL} The outcome-adaptive path, strategy='oat', is "
+    "unaffected and keeps every E-value branch."
 )
 
 
@@ -329,6 +341,11 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
         raise _EValueRefusal(
             AssessmentStatus.UNAVAILABLE, f"estimand {source!r} was not requested in this fit"
         )
+    # Fit-wide rather than branch-scoped, unlike the standardized rule below: the reported
+    # and derived ratio branches read ``estimate.ci`` and the Gaussian branch reads the
+    # reference arm's ``std_error``, so no branch survives a fit that supplies neither.
+    if result.estimates[source].inference != "influence_curve":
+        raise _EValueRefusal(AssessmentStatus.UNAVAILABLE, _WORKING_MECHANISM_EVALUE_REFUSAL)
     key = keys.get(source)
     if key is None:
         raise _EValueRefusal(

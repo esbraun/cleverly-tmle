@@ -19,6 +19,7 @@ from .delta import delta_method
 from .influence import (
     _SECOND_MOMENT_CLUSTER_REFUSAL,
     CovarianceRule,
+    InferenceStatus,
     ParameterEstimate,
     Scale,
     make_estimate,
@@ -28,6 +29,7 @@ __all__ = [
     "covariance_rule",
     "estimate_covariance",
     "estimate_curves",
+    "inference_status",
     "select_estimates",
     "smooth_contrast",
     "sole_estimate",
@@ -85,6 +87,25 @@ def covariance_rule(
     return rule
 
 
+def inference_status(
+    estimates: Mapping[str, ParameterEstimate],
+    names: Sequence[str],
+) -> InferenceStatus:
+    """The one inference status every selected estimate declares.
+
+    A selection that mixes statuses is refused. A contrast of one inferential estimate
+    and one working-mechanism plug-in estimate is not inference, and inheriting the
+    inferential status would launder the refused half into an interval.
+    """
+    statuses = {estimates[name].inference for name in names}
+    if len(statuses) != 1:
+        raise ValueError(
+            f"the selected estimates {list(names)} declare different inference statuses "
+            f"{sorted(statuses)}; a contrast is inferential output or it is not"
+        )
+    return statuses.pop()
+
+
 def estimate_covariance(
     estimates: Mapping[str, ParameterEstimate],
     names: Sequence[str] | None,
@@ -122,9 +143,14 @@ def smooth_contrast(
     The derived estimate inherits the covariance rule of its inputs, and its variance
     applies that rule to the derived influence curve. Under either rule, that variance
     equals the quadratic form of the gradient with :func:`estimate_covariance`.
+
+    It inherits the inference status of its inputs too. A contrast of estimates the
+    package supplies no inference for is itself refused, rather than becoming an
+    interval that its inputs do not have.
     """
     chosen = select_estimates(estimates, names)
     rule = covariance_rule(estimates, chosen, cluster=cluster)
+    status = inference_status(estimates, chosen)
     value, curve = delta_method(
         function,
         [estimates[key].psi for key in chosen],
@@ -140,4 +166,5 @@ def smooth_contrast(
         scale=scale,
         alpha=alpha,
         covariance_rule=rule,
+        inference=status,
     )
