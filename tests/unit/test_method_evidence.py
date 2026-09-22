@@ -1225,6 +1225,21 @@ class TestTheStudyStillMeasuresTheCode:
                         f"results are one draw's luck reported twice"
                     )
 
+    def test_property_families_do_not_reuse_a_law_and_seed(self, study: StudyRecord) -> None:
+        """Different claims need independent sample streams within one property study."""
+        declared_cells = getattr(study.properties(), "declared_cells", None)
+        if declared_cells is None:
+            return
+        by_stream: dict[tuple[str, int], set[str]] = {}
+        for cell in declared_cells():
+            by_stream.setdefault((cell.dgp.name, cell.seed), set()).add(cell.property)
+        collisions = {
+            stream: sorted(properties)
+            for stream, properties in by_stream.items()
+            if len(properties) > 1
+        }
+        assert not collisions, f"property families reuse sample streams: {collisions}"
+
     def test_the_reference_moved_its_estimates_off_the_plug_in(
         self, study: StudyRecord, rows: pd.DataFrame
     ) -> None:
