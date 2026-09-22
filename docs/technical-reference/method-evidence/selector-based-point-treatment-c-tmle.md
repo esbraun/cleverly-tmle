@@ -150,6 +150,9 @@ the committed results and checked at the precision printed.
 
 ## Limitations
 
+The [red-cell ledger](red-cells.md) lists each red cell of this study with the roadmap ask that
+owns it.
+
 | limitation | what it means for use |
 | --- | --- |
 | Two of the three strategies reach the same R entry point | R `ctmle` has one pre-ordered selector, so `ordered` and `discrete` are both compared against `ctmleDiscrete(preOrder = TRUE)`. The correspondence is earned: the `discrete` candidate list is exactly the nested prefix ladder that mode enumerates. An arbitrary candidate list therefore has no reference here, and the row carries two reference constructions on three separate draws |

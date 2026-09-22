@@ -137,7 +137,8 @@ and solver status for every replication.
 This is a reporting study. A red scientific verdict publishes rather than prevents the record
 from existing. The source theorem and the original R study are binary-treatment results. Both
 packages expose a vector intervention API, and this row measures their armwise extension. It does
-not claim a new multi-arm theorem.
+not claim a new multi-arm theorem. The [red-cell ledger](red-cells.md) lists each red cell of this
+study with the roadmap ask that owns it.
 
 The contraction ladder explains most of the red cells above. The `treatment_correct` level cell
 misses its equivalence margin at n = 2,000 by 0.0004, which is about six per cent of the margin.

@@ -939,6 +939,40 @@ is the only empirical witness for it.
   explicitly leave cross-fitting outside the theory because it introduces dependence across fold
   representations. It sharpens the generated-representation boundary but does not cover the
   shipped targeted, shared-multinomial construction.
+- Rothenhäusler (2024), [*Model selection and inference for estimation of causal
+  parameters*](https://doi.org/10.1214/24-EJS2308), *Electronic Journal of Statistics*
+  18(2):5449-5483, DOI 10.1214/24-EJS2308. Read first-hand in the published version. The preprint
+  is [arXiv:2008.12892v2](https://arxiv.org/abs/2008.12892), titled *Model selection for
+  estimation of causal parameters*, and its numbering differs. Section 3.4, Theorem 2, is
+  Section 3.5, Theorem 4, of the preprint. The theorem gives intervals after a choice among a
+  fixed finite set of estimators, with a joint normal limit at a fixed parameter. The choice
+  minimizes an estimate of squared deviation from an asymptotically unbiased baseline estimator,
+  and not a cross-validated loss. The published text adds a caveat after the theorem: the
+  inference is "usually not uniformly valid", falls in the "Conservative Model Selection
+  Framework", and must be used "with caution". Section 4 checks coverage by simulation only.
+  Section 3.3, Proposition 1, shows that cross-validation can select a higher-risk estimator with
+  positive probability. This is a neighbor for F18, and not a result for the shipped selector.
+- Zrnic & Jordan (2023), [*Post-selection inference via algorithmic
+  stability*](https://doi.org/10.1214/23-AOS2303), *Annals of Statistics* 51(4), DOI
+  10.1214/23-AOS2303, preprint [arXiv:2011.09462](https://arxiv.org/abs/2011.09462). This entry
+  records the abstract only. The abstract corrects classical intervals after a selection that is
+  randomized to make it stable. The shipped selector is not randomized.
+- Schnitzer, Sango, Ferreira Guerra & van der Laan (2020), [*Data-adaptive longitudinal model
+  selection in causal inference with collaborative targeted minimum loss-based
+  estimation*](https://doi.org/10.1111/biom.13135), *Biometrics* 76(1):145-157, DOI
+  10.1111/biom.13135. This entry records the abstract only. The abstract describes a longitudinal
+  C-TMLE that selects treatment-model variables, studied by simulation. The abstract states no
+  inference result after selection.
+- Van Lancker, Díaz & Vansteelandt, [*Automated, efficient and model-free inference for randomized
+  clinical trials via data-driven covariate adjustment*](https://arxiv.org/abs/2404.11150),
+  arXiv:2404.11150v2. This entry records the abstract only. The abstract treats data-adaptive
+  covariate adjustment in randomized trials, where the design fixes the treatment law.
+- Schnitzer, Talbot, Liu et al. (2026), [*Adaptive sparsening and smoothing of the treatment model
+  for longitudinal causal inference using outcome-adaptive LASSO and marginal fused
+  LASSO*](https://doi.org/10.1002/sim.70316), *Statistics in Medicine* 45(1-2), DOI
+  10.1002/sim.70316. This entry records the abstract only. The abstract selects covariates for a
+  longitudinal treatment model with an outcome-adaptive LASSO. It fits no mechanism on estimated
+  outcome predictions.
 - The R `ctmle` 0.1.2 implementation at commit
   [`18de559`](https://github.com/jucheng1992/ctmle/tree/18de559f47dc1286617350a0668391e80e1dbf7c).
   `R/ctmle_discrete.R` defines `ctmleDiscrete`, which the pinned selector-parity study calls
@@ -1043,6 +1077,13 @@ is the only empirical witness for it.
   It recorded Zhang et al. (2018), Ma et al. (2019), and Bannick et al. (2025) from their
   abstracts. No source it read closes F18, the cross-fitted multi-arm part of F19, or the fold and
   outcome-scale rules.
+
+  A third 2026-09-21 search read Rothenhäusler (2024) first-hand in the published version, and
+  recorded Zrnic and Jordan (2023), Schnitzer et al. (2020), Van Lancker et al., and Schnitzer et
+  al. (2026) from their abstracts. It found Zhang, Hudson, Petersen and van der Laan (2026),
+  *JASA*, DOI 10.1080/01621459.2026.2657052, irrelevant to F18 and F19. No source it read closes
+  either one. [RM18](roadmap.md#rm18-red-property-cells-after-the-fold-scale-and-law-changes)
+  records its databases, its queries and each verdict.
 
 ## Longitudinal, survival and marginal structural models
 

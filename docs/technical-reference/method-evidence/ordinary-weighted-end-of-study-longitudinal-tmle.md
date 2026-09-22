@@ -109,6 +109,9 @@ original budgets. The static calibration, static untargeted control, and type-I 
 miss their declared boundary by the amount shown above. These marginal results do not establish
 sub-floor coverage or an inactive control.
 
+The [red-cell ledger](red-cells.md) lists each red cell of this study, including each cell that
+fails through its family's joint clause. It names the roadmap ask that owns each one.
+
 ## Measured values
 
 Names beginning `margin:` are thresholds declared before the run. Everything else is generated

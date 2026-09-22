@@ -156,7 +156,8 @@ weights, clustering, or other longitudinal weight laws. The
 bias interval overlaps the discrimination boundary. The study therefore fails five verdicts. Two
 are property cells, and three are the regimen-mean comparisons that conclude underpowered.
 [RM18](../../roadmap.md#rm18-red-property-cells-after-the-fold-scale-and-law-changes) records each
-one.
+one. The [red-cell ledger](red-cells.md) lists each red cell of this study with the roadmap ask that
+owns it.
 
 ## Measured values
 

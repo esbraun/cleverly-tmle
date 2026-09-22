@@ -24,8 +24,9 @@ Each owner is an `id` in the "What this row asks for" table of
 [RM18](../../roadmap.md#rm18-red-property-cells-after-the-fold-scale-and-law-changes).
 [F18](../../roadmap.md#f18-selector-path-c-tmle-inference) and
 [F19](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) wait on published
-theory. Each `RM18-` owner is a follow-up that RM18 plans. A red row stays red under the
-`reporting` policy until its owner closes. The ledger moves no margin and changes no verdict.
+theory. Each `RM18-` owner is a follow-up that RM18 records, with the end state it reached. A red
+row stays red under the `reporting` policy. It is read again only under the condition its owner
+names. The ledger moves no margin and changes no verdict.
 
 The test fails on four states.
 
