@@ -10,9 +10,10 @@ The arms sit in one scratch root, laid out as ``<root>/<study>/<arm>/output`` fo
 ``--output`` received and ``<root>/<study>/<arm>/cache`` for what ``--cache`` received.  The
 cache keeps ``samples.csv.gz``, which the driver otherwise writes to a temporary directory.
 
-It reads git history, so it runs in a full clone only.
+It reads git history, so it runs in a full clone only.  ``--output`` and
+``--publish-manifests`` are required, so a bare run cannot overwrite the committed record.
 
-    python -m tests.diagnostics.rm18_runtime.compare --arms <scratch-root>
+    python -m tests.diagnostics.rm18_runtime.compare --arms <scratch-root>         --output <scratch>/isolation.csv --publish-manifests <scratch>/arms
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from tests.diagnostics.rm18_runtime.row_drift import (
@@ -34,6 +36,7 @@ from tests.diagnostics.rm18_runtime.row_drift import (
     PROPERTY_KEYS,
     committed,
     drift,
+    label,
 )
 from tests.studies.evidence.manifest import write_csv, write_lines
 
@@ -41,8 +44,20 @@ HERE = Path(__file__).resolve().parent
 
 #: Code F fits the fold-local update.  Code P carries the declaration, and its ``src/`` is
 #: identical to :data:`~tests.diagnostics.rm18_runtime.row_drift.AFTER`.
-CODE = {"F": "7d5485a", "P": "56100ce"}
+CODE = {
+    "F": "7d5485abf42545843c7dc801dfdac57ec68fd0f0",
+    "P": "56100ce9ddb48e3faba4130db2aa8a8ed07c5f6a",
+}
 RUNTIMES = ("R11", "R13")
+
+#: The Python and SciPy versions each runtime pins, as the manifest records them.
+RUNTIME_VERSIONS = {
+    "R11": {"python": "3.11.13", "scipy": "1.17.1"},
+    "R13": {"python": "3.13.7", "scipy": "1.18.0"},
+}
+
+#: Libraries the declaration holds identical in all four arms of a study.
+SHARED_LIBRARIES = ("numpy", "pandas", "scikit_learn")
 ARMS = tuple(f"{code}-{runtime}" for code in CODE for runtime in RUNTIMES)
 
 #: Each precondition arm and the commit whose rows it must reproduce.
@@ -192,7 +207,12 @@ class Arms:
 def _verdict_differences(left: pd.DataFrame, right: pd.DataFrame, name: str) -> int:
     keys, columns = VERDICTS[name]
     merged = left.merge(
-        right, on=list(keys), how="outer", suffixes=("_left", "_right"), indicator=True
+        right,
+        on=list(keys),
+        how="outer",
+        suffixes=("_left", "_right"),
+        indicator=True,
+        validate="one_to_one",
     )
     unmatched = int((merged["_merge"] != "both").sum())
     shared = merged.loc[merged["_merge"] == "both"]
@@ -228,9 +248,37 @@ def _provenance(arms: Arms, arm: str) -> list[dict[str, Any]]:
     ]
 
 
+def fixed_condition_failures(arms: Arms) -> list[str]:
+    """Every declared fixed condition that an arm's manifest breaks, as readable messages.
+
+    Each arm must run its pinned code from a clean worktree under its pinned runtime, and the
+    four arms of a study must share numpy, pandas and scikit-learn.  An arm that breaks one of
+    these is not the arm the declaration names, so the harness is not validated.
+    """
+    failures = []
+    subjects = {arm: arms.manifest(arm)["generated_with"]["subject"] for arm in ARMS}
+    for arm, subject in subjects.items():
+        code, runtime = arm.split("-")
+        commit = str(subject["cleverly_commit"])
+        if not commit.startswith(CODE[code]):
+            failures.append(f"{arm}: cleverly_commit {commit} is not {CODE[code]}")
+        if subject["cleverly_worktree_clean"] is not True:
+            failures.append(
+                f"{arm}: cleverly_worktree_clean is {subject['cleverly_worktree_clean']}"
+            )
+        for key, pinned in RUNTIME_VERSIONS[runtime].items():
+            if str(subject[key]) != pinned:
+                failures.append(f"{arm}: {key} {subject[key]} is not {pinned}")
+    for key in SHARED_LIBRARIES:
+        versions = {arm: str(subject[key]) for arm, subject in subjects.items()}
+        if len(set(versions.values())) != 1:
+            failures.append(f"{key} differs across arms: {versions}")
+    return failures
+
+
 def _precondition(arms: Arms, arm: str, revision: str) -> tuple[bool, list[dict[str, Any]]]:
     study = arms.study
-    subject = f"{arm} against {revision}"
+    subject = f"{arm} against {label(revision)}"
     records = []
     held = True
     for name, keys in study.row_tables.items():
@@ -274,8 +322,14 @@ def _verdict(row: pd.Series) -> bool:
     Not ``property_passed``, which is the verdict of the whole family.  The in-sample control
     passes its own cell at ``7d5485a`` while its family fails with the positive cell, and the
     declared rule reads each cell's verdict alone.
+
+    The column must hold a boolean.  ``bool()`` of a string such as ``"False"`` is true, so a
+    column that pandas did not parse as boolean would silently read every verdict as a pass.
     """
-    return bool(row["passed"])
+    value = row["passed"]
+    if not isinstance(value, (bool, np.bool_)):
+        raise TypeError(f"passed must be boolean, not {type(value).__name__}: {value!r}")
+    return bool(value)
 
 
 def _control_drift(arms: Arms, arm: str, cell: str) -> list[dict[str, Any]]:
@@ -292,7 +346,7 @@ def _control_drift(arms: Arms, arm: str, cell: str) -> list[dict[str, Any]]:
             _record(
                 arms.study.directory,
                 "control_rows",
-                f"{arm} against {revision}, {cell}",
+                f"{arm} against {label(revision)}, {cell}",
                 key,
                 value,
             )
@@ -320,7 +374,10 @@ def compare(root: Path, *, publish: Path | None = None) -> pd.DataFrame:
         ]
         records.append(_record(study.directory, "samples", "all arms", "identical", identical))
 
-        validated = identical
+        failures = fixed_condition_failures(arms)
+        for failure in failures:
+            print(f"{study.directory}: fixed condition broken: {failure}")
+        validated = identical and not failures
         for arm, revision in PRECONDITIONS.items():
             held, found = _precondition(arms, arm, revision)
             validated &= held
@@ -385,12 +442,20 @@ def compare(root: Path, *, publish: Path | None = None) -> pd.DataFrame:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--arms", type=Path, required=True, help="the scratch root of the arms")
-    parser.add_argument("--output", type=Path, default=HERE / "isolation.csv")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help=f"where to write the table; the committed record is {HERE / 'isolation.csv'}",
+    )
     parser.add_argument(
         "--publish-manifests",
         type=Path,
-        default=HERE / "arms",
-        help="copy each arm's manifest.json here, with LF line endings",
+        required=True,
+        help=(
+            "copy each arm's manifest.json here, with LF line endings; the committed copies "
+            f"are in {HERE / 'arms'}"
+        ),
     )
     arguments = parser.parse_args()
     arguments.publish_manifests.mkdir(parents=True, exist_ok=True)

@@ -47,13 +47,23 @@ The weighted study refuses `--skip-reference`, because it writes `reference-infe
 
 ## Reading
 
+Write each output to a scratch path, and compare it with the committed file. Both modules require
+`--output`, and `compare.py` also requires `--publish-manifests`. A bare run therefore cannot
+overwrite the committed record.
+
 ```bash
-python -m tests.diagnostics.rm18_runtime.row_drift
-python -m tests.diagnostics.rm18_runtime.compare --arms <root>
+python -m tests.diagnostics.rm18_runtime.row_drift --output <scratch>/row-drift.csv
+python -m tests.diagnostics.rm18_runtime.compare --arms <root> --output <scratch>/isolation.csv --publish-manifests <scratch>/arms
+cmp <scratch>/row-drift.csv tests/diagnostics/rm18_runtime/row-drift.csv
+cmp <scratch>/isolation.csv tests/diagnostics/rm18_runtime/isolation.csv
 ```
 
 `compare.py` marks a study "harness not validated, no attribution" when a precondition fails. It
-still records the count of rows outside the 1e-9 tolerance and the largest difference.
+still records the count of rows outside the 1e-9 tolerance and the largest difference. It also
+refuses to validate a study when an arm's manifest breaks a declared fixed condition. Each arm must
+record its pinned code commit, a clean worktree, and its runtime's Python and SciPy versions. The
+four arms must record one numpy, one pandas and one scikit-learn version. The module prints each
+broken condition.
 
 ## A standard-error pathology in the weighted study
 
