@@ -991,14 +991,24 @@ unisolated.
 
 #### What this row asks for
 
-| work | acceptance |
-| --- | --- |
-| an inference result for the shipped selector path | an influence curve derived after the stopping-index selection, and a registered study whose `selector_necessity` and `type_i_error` cells pass their existing margins at their existing budgets |
-| an inference result for the generated design | a published result, or an Eligibility-qualifying natural extension, must establish whether the ordinary adaptive-propensity EIF suffices for the exact cross-fitted shared-multinomial joint target. Implement any representation contribution the result requires, then register covariance and coverage evidence at predeclared budgets. Keep the `generated_design` pair as a reporting diagnostic; acceptance does not require a negative standard-error deficit |
-| a targeting result for the fold-local longitudinal recursion | delivered by the pooled route. The package now implements Section 5.2, Steps 1 to 4, which Theorem 3 certifies. `crossfit_overfitting/cross_fitted_ltmle` sits inside the shared ceiling at 8,000 draws, with a 99% interval from 0.996092 to 1.036997. "What the pooled update found" gives every moved cell, including two weighted cells that went red |
-| a reading of the two `n_500` coverage endpoints | delivered. A registered fold-policy diagnostic reads both endpoints as a boundary resolution. "What the two readings found" gives the numbers |
-| a reading of the DR-TMLE contraction slope | delivered. A declared rung design resolves the slope, and its interval now sits below zero. "What the two readings found" gives the numbers |
-| an attribution of the verdicts that changed with the pooled update | delivered for the end-of-study and weighted studies. A declared code-by-runtime diagnostic reads the two weighted cells and the end-of-study overfitting cell as code changes. "What the runtime isolation found" gives the numbers. For this iid baseline-selection study with fixed known weights, the weighted empirical-law calculation supports the pooled estimating equation. The weighted cells stay red as finite-sample reporting evidence; complex surveys, estimated or calibrated weights, clustering, and other weight laws remain open |
+The `id` column names each ask. A red cell names the ask that owns it by this `id`. The last
+seven rows are planned follow-ups, and each one states its end state.
+
+| id | work | acceptance |
+| --- | --- | --- |
+| `F18` | an inference result for the shipped selector path | an influence curve derived after the stopping-index selection, and a registered study whose `selector_necessity` and `type_i_error` cells pass their existing margins at their existing budgets |
+| `F19` | an inference result for the generated design | a published result, or an Eligibility-qualifying natural extension, must establish whether the ordinary adaptive-propensity EIF suffices for the exact cross-fitted shared-multinomial joint target. Implement any representation contribution the result requires, then register covariance and coverage evidence at predeclared budgets. Keep the `generated_design` pair as a reporting diagnostic; acceptance does not require a negative standard-error deficit |
+| `RM18-pooled` | a targeting result for the fold-local longitudinal recursion | delivered by the pooled route. The package now implements Section 5.2, Steps 1 to 4, which Theorem 3 certifies. `crossfit_overfitting/cross_fitted_ltmle` sits inside the shared ceiling at 8,000 draws, with a 99% interval from 0.996092 to 1.036997. "What the pooled update found" gives every moved cell, including two weighted cells that went red |
+| `RM18-n500` | a reading of the two `n_500` coverage endpoints | delivered. A registered fold-policy diagnostic reads both endpoints as a boundary resolution. "What the two readings found" gives the numbers |
+| `RM18-binary-slope` | a reading of the DR-TMLE contraction slope | delivered. A declared rung design resolves the slope, and its interval now sits below zero. "What the two readings found" gives the numbers |
+| `RM18-attribution` | an attribution of the verdicts that changed with the pooled update | delivered for the end-of-study and weighted studies. A declared code-by-runtime diagnostic reads the two weighted cells and the end-of-study overfitting cell as code changes. "What the runtime isolation found" gives the numbers. For this iid baseline-selection study with fixed known weights, the weighted empirical-law calculation supports the pooled estimating equation. The weighted cells stay red as finite-sample reporting evidence; complex surveys, estimated or calibrated weights, clustering, and other weight laws remain open |
+| `RM18-fixed-weights` | a fixed-known-weight follow-up for the two weighted cross-fitted cells that went red with the pooled update | planned. The cells are `interval_calibration/static__correctly_specified` and the paired `ey_regimen[never]` row of `weighted-ltmle-crossfit`. Both stay red under `reporting` at their registered budgets and margins. The row closes when a design declared before its run reads the two cells, or when a published result for the pooled update under fixed known weights applies |
+| `RM18-one-sided-bias` | a reading of the three one-sided-robustness bias rows | planned. The rows are `double_robustness/outcome_correct` and `double_robustness/treatment_correct` of `canonical-drtmle`, and `double_robustness/treatment_correct` of `canonical-multi-arm-drtmle`. The reading that "[The one-sided robustness reading, declared before it is computed](#the-one-sided-robustness-reading-declared-before-it-is-computed)" declares runs once and publishes its result. The three cells stay red under `reporting` whatever it reads. A `mixed` or `estimator-specific` reading opens a new row that localizes the increment |
+| `RM18-slopes` | a reading of the two multi-arm DR-TMLE contraction slopes | planned. The cells are `double_robust_contraction/rate_outcome_correct` and `rate_treatment_correct` of `canonical-multi-arm-drtmle`. A rung design declared before its run can read them, as `RM18-binary-slope` did for the binary slope. This row records the cost of that design from the committed rows and does not run it. Both cells stay red under `reporting` until a declared design runs |
+| `RM18-ordinary-weighted` | an owner for the six red rows of the ordinary weighted longitudinal study | planned. The rows are `interval_calibration/static__correctly_specified`, `type_i_error/static__sharp_null`, and the four `targeting_necessity` cells of `weighted-ltmle`. All six stay red under `reporting`. The row closes when a design declared before its run reads the calibration row, the sharp-null row and the `targeting_necessity` family |
+| `RM18-learner-weight-se` | a diagnostic for the standard-error explosions in the cross-fitted `learner_weight_necessity` rows | planned. The diagnostic that "[The learner-weight standard-error diagnostic, declared before it runs](#the-learner-weight-standard-error-diagnostic-declared-before-it-runs)" declares runs once and publishes its reading. No property verdict reads those standard errors, so this row owns no red cell and changes no verdict |
+| `RM18-boundary` | an owner for the red cells that sit at a finite-budget boundary | planned. The cells are `double_robust_contraction/treatment_correct_n1500` of `canonical-drtmle`; `double_robust_contraction/outcome_correct_n4000`, `interval_calibration/correctly_specified` and `root_n_and_efficiency/n_500` of `canonical-multi-arm-drtmle`; `double_robustness/static__both_wrong` of `weighted-ltmle-crossfit`; and its paired `ey_regimen[always]` and `ey_regimen[treat then continue if l2 positive]` rows. Each stays red under `reporting` at its declared budget. A re-read needs a design declared before its run, and this row refuses an undeclared budget |
+| `RM18-comparator-density` | an attribution of the red paired row of the continuous modified treatment policy study | planned. The row is `ate_shift[+0.25 vs natural course]` of `shift-policies`. Its calibration leg fails with a 99% upper endpoint of 0.065856 against a margin of 0.05, at a resolution of 0.045019, so the conclusion is `inconclusive`. The row stays red under `reporting`. It closes when a design declared before its run attributes the calibration excess to `cleverly` or to the comparator |
 
 The second acceptance row previously required a negative paired standard-error deficit. That gate
 was not consistent with its own sources, and it is no longer an acceptance condition.
@@ -1211,6 +1221,143 @@ verdicts return to the budget they published, and the slope keeps the budget it 
 
 The study now passes 19 of 22 property cells, against 18 before. The one verdict that changed is
 `rate_outcome_correct`.
+
+(the-one-sided-robustness-reading-declared-before-it-is-computed)=
+#### The one-sided robustness reading, declared before it is computed
+
+This subsection declares the reading that `RM18-one-sided-bias` asks for. It precedes the
+computation of every statistic below. `tests/diagnostics/rm18_one_sided_bias/` will hold the code
+and its output.
+
+Three cells fail bias equivalence while one nuisance is correct. The reading asks whether the bias
+belongs to the law or to `cleverly`. Only an independent implementation on the same rows can
+separate the two.
+
+| study | rows that R `drtmle` fits | what the reading can use |
+| --- | --- | --- |
+| `canonical-drtmle` | the primary `replicates.csv.gz` at n = 3,000, on the `outcome_correct`, `treatment_correct` and `both_correct` scenarios | paired rows for both red configurations, on the primary scenario and not on the property cell |
+| `canonical-multi-arm-drtmle` | the primary scenario at n = 2,000, where both nuisances are correct | no paired row for the `treatment_correct` configuration |
+
+The binary property cells run at n = 1,500, so the binary reading reads the primary rows at
+n = 3,000. The multi-arm property cell and the multi-arm primary scenario both run at n = 2,000.
+
+The reading computes four statistics. Each interval is a 99% Student interval, the level every
+bias gate in these studies uses.
+
+| statistic | what it measures | binary | multi-arm |
+| --- | --- | --- | --- |
+| (i) | the `cleverly` bias on the primary rows of the configuration | `ate`, per red configuration | `ate[medium vs high]`, both nuisances correct |
+| (ii) | the R `drtmle` bias on the same rows | yes | no |
+| (iii) | the paired difference, `cleverly` minus R, per replication | yes, on each red configuration and on `both_correct` | no |
+| (iv) | a Welch interval for the property-cell bias minus statistic (i) | no, because the sizes differ | yes, on `double_robustness/treatment_correct` |
+
+The binary rule reads each red configuration separately. An interval is on the side of (i) when
+it excludes zero with the sign of the (i) point estimate.
+
+| reading | condition |
+| --- | --- |
+| shared | (ii) excludes zero on the side of (i), and (iii) covers zero |
+| estimator-specific | (ii) covers zero, and (iii) excludes zero on the side of (i) |
+| mixed | (ii) and (iii) both exclude zero on the side of (i) |
+| unresolved | any other pattern. This includes an (i) interval that covers zero, and a `both_correct` (iii) interval that excludes zero |
+
+A `both_correct` paired interval that excludes zero means the two implementations differ where
+neither nuisance is wrong. An increment on a one-sided configuration is then not specific to
+one-sided robustness, so the rule reads it as unresolved.
+
+The multi-arm rule reads statistic (iv) alone.
+
+| reading | condition | what it means |
+| --- | --- | --- |
+| Monte Carlo consistent | (iv) covers zero | the one-sided bias cannot be told apart from the bias of the fully specified primary run at the same size |
+| not consistent | (iv) excludes zero | the misspecified treatment mechanism adds bias that the fully specified run does not show |
+
+The reading states a result and changes no verdict. The three cells stay red under `reporting`. A
+`mixed` or `estimator-specific` binary reading opens a new row that localizes the increment.
+
+The planning of this row read some of these data first, so this declaration discloses them. The
+planning read found these values.
+
+| cell | what the planning read computed | what it saw |
+| --- | --- | --- |
+| binary `outcome_correct`, n = 3,000 | the paired difference, as in (iii) | a 99% interval that covers zero |
+| binary `treatment_correct`, n = 3,000 | the paired difference, as in (iii) | a 99% interval of about 0.00007 to 0.00194, which excludes zero |
+| multi-arm `treatment_correct` | a Welch 99% interval | about -0.0003 to 0.0077, which covers zero |
+
+The planning read expected a `mixed` binary reading for `treatment_correct`. It did not compute
+statistic (ii) for either configuration. The rule above does not depend on those values, and the
+declared statistics govern where they differ from the planning read.
+
+(the-learner-weight-standard-error-diagnostic-declared-before-it-runs)=
+#### The learner-weight standard-error diagnostic, declared before it runs
+
+This subsection declares the diagnostic that `RM18-learner-weight-se` asks for. It precedes every
+refit the diagnostic makes. `tests/diagnostics/rm18_learner_weight_se/` will hold the code, the
+refit rows and the run log.
+
+The cross-fitted `weighted-ltmle-crossfit` study reports very large standard errors on 13 of its
+1,200 `learner_weight_necessity` replicates. The same 13 replicates exceed 1 in both arms. Their
+standard errors run from 25.57 to 47,459.22. The largest standard error below 1 is 0.3472, and the
+arm medians are 0.0739 and 0.1013. The ordinary `weighted-ltmle` study has no standard error above
+1 in either arm. All of these values come from each study's committed `property-replicates.csv.gz`.
+
+The diagnostic tests one mechanism. Both arms fit the treatment and censoring mechanisms with the
+saturated `CellMeans` learner on each fold's training rows. A training complement can hold no row
+with the action a held-out follower took. The cell mean is then zero, and `g_bounds` replaces the
+cumulative probability with the floor of 1e-8. The inverse of that floor is 1e8, so one unit can
+dominate the influence curve.
+
+| item | rule |
+| --- | --- |
+| selection | every replicate whose committed `std_error` exceeds 1 in either `learner_weight_necessity` arm. The expected set is 17, 20, 258, 278, 343, 487, 533, 711, 889, 978, 981, 998 and 1099 |
+| comparison | the 13 lowest replicate indices outside the selected set, which are 0 to 12 |
+| refit | each selected and comparison replicate in both arms, through `_fit_replication` in `tests/studies/weighted_longitudinal_properties_common.py` with `cross_fit=True`, on the payload `_payloads` builds |
+| reproduction control | each refit reproduces the committed `estimate` and `std_error` to a relative difference of 1e-9 |
+| run | one process that uses every core, with no other study or diagnostic on the machine |
+
+If the selection rule gives a different set, the run uses the set the rule gives and reports the
+difference. If any refit misses the reproduction control, the diagnostic states "harness not
+validated, no reading" and reads no prediction.
+
+A follower is a unit with a nonzero final-node clever covariate for the regimen. A floored follower
+is a follower whose `cumulative_unbounded` prefix at the final node is below the lower `g_bounds`
+limit of 1e-8. The diagnostic records these statistics from each refit.
+
+| level | statistic | source |
+| --- | --- | --- |
+| replicate and arm | the contrast `std_error` | the refit result |
+| replicate and arm | the share of the sum of squared contrast influence-curve values that floored followers carry | `influence_curve_scaled` of the `always` and `never` fits |
+| replicate, arm and regimen | the count of followers, of floored followers, and of followers whose raw prefix is exactly zero | `cumulative_unbounded` and the final `SequentialStep` |
+| replicate, arm and regimen | the smallest raw prefix among followers | `cumulative_unbounded` |
+| replicate, arm and regimen | `max_weight` and `effective_n` | the `RegimenFit` properties of those names |
+
+The diagnostic reads five predictions.
+
+| prediction | statement | threshold |
+| --- | --- | --- |
+| P1 | every selected replicate has at least one floored follower in each arm | one floored follower |
+| P2 | no comparison replicate has a floored follower in either arm | zero floored followers |
+| P3 | in every selected replicate and arm, floored followers carry most of the squared influence curve | a share of at least 0.9 |
+| P4 | in every selected replicate and arm, each floored follower has a raw prefix of exactly zero | exactly zero |
+| P5 | in every comparison replicate, arm and regimen, `max_weight` stays below the size an explosion needs | 2,000 |
+
+The thresholds came from a read of the committed standard errors, and from nothing else. A
+standard error above 1 against a median near 0.1 needs the excess to carry about 99% of the
+variance. A share of 0.9 therefore leaves room for several floored rows. The outcome is binary, so
+one unit adds at most about its weight divided by n to the standard error. At n = 2,000, a
+standard error of 1 therefore needs a weight near 2,000. The read touched no mechanism statistic.
+
+| reading | condition |
+| --- | --- |
+| positivity of the out-of-fold saturated mechanism | P1, P3 and P4 hold |
+| the floor, not the saturated fit | P1 and P3 hold, and P4 fails |
+| unresolved | P1 holds, and P3 fails |
+| not the floor | P1 fails |
+| harness not validated, no reading | a refit misses the reproduction control |
+
+P2 and P5 do not enter the reading. The diagnostic reports each of them beside the reading. A P2
+failure means a floored follower does not always make a standard error explode. The diagnostic
+changes no verdict and no committed row.
 
 #### What the source search found for the first three asks
 
