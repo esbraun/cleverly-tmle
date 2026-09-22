@@ -1,0 +1,11 @@
+study,configuration,statistic,rows,replications,degrees_of_freedom,point,ci_lower,ci_upper,side,reading
+canonical-drtmle,outcome_correct,(i),"primary outcome_correct, ate, n=3000, cleverly",800,799.0,0.0018044475544844035,0.00010480077498084962,0.003504094333987957,above zero,shared
+canonical-drtmle,outcome_correct,(ii),"primary outcome_correct, ate, n=3000, drtmle-r",800,799.0,0.0018960710073311444,0.00020406368184486593,0.0035880783328174227,above zero,shared
+canonical-drtmle,outcome_correct,(iii),"primary outcome_correct, ate, n=3000, cleverly minus drtmle-r",800,799.0,-9.162345284674078e-05,-0.000294597553411748,0.0001113506477182665,covers zero,shared
+canonical-drtmle,treatment_correct,(i),"primary treatment_correct, ate, n=3000, cleverly",800,799.0,0.003102427310796849,0.0012835052751464804,0.0049213493464472175,above zero,mixed
+canonical-drtmle,treatment_correct,(ii),"primary treatment_correct, ate, n=3000, drtmle-r",800,799.0,0.0020973516880189755,0.00027726395757153187,0.0039174394184664195,above zero,mixed
+canonical-drtmle,treatment_correct,(iii),"primary treatment_correct, ate, n=3000, cleverly minus drtmle-r",800,799.0,0.0010050756227778731,6.833548386442432e-05,0.001941815761691322,above zero,mixed
+canonical-drtmle,both_correct,(iii),"primary both_correct, ate, n=3000, cleverly minus drtmle-r",800,799.0,-1.6690573783936833e-06,-8.102271066170457e-05,7.768459590491719e-05,covers zero,
+canonical-multi-arm-drtmle,treatment_correct,(i),"primary multi_arm_binary_drtmle, ate[medium vs high], n=2000, cleverly-multi-arm-drtmle",800,799.0,-0.0005827968359249189,-0.0030156660128837897,0.0018500723410339516,covers zero,not consistent
+canonical-multi-arm-drtmle,treatment_correct,property-cell bias,"property double_robustness/treatment_correct, n=2000",600,599.0,0.00432259453744588,0.0014687662685877504,0.00717642280630401,above zero,not consistent
+canonical-multi-arm-drtmle,treatment_correct,(iv),"property double_robustness/treatment_correct, n=2000 minus primary multi_arm_binary_drtmle, ate[medium vs high], n=2000",1400,1279.9785045384185,0.004905391373370799,0.0011604042115684289,0.00865037853517317,above zero,not consistent
