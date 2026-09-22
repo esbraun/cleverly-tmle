@@ -16,8 +16,9 @@ from typing import Any
 import numpy as np
 
 from .estimators.base import TMLEResult
+from .estimators.ctmle import is_selector_strategy
 from .estimators.tmle import TMLE
-from .exceptions import DataError
+from .exceptions import DataError, refuse_working_mechanism_inference
 from .inference.influence import ParameterEstimate
 from .targets import parameter_stem
 from .utils.frames import as_frame, backend_of, emit_frame, is_dataframe
@@ -143,6 +144,11 @@ def variable_importance(
     one for ratios), then adjusted jointly by Benjamini--Hochberg.  This corrects the
     one-tail normal probability used by the historical ``tmle3_vim`` helper.
 
+    Refuses a :class:`~cleverly.estimators.CTMLE` whose ``strategy`` is ``"greedy"``,
+    ``"ordered"`` or ``"discrete"``, before the first fit.  The adjustment above needs one
+    p-value per candidate, and those paths supply none, so this procedure has no
+    diagnostic form to fall back to.  ``strategy="oat"`` is admitted.
+
     Parameters
     ----------
     data : dataframe
@@ -156,7 +162,8 @@ def variable_importance(
     estimand : str
         Alias targeted for each candidate.
     estimator : TMLE or None
-        Configured estimator to reuse. ``None`` builds one with the defaults.
+        Configured estimator to reuse. ``None`` builds one with the defaults. A
+        selector-path ``CTMLE`` is refused here, because it reports no p-value.
     adjust_for_other_candidates : bool
         Whether the other candidates join the baseline covariates. Set it false when
         they are descendants, colliders, or otherwise should not be conditioned on.
@@ -187,6 +194,19 @@ def variable_importance(
     base_covariates = tuple(dict.fromkeys(covariates))
     if outcome in candidate_names:
         raise DataError("the outcome cannot also be a candidate exposure")
+    # Before the first fit, not after the last one.  This procedure ends in a
+    # Benjamini--Hochberg adjustment of one p-value per candidate, so an estimator that
+    # supplies no p-value leaves it with nothing to adjust.  Keyed on the declared
+    # strategy, which is what stamps the estimates the adjustment would read, so the two
+    # cannot disagree.  ``is_selector_strategy(None)`` is ``False``, so an estimator
+    # restored from a pickle that predates the field is admitted exactly where its
+    # estimates would carry ``"influence_curve"``.
+    refuse_working_mechanism_inference(
+        "working_mechanism_plugin"
+        if is_selector_strategy(getattr(estimator, "strategy", None))
+        else "influence_curve",
+        operation="variable_importance()",
+    )
 
     template = TMLE(estimands=estimand) if estimator is None else estimator
     fits: dict[str, TMLEResult] = {}

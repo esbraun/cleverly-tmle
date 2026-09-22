@@ -1337,6 +1337,14 @@ name every arm. `tipping_gamma()` inverts the tilt for the value at which the co
 
 This is a retarget operation and not a refit.
 
+The curve is a point-estimate sweep, so a selector-based C-TMLE fit receives all of it. Only the
+three spread columns read an interval that those paths refuse. Such a fit therefore receives
+`plugin_std_err`, `plugin_interval_lower`, and `plugin_interval_upper` in place of `std_err`,
+`ci_lower`, and `ci_upper`, which is the swap the truncation curve above already makes.
+`tipping_gamma()` keeps its default point-estimate search on that fit. It refuses `use_ci=True`,
+because it returns one float and a float carries no column name.
+[Collaborative TMLE](collaborative-tmle.md) states the refusal these columns come from.
+
 ### The scope rule
 
 A point-treatment sensitivity formula is not reused on longitudinal data. `LTMLE` reports these

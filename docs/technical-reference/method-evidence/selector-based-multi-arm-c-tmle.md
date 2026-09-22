@@ -175,5 +175,5 @@ the rule this reading applies.
 
 The row does not establish equivalence to an external package, simultaneous inference, conditional
 effects, or cross-fitted primary performance. It covers binary outcomes, ordinary GLM nuisance
-fits, and a pointwise working-mechanism plug-in diagnostic. It excludes missing outcomes, weights, clusters, fold repeats,
-simultaneous bands, and longitudinal treatment.
+fits, and a pointwise working-mechanism plug-in diagnostic. It excludes missing outcomes, weights,
+clusters, fold repeats, simultaneous bands, and longitudinal treatment.

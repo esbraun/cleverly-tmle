@@ -176,10 +176,18 @@ column, and prints no interval column. `to_frame()` emits `inference`, `plugin_s
 `plugin_interval_lower`, and `plugin_interval_upper` in place of `std_err`, `ci_lower`, `ci_upper`,
 and `p_value`.
 
-Three derived operations refuse for the same reason. A contrast of two refused estimates is itself
+Five derived operations refuse for the same reason. A contrast of two refused estimates is itself
 refused. A simultaneous band is a joint confidence statement, so a selector fit builds none. An
 E-value reads the estimate and its interval, so every E-value branch reports `unavailable` on these
-paths.
+paths. `variable_importance()` adjusts one p-value per candidate, so it refuses at its entry point
+rather than after it has fitted one model per candidate. `tipping_gamma(use_ci=True)` follows a
+confidence limit to the null, and it returns one float that cannot name the limit a diagnostic.
+
+Two sweeps keep running, and each renames three columns. `truncation_curve()` and
+`missingness_tilt()` report one point estimate per grid point, which needs no influence curve. Each
+one emits `plugin_std_err`, `plugin_interval_lower`, and `plugin_interval_upper` in place of
+`std_err`, `ci_lower`, and `ci_upper`. `tipping_gamma()` keeps its default `use_ci=False` search of
+the point estimate, and it answers for these paths.
 
 [F18](../roadmap.md#f18-selector-path-c-tmle-inference) is the condition that reopens this. It
 reopens when it supplies the estimator's influence curve.

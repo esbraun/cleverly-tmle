@@ -406,7 +406,12 @@ leaves it at `influence_curve` for `oat`. `ci`, `pvalue`, and `std_error` then r
 `CapabilityError`. `plugin_std_error` and `plugin_interval` report the retained diagnostic, from
 the same private body the refused accessors call, so the numbers did not move. `summary()`, the
 `to_frame` columns, the assessment detail, and the nuisance verdict all carry the label. A
-contrast, a simultaneous band, and every E-value branch refuse on these paths.
+contrast, a simultaneous band, every E-value branch, `variable_importance()`, and
+`tipping_gamma(use_ci=True)` refuse on these paths. `variable_importance()` refuses at its entry
+point, because it adjusts one p-value per candidate and had fitted every candidate before it read
+one. The two point-estimate sweeps keep running instead. `truncation_curve()` and
+`missingness_tilt()` rename their three spread columns, and the default `tipping_gamma()` searches
+the point estimate.
 
 The refusal keys on the strategy, as correction 2 requires. A `discrete` fit with a single
 full-adjustment candidate is therefore refused although it is bit-identical to a plain TMLE fit.
@@ -2600,8 +2605,9 @@ replay receives its own audit only after the estimator can fit the target.
 Omitted-variable bounds are now one of these refused compositions.
 [RM11](#rm11-sensitivity-bounds-outside-their-derivation) shipped that refusal, and F5 holds the
 derivation that would reopen it. A bound on either fit needs an estimate of $\nu^2$ that stays
-valid when the estimator does not assume a consistent treatment mechanism. It also needs the influence curve of the bound under that estimator. A separately fitted
-full mechanism is a new estimator of the bound, and it needs the same derivation.
+valid when the estimator does not assume a consistent treatment mechanism. It also needs the
+influence curve of the bound under that estimator. A separately fitted full mechanism is a new
+estimator of the bound, and it needs the same derivation.
 
 An estimated-weight DR-TMLE fit is not refused. Its interval conditions on the supplied weights.
 An unconditional interval claim needs the influence contribution from weight estimation. This
