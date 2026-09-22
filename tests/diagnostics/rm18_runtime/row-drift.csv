@@ -1,0 +1,132 @@
+section,study,artifact,subset,older,newer,statistic,value
+history,multi_arm_drtmle,replicates.csv.gz,all,6933968,0e03a15,rows_compared,14400.0
+history,multi_arm_drtmle,replicates.csv.gz,all,6933968,0e03a15,rows_only_older,0.0
+history,multi_arm_drtmle,replicates.csv.gz,all,6933968,0e03a15,rows_only_newer,0.0
+history,multi_arm_drtmle,replicates.csv.gz,all,6933968,0e03a15,max_abs_estimate_change,2.100319917985871e-12
+history,multi_arm_drtmle,replicates.csv.gz,all,6933968,0e03a15,max_abs_std_error_change,3.8749559116979526e-13
+history,multi_arm_drtmle,replicates.csv.gz,all,6933968,0e03a15,rows_differing,3131.0
+history,multi_arm_drtmle,replicates.csv.gz,all,6933968,0e03a15,rows_moved_over_1e-6,0.0
+history,multi_arm_drtmle,replicates.csv.gz,all,6933968,0e03a15,covered_flags_changed,0.0
+history,multi_arm_drtmle,property-replicates.csv.gz,all,6933968,0e03a15,rows_compared,10600.0
+history,multi_arm_drtmle,property-replicates.csv.gz,all,6933968,0e03a15,rows_only_older,0.0
+history,multi_arm_drtmle,property-replicates.csv.gz,all,6933968,0e03a15,rows_only_newer,16000.0
+history,multi_arm_drtmle,property-replicates.csv.gz,all,6933968,0e03a15,max_abs_estimate_change,1.3659628983475613e-12
+history,multi_arm_drtmle,property-replicates.csv.gz,all,6933968,0e03a15,max_abs_std_error_change,2.8727020762175925e-12
+history,multi_arm_drtmle,property-replicates.csv.gz,all,6933968,0e03a15,rows_differing,3813.0
+history,multi_arm_drtmle,property-replicates.csv.gz,all,6933968,0e03a15,rows_moved_over_1e-6,0.0
+history,multi_arm_drtmle,property-replicates.csv.gz,all,6933968,0e03a15,covered_flags_changed,0.0
+history,multi_arm_ctmle_selector,replicates.csv.gz,all,2049349,0e03a15,rows_compared,21600.0
+history,multi_arm_ctmle_selector,replicates.csv.gz,all,2049349,0e03a15,rows_only_older,0.0
+history,multi_arm_ctmle_selector,replicates.csv.gz,all,2049349,0e03a15,rows_only_newer,0.0
+history,multi_arm_ctmle_selector,replicates.csv.gz,all,2049349,0e03a15,max_abs_estimate_change,3.9968028886505635e-15
+history,multi_arm_ctmle_selector,replicates.csv.gz,all,2049349,0e03a15,max_abs_std_error_change,1.1102230246251565e-16
+history,multi_arm_ctmle_selector,replicates.csv.gz,all,2049349,0e03a15,rows_differing,2251.0
+history,multi_arm_ctmle_selector,replicates.csv.gz,all,2049349,0e03a15,rows_moved_over_1e-6,0.0
+history,multi_arm_ctmle_selector,replicates.csv.gz,all,2049349,0e03a15,covered_flags_changed,0.0
+history,multi_arm_ctmle_selector,property-replicates.csv.gz,all,2049349,0e03a15,rows_compared,5200.0
+history,multi_arm_ctmle_selector,property-replicates.csv.gz,all,2049349,0e03a15,rows_only_older,0.0
+history,multi_arm_ctmle_selector,property-replicates.csv.gz,all,2049349,0e03a15,rows_only_newer,16000.0
+history,multi_arm_ctmle_selector,property-replicates.csv.gz,all,2049349,0e03a15,max_abs_estimate_change,2.7755575615628914e-16
+history,multi_arm_ctmle_selector,property-replicates.csv.gz,all,2049349,0e03a15,max_abs_std_error_change,1.0408340855860843e-16
+history,multi_arm_ctmle_selector,property-replicates.csv.gz,all,2049349,0e03a15,rows_differing,223.0
+history,multi_arm_ctmle_selector,property-replicates.csv.gz,all,2049349,0e03a15,rows_moved_over_1e-6,0.0
+history,multi_arm_ctmle_selector,property-replicates.csv.gz,all,2049349,0e03a15,covered_flags_changed,0.0
+history,drtmle,replicates.csv.gz,implementation == cleverly,99d238c,0e03a15,rows_compared,7200.0
+history,drtmle,replicates.csv.gz,implementation == cleverly,99d238c,0e03a15,rows_only_older,0.0
+history,drtmle,replicates.csv.gz,implementation == cleverly,99d238c,0e03a15,rows_only_newer,0.0
+history,drtmle,replicates.csv.gz,implementation == cleverly,99d238c,0e03a15,max_abs_estimate_change,4.26680829904158e-09
+history,drtmle,replicates.csv.gz,implementation == cleverly,99d238c,0e03a15,max_abs_std_error_change,6.675129400612878e-09
+history,drtmle,replicates.csv.gz,implementation == cleverly,99d238c,0e03a15,rows_differing,2938.0
+history,drtmle,replicates.csv.gz,implementation == cleverly,99d238c,0e03a15,rows_moved_over_1e-6,0.0
+history,drtmle,replicates.csv.gz,implementation == cleverly,99d238c,0e03a15,covered_flags_changed,0.0
+history,drtmle,replicates.csv.gz,implementation == drtmle-r,99d238c,0e03a15,rows_compared,7200.0
+history,drtmle,replicates.csv.gz,implementation == drtmle-r,99d238c,0e03a15,rows_only_older,0.0
+history,drtmle,replicates.csv.gz,implementation == drtmle-r,99d238c,0e03a15,rows_only_newer,0.0
+history,drtmle,replicates.csv.gz,implementation == drtmle-r,99d238c,0e03a15,max_abs_estimate_change,0.000615602767074952
+history,drtmle,replicates.csv.gz,implementation == drtmle-r,99d238c,0e03a15,max_abs_std_error_change,0.0004576131932288001
+history,drtmle,replicates.csv.gz,implementation == drtmle-r,99d238c,0e03a15,rows_differing,2150.0
+history,drtmle,replicates.csv.gz,implementation == drtmle-r,99d238c,0e03a15,rows_moved_over_1e-6,6.0
+history,drtmle,replicates.csv.gz,implementation == drtmle-r,99d238c,0e03a15,covered_flags_changed,0.0
+history,drtmle,property-replicates.csv.gz,all,99d238c,0e03a15,rows_compared,15200.0
+history,drtmle,property-replicates.csv.gz,all,99d238c,0e03a15,rows_only_older,0.0
+history,drtmle,property-replicates.csv.gz,all,99d238c,0e03a15,rows_only_newer,9600.0
+history,drtmle,property-replicates.csv.gz,all,99d238c,0e03a15,max_abs_estimate_change,0.004667922204106001
+history,drtmle,property-replicates.csv.gz,all,99d238c,0e03a15,max_abs_std_error_change,0.002608621231566903
+history,drtmle,property-replicates.csv.gz,all,99d238c,0e03a15,rows_differing,8761.0
+history,drtmle,property-replicates.csv.gz,all,99d238c,0e03a15,rows_moved_over_1e-6,6.0
+history,drtmle,property-replicates.csv.gz,all,99d238c,0e03a15,covered_flags_changed,0.0
+history,drtmle,property-replicates.csv.gz,property == double_robust_contraction,99d238c,0e03a15,rows_compared,7200.0
+history,drtmle,property-replicates.csv.gz,property == double_robust_contraction,99d238c,0e03a15,rows_only_older,0.0
+history,drtmle,property-replicates.csv.gz,property == double_robust_contraction,99d238c,0e03a15,rows_only_newer,9600.0
+history,drtmle,property-replicates.csv.gz,property == double_robust_contraction,99d238c,0e03a15,max_abs_estimate_change,7.268644140450559e-05
+history,drtmle,property-replicates.csv.gz,property == double_robust_contraction,99d238c,0e03a15,max_abs_std_error_change,0.00023557575556919924
+history,drtmle,property-replicates.csv.gz,property == double_robust_contraction,99d238c,0e03a15,rows_differing,4680.0
+history,drtmle,property-replicates.csv.gz,property == double_robust_contraction,99d238c,0e03a15,rows_moved_over_1e-6,3.0
+history,drtmle,property-replicates.csv.gz,property == double_robust_contraction,99d238c,0e03a15,covered_flags_changed,0.0
+history,drtmle,property-replicates.csv.gz,property != double_robust_contraction,99d238c,0e03a15,rows_compared,8000.0
+history,drtmle,property-replicates.csv.gz,property != double_robust_contraction,99d238c,0e03a15,rows_only_older,0.0
+history,drtmle,property-replicates.csv.gz,property != double_robust_contraction,99d238c,0e03a15,rows_only_newer,0.0
+history,drtmle,property-replicates.csv.gz,property != double_robust_contraction,99d238c,0e03a15,max_abs_estimate_change,0.004667922204106001
+history,drtmle,property-replicates.csv.gz,property != double_robust_contraction,99d238c,0e03a15,max_abs_std_error_change,0.002608621231566903
+history,drtmle,property-replicates.csv.gz,property != double_robust_contraction,99d238c,0e03a15,rows_differing,4081.0
+history,drtmle,property-replicates.csv.gz,property != double_robust_contraction,99d238c,0e03a15,rows_moved_over_1e-6,3.0
+history,drtmle,property-replicates.csv.gz,property != double_robust_contraction,99d238c,0e03a15,covered_flags_changed,0.0
+pooled_in_sample_control,lmtp_ltmle,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,rows_compared,8000.0
+pooled_in_sample_control,lmtp_ltmle,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,rows_only_older,0.0
+pooled_in_sample_control,lmtp_ltmle,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,rows_only_newer,0.0
+pooled_in_sample_control,lmtp_ltmle,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,max_abs_estimate_change,0.0019952634856160723
+pooled_in_sample_control,lmtp_ltmle,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,max_abs_std_error_change,9.854517198589971e-05
+pooled_in_sample_control,lmtp_ltmle,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,rows_differing,2.0
+pooled_in_sample_control,lmtp_ltmle,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,rows_moved_over_1e-6,1.0
+pooled_in_sample_control,lmtp_ltmle,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,covered_flags_changed,0.0
+pooled_in_sample_control,lmtp_ltmle_survival,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,rows_compared,8000.0
+pooled_in_sample_control,lmtp_ltmle_survival,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,rows_only_older,0.0
+pooled_in_sample_control,lmtp_ltmle_survival,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,rows_only_newer,0.0
+pooled_in_sample_control,lmtp_ltmle_survival,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,max_abs_estimate_change,0.002992686601690997
+pooled_in_sample_control,lmtp_ltmle_survival,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,max_abs_std_error_change,0.000108463006268298
+pooled_in_sample_control,lmtp_ltmle_survival,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,rows_differing,4.0
+pooled_in_sample_control,lmtp_ltmle_survival,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,rows_moved_over_1e-6,2.0
+pooled_in_sample_control,lmtp_ltmle_survival,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,covered_flags_changed,0.0
+pooled_in_sample_control,lmtp_ltmle_competing_crossfit,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,rows_compared,8000.0
+pooled_in_sample_control,lmtp_ltmle_competing_crossfit,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,rows_only_older,0.0
+pooled_in_sample_control,lmtp_ltmle_competing_crossfit,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,rows_only_newer,0.0
+pooled_in_sample_control,lmtp_ltmle_competing_crossfit,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,max_abs_estimate_change,0.0029946271306326017
+pooled_in_sample_control,lmtp_ltmle_competing_crossfit,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,max_abs_std_error_change,0.0001928367608660976
+pooled_in_sample_control,lmtp_ltmle_competing_crossfit,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,rows_differing,5.0
+pooled_in_sample_control,lmtp_ltmle_competing_crossfit,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,rows_moved_over_1e-6,5.0
+pooled_in_sample_control,lmtp_ltmle_competing_crossfit,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,covered_flags_changed,0.0
+pooled_in_sample_control,categorical_ltmle_crossfit,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,rows_compared,40000.0
+pooled_in_sample_control,categorical_ltmle_crossfit,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,rows_only_older,0.0
+pooled_in_sample_control,categorical_ltmle_crossfit,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,rows_only_newer,0.0
+pooled_in_sample_control,categorical_ltmle_crossfit,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,max_abs_estimate_change,0.0
+pooled_in_sample_control,categorical_ltmle_crossfit,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,max_abs_std_error_change,0.0
+pooled_in_sample_control,categorical_ltmle_crossfit,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,rows_differing,0.0
+pooled_in_sample_control,categorical_ltmle_crossfit,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,rows_moved_over_1e-6,0.0
+pooled_in_sample_control,categorical_ltmle_crossfit,property-replicates.csv.gz,cell contains in_sample_control,656674c^,0e03a15,covered_flags_changed,0.0
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, as committed, cell rate_outcome_correct",99d238c,99d238c,slope,-0.8229774490441119
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, as committed, cell rate_outcome_correct",99d238c,99d238c,slope_ci_lower,-3.040131734655703
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, as committed, cell rate_outcome_correct",99d238c,99d238c,slope_ci_upper,0.12322083483388573
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, as committed, cell rate_treatment_correct",99d238c,99d238c,slope,-1.312746741062261
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, as committed, cell rate_treatment_correct",99d238c,99d238c,slope_ci_lower,-2.207877327644658
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, as committed, cell rate_treatment_correct",99d238c,99d238c,slope_ci_upper,-0.8801964793844335
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, as committed, cell rate_both_wrong",99d238c,99d238c,slope,0.005504574264770608
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, as committed, cell rate_both_wrong",99d238c,99d238c,slope_ci_lower,-0.00303138837604703
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, as committed, cell rate_both_wrong",99d238c,99d238c,slope_ci_upper,0.014272826691473662
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, replicate < 800, cell rate_outcome_correct",0e03a15,0e03a15,slope,-0.8229774308142966
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, replicate < 800, cell rate_outcome_correct",0e03a15,0e03a15,slope_ci_lower,-3.040131065906705
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, replicate < 800, cell rate_outcome_correct",0e03a15,0e03a15,slope_ci_upper,0.12322089479863486
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, replicate < 800, cell rate_treatment_correct",0e03a15,0e03a15,slope,-1.312737119069676
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, replicate < 800, cell rate_treatment_correct",0e03a15,0e03a15,slope_ci_lower,-2.2078604358101925
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, replicate < 800, cell rate_treatment_correct",0e03a15,0e03a15,slope_ci_upper,-0.8801922152867343
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, replicate < 800, cell rate_both_wrong",0e03a15,0e03a15,slope,0.005504572647036878
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, replicate < 800, cell rate_both_wrong",0e03a15,0e03a15,slope_ci_lower,-0.0030313883635948082
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, replicate < 800, cell rate_both_wrong",0e03a15,0e03a15,slope_ci_upper,0.014272823425153815
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, as committed, cell rate_outcome_correct",0e03a15,0e03a15,slope,-0.9176260183238084
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, as committed, cell rate_outcome_correct",0e03a15,0e03a15,slope_ci_lower,-1.534452741097156
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, as committed, cell rate_outcome_correct",0e03a15,0e03a15,slope_ci_upper,-0.48226787220243494
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, as committed, cell rate_treatment_correct",0e03a15,0e03a15,slope,-1.319444939398584
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, as committed, cell rate_treatment_correct",0e03a15,0e03a15,slope_ci_lower,-1.7567536055598507
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, as committed, cell rate_treatment_correct",0e03a15,0e03a15,slope_ci_upper,-1.0221051615929493
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, as committed, cell rate_both_wrong",0e03a15,0e03a15,slope,0.008573828975439022
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, as committed, cell rate_both_wrong",0e03a15,0e03a15,slope_ci_lower,0.0037259615407918547
+contraction_slope,drtmle,property-replicates.csv.gz,"double_robust_contraction, as committed, cell rate_both_wrong",0e03a15,0e03a15,slope_ci_upper,0.013538101542004159

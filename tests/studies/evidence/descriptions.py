@@ -346,8 +346,8 @@ PROPERTIES: dict[str, str] = {
         "one is valid"
     ),
     "generated_design": (
-        "the outcome-adaptive design costs precision when its regression is estimated rather "
-        "than known"
+        "the outcome-adaptive interval calibrates to its own sampling spread when its regression "
+        "is estimated and when the design is known"
     ),
     "density_necessity": "the declared stochastic intervention density determines the target",
     "interval_calibration": (
@@ -639,11 +639,12 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("generated_design", "oracle_design"): (
         "the outcome-adaptive design is supplied rather than estimated",
-        "SE ratio interval inside the calibration band",
+        "SE ratio and coverage intervals both inside their calibration bands",
     ),
     ("generated_design", "estimated"): (
         "the same design is estimated from the data, as a real fit does",
-        "the SE-ratio deficit must reach the declared shortfall",
+        "SE ratio and coverage intervals both inside their calibration bands; the paired "
+        "deficit is reported only",
     ),
     ("mechanism_requirement", "both_correct"): (
         "both the outcome regression and treatment mechanism are correctly specified",

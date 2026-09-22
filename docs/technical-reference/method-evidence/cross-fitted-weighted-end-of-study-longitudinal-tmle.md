@@ -134,8 +134,9 @@ The first two rows failed before the pooled update, and the inference-convention
 accounts for them. The `ey_regimen[never]` row went red under the pooled update. Its paired mean
 difference is -0.000043, with a 99% interval from -0.000350 to 0.000263 against a margin of
 0.004659, so the two estimates agree. The failure is in coverage. `cleverly` covers 0.93125 of
-draws, and `lmtp` covers 0.94875 with a native standard-error ratio of 1.0316. Nothing here isolates
-the cause of the move.
+draws, and `lmtp` covers 0.94875 with a native standard-error ratio of 1.0316. A declared
+{ref}`code-by-runtime diagnostic <what-the-runtime-isolation-found>` attributes this
+move to the pooled code, not to the Python and SciPy change.
 
 One property cell also went red under the pooled update.
 `interval_calibration/static__correctly_specified` fails its empirical efficiency-ratio band. The
@@ -143,10 +144,17 @@ ratio is 1.060724, and its 99% interval runs from 1.019495 to 1.100601 against t
 Before the update, the ratio was 1.053468, with an upper endpoint of 1.092339. The cell's coverage
 and SE-ratio intervals stay inside their bands.
 
-Nothing here isolates the cause of this move either. The `double_robustness/static__both_wrong`
-control was red before the update and stays red, because its bias interval overlaps the
-discrimination boundary. The study therefore fails five verdicts. Two are property cells, and three
-are the regimen-mean comparisons that conclude underpowered.
+The same diagnostic attributes this move to the pooled code too. It does not identify a defect in
+pooled targeting. On this study's iid baseline-selection law, the fixed known weights define a
+tilted empirical law; normalized weighted targeting, the Hájek plug-in and the whole-curve weight
+multiplier implement that law's estimating equation. The two near-boundary failures therefore stay
+as finite-sample reporting evidence rather than an argument for the unsupported fold-local update.
+
+This reasoning does not transport automatically to complex surveys, calibrated or estimated
+weights, clustering, or other longitudinal weight laws. The
+`double_robustness/static__both_wrong` control was red before the update and stays red, because its
+bias interval overlaps the discrimination boundary. The study therefore fails five verdicts. Two
+are property cells, and three are the regimen-mean comparisons that conclude underpowered.
 [RM18](../../roadmap.md#rm18-red-property-cells-after-the-fold-scale-and-law-changes) records each
 one.
 

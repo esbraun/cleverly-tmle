@@ -1,0 +1,370 @@
+RM18 runtime isolation run log
+declared in docs/roadmap.md RM18 at 56100ce; diagnostics at 97a3687
+host: MINGW64_NT-10.0-26200 eudaimonia 3.6.9-b4195d69.x86_64 2026-06-06 17:49 UTC x86_64 Msys; cores=16
+idle pre-check 2026-09-21T22:39:30Z: no python.exe or Rscript.exe running; docker ps shows only vi-postgres (unrelated, 0.00% CPU)
+F=7d5485a tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F ; P=56100ce tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P
+R11=worktree .venv (3.11.13) ; R13=main checkout .venv (3.13.7), read-only
+
+=== smoke weighted_lmtp_ltmle F-R11  start 2026-09-21T22:39:34Z
+tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F  commit=7d5485abf42545843c7dc801dfdac57ec68fd0f0  status=[]
+python=C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F/src  cwd=/tmp/rm18/rm18-code-F
+cache contents before:
+preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\src\cleverly\__init__.py
+preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\tests\__init__.py
+preflight python 3.11.13
+preflight scipy 1.17.1
+pip freeze before sha256=4afc5b28faa124a46e09a9baa982217b5e5cf36c002eb8ed4e9f6df30445f52c lines=132
+command: C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe -m tests.canonical.weighted_lmtp_ltmle.regenerate --replicates 4 --n 2000 --skip-properties --output C:/Users/erics/AppData/Local/Temp/rm18/smoke/weighted_lmtp_ltmle/F-R11/output --cache C:/Users/erics/AppData/Local/Temp/rm18/smoke/weighted_lmtp_ltmle/F-R11/cache
+pip freeze after: identical
+tree status after=[]
+exit=0  wall_seconds=20  end 2026-09-21T22:39:58Z
+stdout tail:
+  | selected_censored_end_of_study                             ate_regimen[always vs never] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                  4                     0              0.99         0.000743   0.001188        -0.006197         0.007682     0.006485            0.114508              False    0.950949          0.996014                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.041232                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | selected_censored_end_of_study ate_regimen[treat then continue if l2 positive vs never] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                  4                     0              0.99        -0.000264   0.000147        -0.001120         0.000592     0.007294            0.036143               True    1.002862          1.006631                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.000804                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | selected_censored_end_of_study                                       ey_regimen[always] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                  4                     0              0.99         0.000463   0.000658        -0.003380         0.004307     0.003090            0.149980              False    0.984956          1.008158                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.138859                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | selected_censored_end_of_study                                        ey_regimen[never] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                  4                     0              0.99        -0.000279   0.000824        -0.005094         0.004536     0.007256            0.038473               True    0.975010          0.990642                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.002945                    0.002945                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | selected_censored_end_of_study           ey_regimen[treat then continue if l2 positive] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                  4                     0              0.99        -0.000543   0.000849        -0.005504         0.004418     0.003409            0.159236              False    1.041148          1.101513                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.157451                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | wrote 7 artefacts and a manifest to C:\Users\erics\AppData\Local\Temp\rm18\smoke\weighted_lmtp_ltmle\F-R11\output
+copied smoke reference-results.csv F-R11 -> P-R13 sha256=c0673e17072b376599de37c48ac685a8020b47295b0c645fba0ffeaa010d354c
+
+=== smoke weighted_lmtp_ltmle P-R13  start 2026-09-21T22:40:05Z
+tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P  commit=56100ce9ddb48e3faba4130db2aa8a8ed07c5f6a  status=[]
+python=C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P/src  cwd=/tmp/rm18/rm18-code-P
+cache contents before: reference-results.csv
+preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\src\cleverly\__init__.py
+preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\tests\__init__.py
+preflight python 3.13.7
+preflight scipy 1.18.0
+pip freeze before sha256=32e92a38169978fc685b169d7f0fa554512305bcba12578f7334fd78783ff8a6 lines=131
+command: C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe -m tests.canonical.weighted_lmtp_ltmle.regenerate --replicates 4 --n 2000 --skip-properties --output C:/Users/erics/AppData/Local/Temp/rm18/smoke/weighted_lmtp_ltmle/P-R13/output --cache C:/Users/erics/AppData/Local/Temp/rm18/smoke/weighted_lmtp_ltmle/P-R13/cache
+pip freeze after: identical
+tree status after=[]
+exit=0  wall_seconds=10  end 2026-09-21T22:40:19Z
+stdout tail:
+  | selected_censored_end_of_study                             ate_regimen[always vs never] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                  4                     0              0.99         0.000930   0.000998        -0.004900         0.006760     0.006519            0.142605              False    0.961492          0.996952                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.031190                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | selected_censored_end_of_study ate_regimen[treat then continue if l2 positive vs never] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                  4                     0              0.99        -0.000727   0.000973        -0.006409         0.004955     0.007326            0.099186               True    1.013727          1.030564                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.006248                    0.006248                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | selected_censored_end_of_study                                       ey_regimen[always] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                  4                     0              0.99         0.001192   0.000235        -0.000178         0.002562     0.003113            0.382957               True    1.010401          1.048734                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.153237                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | selected_censored_end_of_study                                        ey_regimen[never] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                  4                     0              0.99         0.000263   0.001047        -0.005855         0.006380     0.007257            0.036183               True    0.977134          1.005875                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.003580                    0.003580                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | selected_censored_end_of_study           ey_regimen[treat then continue if l2 positive] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                  4                     0              0.99        -0.000464   0.001453        -0.008953         0.008025     0.003539            0.131132              False    1.110054          1.175855                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.221173                    0.023198                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | wrote 7 artefacts and a manifest to C:\Users\erics\AppData\Local\Temp\rm18\smoke\weighted_lmtp_ltmle\P-R13\output
+copied smoke reference-results.csv F-R11 -> F-R13 sha256=c0673e17072b376599de37c48ac685a8020b47295b0c645fba0ffeaa010d354c
+
+=== smoke weighted_lmtp_ltmle F-R13  start 2026-09-21T22:40:20Z
+tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F  commit=7d5485abf42545843c7dc801dfdac57ec68fd0f0  status=[]
+python=C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F/src  cwd=/tmp/rm18/rm18-code-F
+cache contents before: reference-results.csv
+preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\src\cleverly\__init__.py
+preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\tests\__init__.py
+preflight python 3.13.7
+preflight scipy 1.18.0
+pip freeze before sha256=32e92a38169978fc685b169d7f0fa554512305bcba12578f7334fd78783ff8a6 lines=131
+command: C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe -m tests.canonical.weighted_lmtp_ltmle.regenerate --replicates 4 --n 2000 --skip-properties --output C:/Users/erics/AppData/Local/Temp/rm18/smoke/weighted_lmtp_ltmle/F-R13/output --cache C:/Users/erics/AppData/Local/Temp/rm18/smoke/weighted_lmtp_ltmle/F-R13/cache
+pip freeze after: identical
+tree status after=[]
+exit=0  wall_seconds=9  end 2026-09-21T22:40:32Z
+stdout tail:
+  | selected_censored_end_of_study                             ate_regimen[always vs never] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                  4                     0              0.99         0.000743   0.001188        -0.006197         0.007682     0.006485            0.114508              False    0.950949          0.996014                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.041232                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | selected_censored_end_of_study ate_regimen[treat then continue if l2 positive vs never] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                  4                     0              0.99        -0.000264   0.000147        -0.001120         0.000592     0.007294            0.036143               True    1.002862          1.006631                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.000804                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | selected_censored_end_of_study                                       ey_regimen[always] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                  4                     0              0.99         0.000463   0.000658        -0.003380         0.004307     0.003090            0.149980              False    0.984956          1.008158                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.138859                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | selected_censored_end_of_study                                        ey_regimen[never] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                  4                     0              0.99        -0.000279   0.000824        -0.005094         0.004536     0.007256            0.038473               True    0.975010          0.990642                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.002945                    0.002945                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | selected_censored_end_of_study           ey_regimen[treat then continue if l2 positive] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                  4                     0              0.99        -0.000543   0.000849        -0.005504         0.004418     0.003409            0.159236              False    1.041148          1.101513                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.157451                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | wrote 7 artefacts and a manifest to C:\Users\erics\AppData\Local\Temp\rm18\smoke\weighted_lmtp_ltmle\F-R13\output
+copied smoke reference-results.csv F-R11 -> P-R11 sha256=c0673e17072b376599de37c48ac685a8020b47295b0c645fba0ffeaa010d354c
+
+=== smoke weighted_lmtp_ltmle P-R11  start 2026-09-21T22:40:32Z
+tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P  commit=56100ce9ddb48e3faba4130db2aa8a8ed07c5f6a  status=[]
+python=C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P/src  cwd=/tmp/rm18/rm18-code-P
+cache contents before: reference-results.csv
+preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\src\cleverly\__init__.py
+preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\tests\__init__.py
+preflight python 3.11.13
+preflight scipy 1.17.1
+pip freeze before sha256=4afc5b28faa124a46e09a9baa982217b5e5cf36c002eb8ed4e9f6df30445f52c lines=132
+command: C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe -m tests.canonical.weighted_lmtp_ltmle.regenerate --replicates 4 --n 2000 --skip-properties --output C:/Users/erics/AppData/Local/Temp/rm18/smoke/weighted_lmtp_ltmle/P-R11/output --cache C:/Users/erics/AppData/Local/Temp/rm18/smoke/weighted_lmtp_ltmle/P-R11/cache
+pip freeze after: identical
+tree status after=[]
+exit=0  wall_seconds=9  end 2026-09-21T22:40:43Z
+stdout tail:
+  | selected_censored_end_of_study                             ate_regimen[always vs never] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                  4                     0              0.99         0.000930   0.000998        -0.004900         0.006760     0.006519            0.142605              False    0.961492          0.996952                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.031190                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | selected_censored_end_of_study ate_regimen[treat then continue if l2 positive vs never] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                  4                     0              0.99        -0.000727   0.000973        -0.006409         0.004955     0.007326            0.099186               True    1.013727          1.030564                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.006248                    0.006248                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | selected_censored_end_of_study                                       ey_regimen[always] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                  4                     0              0.99         0.001192   0.000235        -0.000178         0.002562     0.003113            0.382957               True    1.010401          1.048734                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.153237                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | selected_censored_end_of_study                                        ey_regimen[never] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                  4                     0              0.99         0.000263   0.001047        -0.005855         0.006380     0.007257            0.036183               True    0.977134          1.005875                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.003580                    0.003580                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | selected_censored_end_of_study           ey_regimen[treat then continue if l2 positive] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                  4                     0              0.99        -0.000464   0.001453        -0.008953         0.008025     0.003539            0.131132              False    1.110054          1.175855                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.221173                    0.023198                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | wrote 7 artefacts and a manifest to C:\Users\erics\AppData\Local\Temp\rm18\smoke\weighted_lmtp_ltmle\P-R11\output
+
+=== smoke lmtp_ltmle F-R11  start 2026-09-21T22:40:43Z
+tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F  commit=7d5485abf42545843c7dc801dfdac57ec68fd0f0  status=[]
+python=C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F/src  cwd=/tmp/rm18/rm18-code-F
+cache contents before:
+preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\src\cleverly\__init__.py
+preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\tests\__init__.py
+preflight python 3.11.13
+preflight scipy 1.17.1
+pip freeze before sha256=4afc5b28faa124a46e09a9baa982217b5e5cf36c002eb8ed4e9f6df30445f52c lines=132
+command: C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe -m tests.canonical.lmtp_ltmle.regenerate --replicates 4 --n 2000 --skip-properties --skip-reference --output C:/Users/erics/AppData/Local/Temp/rm18/smoke/lmtp_ltmle/F-R11/output --cache C:/Users/erics/AppData/Local/Temp/rm18/smoke/lmtp_ltmle/F-R11/cache
+pip freeze after: identical
+tree status after=[]
+exit=0  wall_seconds=9  end 2026-09-21T22:40:54Z
+stdout tail:
+  | censored_end_of_study                             ate_regimen[always vs never] cleverly-cross-fitted-ltmle      lmtp                  4                     0              0.99         0.000301   0.001178        -0.006578         0.007181     0.002631            0.114582              False    0.947791          1.153695                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.097322                    0.097322                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | censored_end_of_study ate_regimen[treat then continue if l2 positive vs never] cleverly-cross-fitted-ltmle      lmtp                  4                     0              0.99         0.000521   0.001457        -0.007992         0.009034     0.002259            0.230699              False    1.097050          1.216299                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.201306                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | censored_end_of_study                                       ey_regimen[always] cleverly-cross-fitted-ltmle      lmtp                  4                     0              0.99         0.000543   0.000532        -0.002567         0.003653     0.002396            0.226747              False    1.007240          1.139118                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.028872                    0.028872                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | censored_end_of_study                                        ey_regimen[never] cleverly-cross-fitted-ltmle      lmtp                  4                     0              0.99         0.000242   0.000704        -0.003871         0.004355     0.001676            0.144230              False    0.974857          0.982979                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.201875                    0.201875                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | censored_end_of_study           ey_regimen[treat then continue if l2 positive] cleverly-cross-fitted-ltmle      lmtp                  4                     0              0.99         0.000763   0.001105        -0.005694         0.007220     0.001655            0.460894              False    1.063089          1.150743                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.246756                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | wrote 6 artefacts and a manifest to C:\Users\erics\AppData\Local\Temp\rm18\smoke\lmtp_ltmle\F-R11\output
+
+=== smoke lmtp_ltmle P-R13  start 2026-09-21T22:40:54Z
+tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P  commit=56100ce9ddb48e3faba4130db2aa8a8ed07c5f6a  status=[]
+python=C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P/src  cwd=/tmp/rm18/rm18-code-P
+cache contents before:
+preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\src\cleverly\__init__.py
+preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\tests\__init__.py
+preflight python 3.13.7
+preflight scipy 1.18.0
+pip freeze before sha256=32e92a38169978fc685b169d7f0fa554512305bcba12578f7334fd78783ff8a6 lines=131
+command: C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe -m tests.canonical.lmtp_ltmle.regenerate --replicates 4 --n 2000 --skip-properties --skip-reference --output C:/Users/erics/AppData/Local/Temp/rm18/smoke/lmtp_ltmle/P-R13/output --cache C:/Users/erics/AppData/Local/Temp/rm18/smoke/lmtp_ltmle/P-R13/cache
+pip freeze after: identical
+tree status after=[]
+exit=0  wall_seconds=10  end 2026-09-21T22:41:06Z
+stdout tail:
+  | censored_end_of_study                             ate_regimen[always vs never] cleverly-cross-fitted-ltmle      lmtp                  4                     0              0.99        -0.000966   0.000684        -0.004962         0.003029     0.002664            0.362756              False    0.975286          1.021988                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.049959                    0.049959                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | censored_end_of_study ate_regimen[treat then continue if l2 positive vs never] cleverly-cross-fitted-ltmle      lmtp                  4                     0              0.99        -0.001492   0.000167        -0.002467        -0.000517     0.002162            0.690029              False    0.965894          1.087437                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.027708                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | censored_end_of_study                                       ey_regimen[always] cleverly-cross-fitted-ltmle      lmtp                  4                     0              0.99        -0.000409   0.000172        -0.001415         0.000597     0.002419            0.169043               True    0.985177          1.106368                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.004722                    0.004722                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | censored_end_of_study                                        ey_regimen[never] cleverly-cross-fitted-ltmle      lmtp                  4                     0              0.99         0.000557   0.000609        -0.002998         0.004113     0.001794            0.310745              False    1.048426          1.116080                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.096849                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | censored_end_of_study           ey_regimen[treat then continue if l2 positive] cleverly-cross-fitted-ltmle      lmtp                  4                     0              0.99        -0.000935   0.000576        -0.004301         0.002432     0.001625            0.575265              False    0.981887          1.011704                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.187757                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | wrote 6 artefacts and a manifest to C:\Users\erics\AppData\Local\Temp\rm18\smoke\lmtp_ltmle\P-R13\output
+
+=== smoke lmtp_ltmle F-R13  start 2026-09-21T22:41:06Z
+tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F  commit=7d5485abf42545843c7dc801dfdac57ec68fd0f0  status=[]
+python=C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F/src  cwd=/tmp/rm18/rm18-code-F
+cache contents before:
+preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\src\cleverly\__init__.py
+preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\tests\__init__.py
+preflight python 3.13.7
+preflight scipy 1.18.0
+pip freeze before sha256=32e92a38169978fc685b169d7f0fa554512305bcba12578f7334fd78783ff8a6 lines=131
+command: C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe -m tests.canonical.lmtp_ltmle.regenerate --replicates 4 --n 2000 --skip-properties --skip-reference --output C:/Users/erics/AppData/Local/Temp/rm18/smoke/lmtp_ltmle/F-R13/output --cache C:/Users/erics/AppData/Local/Temp/rm18/smoke/lmtp_ltmle/F-R13/cache
+pip freeze after: identical
+tree status after=[]
+exit=0  wall_seconds=10  end 2026-09-21T22:41:18Z
+stdout tail:
+  | censored_end_of_study                             ate_regimen[always vs never] cleverly-cross-fitted-ltmle      lmtp                  4                     0              0.99         0.000301   0.001178        -0.006578         0.007181     0.002631            0.114582              False    0.947791          1.153695                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.097322                    0.097322                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | censored_end_of_study ate_regimen[treat then continue if l2 positive vs never] cleverly-cross-fitted-ltmle      lmtp                  4                     0              0.99         0.000521   0.001457        -0.007992         0.009034     0.002259            0.230699              False    1.097050          1.216299                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.201306                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | censored_end_of_study                                       ey_regimen[always] cleverly-cross-fitted-ltmle      lmtp                  4                     0              0.99         0.000543   0.000532        -0.002567         0.003653     0.002396            0.226747              False    1.007240          1.139118                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.028872                    0.028872                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | censored_end_of_study                                        ey_regimen[never] cleverly-cross-fitted-ltmle      lmtp                  4                     0              0.99         0.000242   0.000704        -0.003871         0.004355     0.001676            0.144230              False    0.974857          0.982979                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.201875                    0.201875                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | censored_end_of_study           ey_regimen[treat then continue if l2 positive] cleverly-cross-fitted-ltmle      lmtp                  4                     0              0.99         0.000763   0.001105        -0.005694         0.007220     0.001655            0.460894              False    1.063089          1.150743                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.246756                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | wrote 6 artefacts and a manifest to C:\Users\erics\AppData\Local\Temp\rm18\smoke\lmtp_ltmle\F-R13\output
+
+=== smoke lmtp_ltmle P-R11  start 2026-09-21T22:41:18Z
+tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P  commit=56100ce9ddb48e3faba4130db2aa8a8ed07c5f6a  status=[]
+python=C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P/src  cwd=/tmp/rm18/rm18-code-P
+cache contents before:
+preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\src\cleverly\__init__.py
+preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\tests\__init__.py
+preflight python 3.11.13
+preflight scipy 1.17.1
+pip freeze before sha256=4afc5b28faa124a46e09a9baa982217b5e5cf36c002eb8ed4e9f6df30445f52c lines=132
+command: C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe -m tests.canonical.lmtp_ltmle.regenerate --replicates 4 --n 2000 --skip-properties --skip-reference --output C:/Users/erics/AppData/Local/Temp/rm18/smoke/lmtp_ltmle/P-R11/output --cache C:/Users/erics/AppData/Local/Temp/rm18/smoke/lmtp_ltmle/P-R11/cache
+pip freeze after: identical
+tree status after=[]
+exit=0  wall_seconds=9  end 2026-09-21T22:41:29Z
+stdout tail:
+  | censored_end_of_study                             ate_regimen[always vs never] cleverly-cross-fitted-ltmle      lmtp                  4                     0              0.99        -0.000966   0.000684        -0.004962         0.003029     0.002664            0.362756              False    0.975286          1.021988                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.049959                    0.049959                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | censored_end_of_study ate_regimen[treat then continue if l2 positive vs never] cleverly-cross-fitted-ltmle      lmtp                  4                     0              0.99        -0.001492   0.000167        -0.002467        -0.000517     0.002162            0.690029              False    0.965894          1.087437                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.027708                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | censored_end_of_study                                       ey_regimen[always] cleverly-cross-fitted-ltmle      lmtp                  4                     0              0.99        -0.000409   0.000172        -0.001415         0.000597     0.002419            0.169043               True    0.985177          1.106368                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.004722                    0.004722                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | censored_end_of_study                                        ey_regimen[never] cleverly-cross-fitted-ltmle      lmtp                  4                     0              0.99         0.000557   0.000609        -0.002998         0.004113     0.001794            0.310745              False    1.048426          1.116080                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.096849                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | censored_end_of_study           ey_regimen[treat then continue if l2 positive] cleverly-cross-fitted-ltmle      lmtp                  4                     0              0.99        -0.000935   0.000576        -0.004301         0.002432     0.001625            0.575265              False    0.981887          1.011704                         1.1                  0.0                         0.0                        0.0                          -0.025           True             0.187757                    0.000000                       NaN                            NaN                 False                               0.05         True                       True          False            False              False                 False          underpowered   False
+  | wrote 6 artefacts and a manifest to C:\Users\erics\AppData\Local\Temp\rm18\smoke\lmtp_ltmle\P-R11\output
+smoke arms: all 8 exit 0; compare.py exercised on smoke (verdict fix committed 65e319b before any full arm)
+
+=== full runs begin 2026-09-21T22:42:47Z; python.exe running before start: 0; containers: vi-postgres
+
+=== full weighted_lmtp_ltmle F-R11  start 2026-09-21T22:42:47Z
+tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F  commit=7d5485abf42545843c7dc801dfdac57ec68fd0f0  status=[]
+python=C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F/src  cwd=/tmp/rm18/rm18-code-F
+cache contents before:
+preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\src\cleverly\__init__.py
+preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\tests\__init__.py
+preflight python 3.11.13
+preflight scipy 1.17.1
+pip freeze before sha256=4afc5b28faa124a46e09a9baa982217b5e5cf36c002eb8ed4e9f6df30445f52c lines=132
+command: C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe -m tests.canonical.weighted_lmtp_ltmle.regenerate --output C:/Users/erics/AppData/Local/Temp/rm18/arms/weighted_lmtp_ltmle/F-R11/output --cache C:/Users/erics/AppData/Local/Temp/rm18/arms/weighted_lmtp_ltmle/F-R11/cache
+pip freeze after: identical
+tree status after=[]
+exit=0  wall_seconds=894  end 2026-09-21T22:57:43Z
+stdout tail:
+  |
+  | paired similarity and non-inferiority:
+  |                       scenario                                       estimand                              subject     reference  paired_replicates  dropped_replications  confidence_level  mean_difference  paired_se  paired_ci_lower  paired_ci_upper  mean_margin  margin_utilization  paired_similarity  rmse_ratio  rmse_ratio_upper  rmse_noninferiority_margin  coverage_difference  subject_coverage_shortfall  coverage_difference_lower  coverage_noninferiority_margin  se_comparable  se_ratio_difference  subject_calibration_excess  calibration_excess_upper  calibration_excess_resolution  calibration_resolved  calibration_noninferiority_margin  rmse_screen  coverage_shortfall_screen  subject_valid  reference_valid  coverage_superior  subject_not_inferior comparison_conclusion  passed
+  | selected_censored_end_of_study                             ey_regimen[always] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                800                     0              0.99        -0.000029   0.000057        -0.000175         0.000118     0.003129            0.009109               True    1.004006          1.010861                         1.1             -0.03375                     0.03375                      -0.05                          -0.025           True             0.168097                         0.0                  0.100914                       0.112139                 False                               0.05         True                       True           True             True              False                 False          underpowered   False
+  | selected_censored_end_of_study ey_regimen[treat then continue if l2 positive] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                800                     0              0.99         0.000299   0.000092         0.000061         0.000538     0.003232            0.092616               True    1.004795          1.015725                         1.1             -0.02625                     0.02625                      -0.04                          -0.025           True             0.146749                         0.0                  0.036301                       0.111338                 False                               0.05         True                       True           True             True              False                 False          underpowered   False
+  | wrote 7 artefacts and a manifest to C:\Users\erics\AppData\Local\Temp\rm18\arms\weighted_lmtp_ltmle\F-R11\output
+copied reference-results.csv F-R11 -> P-R13 sha256=3bcf3b1679ef5da8cffcb6806ed15da2518a96ab7f4b4d751373eaa26c8a521a
+
+=== full weighted_lmtp_ltmle P-R13  start 2026-09-21T22:57:43Z
+tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P  commit=56100ce9ddb48e3faba4130db2aa8a8ed07c5f6a  status=[]
+python=C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P/src  cwd=/tmp/rm18/rm18-code-P
+cache contents before: reference-results.csv
+preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\src\cleverly\__init__.py
+preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\tests\__init__.py
+preflight python 3.13.7
+preflight scipy 1.18.0
+pip freeze before sha256=32e92a38169978fc685b169d7f0fa554512305bcba12578f7334fd78783ff8a6 lines=131
+command: C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe -m tests.canonical.weighted_lmtp_ltmle.regenerate --output C:/Users/erics/AppData/Local/Temp/rm18/arms/weighted_lmtp_ltmle/P-R13/output --cache C:/Users/erics/AppData/Local/Temp/rm18/arms/weighted_lmtp_ltmle/P-R13/cache
+pip freeze after: identical
+tree status after=[]
+exit=0  wall_seconds=178  end 2026-09-21T23:00:43Z
+stdout tail:
+  | paired similarity and non-inferiority:
+  |                       scenario                                       estimand                              subject     reference  paired_replicates  dropped_replications  confidence_level  mean_difference  paired_se  paired_ci_lower  paired_ci_upper  mean_margin  margin_utilization  paired_similarity  rmse_ratio  rmse_ratio_upper  rmse_noninferiority_margin  coverage_difference  subject_coverage_shortfall  coverage_difference_lower  coverage_noninferiority_margin  se_comparable  se_ratio_difference  subject_calibration_excess  calibration_excess_upper  calibration_excess_resolution  calibration_resolved  calibration_noninferiority_margin  rmse_screen  coverage_shortfall_screen  subject_valid  reference_valid  coverage_superior  subject_not_inferior comparison_conclusion  passed
+  | selected_censored_end_of_study                             ey_regimen[always] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                800                     0              0.99         0.000026   0.000068        -0.000150         0.000202     0.003135            0.008396               True    1.008437          1.016244                         1.1             -0.03250                     0.03250                  -0.047500                          -0.025           True             0.172233                         0.0                  0.104976                       0.112065                 False                               0.05         True                       True           True             True              False                 False          underpowered   False
+  | selected_censored_end_of_study                              ey_regimen[never] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                800                     0              0.99        -0.000043   0.000119        -0.000350         0.000263     0.004659            0.009301               True    1.014838          1.024464                         1.1             -0.01750                     0.01750                  -0.030000                          -0.025           True             0.043465                         0.0                  0.046480                       0.066223                 False                               0.05         True                       True           True             True              False                 False          underpowered   False
+  | selected_censored_end_of_study ey_regimen[treat then continue if l2 positive] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                800                     0              0.99         0.000141   0.000100        -0.000118         0.000400     0.003234            0.043581               True    1.006271          1.017548                         1.1             -0.02875                     0.02875                  -0.042512                          -0.025           True             0.148098                         0.0                  0.038214                       0.111903                 False                               0.05         True                       True           True             True              False                 False          underpowered   False
+  | wrote 7 artefacts and a manifest to C:\Users\erics\AppData\Local\Temp\rm18\arms\weighted_lmtp_ltmle\P-R13\output
+copied reference-results.csv F-R11 -> F-R13 sha256=3bcf3b1679ef5da8cffcb6806ed15da2518a96ab7f4b4d751373eaa26c8a521a
+
+=== full weighted_lmtp_ltmle F-R13  start 2026-09-21T23:00:44Z
+tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F  commit=7d5485abf42545843c7dc801dfdac57ec68fd0f0  status=[]
+python=C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F/src  cwd=/tmp/rm18/rm18-code-F
+cache contents before: reference-results.csv
+preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\src\cleverly\__init__.py
+preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\tests\__init__.py
+preflight python 3.13.7
+preflight scipy 1.18.0
+pip freeze before sha256=32e92a38169978fc685b169d7f0fa554512305bcba12578f7334fd78783ff8a6 lines=131
+command: C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe -m tests.canonical.weighted_lmtp_ltmle.regenerate --output C:/Users/erics/AppData/Local/Temp/rm18/arms/weighted_lmtp_ltmle/F-R13/output --cache C:/Users/erics/AppData/Local/Temp/rm18/arms/weighted_lmtp_ltmle/F-R13/cache
+pip freeze after: identical
+tree status after=[]
+exit=0  wall_seconds=212  end 2026-09-21T23:04:18Z
+stdout tail:
+  |
+  | paired similarity and non-inferiority:
+  |                       scenario                                       estimand                              subject     reference  paired_replicates  dropped_replications  confidence_level  mean_difference  paired_se  paired_ci_lower  paired_ci_upper  mean_margin  margin_utilization  paired_similarity  rmse_ratio  rmse_ratio_upper  rmse_noninferiority_margin  coverage_difference  subject_coverage_shortfall  coverage_difference_lower  coverage_noninferiority_margin  se_comparable  se_ratio_difference  subject_calibration_excess  calibration_excess_upper  calibration_excess_resolution  calibration_resolved  calibration_noninferiority_margin  rmse_screen  coverage_shortfall_screen  subject_valid  reference_valid  coverage_superior  subject_not_inferior comparison_conclusion  passed
+  | selected_censored_end_of_study                             ey_regimen[always] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                800                     0              0.99        -0.000029   0.000057        -0.000175         0.000118     0.003129            0.009109               True    1.004006          1.010861                         1.1             -0.03375                     0.03375                      -0.05                          -0.025           True             0.168097                         0.0                  0.100914                       0.112139                 False                               0.05         True                       True           True             True              False                 False          underpowered   False
+  | selected_censored_end_of_study ey_regimen[treat then continue if l2 positive] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                800                     0              0.99         0.000299   0.000092         0.000061         0.000538     0.003232            0.092616               True    1.004795          1.015725                         1.1             -0.02625                     0.02625                      -0.04                          -0.025           True             0.146749                         0.0                  0.036301                       0.111338                 False                               0.05         True                       True           True             True              False                 False          underpowered   False
+  | wrote 7 artefacts and a manifest to C:\Users\erics\AppData\Local\Temp\rm18\arms\weighted_lmtp_ltmle\F-R13\output
+copied reference-results.csv F-R11 -> P-R11 sha256=3bcf3b1679ef5da8cffcb6806ed15da2518a96ab7f4b4d751373eaa26c8a521a
+
+=== full weighted_lmtp_ltmle P-R11  start 2026-09-21T23:04:18Z
+tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P  commit=56100ce9ddb48e3faba4130db2aa8a8ed07c5f6a  status=[]
+python=C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P/src  cwd=/tmp/rm18/rm18-code-P
+cache contents before: reference-results.csv
+preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\src\cleverly\__init__.py
+preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\tests\__init__.py
+preflight python 3.11.13
+preflight scipy 1.17.1
+pip freeze before sha256=4afc5b28faa124a46e09a9baa982217b5e5cf36c002eb8ed4e9f6df30445f52c lines=132
+command: C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe -m tests.canonical.weighted_lmtp_ltmle.regenerate --output C:/Users/erics/AppData/Local/Temp/rm18/arms/weighted_lmtp_ltmle/P-R11/output --cache C:/Users/erics/AppData/Local/Temp/rm18/arms/weighted_lmtp_ltmle/P-R11/cache
+pip freeze after: identical
+tree status after=[]
+exit=0  wall_seconds=174  end 2026-09-21T23:07:14Z
+stdout tail:
+  | paired similarity and non-inferiority:
+  |                       scenario                                       estimand                              subject     reference  paired_replicates  dropped_replications  confidence_level  mean_difference  paired_se  paired_ci_lower  paired_ci_upper  mean_margin  margin_utilization  paired_similarity  rmse_ratio  rmse_ratio_upper  rmse_noninferiority_margin  coverage_difference  subject_coverage_shortfall  coverage_difference_lower  coverage_noninferiority_margin  se_comparable  se_ratio_difference  subject_calibration_excess  calibration_excess_upper  calibration_excess_resolution  calibration_resolved  calibration_noninferiority_margin  rmse_screen  coverage_shortfall_screen  subject_valid  reference_valid  coverage_superior  subject_not_inferior comparison_conclusion  passed
+  | selected_censored_end_of_study                             ey_regimen[always] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                800                     0              0.99         0.000026   0.000068        -0.000150         0.000202     0.003135            0.008396               True    1.008437          1.016244                         1.1             -0.03250                     0.03250                  -0.047500                          -0.025           True             0.172233                         0.0                  0.104976                       0.112065                 False                               0.05         True                       True           True             True              False                 False          underpowered   False
+  | selected_censored_end_of_study                              ey_regimen[never] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                800                     0              0.99        -0.000043   0.000119        -0.000350         0.000263     0.004659            0.009301               True    1.014838          1.024464                         1.1             -0.01750                     0.01750                  -0.030000                          -0.025           True             0.043465                         0.0                  0.046480                       0.066223                 False                               0.05         True                       True           True             True              False                 False          underpowered   False
+  | selected_censored_end_of_study ey_regimen[treat then continue if l2 positive] cleverly-cross-fitted-weighted-ltmle lmtp-weighted                800                     0              0.99         0.000141   0.000100        -0.000118         0.000400     0.003234            0.043581               True    1.006271          1.017548                         1.1             -0.02875                     0.02875                  -0.042512                          -0.025           True             0.148098                         0.0                  0.038214                       0.111903                 False                               0.05         True                       True           True             True              False                 False          underpowered   False
+  | wrote 7 artefacts and a manifest to C:\Users\erics\AppData\Local\Temp\rm18\arms\weighted_lmtp_ltmle\P-R11\output
+
+=== full lmtp_ltmle F-R11  start 2026-09-21T23:07:14Z
+tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F  commit=7d5485abf42545843c7dc801dfdac57ec68fd0f0  status=[]
+python=C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F/src  cwd=/tmp/rm18/rm18-code-F
+cache contents before:
+preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\src\cleverly\__init__.py
+preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\tests\__init__.py
+preflight python 3.11.13
+preflight scipy 1.17.1
+pip freeze before sha256=4afc5b28faa124a46e09a9baa982217b5e5cf36c002eb8ed4e9f6df30445f52c lines=132
+command: C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe -m tests.canonical.lmtp_ltmle.regenerate --skip-reference --output C:/Users/erics/AppData/Local/Temp/rm18/arms/lmtp_ltmle/F-R11/output --cache C:/Users/erics/AppData/Local/Temp/rm18/arms/lmtp_ltmle/F-R11/cache
+pip freeze after: identical
+tree status after=[]
+exit=0  wall_seconds=386  end 2026-09-21T23:13:42Z
+stdout tail:
+  | reporting policy: published scientific failures:
+  | statistical property:
+  |             property               cell     role    n  replicates  failed_replicates   truth  mean_estimate      bias  bias_se  bias_ci_lower  bias_ci_upper  bias_margin  standardized_bias bias_equivalent bias_discriminated  root_n_bias  empirical_se  mean_std_error  se_ratio  coverage  coverage_ci_lower  coverage_ci_upper  rejection_rate  rejection_ci_lower  rejection_ci_upper  nominal_size rate_sizes  slope  slope_ci_lower  slope_ci_upper  se_ratio_ci_lower  se_ratio_ci_upper  efficiency_empirical_ratio  efficiency_empirical_ci_lower  efficiency_empirical_ci_upper  efficiency_reported_ratio  efficiency_reported_ci_lower  efficiency_reported_ci_upper  targeting_displacement  coverage_gain_ci_lower  coverage_gain_ci_upper  passed  property_passed
+  | crossfit_overfitting cross_fitted_ltmle positive 1000        8000                  0 0.36157       0.358295 -0.003275 0.000571      -0.004744      -0.001805     0.012757          -0.064171            True              False    -0.103551      0.051029        0.060043  1.176650  0.976000           0.971237           0.980186             1.0            0.999338                 1.0          0.05        NaN    NaN             NaN             NaN           1.153282           1.201555                         NaN                            NaN                            NaN                        NaN                           NaN                           NaN                     NaN                0.453375                 0.48225   False            False
+  | crossfit_overfitting  in_sample_control  control 1000        8000                  0 0.36157       0.360342 -0.001228 0.000620      -0.002826       0.000370     0.013871          -0.022136            True              False    -0.038838      0.055484        0.019596  0.353193  0.508125           0.493664           0.522577             1.0            0.999338                 1.0          0.05        NaN    NaN             NaN             NaN           0.346305           0.360249                         NaN                            NaN                            NaN                        NaN                           NaN                           NaN                     NaN                0.453375                 0.48225    True            False
+  | wrote 6 artefacts and a manifest to C:\Users\erics\AppData\Local\Temp\rm18\arms\lmtp_ltmle\F-R11\output
+
+=== full lmtp_ltmle P-R13  start 2026-09-21T23:13:42Z
+tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P  commit=56100ce9ddb48e3faba4130db2aa8a8ed07c5f6a  status=[]
+python=C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P/src  cwd=/tmp/rm18/rm18-code-P
+cache contents before:
+preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\src\cleverly\__init__.py
+preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\tests\__init__.py
+preflight python 3.13.7
+preflight scipy 1.18.0
+pip freeze before sha256=32e92a38169978fc685b169d7f0fa554512305bcba12578f7334fd78783ff8a6 lines=131
+command: C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe -m tests.canonical.lmtp_ltmle.regenerate --skip-reference --output C:/Users/erics/AppData/Local/Temp/rm18/arms/lmtp_ltmle/P-R13/output --cache C:/Users/erics/AppData/Local/Temp/rm18/arms/lmtp_ltmle/P-R13/cache
+pip freeze after: identical
+tree status after=[]
+exit=0  wall_seconds=296  end 2026-09-21T23:18:41Z
+stdout tail:
+  | regenerating cross-fitted end-of-study longitudinal TMLE: 1600 x n=2000
+  | wrote 6 artefacts and a manifest to C:\Users\erics\AppData\Local\Temp\rm18\arms\lmtp_ltmle\P-R13\output
+
+=== full lmtp_ltmle F-R13  start 2026-09-21T23:18:41Z
+tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F  commit=7d5485abf42545843c7dc801dfdac57ec68fd0f0  status=[]
+python=C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-F/src  cwd=/tmp/rm18/rm18-code-F
+cache contents before:
+preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\src\cleverly\__init__.py
+preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-F\tests\__init__.py
+preflight python 3.13.7
+preflight scipy 1.18.0
+pip freeze before sha256=32e92a38169978fc685b169d7f0fa554512305bcba12578f7334fd78783ff8a6 lines=131
+command: C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe -m tests.canonical.lmtp_ltmle.regenerate --skip-reference --output C:/Users/erics/AppData/Local/Temp/rm18/arms/lmtp_ltmle/F-R13/output --cache C:/Users/erics/AppData/Local/Temp/rm18/arms/lmtp_ltmle/F-R13/cache
+pip freeze after: identical
+tree status after=[]
+exit=0  wall_seconds=385  end 2026-09-21T23:25:08Z
+stdout tail:
+  | reporting policy: published scientific failures:
+  | statistical property:
+  |             property               cell     role    n  replicates  failed_replicates   truth  mean_estimate      bias  bias_se  bias_ci_lower  bias_ci_upper  bias_margin  standardized_bias bias_equivalent bias_discriminated  root_n_bias  empirical_se  mean_std_error  se_ratio  coverage  coverage_ci_lower  coverage_ci_upper  rejection_rate  rejection_ci_lower  rejection_ci_upper  nominal_size rate_sizes  slope  slope_ci_lower  slope_ci_upper  se_ratio_ci_lower  se_ratio_ci_upper  efficiency_empirical_ratio  efficiency_empirical_ci_lower  efficiency_empirical_ci_upper  efficiency_reported_ratio  efficiency_reported_ci_lower  efficiency_reported_ci_upper  targeting_displacement  coverage_gain_ci_lower  coverage_gain_ci_upper  passed  property_passed
+  | crossfit_overfitting cross_fitted_ltmle positive 1000        8000                  0 0.36157       0.358296 -0.003273 0.000571      -0.004743      -0.001804     0.012757          -0.064148            True              False    -0.103516      0.051030        0.060043  1.176637  0.976000           0.971237           0.980186             1.0            0.999338                 1.0          0.05        NaN    NaN             NaN             NaN           1.153251           1.201516                         NaN                            NaN                            NaN                        NaN                           NaN                           NaN                     NaN                0.453375                 0.48225   False            False
+  | crossfit_overfitting  in_sample_control  control 1000        8000                  0 0.36157       0.360341 -0.001228 0.000620      -0.002827       0.000370     0.013871          -0.022141            True              False    -0.038846      0.055483        0.019596  0.353196  0.508125           0.493664           0.522577             1.0            0.999338                 1.0          0.05        NaN    NaN             NaN             NaN           0.346306           0.360253                         NaN                            NaN                            NaN                        NaN                           NaN                           NaN                     NaN                0.453375                 0.48225    True            False
+  | wrote 6 artefacts and a manifest to C:\Users\erics\AppData\Local\Temp\rm18\arms\lmtp_ltmle\F-R13\output
+
+=== full lmtp_ltmle P-R11  start 2026-09-21T23:25:08Z
+tree=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P  commit=56100ce9ddb48e3faba4130db2aa8a8ed07c5f6a  status=[]
+python=C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe  PYTHONPATH=C:/Users/erics/AppData/Local/Temp/rm18/rm18-code-P/src  cwd=/tmp/rm18/rm18-code-P
+cache contents before:
+preflight cleverly C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\src\cleverly\__init__.py
+preflight tests C:\Users\erics\AppData\Local\Temp\rm18\rm18-code-P\tests\__init__.py
+preflight python 3.11.13
+preflight scipy 1.17.1
+pip freeze before sha256=4afc5b28faa124a46e09a9baa982217b5e5cf36c002eb8ed4e9f6df30445f52c lines=132
+command: C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/.venv/Scripts/python.exe -m tests.canonical.lmtp_ltmle.regenerate --skip-reference --output C:/Users/erics/AppData/Local/Temp/rm18/arms/lmtp_ltmle/P-R11/output --cache C:/Users/erics/AppData/Local/Temp/rm18/arms/lmtp_ltmle/P-R11/cache
+pip freeze after: identical
+tree status after=[]
+exit=0  wall_seconds=291  end 2026-09-21T23:30:01Z
+stdout tail:
+  | regenerating cross-fitted end-of-study longitudinal TMLE: 1600 x n=2000
+  | wrote 6 artefacts and a manifest to C:\Users\erics\AppData\Local\Temp\rm18\arms\lmtp_ltmle\P-R11\output
+=== full runs end 2026-09-21T23:30:01Z
+
+=== reading 2026-09-21T23:30:16Z: row_drift and compare from /c/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi at 981319c, R13, PYTHONPATH=/c/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi/src
+row_drift exit=0
+compare exit=0
+row_drift output tail:
+  | wrote 131 rows to C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\tests\diagnostics\rm18_runtime\row-drift.csv
+compare output tail:
+  | wrote 534 rows to C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\tests\diagnostics\rm18_runtime\isolation.csv
+pip freeze sha256 per runtime across all arms:
+  full-lmtp_ltmle-F-R11-after.txt 4afc5b28faa124a4
+  full-lmtp_ltmle-F-R11-before.txt 4afc5b28faa124a4
+  full-lmtp_ltmle-F-R13-after.txt 32e92a38169978fc
+  full-lmtp_ltmle-F-R13-before.txt 32e92a38169978fc
+  full-lmtp_ltmle-P-R11-after.txt 4afc5b28faa124a4
+  full-lmtp_ltmle-P-R11-before.txt 4afc5b28faa124a4
+  full-lmtp_ltmle-P-R13-after.txt 32e92a38169978fc
+  full-lmtp_ltmle-P-R13-before.txt 32e92a38169978fc
+  full-weighted_lmtp_ltmle-F-R11-after.txt 4afc5b28faa124a4
+  full-weighted_lmtp_ltmle-F-R11-before.txt 4afc5b28faa124a4
+  full-weighted_lmtp_ltmle-F-R13-after.txt 32e92a38169978fc
+  full-weighted_lmtp_ltmle-F-R13-before.txt 32e92a38169978fc
+  full-weighted_lmtp_ltmle-P-R11-after.txt 4afc5b28faa124a4
+  full-weighted_lmtp_ltmle-P-R11-before.txt 4afc5b28faa124a4
+  full-weighted_lmtp_ltmle-P-R13-after.txt 32e92a38169978fc
+  full-weighted_lmtp_ltmle-P-R13-before.txt 32e92a38169978fc
+infrastructure reruns: none

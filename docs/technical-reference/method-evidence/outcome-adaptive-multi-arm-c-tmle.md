@@ -62,8 +62,8 @@ outcome scaler is already the identity.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `generated_design` | `estimated` | control | the same design is estimated from the data, as a real fit does | the SE-ratio deficit must reach the declared shortfall | SE ratio 0.9694 to 1.1026 | **fail** |
-| `generated_design` | `oracle_design` | positive | the outcome-adaptive design is supplied rather than estimated | SE ratio interval inside the calibration band | SE ratio 0.9797 to 1.1151 | **fail** |
+| `generated_design` | `estimated` | positive | the same design is estimated from the data, as a real fit does | SE ratio and coverage intervals both inside their calibration bands; the paired deficit is reported only | coverage 0.9267 to 0.9677, SE ratio 0.9694 to 1.1026 | **fail** |
+| `generated_design` | `oracle_design` | positive | the outcome-adaptive design is supplied rather than estimated | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9282 to 0.9688, SE ratio 0.9797 to 1.1151 | **fail** |
 | `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9357 to 0.9641, SE ratio 0.9668 to 1.0575 | pass |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
 | `robustness_contract` | `outcome_correct` | positive | the outcome regression is correct and the mechanism is not | bias interval inside the equivalence margin, SE ratio must remain between 0.1 and 10.0 | bias -0.0022 to 0.0022, margin 0.0052, SE ratio 0.9641 | pass |
@@ -113,14 +113,13 @@ outcome scaler is already the identity.
 | `margin:root_n_slope_lower` | -0.6250 | lower contraction band |
 | `margin:root_n_slope_upper` | -0.3750 | upper contraction band |
 | `margin:excluded_slope` | -0.2500 | slower rate the interval must exclude |
-| `margin:generated_design_deficit` | 0.0100 | required estimated-design SE-ratio deficit |
 
 ## Limitations
 
-This row has reporting policy, so its red cells publish. The generated-design pair did not
-resolve: the oracle design's SE-ratio interval leaves the calibration band, and the estimated
-design showed no measurable deficit against it. The row therefore prices no cost for estimating
-the treatment design.
+This row has reporting policy, so its red cells publish. Both generated-design SE-ratio intervals
+leave the calibration band. Their paired difference includes zero, which is reported but is not a
+failure criterion: the relevant question is whether each reported standard error calibrates to
+its own sampling spread.
 [F19](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) records what a
 source must settle before that changes.
 

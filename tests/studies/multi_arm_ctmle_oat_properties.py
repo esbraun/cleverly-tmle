@@ -18,6 +18,7 @@ from cleverly.estimators import CTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import multi_arm_common, multi_arm_properties
 from tests.studies.canonical_multi_arm_ctmle_oat import STRATIFY_FOLDS, STUDY
+from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.properties import (
     PropertyCell,
     run_cells,
@@ -30,8 +31,6 @@ from tests.studies.evidence.property_verdicts import (
     robustness_verdicts,
 )
 from tests.studies.evidence.seeds import stream_seed
-
-GENERATED_DESIGN_DEFICIT = 0.01
 
 
 def cells() -> tuple[PropertyCell, ...]:
@@ -115,9 +114,19 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         confidence_level=STUDY.margins.confidence_level,
         seed=stream_seed(STUDY, "generated_design", "estimated"),
     )
+    coverage = summary.loc[summary["property"] == "generated_design"].set_index("cell")
+
+    def calibrated(cell: str, interval: Interval) -> bool:
+        row = coverage.loc[cell]
+        low, high = STUDY.margins.calibration_coverage
+        return bool(
+            interval.within(*STUDY.margins.calibration_se_ratio)
+            and low <= row["coverage_ci_lower"] <= row["coverage_ci_upper"] <= high
+        )
+
     verdicts = {
-        "oracle_design": oracle_interval.within(*STUDY.margins.calibration_se_ratio),
-        "estimated": deficit.high <= -GENERATED_DESIGN_DEFICIT,
+        "oracle_design": calibrated("oracle_design", oracle_interval),
+        "estimated": calibrated("estimated", estimated_interval),
     }
     joint = bool(all(verdicts.values()))
     for cell, interval in (

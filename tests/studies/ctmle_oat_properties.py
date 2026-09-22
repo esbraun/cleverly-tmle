@@ -33,6 +33,7 @@ from tests.conftest import OracleOutcomeContinuous
 from tests.parallel import STUDY_JOBS
 from tests.studies import bounded_cv_laws, canonical_properties, cvtmle_properties
 from tests.studies.canonical_ctmle_oat import G_BOUNDS, STRATIFY_FOLDS, STUDY
+from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.properties import (
     PropertyCell,
     run_cells,
@@ -54,23 +55,19 @@ OAT_NULL_REPLICATES = 800
 #: OAT fits ``g`` on ``Qbar`` itself, so when ``Qbar`` is estimated the design ``g`` is
 #: fitted on is random too, and the influence curve is evaluated after that fit.  These
 #: cells are one law and one set of draws with a single difference: whether ``Qbar`` moves.
-#: ``oracle_design`` pins it, and must be calibrated -- that is the positive claim, and it
-#: is what says the machinery is right when the design is fixed.  ``estimated`` fits it, and
-#: is a *control*: it must report a materially smaller standard error relative to its own
-#: spread, because a study that could not separate the two designs would report the same
-#: "calibrated" verdict for both and establish nothing.
+#: ``oracle_design`` pins it, and must be calibrated -- that is the fixed-design claim.
+#: ``estimated`` fits it, and must be calibrated against its own sampling spread too.  The
+#: paired difference remains a reported finite-sample diagnostic; it is not an acceptance
+#: criterion, because the paper-backed first-order result predicts no separate
+#: generated-design contribution in its scalar binary scope.
 #:
-#: The margin is a detection threshold rather than a tolerance.  It registers a paired
-#: finite-sample difference between the two designs.  It does not decide whether an
-#: asymptotic correction exists, and the deficit is not by itself proof of an omitted
-#: first-order term.  ``docs/roadmap.md`` F19 carries that question, and a source-backed
-#: answer there must say whether and how this cell changes.
+#: The paired interval does not decide whether an asymptotic correction exists, and a
+#: finite-sample deficit is not by itself proof of an omitted first-order term.
+#: ``docs/roadmap.md`` F19 carries the multi-arm and cross-fitted questions.
 #: A cell whose law was chosen without measuring it first could have landed where OAT's
-#: design happens to span the true mechanism, where there is no difference to detect and
-#: the control fails for a reason that is not the estimator's.
+#: design happens to span the true mechanism, where there is no finite-sample difference.
 GENERATED_DESIGN_EFFECT = 0.3
 GENERATED_DESIGN_N = 1000
-GENERATED_DESIGN_DEFICIT = 0.01
 
 #: How many observations the preflight fit below draws.  Small: it reads a fitted scaler,
 #: which is a property of the declaration rather than of the sample, and it is paid once
@@ -162,7 +159,6 @@ def cells() -> tuple[PropertyCell, ...]:
             # The same seed as its pair on purpose: the deficit below is a paired
             # difference, and two cells drawn apart could not supply one.
             13_300,
-            role="control",
         ),
     )
     robustness = tuple(bounded_cv_laws.bounded_twin(cell) for cell in gaussian_robustness)
@@ -278,11 +274,21 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         confidence_level=STUDY.margins.confidence_level,
         seed=stream_seed(STUDY, "generated_design", "estimated"),
     )
+    coverage = summary.loc[summary["property"] == "generated_design"].set_index("cell")
+
+    def calibrated(cell: str, interval: Interval) -> bool:
+        row = coverage.loc[cell]
+        low, high = STUDY.margins.calibration_coverage
+        return bool(
+            interval.within(*STUDY.margins.calibration_se_ratio)
+            and low <= row["coverage_ci_lower"] <= row["coverage_ci_upper"] <= high
+        )
+
     design_verdicts = {
         # Fixed design: the ordinary calibration claim, on the ordinary band.
-        "oracle_design": bool(oracle_se.within(*STUDY.margins.calibration_se_ratio)),
-        # Estimated design: the omission must be *visible*, not merely suspected.
-        "estimated": bool(deficit.high <= -GENERATED_DESIGN_DEFICIT),
+        "oracle_design": calibrated("oracle_design", oracle_se),
+        # Estimated design: the reported standard error must calibrate to its own spread.
+        "estimated": calibrated("estimated", estimated_se),
     }
     design_joint = bool(all(design_verdicts.values()))
     for cell, interval in (("oracle_design", oracle_se), ("estimated", estimated_se)):

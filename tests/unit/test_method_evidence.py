@@ -709,17 +709,16 @@ class TestPublishedVerdicts:
         if not design.empty:
             margins = study.margins
             for row in design.itertuples():
-                if row.cell == "oracle_design":
-                    expected = (
-                        margins.calibration_se_ratio[0]
-                        <= row.se_ratio_ci_lower
-                        <= row.se_ratio_ci_upper
-                        <= margins.calibration_se_ratio[1]
-                    )
-                else:
-                    expected = (
-                        row.se_ratio_deficit_upper <= -study.properties().GENERATED_DESIGN_DEFICIT
-                    )
+                expected = (
+                    margins.calibration_se_ratio[0]
+                    <= row.se_ratio_ci_lower
+                    <= row.se_ratio_ci_upper
+                    <= margins.calibration_se_ratio[1]
+                    and margins.calibration_coverage[0]
+                    <= row.coverage_ci_lower
+                    <= row.coverage_ci_upper
+                    <= margins.calibration_coverage[1]
+                )
                 assert bool(row.passed) is bool(expected), (
                     f"{row.cell} publishes passed={row.passed} against its own endpoints"
                 )
@@ -1962,7 +1961,6 @@ MARGIN_SOURCES: dict[str, Any] = {
     "margin:clustered_coverage_gain": lambda s: property_verdicts.CLUSTERED_COVERAGE_GAIN,
     "margin:union_model_se_lower": lambda s: property_verdicts.UNION_MODEL_SE_BAND[0],
     "margin:union_model_se_upper": lambda s: property_verdicts.UNION_MODEL_SE_BAND[1],
-    "margin:generated_design_deficit": lambda s: s.properties().GENERATED_DESIGN_DEFICIT,
     "margin:selector_rmse_ratio": lambda s: s.properties().SELECTOR_RMSE_RATIO,
     "margin:repeat_spread_ratio": lambda s: s.properties().MAX_REPEAT_SPREAD_RATIO,
     "margin:shrunken_se_factor": lambda s: s.properties().SHRUNKEN_SE_FACTOR,
@@ -1995,6 +1993,130 @@ def test_no_margin_resolver_outlives_the_studies_that_reach_it() -> None:
         f"MARGIN_SOURCES resolves {orphans}, which no registered study publishes. "
         f"Remove the entry, or restore the study that declared it"
     )
+
+
+MATRIX = ROOT / "docs" / "technical-reference" / "index.md"
+MATRIX_COLUMNS = (
+    "implementation family",
+    "theory and citation",
+    "`cleverly` implementation",
+    "external provenance",
+    "correctness evidence",
+)
+
+#: A publication-policy word in the evidence column of the implementation matrix.
+_POLICY_WORD = re.compile(r"\b(?P<label>gated|reporting(?:-policy)?)\b", re.IGNORECASE)
+_MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\((?P<target>[^)\s]+)\)")
+_EVIDENCE_PAGE = re.compile(r"^method-evidence/(?P<page>[^)#]+\.md)")
+
+
+def _registered_policies() -> dict[str, set[str]]:
+    policies: dict[str, set[str]] = {}
+    for study in STUDIES:
+        policies.setdefault(Path(study.document).name, set()).add(study.publication_policy)
+    return policies
+
+
+def _matrix_policy_findings(
+    matrix: Path, policies: dict[str, set[str]]
+) -> tuple[list[tuple[str, str, list[str]]], list[str], int]:
+    """Read the policy label of every evidence-page link in the matrix's evidence column.
+
+    A link's label is the last policy word before it in the same clause, where a clause ends
+    at a semicolon.  Link text is not searched, so a page title cannot label itself.  So
+    ``gated ordinary and cross-fitted [a](...) and [b](...)`` labels both pages gated, and
+    ``a gated [a](...) and a reporting [b](...)`` labels them apart.
+
+    Returns the links whose label disagrees with the registry, the registered pages linked
+    with no label, and the count of labelled links.
+    """
+    wrong: list[tuple[str, str, list[str]]] = []
+    unlabelled: list[str] = []
+    labelled = 0
+    for row in pipe_table(matrix, MATRIX_COLUMNS):
+        for clause in row["correctness evidence"].split(";"):
+            label: str | None = None
+            cursor = 0
+            for link in _MARKDOWN_LINK.finditer(clause):
+                words = _POLICY_WORD.findall(clause[cursor : link.start()])
+                if words:
+                    label = words[-1].casefold()
+                cursor = link.end()
+                page = _EVIDENCE_PAGE.match(link["target"])
+                if page is None or page["page"] not in policies:
+                    continue
+                registered_policy = policies[page["page"]]
+                if label is None:
+                    unlabelled.append(page["page"])
+                    continue
+                labelled += 1
+                if registered_policy != {"gated" if label == "gated" else "reporting"}:
+                    wrong.append((page["page"], label, sorted(registered_policy)))
+    return wrong, unlabelled, labelled
+
+
+def test_the_implementation_matrix_names_each_study_s_publication_policy() -> None:
+    """Every registered page the matrix links carries the label of its registered policy.
+
+    Both directions of the label were wrong at once: the selector, outcome-adaptive and
+    continuous-policy studies declared ``reporting`` while the matrix still called them gated.
+    A later audit found links no label reached, including a ``reporting`` study the matrix
+    called only "registered".  The policy is a registry fact, so the label is checked against
+    it rather than re-read, and every linked registered page must carry one.
+    """
+    wrong, unlabelled, labelled = _matrix_policy_findings(MATRIX, _registered_policies())
+    assert labelled, "the implementation matrix labels no evidence page with a policy"
+    assert wrong == [], (
+        f"these matrix labels disagree with the registered publication policy: {wrong}"
+    )
+    assert unlabelled == [], (
+        f"the matrix links these registered evidence pages with no policy label: {unlabelled}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("original", "mutated", "finding"),
+    [
+        pytest.param(
+            "gated [stochastic-regime study]",
+            "reporting [stochastic-regime study]",
+            "wrong",
+            id="gated-page-called-reporting",
+        ),
+        pytest.param(
+            "reporting-policy [complete-outcome]",
+            "GATED [complete-outcome]",
+            "wrong",
+            id="reporting-page-called-gated-in-capitals",
+        ),
+        pytest.param(
+            "gated ordinary and cross-fitted [survival]",
+            "ordinary and cross-fitted [survival]",
+            "unlabelled",
+            id="label-removed-before-an-adjective",
+        ),
+        pytest.param(
+            "and binary-outcome [clustered CV-TMLE]",
+            "; binary-outcome [clustered CV-TMLE]",
+            "unlabelled",
+            id="clause-break-ends-a-label",
+        ),
+    ],
+)
+def test_the_matrix_policy_check_fails_on_a_mutated_label(
+    tmp_path: Path, original: str, mutated: str, finding: str
+) -> None:
+    """A deliberate mutation of the matrix's labels, on a copy, is reported.
+
+    The live matrix passes, so without this witness a reader that labelled nothing, or that
+    ignored case or clause breaks, would pass too.
+    """
+    text = MATRIX.read_text(encoding="utf-8")
+    assert text.count(original) == 1, f"the mutation target {original!r} moved"
+    copy = tmp_path / "index.md"
+    copy.write_text(text.replace(original, mutated), encoding="utf-8")
+    wrong, unlabelled, _ = _matrix_policy_findings(copy, _registered_policies())
+    assert wrong if finding == "wrong" else unlabelled, f"the mutation {mutated!r} went unreported"
 
 
 class TestTheQuantityVocabulary:
@@ -2089,11 +2211,6 @@ class TestTheQuantityVocabulary:
             low, high = property_verdicts.UNION_MODEL_SE_BAND
             assert declared["margin:union_model_se_lower"] == low
             assert declared["margin:union_model_se_upper"] == high
-        if "generated_design" in study.property_cells:
-            assert (
-                declared["margin:generated_design_deficit"]
-                == study.properties().GENERATED_DESIGN_DEFICIT
-            )
         if "selector_necessity" in study.property_cells:
             selector = study.properties()
             assert declared["margin:selector_rmse_ratio"] == selector.SELECTOR_RMSE_RATIO
