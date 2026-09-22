@@ -198,6 +198,15 @@ def test_the_legs_decide_the_verdict(tables: dict[str, dict[str, pd.DataFrame]])
         red_rows(study, copied)
 
 
+def test_a_committed_margin_must_match_the_registry(
+    tables: dict[str, dict[str, pd.DataFrame]],
+) -> None:
+    study, copied, red = _shift_tables(tables)
+    copied["equivalence"].loc[red, "rmse_noninferiority_margin"] += 1e-6
+    with pytest.raises(ValueError, match="committed comparison margins disagree"):
+        red_rows(study, copied)
+
+
 def _one_leg(
     tables: dict[str, dict[str, pd.DataFrame]],
     endpoints: dict[str, float],

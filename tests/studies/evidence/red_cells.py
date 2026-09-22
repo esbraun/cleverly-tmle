@@ -48,7 +48,7 @@ import pandas as pd
 
 from tests.documents import pipe_table
 from tests.studies.evidence import property_verdicts
-from tests.studies.evidence.comparison import comparison_conclusion
+from tests.studies.evidence.comparison import ComparisonVerdict, comparison_verdict
 from tests.studies.evidence.document import _CLOSE, _OPEN, _table, measured, render
 from tests.studies.evidence.manifest import write_lines
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord, registered
@@ -349,61 +349,7 @@ def frames(record: StudyRecord) -> dict[str, pd.DataFrame]:
     return tables
 
 
-@dataclass(frozen=True)
-class PairedLegs:
-    """One paired row's verdict, rebuilt from its committed leg endpoints.
-
-    Parameters
-    ----------
-    similar : bool
-        The paired-difference interval lies inside the similarity margin.
-    rmse : bool
-        The RMSE-ratio bound clears its non-inferiority margin.
-    coverage : bool
-        The coverage-difference bound clears its non-inferiority margin.
-    calibration : bool
-        The calibration-excess bound clears its margin, or the standard errors are not
-        comparable.
-    resolved : bool
-        The calibration leg could have concluded at all.
-    superior : bool
-        The subject covers better and passes the other legs.
-    conclusion : str
-        What :func:`~tests.studies.evidence.comparison.comparison_conclusion` concludes.
-    passed : bool
-        The verdict the legs produce.
-    """
-
-    similar: bool
-    rmse: bool
-    coverage: bool
-    calibration: bool
-    resolved: bool
-    superior: bool
-    conclusion: str
-    passed: bool
-
-    def failed(self) -> list[str]:
-        """Name every leg that failed, in the order the comparison reads them.
-
-        Returns
-        -------
-        list of str
-            One entry per failed leg, or per unresolved design.
-        """
-        legs = {
-            "similarity leg": self.similar,
-            "RMSE leg": self.rmse,
-            "coverage leg": self.coverage,
-            "calibration leg": self.calibration,
-        }
-        out = [name for name, held in legs.items() if not held]
-        if not self.resolved:
-            out.append("calibration resolution")
-        return out
-
-
-def paired_legs(row: Any, margins: Margins, subject_valid: bool) -> PairedLegs:
+def paired_legs(row: Any, margins: Margins, subject_valid: bool) -> ComparisonVerdict:
     """Rebuild a paired verdict from its committed endpoints.
 
     Each leg is the comparison :func:`tests.studies.evidence.comparison.equivalence` makes,
@@ -422,46 +368,60 @@ def paired_legs(row: Any, margins: Margins, subject_valid: bool) -> PairedLegs:
 
     Returns
     -------
-    PairedLegs
+    ComparisonVerdict
         Every leg, and the verdict they produce.
     """
-    comparable = bool(row.se_comparable)
-    similar = bool(
-        row.paired_ci_lower >= -row.mean_margin and row.paired_ci_upper <= row.mean_margin
+    committed = {
+        "confidence_level": float(row.confidence_level),
+        "rmse_noninferiority": float(row.rmse_noninferiority_margin),
+        "coverage_noninferiority": float(row.coverage_noninferiority_margin),
+    }
+    current = {
+        "confidence_level": margins.confidence_level,
+        "rmse_noninferiority": margins.rmse_noninferiority,
+        "coverage_noninferiority": margins.coverage_noninferiority,
+    }
+    if bool(row.se_comparable):
+        committed["calibration_noninferiority"] = float(row.calibration_noninferiority_margin)
+        current["calibration_noninferiority"] = margins.calibration_noninferiority
+    drift = [
+        name
+        for name in committed
+        if not math.isclose(committed[name], current[name], rel_tol=0.0, abs_tol=1e-15)
+    ]
+    if drift:
+        raise ValueError(
+            f"the committed comparison margins disagree with the registry for {', '.join(drift)}"
+        )
+    return comparison_verdict(
+        paired_ci_lower=float(row.paired_ci_lower),
+        paired_ci_upper=float(row.paired_ci_upper),
+        mean_margin=float(row.mean_margin),
+        rmse_ratio_upper=float(row.rmse_ratio_upper),
+        rmse_noninferiority_margin=float(row.rmse_noninferiority_margin),
+        coverage_difference_lower=float(row.coverage_difference_lower),
+        coverage_noninferiority_margin=float(row.coverage_noninferiority_margin),
+        se_comparable=bool(row.se_comparable),
+        calibration_excess_upper=float(row.calibration_excess_upper),
+        calibration_excess_resolution=float(row.calibration_excess_resolution),
+        calibration_noninferiority_margin=float(row.calibration_noninferiority_margin),
+        subject_valid=subject_valid,
     )
-    rmse = bool(row.rmse_ratio_upper <= margins.rmse_noninferiority)
-    coverage = bool(row.coverage_difference_lower >= margins.coverage_noninferiority)
-    calibration = bool(
-        not comparable or row.calibration_excess_upper <= margins.calibration_noninferiority
-    )
-    resolution = float(row.calibration_excess_resolution)
-    resolved = bool(
-        not comparable
-        or (math.isfinite(resolution) and resolution <= margins.calibration_noninferiority)
-    )
-    superior = bool(row.coverage_difference_lower > 0.0 and subject_valid and rmse and calibration)
-    conclusion, passed = comparison_conclusion(
-        similar=similar,
-        not_inferior=rmse and coverage and calibration,
-        coverage_superior=superior,
-        resolved=resolved,
-    )
-    return PairedLegs(similar, rmse, coverage, calibration, resolved, superior, conclusion, passed)
 
 
-def _paired_measured(row: Any, margins: Margins) -> str:
+def _paired_measured(row: Any) -> str:
     text = (
         f"difference {render(float(row.paired_ci_lower))} to "
         f"{render(float(row.paired_ci_upper))} within {render(float(row.mean_margin))}, "
         f"RMSE ratio bound {render(float(row.rmse_ratio_upper))} "
-        f"vs {render(margins.rmse_noninferiority)}, "
+        f"vs {render(float(row.rmse_noninferiority_margin))}, "
         f"coverage difference bound {render(float(row.coverage_difference_lower))} "
-        f"vs {render(margins.coverage_noninferiority)}"
+        f"vs {render(float(row.coverage_noninferiority_margin))}"
     )
     if bool(row.se_comparable):
         text += (
             f", calibration excess bound {render(float(row.calibration_excess_upper))} "
-            f"vs {render(margins.calibration_noninferiority)}, "
+            f"vs {render(float(row.calibration_noninferiority_margin))}, "
             f"resolution {render(float(row.calibration_excess_resolution))}"
         )
     return text
@@ -527,7 +487,7 @@ def red_rows(record: StudyRecord, tables: Mapping[str, pd.DataFrame]) -> list[Re
                 RedKey(record.slug, "paired", f"{row.scenario}/{row.estimand}"),
                 "paired",
                 f"{legs.conclusion}: {', '.join(legs.failed())}",
-                _paired_measured(row, record.margins),
+                _paired_measured(row),
             )
         )
 

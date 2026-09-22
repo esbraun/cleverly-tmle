@@ -14,6 +14,7 @@ reference instead of turning the subject's row red.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -120,6 +121,87 @@ def comparison_conclusion(
     if not resolved:
         return "underpowered", False
     return "inconclusive", False
+
+
+@dataclass(frozen=True)
+class ComparisonVerdict:
+    """The decisions that determine one paired comparison verdict."""
+
+    similar: bool
+    rmse: bool
+    coverage: bool
+    calibration: bool
+    resolved: bool
+    superior: bool
+    conclusion: str
+    passed: bool
+
+    def failed(self) -> list[str]:
+        """Name every failed leg, followed by an unresolved calibration design."""
+        legs = {
+            "similarity leg": self.similar,
+            "RMSE leg": self.rmse,
+            "coverage leg": self.coverage,
+            "calibration leg": self.calibration,
+        }
+        out = [name for name, held in legs.items() if not held]
+        if not self.resolved:
+            out.append("calibration resolution")
+        return out
+
+
+def comparison_verdict(
+    *,
+    paired_ci_lower: float,
+    paired_ci_upper: float,
+    mean_margin: float,
+    rmse_ratio_upper: float,
+    rmse_noninferiority_margin: float,
+    coverage_difference_lower: float,
+    coverage_noninferiority_margin: float,
+    se_comparable: bool,
+    calibration_excess_upper: float,
+    calibration_excess_resolution: float,
+    calibration_noninferiority_margin: float,
+    subject_valid: bool,
+) -> ComparisonVerdict:
+    """Decide a paired verdict from its endpoints and recorded margins.
+
+    Study generation and the red-cell ledger share this function. The ledger therefore audits a
+    committed row without reimplementing the scientific decision rule.
+    """
+    similar = bool(paired_ci_lower >= -mean_margin and paired_ci_upper <= mean_margin)
+    rmse = bool(rmse_ratio_upper <= rmse_noninferiority_margin)
+    coverage = bool(coverage_difference_lower >= coverage_noninferiority_margin)
+    calibration = bool(
+        not se_comparable or calibration_excess_upper <= calibration_noninferiority_margin
+    )
+    resolved = bool(
+        not se_comparable
+        or (
+            math.isfinite(calibration_excess_resolution)
+            and calibration_excess_resolution <= calibration_noninferiority_margin
+        )
+    )
+    superior = bool(
+        coverage_difference_lower > 0.0 and subject_valid and rmse and calibration
+    )
+    conclusion, passed = comparison_conclusion(
+        similar=similar,
+        not_inferior=rmse and coverage and calibration,
+        coverage_superior=superior,
+        resolved=resolved,
+    )
+    return ComparisonVerdict(
+        similar,
+        rmse,
+        coverage,
+        calibration,
+        resolved,
+        superior,
+        conclusion,
+        passed,
+    )
 
 
 def _bounds(payload: tuple[StudyRecord, pd.DataFrame, str, float, int]) -> dict[str, Any]:
@@ -248,25 +330,7 @@ def equivalence(
                 - abs(cell.loc[reference, "se_ratio"] - 1.0),
             )
         )
-        not_inferior = bool(
-            bound["rmse_ratio_upper"] <= margins.rmse_noninferiority
-            and bound["coverage_difference_lower"] >= margins.coverage_noninferiority
-            and (
-                not se_comparable
-                or bound["calibration_excess_upper"] <= margins.calibration_noninferiority
-            )
-        )
-        similar = interval.within(-mean_margin, mean_margin)
         subject_valid = bool(verdicts.loc[(subject, scenario, estimand)])
-        coverage_superior = bool(
-            bound["coverage_difference_lower"] > 0.0
-            and subject_valid
-            and bound["rmse_ratio_upper"] <= margins.rmse_noninferiority
-            and (
-                not se_comparable
-                or bound["calibration_excess_upper"] <= margins.calibration_noninferiority
-            )
-        )
         # Whether the *calibration* leg could have concluded anything.  The other two legs
         # carry their own resolution in the same sense, but only this one has been observed
         # to exceed its margin on a registered study, and stating a precondition per leg
@@ -279,16 +343,19 @@ def equivalence(
         # end at "not resolved", so the comparison is the same; what the explicit form buys
         # is that a reader of this line knows the ``nan`` case was considered rather than
         # inherited from the semantics of a comparison against it.
-        resolution = float(bound["calibration_excess_resolution"])
-        calibration_resolved = bool(
-            not se_comparable
-            or (math.isfinite(resolution) and resolution <= margins.calibration_noninferiority)
-        )
-        conclusion, comparison_passed = comparison_conclusion(
-            similar=similar,
-            not_inferior=not_inferior,
-            coverage_superior=coverage_superior,
-            resolved=calibration_resolved,
+        decision = comparison_verdict(
+            paired_ci_lower=interval.low,
+            paired_ci_upper=interval.high,
+            mean_margin=mean_margin,
+            rmse_ratio_upper=float(bound["rmse_ratio_upper"]),
+            rmse_noninferiority_margin=margins.rmse_noninferiority,
+            coverage_difference_lower=float(bound["coverage_difference_lower"]),
+            coverage_noninferiority_margin=margins.coverage_noninferiority,
+            se_comparable=se_comparable,
+            calibration_excess_upper=float(bound["calibration_excess_upper"]),
+            calibration_excess_resolution=float(bound["calibration_excess_resolution"]),
+            calibration_noninferiority_margin=margins.calibration_noninferiority,
+            subject_valid=subject_valid,
         )
         records.append(
             {
@@ -305,7 +372,7 @@ def equivalence(
                 "paired_ci_upper": interval.high,
                 "mean_margin": mean_margin,
                 "margin_utilization": abs(float(np.mean(difference))) / mean_margin,
-                "paired_similarity": similar,
+                "paired_similarity": decision.similar,
                 "rmse_ratio": rmse_ratio,
                 "rmse_ratio_upper": bound["rmse_ratio_upper"],
                 "rmse_noninferiority_margin": margins.rmse_noninferiority,
@@ -322,7 +389,7 @@ def equivalence(
                 "subject_calibration_excess": calibration_excess if se_comparable else math.nan,
                 "calibration_excess_upper": bound["calibration_excess_upper"],
                 "calibration_excess_resolution": bound["calibration_excess_resolution"],
-                "calibration_resolved": calibration_resolved,
+                "calibration_resolved": decision.resolved,
                 "calibration_noninferiority_margin": (
                     margins.calibration_noninferiority if se_comparable else math.nan
                 ),
@@ -332,10 +399,12 @@ def equivalence(
                 ),
                 "subject_valid": subject_valid,
                 "reference_valid": bool(verdicts.loc[(reference, scenario, estimand)]),
-                "coverage_superior": coverage_superior,
-                "subject_not_inferior": not_inferior,
-                "comparison_conclusion": conclusion,
-                "passed": comparison_passed,
+                "coverage_superior": decision.superior,
+                "subject_not_inferior": (
+                    decision.rmse and decision.coverage and decision.calibration
+                ),
+                "comparison_conclusion": decision.conclusion,
+                "passed": decision.passed,
             }
         )
     return pd.DataFrame.from_records(records, columns=list(EQUIVALENCE_COLUMNS))
