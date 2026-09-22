@@ -267,9 +267,22 @@ stdout:
   |                                     P5                                             holds                                   comparison max_weight: min 13.866914, max 373.778274; at or above 2000: 0 of 52
   | P2 over every fitted regimen, not read                                             holds                                               comparison replicate and arm pairs with a floored follower: 0 of 26
   | P5 over every fitted regimen, not read                                             holds                                    comparison max_weight: min 9.513288, max 373.778274; at or above 2000: 0 of 78
-  |                                reading positivity of the out-of-fold saturated mechanism                                                                                                                  
+  |                                reading positivity of the out-of-fold saturated mechanism
   | wrote 156 refit rows and 9 reading rows to C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\.tmp\rm18a\run
 uv pip freeze after: identical
 tree status after=[]  commit=ff6106b5ecef5a4bf7d6057908cc79eb091115ce
 output refit.csv sha256=be724923f69577db3ed4bc2c524c6e51e732f9b9071065e405039c7c61368a27
 output reading.csv sha256=9b338a79a2fa0d35a65a1d072d9774ce8e17e7af11a8de7f2405704acd06ae81
+
+review rerun
+declaration commit=ad05b33df13f8d2ca7d76b8da352fe2f32c07c43 pushed before rerun
+code commit=c825ad54afa5df4b37a583d9668f4562a8b3c2e5 tree status before=[]
+started_utc=2026-09-22T14:47:00.6888176Z
+finished_utc=2026-09-22T14:47:08.0910940Z
+command=.venv\Scripts\python.exe -m tests.diagnostics.rm18_learner_weight_se.refit --output tests/diagnostics/rm18_learner_weight_se --jobs 16
+thread limits=OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+exit=0 refits=52 wall_seconds=4.9 per_refit_seconds_min=0.1 median=0.3 max=0.7 sum=17.5
+tree status after=[]
+output refit.csv sha256=be724923f69577db3ed4bc2c524c6e51e732f9b9071065e405039c7c61368a27
+output reading.csv sha256=5235d79afed5d9fd54f44b7c0dfa055dcb875302ed1c99e1d5673447758abc57
+reading=finite-sample empty-cell instability in the out-of-fold mechanism estimate

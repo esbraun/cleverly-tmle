@@ -1039,7 +1039,7 @@ gives the cells of each owner and the reason for each assignment.
 | `RM18-one-sided-bias` | a reading of the three one-sided-robustness bias rows | delivered. The reading that "[The one-sided robustness reading, declared before it is computed](#the-one-sided-robustness-reading-declared-before-it-is-computed)" declares ran once. "[What the one-sided reading found](#what-the-one-sided-reading-found)" gives its result. The three cells stay red under `reporting` |
 | `RM18-slopes` | a reading of the two multi-arm DR-TMLE contraction slopes | open: the design this row asks for is not declared, and it has not run. This row computed the cost of that design. The row closes when a rung design declared before its run reads both slopes |
 | `RM18-ordinary-weighted` | an owner for the six red rows of the ordinary weighted longitudinal study | open: the design this row asks for is not declared, and it has not run. The row closes when a design declared before its run reads the calibration row, the sharp-null row and the `targeting_necessity` family |
-| `RM18-learner-weight-se` | a diagnostic for the standard-error explosions in the cross-fitted `learner_weight_necessity` rows | delivered. The diagnostic that "[The learner-weight standard-error diagnostic, declared before it runs](#the-learner-weight-standard-error-diagnostic-declared-before-it-runs)" declares ran once. "[What the learner-weight diagnostic found](#what-the-learner-weight-diagnostic-found)" gives its reading. This row owns no red cell |
+| `RM18-learner-weight-se` | a diagnostic for the standard-error explosions in the cross-fitted `learner_weight_necessity` rows | delivered. A complete review declaration was pushed before a clean rerun that reproduced the refit table. "[What the learner-weight diagnostic found](#what-the-learner-weight-diagnostic-found)" gives its reading. This row owns no red cell |
 | `RM18-boundary` | an owner for the red cells that sit at a finite-budget boundary | open: no re-read design is declared. Each cell stays red under `reporting` at its declared budget. A re-read needs a design declared before its run, and this row refuses an undeclared budget |
 | `RM18-comparator-density` | an attribution of the red paired row of the continuous modified treatment policy study | open: the design this row asks for is not declared, and it has not run. The row closes when a design declared before its run attributes the calibration excess to `cleverly` or to the comparator |
 
@@ -1548,7 +1548,13 @@ changes no verdict and no committed row.
 (what-the-learner-weight-diagnostic-found)=
 #### What the learner-weight diagnostic found
 
-The diagnostic ran once under the declaration above, from the clean tree at `ff6106b`. It started
+The review rerun started at 2026-09-22 14:47 UTC from clean pushed commit `c825ad5`, after the
+complete rerun declaration was committed and pushed at `ad05b33`. Its 52 refits completed in 4.9
+seconds and reproduced `refit.csv` byte for byte. The reading label alone changed as declared.
+`run.log` records the two commit hashes, command, thread limits, output hashes and clean-tree
+checks.
+
+The original diagnostic ran from the clean tree at `ff6106b`. It started
 at 2026-09-22 05:42 UTC, which is 2026-09-21 22:42 in the local time zone (UTC-7). Every value
 below comes from `reading.csv` and `refit.csv` in
 [`tests/diagnostics/rm18_learner_weight_se/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_learner_weight_se).
