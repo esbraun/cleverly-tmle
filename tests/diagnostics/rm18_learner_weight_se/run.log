@@ -286,3 +286,14 @@ tree status after=[]
 output refit.csv sha256=be724923f69577db3ed4bc2c524c6e51e732f9b9071065e405039c7c61368a27
 output reading.csv sha256=5235d79afed5d9fd54f44b7c0dfa055dcb875302ed1c99e1d5673447758abc57
 reading=finite-sample empty-cell instability in the out-of-fold mechanism estimate
+
+final formatted-source replay
+code commit=3710a2f64b93f2f254c2031e91e122f8385cf679 tree status before=[]
+started_utc=2026-09-22T14:51:44.3694151Z
+finished_utc=2026-09-22T14:52:06.0138718Z
+command=.venv\Scripts\python.exe -m tests.diagnostics.rm18_learner_weight_se.refit --output tests/diagnostics/rm18_learner_weight_se --jobs 16
+thread limits=OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+exit=0 refits=52 wall_seconds=15.6 per_refit_seconds_min=0.2 median=0.7 max=3.8 sum=55.6
+tree status after=[]
+output refit.csv sha256=be724923f69577db3ed4bc2c524c6e51e732f9b9071065e405039c7c61368a27
+output reading.csv sha256=5235d79afed5d9fd54f44b7c0dfa055dcb875302ed1c99e1d5673447758abc57

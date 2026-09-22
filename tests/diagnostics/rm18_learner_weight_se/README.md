@@ -96,6 +96,8 @@ seconds. `refit.csv` remained byte-identical, with SHA-256
 `be724923f69577db3ed4bc2c524c6e51e732f9b9071065e405039c7c61368a27`. Only the reading label
 changed, as declared. The appended `review rerun` block in `run.log` records the command, thread
 limits, commits, hashes, wall time and clean-tree checks.
+After Ruff formatting, a final clean replay at pushed commit `3710a2f` reproduced both output
+hashes again; its longer 15.6-second wall time overlapped the full fast test suite.
 
 The run started at 2026-09-22 05:42:07 UTC, which is 2026-09-21 22:42 in the local time zone
 (UTC-7). `ff6106b` was committed at 05:42:01 UTC. The run used that clean tree, with 16
