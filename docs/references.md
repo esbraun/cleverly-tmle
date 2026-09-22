@@ -723,6 +723,12 @@ is the only empirical witness for it.
   Section 3.3.2 selects a propensity truncation level with C-TMLE. The preprint states no theorem.
   Section 4.5 reports that the estimated variance of CV-TMLE, MV-TMLE, and C-TMLE was smaller than
   the true variance in its experiments.
+- Gruber, Phillips, Lee & van der Laan (2022), [*Data-adaptive selection of the propensity score
+  truncation level for inverse-probability-weighted and targeted maximum likelihood estimators of
+  marginal point treatment effects*](https://doi.org/10.1093/aje/kwac087), *American Journal of
+  Epidemiology* 191(9):1640-1651, DOI 10.1093/aje/kwac087. The paper distinguishes the causal
+  positivity assumption from finite-sample instability caused by estimated probabilities near a
+  boundary. That distinction governs the RM18 learner-weight diagnostic's terminology.
 - Ju, Wyss, Franklin, Schneeweiss, Häggström & van der Laan (2019), [*Collaborative-controlled
   LASSO for constructing propensity score-based estimators in high-dimensional
   data*](https://doi.org/10.1177/0962280217744588), *Statistical Methods in Medical Research*
@@ -740,6 +746,25 @@ is the only empirical witness for it.
   than an analytic formula, and the dissertation leaves practical longitudinal and
   high-dimensional extensions to future work. It does not establish inference for the package's
   learned nuisances, discrete stopping rule or joint targets.
+- Dang, Tarp, Abrahamsen et al. (2025), [*Experiment-selector cross-validated targeted maximum
+  likelihood estimator for hybrid RCT-external data
+  studies*](https://doi.org/10.1515/jci-2024-0041), *Journal of Causal Inference* 13:20240041,
+  DOI 10.1515/jci-2024-0041, preprint [arXiv:2210.05802](https://arxiv.org/abs/2210.05802).
+  Read first-hand. The construction performs experiment selection in each training fold and effect
+  estimation in its held-out fold. It derives a nonstandard limit and Monte Carlo intervals for
+  that selector. It is positive precedent for a fold-local selection redesign, but it does not
+  cover the package's targeted-loss criterion, global shared stopping index or target family. The
+  authors provide the R package [`EScvtmle`](https://cran.r-project.org/package=EScvtmle).
+- van der Laan, Qiu, Tarp & van der Laan (2026), [*Adaptive-TMLE for the average treatment effect
+  based on randomized controlled trial augmented with real-world
+  data*](https://doi.org/10.1515/jci-2024-0025), *Journal of Causal Inference* 14:20240025,
+  DOI 10.1515/jci-2024-0025, preprint [arXiv:2405.07186](https://arxiv.org/abs/2405.07186).
+  The paper proves asymptotic normality for its adaptive working-model estimator. It is adjacent to
+  F18, and not a result for the shipped collaborative selector.
+- Karim (2026), [*When Does Real-World Data Make a Randomized Trial More Efficient? Selection-Aware
+  Inference for Adaptive-TMLE*](https://arxiv.org/abs/2607.02787), arXiv:2607.02787. This entry
+  records a simulation caution. It reports undercoverage for selection-unaware standard errors and
+  studies a block jackknife in its RCT augmentation setting. It supplies no F18 theorem.
 
   Three 2019 *SMMR* papers have Cheng Ju as first author. The Ju, Gruber et al. entry above is
   volume 28(2), DOI 10.1177/0962280217729845. The Ju, Schwab and van der Laan entry is also volume
@@ -1008,6 +1033,10 @@ is the only empirical witness for it.
   The R Journal `CIMTx` article (DOI 10.32614/RJ-2022-058) calls `tmle` for multiple treatments and
   uses a nonparametric bootstrap; it does not derive the package's shared-multinomial
   outcome-adaptive construction or its joint covariance.
+- Labayle et al. (2025), [*TMLE.jl: Targeted Minimum Loss-Based Estimation in
+  Julia*](https://doi.org/10.21105/joss.08446), *Journal of Open Source Software* 10(112):8446,
+  DOI 10.21105/joss.08446, implements greedy and scalable C-TMLE variants and categorical
+  treatments. It is software provenance, not a post-selection theorem for a shared stopping rule.
 - The `tlverse/ctmle3` implementation at commit
   [`a4ea77b`](https://github.com/tlverse/ctmle3/tree/a4ea77b07747dfee9b2eecb9cbca88262e0559ea).
   [`LF_oat`, lines 110-133](https://github.com/tlverse/ctmle3/blob/a4ea77b07747dfee9b2eecb9cbca88262e0559ea/R/LF_oat.R#L110-L133)
@@ -1457,11 +1486,13 @@ rather than a comparison target.
   the two differ. Read first-hand. Theorem 1 states the score and remainder conditions for
   asymptotic linearity. Section 4 supplies the binary simulation law and its three nuisance
   scenarios.
-- Benkeser & Hejazi (2023), *Doubly-Robust Inference in R using `drtmle`*, Observational Studies
-  9(2):43–78. Read first-hand. Multi-level treatments are §4.6, pp. 66–67; cross-validated nuisance
-  regression is §4.7, p. 69. The package vignette describes both reduced-regression choices for
-  user-specified levels of a discrete treatment, and the pinned source implements the bivariate
-  branch inside the same per-level loop; that is the provenance for the multi-arm extension, not
+- Benkeser & Hejazi (2023), [*Doubly-Robust Inference in R using
+  `drtmle`*](https://doi.org/10.1353/obs.2023.0017), *Observational Studies* 9(2):43–78, DOI
+  10.1353/obs.2023.0017. Read first-hand. Multi-level treatments are §4.6, pp. 66–67;
+  cross-validated nuisance regression is §4.7, p. 69. The package vignette describes both
+  reduced-regression choices for user-specified levels of a discrete treatment, and the pinned
+  source implements the bivariate branch inside the same per-level loop; that is the provenance
+  for the multi-arm extension, not
   an expansion of van der Laan's binary theorem.
 - Díaz & van der Laan (2017), *Doubly robust inference for targeted minimum loss-based estimation
   in randomized trials with missing outcome data*, Statistics in Medicine 36:3807–3819, DOI

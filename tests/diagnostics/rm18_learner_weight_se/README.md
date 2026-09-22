@@ -105,10 +105,14 @@ arguments. `refit_all` now passes each payload whole.
 | P3 | holds | floored followers carry from 0.999923 to 1.000000 of the squared contrast influence curve |
 | P4 | holds | each floored follower has a raw prefix of exactly zero |
 | P5 | holds | comparison `max_weight` from 9.51 to 373.78 over all 78 regimen fits, against 2,000 |
-| reading | positivity of the out-of-fold saturated mechanism | P1, P3 and P4 hold |
+| reading | finite-sample empty-cell instability in the out-of-fold mechanism estimate | P1, P3 and P4 hold |
 
 The selected fits count 44 floored followers, and all of them are in the `always` regimen.
 No `never` or `treat_if_l2` fit has a floored follower.
 Both supplementary rows hold. P2 over every regimen finds no floored follower, and P5 over the
 contrast regimens runs from 13.87 to 373.78.
 `reading.csv` and `refit.csv` carry every value above.
+
+This reading describes instability in the finite-sample estimate of the treatment mechanism. It
+does not assert a violation of the causal positivity assumption, which is a property of the true
+treatment law.

@@ -34,7 +34,7 @@ verdict stays red under a `reporting` policy, so no verdict is hidden and no mar
 
 The ledger delivers the reporting action that row 0.1 names. RM18 is not complete. Five of its
 follow-ups ask for a design declared before its run, and none of those designs is declared or
-has run. RM18 lists them in "Eight findings that RM18 deferred". The cells that F18 and F19 own
+has run. RM18 lists them in "Deferred findings and review resolutions". The cells that F18 and F19 own
 stay red until F18 or F19 meets its acceptance. That needs a published result, or a natural
 extension that meets the [Eligibility](#eligibility) conditions.
 
@@ -51,7 +51,7 @@ the probe that measured it.
 | 0.5 | Intervention refusals at identification | refuse mixed intervention kinds in `CausalStudy.identify`, and name the typed estimands in each message | a mixed request passes identification and then fails at estimation, once with an `AttributeError` | [RM14](#rm14-intervention-refusals-at-identification) |
 | 0.6 | Calibration-slope warning rule | replace the fixed band with a rule that a registered calibration study supports | the band flagged 14 of 40 fits of a correctly specified weak-signal propensity model | [RM15](#rm15-calibration-slope-warning-rule) |
 | 0.7 | Summary and error-message accuracy | correct four display surfaces and one data error message, and add a fingerprint-only protocol option | each surface omits, misstates, or repeats a fact that the fit records | [RM16](#rm16-summary-and-error-message-accuracy) |
-| 0.8 | One-sided robustness bias increment in DR-TMLE | localize the part of the binary `treatment_correct` bias that `cleverly` adds over R `drtmle` on the same rows, under a design declared before it runs | the RM18 reading measures a `mixed` bias on that configuration. The unadjusted paired 99% interval of `cleverly` minus R `drtmle` runs 0.000068 to 0.001942. A Bonferroni interval over the three paired intervals covers zero | [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) |
+| 0.8 | One-sided robustness bias increment in DR-TMLE | investigate the exploratory between-implementation increment on binary `treatment_correct`, under a design declared before it runs | the RM18 reading is `mixed` on that configuration. The unadjusted paired 99% interval of `cleverly` minus R `drtmle` runs 0.000068 to 0.001942, while the Bonferroni interval for that comparison covers zero. No implementation defect is established | [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) |
 
 Use six delivery groups for these eight rows and investigations. Keep each item's acceptance
 criteria separate inside its group.
@@ -520,7 +520,7 @@ no red row, an owner that the `id` column does not list, and a red row in a `gat
 The ledger delivers the reporting end state. Every red verdict stays red under `reporting` at its
 registered budget and margin. RM18 itself stays open. Five of its follow-ups ask for a design
 declared before its run, and none of those designs is declared or has run. "What this row asks
-for" marks each one `open`, and "Eight findings that RM18 deferred" says why each one waits.
+for" marks each one `open`, and "Deferred findings and review resolutions" says why each one waits.
 
 The rows that F18 and F19 own stay red until F18 or F19 meets its acceptance.
 [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) carries the one measured increment
@@ -1338,9 +1338,10 @@ This subsection declares the reading that `RM18-one-sided-bias` asks for. It pre
 computation of every statistic below. `tests/diagnostics/rm18_one_sided_bias/` will hold the code
 and its output.
 
-Three cells fail bias equivalence while one nuisance is correct. The reading asks whether the bias
-belongs to the law or to `cleverly`. Only an independent implementation on the same rows can
-separate the two.
+Three cells fail bias equivalence while one nuisance is correct. The reading asks whether R
+`drtmle` reproduces each finite-sample bias on the same rows. Agreement shows that a result is
+shared by these two implementations at this size. It does not distinguish the simulation law from
+an algorithmic feature or error that both implementations share.
 
 | study | rows that R `drtmle` fits | what the reading can use |
 | --- | --- | --- |
@@ -1374,18 +1375,17 @@ A `both_correct` paired interval that excludes zero means the two implementation
 neither nuisance is wrong. An increment on a one-sided configuration is then not specific to
 one-sided robustness, so the rule reads it as unresolved.
 
-The multi-arm rule reads statistic (iv) alone.
+The multi-arm rule reads statistic (iv) alone. A review corrected the labels after the first run.
+A fixed-size contrast cannot establish asymptotic consistency.
 
 | reading | condition | what it means |
 | --- | --- | --- |
-| Monte Carlo consistent | (iv) covers zero | the one-sided bias cannot be told apart from the bias of the fully specified primary run at the same size |
-| not consistent | (iv) excludes zero | the misspecified treatment mechanism adds bias that the fully specified run does not show |
+| finite-sample excess not detected | (iv) covers zero | this comparison does not distinguish the two streams at this size |
+| finite-sample excess detected | (iv) excludes zero | the property-cell stream and fully specified primary stream have different mean biases under this comparison. The statistic does not identify the cause or establish asymptotic inconsistency |
 
-Erratum, added on 2026-09-22 after the reading ran. The `not consistent` row above names "the
-misspecified treatment mechanism". In the `treatment_correct` configuration, the treatment
-mechanism is correct and the outcome regression is misspecified. `_nuisances` in
-`tests/studies/multi_arm_drtmle_properties.py` builds that pair. The rule reads statistic (iv)
-alone, so this note changes no statistic and no reading.
+The `treatment_correct` configuration has a correct treatment mechanism and a misspecified outcome
+regression. `_nuisances` in `tests/studies/multi_arm_drtmle_properties.py` builds that pair. The
+review correction changes no statistic.
 
 The reading states a result and changes no verdict. The three cells stay red under `reporting`. A
 `mixed` or `estimator-specific` binary reading opens a new row that localizes the increment.
@@ -1422,13 +1422,14 @@ artifacts. Each binary interval is a 99% Student interval over 800 replications 
 The `both_correct` paired interval covers zero. The two implementations therefore agree where
 neither nuisance is wrong, and neither binary reading is `unresolved`.
 
-On `outcome_correct`, R `drtmle` shows the same bias on the same rows. The paired difference
-covers zero, so the bias belongs to the law at this size and not to `cleverly`.
+On `outcome_correct`, R `drtmle` shows the same signed bias on the same rows. The paired difference
+covers zero. The bias is shared by these two implementations at this size, and this comparison
+does not identify its source.
 
-On `treatment_correct`, R `drtmle` also shows a bias above zero. `cleverly` adds a paired
-increment above zero, with a point value of 0.001005 against its own bias of 0.003102. The
-reading localizes that increment to `cleverly` on this configuration. It does not name the step
-of the fit that produces it. The declaration adjusted for no multiplicity, and
+On `treatment_correct`, R `drtmle` also shows a bias above zero. The unadjusted paired comparison
+finds a between-implementation increment, with a point value of 0.001005 against the `cleverly`
+bias of 0.003102. The signal is exploratory because the declaration adjusted for no multiplicity.
+It does not establish an implementation defect or name the step of the fit that produces it.
 [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) gives the adjusted interval. RM19
 also carries the question of the step.
 
@@ -1438,11 +1439,10 @@ also carries the question of the step.
 | the property-cell bias | `double_robustness/treatment_correct` at n = 2,000, 600 replications | 0.001469 to 0.007176 |
 | (iv) | the property-cell bias minus (i), by Welch | 0.001160 to 0.008650 |
 
-Statistic (iv) excludes zero, so the multi-arm reading is `not consistent`, as the declared rule
-defines it. The property cell shows a bias that the fully specified primary run does not show. In
-this configuration the outcome regression is misspecified and the treatment mechanism is correct.
-No R comparator fits this configuration, so the reading cannot split that bias between the law
-and `cleverly`.
+Statistic (iv) excludes zero, so the multi-arm reading is `finite-sample excess detected`. One
+property-cell stream differs from the fully specified primary stream at this size. The outcome
+regression is misspecified and the treatment mechanism is correct. No R comparator fits this
+configuration, and the statistic does not identify the source of the difference.
 
 The declaration disclosed a planning-read Welch interval of about -0.0003 to 0.0077. That read
 used `double_robust_contraction/treatment_correct_n2000` as its second sample. That rung carries
@@ -1460,10 +1460,9 @@ the declared reading, and no rule reads them.
 | the property-cell bias minus the rung bias | -0.000296 to 0.007771 |
 | both samples, 1,200 replications, minus (i) | -0.000123 to 0.006196 |
 
-The rung does not reproduce the excess, and the two samples of the configuration are not told
-apart at this budget. The verdict `not consistent` stands as the declared rule defines it. These
-rows do not establish that the configuration adds bias, and they do not establish that it adds
-none.
+The independent rung does not reproduce the excess. The two samples of the configuration are not
+told apart, and the pooled comparison against the primary rows covers zero. The overall evidence
+is inconclusive. It does not establish that the configuration adds bias or that it adds none.
 
 No verdict, margin, budget or artifact moved. The three cells stay red under `reporting`, and
 the ledger keeps `RM18-one-sided-bias` as their owner.
@@ -1471,9 +1470,11 @@ the ledger keeps `RM18-one-sided-bias` as their owner.
 (the-learner-weight-standard-error-diagnostic-declared-before-it-runs)=
 #### The learner-weight standard-error diagnostic, declared before it runs
 
-This subsection declares the diagnostic that `RM18-learner-weight-se` asks for. It precedes every
-refit the diagnostic makes. `tests/diagnostics/rm18_learner_weight_se/` will hold the code, the
-refit rows and the run log.
+This subsection was the original declaration for the diagnostic that `RM18-learner-weight-se`
+asks for. A review found that it did not fix the P1-to-P4 regimen scope, the P3 floored-set union or
+the relative-difference formula before the first run. The review rerun declaration in
+`tests/diagnostics/rm18_learner_weight_se/README.md` fixes those choices and was committed and
+pushed before the rerun. The directory holds the code, refit rows and run log.
 
 The cross-fitted `weighted-ltmle-crossfit` study reports very large standard errors on 13 of its
 1,200 `learner_weight_necessity` replicates. The same 13 replicates exceed 1 in both arms. Their
@@ -1492,8 +1493,13 @@ dominate the influence curve.
 | selection | every replicate whose committed `std_error` exceeds 1 in either `learner_weight_necessity` arm. The expected set is 17, 20, 258, 278, 343, 487, 533, 711, 889, 978, 981, 998 and 1099 |
 | comparison | the 13 lowest replicate indices outside the selected set, which are 0 to 12 |
 | refit | each selected and comparison replicate in both arms, through `_fit_replication` in `tests/studies/weighted_longitudinal_properties_common.py` with `cross_fit=True`, on the payload `_payloads` builds |
-| reproduction control | each refit reproduces the committed `estimate` and `std_error` to a relative difference of 1e-9 |
+| reproduction control | each refit separately satisfies `abs(refit - committed) / abs(committed) <= 1e-9` for `estimate` and `std_error` |
 | run | one process that uses every core, with no other study or diagnostic on the machine |
+
+The output contains exactly every declared group, replicate, arm and fitted regimen once, with
+finite statistics. P1 through P4 read `always` and `never`, the two fits of the reported contrast.
+P3 defines its floored set as the union of their floored followers. P5 reads all three fitted
+regimens, including `treat_if_l2`.
 
 If the selection rule gives a different set, the run uses the set the rule gives and reports the
 difference. If any refit misses the reproduction control, the diagnostic states "harness not
@@ -1529,7 +1535,7 @@ standard error of 1 therefore needs a weight near 2,000. The read touched no mec
 
 | reading | condition |
 | --- | --- |
-| positivity of the out-of-fold saturated mechanism | P1, P3 and P4 hold |
+| finite-sample empty-cell instability in the out-of-fold mechanism estimate | P1, P3 and P4 hold |
 | the floor, not the saturated fit | P1 and P3 hold, and P4 fails |
 | unresolved | P1 holds, and P3 fails |
 | not the floor | P1 fails |
@@ -1572,7 +1578,7 @@ The selection rule gave the declared set of 13 replicates. The comparison set is
 | P3 | holds | floored followers carry from 0.999923 to 1.000000 of the squared contrast influence curve |
 | P4 | holds | each floored follower has a raw prefix of exactly zero |
 | P5 | holds | comparison `max_weight` from 9.51 to 373.78 over all 78 regimen fits, against 2,000. Over the two contrast regimens it runs from 13.87 to 373.78 |
-| reading | positivity of the out-of-fold saturated mechanism | P1, P3 and P4 hold |
+| reading | finite-sample empty-cell instability in the out-of-fold mechanism estimate | P1, P3 and P4 hold |
 
 The selected fits count 44 floored followers, and all of them are in the `always` regimen. No
 `never` or `treat_if_l2` fit has a floored follower.
@@ -1669,6 +1675,8 @@ section and theorem numbers may differ.
 | the shipped selector path | Bibaut and van der Laan, arXiv:1706.07408v2 | Theorems 1 and 2 select a scalar index on separate subsamples for a possibly non-regular target. The package selects on the full sample |
 | the shipped selector path | Ju, Schwab and van der Laan (2019), *SMMR* 28(6), DOI 10.1177/0962280218774817, and Ju, Wyss et al. (2019), *SMMR* 28(4), DOI 10.1177/0962280217744588 | neither states a post-selection theorem. The first reports standard errors smaller than the sampling spread for C-TMLE in its Section 4.5 experiments. The second forms its data-analysis intervals from the analytic influence curve |
 | the shipped selector path | Liu (2018), Harvard dissertation, Chapter 2 | derives asymptotic laws for C-TMLE coefficients, squared errors, prediction risks and M-fold cross-validation risks, and studies post-selection AMSE. It assumes the propensity candidates, outcome variance and covariate law are known; its target is one binary treatment-specific mean, and its practical post-selection AMSE is simulated rather than available analytically. It does not cover the shipped learned nuisances, stopping rule or joint targets |
+| the shipped selector path | Dang, Tarp, Abrahamsen et al. (2025), *Journal of Causal Inference* 13:20240041, DOI 10.1515/jci-2024-0041, preprint arXiv:2210.05802 | derives a nonstandard limit and Monte Carlo intervals for an experiment selector trained separately inside each fold. It is positive precedent for F18's fold-local redesign route. It does not cover the shipped targeted-loss criterion, target or global shared stopping index |
+| the shipped selector path | van der Laan, Qiu, Tarp and van der Laan (2026), *Journal of Causal Inference* 14:20240025, DOI 10.1515/jci-2024-0025; Karim (2026), arXiv:2607.02787 | the first proves asymptotic normality for an adaptive working-model RCT augmentation estimator. The second is a simulation caution about selection-unaware standard errors. Neither treats the shipped selector |
 | the generated design | Ju, Benkeser and van der Laan (2020), *Biometrics* 76(1) | Theorem 1, Section 3.4 of arXiv:1806.06784v3, adds a first-order term to the influence function when the propensity limit is intentionally inconsistent |
 | the generated design | Zhang, Shao, Yu and Wang (2018), and Ma, Zhu, Zhang, Tsai and Carroll (2019) | this search read the abstracts only. The first states that an estimated sufficient dimension reduction changes the asymptotic variance unless the reduction keeps superfluous covariates. The second states that an efficient-influence-function estimator with reduction-estimated nuisances stays semiparametrically efficient. Neither applies a targeting step |
 
@@ -1682,35 +1690,12 @@ day, this row read F18 and F19 against that exception.
 
 F18 and F19 record the same verdicts.
 
-A third search on 2026-09-21 looked again for a result that closes F18 or F19. It found none. It
-used a general web search engine, arXiv abstract pages, the Crossref REST API for each DOI, and
-the publisher pages of Project Euclid, Oxford Academic and PubMed. It ran these queries.
-
-| query | aimed at |
-| --- | --- |
-| `collaborative targeted maximum likelihood post-selection inference asymptotic distribution selected candidate cross-validation` | F18 |
-| `outcome-adaptive propensity score multiple treatments TMLE influence function generated regressor inference multi-arm` | F19 |
-| `arXiv adaptive propensity score estimated outcome predictions categorical treatment cross-fitted targeted learning asymptotic variance` | F19 |
-| `Schnitzer Sango Ferreira Guerra van der Laan longitudinal C-TMLE influence curve standard error underestimate coverage PMC` | F18 |
-| `Zrnic Jordan "Post-selection inference via algorithmic stability" arXiv abstract` | F18 |
-
-It also checked, by DOI or arXiv number, six candidates that an earlier search that day had named.
-The table gives what this search read of each one. "Abstract read" means that the search read
-the abstract and the metadata, and not the full text.
-
-| source | what this search read | verdict | what it supplies, and its limit |
-| --- | --- | --- | --- |
-| Rothenhäusler (2024), *Electronic Journal of Statistics* 18(2):5449-5483, DOI 10.1214/24-EJS2308 | the published article, and the preprint arXiv:2008.12892v2 | neighbor for F18 | Section 3.4, Theorem 2, is Section 3.5, Theorem 4, of the preprint. It gives intervals after a choice among a fixed finite set of estimators, with a joint normal limit at a fixed parameter. The choice minimizes the paper's own estimate of squared deviation from an asymptotically unbiased baseline estimator. The published text adds a caveat after the theorem: the inference is "usually not uniformly valid", falls in the "Conservative Model Selection Framework", and must be used "with caution". Section 4 checks coverage by simulation only, and one design reaches a minimum of 89% at a nominal 95%. The shipped selector minimizes a cross-validated targeted loss along a path the data build. No result here shows that this path meets the theorem's conditions |
-| Zhang, Hudson, Petersen and van der Laan (2026), *An online meta-level adaptive design framework with targeted learning inference*, *Journal of the American Statistical Association*, published online 28 April 2026, DOI 10.1080/01621459.2026.2657052, preprint arXiv:2408.02667 | abstract read | irrelevant | an online framework that evaluates and selects among adaptive trial designs, with TMLE inference. It treats no collaborative selector and no generated design |
-| Schnitzer, Sango, Ferreira Guerra and van der Laan (2020), *Biometrics* 76(1):145-157, DOI 10.1111/biom.13135 | abstract read. The full text was not reached | neighbor for F18 | a longitudinal C-TMLE that selects treatment-model variables, studied by simulation. The abstract states no inference result after selection. This record makes no claim about its simulated standard errors |
-| Zrnic and Jordan (2023), *Annals of Statistics* 51(4):1666-1691, DOI 10.1214/23-AOS2303, preprint arXiv:2011.09462 | abstract read | neighbor for F18 | post-selection corrections for classical intervals, when the selection is randomized to make it stable. The shipped selector is not randomized |
-| Van Lancker, Díaz and Vansteelandt (2024), arXiv:2404.11150v2 of May 2026 | abstract read | neighbor for F18 | inference after data-adaptive covariate adjustment in randomized trials, where the design fixes the treatment law. The C-TMLE studies estimate the treatment mechanism |
-| Schnitzer, Talbot, Liu et al. (2026), *Statistics in Medicine* 45(1-2):e70316, DOI 10.1002/sim.70316 | abstract read | neighbor for F19 | outcome-adaptive LASSO selection of a longitudinal treatment model. It selects covariates, and it fits no mechanism on estimated outcome predictions |
-
-For F19, the two queries on the generated design returned no result for a shared multinomial
-mechanism fitted on estimated outcome columns. They also returned none for its joint targeting or
-its cross-fitted form. The nearest return was arXiv:2605.01671, which the
-[Collaborative TMLE references](references.md#collaborative-tmle) already record.
+A 2026-09-21 search and this review found no source that closes F18 or F19. The source-by-source
+record, including whether only an abstract was read, lives once in
+[Collaborative TMLE references](references.md#collaborative-tmle). The closest constructive result
+is Dang, Tarp, Abrahamsen et al. (2025): it supports the fold-local redesign route, not inference
+for the shipped global stopping index. No reviewed source establishes the generated design's
+shared multinomial mechanism, joint targeting or cross-fitted covariance.
 
 #### Witnesses and evidence
 
@@ -1737,12 +1722,12 @@ passes `type_i_error/sharp_null` at 0.0712, with a 99% upper endpoint of 0.0980,
 800-replication budget. Outcome-adaptive multi-arm C-TMLE passes `root_n_and_efficiency/n_500` at
 0.9057, which its page records as one Monte Carlo resolution at 400 replications.
 
-#### Eight findings that RM18 deferred
+#### Deferred findings and review resolutions
 
 | finding | why it was deferred | what it needs |
 | --- | --- | --- |
-| `tests/canonical/lmtp_crossfit_adapter.R` screens a supplied density-ratio matrix with `abs(mean(supplied) - 1) > 0.5` on the cumulative product. A unit whose follow-up ends at the first node has structurally zero later columns, so that mean estimates the probability of reaching the later node rather than one. `tests/canonical/lmtp_competing_adapter.R` carries the corrected form, which screens the first column | eight study manifests record the adapter's bytes, and two of those studies sit outside the ones regenerated here. Correcting the anchor invalidates every one of them | one task that corrects the anchor and regenerates all eight rows together. Two fixture READMEs carry the deferral, `tests/canonical/lmtp_ltmle/README.md` and `tests/canonical/lmtp_ltmle_survival/README.md`. Both counted four manifests and both now name the eight |
-| Two property cells of `selector-based point-treatment C-TMLE` share a sample. `double_robustness/both_correct` and `root_n_and_efficiency/n_500` sit on one law at seed `12_100`, so their covariates are identical row for row, and the two cells are published side by side as separate evidence. The seed-offset table in `tests/studies/bounded_cv_laws.py` separates a consumer from the block it inherits and cannot reach a collision inside one consumer. `test_the_registered_studies_do_not_share_their_samples` iterates primary scenarios alone, so nothing refuses it | the collision predates the regeneration merged at `2e95bcd`, and moving either seed redraws a cell of a registered study, so the fix is a regeneration rather than an edit. Widening the test first would fail on the committed rows | one task that widens the sample-sharing check to declared property cells, with an allowance for the families whose two arms are paired on one seed by design, then moves the colliding seed and regenerates the study |
+| `tests/canonical/lmtp_crossfit_adapter.R` screened a supplied density-ratio matrix against one on the cumulative product, although later columns can be structurally zero after an event | resolved in this review. The shared adapter now screens the first node at five standard errors and both competing adapters use that one helper. Ordinary, weighted, clustered and competing mutation smokes pass | validation changes before the same supplied matrix enters the fit, so the numeric artifacts remain valid under the result-neutral provenance ledger; eight study regenerations were not scientifically justified |
+| Two property cells of `selector-based point-treatment C-TMLE` shared one law and seed: `double_robustness/both_correct` and `root_n_and_efficiency/n_500` | resolved in this review. `both_correct` moved from seed `12_100` to the next unused local seed, `12_104`; a registered-study test now rejects cross-family collisions while allowing intentionally paired arms | the declaration and test were pushed before regeneration. The independent redraw changed the `both_correct` standardized bias from 0.0139 to -0.0301; it still passes, and the red-cell ledger is unchanged |
 | `simulated_confounding` cannot perturb an outcome on a fit that declares `q_bounds`. `_gaussian_outcome` subtracts the strength times a standard normal latent value from the outcome, so every nonzero outcome strength sends the perturbed outcome outside the declared support and the refit refuses it | a cross-fitted continuous fit must declare `q_bounds`, so the outcome axis of the surface is unavailable to every such fit. No perturbation on the declared scale exists to put in its place | [F23](#f23-simulated-confounding-on-a-declared-outcome-scale) |
 | the multi-arm DR-TMLE contraction rung design. `double_robust_contraction/rate_outcome_correct` and `rate_treatment_correct` of `canonical-multi-arm-drtmle` stay red at 600 replications per rung, and a rung design declared before its run can read them | the binary sizing rule asks for at least 34,267 replications at each outer rung by the delta method, against 600 now. A surrogate puts the figure at 70,000 to 73,000. The first-rung bias intervals it reads both cover zero, so that cost has no upper bound. "[What the multi-arm rung design would cost](#what-the-multi-arm-rung-design-would-cost)" gives the arithmetic | one task that declares the rung budget from the rule, runs it once, and publishes the slope it produces. Each rung's own coverage verdict stays at its declared 600 replications, as `RM18-binary-slope` required for the binary ladder |
 | the fixed-known-weight design that `RM18-fixed-weights` asks for. Its two cells stay red under `reporting` | the ledger work from `cdd1b33` gave each red cell an owner and ran the two declared diagnostics. It declared no design for these cells, and a design needs its own declaration before its run | one task that declares the design, pushes the declaration, runs it once, and publishes its reading. A published result for the pooled update under fixed known weights would also close the row |
@@ -1785,7 +1770,7 @@ RM19 sits at remediation priority 0.8, in a group of its own. The
 | does `cleverly` add bias over R `drtmle` on this configuration | measured by the declared unadjusted interval, which excludes zero. The Bonferroni interval covers zero |
 | which step of the `cleverly` fit produces the increment | open. No diagnostic has read it |
 | does the increment change with the sample size | open. The paired rows exist at n = 3,000 alone |
-| the multi-arm `double_robustness/treatment_correct` excess | measured as `not consistent` by RM18. The other sample of that configuration, the rung at n = 2,000, does not reproduce it. No comparator fits that configuration, so no reading can split the excess between the law and `cleverly` |
+| the multi-arm `double_robustness/treatment_correct` excess | one stream reads `finite-sample excess detected`. The independent rung does not reproduce it, and the pooled comparison covers zero. The overall evidence is inconclusive. No comparator fits that configuration, so the source is not identified |
 
 Next action: declare a design that localizes the binary increment, before any run of it. The
 declaration names each step it tests, the statistic each step reads, and the rule that reads the
@@ -2242,9 +2227,12 @@ Standard orthogonal-score arguments can then treat the complete selector as a nu
 algorithm, subject to its rate conditions. The current global risk aggregation does not have that
 independence.
 
-Bibaut and van der Laan, Theorems 1 and 2 of arXiv:1706.07408v2, select a scalar index on
-subsamples separate from the estimation sample. That is the closest published form of the third
-route. This search found no journal version of the paper.
+Dang, Tarp, Abrahamsen et al. (2025), *Journal of Causal Inference* 13:20240041, DOI
+10.1515/jci-2024-0041, give the closest published form of the third route. Their ES-CVTMLE trains
+the experiment selector inside each fold and derives a nonstandard limit with Monte Carlo
+intervals. It does not cover the shipped criterion, target or shared stopping index. Bibaut and van
+der Laan, Theorems 1 and 2 of arXiv:1706.07408v2, also select a scalar index on subsamples separate
+from the estimation sample. This search found no journal version of that paper.
 
 A third 2026-09-21 search found four neighbors for F18, and RM18 records its log. The nearest is
 Rothenhäusler (2024), *Electronic Journal of Statistics*, DOI 10.1214/24-EJS2308. Its Section 3.4,

@@ -88,8 +88,8 @@ SHARED = "shared"
 ESTIMATOR_SPECIFIC = "estimator-specific"
 MIXED = "mixed"
 UNRESOLVED = "unresolved"
-CONSISTENT = "Monte Carlo consistent"
-NOT_CONSISTENT = "not consistent"
+CONSISTENT = "finite-sample excess not detected"
+NOT_CONSISTENT = "finite-sample excess detected"
 
 COVERS = "covers zero"
 ABOVE = "above zero"
@@ -162,7 +162,7 @@ def binary_reading(
 
 
 def multi_arm_reading(difference: Statistic) -> str:
-    """The declared multi-arm rule, which reads statistic (iv) alone."""
+    """The corrected multi-arm rule, which makes no asymptotic consistency claim."""
     return CONSISTENT if side(difference.interval) == COVERS else NOT_CONSISTENT
 
 

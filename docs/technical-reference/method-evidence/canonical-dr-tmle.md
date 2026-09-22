@@ -227,11 +227,12 @@ with the roadmap ask that owns it.
 
 RM18 read the two red one-correct cells against R `drtmle` on the primary rows at `n = 3,000`,
 under a rule declared before the computation. On `outcome_correct`, R `drtmle` shows the same
-bias, and the paired interval covers zero, so the reading is `shared`. On `treatment_correct`,
-R `drtmle` also shows a bias above zero, and the paired interval of `cleverly` minus R runs
-`0.000068` to `0.001942`. Both intervals exclude zero on the side of the bias, so the reading is
-`mixed`. That interval carries no
-multiplicity adjustment, and a Bonferroni interval over the three paired intervals covers zero.
+signed bias, and the paired interval covers zero, so the reading is `shared`. That means the bias
+is shared by these two implementations at this size; it does not identify the source. On
+`treatment_correct`, R `drtmle` also shows a bias above zero, and the unadjusted paired interval of
+`cleverly` minus R runs `0.000068` to `0.001942`, so the declared reading is `mixed`. This is an
+exploratory between-implementation signal, not an established implementation defect: the interval
+carries no multiplicity adjustment, and the Bonferroni interval for this comparison covers zero.
 
 [RM19](../../roadmap.md#rm19-one-sided-robustness-bias-increment-in-dr-tmle) carries the
 increment. {ref}`What the one-sided reading found <what-the-one-sided-reading-found>` gives each

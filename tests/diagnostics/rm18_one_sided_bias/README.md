@@ -65,7 +65,8 @@ reading uses (iv).
 
 A review asked for these rows after the declared reading ran. The declaration names none of them.
 Each one has `scope` set to `supplementary` and an empty `reading`, and no rule reads it. The
-declared verdict `not consistent` stands as the declaration defines it.
+declared statistic is now labeled `finite-sample excess detected`. The label records only the
+fixed-size comparison; it does not assert asymptotic inconsistency.
 
 | statistic | rows | 99% interval | why it is here |
 | --- | --- | --- | --- |
@@ -79,6 +80,6 @@ declared verdict `not consistent` stands as the declaration defines it.
 
 The Bonferroni intervals of `outcome_correct` and `both_correct` also cover zero. The binary
 scenarios draw independent samples, so the direct contrasts use Welch. The multi-arm excess that
-statistic (iv) reports is not reproduced by the rung, the other sample of the same configuration.
-The rows do not establish that the configuration adds bias, and they do not establish that it
-adds none.
+statistic (iv) reports is not reproduced by the rung, the other sample of the same configuration,
+and the pooled comparison covers zero. The overall evidence is inconclusive: the rows establish
+neither an added bias nor its absence, and they do not identify the source of the stream difference.

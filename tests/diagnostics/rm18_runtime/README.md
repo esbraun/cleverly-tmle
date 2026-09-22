@@ -79,4 +79,6 @@ Those replicates set the published SE ratio of both cells in
 6,772 and 6,925 at `f0110bc`. The verdicts of both cells read the bias intervals and the paired
 displacement, and not the reported standard error. `RM18-learner-weight-se` in `docs/roadmap.md`
 owns this pathology. `tests/diagnostics/rm18_learner_weight_se/` holds its diagnostic, which reads
-positivity of the out-of-fold saturated mechanism.
+finite-sample empty-cell instability in the out-of-fold mechanism estimate. That label concerns
+the estimated mechanism in these realized folds, not the causal positivity assumption on the true
+treatment law.

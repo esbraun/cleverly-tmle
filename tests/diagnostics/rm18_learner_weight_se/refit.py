@@ -67,7 +67,7 @@ HOLDS = "holds"
 FAILS = "fails"
 NOT_READ = "not read"
 
-POSITIVITY = "positivity of the out-of-fold saturated mechanism"
+POSITIVITY = "finite-sample empty-cell instability in the out-of-fold mechanism estimate"
 FLOOR_NOT_FIT = "the floor, not the saturated fit"
 UNRESOLVED = "unresolved"
 NOT_THE_FLOOR = "not the floor"

@@ -149,11 +149,13 @@ margin at every one.
 In this regime the outcome regression is misspecified and the treatment mechanism is correct.
 RM18 read the level cell against the fully specified primary rows at the same size, under a rule
 declared before the computation. That Welch interval runs 0.001160 to 0.008650 and excludes zero,
-so the declared reading is `not consistent`.
+so the fixed-size reading is `finite-sample excess detected`. This comparison does not establish
+asymptotic inconsistency or identify the cause of the difference.
 
 The ladder's n = 2,000 rung is the other sample of the same regime, and it does not reproduce the
-excess. Its difference from the primary rows runs -0.002581 to 0.004917. These rows establish
-neither an added bias nor its absence.
+excess. Its difference from the primary rows runs -0.002581 to 0.004917, and the pooled comparison
+covers zero. The overall evidence is inconclusive. These rows establish neither an added bias nor
+its absence.
 {ref}`What the one-sided reading found <what-the-one-sided-reading-found>` gives each interval.
 
 Both fitted slopes then have nothing to regress. A one-correct bias that sits at the noise floor
