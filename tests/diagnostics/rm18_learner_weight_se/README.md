@@ -1,0 +1,68 @@
+# RM18 learner-weight standard-error diagnostic
+
+This directory holds the diagnostic that RM18 of `docs/roadmap.md` declares in "The
+learner-weight standard-error diagnostic, declared before it runs". That subsection fixes the
+selection, the comparison set, the refit, the reproduction control, the recorded statistics, the
+five predictions and the reading rule. The code here applies them. It changes no study, no
+verdict and no committed row.
+
+| file | what it does |
+| --- | --- |
+| `select.py` | reads the committed `tests/canonical/weighted_lmtp_ltmle/property-replicates.csv.gz`. It prints the selected and comparison sets, and any difference from the declared sets. It fits nothing |
+| `refit.py` | refits each selected and comparison replicate in both arms, records the declared statistics, and reads the predictions. It writes `refit.csv` and `reading.csv` |
+| `refit.csv` | one row per replicate, arm and fitted regimen. The replicate-and-arm columns repeat on the three regimen rows of their fit |
+| `reading.csv` | the reproduction control, P1 to P5, two supplementary rows, and the reading |
+| `run.log` | the command, the preflight, the `pip freeze` digests, the wall times and the exit codes |
+
+`tests/unit/test_rm18_learner_weight_se_diagnostic.py` runs in the fast tier and fits nothing. It
+checks the selection against the committed rows, and the reading rule on synthetic tables and
+their mutations.
+
+## Run
+
+Run from a clean tree at a committed state, so that `run.log` can name the code. Limit every
+numerical library to one thread. The pool in `refit.py` is the only parallel layer, and the
+`LTMLE` fits inside it run with `n_jobs=1`.
+
+```bash
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+  VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+python -m tests.diagnostics.rm18_learner_weight_se.select
+python -m tests.diagnostics.rm18_learner_weight_se.refit --output <scratch> --jobs 16
+cmp <scratch>/refit.csv tests/diagnostics/rm18_learner_weight_se/refit.csv
+cmp <scratch>/reading.csv tests/diagnostics/rm18_learner_weight_se/reading.csv
+```
+
+`--output` is required and names a directory, so a bare run cannot overwrite the committed
+record. `--read-only` reads an existing `refit.csv` in that directory and fits nothing.
+
+## How the code resolves the declaration
+
+The declaration leaves five points open. The code fixed each one before the run, as this table
+states.
+
+| point | resolution | reason |
+| --- | --- | --- |
+| which regimens the predictions read | `always` and `never`, the two regimens of the reported contrast `ate_regimen[always vs never]`. `refit.csv` records `treat_if_l2` as well | the contrast standard error depends on these two fits alone. A floored `treat_if_l2` follower cannot move it |
+| P2 and P5 over every fitted regimen | two extra rows in `reading.csv`, marked "not read" | P5 names "every comparison replicate, arm and regimen". The extra rows report the literal reading, and neither one enters the reading rule |
+| the floored set of the influence-curve share | the union of the floored followers of the `always` and `never` fits | the contrast influence curve is the `always` curve minus the `never` curve |
+| the relative difference | `abs(refit - committed) / abs(committed)`, on each of `estimate` and `std_error` | no committed value is zero |
+| "one process that uses every core" | one parent process with one `joblib` pool of 16 workers, through `map_parallel`. Each worker uses one thread | the regeneration that wrote the committed rows used the same pool. A single Python process cannot fit on 16 cores |
+
+Each refit calls `_fit_replication` unchanged. `refit.py` wraps the module-level `fit` of
+`tests/studies/weighted_longitudinal_properties_common.py` for the duration of one call. The
+statistics therefore come from the `LTMLE` result that produced the checked row. `refit_one`
+refuses a result whose contrast standard error differs from the row's.
+
+## Runtime
+
+The run uses the runtime that `tests/canonical/weighted_lmtp_ltmle/manifest.json` records for
+the committed rows: Python 3.13.7, NumPy 2.4.6, SciPy 1.18.0, pandas 3.0.5 and scikit-learn
+1.9.0. The main checkout's virtual environment holds that runtime, and the run reads it without
+changes. `PYTHONPATH` puts this tree's `src` and root first, and the preflight checks
+`cleverly.__file__`. The choice was fixed before the run. RM18's runtime isolation found that the
+pooled code at `0e03a15` reproduces the committed weighted property rows at this runtime. Between
+`0e03a15` and the run commit, `src/` changed in `src/cleverly/estimators/ctmle.py` alone.
+
+Before the run, one smoke refit fitted replicate 100 in both arms. That replicate is outside both
+sets. `run.log` records it.
