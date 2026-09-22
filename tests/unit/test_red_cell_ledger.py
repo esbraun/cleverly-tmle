@@ -12,7 +12,9 @@ not it can see anything.  Each one therefore has a deliberate mutation beside it
 from __future__ import annotations
 
 import dataclasses
+from importlib import import_module
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import pytest
@@ -21,9 +23,13 @@ from tests.studies.evidence import red_cells
 from tests.studies.evidence.comparison import empty_equivalence
 from tests.studies.evidence.red_cells import (
     BLOCKS,
+    EXCLUDED_HOOKS,
+    FRAMES,
     OWNERS,
+    VERDICT_COLUMNS,
     RedKey,
     RedRow,
+    check_verdict_columns,
     findings,
     frames,
     owner_ids,
@@ -179,17 +185,176 @@ def test_a_flipped_committed_paired_verdict_is_refused(
 
 
 def test_the_legs_decide_the_verdict(tables: dict[str, dict[str, pd.DataFrame]]) -> None:
-    """Move the failing leg inside its margin, and the row leaves the ledger.
+    """Move the failing leg inside its margin and leave the committed verdict alone.
 
-    Without this, a ``paired_legs`` that returned the committed verdict unread would pass every
-    test above.
+    The legs now conclude ``equivalent`` while the row still commits ``inconclusive``, so the
+    ledger must refuse the row.  A ``paired_legs`` that returned the committed verdict unread
+    would accept it, and this test would fail.
     """
     study, copied, red = _shift_tables(tables)
     equivalence = copied["equivalence"]
     equivalence.loc[red, "calibration_excess_upper"] = study.margins.calibration_noninferiority / 2
-    equivalence.loc[red, "passed"] = True
-    equivalence.loc[red, "comparison_conclusion"] = "equivalent"
-    assert [row for row in red_rows(study, copied) if row.key.kind == "paired"] == []
+    with pytest.raises(ValueError, match="but its legs conclude 'equivalent'"):
+        red_rows(study, copied)
+
+
+def _one_leg(
+    tables: dict[str, dict[str, pd.DataFrame]],
+    endpoints: dict[str, float],
+    *,
+    subject_valid: bool = True,
+    committed: tuple[bool, str] = (False, "inconclusive"),
+) -> list[RedRow]:
+    """The red paired rows of a copy of the shift row, moved so that one leg decides it.
+
+    The calibration leg moves inside its margin first, so every other leg of the row holds and
+    its legs would conclude ``equivalent``.  ``endpoints`` then moves one leg, and
+    ``committed`` is the verdict that leg should produce.
+    """
+    study, copied, red = _shift_tables(tables)
+    equivalence = copied["equivalence"]
+    equivalence.loc[red, "calibration_excess_upper"] = study.margins.calibration_noninferiority / 2
+    for column, value in endpoints.items():
+        equivalence.loc[red, column] = value
+    equivalence.loc[red, "passed"] = committed[0]
+    equivalence.loc[red, "comparison_conclusion"] = committed[1]
+    if not subject_valid:
+        performance = copied["performance"]
+        subject = (
+            (performance["implementation"] == study.implementation)
+            & (performance["scenario"] == SHIFT_RED[0])
+            & (performance["estimand"] == SHIFT_RED[1])
+        )
+        assert subject.sum() == 1
+        performance.loc[subject, "passed"] = False
+    return [row for row in red_rows(study, copied) if row.key.kind == "paired"]
+
+
+def _mean_margin(tables: dict[str, dict[str, pd.DataFrame]]) -> float:
+    _, copied, red = _shift_tables(tables)
+    return float(copied["equivalence"].loc[red, "mean_margin"].iloc[0])
+
+
+def test_the_rmse_leg_alone_makes_a_row_red(tables: dict[str, dict[str, pd.DataFrame]]) -> None:
+    """A nonzero witness for the RMSE leg: a bound just above its margin is red."""
+    bound = BY_SLUG[SHIFT].margins.rmse_noninferiority * (1 + 1e-6)
+    (row,) = _one_leg(tables, {"rmse_ratio_upper": bound})
+    assert row.fails_by == "inconclusive: RMSE leg"
+
+
+def test_the_similarity_leg_alone_makes_a_row_red(
+    tables: dict[str, dict[str, pd.DataFrame]],
+) -> None:
+    """A nonzero witness for the similarity leg: an upper endpoint just above the margin."""
+    (row,) = _one_leg(tables, {"paired_ci_upper": _mean_margin(tables) * (1 + 1e-6)})
+    assert row.fails_by == "inconclusive: similarity leg"
+
+
+def test_an_invalid_subject_cannot_read_superior(
+    tables: dict[str, dict[str, pd.DataFrame]],
+) -> None:
+    """A coverage gain above zero reads ``superior`` only when the subject passes its truth gate.
+
+    The similarity leg fails, so ``superior`` is the only way the row could leave the ledger.
+    The control shows that the same endpoints read ``superior`` for a valid subject, so the
+    invalid case is red because of the subject's gate and for no other reason.
+    """
+    endpoints = {
+        "paired_ci_upper": _mean_margin(tables) * 1.01,
+        "coverage_difference_lower": 0.01,
+    }
+    (row,) = _one_leg(tables, endpoints, subject_valid=False)
+    assert row.fails_by == "inconclusive: similarity leg"
+    assert _one_leg(tables, endpoints, committed=(True, "superior")) == []
+
+
+# --- the verdict columns ---------------------------------------------------------------------
+
+
+def test_a_missing_verdict_is_refused(tmp_path: Path) -> None:
+    """``bool(nan)`` is ``True``, so a blank verdict would otherwise read as a pass."""
+    record = BY_SLUG[SHIFT]
+    for filename in FRAMES.values():
+        pd.read_csv(record.artifact(filename)).to_csv(tmp_path / filename, index=False)
+    copy = dataclasses.replace(record, artifacts=tmp_path)
+    assert set(frames(copy)) == set(FRAMES)
+    blanked = pd.read_csv(tmp_path / FRAMES["equivalence"])
+    blanked["passed"] = blanked["passed"].astype(object)
+    blanked.loc[0, "passed"] = None
+    blanked.to_csv(tmp_path / FRAMES["equivalence"], index=False)
+    with pytest.raises(TypeError, match="'passed' column is object, not bool"):
+        frames(copy)
+
+
+@pytest.mark.parametrize(
+    ("table", "column"),
+    [(name, column) for name, columns in VERDICT_COLUMNS.items() for column in columns],
+)
+def test_each_verdict_column_must_be_boolean(
+    tables: dict[str, dict[str, pd.DataFrame]], table: str, column: str
+) -> None:
+    copied = {name: frame.copy() for name, frame in tables[SHIFT].items()}
+    copied[table][column] = copied[table][column].astype(float)
+    copied[table].loc[copied[table].index[0], column] = float("nan")
+    with pytest.raises(TypeError, match=f"'{column}' column is float64"):
+        check_verdict_columns(copied)
+
+
+def test_an_empty_verdict_table_is_allowed() -> None:
+    check_verdict_columns(_synthetic())
+
+
+# --- the hooks the ledger does not read ------------------------------------------------------
+
+
+def _hook(record: StudyRecord) -> Any:
+    return getattr(import_module(record.runner_module), "scientific_failures", None)
+
+
+def test_every_scientific_failures_hook_is_declared() -> None:
+    """A new hook is a new kind of failure, and the ledger page must say it does not read it."""
+    hooked = {study.slug for study in STUDIES if _hook(study) is not None}
+    assert hooked == set(EXCLUDED_HOOKS)
+
+
+def _extra(record: StudyRecord) -> dict[str, pd.DataFrame]:
+    return {name: pd.read_csv(record.artifact(name)) for name in record.extra_artifacts}
+
+
+def _hook_rows(record: StudyRecord, extra: dict[str, pd.DataFrame]) -> dict[str, int]:
+    reported = _hook(record)(extra)
+    return {name: len(frame) for name, frame in reported.items() if frame is not None}
+
+
+GATED_HOOKS = [slug for slug in EXCLUDED_HOOKS if BY_SLUG[slug].publication_policy == "gated"]
+
+
+def test_some_gated_study_has_a_hook() -> None:
+    assert GATED_HOOKS, "the gated-hook checks below would pass on an empty list"
+
+
+@pytest.mark.parametrize("slug", GATED_HOOKS)
+def test_a_gated_study_hook_reports_nothing(slug: str) -> None:
+    """The ledger reads no hook, so a gated study's hook must be clean on its committed rows."""
+    rows = _hook_rows(BY_SLUG[slug], _extra(BY_SLUG[slug]))
+    assert rows and set(rows.values()) == {0}, rows
+
+
+@pytest.mark.parametrize("slug", GATED_HOOKS)
+def test_a_failed_probe_row_is_reported(slug: str) -> None:
+    """The witness for the check above: one failed probe row must show up."""
+    record = BY_SLUG[slug]
+    extra = _extra(record)
+    (name,) = record.extra_artifacts
+    extra[name].loc[extra[name].index[0], "passed"] = False
+    assert sum(_hook_rows(record, extra).values()) == 1
+
+
+def test_the_page_names_every_excluded_hook() -> None:
+    text = red_cells.PAGE.read_text(encoding="utf-8")
+    section = text.split("## What counts as red", 1)[1].split("## Who owns each red row", 1)[0]
+    missing = [BY_SLUG[slug].name for slug in EXCLUDED_HOOKS if BY_SLUG[slug].name not in section]
+    assert missing == []
 
 
 # --- deliberate mutations: property and truth rows -------------------------------------------

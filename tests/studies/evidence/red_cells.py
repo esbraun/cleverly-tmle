@@ -22,9 +22,13 @@ Three kinds of row can be red, and each is read the way the regeneration gates i
   clause, which is the rule ``claims.property_cells_passed`` counts by.  A diagnostic row
   states no verdict and is never red.
 
-The fit-health audits two DR-TMLE studies publish are counts over fits rather than verdict
-cells, and the ledger does not read them.  ``claims.load`` is never called either: it reads
-the multi-megabyte replication archives, and no verdict here needs them.
+A study module may also define a ``scientific_failures`` hook, which the regeneration driver
+adds to the failures it gates or reports.  Those hooks audit fits rather than publish verdict
+cells, and the ledger does not read them.  :data:`EXCLUDED_HOOKS` names every study that has
+one and what the hook reports, and ``tests/unit/test_red_cell_ledger.py`` fails when a new hook
+appears, and when a ``gated`` study's hook reports a failure in its committed artefacts.
+``claims.load`` is never called either: it reads the multi-megabyte replication archives, and
+no verdict here needs them.
 
 Run it after ``python -m tests.studies.evidence.document``, which also calls :func:`fill`::
 
@@ -57,8 +61,10 @@ ROADMAP = ROOT / "docs" / "roadmap.md"
 OWNER_TABLE = ("id", "work", "acceptance")
 
 #: Where a reader finds each owner.  ``F18`` and ``F19`` have rows of their own; every other
-#: owner is a row of RM18's "What this row asks for" table, which has no anchor of its own.
-_RM18 = "rm18-red-property-cells-after-the-fold-scale-and-law-changes"
+#: owner is a row of RM18's "What this row asks for" table.  MyST anchors headings to level 3
+#: only, so that level-4 heading carries the explicit target ``(what-this-row-asks-for)=``.
+#: The target equals the heading's GitHub anchor, so the link resolves on both renderings.
+_RM18 = "what-this-row-asks-for"
 _OWNER_ANCHORS = {
     "F18": "f18-selector-path-c-tmle-inference",
     "F19": "f19-outcome-adaptive-c-tmle-generated-design-inference",
@@ -144,7 +150,6 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "selector_necessity/empty_control",
             "type_i_error/sharp_null",
             "interval_calibration/correctly_specified",
-            "root_n_and_efficiency/n_500",
         ),
     ),
     "F19": _keys(
@@ -166,6 +171,13 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         ),
     ),
     "RM18-boundary": (
+        # RM18-n500 read this cell's endpoint as a boundary resolution, as it read the
+        # multi-arm DR-TMLE ``n_500`` cell below.  F18 keeps the selector's interval claims.
+        *_keys(
+            "canonical-multi-arm-ctmle-selector",
+            "property",
+            "root_n_and_efficiency/n_500",
+        ),
         *_keys(
             "canonical-drtmle",
             "property",
@@ -256,12 +268,62 @@ def owners(claims: Mapping[str, Sequence[RedKey]]) -> dict[RedKey, str]:
 
 OWNERS = owners(CLAIMS)
 
+#: Every study whose module defines a ``scientific_failures`` hook, and what that hook reports.
+#:
+#: The regeneration driver adds each hook's frames to the failures it gates or reports, and
+#: the ledger reads none of them, because none is a verdict cell.  A ``gated`` study refuses to
+#: publish when its hook reports a row, so its committed artefacts carry none; the test checks
+#: that.  A ``reporting`` study publishes the rows, and its evidence page states them.
+EXCLUDED_HOOKS: dict[str, str] = {
+    "canonical-drtmle": "the score audit of both implementations and the subject's solver flag",
+    "canonical-multi-arm-drtmle": (
+        "the score audit of both implementations and the subject's solver flag"
+    ),
+    "mar-natural-course-tmle": "the exact-equality probe of the scale workaround",
+    "stacked-mar-arm-indexed-cvtmle": "the exact-equality probe of the scale workaround",
+}
+
 #: The artefacts :func:`red_rows` reads, by the short names ``claims.ARTIFACTS`` uses.
 FRAMES = {
     "performance": "performance-tests.csv",
     "equivalence": "equivalence.csv",
     "properties": "properties.csv",
 }
+
+#: The verdict columns of each table.  ``bool(nan)`` is ``True``, so a missing verdict read as
+#: an object or float column would pass silently; :func:`check_verdict_columns` refuses it.
+VERDICT_COLUMNS = {
+    "performance": ("passed",),
+    "equivalence": ("passed", "se_comparable", "reference_valid"),
+    "properties": ("passed", "property_passed"),
+}
+
+
+def check_verdict_columns(tables: Mapping[str, pd.DataFrame]) -> None:
+    """Refuse a non-empty verdict table whose verdict column is not boolean.
+
+    Parameters
+    ----------
+    tables : Mapping
+        Verdict tables, keyed as :data:`FRAMES` names them.
+
+    Raises
+    ------
+    TypeError
+        If a non-empty table lacks a verdict column, or holds one that is not ``bool``.
+    """
+    for name, columns in VERDICT_COLUMNS.items():
+        frame = tables[name]
+        if frame.empty:
+            continue
+        for column in columns:
+            if column not in frame.columns:
+                raise TypeError(f"the {name} table has no {column!r} column")
+            if frame[column].dtype != bool:
+                raise TypeError(
+                    f"the {name} table's {column!r} column is {frame[column].dtype}, not bool; "
+                    f"a missing verdict cannot be read as a pass or a failure"
+                )
 
 
 def frames(record: StudyRecord) -> dict[str, pd.DataFrame]:
@@ -276,8 +338,15 @@ def frames(record: StudyRecord) -> dict[str, pd.DataFrame]:
     -------
     dict
         Each verdict table, keyed by its short name in :data:`FRAMES`.
+
+    Raises
+    ------
+    TypeError
+        If a verdict column is missing or not boolean, as :func:`check_verdict_columns` says.
     """
-    return {name: pd.read_csv(record.artifact(filename)) for name, filename in FRAMES.items()}
+    tables = {name: pd.read_csv(record.artifact(filename)) for name, filename in FRAMES.items()}
+    check_verdict_columns(tables)
+    return tables
 
 
 @dataclass(frozen=True)
