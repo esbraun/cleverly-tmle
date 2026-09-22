@@ -22,6 +22,18 @@ fresh refit of selected replicate 17, in one arm, goes through the pool. It must
 recorded statistic of its three regimen rows in `refit.csv` to a relative difference of 1e-9. It
 takes under one second.
 
+## Review rerun declaration
+
+This declaration was committed and pushed before the review rerun. The rerun keeps the selected
+and comparison replicate sets fixed. P1 through P4 read the `always` and `never` fits of the
+reported contrast. P5 reads all three fitted regimens. The floored set for P3 is the union of the
+floored `always` and `never` followers. The reproduction control uses
+`abs(refit - committed) / abs(committed) <= 1e-9` separately for the estimate and standard error.
+The output must contain exactly every declared group, replicate, arm and regimen once, with finite
+statistics. The reading label is `finite-sample empty-cell instability in the out-of-fold
+mechanism estimate` when P1, P3 and P4 hold. Any numerical difference from the committed refit
+table invalidates the review rerun rather than changing these choices.
+
 ## Run
 
 Run from a clean tree at a committed state, so that `run.log` can name the code. Limit every
