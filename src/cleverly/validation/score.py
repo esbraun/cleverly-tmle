@@ -77,7 +77,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ..inference.influence import InferenceStatus, spread_name
+from .._inference_status import InferenceStatus, status_record, supplies_inference
+from ..inference.influence import spread_name
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
 from ..utils.text import format_negligible, format_table
@@ -238,9 +239,12 @@ class ScoreCheck:
         Those equations' own check, when it did.
     backend : str or None
         Dataframe backend :meth:`to_frame` returns when ``data`` is omitted.
-    inference : {"influence_curve", "working_mechanism_plugin"}
-        Inference status of the checked fit. A failing verdict names the spread the fit
-        reports by it, so a fit that supplies no inference reads "plug-in standard errors".
+    inference : str
+        Inference status of the checked fit. One of
+        :data:`~cleverly.inference.influence.InferenceStatus`, which the
+        :doc:`inference reference </technical-reference/inference>` lists. A failing
+        verdict names the spread the fit reports by it, so a fit that supplies no
+        inference reads "plug-in standard errors".
     """
 
     rows: tuple[ScoreCheckRow, ...]
@@ -443,14 +447,25 @@ class ScoreCheck:
                 [
                     f"PASS: the targeting step solved all {solved} estimated score equations "
                     "of the doubly-robust estimator.",
-                    f"Validity is not efficiency: the curve reported is {self._curve()}, "
-                    "entitled to be believed",
-                    "under weaker conditions than D* rather than efficient under them. See "
-                    "cleverly.estimators.drtmle.",
+                    *(
+                        [
+                            f"Validity is not efficiency: the curve reported is {self._curve()}, "
+                            "entitled to be believed",
+                            "under weaker conditions than D* rather than efficient under them. See "
+                            "cleverly.estimators.drtmle.",
+                        ]
+                        if supplies_inference(self.inference)
+                        else [
+                            f"The reported curve is {self._curve()}. This check verifies its "
+                            "score equations, not an interval for this fit."
+                        ]
+                    ),
                 ]
             )
         else:
             verdict = "PASS: the targeting step solved the estimated efficient score equation."
+        if self.passed and not supplies_inference(self.inference):
+            verdict += "\n" + status_record(self.inference).reason
         return "\n".join(
             [
                 "Score-equation check",

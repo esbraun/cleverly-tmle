@@ -922,15 +922,25 @@ def test_fixed_weight_tmle_control_detects_dropped_nuisance_weights(
     assert abs(baseline["ate"].psi - dropped["ate"].psi) > 1e-3 * abs(baseline["ate"].psi)
 
 
-def test_unweighted_estimated_weight_flag_does_not_create_a_weight_refusal() -> None:
-    result = _fit(weights_estimated=True)
+@pytest.mark.parametrize(
+    "weights",
+    [
+        pytest.param({}, id="no weights"),
+        pytest.param({"weight_scale": 2.0, "constant_weights": True}, id="constant weights"),
+    ],
+)
+def test_unweighted_estimated_weight_flag_does_not_create_a_weight_refusal(
+    weights: dict[str, Any],
+) -> None:
+    result = _fit(weights_estimated=True, **weights)
     capability = result.sensitivity.capability("simulated_confounding")
     surface = simulated_confounding(result, grid=_grid(), random_state=7)
 
-    assert result.data.weights_name is None
+    assert not result.data.declares_estimated_weights
     assert capability.available
     assert capability.reason is None
-    assert surface.target_measure == "unweighted"
+    # A named weight column is a fixed tilt even when it is constant.
+    assert surface.target_measure == ("fixed_empirical_tilt" if weights else "unweighted")
     assert surface.complete
 
 

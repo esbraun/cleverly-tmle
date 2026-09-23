@@ -28,10 +28,10 @@ Call `effect.available_methods()` before fitting when method availability matter
 method comes with a capability reason.
 
 The collaborative fit above reports no confidence interval, no p-value, and no standard error. The
-`"greedy"` strategy is the default, and `"ordered"` and `"discrete"` refuse the same three
+`"greedy"` strategy is the default. `"ordered"`, `"discrete"`, and `"oat"` refuse the same three
 accessors. Each estimate keeps `plugin_std_error` and `plugin_interval` as a diagnostic. For an
-interval, use `TMLEMethod` or `strategy="oat"`.
-[Collaborative TMLE](../technical-reference/collaborative-tmle.md) gives the reason.
+interval, use `TMLEMethod`. [Collaborative TMLE](../technical-reference/collaborative-tmle.md)
+gives the reason for each strategy.
 
 Both variants are named here with a parametric learner on purpose. Neither fits a fixed number of
 nuisance models: collaborative TMLE fits one per candidate along its selection path, and DR-TMLE
@@ -147,8 +147,9 @@ observations at the rare level.
 | --- | --- | --- |
 | binary `NaturalCourseMean`, stacked | a binary outcome, pooled targeting, and one repeat | [natural-course contracts](../technical-reference/scope-and-refusals.md#missing-outcome-natural-course-contracts) |
 | arm-indexed means and contrasts, cross-fitted | ordinary TMLE, and no `ATT` or `ATC` target | [arm-indexed contract](../technical-reference/scope-and-refusals.md#missing-outcome-arm-indexed-contract) |
+| shift, incremental, regime, MSM, and controlled-direct-effect targets, cross-fitted | no contract. The fit refuses them before the first learner | [not written yet](../technical-reference/scope-and-refusals.md#not-written-yet) |
 
-To fit either target in sample, set `CrossFitting(enabled=False)`. One fold balances nothing, so
+To fit any target in the table in sample, set `CrossFitting(enabled=False)`. One fold balances nothing, so
 the fold policy makes no difference there.
 
 The two layers multiply: one nuisance fit at the defaults is `10 × 5` model fits per library

@@ -90,7 +90,12 @@ def _fit_continuous(
     return study.estimate(
         MSMProjection(
             MSM.linear(
-                modifiers=("W",), interaction=False, weights=_DoseWeight(), link=link, doses=_DOSES
+                modifiers=("W",),
+                interaction=False,
+                weights=_DoseWeight(),
+                weights_kind="known",
+                link=link,
+                doses=_DOSES,
             )
         ),
         outcome_learner=LogisticRegression(max_iter=1000)

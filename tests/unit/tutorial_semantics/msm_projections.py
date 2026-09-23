@@ -114,7 +114,12 @@ def check(namespace: dict[str, Any]) -> None:
     contacts_design = namespace["contacts_design"]
     explicit_uniform = study.identify(
         MSMProjection(
-            MSM(design=contacts_design, terms=terms, weights=lambda arm, data: np.ones(len(data)))
+            MSM(
+                design=contacts_design,
+                terms=terms,
+                weights=lambda arm, data: np.ones(len(data)),
+                weights_kind="known",
+            )
         )
     ).estimate(method=method)
     for name in names:
@@ -128,6 +133,7 @@ def check(namespace: dict[str, Any]) -> None:
                 design=contacts_design,
                 terms=terms,
                 weights=lambda arm, data: np.full(len(data), fixed[arm]),
+                weights_kind="known",
             )
         )
     ).estimate(method=method)
@@ -150,6 +156,7 @@ def check(namespace: dict[str, Any]) -> None:
                 design=contacts_design,
                 terms=terms,
                 weights=lambda arm, data: np.full(len(data), fixed[arm]),
+                weights_kind="known",
             )
         )
     ).estimate(method=misspecified_q)

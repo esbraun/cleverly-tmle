@@ -62,9 +62,10 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from .._inference_status import InferenceStatus
 from ..exceptions import CapabilityError
 from ..inference.bootstrap import Resampling, _bootstrap_design
-from ..inference.influence import InferenceStatus, spread_name
+from ..inference.influence import spread_name
 from ..utils.frames import emit_frame
 from ..utils.random import resolve_assessment_seed
 from ..utils.text import format_table
@@ -575,9 +576,12 @@ class RefutationTest:
         Requested empirical draw count.
     resampling : str or None
         Resolved bootstrap mode for a bootstrap-based refuter.
-    inference : {"influence_curve", "working_mechanism_plugin"}
-        Inference status of the refitted estimates. On a fit that supplies no inference,
-        ``standard_errors`` and each record's ``std_error`` hold the plug-in diagnostic
+    inference : str
+        Inference status of the refitted estimates. One of
+        :data:`~cleverly.inference.influence.InferenceStatus`, which the
+        :doc:`inference reference </technical-reference/inference>` lists. On a fit
+        that supplies no inference, ``standard_errors`` and each record's ``std_error``
+        hold the plug-in diagnostic
         :attr:`~cleverly.ParameterEstimate.plugin_std_error`, and :meth:`to_frame`
         publishes that column as ``plugin_std_error``.
     """

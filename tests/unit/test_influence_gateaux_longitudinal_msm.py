@@ -70,7 +70,9 @@ def declared(family: str) -> MSM:
         del horizon
         return weights[w, labels.index(label)]
 
-    return MSM(design=build, terms=terms, weights=weight, link=LINK_OF[family])
+    return MSM(
+        design=build, terms=terms, weights=weight, weights_kind="known", link=LINK_OF[family]
+    )
 
 
 def oracle_fit(family: str) -> Any:

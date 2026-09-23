@@ -45,10 +45,11 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from .._inference_status import InferenceStatus, status_record, supplies_inference
 from .._typing import BoolArray, FloatArray
 from ..data.weighting import REPORTED_DRAW
-from ..exceptions import WORKING_MECHANISM_ASSESSMENT_NOTE, capitalize_first
-from ..inference.influence import InferenceStatus, spread_name, supplies_inference
+from ..exceptions import capitalize_first
+from ..inference.influence import spread_name
 from ..utils.bounds import logit
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
@@ -275,10 +276,12 @@ class NuisanceDiagnostics:
         Machine-readable reason no split-spread row is available.
     reported_repeat : int
         One-based draw described by the nuisance models and selection artifact.
-    inference : {"influence_curve", "working_mechanism_plugin"}
-        The inference status the fit's estimates declare. Read here rather than off
-        ``treatment_role``, which reads ``"collaborative_working_model"`` for the
-        outcome-adaptive path as well, and that path keeps its inference.
+    inference : str
+        The inference status the fit's estimates declare. One of
+        :data:`~cleverly.inference.influence.InferenceStatus`, which the
+        :doc:`inference reference </technical-reference/inference>` lists. Read here
+        rather than off ``treatment_role``, which reads ``"collaborative_working_model"``
+        for the outcome-adaptive path as well, and that path has a status of its own.
     """
 
     models: tuple[NuisanceModelReport, ...]
@@ -436,7 +439,7 @@ class NuisanceDiagnostics:
         note = self.inference_note
         if note is not None:
             # Keyed on the declared status and not on ``_working_model``, which is true for
-            # the outcome-adaptive path too, and that path reports an interval.
+            # the outcome-adaptive path too, and that path has a status of its own.
             lines.extend(["", capitalize_first(note) + "."])
         if self.selection is not None:
             # No draw suffix here. The header above already states which draw every
@@ -487,11 +490,16 @@ class NuisanceDiagnostics:
                     "excellent and confounding by these covariates is limited"
                 )
         if not notes:
-            if self._non_inferential:
+            if self._non_inferential and self._working_model:
                 return (
                     "VERDICT: C-TMLE working-model metrics are descriptive, and this fit "
                     "reports no confidence interval and no p-value; inspect the selection "
                     "and support reports."
+                )
+            if self._non_inferential:
+                return (
+                    "VERDICT: nuisance fits look reasonable; this fit reports no "
+                    "confidence interval and no p-value."
                 )
             if self._working_model:
                 return (
@@ -515,13 +523,13 @@ class NuisanceDiagnostics:
     def inference_note(self) -> str | None:
         """The fact a report adds when the fit's estimates carry no inference.
 
-        :data:`~cleverly.exceptions.WORKING_MECHANISM_ASSESSMENT_NOTE` for a fit whose
-        estimates declare a diagnostic status, and ``None`` otherwise. Keyed on
+        The assessment note the status table records for a fit whose estimates declare
+        a diagnostic status, and ``None`` otherwise. Keyed on
         :attr:`inference` and not on :attr:`treatment_role`, which the outcome-adaptive
-        path shares, and that path keeps its interval. :meth:`summary` and the
+        path shares, and that path has a status of its own. :meth:`summary` and the
         assessment's nuisance-model row both read it here.
         """
-        return WORKING_MECHANISM_ASSESSMENT_NOTE if self._non_inferential else None
+        return status_record(self.inference).assessment_note if self._non_inferential else None
 
     def _working_mechanism(self, model: NuisanceModelReport) -> bool:
         """Whether this report is a collaborative fit's own selected propensity.

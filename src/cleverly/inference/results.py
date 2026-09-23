@@ -13,13 +13,13 @@ from typing import Any
 
 import numpy as np
 
+from .._inference_status import InferenceStatus
 from .._typing import FloatArray
 from .cluster import influence_covariance, stacked_second_moment_covariance
 from .delta import delta_method
 from .influence import (
     _SECOND_MOMENT_CLUSTER_REFUSAL,
     CovarianceRule,
-    InferenceStatus,
     ParameterEstimate,
     Scale,
     make_estimate,

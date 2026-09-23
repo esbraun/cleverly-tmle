@@ -41,21 +41,23 @@ from sklearn.base import BaseEstimator
 from sklearn.linear_model import LogisticRegression
 
 from cleverly import variable_importance
+from cleverly._inference_status import NON_INFERENTIAL
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_binary_outcome, make_instrument, make_missing_outcome
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import (
-    WORKING_MECHANISM_ASSESSMENT_NOTE,
-    WORKING_MECHANISM_NOT_INFERENTIAL,
     CapabilityError,
-    working_mechanism_refusal,
+    inference_refusal,
 )
 from cleverly.inference.influence import spread_name
 from cleverly.sensitivity import missingness_tilt, tipping_gamma
 from cleverly.validation import CoverageStudy, refute
 from cleverly.validation.score import score_check
 from tests.conftest import SELECTOR_CONFIGS, linear_ctmle, linear_in_sample
+
+#: The selector-path record, read where every raise and report reads it.
+WORKING_MECHANISM = NON_INFERENTIAL["working_mechanism_plugin"]
 
 #: The status every selector path stamps, and the three spread columns an ordinary fit's
 #: tilt carries and a selector-path fit renames.  Read through ``spread_name`` rather than
@@ -128,7 +130,7 @@ class TestVariableImportanceRefusesBeforeItFits:
             self._call(linear_ctmle(strategy, estimands=("ate",), **SELECTOR_CONFIGS[strategy]))
         message = str(raised.value)
         assert message.startswith("variable_importance() is not defined here.")
-        assert WORKING_MECHANISM_NOT_INFERENTIAL in message
+        assert WORKING_MECHANISM.reason in message
         # The old message named an accessor no caller had written.
         assert ".pvalue" not in message
 
@@ -143,16 +145,26 @@ class TestVariableImportanceRefusesBeforeItFits:
         with pytest.raises(CapabilityError):
             self._call(estimator)
 
-    def test_the_outcome_adaptive_path_still_reports_its_adjusted_p_values(self) -> None:
-        """The control against a refusal broadened to every collaborative fit."""
-        result = self._call(linear_ctmle("oat", estimands=("ate",)))
-        frame = result.to_frame()
-        assert {"std_err", "ci_lower", "ci_upper", "p_value"} <= set(frame.columns)
-        assert np.isfinite(result[0].adjusted_pvalue)
+    def test_the_outcome_adaptive_path_is_refused_by_its_own_reason(self) -> None:
+        """``oat`` refuses at the entry point too, with the reason of its own status.
+
+        It was the control against a refusal broadened to every collaborative fit until
+        RM20 gave it a status. The ordinary estimator below is that control now.
+        """
+        with pytest.raises(CapabilityError) as raised:
+            self._call(linear_ctmle("oat", estimands=("ate",)))
+        message = str(raised.value)
+        assert message.startswith("variable_importance() is not defined here.")
+        assert NON_INFERENTIAL["generated_design_plugin"].reason in message
+        assert WORKING_MECHANISM.reason not in message
 
     def test_an_ordinary_estimator_is_untouched(self) -> None:
+        """The control against a refusal broadened to every estimator."""
         result = self._call(TMLE(**linear_in_sample(estimands=("ate",))))
+        frame = result.to_frame()
+        assert {"std_err", "ci_lower", "ci_upper", "p_value"} <= set(frame.columns)
         assert np.isfinite(result[0].estimate.pvalue)
+        assert np.isfinite(result[0].adjusted_pvalue)
 
 
 class TestTheMissingnessTiltAgreesWithItsCapabilityRow:
@@ -214,7 +226,7 @@ class TestTippingGammaSearchesThePointEstimateOnly:
             tipping_gamma(selector_fit, "ate", use_ci=True)
         message = str(raised.value)
         assert message.startswith("tipping_gamma(use_ci=True) is not defined here.")
-        assert WORKING_MECHANISM_NOT_INFERENTIAL in message
+        assert WORKING_MECHANISM.reason in message
         assert ".std_error" not in message
 
     def test_an_ordinary_fit_still_searches_its_interval(self, ordinary_fit: Any) -> None:
@@ -241,7 +253,7 @@ class TestARestoredSelectorFitStillRefuses:
     def test_the_restored_result_still_refuses_its_interval(self, restored: Any) -> None:
         with pytest.raises(CapabilityError) as raised:
             _ = restored["ate"].ci
-        assert WORKING_MECHANISM_NOT_INFERENTIAL in str(raised.value)
+        assert WORKING_MECHANISM.reason in str(raised.value)
 
     def test_the_retained_diagnostic_survives_the_round_trip_bit_for_bit(
         self, restored: Any, selector_fit: Any
@@ -292,7 +304,7 @@ class TestALegacySelectorArtifactIsReStamped:
     def test_the_interval_is_refused_again(self, restored: Any) -> None:
         with pytest.raises(CapabilityError) as raised:
             _ = restored["ate"].ci
-        assert WORKING_MECHANISM_NOT_INFERENTIAL in str(raised.value)
+        assert WORKING_MECHANISM.reason in str(raised.value)
 
     def test_the_diagnostic_is_bit_identical(self, restored: Any, selector_fit: Any) -> None:
         assert restored["ate"].plugin_std_error == selector_fit["ate"].plugin_std_error
@@ -352,7 +364,7 @@ class TestAPreStrategyArtifactLoadsAndRefuses:
     def test_the_interval_is_refused(self, restored: Any) -> None:
         with pytest.raises(CapabilityError) as raised:
             _ = restored["ate"].ci
-        assert WORKING_MECHANISM_NOT_INFERENTIAL in str(raised.value)
+        assert WORKING_MECHANISM.reason in str(raised.value)
 
     @pytest.mark.parametrize("strategy", sorted(SELECTOR_CONFIGS))
     def test_variable_importance_refuses_the_restored_estimator(self, strategy: str) -> None:
@@ -442,8 +454,8 @@ class TestEverySpreadIsNamedByItsStatus:
     def test_the_nuisance_note_keeps_its_capitals(self, repeated_selector_fit: Any) -> None:
         """``str.capitalize`` printed "f18". Only the first letter may change."""
         report = repeated_selector_fit.diagnostics.nuisance_models()
-        assert report.inference_note == WORKING_MECHANISM_ASSESSMENT_NOTE
-        note = WORKING_MECHANISM_ASSESSMENT_NOTE
+        assert report.inference_note == WORKING_MECHANISM.assessment_note
+        note = WORKING_MECHANISM.assessment_note
         assert note[0].upper() + note[1:] + "." in report.summary()
 
     def test_an_ordinary_report_has_no_note(self, ordinary_fit: Any) -> None:
@@ -517,7 +529,7 @@ class TestTheArgumentAwareRowsAgreeWithTheCall:
         )
         item = report["tipping_gamma"]
         assert item.status is AssessmentStatus.UNAVAILABLE
-        assert working_mechanism_refusal("tipping_gamma(use_ci=True)") in item.detail
+        assert inference_refusal("tipping_gamma(use_ci=True)", DIAGNOSTIC) in item.detail
         assert DECLINED not in item.detail
 
     def test_the_point_tipping_row_stays_available(self, selector_fit: Any) -> None:
@@ -543,7 +555,7 @@ class TestTheArgumentAwareRowsAgreeWithTheCall:
         assert level.status is AssessmentStatus.NOT_APPLICABLE
         contrast = fit.sensitivity.run_all(arguments={"evalue": {"estimand": "ate"}})["evalue"]
         assert contrast.status is AssessmentStatus.UNAVAILABLE
-        assert WORKING_MECHANISM_NOT_INFERENTIAL in contrast.detail
+        assert WORKING_MECHANISM.reason in contrast.detail
 
 
 class TestNoAvailableRowDeclinesOnASelectorPath:

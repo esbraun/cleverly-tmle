@@ -77,26 +77,55 @@ the five refusals. A repeated fit refuses `covariance()` and `contrast()` altoge
 ## Inference status
 
 Each `ParameterEstimate` declares an `inference` status. The status says whether `cleverly`
-supplies inference for the estimate. `supplies_inference` is `True` for the first status only.
+supplies inference for the estimate. `supplies_inference` is `True` for `"influence_curve"` only.
+Every other status is a non-inferential status.
 
-| status | declared by | `std_error`, `ci`, and `pvalue` | `plugin_std_error` and `plugin_interval` |
-| --- | --- | --- | --- |
-| `"influence_curve"` | every estimate except the ones below. This is the default | return the values on this page | return the same numbers under names that claim no coverage |
-| `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, or `"discrete"` | raise `CapabilityError` | return the plug-in spread of the reported curve, as a diagnostic |
+| status | declared by | `std_error`, `ci`, and `pvalue` | `summary()` column | reopened by |
+| --- | --- | --- | --- | --- |
+| `"influence_curve"` | every estimate except the ones below. This is the default | return the values on this page | `std_err` | not applicable |
+| `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, or `"discrete"`. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `working-mechanism se` | [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
+| `"generated_design_plugin"` | every `CTMLE` fit with `strategy="oat"`, including a fit with `delta=` and a fit that requests one arm mean. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `generated-design se` | [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
+| `"estimated_weight_plugin"` | a `DRTMLE` fit with a non-empty `guard` and varying weights declared estimated (`weights_estimated=True`). A fit with `guard=()` keeps `"influence_curve"`. Constant weights fit the unweighted estimator, so they keep it too. [DR-TMLE supported estimands](dr-tmle/supported-estimands.md#refused-by-name) gives the reason | raise `CapabilityError` with the reason of the status | `fixed-weight se` | [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
+| `"unequal_cluster_plugin"` | a cross-fitted `TMLE` or `DRTMLE` fit with `id=` whose clusters differ in row count or weight mass, overall or in one reported baseline stratum. This includes `cv_evaluation=True`. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `cluster-robust plug-in se` | [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
+| `"few_cluster_plugin"` | a `TMLE` or `DRTMLE` fit with `id=` and fewer than 40 clusters with positive weight mass in the fit or one reported baseline stratum. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
 
-[Collaborative TMLE](collaborative-tmle.md) gives the reason for the second status. A fit has one
-status, and `TMLEResult.inference_status` returns it.
+At every status, `plugin_std_error` and `plugin_interval` return the plug-in spread of the
+reported curve. On `"influence_curve"` they return the numbers of `std_error` and `ci` under names
+that claim no coverage. On a non-inferential status they return a diagnostic.
+
+One table in `cleverly._inference_status`, `NON_INFERENTIAL`, holds the texts of each
+non-inferential status. The refusal, the `summary()` paragraph, the assessment note, and the
+E-value row each read that table. `tests/unit/test_inference_status_registry.py` checks that the
+table, the `InferenceStatus` type, and the rows above list the same statuses.
+
+A fit has one status, and `TMLEResult.inference_status` returns it. The estimator decides the
+status from its configuration and the prepared data; it reads no fitted quantity. When more than one
+non-inferential status applies, the fit takes the first one in the table above. The rows are in
+that order.
 
 A report that publishes a spread names its columns through `spread_name` in
-`cleverly.inference.influence`. On the second status, `to_frame()` emits `inference`,
+`cleverly.inference.influence`. On a non-inferential status, `to_frame()` emits `inference`,
 `plugin_std_err`, `plugin_interval_lower`, and `plugin_interval_upper` in place of `std_err`,
 `ci_lower`, and `ci_upper`. It emits no `p_value`. `ParameterEstimate.spread_columns()` returns
-those columns under the name that fits the status.
+those columns under the name that fits the status. The table below gives the other reports that
+rename a number on a non-inferential status.
+
+| report | inferential name | name on a non-inferential status |
+| --- | --- | --- |
+| `result.cv_targeting.to_frame()` | `cv_std_err`, `pooled_std_err` | `cv_plugin_std_err`, `pooled_plugin_std_err`, and an `inference` column |
+| `result.cv_targeting.std_error` | the property | refused. `plugin_std_error` returns the same numbers |
+| `omitted_variable_bounds(...).to_dict()` | `ci_lower`, `ci_upper`, `robustness_value_ci` | `plugin_interval_lower`, `plugin_interval_upper`, `robustness_value_plugin_interval`, and an `inference` key |
+| `robustness_value(...)` | `rva` | `rv_plugin_interval`, and an `inference` key |
+
+`CVTargeting.inference` reads the status from the two fold-level reports. The fit stamps those
+reports where it stamps its own estimates. `SensitivityBounds.inference` carries the status of the
+estimate that the bound adjusts. `tests/unit/test_inference_status_reach.py` forces each
+non-inferential status on a clustered fit and checks every report in this section.
 
 A contrast inherits the status of its inputs, so a contrast of two diagnostic estimates refuses
-`ci` as its inputs do. A simultaneous band refuses the second status with `CapabilityError`. Two
-selections that mix the statuses raise `ValueError`. No fit produces either input, because the
-estimator stamps one status on every estimate it reports.
+`ci` as its inputs do. A simultaneous band refuses every non-inferential status with
+`CapabilityError`. Two selections that mix the statuses raise `ValueError`. No fit produces
+either input, because the estimator stamps one status on every estimate it reports.
 
 | function | selection | reason |
 | --- | --- | --- |
@@ -127,6 +156,43 @@ Two estimators refuse `cluster=` rather than draw that split. Collaborative TMLE
 every setting, and longitudinal TMLE refuses it above one fold. The
 [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give the audit and both
 messages.
+
+Two clustered settings of `TMLE` and `DRTMLE` report no interval. Each takes a status from the
+[status table](#inference-status). The status is determined from prepared cluster labels, strata,
+and weights, without reading a fitted quantity.
+
+| setting | status | reason |
+| --- | --- | --- |
+| cross-fitted, and the clusters hold different numbers of rows or weight mass, overall or within a reported baseline stratum | `"unequal_cluster_plugin"` | the [grouped folds](cv-tmle.md#grouped-folds) argument and registered study cover equal sizes and masses. The point estimator remains row weighted at unequal sizes, but its cross-fitted interval lacks a validation result there |
+| fewer than 40 clusters with positive weight mass in the fit, or in one reported baseline stratum, in sample or cross-fitted | `"few_cluster_plugin"` | the package uses a normal reference. Nugent et al. (2024), Section 2.2, recommend a $t$ reference with $J - 2$ degrees of freedom below 40 clusters, where $J$ is the contributing cluster count. Benitez et al. (2023), Section 3.1.2, paragraph on inference, and Section 3.2.1, last paragraph, recommend it at every cluster count. No registered study covers few clusters |
+
+The table gives the functions in `cleverly.inference.cluster` that apply each rule.
+
+| function | what it reads |
+| --- | --- |
+| `unequal_cluster_sizes` | the row count and, on a weighted fit, the weight mass of each cluster. `cluster_inference_status` checks both measures again within each reported stratum. Two masses count as equal within `WEIGHT_MASS_RTOL`, 1e-9, of the largest |
+| `fewest_clusters` | the distinct cluster count with positive weight mass. On a fit with baseline strata, it also counts those clusters within each stratum and returns the smallest count |
+
+A fit has one status. So one stratum with fewer than 40 contributing clusters withholds the interval
+of every estimate, the marginal estimates included. An in-sample fit at unequal sizes keeps its
+interval when it has 40 or more contributing clusters in the fit and in each reported stratum.
+Benitez et al. (2023),
+Section 3.2.1, give the cluster-sum aggregation for that row-weighted estimand. When both settings
+apply, the fit takes `"unequal_cluster_plugin"`, which comes first in the status table.
+`tests/unit/test_cluster_status.py` holds a witness, a control, and a mutation for each rule.
+
+The few-cluster rule counts contributing clusters, and it reads no row count. So a fit of 30 rows
+with `id=` and one row in
+each cluster takes `"few_cluster_plugin"`. The same rows without `id=` keep their interval. This
+refusal is conservative, and the roadmap records it as a known over-refusal.
+
+`FEW_CLUSTER_THRESHOLD` in `cleverly._inference_status` holds the threshold of 40. The `summary()`
+facts block prints the cluster count. It adds unequal row or weight-mass ranges, including
+within-stratum ranges. It names clusters with positive weight mass when some have zero mass, and
+the fewest contributing clusters in one stratum.
+[References](../references.md#grouped-folds-and-clustered-cross-fitting) gives both
+sources. [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle) holds the
+route that reopens each setting.
 
 ## Transformed parameters
 

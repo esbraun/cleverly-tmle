@@ -1,6 +1,6 @@
 # Outcome-adaptive multi-arm C-TMLE
 
-This study validates outcome-adaptive C-TMLE for a labelled three-arm treatment. The canonical
+This study compares outcome-adaptive C-TMLE for a labelled three-arm treatment. The canonical
 comparison uses archived R [`ctmle3`](https://github.com/tlverse/ctmle3) at pinned commit
 `a4ea77b`. Both implementations receive identical draws and start from corresponding empirical
 treatment mechanisms and correctly specified outcome regressions.
@@ -9,6 +9,11 @@ The study uses the family-wide three-arm binary law and reports arm means, ATEs,
 and odds ratios against the `high` arm. Its property design separately checks the method's
 outcome-regression robustness contract and the precision cost of estimating the generated
 outcome-adaptive design.
+
+Every `CTMLE(strategy="oat")` fit has the `generated_design_plugin` status. The coverage and
+standard-error ratios below measure `plugin_interval` and `plugin_std_error` as diagnostics;
+their pass labels do not authorize `ci`, `pvalue`, or `std_error`. The two red generated-design
+property cells remain open under [F19](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference).
 
 The primary fit draws no split at all. It is not cross-fitted, and the outcome-adaptive strategy
 scores no candidate path, so it needs no selection folds. Every property cell is cross-fitted and
@@ -115,6 +120,16 @@ outcome scaler is already the identity.
 | `margin:excluded_slope` | -0.2500 | slower rate the interval must exclude |
 
 ## Limitations
+
+These cells now measure a diagnostic that the package does not publish as inference. Every
+`strategy="oat"` fit takes the `"generated_design_plugin"` status, which
+[RM20](../../roadmap.md#rm20-intervals-outside-every-claimed-contract) decides. `ci`, `pvalue`,
+and `std_error` refuse, and the fit reports `plugin_std_error` and `plugin_interval` instead.
+
+The `std_error`, `ci_lower`, `ci_upper`, and `covered` columns of this study read those two
+accessors. The numbers are the ones the committed artifacts carry. Each accessor calls the same
+body as the refused one, so the reframing changed no arithmetic. No regeneration was run. The
+coverage, calibration, null-size, and power cells therefore describe that diagnostic.
 
 This row has reporting policy, so its red cells publish. Both generated-design SE-ratio intervals
 leave the calibration band. Their paired difference includes zero, which is reported but is not a

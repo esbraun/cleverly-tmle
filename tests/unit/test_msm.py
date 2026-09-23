@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 
 from cleverly.data import CausalData
-from cleverly.exceptions import DataError
+from cleverly.exceptions import CapabilityError, DataError
 from cleverly.msm import (
     MSM,
     Link,
@@ -71,11 +71,12 @@ class TestDeclaration:
     def test_weights_that_are_not_a_known_function_are_refused(self) -> None:
         # An array is not a function of ``(a, V)``: it is one particular evaluation, and
         # nothing here can check it was not derived from the fitted mechanism.
-        with pytest.raises(NotImplementedError, match="functional of P"):
+        with pytest.raises(CapabilityError, match="functional of P"):
             MSM(
                 design=lambda a, w: np.ones((len(w), 1)),
                 terms=("(intercept)",),
                 weights=np.ones(10),  # type: ignore[arg-type]
+                weights_kind="known",
             )
 
     def test_refuse_unsupported_rejects_an_unknown_kind(self) -> None:
@@ -187,6 +188,7 @@ class TestEvaluate:
             design=lambda a, w: np.column_stack([np.ones(len(w)), np.full(len(w), float(a))]),
             terms=("(intercept)", "a"),
             weights=lambda a, w: np.ones(3),
+            weights_kind="known",
         )
         with pytest.raises(DataError, match="one weight per unit"):
             MSMSet.evaluate(wrong, data)
@@ -197,6 +199,7 @@ class TestEvaluate:
             design=lambda a, w: np.column_stack([np.ones(len(w)), np.full(len(w), float(a))]),
             terms=("(intercept)", "a"),
             weights=lambda a, w: -np.ones(len(w)),
+            weights_kind="known",
         )
         with pytest.raises(DataError, match="not a signed contrast"):
             MSMSet.evaluate(wrong, data)
@@ -250,7 +253,11 @@ class TestTheGramMatrix:
 
     def test_the_weighted_design_is_the_product_the_covariate_needs(self) -> None:
         data = make_data(levels=(0, 1, 2))
-        model = MSM.linear(modifiers=("W1",), weights=lambda a, w: 1.0 + float(a) * np.ones(len(w)))
+        model = MSM.linear(
+            modifiers=("W1",),
+            weights=lambda a, w: 1.0 + float(a) * np.ones(len(w)),
+            weights_kind="known",
+        )
         evaluated = MSMSet.evaluate(model, data)
         assert np.allclose(
             evaluated.weighted_design, evaluated.design * evaluated.weights[:, :, None]

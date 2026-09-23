@@ -58,6 +58,7 @@ def working_model(link: str = "identity") -> MSM:
         modifiers=("W",),
         interaction=False,
         weights=lambda arm, frame: 1.0 + 0.5 * float(arm) + 0.25 * np.asarray(frame["W"]),
+        weights_kind="known",
         link=link,  # type: ignore[arg-type]
     )
 

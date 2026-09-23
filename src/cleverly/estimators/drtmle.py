@@ -133,6 +133,7 @@ from typing import Any, cast
 
 import numpy as np
 
+from .._inference_status import InferenceStatus, precedent_status
 from ..data.causal_data import CausalData
 from ..learners.crossfit import Folds
 from ..learners.library import _validate_learner
@@ -421,13 +422,17 @@ class DRTMLE(TMLE):
     the aggregation, so it is a defect in the fit rather than a reason to refuse ``repeats=``.
 
     Where it stops is an **estimated** weight.  Nothing read here says what the reduced
-    regressions of a random tilt are, and the ordinary answer -- that the interval conditions
-    on the weights, as ``weights_estimated=`` declares -- is an argument about :math:`D^*`
-    rather than about :math:`Q_r`, :math:`g_{r,1}` and :math:`g_{r,2}`.  The fit still runs; what
-    the current method contract withholds is an interval claim until a paper supplies the
-    influence contribution for estimating them. Roadmap item F5 tracks that withheld interval.
-    Roadmap item F11 separately tracks the stored model, target-population semantics, and
-    regeneration rule needed by a perturbation refit.
+    regressions of a random tilt are.  The ordinary answer is that the interval conditions
+    on the weights, as ``weights_estimated=`` declares.  That answer is an argument about
+    :math:`D^*`, and not about :math:`Q_r`, :math:`g_{r,1}` and :math:`g_{r,2}`.  So a fit
+    with a non-empty ``guard`` and ``weights_estimated=True`` takes the
+    ``"estimated_weight_plugin"`` status.  The fit runs and the point estimate stands.
+    ``ci``, ``pvalue`` and ``std_error`` raise :class:`~cleverly.exceptions.CapabilityError`,
+    and ``plugin_std_error`` and ``plugin_interval`` report the retained diagnostic.
+    Roadmap item F5 holds the influence contribution of the weight estimate that would
+    reopen it.  ``guard=()`` fits the ordinary TMLE, whose interval conditions on the
+    weights, and keeps its interval.  Roadmap item F11 separately tracks the stored model,
+    target-population semantics, and regeneration rule needed by a perturbation refit.
     ``simulated_confounding`` refuses the composition outright until that replay contract exists.
 
     ``tests/unit/test_simulated_confounding.py`` now runs fitted nonuniform-weight
@@ -498,6 +503,40 @@ class DRTMLE(TMLE):
 
     def _uses_corrections(self) -> bool:
         return bool(self.guard)
+
+    def _inference_status(self, data: CausalData) -> InferenceStatus:
+        """Withhold inference on a guarded fit whose weights are declared estimated.
+
+        The argument that an interval conditions on the weights concerns the efficient
+        influence curve, and no result read here gives the reduced-dimension regressions
+        of an estimated weight. So a fit with a non-empty ``guard`` and weights declared
+        estimated takes the ``"estimated_weight_plugin"`` status, as roadmap row RM20
+        decides. ``guard=()`` fits the ordinary TMLE, whose interval conditions on the
+        weights, so it keeps the ordinary status. The flag changes no number, so a status
+        and not a refusal records what it declares. The ordinary estimator's status is
+        resolved with this one through
+        :func:`~cleverly._inference_status.precedent_status`, so the order of the two
+        lives in the table.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data. Its weight declaration is read through
+            :attr:`~cleverly.data.CausalData.declares_estimated_weights`, so constant
+            weights declared estimated fit the unweighted estimator and keep its interval.
+
+        Returns
+        -------
+        str
+            One of :data:`~cleverly.inference.influence.InferenceStatus`.
+        """
+        estimated = bool(self.guard) and data.declares_estimated_weights
+        return precedent_status(
+            [
+                "estimated_weight_plugin" if estimated else "influence_curve",
+                super()._inference_status(data),
+            ]
+        )
 
     def _validate_drtmle_settings(self) -> None:
         unknown = [name for name in self.guard if name not in GUARDS]

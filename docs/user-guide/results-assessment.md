@@ -74,14 +74,16 @@ point = result[names[0]]
 print(point.psi, point.std_error, point.ci, point.pvalue)
 ```
 
-A collaborative fit with the default `strategy="greedy"`, or with `"ordered"` or `"discrete"`,
-refuses `std_error`, `ci`, and `pvalue` with `CapabilityError`. Read `point.plugin_std_error` and
-`point.plugin_interval` on that fit. Each is a diagnostic of the reported curve, and neither is a
-confidence statement. The property `result.inference_status` gives the status of the fit, and
-`point.supplies_inference` gives it for one estimate. For an interval, fit `TMLE`, or use
-`strategy="oat"`. [Inference status](../technical-reference/inference.md#inference-status) lists
-the renamed columns, and [collaborative TMLE](../technical-reference/collaborative-tmle.md) gives
-the reason.
+A collaborative fit refuses `std_error`, `ci`, and `pvalue` with `CapabilityError` at every
+`strategy`. A `DRTMLE` fit with a `guard` and varying weights declared estimated
+(`weights_estimated=True`) refuses them too. The
+property `result.inference_status` gives the status of the fit, and `point.supplies_inference`
+gives it for one estimate.
+
+Read `point.plugin_std_error` and `point.plugin_interval` on such a fit. Each is a diagnostic of
+the reported curve, and neither is a confidence statement. For an interval, fit `TMLE`.
+[Inference status](../technical-reference/inference.md#inference-status) lists each status, its
+reason, and the renamed columns.
 
 `result.parameter_keys` maps each alias to a structured `ParameterKey`. Use those fields for
 programmatic selection. Display aliases are not a serialization format.
@@ -100,8 +102,15 @@ if len(names) >= 2:
     difference = result.contrast(lambda values: values[0] - values[1], names[:2])
 ```
 
-Use cluster roles in the study design for cluster-robust variance. Use `Inference(simultaneous=True)`
-when the reported family, rather than each interval separately, needs error control.
+Use cluster roles in the study design for cluster-robust variance. A point-treatment TMLE or
+DR-TMLE fit reports no interval when it has fewer than 40 clusters with positive weight mass,
+in total or in one reported stratum. A cross-fitted fit at unequal row counts or weight masses,
+overall or within a reported stratum, reports none either.
+[Clusters](../technical-reference/inference.md#clusters) gives both reasons. An in-sample
+longitudinal fit with fewer than 40 clusters still reports an interval, and
+[RM26](../roadmap.md#rm26-longitudinal-clustered-intervals-at-few-clusters) tracks it. Use
+`Inference(simultaneous=True)` when the reported family, rather than each interval separately,
+needs error control.
 
 A contrast inherits the inference status of its inputs. On a selector-path collaborative fit the
 contrast refuses `ci` as its inputs do, and the fit builds no simultaneous band.

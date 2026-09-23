@@ -22,6 +22,7 @@ from tests.studies.evidence.inference import (
     percentile_interval,
     standardized_bias_verdict,
 )
+from tests.studies.evidence.schema import reported_inference, reported_pvalue
 
 REPLICATE_COLUMNS = (
     "property",
@@ -302,8 +303,13 @@ def replicate_row(
     parameters per replication cannot use ``run_cells`` yet and assembles its rows itself, so
     this is the piece both paths need: the schema in one place rather than one copy per study
     that hand-rolls its loop.
+
+    The interval, the standard error and the p-value are read through
+    :func:`~tests.studies.evidence.schema.reported_inference` and
+    :func:`~tests.studies.evidence.schema.reported_pvalue`, so a row is written under any
+    inference status and an inferential row keeps its numbers bit for bit.
     """
-    low, high = estimate.ci
+    std_error, low, high = reported_inference(estimate)
     return {
         "property": property_name,
         "cell": cell,
@@ -314,9 +320,9 @@ def replicate_row(
         "failed_replicates": 0,
         "truth": truth,
         "estimate": float(estimate.psi),
-        "std_error": float(estimate.std_error),
+        "std_error": std_error,
         "covered": int(low <= truth <= high),
-        "rejected": int(estimate.pvalue < alpha),
+        "rejected": int(reported_pvalue(estimate) < alpha),
     }
 
 

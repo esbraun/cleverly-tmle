@@ -120,9 +120,13 @@ takes the whole second-order expansion at two tilted laws, and keeps the wrong t
 a test rather than as a caveat.
 
 An **estimated** weight is where that stops.  The argument above for the ordinary
-estimator -- that the interval conditions on the weights, which ``weights_estimated=``
-declares -- is about :math:`D^*`, and the reduced regressions of a random tilt are not
-something anything read here derives.
+estimator is that the interval conditions on the weights, which ``weights_estimated=``
+declares.  That argument is about :math:`D^*`, and nothing read here derives the reduced
+regressions of a random tilt.  So a ``DRTMLE`` fit with a non-empty ``guard`` and
+``weights_estimated=True`` reports its point estimate under the ``"estimated_weight_plugin"``
+status: ``ci``, ``pvalue`` and ``std_error`` raise, and ``plugin_std_error`` and
+``plugin_interval`` keep the diagnostic.  ``guard=()`` fits the ordinary TMLE and keeps its
+interval.  F5 in ``docs/roadmap.md`` holds the result that would reopen it.
 
 Normalisation
 -------------
@@ -280,6 +284,7 @@ from typing import Any, Final, Literal, TypedDict, cast
 
 import numpy as np
 
+from .._inference_status import status_record
 from .._typing import FloatArray
 from ..exceptions import DataError, WeightingWarning
 from .validate import check_weights
@@ -623,12 +628,19 @@ class WeightReport:
         return "\n".join(lines)
 
 
+#: The roadmap item the estimated-weight line names, read from the status record.
+_ESTIMATED_WEIGHT_REOPEN = status_record("estimated_weight_plugin").reopened_by
+
+
 def estimand_lines(report: WeightReport) -> list[str]:
     """The estimand statement, as lines for a report.
 
     Short by design -- the derivation lives in this module's docstring.  What has to
     appear next to any weighted number is *which* population it refers to and *what* the
-    standard error conditions on.
+    standard error conditions on.  The report belongs to the data and not to a fit, so
+    every sentence has to be true of every estimator that can fit the data: the
+    estimated-weight line names the fit that the weight declaration alone stops from
+    reporting an interval.
     """
     if not report.is_weighted:
         return []
@@ -641,14 +653,18 @@ def estimand_lines(report: WeightReport) -> list[str]:
     ]
     if report.estimated:
         lines.append(
-            "Weights were declared estimated: the interval conditions on the fitted "
-            "weights. For weights fitted by maximum likelihood in a correct selection "
-            "model this is conservative for the full-population parameter; for "
-            "calibrated, raked or trimmed weights there is no general guarantee. Note "
-            "that this package's bootstrap (n_bootstrap=) does not close the gap: it "
-            "resamples rows and renormalises the weights it was handed, never re-deriving "
-            "them, so its intervals condition on the fitted weights too. Closing it needs "
-            "the weight model in the resampling loop, outside this package."
+            "Weights were declared estimated: an interval that a fit reports conditions on "
+            "the fitted weights. For weights fitted by maximum likelihood in a correct "
+            "selection model this is conservative for the full-population parameter; for "
+            "calibrated, raked or trimmed weights there is no general guarantee. Note that "
+            "this package's bootstrap (n_bootstrap=) does not close the gap: it resamples "
+            "rows and renormalises the weights it was handed, never re-deriving them, so "
+            "its intervals condition on the fitted weights too. Closing it needs the weight "
+            "model in the resampling loop, outside this package. A DRTMLE fit with a "
+            "non-empty guard reports no interval on estimated weights: the conditioning "
+            "argument concerns D* and not the reduced regressions, so the fit takes the "
+            f"estimated_weight_plugin status, and {_ESTIMATED_WEIGHT_REOPEN} in "
+            "docs/roadmap.md reopens it."
         )
     lines.append(
         "Complex designs: stratification and finite-population corrections are ignored "

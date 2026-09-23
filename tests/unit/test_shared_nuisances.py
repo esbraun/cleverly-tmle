@@ -21,7 +21,7 @@ import pytest
 import sklearn.linear_model
 from scipy.special import expit
 
-from cleverly.datasets import DGP, GENERATORS
+from cleverly.datasets import GENERATORS, cde_dgp
 from cleverly.estimators import CTMLE, TMLE
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
@@ -32,15 +32,11 @@ pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 #: this test's subject -- nuisance sharing across CDE levels -- needs a declared
 #: ``q_bounds``, and ``GENERATORS["cde"]`` draws a Gaussian outcome, so declaring one for
 #: it would state a support the law does not have (the fold and outcome-scale rules).
-_BOUNDED_CDE = DGP(
+_CDE = cde_dgp()
+_BOUNDED_CDE = replace(
+    _CDE,
     name="bounded_controlled_direct_effect",
-    n_latent=3,
-    covariate_names=("W1", "W2", "W3"),
-    propensity=lambda w: expit(0.3 * w[:, 0] + 0.2 * w[:, 1]),
-    outcome_mean=lambda w, a, z: expit(
-        0.5 + 0.9 * a + 1.4 * z + 0.6 * a * z + 0.8 * w[:, 0] - 0.5 * w[:, 1] + 0.3 * w[:, 2]
-    ),
-    intermediate=lambda w, a: expit(-0.3 + 1.1 * a + 0.5 * w[:, 0] - 0.4 * w[:, 2]),
+    outcome_mean=lambda w, a, z: expit(_CDE.outcome_mean(w, a, z)),
     family="beta",
     concentration=20.0,
 )

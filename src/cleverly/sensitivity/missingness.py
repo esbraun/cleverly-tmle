@@ -46,14 +46,14 @@ as known and reuse the MAR standard error.  They describe sampling uncertainty a
 fixed :math:`\gamma`, not uncertainty about :math:`\gamma` itself.
 
 **What the tilt reports for a fit that has no interval.**  The curve is a plug-in
-sweep of the point estimate, so the whole of it is defined for a selector-path
-collaborative fit, whose targeted regression and missingness mechanism this module
-reads directly.  Only the spread columns depend on an influence curve the package
-refuses to claim there.  Such a fit therefore receives ``plugin_std_err``,
-``plugin_interval_lower`` and ``plugin_interval_upper`` in place of ``std_err``,
-``ci_lower`` and ``ci_upper``, which is the swap
-:func:`~cleverly.sensitivity.positivity.truncation_curve` already makes for the same
-fit.  :func:`tipping_gamma` keeps its point-estimate search on such a fit and refuses
+sweep of the point estimate, so the whole of it is defined for a fit at a
+non-inferential status, such as a selector-path collaborative fit, whose targeted
+regression and missingness mechanism this module reads directly.  Only the spread
+columns depend on an influence curve the package refuses to claim there.  Such a fit
+therefore receives ``plugin_std_err``, ``plugin_interval_lower`` and
+``plugin_interval_upper`` in place of ``std_err``, ``ci_lower`` and ``ci_upper``, which
+is the swap :func:`~cleverly.sensitivity.positivity.truncation_curve` already makes for
+the same fit.  :func:`tipping_gamma` keeps its point-estimate search on such a fit and refuses
 ``use_ci=True``, because it returns one float and a float carries no column name to
 say which of the two an interval crossing came from.
 """
@@ -66,7 +66,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._typing import FloatArray
-from ..exceptions import CapabilityError, refuse_working_mechanism_inference
+from ..exceptions import CapabilityError, refuse_inference
 from ..inference.delta import normal_ci
 from ..inference.influence import spread_name
 from ..targets.population_intervention import (
@@ -124,7 +124,8 @@ def missingness_tilt(
     and that target is not indexed by arm, so it needs a natural-course sensitivity
     parameter that is not implemented.
 
-    A selector-path ``CTMLE`` fit receives ``plugin_std_err``,
+    A fit whose inference status supplies no inference, such as a selector-path
+    ``CTMLE`` fit, receives ``plugin_std_err``,
     ``plugin_interval_lower`` and ``plugin_interval_upper`` in place of ``std_err``,
     ``ci_lower`` and ``ci_upper``.  The point-estimate curve is unchanged, and no column
     of it claims coverage this package does not supply.
@@ -391,8 +392,9 @@ def tipping_gamma(
     Refuses a missing-outcome ``NaturalCourseMean`` fit, for the reason
     :func:`missingness_tilt` gives: it searches over that same arm-specific tilt.
 
-    Refuses ``use_ci=True`` on a selector-path ``CTMLE`` fit, which supplies no confidence
-    limit for the search to follow.  ``use_ci=False``, the default, searches the point
+    Refuses ``use_ci=True`` on a fit whose inference status supplies no inference, such
+    as a selector-path ``CTMLE`` fit. Such a fit supplies no confidence limit for the
+    search to follow.  ``use_ci=False``, the default, searches the point
     estimate and answers for that fit.
 
     Parameters
@@ -409,8 +411,8 @@ def tipping_gamma(
         the declared arm-specific tilt magnitudes before refining each crossing.
     use_ci : bool
         Whether to tip when the confidence limit reaches the null rather than the
-        point estimate. Refused on a selector-path ``CTMLE`` fit, which reports no
-        confidence limit.
+        point estimate. Refused on a fit whose inference status supplies no
+        inference, which reports no confidence limit.
     arm_gamma : mapping of level to float, or None
         One multiplier per arm, as :func:`missingness_tilt` accepts.
 
@@ -442,7 +444,7 @@ def tipping_gamma(
         # crossing came from a diagnostic.  The point-estimate search, which is the
         # default, answers for that fit unchanged.  A name this fit does not report falls
         # through to ``missingness_tilt``, which lists the tiltable ones.
-        refuse_working_mechanism_inference(
+        refuse_inference(
             result.estimates[estimand].inference, operation=_TIPPING_INTERVAL_OPERATION
         )
 

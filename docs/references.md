@@ -396,7 +396,7 @@ previous reader had is not a citation; a page number is.
   No reviewed source states the K-arm contrast curve. Each contrast curve is a standard consequence
   of the joint expansion and the Appendix A delta-method form, and the papers do not state it. The
   default simultaneous band uses Rademacher multiplier draws on the centered curves of the same rows
-  (`src/cleverly/methods.py:312`). Its validity follows from the joint expansion and a conditional
+  (`src/cleverly/methods.py:329`). Its validity follows from the joint expansion and a conditional
   multiplier central limit theorem for a fixed number of estimands. That step is also a standard
   consequence that the papers do not state.
 
@@ -406,10 +406,10 @@ previous reader had is not a citation; a page number is.
   line search and the stopping rule act on the whole vector. A joint fluctuation therefore equals
   the per-arm fits only to solver tolerance.
 
-  The ordinary variance rule is `np.var(ic, ddof=1) / n` (`src/cleverly/inference/cluster.py:138`).
+  The ordinary variance rule is `np.var(ic, ddof=1) / n` (`src/cleverly/inference/cluster.py:146`).
   It equals the R rule `var(IC) / n` at lines 1596 and 1610. The arm-indexed stacked fit uses
-  this centered rule (`src/cleverly/estimators/tmle.py:3213-3215`). The stacked natural-course
-  mean keeps the second-moment rule (`src/cleverly/inference/cluster.py:240-278`). A stacked curve
+  this centered rule (`src/cleverly/estimators/tmle.py:3628-3630`). The stacked natural-course
+  mean keeps the second-moment rule (`src/cleverly/inference/cluster.py:248-284`). A stacked curve
   has empirical mean zero to targeting tolerance, so the two rules agree to first order.
 
   The table gives the source verdict for each composition in the arm-indexed mean group. The
@@ -445,7 +445,7 @@ previous reader had is not a citation; a page number is.
 
   | sibling surface | fact |
   | --- | --- |
-  | shift, incremental, regime, MSM, and controlled-direct-effect targets | they fit today under cross-fitting with missing outcomes, and tests cover them |
+  | shift, incremental, regime, MSM, and controlled-direct-effect targets | under cross-fitting with missing outcomes, the fit raises `CapabilityError` before any learner is fitted. The in-sample fits remain. [F21](roadmap.md#f21-other-missing-outcome-cv-tmle-variants) holds the missing result |
   | ordinary arm-indexed missing-outcome study | it registers only binary `ey1`, `ey0`, and `ate` |
   | registered complete-outcome stacked study | it now declares unstratified folds and `q_bounds=(0, 1)` on a bounded law, and it asserts the realized scheme before it reports a row (`tests/studies/canonical_cvtmle.py`). The gap this row recorded is closed |
   | ordinary C-TMLE with missing outcomes | the audit did not read a source for it |
@@ -626,14 +626,26 @@ article as the copy this project read.
   every stratum". Theorems 1 and 2 give the result. This is the closest estimator read: a row-level
   TMLE with a pooled fluctuation. Its strata are survey sampling strata, and (C2) excludes
   treatment strata. The preprint is unrefereed.
-- Benitez, Nugent & Balzer (2023), [*Defining and estimating effects in cluster randomized trials:
-  A methods comparison*](https://doi.org/10.1002/sim.9813), *Statistics in Medicine*
-  42(19):3443-3466, DOI 10.1002/sim.9813. Read first-hand in the NIHMS author manuscript
-  ([PMC10898620](https://pmc.ncbi.nlm.nih.gov/articles/PMC10898620/)). Section 3.1.2 and Section
-  3.2.1 give the cluster-sum aggregation for a row-weighted estimand. Section 3.2.1 states that
-  sample splitting and variance estimation "must respect the cluster as the independent unit". The
-  paper gives no fold law and no theorem for one. It also recommends a $t$ reference when the
-  cluster count is small.
+- Benitez, Petersen, van der Laan, Santos, Butrick, Walker, Ghosh, Otieno, Waiswa & Balzer
+  (2023), [*Defining and estimating effects in cluster randomized trials: A methods
+  comparison*](https://doi.org/10.1002/sim.9813), *Statistics in Medicine* 42(19):3443-3466, DOI
+  10.1002/sim.9813. Read first-hand in the NIHMS author manuscript
+  ([PMC10898620](https://pmc.ncbi.nlm.nih.gov/articles/PMC10898620/)). The package cites it as
+  Benitez et al. (2023).
+
+  Section 3.2.1, Hierarchical TMLE, gives the cluster-sum aggregation for a row-weighted
+  estimand. Section 3.1.2 aggregates the data to the cluster level first, and it estimates a
+  cluster-level estimand. Section 3.2.1 states that sample splitting and variance estimation "must
+  respect the cluster as the independent unit". The paper gives no fold law and no theorem for one.
+
+  Two passages recommend a $t$ reference with $J - 2$ degrees of freedom, where $J$ is the cluster
+  count. The paragraph on inference in Section 3.1.2 gives it "As a finite sample approximation to
+  the normal distribution". The last paragraph of Section 3.2.1 repeats it. The paper states no
+  threshold, and it does not compare the normal reference with $t$.
+
+  The paper mentions 30 clusters twice, and neither passage concerns the reference distribution.
+  Section 3.1.2 recommends leave-one-cluster-out cross-validation "for small trials (eg, J≤30)".
+  Section 6 cites a warning against GEE with fewer than 30 clusters.
 - Balzer, Zheng, van der Laan & Petersen (2019), [*A new approach to hierarchical data analysis:
   Targeted maximum likelihood estimation for the causal effect of a cluster-level
   exposure*](https://doi.org/10.1177/0962280218774936), *Statistical Methods in Medical Research*
@@ -656,9 +668,15 @@ article as the copy this project read.
 - Nugent, Marquez, Charlebois, Abbott & Balzer (2024), [*Blurring cluster randomized trials and
   observational studies: Two-Stage TMLE for subsampling, missingness, and few independent
   units*](https://doi.org/10.1093/biostatistics/kxad015), *Biostatistics* 25(3):599-616, DOI
-  10.1093/biostatistics/kxad015. Sections 2.1.3 and 2.2 treat subsampling, missingness and few
-  independent units. There is no cross-fitting. The paper recommends a $t$ reference with $J-2$
-  degrees of freedom when the cluster count is small.
+  10.1093/biostatistics/kxad015. Read first-hand in the published version
+  ([PMC11247188](https://pmc.ncbi.nlm.nih.gov/articles/PMC11247188/)). Section 2 treats
+  subsampling and missingness, with the estimator in Section 2.1.3. Section 3 treats few
+  independent units. There is no cross-fitting. The last paragraph of Section 2.2 recommends a $t$
+  reference with $J - 2$ degrees of freedom, where $J$ is the cluster count. The paper writes $N$
+  for the cluster count: "In CRTs with fewer than 40 clusters randomized (N < 40)". It cites Hayes
+  and Moulton (2009). The paper does not compare the normal reference with $t$. Section 1
+  mentions 30 clusters only in a discussion of GEE and GLMM. This project did not read Hayes and
+  Moulton (2009).
 - Schnitzer, van der Laan, Moodie & Platt (2014), [*Effect of breastfeeding on gastrointestinal
   infection in infants: A targeted maximum likelihood approach for clustered longitudinal
   data*](https://doi.org/10.1214/14-AOAS727), *The Annals of Applied Statistics* 8(2):703-725, DOI
@@ -678,6 +696,14 @@ is the only empirical witness for it.
 
 ## Collaborative TMLE
 
+- Schnitzer, Lok & Gruber (2016), [*Variable selection for confounder control, flexible modeling
+  and collaborative targeted minimum loss-based estimation in causal inference*](https://doi.org/10.1515/ijb-2015-0017),
+  *The International Journal of Biostatistics* 12(1):97–115, DOI 10.1515/ijb-2015-0017.
+  Read first-hand in the [publisher PDF](https://www.degruyterbrill.com/document/doi/10.1515/ijb-2015-0017/pdf?licenseType=free).
+  Section 5.3, Table 3 and the following discussion report that ordinary influence-curve standard
+  errors underestimate sampling spread and yield undercoverage for TMLE and C-TMLE with Super
+  Learner in some simulated settings. These are empirical warnings about variance calibration,
+  not a result for this package's global stopping-index selector or its joint targets.
 - van der Laan & Gruber (2010), [*Collaborative double robust targeted maximum likelihood
   estimation*](https://pmc.ncbi.nlm.nih.gov/articles/PMC2898626/), DOI
   10.2202/1557-4679.1181. Section 2.4 selects candidate depth by cross-validated targeted loss.

@@ -226,15 +226,24 @@ enforces that sentence rather than only asserting it: the number is reachable un
 `plugin_std_error` and `plugin_interval`, and under no inferential name. Near-ties are an
 especially important unresolved regime.
 
-**Outcome-adaptive intervals report an ordinary adaptive-propensity curve.** This strategy selects
-no candidate. It fits one categorical mechanism on estimated arm-specific outcome predictions.
-`strategy="oat"` is **unaffected** by the selector refusal above. It keeps `ci`, `pvalue`, and
-`std_error`, and its frame keeps every ordinary column. F19 owns its open questions, and F18 owns
-the three selector paths.
-Benkeser, Cai and van der Laan (2020) prove that curve without an extra first-order design term for
-one binary treatment-specific mean under six regularity conditions. The cross-fitted implementation
-follows their fold-local nuisance nesting; the package does not diagnose those asymptotic
-conditions.
+**The outcome-adaptive path publishes no inference either.** This strategy selects no
+candidate. It fits one categorical mechanism on the estimated outcome predictions of every arm, and
+it targets every arm mean jointly. Every `strategy="oat"` fit takes the `"generated_design_plugin"`
+status. A fit with `delta=` and a fit that requests one arm mean take it too, because each one uses
+the same joint design. `ci`, `pvalue`, and `std_error` raise `CapabilityError` with the reason of
+the status.
+
+The accessors, the reports, the five derived operations, and the two sweeps above behave as they
+do on a selector path. The `summary()` column is `generated-design se`. For an interval, fit
+`TMLE`. [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) is the
+condition that reopens this path, and F18 holds the three selector paths.
+[RM20](../roadmap.md#rm20-intervals-outside-every-claimed-contract) records the decision.
+
+Benkeser, Cai and van der Laan (2020), Theorem 1, prove the ordinary adaptive-propensity curve
+without an extra first-order design term. The theorem covers one binary treatment-specific mean
+with one scalar design, under six regularity conditions. No shipped fit is that construction. The
+cross-fitted implementation follows their fold-local nuisance nesting; the package does not
+diagnose those asymptotic conditions.
 
 Three readings narrow that gap, and none closes it. Benkeser, Cai and van der Laan (2020) prove a
 binary treatment-specific-mean result and explicitly construct a two-arm-design ATE using one
@@ -258,14 +267,14 @@ showing invalid coverage; the multi-arm pair does not resolve a deficit. Neither
 identifies a first-order term.
 [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) records those items.
 
-The selector paths report no interval. The outcome-adaptive path reports one, and that interval
-is the ordinary cross-fitted EIF plug-in covariance. Ordinary TMLE conditions alone do not
+Neither path reports an interval. Each path reports the spread of the ordinary EIF plug-in curve
+as a diagnostic. Ordinary TMLE conditions alone do not
 establish validity after selection or representation learning, and `cleverly` claims neither
 conditional selector coverage nor collaborative-double-robust coverage.
 
 A refit bootstrap reruns each adaptive construction, but no reviewed theorem validates it for
-either shipped path. On a selector path `summary()` therefore prints the bootstrap standard error
-and a `percentile range`, under the same diagnostic framing, rather than a percentile confidence
+either shipped path. On either path, `summary()` therefore prints the bootstrap standard error
+and a `percentile range` under the same diagnostic framing. It prints no percentile confidence
 interval. `to_frame()` emits the two limits as `bootstrap_range_lower` and `bootstrap_range_upper`
 in place of `bootstrap_ci_lower` and `bootstrap_ci_upper`. The `bootstrap_std_err` column keeps its
 name. The targeted-HAL bootstrap result cited in the audit fixes its data-adaptive complexity

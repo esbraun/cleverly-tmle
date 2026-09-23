@@ -260,6 +260,7 @@ class TestTheLossWeightsMultiply:
             design=flat_design,
             terms=("(intercept)", "duration"),
             weights=lambda label, horizon, w: np.full(len(w), 2.0),
+            weights_kind="known",
         )
         plain_msm = MSM(design=flat_design, terms=("(intercept)", "duration"))
         model = longitudinal_msm.evaluate_regimen_msm(plain_msm, data, plans, (data.n_times,))

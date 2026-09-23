@@ -92,6 +92,7 @@ from typing import Any, cast, get_args
 
 import numpy as np
 
+from .._inference_status import InferenceStatus, supplies_inference
 from .._typing import (
     BoolArray,
     EstimandName,
@@ -125,16 +126,15 @@ from ..fluctuation.iterative import (
 from ..fluctuation.mechanism import needs_mechanism
 from ..fluctuation.submodel import Submodel, TargetGroup, restrict, stitch
 from ..inference.bootstrap import Resampling, run_bootstrap
-from ..inference.cluster import cross_validated_variance
+from ..inference.cluster import cluster_inference_status, cross_validated_variance
 from ..inference.influence import (
     CorrectionParts,
-    InferenceStatus,
     ParameterEstimate,
     make_estimate,
     median_estimates,
     missing_outcome_correction_parts,
     reduced_correction_parts,
-    supplies_inference,
+    stamp_inference,
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as_interventions
@@ -152,7 +152,7 @@ from ..learners.crossfit import (
 )
 from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearner, resolve_learner
-from ..msm import MSM, MSMSet
+from ..msm import MSM, MSMSet, refuse_projection_weights
 from ..provenance import data_fingerprint
 from ..provenance import record as provenance_record
 from ..targets import TargetContext, groups_for, parameter_stem, targets_for
@@ -289,6 +289,23 @@ _IN_SAMPLE_ARM_INDEXED_REMEDY = (
     "fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))"
 )
 
+#: The first clause of the refusal of every other cross-fitted missing-outcome target.
+#: Both contracts need arms, so the clause says so: a continuous treatment has neither,
+#: and its ``Shift(0.0, cap=None)`` natural course is a shift target this refusal meets.
+_CROSS_FITTED_MISSING_CONTRACTS = (
+    "Cross-fitted TMLE with missing outcomes (delta=) has two audited stacked CV-TMLE "
+    "contracts, the natural-course mean and the arm-indexed means and contrasts, and both "
+    "apply to a discrete treatment only; "
+)
+
+#: What each parameter axis outside the two contracts is called in that refusal.
+_OFF_CONTRACT_AXIS_NAMES: dict[ParameterAxis, str] = {
+    "shift": "shift",
+    "ipsi": "incremental",
+    "regime": "regime",
+    "msm": "MSM",
+}
+
 
 def _independent_units(data: CausalData) -> tuple[IntArray, str]:
     """One label per row naming the unit a split moves as a whole, and what to call it.
@@ -371,6 +388,10 @@ class TMLE:
         fitted, and it refuses a sample or a fold whose training complement cannot fit
         the response, treatment, and outcome learners. The point-treatment TMLE reference
         gives the contract and its evidence.
+
+        With missing outcomes, a cross-fitted shift, incremental, regime, MSM, or
+        controlled-direct-effect fit is refused before any learner is fitted, because no
+        audited result covers it (F21 in ``docs/roadmap.md``). Fit it in sample.
     targeting_scheme:
         Where the fluctuation is fit, given cross-fitted nuisances.  ``"pooled"``
         (default) fits one common ``epsilon`` vector on the stacked out-of-fold rows.
@@ -528,19 +549,38 @@ class TMLE:
 
     _assessment_method = "tmle"
 
-    def _inference_status(self) -> InferenceStatus:
-        """Whether this estimator's estimates carry inference or a named diagnostic.
+    def _inference_status(self, data: CausalData) -> InferenceStatus:
+        """Whether this estimator's estimates on ``data`` carry inference or a diagnostic.
 
         A hook rather than a check at the assembly point, because only the estimator
-        knows what it did. Every estimator here reports influence-curve inference;
-        :class:`~cleverly.estimators.CTMLE` overrides it for the selector paths.
+        knows what it did. It reads the estimator configuration and the prepared data
+        and nothing fitted, so the status can be determined without learner results. Three callers
+        ask it: ``_retarget_detailed`` stamps the estimates, ``TMLEResult.__setstate__``
+        re-stamps a restored artifact, and ``variable_importance`` refuses before its
+        first fit. An override that finds more than one status resolves them with
+        :func:`~cleverly._inference_status.precedent_status`.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data the estimates are fitted on.
 
         Returns
         -------
-        {"influence_curve", "working_mechanism_plugin"}
-            ``"influence_curve"``.
+        str
+            One of :data:`~cleverly.inference.influence.InferenceStatus`. The ordinary
+            estimator returns what
+            :func:`~cleverly.inference.cluster.cluster_inference_status` gives the cluster
+            labels: ``"influence_curve"`` on an unclustered fit, and a clustered status
+            on a cross-fitted fit at unequal cluster sizes, in rows or in weight mass,
+            or on a fit with few clusters in total or in one baseline stratum.
         """
-        return "influence_curve"
+        return cluster_inference_status(
+            data.cluster,
+            cross_fit=self.cross_fit,
+            strata=data.strata,
+            weights=data.weights if data.is_weighted else None,
+        )
 
     def __init__(
         self,
@@ -1177,8 +1217,9 @@ class TMLE:
         repeats: list[RepeatFit] = []
         details: list[CVTargeting | None] = []
         for nuisance, seed in zip(nuisances, draw_seeds, strict=True):
-            # ``_retarget_detailed`` applies ``_inference_status`` to what it returns, so
-            # ``per_repeat``, ``median_estimates`` and ``result.repeats`` all carry it.
+            # ``_retarget_detailed`` applies ``_inference_status`` to what it returns, and to
+            # both fold-level reports, so ``per_repeat``, ``median_estimates``,
+            # ``result.repeats`` and ``result.cv_targeting`` all carry it.
             estimates, fluctuations, detail = self._retarget_detailed(
                 data,
                 nuisance,
@@ -1310,12 +1351,15 @@ class TMLE:
         The declared fold policy is checked first and without reading the data, because a
         fit can arrive here without having run ``__init__``: :meth:`refit` copies an
         estimator, and an estimator restored from a pickle written by an earlier version
-        carries whatever policy that version allowed.
+        carries whatever policy that version allowed.  The working model's projection-weight
+        declaration is checked next for the same reason: ``MSM`` checks it when it is
+        declared, and a restored or modified model can carry one this version refuses.
 
         The natural-course contract runs next, because it resolves the target list the
-        arm-indexed missing-outcome contract then reads.  Both name a narrower surface
-        than the outcome-scale rule below, so each keeps its own sentence and the general
-        rule catches what is left.
+        arm-indexed missing-outcome contract then reads.  The refusal of every other
+        cross-fitted missing-outcome target follows them.  All three name a narrower
+        surface than the outcome-scale rule below, so each keeps its own sentence and the
+        general rule catches what is left.
         """
         reason = self._cross_fit_policy_reason()
         if reason is not None:
@@ -1323,10 +1367,51 @@ class TMLE:
                 f"{reason}. This fit was configured under a fold policy this version "
                 "refuses, which a restored result or a copied estimator can still carry"
             )
+        if self.msm is not None:
+            refuse_projection_weights(self.msm)
         estimands = self._resolve_natural_course_contract(data)
         self._resolve_arm_indexed_missing_contract(data, estimands)
+        self._refuse_cross_fitted_missing_off_contract(data, estimands)
         self._refuse_unbounded_cross_fitted_scale(data)
         return estimands
+
+    def _refuse_cross_fitted_missing_off_contract(
+        self, data: CausalData, estimands: tuple[str, ...]
+    ) -> None:
+        """Refuse a cross-fitted missing-outcome fit that neither audited contract covers.
+
+        The two contracts are the natural-course mean and the arm-indexed means and
+        contrasts. A shift, incremental, regime, or MSM axis, or a declared intermediate,
+        puts the fit outside both. Without this refusal such a fit ran and reported an
+        interval that no audit read a source for, and a ``Static`` regime or a saturated
+        MSM reproduced the arm-indexed fit while it escaped that contract's refusals of
+        ``repeats``, fold targeting, ``cv_evaluation``, the linear fluctuation, and
+        ``id=``. F21 in ``docs/roadmap.md`` holds the missing results.
+
+        Ordinary TMLE alone reaches this surface. :class:`~cleverly.DRTMLE` refuses the
+        four axes at construction and ``intermediate=`` before its nuisances, and
+        :class:`~cleverly.CTMLE` refuses every axis-indexed estimand and ``intermediate=``
+        before this method runs. A requested population-intervention target keeps its
+        F20 refusal. The natural-course mean is arm-axis only, and its contract refuses
+        ``intermediate=``, so it cannot reach the check below.
+        """
+        if not (self._assessment_method == "tmle" and self.cross_fit and data.has_missing_outcome):
+            return
+        if self._axis == "arm" and not data.has_intermediate:
+            return
+        if POPULATION_INTERVENTION_TARGETS.intersection(estimands):
+            return
+        parts = []
+        if self._axis != "arm":
+            parts.append(_OFF_CONTRACT_AXIS_NAMES[self._axis])
+        if data.has_intermediate:
+            parts.append("controlled-direct-effect")
+        raise CapabilityError(
+            _CROSS_FITTED_MISSING_CONTRACTS
+            + f"no audited result covers {' and '.join(parts)} targets under cross-fitting "
+            "with missing outcomes (F21 in docs/roadmap.md). To estimate them, "
+            + _IN_SAMPLE_ARM_INDEXED_REMEDY
+        )
 
     def _refuse_unbounded_cross_fitted_scale(self, data: CausalData) -> None:
         """Refuse a cross-fitted continuous outcome whose scale the held-out rows set.
@@ -2447,17 +2532,19 @@ class TMLE:
         A user told that estimated weights need "a bootstrap that re-derives them" will
         reach for ``n_bootstrap=``, and it is the wrong tool: every replicate inherits the
         weights it was handed and merely renormalises them, so the bootstrap interval
-        conditions on the fitted weights exactly as the influence-curve one does. Saying
-        so is cheap; letting the mistake pass silently is not.
+        conditions on the fitted weights. Saying so is cheap; letting the mistake pass
+        silently is not.  The warning does not compare the bootstrap with an
+        influence-curve interval, because a :class:`~cleverly.DRTMLE` fit with a guard and
+        estimated weights reports none (the ``"estimated_weight_plugin"`` status).
         """
-        if not (data.is_weighted and data.weight_spec.estimated and self.n_bootstrap):
+        if not (data.declares_estimated_weights and self.n_bootstrap):
             return
         warnings.warn(
             "weights_estimated=True with n_bootstrap: the bootstrap resamples rows and "
             "renormalises the weights it was given, never re-deriving them, so its "
-            "intervals condition on the fitted weights just as the influence-curve ones "
-            "do. Re-deriving the weights inside each replicate needs the model that "
-            "produced them, which this package never sees. See cleverly.data.weighting.",
+            "intervals condition on the fitted weights. Re-deriving the weights inside "
+            "each replicate needs the model that produced them, which this package never "
+            "sees. See cleverly.data.weighting.",
             WeightingWarning,
             stacklevel=3,
         )
@@ -2598,7 +2685,15 @@ class TMLE:
         The extra return value is what :meth:`fit` puts on ``result.cv_targeting``.  It
         is kept out of :meth:`retarget` so that the sensitivity analyses, which call
         that method on every perturbed input, keep their two-value signature.
+
+        It checks the MSM projection-weight declaration first, as :meth:`fit` does. Every
+        sweep that recomputes an estimate comes through here, so a result restored from an
+        artifact written before ``MSM.weights_kind`` existed refuses each recomputation
+        (roadmap row RM13). Loading re-checks nothing: that result keeps the estimates it
+        stored, and they answer as they were saved.
         """
+        if self.msm is not None:
+            refuse_projection_weights(self.msm)
         requested = tuple(estimands)
         level = self.alpha_sig if alpha_sig is None else alpha_sig
         regimes = nuisance.regimes
@@ -2762,16 +2857,14 @@ class TMLE:
             )
             estimates.update(canonical if self.cv_evaluation else pooled)
 
-        ordered = _in_report_order(estimates, requested)
         # Stamped at the one place every estimate this estimator produces comes from, so
         # ``fit``, ``retarget`` and every sensitivity sweep that retargets a perturbed
         # input all report the same status.  Stamping in ``fit`` alone would leave the
         # truncation curve and the refutations building intervals the fit itself refuses.
-        status = self._inference_status()
-        if not supplies_inference(status):
-            ordered = {
-                name: replace(estimate, inference=status) for name, estimate in ordered.items()
-            }
+        # The two fold-level reports are stamped here too, because ``CVTargeting``
+        # publishes their standard errors and reads its status off them.
+        status = self._inference_status(data)
+        ordered = stamp_inference(_in_report_order(estimates, requested), status)
         detail = (
             CVTargeting(
                 n_folds=len(indices),
@@ -2783,7 +2876,7 @@ class TMLE:
                 pooled=_in_report_order(pooled_report, requested),
                 canonical=_in_report_order(canonical_report, requested),
                 backend=data.backend,
-            )
+            ).stamped(status)
             if indices
             else None
         )

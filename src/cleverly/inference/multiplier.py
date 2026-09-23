@@ -132,7 +132,7 @@ from typing import Literal
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray
-from ..exceptions import refuse_working_mechanism_inference
+from ..exceptions import refuse_inference
 from .cluster import cluster_sums
 from .influence import ParameterEstimate
 
@@ -439,9 +439,9 @@ def simultaneous_bands(
         If ``cluster`` has a different length from the influence curves, or if ``kind``
         is not a supported multiplier, when two or more estimates are banded.
     CapabilityError
-        If any estimate declares ``inference="working_mechanism_plugin"``. A
-        simultaneous band is a confidence statement, and the package supplies no
-        inference for such an estimate.
+        If any estimate's ``supplies_inference`` is ``False``. A simultaneous band is
+        a confidence statement, and the package supplies no inference for such an
+        estimate.
     """
     items = (
         list(estimates.items())
@@ -454,7 +454,7 @@ def simultaneous_bands(
     # is a joint coverage claim.  Refused here, naming the operation, rather than left to
     # raise out of ``estimate.std_error`` below under an accessor the caller never wrote.
     for _, estimate in items:
-        refuse_working_mechanism_inference(estimate.inference, operation="simultaneous_bands()")
+        refuse_inference(estimate.inference, operation="simultaneous_bands()")
     second_moment = [
         name for name, estimate in items if estimate.covariance_rule == "second_moment"
     ]

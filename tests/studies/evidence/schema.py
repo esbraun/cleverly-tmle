@@ -76,6 +76,28 @@ def reported_inference(estimate: Any) -> tuple[float, float, float]:
     return float(estimate.plugin_std_error), float(low), float(high)
 
 
+def reported_pvalue(estimate: Any) -> float:
+    """The two-sided Wald p-value for a replicate row, under any inference status.
+
+    The companion of :func:`reported_inference` for the ``rejected`` column. It reads
+    ``estimate._plugin_pvalue()``, which is the body ``pvalue`` calls, so an estimate whose
+    inference the package supplies gives the number it always gave, bit for bit. A
+    non-inferential estimate gives the same arithmetic on its retained diagnostic, and the
+    evidence page of any study that measures one says so.
+
+    Parameters
+    ----------
+    estimate : Any
+        A :class:`~cleverly.inference.ParameterEstimate` from a fitted result.
+
+    Returns
+    -------
+    float
+        The p-value the row compares with its level.
+    """
+    return float(estimate._plugin_pvalue())
+
+
 def truth_on_inference_scale(estimand: str, truth: float, scale: str) -> float:
     """Map truth to the scale an implementation reports its standard error on."""
     if scale == "identity":

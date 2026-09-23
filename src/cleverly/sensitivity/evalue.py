@@ -43,8 +43,9 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from .._inference_status import status_record
 from ..assessment import AssessmentStatus
-from ..exceptions import WORKING_MECHANISM_NOT_INFERENTIAL, CapabilityError
+from ..exceptions import CapabilityError
 from ._derived import _derived_risk_ratio, _risk_ratio_refusal
 from ._parameters import arm_parameter_keys
 
@@ -69,16 +70,18 @@ _STANDARDISED_MISSING_REFUSAL = (
     "odds ratio reads only the estimate and its interval, so it stays available."
 )
 
-#: Why every E-value branch stops on a selector-path collaborative fit.  Each branch reads
-#: the estimate's interval, or the reference arm's standard error, and this fit supplies
+#: Why every E-value branch stops on a fit that supplies no inference.  Each branch reads
+#: the estimate's interval, or the reference arm's standard error, and such a fit supplies
 #: neither.  Raised in :func:`_select_evalue` rather than where the interval is read, so
 #: the capability row reports ``unavailable`` instead of the computation raising under a
-#: row that advertised ``available=True``.
-_WORKING_MECHANISM_EVALUE_REFUSAL = (
-    "an E-value is built from the reported estimate and its interval. "
-    f"{WORKING_MECHANISM_NOT_INFERENTIAL} The outcome-adaptive path, strategy='oat', is "
-    "unaffected and keeps every E-value branch."
-)
+#: row that advertised ``available=True``.  The status's own reason follows it as a new
+#: sentence.
+_EVALUE_NEEDS_INFERENCE = "an E-value is built from the reported estimate and its interval. "
+
+
+def _evalue_inference_refusal(status: str) -> str:
+    """The E-value refusal at a non-inferential status, built on that status's reason."""
+    return _EVALUE_NEEDS_INFERENCE + status_record(status).reason
 
 
 def evalue_from_rr(risk_ratio: float) -> float:
@@ -356,7 +359,10 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
     # After the two checks above, which say an E-value is not defined for this request
     # on any fit: a level such as ``ey1`` stays ``not_applicable`` here too.
     if not result.estimates[source].supplies_inference:
-        raise _EValueRefusal(AssessmentStatus.UNAVAILABLE, _WORKING_MECHANISM_EVALUE_REFUSAL)
+        raise _EValueRefusal(
+            AssessmentStatus.UNAVAILABLE,
+            _evalue_inference_refusal(result.estimates[source].inference),
+        )
     if key.estimand == "rr":
         return _EValueSelection(source, "reported_rr")
     if key.estimand == "or" and explicit:

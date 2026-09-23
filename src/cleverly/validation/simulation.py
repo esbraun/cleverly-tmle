@@ -29,16 +29,24 @@ estimator configuration is trustworthy for your problem before you rely on it.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections import Counter
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from .._inference_status import (
+    NON_INFERENTIAL,
+    InferenceStatus,
+    precedent_status,
+    status_record,
+    supplies_inference,
+)
 from .._typing import FloatArray
 from ..estimators.base import TMLEResultSet
 from ..estimators.direct_effect import check_level
-from ..inference.influence import InferenceStatus, spread_name, supplies_inference
+from ..inference.influence import spread_name
 from ..utils.parallel import map_parallel
 from ..utils.text import format_table
 
@@ -83,11 +91,13 @@ class ReplicationRecord:
         The estimate on the inference scale.
     alpha : float
         Significance level the interval was built at.
-    inference : {"influence_curve", "working_mechanism_plugin"}
-        Which quantity ``std_error``, ``covered`` and ``rejected`` measured. The
-        ordinary value says the estimator's own reported inference. The other says the
-        estimator supplies none, and the study measured its retained
-        working-mechanism plug-in diagnostic instead.
+    inference : str
+        Which quantity ``std_error``, ``covered`` and ``rejected`` measured. One of
+        :data:`~cleverly.inference.influence.InferenceStatus`, which the
+        :doc:`inference reference </technical-reference/inference>` lists.
+        ``"influence_curve"`` says the estimator's own reported inference. Any other
+        status says the estimator supplies none, and the study measured its retained
+        plug-in diagnostic instead.
     """
 
     replicate: int
@@ -143,9 +153,20 @@ class EstimandSummary:
     #: Only :attr:`se_ratio` reads it; see there for why it has to exist.
     inference_estimates: FloatArray | None = None
     #: What ``std_errors``, ``covered`` and ``rejected`` measured: the estimator's own
-    #: inference, or its retained working-mechanism diagnostic when it supplies none.
-    #: :func:`summarize_replications` reads it off the records and refuses a mix.
+    #: inference, or its retained plug-in diagnostic when it supplies none.
+    #: :func:`summarize_replications` reads it off the records. When the replicates took
+    #: more than one status, it is the one :func:`precedent_status` gives.
     inference: InferenceStatus = "influence_curve"
+    #: The statuses the replicates took, each with its replicate count, when they took
+    #: more than one; empty when every replicate took :attr:`inference`. A fit whose
+    #: status depends on the draw, such as a clustered fit whose cluster count straddles
+    #: the few-cluster threshold, gives a mix.
+    status_counts: tuple[tuple[str, int], ...] = ()
+
+    @property
+    def mixed_statuses(self) -> str:
+        """The replicates' statuses and counts as one phrase, or ``""`` when uniform."""
+        return ", ".join(f"{status} in {count}" for status, count in self.status_counts)
 
     @property
     def mean_estimate(self) -> float:
@@ -233,6 +254,8 @@ class EstimandSummary:
         row: dict[str, Any] = {"estimand": self.estimand}
         if not supplies_inference(self.inference):
             row["inference"] = self.inference
+        if self.status_counts:
+            row["mixed_statuses"] = self.mixed_statuses
         return {
             **row,
             "truth": self.truth,
@@ -255,19 +278,23 @@ class EstimandSummary:
 def summarize_replications(
     records: Sequence[ReplicationRecord], *, estimand: str, n: int
 ) -> EstimandSummary:
-    """Build the canonical descriptive summary for one estimand's records."""
+    """Build the canonical descriptive summary for one estimand's records.
+
+    Every record measures the plug-in numbers of its replicate: the interval and standard
+    error an inferential fit reports are the same numbers a diagnostic fit retains. So
+    records that took different statuses summarize together, under the status
+    :func:`~cleverly._inference_status.precedent_status` gives, and the summary names the
+    statuses it read in :attr:`EstimandSummary.status_counts`.
+    """
     selected = tuple(record for record in records if record.estimand == estimand)
     if not selected:
         raise ValueError(f"no successful replication records for estimand {estimand!r}")
     estimates = np.asarray([record.estimate for record in selected], dtype=float)
     inference = np.asarray([record.inference_estimate for record in selected], dtype=float)
-    statuses = {record.inference for record in selected}
-    if len(statuses) != 1:
-        raise ValueError(
-            f"the records for {estimand!r} declare different inference statuses "
-            f"{sorted(statuses)}; a coverage rate over a mix would average an interval "
-            "with a diagnostic"
-        )
+    counts: Counter[str] = Counter(record.inference for record in selected)
+    status = precedent_status(counts)
+    # The table order, then "influence_curve", which has no record and comes last.
+    order = [*NON_INFERENTIAL, "influence_curve"]
     return EstimandSummary(
         estimand=estimand,
         truth=float(np.mean([record.truth for record in selected])),
@@ -278,8 +305,21 @@ def summarize_replications(
         covered=np.asarray([record.covered for record in selected], dtype=float),
         rejected=np.asarray([record.rejected for record in selected], dtype=float),
         inference_estimates=None if np.array_equal(inference, estimates) else inference,
-        inference=statuses.pop(),
+        inference=status,
+        status_counts=(
+            tuple((name, counts[name]) for name in order if name in counts)
+            if len(counts) > 1
+            else ()
+        ),
     )
+
+
+def _diagnostic_noun(statuses: Iterable[str]) -> str:
+    """Use a specific noun only when every diagnostic has the same status."""
+    diagnostic = {status for status in statuses if not supplies_inference(status)}
+    if len(diagnostic) != 1:
+        return "plug-in diagnostic"
+    return status_record(next(iter(diagnostic))).diagnostic_noun
 
 
 @dataclass(frozen=True)
@@ -345,8 +385,17 @@ class StudyResult:
 
     @property
     def _diagnostic(self) -> bool:
-        """Whether any summary measured a working-mechanism diagnostic, not inference."""
+        """Whether any summary measured a plug-in diagnostic, not inference."""
         return any(not supplies_inference(summary.inference) for summary in self.summaries.values())
+
+    @property
+    def _diagnostic_noun(self) -> str:
+        """What the diagnostic columns measured across all summaries and replicates."""
+        return _diagnostic_noun(
+            status
+            for summary in self.summaries.values()
+            for status, _ in (summary.status_counts or ((summary.inference, summary.n_replicates),))
+        )
 
     def summary(self) -> str:
         """Return a printable summary.
@@ -367,12 +416,28 @@ class StudyResult:
             # estimator's own inference or its retained diagnostic.
             *(
                 [
-                    "measuring a working-mechanism plug-in diagnostic: this estimator "
-                    "supplies no interval, so the columns below describe the spread of "
+                    f"measuring a {self._diagnostic_noun}: one or more reported "
+                    "estimates supply no interval"
+                    + (
+                        " on some replicates"
+                        if any(
+                            any(status == "influence_curve" for status, _ in summary.status_counts)
+                            for summary in self.summaries.values()
+                        )
+                        else ""
+                    )
+                    + ", so the columns below describe the spread of "
                     "the curve it reports and not a confidence interval"
                 ]
                 if self._diagnostic
                 else []
+            ),
+            *(
+                f"{summary.estimand}: the replicates took more than one status "
+                f"({summary.mixed_statuses}), and every column reads them as the "
+                f"{_diagnostic_noun(status for status, _ in summary.status_counts)}"
+                for summary in self.summaries.values()
+                if summary.status_counts
             ),
             "",
             format_table(
@@ -446,7 +511,7 @@ class StudyResult:
             # point estimate, which this path does report.
             return (
                 "VERDICT: bias is consistent with a correctly working estimator. The "
-                "coverage column measures a working-mechanism plug-in diagnostic, so it "
+                f"coverage column measures a {self._diagnostic_noun}, so it "
                 "certifies no confidence interval for this estimator."
             )
         if not notes:

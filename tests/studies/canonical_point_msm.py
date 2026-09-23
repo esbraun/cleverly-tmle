@@ -135,7 +135,7 @@ def declared_msm(*, uniform: bool = False) -> MSM:
             raise ValueError("the projection measure is declared on the law's integer W levels")
         return PROJECTION_WEIGHTS[level, int(arm)]
 
-    return MSM(design=design, terms=law.MSM_TERMS, weights=weight)
+    return MSM(design=design, terms=law.MSM_TERMS, weights=weight, weights_kind="known")
 
 
 def truth() -> dict[str, float]:

@@ -568,6 +568,18 @@ class CausalData:
         return bool(not np.allclose(self.weights, 1.0))
 
     @property
+    def declares_estimated_weights(self) -> bool:
+        """Whether the fit reads weights that vary and are declared estimated.
+
+        The one reading of ``weights_estimated=True``. Constant weights fit the unweighted
+        estimator, so the declaration has nothing to act on there, and every surface that
+        reacts to it asks this property. A ``CausalData`` pickled before
+        :attr:`weight_spec` existed has none, and it reads as undeclared.
+        """
+        spec = getattr(self, "weight_spec", None)
+        return self.is_weighted and bool(getattr(spec, "estimated", False))
+
+    @property
     def effective_n(self) -> float:
         """Kish effective sample size of the observation weights, ``(sum w)^2 / sum w^2``.
 

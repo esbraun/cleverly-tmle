@@ -759,8 +759,9 @@ class CollaborativeTMLEMethod(TMLEMethod):
     name : str
         Stable method name.
     strategy : {"greedy", "ordered", "discrete", "oat"}, default="greedy"
-        Collaborative search strategy. ``"greedy"``, ``"ordered"`` and ``"discrete"``
-        report no confidence interval, p-value or standard error. ``"oat"`` reports them.
+        Collaborative search strategy. No strategy reports a confidence interval, a
+        p-value or a standard error. ``"greedy"``, ``"ordered"`` and ``"discrete"`` give
+        the reason that F18 in the roadmap holds, and ``"oat"`` the reason that F19 holds.
     preorder : {"logistic", "partial_correlation"} or None, default=None
         Preordering rule for candidate covariates.
     ordering : tuple of str or None, default=None

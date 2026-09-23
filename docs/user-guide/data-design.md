@@ -40,6 +40,14 @@ study = CausalStudy(
   cluster whole. It is not another adjustment variable. A cluster is then the independent unit a
   cross-fitted fit counts, so each treatment arm must appear in at least two clusters. C-TMLE
   refuses `cluster=` at every setting, and longitudinal TMLE refuses it above one fold.
+
+  A point-treatment TMLE or DR-TMLE fit reports no interval when it has fewer than 40 clusters
+  with positive weight mass, in total or in one reported stratum. A cross-fitted fit reports none
+  when its clusters differ in rows or, on a weighted fit, weight mass, overall or within a
+  reported stratum
+  ([clusters](../technical-reference/inference.md#clusters)). An in-sample longitudinal fit with
+  fewer than 40 clusters still reports an interval, and
+  [RM26](../roadmap.md#rm26-longitudinal-clustered-intervals-at-few-clusters) tracks it.
 - `strata` requests subgroup parameters and preserves the stratum in structured parameter keys.
   A stratum variable must also appear in `adjustment`: it conditions the reported parameter, so a
   design that stratified on a variable it did not adjust for is refused rather than fitted.

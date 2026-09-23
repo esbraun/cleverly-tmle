@@ -71,10 +71,11 @@ diagnostic under names that make no coverage claim.  F18 in ``docs/roadmap.md`` 
 condition that reopens this.
 
 ``strategy="oat"``
-    The outcome-adaptive treatment mechanism from ``ctmle3::LF_oat``.  **It is unaffected
-    by the refusal above and keeps full inferential output**, which F19 owns.  This is not a
-    fourth candidate sequence: it fits categorical treatment on the complete vector
-    ``[Qbar(a, W): a in arms]`` and then uses the ordinary all-arm mean fluctuation.
+    The outcome-adaptive treatment mechanism from ``ctmle3::LF_oat``.  **The package
+    supplies no inference for it either, for a different reason**, which the paragraph
+    on its generated design below gives.  This is not a fourth candidate sequence: it
+    fits categorical treatment on the complete vector ``[Qbar(a, W): a in arms]`` and
+    then uses the ordinary all-arm mean fluctuation.
     Consequently it has no candidate path, no parameter-specific selector loss and no
     stopping index.  Multi-valued treatment is not what distinguishes it: the selector
     strategies fit one shared categorical propensity path of their own.
@@ -96,10 +97,17 @@ condition that reopens this.
     validation rows, and the adaptive mechanism is then trained on those training-row
     predictions only.  This is the honest nesting in Benkeser, Cai and van der Laan
     (2020): no validation outcome can reach its own mechanism through another row's
-    generated feature.  Their theorem is binary; the shared categorical, joint all-arm
-    extension remains the F19 boundary.  ``ctmle3`` does not cross-fit this fit at all --
-    ``LF_oat`` pins ``cv_fold = -1`` -- so non-cross-fitted parity and cross-fitted
-    inference have different sources.
+    generated feature.  Their Theorem 1 proves the ordinary curve for one binary
+    treatment-specific mean with one scalar design.  The package always fits the
+    mechanism on the predictions of every arm and targets every arm mean jointly, so an
+    ``ey1``-only request is the same joint fit.  No result covers that construction, or
+    this path with ``delta=``.  So every ``oat`` fit takes the ``"generated_design_plugin"``
+    status: ``ci``, ``pvalue`` and ``std_error`` raise
+    :class:`~cleverly.exceptions.CapabilityError`, and ``plugin_std_error`` and
+    ``plugin_interval`` report the retained diagnostic.  F19 in ``docs/roadmap.md`` is the
+    condition that reopens this.  ``ctmle3`` does not cross-fit this fit at all --
+    ``LF_oat`` pins ``cv_fold = -1`` -- so non-cross-fitted parity and a cross-fitted
+    result would have different sources.
 
 The loss
 --------
@@ -167,18 +175,17 @@ only -- its epsilon is approximately zero -- but keeping it on the ordinary reta
 path makes the estimate, influence curve, score check and sensitivity analyses agree.
 The initial Qbar is retained separately for nuisance diagnostics.
 
-The reported covariance is the ordinary cross-fitted EIF plug-in covariance. The selector
-calculation treats the selected candidate as fixed but makes no conditional-on-selection
-coverage claim. The outcome-adaptive calculation uses the fold-local nuisance construction of
-Benkeser, Cai and van der Laan (2020). Their theorem proves the ordinary adaptive-propensity
-curve for one binary treatment-specific mean under six stated regularity conditions; Appendix D
-outlines related ATE and cross-validated constructions. Extending that result to the package's
-joint arm-specific fluctuation and derived target vector is finite-dimensional but not literally
-the paper's theorem. The package does not diagnose its asymptotic conditions, and the paper does
-not establish the shared multi-arm extension. No interval is claimed valid when both nuisance
-limits are wrong. See ``docs/roadmap.md F18`` for the selector path and ``docs/roadmap.md F19``
-for the remaining outcome-adaptive boundary. ``n_bootstrap=`` reruns the adaptive construction,
-but no reviewed theorem validates that bootstrap for either shipped path.
+The reported curve is the ordinary cross-fitted EIF plug-in curve, and on every strategy the
+package reports its spread as a diagnostic and not as inference. The selector calculation
+treats the selected candidate as fixed but makes no conditional-on-selection coverage claim.
+The outcome-adaptive calculation uses the fold-local nuisance construction of Benkeser, Cai and
+van der Laan (2020). Their theorem proves the ordinary adaptive-propensity curve for one binary
+treatment-specific mean under six stated regularity conditions; Appendix D outlines related ATE
+and cross-validated constructions. The package's joint arm-specific fluctuation and derived
+target vector are not the paper's theorem, and the paper does not establish the shared
+multi-arm extension. See ``docs/roadmap.md F18`` for the selector path and
+``docs/roadmap.md F19`` for the outcome-adaptive path. ``n_bootstrap=`` reruns the adaptive
+construction, but no reviewed theorem validates that bootstrap for either shipped path.
 
 Fixed probability weights replace the empirical law by its normalized weighted version.
 The same row mass reaches nuisance fits, targeting, selector loss, influence-curve penalty,
@@ -269,13 +276,14 @@ from typing import Any, Literal
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 
+from .._inference_status import InferenceStatus
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
 from ..exceptions import CapabilityError
 from ..fluctuation.iterative import InitialFit, apply_logistic, check_matching_arms
 from ..fluctuation.submodel import Submodel, restrict, weighted_form
 from ..inference.delta import log_odds_ratio_influence, log_ratio_influence
-from ..inference.influence import InferenceStatus, counterfactual_means
+from ..inference.influence import counterfactual_means
 from ..learners._fitting import Task, predict_mean, predict_probabilities
 from ..learners.crossfit import Folds, check_integrity, make_folds
 from ..learners.super_learner import resolve_learner
@@ -559,10 +567,12 @@ class CTMLE(TMLE):
     :class:`~cleverly.estimators.TMLEResult` with the selection recorded under
     ``result.extra["ctmle"]``.
 
-    On a selector strategy its estimates refuse ``ci``, ``pvalue`` and ``std_error``, and
+    On every strategy its estimates refuse ``ci``, ``pvalue`` and ``std_error``, and
     report ``plugin_std_error`` and ``plugin_interval`` instead.  A contrast of them, a
-    simultaneous band and every E-value branch refuse for the same reason.
-    ``strategy="oat"`` keeps all of them.  See the module docstring.
+    simultaneous band and every E-value branch refuse for the same reason.  The selector
+    strategies and ``strategy="oat"`` give different reasons, and F18 and F19 in the
+    roadmap hold them.  For an interval, fit :class:`~cleverly.TMLE`.  See the module
+    docstring.
 
     Parameters
     ----------
@@ -616,25 +626,36 @@ class CTMLE(TMLE):
 
     _assessment_method = "collaborative_tmle"
 
-    def _inference_status(self) -> InferenceStatus:
-        """Refuse inference on the selector paths, and supply it on ``"oat"``.
+    def _inference_status(self, data: CausalData) -> InferenceStatus:
+        """Refuse inference on every strategy, and name the reason each one has.
 
-        Keyed on the strategy, which is what F18 and roadmap row RM12 key on. A
-        ``"discrete"`` fit with a single full-adjustment candidate is refused too, even
-        though it is bit-identical to a plain TMLE fit whose interval the package does
-        supply. That over-refusal is deliberate and
+        Keyed on the strategy. The selector paths take the status that F18 and roadmap
+        row RM12 key on. A ``"discrete"`` fit with a single full-adjustment candidate is
+        refused too, even though it is bit-identical to a plain TMLE fit whose interval
+        the package does supply. That over-refusal is deliberate and
         ``docs/technical-reference/collaborative-tmle.md`` records it.
+
+        ``"oat"`` takes its own status on every fit, as roadmap row RM20 decides. Its
+        mechanism is always fitted on the outcome predictions of every arm, whatever
+        estimands are requested, so an ``ey1``-only fit is the joint fit, and a fit with
+        ``delta=`` is outside the theorem too. F19 holds the result that would reopen it.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data. Not read: collaborative TMLE refuses ``id=`` at every
+            setting, so no data-dependent status applies to it.
 
         Returns
         -------
-        {"influence_curve", "working_mechanism_plugin"}
+        str
+            One of :data:`~cleverly.inference.influence.InferenceStatus`:
             ``"working_mechanism_plugin"`` for ``"greedy"``, ``"ordered"`` and
-            ``"discrete"``. ``"influence_curve"`` for ``"oat"``, whose inference F19
-            owns.
+            ``"discrete"``, and ``"generated_design_plugin"`` for ``"oat"``.
         """
         if is_selector_strategy(self.strategy):
             return "working_mechanism_plugin"
-        return "influence_curve"
+        return "generated_design_plugin"
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         """Restore a pickled estimator, renaming the attribute an older version wrote.
@@ -645,7 +666,8 @@ class CTMLE(TMLE):
         ``TMLEResult.__setstate__`` calls while it loads the result that holds this
         estimator. ``search`` took ``"greedy"``, ``"ordered"`` or ``"discrete"``, and
         each value keeps its name and its meaning as a ``strategy``. So each one is a
-        selector strategy and re-stamps ``"working_mechanism_plugin"``.
+        selector strategy and re-stamps ``"working_mechanism_plugin"``. An ``"oat"`` fit
+        always wrote ``strategy``, and it re-stamps ``"generated_design_plugin"``.
 
         Parameters
         ----------

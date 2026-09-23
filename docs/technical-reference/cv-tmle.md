@@ -16,7 +16,7 @@ nuisance prediction used for an observation comes from a model that never saw th
 | flexible learners for either nuisance | cross-fitting can avoid a Donsker restriction under its remaining conditions | one nuisance fit per outer fold; a Super Learner also fits its candidates on inner folds |
 | you want the package default | cross-fitting is on by default, at ten outer folds | a Super Learner uses five additional inner folds unless configured otherwise. Ten by five is fifty model fits per library candidate |
 | the fold draw itself worries you | `repeats=` runs a complete estimator per draw and aggregates | linear cost in the repeat count |
-| clustered data | clusters stay intact in every split | a cluster-robust interval, because clusters, not rows, are the independent units. With fewer clusters than folds, the fold count drops to the cluster count, and a warning names both |
+| clustered data | clusters stay intact in every split | a cluster-robust interval, because clusters, not rows, are the independent units. With fewer clusters than folds, the fold count drops to the cluster count, and a warning names both. Unequal cluster sizes and fewer than 40 clusters withhold the interval, as [clusters](inference.md#clusters) states |
 
 **Cross-fitting does not buy the rest of efficiency.** Four conditions stand behind a valid
 interval, and folds address one of them.
@@ -274,6 +274,7 @@ Each row gives the shipped remedy in the message's own words.
 | a restored result or a copied estimator carrying a refused policy | `ValueError` at fit time | the reason above, then "This fit was configured under a fold policy this version refuses, which a restored result or a copied estimator can still carry" |
 | cross-fitting with fewer than two folds | `MethodConfigurationError`, or `ValueError` from the engine | "Set n_folds to at least 2, or fit in sample with CrossFitting(enabled=False)" |
 | a cross-fitted continuous outcome with `q_bounds=None` | `CapabilityError` | "Declare the known outcome support (Targeting(q_bounds=(lower, upper))). Without a known finite support, fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))" |
+| a cross-fitted shift, incremental, regime, MSM, or controlled-direct-effect fit with `delta=` | `CapabilityError` before the first learner | "To estimate them, fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))". The message names the target family and F21, which holds the missing result. See [F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants) |
 | a cross-fitted longitudinal continuous outcome with `q_bounds=None` | `LongitudinalError` | "Declare the known outcome support (Targeting(q_bounds=(lower, upper))), or fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine)." |
 | `id=` on a collaborative fit | `CapabilityError` | "Drop id= from fit (PointTreatment(cluster=None)), or use the ordinary TMLE (TMLE, or TMLEMethod), which has a clustered result." |
 | `id=` on a cross-fitted longitudinal fit | `LongitudinalError` | "Fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine), which is clustered and evidenced, or drop id= from fit." |
@@ -314,11 +315,11 @@ the audit used.
 | Chiang, Kato, Ma and Sasaki (2022) | Sections 3.1.2 and 3.2, Algorithm 1, Assumptions 1 and 3(i), and Theorem 1, read in the Taylor and Francis online-first PDF | a random, equal, data-independent partition of the cluster indices, for two-way clustering and linear Neyman-orthogonal DML scores. No stratification, no TMLE, and no one-way theorem. The online-first pages do not match the issue pages, so this project cites the sections and not the pages |
 | Park and Kang, arXiv:2110.07740 | Section 3.3 and Supplement A.1, Theorem A.1 with condition (M1)', read in v3 | an AIPW or DML estimator under a random two-fold cluster split, with independent clusters of bounded size. It weights cluster averages, which equals row weighting only at equal cluster sizes. Not a TMLE, and unrefereed |
 | Karim (2026), arXiv:2606.30918 | Section 3.3, condition (C2), and Theorems 1 and 2, read in the v2 main text | the closest estimator: a row-level TMLE with a pooled fluctuation. Its design has sampling strata rather than treatment strata, and (C2) excludes treatment strata. Unrefereed, and this project did not read the web appendix that holds the proofs |
-| Benitez, Nugent and Balzer (2023) | Sections 3.1.2 and 3.2.1, read in the NIHMS author manuscript | supports the cluster-sum aggregation for a row-weighted estimand, and states that sample splitting "must respect the cluster as the independent unit". It gives no fold law and no theorem |
+| Benitez et al. (2023) | Section 3.2.1, read in the NIHMS author manuscript | supports the cluster-sum aggregation for a row-weighted estimand, and states that sample splitting "must respect the cluster as the independent unit". It gives no fold law and no theorem. Its Section 3.1.2 aggregates to the cluster level first, for a cluster-level estimand |
 | Balzer, Zheng, van der Laan and Petersen (2019) | Section 3.1, Equation (9), and Section 4.2, Equations (20) and (21), read in the NIHMS author manuscript | a cluster-level exposure and a cluster-level estimand. No cross-fitting, and no split law |
 | Balzer, van der Laan and Petersen (2016) | Sections 3.1, 4.1, 5.1 and 6, read in the NIHMS author manuscript | selection by cross-validation over independent units, where a row is a cluster, in a randomized trial with a fixed GLM library. No post-selection theorem, and no row-level C-TMLE |
 | Balzer et al. (2023) | Sections 3.2 and 3.3 | a two-stage cluster-level estimator. No cross-fitting |
-| Nugent et al. (2024) | Sections 2.1.3 and 2.2 | no cross-fitting |
+| Nugent et al. (2024) | Sections 2.1.3, 2.2 and 3 | no cross-fitting. Section 2.2 gives a $t$ reference below 40 clusters |
 | Schnitzer, van der Laan, Moodie and Platt (2014) | Section 3.4.1, read in the arXiv reprint | a clustered longitudinal TMLE with a sandwich variance and no splitting. No theorem, and no cross-fitting |
 
 No source covers treatment-stratified grouped folds for an observational estimator. No source
@@ -336,7 +337,7 @@ units, and it needs four conditions.
 | condition | what it asks |
 | --- | --- |
 | independent clusters | one cluster's rows carry no information about another cluster's rows |
-| equal cluster sizes | every cluster holds the same number of rows, so the row-weighted target equals the cluster-weighted one |
+| equal cluster sizes and mass | every cluster holds the same number of rows and, on a weighted fit, the same weight mass. The rule applies within each reported baseline stratum too |
 | no interference | one cluster's treatment does not change another cluster's outcome |
 | remainder rates | the product rate on the two nuisances holds at the cluster level, as it does at the row level for iid data |
 
@@ -346,11 +347,27 @@ clusters in place of rows. The registered
 the empirical witness, and it is the only one. Its design satisfies all four conditions by
 construction. No source read here proves that the estimator is valid under clustering.
 
-Row weighting and cluster weighting agree only at equal, or non-informative, cluster sizes. The
-documented scope is equal cluster sizes. The package does not refuse unequal ones, and it makes no
-claim for them. No source read here supports a normal reference interval with few clusters, and
-Benitez et al. (2023) and Nugent et al. (2024) recommend a $t$ reference with $J - 2$ degrees of
-freedom below about 30 to 40 clusters.
+The point estimator remains row weighted when cluster sizes differ. Benitez et al. (2023),
+Section 3.2.1, give a row-weighted TMLE and cluster-sum curve with varying cluster sizes.
+They do not establish this package's cross-fitted construction. Its current argument and
+registered study cover equal sizes and weight masses, overall and within each reported
+baseline stratum. A cross-fitted fit outside that scope takes `"unequal_cluster_plugin"`.
+`ci`, `pvalue`, and `std_error` then raise `CapabilityError`. `plugin_std_error` and
+`plugin_interval` keep the diagnostic.
+
+No source read here supports a normal reference interval with few clusters. The table gives what
+each source recommends. $J$ is the cluster count, which Nugent et al. write as $N$.
+
+| source | locator | recommendation |
+| --- | --- | --- |
+| Nugent et al. (2024) | Section 2.2, last paragraph, citing Hayes and Moulton (2009) | a $t$ reference with $J - 2$ degrees of freedom below 40 clusters |
+| Benitez et al. (2023) | Section 3.1.2, paragraph on inference, and Section 3.2.1, last paragraph | a $t$ reference with $J - 2$ degrees of freedom at every cluster count, as a finite-sample approximation |
+
+The package keeps its normal reference. A fit with fewer than 40 positive-mass clusters takes the
+`"few_cluster_plugin"` status, in sample or cross-fitted. So does a fit with fewer than 40 such
+clusters in one baseline stratum that it reports. [Clusters](inference.md#clusters) gives
+both statuses, and [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle)
+holds the routes that reopen them.
 
 ### The Super Learner inner split
 

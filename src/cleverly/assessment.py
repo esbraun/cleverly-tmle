@@ -28,9 +28,11 @@ from ._assessment_cache import (
     _pack_cached,
     _unpack_cached,
 )
+from ._inference_status import precedent_status, supplies_inference
 from ._typing import CumulativeGBounds
 from .data.weighting import REPORTED_DRAW, format_score_load
-from .exceptions import CapabilityError, working_mechanism_refusal
+from .exceptions import CapabilityError, inference_refusal
+from .inference.influence import spread_name
 from .targets.population_intervention import (
     NATURAL_COURSE_SUPPORT_REFUSAL,
     NATURAL_COURSE_TILT_REFUSAL,
@@ -2620,7 +2622,7 @@ def _nuisance_item(
             facts.append(f"C-TMLE selection unavailable: {report.selection_omission}")
         # The report's own note, which is keyed on the declared inference status and not
         # on the selection artifact: the outcome-adaptive path has one of those too and
-        # keeps its interval.
+        # has a status of its own.
         note = getattr(report, "inference_note", None)
         if note is not None:
             facts.append(note)
@@ -2817,10 +2819,16 @@ def _omitted_item(
 def _robustness_item(
     report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
 ) -> AssessmentItem:
+    # ``robustness_value`` keys its limit value through ``spread_name`` and names a
+    # non-inferential status in the report itself, so a saved report reads the same name
+    # and prints the same noun with no fit at hand.
+    status = report.get("inference", "influence_curve")
     return AssessmentItem(
         "robustness_value",
         AssessmentStatus.COMPLETED,
-        f"point robustness value {report['rv']:.4g}; confidence-limit value {report['rva']:.4g}",
+        f"point robustness value {report['rv']:.4g}; "
+        f"{spread_name('confidence-limit value', status)} "
+        f"{report[spread_name('rva', status)]:.4g}",
     )
 
 
@@ -3581,13 +3589,16 @@ class SensitivityFacade(_CapabilityFacade):
         """
         from .sensitivity.missingness import _TIPPING_INTERVAL_OPERATION
 
-        if all(estimate.supplies_inference for estimate in self._result.estimates.values()):
+        status = precedent_status(
+            estimate.inference for estimate in self._result.estimates.values()
+        )
+        if supplies_inference(status):
             return capability
         return replace(
             capability,
             available=False,
             status=AssessmentStatus.UNAVAILABLE,
-            reason=working_mechanism_refusal(_TIPPING_INTERVAL_OPERATION),
+            reason=inference_refusal(_TIPPING_INTERVAL_OPERATION, status),
         )
 
     def _estimand_candidates(self, operation: str) -> tuple[str, ...]:
