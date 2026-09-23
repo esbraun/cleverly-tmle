@@ -44,6 +44,7 @@ __all__ = [
     "cross_validated_variance",
     "fewest_clusters",
     "influence_variance",
+    "positive_mass_clause",
     "stacked_second_moment_covariance",
     "stacked_second_moment_variance",
     "unequal_cluster_sizes",
@@ -489,6 +490,44 @@ def fewest_clusters(
         count,
         *(int(np.unique(labels[positive & (levels == level)]).size) for level in np.unique(levels)),
     )
+
+
+def positive_mass_clause(cluster: IntArray, weights: FloatArray | None) -> str:
+    """The summary clause that counts the clusters with positive weight mass.
+
+    A cluster with zero weight mass contributes nothing to any estimate, so the few-cluster
+    rule does not count it. A summary prints this clause after the cluster count when the
+    two counts differ, so the reader sees the count that the status reads.
+
+    Parameters
+    ----------
+    cluster : ndarray of int
+        The cluster label of each row.
+    weights : ndarray of float or None
+        The observation weight of each row, or ``None`` for an unweighted fit.
+
+    Returns
+    -------
+    str
+        ``", positive weight mass in N"`` when fewer than all clusters have positive
+        weight mass, and the empty string otherwise.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.inference.cluster import positive_mass_clause
+    >>> cluster = np.repeat(np.arange(4), 2)
+    >>> positive_mass_clause(cluster, np.where(cluster == 0, 0.0, 1.0))
+    ', positive weight mass in 3'
+    >>> positive_mass_clause(cluster, None)
+    ''
+    """
+    if weights is None:
+        return ""
+    active = fewest_clusters(cluster, weights=weights)
+    if active < np.unique(np.asarray(cluster).reshape(-1)).size:
+        return f", positive weight mass in {active}"
+    return ""
 
 
 def cluster_inference_status(

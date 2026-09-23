@@ -77,7 +77,11 @@ from .._inference_status import (
 )
 from .._typing import BoolArray, CumulativeGBounds, FloatArray, Learner
 from ..exceptions import CapabilityError, LongitudinalError, PositivityWarning
-from ..inference.cluster import cluster_inference_status, fewest_clusters, influence_covariance
+from ..inference.cluster import (
+    cluster_inference_status,
+    influence_covariance,
+    positive_mass_clause,
+)
 from ..inference.influence import (
     ParameterEstimate,
     Scale,
@@ -89,7 +93,7 @@ from ..inference.multiplier import SimultaneousBands, simultaneous_bands
 from ..inference.results import (
     estimate_covariance,
     estimate_curves,
-    inference_status,
+    reported_status,
     select_estimates,
     smooth_contrast,
     sole_estimate,
@@ -811,9 +815,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         because such a fit refuses nothing. A clustered fit with few clusters takes
         ``"few_cluster_plugin"``, as a point-treatment fit does.
         """
-        if not self.estimates:
-            return "influence_curve"
-        return inference_status(self.estimates, tuple(self.estimates))
+        return reported_status(self.estimates)
 
     @property
     def n(self) -> int:
@@ -884,9 +886,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Returns
         -------
         ParameterEstimate
-            Derived estimate with influence-curve inference. It inherits the status of
-            the selected estimates, so on a fit that supplies no inference it reports the
-            same diagnostic and no interval.
+            Derived estimate. It inherits the inference status of the selected
+            estimates, so on a fit that supplies no inference it reports the same
+            diagnostic and no interval.
         """
         return smooth_contrast(
             self.estimates,
@@ -1354,13 +1356,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         else:
             facts.append("causal study protocol: absent")
         if self.data.cluster is not None:
-            count = f"{self.data.n_clusters}"
             # The count the status reads, when it differs from the count of labels: a
             # cluster with zero weight mass contributes nothing to any estimate.
-            if self.data.is_weighted:
-                active = fewest_clusters(self.data.cluster, weights=self.data.weights)
-                if active < self.data.n_clusters:
-                    count += f", positive weight mass in {active}"
+            count = f"{self.data.n_clusters}" + positive_mass_clause(
+                self.data.cluster, self.data.weights if self.data.is_weighted else None
+            )
             facts.append(f"clusters = {count} ({self.data.cluster_name}, cluster-robust variance)")
         if self.data.is_weighted:
             report = self.data.weight_report()
@@ -1450,7 +1450,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         """
         data = self.__dict__.get("data")
         folds = self.__dict__.get("folds")
-        if data is None or folds is None:
+        # An unclustered fit supplies inference, so it loads as saved. That includes a
+        # result whose data predates the ``weights`` field of ``LongitudinalData``.
+        if data is None or folds is None or data.cluster is None:
             return
         status = _inference_status(data, folds)
         if supplies_inference(status):
@@ -1643,10 +1645,13 @@ def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
         One of :data:`~cleverly.inference.influence.InferenceStatus`.
         ``"influence_curve"`` on an unclustered fit.
     """
+    # Data saved before ``LongitudinalData`` carried ``weights`` (commit 16d2643) has no
+    # such field, and that fit was unweighted.
+    weights = getattr(data, "weights", None)
     return cluster_inference_status(
         data.cluster,
         cross_fit=folds.n_folds > 1,
-        weights=data.weights if data.is_weighted else None,
+        weights=weights if weights is not None and data.is_weighted else None,
     )
 
 
@@ -2195,7 +2200,7 @@ class LTMLE:
             )
         estimates = reported.estimates
         with phase("inference"):
-            bands = self._bands(estimates, prepared)
+            bands = self._bands(estimates, prepared, status)
         return LongitudinalResult(
             estimates=estimates,
             fits=fits,
@@ -2356,7 +2361,10 @@ class LTMLE:
         )
 
     def _bands(
-        self, estimates: Mapping[str, ParameterEstimate], data: LongitudinalData
+        self,
+        estimates: Mapping[str, ParameterEstimate],
+        data: LongitudinalData,
+        status: InferenceStatus,
     ) -> SimultaneousBands | None:
         """Joint bands over the reported parameters, when there is more than one.
 
@@ -2370,10 +2378,11 @@ class LTMLE:
         none, as :meth:`cleverly.TMLE.fit` builds none.  It is skipped rather than raised,
         because ``simultaneous`` defaults to ``True``: a raise would stop every default fit
         with few clusters.  :meth:`LongitudinalResult.summary` states the omission.
+        ``status`` is the one the fit stamped on ``estimates``.
         """
         if not self.simultaneous or len(estimates) < 2:
             return None
-        if not supplies_inference(inference_status(estimates, tuple(estimates))):
+        if not supplies_inference(status):
             return None
         return simultaneous_bands(
             estimates,

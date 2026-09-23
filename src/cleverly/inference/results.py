@@ -30,6 +30,7 @@ __all__ = [
     "estimate_covariance",
     "estimate_curves",
     "inference_status",
+    "reported_status",
     "select_estimates",
     "smooth_contrast",
     "sole_estimate",
@@ -104,6 +105,32 @@ def inference_status(
             f"{sorted(statuses)}; a contrast is inferential output or it is not"
         )
     return statuses.pop()
+
+
+def reported_status(estimates: Mapping[str, ParameterEstimate]) -> InferenceStatus:
+    """The one inference status of every estimate a report holds.
+
+    A report with no estimate refuses nothing, so its status is ``"influence_curve"``.
+    Otherwise this is :func:`inference_status` over every estimate, which refuses a mix.
+
+    Parameters
+    ----------
+    estimates : Mapping of str to ParameterEstimate
+        The estimates of one report, keyed by name.
+
+    Returns
+    -------
+    str
+        One of :data:`~cleverly.inference.influence.InferenceStatus`.
+
+    Raises
+    ------
+    ValueError
+        When the estimates declare different statuses.
+    """
+    if not estimates:
+        return "influence_curve"
+    return inference_status(estimates, tuple(estimates))
 
 
 def estimate_covariance(

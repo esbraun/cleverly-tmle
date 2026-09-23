@@ -33,6 +33,7 @@ from ..inference.cluster import (
     cluster_sizes,
     cluster_weight_mass,
     fewest_clusters,
+    positive_mass_clause,
     unequal_cluster_sizes,
 )
 from ..inference.influence import (
@@ -45,7 +46,7 @@ from ..inference.multiplier import SimultaneousBands
 from ..inference.results import (
     estimate_covariance,
     estimate_curves,
-    inference_status,
+    reported_status,
     select_estimates,
     smooth_contrast,
     sole_estimate,
@@ -361,9 +362,7 @@ class CVTargeting:
             for label, report in (("pooled", self.pooled), ("canonical", self.canonical))
             for name, estimate in report.items()
         }
-        if not reports:
-            return "influence_curve"
-        return inference_status(reports, tuple(reports))
+        return reported_status(reports)
 
     @property
     def std_error(self) -> dict[str, float]:
@@ -799,9 +798,7 @@ class TMLEResult:
         :class:`ValueError`. ``"influence_curve"`` when the fit reports no estimate,
         because such a fit refuses nothing.
         """
-        if not self.estimates:
-            return "influence_curve"
-        return inference_status(self.estimates, tuple(self.estimates))
+        return reported_status(self.estimates)
 
     def psi(self, name: str | None = None) -> float:
         """Return one point estimate.
@@ -1677,10 +1674,7 @@ def _cluster_fact(data: CausalData) -> str:
     elif data.is_weighted and unequal_cluster_sizes(cluster, data.weights):
         mass = cluster_weight_mass(cluster, data.weights)
         fact += f", weight mass {mass.min():.4g} to {mass.max():.4g}"
-    if data.is_weighted:
-        active = fewest_clusters(cluster, weights=data.weights)
-        if active < counts.size:
-            fact += f", positive weight mass in {active}"
+    fact += positive_mass_clause(cluster, data.weights if data.is_weighted else None)
     if data.has_strata:
         assert data.strata is not None
         masks = (data.strata == level for level in np.unique(data.strata))

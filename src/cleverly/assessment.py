@@ -2606,7 +2606,7 @@ def _nuisance_item(
         # The note a point-treatment report carries for the same status. The longitudinal
         # report publishes no spread and holds no status, so the note is read off the
         # result here. An interpreter called without a result adds none.
-        status = getattr(_result, "inference_status", "influence_curve")
+        status = "influence_curve" if _result is None else _result.inference_status
         if not supplies_inference(status):
             detail += f"; {status_record(status).assessment_note}"
     else:
