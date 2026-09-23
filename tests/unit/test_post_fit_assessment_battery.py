@@ -27,6 +27,7 @@ from cleverly import (
     RiskRatio,
     load,
 )
+from cleverly._inference_status import NON_INFERENTIAL
 from cleverly.assessment import (
     ASSESSMENT_CAPABILITIES,
     INTERPRETERS,
@@ -224,17 +225,17 @@ def test_explicit_multi_arm_evalue_uses_its_request_for_availability_and_cost(
     assert alias in direct.note
 
 
-def test_explicit_collaborative_or_evalue_is_not_blocked_by_default_derivation() -> None:
+def test_explicit_or_evalue_is_not_blocked_by_default_derivation() -> None:
     result = (
         _study()
         .identify(OddsRatio())
         .estimate(
-            # ``strategy="oat"`` rather than a selector path: RM12 refuses every E-value
-            # branch on greedy, ordered and discrete, so a selector fit here would test
-            # that refusal instead of this test's subject, which is that an *explicitly*
-            # requested odds-ratio E-value is not blocked by the default derivation.
-            # F19 owns the outcome-adaptive path and it keeps every branch.
-            method=CollaborativeTMLEMethod(strategy="oat"),
+            # DR-TMLE, because its default odds-ratio E-value has no exact retarget, as
+            # the collaborative path had. That path now refuses every E-value branch
+            # (RM12 and RM20), so a collaborative fit here would test that refusal instead
+            # of this test's subject: an *explicitly* requested odds-ratio E-value is not
+            # blocked by the default derivation. The refusal is pinned in the next test.
+            method="drtmle",
             outcome_learner=LinearRegression(),
             treatment_learner=LogisticRegression(max_iter=1000),
             n_folds=3,
@@ -251,6 +252,39 @@ def test_explicit_collaborative_or_evalue_is_not_blocked_by_default_derivation()
     assert direct.scale == "odds ratio"
     assert "common outcomes" in direct.note
     assert "understates" not in direct.note
+
+
+@pytest.mark.parametrize("estimand", [OddsRatio(), ATE()], ids=["or", "ate"])
+def test_an_outcome_adaptive_fit_refuses_every_evalue_branch_by_its_status(estimand) -> None:
+    """Every E-value branch reads an interval, and ``strategy="oat"`` reports none.
+
+    ``oat`` stood in the test above and in the missing-baseline test below because it
+    kept an interval. The odds-ratio request is the explicit branch, and the ATE without
+    a reported reference-arm mean is the one that raised about the missing baseline. The
+    status reason arrives first on both, and the capability row says so rather than the
+    call raising under it.
+    """
+    result = (
+        _study()
+        .identify(estimand)
+        .estimate(
+            method=CollaborativeTMLEMethod(strategy="oat"),
+            outcome_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            n_folds=2,
+            learner_folds=2,
+            random_state=3,
+            simultaneous=False,
+        )
+    )
+    reason = NON_INFERENTIAL["generated_design_plugin"].reason
+    capability = result.sensitivity.capability("evalue")
+    assert capability.available is False
+    assert reason in (capability.reason or "")
+    with pytest.raises(CapabilityError) as raised:
+        result.sensitivity.evalue()
+    assert reason in str(raised.value)
+    assert "reported reference-arm mean" not in str(raised.value)
 
 
 def _positivity(fraction: float, ratio: float, **overrides: object) -> PositivityReport:
@@ -915,26 +949,22 @@ def test_method_facts_carry_the_reason_no_split_spread_is_available() -> None:
     assert "split spread unavailable" not in ordinary
 
 
-@pytest.mark.parametrize("engine_name", ["tmle", "drtmle", "ctmle", "cv"])
+# ``ctmle`` left this list when RM20 gave ``strategy="oat"``, the last collaborative path
+# that kept an interval, a status of its own. Its saved result refuses the E-value as the
+# live one does, which the test after this one pins.
+@pytest.mark.parametrize("engine_name", ["tmle", "drtmle", "cv"])
 def test_reported_baseline_fallback_is_identical_live_saved_and_detached(
     engine_name, tmp_path, monkeypatch
 ):
-    from cleverly.estimators import CTMLE, DRTMLE
-
-    engine = {"tmle": TMLE, "drtmle": DRTMLE, "ctmle": CTMLE, "cv": TMLE}[engine_name]
+    engine = {"tmle": TMLE, "drtmle": DRTMLE, "cv": TMLE}[engine_name]
     frame, _ = make_binary_outcome(n=160, seed=3)
     options: dict[str, object] = {"cv_evaluation": True} if engine_name == "cv" else {}
-    if engine_name == "ctmle":
-        # The outcome-adaptive path. A selector path reports no interval under RM12, and
-        # the E-value this test compares across live, saved and detached results reads
-        # one. The claim being made is about persistence, not about the selector.
-        options["strategy"] = "oat"
     raw = (
         _raw(engine, estimands=("ate", "ey0"), learner_folds=2, **options)
         .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
         .single()
     )
-    expected_method = {"ctmle": "collaborative_tmle", "cv": "tmle"}.get(engine_name, engine_name)
+    expected_method = {"cv": "tmle"}.get(engine_name, engine_name)
     assert raw.fitted_method == expected_method
     assert replace(raw, extra={}).fitted_method == expected_method
     restored = load(raw.save(tmp_path / f"{engine_name}.joblib"))
@@ -955,6 +985,31 @@ def test_reported_baseline_fallback_is_identical_live_saved_and_detached(
         assert raw.sensitivity.evalue("ate") == before
         detached = replace(raw, estimator=None)
         assert detached.sensitivity.evalue("ate") == before
+
+
+def test_an_outcome_adaptive_evalue_refusal_is_identical_live_saved_and_detached(tmp_path):
+    """The collaborative case of the test above: the refusal persists as the answer did."""
+    from cleverly.estimators import CTMLE
+
+    frame, _ = make_binary_outcome(n=160, seed=3)
+    raw = (
+        _raw(CTMLE, strategy="oat", estimands=("ate", "ey0"), learner_folds=2)
+        .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
+        .single()
+    )
+    assert raw.fitted_method == "collaborative_tmle"
+    assert replace(raw, extra={}).fitted_method == "collaborative_tmle"
+    restored = load(raw.save(tmp_path / "ctmle.joblib"))
+    restored.assessment_cache.clear()
+    detached = replace(raw, estimator=None)
+    reasons = []
+    for result in (raw, restored, detached):
+        assert result.inference_status == "generated_design_plugin"
+        with pytest.raises(CapabilityError) as raised:
+            result.sensitivity.evalue("ate")
+        reasons.append(str(raised.value))
+    assert NON_INFERENTIAL["generated_design_plugin"].reason in reasons[0]
+    assert reasons == [reasons[0]] * 3
 
 
 @pytest.mark.parametrize("target", ["ate", "att", "atc"])
@@ -1324,10 +1379,10 @@ def test_correction_participation_is_stamped_independently_of_extra(guard):
 @pytest.mark.parametrize(
     "method, options",
     [
+        # The collaborative case left when ``oat`` took a status. Its status refusal
+        # arrives before this one, which
+        # ``test_an_outcome_adaptive_fit_refuses_every_evalue_branch_by_its_status`` pins.
         ("drtmle", {}),
-        # ``oat`` for the reason given at the explicit-odds-ratio test above: this case
-        # is about the missing reported baseline, not about RM12's refusal.
-        (CollaborativeTMLEMethod(strategy="oat"), {}),
         ("tmle", {"cv_evaluation": True}),
     ],
 )

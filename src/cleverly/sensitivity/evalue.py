@@ -77,17 +77,10 @@ _STANDARDISED_MISSING_REFUSAL = (
 #: row that advertised ``available=True``.  The status's own reason follows it.
 _EVALUE_NEEDS_INFERENCE = "an E-value is built from the reported estimate and its interval. "
 
-#: The sentence that follows the reason.  True while ``"working_mechanism_plugin"`` is the
-#: only non-inferential status, and removed when ``strategy="oat"`` takes a status of its
-#: own (RM20 in docs/roadmap.md).
-_OUTCOME_ADAPTIVE_UNAFFECTED = (
-    " The outcome-adaptive path, strategy='oat', is unaffected and keeps every E-value branch."
-)
-
 
 def _evalue_inference_refusal(status: str) -> str:
     """The E-value refusal at a non-inferential status, built on that status's reason."""
-    return _EVALUE_NEEDS_INFERENCE + inference_reason(status) + _OUTCOME_ADAPTIVE_UNAFFECTED
+    return _EVALUE_NEEDS_INFERENCE + inference_reason(status)
 
 
 def evalue_from_rr(risk_ratio: float) -> float:

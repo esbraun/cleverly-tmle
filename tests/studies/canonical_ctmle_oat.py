@@ -21,7 +21,7 @@ from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_cvtmle import Q_BOUNDS, STRATIFY_FOLDS
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
-from tests.studies.evidence.schema import REPLICATE_COLUMNS
+from tests.studies.evidence.schema import REPLICATE_COLUMNS, reported_inference
 from tests.studies.evidence.seeds import draw_replicate
 
 CTMLE3_COMMIT = "a4ea77b07747dfee9b2eecb9cbca88262e0559ea"
@@ -168,7 +168,9 @@ def cleverly_rows(
     for name in SCENARIO_ESTIMANDS[scenario]:
         estimate = result[name]
         reference = float(truth[name])
-        low, high = estimate.ci
+        # Status-aware: every ``oat`` estimate reports the generated-design diagnostic
+        # (RM20), and these are the same numbers the committed artifacts carry.
+        std_error, low, high = reported_inference(estimate)
         ratio = estimate.scale == "ratio"
         rows.append(
             {
@@ -184,7 +186,7 @@ def cleverly_rows(
                     if ratio and estimate.log_psi is not None
                     else float(estimate.psi)
                 ),
-                "std_error": float(estimate.std_error),
+                "std_error": std_error,
                 "ci_lower": float(low),
                 "ci_upper": float(high),
                 "inference_scale": "log" if ratio else "identity",

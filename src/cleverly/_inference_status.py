@@ -33,7 +33,12 @@ __all__ = [
 #: named diagnostic. ``"influence_curve"`` supplies inference. Each other member is a key
 #: of :data:`NON_INFERENTIAL`, and ``tests/unit/test_inference_status_registry.py`` pins
 #: that the two lists agree.
-InferenceStatus = Literal["influence_curve", "working_mechanism_plugin"]
+InferenceStatus = Literal[
+    "influence_curve",
+    "working_mechanism_plugin",
+    "generated_design_plugin",
+    "estimated_weight_plugin",
+]
 
 
 @dataclass(frozen=True)
@@ -98,6 +103,58 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             diagnostic_noun="working-mechanism plug-in diagnostic",
             reopened_by="F18",
+        ),
+        "generated_design_plugin": StatusRecord(
+            reason=(
+                "the outcome-adaptive collaborative path, strategy='oat', reports no "
+                "confidence interval, no p-value and no standard error. It fits one treatment "
+                "mechanism on the estimated outcome predictions of every arm, and it targets "
+                "every arm mean jointly. Benkeser, Cai and van der Laan (2020), Theorem 1, "
+                "prove the ordinary curve for one binary treatment-specific mean with one "
+                "scalar design. No result covers this joint construction. Missing outcomes, "
+                "weights and repeated splits are also outside that theorem. The point "
+                "estimate stands. The plug-in standard error of that curve remains as a "
+                "diagnostic under plugin_std_error and plugin_interval. F19 in "
+                "docs/roadmap.md reopens this when it supplies that result."
+            ),
+            assessment_note=(
+                "the reported curve is a generated-design diagnostic: no confidence interval "
+                "or p-value is available for this path, and F19 in the roadmap is the "
+                "condition that reopens it"
+            ),
+            summary_label="generated-design se",
+            bootstrap_note=(
+                "a diagnostic; the refit bootstrap reruns the generated design, and no result "
+                "validates its coverage for this path"
+            ),
+            diagnostic_noun="generated-design plug-in diagnostic",
+            reopened_by="F19",
+        ),
+        "estimated_weight_plugin": StatusRecord(
+            reason=(
+                "a DR-TMLE fit with a guard and weights declared estimated "
+                "(weights_estimated=True) reports no confidence interval, no p-value and no "
+                "standard error. The argument that an interval conditions on the weights "
+                "concerns the efficient influence curve. No result read here gives the "
+                "reduced-dimension regressions of an estimated weight, or the contribution "
+                "of the weight estimate to the curve. The point estimate stands. The plug-in "
+                "standard error of that curve remains as a diagnostic under plugin_std_error "
+                "and plugin_interval. F5 in docs/roadmap.md reopens this when a paper "
+                "supplies that contribution. guard=() fits the ordinary TMLE, whose interval "
+                "conditions on the weights."
+            ),
+            assessment_note=(
+                "the reported curve is a fixed-weight diagnostic: no confidence interval or "
+                "p-value is available for this fit, and F5 in the roadmap is the condition "
+                "that reopens it"
+            ),
+            summary_label="fixed-weight se",
+            bootstrap_note=(
+                "a diagnostic; the bootstrap resamples rows and does not estimate the weights "
+                "again, and no result validates its coverage for this fit"
+            ),
+            diagnostic_noun="fixed-weight plug-in diagnostic",
+            reopened_by="F5",
         ),
     }
 )

@@ -120,9 +120,13 @@ takes the whole second-order expansion at two tilted laws, and keeps the wrong t
 a test rather than as a caveat.
 
 An **estimated** weight is where that stops.  The argument above for the ordinary
-estimator -- that the interval conditions on the weights, which ``weights_estimated=``
-declares -- is about :math:`D^*`, and the reduced regressions of a random tilt are not
-something anything read here derives.
+estimator is that the interval conditions on the weights, which ``weights_estimated=``
+declares.  That argument is about :math:`D^*`, and nothing read here derives the reduced
+regressions of a random tilt.  So a ``DRTMLE`` fit with a non-empty ``guard`` and
+``weights_estimated=True`` reports its point estimate under the ``"estimated_weight_plugin"``
+status: ``ci``, ``pvalue`` and ``std_error`` raise, and ``plugin_std_error`` and
+``plugin_interval`` keep the diagnostic.  ``guard=()`` fits the ordinary TMLE and keeps its
+interval.  F5 in ``docs/roadmap.md`` holds the result that would reopen it.
 
 Normalisation
 -------------

@@ -526,7 +526,7 @@ class NuisanceDiagnostics:
         The assessment note the status table records for a fit whose estimates declare
         a diagnostic status, and ``None`` otherwise. Keyed on
         :attr:`inference` and not on :attr:`treatment_role`, which the outcome-adaptive
-        path shares, and that path keeps its interval. :meth:`summary` and the
+        path shares, and that path has a status of its own. :meth:`summary` and the
         assessment's nuisance-model row both read it here.
         """
         return assessment_note(self.inference) if self._non_inferential else None

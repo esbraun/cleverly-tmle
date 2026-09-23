@@ -41,6 +41,7 @@ from sklearn.base import BaseEstimator
 from sklearn.linear_model import LogisticRegression
 
 from cleverly import variable_importance
+from cleverly._inference_status import NON_INFERENTIAL
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_binary_outcome, make_instrument, make_missing_outcome
 from cleverly.estimators import CTMLE, TMLE
@@ -143,16 +144,26 @@ class TestVariableImportanceRefusesBeforeItFits:
         with pytest.raises(CapabilityError):
             self._call(estimator)
 
-    def test_the_outcome_adaptive_path_still_reports_its_adjusted_p_values(self) -> None:
-        """The control against a refusal broadened to every collaborative fit."""
-        result = self._call(linear_ctmle("oat", estimands=("ate",)))
-        frame = result.to_frame()
-        assert {"std_err", "ci_lower", "ci_upper", "p_value"} <= set(frame.columns)
-        assert np.isfinite(result[0].adjusted_pvalue)
+    def test_the_outcome_adaptive_path_is_refused_by_its_own_reason(self) -> None:
+        """``oat`` refuses at the entry point too, with the reason of its own status.
+
+        It was the control against a refusal broadened to every collaborative fit until
+        RM20 gave it a status. The ordinary estimator below is that control now.
+        """
+        with pytest.raises(CapabilityError) as raised:
+            self._call(linear_ctmle("oat", estimands=("ate",)))
+        message = str(raised.value)
+        assert message.startswith("variable_importance() is not defined here.")
+        assert NON_INFERENTIAL["generated_design_plugin"].reason in message
+        assert WORKING_MECHANISM_NOT_INFERENTIAL not in message
 
     def test_an_ordinary_estimator_is_untouched(self) -> None:
+        """The control against a refusal broadened to every estimator."""
         result = self._call(TMLE(**linear_in_sample(estimands=("ate",))))
+        frame = result.to_frame()
+        assert {"std_err", "ci_lower", "ci_upper", "p_value"} <= set(frame.columns)
         assert np.isfinite(result[0].estimate.pvalue)
+        assert np.isfinite(result[0].adjusted_pvalue)
 
 
 class TestTheMissingnessTiltAgreesWithItsCapabilityRow:

@@ -116,6 +116,16 @@ outcome scaler is already the identity.
 
 ## Limitations
 
+These cells now measure a diagnostic that the package does not publish as inference. Every
+`strategy="oat"` fit takes the `"generated_design_plugin"` status, which
+[RM20](../../roadmap.md#rm20-intervals-outside-every-claimed-contract) decides. `ci`, `pvalue`,
+and `std_error` refuse, and the fit reports `plugin_std_error` and `plugin_interval` instead.
+
+The `std_error`, `ci_lower`, `ci_upper`, and `covered` columns of this study read those two
+accessors. The numbers are the ones the committed artifacts carry. Each accessor calls the same
+body as the refused one, so the reframing changed no arithmetic. No regeneration was run. The
+coverage, calibration, null-size, and power cells therefore describe that diagnostic.
+
 This row has reporting policy, so its red cells publish. Both generated-design SE-ratio intervals
 leave the calibration band. Their paired difference includes zero, which is reported but is not a
 failure criterion: the relevant question is whether each reported standard error calibrates to

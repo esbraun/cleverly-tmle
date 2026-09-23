@@ -74,14 +74,15 @@ point = result[names[0]]
 print(point.psi, point.std_error, point.ci, point.pvalue)
 ```
 
-A collaborative fit with the default `strategy="greedy"`, or with `"ordered"` or `"discrete"`,
-refuses `std_error`, `ci`, and `pvalue` with `CapabilityError`. Read `point.plugin_std_error` and
-`point.plugin_interval` on that fit. Each is a diagnostic of the reported curve, and neither is a
-confidence statement. The property `result.inference_status` gives the status of the fit, and
-`point.supplies_inference` gives it for one estimate. For an interval, fit `TMLE`, or use
-`strategy="oat"`. [Inference status](../technical-reference/inference.md#inference-status) lists
-the renamed columns, and [collaborative TMLE](../technical-reference/collaborative-tmle.md) gives
-the reason.
+A collaborative fit refuses `std_error`, `ci`, and `pvalue` with `CapabilityError` at every
+`strategy`. A `DRTMLE` fit with a `guard` and `weights_estimated=True` refuses them too. The
+property `result.inference_status` gives the status of the fit, and `point.supplies_inference`
+gives it for one estimate.
+
+Read `point.plugin_std_error` and `point.plugin_interval` on such a fit. Each is a diagnostic of
+the reported curve, and neither is a confidence statement. For an interval, fit `TMLE`.
+[Inference status](../technical-reference/inference.md#inference-status) lists each status, its
+reason, and the renamed columns.
 
 `result.parameter_keys` maps each alias to a structured `ParameterKey`. Use those fields for
 programmatic selection. Display aliases are not a serialization format.

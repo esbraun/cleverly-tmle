@@ -20,7 +20,6 @@ status must fail the bound check.
 
 from __future__ import annotations
 
-import pickle
 import re
 from collections.abc import Iterator
 from dataclasses import replace
@@ -33,12 +32,12 @@ from cleverly._inference_status import NON_INFERENTIAL
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_clustered
 from cleverly.estimators import TMLE
-from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, capitalize_first
 from cleverly.inference.influence import _DIAGNOSTIC_NAMES
 from cleverly.sensitivity import omitted_variable as omitted_variable_module
 from cleverly.sensitivity import omitted_variable_bounds, robustness_value
 from tests.conftest import linear_in_sample
+from tests.unit._inference_status_support import ROUTES, assert_refused_by, assert_restamped
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
 pytestmark = pytest.mark.xdist_group("inference_status_reach")
@@ -74,10 +73,6 @@ def assert_no_inferential_text(text: str) -> None:
     for pattern in FORBIDDEN_TEXT:
         match = pattern.search(text)
         assert match is None, f"{pattern.pattern!r} matched {match.group(0)!r} in:\n{text}"
-
-
-def assert_refused_by(status: str, raised: pytest.ExceptionInfo[CapabilityError]) -> None:
-    assert NON_INFERENTIAL[status].reason in str(raised.value)
 
 
 @pytest.fixture(scope="module")
@@ -269,37 +264,18 @@ class TestVariableImportanceRefusesBeforeItFits:
         assert NeverFit.calls == 0
 
 
-def _legacy(result: Any) -> Any:
-    """A copy saved as an ordinary fit: every estimate and both fold reports inferential."""
-    legacy = pickle.loads(pickle.dumps(result))
-    detail = legacy.cv_targeting
-    for report in (legacy.estimates, detail.pooled, detail.canonical):
-        for estimate in report.values():
-            estimate.__dict__["inference"] = "influence_curve"
-    legacy.__dict__["simultaneous"] = "bands built before the status"
-    legacy.__dict__["assessment_cache"] = {"sensitivity.evalue": "an answer read off .ci"}
-    return legacy
-
-
 class TestARestoredArtifactIsReStamped:
-    """An artifact saved before its configuration took a status loads under the status."""
+    """An artifact saved before its configuration took a status loads under the status.
 
-    @pytest.mark.parametrize("route", ["serialize", "pickle"])
+    The estimates are checked by the shared helper, which each surface's own test also
+    calls on a real fit. This class adds the fold-level reports, which only this fit has.
+    """
+
+    @pytest.mark.parametrize("route", ROUTES)
     def test_every_report_carries_the_status_again(
         self, result: Any, status: str, route: str
     ) -> None:
-        legacy = _legacy(result)
-        restored = (
-            loads(dumps(legacy)) if route == "serialize" else pickle.loads(pickle.dumps(legacy))
-        )
-        assert restored.inference_status == status
-        with pytest.raises(CapabilityError) as raised:
-            _ = restored["ate"].ci
-        assert_refused_by(status, raised)
-        assert restored["ate"].plugin_std_error == result["ate"].plugin_std_error
-        assert restored["ate"].plugin_interval == result["ate"].plugin_interval
-        assert restored.simultaneous is None
-        assert restored.assessment_cache == {}
+        restored = assert_restamped(result, status, route)
         detail = restored.cv_targeting
         assert detail.inference == status
         for name in detail.pooled:

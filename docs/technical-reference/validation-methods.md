@@ -1293,17 +1293,17 @@ The selected path depends on the reported contrast and retained artifacts.
 | reported risk ratio | use it directly and mark the result exact |
 | unambiguous default binary marginal ATE or odds ratio from ordinary TMLE | retarget cached nuisances to the matching risk ratio and mark the result exact; combined runs include this cheap retarget by default |
 | explicit reported odds ratio, or default odds ratio without exact retarget support | use the common-outcome approximation $\sqrt{OR}$ and mark the result approximate |
-| binary ATE without exact retarget support, with a usable reported reference-arm mean | hold the baseline risk fixed and mark the result approximate; includes DR-TMLE, collaborative TMLE with `strategy="oat"`, and CV evaluation |
+| binary ATE without exact retarget support, with a usable reported reference-arm mean | hold the baseline risk fixed and mark the result approximate; includes DR-TMLE and CV evaluation |
 | Gaussian ATE, ATT, or ATC with every outcome observed | standardize by the observed outcome standard deviation, weighted on a weighted fit, and mark the result approximate |
 | Gaussian ATE, ATT, or ATC on a fit with a response mechanism | report `unavailable`. The conversion divides by `sd(Y)` from the observed rows alone, and under missing at random the respondents' standard deviation estimates a different quantity from the population standard deviation. The refusal is on this path only, so a ratio E-value on the same fit stays available |
 | binomial ATT or ATC | refuse because the conditional baseline risk and conditional ratio target are absent |
 | level or non-arm parameter | report `not_applicable` because no supported two-arm contrast exists |
-| two-arm contrast on a `greedy`, `ordered`, or `discrete` collaborative fit | report `unavailable`. Each branch reads the estimate's interval or the reference arm's standard error, and this fit supplies neither. `strategy="oat"` keeps every branch |
+| two-arm contrast on a fit whose status supplies no inference: a collaborative fit at any `strategy`, or a `DRTMLE` fit with a `guard` and `weights_estimated=True` | report `unavailable`. Each branch reads the estimate's interval or the reference arm's standard error, and this fit supplies neither. The reason of the status follows |
 | binomial ATE without exact retarget support or a usable reported baseline; controlled direct effect needing derivation | report `unavailable` and name the missing evidence, artifact, or target |
 | several eligible contrasts and no explicit estimand | report `deferred` and name `estimand` in the next step |
 
-`_select_evalue` in `cleverly.sensitivity.evalue` applies the collaborative refusal after the
-`not_applicable` check. A request for `ey1` on a selector fit therefore still reports
+`_select_evalue` in `cleverly.sensitivity.evalue` applies the status refusal after the
+`not_applicable` check. A request for `ey1` on a collaborative fit therefore still reports
 `not_applicable`. Several eligible contrasts require an explicit alias, which is the `deferred` row
 above.
 [The status contract](#the-status-contract) states that rule for every operation that shares it.
@@ -1632,10 +1632,11 @@ reports the target-relevant change with multiplicity-adjusted p-values
 It is an assessment of the fitted causal workflow. It is not a predictive feature-importance score,
 and it introduces no new influence function.
 
-A `greedy`, `ordered`, or `discrete` collaborative estimator is refused with `CapabilityError`
-before the first fit. The procedure adjusts one p-value per candidate with Benjamini and Hochberg,
-and those fits report no p-value. The check asks the estimator's own `_inference_status()`, which
-is the status its estimates carry. `strategy="oat"` is accepted.
+An estimator whose status supplies no inference is refused with `CapabilityError` before the
+first fit. That includes a collaborative estimator at any `strategy`, and a `DRTMLE` with a
+`guard` when `weights_estimated=True`. The procedure adjusts one p-value per candidate with
+Benjamini and Hochberg, and those fits report no p-value. The check prepares each candidate's data
+and asks the estimator's own `_inference_status()`, which is the status its estimates carry.
 
 ## How the library certifies itself
 

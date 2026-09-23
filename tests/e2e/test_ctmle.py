@@ -26,6 +26,7 @@ import sklearn.linear_model
 from scipy.special import expit
 
 from cleverly import CapabilityError, SuperLearner, load
+from cleverly._inference_status import NON_INFERENTIAL
 from cleverly._typing import FloatArray
 from cleverly.datasets import (
     instrument_dgp,
@@ -41,7 +42,7 @@ from cleverly.exceptions import (
 )
 from cleverly.inference.influence import counterfactual_means
 from cleverly.validation.nuisance import NUISANCE_SELECTION_MISSING
-from tests.conftest import FAST_KWARGS, SELECTOR_CONFIGS, linear_ctmle
+from tests.conftest import FAST_KWARGS, SELECTOR_CONFIGS, linear_ctmle, linear_in_sample
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
 TMLE_SETTINGS = {**FAST_KWARGS, "estimands": ("ate", "ey1", "ey0")}
@@ -921,23 +922,28 @@ class TestTheWorkingMechanismDiagnosticIsNotTheEstimatorsVariance:
 
 
 class TestTheSelectorPathsPublishNoInference:
-    """Every selector strategy refuses all three accessors; ``oat`` keeps all three.
+    """Every selector strategy refuses all three accessors; an ordinary TMLE keeps them.
 
-    The ``oat`` control is not optional. Without it a refusal broadened to every
-    collaborative fit -- which would swallow the outcome-adaptive path that F19 owns and
-    RM12 does not touch -- passes every other test in this class.
+    The ordinary control is not optional. Without it a refusal broadened to every fit on
+    this law passes every other test in this class. ``oat`` was that control until RM20
+    gave it a status of its own, so the tests here also pin that it refuses with its own
+    reason and not with the selector reason.
     """
 
-    @staticmethod
-    def _fit(strategy: str):  # type: ignore[no-untyped-def]
+    #: The key :meth:`_fit` reads as the ordinary TMLE on the same law and learners.
+    ORDINARY = "tmle"
+
+    @classmethod
+    def _fit(cls, strategy: str):  # type: ignore[no-untyped-def]
         """A fresh fit, for a test that calls a facade and so writes the result's cache."""
         frame, _ = make_instrument(n=400, seed=5)
         covariates = [name for name in frame.columns if name.startswith("W")]
-        return (
-            linear_ctmle(strategy, estimands=("ate",), **SELECTOR_CONFIGS.get(strategy, {}))
-            .fit(frame, outcome="Y", treatment="A", covariates=covariates)
-            .single()
+        estimator = (
+            TMLE(**linear_in_sample(estimands=("ate",)))
+            if strategy == cls.ORDINARY
+            else linear_ctmle(strategy, estimands=("ate",), **SELECTOR_CONFIGS.get(strategy, {}))
         )
+        return estimator.fit(frame, outcome="Y", treatment="A", covariates=covariates).single()
 
     @pytest.fixture(scope="class")
     def shared(self) -> Callable[[str], Any]:
@@ -968,24 +974,35 @@ class TestTheSelectorPathsPublishNoInference:
         assert WORKING_MECHANISM_NOT_INFERENTIAL in str(raised.value)
 
     @pytest.mark.parametrize("accessor", ["ci", "pvalue", "std_error"])
-    def test_the_outcome_adaptive_path_still_answers(
+    def test_an_ordinary_tmle_still_answers(
+        self, shared: Callable[[str], Any], accessor: str
+    ) -> None:
+        estimate = shared(self.ORDINARY)["ate"]
+        assert estimate.inference == "influence_curve"
+        assert getattr(estimate, accessor) is not None
+
+    @pytest.mark.parametrize("accessor", ["ci", "pvalue", "std_error"])
+    def test_the_outcome_adaptive_path_refuses_by_its_own_reason(
         self, shared: Callable[[str], Any], accessor: str
     ) -> None:
         estimate = shared("oat")["ate"]
-        assert estimate.inference == "influence_curve"
-        assert getattr(estimate, accessor) is not None
+        assert estimate.inference == "generated_design_plugin"
+        with pytest.raises(CapabilityError) as raised:
+            getattr(estimate, accessor)
+        assert NON_INFERENTIAL["generated_design_plugin"].reason in str(raised.value)
+        assert WORKING_MECHANISM_NOT_INFERENTIAL not in str(raised.value)
 
     def test_the_retained_diagnostic_is_the_refused_number(
         self, shared: Callable[[str], Any]
     ) -> None:
-        """Reframed, not recomputed: ``oat`` answers both names with one value."""
-        estimate = shared("oat")["ate"]
+        """Reframed, not recomputed: an ordinary fit answers both names with one value."""
+        estimate = shared(self.ORDINARY)["ate"]
         assert estimate.plugin_std_error == estimate.std_error
         assert estimate.plugin_interval == estimate.ci
 
     def test_the_frame_swaps_the_inference_columns(self, shared: Callable[[str], Any]) -> None:
         refused = shared("discrete").to_frame()
-        ordinary = shared("oat").to_frame()
+        ordinary = shared(self.ORDINARY).to_frame()
 
         assert "inference" in refused.columns
         assert set(refused.columns) & {"std_err", "ci_lower", "ci_upper", "p_value"} == set()
@@ -996,8 +1013,8 @@ class TestTheSelectorPathsPublishNoInference:
         } <= set(refused.columns)
         assert list(refused["inference"]) == ["working_mechanism_plugin"]
 
-        # The outcome-adaptive frame is unchanged, which is what keeps every other fit in
-        # the package byte-identical.
+        # The ordinary frame is unchanged, which is what keeps every other fit in the
+        # package byte-identical.
         assert "inference" not in ordinary.columns
         assert {"std_err", "ci_lower", "ci_upper", "p_value"} <= set(ordinary.columns)
 
@@ -1042,8 +1059,11 @@ class TestTheSelectorPathsPublishNoInference:
         assert WORKING_MECHANISM_NOT_INFERENTIAL in (capability.reason or "")
         assert result.sensitivity.capability("evalue").available is False
 
-        # And the outcome-adaptive path keeps it.
-        assert self._fit("oat").sensitivity.capability("evalue").available
+        # The ordinary fit keeps it, and the outcome-adaptive path refuses by its own reason.
+        assert self._fit(self.ORDINARY).sensitivity.capability("evalue").available
+        adaptive = self._fit("oat").sensitivity.capability("evalue")
+        assert adaptive.available is False
+        assert NON_INFERENTIAL["generated_design_plugin"].reason in (adaptive.reason or "")
 
     def test_the_truncation_curve_reports_the_diagnostic_rather_than_raising(self) -> None:
         """Reachable on a C-TMLE fit, and it builds an inference-shaped frame per bound."""

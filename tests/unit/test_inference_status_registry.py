@@ -34,9 +34,13 @@ INFERENCE_PAGE = ROOT / "docs" / "technical-reference" / "inference.md"
 ROADMAP = ROOT / "docs" / "roadmap.md"
 
 #: The precedence order, written out. A fit that meets more than one status takes the
-#: first one here. WP2 and WP3 of RM20 append to it in the order the roadmap's RM20
-#: precedence table gives.
-PRECEDENCE = ("working_mechanism_plugin",)
+#: first one here. The order is the one the roadmap's RM20 precedence table gives, and
+#: WP3 of RM20 appends the two clustered statuses to it.
+PRECEDENCE = (
+    "working_mechanism_plugin",
+    "generated_design_plugin",
+    "estimated_weight_plugin",
+)
 
 
 def _status_table() -> list[list[str]]:
