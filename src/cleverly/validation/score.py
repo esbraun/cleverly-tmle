@@ -77,6 +77,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from ..inference.influence import InferenceStatus, spread_name
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
 from ..utils.text import format_negligible, format_table
@@ -157,7 +158,10 @@ class ScoreCheckRow:
     threshold : float
         Magnitude the score may reach and still pass.
     std_error : float
-        Standard error the threshold is expressed in.
+        Standard error the threshold is expressed in, read through
+        :attr:`~cleverly.ParameterEstimate.plugin_std_error`. It is a scale for the
+        tolerance. On a fit that supplies no inference it is the plug-in diagnostic and
+        not a standard error, and :meth:`ScoreCheck.to_frame` does not publish it.
     passed : bool
         Whether the score stayed inside it.
     converged : bool
@@ -234,6 +238,9 @@ class ScoreCheck:
         Those equations' own check, when it did.
     backend : str or None
         Dataframe backend :meth:`to_frame` returns when ``data`` is omitted.
+    inference : {"influence_curve", "working_mechanism_plugin"}
+        Inference status of the checked fit. A failing verdict names the spread the fit
+        reports by it, so a fit that supplies no inference reads "plug-in standard errors".
     """
 
     rows: tuple[ScoreCheckRow, ...]
@@ -258,6 +265,9 @@ class ScoreCheck:
     #: :meth:`to_frame` honours "results come back in the backend you passed in"
     #: without a caller having to thread the container back in by hand.
     backend: str | None = None
+    #: A class-level default, so a check built by hand, or pickled before the field
+    #: existed, reads as the ordinary fit it described.
+    inference: InferenceStatus = "influence_curve"
 
     @property
     def passed(self) -> bool:
@@ -338,7 +348,8 @@ class ScoreCheck:
                 f"score check: FAIL -- {len(failures)} of {len(self.rows)} not solved.",
                 f"  {named}",
                 *self._identity_lines(),
-                "  The standard errors above are read off an influence curve whose mean is",
+                f"  The {spread_name('standard errors', self.inference)} above are read off "
+                "an influence curve whose mean is",
                 "  not zero, so they do not describe this estimate.  See",
                 "  res.diagnostics.score_equations() for the table and cleverly.validation.score",
                 "  for the usual causes.",
@@ -395,9 +406,10 @@ class ScoreCheck:
         """
         if not self.passed:
             verdict = (
-                "FAIL: the score equation was not solved -- the influence-curve standard "
-                "errors this fit reports do not describe this estimate. See the module "
-                "docstring for the usual causes."
+                "FAIL: the score equation was not solved -- the "
+                f"{spread_name('influence-curve standard errors', self.inference)} this fit "
+                "reports do not describe this estimate. See the module docstring for the "
+                "usual causes."
             )
             if self.identity_failures:
                 # Named as its own thing and *first*, because the other failing rows on
@@ -413,7 +425,8 @@ class ScoreCheck:
                         "term the reported curve carries are not the same functional of "
                         "the state this fit",
                         "returned. That is a defect in the implementation rather than",
-                        "a fit that failed to converge, and the standard errors do not "
+                        "a fit that failed to converge, and the "
+                        f"{spread_name('standard errors', self.inference)} do not "
                         "describe this estimate.",
                         "Inspect the score rows. For guarded DR-TMLE, inspect "
                         "res.diagnostics.corrections() for the correction identities.",
@@ -530,11 +543,15 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
     n = result.data.n
     rows: list[ScoreCheckRow] = []
 
+    # ``plugin_std_error`` and not ``std_error``: every use of this number here is a
+    # *scale* for a convergence tolerance, which is a diagnostic.  A selector-path
+    # collaborative fit refuses ``std_error``, and reading it would make ``summary()``
+    # raise on every such fit through ``score_verdict``.
     reference_se = max(
         (
-            estimate.std_error
+            estimate.plugin_std_error
             for estimate in result.estimates.values()
-            if np.isfinite(estimate.std_error)
+            if np.isfinite(estimate.plugin_std_error)
         ),
         default=1.0,
     )
@@ -542,7 +559,7 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
     # study auditing this package against another implementation makes -- see
     # :func:`score_threshold`.
     threshold = score_threshold(
-        (estimate.std_error for estimate in result.estimates.values()),
+        (estimate.plugin_std_error for estimate in result.estimates.values()),
         n,
         tolerance=tolerance,
     )
@@ -649,7 +666,7 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
     rows.extend(_correction_rows(corrections, n_repeats=result.n_repeats))
 
     for name, estimate in result.estimates.items():
-        threshold = tolerance * estimate.std_error / np.sqrt(n)
+        threshold = tolerance * estimate.plugin_std_error / np.sqrt(n)
         score = abs(estimate.score)
         rows.append(
             ScoreCheckRow(
@@ -657,7 +674,7 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
                 kind="influence curve",
                 score=float(score),
                 threshold=float(threshold),
-                std_error=estimate.std_error,
+                std_error=estimate.plugin_std_error,
                 passed=bool(score <= threshold),
                 converged=True,
                 n_iter=0,
@@ -680,6 +697,7 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
         ),
         corrections=corrections,
         backend=result.data.backend,
+        inference=result.inference_status,
     )
 
 

@@ -22,7 +22,7 @@ from cleverly.utils.bounds import expit
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.evidence.registry import StudyRecord
-from tests.studies.evidence.schema import REPLICATE_COLUMNS
+from tests.studies.evidence.schema import REPLICATE_COLUMNS, reported_inference
 from tests.studies.evidence.seeds import draw_replicate
 
 LABELS = ("high", "low", "medium")
@@ -131,7 +131,10 @@ def rows_from_result(
     for name in estimands:
         estimate = result[name]
         target = float(truth[name])
-        low, high = estimate.ci
+        # Branching on the estimate rather than on the study: this function is shared with
+        # three multi-arm rows that keep inferential estimates, and they take the ``ci``
+        # branch unchanged.  RM12 refuses an interval on the selector row only.
+        std_error, low, high = reported_inference(estimate)
         ratio = estimate.scale == "ratio"
         if name.startswith("ey["):
             initial_estimate = initial_means[name[3:-1]]
@@ -162,9 +165,9 @@ def rows_from_result(
                     if ratio and estimate.log_psi is not None
                     else float(estimate.psi)
                 ),
-                "std_error": float(estimate.std_error),
-                "ci_lower": float(low),
-                "ci_upper": float(high),
+                "std_error": std_error,
+                "ci_lower": low,
+                "ci_upper": high,
                 "inference_scale": "log" if ratio else "identity",
                 "covered": int(low <= target <= high),
                 "initial_estimate": initial_estimate,

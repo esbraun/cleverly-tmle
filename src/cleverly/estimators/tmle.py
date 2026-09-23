@@ -128,11 +128,13 @@ from ..inference.bootstrap import Resampling, run_bootstrap
 from ..inference.cluster import cross_validated_variance
 from ..inference.influence import (
     CorrectionParts,
+    InferenceStatus,
     ParameterEstimate,
     make_estimate,
     median_estimates,
     missing_outcome_correction_parts,
     reduced_correction_parts,
+    supplies_inference,
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as_interventions
@@ -526,6 +528,20 @@ class TMLE:
 
     _assessment_method = "tmle"
 
+    def _inference_status(self) -> InferenceStatus:
+        """Whether this estimator's estimates carry inference or a named diagnostic.
+
+        A hook rather than a check at the assembly point, because only the estimator
+        knows what it did. Every estimator here reports influence-curve inference;
+        :class:`~cleverly.estimators.CTMLE` overrides it for the selector paths.
+
+        Returns
+        -------
+        {"influence_curve", "working_mechanism_plugin"}
+            ``"influence_curve"``.
+        """
+        return "influence_curve"
+
     def __init__(
         self,
         *,
@@ -757,6 +773,13 @@ class TMLE:
             stratify_folds=self.stratify_folds,
             collaborative=(
                 self._assessment_method == "collaborative_tmle"
+                # Deliberately ``!= "oat"`` and not
+                # :func:`~cleverly.estimators.ctmle.is_selector_strategy`. The only way to
+                # reach this line without a ``strategy`` attribute is a pickle from a
+                # version that predates the field, and ``None != "oat"`` holds the fold
+                # policy for it while ``is_selector_strategy(None)`` would release it.
+                # Swapping the spelling would quietly relax this refusal for restored
+                # artifacts.
                 and getattr(self, "strategy", None) != "oat"
             ),
             option_name="cross_fit",
@@ -1154,6 +1177,8 @@ class TMLE:
         repeats: list[RepeatFit] = []
         details: list[CVTargeting | None] = []
         for nuisance, seed in zip(nuisances, draw_seeds, strict=True):
+            # ``_retarget_detailed`` applies ``_inference_status`` to what it returns, so
+            # ``per_repeat``, ``median_estimates`` and ``result.repeats`` all carry it.
             estimates, fluctuations, detail = self._retarget_detailed(
                 data,
                 nuisance,
@@ -1196,7 +1221,13 @@ class TMLE:
             extra=extra if cv_detail is None else {**extra, "cv_tmle": cv_detail},
         )
 
-        if self.simultaneous and len(estimates) > 1:
+        # A simultaneous band is a joint confidence statement, so a fit that supplies no
+        # inference builds none.  Skipped rather than raised, because ``simultaneous``
+        # defaults to ``True``: raising would stop every default-configured selector-path
+        # collaborative fit over an output RM12 refuses to report anyway.  The omission is
+        # not silent -- ``summary()`` prints the reason, and ``simultaneous_bands()``
+        # called directly still refuses, because that is an explicit request.
+        if self.simultaneous and len(estimates) > 1 and supplies_inference(result.inference_status):
             refuse_after_repeats(
                 self.repeats, operation="simultaneous=True", reason=_REPEATED_BANDS_REASON
             )
@@ -2732,6 +2763,15 @@ class TMLE:
             estimates.update(canonical if self.cv_evaluation else pooled)
 
         ordered = _in_report_order(estimates, requested)
+        # Stamped at the one place every estimate this estimator produces comes from, so
+        # ``fit``, ``retarget`` and every sensitivity sweep that retargets a perturbed
+        # input all report the same status.  Stamping in ``fit`` alone would leave the
+        # truncation curve and the refutations building intervals the fit itself refuses.
+        status = self._inference_status()
+        if not supplies_inference(status):
+            ordered = {
+                name: replace(estimate, inference=status) for name, estimate in ordered.items()
+            }
         detail = (
             CVTargeting(
                 n_folds=len(indices),

@@ -1169,7 +1169,7 @@ class TestVariantsInheritRepeats:
         assert result.n_repeats == 2
         per_draw = [tuple(repeat.nuisance.treatment_covariates) for repeat in result.repeats]
         assert len(set(per_draw)) == 2, "the draws must disagree for the attribution to bite"
-        assert np.isfinite(result["ate"].std_error)
+        assert np.isfinite(result["ate"].plugin_std_error)
 
         report = result.diagnostics.nuisance_models()
         assert report.selection is result.extra["ctmle"]

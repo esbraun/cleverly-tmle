@@ -139,10 +139,17 @@ The discrete ladder reaches a ratio of one, because its cross-validated loss sel
 candidate on every draw. Read those cells as measurements under practical positivity loss. They do
 not transfer to a law that satisfies the estimator's declared bounds.
 
+These cells measure a diagnostic that the package does not publish as inference. The greedy,
+ordered, and discrete paths refuse `ci`, `pvalue`, and `std_error`, and report `plugin_std_error`
+and `plugin_interval` instead. The `std_error`, `ci_lower`, `ci_upper`, and `covered` columns of
+this study read those two accessors. The numbers are the ones the committed artifacts carry: the
+two accessors call the same body the refused ones call, so the reframing changed no arithmetic and
+no regeneration was run.
+
 The interval-calibration and null-size cells are red on the registered law, where the selector
 reaches the empty candidate under a correct outcome regression. The reported covariance treats the
-selected candidate as fixed and makes no conditional-coverage claim, so this row offers no
-calibrated inference while selection is load-bearing.
+selected candidate as fixed and makes no conditional-coverage claim, so this row shows no
+calibrated diagnostic interval while selection is load-bearing.
 [F18](../../roadmap.md#f18-selector-path-c-tmle-inference) records the missing result.
 
 The n = 500 size cell is red as well. Its exact 99% coverage endpoint falls below the 0.90 floor
@@ -168,5 +175,5 @@ the rule this reading applies.
 
 The row does not establish equivalence to an external package, simultaneous inference, conditional
 effects, or cross-fitted primary performance. It covers binary outcomes, ordinary GLM nuisance
-fits, and pointwise intervals. It excludes missing outcomes, weights, clusters, fold repeats,
-simultaneous bands, and longitudinal treatment.
+fits, and a pointwise working-mechanism plug-in diagnostic. It excludes missing outcomes, weights,
+clusters, fold repeats, simultaneous bands, and longitudinal treatment.

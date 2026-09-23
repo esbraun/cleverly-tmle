@@ -36,7 +36,6 @@ from typing import Any
 import numpy as np
 import pytest
 import sklearn.linear_model
-from sklearn.base import BaseEstimator
 
 from cleverly.estimators import TMLE
 from cleverly.estimators.direct_effect import (
@@ -46,6 +45,7 @@ from cleverly.estimators.direct_effect import (
     targeted_rows,
 )
 from cleverly.exceptions import DataError, PositivityWarning
+from tests.conftest import ConstantProbability
 
 #: ``P(Z = 1 | A, W)`` in the process below.  Extreme on purpose: it makes ``q_0`` a
 #: violation on every row while leaving ``q_1`` untouched, so a report that reads the
@@ -74,24 +74,6 @@ def _frame(seed: int = 0) -> Any:
     return pd.DataFrame({"W": w, "A": a, "Z": z, "Y": y})
 
 
-class _ConstantIntermediate(BaseEstimator):
-    """A learner that always predicts :data:`P_Z`.
-
-    A fitted model on this sample would predict close to :data:`P_Z` anyway, but "close"
-    is the wrong footing for a test whose assertions are about exact fractions: a single
-    fold whose estimate drifted below the bound would move ``clipped_fraction`` off 1.0
-    and the failure would read as a bug in the diagnostic rather than as noise.
-    """
-
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> _ConstantIntermediate:
-        self.classes_ = np.array([0.0, 1.0])
-        return self
-
-    def predict_proba(self, X: Any) -> Any:
-        p = np.full(np.asarray(X, dtype=float).shape[0], P_Z)
-        return np.column_stack([1.0 - p, p])
-
-
 def _plain_data() -> Any:
     """A minimal :class:`~cleverly.data.CausalData` with no intermediate variable."""
     from cleverly.data import CausalData
@@ -115,7 +97,10 @@ def _fit(z: float) -> Any:
     estimator = TMLE(
         outcome_learner=sklearn.linear_model.LinearRegression(),
         treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
-        intermediate_learner=_ConstantIntermediate(),
+        # P_Z on every row. A fitted model would only come close to P_Z, and one fold
+        # that drifted below the bound would move ``clipped_fraction`` off 1.0, so the
+        # failure would read as a bug in the diagnostic rather than as noise.
+        intermediate_learner=ConstantProbability(P_Z),
         n_folds=3,
         random_state=0,
         simultaneous=False,

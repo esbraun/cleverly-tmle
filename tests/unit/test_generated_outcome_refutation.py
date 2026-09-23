@@ -29,6 +29,7 @@ from cleverly.validation import (
     refute,
 )
 from tests.pickles import FUNCTIONAL_TAMPERINGS
+from tests.unit._refutation_support import RefitResult, StubResult, stub_estimate
 
 
 def _small_rule(draws: int) -> EmpiricalInclusionRule:
@@ -70,23 +71,8 @@ class _MeanDifferenceEstimator:
         standard_error = float(
             np.sqrt(np.var(treated, ddof=1) / treated.size + np.var(control, ddof=1) / control.size)
         )
-        estimate = SimpleNamespace(psi=effect, std_error=standard_error)
-        return _RefitResult(data, estimate)
-
-
-class _RefitResult:
-    def __init__(self, data: CausalData, estimate: Any) -> None:
-        self.data = data
-        self._estimate = estimate
-
-    def __getitem__(self, name: str) -> Any:
-        assert name == "ate"
-        return self._estimate
-
-
-class _Result(SimpleNamespace):
-    def __getitem__(self, name: str) -> Any:
-        return self.estimates[name]
+        estimate = stub_estimate(effect, standard_error)
+        return RefitResult(data, estimate)
 
 
 def _eligible_result(*, estimator: Any = None, backend: str | None = None) -> Any:
@@ -130,9 +116,9 @@ def _result_for(data: CausalData, estimator: Any) -> Any:
         provider=effect.provider,
         _study=effect._study,
     )
-    return _Result(
+    return StubResult(
         estimator=estimator,
-        estimates={"ate": SimpleNamespace(psi=2.0, std_error=0.1)},
+        estimates={"ate": stub_estimate(2.0, 0.1)},
         data=data,
         identified_effect=identified,
         parameter_keys={"ate": ParameterKey("ate", "ate", value=1, reference=0)},
@@ -291,7 +277,7 @@ class TestGeneratedProcesses:
             def refit(self, *args: Any, **kwargs: Any) -> Any:
                 refitted = super().refit(*args, **kwargs)
                 if len(self.calls) == 2:
-                    refitted._estimate.psi = np.nan
+                    refitted.estimate.psi = np.nan
                 return refitted
 
         estimator = NonfiniteEstimator()
@@ -962,7 +948,7 @@ class TestDummyOutcomeNegativeControl:
 
             def refit(self, *args: Any, **kwargs: Any) -> Any:
                 refitted = super().refit(*args, **kwargs)
-                refitted._estimate.psi += 0.5
+                refitted.estimate.psi += 0.5
                 return refitted
 
         test = refute(
@@ -985,7 +971,7 @@ class TestDummyOutcomeNegativeControl:
 
             def refit(self, *args: Any, **kwargs: Any) -> Any:
                 refitted = super().refit(*args, **kwargs)
-                refitted._estimate.psi = 0.0
+                refitted.estimate.psi = 0.0
                 return refitted
 
         test = refute(

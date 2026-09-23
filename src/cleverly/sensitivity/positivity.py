@@ -1261,7 +1261,10 @@ def truncation_curve(
     """Re-estimate across a grid of truncation bounds.
 
     Returns a tidy frame with one row per evaluated bound pair and estimand, giving the
-    point estimate and confidence interval.  A scalar bound supplied by the caller remains
+    point estimate and confidence interval.  A selector-path collaborative fit supplies no
+    interval, so its frame carries ``plugin_std_err``, ``plugin_interval_lower`` and
+    ``plugin_interval_upper`` in place of ``std_err``, ``ci_lower`` and ``ci_upper``.
+    A scalar bound supplied by the caller remains
     shorthand for the symmetric treatment-mechanism pair ``(bound, 1 - bound)``; an
     observation- or intermediate-mechanism sweep uses ``(bound, 1)``.  On an ordinary,
     collaborative, or unguarded
@@ -1422,7 +1425,11 @@ def truncation_curve(
         truncated_fraction = _clipped_fraction(result, pair, mechanism)
         for name in reported:
             estimate = estimates[name]
-            low, high = estimate.ci
+            # The columns ``ParameterEstimate.to_dict`` publishes, for the same reason: a
+            # selector-path collaborative fit supplies no interval, so this frame reports
+            # its retained diagnostic under names that make no coverage claim rather than
+            # raising halfway through the sweep.  One call names and computes all three,
+            # so the error and the interval cannot come from different branches.
             fitted_lower, fitted_upper = pairs[name]
             reference = fitted_psi[name]
             rows.append(
@@ -1430,9 +1437,7 @@ def truncation_curve(
                     "bound": lower,
                     "estimand": name,
                     "psi": estimate.psi,
-                    "std_err": estimate.std_error,
-                    "ci_lower": low,
-                    "ci_upper": high,
+                    **estimate.spread_columns(pvalue=False),
                     "truncated_fraction": truncated_fraction,
                     "is_fitted_bound": pair == (fitted_lower, fitted_upper),
                     # Additive metadata follows the legacy columns so positional consumers

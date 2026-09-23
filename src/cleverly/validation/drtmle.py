@@ -838,11 +838,13 @@ def _margin(mechanism: Any, bounds: tuple[float, float]) -> float:
 
 def _reference_se(result: TMLEResult) -> float:
     """The largest reported standard error, which is what the score tolerance is built on."""
+    # The plug-in accessor, because this number is a tolerance scale and not a claim.
+    # A selector-path collaborative fit refuses ``std_error``.
     return max(
         (
-            float(estimate.std_error)
+            float(estimate.plugin_std_error)
             for estimate in result.estimates.values()
-            if np.isfinite(estimate.std_error)
+            if np.isfinite(estimate.plugin_std_error)
         ),
         default=1.0,
     )

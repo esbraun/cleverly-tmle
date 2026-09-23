@@ -44,6 +44,18 @@ make loudly.
 Caveat, stated plainly: the confidence intervals on the curve treat :math:`\gamma`
 as known and reuse the MAR standard error.  They describe sampling uncertainty at a
 fixed :math:`\gamma`, not uncertainty about :math:`\gamma` itself.
+
+**What the tilt reports for a fit that has no interval.**  The curve is a plug-in
+sweep of the point estimate, so the whole of it is defined for a selector-path
+collaborative fit, whose targeted regression and missingness mechanism this module
+reads directly.  Only the spread columns depend on an influence curve the package
+refuses to claim there.  Such a fit therefore receives ``plugin_std_err``,
+``plugin_interval_lower`` and ``plugin_interval_upper`` in place of ``std_err``,
+``ci_lower`` and ``ci_upper``, which is the swap
+:func:`~cleverly.sensitivity.positivity.truncation_curve` already makes for the same
+fit.  :func:`tipping_gamma` keeps its point-estimate search on such a fit and refuses
+``use_ci=True``, because it returns one float and a float carries no column name to
+say which of the two an interval crossing came from.
 """
 
 from __future__ import annotations
@@ -54,8 +66,9 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._typing import FloatArray
-from ..exceptions import CapabilityError
+from ..exceptions import CapabilityError, refuse_working_mechanism_inference
 from ..inference.delta import normal_ci
+from ..inference.influence import spread_name
 from ..targets.population_intervention import (
     NATURAL_COURSE_TILT_REFUSAL,
     is_natural_course_fit,
@@ -110,6 +123,11 @@ def missingness_tilt(
     Refuses a missing-outcome ``NaturalCourseMean`` fit.  The tilt above is arm-specific,
     and that target is not indexed by arm, so it needs a natural-course sensitivity
     parameter that is not implemented.
+
+    A selector-path ``CTMLE`` fit receives ``plugin_std_err``,
+    ``plugin_interval_lower`` and ``plugin_interval_upper`` in place of ``std_err``,
+    ``ci_lower`` and ``ci_upper``.  The point-estimate curve is unchanged, and no column
+    of it claims coverage this package does not supply.
 
     Parameters
     ----------
@@ -215,16 +233,24 @@ def missingness_tilt(
                     ]
                 )
             )
-            std_error = result[name].std_error
+            # The names ``truncation_curve`` publishes, for the reason it publishes them: a
+            # selector-path collaborative fit supplies no interval, so the sweep reports
+            # the retained diagnostic under names that make no coverage claim rather than
+            # raising after every tilt has been computed. ``plugin_std_error`` reads the
+            # private body ``std_error`` reads, so an ordinary fit's numbers do not move.
+            # The interval is centred on the tilted estimate, so only the names come
+            # from ``spread_name``.
+            status = result[name].inference
+            std_error = result[name].plugin_std_error
             low, high = normal_ci(psi, std_error, result.config.alpha_sig)
             rows.append(
                 {
                     "gamma": value,
                     "estimand": name,
                     "psi": psi,
-                    "std_err": std_error,
-                    "ci_lower": low,
-                    "ci_upper": high,
+                    spread_name("std_err", status): std_error,
+                    spread_name("ci_lower", status): low,
+                    spread_name("ci_upper", status): high,
                     "is_mar": bool(value == 0.0),
                     # The tilt each arm actually received, appended so the familiar
                     # columns stay where they were. Without these the direction lives
@@ -336,6 +362,11 @@ def _tilted(targeted: FloatArray, observed_probability: FloatArray, gamma: float
     )
 
 
+#: The request ``tipping_gamma`` refuses on a fit that supplies no inference, named as the
+#: caller writes it.  The raise and the argument-aware capability row both use it.
+_TIPPING_INTERVAL_OPERATION = "tipping_gamma(use_ci=True)"
+
+
 def tipping_gamma(
     result: TMLEResult,
     estimand: str = "ate",
@@ -360,6 +391,10 @@ def tipping_gamma(
     Refuses a missing-outcome ``NaturalCourseMean`` fit, for the reason
     :func:`missingness_tilt` gives: it searches over that same arm-specific tilt.
 
+    Refuses ``use_ci=True`` on a selector-path ``CTMLE`` fit, which supplies no confidence
+    limit for the search to follow.  ``use_ci=False``, the default, searches the point
+    estimate and answers for that fit.
+
     Parameters
     ----------
     result : TMLEResult
@@ -374,7 +409,8 @@ def tipping_gamma(
         the declared arm-specific tilt magnitudes before refining each crossing.
     use_ci : bool
         Whether to tip when the confidence limit reaches the null rather than the
-        point estimate.
+        point estimate. Refused on a selector-path ``CTMLE`` fit, which reports no
+        confidence limit.
     arm_gamma : mapping of level to float, or None
         One multiplier per arm, as :func:`missingness_tilt` accepts.
 
@@ -398,6 +434,16 @@ def tipping_gamma(
         raise ValueError(
             "search must be a finite, increasing (lower, upper) pair that contains gamma=0; "
             f"got {search!r}"
+        )
+    if use_ci and estimand in result.estimates:
+        # Before the first tilt.  The curve renames its spread columns on a selector-path
+        # collaborative fit, so an interval crossing is still computable there, but this
+        # function returns one bare float and no float can carry the name that says the
+        # crossing came from a diagnostic.  The point-estimate search, which is the
+        # default, answers for that fit unchanged.  A name this fit does not report falls
+        # through to ``missingness_tilt``, which lists the tiltable ones.
+        refuse_working_mechanism_inference(
+            result.estimates[estimand].inference, operation=_TIPPING_INTERVAL_OPERATION
         )
 
     def row_at(value: float) -> Any:

@@ -17,6 +17,7 @@ from sklearn.dummy import DummyRegressor
 from cleverly import MSMProjection
 from cleverly.datasets import navigation_protocol
 from cleverly.msm import MSM
+from cleverly.sensitivity.omitted_variable import OMITTED_VARIABLE_OPERATIONS
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -197,7 +198,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert namespace["scores"].passed
     # "the omitted-variable operations are unavailable for this fit"
     ledger = assessment.to_frame().set_index(["surface", "check"])["status"]
-    for operation in ("omitted_confounding", "robustness_value", "elements", "contour"):
+    for operation in OMITTED_VARIABLE_OPERATIONS:
         assert str(ledger.loc[("sensitivity", operation)]) == "unavailable"
     support = namespace["support"]
     # "The fit truncated 1.23% of the units, and the support report warns above 1%."
@@ -225,8 +226,15 @@ def check(namespace: dict[str, Any]) -> None:
     assert f"{slope_curve['delta_from_fitted'].abs().max():.4f}" == "0.0033"
     assert slope_curve["delta_from_fitted"].abs().max() < 0.005
 
-    # No omitted-variable bound is implemented for an MSM coefficient; the arm contrasts have one.
-    assert "Riesz representer" in namespace["sensitivity_refusal"]
+    # No omitted-variable bound is implemented for an MSM coefficient; the arm contrasts
+    # have one. The claim the message makes about the representer reversed: an MSM
+    # coefficient *has* one, so the bound is well posed and only the implementation is
+    # missing. The refusal must not send the reader to ``evalue``, which refuses an ``msm``
+    # target of its own.
+    refusal = namespace["sensitivity_refusal"]
+    assert "Riesz representer" in refusal
+    assert "well posed" in refusal
+    assert "evalue" not in refusal
     robustness = namespace["robustness"]
     assert 0.0 < robustness["ate[medium vs low]"]["rv"] < robustness["ate[high vs low]"]["rv"]
     for values in robustness.values():

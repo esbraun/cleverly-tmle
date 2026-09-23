@@ -8,6 +8,7 @@ so it is checked here rather than in any single study.
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -40,6 +41,39 @@ PLAUSIBLE_COVERAGE = 0.5
 
 #: Relative slack on truth constancy, for the round trip through the reference container.
 TRUTH_TOLERANCE = 1e-9
+
+
+def reported_inference(estimate: Any) -> tuple[float, float, float]:
+    """``(std_error, low, high)`` for a replicate row, under any inference status.
+
+    Read through ``plugin_std_error`` and ``plugin_interval`` with no branch.  Those two
+    accessors call the private bodies ``std_error`` and ``ci`` call, so an estimate whose
+    inference the package supplies gives the numbers it always gave, bit for bit, and a
+    selector-path collaborative estimate gives its retained working-mechanism
+    diagnostic, which is the same arithmetic on the same curve.  The row records which
+    of the two it measured only through the study that wrote it: the evidence pages say
+    so for the two selector rows.
+
+    One reader for every study is what keeps one rule here.
+    ``multi_arm_common.rows_from_result`` and ``point_study_helpers.primary_rows`` are
+    shared with studies that keep inferential estimates, and they read through this.
+
+    The row schema does not move.  ``REPLICATE_COLUMNS`` is the shared contract of every
+    registered study, and ``std_error``/``ci_lower``/``ci_upper``/``covered`` stay: the
+    evidence pages say what those columns measure for the two selector rows.
+
+    Parameters
+    ----------
+    estimate : Any
+        A :class:`~cleverly.inference.ParameterEstimate` from a fitted result.
+
+    Returns
+    -------
+    tuple of float
+        The standard error and the interval endpoints the row records.
+    """
+    low, high = estimate.plugin_interval
+    return float(estimate.plugin_std_error), float(low), float(high)
 
 
 def truth_on_inference_scale(estimand: str, truth: float, scale: str) -> float:

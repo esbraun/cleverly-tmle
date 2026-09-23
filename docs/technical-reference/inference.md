@@ -74,6 +74,38 @@ therefore differs from the stored variance on that fit.
 the five refusals. A repeated fit refuses `covariance()` and `contrast()` altogether, as the
 [CV-TMLE reference](cv-tmle.md) states.
 
+## Inference status
+
+Each `ParameterEstimate` declares an `inference` status. The status says whether `cleverly`
+supplies inference for the estimate. `supplies_inference` is `True` for the first status only.
+
+| status | declared by | `std_error`, `ci`, and `pvalue` | `plugin_std_error` and `plugin_interval` |
+| --- | --- | --- | --- |
+| `"influence_curve"` | every estimate except the ones below. This is the default | return the values on this page | return the same numbers under names that claim no coverage |
+| `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, or `"discrete"` | raise `CapabilityError` | return the plug-in spread of the reported curve, as a diagnostic |
+
+[Collaborative TMLE](collaborative-tmle.md) gives the reason for the second status. A fit has one
+status, and `TMLEResult.inference_status` returns it.
+
+A report that publishes a spread names its columns through `spread_name` in
+`cleverly.inference.influence`. On the second status, `to_frame()` emits `inference`,
+`plugin_std_err`, `plugin_interval_lower`, and `plugin_interval_upper` in place of `std_err`,
+`ci_lower`, and `ci_upper`. It emits no `p_value`. `ParameterEstimate.spread_columns()` returns
+those columns under the name that fits the status.
+
+A contrast inherits the status of its inputs, so a contrast of two diagnostic estimates refuses
+`ci` as its inputs do. A simultaneous band refuses the second status with `CapabilityError`. Two
+selections that mix the statuses raise `ValueError`. No fit produces either input, because the
+estimator stamps one status on every estimate it reports.
+
+| function | selection | reason |
+| --- | --- | --- |
+| `contrast()`, and `smooth_contrast` in `cleverly.inference.results` | estimates that declare different statuses | an inferential status would give the refused input an interval |
+| `median_estimates` in `cleverly.inference.influence` | repeats whose estimates declare different statuses | the median would report one draw's refusal under the other draw's name |
+
+`tests/unit/test_inference.py::TestTheInferenceStatus` checks the inheritance, both `ValueError`
+selections, and the band refusal.
+
 ## Clusters
 
 With $m$ independent clusters, the influence values are summed inside each cluster first:

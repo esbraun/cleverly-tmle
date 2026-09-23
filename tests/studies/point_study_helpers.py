@@ -30,6 +30,8 @@ from typing import Any
 
 import numpy as np
 
+from tests.studies.evidence.schema import reported_inference
+
 #: The contrasts whose transcription divides by an arm mean, so the arms have to be strictly
 #: inside the unit interval for the row to mean anything.
 RATIO_ESTIMANDS = frozenset({"rr", "or"})
@@ -152,7 +154,7 @@ def primary_rows(
     for name in estimands:
         estimate = result[name]
         reference = float(truth[name])
-        low, high = estimate.ci
+        std_error, low, high = reported_inference(estimate)
         ratio = estimate.scale == "ratio"
         if ratio and estimate.log_psi is None:  # pragma: no cover - estimator contract guard
             raise AssertionError(f"ratio estimand {name!r} has no log-scale estimate")
@@ -166,9 +168,9 @@ def primary_rows(
                 "truth": reference,
                 "estimate": float(estimate.psi),
                 "inference_estimate": (float(estimate.log_psi) if ratio else float(estimate.psi)),
-                "std_error": float(estimate.std_error),
-                "ci_lower": float(low),
-                "ci_upper": float(high),
+                "std_error": std_error,
+                "ci_lower": low,
+                "ci_upper": high,
                 "inference_scale": "log" if ratio else "identity",
                 "covered": int(low <= reference <= high),
                 "initial_estimate": (math.nan if initials is None else float(initials[name])),

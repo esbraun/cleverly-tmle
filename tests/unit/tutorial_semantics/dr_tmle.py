@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 
 from cleverly.datasets import navigation_protocol, nonlinear_bounded_dgp
+from cleverly.sensitivity.omitted_variable import OMITTED_VARIABLE_OPERATIONS
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -96,9 +97,12 @@ def check(namespace: dict[str, Any]) -> None:
     assert corrections.contract == "theorem"  # "no truncation was active"
     assert assessment.report("score_equations").passed
     summary = assessment.summary()
-    assert "omitted_confounding" in summary
-    # "The assessment also defers the benchmark that calibrates the strengths."
-    assert "sensitivity.benchmark" in summary.split("Not run", 1)[1]
+    # "Every omitted-variable operation is unavailable for this fit."
+    not_run = summary.split("Not run", 1)[1]
+    for operation in OMITTED_VARIABLE_OPERATIONS:
+        assert f"sensitivity.{operation}" in not_run
+    # "The evalue row of Step 9 still returns."
+    assert "sensitivity  evalue" in summary.split("Not run", 1)[0]
 
     nuisance = assessment.report("nuisance_models")
     assert "look reasonable" in nuisance.summary()
@@ -114,14 +118,22 @@ def check(namespace: dict[str, Any]) -> None:
     for family in ("qr", "gr2"):
         assert {fit.best for fit in reduced[family]} == {"linear", "spline"}
 
-    # Step 9 prints the bounds, with their robustness values, and does not read them.
-    bounds = namespace["bounds"]
-    assert "robustness value" in str(bounds)
-    # "A wrong assignment model makes the estimate of nu^2 too small." A nonzero witness on this
-    # draw: the expected sample second moment of the untruncated true ATE representer is 7.75,
-    # while the fitted assignment model reports 4.316. The bounded law keeps nonlinear_dgp's
-    # propensity, so the representer is unchanged by the switch of outcome family.
-    elements = assessment.report("elements")
+    # Step 10 shows the refusal, and the ledger marks every omitted-variable operation.
+    ledger = assessment.to_frame().set_index(["surface", "check"])["status"]
+    for operation in OMITTED_VARIABLE_OPERATIONS:
+        assert str(ledger.loc[("sensitivity", operation)]) == "unavailable"
+    # "The refusal names the fitted method, drtmle, and the quantity the package will not
+    # estimate for it."
+    refusal = namespace["bound_refusal"]
+    assert "'drtmle'" in refusal
+    assert "nu^2" in refusal
+    assert "does not assume a consistent treatment mechanism" in refusal
+    # The refusal keys on the estimator, so a term that vanishes needs its own witness: the
+    # ordinary fit of Step 7 shares this page's doubted assignment model, and the bound runs
+    # there. Its nu^2 is 4.316 where the sample second moment of the untruncated true ATE
+    # representer is 7.75. That gap is the optimism the DR-TMLE refusal prevents. The bounded
+    # law keeps nonlinear_dgp's propensity, so the representer survives the outcome family.
+    elements = namespace["ordinary"].sensitivity.elements(estimand="ate")
     g0 = nonlinear_bounded_dgp().propensity(frame.loc[:, list(COVARIATES)].to_numpy(dtype=float))
     true_nu2 = float(np.mean(1.0 / g0 + 1.0 / (1.0 - g0)))
     assert round(true_nu2, 2) == 7.75

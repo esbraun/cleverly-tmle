@@ -31,6 +31,7 @@ from cleverly.datasets import (
     make_binary_outcome,
     make_linear_ate,
     make_missing_outcome,
+    make_missing_outcome_binary,
     make_nonlinear_ate,
     make_shift_dose,
     make_weak_overlap,
@@ -878,6 +879,18 @@ class TestOmittedVariableBias:
         # Both estimate E[alpha^2]; they differ only by sampling error.
         assert doubly_robust.nu2 == pytest.approx(plugin.nu2, rel=0.1)
 
+    def test_the_default_estimator_is_the_doubly_robust_one(self, good_overlap) -> None:
+        """``"auto"`` is a documented value, and the report says which one it chose.
+
+        The reported name is the resolved one rather than the request, so a reader of the
+        elements can tell which estimator produced ``nu2`` without reading the source.
+        """
+        assert good_overlap.sensitivity.elements("ate").nu2_estimator == "doubly_robust"
+        assert (
+            good_overlap.sensitivity.elements("ate", nu2_estimator="auto").nu2_estimator
+            == "doubly_robust"
+        )
+
     def test_a_ratio_estimand_is_refused_with_a_pointer_to_the_evalue(self) -> None:
         frame, _ = make_binary_outcome(n=800, seed=74)
         result = fast_tmle(estimands="all").fit(frame, outcome="Y", treatment="A").single()
@@ -1001,6 +1014,77 @@ class TestEValue:
         assert "common outcomes" in evalue.note
         assert "understates" not in evalue.note
         assert evalue.risk_ratio == pytest.approx(np.sqrt(binary_fit.psi("or")))
+
+
+class TestTheEValueOnAMissingOutcomeFit:
+    """The standardized conversion divides by a standard deviation it does not have.
+
+    Under missing at random the respondents' ``sd(Y)`` estimates the conditional
+    dispersion among respondents, not the population dispersion the estimate is
+    standardized against. The refusal is *branch-scoped*: a reported ratio reads only the
+    estimate and its interval, so it needs no standard deviation and stays available.
+
+    Two fits are needed to show both halves. The Gaussian branch requires
+    ``family="gaussian"`` and the reported-ratio branches require a binomial fit, so no
+    single fit carries the refused branch and a retained one at once.
+    """
+
+    @pytest.fixture(scope="class")
+    def gaussian_missing_fit(self) -> object:
+        frame, _ = make_missing_outcome(n=800, seed=81)
+        return (
+            fast_tmle(cross_fit=False, estimands=("ate", "ey1", "ey0"))
+            .fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=["W1", "W2", "W3"],
+                delta="Delta",
+            )
+            .single()
+        )
+
+    @pytest.fixture(scope="class")
+    def binomial_missing_fit(self) -> object:
+        frame, _ = make_missing_outcome_binary(n=800, seed=82)
+        return (
+            fast_tmle(cross_fit=False, estimands="all")
+            .fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=["W1", "W2", "W3"],
+                delta="Delta",
+            )
+            .single()
+        )
+
+    def test_the_standardized_conversion_is_refused_by_the_selection(
+        self, gaussian_missing_fit
+    ) -> None:
+        """The capability row is what proves where the refusal lives.
+
+        ``_select_evalue`` builds both the row and the call, so a refusal placed in the
+        execution instead would leave this row advertising ``available=True`` beside a
+        call that raises. Asserting the row and the call together is what tells the two
+        placements apart.
+        """
+        row = gaussian_missing_fit.sensitivity.capability("evalue")
+        assert not row.available
+        assert row.status is AssessmentStatus.UNAVAILABLE
+        assert "population outcome standard deviation" in row.reason
+        assert "sd(Y)" in row.reason
+        with pytest.raises(CapabilityError, match="population outcome standard deviation"):
+            gaussian_missing_fit.sensitivity.evalue("ate")
+
+    def test_a_reported_ratio_on_a_missing_outcome_fit_still_answers(
+        self, binomial_missing_fit
+    ) -> None:
+        """Correction 3 keeps this path. The formula reads two numbers and no data."""
+        evalue = binomial_missing_fit.sensitivity.evalue("rr")
+        assert not evalue.approximate
+        assert evalue.point > 1.0
+        assert binomial_missing_fit.sensitivity.capability("evalue").available
 
 
 class TestMissingnessTilt:

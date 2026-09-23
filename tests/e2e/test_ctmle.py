@@ -16,6 +16,7 @@ selector that always returns the empty propensity model; it takes that escape ro
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from typing import Any, ClassVar
 
@@ -34,9 +35,13 @@ from cleverly.datasets import (
 )
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators.targeting import build_submodel
+from cleverly.exceptions import (
+    WORKING_MECHANISM_ASSESSMENT_NOTE,
+    WORKING_MECHANISM_NOT_INFERENTIAL,
+)
 from cleverly.inference.influence import counterfactual_means
 from cleverly.validation.nuisance import NUISANCE_SELECTION_MISSING
-from tests.conftest import FAST_KWARGS
+from tests.conftest import FAST_KWARGS, SELECTOR_CONFIGS, linear_ctmle
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
 TMLE_SETTINGS = {**FAST_KWARGS, "estimands": ("ate", "ey1", "ey0")}
@@ -87,7 +92,10 @@ class TestTheFit:
     def test_it_recovers_the_truth(self, fit, frame_and_truth) -> None:
         _, truth = frame_and_truth
         estimate = fit["ate"]
-        assert abs(estimate.psi - truth["ate"]) < 3.0 * estimate.std_error
+        # The diagnostic supplies a *scale* for this sanity check and not a coverage
+        # claim: the package reports no interval for a selector path, and "within three
+        # plug-in spreads" is a statement about this one fit.
+        assert abs(estimate.psi - truth["ate"]) < 3.0 * estimate.plugin_std_error
 
     def test_it_solves_the_score_equation(self, fit) -> None:
         check = fit.diagnostics.score_equations()
@@ -109,13 +117,21 @@ class TestTheFit:
         assert 0 <= selection.selected < len(selection.path)
         assert set(selection.selected_covariates) <= set(fit.data.covariate_names)
 
-    def test_it_buys_a_smaller_standard_error_than_a_plain_fit(self, fit, frame_and_truth) -> None:
-        # One sample, so this is a statement about this fit rather than about the
-        # estimator -- but the mechanism is deterministic given the data: a narrower
-        # propensity model means a smaller 1/g and a smaller influence curve.
+    def test_the_working_mechanism_plugin_error_is_below_a_plain_fits_standard_error(
+        self, fit, frame_and_truth
+    ) -> None:
+        """The plug-in spread is the smaller number, and that is not a precision claim.
+
+        The old name for this test asserted the reading ``docs/roadmap.md`` RM12
+        forbids: "a user reads the smaller standard error as a precision gain, and the
+        interval undercovers". The package now refuses to call the collaborative number
+        a standard error at all. What remains true, and is what this test pins, is the
+        mechanism: a narrower propensity model means a smaller ``1/g`` and a smaller
+        influence curve. One sample, so it is a statement about this fit.
+        """
         frame, _ = frame_and_truth
         plain = TMLE(**TMLE_SETTINGS).fit(frame, outcome="Y", treatment="A").single()
-        assert fit["ate"].std_error < plain["ate"].std_error
+        assert fit["ate"].plugin_std_error < plain["ate"].std_error
 
 
 class TestDownstreamMachineryStillWorks:
@@ -289,12 +305,23 @@ class TestDownstreamMachineryStillWorks:
         diagnostics = fit.diagnostics.nuisance_models()
         assert diagnostics.findings == ()
         assert diagnostics.verdict() == (
-            "VERDICT: C-TMLE working-model metrics are descriptive; inspect the selection "
-            "and support reports."
+            "VERDICT: C-TMLE working-model metrics are descriptive, and this fit reports "
+            "no confidence interval and no p-value; inspect the selection and support "
+            "reports."
         )
         assert diagnostics.verdict() in diagnostics.summary()
 
-        ordinary = replace(diagnostics, treatment_role="estimated_treatment_law")
+        # Flipping the *role* alone does not retract the RM12 sentence, because that
+        # sentence is keyed on the declared inference status. The outcome-adaptive path
+        # carries this same role and does publish an interval, so a line keyed on the role
+        # would say the wrong thing about it. This assertion is what pins the two apart.
+        role_only = replace(diagnostics, treatment_role="estimated_treatment_law")
+        assert "no confidence interval or p-value is available" in role_only.summary()
+
+        ordinary = replace(
+            role_only,
+            inference="influence_curve",
+        )
         assert ordinary.findings != ()  # the calibration claim comes back
         no_metrics = replace(
             ordinary,
@@ -781,12 +808,245 @@ class TestSelectionIsForcedWhenTheOutcomeModelCannotHelp:
         assert collaborative.mean() < 0.15, collaborative
         assert nothing.mean() > 5.0 * collaborative.mean()
 
-    def test_the_collaborative_fit_covers_the_truth_where_the_empty_one_cannot(self, fits) -> None:
+    def test_the_empty_fit_is_biased_beyond_its_own_plugin_spread(self, fits) -> None:
         # Not a coverage study -- three fits -- but the failure here is systematic, not a
         # matter of luck: the empty model's interval is narrow and centred in the wrong
         # place, which is the signature of a bias a standard error cannot see.
+        #
+        # ``plugin_interval`` and not ``ci``: neither of these fits publishes an interval,
+        # because both take a selector path. The plug-in interval is a diagnostic, and
+        # this test reads it as one -- the claim is about where the point estimate sits
+        # relative to the spread of its own curve, not about coverage.
         for collaborative, nothing, truth in fits:
-            low, high = collaborative["ate"].ci
+            low, high = collaborative["ate"].plugin_interval
             assert low <= truth <= high, (low, high, truth)
-            low, high = nothing["ate"].ci
+            low, high = nothing["ate"].plugin_interval
             assert not (low <= truth <= high), (low, high, truth)
+            # The file's most interval-dependent assertion is also its witness that the
+            # package publishes no interval here.
+            with pytest.raises(CapabilityError) as raised:
+                _ = collaborative["ate"].ci
+            assert WORKING_MECHANISM_NOT_INFERENTIAL in str(raised.value)
+
+
+#: The most of the exact variance the reported working-mechanism diagnostic may account
+#: for.  **Declared before the run that measured it**, from roadmap row RM12's own
+#: published numbers: reported standard error 0.0441 against an HC0 standard error of
+#: 0.0545 on ``make_instrument(n=2000, seed=44)``, a variance ratio of 0.65.  The bound is
+#: 0.81, which is 0.90 on the standard-error scale, so the witness has real headroom and
+#: still fails long before the two agree.
+WORKING_MECHANISM_VARIANCE_RATIO = 0.81
+
+
+def _hc0_treatment_coefficient(frame, covariates) -> tuple[float, float]:  # type: ignore[no-untyped-def]
+    """The least-squares coefficient on ``A`` given every covariate, and its HC0 error.
+
+    Written out here rather than taken from a library, so the number the witness compares
+    against is one this test computes from the sandwich formula and not one the package
+    could also have got wrong.
+    """
+    columns = frame[["A", *covariates]].to_numpy(dtype=float)
+    design = np.column_stack([np.ones(len(columns)), columns])
+    response = frame["Y"].to_numpy(dtype=float)
+    gram_inverse = np.linalg.inv(design.T @ design)
+    beta = gram_inverse @ design.T @ response
+    residual = response - design @ beta
+    meat = design.T @ (design * residual[:, None] ** 2)
+    covariance = gram_inverse @ meat @ gram_inverse
+    # Column 0 is the intercept, so column 1 is A.
+    return float(beta[1]), float(np.sqrt(covariance[1, 1]))
+
+
+class TestTheWorkingMechanismDiagnosticIsNotTheEstimatorsVariance:
+    """Corroboration of RM12's first witness on a continuous law.
+
+    The exact witness is
+    ``tests/unit/test_ctmle.py::TestTheWorkingMechanismDiagnosticMissesTheExactVariance``,
+    on a finite-support law whose variances are closed-form.  This class checks the same
+    gap where the exact variance is not available and the sandwich stands in for it.
+
+    A ``discrete`` fit whose only candidate is the intercept-only one, with a correct
+    linear outcome regression, **is** the least-squares coefficient on the treatment given
+    every covariate. The test computes that coefficient's HC0 sandwich variance. The
+    reported plug-in curve variance is the intercept-only representer's,
+    :math:`\\sigma^2 \\nu^2 / n`, which ignores the association between the treatment and
+    the covariates and is therefore too small.
+
+    Like the exact witness, it is a **nonzero witness** as the scientific-change rule demands. A
+    mutation that made the retained diagnostic the *right* variance -- which would make
+    the whole refusal pointless, because then there would be nothing wrong with reporting
+    it -- drives the ratio to one and fails this test. A test that only asserted "the
+    accessor raises" would pass against that mutation.
+    """
+
+    @pytest.fixture(scope="class")
+    def fitted(self):  # type: ignore[no-untyped-def]
+        # The law and the seed roadmap row RM12 published its measurement on.
+        frame, _ = make_instrument(n=2000, seed=44)
+        covariates = [name for name in frame.columns if name.startswith("W")]
+        result = (
+            linear_ctmle(
+                "discrete",
+                candidates=((),),
+                selection_folds=3,
+                selection_inner_folds=2,
+                estimands=("ate",),
+                ctmle_estimand="ate",
+            )
+            .fit(frame, outcome="Y", treatment="A", covariates=covariates)
+            .single()
+        )
+        return result, frame, covariates
+
+    def test_the_fit_is_the_least_squares_coefficient(self, fitted) -> None:
+        """What makes the comparison below one of two variances of *one* estimator."""
+        result, frame, covariates = fitted
+        coefficient, _ = _hc0_treatment_coefficient(frame, covariates)
+        assert result["ate"].psi == pytest.approx(coefficient, abs=1e-9)
+
+    def test_the_reported_diagnostic_is_smaller_than_the_exact_variance(self, fitted) -> None:
+        result, frame, covariates = fitted
+        _, exact_error = _hc0_treatment_coefficient(frame, covariates)
+        reported = result["ate"].plugin_std_error
+
+        ratio = (reported / exact_error) ** 2
+        assert ratio <= WORKING_MECHANISM_VARIANCE_RATIO, (reported, exact_error, ratio)
+
+    def test_the_package_reports_no_interval_for_it(self, fitted) -> None:
+        """The refusal and the witness belong in one place: the gap is why it refuses."""
+        result, _, _ = fitted
+        with pytest.raises(CapabilityError) as raised:
+            _ = result["ate"].ci
+        assert WORKING_MECHANISM_NOT_INFERENTIAL in str(raised.value)
+
+
+class TestTheSelectorPathsPublishNoInference:
+    """Every selector strategy refuses all three accessors; ``oat`` keeps all three.
+
+    The ``oat`` control is not optional. Without it a refusal broadened to every
+    collaborative fit -- which would swallow the outcome-adaptive path that F19 owns and
+    RM12 does not touch -- passes every other test in this class.
+    """
+
+    @staticmethod
+    def _fit(strategy: str):  # type: ignore[no-untyped-def]
+        """A fresh fit, for a test that calls a facade and so writes the result's cache."""
+        frame, _ = make_instrument(n=400, seed=5)
+        covariates = [name for name in frame.columns if name.startswith("W")]
+        return (
+            linear_ctmle(strategy, estimands=("ate",), **SELECTOR_CONFIGS.get(strategy, {}))
+            .fit(frame, outcome="Y", treatment="A", covariates=covariates)
+            .single()
+        )
+
+    @pytest.fixture(scope="class")
+    def shared(self) -> Callable[[str], Any]:
+        """One fit per strategy, for the tests that only read estimates and frames.
+
+        Those reads write nothing on the result. A test that calls ``summary``,
+        ``assess``, a diagnostics facade or a capability row fills the assessment cache,
+        so it takes a fresh fit from :meth:`_fit` instead.
+        """
+        fits: dict[str, Any] = {}
+
+        def fit(strategy: str) -> Any:
+            if strategy not in fits:
+                fits[strategy] = self._fit(strategy)
+            return fits[strategy]
+
+        return fit
+
+    @pytest.mark.parametrize("strategy", sorted(SELECTOR_CONFIGS))
+    @pytest.mark.parametrize("accessor", ["ci", "pvalue", "std_error"])
+    def test_a_selector_path_refuses_and_names_its_cause(
+        self, shared: Callable[[str], Any], strategy: str, accessor: str
+    ) -> None:
+        estimate = shared(strategy)["ate"]
+        assert estimate.inference == "working_mechanism_plugin"
+        with pytest.raises(CapabilityError) as raised:
+            getattr(estimate, accessor)
+        assert WORKING_MECHANISM_NOT_INFERENTIAL in str(raised.value)
+
+    @pytest.mark.parametrize("accessor", ["ci", "pvalue", "std_error"])
+    def test_the_outcome_adaptive_path_still_answers(
+        self, shared: Callable[[str], Any], accessor: str
+    ) -> None:
+        estimate = shared("oat")["ate"]
+        assert estimate.inference == "influence_curve"
+        assert getattr(estimate, accessor) is not None
+
+    def test_the_retained_diagnostic_is_the_refused_number(
+        self, shared: Callable[[str], Any]
+    ) -> None:
+        """Reframed, not recomputed: ``oat`` answers both names with one value."""
+        estimate = shared("oat")["ate"]
+        assert estimate.plugin_std_error == estimate.std_error
+        assert estimate.plugin_interval == estimate.ci
+
+    def test_the_frame_swaps_the_inference_columns(self, shared: Callable[[str], Any]) -> None:
+        refused = shared("discrete").to_frame()
+        ordinary = shared("oat").to_frame()
+
+        assert "inference" in refused.columns
+        assert set(refused.columns) & {"std_err", "ci_lower", "ci_upper", "p_value"} == set()
+        assert {
+            "plugin_std_err",
+            "plugin_interval_lower",
+            "plugin_interval_upper",
+        } <= set(refused.columns)
+        assert list(refused["inference"]) == ["working_mechanism_plugin"]
+
+        # The outcome-adaptive frame is unchanged, which is what keeps every other fit in
+        # the package byte-identical.
+        assert "inference" not in ordinary.columns
+        assert {"std_err", "ci_lower", "ci_upper", "p_value"} <= set(ordinary.columns)
+
+    def test_the_summary_prints_the_refusal_and_no_interval_heading(self) -> None:
+        result = self._fit("greedy")
+        summary = result.summary()
+
+        # The refusal's own sentence, with only its first letter raised, so the summary
+        # cannot paraphrase the raise into a second claim.
+        assert WORKING_MECHANISM_NOT_INFERENTIAL[1:] in summary
+        assert "working-mechanism se" in summary
+        # No `95% CI` heading with a "-" under it: the whole column is refused, and a dash
+        # beneath that heading would still tell a reader an interval belongs there.
+        assert "95% CI" not in summary
+        assert "p_value" not in summary
+        # The selector is named in the facts block, so a reader does not have to go to the
+        # nuisance report to learn which mechanism the refusal is about.
+        assert result.extra["ctmle"].describe() in summary
+
+    def test_the_assessment_carries_the_same_sentence(self) -> None:
+        result = self._fit("greedy")
+        # The detail string of the nuisance-model row, which is where the label goes:
+        # the capability table is keyed by method and cannot tell a selector path from
+        # the outcome-adaptive one, so it has no row to mark unavailable here.
+        detail = result.diagnostics.run_all()["nuisance_models"].detail
+        assert WORKING_MECHANISM_ASSESSMENT_NOTE in detail
+        # And it reaches the assessment a reader actually prints.
+        assert WORKING_MECHANISM_ASSESSMENT_NOTE in result.assess().summary()
+
+    def test_the_evalue_capability_goes_unavailable_rather_than_raising(self) -> None:
+        """The row must say so, not raise from inside the computation.
+
+        Only an ``_EValueRefusal`` raised in the selection reaches the capability row. A
+        refusal left to fall out of ``estimate.ci`` deep in the derivation would leave the
+        row advertising ``available=True`` beside a call that raises, which is the failure
+        this test exists for. RM11 keeps a ratio E-value "because that formula reads only
+        the estimate and its interval"; on this path there is no interval to read.
+        """
+        result = self._fit("greedy")
+        capability = result.sensitivity.capability("evalue")
+        assert capability.available is False
+        assert WORKING_MECHANISM_NOT_INFERENTIAL in (capability.reason or "")
+        assert result.sensitivity.capability("evalue").available is False
+
+        # And the outcome-adaptive path keeps it.
+        assert self._fit("oat").sensitivity.capability("evalue").available
+
+    def test_the_truncation_curve_reports_the_diagnostic_rather_than_raising(self) -> None:
+        """Reachable on a C-TMLE fit, and it builds an inference-shaped frame per bound."""
+        curve = self._fit("greedy").diagnostics.truncation_curve()
+        assert "plugin_std_err" in curve.columns
+        assert "ci_lower" not in curve.columns

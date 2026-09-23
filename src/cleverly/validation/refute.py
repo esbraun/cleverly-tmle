@@ -57,13 +57,14 @@ Each test refits the model, so a full run costs several times a single fit.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
 from ..exceptions import CapabilityError
 from ..inference.bootstrap import Resampling, _bootstrap_design
+from ..inference.influence import InferenceStatus, spread_name
 from ..utils.frames import emit_frame
 from ..utils.random import resolve_assessment_seed
 from ..utils.text import format_table
@@ -492,7 +493,9 @@ class EmpiricalRefitRecord:
     estimate : float
         Refitted point estimate.
     std_error : float
-        Refitted standard error.
+        Refitted standard error, read through
+        :attr:`~cleverly.ParameterEstimate.plugin_std_error`. On a fit that supplies no
+        inference it is that diagnostic, and not a standard error.
     family : str
         Outcome family supplied by the refitted result.
     """
@@ -572,6 +575,11 @@ class RefutationTest:
         Requested empirical draw count.
     resampling : str or None
         Resolved bootstrap mode for a bootstrap-based refuter.
+    inference : {"influence_curve", "working_mechanism_plugin"}
+        Inference status of the refitted estimates. On a fit that supplies no inference,
+        ``standard_errors`` and each record's ``std_error`` hold the plug-in diagnostic
+        :attr:`~cleverly.ParameterEstimate.plugin_std_error`, and :meth:`to_frame`
+        publishes that column as ``plugin_std_error``.
     """
 
     name: str
@@ -591,6 +599,7 @@ class RefutationTest:
     declared_effect: float | None = None
     requested_draws: int | None = None
     resampling: str | None = None
+    inference: InferenceStatus = "influence_curve"
 
     @property
     def mean(self) -> float:
@@ -655,17 +664,20 @@ class RefutationTest:
         Returns
         -------
         dataframe
-            Successful estimates and standard errors alongside retained failures.
+            Successful estimates and standard errors alongside retained failures. The
+            standard-error column is ``plugin_std_error`` when :attr:`inference` is a
+            diagnostic status.
         """
         successes = {item.replicate: item for item in self.records}
         failures = {item.replicate: item for item in self.failures}
         indices = sorted((*successes, *failures))
+        error_column = spread_name("std_error", self.inference)
         payload: dict[str, list[Any]] = {
             "test": [],
             "replicate": [],
             "seed": [],
             "estimate": [],
-            "std_error": [],
+            error_column: [],
             "family": [],
             "error_type": [],
             "message": [],
@@ -681,7 +693,7 @@ class RefutationTest:
             payload["replicate"].append(index)
             payload["seed"].append(seed)
             payload["estimate"].append(None if record is None else record.estimate)
-            payload["std_error"].append(None if record is None else record.std_error)
+            payload[error_column].append(None if record is None else record.std_error)
             payload["family"].append(None if record is None else record.family)
             payload["error_type"].append(None if failure is None else failure.error_type)
             payload["message"].append(None if failure is None else failure.message)
@@ -1183,7 +1195,7 @@ def _run_empirical_refits(
                 f"{expected_family!r}"
             )
         estimate = refitted[estimand]
-        if not np.isfinite(estimate.psi) or not np.isfinite(estimate.std_error):
+        if not np.isfinite(estimate.psi) or not np.isfinite(estimate.plugin_std_error):
             failures.append(
                 ReplicationFailure(
                     replicate=replicate,
@@ -1199,7 +1211,7 @@ def _run_empirical_refits(
                 seed=child_seed,
                 estimand=estimand,
                 estimate=float(estimate.psi),
-                std_error=float(estimate.std_error),
+                std_error=float(estimate.plugin_std_error),
                 family=fitted_family,
             )
         )
@@ -1629,7 +1641,14 @@ def refute(
             )
 
     original = result[estimand].psi
-    std_error = result[estimand].std_error
+    # A tolerance scale for the refutation comparisons below, not a coverage claim, so
+    # the plug-in accessor answers on a selector-path collaborative fit too.
+    std_error = result[estimand].plugin_std_error
+    # Every refit reruns this estimator, so each test's standard errors carry the fit's
+    # own inference status. ``RefutationTest.to_frame`` names its column from it, and a
+    # detail below names the unit it counts in from it.
+    status = result[estimand].inference
+    unit = spread_name("standard errors", status)
     # The package convention for a stochastic operation on a fitted object: an explicit seed
     # wins, ``None`` inherits the fit's own.  ``is None`` rather than truthiness, because
     # ``random_state=0`` is falsy and still has to win.  Same form as ``ctmle.py:846``.
@@ -1681,8 +1700,8 @@ def refute(
                     expectation="~ 0",
                     passed=passed,
                     detail=(
-                        f"mean placebo estimate {mean:+.5g} is more than {tolerance:g} standard "
-                        "errors from zero, which suggests the pipeline is producing an effect "
+                        f"mean placebo estimate {mean:+.5g} is more than {tolerance:g} {unit} "
+                        "from zero, which suggests the pipeline is producing an effect "
                         "where none exists (fold leakage, or a misdefined estimand)"
                     ),
                 )
@@ -1705,7 +1724,7 @@ def refute(
                     passed=passed,
                     detail=(
                         f"adding an irrelevant covariate moved the estimate by {shift:+.5g} "
-                        f"({abs(shift) / std_error:.1f} standard errors); the nuisance models are "
+                        f"({abs(shift) / std_error:.1f} {unit}); the nuisance models are "
                         "unstable at this sample size"
                     ),
                 )
@@ -1751,7 +1770,7 @@ def refute(
                 random_state=seed,
             )
             value = refitted[estimand].psi
-            control_se = refitted[estimand].std_error
+            control_se = refitted[estimand].plugin_std_error
             passed = bool(abs(value) <= tolerance * control_se)
             outcomes.append(
                 RefutationTest(
@@ -1763,7 +1782,7 @@ def refute(
                     passed=passed,
                     detail=(
                         f"the negative-control outcome shows an effect of {value:+.5g} "
-                        f"({abs(value) / control_se:.1f} standard errors). Under a valid, "
+                        f"({abs(value) / control_se:.1f} {unit}). Under a valid, "
                         "comparable control design, this flags residual bias. It can also "
                         "indicate that the negative-control assumptions fail"
                     ),
@@ -1801,7 +1820,7 @@ def refute(
             )
 
     return RefutationResult(
-        tests=tuple(outcomes),
+        tests=tuple(replace(test, inference=status) for test in outcomes),
         estimand=estimand,
         backend=result.data.backend,
         random_state=seed,

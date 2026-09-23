@@ -575,17 +575,47 @@ class TestTheRestOfTheFacade:
         assert "applies to" in report["elements"].detail
         exact_fit.assessment_cache.clear()
 
-    def test_the_benchmark_refits_and_calibrates_for_one_contrast(self, missing_fit: Any) -> None:
-        calibrated = missing_fit.sensitivity.benchmark(["W1"], estimand="ate[mid vs low]")
+    def test_the_benchmark_refits_and_calibrates_for_one_contrast(self, complete_fit: Any) -> None:
+        calibrated = complete_fit.sensitivity.benchmark(["W1"], estimand="ate[mid vs low]")
         assert calibrated.estimand == "ate[mid vs low]"
         assert 0.0 <= calibrated.cf_y <= 1.0 and 0.0 <= calibrated.cf_d <= 1.0
 
+    def test_the_benchmark_refuses_a_response_mechanism_before_it_refits(
+        self, missing_fit: Any
+    ) -> None:
+        """The refit is the expensive half, and it never runs.
+
+        ``benchmark`` reaches :func:`sensitivity_elements` for the long model first, so a
+        fit the bound refuses hears the refusal instead of paying for a second fit. The
+        reason is the one the capability row declares, not a sentence about benchmarking.
+        """
+        with pytest.raises(CapabilityError) as refusal:
+            missing_fit.sensitivity.benchmark(["W1"], estimand="ate[mid vs low]")
+        assert "response mechanism" in str(refusal.value)
+        assert missing_fit.sensitivity.capability("benchmark").reason in str(refusal.value)
+
 
 class TestTheBoundOnAFitWithNoArmsToContrast:
-    def test_a_regime_fit_is_refused_by_name(self) -> None:
+    """One message per parameter axis, each naming the functional it is missing.
+
+    The old sentence said that a fit "whose counterfactuals are not arms does not have" a
+    Riesz representer. A regime mean, a modified-policy mean, and an MSM coefficient are
+    all linear functionals of the outcome regression, so each of them has one; what is
+    missing is an implementation. An incremental intervention is the one axis where the
+    old sentence pointed at a real obstacle, and it is a different obstacle: its density
+    is built out of the mechanism, so the mechanism is part of the estimand.
+
+    Only the regime fit is fitted here. The other three axes are reached by replacing the
+    recorded :attr:`~cleverly.estimators.base.EstimatorConfig.parameter_axis` on that
+    result, which is the field the rule reads, so the messages are pinned without four
+    fits of the same law.
+    """
+
+    @pytest.fixture(scope="class")
+    def regime_fit(self) -> Any:
         from cleverly.interventions import Static
 
-        result = (
+        return (
             TMLE(
                 outcome_learner=law.OracleMultiOutcome(),
                 treatment_learner=law.OracleMultiTreatment(),
@@ -598,8 +628,55 @@ class TestTheBoundOnAFitWithNoArmsToContrast:
             .fit(law.frame(), outcome="Y", treatment="A", covariates=["W"])
             .single()
         )
-        with pytest.raises(ValueError, match="reports none"):
-            sensitivity_elements(result, "ate")
+
+    def test_a_regime_fit_is_refused_as_well_posed_and_unimplemented(self, regime_fit: Any) -> None:
+        with pytest.raises(CapabilityError) as refusal:
+            sensitivity_elements(regime_fit, "ate")
+        message = str(refusal.value)
+        assert "'regime'" in message
+        assert "A regime mean" in message
+        assert "Riesz representer" in message
+        assert "well posed" in message
+        assert "not implemented" in message
+
+    @pytest.mark.parametrize(
+        ("axis", "noun"),
+        [("shift", "A modified-policy mean"), ("msm", "A point-treatment MSM coefficient")],
+    )
+    def test_each_well_posed_axis_names_its_own_functional(
+        self, regime_fit: Any, axis: str, noun: str
+    ) -> None:
+        tampered = replace(regime_fit, config=replace(regime_fit.config, parameter_axis=axis))
+        with pytest.raises(CapabilityError) as refusal:
+            sensitivity_elements(tampered, "ate")
+        message = str(refusal.value)
+        assert f"{axis!r}" in message
+        assert noun in message
+        assert "well posed" in message
+
+    def test_an_msm_refusal_does_not_send_the_reader_to_the_evalue(self, regime_fit: Any) -> None:
+        """The defect the roadmap names: one refusal handing the reader a second one.
+
+        ``evalue`` refuses an ``msm`` target of its own, so the pointer was never a route
+        out. It belongs to the two ratio scales an E-value is defined on and nowhere else.
+        """
+        tampered = replace(regime_fit, config=replace(regime_fit.config, parameter_axis="msm"))
+        with pytest.raises(CapabilityError) as refusal:
+            sensitivity_elements(tampered, "ate")
+        assert "evalue" not in str(refusal.value)
+
+    def test_an_incremental_axis_is_refused_for_the_mechanism_rather_than_the_arms(
+        self, regime_fit: Any
+    ) -> None:
+        tampered = replace(regime_fit, config=replace(regime_fit.config, parameter_axis="ipsi"))
+        with pytest.raises(CapabilityError) as refusal:
+            sensitivity_elements(tampered, "ate")
+        message = str(refusal.value)
+        assert "'ipsi'" in message
+        assert "incremental" in message
+        assert "part of the estimand" in message
+        assert "well posed" not in message
+        assert "evalue" not in message
 
 
 # ----------------------------------------------------------------------------- the tilt
@@ -649,6 +726,33 @@ def _missing_frame(n: int = 900, seed: int = 3) -> pd.DataFrame:
             "Y": np.where(observed, outcome, np.nan),
             "Delta": observed.astype(float),
         }
+    )
+
+
+@pytest.fixture(scope="module")
+def complete_fit() -> Any:
+    """The same three-armed process with every outcome observed.
+
+    The benchmark needs a fit the bound answers for, and it needs a covariate it can
+    drop, so it cannot use either the one-covariate oracle fixture or the fit below,
+    whose response mechanism the bound refuses. Dropping the unobserved rows leaves a
+    three-armed complete-outcome law on ``W1`` and ``W2``; the benchmark's subject is
+    which covariate it calibrates against, not which population it describes.
+    """
+    frame = _missing_frame()
+    complete = frame[frame["Delta"] == 1.0].drop(columns=["Delta"]).reset_index(drop=True)
+    return (
+        TMLE(
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            cross_fit=False,
+            estimands=("ey", "ate", "att", "atc"),
+            reference=REFERENCE,
+            simultaneous=False,
+            random_state=0,
+        )
+        .fit(complete, outcome="Y", treatment="A", covariates=["W1", "W2"])
+        .single()
     )
 
 

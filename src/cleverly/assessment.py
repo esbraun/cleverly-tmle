@@ -30,7 +30,7 @@ from ._assessment_cache import (
 )
 from ._typing import CumulativeGBounds
 from .data.weighting import REPORTED_DRAW, format_score_load
-from .exceptions import CapabilityError
+from .exceptions import CapabilityError, working_mechanism_refusal
 from .targets.population_intervention import (
     NATURAL_COURSE_SUPPORT_REFUSAL,
     NATURAL_COURSE_TILT_REFUSAL,
@@ -2618,6 +2618,12 @@ def _nuisance_item(
             facts.append(f"{selection.describe()}{draw}")
         elif getattr(report, "selection_omission", None) is not None:
             facts.append(f"C-TMLE selection unavailable: {report.selection_omission}")
+        # The report's own note, which is keyed on the declared inference status and not
+        # on the selection artifact: the outcome-adaptive path has one of those too and
+        # keeps its interval.
+        note = getattr(report, "inference_note", None)
+        if note is not None:
+            facts.append(note)
         spread = tuple(getattr(report, "repeat_spread", ()))
         if spread:
             finite_rows: list[Any] = [
@@ -3327,15 +3333,10 @@ class SensitivityFacade(_CapabilityFacade):
     def _declared(self) -> tuple[AssessmentCapability, ...]:
         family = _family(self._result)
         longitudinal = family == "longitudinal"
-        missing = (
-            False
-            if longitudinal
-            else getattr(self._result.nuisance, "missingness", None) is not None
-        )
+        # The data flag the bound's response rule reads too, so the fit the bound
+        # refuses for its response mechanism is the fit offered the tilt.
+        missing = False if longitudinal else bool(self._result.data.has_missing_outcome)
         natural_course = missing and is_natural_course_fit(self._result)
-        # Whether a *point* fit is replayable is settled by ``requires_replay`` below.
-        # This row only says whether the analysis exists for the family at all.
-        benchmarkable = not longitudinal
         # ``simulated_confounding`` refuses the bare ``ate`` default on a continuous fit.
         # A binary arm, fixed-regime, incremental, or MSM fit can use the facade's sole-
         # parameter substitution. Several eligible aliases require an explicit choice.
@@ -3348,6 +3349,7 @@ class SensitivityFacade(_CapabilityFacade):
             _eligible_binary_parameter_names,
             _fit_wide_refusal,
         )
+        from .sensitivity.omitted_variable import fit_wide_bound_refusal
 
         simulated_refusal = _fit_wide_refusal(self._result)
         if longitudinal or continuous:
@@ -3360,9 +3362,23 @@ class SensitivityFacade(_CapabilityFacade):
         else:
             binary_parameters = _eligible_binary_parameter_names(self._result)
             needs_estimand = "ate" not in binary_parameters and len(binary_parameters) > 1
-        available = not longitudinal
+        # The four omitted-variable rows carry the refusal the bound itself would raise,
+        # declared rather than executed.  ``run_all`` publishes its own wrapper sentence
+        # around a raised refusal, and it pays ``contour``'s moderate cost before hearing
+        # one.  The first rule of the table returns the longitudinal literal, so that
+        # reason stays byte-identical to the one this facade published before.
+        bound_refusal = fit_wide_bound_refusal(self._result)
+        available = bound_refusal is None
         status = AssessmentStatus.PASSED if available else AssessmentStatus.UNAVAILABLE
-        reason = "no longitudinal sensitivity derivation is registered" if longitudinal else None
+        reason = bound_refusal
+        # A benchmark refits, so its longitudinal stop names the derivation it would have
+        # needed rather than the bound's.  Every other fit-wide boundary is the bound's
+        # own: a benchmark compares two sets of the same elements, so a fit with no nu^2
+        # has no calibration either.  Whether a *point* fit is replayable is settled by
+        # ``requires_replay`` below.
+        benchmark_reason = (
+            "no longitudinal benchmarking derivation is registered" if longitudinal else reason
+        )
 
         def standard(
             operation: str,
@@ -3439,13 +3455,9 @@ class SensitivityFacade(_CapabilityFacade):
                 deterministic=False,
                 cost="expensive",
                 interpretation="calibration against named observed covariates",
-                available=benchmarkable,
-                status=AssessmentStatus.PASSED if benchmarkable else AssessmentStatus.UNAVAILABLE,
-                reason=(
-                    None
-                    if benchmarkable
-                    else "no longitudinal benchmarking derivation is registered"
-                ),
+                available=available,
+                status=status,
+                reason=benchmark_reason,
                 requires_arguments=("covariates",),
                 accepts_random_state=True,
                 requires_replay="refit_nuisances",
@@ -3553,7 +3565,30 @@ class SensitivityFacade(_CapabilityFacade):
             # The E-value selects for itself from a ``None`` sentinel rather than through
             # ``SENSITIVITY_ROUTES``, so its row is rebuilt for the requested estimand.
             return self._evalue_row(arguments.get("estimand"))
-        return super()._capability_for_arguments(operation, arguments)
+        capability = super()._capability_for_arguments(operation, arguments)
+        if operation == "tipping_gamma" and arguments.get("use_ci") and capability.available:
+            return self._tipping_interval_row(capability)
+        return capability
+
+    def _tipping_interval_row(self, capability: AssessmentCapability) -> AssessmentCapability:
+        """The ``tipping_gamma`` row for a ``use_ci=True`` request.
+
+        The interval search reads a confidence limit, and a fit that supplies no inference
+        has none, so :func:`~cleverly.sensitivity.tipping_gamma` refuses it. The row says
+        so before the call, in the sentence the call raises. The default point search
+        stays available, which is why the bare row does not change. Fit-wide, because one
+        fit's estimates carry one inference status.
+        """
+        from .sensitivity.missingness import _TIPPING_INTERVAL_OPERATION
+
+        if all(estimate.supplies_inference for estimate in self._result.estimates.values()):
+            return capability
+        return replace(
+            capability,
+            available=False,
+            status=AssessmentStatus.UNAVAILABLE,
+            reason=working_mechanism_refusal(_TIPPING_INTERVAL_OPERATION),
+        )
 
     def _estimand_candidates(self, operation: str) -> tuple[str, ...]:
         """The reported parameters a routed sensitivity analysis may be asked to choose.

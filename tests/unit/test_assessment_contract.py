@@ -2027,27 +2027,46 @@ def test_a_refusal_is_unavailable_and_later_diagnostics_still_run(  # type: igno
 
 
 def test_a_real_sensitivity_refusal_does_not_prevent_a_later_evalue(point_result, tmp_path) -> None:  # type: ignore[no-untyped-def]
-    """Median-repeat refusals stay informative while independent analyses continue."""
+    """Refusals stay informative while independent analyses continue.
+
+    One refusal of each kind.  The median-repeat refusal is a rule of the bound's table,
+    so the capability row declares it and the report records no arguments for it.  An
+    estimand the fit never reported is refused only inside the call, so that row keeps
+    the arguments the caller supplied, and a restored fit replays them.
+    """
     repeated = dataclasses.replace(
         point_result,
         repeats=point_result.repeats * 2,
     )
 
-    requested = {"omitted_confounding": {"cf_y": 0.23, "cf_d": 0.17}}
-    report = repeated.sensitivity.run_all(arguments=requested)
+    declared = repeated.sensitivity.run_all(
+        arguments={"omitted_confounding": {"cf_y": 0.23, "cf_d": 0.17}}
+    )
+    assert declared["omitted_confounding"].status is AssessmentStatus.UNAVAILABLE
+    assert "median-combined repeats" in declared["omitted_confounding"].detail
+    assert not repeated.sensitivity.capability("omitted_confounding").available
+    assert declared["omitted_confounding"].arguments == {}
+    assert declared["evalue"].status is AssessmentStatus.COMPLETED
+
+    requested = {"omitted_confounding": {"estimand": "ey1", "cf_y": 0.23, "cf_d": 0.17}}
+    point_result.assessment_cache.clear()
+    report = point_result.sensitivity.run_all(arguments=requested)
 
     assert report["omitted_confounding"].status is AssessmentStatus.UNAVAILABLE
-    assert "median-combined repeats" in report["omitted_confounding"].detail
+    assert "declined this request" in report["omitted_confounding"].detail
+    assert "'ey1' was not requested" in report["omitted_confounding"].detail
     assert report["evalue"].status is AssessmentStatus.COMPLETED
     assert report.report("evalue").estimand == "ate"
     arguments = report["omitted_confounding"].arguments
+    assert arguments["estimand"] == "ey1"
     assert arguments["cf_y"] == 0.23
     assert arguments["cf_d"] == 0.17
     assert arguments["rho"] == 1.0
-    restored = load(repeated.save(tmp_path / "refused-arguments.joblib"))
+    restored = load(point_result.save(tmp_path / "refused-arguments.joblib"))
     replayed = restored.sensitivity.run_all(arguments=requested)
     assert replayed["omitted_confounding"].arguments == arguments
     assert replayed == report
+    point_result.assessment_cache.clear()
 
 
 def test_a_refusal_before_seed_resolution_keeps_the_seed_unspecified(
@@ -2427,7 +2446,10 @@ def test_refusals_stay_out_of_attention_while_support_warnings_remain(point_resu
     assert "omitted_confounding" not in [item.name for item in battery.attention]
     assert "omitted_confounding" in [item.name for item in battery.omissions]
     assert "benchmark" in [item.name for item in battery.omissions]
-    assert sensitivity["benchmark"].status is AssessmentStatus.DEFERRED
+    # Unavailable, not deferred: naming covariates cannot lift the median-repeat refusal,
+    # which the benchmark shares with the bound it calibrates.
+    assert sensitivity["benchmark"].status is AssessmentStatus.UNAVAILABLE
+    assert "median-combined repeats" in sensitivity["benchmark"].detail
 
 
 def test_every_status_is_presented_by_exactly_one_grouping() -> None:

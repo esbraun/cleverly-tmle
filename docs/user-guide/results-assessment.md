@@ -74,6 +74,15 @@ point = result[names[0]]
 print(point.psi, point.std_error, point.ci, point.pvalue)
 ```
 
+A collaborative fit with the default `strategy="greedy"`, or with `"ordered"` or `"discrete"`,
+refuses `std_error`, `ci`, and `pvalue` with `CapabilityError`. Read `point.plugin_std_error` and
+`point.plugin_interval` on that fit. Each is a diagnostic of the reported curve, and neither is a
+confidence statement. The property `result.inference_status` gives the status of the fit, and
+`point.supplies_inference` gives it for one estimate. For an interval, fit `TMLE`, or use
+`strategy="oat"`. [Inference status](../technical-reference/inference.md#inference-status) lists
+the renamed columns, and [collaborative TMLE](../technical-reference/collaborative-tmle.md) gives
+the reason.
+
 `result.parameter_keys` maps each alias to a structured `ParameterKey`. Use those fields for
 programmatic selection. Display aliases are not a serialization format.
 
@@ -93,6 +102,9 @@ if len(names) >= 2:
 
 Use cluster roles in the study design for cluster-robust variance. Use `Inference(simultaneous=True)`
 when the reported family, rather than each interval separately, needs error control.
+
+A contrast inherits the inference status of its inputs. On a selector-path collaborative fit the
+contrast refuses `ci` as its inputs do, and the fit builds no simultaneous band.
 
 ## Diagnostics
 
@@ -286,10 +298,10 @@ Known omissions carry the capability's reason. Examples include an E-value witho
 contrast and a missingness analysis without missing outcomes. Such a row records no arguments,
 because the fit refuses it before the report considers your request.
 
-An operation can also refuse after invocation, such as omitted-confounding sensitivity on
-median-combined repeats. That row becomes an `unavailable` omission, retains its invocation
-arguments, and names the direct call. Other accepted diagnostics still run. Structural errors, such
-as invalid argument names, still stop the report.
+An operation can also refuse after invocation, such as omitted-confounding sensitivity when the
+doubly robust $\nu^2$ is not positive. That row becomes an `unavailable` omission, retains its
+invocation arguments, and names the direct call. Other accepted diagnostics still run. Structural
+errors, such as invalid argument names, still stop the report.
 
 A combined report runs summaries and cheap retargets by default. The two costlier classes are
 named separately because they are disjoint. `refute()` and `benchmark()` refit nuisance models.

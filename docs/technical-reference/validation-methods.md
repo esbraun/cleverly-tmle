@@ -438,6 +438,12 @@ and the outcome scale otherwise, so `ratio_to_standard_error` divides two like q
 `tests/unit/test_repeated_crossfit.py` reads `ate`, `rr`, and `or` off one fit. The ratio is
 descriptive and has no pass threshold.
 
+A selector-path collaborative fit supplies no standard error, so its row pairs the spread with the
+plug-in diagnostic. `repeat_spread_frame()` then names the last two columns
+`plugin_standard_error` and `ratio_to_plugin_standard_error`. The printed table heads them
+`plugin se` and `sd/plugin se`. The `RepeatSpreadRow` fields keep their names.
+`cleverly.inference.influence.spread_name` holds each renamed column.
+
 A one-draw fit retains an empty tuple instead of reporting zero. A table cell with no finite value
 prints `-`. `repeat_spread_frame()` follows the input dataframe backend.
 
@@ -659,27 +665,57 @@ movement, which is additive for a difference and logarithmic for a ratio.
 ### Omitted-variable bounds, robustness value, benchmark, and contours
 
 **How.** [`sensitivity/omitted_variable.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/sensitivity/omitted_variable.py)
-implements Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2022). The bound is
+implements Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026). The bound is
 
 $$
 |\text{bias}| \le |\rho| \sqrt{\frac{c_D^2}{1-c_D^2}}\; c_Y \sqrt{\sigma^2 \nu^2},
 $$
 
 with $\sigma^2 = E[(Y - \bar{Q})^2]$ and $\nu^2$ the second moment of the Riesz representer. The
-two primitives are exposed as `elements()`. A median-combined repeated fit refuses this analysis
-because the median bound needs its own influence function.
+two primitives are exposed as `elements()`.
 
 The estimate of $\nu^2$ reads the fitted treatment mechanism, so it needs a consistent assignment
-model. A wrong model makes $\nu^2$ too small. The bounds then read too narrow, and the robustness
-value reads too large. No derivation covers these bounds on a DR-TMLE fit, a C-TMLE fit, or a fit
-with a response mechanism.
-[RM11](../roadmap.md#rm11-sensitivity-bounds-outside-their-derivation) tracks the refusal.
+model. On a wrong model, the doubly robust estimate of $\nu^2$ falls below $\nu_0^2$ by
+$\lVert \hat\alpha - \alpha_0 \rVert^2$. The bounds then read too narrow, and the robustness value
+reads too large. The plug-in estimate can fall on either side of $\nu_0^2$. Witness 5 in
+`tests/unit/test_omitted_variable_refusals.py` gives the plug-in 5.32 against $\nu_0^2 = 4.4$.
+
+`cleverly` refuses every operation in this group on the fits below. The
+refusal runs in `sensitivity_elements()` before any computation. Every entry point and the
+matching capability row therefore carry one reason.
+
+| refused fit | the result the package does not have |
+| --- | --- |
+| a `drtmle` fit | an estimate of $\nu^2$ for an estimator that does not assume a consistent treatment mechanism. $E[2 m(\hat\alpha) - \hat\alpha^2]$ equals $\nu_0^2 - \lVert \hat\alpha - \alpha_0 \rVert^2$, so it falls where that mechanism is wrong |
+| a `collaborative_tmle` fit | the same estimate. The working mechanism conditions on a function $V$ of the covariates. $V$ is the selected set $W_S$ on the greedy, ordered, and discrete paths, and the fitted outcome regression under `strategy="oat"`. Where the working mechanism is $P(A \mid V)$ in the limit, the representer is $E[\alpha_W \mid A, V]$. Its second moment cannot exceed that of $\alpha_W$, while $\sigma^2$ reads every declared covariate |
+| a fit with a response mechanism | an implementation. The identified mean is a linear functional of the regression of $\Delta Y$ on $(A, \Delta, W)$, so Theorem 2 of the cited paper covers it. The implemented representer omits $\Delta$. $\sigma^2$ averages the respondents, and the theorem needs $E[\Delta (Y - \bar{Q})^2]$. $c_D$ would combine the treatment and response mechanisms. The missingness tilt remains the sensitivity analysis for response |
+| a fit with an intermediate variable | an implementation. Each estimand at the level $z$ is a linear functional of the regression of $Y$ on $(A, Z, W)$, so Theorem 2 covers it. The representer carries the weight $1\{Z = z\} / P(Z = z \mid A, W)$, so $c_D$ would combine the treatment and intermediate mechanisms |
+| a longitudinal fit | any registered longitudinal derivation. See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) |
+| a `regime`, `shift`, or `msm` parameter axis | an implementation. Each of these parameters is a linear functional of the outcome regression and has a Riesz representer, so the bound is well posed here |
+| an `ipsi` parameter axis | a bound that covers it. An incremental intervention tilts the treatment mechanism, so the mechanism is part of the estimand rather than a nuisance |
+| a median-combined fit from `repeats=` | an influence function for the median bound. A coordinatewise median of per-draw influence terms is not one. Fit one split for this analysis |
+
+The table rule for `repeats=` runs last. A repeated fit that another rule also refuses reports that
+other rule, because one split would not lift it.
+
+`nu2_estimator=` accepts `"auto"`, `"doubly_robust"`, and `"plugin"`. `"auto"` resolves to
+`"doubly_robust"`. A value outside those three raises `ValueError` before any refusal. A
+`"doubly_robust"` estimate that is not positive raises `CapabilityError` and names the estimator.
+The package returns no plug-in value in its place, because the plug-in squares the same fitted
+representer.
+
+For the ATT and the ATC, the doubly robust score weights the contrast by $1\{A = c\} / P(A = c)$.
+Here $c$ is the arm the estimand conditions on. This weight is the observed arm indicator of
+Example 2 in the online appendix of the cited paper, not the fitted $\hat g_c$. Only the observed
+indicator keeps the Riesz identity above. `TestTheConditionalEffectScoreReadsTheObservedArm` in
+`tests/unit/test_omitted_variable_refusals.py` checks both conditional effects on an exact law.
 
 `robustness_value()` inverts the bound for the single strength that flips the conclusion.
 `benchmark()` drops each named observed covariate, refits, and calibrates the strength scale
 against what that covariate was worth. `contour()` returns the grid a contour plot needs.
 
-`benchmark()` is the only member of this group that refits.
+`benchmark()` is the only member of this group that refits. It reads the refusals above before it
+refits, so a refused fit pays for no second fit.
 
 ### Simulated common-cause stress surface
 
@@ -1257,14 +1293,19 @@ The selected path depends on the reported contrast and retained artifacts.
 | reported risk ratio | use it directly and mark the result exact |
 | unambiguous default binary marginal ATE or odds ratio from ordinary TMLE | retarget cached nuisances to the matching risk ratio and mark the result exact; combined runs include this cheap retarget by default |
 | explicit reported odds ratio, or default odds ratio without exact retarget support | use the common-outcome approximation $\sqrt{OR}$ and mark the result approximate |
-| binary ATE without exact retarget support, with a usable reported reference-arm mean | hold the baseline risk fixed and mark the result approximate; includes DR-TMLE, collaborative TMLE, and CV evaluation |
-| Gaussian ATE, ATT, or ATC | standardize by the observed outcome standard deviation, weighted on a weighted fit, and mark the result approximate |
+| binary ATE without exact retarget support, with a usable reported reference-arm mean | hold the baseline risk fixed and mark the result approximate; includes DR-TMLE, collaborative TMLE with `strategy="oat"`, and CV evaluation |
+| Gaussian ATE, ATT, or ATC with every outcome observed | standardize by the observed outcome standard deviation, weighted on a weighted fit, and mark the result approximate |
+| Gaussian ATE, ATT, or ATC on a fit with a response mechanism | report `unavailable`. The conversion divides by `sd(Y)` from the observed rows alone, and under missing at random the respondents' standard deviation estimates a different quantity from the population standard deviation. The refusal is on this path only, so a ratio E-value on the same fit stays available |
 | binomial ATT or ATC | refuse because the conditional baseline risk and conditional ratio target are absent |
 | level or non-arm parameter | report `not_applicable` because no supported two-arm contrast exists |
+| two-arm contrast on a `greedy`, `ordered`, or `discrete` collaborative fit | report `unavailable`. Each branch reads the estimate's interval or the reference arm's standard error, and this fit supplies neither. `strategy="oat"` keeps every branch |
 | binomial ATE without exact retarget support or a usable reported baseline; controlled direct effect needing derivation | report `unavailable` and name the missing evidence, artifact, or target |
 | several eligible contrasts and no explicit estimand | report `deferred` and name `estimand` in the next step |
 
-Several eligible contrasts require an explicit alias, which is the `deferred` row above.
+`_select_evalue` in `cleverly.sensitivity.evalue` applies the collaborative refusal after the
+`not_applicable` check. A request for `ey1` on a selector fit therefore still reports
+`not_applicable`. Several eligible contrasts require an explicit alias, which is the `deferred` row
+above.
 [The status contract](#the-status-contract) states that rule for every operation that shares it.
 Combined runs select availability and cost from the alias before they apply the cost flags.
 
@@ -1321,6 +1362,14 @@ name every arm. `tipping_gamma()` inverts the tilt for the value at which the co
 
 This is a retarget operation and not a refit.
 
+The curve is a point-estimate sweep, so a selector-based C-TMLE fit receives all of it. Only the
+three spread columns read an interval that those paths refuse. Such a fit therefore receives
+`plugin_std_err`, `plugin_interval_lower`, and `plugin_interval_upper` in place of `std_err`,
+`ci_lower`, and `ci_upper`, which is the swap the truncation curve above already makes.
+`tipping_gamma()` keeps its default point-estimate search on that fit. It refuses `use_ci=True`,
+because it returns one float and a float carries no column name.
+[Collaborative TMLE](collaborative-tmle.md) states the refusal these columns come from.
+
 ### The scope rule
 
 A point-treatment sensitivity formula is not reused on longitudinal data. `LTMLE` reports these
@@ -1358,6 +1407,13 @@ and the paragraph below states its boundary.
 A refuter refits the nuisance models once for each replication. The three default operations use
 five replications each, so `refute()` costs about 15 fits. Empirical refuters use 100 draws by
 default because their rule reads a distribution. `run_all(include_refits=True)` runs `refute()`.
+
+A refutation also runs on a selector-path collaborative fit. The `placebo`, `random_common_cause`,
+`subset`, and `negative_control_outcome` rules scale their tolerance by a standard error. Each rule
+reads that scale through `plugin_std_error`, so the tolerance makes no coverage claim. On a fit
+that supplies no inference, each `RefutationTest` carries `inference`. `RefutationTest.to_frame()`
+and `RefutationResult.draws_frame()` then name the standard-error column `plugin_std_error` in
+place of `std_error`.
 
 A fit that declared `split_plan=` refuses two of these operations. A supplied plan labels the rows
 it was realized on, by position. It cannot label a refit that drops rows or draws them with
@@ -1544,6 +1600,20 @@ each draw, and summarises through `summarize_replications`. A failed draw is ret
 `ReplicationFailure` record carrying its index, its seed, and its exception. A study that silently
 replaced failed draws would report the distribution of the draws that happened to work.
 
+A study of a selector-path collaborative estimator measures the plug-in diagnostic. Each
+replication reads `plugin_interval`, `plugin_std_error`, and the same p-value arithmetic that
+`pvalue` refuses on that fit. The records carry the inference status, and the table changes as
+follows.
+
+| output | ordinary estimator | selector-path collaborative estimator |
+| --- | --- | --- |
+| `to_frame()` columns | `mean_std_error` | `inference` and `mean_plugin_std_error` |
+| `summary()` | the table and the verdict | a line above the table that says the columns describe the plug-in diagnostic |
+| `verdict()` with no finding | coverage and bias are consistent with a correctly working estimator | bias is consistent, and the coverage column certifies no confidence interval |
+
+`summarize_replications` raises `ValueError` when the records for one estimand mix the two
+statuses, because that coverage rate would average an interval with a diagnostic.
+
 The generators live in
 [`datasets/`](https://github.com/esbraun/cleverly-tmle/tree/main/src/cleverly/datasets) and each
 one carries an exact `truth`.
@@ -1561,6 +1631,11 @@ reports the target-relevant change with multiplicity-adjusted p-values
 ([`variable_importance.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/variable_importance.py)).
 It is an assessment of the fitted causal workflow. It is not a predictive feature-importance score,
 and it introduces no new influence function.
+
+A `greedy`, `ordered`, or `discrete` collaborative estimator is refused with `CapabilityError`
+before the first fit. The procedure adjusts one p-value per candidate with Benjamini and Hochberg,
+and those fits report no p-value. The check asks the estimator's own `_inference_status()`, which
+is the status its estimates carry. `strategy="oat"` is accepted.
 
 ## How the library certifies itself
 

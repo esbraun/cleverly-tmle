@@ -20,12 +20,19 @@ from __future__ import annotations
 
 import tracemalloc
 from dataclasses import replace
+from typing import get_args
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 
 from cleverly.data import CausalData
+from cleverly.estimators.ctmle import (
+    CTMLE_SELECTOR_STRATEGIES,
+    CTMLEStrategy,
+    is_selector_strategy,
+)
+from cleverly.exceptions import WORKING_MECHANISM_NOT_INFERENTIAL, CapabilityError
 from cleverly.fluctuation import (
     InitialFit,
     att_submodel,
@@ -53,7 +60,13 @@ from cleverly.inference import (
     two_sided_pvalue,
 )
 from cleverly.inference.cluster import stacked_second_moment_variance
-from cleverly.inference.influence import CovarianceRule, median_estimates
+from cleverly.inference.influence import (
+    _DIAGNOSTIC_NAMES,
+    BootstrapSummary,
+    CovarianceRule,
+    median_estimates,
+    spread_name,
+)
 from cleverly.inference.multiplier import (
     _block_size,
     _fill_multipliers,
@@ -1270,3 +1283,284 @@ class TestTheCovarianceRule:
                 n=30,
                 cluster=np.arange(30) // 2,
             )
+
+
+class TestTheInferenceStatus:
+    """What an estimate reports when the package supplies it no inference.
+
+    The centrepiece is :meth:`test_the_diagnostic_is_the_refused_arithmetic_exactly`.
+    RM12 reframes a number rather than recomputing it, and the whole reuse of the
+    committed selector-study cells rests on that being true of the *source*: ``ci`` and
+    ``plugin_interval`` call one private body, so the two cannot drift. This test is the
+    mutation control. Anyone who reimplements ``plugin_interval`` instead of delegating
+    fails it, and ``==`` rather than ``approx`` is what gives it that power.
+    """
+
+    @staticmethod
+    def _pair(**overrides: object) -> tuple[ParameterEstimate, ParameterEstimate]:
+        """One inferential estimate and its diagnostic twin, differing only in status."""
+        rng = np.random.default_rng(7)
+        fields: dict[str, object] = {
+            "name": "target",
+            "psi": 1.3,
+            "influence_curve": rng.normal(loc=0.2, scale=1.7, size=40),
+            "variance": 0.0137,
+            "n": 40,
+            "n_clusters": 40,
+            **overrides,
+        }
+        inferential = ParameterEstimate(**fields)  # type: ignore[arg-type]
+        return inferential, replace(inferential, inference="working_mechanism_plugin")
+
+    @pytest.mark.parametrize("alpha", [0.05, 0.1])
+    @pytest.mark.parametrize(
+        "scale, extra",
+        [
+            ("difference", {}),
+            ("level", {}),
+            ("fraction", {}),
+            # The ratio branch exponentiates, which is the one place an arithmetic
+            # reordering could show up, and it is what the multi-arm selector study's
+            # ``rr`` and ``or`` rows travel through.
+            ("ratio", {"psi": 2.4, "log_psi": float(np.log(2.4))}),
+        ],
+    )
+    def test_the_diagnostic_is_the_refused_arithmetic_exactly(
+        self, scale: str, extra: dict[str, object], alpha: float
+    ) -> None:
+        inferential, diagnostic = self._pair(scale=scale, alpha=alpha, **extra)
+
+        assert diagnostic.plugin_std_error == inferential.std_error
+        assert diagnostic.plugin_interval == inferential.ci
+        # And the inferential estimate answers the diagnostic name with the same number,
+        # so one rule reads both and the study runners need no study-specific branch.
+        assert inferential.plugin_std_error == inferential.std_error
+        assert inferential.plugin_interval == inferential.ci
+
+    @pytest.mark.parametrize("accessor", ["std_error", "ci", "pvalue"])
+    def test_every_inferential_accessor_refuses_and_says_why(self, accessor: str) -> None:
+        _, diagnostic = self._pair()
+        with pytest.raises(CapabilityError) as raised:
+            getattr(diagnostic, accessor)
+        message = str(raised.value)
+        assert WORKING_MECHANISM_NOT_INFERENTIAL in message
+        assert f".{accessor} is not defined here" in message
+
+    def test_the_point_estimate_and_the_curve_are_untouched(self) -> None:
+        inferential, diagnostic = self._pair()
+        assert diagnostic.psi == inferential.psi
+        assert diagnostic.variance == inferential.variance
+        assert diagnostic.score == inferential.score
+        assert diagnostic.inference_value == inferential.inference_value
+        assert np.array_equal(diagnostic.influence_curve, inferential.influence_curve)
+
+    def test_the_default_status_is_the_ordinary_one(self) -> None:
+        """A bare estimate pickled before the field existed loads as what it claimed to be.
+
+        A whole result does not rely on this default. ``TMLEResult.__setstate__``
+        re-stamps its estimates from the estimator that produced them, which
+        ``tests/unit/test_selector_path_inference_reach.py`` pins on a simulated legacy
+        artifact.
+        """
+        inferential, _ = self._pair()
+        assert inferential.inference == "influence_curve"
+        assert ParameterEstimate.inference == "influence_curve"
+
+    def test_to_dict_swaps_the_whole_inference_block_rather_than_blanking_it(self) -> None:
+        inferential, diagnostic = self._pair()
+        ordinary = inferential.to_dict()
+        refused = diagnostic.to_dict()
+
+        assert set(ordinary) - set(refused) == {"std_err", "ci_lower", "ci_upper", "p_value"}
+        assert set(refused) - set(ordinary) == {
+            "inference",
+            "plugin_std_err",
+            "plugin_interval_lower",
+            "plugin_interval_upper",
+        }
+        assert refused["inference"] == "working_mechanism_plugin"
+        assert refused["psi"] == ordinary["psi"]
+        assert refused["plugin_std_err"] == ordinary["std_err"]
+        # Exactly one of the two is present, which is the total test a dataframe consumer
+        # has: a frame carries no place to attach the sentence ``.ci`` raises.
+        for row in (ordinary, refused):
+            assert ("std_err" in row) != ("inference" in row)
+
+    def test_the_diagnostic_names_are_one_table(self) -> None:
+        """The literal contract of every renamed column, read in one place.
+
+        Every other test reads these names through ``spread_name``, so this is the one
+        that fails when a published name moves.
+        """
+        assert dict(_DIAGNOSTIC_NAMES) == {
+            "std_err": "plugin_std_err",
+            "ci_lower": "plugin_interval_lower",
+            "ci_upper": "plugin_interval_upper",
+            "bootstrap_ci_lower": "bootstrap_range_lower",
+            "bootstrap_ci_upper": "bootstrap_range_upper",
+            "std_error": "plugin_std_error",
+            "mean_std_error": "mean_plugin_std_error",
+            "reported_standard_error": "plugin_standard_error",
+            "ratio_to_standard_error": "ratio_to_plugin_standard_error",
+            "reported se": "plugin se",
+            "sd/se": "sd/plugin se",
+            "reported standard error": "plug-in standard error",
+            "standard errors": "plug-in standard errors",
+            "influence-curve standard errors": "plug-in standard errors",
+        }
+        for name, diagnostic in _DIAGNOSTIC_NAMES.items():
+            assert spread_name(name, "influence_curve") == name
+            assert spread_name(name, "working_mechanism_plugin") == diagnostic
+
+    def test_an_unregistered_name_cannot_be_published_for_a_diagnostic(self) -> None:
+        """A p-value has no diagnostic name, and a new column has to be entered first."""
+        assert spread_name("p_value", "influence_curve") == "p_value"
+        for name in ("p_value", "some_new_interval"):
+            with pytest.raises(KeyError):
+                spread_name(name, "working_mechanism_plugin")
+
+    @pytest.mark.parametrize(
+        "scale, extra",
+        [("difference", {}), ("ratio", {"psi": 2.4, "log_psi": float(np.log(2.4))})],
+    )
+    def test_the_spread_columns_are_the_accessors_under_status_names(
+        self, scale: str, extra: dict[str, object]
+    ) -> None:
+        """One body per number, whichever name it is published under."""
+        inferential, diagnostic = self._pair(scale=scale, **extra)
+        low, high = inferential.ci
+        assert inferential.spread_columns() == {
+            "std_err": inferential.std_error,
+            "ci_lower": low,
+            "ci_upper": high,
+            "p_value": inferential.pvalue,
+        }
+        assert inferential.spread_columns(pvalue=False) == {
+            "std_err": inferential.std_error,
+            "ci_lower": low,
+            "ci_upper": high,
+        }
+        status = diagnostic.inference
+        assert diagnostic.spread_columns() == {
+            spread_name("std_err", status): inferential.std_error,
+            spread_name("ci_lower", status): low,
+            spread_name("ci_upper", status): high,
+        }
+        assert inferential.supplies_inference is True
+        assert diagnostic.supplies_inference is False
+
+    def test_the_bootstrap_limits_are_a_range_on_a_diagnostic(self) -> None:
+        """A percentile interval is a confidence interval too, so its name moves.
+
+        The numbers do not: the range is the same two draws' quantiles the ordinary
+        estimate publishes as ``bootstrap_ci_*``, and the standard error keeps its name.
+        """
+        summary = BootstrapSummary(
+            std_error=0.21,
+            ci=(0.9, 1.7),
+            ci_one_sided_lower=0.95,
+            ci_one_sided_upper=1.6,
+            n_replicates=20,
+            n_failed=0,
+            draws=np.linspace(0.9, 1.7, 20),
+        )
+        inferential, diagnostic = self._pair(bootstrap=summary)
+        ordinary = inferential.to_dict()
+        refused = diagnostic.to_dict()
+        status = diagnostic.inference
+
+        assert ordinary["bootstrap_ci_lower"] == 0.9
+        assert ordinary["bootstrap_ci_upper"] == 1.7
+        assert not {"bootstrap_ci_lower", "bootstrap_ci_upper"} & set(refused)
+        assert refused[spread_name("bootstrap_ci_lower", status)] == 0.9
+        assert refused[spread_name("bootstrap_ci_upper", status)] == 1.7
+        assert refused["bootstrap_std_err"] == ordinary["bootstrap_std_err"] == 0.21
+
+    def test_the_median_over_repeats_keeps_and_refuses_to_mix_the_status(self) -> None:
+        _, diagnostic = self._pair()
+        draws = [{"target": diagnostic}, {"target": replace(diagnostic, psi=1.4)}]
+
+        combined = median_estimates(draws)
+        assert combined["target"].inference == "working_mechanism_plugin"
+
+        inferential, _ = self._pair()
+        with pytest.raises(ValueError, match="different inference statuses"):
+            median_estimates([{"target": diagnostic}, {"target": inferential}])
+
+    def test_a_contrast_inherits_the_status_and_refuses_a_mix(self) -> None:
+        rng = np.random.default_rng(11)
+        curves = rng.normal(loc=0.3, size=(30, 2))
+        refused = {
+            name: make_estimate(
+                name,
+                0.3 + index,
+                curves[:, index],
+                n=30,
+                inference="working_mechanism_plugin",
+            )
+            for index, name in enumerate(("first", "second"))
+        }
+
+        derived = smooth_contrast(
+            refused, lambda point: float(point[0] - point[1]), ["first", "second"], n=30
+        )
+        assert derived.inference == "working_mechanism_plugin"
+        with pytest.raises(CapabilityError):
+            _ = derived.ci
+
+        mixed = {**refused, "second": replace(refused["second"], inference="influence_curve")}
+        with pytest.raises(ValueError, match="different inference statuses"):
+            smooth_contrast(
+                mixed, lambda point: float(point[0] - point[1]), ["first", "second"], n=30
+            )
+
+    def test_simultaneous_bands_refuse_rather_than_raising_from_an_accessor(self) -> None:
+        """A band is a joint coverage claim, so this is an inferential use and refuses.
+
+        Named at the operation the caller wrote. Left to fall out of ``estimate.std_error``
+        the message would name an accessor that appears nowhere in the caller's code.
+        """
+        rng = np.random.default_rng(13)
+        curves = rng.normal(size=(30, 2))
+        estimates = {
+            name: make_estimate(
+                name, 0.2 + index, curves[:, index], n=30, inference="working_mechanism_plugin"
+            )
+            for index, name in enumerate(("first", "second"))
+        }
+        with pytest.raises(CapabilityError) as raised:
+            simultaneous_bands(estimates, n_replicates=50, random_state=0)
+        assert "simultaneous_bands() is not defined here" in str(raised.value)
+        assert WORKING_MECHANISM_NOT_INFERENTIAL in str(raised.value)
+
+
+class TestTheSelectorStrategyPartition:
+    """``CTMLE_SELECTOR_STRATEGIES`` and ``"oat"`` must exhaust ``CTMLEStrategy``.
+
+    Today's ``!= "oat"`` sites are correct only because the Literal has exactly four
+    members. A fifth strategy added later would join the *inferential* side under
+    ``!= "oat"`` and the *refused* side under the frozenset, and nothing else in the
+    package would notice. This test is what makes the predicate safer than the open
+    coding it replaced.
+    """
+
+    def test_the_two_sides_exhaust_the_literal_and_do_not_overlap(self) -> None:
+        declared = set(get_args(CTMLEStrategy))
+        assert declared >= CTMLE_SELECTOR_STRATEGIES
+        assert declared == CTMLE_SELECTOR_STRATEGIES | {"oat"}
+
+    @pytest.mark.parametrize("strategy", sorted(get_args(CTMLEStrategy)))
+    def test_the_predicate_agrees_with_the_open_coding_on_every_declared_value(
+        self, strategy: str
+    ) -> None:
+        assert is_selector_strategy(strategy) == (strategy != "oat")
+
+    def test_an_absent_strategy_is_not_a_selector(self) -> None:
+        """``None`` is the restored-pickle case, and it must not read as a selector.
+
+        ``tmle.py`` keeps its own ``!= "oat"`` spelling for exactly this asymmetry:
+        ``None != "oat"`` holds a fold-policy refusal that this predicate would release.
+        """
+        assert is_selector_strategy(None) is False
+        # The asymmetry itself, stated so a later reader does not "simplify" it away.
+        assert None not in CTMLE_SELECTOR_STRATEGIES

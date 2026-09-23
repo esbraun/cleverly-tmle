@@ -759,7 +759,8 @@ class CollaborativeTMLEMethod(TMLEMethod):
     name : str
         Stable method name.
     strategy : {"greedy", "ordered", "discrete", "oat"}, default="greedy"
-        Collaborative search strategy.
+        Collaborative search strategy. ``"greedy"``, ``"ordered"`` and ``"discrete"``
+        report no confidence interval, p-value or standard error. ``"oat"`` reports them.
     preorder : {"logistic", "partial_correlation"} or None, default=None
         Preordering rule for candidate covariates.
     ordering : tuple of str or None, default=None
@@ -782,6 +783,16 @@ class CollaborativeTMLEMethod(TMLEMethod):
     TMLEMethod : The base configuration, without covariate selection.
     DRTMLEMethod : The other correction for a mechanism that is hard to fit.
     cleverly.estimators.ctmle : Why selection is made against the targeted loss.
+
+    Notes
+    -----
+    The default ``"greedy"`` strategy selects a working treatment mechanism, and so do
+    ``"ordered"`` and ``"discrete"``. No result shows that the reported curve is the
+    estimator's influence curve at that mechanism. Their estimates therefore raise
+    :class:`~cleverly.exceptions.CapabilityError` from ``std_error``, ``ci`` and
+    ``pvalue``. Each estimate keeps ``plugin_std_error`` and ``plugin_interval`` as a
+    diagnostic, which is not a confidence statement. For an interval, use
+    ``strategy="oat"`` or :class:`TMLEMethod`.
 
     Examples
     --------

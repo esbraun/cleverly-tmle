@@ -26,6 +26,7 @@ from cleverly import (
     PopulationAttributableFraction,
 )
 from cleverly.datasets import missing_outcome_dgp, navigation_protocol
+from cleverly.sensitivity.omitted_variable import OMITTED_VARIABLE_OPERATIONS
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -244,8 +245,14 @@ def check(namespace: dict[str, Any]) -> None:
     assert "P(A=a,Delta=1|W)  0.0075" in assessment_output
     assert "max |clever covariate| (mean): 90.2" in assessment_output
     assert "nuisance fits look reasonable" in assessment_output
-    for row in ("omitted_confounding", "robustness_value", "elements", "contour", "evalue"):
-        assert f"sensitivity  {row}" in assessment_output
+    # "The omitted_confounding, robustness_value, elements, contour, and evalue rows are
+    # unavailable for this fit." No bound or standardized E-value is derived with a response
+    # mechanism, so no number for one may appear in the stored summary. The benchmark row
+    # shares the bound's refusal, so the shared tuple checks it too.
+    ledger = namespace["assessment"].to_frame().set_index(["surface", "check"])["status"]
+    for row in (*OMITTED_VARIABLE_OPERATIONS, "evalue"):
+        assert str(ledger.loc[("sensitivity", row)]) == "unavailable"
+        assert f"sensitivity  {row}" not in assessment_output.split("Not run", 1)[0]
 
     # "tipping gamma is 1.306", and "at most 0.315 of the score range" is the maximum over the
     # fitted [0, 1] mean of the logit move, reached at a mean of 0.658.

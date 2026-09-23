@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 from cleverly.inference import make_estimate
-from cleverly.validation import CoverageStudy, EstimandSummary
+from cleverly.validation import CoverageStudy, EstimandSummary, StudyResult
 
 
 def _summary(**overrides: object) -> EstimandSummary:
@@ -141,3 +141,33 @@ def test_an_all_failed_study_reports_the_first_cause() -> None:
     )
     with pytest.raises(RuntimeError, match="RuntimeError: deliberate failure"):
         study.run()
+
+
+@pytest.mark.parametrize(
+    ("inference", "noun"),
+    [
+        ("influence_curve", "reported standard error"),
+        ("working_mechanism_plugin", "plug-in standard error"),
+    ],
+)
+def test_the_undercoverage_verdict_names_the_spread_by_its_status(
+    inference: str, noun: str
+) -> None:
+    """A study that covers nothing with a spread ten times too small reaches the noun."""
+    summary = _summary(
+        estimand="ate",
+        std_errors=np.full(4, 0.01),
+        covered=np.zeros(4),
+        inference=inference,
+    )
+    assert summary.se_ratio < 0.95
+    study = StudyResult(
+        summaries={"ate": summary},
+        replications=(),
+        failures=(),
+        n=500,
+        n_replicates=4,
+        alpha=0.05,
+        label="spread noun",
+    )
+    assert f"; the {noun} is " in study.verdict()

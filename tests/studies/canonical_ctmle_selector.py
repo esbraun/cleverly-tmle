@@ -29,7 +29,7 @@ from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_cvtmle import Q_BOUNDS, STRATIFY_FOLDS
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
-from tests.studies.evidence.schema import REPLICATE_COLUMNS
+from tests.studies.evidence.schema import REPLICATE_COLUMNS, reported_inference
 from tests.studies.evidence.seeds import draw_replicate
 
 CTMLE_COMMIT = "18de559f47dc1286617350a0668391e80e1dbf7c"
@@ -239,7 +239,13 @@ def _rows_from_result(
 ) -> list[dict[str, Any]]:
     estimate = result["ate"]
     reference = float(truth["ate"])
-    low, high = estimate.ci
+    # RM12 moved these numbers off ``ci`` and ``std_error``: this study fits greedy,
+    # ordered and discrete paths, for which the package now supplies no interval.  The
+    # column *names* are deliberately unchanged.  ``REPLICATE_COLUMNS`` is the shared
+    # schema of every registered study, and the arithmetic behind the numbers is the same
+    # body, so the committed rows do not move.  The evidence page states what these
+    # columns measure for this row: the calibration of a working-mechanism diagnostic.
+    std_error, low, high = reported_inference(estimate)
     return [
         {
             "implementation": STUDY.implementation,
@@ -250,9 +256,9 @@ def _rows_from_result(
             "truth": reference,
             "estimate": float(estimate.psi),
             "inference_estimate": float(estimate.psi),
-            "std_error": float(estimate.std_error),
-            "ci_lower": float(low),
-            "ci_upper": float(high),
+            "std_error": std_error,
+            "ci_lower": low,
+            "ci_upper": high,
             "inference_scale": "identity",
             "covered": int(low <= reference <= high),
             "initial_estimate": math.nan,

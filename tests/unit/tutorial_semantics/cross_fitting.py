@@ -213,7 +213,14 @@ def check(namespace: dict[str, Any]) -> None:
     # "about a third of this standard deviation" between the Step 5 and Step 9 fold draws.
     assert 0.2 < abs(redrawn["ate"].psi - cross_fitted.psi) / spread[0].standard_deviation < 0.4
 
-    # Step 13: the live assessment retains the ordinary point-treatment sensitivity calculation.
+    # Step 13: the default estimator of nu^2 refuses on this fit, and the page prints the
+    # refusal before it names the plug-in. "The doubly robust estimator returned -9.03194."
+    # A mutation that restores the silent fallback returns a number here instead.
+    refusal_text = namespace["nu2_refusal"]
+    assert "'doubly_robust'" in refusal_text
+    assert "-9.03194" in refusal_text
+    assert "not a substitute" in refusal_text
+    # The page then reads the plug-in bound, which the reading qualifies.
     robustness = namespace["robustness"]
     confounding = namespace["confounding"]
     assert 0.15 < robustness["rv"] < 0.35
@@ -222,6 +229,6 @@ def check(namespace: dict[str, Any]) -> None:
     assert confounding.ci_lower < confounding.lower
     assert confounding.ci_upper > confounding.upper
     at_rv = first.sensitivity.omitted_confounding(
-        cf_y=robustness["rv"], cf_d=robustness["rv"], rho=1.0
+        cf_y=robustness["rv"], cf_d=robustness["rv"], rho=1.0, nu2_estimator="plugin"
     )
     assert abs(at_rv.lower) < 1e-3

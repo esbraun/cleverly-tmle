@@ -115,11 +115,15 @@ step from the selected candidate's own targeted regression, not from the initial
 iterative and the one-step sweeps are checked to solve the perturbed score. Rerun the fit to redo
 selection.
 
-**Omitted-variable outputs read the selected working mechanism.** The robustness value, the bounds,
-and `elements()` build $\nu^2$ from the selected g. An intercept-only representer is the within-arm
-average of the full representer, so its $\nu^2$ is never larger. The collaborative robustness value
-therefore overstates robustness for the declared adjustment set. Do not report it as a bound.
-[RM11](../roadmap.md#rm11-sensitivity-bounds-outside-their-derivation) tracks the refusal.
+**Omitted-variable outputs refuse a collaborative fit.** The robustness value, the bounds, and
+`elements()` raise `CapabilityError` on every strategy. The working mechanism conditions on a
+function $V$ of $W$: the selected set $W_S$ on the selector paths, and the fitted outcome
+regression under `oat`. Where the working mechanism is $P(A \mid V)$ in the limit, the
+representer is $E[\alpha_W \mid A, V]$. That representer averages the full representer $\alpha_W$
+within each arm and each value of $V$. Its $\nu^2$ is therefore never larger, and a collaborative robustness value would overstate robustness for the declared
+adjustment set. The constant `_CTMLE_BOUND_REFUSAL` in `cleverly.sensitivity.omitted_variable`
+gives the full reason, and
+[RM11](../roadmap.md#rm11-sensitivity-bounds-outside-their-derivation) records the refusal.
 
 **A simulated common-cause surface reruns selection.** Binary complete-outcome fits accept fixed
 probability weights for this operation. The operation refuses estimated weights. Its clustered
@@ -161,11 +165,45 @@ studies. It is not accepted on numerical R parity.
 **Scoring only one contrast is a load-bearing mutation.** The multi-arm selector's joint penalty is
 checked by a mutation that scores only the first contrast. It changes the penalty by more than 100.
 
-**Selector-path inferential output is not supported.** The greedy, ordered, and discrete paths
-currently compute ordinary cross-fitted EIF plug-in covariance after selection. Treat that value
-only as a working-mechanism diagnostic. [RM12](../roadmap.md#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism)
-requires confidence intervals and p-values to be refused in a dedicated API follow-up; point
-estimates and path diagnostics remain supported.
+**The selector paths publish no inference.** The greedy, ordered, and discrete paths refuse
+`ci`, `pvalue`, and `std_error`. Each accessor raises `CapabilityError`. The refusal says that the
+reported curve is the ordinary efficient influence curve at the candidate the search stopped at,
+and that no result shows it is this estimator's influence curve when that working mechanism is not
+consistent for the treatment law.
+
+The point estimate, the selection path, and the curve remain. Two accessors report the retained
+diagnostic. `plugin_std_error` gives the plug-in standard error of that curve. `plugin_interval`
+gives its Wald interval. Both are a diagnostic. Neither is a confidence statement.
+
+The reports follow the accessors. `summary()` prints the diagnostic in a `working-mechanism se`
+column, and prints no interval column. `to_frame()` emits `inference`, `plugin_std_err`,
+`plugin_interval_lower`, and `plugin_interval_upper` in place of `std_err`, `ci_lower`, `ci_upper`,
+and `p_value`.
+
+Five derived operations refuse for the same reason. A contrast of two refused estimates is itself
+refused. A simultaneous band is a joint confidence statement, so a selector fit builds none. An
+E-value reads the estimate and its interval, so every E-value branch reports `unavailable` on these
+paths. `variable_importance()` adjusts one p-value per candidate, so it refuses at its entry point
+rather than after it has fitted one model per candidate. `tipping_gamma(use_ci=True)` follows a
+confidence limit to the null, and it returns one float that cannot name the limit a diagnostic.
+
+Two sweeps keep running, and each renames three columns. `truncation_curve()` and
+`missingness_tilt()` report one point estimate per grid point, which needs no influence curve. Each
+one emits `plugin_std_err`, `plugin_interval_lower`, and `plugin_interval_upper` in place of
+`std_err`, `ci_lower`, and `ci_upper`. `tipping_gamma()` keeps its default `use_ci=False` search of
+the point estimate, and it answers for these paths.
+
+[F18](../roadmap.md#f18-selector-path-c-tmle-inference) is the condition that reopens this. It
+reopens when it supplies the estimator's influence curve.
+
+**One configuration is refused more than it needs to be.** A `discrete` fit whose only candidate is
+the complete adjustment set selects nothing. It is bit-identical to a plain TMLE fit, and
+`tests/unit/test_ctmle.py` pins that identity. The package still refuses its interval, because the
+refusal keys on the strategy, as [RM12](../roadmap.md#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism)
+correction 2 and F18 both require. A key that read the fitted path instead would give inference
+back to a caller whose candidate list happened to collapse, which that caller cannot predict before
+fitting. The over-refusal is deliberate and it is the conservative direction. Use `TMLE` for that
+configuration.
 
 Van der Laan and Gruber (2010), Theorem 2, establishes the population mean-zero identity that
 supports collaborative consistency when the outcome regression is correct. It does not establish
@@ -183,11 +221,16 @@ established for this selector.
 
 Leeb and Pötscher (2006) supply a nonuniformity warning in a finite-dimensional regression
 subset-selection model; their theorem has not been transferred here. A working-mechanism plug-in
-standard error makes no conditional-coverage claim and is not inferential output. Near-ties are an
+standard error makes no conditional-coverage claim and is not inferential output. The package now
+enforces that sentence rather than only asserting it: the number is reachable under
+`plugin_std_error` and `plugin_interval`, and under no inferential name. Near-ties are an
 especially important unresolved regime.
 
 **Outcome-adaptive intervals report an ordinary adaptive-propensity curve.** This strategy selects
 no candidate. It fits one categorical mechanism on estimated arm-specific outcome predictions.
+`strategy="oat"` is **unaffected** by the selector refusal above. It keeps `ci`, `pvalue`, and
+`std_error`, and its frame keeps every ordinary column. F19 owns its open questions, and F18 owns
+the three selector paths.
 Benkeser, Cai and van der Laan (2020) prove that curve without an extra first-order design term for
 one binary treatment-specific mean under six regularity conditions. The cross-fitted implementation
 follows their fold-local nuisance nesting; the package does not diagnose those asymptotic
@@ -215,12 +258,18 @@ showing invalid coverage; the multi-arm pair does not resolve a deficit. Neither
 identifies a first-order term.
 [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) records those items.
 
-Both interval types *report* ordinary cross-fitted EIF plug-in covariance. Ordinary TMLE
-conditions alone do not establish validity after selection or representation learning, and
-`cleverly` claims neither conditional selector coverage nor collaborative-double-robust coverage.
+The selector paths report no interval. The outcome-adaptive path reports one, and that interval
+is the ordinary cross-fitted EIF plug-in covariance. Ordinary TMLE conditions alone do not
+establish validity after selection or representation learning, and `cleverly` claims neither
+conditional selector coverage nor collaborative-double-robust coverage.
+
 A refit bootstrap reruns each adaptive construction, but no reviewed theorem validates it for
-either shipped path. The targeted-HAL bootstrap result cited in the audit fixes its data-adaptive
-complexity bound rather than reselecting it.
+either shipped path. On a selector path `summary()` therefore prints the bootstrap standard error
+and a `percentile range`, under the same diagnostic framing, rather than a percentile confidence
+interval. `to_frame()` emits the two limits as `bootstrap_range_lower` and `bootstrap_range_upper`
+in place of `bootstrap_ci_lower` and `bootstrap_ci_upper`. The `bootstrap_std_err` column keeps its
+name. The targeted-HAL bootstrap result cited in the audit fixes its data-adaptive complexity
+bound rather than reselecting it.
 
 | where to read the evidence | what is there |
 | --- | --- |

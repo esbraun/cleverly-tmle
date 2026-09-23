@@ -27,6 +27,12 @@ doubly_robust = effect.estimate(
 Call `effect.available_methods()` before fitting when method availability matters. An unavailable
 method comes with a capability reason.
 
+The collaborative fit above reports no confidence interval, no p-value, and no standard error. The
+`"greedy"` strategy is the default, and `"ordered"` and `"discrete"` refuse the same three
+accessors. Each estimate keeps `plugin_std_error` and `plugin_interval` as a diagnostic. For an
+interval, use `TMLEMethod` or `strategy="oat"`.
+[Collaborative TMLE](../technical-reference/collaborative-tmle.md) gives the reason.
+
 Both variants are named here with a parametric learner on purpose. Neither fits a fixed number of
 nuisance models: collaborative TMLE fits one per candidate along its selection path, and DR-TMLE
 re-fits its reduced regressions on every round of the alternation that solves its extra score

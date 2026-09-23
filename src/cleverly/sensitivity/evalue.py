@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 
 from ..assessment import AssessmentStatus
-from ..exceptions import CapabilityError
+from ..exceptions import WORKING_MECHANISM_NOT_INFERENTIAL, CapabilityError
 from ._derived import _derived_risk_ratio, _risk_ratio_refusal
 from ._parameters import arm_parameter_keys
 
@@ -56,6 +56,29 @@ __all__ = ["EValue", "evalue", "evalue_from_rr"]
 
 #: Chinn's OR-to-SMD factor followed by the common-outcome square-root conversion.
 _SMD_TO_LOG_RR = 1.81 / 2
+
+#: Why the standardized conversion stops on a fit with a response mechanism.  It names
+#: the quantity the conversion lacks, which is the *population* standard deviation of the
+#: outcome, and it says which E-value branches stay open.
+_STANDARDISED_MISSING_REFUSAL = (
+    "the standardized E-value has no population outcome standard deviation for a fit "
+    "with a response mechanism. The conversion divides the difference by sd(Y) computed "
+    "from the observed rows alone, and under missing at random the respondents' standard "
+    "deviation estimates a different quantity from the population standard deviation the "
+    "estimate is standardized against. An E-value computed from a reported risk ratio or "
+    "odds ratio reads only the estimate and its interval, so it stays available."
+)
+
+#: Why every E-value branch stops on a selector-path collaborative fit.  Each branch reads
+#: the estimate's interval, or the reference arm's standard error, and this fit supplies
+#: neither.  Raised in :func:`_select_evalue` rather than where the interval is read, so
+#: the capability row reports ``unavailable`` instead of the computation raising under a
+#: row that advertised ``available=True``.
+_WORKING_MECHANISM_EVALUE_REFUSAL = (
+    "an E-value is built from the reported estimate and its interval. "
+    f"{WORKING_MECHANISM_NOT_INFERENTIAL} The outcome-adaptive path, strategy='oat', is "
+    "unaffected and keeps every E-value branch."
+)
 
 
 def evalue_from_rr(risk_ratio: float) -> float:
@@ -327,11 +350,25 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
             AssessmentStatus.NOT_APPLICABLE,
             f"an E-value needs an unconditioned two-arm contrast, not axis {key.axis!r}",
         )
+    # Fit-wide rather than branch-scoped, unlike the standardized rule below: the reported
+    # and derived ratio branches read ``estimate.ci`` and the Gaussian branch reads the
+    # reference arm's ``std_error``, so no branch survives a fit that supplies neither.
+    # After the two checks above, which say an E-value is not defined for this request
+    # on any fit: a level such as ``ey1`` stays ``not_applicable`` here too.
+    if not result.estimates[source].supplies_inference:
+        raise _EValueRefusal(AssessmentStatus.UNAVAILABLE, _WORKING_MECHANISM_EVALUE_REFUSAL)
     if key.estimand == "rr":
         return _EValueSelection(source, "reported_rr")
     if key.estimand == "or" and explicit:
         return _EValueSelection(source, "reported_or")
     if result.config.family == "gaussian" and key.estimand in {"ate", "att", "atc"}:
+        # Raised here, in the selection, rather than in the execution below.  The
+        # capability row is built from this function, so a refusal placed in
+        # ``_evalue_from_selection`` would leave the row advertising ``available=True``
+        # beside a call that raises.  Branch-scoped rather than fit-wide: the reported and
+        # derived ratio branches read no standard deviation at all.
+        if result.data.has_missing_outcome:
+            raise _EValueRefusal(AssessmentStatus.UNAVAILABLE, _STANDARDISED_MISSING_REFUSAL)
         return _EValueSelection(source, "gaussian_difference")
     if key.estimand in {"att", "atc"}:
         raise _EValueRefusal(
