@@ -28,22 +28,7 @@ from cleverly.validation import (
     refute,
 )
 from cleverly.validation.refute import _run_empirical_refits
-
-
-def _estimate(psi: float, standard_error: float) -> SimpleNamespace:
-    """A stand-in for :class:`~cleverly.inference.ParameterEstimate`.
-
-    It carries ``plugin_std_error`` beside ``std_error`` because the real class does: RM12
-    split the two so a selector-path collaborative fit can refuse the inferential name and
-    keep the diagnostic.  A stub with only ``std_error`` would pass here while the library
-    reads the accessor it actually uses.
-    """
-    return SimpleNamespace(
-        psi=psi,
-        std_error=standard_error,
-        plugin_std_error=standard_error,
-        inference="influence_curve",
-    )
+from tests.unit._refutation_support import RefitResult, StubResult, stub_estimate
 
 
 def _rule(draws: int) -> EmpiricalInclusionRule:
@@ -152,23 +137,8 @@ class _RecordingEstimator:
         self.calls.append((random_state, data))
         if call in self.fail_calls:
             raise RuntimeError(f"failed draw {call}")
-        estimate = _estimate(self.statistic(data.covariates), 1.0)
-        return _RefitResult(data, estimate)
-
-
-class _RefitResult:
-    def __init__(self, data: CausalData, estimate: Any) -> None:
-        self.data = data
-        self.estimate = estimate
-
-    def __getitem__(self, name: str) -> Any:
-        assert name == "ate"
-        return self.estimate
-
-
-class _Result(SimpleNamespace):
-    def __getitem__(self, name: str) -> Any:
-        return self.estimates[name]
+        estimate = stub_estimate(self.statistic(data.covariates), 1.0)
+        return RefitResult(data, estimate)
 
 
 def _data(
@@ -225,11 +195,11 @@ def _thin_cluster_data() -> CausalData:
     )
 
 
-def _result(data: CausalData, estimator: _RecordingEstimator | None = None) -> _Result:
+def _result(data: CausalData, estimator: _RecordingEstimator | None = None) -> StubResult:
     fitted = estimator or _RecordingEstimator()
-    return _Result(
+    return StubResult(
         estimator=fitted,
-        estimates={"ate": _estimate(fitted.statistic(data.covariates), 1.0)},
+        estimates={"ate": stub_estimate(fitted.statistic(data.covariates), 1.0)},
         data=data,
         intermediate_value=None,
     )
@@ -681,7 +651,7 @@ class TestRuleVerdict:
                 call = len(self.calls)
                 refitted = super().refit(data, **kwargs)
                 reported = "binomial" if call % 2 else "gaussian"
-                return _RefitResult(SimpleNamespace(family=reported), refitted.estimate)
+                return RefitResult(SimpleNamespace(family=reported), refitted.estimate)
 
         data = replace(_data(), family=_AnyFamily())
         report, _ = _run(
@@ -1073,14 +1043,14 @@ class TestPreflightRefusals:
 
     def test_unsupported_result_family_is_named_before_refit(self) -> None:
         estimator = _RecordingEstimator()
-        result = _Result(
+        result = StubResult(
             estimator=estimator,
-            estimates={"ate": _estimate(0.0, 1.0)},
+            estimates={"ate": stub_estimate(0.0, 1.0)},
             data=SimpleNamespace(backend=None),
             intermediate_value=None,
         )
         _refuse_before_any_refit(
             result,
             BootstrapMeasurementError(("numeric",)),
-            r"_Result.*SimpleNamespace",
+            r"StubResult.*SimpleNamespace",
         )

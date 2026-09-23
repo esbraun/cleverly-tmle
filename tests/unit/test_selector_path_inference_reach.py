@@ -38,7 +38,7 @@ from typing import Any
 import numpy as np
 import pytest
 from sklearn.base import BaseEstimator
-from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.linear_model import LogisticRegression
 
 from cleverly import variable_importance
 from cleverly.assessment import AssessmentStatus
@@ -54,16 +54,7 @@ from cleverly.exceptions import (
 from cleverly.inference.influence import spread_name
 from cleverly.sensitivity import missingness_tilt, tipping_gamma
 from cleverly.validation import CoverageStudy, refute
-
-#: Learners fast enough that a fixture costs less than a second, and explicit, so no
-#: default library is constructed.
-FAST: dict[str, Any] = {
-    "outcome_learner": LinearRegression(),
-    "treatment_learner": LogisticRegression(max_iter=1000),
-    "cross_fit": False,
-    "simultaneous": False,
-    "random_state": 0,
-}
+from tests.conftest import SELECTOR_CONFIGS, linear_ctmle, linear_in_sample
 
 #: The status every selector path stamps, and the three spread columns an ordinary fit's
 #: tilt carries and a selector-path fit renames.  Read through ``spread_name`` rather than
@@ -71,13 +62,6 @@ FAST: dict[str, Any] = {
 DIAGNOSTIC = "working_mechanism_plugin"
 INFERENTIAL_COLUMNS = frozenset({"std_err", "ci_lower", "ci_upper"})
 DIAGNOSTIC_COLUMNS = frozenset(spread_name(name, DIAGNOSTIC) for name in INFERENTIAL_COLUMNS)
-
-#: One configuration per selector path, for the class that must hold on all three.
-SELECTORS: dict[str, dict[str, Any]] = {
-    "greedy": {"selection_folds": 3},
-    "ordered": {"selection_folds": 3, "preorder": "logistic"},
-    "discrete": {"selection_folds": 3, "candidates": ((), ("W1",))},
-}
 
 #: What the combined report writes when an operation it ran raised ``CapabilityError``.
 DECLINED = "the operation declined this request"
@@ -107,7 +91,7 @@ def missing_frame() -> Any:
 def selector_fit(missing_frame: Any) -> Any:
     """A greedy C-TMLE that models response, which is what reaches the tilt."""
     return (
-        CTMLE(strategy="greedy", selection_folds=3, estimands=("ate",), **FAST)
+        linear_ctmle("greedy", selection_folds=3, estimands=("ate",))
         .fit(missing_frame, outcome="Y", treatment="A", delta="Delta")
         .single()
     )
@@ -117,7 +101,7 @@ def selector_fit(missing_frame: Any) -> Any:
 def ordinary_fit(missing_frame: Any) -> Any:
     """The same frame under ordinary TMLE, which must keep the inferential columns."""
     return (
-        TMLE(estimands=("ate",), **FAST)
+        TMLE(**linear_in_sample(estimands=("ate",)))
         .fit(missing_frame, outcome="Y", treatment="A", delta="Delta")
         .single()
     )
@@ -127,29 +111,20 @@ class TestVariableImportanceRefusesBeforeItFits:
     """The multiplicity adjustment has no diagnostic form, so the entry point refuses."""
 
     @staticmethod
-    def _call(strategy: str, **extra: Any) -> Any:
+    def _call(estimator: Any) -> Any:
         frame, _ = make_instrument(n=300, seed=3)
         return variable_importance(
             frame,
             outcome="Y",
             candidates=["A"],
             covariates=["W1", "W2"],
-            estimator=CTMLE(strategy=strategy, estimands=("ate",), **FAST, **extra),
+            estimator=estimator,
         )
 
-    @pytest.mark.parametrize(
-        "strategy, extra",
-        [
-            ("greedy", {"selection_folds": 3}),
-            ("ordered", {"selection_folds": 3, "ordering": ("W1", "W2")}),
-            ("discrete", {"selection_folds": 3, "candidates": ((), ("W1",))}),
-        ],
-    )
-    def test_a_selector_path_is_refused_by_the_name_the_caller_wrote(
-        self, strategy: str, extra: dict[str, Any]
-    ) -> None:
+    @pytest.mark.parametrize("strategy", sorted(SELECTOR_CONFIGS))
+    def test_a_selector_path_is_refused_by_the_name_the_caller_wrote(self, strategy: str) -> None:
         with pytest.raises(CapabilityError) as raised:
-            self._call(strategy, **extra)
+            self._call(linear_ctmle(strategy, estimands=("ate",), **SELECTOR_CONFIGS[strategy]))
         message = str(raised.value)
         assert message.startswith("variable_importance() is not defined here.")
         assert WORKING_MECHANISM_NOT_INFERENTIAL in message
@@ -157,42 +132,25 @@ class TestVariableImportanceRefusesBeforeItFits:
         assert ".pvalue" not in message
 
     def test_the_refusal_arrives_before_the_first_learner_is_fitted(self) -> None:
-        frame, _ = make_instrument(n=300, seed=3)
-        estimator = CTMLE(
-            strategy="greedy",
+        estimator = linear_ctmle(
+            "greedy",
             selection_folds=3,
             estimands=("ate",),
             outcome_learner=Unfittable(),
             treatment_learner=Unfittable(),
-            cross_fit=False,
-            simultaneous=False,
-            random_state=0,
         )
         with pytest.raises(CapabilityError):
-            variable_importance(
-                frame,
-                outcome="Y",
-                candidates=["A"],
-                covariates=["W1", "W2"],
-                estimator=estimator,
-            )
+            self._call(estimator)
 
     def test_the_outcome_adaptive_path_still_reports_its_adjusted_p_values(self) -> None:
         """The control against a refusal broadened to every collaborative fit."""
-        result = self._call("oat")
+        result = self._call(linear_ctmle("oat", estimands=("ate",)))
         frame = result.to_frame()
         assert {"std_err", "ci_lower", "ci_upper", "p_value"} <= set(frame.columns)
         assert np.isfinite(result[0].adjusted_pvalue)
 
     def test_an_ordinary_estimator_is_untouched(self) -> None:
-        frame, _ = make_instrument(n=300, seed=3)
-        result = variable_importance(
-            frame,
-            outcome="Y",
-            candidates=["A"],
-            covariates=["W1", "W2"],
-            estimator=TMLE(estimands=("ate",), **FAST),
-        )
+        result = self._call(TMLE(**linear_in_sample(estimands=("ate",))))
         assert np.isfinite(result[0].estimate.pvalue)
 
 
@@ -271,25 +229,26 @@ class TestARestoredSelectorFitStillRefuses:
     the package supports.
     """
 
-    def test_the_restored_result_reports_the_diagnostic_status(self, selector_fit: Any) -> None:
-        restored = pickle.loads(pickle.dumps(selector_fit))
+    @pytest.fixture
+    def restored(self, selector_fit: Any) -> Any:
+        """A fresh round trip per test, because the tilt below writes the result's cache."""
+        return pickle.loads(pickle.dumps(selector_fit))
+
+    def test_the_restored_result_reports_the_diagnostic_status(self, restored: Any) -> None:
         assert restored["ate"].inference == "working_mechanism_plugin"
 
-    def test_the_restored_result_still_refuses_its_interval(self, selector_fit: Any) -> None:
-        restored = pickle.loads(pickle.dumps(selector_fit))
+    def test_the_restored_result_still_refuses_its_interval(self, restored: Any) -> None:
         with pytest.raises(CapabilityError) as raised:
             _ = restored["ate"].ci
         assert WORKING_MECHANISM_NOT_INFERENTIAL in str(raised.value)
 
     def test_the_retained_diagnostic_survives_the_round_trip_bit_for_bit(
-        self, selector_fit: Any
+        self, restored: Any, selector_fit: Any
     ) -> None:
-        restored = pickle.loads(pickle.dumps(selector_fit))
         assert restored["ate"].plugin_std_error == selector_fit["ate"].plugin_std_error
 
-    def test_the_restored_tilt_reports_the_diagnostic_columns(self, selector_fit: Any) -> None:
+    def test_the_restored_tilt_reports_the_diagnostic_columns(self, restored: Any) -> None:
         """The two fixes meet here: a restored fit reaches the renamed columns too."""
-        restored = pickle.loads(pickle.dumps(selector_fit))
         columns = set(missingness_tilt(restored, [0.0]).columns)
         assert columns >= DIAGNOSTIC_COLUMNS
         assert not (INFERENTIAL_COLUMNS & columns)
@@ -496,7 +455,7 @@ class TestTheArgumentAwareRowsAgreeWithTheCall:
     def test_a_level_is_not_applicable_before_the_fit_is_refused(self, missing_frame: Any) -> None:
         """``ey1`` has no E-value on any fit, so the request says that, not the refusal."""
         fit = (
-            CTMLE(strategy="greedy", selection_folds=3, estimands=("ate", "ey1", "ey0"), **FAST)
+            linear_ctmle("greedy", selection_folds=3, estimands=("ate", "ey1", "ey0"))
             .fit(missing_frame, outcome="Y", treatment="A", delta="Delta")
             .single()
         )
@@ -516,10 +475,10 @@ class TestNoAvailableRowDeclinesOnASelectorPath:
     so this contract runs every row, refits and retargets included, on all three paths.
     """
 
-    @pytest.mark.parametrize("strategy", sorted(SELECTORS))
+    @pytest.mark.parametrize("strategy", sorted(SELECTOR_CONFIGS))
     def test_every_row_that_ran_answered(self, missing_frame: Any, strategy: str) -> None:
         fit = (
-            CTMLE(strategy=strategy, estimands=("ate", "ey1", "ey0"), **FAST, **SELECTORS[strategy])
+            linear_ctmle(strategy, estimands=("ate", "ey1", "ey0"), **SELECTOR_CONFIGS[strategy])
             .fit(missing_frame, outcome="Y", treatment="A", delta="Delta")
             .single()
         )

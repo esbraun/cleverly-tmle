@@ -21,7 +21,8 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 import cleverly
-from cleverly.estimators import TMLE
+from cleverly.estimators import CTMLE, TMLE
+from cleverly.estimators.ctmle import CTMLEStrategy
 from cleverly.learners import SuperLearner
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -210,6 +211,38 @@ def fast_tmle(**overrides: Any) -> TMLE:
     return TMLE(**{**FAST_KWARGS, **overrides})
 
 
+def linear_in_sample(**overrides: Any) -> dict[str, Any]:
+    """Explicit linear learners, fitted on every row, with no simultaneous bands.
+
+    The block a test passes when its subject is what a fit *reports* rather than how it
+    learns: a refusal, a renamed column, a round trip. Each call builds a fresh pair of
+    learners, so no fit can carry another test's fitted state.
+    """
+    return {
+        "outcome_learner": LinearRegression(),
+        "treatment_learner": LogisticRegression(max_iter=1000),
+        "cross_fit": False,
+        "simultaneous": False,
+        "random_state": 0,
+        **overrides,
+    }
+
+
+def linear_ctmle(strategy: CTMLEStrategy, **overrides: Any) -> CTMLE:
+    """A collaborative estimator on :func:`linear_in_sample`, for the given ``strategy``."""
+    return CTMLE(strategy=strategy, **linear_in_sample(**overrides))
+
+
+#: One configuration per selector path, for a claim that must hold on all three.  Three
+#: selection folds keep each search in the fast tier.  The ordered path ranks by a
+#: logistic preorder, so a test can pass any covariate set without an explicit ``ordering``.
+SELECTOR_CONFIGS: dict[str, dict[str, Any]] = {
+    "greedy": {"selection_folds": 3},
+    "ordered": {"selection_folds": 3, "preorder": "logistic"},
+    "discrete": {"selection_folds": 3, "candidates": ((), ("W1",))},
+}
+
+
 def mean_one_weights(n: int, spread: tuple[float, float] = (0.5, 1.5)) -> Any:
     """``n`` nonconstant observation weights whose mean is exactly one.
 
@@ -332,6 +365,26 @@ class OracleTreatment(BaseEstimator):
 
     def predict_proba(self, X: Any) -> Any:
         p = np.clip(np.asarray(self.dgp.propensity(np.asarray(X, dtype=float))), 1e-9, 1 - 1e-9)
+        return np.column_stack([1.0 - p, p])
+
+
+class ConstantProbability(BaseEstimator):
+    """A binary classifier that predicts ``P(label = 1) = p`` on every row.
+
+    A test uses it where a fitted model would only come *close* to a known value: a
+    mechanism pinned to a known wrong value, or an intermediate density pinned to its
+    truth.  Every term the test computes from ``p`` is then exact.
+    """
+
+    def __init__(self, p: float) -> None:
+        self.p = p
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> ConstantProbability:
+        self.classes_ = np.array([0.0, 1.0])
+        return self
+
+    def predict_proba(self, X: Any) -> Any:
+        p = np.full(np.asarray(X, dtype=float).shape[0], self.p)
         return np.column_stack([1.0 - p, p])
 
 

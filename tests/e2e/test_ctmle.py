@@ -16,6 +16,7 @@ selector that always returns the empty propensity model; it takes that escape ro
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from typing import Any, ClassVar
 
@@ -23,7 +24,6 @@ import numpy as np
 import pytest
 import sklearn.linear_model
 from scipy.special import expit
-from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import CapabilityError, SuperLearner, load
 from cleverly._typing import FloatArray
@@ -41,7 +41,7 @@ from cleverly.exceptions import (
 )
 from cleverly.inference.influence import counterfactual_means
 from cleverly.validation.nuisance import NUISANCE_SELECTION_MISSING
-from tests.conftest import FAST_KWARGS
+from tests.conftest import FAST_KWARGS, SELECTOR_CONFIGS, linear_ctmle
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
 TMLE_SETTINGS = {**FAST_KWARGS, "estimands": ("ate", "ey1", "ey0")}
@@ -884,18 +884,13 @@ class TestTheWorkingMechanismDiagnosticIsNotTheEstimatorsVariance:
         frame, _ = make_instrument(n=2000, seed=44)
         covariates = [name for name in frame.columns if name.startswith("W")]
         result = (
-            CTMLE(
-                strategy="discrete",
+            linear_ctmle(
+                "discrete",
                 candidates=((),),
-                outcome_learner=LinearRegression(),
-                treatment_learner=LogisticRegression(max_iter=1000),
-                cross_fit=False,
                 selection_folds=3,
                 selection_inner_folds=2,
                 estimands=("ate",),
                 ctmle_estimand="ate",
-                simultaneous=False,
-                random_state=0,
             )
             .fit(frame, outcome="Y", treatment="A", covariates=covariates)
             .single()
@@ -933,57 +928,63 @@ class TestTheSelectorPathsPublishNoInference:
     """
 
     @staticmethod
-    def _fit(strategy: str, **extra: object):  # type: ignore[no-untyped-def]
+    def _fit(strategy: str):  # type: ignore[no-untyped-def]
+        """A fresh fit, for a test that calls a facade and so writes the result's cache."""
         frame, _ = make_instrument(n=400, seed=5)
         covariates = [name for name in frame.columns if name.startswith("W")]
         return (
-            CTMLE(
-                strategy=strategy,
-                outcome_learner=LinearRegression(),
-                treatment_learner=LogisticRegression(max_iter=1000),
-                cross_fit=False,
-                estimands=("ate",),
-                simultaneous=False,
-                random_state=0,
-                **extra,
-            )
+            linear_ctmle(strategy, estimands=("ate",), **SELECTOR_CONFIGS.get(strategy, {}))
             .fit(frame, outcome="Y", treatment="A", covariates=covariates)
             .single()
         )
 
-    @pytest.mark.parametrize(
-        "strategy, extra",
-        [
-            ("greedy", {"selection_folds": 3}),
-            ("ordered", {"selection_folds": 3, "ordering": ("W1", "W2", "W3")}),
-            ("discrete", {"selection_folds": 3, "candidates": ((), ("W1",))}),
-        ],
-    )
+    @pytest.fixture(scope="class")
+    def shared(self) -> Callable[[str], Any]:
+        """One fit per strategy, for the tests that only read estimates and frames.
+
+        Those reads write nothing on the result. A test that calls ``summary``,
+        ``assess``, a diagnostics facade or a capability row fills the assessment cache,
+        so it takes a fresh fit from :meth:`_fit` instead.
+        """
+        fits: dict[str, Any] = {}
+
+        def fit(strategy: str) -> Any:
+            if strategy not in fits:
+                fits[strategy] = self._fit(strategy)
+            return fits[strategy]
+
+        return fit
+
+    @pytest.mark.parametrize("strategy", sorted(SELECTOR_CONFIGS))
     @pytest.mark.parametrize("accessor", ["ci", "pvalue", "std_error"])
     def test_a_selector_path_refuses_and_names_its_cause(
-        self, strategy: str, extra: dict, accessor: str
+        self, shared: Callable[[str], Any], strategy: str, accessor: str
     ) -> None:
-        estimate = self._fit(strategy, **extra)["ate"]
+        estimate = shared(strategy)["ate"]
         assert estimate.inference == "working_mechanism_plugin"
         with pytest.raises(CapabilityError) as raised:
             getattr(estimate, accessor)
         assert WORKING_MECHANISM_NOT_INFERENTIAL in str(raised.value)
 
     @pytest.mark.parametrize("accessor", ["ci", "pvalue", "std_error"])
-    def test_the_outcome_adaptive_path_still_answers(self, accessor: str) -> None:
-        estimate = self._fit("oat")["ate"]
+    def test_the_outcome_adaptive_path_still_answers(
+        self, shared: Callable[[str], Any], accessor: str
+    ) -> None:
+        estimate = shared("oat")["ate"]
         assert estimate.inference == "influence_curve"
         assert getattr(estimate, accessor) is not None
 
-    def test_the_retained_diagnostic_is_the_refused_number(self) -> None:
+    def test_the_retained_diagnostic_is_the_refused_number(
+        self, shared: Callable[[str], Any]
+    ) -> None:
         """Reframed, not recomputed: ``oat`` answers both names with one value."""
-        estimate = self._fit("oat")["ate"]
+        estimate = shared("oat")["ate"]
         assert estimate.plugin_std_error == estimate.std_error
         assert estimate.plugin_interval == estimate.ci
 
-    def test_the_frame_swaps_the_inference_columns(self) -> None:
-        refused = self._fit("discrete", selection_folds=3, candidates=((), ("W1",))).to_frame()
-        ordinary = self._fit("oat").to_frame()
+    def test_the_frame_swaps_the_inference_columns(self, shared: Callable[[str], Any]) -> None:
+        refused = shared("discrete").to_frame()
+        ordinary = shared("oat").to_frame()
 
         assert "inference" in refused.columns
         assert set(refused.columns) & {"std_err", "ci_lower", "ci_upper", "p_value"} == set()
@@ -1000,7 +1001,7 @@ class TestTheSelectorPathsPublishNoInference:
         assert {"std_err", "ci_lower", "ci_upper", "p_value"} <= set(ordinary.columns)
 
     def test_the_summary_prints_the_refusal_and_no_interval_heading(self) -> None:
-        result = self._fit("greedy", selection_folds=3)
+        result = self._fit("greedy")
         summary = result.summary()
 
         # The refusal's own sentence, with only its first letter raised, so the summary
@@ -1016,7 +1017,7 @@ class TestTheSelectorPathsPublishNoInference:
         assert result.extra["ctmle"].describe() in summary
 
     def test_the_assessment_carries_the_same_sentence(self) -> None:
-        result = self._fit("greedy", selection_folds=3)
+        result = self._fit("greedy")
         # The detail string of the nuisance-model row, which is where the label goes:
         # the capability table is keyed by method and cannot tell a selector path from
         # the outcome-adaptive one, so it has no row to mark unavailable here.
@@ -1034,7 +1035,7 @@ class TestTheSelectorPathsPublishNoInference:
         this test exists for. RM11 keeps a ratio E-value "because that formula reads only
         the estimate and its interval"; on this path there is no interval to read.
         """
-        result = self._fit("greedy", selection_folds=3)
+        result = self._fit("greedy")
         capability = result.sensitivity.capability("evalue")
         assert capability.available is False
         assert WORKING_MECHANISM_NOT_INFERENTIAL in (capability.reason or "")
@@ -1045,6 +1046,6 @@ class TestTheSelectorPathsPublishNoInference:
 
     def test_the_truncation_curve_reports_the_diagnostic_rather_than_raising(self) -> None:
         """Reachable on a C-TMLE fit, and it builds an inference-shaped frame per bound."""
-        curve = self._fit("greedy", selection_folds=3).diagnostics.truncation_curve()
+        curve = self._fit("greedy").diagnostics.truncation_curve()
         assert "plugin_std_err" in curve.columns
         assert "ci_lower" not in curve.columns

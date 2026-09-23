@@ -39,7 +39,7 @@ from cleverly.datasets import (
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, PositivityWarning
 from cleverly.interventions import Shift
-from cleverly.sensitivity.omitted_variable import OMITTED_VARIABLE_OPERATIONS, benchmark
+from cleverly.sensitivity.omitted_variable import benchmark
 from cleverly.validation.refute import (
     BootstrapMeasurementError,
     EmpiricalInclusionRule,
@@ -897,20 +897,6 @@ class TestOmittedVariableBias:
         with pytest.raises(ValueError, match=r"sensitivity\.evalue"):
             result.sensitivity.omitted_confounding("rr")
 
-    def test_an_attributable_fraction_is_refused_without_that_pointer(self) -> None:
-        """Correction 7: the pointer belongs to the two ratio scales and to nothing else.
-
-        ``evalue`` has no attributable-fraction branch, so offering it here sent the
-        reader from one refusal to a second one.
-        """
-        frame, _ = make_binary_outcome(n=800, seed=74)
-        result = fast_tmle(estimands="all").fit(frame, outcome="Y", treatment="A").single()
-        with pytest.raises(CapabilityError) as refusal:
-            result.sensitivity.omitted_confounding("paf")
-        message = str(refusal.value)
-        assert "linear functional of the outcome regression" in message
-        assert "evalue" not in message
-
     def test_benchmarking_a_real_confounder_reports_its_strength(self) -> None:
         frame, _ = make_linear_ate(n=1500, seed=75)
         result = (
@@ -1099,20 +1085,6 @@ class TestTheEValueOnAMissingOutcomeFit:
         assert not evalue.approximate
         assert evalue.point > 1.0
         assert binomial_missing_fit.sensitivity.capability("evalue").available
-
-    def test_the_bound_rows_close_while_the_tilt_rows_stay_open(self, gaussian_missing_fit) -> None:
-        """What a reader of a missing-outcome fit is left with, row by row.
-
-        The bound has no response-side strength factor and the tilt is derived for exactly
-        this mechanism, so the sensitivity analysis for response is the tilt. The refusal
-        says so, and these rows are why that sentence is worth printing.
-        """
-        for operation in OMITTED_VARIABLE_OPERATIONS:
-            row = gaussian_missing_fit.sensitivity.capability(operation)
-            assert not row.available, operation
-            assert "response mechanism" in row.reason, operation
-        for operation in ("missingness", "tipping_gamma"):
-            assert gaussian_missing_fit.sensitivity.capability(operation).available, operation
 
 
 class TestMissingnessTilt:

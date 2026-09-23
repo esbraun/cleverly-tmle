@@ -34,9 +34,9 @@ from typing import Any
 
 import numpy as np
 import pytest
-from sklearn.base import BaseEstimator
-from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.linear_model import LinearRegression
 
+from cleverly import CausalStudy, NaturalCourseMean, PointTreatment
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import (
     make_binary_outcome,
@@ -65,26 +65,19 @@ from cleverly.sensitivity.omitted_variable import (
     sensitivity_elements,
 )
 from tests import discrete_law as law
-from tests.conftest import FAST_KWARGS, IN_SAMPLE, OracleOutcome, OracleTreatment, fast_tmle
+from tests import discrete_law_mar
+from tests.conftest import (
+    FAST_KWARGS,
+    IN_SAMPLE,
+    ConstantProbability,
+    OracleMissingness,
+    OracleOutcome,
+    OracleTreatment,
+    fast_tmle,
+    linear_in_sample,
+)
 
 # --------------------------------------------------------------------------- the fits
-
-
-class ConstantHalf(BaseEstimator):
-    """``P(A = 1 | W) = 1/2`` on every row, which :mod:`tests.discrete_law` does not satisfy.
-
-    The wrongness is the point.  The law's propensity takes three values, none of them a
-    half, so the fitted representer is a *known* wrong function of the truth and every
-    term of the Riesz identity is exact arithmetic rather than an estimate.
-    """
-
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> ConstantHalf:
-        self.classes_ = np.array([0.0, 1.0])
-        return self
-
-    def predict_proba(self, X: Any) -> Any:
-        half = np.full(np.asarray(X, dtype=float).shape[0], 0.5)
-        return np.column_stack([half, half])
 
 
 class PinnedMechanism:
@@ -107,22 +100,14 @@ class PinnedMechanism:
 WRONG_MECHANISM: tuple[float, ...] = (0.5, 0.3, 0.6)
 
 
-class ConstantHundredth(BaseEstimator):
-    """``P(A = 1 | W) = 0.01`` on every row, far enough out to drive ``nu^2`` negative.
+def _blocked(result: Any, nu2_estimator: str = "auto") -> Any:
+    """The ``ate`` elements a refusal blocks: :func:`sensitivity_elements` minus its rule table.
 
-    ``E[2 m(alpha_hat) - alpha_hat^2]`` is ``nu_0^2`` minus the squared error of the
-    fitted representer, so a mechanism this wrong sends it below zero without any
-    monkeypatching of the estimator.  The fit declares ``g_bounds`` wide enough that the
-    truncation does not rescue the value before the estimator sees it.
+    Every entry point reaches :func:`_elements_for` once :func:`fit_wide_bound_refusal`
+    returns ``None``.  Called directly, it yields the number the refusal withholds, which
+    is what each witness below measures.
     """
-
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> ConstantHundredth:
-        self.classes_ = np.array([0.0, 1.0])
-        return self
-
-    def predict_proba(self, X: Any) -> Any:
-        p = np.full(np.asarray(X, dtype=float).shape[0], 0.01)
-        return np.column_stack([1.0 - p, p])
+    return _elements_for(result, result.repeats[0], resolve_parameter(result, "ate"), nu2_estimator)
 
 
 @pytest.fixture(scope="module")
@@ -221,14 +206,7 @@ def shift_fit() -> Any:
     """A real modified-treatment-policy fit on a continuous dose."""
     frame, _ = make_shift_dose(n=300, seed=0)
     return (
-        TMLE(
-            outcome_learner=LinearRegression(),
-            treatment_learner=LogisticRegression(max_iter=1000),
-            cross_fit=False,
-            simultaneous=False,
-            random_state=0,
-            shifts=[Shift(0.0, cap=None), Shift(0.5, cap=5.0)],
-        )
+        TMLE(**linear_in_sample(shifts=[Shift(0.0, cap=None), Shift(0.5, cap=5.0)]))
         .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
         .single()
     )
@@ -248,10 +226,6 @@ def msm_fit() -> Any:
 @pytest.fixture(scope="module")
 def natural_course_fit() -> Any:
     """The missing-outcome natural-course mean, whose tilt rows are unavailable too."""
-    from cleverly import CausalStudy, NaturalCourseMean, PointTreatment
-    from tests import discrete_law_mar
-    from tests.conftest import OracleMissingness, OracleTreatment
-
     mar = discrete_law_mar.DiscreteLaw()
     study = CausalStudy(
         discrete_law_mar.frame(),
@@ -283,8 +257,8 @@ REFUSED_FITS: tuple[tuple[str, str], ...] = (
 )
 
 #: Every public entry point that reaches :func:`sensitivity_elements`, called the way a
-#: user would.  The defect was that each of the four computed its own way in; a rule that
-#: only ``elements`` consulted would leave the other three reporting numbers.
+#: user would.  The defect was that each of the five computed its own way in; a rule that
+#: only ``elements`` consulted would leave the other four reporting numbers.
 ENTRY_POINTS: dict[str, Any] = {
     "elements": lambda result, covariate: sensitivity_elements(result, "ate"),
     "omitted_variable_bounds": lambda result, covariate: omitted_variable_bounds(result, "ate"),
@@ -295,7 +269,7 @@ ENTRY_POINTS: dict[str, Any] = {
 
 
 class TestOneRefusalReachesEveryEntryPoint:
-    """The defect: four entry points, each with its own way into the elements.
+    """The defect: five entry points, each with its own way into the elements.
 
     ``benchmark`` matters most here. It refits the whole model, so a refusal it reached
     only through its own second call would have paid for a fit before saying no.
@@ -551,8 +525,6 @@ class TestAnArmIndexedFitWithNoLinearParameter:
 
     @pytest.fixture(scope="class")
     def ratio_only_fit(self) -> Any:
-        from cleverly.datasets import make_binary_outcome
-
         frame, _ = make_binary_outcome(n=400, seed=92)
         return (
             fast_tmle(**IN_SAMPLE, estimands=("rr", "or"))
@@ -574,19 +546,22 @@ class TestAnArmIndexedFitWithNoLinearParameter:
         with pytest.raises(CapabilityError, match=r"sensitivity\.evalue\(\)"):
             sensitivity_elements(ratio_only_fit, "rr")
 
-    def test_an_attributable_fraction_is_refused_without_that_pointer(self) -> None:
-        """Correction 7. ``evalue`` has no attributable-fraction branch to send anyone to."""
-        frame, _ = make_linear_ate(n=200, seed=93)
-        result = (
-            fast_tmle(**IN_SAMPLE, estimands=("ate",))
-            .fit(frame, outcome="Y", treatment="A")
-            .single()
-        )
+    def test_an_attributable_fraction_is_refused_without_that_pointer(self, plain_fit: Any) -> None:
+        """Correction 7. ``evalue`` has no attributable-fraction branch to send anyone to.
+
+        The pointer belongs to the two ratio scales and to nothing else, so offering it
+        here sent the reader from one refusal to a second one. The refusal reads the
+        estimand name alone, so the plain fit serves. The public facade and the resolver
+        must give the same sentence.
+        """
         with pytest.raises(CapabilityError) as refusal:
-            resolve_parameter(result, "paf")
+            resolve_parameter(plain_fit, "paf")
         message = str(refusal.value)
         assert "linear functional of the outcome regression" in message
         assert "evalue" not in message
+        with pytest.raises(CapabilityError) as public:
+            plain_fit.sensitivity.omitted_confounding("paf")
+        assert str(public.value) == message
 
 
 class TestANonpositiveRieszSecondMoment:
@@ -602,9 +577,12 @@ class TestANonpositiveRieszSecondMoment:
     def hopeless_mechanism_fit(self) -> Any:
         frame, _ = make_linear_ate(n=400, seed=94)
         return (
+            # P(A = 1 | W) = 0.01 on every row. nu^2 is nu_0^2 minus the squared error of
+            # the fitted representer, so a mechanism this wrong drives it below zero with no
+            # monkeypatching. The g_bounds are wide enough that truncation does not rescue it.
             TMLE(
                 outcome_learner=LinearRegression(),
-                treatment_learner=ConstantHundredth(),
+                treatment_learner=ConstantProbability(0.01),
                 g_bounds=(0.001, 0.999),
                 cross_fit=False,
                 estimands=("ate",),
@@ -714,12 +692,7 @@ class TestTheCollaborativeSecondMomentIsSmallerByConstruction:
         plain, collaborative = instrument_pair
         with pytest.raises(CapabilityError):
             sensitivity_elements(collaborative, "ate")
-        blocked = _elements_for(
-            collaborative,
-            collaborative.repeats[0],
-            resolve_parameter(collaborative, "ate"),
-            "auto",
-        )
+        blocked = _blocked(collaborative)
         full = sensitivity_elements(plain, "ate")
         assert blocked.nu2 < full.nu2
         # The residual outcome variance is the same regression's on both fits, so the
@@ -731,12 +704,7 @@ class TestTheCollaborativeSecondMomentIsSmallerByConstruction:
     ) -> None:
         """The consequence a reader would have acted on, stated as a number."""
         plain, collaborative = instrument_pair
-        blocked = _elements_for(
-            collaborative,
-            collaborative.repeats[0],
-            resolve_parameter(collaborative, "ate"),
-            "auto",
-        )
+        blocked = _blocked(collaborative)
         assert blocked.max_bias < sensitivity_elements(plain, "ate").max_bias
 
 
@@ -788,9 +756,7 @@ class TestTheDoublyRobustShortfallOnAKnownLaw:
     ) -> None:
         with pytest.raises(CapabilityError):
             sensitivity_elements(drtmle_fit, "ate")
-        blocked = _elements_for(
-            drtmle_fit, drtmle_fit.repeats[0], resolve_parameter(drtmle_fit, "ate"), "auto"
-        )
+        blocked = _blocked(drtmle_fit)
         assert blocked.nu2_estimator == "doubly_robust"
         assert blocked.nu2 < self.NU2_TRUTH
         assert blocked.nu2 == pytest.approx(self.NU2_TRUTH - self.SHORTFALL, abs=1e-12)
@@ -802,9 +768,8 @@ class TestTheDoublyRobustShortfallOnAKnownLaw:
         against 4.4, while the doubly robust value falls short. A doubly robust branch
         that returned the plug-in would fail the test above by more than two.
         """
-        parameter = resolve_parameter(drtmle_fit, "ate")
-        plugin = _elements_for(drtmle_fit, drtmle_fit.repeats[0], parameter, "plugin")
-        robust = _elements_for(drtmle_fit, drtmle_fit.repeats[0], parameter, "auto")
+        plugin = _blocked(drtmle_fit, "plugin")
+        robust = _blocked(drtmle_fit)
         assert plugin.nu2 == pytest.approx(self.PLUGIN, abs=1e-12)
         assert plugin.nu2 - robust.nu2 > 2.0
 
@@ -831,7 +796,9 @@ class TestTheConditionalEffectScoreReadsTheObservedArm:
         return (
             TMLE(
                 outcome_learner=OracleOutcome(law.DiscreteLaw()),
-                treatment_learner=ConstantHalf(),
+                # 1/2 on every row, which the law's three propensities never equal, so the
+                # fitted representer is a known wrong function of the truth.
+                treatment_learner=ConstantProbability(0.5),
                 estimands=("att", "atc"),
                 cross_fit=False,
                 simultaneous=False,
@@ -888,12 +855,7 @@ class TestTheIntermediateRuleIsNotVacuous:
     ) -> None:
         with pytest.raises(CapabilityError):
             sensitivity_elements(intermediate_fit, "ate")
-        blocked = _elements_for(
-            intermediate_fit,
-            intermediate_fit.repeats[0],
-            resolve_parameter(intermediate_fit, "ate"),
-            "auto",
-        )
+        blocked = _blocked(intermediate_fit)
         level = intermediate_fit.data.intermediate == intermediate_fit.intermediate_value
         assert 0 < int(level.sum()) < level.size
         assert np.all(blocked.riesz_representer[~level] == 0.0)
@@ -905,12 +867,7 @@ class TestTheResponseRepresenterOmitsTheIndicator:
     """The response reason says the implemented representer omits ``Delta``. It does."""
 
     def test_the_representer_is_nonzero_on_rows_with_no_outcome(self, response_fit: Any) -> None:
-        blocked = _elements_for(
-            response_fit,
-            response_fit.repeats[0],
-            resolve_parameter(response_fit, "ate"),
-            "plugin",
-        )
+        blocked = _blocked(response_fit, "plugin")
         unobserved = ~response_fit.data.observed
         assert unobserved.any()
         assert np.count_nonzero(blocked.riesz_representer[unobserved]) > 0

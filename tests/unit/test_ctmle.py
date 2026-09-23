@@ -16,7 +16,7 @@ from typing import Any, ClassVar
 import numpy as np
 import pytest
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
-from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 
 from cleverly.datasets import make_cde, make_instrument, make_linear_ate
@@ -32,7 +32,7 @@ from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import WORKING_MECHANISM_NOT_INFERENTIAL, CapabilityError
 from cleverly.learners.crossfit import SplitPlan, make_folds, random_partition
 from tests import discrete_law as law
-from tests.conftest import FAST_KWARGS, mean_one_weights
+from tests.conftest import FAST_KWARGS, linear_ctmle, mean_one_weights
 
 #: In sample: q_bounds stays None, and a cross-fitted continuous fit refuses that.
 #: Selector-based collaborative fits draw selection and nested folds whether or not
@@ -1009,17 +1009,12 @@ class TestTheRecordedRiskMayRiseWhileTheLossMayNot:
         frame, _ = make_instrument(n=800, seed=11)
         covariates = [name for name in frame.columns if name.startswith("W")]
         result = (
-            CTMLE(
-                strategy="greedy",
-                outcome_learner=LinearRegression(),
-                treatment_learner=LogisticRegression(max_iter=1000),
-                cross_fit=False,
+            linear_ctmle(
+                "greedy",
                 selection_folds=3,
                 selection_inner_folds=2,
                 estimands=("ate",),
                 ctmle_estimand="ate",
-                simultaneous=False,
-                random_state=0,
             )
             .fit(frame, outcome="Y", treatment="A", covariates=covariates)
             .single()
