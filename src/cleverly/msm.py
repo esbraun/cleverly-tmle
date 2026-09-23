@@ -338,7 +338,11 @@ def refuse_projection_weights(model: MSM) -> None:
 
     :class:`MSM` runs this when it is declared, and ``TMLE`` and ``LTMLE`` run it again
     before any learner: a model restored from an older pickle, or changed with
-    ``object.__setattr__``, can carry a declaration this version refuses.
+    ``object.__setattr__``, can carry a declaration this version refuses. ``TMLE`` also
+    runs it at the start of every retarget, which each sensitivity sweep calls, so a
+    result restored with such a model refuses every recomputation. Loading runs no
+    check, so that result keeps the estimates it stored, and they answer as saved
+    (roadmap row RM13).
     """
     # Typed ``object`` on purpose: this checks what a restored or modified model holds at
     # run time, which its annotations do not guarantee.

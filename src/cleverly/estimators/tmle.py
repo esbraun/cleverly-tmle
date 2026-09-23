@@ -2682,7 +2682,15 @@ class TMLE:
         The extra return value is what :meth:`fit` puts on ``result.cv_targeting``.  It
         is kept out of :meth:`retarget` so that the sensitivity analyses, which call
         that method on every perturbed input, keep their two-value signature.
+
+        It checks the MSM projection-weight declaration first, as :meth:`fit` does. Every
+        sweep that recomputes an estimate comes through here, so a result restored from an
+        artifact written before ``MSM.weights_kind`` existed refuses each recomputation
+        (roadmap row RM13). Loading re-checks nothing: that result keeps the estimates it
+        stored, and they answer as they were saved.
         """
+        if self.msm is not None:
+            refuse_projection_weights(self.msm)
         requested = tuple(estimands)
         level = self.alpha_sig if alpha_sig is None else alpha_sig
         regimes = nuisance.regimes
