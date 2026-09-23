@@ -84,8 +84,9 @@ def assert_withholds(result: Any, status: str) -> None:
 
     The status on the fit and on each estimate, a refusal with the status reason from
     each of ``ci``, ``pvalue`` and ``std_error``, a finite retained diagnostic, the frame
-    columns, and the ``summary()`` label and paragraph. A mutation that restores
-    ``"influence_curve"`` on the surface fails the first line.
+    columns, and the ``summary()`` paragraph under the diagnostic table. Each refusal
+    message is pinned whole: the accessor, then the reason the status table holds. A
+    mutation that restores ``"influence_curve"`` on the surface fails the first line.
     """
     assert result.inference_status == status
     for estimate in result.estimates.values():
@@ -93,15 +94,14 @@ def assert_withholds(result: Any, status: str) -> None:
         for accessor in ("ci", "pvalue", "std_error"):
             with pytest.raises(CapabilityError) as raised:
                 getattr(estimate, accessor)
-            assert_refused_by(status, raised)
+            assert str(raised.value) == inference_refusal(f".{accessor}", status)
         assert estimate.plugin_std_error > 0
     columns = set(result.to_frame().columns)
     assert not INFERENTIAL_COLUMNS & columns
     assert columns >= DIAGNOSTIC_COLUMNS
-    record = NON_INFERENTIAL[status]
     text = result.summary()
-    assert record.summary_label in text
-    assert record.reason in text
+    # The note names the diagnostic column's label and carries the status reason.
+    assert NON_INFERENTIAL[status].summary_note() in text
     assert "95% CI" not in text
 
 

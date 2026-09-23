@@ -30,12 +30,15 @@ from cleverly._inference_status import (
     NO_SIMULTANEOUS_BANDS,
     NON_INFERENTIAL,
 )
-from cleverly.datasets import make_longitudinal, make_longitudinal_competing
-from cleverly.exceptions import CapabilityError, inference_refusal
+from cleverly.datasets import (
+    make_longitudinal,
+    make_longitudinal_competing,
+    make_longitudinal_survival,
+)
+from cleverly.exceptions import CapabilityError
 from cleverly.inference import cluster as cluster_module
 from cleverly.inference.cluster import cluster_inference_status
 from cleverly.longitudinal import LTMLE
-from cleverly.msm import MSM
 from tests.unit._inference_status_support import (
     DIAGNOSTIC_COLUMNS,
     INFERENTIAL_COLUMNS,
@@ -49,6 +52,7 @@ from tests.unit._inference_status_support import (
     legacy_copy,
     restore,
 )
+from tests.unit.test_longitudinal_msm import DOSE
 from tests.unit.test_sequential_design import COLUMNS, multivalue_panel
 
 pytestmark = pytest.mark.xdist_group("longitudinal_cluster_status")
@@ -61,7 +65,7 @@ longitudinal_estimator = importlib.import_module("cleverly.longitudinal.estimato
 FEW = "few_cluster_plugin"
 N = 400
 
-#: The node declaration of the competing-risk and MSM laws.
+#: The node declaration of the survival, competing-risk and MSM laws.
 NODES: dict[str, Any] = {
     "treatment": ["A1", "A2"],
     "baseline": ["W1", "W2"],
@@ -72,6 +76,10 @@ COMPETING: dict[str, Any] = {
     "outcome": {"relapse": ["R1", "R2"], "death": ["D1", "D2"]},
     **NODES,
 }
+SURVIVAL: dict[str, Any] = {"outcome": ["Y1", "Y2"], **NODES}
+
+#: The kinds of fit whose report adds a curve over the horizons.
+CURVES = ("survival", "competing risks")
 
 
 def labels(n: int, k: int) -> np.ndarray:
@@ -92,22 +100,30 @@ def learners(**overrides: Any) -> dict[str, Any]:
     }
 
 
-def dose(label: str, horizon: int, frame: Any) -> np.ndarray:
-    """A working model linear in the number of treated nodes."""
-    del horizon
-    duration = {"always": 2.0, "never": 0.0}[label]
-    return np.column_stack([np.ones(len(frame)), np.full(len(frame), duration)])
+def fit_end_of_study(k: int | None, *, weights: Any = None, **settings: Any) -> Any:
+    """The RM26 roadmap law, with ``k`` clusters: two means and one contrast.
 
-
-def fit_end_of_study(k: int, *, weights: Any = None, **settings: Any) -> Any:
-    """The RM26 roadmap law, with ``k`` clusters: two means and one contrast."""
-    frame = multivalue_panel(n=N, seed=43).assign(cluster=labels(N, k))
+    ``k=None`` fits the same rows with no cluster labels.
+    """
+    frame = multivalue_panel(n=N, seed=43)
     roles: dict[str, Any] = {}
+    if k is not None:
+        frame = frame.assign(cluster=labels(N, k))
+        roles["id"] = "cluster"
     if weights is not None:
         frame = frame.assign(w=weights(frame["cluster"].to_numpy()))
         roles["weights"] = "w"
     return LTMLE({"never": 0, "always": 1}, reference="never", **learners(**settings)).fit(
-        frame, **COLUMNS, id="cluster", **roles
+        frame, **COLUMNS, **roles
+    )
+
+
+def fit_survival(k: int) -> Any:
+    """One event at two horizons: four risks and two contrasts."""
+    frame, _ = make_longitudinal_survival(n=N, seed=2)
+    frame = frame.assign(cluster=labels(N, k))
+    return LTMLE({"always": 1, "never": 0}, reference="never", **learners()).fit(
+        frame, **SURVIVAL, id="cluster"
     )
 
 
@@ -124,15 +140,14 @@ def fit_msm(k: int) -> Any:
     """A working model over the regimens: an intercept and a duration coefficient."""
     frame, _ = make_longitudinal(n=N, seed=0)
     frame = frame.assign(cluster=labels(N, k))
-    return LTMLE(
-        {"always": 1, "never": 0},
-        msm=MSM(design=dose, terms=("(intercept)", "duration")),
-        **learners(),
-    ).fit(frame, outcome="Y", **NODES, id="cluster")
+    return LTMLE({"always": 1, "never": 0}, msm=DOSE, **learners()).fit(
+        frame, outcome="Y", **NODES, id="cluster"
+    )
 
 
 FITS: dict[str, Callable[[int], Any]] = {
     "end of study": fit_end_of_study,
+    "survival": fit_survival,
     "competing risks": fit_competing,
     "msm": fit_msm,
 }
@@ -157,7 +172,25 @@ def control_result(kind: str) -> Any:
 
 def assert_reports_withhold(result: Any, kind: str) -> None:
     """The report each kind of fit adds to ``to_frame`` renames its spread too."""
-    if kind == "competing risks":
+    if kind == "survival":
+        risk, survival = result.curve("risk"), result.curve("survival")
+        for curve in (risk, survival):
+            assert set(curve.columns) >= DIAGNOSTIC_COLUMNS
+            assert_no_inferential_name(curve.columns)
+            assert (curve["inference"] == FEW).all()
+        # The survival view maps each plug-in bound by the rule of its scale: a level
+        # mirrors about a half, and a contrast is negated.
+        for at_risk, surviving in zip(risk.itertuples(), survival.itertuples(), strict=True):
+            estimate = result[at_risk.parameter]
+            assert surviving.parameter == at_risk.parameter
+            assert (at_risk.plugin_interval_lower, at_risk.plugin_interval_upper) == (
+                estimate.plugin_interval
+            )
+            assert surviving.plugin_std_err == at_risk.plugin_std_err == estimate.plugin_std_error
+            flip = 1.0 if estimate.scale == "level" else 0.0
+            assert surviving.plugin_interval_lower == flip - at_risk.plugin_interval_upper
+            assert surviving.plugin_interval_upper == flip - at_risk.plugin_interval_lower
+    elif kind == "competing risks":
         curve = result.curve()
         assert set(curve.columns) >= DIAGNOSTIC_COLUMNS
         assert_no_inferential_name(curve.columns)
@@ -199,13 +232,6 @@ class TestFewClustersWithholdTheLongitudinalInterval:
 
     def test_the_estimates_withhold_their_inference(self, few_result: Any) -> None:
         assert_withholds(few_result, FEW)
-        # The message, pinned whole: the accessor, then the reason the status table holds.
-        for estimate in few_result.estimates.values():
-            for accessor in ("ci", "pvalue", "std_error"):
-                with pytest.raises(CapabilityError) as raised:
-                    getattr(estimate, accessor)
-                assert str(raised.value) == inference_refusal(f".{accessor}", FEW)
-        assert NON_INFERENTIAL[FEW].summary_note() in few_result.summary()
 
     def test_each_report_renames_its_spread(self, few_result: Any, kind: str) -> None:
         assert_reports_withhold(few_result, kind)
@@ -267,9 +293,10 @@ class TestFortyClustersKeepTheLongitudinalInterval:
 
     def test_the_estimates_keep_their_interval(self, control_result: Any, kind: str) -> None:
         assert_keeps_inference(control_result)
-        if kind == "competing risks":
+        if kind in CURVES:
             assert set(control_result.curve().columns) >= INFERENTIAL_COLUMNS - {"p_value"}
             assert "inference" not in control_result.curve().columns
+        if kind == "competing risks":
             assert "std_err" in control_result.incidence_total().columns
         assert NON_INFERENTIAL[FEW].reason not in control_result.summary()
 
@@ -364,6 +391,25 @@ class TestAnOlderLongitudinalArtifact:
         # The re-stamp and the replay read the same data and folds, so the replay matches.
         curve = restored.diagnostics.truncation_curve(bounds=[0.05])
         assert len(curve) == len(result.estimates)
+
+    @pytest.mark.parametrize("route", ROUTES)
+    @pytest.mark.parametrize(
+        ("k", "status"),
+        [(None, "influence_curve"), (FEW_CLUSTER_THRESHOLD - 1, FEW)],
+        ids=("unclustered", "39 clusters"),
+    )
+    def test_data_saved_before_its_weights_field_loads(
+        self, k: int | None, status: str, route: str
+    ) -> None:
+        """Data pickled before ``LongitudinalData`` carried ``weights`` loads as unweighted."""
+        legacy = legacy_copy(fit_end_of_study(k))
+        del legacy.data.__dict__["weights"]
+        # The nonzero witness: the saved data really lacks the field.
+        with pytest.raises(AttributeError):
+            _ = legacy.data.weights
+        restored = restore(legacy, route)
+        assert restored.inference_status == status
+        assert (restored.simultaneous is None) == (status == FEW)
 
     @pytest.mark.parametrize("route", ROUTES)
     def test_a_forty_cluster_artifact_loads_as_saved(self, route: str) -> None:
