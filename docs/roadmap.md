@@ -57,8 +57,9 @@ The 2026-09-22 plan for RM20 and RM13 found two sibling surfaces that neither ro
 [RM25](#rm25-declared-stochastic-regime-densities) holds a stochastic regime density that closes
 over an estimate. RM25 is delivered, and its detail section records what shipped.
 [RM26](#rm26-longitudinal-clustered-intervals-at-few-clusters) holds the few-cluster interval of
-the longitudinal path. The delivery of RM20 and RM13 found more late refusals and refusal
-messages, which RM24 and RM16 now hold.
+the longitudinal path. RM26 is delivered, and its detail section records what shipped. The
+delivery of RM20 and RM13 found more late refusals and refusal messages, which RM24 and RM16 now
+hold.
 
 The review of that delivery found a third sibling surface.
 [RM27](#rm27-declared-msm-design-functions) holds an MSM design function that closes over a sample
@@ -70,7 +71,6 @@ user-written `Intervention` class. The table below lists the rows that remain.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.14 | Longitudinal clustered intervals at few clusters | give `LongitudinalResult` an inference status, and apply the RM20 few-cluster decision to the in-sample clustered fit | an in-sample `LTMLE` fit with `id=` and fewer than 40 clusters reports a normal-reference interval. `LongitudinalResult` has no status machinery | [RM26](#rm26-longitudinal-clustered-intervals-at-few-clusters) |
 | 0.15 | Declared MSM design functions | decide how an MSM `design` declares that it is a known function, and refuse a design declared estimated before the fit | a `design` callable can close over a sample statistic, such as the sample mean of a covariate. The projection is then a functional of $P$ through the design, and the reported curve omits that derivative. Nothing declares or refuses it | [RM27](#rm27-declared-msm-design-functions) |
 | 0.16 | Declared densities of user-written interventions | require known-function declarations for custom `Intervention` densities and callable `Rule` and `DynamicRegimen` policies | a custom class receives the `CausalData` of the fit. On the RM25 witness law, its sample-mechanism tilt reports 0.6226 of the population-law odds-tilt target's exact standard error. The built-in rule callables also lack declarations | [RM28](#rm28-declared-densities-of-user-written-interventions) |
 | 0.21 | E-value on a controlled-direct-effect fit | find a source that derives an E-value for a controlled direct effect, or refuse each E-value branch that no source covers on a fit with an intermediate variable | the Gaussian branch and the reported-ratio branches answer on that fit, and the derived-ratio branch refuses it. No source read here covers the case | [RM21](#rm21-e-value-on-a-controlled-direct-effect-fit) |
@@ -79,7 +79,7 @@ user-written `Intervention` class. The table below lists the rows that remain.
 | 0.32 | Intervention refusals at identification | refuse mixed intervention kinds in `CausalStudy.identify`, and name the typed estimands in each message | a mixed request passes identification and then fails at estimation, once with an `AttributeError` | [RM14](#rm14-intervention-refusals-at-identification) |
 | 0.33 | Refusals after the nuisance fit | raise each refusal as `CapabilityError` before any learner call | four well-posed requests refuse after 2 to 20 learner fits. Three of them raise `NotImplementedError` or `ValueError` | [RM24](#rm24-refusals-after-the-nuisance-fit) |
 | 0.41 | Calibration-slope warning rule | replace the fixed band with a rule that a registered calibration study supports | the band flagged 14 of 40 fits of a correctly specified weak-signal propensity model | [RM15](#rm15-calibration-slope-warning-rule) |
-| 0.42 | Summary and error-message accuracy | correct six display surfaces, two data error messages, and one refusal remedy, add a fingerprint-only protocol option, and decide two questions: which refusal an explicit simultaneous request on a selector fit gets, and what a bootstrap summary publishes on a non-inferential fit | each surface omits, misstates, or repeats a fact that the fit records | [RM16](#rm16-summary-and-error-message-accuracy) |
+| 0.42 | Summary and error-message accuracy | correct six display surfaces, two data error messages, and one refusal remedy, add a fingerprint-only protocol option, and decide two questions: which refusal an explicit simultaneous request on a fit that supplies no inference gets, and what a bootstrap summary publishes on a non-inferential fit | each surface omits, misstates, or repeats a fact that the fit records | [RM16](#rm16-summary-and-error-message-accuracy) |
 | 0.51 | Red property cells after the fold, scale and law changes | keep each red verdict under `reporting` with its interval, and admit inference only when F18 or F19 supplies the exact result. The [red-cell ledger](technical-reference/method-evidence/red-cells.md) delivers this. Then declare and run the five open RM18 follow-up designs, each declared before its run | registered studies publish red verdicts after the fold, scale and law changes and the pooled update. The ledger lists each one and the ask that owns it. Five RM18 follow-up designs are not declared and have not run | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
 | 0.52 | One-sided robustness bias increment in DR-TMLE | investigate the exploratory between-implementation increment on binary `treatment_correct`, under a design declared before it runs | the RM18 reading is `mixed` on that configuration. The unadjusted paired 99% interval of `cleverly` minus R `drtmle` runs 0.000068 to 0.001942, while the Bonferroni interval for that comparison covers zero. No implementation defect is established | [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) |
 
@@ -89,7 +89,7 @@ A row that another row depends on comes before that row.
 
 | tier | defect | rows |
 | --- | --- | --- |
-| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM26, RM27, RM28, RM21, RM22 |
+| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM27, RM28, RM21, RM22 |
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM23, RM14 |
 | c | a correct refusal that arrives late or as the wrong type | RM24 |
 | d | a diagnostic or a warning that misleads | RM15 |
@@ -102,8 +102,7 @@ tier.
 
 | row | reason for its place |
 | --- | --- |
-| RM26 | the few-cluster surface of RM20 on the longitudinal path. It reuses the threshold and the status table that RM20 delivered. No read source measures the size of its defect |
-| RM27 | only a design that closes over a sample statistic reaches it. On one exact law, the reported standard error of the intercept is 0.893 of the exact one, and the other coefficients keep their curves. The omitted term can have either sign, so it follows RM26 |
+| RM27 | only a design that closes over a sample statistic reaches it. On one exact law, the reported standard error of the intercept is 0.893 of the exact one, and the other coefficients keep their curves. The omitted term can have either sign |
 | RM28 | a custom `Intervention` or a callable rule reaches it. RM27's `MSM.design` is another constructor argument and keeps its earlier place. RM28 extends the declaration that RM25 delivered |
 | RM21 | an E-value that no read source covers, on controlled-direct-effect fits only |
 | RM22 | the defect widens the limits of the default doubly robust estimator, which is conservative. No derivation covers the plug-in limits, but the probe measured their ratios at 0.992 to 1.026 |
@@ -116,19 +115,19 @@ tier.
 | RM19 | one configuration, which RM18 opened. Its Bonferroni interval covers zero, and it moves no verdict |
 
 No open row waits on another open row. RM27 reuses the declaration pattern of RM13 and the shared
-declaration of RM25. RM28 applies that declaration to custom interventions and rules.
-RM26 reuses the threshold and the status table of RM20. RM13, RM20 and RM25 are delivered. The
-RM23 sweep fits only the kinds of fit that succeed, and the RM14 and RM24 requests produce no fit.
+declaration of RM25. RM28 applies that declaration to custom interventions and rules. RM13, RM20,
+RM25 and RM26 are delivered. The RM23 sweep fits only the kinds of fit that succeed, and the RM14
+and RM24 requests produce no fit.
 
 Main-roadmap X9 depends on RM22. Every remediation row comes before main-roadmap priority 1, so
 the queue meets that dependency.
 
-Use five delivery groups for these twelve rows and the two investigations that RM18 waits on.
+Use five delivery groups for these eleven rows and the two investigations that RM18 waits on.
 Keep each item's acceptance criteria separate inside its group.
 
 | delivery group | items | shared boundary |
 | --- | --- | --- |
-| inference claims | RM26, RM27 and RM28 | one decision rule for an interval that no derivation covers: register a claim, give the estimate a non-inferential status, or refuse the request before the fit |
+| inference claims | RM27 and RM28 | one decision rule for an interval that no derivation covers: register a claim, give the estimate a non-inferential status, or refuse the request before the fit |
 | sensitivity outputs | RM21 and RM22 | the E-value and omitted-variable reports, and one reading of the published sources they cite |
 | refusal surfaces | RM23, RM14 and RM24 | a refusal reaches the caller where its declaration says, before the work that it refuses |
 | diagnostic reports | RM15 and RM16 | one assessment and summary surface, with one documentation pass |
@@ -146,7 +145,7 @@ published a standard error that no derivation covers, so it joined RM20. RM14 re
 late, so it joined the refusal surfaces. The bias localization group held RM19 alone. RM19 joined
 RM18, because an RM18 owner holds its three red cells.
 
-The inference claims group then delivered RM20, RM13 and RM25, and it keeps RM26, RM27 and RM28.
+The inference claims group then delivered RM20, RM13, RM25 and RM26, and it keeps RM27 and RM28.
 
 Each group holds consecutive priorities, so the group order is the priority order. Deliver the
 items inside a group in priority order. The first decimal digit of a priority names its group, and
@@ -155,13 +154,13 @@ does not collide with a main-roadmap priority.
 
 Priorities give the current delivery order. This project reassigns them when it re-triages the
 queue. The RM IDs and their anchors never change, so a commit names a row by its ID. A delivered
-row takes its priority with it, and the other rows keep theirs. RM20, RM13 and RM25 held 0.11,
-0.12 and 0.13, so the inference claims group now starts at 0.14. The other rows keep their order,
-so none of them needs a new number.
+row takes its priority with it, and the other rows keep theirs. RM20, RM13, RM25 and RM26 held
+0.11, 0.12, 0.13 and 0.14, so the inference claims group now starts at 0.15. The other rows keep
+their order, so none of them needs a new number.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
-The queue holds twelve rows, and none of them is delivered. Ten rows need their corrections:
-RM14 to RM16, RM21 to RM24, and RM26 to RM28. RM18 has five follow-up designs that are not
+The queue holds eleven rows, and none of them is delivered. Nine rows need their corrections:
+RM14 to RM16, RM21 to RM24, RM27 and RM28. RM18 has five follow-up designs that are not
 declared and have not run. RM19 has no declared design.
 
 The F18 and F19 derivations do not block priority 1, because an item with no published theory does
@@ -838,6 +837,12 @@ on a cross-fitted fit.
 The review of that delivery found the last two rows. The bootstrap row needs a decision before a
 test. The test of the `DataError` row must fit the suggested shift, cross-fitted with `delta=`,
 and assert that the message names the in-sample fit.
+
+The delivery of [RM26](#rm26-longitudinal-clustered-intervals-at-few-clusters) widened the
+simultaneous row. `LTMLE` now skips its default band below 40 clusters, as `TMLE` does under each
+non-inferential status. An explicit `simultaneous=True` on that fit also builds no band and raises
+no warning. The decision of the row must cover both estimators, and the
+[inference reference](technical-reference/inference.md#inference-status) must record it too.
 
 ### RM18. Red property cells after the fold, scale and law changes
 
@@ -2203,6 +2208,9 @@ The review also recorded one over-refusal, and this row keeps it. A fit with `id
 each cluster counts each row as a cluster. Below 40 rows it takes `few_cluster_plugin`, and the
 same rows without `id=` keep their interval. The status withholds a number and publishes none, so
 the review made no change.
+[RM26](#rm26-longitudinal-clustered-intervals-at-few-clusters) applied the same rule to an
+in-sample `LTMLE` fit, so the over-refusal now reaches a longitudinal fit with one unit in each
+cluster.
 
 A status keeps the point estimate. `ci`, `pvalue`, and `std_error` raise `CapabilityError` with
 the reason of the status. `plugin_std_error` and `plugin_interval` keep the diagnostic, as RM12 set
@@ -2753,21 +2761,22 @@ change.
 ### RM26. Longitudinal clustered intervals at few clusters
 
 [RM20](#rm20-intervals-outside-every-claimed-contract) gives a point-treatment clustered fit with
-fewer than 40 clusters the `few_cluster_plugin` status. The longitudinal path has the same normal
-reference and no status. An in-sample `LTMLE` fit with `id=` passes the cluster labels to
-`make_estimate` (`src/cleverly/longitudinal/estimator.py:1546-1553`). The estimate then reports a
-normal-reference Wald interval (`src/cleverly/inference/influence.py:329-339`). No check reads the
-cluster count, apart from the two-cluster minimum in `src/cleverly/inference/cluster.py:150-151`.
+fewer than 40 clusters the `few_cluster_plugin` status. The longitudinal path had the same normal
+reference and no status. An in-sample `LTMLE` fit with `id=` passed the cluster labels to
+`make_estimate` (`src/cleverly/longitudinal/estimator.py:1546-1553` at dee5a5e). The estimate then
+reported a normal-reference Wald interval (`src/cleverly/inference/influence.py:329-339` at
+dee5a5e). No check read the cluster count, apart from the two-cluster minimum in
+`src/cleverly/inference/cluster.py:150-151`.
 
-`LongitudinalResult` (`src/cleverly/longitudinal/estimator.py:637`) has no status machinery, so
-the RM20 decision cannot reach it. The cross-fitted clustered fit refuses `id=`
-([F22](#f22-grouped-cross-fitting-beyond-point-treatment-tmle)), so the surface is the in-sample fit
-alone. The summed-incidence table of a competing-risk fit also reports a cluster-robust `std_err`
-(`src/cleverly/longitudinal/estimator.py:997`).
+`LongitudinalResult` (`src/cleverly/longitudinal/estimator.py:637` at dee5a5e) had no status
+machinery, so the RM20 decision could not reach it. The cross-fitted clustered fit refuses `id=`
+([F22](#f22-grouped-cross-fitting-beyond-point-treatment-tmle)), so the surface was the in-sample
+fit alone. The summed-incidence table of a competing-risk fit also reported a cluster-robust
+`std_err` (`src/cleverly/longitudinal/estimator.py:997` at dee5a5e).
 
 | probe | result |
 | --- | --- |
-| `multivalue_panel(n=300, seed=43)` and `COLUMNS` from `tests/unit/test_sequential_design.py`. The cluster label `np.arange(300) // 30` gives 10 clusters of 30 consecutive rows, passed as `id=` to `LongitudinalData.from_frame`. `LTMLE({"never": 0, "always": 1}, reference="never", n_folds=1, simultaneous=False, random_state=0)`, with `LinearRegression` for the outcome and the pseudo-outcome, and `LogisticRegression(max_iter=1000)` for the treatment | `ate_regimen[always vs never]` reads -0.216460, and it reports `ci` (-0.3045, -0.1284) under the `influence_curve` status. No warning names the cluster count |
+| `multivalue_panel(n=300, seed=43)` and `COLUMNS` from `tests/unit/test_sequential_design.py`. The cluster label `np.arange(300) // 30` gives 10 clusters of 30 consecutive rows, passed as `id=` to `LongitudinalData.from_frame`. `LTMLE({"never": 0, "always": 1}, reference="never", n_folds=1, simultaneous=False, random_state=0)`, with `LinearRegression` for the outcome and the pseudo-outcome, and `LogisticRegression(max_iter=1000)` for the treatment | `ate_regimen[always vs never]` read -0.216460, and it reported `ci` (-0.3045, -0.1284) under the `influence_curve` status. No warning named the cluster count |
 
 The plan recorded `ci` (-0.3023, -0.1287) from a configuration that it did not record. The
 configuration in the table does not reproduce it. The cluster assignment moves the interval. The
@@ -2776,10 +2785,10 @@ re-ran the table row on 2026-09-23, with scikit-learn 1.9.0 and NumPy 2.4.6.
 
 The sources and the threshold are those of RM20. Nugent et al. (2024), Section 2.2, recommend a
 $t$ reference below 40 clusters. Benitez et al. (2023), Section 3.1.2, paragraph on inference, and
-Section 3.2.1, last paragraph, recommend it at every cluster count. No registered study fits a clustered longitudinal design, so the correction
-moves no study.
+Section 3.2.1, last paragraph, recommend it at every cluster count. No registered study fits a
+clustered longitudinal design, so the correction moves no study.
 
-Apply these corrections:
+The row asked for three corrections:
 
 1. Give `LongitudinalResult` an inference status through the table that RM20 generalizes. Stamp
    each mean, contrast, and MSM coefficient.
@@ -2788,46 +2797,115 @@ Apply these corrections:
 3. Rename the summed-incidence `std_err` under that status, as RM12 renamed the point-treatment
    spread columns.
 
-The witnesses must fail when a component is wrong:
-
-- a test fits an in-sample `LTMLE` with `id=` and 39 clusters, and pins the status, the refusal,
-  and the message;
-- a control at 40 clusters keeps its interval;
-- a mutation that restores the `influence_curve` status makes the first test fail.
-
-The 2026-09-23 plan measured three facts on the code at dee5a5e. The end-of-study fit uses
+The 2026-09-23 plan measured three facts on the code at dee5a5e. The end-of-study fit used
 `multivalue_panel(n=400, seed=43)`, the competing-risk fit `make_longitudinal_competing(n=400,
-seed=3)`, and the MSM fit `make_longitudinal(n=400, seed=0)`. Each fit passes the labels
-`np.arange(400) * k // 400` as `id=`, and it has one fold.
+seed=3)`, and the MSM fit `make_longitudinal(n=400, seed=0)`. Each fit passed the labels
+`np.arange(400) * k // 400` as `id=`, and it had one fold.
 
 | probe | result |
 | --- | --- |
-| an end-of-study, a competing-risk, and an MSM fit at 39 and at 40 clusters | `cluster_inference_status` gives `few_cluster_plugin` at 39 clusters and `influence_curve` at 40, for each kind of fit. The point estimates at 39 and 40 clusters are bitwise identical |
-| the 39-cluster competing-risk fit, with `stamp_inference` applied to its estimates by hand | `summary()` and `curve()` raise `CapabilityError`, because they read `ci` and `std_error`. `to_frame()` and `incidence_total()` answer |
-| the same fit, with the stamp on the fit alone | `truncation_curve` raises `CapabilityError` with the code `longitudinal_replay_fitted_bound_mismatch`. The replay compares every field of each estimate, `inference` included |
+| an end-of-study, a competing-risk, and an MSM fit at 39 and at 40 clusters | `cluster_inference_status` gave `few_cluster_plugin` at 39 clusters and `influence_curve` at 40, for each kind of fit. The point estimates at 39 and 40 clusters were bitwise identical |
+| the 39-cluster competing-risk fit, with `stamp_inference` applied to its estimates by hand | `summary()` and `curve()` raised `CapabilityError`, because they read `ci` and `std_error`. `to_frame()` and `incidence_total()` answered |
+| the same fit, with the stamp on the fit alone | `truncation_curve` raised `CapabilityError` with the code `longitudinal_replay_fitted_bound_mismatch`. The replay compares every field of each estimate, `inference` included |
 
-The plan fixes the decisions in the table below. The RM20 code supplies each one, unless the row
-says otherwise.
+All three corrections shipped, with the decisions that commit 7aa7fbb recorded. One private
+function, `_inference_status(data, folds)` in `cleverly.longitudinal.estimator`, decides the
+status. The RM20 code supplies each part, unless the row says otherwise. Each row of the table ends
+with the commit that shipped it.
 
-| part | decision |
+| part | what shipped |
 | --- | --- |
-| status rule | a private function `_inference_status(data, folds)` in `cleverly.longitudinal.estimator` calls `cluster_inference_status` on the prepared cluster labels, and on the weights of a weighted fit. `LongitudinalData` has no strata, so the count is the positive-mass cluster count of the whole fit. The function reads nothing fitted |
-| stamp site | `_estimates` and `_msm_estimates` take the status and pass it to each `make_estimate` call. `LTMLE.fit` and the replay function `_refit_bound` both call them, so the replay stays equal to the fit. The third probe shows that a stamp in `fit` alone breaks it |
-| result status | `LongitudinalResult.inference_status` returns the status of the estimates, as `TMLEResult.inference_status` does |
-| `summary()` | a fit that supplies no inference prints the `normal-reference se` column and the status reason, and no interval column |
-| `curve()` | the three spread columns take their diagnostic names through `spread_name`, and an `inference` column is added, as `to_frame()` does |
-| `incidence_total()` | `std_err` takes the name `plugin_std_err` through `spread_name`, as RM12 renames the spread columns of a sweep |
-| simultaneous bands | `LTMLE` builds no band on a fit that supplies no inference, as `TMLE.fit` does, and `summary()` prints the RM20 sentence. `simultaneous=True` is the default, so a raise would stop each default fit. RM16 holds the question of an explicit request |
-| shared texts | `StatusRecord.summary_note()` and `NO_SIMULTANEOUS_BANDS` hold the two texts that both summaries print. `TMLEResult.summary()` stays byte-identical |
-| nuisance note | the longitudinal nuisance-model item adds the `assessment_note` of the status |
-| zero-mass clusters | the cluster line of `summary()` adds `positive weight mass in N` when a cluster has zero weight mass, as the point-treatment line does |
-| a result saved before the status | `LongitudinalResult.__setstate__` recomputes the status from the saved data and folds. It stamps the estimates again, and it drops the bands and the assessment cache, as RM20 does. The replay then stays equal on a restored artifact |
+| status rule | `_inference_status` calls `cluster_inference_status` on the prepared cluster labels, and on the weights of a weighted fit. `LongitudinalData` has no strata, so the count is the positive-mass cluster count of the whole fit. The function reads nothing fitted, and it passes `folds.n_folds > 1` as `cross_fit`. A live fit refuses `id=` above one fold, so it can take `few_cluster_plugin` only. Commit a41848d |
+| stamp site | `_estimates` and `_msm_estimates` take a required `inference` argument and pass it to each `make_estimate` call. `LTMLE.fit` and the replay function `_refit_bound` both compute the status and call them, so the replay stays equal to the fit. Commit a41848d |
+| result status | `LongitudinalResult.inference_status` returns the one status of the estimates, as `TMLEResult.inference_status` does. It returns `influence_curve` on a fit with no estimate. Commit a41848d |
+| `summary()` | a fit that supplies no inference prints the `normal-reference se` column, the reason of the status, and no interval or p-value column. The ordinary branch is byte-identical. Commit a41848d |
+| `curve()` | the three spread columns take the names `plugin_std_err`, `plugin_interval_lower`, and `plugin_interval_upper` through `spread_name`, and an `inference` column is added, as `to_frame()` does. The values come from `plugin_std_error` and `plugin_interval`, the bodies that `std_error` and `ci` read. Commit a41848d |
+| `incidence_total()` | `std_err` takes the name `plugin_std_err` through `spread_name`, as RM12 renames the spread columns of a sweep. Commit a41848d |
+| simultaneous bands | `LTMLE._bands` returns `None` on a fit that supplies no inference, as `TMLE.fit` does. `summary()` prints the RM20 sentence on a fit with two or more estimates. `simultaneous=True` is the default, so a raise would stop each default fit. [RM16](#rm16-summary-and-error-message-accuracy) holds the question of an explicit request. Commit a41848d |
+| shared texts | `StatusRecord.summary_note()` and `NO_SIMULTANEOUS_BANDS` in `src/cleverly/_inference_status.py` hold the two texts that both summaries print. `TMLEResult.summary()` reads them and stays byte-identical. Commit a41848d |
+| nuisance note | the longitudinal branch of `_nuisance_item` in `src/cleverly/assessment.py` adds the `assessment_note` of the status. It reads the status with `getattr`, because a call with no result has none. Commit a41848d |
+| zero-mass clusters | the cluster line of `summary()` adds `positive weight mass in N` when a cluster has zero weight mass, as the point-treatment line does. A weighted fit with 40 or more positive-mass clusters and one zero-mass cluster now prints it too. Commit a41848d |
+| a result saved before the status | `LongitudinalResult.__setstate__` recomputes the status from the saved data and folds. When that status supplies no inference and the saved estimates declare another, it stamps them again. It drops the bands and the assessment cache, as RM20 does. The replay then stays equal on a restored artifact. Commit a41848d |
 | E-value | no change. Each longitudinal fit reports the E-value row `unavailable` already |
+| test support | `at_or_below` moved to `tests/unit/_inference_status_support.py`, and `legacy_copy` reads `cv_targeting` with `getattr`, so both serve the longitudinal tests. Commit a41848d |
+| reference | the [data design guide](user-guide/data-design.md), [results and assessment](user-guide/results-assessment.md#contrasts-and-simultaneous-inference), [inference status](technical-reference/inference.md#inference-status), [clusters](technical-reference/inference.md#clusters), the [scope page](technical-reference/scope-and-refusals.md), [CV-TMLE](technical-reference/cv-tmle.md), the [longitudinal reference](technical-reference/longitudinal-tmle.md), and the [architecture invariants](architecture-invariants.md) describe the status on the longitudinal fit. Commit f309679 |
 | a cross-fitted clustered result saved before F22 refused it | not in this row. No status names a refused composition, and [F22](#f22-grouped-cross-fitting-beyond-point-treatment-tmle) holds it |
 
-The plan adds two witnesses to the three above. A mutation that ignores the weights must fail a
-fit with 40 clusters and zero weight on one of them. A replay that drops the status must fail the
-truncation curve.
+The row planned three witnesses, and the plan added two. The table gives the state of each. All of
+them are in `tests/unit/test_longitudinal_cluster_status.py`, which holds 30 tests.
+
+| witness | state |
+| --- | --- |
+| 1. a test fits an in-sample `LTMLE` with `id=` and 39 clusters, and pins the status, the refusal, and the message | delivered. `TestFewClustersWithholdTheLongitudinalInterval` fits an end-of-study, a competing-risk, and an MSM fit. It pins each refusal message whole, the summary note, and the renamed columns of `curve()`, `incidence_total()`, and `coefficients()`. It also checks the skipped bands, the nuisance note, the truncation replay, and the `CausalStudy` workflow |
+| 2. a control at 40 clusters keeps its interval | delivered. `TestFortyClustersKeepTheLongitudinalInterval` fits the same rows in 40 clusters. They keep `influence_curve`, the inferential column names, and the default bands. Their point estimates equal those at 39 clusters |
+| 3. a mutation that restores the `influence_curve` status makes the first test fail | delivered as `test_restoring_the_influence_curve_status_fails` in `TestTheMutationsFailTheWitness`, on each kind of fit |
+| 4. a rule that ignores the weights fails a fit with 40 clusters and zero weight on one of them | delivered. `test_zero_mass_clusters_do_not_count` is the witness, and `test_all_positive_weights_keep_the_interval` is its control |
+| 5. a replay that drops the status fails the truncation curve | delivered as `test_a_replay_without_the_status_fails_the_truncation_check`. It raises `CapabilityError` with the code `longitudinal_replay_fitted_bound_mismatch` |
+
+`TestAnOlderLongitudinalArtifact` restores a 39-cluster fit saved without the status, through
+`pickle` and through `serialize`. The result loads under `few_cluster_plugin`, and its truncation
+curve answers. A 40-cluster artifact loads as saved.
+
+`TestTheMutationsFailTheWitness` commits five mutations in seven tests, through `monkeypatch`.
+Restoring the `influence_curve` status fails the witness on each kind of fit. A threshold of 0
+fails the witness and the nuisance note. An at-or-below comparison still passes the witness, and
+it fails the 40-cluster control. A rule that ignores the weights fails the zero-mass witness. A
+replay without the status fails the truncation check.
+
+Fourteen more mutations ran by hand after commit f309679. Each run applied one mutation to the
+file at HEAD and ran `tests/unit/test_longitudinal_cluster_status.py`. It then restored the file,
+and the restored file matched its blob at HEAD. No mutation survived.
+
+| mutation | file | tests that failed |
+| --- | --- | --- |
+| `_inference_status` returns `influence_curve` | `src/cleverly/longitudinal/estimator.py` | 14: the three withholding witnesses, the three report checks, the bands, the note, the zero-mass witness, the study workflow, both legacy routes, the at-or-below control, and the replay mutation test |
+| `_refit_bound` stamps `influence_curve` | `src/cleverly/longitudinal/estimator.py` | 3: the truncation replay and both legacy routes |
+| `_bands` builds bands at any status | `src/cleverly/longitudinal/estimator.py` | 4: the skipped default bands, the study workflow, and both legacy routes |
+| `__setstate__` skips the re-stamp | `src/cleverly/longitudinal/estimator.py` | 2: both legacy routes |
+| the re-stamp keeps the bands | `src/cleverly/longitudinal/estimator.py` | 2: both legacy routes |
+| `curve()` keeps the inferential names | `src/cleverly/longitudinal/estimator.py` | 1: the competing-risk report check |
+| `curve()` adds no `inference` column | `src/cleverly/longitudinal/estimator.py` | 1: the competing-risk report check |
+| `incidence_total()` keeps `std_err` | `src/cleverly/longitudinal/estimator.py` | 1: the competing-risk report check |
+| `summary()` drops the positive-mass fact | `src/cleverly/longitudinal/estimator.py` | 1: the zero-mass witness |
+| `summary()` drops the no-bands line | `src/cleverly/longitudinal/estimator.py` | 1: the skipped default bands |
+| `summary()` drops the reason of the status | `src/cleverly/longitudinal/estimator.py` | 5: the three withholding witnesses, the zero-mass witness, and the at-or-below control |
+| the nuisance item drops the note | `src/cleverly/assessment.py` | 1: the nuisance and assessment note |
+| `_msm_estimates` drops the status | `src/cleverly/longitudinal/estimator.py` | 2: the MSM witness and the MSM report check |
+| `_estimates` drops the status of the contrasts | `src/cleverly/longitudinal/estimator.py` | 10: the end-of-study and competing-risk witnesses and report check, the bands, the note, the study workflow, the zero-mass witness, the at-or-below control, and both legacy routes |
+
+The row probe, re-run on the delivered code, reads `few_cluster_plugin`. The table gives the
+estimates.
+
+| estimate | point estimate | `plugin_interval` |
+| --- | --- | --- |
+| `ey_regimen[never]` | 0.626042 | (0.5231, 0.7289) |
+| `ey_regimen[always]` | 0.409581 | (0.3154, 0.5037) |
+| `ate_regimen[always vs never]` | -0.216460 | (-0.3045, -0.1284), which equals the old `ci` |
+
+`ci`, `pvalue`, and `std_error` raise `CapabilityError` on each estimate. With the default
+`simultaneous=True`, the fit builds no band, and `summary()` prints the no-bands line.
+
+No study was regenerated. No registered study fits a clustered longitudinal design. The stamp
+replaces the `inference` field only, and the renamed columns read the bodies that the refused
+accessors call. So the change is result-neutral under
+[what makes a study stale](development/method-benchmarking.md#what-makes-a-study-stale).
+
+A bitwise check supports that judgment. A script hashed 70 outputs before and after the change,
+and every hash matched. It covered `fit_cleverly` of `canonical_ltmle`,
+`canonical_ltmle_competing`, and `canonical_longitudinal_msm`, with their frames, summaries,
+curves, incidence totals, coefficients, and truncation curves. It also covered unclustered and
+100-cluster end-of-study, survival, competing-risk, and MSM fits with default bands. It covered
+the point-treatment `TMLEResult` `summary()` and `to_frame()` at 39 and 40 clusters. The check ran
+again after commit f309679, and all 70 hashes still matched.
+
+The delivery found four more surfaces. The table gives where each one is held.
+
+| finding | decision | where it is held |
+| --- | --- | --- |
+| a cross-fitted clustered `LTMLE` result saved by release 0.1.0 or 0.1.1, before commit 5f32c14 refused the fit | it loads under the status of its data. At 40 or more equal clusters it keeps `influence_curve`, and at unequal sizes it takes `unequal_cluster_plugin`. No status names the refused composition | [F22](#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
+| an explicit `simultaneous=True` on a few-cluster `LTMLE` fit | the fit builds no band and raises no warning, as a point-treatment fit does. The open decision of the simultaneous row now covers both estimators | [RM16](#rm16-summary-and-error-message-accuracy) |
+| a fit with `id=` and one unit in each cluster | the over-refusal that RM20 recorded now reaches `LTMLE`. The status withholds a number and publishes none, so no change was made | [RM20](#rm20-intervals-outside-every-claimed-contract) |
+| `LongitudinalNuisanceDiagnostics.summary()` | it carries no status note. It publishes no spread, so it needs none | this row. No change |
 
 ### RM27. Declared MSM design functions
 
@@ -3669,7 +3747,7 @@ compositions need their own result before that refusal can be lifted.
 | composition | what ships | what a result must supply |
 | --- | --- | --- |
 | C-TMLE with `id=` | refused at every `cross_fit` setting (`CTMLE._resolve_estimands_for_data`) | a split law for the selection folds and the nested selection folds under clustering, and the cluster-robust variance of the candidate the search stops at. [F18](#f18-selector-path-c-tmle-inference) is open for iid rows, so a clustered result needs that one first |
-| cross-fitted longitudinal TMLE with `id=` | refused above one fold (`LTMLE._refuse_cross_fitted_design`). The in-sample clustered fit is evidenced, and it stays available | the cluster-robust variance of the targeted sequential recursion under a grouped draw. The audit read no source for it |
+| cross-fitted longitudinal TMLE with `id=` | refused above one fold (`LTMLE._refuse_cross_fitted_design`). The in-sample clustered fit is evidenced, and it stays available. Below 40 positive-mass clusters it takes `few_cluster_plugin` ([RM26](#rm26-longitudinal-clustered-intervals-at-few-clusters)) | the cluster-robust variance of the targeted sequential recursion under a grouped draw. The audit read no source for it |
 
 The grouped point-treatment split itself is supported for the partition alone. Wang, Park, Small
 and Li (2024), Section 4.2 and Theorem 4(b), prove a cross-fitted result under a random, roughly
@@ -3688,10 +3766,25 @@ reopens each one.
 | boundary | decision | reopen route |
 | --- | --- | --- |
 | the cross-fitted interval at unequal cluster sizes or weight masses | a cross-fitted `TMLE` or `DRTMLE` fit whose clusters differ in row count or weight mass, overall or in a reported stratum, takes `unequal_cluster_plugin`. Its point estimator remains row weighted. The in-sample fit keeps its interval with 40 or more contributing clusters | an expansion and variance result for the current cross-fitted estimator, plus a registered study at unequal sizes |
-| the normal reference interval with few clusters, which no source read here supports | a clustered `TMLE` or `DRTMLE` fit with fewer than 40 positive-mass clusters, in the fit or in one reported baseline stratum, in sample or cross-fitted, takes the `few_cluster_plugin` status | a $t$-reference claim, with a registered study at few clusters |
+| the normal reference interval with few clusters, which no source read here supports | a clustered `TMLE` or `DRTMLE` fit with fewer than 40 positive-mass clusters, in the fit or in one reported baseline stratum, in sample or cross-fitted, takes the `few_cluster_plugin` status. So does an in-sample `LTMLE` fit with `id=` and fewer than 40 positive-mass clusters | a $t$-reference claim, with a registered study at few clusters |
 
-Each status keeps the point estimate, and `ci`, `pvalue`, and `std_error` refuse. The longitudinal
-few-cluster interval is [RM26](#rm26-longitudinal-clustered-intervals-at-few-clusters).
+Each status keeps the point estimate, and `ci`, `pvalue`, and `std_error` refuse.
+[RM26](#rm26-longitudinal-clustered-intervals-at-few-clusters) applied the few-cluster decision to
+the in-sample longitudinal fit.
+
+One kind of saved result takes no status that names its composition. Releases 0.1.0 and 0.1.1
+predate commit 5f32c14, which refused `id=` on a cross-fitted `LTMLE` fit, so they could save that
+fit. When such a result loads, `LongitudinalResult.__setstate__` recomputes its status from its
+data and folds. The table gives the outcome.
+
+| saved clusters | status on load | what is wrong with it |
+| --- | --- | --- |
+| 40 or more, equal in rows and weight mass | `influence_curve`. The saved interval stands | this version refuses the fit, and no result covers its interval |
+| unequal in rows or weight mass | `unequal_cluster_plugin` | its reason cites the point-treatment argument for grouped folds |
+| fewer than 40 with positive weight mass, equal in size | `few_cluster_plugin` | its reason names the reference distribution, not the refused composition |
+
+RM26 found this case, and F22 holds it. The route that reopens the cross-fitted longitudinal fit
+also settles it.
 
 [Grouped folds and clustered cross-fitting](references.md#grouped-folds-and-clustered-cross-fitting)
 gives every source the audit read, with the version whose locators it used.
