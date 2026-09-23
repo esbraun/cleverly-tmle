@@ -666,28 +666,39 @@ $$
 $$
 
 with $\sigma^2 = E[(Y - \bar{Q})^2]$ and $\nu^2$ the second moment of the Riesz representer. The
-two primitives are exposed as `elements()`. A median-combined repeated fit refuses this analysis
-because the median bound needs its own influence function.
+two primitives are exposed as `elements()`.
 
 The estimate of $\nu^2$ reads the fitted treatment mechanism, so it needs a consistent assignment
 model. A wrong model makes $\nu^2$ too small. The bounds then read too narrow, and the robustness
-value reads too large. `cleverly` therefore refuses every operation in this group on the fits
-below. The refusal runs in `sensitivity_elements()`, before any computation, so all four entry
-points and the matching capability rows carry one reason.
+value reads too large. `cleverly` refuses every operation in this group on the fits below. The
+refusal runs in `sensitivity_elements()` before any computation. Every entry point and the
+matching capability row therefore carry one reason.
 
 | refused fit | the result the package does not have |
 | --- | --- |
 | a `drtmle` fit | an estimate of $\nu^2$ for an estimator that does not assume a consistent treatment mechanism. $E[2 m(\hat\alpha) - \hat\alpha^2]$ equals $\nu_0^2 - \lVert \hat\alpha - \alpha_0 \rVert^2$, so it falls where that mechanism is wrong |
-| a `collaborative_tmle` fit | the same estimate. The selected working mechanism gives the representer $E[\alpha_W \mid A]$, whose second moment cannot exceed that of $\alpha_W$, while $\sigma^2$ reads every declared covariate |
-| a fit with a response mechanism | a derivation of the bound with a response mechanism. The cited bound carries one treatment-side strength and no response-side term. The missingness tilt remains the sensitivity analysis for response |
+| a `collaborative_tmle` fit | the same estimate. The working mechanism conditions on a function $V$ of the covariates. $V$ is the selected set $W_S$ on the greedy, ordered, and discrete paths, and the fitted outcome regression under `strategy="oat"`. The representer is then $E[\alpha_W \mid A, V]$. Its second moment cannot exceed that of $\alpha_W$, while $\sigma^2$ reads every declared covariate |
+| a fit with a response mechanism | an implementation. The identified mean is a linear functional of the regression of $\Delta Y$ on $(A, \Delta, W)$, so Theorem 2 of the cited paper covers it. The implemented representer omits $\Delta$. $\sigma^2$ averages the respondents, and the theorem needs $E[\Delta (Y - \bar{Q})^2]$. $c_D$ would combine the treatment and response mechanisms. The missingness tilt remains the sensitivity analysis for response |
+| a fit with an intermediate variable | an implementation. Each estimand at the level $z$ is a linear functional of the regression of $Y$ on $(A, Z, W)$, so Theorem 2 covers it. The representer carries the weight $1\{Z = z\} / P(Z = z \mid A, W)$, so $c_D$ would combine the treatment and intermediate mechanisms |
 | a longitudinal fit | any registered longitudinal derivation. See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) |
 | a `regime`, `shift`, or `msm` parameter axis | an implementation. Each of these parameters is a linear functional of the outcome regression and has a Riesz representer, so the bound is well posed here |
 | an `ipsi` parameter axis | a bound that covers it. An incremental intervention tilts the treatment mechanism, so the mechanism is part of the estimand rather than a nuisance |
+| a median-combined fit from `repeats=` | an influence function for the median bound. A coordinatewise median of per-draw influence terms is not one. Fit one split for this analysis |
+
+The table rule for `repeats=` runs last. A repeated fit that another rule also refuses reports that
+other rule, because one split would not lift it.
 
 `nu2_estimator=` accepts `"auto"`, `"doubly_robust"`, and `"plugin"`. `"auto"` resolves to
-`"doubly_robust"`. A value outside those three raises `ValueError`. A `"doubly_robust"` estimate
-that is not positive raises `CapabilityError` and names the estimator. The package returns no
-plug-in value in its place, because the plug-in squares the same fitted representer.
+`"doubly_robust"`. A value outside those three raises `ValueError` before any refusal. A
+`"doubly_robust"` estimate that is not positive raises `CapabilityError` and names the estimator.
+The package returns no plug-in value in its place, because the plug-in squares the same fitted
+representer.
+
+For the ATT and the ATC, the doubly robust score weights the contrast by $1\{A = c\} / P(A = c)$.
+Here $c$ is the arm the estimand conditions on. This weight is the observed arm indicator of
+Example 2 in the online appendix of the cited paper, not the fitted $\hat g_c$. Only the observed
+indicator keeps the Riesz identity above. `TestTheConditionalEffectScoreReadsTheObservedArm` in
+`tests/unit/test_omitted_variable_refusals.py` checks both conditional effects on an exact law.
 
 `robustness_value()` inverts the bound for the single strength that flips the conclusion.
 `benchmark()` drops each named observed covariate, refits, and calibrates the strength scale

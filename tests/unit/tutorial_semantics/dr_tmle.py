@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 
 from cleverly.datasets import navigation_protocol, nonlinear_bounded_dgp
+from cleverly.sensitivity.omitted_variable import OMITTED_VARIABLE_OPERATIONS
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -98,13 +99,7 @@ def check(namespace: dict[str, Any]) -> None:
     summary = assessment.summary()
     # "Every omitted-variable operation is unavailable for this fit."
     not_run = summary.split("Not run", 1)[1]
-    for operation in (
-        "omitted_confounding",
-        "robustness_value",
-        "elements",
-        "contour",
-        "benchmark",
-    ):
+    for operation in OMITTED_VARIABLE_OPERATIONS:
         assert f"sensitivity.{operation}" in not_run
     # "The evalue row of Step 9 still returns."
     assert "sensitivity  evalue" in summary.split("Not run", 1)[0]
@@ -125,13 +120,7 @@ def check(namespace: dict[str, Any]) -> None:
 
     # Step 10 shows the refusal, and the ledger marks every omitted-variable operation.
     ledger = assessment.to_frame().set_index(["surface", "check"])["status"]
-    for operation in (
-        "omitted_confounding",
-        "robustness_value",
-        "elements",
-        "contour",
-        "benchmark",
-    ):
+    for operation in OMITTED_VARIABLE_OPERATIONS:
         assert str(ledger.loc[("sensitivity", operation)]) == "unavailable"
     # "The refusal names the fitted method, drtmle, and the quantity the package will not
     # estimate for it."

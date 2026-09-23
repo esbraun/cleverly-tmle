@@ -39,7 +39,7 @@ from cleverly.datasets import (
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, PositivityWarning
 from cleverly.interventions import Shift
-from cleverly.sensitivity.omitted_variable import benchmark
+from cleverly.sensitivity.omitted_variable import OMITTED_VARIABLE_OPERATIONS, benchmark
 from cleverly.validation.refute import (
     BootstrapMeasurementError,
     EmpiricalInclusionRule,
@@ -1107,7 +1107,7 @@ class TestTheEValueOnAMissingOutcomeFit:
         this mechanism, so the sensitivity analysis for response is the tilt. The refusal
         says so, and these rows are why that sentence is worth printing.
         """
-        for operation in ("omitted_confounding", "robustness_value", "elements", "contour"):
+        for operation in OMITTED_VARIABLE_OPERATIONS:
             row = gaussian_missing_fit.sensitivity.capability(operation)
             assert not row.available, operation
             assert "response mechanism" in row.reason, operation

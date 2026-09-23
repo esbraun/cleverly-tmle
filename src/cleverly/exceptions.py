@@ -22,6 +22,7 @@ __all__ = [
     "WeightingWarning",
     "refuse_after_repeats",
     "refuse_working_mechanism_inference",
+    "repeats_refusal",
 ]
 
 
@@ -154,5 +155,32 @@ def refuse_after_repeats(n_repeats: int, *, operation: str, reason: str) -> None
     CapabilityError
         When the report combines more than one draw.
     """
+    refusal = repeats_refusal(n_repeats, operation=operation, reason=reason)
+    if refusal is not None:
+        raise CapabilityError(refusal)
+
+
+def repeats_refusal(n_repeats: int, *, operation: str, reason: str) -> str | None:
+    """Return the refusal :func:`refuse_after_repeats` raises, or ``None``.
+
+    A capability row declares its reason before any call, so a surface that reports rows
+    needs the sentence without the raise.  One formatter serves both, so the declared
+    reason and the raised one cannot drift apart.
+
+    Parameters
+    ----------
+    n_repeats : int
+        How many cross-fitting draws the report combines. One draw refuses nothing.
+    operation : str
+        The refused operation, named as the caller writes it.
+    reason : str
+        Why the median report cannot supply it, and what the caller can do instead.
+
+    Returns
+    -------
+    str or None
+        The refusal, or ``None`` when the report is one draw.
+    """
     if n_repeats > 1:
-        raise CapabilityError(f"{operation} is not defined for median-combined repeats. {reason}")
+        return f"{operation} is not defined for median-combined repeats. {reason}"
+    return None

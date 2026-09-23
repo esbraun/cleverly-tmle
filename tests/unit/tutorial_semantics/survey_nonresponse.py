@@ -26,6 +26,7 @@ from cleverly import (
     PopulationAttributableFraction,
 )
 from cleverly.datasets import missing_outcome_dgp, navigation_protocol
+from cleverly.sensitivity.omitted_variable import OMITTED_VARIABLE_OPERATIONS
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -246,9 +247,10 @@ def check(namespace: dict[str, Any]) -> None:
     assert "nuisance fits look reasonable" in assessment_output
     # "The omitted_confounding, robustness_value, elements, contour, and evalue rows are
     # unavailable for this fit." No bound or standardized E-value is derived with a response
-    # mechanism, so no number for one may appear in the stored summary.
+    # mechanism, so no number for one may appear in the stored summary. The benchmark row
+    # shares the bound's refusal, so the shared tuple checks it too.
     ledger = namespace["assessment"].to_frame().set_index(["surface", "check"])["status"]
-    for row in ("omitted_confounding", "robustness_value", "elements", "contour", "evalue"):
+    for row in (*OMITTED_VARIABLE_OPERATIONS, "evalue"):
         assert str(ledger.loc[("sensitivity", row)]) == "unavailable"
         assert f"sensitivity  {row}" not in assessment_output.split("Not run", 1)[0]
 

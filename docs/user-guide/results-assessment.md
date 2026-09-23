@@ -286,10 +286,10 @@ Known omissions carry the capability's reason. Examples include an E-value witho
 contrast and a missingness analysis without missing outcomes. Such a row records no arguments,
 because the fit refuses it before the report considers your request.
 
-An operation can also refuse after invocation, such as omitted-confounding sensitivity on
-median-combined repeats. That row becomes an `unavailable` omission, retains its invocation
-arguments, and names the direct call. Other accepted diagnostics still run. Structural errors, such
-as invalid argument names, still stop the report.
+An operation can also refuse after invocation, such as omitted-confounding sensitivity when the
+doubly robust $\nu^2$ is not positive. That row becomes an `unavailable` omission, retains its
+invocation arguments, and names the direct call. Other accepted diagnostics still run. Structural
+errors, such as invalid argument names, still stop the report.
 
 A combined report runs summaries and cheap retargets by default. The two costlier classes are
 named separately because they are disjoint. `refute()` and `benchmark()` refit nuisance models.

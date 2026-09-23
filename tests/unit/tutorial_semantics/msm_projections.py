@@ -17,6 +17,7 @@ from sklearn.dummy import DummyRegressor
 from cleverly import MSMProjection
 from cleverly.datasets import navigation_protocol
 from cleverly.msm import MSM
+from cleverly.sensitivity.omitted_variable import OMITTED_VARIABLE_OPERATIONS
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -197,7 +198,7 @@ def check(namespace: dict[str, Any]) -> None:
     assert namespace["scores"].passed
     # "the omitted-variable operations are unavailable for this fit"
     ledger = assessment.to_frame().set_index(["surface", "check"])["status"]
-    for operation in ("omitted_confounding", "robustness_value", "elements", "contour"):
+    for operation in OMITTED_VARIABLE_OPERATIONS:
         assert str(ledger.loc[("sensitivity", operation)]) == "unavailable"
     support = namespace["support"]
     # "The fit truncated 1.23% of the units, and the support report warns above 1%."
