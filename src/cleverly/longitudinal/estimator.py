@@ -1450,9 +1450,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         """
         data = self.__dict__.get("data")
         folds = self.__dict__.get("folds")
-        # An unclustered fit supplies inference, so it loads as saved. That includes a
-        # result whose data predates the ``weights`` field of ``LongitudinalData``.
-        if data is None or folds is None or data.cluster is None:
+        if data is None or folds is None:
             return
         status = _inference_status(data, folds)
         if supplies_inference(status):

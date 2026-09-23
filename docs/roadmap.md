@@ -2860,15 +2860,17 @@ fails the witness and the nuisance note. An at-or-below comparison still passes 
 it fails the 40-cluster control. A rule that ignores the weights fails the zero-mass witness. A
 replay without the status fails the truncation check.
 
-Sixteen more mutations ran by hand at commit 3eef4a4, after the review fixes to the code and the
+Fifteen more mutations ran by hand at commit 3eef4a4, after the review fixes to the code and the
 tests. Each run applied one mutation to the file at HEAD and ran
 `tests/unit/test_longitudinal_cluster_status.py`. It then restored the file, and the restored file
-matched its blob at HEAD. Fifteen mutations failed at least one test. The table gives them.
+matched its blob at HEAD. Each mutation failed at least one test. The table gives them. The row for
+the direct read of `data.weights` comes from a later run, which the paragraph after the table
+explains.
 
 | mutation | file | tests that failed |
 | --- | --- | --- |
 | `_inference_status` returns `influence_curve` | `src/cleverly/longitudinal/estimator.py` | 18: the four withholding witnesses, the four report checks, the bands, the note, the zero-mass witness, the study workflow, both legacy routes, both 39-cluster loads without `weights`, the at-or-below control, and the replay mutation test |
-| `_inference_status` reads `data.weights` directly | `src/cleverly/longitudinal/estimator.py` | 2: both 39-cluster loads without `weights` |
+| `_inference_status` reads `data.weights` directly | `src/cleverly/longitudinal/estimator.py` | 4: the unclustered and the 39-cluster loads without `weights`, on both routes |
 | `_refit_bound` stamps `influence_curve` | `src/cleverly/longitudinal/estimator.py` | 3: the truncation replay and both legacy routes |
 | `_bands` builds bands at any status | `src/cleverly/longitudinal/estimator.py` | 4: the skipped default bands, the study workflow, and both legacy routes |
 | `__setstate__` skips the re-stamp | `src/cleverly/longitudinal/estimator.py` | 4: both legacy routes and both 39-cluster loads without `weights` |
@@ -2883,9 +2885,12 @@ matched its blob at HEAD. Fifteen mutations failed at least one test. The table 
 | `_msm_estimates` drops the status | `src/cleverly/longitudinal/estimator.py` | 2: the MSM witness and the MSM report check |
 | `_estimates` drops the status of the contrasts | `src/cleverly/longitudinal/estimator.py` | 11: the end-of-study, survival, and competing-risk witnesses, the survival and competing-risk report checks, the bands, the note, the zero-mass witness, the at-or-below control, and both legacy routes |
 
-The sixteenth mutation survived. It removes the early return of the re-stamp on unclustered data.
-On unclustered data, `_inference_status` returns `influence_curve` without a read of the weights.
-So the load still succeeds, and the early return only skips that call.
+A sixteenth mutation at commit 3eef4a4 removed the early return of the re-stamp on unclustered
+data, and no test failed. On unclustered data, `_inference_status` returns `influence_curve`, and
+it reads the weights with `getattr`. So the early return was redundant, and a later commit removed
+it. After that removal, four mutations on the load path ran again. The direct read of
+`data.weights` now fails four tests, not two. The rows for the `influence_curve` return, the
+skipped re-stamp, and the kept bands did not change.
 
 The row probe, re-run on the delivered code, reads `few_cluster_plugin`. The table gives the
 estimates.
