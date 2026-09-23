@@ -2836,7 +2836,7 @@ The 2026-09-23 plan for RM25 found this surface. A probe measured it on the RM25
 
 | probe | result |
 | --- | --- |
-| the RM25 witness law, in sample, with oracle nuisances. A class with the `name` `"tilt"` has a `density` that returns the odds tilt at $\delta = 2$ of the sample treated share in each stratum. It reads `data.treatment` and `data.covariates` | `ey_regime[tilt]` reports its interval under the `influence_curve` status. Its standard error is 0.6226 of the exact standard error of the estimated density, the RM25 witness value. No warning and no message names the density |
+| the RM25 witness law, in sample, with oracle nuisances. A user-written class has the `name` `"tilt"`. Its `density` returns the odds tilt at $\delta = 2$ of the sample treated share in each stratum. It reads `data.treatment` and `data.covariates` | `ey_regime[tilt]` reports its interval under the `influence_curve` status. Its standard error is 0.6226 of the exact standard error of the estimated density, the RM25 witness value. No warning and no message names the density |
 
 Apply these corrections:
 

@@ -298,9 +298,10 @@ def refuse_unsupported(kind: str, detail: str = "") -> None:
 
 
 #: Why an estimated projection weight is refused.  Written once, and read by both
-#: :func:`refuse_unsupported` and ``_WEIGHTS_DECLARATION``, which
-#: :func:`refuse_projection_weights` runs, so the declaration layer and the fit layer
-#: cannot drift apart.
+#: ``_WEIGHTS_DECLARATION``, which :func:`refuse_projection_weights` runs at every site that
+#: checks a model, and :func:`refuse_unsupported`.  No source path calls
+#: ``refuse_unsupported("estimated_weights")``.  It is the public named refusal, and it shares
+#: this text so that the two cannot drift apart.
 _ESTIMATED_WEIGHTS = (
     "an estimated MSM projection weight (a 'stabilised' MSM) is refused. h(a, V) is then "
     "a functional of P, so the efficient influence function carries a further term for "

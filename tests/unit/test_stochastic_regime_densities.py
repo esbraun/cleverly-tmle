@@ -512,7 +512,7 @@ DELTAS = {label: law.IPSI_DELTAS[label] for label in ("odds x2", "odds x0.5")}
 
 #: The reported SE over the exact estimated-density SE at delta = 2 must stay below this.
 #: The probe measured 0.6226 before this bound was chosen.  A curve that carried the
-#: Kennedy term would read 1.  The bound claims an understatement of 30 percent or more and
+#: Kennedy term would read 1.  The bound claims an understatement of more than 30 percent and
 #: pins no digit; the approx line records the measured value, as RM13 records 0.7417.
 UNDERSTATEMENT_BOUND = 0.7
 

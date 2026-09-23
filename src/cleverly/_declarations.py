@@ -9,8 +9,10 @@ a function is a declaration with three states:
 - ``"estimated"`` is a function computed from the sample. The target is then a functional of
   :math:`P` through the function, and the reported influence curve omits that pathwise
   derivative, so the package refuses it.
-- ``None`` is the default, and it means undeclared. The package refuses it, so an object
-  restored from before its declaration field existed refuses every recomputation.
+- ``None`` is the default, and it means undeclared. The package refuses it for a supplied
+  function, so an object restored from before its declaration field existed refuses every
+  recomputation. A user can accept ``None`` when no function is supplied: an MSM with
+  ``weights=None`` has uniform weights, which are known.
 
 The declaration is a three-state ``Literal`` and not a bool, because an undeclared function
 has to refuse and a bool default would declare it silently. :class:`FunctionDeclaration`

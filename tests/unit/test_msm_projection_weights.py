@@ -529,7 +529,7 @@ def eif(weights: Any) -> np.ndarray:
 #: The reported SE over the exact estimated-share SE for ``msm[W]`` must stay below this.
 #: The measured ratio is 0.7417.  A reported curve that carried the share term would give
 #: 1.  The bound sits between the two, far enough from 0.7417 that it does not pin a
-#: digit, and far enough from 1 that an understatement of 20 percent or more is the claim.
+#: digit, and far enough from 1 that an understatement of more than 20 percent is the claim.
 UNDERSTATEMENT_BOUND = 0.8
 
 
