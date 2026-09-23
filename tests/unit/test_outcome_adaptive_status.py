@@ -26,7 +26,7 @@ from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_binary_outcome, make_missing_outcome, make_multi_arm
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators.ctmle import is_selector_strategy
-from cleverly.exceptions import CapabilityError
+from cleverly.exceptions import CapabilityError, capitalize_first
 from tests.conftest import linear_in_sample
 from tests.unit._inference_status_support import (
     ROUTES,
@@ -103,16 +103,16 @@ class TestEveryOutcomeAdaptiveFitReportsNoInterval:
             return
         row = result.sensitivity.run_all(arguments={"evalue": {"estimand": contrasts[0]}})
         assert row["evalue"].status is AssessmentStatus.UNAVAILABLE
-        assert RECORD.reason in row["evalue"].detail
+        assert capitalize_first(RECORD.reason) in row["evalue"].detail
         with pytest.raises(CapabilityError) as raised:
             result.sensitivity.evalue(contrasts[0])
-        assert_refused_by(STATUS, raised)
+        assert capitalize_first(RECORD.reason) in str(raised.value)
         if case != "multi_arm":
             # Two contrasts defer the bare row to an explicit estimand, so only a
             # single-contrast fit shows the reason on the bare capability row.
             capability = result.sensitivity.capability("evalue")
             assert capability.available is False
-            assert RECORD.reason in (capability.reason or "")
+            assert capitalize_first(RECORD.reason) in (capability.reason or "")
 
 
 class TestTheOrdinaryTMLEKeepsItsInterval:

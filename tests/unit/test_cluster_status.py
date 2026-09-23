@@ -48,7 +48,7 @@ from cleverly._inference_status import FEW_CLUSTER_THRESHOLD, NON_INFERENTIAL
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_clustered
 from cleverly.estimators import DRTMLE, TMLE
-from cleverly.exceptions import CapabilityError
+from cleverly.exceptions import CapabilityError, capitalize_first
 from cleverly.inference.cluster import cluster_inference_status
 from tests.conftest import linear_in_sample
 from tests.unit._inference_status_support import (
@@ -167,7 +167,7 @@ class TestUnequalCrossFittedClustersReportNoInterval:
     def test_the_evalue_is_unavailable_with_the_reason(self, unequal_result: Any) -> None:
         capability = unequal_result.sensitivity.capability("evalue")
         assert capability.status is AssessmentStatus.UNAVAILABLE
-        assert NON_INFERENTIAL[UNEQUAL].reason in (capability.reason or "")
+        assert capitalize_first(NON_INFERENTIAL[UNEQUAL].reason) in (capability.reason or "")
 
 
 class TestTheFoldReportIsStamped:

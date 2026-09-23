@@ -39,6 +39,7 @@ from cleverly.estimators.targeting import build_submodel
 from cleverly.exceptions import (
     WORKING_MECHANISM_ASSESSMENT_NOTE,
     WORKING_MECHANISM_NOT_INFERENTIAL,
+    capitalize_first,
 )
 from cleverly.inference.influence import counterfactual_means
 from cleverly.validation.nuisance import NUISANCE_SELECTION_MISSING
@@ -1056,14 +1057,16 @@ class TestTheSelectorPathsPublishNoInference:
         result = self._fit("greedy")
         capability = result.sensitivity.capability("evalue")
         assert capability.available is False
-        assert WORKING_MECHANISM_NOT_INFERENTIAL in (capability.reason or "")
+        assert capitalize_first(WORKING_MECHANISM_NOT_INFERENTIAL) in (capability.reason or "")
         assert result.sensitivity.capability("evalue").available is False
 
         # The ordinary fit keeps it, and the outcome-adaptive path refuses by its own reason.
         assert self._fit(self.ORDINARY).sensitivity.capability("evalue").available
         adaptive = self._fit("oat").sensitivity.capability("evalue")
         assert adaptive.available is False
-        assert NON_INFERENTIAL["generated_design_plugin"].reason in (adaptive.reason or "")
+        assert capitalize_first(NON_INFERENTIAL["generated_design_plugin"].reason) in (
+            adaptive.reason or ""
+        )
 
     def test_the_truncation_curve_reports_the_diagnostic_rather_than_raising(self) -> None:
         """Reachable on a C-TMLE fit, and it builds an inference-shaped frame per bound."""

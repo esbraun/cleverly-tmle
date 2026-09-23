@@ -25,7 +25,7 @@ from cleverly._inference_status import NON_INFERENTIAL
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_binary_outcome
 from cleverly.estimators import DRTMLE, TMLE
-from cleverly.exceptions import CapabilityError
+from cleverly.exceptions import CapabilityError, WeightingWarning, capitalize_first
 from tests.conftest import linear_in_sample
 from tests.unit._inference_status_support import (
     ROUTES,
@@ -82,7 +82,7 @@ class TestAnEstimatedWeightDRTMLEReportsNoInterval:
     def test_the_evalue_is_unavailable_with_the_reason(self, result: Any) -> None:
         capability = result.sensitivity.capability("evalue")
         assert capability.status is AssessmentStatus.UNAVAILABLE
-        assert RECORD.reason in (capability.reason or "")
+        assert capitalize_first(RECORD.reason) in (capability.reason or "")
 
 
 class TestTheNeighbouringFitsKeepTheirInterval:
@@ -101,6 +101,42 @@ class TestTheNeighbouringFitsKeepTheirInterval:
         assert_keeps_inference(control)
         # The nonzero witness for the E-value row above: it is available here.
         assert control.sensitivity.capability("evalue").available
+
+
+class TestTheWeightTextAgreesWithTheStatus:
+    """The weight report and the bootstrap warning are true of the status fit and a control.
+
+    ``data.weight_report()`` belongs to the data, so it cannot read a fit's status. Its
+    estimated-weight line said "the interval conditions on the fitted weights" on every
+    fit, which contradicts a guarded DR-TMLE fit that reports no interval. The line now
+    names that fit and its status, and the ordinary TMLE is the control whose interval the
+    conditioning sentence describes.
+    """
+
+    def test_the_status_fit_reads_its_own_status_in_the_weight_report(self, result: Any) -> None:
+        assert result.inference_status == STATUS
+        text = result.data.weight_report().summary()
+        assert "the interval conditions on the fitted weights" not in text
+        assert STATUS in text
+        assert "F5 in docs/roadmap.md" in text
+
+    def test_the_ordinary_tmle_has_the_interval_the_report_describes(self, frame: Any) -> None:
+        control = fit(frame, estimator=TMLE)
+        assert_keeps_inference(control)
+        text = control.data.weight_report().summary()
+        assert "an interval that a fit reports conditions on the fitted weights" in text
+        lower, upper = control.estimates["ate"].ci
+        assert np.isfinite(lower) and np.isfinite(upper)
+
+    def test_the_bootstrap_warning_claims_no_influence_curve_interval(self, frame: Any) -> None:
+        """The warning once said the bootstrap conditions "just as the influence-curve ones
+        do", and the status fit reports no influence-curve interval."""
+        with pytest.warns(WeightingWarning, match="n_bootstrap") as caught:
+            bootstrapped = fit(frame, n_bootstrap=2)
+        assert bootstrapped.inference_status == STATUS
+        (message,) = [str(w.message) for w in caught if "n_bootstrap" in str(w.message)]
+        assert "condition on the fitted weights" in message
+        assert "influence-curve" not in message
 
 
 class TestVariableImportanceRefusesBeforeItFits:

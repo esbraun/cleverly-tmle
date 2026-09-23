@@ -39,6 +39,7 @@ from cleverly.assessment import (
 )
 from cleverly.datasets import make_binary_outcome, make_multi_arm
 from cleverly.estimators import DRTMLE, TMLE
+from cleverly.exceptions import capitalize_first
 from cleverly.sensitivity._derived import _derived_risk_ratio
 from cleverly.sensitivity.evalue import _select_evalue, _standardising_sd, evalue_from_rr
 from cleverly.sensitivity.positivity import PositivityReport
@@ -277,7 +278,7 @@ def test_an_outcome_adaptive_fit_refuses_every_evalue_branch_by_its_status(estim
             simultaneous=False,
         )
     )
-    reason = NON_INFERENTIAL["generated_design_plugin"].reason
+    reason = capitalize_first(NON_INFERENTIAL["generated_design_plugin"].reason)
     capability = result.sensitivity.capability("evalue")
     assert capability.available is False
     assert reason in (capability.reason or "")
@@ -1008,7 +1009,7 @@ def test_an_outcome_adaptive_evalue_refusal_is_identical_live_saved_and_detached
         with pytest.raises(CapabilityError) as raised:
             result.sensitivity.evalue("ate")
         reasons.append(str(raised.value))
-    assert NON_INFERENTIAL["generated_design_plugin"].reason in reasons[0]
+    assert capitalize_first(NON_INFERENTIAL["generated_design_plugin"].reason) in reasons[0]
     assert reasons == [reasons[0]] * 3
 
 

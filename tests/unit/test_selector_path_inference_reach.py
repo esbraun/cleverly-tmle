@@ -50,6 +50,7 @@ from cleverly.exceptions import (
     WORKING_MECHANISM_ASSESSMENT_NOTE,
     WORKING_MECHANISM_NOT_INFERENTIAL,
     CapabilityError,
+    capitalize_first,
     inference_refusal,
 )
 from cleverly.inference.influence import spread_name
@@ -554,7 +555,7 @@ class TestTheArgumentAwareRowsAgreeWithTheCall:
         assert level.status is AssessmentStatus.NOT_APPLICABLE
         contrast = fit.sensitivity.run_all(arguments={"evalue": {"estimand": "ate"}})["evalue"]
         assert contrast.status is AssessmentStatus.UNAVAILABLE
-        assert WORKING_MECHANISM_NOT_INFERENTIAL in contrast.detail
+        assert capitalize_first(WORKING_MECHANISM_NOT_INFERENTIAL) in contrast.detail
 
 
 class TestNoAvailableRowDeclinesOnASelectorPath:

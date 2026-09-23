@@ -632,7 +632,10 @@ def estimand_lines(report: WeightReport) -> list[str]:
 
     Short by design -- the derivation lives in this module's docstring.  What has to
     appear next to any weighted number is *which* population it refers to and *what* the
-    standard error conditions on.
+    standard error conditions on.  The report belongs to the data and not to a fit, so
+    every sentence has to be true of every estimator that can fit the data: the
+    estimated-weight line names the fit that the weight declaration alone stops from
+    reporting an interval.
     """
     if not report.is_weighted:
         return []
@@ -645,14 +648,17 @@ def estimand_lines(report: WeightReport) -> list[str]:
     ]
     if report.estimated:
         lines.append(
-            "Weights were declared estimated: the interval conditions on the fitted "
-            "weights. For weights fitted by maximum likelihood in a correct selection "
-            "model this is conservative for the full-population parameter; for "
-            "calibrated, raked or trimmed weights there is no general guarantee. Note "
-            "that this package's bootstrap (n_bootstrap=) does not close the gap: it "
-            "resamples rows and renormalises the weights it was handed, never re-deriving "
-            "them, so its intervals condition on the fitted weights too. Closing it needs "
-            "the weight model in the resampling loop, outside this package."
+            "Weights were declared estimated: an interval that a fit reports conditions on "
+            "the fitted weights. For weights fitted by maximum likelihood in a correct "
+            "selection model this is conservative for the full-population parameter; for "
+            "calibrated, raked or trimmed weights there is no general guarantee. Note that "
+            "this package's bootstrap (n_bootstrap=) does not close the gap: it resamples "
+            "rows and renormalises the weights it was handed, never re-deriving them, so "
+            "its intervals condition on the fitted weights too. Closing it needs the weight "
+            "model in the resampling loop, outside this package. A DRTMLE fit with a "
+            "non-empty guard reports no interval on estimated weights: the conditioning "
+            "argument concerns D* and not the reduced regressions, so the fit takes the "
+            "estimated_weight_plugin status, and F5 in docs/roadmap.md reopens it."
         )
     lines.append(
         "Complex designs: stratification and finite-population corrections are ignored "

@@ -157,7 +157,7 @@ class TestTheCombinedReports:
             assert_no_inferential_text(item.detail)
         evalue = report["evalue"]
         assert evalue.status is AssessmentStatus.UNAVAILABLE
-        assert NON_INFERENTIAL[status].reason in evalue.detail
+        assert capitalize_first(NON_INFERENTIAL[status].reason) in evalue.detail
         assert_no_inferential_text(report.summary())
 
     def test_the_diagnostics_battery_answers(self, result: Any, status: str) -> None:
@@ -183,7 +183,12 @@ class TestTheCombinedReports:
     def test_the_evalue_row_is_unavailable_with_the_reason(self, result: Any, status: str) -> None:
         capability = result.sensitivity.capability("evalue")
         assert capability.available is False
-        assert NON_INFERENTIAL[status].reason in (capability.reason or "")
+        reason = capability.reason or ""
+        assert capitalize_first(NON_INFERENTIAL[status].reason) in reason
+        # The status's reason follows the E-value clause as a new sentence.
+        prefix = "an E-value is built from the reported estimate and its interval. "
+        assert reason.startswith(prefix)
+        assert reason[len(prefix)].isupper()
 
 
 class TestVariableImportanceRefusesBeforeItFits:

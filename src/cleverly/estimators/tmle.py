@@ -2523,17 +2523,19 @@ class TMLE:
         A user told that estimated weights need "a bootstrap that re-derives them" will
         reach for ``n_bootstrap=``, and it is the wrong tool: every replicate inherits the
         weights it was handed and merely renormalises them, so the bootstrap interval
-        conditions on the fitted weights exactly as the influence-curve one does. Saying
-        so is cheap; letting the mistake pass silently is not.
+        conditions on the fitted weights. Saying so is cheap; letting the mistake pass
+        silently is not.  The warning does not compare the bootstrap with an
+        influence-curve interval, because a :class:`~cleverly.DRTMLE` fit with a guard and
+        estimated weights reports none (the ``"estimated_weight_plugin"`` status).
         """
         if not (data.is_weighted and data.weight_spec.estimated and self.n_bootstrap):
             return
         warnings.warn(
             "weights_estimated=True with n_bootstrap: the bootstrap resamples rows and "
             "renormalises the weights it was given, never re-deriving them, so its "
-            "intervals condition on the fitted weights just as the influence-curve ones "
-            "do. Re-deriving the weights inside each replicate needs the model that "
-            "produced them, which this package never sees. See cleverly.data.weighting.",
+            "intervals condition on the fitted weights. Re-deriving the weights inside "
+            "each replicate needs the model that produced them, which this package never "
+            "sees. See cleverly.data.weighting.",
             WeightingWarning,
             stacklevel=3,
         )
