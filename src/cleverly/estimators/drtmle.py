@@ -521,20 +521,16 @@ class DRTMLE(TMLE):
         Parameters
         ----------
         data : CausalData
-            The prepared data. Its weight declaration is read through ``getattr``,
-            because a ``CausalData`` pickled before ``weight_spec`` existed has none.
+            The prepared data. Its weight declaration is read through
+            :attr:`~cleverly.data.CausalData.declares_estimated_weights`, so constant
+            weights declared estimated fit the unweighted estimator and keep its interval.
 
         Returns
         -------
         str
             One of :data:`~cleverly.inference.influence.InferenceStatus`.
         """
-        spec = getattr(data, "weight_spec", None)
-        estimated = (
-            bool(self.guard)
-            and getattr(data, "weights_name", None) is not None
-            and bool(getattr(spec, "estimated", False))
-        )
+        estimated = bool(self.guard) and data.declares_estimated_weights
         return precedent_status(
             [
                 "estimated_weight_plugin" if estimated else "influence_curve",

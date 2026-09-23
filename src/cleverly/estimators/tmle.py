@@ -2527,7 +2527,7 @@ class TMLE:
         influence-curve interval, because a :class:`~cleverly.DRTMLE` fit with a guard and
         estimated weights reports none (the ``"estimated_weight_plugin"`` status).
         """
-        if not (data.is_weighted and data.weight_spec.estimated and self.n_bootstrap):
+        if not (data.declares_estimated_weights and self.n_bootstrap):
             return
         warnings.warn(
             "weights_estimated=True with n_bootstrap: the bootstrap resamples rows and "

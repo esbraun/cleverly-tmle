@@ -203,8 +203,7 @@ def _refuse_intermediate(result: Any) -> str | None:
 
 def _refuse_estimated_weights(result: Any) -> str | None:
     """Refuse observation weights the fit estimated rather than received."""
-    data = result.data
-    if data.weights_name is not None and data.weight_spec.estimated:
+    if result.data.declares_estimated_weights:
         return _ESTIMATED_WEIGHT_REFUSAL
     return None
 

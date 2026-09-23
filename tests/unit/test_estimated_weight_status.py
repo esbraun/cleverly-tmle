@@ -15,6 +15,7 @@ ignores the guard.
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 import numpy as np
@@ -101,6 +102,23 @@ class TestTheNeighbouringFitsKeepTheirInterval:
         assert_keeps_inference(control)
         # The nonzero witness for the E-value row above: it is available here.
         assert control.sensitivity.capability("evalue").available
+
+    def test_constant_weights_declared_estimated_keep_the_interval(self, frame: Any) -> None:
+        """Constant weights fit the unweighted estimator, so the declaration acts on nothing.
+
+        The status, the bootstrap warning and the simulated-confounding refusal all read
+        ``CausalData.declares_estimated_weights``. A rule that reads the declaration alone
+        withheld this fit's interval.
+        """
+        constant = frame.assign(w=2.0)
+        control = fit(constant)
+        assert control.data.weight_spec.estimated
+        assert not control.data.declares_estimated_weights
+        assert_keeps_inference(control)
+        assert control.sensitivity.capability("evalue").available
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", WeightingWarning)
+            fit(constant, n_bootstrap=2)
 
 
 class TestTheWeightTextAgreesWithTheStatus:
