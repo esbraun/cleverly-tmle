@@ -41,6 +41,7 @@ import pytest
 
 import cleverly._declarations as declarations_module
 import cleverly.interventions.base as base_module
+import tests.unit.test_msm_projection_weights as rm13_tests
 from cleverly import CausalStudy, PointTreatment, RegimeMean
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE
@@ -423,9 +424,25 @@ class TestTheWitnessesHaveTeeth:
     def test_removing_the_shared_declaration_fails_both_of_its_users(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """RM13 and RM25 refuse through one ``FunctionDeclaration.refuse``."""
+        """RM13 and RM25 refuse through one ``FunctionDeclaration.refuse``.
+
+        Each witness that the shared refusal decides must fail under the mutation.  The RM13
+        unknown-value witness is not among them: ``refuse_projection_weights`` calls
+        ``check`` itself, so that witness still refuses.
+        """
         monkeypatch.setattr(
             declarations_module.FunctionDeclaration, "refuse", lambda self, kind: None
+        )
+        weight_suite = rm13_tests.TestTheDeclarationIsRequired()
+        density_suite = TestTheDeclarationIsRequired()
+        assert_every_witness_fails(
+            [
+                weight_suite.test_an_undeclared_callable_is_refused,
+                weight_suite.test_an_estimated_weight_is_refused_by_its_missing_term,
+                density_suite.test_an_undeclared_density_is_refused,
+                density_suite.test_an_estimated_density_is_refused_by_its_missing_term,
+                lambda: density_suite.test_an_unknown_declaration_is_refused("Known"),
+            ]
         )
         assert linear(weights=FixedWeight()).weights_kind is None
         assert coin().density_kind is None
