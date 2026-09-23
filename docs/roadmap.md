@@ -37,7 +37,7 @@ one, by the `id` in the "What this row asks for" table of RM18.
 `tests/unit/test_red_cell_ledger.py` checks the ledger against the committed results. Each red
 verdict stays red under a `reporting` policy, so no verdict is hidden and no margin moved.
 
-The ledger delivers the reporting action that row 0.1 names. RM18 is not complete. Five of its
+The ledger delivers the reporting action that RM18 names. RM18 is not complete. Five of its
 follow-ups ask for a design declared before its run, and none of those designs is declared or
 has run. RM18 lists them in "Deferred findings and review resolutions". The cells that F18 and F19 own
 stay red until F18 or F19 meets its acceptance. That needs a published result, or a natural
@@ -55,58 +55,89 @@ the measured result.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Red property cells after the fold, scale and law changes | keep each red verdict under `reporting` with its interval, and admit inference only when F18 or F19 supplies the exact result. The [red-cell ledger](technical-reference/method-evidence/red-cells.md) delivers this. Then declare and run the five open RM18 follow-up designs, each declared before its run | registered studies publish red verdicts after the fold, scale and law changes and the pooled update. The ledger lists each one and the ask that owns it. Five RM18 follow-up designs are not declared and have not run | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
-| 0.4 | Estimated MSM projection weights | require a declaration that a projection weight is known, and refuse an estimated weight before the fit | a callable that closes over estimated weights fits without a message and reports a standard error that is too small | [RM13](#rm13-estimated-msm-projection-weights) |
-| 0.5 | Intervention refusals at identification | refuse mixed intervention kinds in `CausalStudy.identify`, and name the typed estimands in each message | a mixed request passes identification and then fails at estimation, once with an `AttributeError` | [RM14](#rm14-intervention-refusals-at-identification) |
-| 0.6 | Calibration-slope warning rule | replace the fixed band with a rule that a registered calibration study supports | the band flagged 14 of 40 fits of a correctly specified weak-signal propensity model | [RM15](#rm15-calibration-slope-warning-rule) |
-| 0.7 | Summary and error-message accuracy | correct six display surfaces and one data error message, add a fingerprint-only protocol option, and decide which refusal an explicit simultaneous request on a selector fit gets | each surface omits, misstates, or repeats a fact that the fit records | [RM16](#rm16-summary-and-error-message-accuracy) |
-| 0.8 | One-sided robustness bias increment in DR-TMLE | investigate the exploratory between-implementation increment on binary `treatment_correct`, under a design declared before it runs | the RM18 reading is `mixed` on that configuration. The unadjusted paired 99% interval of `cleverly` minus R `drtmle` runs 0.000068 to 0.001942, while the Bonferroni interval for that comparison covers zero. No implementation defect is established | [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) |
-| 0.9 | Intervals outside every claimed contract | record one decision for each surface: register a claim with its source and evidence, give the estimate a non-inferential status, or refuse the interval | six shipped surfaces report `ci` under the `influence_curve` status. For each one, the technical reference says that no claim covers the interval, or no audit read a source for it | [RM20](#rm20-intervals-outside-every-claimed-contract) |
-| 0.91 | E-value on a controlled-direct-effect fit | find a source that derives an E-value for a controlled direct effect, or refuse each E-value branch that no source covers on a fit with an intermediate variable | the Gaussian branch and the reported-ratio branches answer on that fit, and the derived-ratio branch refuses it. No source read here covers the case | [RM21](#rm21-e-value-on-a-controlled-direct-effect-fit) |
-| 0.92 | Standard error of the omitted-variable bound | add the influence term of the conditioning share to the ATT and ATC curve, decide what the plug-in limits claim, and check each locator against the published article | the curve of $\nu^2$ omits $-2 \nu^2 (1\{A = c\} - p) / p$. Under the doubly robust estimator the omission widens the limits. No derivation covers the plug-in limits | [RM22](#rm22-standard-error-of-the-omitted-variable-bound) |
-| 0.93 | Capability rows that read available and then refuse | make each declared row match its call, and add a witness that sweeps the kinds of fit | four rows on three kinds of fit read available, and the call then refuses or raises. On one of them, `assess(include_refits=True)` raises `ValueError` and returns no report | [RM23](#rm23-capability-rows-that-read-available-and-then-refuse) |
-| 0.94 | Refusals after the nuisance fit | raise each refusal as `CapabilityError` before any learner call | three well-posed requests refuse after 2 to 8 learner fits, as `NotImplementedError` or `ValueError` | [RM24](#rm24-refusals-after-the-nuisance-fit) |
+| 0.11 | Intervals outside every claimed contract | record one decision for each surface: register a claim with its source and evidence, give the estimate a non-inferential status, or refuse the interval | six shipped surfaces report `ci` under the `influence_curve` status. For each one, the technical reference says that no claim covers the interval, or no audit read a source for it | [RM20](#rm20-intervals-outside-every-claimed-contract) |
+| 0.12 | Estimated MSM projection weights | require a declaration that a projection weight is known, and refuse an estimated weight before the fit | a callable that closes over estimated weights fits without a message and reports a standard error that is too small | [RM13](#rm13-estimated-msm-projection-weights) |
+| 0.21 | E-value on a controlled-direct-effect fit | find a source that derives an E-value for a controlled direct effect, or refuse each E-value branch that no source covers on a fit with an intermediate variable | the Gaussian branch and the reported-ratio branches answer on that fit, and the derived-ratio branch refuses it. No source read here covers the case | [RM21](#rm21-e-value-on-a-controlled-direct-effect-fit) |
+| 0.22 | Standard error of the omitted-variable bound | add the influence term of the conditioning share to the ATT and ATC curve, decide what the plug-in limits claim, and check each locator against the published article | the curve of $\nu^2$ omits $-2 \nu^2 (1\{A = c\} - p) / p$. Under the doubly robust estimator the omission widens the limits. No derivation covers the plug-in limits | [RM22](#rm22-standard-error-of-the-omitted-variable-bound) |
+| 0.31 | Capability rows that read available and then refuse | make each declared row match its call, and add a witness that sweeps the kinds of fit | four rows on three kinds of fit read available, and the call then refuses or raises. On one of them, `assess(include_refits=True)` raises `ValueError` and returns no report | [RM23](#rm23-capability-rows-that-read-available-and-then-refuse) |
+| 0.32 | Intervention refusals at identification | refuse mixed intervention kinds in `CausalStudy.identify`, and name the typed estimands in each message | a mixed request passes identification and then fails at estimation, once with an `AttributeError` | [RM14](#rm14-intervention-refusals-at-identification) |
+| 0.33 | Refusals after the nuisance fit | raise each refusal as `CapabilityError` before any learner call | three well-posed requests refuse after 2 to 8 learner fits, as `NotImplementedError` or `ValueError` | [RM24](#rm24-refusals-after-the-nuisance-fit) |
+| 0.41 | Calibration-slope warning rule | replace the fixed band with a rule that a registered calibration study supports | the band flagged 14 of 40 fits of a correctly specified weak-signal propensity model | [RM15](#rm15-calibration-slope-warning-rule) |
+| 0.42 | Summary and error-message accuracy | correct six display surfaces and one data error message, add a fingerprint-only protocol option, and decide which refusal an explicit simultaneous request on a selector fit gets | each surface omits, misstates, or repeats a fact that the fit records | [RM16](#rm16-summary-and-error-message-accuracy) |
+| 0.51 | Red property cells after the fold, scale and law changes | keep each red verdict under `reporting` with its interval, and admit inference only when F18 or F19 supplies the exact result. The [red-cell ledger](technical-reference/method-evidence/red-cells.md) delivers this. Then declare and run the five open RM18 follow-up designs, each declared before its run | registered studies publish red verdicts after the fold, scale and law changes and the pooled update. The ledger lists each one and the ask that owns it. Five RM18 follow-up designs are not declared and have not run | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
+| 0.52 | One-sided robustness bias increment in DR-TMLE | investigate the exploratory between-implementation increment on binary `treatment_correct`, under a design declared before it runs | the RM18 reading is `mixed` on that configuration. The unadjusted paired 99% interval of `cleverly` minus R `drtmle` runs 0.000068 to 0.001942, while the Bonferroni interval for that comparison covers zero. No implementation defect is established | [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) |
 
-Use seven delivery groups for these eleven rows and investigations. Keep each item's acceptance
-criteria separate inside its group.
+The 2026-09-22 re-triage ranked the rows by the harm that each defect does to a user today. The
+table gives the tiers, from the most harmful. Inside a tier, a row with a wider reach comes first.
+A row that another row depends on comes before that row.
+
+| tier | defect | rows |
+| --- | --- | --- |
+| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM20, RM13, RM21, RM22 |
+| b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM23, RM14 |
+| c | a correct refusal that arrives late or as the wrong type | RM24 |
+| d | a diagnostic or a warning that misleads | RM15 |
+| e | a display or a message that misstates a fact that the fit records | RM16 |
+| f | an investigation or a declared design that moves no verdict | RM18, RM19 |
+
+The order of the tiers follows the reason that put RM11 and RM12 first. Each of those rows
+published a number that no derivation covers. The table gives the reason for each place inside a
+tier.
+
+| row | reason for its place |
+| --- | --- |
+| RM20 | the widest reach in tier a. Its six surfaces include every cross-fitted clustered fit with unequal cluster sizes. At few clusters, the cited sources recommend a $t$ reference, and the package reports a normal one |
+| RM13 | a standard error that is too small, but only a callable weight that closes over an estimate reaches it |
+| RM21 | an E-value that no read source covers, on controlled-direct-effect fits only |
+| RM22 | the defect widens the limits of the default doubly robust estimator, which is conservative. No derivation covers the plug-in limits, but the probe measured their ratios at 0.992 to 1.026 |
+| RM23 | one fit loses the whole assessment report, and four rows on three kinds of fit read available and then refuse |
+| RM14 | one mixed request raises an `AttributeError`. It also has a late refusal of tier c, so it takes the higher tier |
+| RM24 | three refusals arrive after 2 to 8 learner fits, as the wrong type |
+| RM15 | the warning flagged 14 of 40 fits of a correct model |
+| RM16 | each surface misstates or repeats a recorded fact, and no number changes |
+| RM18 | five open designs, which read 19 red rows in six studies. The ledger already publishes each of those verdicts |
+| RM19 | one configuration, which RM18 opened. Its Bonferroni interval covers zero, and it moves no verdict |
+
+No open row waits on another open row. The RM23 sweep fits only the kinds of fit that
+succeed, and the RM14 and RM24 requests produce no fit. Main-roadmap X9 depends on RM22. Every
+remediation row comes before main-roadmap priority 1, so the queue meets that dependency.
+
+Use five delivery groups for these eleven rows and the two investigations that RM18 waits on.
+Keep each item's acceptance criteria separate inside its group.
 
 | delivery group | items | shared boundary |
 | --- | --- | --- |
-| red property cells | RM18, and the F18 and F19 derivations it waits on | the recorded rule that a red cell is reporting evidence, and two exact derivations that would close the inferential gaps |
-| pre-fit declarations | RM13 and RM14 | refuse unsupported requests before any nuisance fit |
-| diagnostic reports | RM15 and RM16 | one assessment and summary surface, with one documentation pass |
-| bias localization | RM19 | one declared design that localizes a measured paired increment, and moves no verdict |
-| inference claims | RM20 | one decision rule for an interval that no claimed contract covers, applied to each surface |
+| inference claims | RM20 and RM13 | one decision rule for an interval that no derivation covers: register a claim, give the estimate a non-inferential status, or refuse the request before the fit |
 | sensitivity outputs | RM21 and RM22 | the E-value and omitted-variable reports, and one reading of the published sources they cite |
-| refusal surfaces | RM23 and RM24 | a refusal reaches the caller where its declaration says, before the work that it refuses |
+| refusal surfaces | RM23, RM14 and RM24 | a refusal reaches the caller where its declaration says, before the work that it refuses |
+| diagnostic reports | RM15 and RM16 | one assessment and summary surface, with one documentation pass |
+| red property cells | RM18 and RM19, and the F18 and F19 derivations that RM18 waits on | the recorded rule that a red cell is reporting evidence, designs declared before their runs that move no verdict, and two exact derivations that would close the inferential gaps |
 
-Two groups left this table. The sensitivity refusals group held RM11 and the F5 refusal boundary,
-and the collaborative inference group held RM12 and the F18 audit. Each group delivered its
-remediation row. [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) now holds the derivation
-that would reopen an omitted-variable bound on a DR-TMLE or C-TMLE fit.
+Two groups left this table when their rows were delivered. The sensitivity refusals group held
+RM11 and the F5 refusal boundary, and the collaborative inference group held RM12 and the F18
+audit. [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) now holds the derivation that would
+reopen an omitted-variable bound on a DR-TMLE or C-TMLE fit.
 [F18](#f18-selector-path-c-tmle-inference) now holds the influence curve that would reopen
 selector-path inference.
 
+The re-triage removed two more groups. The pre-fit declarations group held RM13 and RM14. RM13
+publishes a standard error that no derivation covers, so it joined RM20. RM14 refuses a request
+late, so it joined the refusal surfaces. The bias localization group held RM19 alone. RM19 joined
+RM18, because an RM18 owner holds its three red cells.
+
 Each group holds consecutive priorities, so the group order is the priority order. Deliver the
-items inside a group in priority order. The delivered rows held 0.2 and 0.3, and the remaining rows
-keep their own numbers. This project does not renumber a row when another row leaves the table. A
-number names the row in the commit record, and a renumber moves every row below it.
+items inside a group in priority order. The first decimal digit of a priority names its group, and
+the second digit names its place in that group. Each remediation priority is below 1, so it does
+not collide with a main-roadmap priority.
 
-No rule in this roadmap orders the groups, so the order rests on the defects. RM13 to RM16 correct
-shipped defects. RM11 and RM12 also corrected shipped defects, and each published a number that no
-derivation covers, so both came first. RM19 localizes a paired increment whose Bonferroni interval
-covers zero, and it moves no verdict.
-
-The groups that hold RM20 to RM24 follow RM19. The number 0.8 was the last in use, and this
-project does not renumber a row. Inside them, RM20 and RM21 come first. Each publishes a number
-that no claimed contract or read source covers. The doubly robust defect in RM22 widens a limit,
-and RM23 and RM24 move no number.
+Priorities give the current delivery order. This project reassigns them when it re-triages the
+queue. The RM IDs and their anchors never change, so a commit names a row by its ID.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
-Three things block it now. RM18 has five follow-up designs that are not declared and have not
-run. RM19 has no declared design, and RM13 to RM16 and RM20 to RM24 are not delivered. The F18
-and F19 derivations do not block it, because an item with no published theory does not enter the
-sequence. Their cells stay red under `reporting` until F18 or F19 meets its acceptance.
+Nine rows are not delivered: RM13 to RM16 and RM20 to RM24. RM18 has five follow-up designs that
+are not declared and have not run. RM19 has no declared design. The F18 and F19 derivations do not
+block priority 1, because an item with no published theory does not enter the sequence. Their
+cells stay red under `reporting` until F18 or F19 meets its acceptance.
 
 The source audit found no result for the shipped global selector or for the complete jointly
 targeted outcome-adaptive inference surface. Selector post-selection inference remains in
@@ -1974,8 +2005,8 @@ Three qualifications apply.
 The unadjusted comparisons place the increment on this one-sided configuration. No result names
 its source.
 
-RM19 sits at remediation priority 0.8, in a group of its own. The
-[Remediation](#remediation) section gives the reason for that order.
+RM19 shares the red property cells group with RM18. The [Remediation](#remediation) section
+gives its priority and the reason for its place.
 
 | question | state |
 | --- | --- |
