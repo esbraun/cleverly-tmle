@@ -96,6 +96,7 @@ from typing import Any, Literal
 import numpy as np
 from scipy.special import expit
 
+from ._declarations import FunctionDeclaration, FunctionKind
 from ._typing import FloatArray
 from .data.causal_data import CausalData
 from .exceptions import CapabilityError, DataError
@@ -128,8 +129,9 @@ MSMLink = Literal["identity", "log", "logit"]
 #: ``"estimated"`` is one computed from the sample, which is refused.  A three-state
 #: ``Literal`` rather than a bool, because an undeclared callable has to refuse and a bool
 #: default would silently declare it.  Unrelated to
-#: :data:`cleverly.data.weighting.WeightKind`, which describes *observation* weights.
-MSMWeightsKind = Literal["known", "estimated"]
+#: :data:`cleverly.data.weighting.WeightKind`, which describes *observation* weights.  The
+#: same three states declare every known function (:mod:`cleverly._declarations`).
+MSMWeightsKind = FunctionKind
 
 #: How badly conditioned the weighted Gram matrix may be before the design is refused.
 #: A reciprocal condition number below this means two terms are collinear at every arm,
@@ -296,8 +298,9 @@ def refuse_unsupported(kind: str, detail: str = "") -> None:
 
 
 #: Why an estimated projection weight is refused.  Written once, and read by both
-#: :func:`refuse_unsupported` and :func:`refuse_projection_weights`, so the declaration
-#: layer and the fit layer cannot drift apart.
+#: :func:`refuse_unsupported` and ``_WEIGHTS_DECLARATION``, which
+#: :func:`refuse_projection_weights` runs, so the declaration layer and the fit layer
+#: cannot drift apart.
 _ESTIMATED_WEIGHTS = (
     "an estimated MSM projection weight (a 'stabilised' MSM) is refused. h(a, V) is then "
     "a functional of P, so the efficient influence function carries a further term for "
@@ -317,6 +320,20 @@ _UNDECLARED_WEIGHTS = (
     "mechanism, is estimated: h is then a functional of P, the reported influence curve "
     "omits its pathwise derivative, so its standard error can be wrong (RM13 in "
     "docs/roadmap.md). weights_kind='estimated' is refused for that reason."
+)
+
+#: The projection-weight declaration: the field ``weights_kind``, and the texts of its
+#: refusals.  :mod:`cleverly._declarations` holds the three-state check, which other
+#: declarations of a known function share.
+_WEIGHTS_DECLARATION = FunctionDeclaration(
+    "weights_kind",
+    meaning=(
+        "It declares whether the projection weight h(a, V) is a fixed function or one "
+        "computed from the sample, and it is unrelated to the observation-weight setting "
+        "weights_type="
+    ),
+    undeclared=_UNDECLARED_WEIGHTS,
+    estimated=_ESTIMATED_WEIGHTS,
 )
 
 
@@ -353,12 +370,7 @@ def refuse_projection_weights(model: MSM) -> None:
         raise DataError(
             "weights_kind='estimated' declares a weights= callable, and this model has none"
         )
-    if kind not in (None, "known", "estimated"):
-        raise DataError(
-            f"weights_kind must be 'known', 'estimated' or None; got {kind!r}. It declares "
-            "whether the projection weight h(a, V) is a fixed function or one computed from "
-            "the sample, and it is unrelated to the observation-weight setting weights_type="
-        )
+    _WEIGHTS_DECLARATION.check(kind)
     if weights is not None and not callable(weights):
         raise CapabilityError(
             "MSM weights= must be a callable that returns one weight per row: "
@@ -368,10 +380,8 @@ def refuse_projection_weights(model: MSM) -> None:
             "and nothing here can show that it was not estimated from the sample, so it is "
             "refused as an estimated weight would be: " + _ESTIMATED_WEIGHTS
         )
-    if weights is not None and kind is None:
-        raise CapabilityError(_UNDECLARED_WEIGHTS)
-    if kind == "estimated":
-        refuse_unsupported("estimated_weights")
+    if weights is not None:
+        _WEIGHTS_DECLARATION.refuse(kind)
 
 
 # ------------------------------------------------------------------ the declaration
