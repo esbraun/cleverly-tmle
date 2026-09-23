@@ -2506,6 +2506,24 @@ controlled-direct-effect, multi-arm, outcome-adaptive C-TMLE, MSM, regime, weigh
 clustered, and DR-TMLE fits. The ordered fit loses the whole report, because a `ValueError` is not
 the refusal type that `run_all` catches.
 
+The 2026-09-23 review of RM25 found the same mismatch one level lower, in `replayability()`
+(`src/cleverly/assessment.py:1146-1161`). For a point-treatment result that holds an estimator, the
+function returns `retarget_cached_nuisances=True` and `refit_nuisances=True`. It reads no
+declaration and no fold policy. A probe fitted each case in sample with linear learners on the
+default law of `tests/discrete_law.py`, and restored it through `serialize.dumps` and `loads`. The
+cross-fitted case used two folds.
+
+| restored result | `replayability()` | `retarget()` | `refit()` |
+| --- | --- | --- | --- |
+| a `Stochastic` regime fit, restored without `density_kind` (RM25) | both slots `True` | `CapabilityError`: the undeclared density | `CapabilityError`: the undeclared density |
+| an MSM fit with a callable weight, restored without `weights_kind` (RM13) | both slots `True` | `CapabilityError`: the undeclared weight | `CapabilityError`: the undeclared weight |
+| a cross-fitted fit whose restored estimator carries `stratify_folds="treatment"` | both slots `True` | runs | `ValueError` from the fold-policy check |
+
+Each declared control, restored with its declaration and its fold policy, runs both calls. In the
+two declaration cases, the `refute` and `truncation_curve` rows read `available`.
+`assess(include_refits=True, include_retargets=True)` still returns a report. Its
+`truncation_curve` row then reads `unavailable` and quotes the refusal.
+
 Apply these corrections:
 
 1. Resolve each of the three declined rows from the predicate that its call uses, as RM12 did for
@@ -2513,6 +2531,9 @@ Apply these corrections:
 2. Make the `random_common_cause` refit of an explicit ordering run, or declare the row
    `unavailable` with a reason. A refit that adds the noise column to the ordering changes the
    declared ordering, so the contract must state where the column goes.
+3. Derive the two `replayability()` slots from the checks that `retarget()` and `refit()` run.
+   Alternatively, state in the `Replayability` docstring that the slots describe stored
+   configuration only.
 
 The witnesses must fail when a component is wrong:
 
@@ -2520,7 +2541,9 @@ The witnesses must fail when a component is wrong:
   `available` runs without a refusal. The list includes the three kinds above.
   `TestNoAvailableRowDeclinesOnASelectorPath` is the precedent on selector fits;
 - a mutation that restores an unconditional row makes the sweep fail on that kind of fit;
-- a test that the ordered fit with an explicit ordering completes `assess(include_refits=True)`.
+- a test that the ordered fit with an explicit ordering completes `assess(include_refits=True)`;
+- a test that restores each of the three results in the second table, and asserts that
+  `replayability()` agrees with what `retarget()` and `refit()` do.
 
 ### RM24. Refusals after the nuisance fit
 
