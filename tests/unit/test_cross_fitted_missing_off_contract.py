@@ -17,7 +17,7 @@ deliberate-mutation control removes the refusal and requires the witness to fail
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -25,7 +25,7 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LogisticRegression
 
-from cleverly.datasets import make_missing_outcome_binary
+from cleverly.datasets import cde_dgp, make_missing_outcome_binary
 from cleverly.estimators import TMLE
 from cleverly.estimators.tmle import (
     _ARM_INDEXED_CONTRACT,
@@ -50,25 +50,23 @@ def binary_missing_frame() -> pd.DataFrame:
     return frame
 
 
-def binary_cde_frame(n: int = 400, seed: int = 13) -> pd.DataFrame:
-    """A binary-outcome controlled direct effect with missing outcomes.
+#: :func:`~cleverly.datasets.cde_dgp`, with its outcome-mean formula mapped through
+#: ``expit`` to a Bernoulli outcome, and 80 percent of outcomes observed.
+#: :func:`~cleverly.datasets.make_cde` has no binary variant, and a Gaussian outcome would
+#: meet the cross-fitted outcome-scale refusal first.
+_CDE = cde_dgp()
+BINARY_CDE = replace(
+    _CDE,
+    name="binary_controlled_direct_effect_missing",
+    outcome_mean=lambda w, a, z: expit(_CDE.outcome_mean(w, a, z)),
+    family="binomial",
+    missingness=lambda w, a: np.full(len(w), 0.8),
+)
 
-    :func:`~cleverly.datasets.make_cde` has no binary variant, and a Gaussian outcome
-    would meet the cross-fitted outcome-scale refusal first. The propensity and
-    intermediate mechanisms match :func:`~cleverly.datasets.cde_dgp`, and the outcome is
-    a Bernoulli draw.
-    """
-    rng = np.random.default_rng(seed)
-    w1, w2, w3 = rng.normal(size=(3, n))
-    a = rng.binomial(1, expit(0.3 * w1 + 0.2 * w2)).astype(float)
-    z = rng.binomial(1, expit(-0.3 + 1.1 * a + 0.5 * w1 - 0.4 * w3)).astype(float)
-    linear = 0.5 + 0.9 * a + 1.4 * z + 0.6 * a * z + 0.8 * w1 - 0.5 * w2 + 0.3 * w3
-    y = rng.binomial(1, expit(linear)).astype(float)
-    observed = rng.random(n) < 0.8
-    frame = pd.DataFrame(
-        {"Y": y, "A": a, "Z": z, "W1": w1, "W2": w2, "W3": w3, "Delta": observed.astype(float)}
-    )
-    frame.loc[~observed, "Y"] = np.nan
+
+def binary_cde_frame(n: int = 400, seed: int = 13) -> pd.DataFrame:
+    """A binary-outcome controlled direct effect with missing outcomes, from :data:`BINARY_CDE`."""
+    frame, _ = BINARY_CDE.sample(n=n, seed=seed)
     return frame
 
 
@@ -212,47 +210,33 @@ def test_the_in_sample_fit_keeps_its_interval(name: str) -> None:
         assert np.isfinite(lower) and np.isfinite(upper) and lower < upper, estimate.name
 
 
+#: The arm-indexed contract's own composition, which the refusal leaves alone.
+ARM_INDEXED = Composition("arm-indexed", {}, binary_missing_frame)
+
+
 class TestTheNeighbouringRefusalsKeepTheirOwnSentences:
     """The refusal covers what is left, and each narrower surface keeps its own sentence."""
 
-    @staticmethod
-    def arm_fit(**settings: Any) -> TMLE:
-        return TMLE(
-            **{"random_state": 0, "simultaneous": False, "n_folds": 5, **settings},
-        )
-
-    @staticmethod
-    def columns(**extra: Any) -> dict[str, Any]:
-        return {
-            "outcome": "Y",
-            "treatment": "A",
-            "covariates": COVARIATES,
-            "delta": "Delta",
-            **extra,
-        }
-
     def test_a_cross_fitted_ate_reaches_the_arm_indexed_contract(self) -> None:
-        estimator = self.arm_fit(estimands=["ate"], repeats=2, **never_fit_learners())
+        estimator = ARM_INDEXED.estimator(True, never_fit_learners(), estimands=["ate"], repeats=2)
         with pytest.raises(CapabilityError) as raised:
-            estimator.fit(binary_missing_frame(), **self.columns())
+            ARM_INDEXED.fit(estimator)
         message = str(raised.value)
         assert message.startswith(_ARM_INDEXED_CONTRACT), message
         assert "Set repeats=1" in message
         assert NeverFit.calls == 0
 
     def test_the_admitted_cross_fitted_ate_still_fits(self) -> None:
-        result = (
-            self.arm_fit(estimands=["ate"], **learners())
-            .fit(binary_missing_frame(), **self.columns())
-            .single()
-        )
+        result = ARM_INDEXED.fit(
+            ARM_INDEXED.estimator(True, learners(), estimands=["ate"])
+        ).single()
         lower, upper = result.estimates["ate"].ci
         assert lower < result.psi("ate") < upper
 
     def test_par_keeps_its_f20_refusal(self) -> None:
-        estimator = self.arm_fit(estimands=["par"], **never_fit_learners())
+        estimator = ARM_INDEXED.estimator(True, never_fit_learners(), estimands=["par"])
         with pytest.raises(CapabilityError) as raised:
-            estimator.fit(binary_missing_frame(), **self.columns())
+            ARM_INDEXED.fit(estimator)
         message = str(raised.value)
         assert message.startswith("par does not yet support delta="), message
         assert NeverFit.calls == 0
@@ -265,9 +249,9 @@ class TestTheNeighbouringRefusalsKeepTheirOwnSentences:
         F20 refusal runs after the shared nuisances, in sample and cross-fitted alike, so
         this control fits real learners.
         """
-        estimator = self.arm_fit(estimands=["par"], **learners())
+        cde = COMPOSITIONS["cde"]
         with pytest.raises(CapabilityError) as raised:
-            estimator.fit(binary_cde_frame(), **self.columns(intermediate="Z"))
+            cde.fit(cde.estimator(True, learners(), estimands=["par"]))
         message = str(raised.value)
         assert message.startswith("par does not yet support delta="), message
         assert "F21" not in message

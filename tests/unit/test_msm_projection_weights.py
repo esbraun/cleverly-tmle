@@ -41,7 +41,13 @@ from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.longitudinal import LTMLE
-from cleverly.msm import MSM, refuse_projection_weights, refuse_unsupported
+from cleverly.msm import (
+    _ESTIMATED_WEIGHTS,
+    _UNDECLARED_WEIGHTS,
+    MSM,
+    refuse_projection_weights,
+    refuse_unsupported,
+)
 from cleverly.sensitivity import _simulated_confounding_fixed as replay_module
 from cleverly.sensitivity import simulated_confounding
 from tests import discrete_law as law
@@ -52,10 +58,12 @@ from tests.unit.test_simulated_confounding_policies import _GRID, _alias, _fit_m
 #: ``cleverly.estimators`` exports a function named ``tmle``, which shadows the module.
 tmle_module = importlib.import_module("cleverly.estimators.tmle")
 
-#: Fragments of each refusal.  A test matches a fragment, not the whole text, so a
+#: The two declaration refusals, imported from the module that raises them, so the text
+#: is written once.
+UNDECLARED = _UNDECLARED_WEIGHTS
+ESTIMATED = _ESTIMATED_WEIGHTS
+#: Fragments of the other refusals.  A test matches a fragment, not the whole text, so a
 #: rewording of the explanation does not break it, but a message from another check does.
-UNDECLARED = "needs a declaration of what the callable is"
-ESTIMATED = "an estimated MSM projection weight (a 'stabilised' MSM) is refused"
 NOT_CALLABLE = "must be a callable"
 PATHWISE = "pathwise derivative"
 
