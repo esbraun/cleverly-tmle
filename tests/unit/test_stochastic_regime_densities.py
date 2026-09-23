@@ -37,6 +37,7 @@ from dataclasses import dataclass, fields, replace
 from typing import Any, ClassVar
 
 import numpy as np
+import pandas as pd
 import pytest
 
 import cleverly._declarations as declarations_module
@@ -443,6 +444,51 @@ class TestTheWitnessesHaveTeeth:
         )
         assert linear(weights=FixedWeight()).weights_kind is None
         assert coin().density_kind is None
+
+
+# ------------------------------------------------------------------ the shared check
+
+#: Each user of the shared declaration: a build from one declaration value, the fragment of
+#: its unknown-value refusal, and its field.  The uniform MSM has no weight, so its own check
+#: of ``"estimated"`` without a weight must not read a value that is not a string first.
+DECLARATION_USERS: dict[str, tuple[Callable[[Any], Any], str, str]] = {
+    "msm weight": (
+        lambda kind: linear(weights=FixedWeight(), weights_kind=kind),
+        "weights_kind must be 'known', 'estimated' or None",
+        "weights_kind",
+    ),
+    "uniform msm": (
+        lambda kind: linear(weights_kind=kind),
+        "weights_kind must be 'known', 'estimated' or None",
+        "weights_kind",
+    ),
+    "regime density": (lambda kind: coin(density_kind=kind), UNKNOWN, "density_kind"),
+}
+
+#: Values that are not a string.  Before the check tested the type, the first built, the
+#: second raised the ``ValueError`` of an array's truth value, and the third raised the
+#: ``TypeError`` of ``pandas.NA``.
+NOT_A_STRING = {
+    "array['known']": np.array(["known"]),
+    "array['known', 'known']": np.array(["known", "known"]),
+    "pandas.NA": pd.NA,
+}
+
+
+class TestTheSharedCheckRefusesAValueThatIsNotAString:
+    @pytest.mark.parametrize("user", list(DECLARATION_USERS))
+    @pytest.mark.parametrize("value", list(NOT_A_STRING))
+    def test_a_value_that_is_not_a_string_is_an_unknown_declaration(
+        self, user: str, value: str
+    ) -> None:
+        build, fragment, _ = DECLARATION_USERS[user]
+        assert_refused(lambda: build(NOT_A_STRING[value]), DataError, fragment)
+
+    @pytest.mark.parametrize("user", list(DECLARATION_USERS))
+    def test_a_numpy_string_is_a_string(self, user: str) -> None:
+        """The control: ``numpy.str_`` is a ``str`` subclass, so ``"known"`` in it builds."""
+        build, _, field = DECLARATION_USERS[user]
+        assert getattr(build(np.str_("known")), field) == "known"
 
 
 # ------------------------------------------------------------------ the witness

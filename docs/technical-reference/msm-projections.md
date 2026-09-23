@@ -150,7 +150,8 @@ this version refuses. Each refusal raises `CapabilityError`. The
 | an array in place of a `weights=` callable | wrong by construction | an array is one evaluation of the weight, and nothing shows that the sample did not set it |
 
 An inconsistent declaration raises `DataError`. Two cases exist: `weights_kind="estimated"` with
-`weights=None`, and a value other than `"known"`, `"estimated"`, or `None`.
+`weights=None`, and a value other than `"known"`, `"estimated"`, or `None`. An array or
+`pandas.NA` is such a value.
 
 A result saved before `weights_kind` existed loads with `weights_kind=None`. Loading checks
 nothing, so that result keeps its stored estimates, and they answer as saved. Every call that

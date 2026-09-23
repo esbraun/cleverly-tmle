@@ -76,9 +76,13 @@ class FunctionDeclaration:
         Raises
         ------
         DataError
-            If ``kind`` is not one of the three states.
+            If ``kind`` is not one of the three states. A value that is not ``None`` and
+            not a ``str`` raises, so an array or ``pandas.NA`` gets this error and not the
+            error of its truth value.
         """
-        if kind not in (None, "known", "estimated"):
+        # The ``isinstance`` test comes first, so no comparison can return an array or
+        # ``pandas.NA``. A ``str`` subclass, such as ``numpy.str_``, passes it.
+        if kind is not None and not (isinstance(kind, str) and kind in ("known", "estimated")):
             raise DataError(
                 f"{self.field} must be 'known', 'estimated' or None; got {kind!r}. {self.meaning}"
             )

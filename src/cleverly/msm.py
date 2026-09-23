@@ -343,11 +343,12 @@ def refuse_projection_weights(model: MSM) -> None:
     A callable can close over any estimate, and nothing can inspect a closure, so the
     status of ``h(a, V)`` is the declaration ``weights_kind``.  The checks run in order:
 
-    1. ``weights_kind="estimated"`` with no ``weights`` is a :class:`DataError`, because
+    1. A ``weights_kind`` outside ``"known"``, ``"estimated"`` and ``None`` is a
+       :class:`DataError`.  A value that is not a ``str``, such as an array or
+       ``pandas.NA``, is outside them.
+    2. ``weights_kind="estimated"`` with no ``weights`` is a :class:`DataError`, because
        the declaration describes a callable the model does not have.  ``None`` or
        ``"known"`` with no ``weights`` passes: uniform weights are known.
-    2. A ``weights_kind`` outside ``"known"``, ``"estimated"`` and ``None`` is a
-       :class:`DataError`.
     3. ``weights`` that is not callable is a :class:`CapabilityError`.  An array is one
        evaluation of ``h``, and nothing shows that it was not estimated.
     4. A callable with ``weights_kind=None`` is a :class:`CapabilityError`.
@@ -366,11 +367,12 @@ def refuse_projection_weights(model: MSM) -> None:
     # run time, which its annotations do not guarantee.
     weights: object = model.weights
     kind: object = model.weights_kind
+    # The check runs first, so the comparison below sees only None or a str.
+    _WEIGHTS_DECLARATION.check(kind)
     if weights is None and kind == "estimated":
         raise DataError(
             "weights_kind='estimated' declares a weights= callable, and this model has none"
         )
-    _WEIGHTS_DECLARATION.check(kind)
     if weights is not None and not callable(weights):
         raise CapabilityError(
             "MSM weights= must be a callable that returns one weight per row: "
