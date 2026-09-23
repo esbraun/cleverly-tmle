@@ -231,6 +231,18 @@ class TestFewClustersReportNoInterval:
     ) -> None:
         assert_withholds(fit(few_frame, estimator=estimator, **settings), FEW)
 
+    @pytest.mark.parametrize(
+        "settings",
+        [pytest.param(IN_SAMPLE, id="in sample"), pytest.param(CROSS_FITTED, id="cross-fitted")],
+    )
+    def test_the_nuisance_report_and_the_assessment_carry_the_note(
+        self, few_frame: Any, settings: dict[str, Any]
+    ) -> None:
+        assert_assessment_note(fit(few_frame, **settings), FEW)
+
+    def test_the_evalue_is_unavailable_with_the_reason(self, few_frame: Any) -> None:
+        assert_evalue_unavailable(fit(few_frame, **IN_SAMPLE), FEW)
+
     def test_variable_importance_refuses_before_it_fits(self, few_frame: Any) -> None:
         """The status reads the prepared cluster labels, so it refuses before a learner."""
         assert_variable_importance_refuses(
