@@ -2656,8 +2656,8 @@ measured value, so it pins no digit. The pinned value records the measurement, a
 0.7417.
 
 The plan also chose the law after the probe. On the default law of `tests/discrete_law.py`, the
-ratio is 0.9667 at $\delta = 2$ and 0.9733 at $\delta = 0.5$. A law with the same $P(W)$ and
-$\bar Q$, and with $g = 0.5$ at every level, gives 0.6060 at both values. That law cannot separate
+ratio is 0.9667 at $\delta = 2$ and 0.9733 at $\delta = 0.5$. The $P(W)$ and $\bar Q$ of the
+witness law, with $g = 0.5$ at every level, give 0.6060 at both values. That law cannot separate
 $\delta$ from $1 / \delta$. The witness shows that the defect exists, and it measures the defect on
 one law. It does not estimate a typical size.
 
