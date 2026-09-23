@@ -199,9 +199,14 @@ def variable_importance(
     if outcome in candidate_names:
         raise DataError("the outcome cannot also be a candidate exposure")
     template = TMLE(estimands=estimand) if estimator is None else estimator
-    # Two loops.  The first prepares every candidate's data, which fits no learner, so
-    # the refusal below still arrives before the first fit when the status depends on
-    # the data as well as on the configuration.
+    # Every candidate's data is prepared, and its status asked, before the first fit.
+    # This procedure ends in a Benjamini--Hochberg adjustment of one p-value per
+    # candidate, so an estimator that supplies no p-value leaves it with nothing to
+    # adjust.  ``_prepare`` fits no learner, so the refusal still arrives before the first
+    # fit when the status depends on the data as well as on the configuration.  It is
+    # asked of the estimator's own hook on the prepared data, which is what
+    # ``_retarget_detailed`` stamps the estimates with, so the refusal and the estimates
+    # the adjustment would read cannot disagree.
     prepared: dict[str, tuple[tuple[str, ...], CausalData]] = {}
     for candidate in candidate_names:
         adjustment = [name for name in base_covariates if name != candidate]
@@ -213,32 +218,23 @@ def variable_importance(
                 f"candidate {candidate!r} has an empty adjustment set; cleverly's "
                 "point-treatment estimator requires at least one baseline covariate"
             )
-        prepared[candidate] = (
-            adjustment_set,
-            template._prepare(
-                data,
-                outcome=outcome,
-                treatment=candidate,
-                covariates=adjustment_set,
-                delta=delta,
-                weights=weights,
-                weights_type=weights_type,
-                weights_estimated=weights_estimated,
-                id=id,
-                intermediate=None,
-                treatment_kind="discrete",
-            ),
+        candidate_data = template._prepare(
+            data,
+            outcome=outcome,
+            treatment=candidate,
+            covariates=adjustment_set,
+            delta=delta,
+            weights=weights,
+            weights_type=weights_type,
+            weights_estimated=weights_estimated,
+            id=id,
+            intermediate=None,
+            treatment_kind="discrete",
         )
-    # Before the first fit, not after the last one.  This procedure ends in a
-    # Benjamini--Hochberg adjustment of one p-value per candidate, so an estimator that
-    # supplies no p-value leaves it with nothing to adjust.  Asked of the estimator's own
-    # hook on each candidate's prepared data, which is what ``_retarget_detailed`` stamps
-    # the estimates with, so the refusal and the estimates the adjustment would read
-    # cannot disagree.
-    for _, candidate_data in prepared.values():
         refuse_inference(
             template._inference_status(candidate_data), operation="variable_importance()"
         )
+        prepared[candidate] = (adjustment_set, candidate_data)
     fits: dict[str, TMLEResult] = {}
     raw: list[tuple[str, str, tuple[str, ...], ParameterEstimate]] = []
     for candidate, (adjustment_set, candidate_data) in prepared.items():
