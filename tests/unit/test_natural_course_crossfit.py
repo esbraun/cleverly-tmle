@@ -164,6 +164,7 @@ def test_one_fold_through_the_public_method_is_refused_before_any_learner_fits()
     ``TMLEMethod`` or a ``CausalStudy.estimate`` call exists to run it, and before any
     learner in ``never_fit_learners()`` could fit.
     """
+    NeverFit.calls = 0
     with pytest.raises(MethodConfigurationError, match="enabled=True with n_folds=1") as caught:
         CrossFitting(enabled=True, n_folds=1, stratify_by="none")
 
