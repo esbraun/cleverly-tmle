@@ -242,6 +242,71 @@ class TestFewClustersReportNoInterval:
         )
 
 
+def stratified_frame(n_clusters: int, small: int) -> Any:
+    """``n_clusters`` clusters of 10 rows, with a cluster-level stratum ``S``.
+
+    The first ``small`` clusters hold ``S = "small"`` and the rest ``S = "big"``.
+    """
+    frame = make_clustered(n=10 * n_clusters, cluster_size=10, seed=7)[0]
+    return frame.assign(S=np.where(frame["cluster"] < small, "small", "big"))
+
+
+def fit_stratified(frame: Any) -> Any:
+    return (
+        TMLE(**linear_in_sample(estimands=("ate",)))
+        .fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2", "S"],
+            id="cluster",
+            strata=["S"],
+        )
+        .single()
+    )
+
+
+@pytest.fixture(scope="module")
+def few_stratum_frame() -> Any:
+    """50 clusters, 6 of them in the stratum ``S = "small"``: the R1 review's probe."""
+    frame = stratified_frame(50, small=6)
+    assert sizes(frame) == (50, 10, 10)
+    assert frame.loc[frame["S"] == "small", "cluster"].nunique() == 6
+    return frame
+
+
+class TestAStratumWithFewClustersReportsNoInterval:
+    """Each stratum's estimate reads only its own clusters, so the count holds per stratum.
+
+    The fit keeps one status, so a stratum of 6 clusters inside a fit of 50 withholds
+    every estimate's interval.
+    """
+
+    def test_a_six_cluster_stratum_withholds_every_estimate(self, few_stratum_frame: Any) -> None:
+        result = fit_stratified(few_stratum_frame)
+        assert set(result.estimates) == {"ate", "ate[S='small']", "ate[S='big']"}
+        assert_withholds(result, FEW)
+        assert "clusters = 50, fewest in one stratum 6 (cluster-robust variance)" in (
+            result.summary()
+        )
+
+    def test_strata_of_forty_clusters_each_keep_the_interval(self) -> None:
+        """The control: 80 clusters split 40 and 40, each stratum at the threshold."""
+        frame = stratified_frame(80, small=FEW_CLUSTER_THRESHOLD)
+        result = fit_stratified(frame)
+        assert_keeps_inference(result)
+        assert "clusters = 80, fewest in one stratum 40 (cluster-robust variance)" in (
+            result.summary()
+        )
+
+    def test_a_count_that_ignores_the_strata_fails_the_check(
+        self, few_stratum_frame: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(cluster_module, "fewest_clusters", whole_fit_count)
+        with pytest.raises(AssertionError):
+            assert_withholds(fit_stratified(few_stratum_frame), FEW)
+
+
 class TestThePrecedence:
     """A fit that meets several statuses takes the first in the table."""
 
@@ -277,22 +342,27 @@ class TestThePrecedence:
         assert cluster_inference_status(result.data.cluster, cross_fit=False) == FEW
 
 
-def ignores_sizes(cluster: Any, *, cross_fit: bool) -> str:
+def ignores_sizes(cluster: Any, *, cross_fit: bool, **settings: Any) -> str:
     """The mutant that never reads the row counts: only the cluster count decides."""
     few = np.unique(cluster).size < FEW_CLUSTER_THRESHOLD
     return FEW if few else "influence_curve"
 
 
-def ignores_cross_fit(cluster: Any, *, cross_fit: bool) -> str:
+def ignores_cross_fit(cluster: Any, *, cross_fit: bool, **settings: Any) -> str:
     """The mutant that treats every fit as cross-fitted."""
-    return cluster_inference_status(cluster, cross_fit=True)
+    return cluster_inference_status(cluster, cross_fit=True, **settings)
 
 
-def at_or_below(cluster: Any, *, cross_fit: bool) -> str:
+def at_or_below(cluster: Any, *, cross_fit: bool, **settings: Any) -> str:
     """The mutant that compares the cluster count with ``<=`` rather than ``<``."""
-    status = cluster_inference_status(cluster, cross_fit=cross_fit)
+    status = cluster_inference_status(cluster, cross_fit=cross_fit, **settings)
     at_threshold = np.unique(cluster).size == FEW_CLUSTER_THRESHOLD
     return FEW if status == "influence_curve" and at_threshold else status
+
+
+def whole_fit_count(cluster: Any, strata: Any = None) -> int:
+    """The mutant that counts the clusters of the whole fit and never reads the strata."""
+    return int(np.unique(cluster).size)
 
 
 class TestTheStatusIsTheHooksToWithhold:

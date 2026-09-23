@@ -39,6 +39,7 @@ __all__ = [
     "cluster_sizes",
     "cluster_sums",
     "cross_validated_variance",
+    "fewest_clusters",
     "influence_variance",
     "stacked_second_moment_covariance",
     "stacked_second_moment_variance",
@@ -363,7 +364,51 @@ def cluster_sizes(cluster: IntArray) -> IntArray:
     return np.asarray(counts, dtype=np.int64)
 
 
-def cluster_inference_status(cluster: IntArray | None, *, cross_fit: bool) -> InferenceStatus:
+def fewest_clusters(cluster: IntArray, strata: IntArray | None = None) -> int:
+    """The smallest number of distinct clusters that one reported estimate reads.
+
+    A fit without strata reads every cluster. A fit with baseline strata also reports
+    one estimate per stratum, and each of those reads only the clusters with a row in
+    its stratum, so the smallest of those counts is the one that matters.
+
+    Parameters
+    ----------
+    cluster : ndarray of int
+        The cluster label of each row.
+    strata : ndarray of int or None, default None
+        The baseline stratum code of each row, or ``None`` for a fit without strata.
+
+    Returns
+    -------
+    int
+        The distinct cluster count of the whole fit, or the smallest distinct cluster
+        count within one stratum when that is smaller.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.inference.cluster import fewest_clusters
+    >>> cluster = np.repeat(np.arange(50), 2)
+    >>> fewest_clusters(cluster)
+    50
+    >>> fewest_clusters(cluster, strata=(cluster < 6).astype(int))
+    6
+    """
+    labels = np.asarray(cluster).reshape(-1)
+    count = int(np.unique(labels).size)
+    if strata is None:
+        return count
+    pairs = np.unique(np.column_stack([np.asarray(strata).reshape(-1), labels]), axis=0)
+    _, per_stratum = np.unique(pairs[:, 0], return_counts=True)
+    return min(count, int(per_stratum.min()))
+
+
+def cluster_inference_status(
+    cluster: IntArray | None,
+    *,
+    cross_fit: bool,
+    strata: IntArray | None = None,
+) -> InferenceStatus:
     """The inference status the cluster labels of a fit give it, before any learner runs.
 
     Two clustered settings report no interval, as roadmap row RM20 decides, and F22 holds
@@ -376,8 +421,12 @@ def cluster_inference_status(cluster: IntArray | None, *, cross_fit: bool) -> In
         A weighted fit whose clusters hold equal rows and unequal weight mass takes no
         status. An in-sample fit takes no status here.
     ``"few_cluster_plugin"``
-        A fit, in sample or cross-fitted, with fewer distinct clusters than
-        :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD`.
+        A fit, in sample or cross-fitted, where one reported estimate reads fewer
+        distinct clusters than
+        :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD`. That is the whole
+        fit, or, with baseline strata, any one stratum: :func:`fewest_clusters` gives
+        the count. The fit takes one status, so a stratum with few clusters withholds
+        the interval of every estimate.
 
     When both apply, :func:`~cleverly._inference_status.precedent_status` gives the one
     the fit takes.
@@ -388,6 +437,8 @@ def cluster_inference_status(cluster: IntArray | None, *, cross_fit: bool) -> In
         The cluster label of each row, or ``None`` for an unclustered fit.
     cross_fit : bool
         Whether the nuisances are cross-fitted.
+    strata : ndarray of int or None, default None
+        The baseline stratum code of each row, or ``None`` for a fit without strata.
 
     Returns
     -------
@@ -408,12 +459,14 @@ def cluster_inference_status(cluster: IntArray | None, *, cross_fit: bool) -> In
     'influence_curve'
     >>> cluster_inference_status(np.repeat(np.arange(39), 10), cross_fit=False)
     'few_cluster_plugin'
+    >>> cluster_inference_status(equal, cross_fit=False, strata=(equal < 6).astype(int))
+    'few_cluster_plugin'
     """
     if cluster is None:
         return "influence_curve"
     counts = cluster_sizes(cluster)
     unequal = cross_fit and counts.size > 0 and int(counts.min()) != int(counts.max())
-    few = counts.size < FEW_CLUSTER_THRESHOLD
+    few = fewest_clusters(cluster, strata) < FEW_CLUSTER_THRESHOLD
     return precedent_status(
         [
             "unequal_cluster_plugin" if unequal else "influence_curve",

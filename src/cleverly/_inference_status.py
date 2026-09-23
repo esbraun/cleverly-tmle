@@ -41,7 +41,8 @@ InferenceStatus = Literal[
     "few_cluster_plugin",
 ]
 
-# A clustered fit with fewer clusters than this takes the ``"few_cluster_plugin"`` status.
+# A clustered fit with fewer clusters than this, in total or in one reported baseline
+# stratum, takes the ``"few_cluster_plugin"`` status.
 # Nugent, Marquez, Charlebois, Abbott and Balzer (2024), Biostatistics 25(3):599-616,
 # Section 2.2, last paragraph: "In CRTs with fewer than 40 clusters randomized (N < 40),
 # we recommend using the Student's t distribution with N - 2 degrees of freedom", citing
@@ -181,7 +182,8 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "stands. The plug-in standard error of the reported curve remains as a "
                 "diagnostic under plugin_std_error and plugin_interval. The same clusters "
                 "fitted in sample keep the interval when there are at least "
-                f"{FEW_CLUSTER_THRESHOLD} of them. Benitez et al. (2023), Section 3.2.1, "
+                f"{FEW_CLUSTER_THRESHOLD} of them in the fit and in each reported stratum. "
+                "Benitez et al. (2023), Section 3.2.1, "
                 "give the cluster-sum aggregation for that row-weighted estimand. F22 in "
                 "docs/roadmap.md reopens this when a result covers unequal cluster sizes."
             ),
@@ -200,8 +202,9 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
         ),
         "few_cluster_plugin": StatusRecord(
             reason=(
-                f"A clustered fit with fewer than {FEW_CLUSTER_THRESHOLD} clusters reports no "
-                "confidence interval, no p-value and no standard error. The package uses a "
+                "A clustered fit reports no confidence interval, no p-value and no standard "
+                f"error when it has fewer than {FEW_CLUSTER_THRESHOLD} clusters, or when one "
+                "baseline stratum it reports has fewer. The package uses a "
                 "normal reference distribution. Nugent, Marquez, Charlebois, Abbott and "
                 "Balzer (2024), Section 2.2, recommend a Student t reference with J - 2 "
                 f"degrees of freedom below {FEW_CLUSTER_THRESHOLD} clusters. Benitez et al. "

@@ -569,9 +569,10 @@ class TMLE:
             estimator returns what
             :func:`~cleverly.inference.cluster.cluster_inference_status` gives the cluster
             labels: ``"influence_curve"`` on an unclustered fit, and a clustered status
-            on a cross-fitted fit at unequal cluster sizes or on a fit with few clusters.
+            on a cross-fitted fit at unequal cluster sizes or on a fit with few clusters
+            in total or in one baseline stratum.
         """
-        return cluster_inference_status(data.cluster, cross_fit=self.cross_fit)
+        return cluster_inference_status(data.cluster, cross_fit=self.cross_fit, strata=data.strata)
 
     def __init__(
         self,

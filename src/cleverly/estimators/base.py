@@ -24,7 +24,7 @@ from ..exceptions import (
 )
 from ..fluctuation.iterative import Fluctuation
 from ..inference.bootstrap import BootstrapResult
-from ..inference.cluster import cluster_sizes
+from ..inference.cluster import cluster_sizes, fewest_clusters
 from ..inference.influence import (
     ParameterEstimate,
     Scale,
@@ -1374,7 +1374,7 @@ class TMLEResult:
         else:
             facts.append("causal study protocol: absent")
         if data.cluster is not None:
-            facts.append(f"clusters = {_cluster_fact(data.cluster)} (cluster-robust variance)")
+            facts.append(f"clusters = {_cluster_fact(data)} (cluster-robust variance)")
         if data.is_weighted:
             report = data.weight_report()
             facts.append(
@@ -1659,18 +1659,24 @@ def _is_intercept(column: FloatArray) -> bool:
     return bool(np.all(np.asarray(column, dtype=float) == 1.0))
 
 
-def _cluster_fact(cluster: Any) -> str:
-    """The cluster count, and the range of cluster sizes when the sizes differ.
+def _cluster_fact(data: CausalData) -> str:
+    """The cluster count, the size range when sizes differ, and the fewest in one stratum.
 
-    A cross-fitted fit at unequal sizes withholds its interval, so the facts block states
-    the sizes it read. Equal sizes print the count alone, as they did before the sizes
-    mattered to a status.
+    The last applies to a fit with baseline strata. A cross-fitted fit at unequal sizes
+    withholds its interval, and so does a fit with a stratum of few clusters, so the facts
+    block states the counts it read. Equal sizes without strata print the count alone, as
+    they did before the sizes mattered to a status.
     """
+    cluster = data.cluster
+    assert cluster is not None
     counts = cluster_sizes(cluster)
     smallest, largest = int(counts.min()), int(counts.max())
-    if smallest == largest:
-        return f"{counts.size}"
-    return f"{counts.size}, sizes {smallest} to {largest}"
+    fact = f"{counts.size}"
+    if smallest != largest:
+        fact += f", sizes {smallest} to {largest}"
+    if data.has_strata:
+        fact += f", fewest in one stratum {fewest_clusters(cluster, data.strata)}"
+    return fact
 
 
 def _arm_shares(data: CausalData) -> str:
