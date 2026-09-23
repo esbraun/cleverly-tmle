@@ -38,8 +38,7 @@ import numpy as np
 from .._typing import FloatArray
 from ..estimators.base import TMLEResultSet
 from ..estimators.direct_effect import check_level
-from ..inference.delta import two_sided_pvalue
-from ..inference.influence import InferenceStatus
+from ..inference.influence import InferenceStatus, spread_name
 from ..utils.parallel import map_parallel
 from ..utils.text import format_table
 
@@ -56,6 +55,13 @@ __all__ = [
     "StudyResult",
     "summarize_replications",
 ]
+
+
+#: What the verdict calls the standard error a coverage shortfall is traced to.
+_SPREAD_NOUN: dict[InferenceStatus, str] = {
+    "influence_curve": "reported standard error",
+    "working_mechanism_plugin": "plug-in standard error",
+}
 
 
 @dataclass(frozen=True)
@@ -143,6 +149,10 @@ class EstimandSummary:
     #: ``None`` means the two coincide, which is the case for every difference and level.
     #: Only :attr:`se_ratio` reads it; see there for why it has to exist.
     inference_estimates: FloatArray | None = None
+    #: What ``std_errors``, ``covered`` and ``rejected`` measured: the estimator's own
+    #: inference, or its retained working-mechanism diagnostic when it supplies none.
+    #: :func:`summarize_replications` reads it off the records and refuses a mix.
+    inference: InferenceStatus = "influence_curve"
 
     @property
     def mean_estimate(self) -> float:
@@ -224,8 +234,14 @@ class EstimandSummary:
         return float(np.sqrt(np.mean((self.estimates - self.truth) ** 2)))
 
     def to_dict(self) -> dict[str, Any]:
+        # The convention ``ParameterEstimate.to_dict`` keeps: an ordinary summary carries
+        # the columns it always carried, and a summary of a diagnostic carries
+        # ``inference`` and names its mean spread through ``spread_name``.
+        row: dict[str, Any] = {"estimand": self.estimand}
+        if self.inference != "influence_curve":
+            row["inference"] = self.inference
         return {
-            "estimand": self.estimand,
+            **row,
             "truth": self.truth,
             "n": self.n,
             "n_replicates": self.n_replicates,
@@ -235,7 +251,7 @@ class EstimandSummary:
             "root_n_bias": self.root_n_bias,
             "rmse": self.rmse,
             "monte_carlo_se": self.monte_carlo_se,
-            "mean_std_error": self.mean_std_error,
+            spread_name("mean_std_error", self.inference): self.mean_std_error,
             "se_ratio": self.se_ratio,
             "coverage": self.coverage,
             "coverage_se": self.coverage_se,
@@ -252,6 +268,13 @@ def summarize_replications(
         raise ValueError(f"no successful replication records for estimand {estimand!r}")
     estimates = np.asarray([record.estimate for record in selected], dtype=float)
     inference = np.asarray([record.inference_estimate for record in selected], dtype=float)
+    statuses = {record.inference for record in selected}
+    if len(statuses) != 1:
+        raise ValueError(
+            f"the records for {estimand!r} declare different inference statuses "
+            f"{sorted(statuses)}; a coverage rate over a mix would average an interval "
+            "with a diagnostic"
+        )
     return EstimandSummary(
         estimand=estimand,
         truth=float(np.mean([record.truth for record in selected])),
@@ -262,6 +285,7 @@ def summarize_replications(
         covered=np.asarray([record.covered for record in selected], dtype=float),
         rejected=np.asarray([record.rejected for record in selected], dtype=float),
         inference_estimates=None if np.array_equal(inference, estimates) else inference,
+        inference=statuses.pop(),
     )
 
 
@@ -320,8 +344,16 @@ class StudyResult:
         from ..utils.frames import frame_from_dict
 
         rows = [summary.to_dict() for summary in self.summaries.values()]
-        payload = {key: [row[key] for row in rows] for key in rows[0]}
+        # The union of the keys, in first-seen order, as ``TMLEResult.to_frame`` builds
+        # it: a summary of a diagnostic carries columns an ordinary one does not.
+        keys = list(dict.fromkeys(key for row in rows for key in row))
+        payload = {key: [row.get(key) for row in rows] for key in keys}
         return frame_from_dict(payload, backend=backend)
+
+    @property
+    def _diagnostic(self) -> bool:
+        """Whether any summary measured a working-mechanism diagnostic, not inference."""
+        return any(summary.inference != "influence_curve" for summary in self.summaries.values())
 
     def summary(self) -> str:
         """Return a printable summary.
@@ -346,7 +378,7 @@ class StudyResult:
                     "supplies no interval, so the columns below describe the spread of "
                     "the curve it reports and not a confidence interval"
                 ]
-                if any(record.inference != "influence_curve" for record in self.replications)
+                if self._diagnostic
                 else []
             ),
             "",
@@ -401,7 +433,8 @@ class StudyResult:
                     f"{summary.estimand}: coverage {summary.coverage:.3f} is below the nominal "
                     f"{target:.0%} by more than Monte Carlo error"
                     + (
-                        f"; the reported standard error is {1 / summary.se_ratio:.2f}x too small"
+                        f"; the {_SPREAD_NOUN[summary.inference]} is "
+                        f"{1 / summary.se_ratio:.2f}x too small"
                         if summary.se_ratio < 0.95
                         else "; the standard error looks right, so this is bias"
                     )
@@ -414,6 +447,15 @@ class StudyResult:
                     f"{abs(summary.bias) / summary.bias_se:.1f} Monte Carlo standard errors from "
                     "zero"
                 )
+        if not notes and self._diagnostic:
+            # A plug-in interval that covers is not a confidence interval the estimator
+            # reports, so the verdict does not certify one.  Bias is a property of the
+            # point estimate, which this path does report.
+            return (
+                "VERDICT: bias is consistent with a correctly working estimator. The "
+                "coverage column measures a working-mechanism plug-in diagnostic, so it "
+                "certifies no confidence interval for this estimator."
+            )
         if not notes:
             return "VERDICT: coverage and bias are consistent with a correctly working estimator."
         return "VERDICT:\n" + "\n".join(f"  - {note}" for note in notes)
@@ -608,18 +650,14 @@ class CoverageStudy:
                     # into a `ReplicationFailure`: every replication of every selector cell
                     # would be dropped silently and the cell would publish on a shrunken
                     # budget.  `inference` on the record says which one was measured.
-                    diagnostic = estimate.inference != "influence_curve"
-                    low, high = estimate.plugin_interval if diagnostic else estimate.ci
-                    error = estimate.plugin_std_error if diagnostic else estimate.std_error
-                    # The same expression ``ParameterEstimate.pvalue`` evaluates, on the
-                    # same two numbers, so the diagnostic branch is that property's
-                    # arithmetic under a name that makes no claim -- and not a second rule
-                    # that could disagree with it at a boundary.
-                    probability = (
-                        two_sided_pvalue(estimate.inference_value, estimate.plugin_std_error)
-                        if diagnostic
-                        else estimate.pvalue
-                    )
+                    # No branch on the status: the plug-in accessors read the private
+                    # bodies ``ci`` and ``std_error`` read, and ``_plugin_pvalue`` is the
+                    # body ``pvalue`` returns, so an inferential estimate gives the numbers
+                    # it always gave and a diagnostic one gives the refused properties'
+                    # arithmetic rather than a second rule that could disagree with it.
+                    low, high = estimate.plugin_interval
+                    error = estimate.plugin_std_error
+                    probability = estimate._plugin_pvalue()
                     # The fifth entry is the estimate on the scale `std_error` is on, which is
                     # the log scale for a ratio -- taken off `log_psi`, the same field `ci`
                     # builds the interval from, rather than re-derived here. `se_ratio` is the

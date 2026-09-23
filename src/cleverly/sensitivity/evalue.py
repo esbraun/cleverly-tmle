@@ -75,8 +75,7 @@ _STANDARDISED_MISSING_REFUSAL = (
 #: the capability row reports ``unavailable`` instead of the computation raising under a
 #: row that advertised ``available=True``.
 _WORKING_MECHANISM_EVALUE_REFUSAL = (
-    "an E-value is built from the reported estimate and its interval, and a greedy, "
-    "ordered or discrete collaborative fit supplies no interval and no standard error. "
+    "an E-value is built from the reported estimate and its interval. "
     f"{WORKING_MECHANISM_NOT_INFERENTIAL} The outcome-adaptive path, strategy='oat', is "
     "unaffected and keeps every E-value branch."
 )
@@ -341,11 +340,6 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
         raise _EValueRefusal(
             AssessmentStatus.UNAVAILABLE, f"estimand {source!r} was not requested in this fit"
         )
-    # Fit-wide rather than branch-scoped, unlike the standardized rule below: the reported
-    # and derived ratio branches read ``estimate.ci`` and the Gaussian branch reads the
-    # reference arm's ``std_error``, so no branch survives a fit that supplies neither.
-    if result.estimates[source].inference != "influence_curve":
-        raise _EValueRefusal(AssessmentStatus.UNAVAILABLE, _WORKING_MECHANISM_EVALUE_REFUSAL)
     key = keys.get(source)
     if key is None:
         raise _EValueRefusal(
@@ -356,6 +350,13 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
             AssessmentStatus.NOT_APPLICABLE,
             f"an E-value needs an unconditioned two-arm contrast, not axis {key.axis!r}",
         )
+    # Fit-wide rather than branch-scoped, unlike the standardized rule below: the reported
+    # and derived ratio branches read ``estimate.ci`` and the Gaussian branch reads the
+    # reference arm's ``std_error``, so no branch survives a fit that supplies neither.
+    # After the two checks above, which say an E-value is not defined for this request
+    # on any fit: a level such as ``ey1`` stays ``not_applicable`` here too.
+    if not result.estimates[source].supplies_inference:
+        raise _EValueRefusal(AssessmentStatus.UNAVAILABLE, _WORKING_MECHANISM_EVALUE_REFUSAL)
     if key.estimand == "rr":
         return _EValueSelection(source, "reported_rr")
     if key.estimand == "or" and explicit:

@@ -157,7 +157,10 @@ class ScoreCheckRow:
     threshold : float
         Magnitude the score may reach and still pass.
     std_error : float
-        Standard error the threshold is expressed in.
+        Standard error the threshold is expressed in, read through
+        :attr:`~cleverly.ParameterEstimate.plugin_std_error`. It is a scale for the
+        tolerance. On a fit that supplies no inference it is the plug-in diagnostic and
+        not a standard error, and :meth:`ScoreCheck.to_frame` does not publish it.
     passed : bool
         Whether the score stayed inside it.
     converged : bool

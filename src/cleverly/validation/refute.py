@@ -57,13 +57,14 @@ Each test refits the model, so a full run costs several times a single fit.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
 from ..exceptions import CapabilityError
 from ..inference.bootstrap import Resampling, _bootstrap_design
+from ..inference.influence import InferenceStatus, spread_name
 from ..utils.frames import emit_frame
 from ..utils.random import resolve_assessment_seed
 from ..utils.text import format_table
@@ -492,7 +493,9 @@ class EmpiricalRefitRecord:
     estimate : float
         Refitted point estimate.
     std_error : float
-        Refitted standard error.
+        Refitted standard error, read through
+        :attr:`~cleverly.ParameterEstimate.plugin_std_error`. On a fit that supplies no
+        inference it is that diagnostic, and not a standard error.
     family : str
         Outcome family supplied by the refitted result.
     """
@@ -572,6 +575,11 @@ class RefutationTest:
         Requested empirical draw count.
     resampling : str or None
         Resolved bootstrap mode for a bootstrap-based refuter.
+    inference : {"influence_curve", "working_mechanism_plugin"}
+        Inference status of the refitted estimates. On a fit that supplies no inference,
+        ``standard_errors`` and each record's ``std_error`` hold the plug-in diagnostic
+        :attr:`~cleverly.ParameterEstimate.plugin_std_error`, and :meth:`to_frame`
+        publishes that column as ``plugin_std_error``.
     """
 
     name: str
@@ -591,6 +599,7 @@ class RefutationTest:
     declared_effect: float | None = None
     requested_draws: int | None = None
     resampling: str | None = None
+    inference: InferenceStatus = "influence_curve"
 
     @property
     def mean(self) -> float:
@@ -655,17 +664,20 @@ class RefutationTest:
         Returns
         -------
         dataframe
-            Successful estimates and standard errors alongside retained failures.
+            Successful estimates and standard errors alongside retained failures. The
+            standard-error column is ``plugin_std_error`` when :attr:`inference` is a
+            diagnostic status.
         """
         successes = {item.replicate: item for item in self.records}
         failures = {item.replicate: item for item in self.failures}
         indices = sorted((*successes, *failures))
+        error_column = spread_name("std_error", self.inference)
         payload: dict[str, list[Any]] = {
             "test": [],
             "replicate": [],
             "seed": [],
             "estimate": [],
-            "std_error": [],
+            error_column: [],
             "family": [],
             "error_type": [],
             "message": [],
@@ -681,7 +693,7 @@ class RefutationTest:
             payload["replicate"].append(index)
             payload["seed"].append(seed)
             payload["estimate"].append(None if record is None else record.estimate)
-            payload["std_error"].append(None if record is None else record.std_error)
+            payload[error_column].append(None if record is None else record.std_error)
             payload["family"].append(None if record is None else record.family)
             payload["error_type"].append(None if failure is None else failure.error_type)
             payload["message"].append(None if failure is None else failure.message)
@@ -1802,8 +1814,11 @@ def refute(
                 )
             )
 
+    # Every refit reruns this estimator, so each test's standard errors carry the fit's
+    # own inference status, and ``RefutationTest.to_frame`` names its column from it.
+    status = result[estimand].inference
     return RefutationResult(
-        tests=tuple(outcomes),
+        tests=tuple(replace(test, inference=status) for test in outcomes),
         estimand=estimand,
         backend=result.data.backend,
         random_state=seed,

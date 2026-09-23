@@ -60,7 +60,13 @@ from cleverly.inference import (
     two_sided_pvalue,
 )
 from cleverly.inference.cluster import stacked_second_moment_variance
-from cleverly.inference.influence import CovarianceRule, median_estimates
+from cleverly.inference.influence import (
+    _DIAGNOSTIC_NAMES,
+    BootstrapSummary,
+    CovarianceRule,
+    median_estimates,
+    spread_name,
+)
 from cleverly.inference.multiplier import (
     _block_size,
     _fill_multipliers,
@@ -1349,7 +1355,13 @@ class TestTheInferenceStatus:
         assert np.array_equal(diagnostic.influence_curve, inferential.influence_curve)
 
     def test_the_default_status_is_the_ordinary_one(self) -> None:
-        """A pickle written before the field existed loads as what it claimed to be."""
+        """A bare estimate pickled before the field existed loads as what it claimed to be.
+
+        A whole result does not rely on this default. ``TMLEResult.__setstate__``
+        re-stamps its estimates from the estimator that produced them, which
+        ``tests/unit/test_selector_path_inference_reach.py`` pins on a simulated legacy
+        artifact.
+        """
         inferential, _ = self._pair()
         assert inferential.inference == "influence_curve"
         assert ParameterEstimate.inference == "influence_curve"
@@ -1373,6 +1385,93 @@ class TestTheInferenceStatus:
         # has: a frame carries no place to attach the sentence ``.ci`` raises.
         for row in (ordinary, refused):
             assert ("std_err" in row) != ("inference" in row)
+
+    def test_the_diagnostic_names_are_one_table(self) -> None:
+        """The literal contract of every renamed column, read in one place.
+
+        Every other test reads these names through ``spread_name``, so this is the one
+        that fails when a published name moves.
+        """
+        assert dict(_DIAGNOSTIC_NAMES) == {
+            "std_err": "plugin_std_err",
+            "ci_lower": "plugin_interval_lower",
+            "ci_upper": "plugin_interval_upper",
+            "bootstrap_ci_lower": "bootstrap_range_lower",
+            "bootstrap_ci_upper": "bootstrap_range_upper",
+            "std_error": "plugin_std_error",
+            "mean_std_error": "mean_plugin_std_error",
+            "reported_standard_error": "plugin_standard_error",
+            "ratio_to_standard_error": "ratio_to_plugin_standard_error",
+            "reported se": "plugin se",
+            "sd/se": "sd/plugin se",
+        }
+        for name, diagnostic in _DIAGNOSTIC_NAMES.items():
+            assert spread_name(name, "influence_curve") == name
+            assert spread_name(name, "working_mechanism_plugin") == diagnostic
+
+    def test_an_unregistered_name_cannot_be_published_for_a_diagnostic(self) -> None:
+        """A p-value has no diagnostic name, and a new column has to be entered first."""
+        assert spread_name("p_value", "influence_curve") == "p_value"
+        for name in ("p_value", "some_new_interval"):
+            with pytest.raises(KeyError):
+                spread_name(name, "working_mechanism_plugin")
+
+    @pytest.mark.parametrize(
+        "scale, extra",
+        [("difference", {}), ("ratio", {"psi": 2.4, "log_psi": float(np.log(2.4))})],
+    )
+    def test_the_spread_columns_are_the_accessors_under_status_names(
+        self, scale: str, extra: dict[str, object]
+    ) -> None:
+        """One body per number, whichever name it is published under."""
+        inferential, diagnostic = self._pair(scale=scale, **extra)
+        low, high = inferential.ci
+        assert inferential.spread_columns() == {
+            "std_err": inferential.std_error,
+            "ci_lower": low,
+            "ci_upper": high,
+            "p_value": inferential.pvalue,
+        }
+        assert inferential.spread_columns(pvalue=False) == {
+            "std_err": inferential.std_error,
+            "ci_lower": low,
+            "ci_upper": high,
+        }
+        status = diagnostic.inference
+        assert diagnostic.spread_columns() == {
+            spread_name("std_err", status): inferential.std_error,
+            spread_name("ci_lower", status): low,
+            spread_name("ci_upper", status): high,
+        }
+        assert inferential.supplies_inference is True
+        assert diagnostic.supplies_inference is False
+
+    def test_the_bootstrap_limits_are_a_range_on_a_diagnostic(self) -> None:
+        """A percentile interval is a confidence interval too, so its name moves.
+
+        The numbers do not: the range is the same two draws' quantiles the ordinary
+        estimate publishes as ``bootstrap_ci_*``, and the standard error keeps its name.
+        """
+        summary = BootstrapSummary(
+            std_error=0.21,
+            ci=(0.9, 1.7),
+            ci_one_sided_lower=0.95,
+            ci_one_sided_upper=1.6,
+            n_replicates=20,
+            n_failed=0,
+            draws=np.linspace(0.9, 1.7, 20),
+        )
+        inferential, diagnostic = self._pair(bootstrap=summary)
+        ordinary = inferential.to_dict()
+        refused = diagnostic.to_dict()
+        status = diagnostic.inference
+
+        assert ordinary["bootstrap_ci_lower"] == 0.9
+        assert ordinary["bootstrap_ci_upper"] == 1.7
+        assert not {"bootstrap_ci_lower", "bootstrap_ci_upper"} & set(refused)
+        assert refused[spread_name("bootstrap_ci_lower", status)] == 0.9
+        assert refused[spread_name("bootstrap_ci_upper", status)] == 1.7
+        assert refused["bootstrap_std_err"] == ordinary["bootstrap_std_err"] == 0.21
 
     def test_the_median_over_repeats_keeps_and_refuses_to_mix_the_status(self) -> None:
         _, diagnostic = self._pair()

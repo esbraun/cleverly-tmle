@@ -17,8 +17,17 @@ had never written.
 
 The round-trip case is here rather than beside the accessors because ``inference`` is a
 dataclass field with a class-level default.  A result restored from a pickle written
-before that field existed arrives without it, so the refusal on a restored selector fit is
-carried by the field's persistence rather than by any rule this module can see.
+before that field existed arrives without it, and its estimates read the default,
+``"influence_curve"``.  ``TMLEResult.__setstate__`` re-stamps them from the estimator the
+artifact carries, and :class:`TestALegacySelectorArtifactIsReStamped` pins that on a
+simulated pre-field artifact.
+
+The later classes follow the refusal into every other surface that publishes a spread of
+the reported curve: the bootstrap limits, the repeat-spread report, the refutation frame,
+the coverage study, the argument-aware capability rows, and the combined report.  Each
+reads its names through :func:`~cleverly.inference.influence.spread_name`, so a test here
+reads them the same way, and one literal table in ``tests/unit/test_inference.py`` pins
+the names themselves.
 """
 
 from __future__ import annotations
@@ -32,10 +41,19 @@ from sklearn.base import BaseEstimator
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import variable_importance
-from cleverly.datasets import make_instrument, make_missing_outcome
+from cleverly.assessment import AssessmentStatus
+from cleverly.datasets import make_binary_outcome, make_instrument, make_missing_outcome
 from cleverly.estimators import CTMLE, TMLE
-from cleverly.exceptions import WORKING_MECHANISM_NOT_INFERENTIAL, CapabilityError
+from cleverly.estimators.serialize import dumps, loads
+from cleverly.exceptions import (
+    WORKING_MECHANISM_ASSESSMENT_NOTE,
+    WORKING_MECHANISM_NOT_INFERENTIAL,
+    CapabilityError,
+    working_mechanism_refusal,
+)
+from cleverly.inference.influence import spread_name
 from cleverly.sensitivity import missingness_tilt, tipping_gamma
+from cleverly.validation import CoverageStudy, refute
 
 #: Learners fast enough that a fixture costs less than a second, and explicit, so no
 #: default library is constructed.
@@ -47,11 +65,22 @@ FAST: dict[str, Any] = {
     "random_state": 0,
 }
 
-#: The three spread columns an ordinary fit's tilt carries, and the three a selector-path
-#: fit receives instead.  Named once, because the two tests below are one claim read from
-#: opposite sides.
+#: The status every selector path stamps, and the three spread columns an ordinary fit's
+#: tilt carries and a selector-path fit renames.  Read through ``spread_name`` rather than
+#: spelt again, because the two tests below are one claim read from opposite sides.
+DIAGNOSTIC = "working_mechanism_plugin"
 INFERENTIAL_COLUMNS = frozenset({"std_err", "ci_lower", "ci_upper"})
-DIAGNOSTIC_COLUMNS = frozenset({"plugin_std_err", "plugin_interval_lower", "plugin_interval_upper"})
+DIAGNOSTIC_COLUMNS = frozenset(spread_name(name, DIAGNOSTIC) for name in INFERENTIAL_COLUMNS)
+
+#: One configuration per selector path, for the class that must hold on all three.
+SELECTORS: dict[str, dict[str, Any]] = {
+    "greedy": {"selection_folds": 3},
+    "ordered": {"selection_folds": 3, "preorder": "logistic"},
+    "discrete": {"selection_folds": 3, "candidates": ((), ("W1",))},
+}
+
+#: What the combined report writes when an operation it ran raised ``CapabilityError``.
+DECLINED = "the operation declined this request"
 
 
 class Unfittable(BaseEstimator):
@@ -264,3 +293,243 @@ class TestARestoredSelectorFitStillRefuses:
         columns = set(missingness_tilt(restored, [0.0]).columns)
         assert columns >= DIAGNOSTIC_COLUMNS
         assert not (INFERENTIAL_COLUMNS & columns)
+
+
+def _legacy(result: Any) -> Any:
+    """A copy of ``result`` shaped as an artifact written before ``inference`` existed.
+
+    Each estimate loses the field from its instance state, so it reads the class-level
+    default. The result also carries the two things such an artifact could hold that the
+    re-stamp has to drop: a band object and a saved assessment answer.
+    """
+    legacy = pickle.loads(pickle.dumps(result))
+    for estimate in legacy.estimates.values():
+        estimate.__dict__.pop("inference")
+        assert estimate.inference == "influence_curve"
+    legacy.__dict__["simultaneous"] = "bands built before the refusal"
+    legacy.__dict__["assessment_cache"] = {"sensitivity.evalue": "an answer read off .ci"}
+    return legacy
+
+
+class TestALegacySelectorArtifactIsReStamped:
+    """A selector fit saved before the field existed must not load as inferential.
+
+    Without the re-stamp every estimate of such an artifact reads ``"influence_curve"``,
+    so ``.ci`` answers and the fit publishes the interval this version refuses.
+    """
+
+    @pytest.fixture(scope="class", params=["serialize", "pickle"])
+    def restored(self, request: Any, selector_fit: Any) -> Any:
+        legacy = _legacy(selector_fit)
+        if request.param == "serialize":
+            return loads(dumps(legacy))
+        return pickle.loads(pickle.dumps(legacy))
+
+    def test_the_estimates_carry_the_estimator_status_again(self, restored: Any) -> None:
+        assert {estimate.inference for estimate in restored.estimates.values()} == {DIAGNOSTIC}
+        assert restored.inference_status == DIAGNOSTIC
+
+    def test_the_interval_is_refused_again(self, restored: Any) -> None:
+        with pytest.raises(CapabilityError) as raised:
+            _ = restored["ate"].ci
+        assert WORKING_MECHANISM_NOT_INFERENTIAL in str(raised.value)
+
+    def test_the_diagnostic_is_bit_identical(self, restored: Any, selector_fit: Any) -> None:
+        assert restored["ate"].plugin_std_error == selector_fit["ate"].plugin_std_error
+        assert restored["ate"].plugin_interval == selector_fit["ate"].plugin_interval
+        assert restored["ate"].psi == selector_fit["ate"].psi
+
+    def test_what_was_derived_under_the_old_status_is_dropped(self, restored: Any) -> None:
+        assert restored.simultaneous is None
+        assert restored.assessment_cache == {}
+
+    def test_an_ordinary_legacy_artifact_loads_as_it_was_saved(self, ordinary_fit: Any) -> None:
+        """The control: a fit whose estimator supplies inference is not touched."""
+        restored = loads(dumps(_legacy(ordinary_fit)))
+        assert restored.inference_status == "influence_curve"
+        assert restored.simultaneous == "bands built before the refusal"
+        assert restored.assessment_cache == {"sensitivity.evalue": "an answer read off .ci"}
+        assert restored["ate"].ci == ordinary_fit["ate"].ci
+
+
+@pytest.fixture(scope="module")
+def binary_frame() -> Any:
+    return make_binary_outcome(n=400, seed=17)[0]
+
+
+def _binary_selector(**extra: Any) -> CTMLE:
+    return CTMLE(
+        strategy="greedy",
+        selection_folds=3,
+        estimands=("ate",),
+        outcome_learner=LogisticRegression(max_iter=1000),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        simultaneous=False,
+        random_state=0,
+        **extra,
+    )
+
+
+@pytest.fixture(scope="module")
+def repeated_selector_fit(binary_frame: Any) -> Any:
+    """A greedy fit over two cross-fitting draws, which is what reports a repeat spread."""
+    return (
+        _binary_selector(repeats=2, n_folds=2)
+        .fit(binary_frame, outcome="Y", treatment="A")
+        .single()
+    )
+
+
+class TestEverySpreadIsNamedByItsStatus:
+    """Each frame and label that publishes the plug-in error names it as a diagnostic.
+
+    The numbers are unchanged. Only the name moves, and it moves through ``spread_name``,
+    so the control on each surface is an ordinary fit that keeps the inferential name.
+    """
+
+    def test_the_fit_declares_one_status(
+        self, repeated_selector_fit: Any, ordinary_fit: Any
+    ) -> None:
+        assert repeated_selector_fit.inference_status == DIAGNOSTIC
+        assert ordinary_fit.inference_status == "influence_curve"
+        assert repeated_selector_fit["ate"].supplies_inference is False
+        assert ordinary_fit["ate"].supplies_inference is True
+
+    def test_the_bootstrap_limits_are_a_range(self, binary_frame: Any) -> None:
+        refused = (
+            _binary_selector(n_bootstrap=4, cross_fit=False)
+            .fit(binary_frame, outcome="Y", treatment="A")
+            .single()
+        )
+        row = refused["ate"].to_dict()
+        low, high = refused["ate"].bootstrap.ci
+        assert row[spread_name("bootstrap_ci_lower", DIAGNOSTIC)] == low
+        assert row[spread_name("bootstrap_ci_upper", DIAGNOSTIC)] == high
+        assert row["bootstrap_std_err"] == refused["ate"].bootstrap.std_error
+        assert not {"bootstrap_ci_lower", "bootstrap_ci_upper"} & set(refused.to_frame().columns)
+        assert "percentile range" in refused.summary()
+
+    def test_the_repeat_spread_frame_names_the_diagnostic(self, repeated_selector_fit: Any) -> None:
+        report = repeated_selector_fit.diagnostics.nuisance_models()
+        columns = list(report.repeat_spread_frame().columns)
+        assert columns[-2:] == [
+            spread_name("reported_standard_error", DIAGNOSTIC),
+            spread_name("ratio_to_standard_error", DIAGNOSTIC),
+        ]
+        assert "reported_standard_error" not in columns
+        summary = report.summary()
+        assert spread_name("sd/se", DIAGNOSTIC) in summary
+        assert "reported se" not in summary
+
+    def test_the_split_noise_share_names_the_diagnostic(self, repeated_selector_fit: Any) -> None:
+        summary = repeated_selector_fit.summary()
+        label = spread_name("std_err", DIAGNOSTIC)
+        assert f"of {label})" in summary
+        assert "of std_err)" not in summary
+
+    def test_the_nuisance_note_keeps_its_capitals(self, repeated_selector_fit: Any) -> None:
+        """``str.capitalize`` printed "f18". Only the first letter may change."""
+        report = repeated_selector_fit.diagnostics.nuisance_models()
+        assert report.inference_note == WORKING_MECHANISM_ASSESSMENT_NOTE
+        note = WORKING_MECHANISM_ASSESSMENT_NOTE
+        assert note[0].upper() + note[1:] + "." in report.summary()
+
+    def test_an_ordinary_report_has_no_note(self, ordinary_fit: Any) -> None:
+        assert ordinary_fit.diagnostics.nuisance_models().inference_note is None
+
+    def test_the_refutation_frame_names_the_diagnostic(self, repeated_selector_fit: Any) -> None:
+        report = refute(
+            repeated_selector_fit, tests=("random_common_cause",), n_replicates=2, random_state=0
+        )
+        test = report.tests[0]
+        assert test.inference == DIAGNOSTIC
+        columns = set(test.to_frame().columns)
+        assert spread_name("std_error", DIAGNOSTIC) in columns
+        assert "std_error" not in columns
+
+    def test_the_coverage_study_labels_what_it_measured(self) -> None:
+        study = CoverageStudy(
+            dgp=lambda n, seed: make_binary_outcome(n=n, seed=seed),
+            estimator=lambda: _binary_selector(cross_fit=False),
+            n=300,
+            n_replicates=3,
+            seed=1,
+            fit_kwargs={"outcome": "Y", "treatment": "A"},
+        ).run()
+        assert study.n_failed == 0
+        assert study["ate"].inference == DIAGNOSTIC
+        frame = study.to_frame()
+        assert list(frame["inference"]) == [DIAGNOSTIC]
+        assert spread_name("mean_std_error", DIAGNOSTIC) in frame.columns
+        assert "mean_std_error" not in frame.columns
+        verdict = study.verdict()
+        assert "coverage and bias are consistent" not in verdict
+        assert "certifies no confidence interval" in verdict
+
+
+class TestTheArgumentAwareRowsAgreeWithTheCall:
+    """A row that depends on the request is resolved for the request, before the call."""
+
+    def test_the_interval_tipping_row_is_unavailable_with_the_raise_sentence(
+        self, selector_fit: Any
+    ) -> None:
+        report = selector_fit.sensitivity.run_all(
+            include_retargets=True, arguments={"tipping_gamma": {"use_ci": True}}
+        )
+        item = report["tipping_gamma"]
+        assert item.status is AssessmentStatus.UNAVAILABLE
+        assert working_mechanism_refusal("tipping_gamma(use_ci=True)") in item.detail
+        assert DECLINED not in item.detail
+
+    def test_the_point_tipping_row_stays_available(self, selector_fit: Any) -> None:
+        report = selector_fit.sensitivity.run_all(
+            include_retargets=True, arguments={"tipping_gamma": {"use_ci": False}}
+        )
+        assert report["tipping_gamma"].status is not AssessmentStatus.UNAVAILABLE
+
+    def test_an_ordinary_fit_keeps_its_interval_tipping_row(self, ordinary_fit: Any) -> None:
+        report = ordinary_fit.sensitivity.run_all(
+            include_retargets=True, arguments={"tipping_gamma": {"use_ci": True}}
+        )
+        assert report["tipping_gamma"].status is not AssessmentStatus.UNAVAILABLE
+
+    def test_a_level_is_not_applicable_before_the_fit_is_refused(self, missing_frame: Any) -> None:
+        """``ey1`` has no E-value on any fit, so the request says that, not the refusal."""
+        fit = (
+            CTMLE(strategy="greedy", selection_folds=3, estimands=("ate", "ey1", "ey0"), **FAST)
+            .fit(missing_frame, outcome="Y", treatment="A", delta="Delta")
+            .single()
+        )
+        level = fit.sensitivity.run_all(arguments={"evalue": {"estimand": "ey1"}})["evalue"]
+        assert level.status is AssessmentStatus.NOT_APPLICABLE
+        contrast = fit.sensitivity.run_all(arguments={"evalue": {"estimand": "ate"}})["evalue"]
+        assert contrast.status is AssessmentStatus.UNAVAILABLE
+        assert WORKING_MECHANISM_NOT_INFERENTIAL in contrast.detail
+
+
+class TestNoAvailableRowDeclinesOnASelectorPath:
+    """The combined report never runs a row that then raises ``CapabilityError``.
+
+    Such a row reads ``unavailable`` with "the operation declined this request", which
+    is the state RM12 removes: the declared row said available and the call refused.
+    A future reader that raises on a selector fit would be demoted to that row silently,
+    so this contract runs every row, refits and retargets included, on all three paths.
+    """
+
+    @pytest.mark.parametrize("strategy", sorted(SELECTORS))
+    def test_every_row_that_ran_answered(self, missing_frame: Any, strategy: str) -> None:
+        fit = (
+            CTMLE(strategy=strategy, estimands=("ate", "ey1", "ey0"), **FAST, **SELECTORS[strategy])
+            .fit(missing_frame, outcome="Y", treatment="A", delta="Delta")
+            .single()
+        )
+        assert fit.inference_status == DIAGNOSTIC
+        report = fit.assess(
+            include_refits=True,
+            include_retargets=True,
+            arguments={"tipping_gamma": {"use_ci": True}},
+            random_state=0,
+        )
+        items = (*report.diagnostics.items, *report.sensitivity.items)
+        declined = [item.name for item in items if DECLINED in (item.detail or "")]
+        assert declined == []

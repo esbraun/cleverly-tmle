@@ -88,8 +88,11 @@ class PositivityWarning(UserWarning):
 
 
 #: Why a selector-path collaborative estimate reports no interval and no p-value.  One text
-#: for the raise in :mod:`cleverly.inference.influence`, the result summary, the assessment
-#: row and the tests that assert the refusal states its cause, on the model of
+#: for every raise :func:`refuse_working_mechanism_inference` makes (the estimate
+#: accessors, ``simultaneous_bands``, ``variable_importance`` and
+#: ``tipping_gamma(use_ci=True)``), the refusal paragraph of ``TMLEResult.summary``, the
+#: E-value and ``tipping_gamma(use_ci=True)`` capability rows, and the tests that assert
+#: the refusal states its cause, on the model of
 #: :data:`cleverly.validation.nuisance.NUISANCE_SELECTION_MISSING`.
 WORKING_MECHANISM_NOT_INFERENTIAL = (
     "the greedy, ordered and discrete collaborative paths report no confidence interval, "
@@ -102,13 +105,35 @@ WORKING_MECHANISM_NOT_INFERENTIAL = (
     "estimator's influence curve."
 )
 
-#: The fact the assessment's nuisance-model item adds for the same fit.  Held beside the
-#: refusal so the report and the raise cannot drift apart, and asserted by importing it.
+#: The fact the nuisance report adds for the same fit.  ``NuisanceDiagnostics.inference_note``
+#: returns it, and its summary and the assessment's nuisance-model item both print that.
+#: Held beside the refusal so the report and the raise cannot drift apart, and asserted by
+#: importing it.
 WORKING_MECHANISM_ASSESSMENT_NOTE = (
     "the reported curve is a working-mechanism diagnostic: no confidence interval or "
     "p-value is available for this path, and F18 in the roadmap is the condition that "
     "reopens it"
 )
+
+
+def working_mechanism_refusal(operation: str) -> str:
+    """The sentence that refuses an inferential operation on a selector-path estimate.
+
+    One text for the raise in :func:`refuse_working_mechanism_inference` and for a
+    capability row that declares the same refusal before the call, so the row and the
+    raise cannot disagree.
+
+    Parameters
+    ----------
+    operation : str
+        The refused operation, named as the caller writes it.
+
+    Returns
+    -------
+    str
+        The operation, followed by :data:`WORKING_MECHANISM_NOT_INFERENTIAL`.
+    """
+    return f"{operation} is not defined here. {WORKING_MECHANISM_NOT_INFERENTIAL}"
 
 
 def refuse_working_mechanism_inference(status: str, *, operation: str) -> None:
@@ -129,9 +154,7 @@ def refuse_working_mechanism_inference(status: str, *, operation: str) -> None:
         When the estimate declares any status other than ``"influence_curve"``.
     """
     if status != "influence_curve":
-        raise CapabilityError(
-            f"{operation} is not defined here. {WORKING_MECHANISM_NOT_INFERENTIAL}"
-        )
+        raise CapabilityError(working_mechanism_refusal(operation))
 
 
 def refuse_after_repeats(n_repeats: int, *, operation: str, reason: str) -> None:

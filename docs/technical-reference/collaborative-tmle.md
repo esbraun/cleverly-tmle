@@ -262,7 +262,9 @@ conditional selector coverage nor collaborative-double-robust coverage.
 A refit bootstrap reruns each adaptive construction, but no reviewed theorem validates it for
 either shipped path. On a selector path `summary()` therefore prints the bootstrap standard error
 and a `percentile range`, under the same diagnostic framing, rather than a percentile confidence
-interval. The targeted-HAL bootstrap result cited in the audit fixes its data-adaptive complexity
+interval. `to_frame()` emits the two limits as `bootstrap_range_lower` and `bootstrap_range_upper`
+in place of `bootstrap_ci_lower` and `bootstrap_ci_upper`. The `bootstrap_std_err` column keeps its
+name. The targeted-HAL bootstrap result cited in the audit fixes its data-adaptive complexity
 bound rather than reselecting it.
 
 | where to read the evidence | what is there |

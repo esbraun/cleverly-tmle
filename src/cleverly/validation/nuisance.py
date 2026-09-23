@@ -48,7 +48,7 @@ import numpy as np
 from .._typing import BoolArray, FloatArray
 from ..data.weighting import REPORTED_DRAW
 from ..exceptions import WORKING_MECHANISM_ASSESSMENT_NOTE
-from ..inference.influence import InferenceStatus
+from ..inference.influence import InferenceStatus, spread_name
 from ..utils.bounds import logit
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
@@ -208,9 +208,13 @@ class RepeatSpreadRow:
         inference scale of the estimand. That is :math:`\log\hat\psi_r` for a ratio, so
         the value is comparable with ``reported_standard_error``.
     reported_standard_error : float
-        Standard error on the median-combined result, on the inference scale.
+        Standard error on the median-combined result, on the inference scale. On a fit
+        that supplies no inference it is the plug-in diagnostic
+        :attr:`~cleverly.ParameterEstimate.plugin_std_error`, and
+        :meth:`NuisanceDiagnostics.repeat_spread_frame` publishes it as
+        ``plugin_standard_error``.
     ratio_to_standard_error : float
-        Split standard deviation divided by the reported standard error. This ratio is
+        Split standard deviation divided by ``reported_standard_error``. This ratio is
         descriptive and has no pass threshold.
     """
 
@@ -366,14 +370,22 @@ class NuisanceDiagnostics:
         -------
         dataframe
             Parameter aliases, draw counts, split standard deviations, reported standard
-            errors, and their descriptive ratios.
+            errors, and their descriptive ratios. A fit that supplies no inference names
+            the last two columns ``plugin_standard_error`` and
+            ``ratio_to_plugin_standard_error``, because the number is its plug-in
+            diagnostic and not a standard error.
         """
+        rows = self.repeat_spread
         payload = {
-            "estimand": [row.estimand for row in self.repeat_spread],
-            "n_repeats": [row.n_repeats for row in self.repeat_spread],
-            "standard_deviation": [row.standard_deviation for row in self.repeat_spread],
-            "reported_standard_error": [row.reported_standard_error for row in self.repeat_spread],
-            "ratio_to_standard_error": [row.ratio_to_standard_error for row in self.repeat_spread],
+            "estimand": [row.estimand for row in rows],
+            "n_repeats": [row.n_repeats for row in rows],
+            "standard_deviation": [row.standard_deviation for row in rows],
+            spread_name("reported_standard_error", self.inference): [
+                row.reported_standard_error for row in rows
+            ],
+            spread_name("ratio_to_standard_error", self.inference): [
+                row.ratio_to_standard_error for row in rows
+            ],
         }
         return emit_frame(payload, data, backend=self.backend)
 
@@ -421,10 +433,12 @@ class NuisanceDiagnostics:
                     "They do not describe treatment given the complete adjustment set.",
                 ]
             )
-        if self._non_inferential:
+        note = self.inference_note
+        if note is not None:
             # Keyed on the declared status and not on ``_working_model``, which is true for
-            # the outcome-adaptive path too, and that path reports an interval.
-            lines.extend(["", WORKING_MECHANISM_ASSESSMENT_NOTE.capitalize() + "."])
+            # the outcome-adaptive path too, and that path reports an interval.  The first
+            # letter alone is raised: ``str.capitalize`` also lowercased "F18".
+            lines.extend(["", note[0].upper() + note[1:] + "."])
         if self.selection is not None:
             # No draw suffix here. The header above already states which draw every
             # method-specific artifact in this report describes, and a repeated
@@ -433,13 +447,14 @@ class NuisanceDiagnostics:
         elif self.selection_omission is not None:
             lines.append(f"C-TMLE selection unavailable: {self.selection_omission}")
         if self.repeat_spread:
+            reported = spread_name("reported se", self.inference)
             lines.extend(
                 [
                     "",
-                    "Repeated-split sensitivity. The sd and reported se columns are on "
+                    f"Repeated-split sensitivity. The sd and {reported} columns are on "
                     "the estimand's inference scale, which is the log scale for a ratio.",
                     format_table(
-                        ["estimand", "draws", "sd", "reported se", "sd/se"],
+                        ["estimand", "draws", "sd", reported, spread_name("sd/se", self.inference)],
                         [row.row() for row in self.repeat_spread],
                     ),
                     "The split ratio is descriptive and has no pass threshold.",
@@ -496,6 +511,18 @@ class NuisanceDiagnostics:
     def _non_inferential(self) -> bool:
         """Whether the fit's estimates carry a diagnostic rather than inference."""
         return self.inference != "influence_curve"
+
+    @property
+    def inference_note(self) -> str | None:
+        """The fact a report adds when the fit's estimates carry no inference.
+
+        :data:`~cleverly.exceptions.WORKING_MECHANISM_ASSESSMENT_NOTE` for a fit whose
+        estimates declare a diagnostic status, and ``None`` otherwise. Keyed on
+        :attr:`inference` and not on :attr:`treatment_role`, which the outcome-adaptive
+        path shares, and that path keeps its interval. :meth:`summary` and the
+        assessment's nuisance-model row both read it here.
+        """
+        return WORKING_MECHANISM_ASSESSMENT_NOTE if self._non_inferential else None
 
     def _working_mechanism(self, model: NuisanceModelReport) -> bool:
         """Whether this report is a collaborative fit's own selected propensity.
@@ -691,10 +718,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
         repeat_spread=spread_rows,
         selection_omission=selection_omission,
         repeat_spread_omission=spread_omission,
-        inference=next(
-            (estimate.inference for estimate in result.estimates.values()),
-            "influence_curve",
-        ),
+        inference=result.inference_status,
     )
 
 

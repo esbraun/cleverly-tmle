@@ -30,7 +30,7 @@ from ._assessment_cache import (
 )
 from ._typing import CumulativeGBounds
 from .data.weighting import REPORTED_DRAW, format_score_load
-from .exceptions import WORKING_MECHANISM_ASSESSMENT_NOTE, CapabilityError
+from .exceptions import CapabilityError, working_mechanism_refusal
 from .targets.population_intervention import (
     NATURAL_COURSE_SUPPORT_REFUSAL,
     NATURAL_COURSE_TILT_REFUSAL,
@@ -2619,10 +2619,12 @@ def _nuisance_item(
             facts.append(f"{selection.describe()}{draw}")
         elif getattr(report, "selection_omission", None) is not None:
             facts.append(f"C-TMLE selection unavailable: {report.selection_omission}")
-        # Keyed on the declared inference status, not on the selection artifact: the
-        # outcome-adaptive path has one of those too and keeps its interval.
-        if getattr(report, "inference", "influence_curve") != "influence_curve":
-            facts.append(WORKING_MECHANISM_ASSESSMENT_NOTE)
+        # The report's own note, which is keyed on the declared inference status and not
+        # on the selection artifact: the outcome-adaptive path has one of those too and
+        # keeps its interval.
+        note = getattr(report, "inference_note", None)
+        if note is not None:
+            facts.append(note)
         spread = tuple(getattr(report, "repeat_spread", ()))
         if spread:
             finite_rows: list[Any] = [
@@ -3564,7 +3566,30 @@ class SensitivityFacade(_CapabilityFacade):
             # The E-value selects for itself from a ``None`` sentinel rather than through
             # ``SENSITIVITY_ROUTES``, so its row is rebuilt for the requested estimand.
             return self._evalue_row(arguments.get("estimand"))
-        return super()._capability_for_arguments(operation, arguments)
+        capability = super()._capability_for_arguments(operation, arguments)
+        if operation == "tipping_gamma" and arguments.get("use_ci") and capability.available:
+            return self._tipping_interval_row(capability)
+        return capability
+
+    def _tipping_interval_row(self, capability: AssessmentCapability) -> AssessmentCapability:
+        """The ``tipping_gamma`` row for a ``use_ci=True`` request.
+
+        The interval search reads a confidence limit, and a fit that supplies no inference
+        has none, so :func:`~cleverly.sensitivity.tipping_gamma` refuses it. The row says
+        so before the call, in the sentence the call raises. The default point search
+        stays available, which is why the bare row does not change. Fit-wide, because one
+        fit's estimates carry one inference status.
+        """
+        from .sensitivity.missingness import _TIPPING_INTERVAL_OPERATION
+
+        if all(estimate.supplies_inference for estimate in self._result.estimates.values()):
+            return capability
+        return replace(
+            capability,
+            available=False,
+            status=AssessmentStatus.UNAVAILABLE,
+            reason=working_mechanism_refusal(_TIPPING_INTERVAL_OPERATION),
+        )
 
     def _estimand_candidates(self, operation: str) -> tuple[str, ...]:
         """The reported parameters a routed sensitivity analysis may be asked to choose.

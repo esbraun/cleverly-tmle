@@ -16,7 +16,6 @@ from typing import Any
 import numpy as np
 
 from .estimators.base import TMLEResult
-from .estimators.ctmle import is_selector_strategy
 from .estimators.tmle import TMLE
 from .exceptions import DataError, refuse_working_mechanism_inference
 from .inference.influence import ParameterEstimate
@@ -194,21 +193,15 @@ def variable_importance(
     base_covariates = tuple(dict.fromkeys(covariates))
     if outcome in candidate_names:
         raise DataError("the outcome cannot also be a candidate exposure")
+    template = TMLE(estimands=estimand) if estimator is None else estimator
     # Before the first fit, not after the last one.  This procedure ends in a
     # Benjamini--Hochberg adjustment of one p-value per candidate, so an estimator that
-    # supplies no p-value leaves it with nothing to adjust.  Keyed on the declared
-    # strategy, which is what stamps the estimates the adjustment would read, so the two
-    # cannot disagree.  ``is_selector_strategy(None)`` is ``False``, so an estimator
-    # restored from a pickle that predates the field is admitted exactly where its
-    # estimates would carry ``"influence_curve"``.
+    # supplies no p-value leaves it with nothing to adjust.  Asked of the estimator's own
+    # hook, which is what ``_retarget_detailed`` stamps the estimates with, so the refusal
+    # and the estimates the adjustment would read cannot disagree.
     refuse_working_mechanism_inference(
-        "working_mechanism_plugin"
-        if is_selector_strategy(getattr(estimator, "strategy", None))
-        else "influence_curve",
-        operation="variable_importance()",
+        template._inference_status(), operation="variable_importance()"
     )
-
-    template = TMLE(estimands=estimand) if estimator is None else estimator
     fits: dict[str, TMLEResult] = {}
     raw: list[tuple[str, str, tuple[str, ...], ParameterEstimate]] = []
     for candidate in candidate_names:

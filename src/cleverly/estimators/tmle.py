@@ -1226,9 +1226,7 @@ class TMLE:
         # collaborative fit over an output RM12 refuses to report anyway.  The omission is
         # not silent -- ``summary()`` prints the reason, and ``simultaneous_bands()``
         # called directly still refuses, because that is an explicit request.
-        supplies_inference = all(
-            estimate.inference == "influence_curve" for estimate in estimates.values()
-        )
+        supplies_inference = result.inference_status == "influence_curve"
         if self.simultaneous and len(estimates) > 1 and supplies_inference:
             refuse_after_repeats(
                 self.repeats, operation="simultaneous=True", reason=_REPEATED_BANDS_REASON

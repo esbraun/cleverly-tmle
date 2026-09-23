@@ -1425,15 +1425,11 @@ def truncation_curve(
         truncated_fraction = _clipped_fraction(result, pair, mechanism)
         for name in reported:
             estimate = estimates[name]
-            # The same branch ``ParameterEstimate.to_dict`` takes, for the same reason: a
+            # The columns ``ParameterEstimate.to_dict`` publishes, for the same reason: a
             # selector-path collaborative fit supplies no interval, so this frame reports
             # its retained diagnostic under names that make no coverage claim rather than
-            # raising halfway through the sweep.
-            diagnostic = estimate.inference != "influence_curve"
-            low, high = estimate.plugin_interval if diagnostic else estimate.ci
-            error_key = "plugin_std_err" if diagnostic else "std_err"
-            lower_key = "plugin_interval_lower" if diagnostic else "ci_lower"
-            upper_key = "plugin_interval_upper" if diagnostic else "ci_upper"
+            # raising halfway through the sweep.  One call names and computes all three,
+            # so the error and the interval cannot come from different branches.
             fitted_lower, fitted_upper = pairs[name]
             reference = fitted_psi[name]
             rows.append(
@@ -1441,9 +1437,7 @@ def truncation_curve(
                     "bound": lower,
                     "estimand": name,
                     "psi": estimate.psi,
-                    error_key: estimate.plugin_std_error,
-                    lower_key: low,
-                    upper_key: high,
+                    **estimate.spread_columns(pvalue=False),
                     "truncated_fraction": truncated_fraction,
                     "is_fitted_bound": pair == (fitted_lower, fitted_upper),
                     # Additive metadata follows the legacy columns so positional consumers

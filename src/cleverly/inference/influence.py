@@ -53,6 +53,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from types import MappingProxyType
 from typing import Any, Literal, NamedTuple
 
 import numpy as np
@@ -88,6 +89,7 @@ __all__ = [
     "reduced_corrections",
     "regime_means",
     "shift_means",
+    "spread_name",
 ]
 
 Scale = Literal["level", "difference", "ratio", "fraction"]
@@ -98,10 +100,71 @@ Scale = Literal["level", "difference", "ratio", "fraction"]
 CovarianceRule = Literal["centered", "second_moment"]
 
 #: Whether the package supplies inference for an estimate, or only a point estimate and a
-#: named diagnostic.  A class-level default on :class:`ParameterEstimate`, so a pickle
-#: written before the field existed loads as ``"influence_curve"``, which is what every
-#: such estimate claimed.
+#: named diagnostic.  A class-level default on :class:`ParameterEstimate`, so a bare
+#: estimate pickled before the field existed loads as ``"influence_curve"``.  A
+#: :class:`~cleverly.estimators.TMLEResult` restored from such a pickle re-stamps its
+#: estimates from the estimator that produced them, so a selector-path fit written
+#: before the field existed still refuses.
 InferenceStatus = Literal["influence_curve", "working_mechanism_plugin"]
+
+#: The name each spread column takes when the package supplies no inference.  The one
+#: table of "which number under which name": every frame, record and printed label that
+#: publishes a spread of the reported curve reads its name through :func:`spread_name`,
+#: and an inferential name with no entry here cannot be published for a diagnostic
+#: estimate at all.  ``p_value`` has no entry, because a diagnostic estimate reports no
+#: p-value under any name.
+_DIAGNOSTIC_NAMES: Mapping[str, str] = MappingProxyType(
+    {
+        # ParameterEstimate.to_dict, truncation_curve and missingness_tilt.
+        "std_err": "plugin_std_err",
+        "ci_lower": "plugin_interval_lower",
+        "ci_upper": "plugin_interval_upper",
+        # A percentile interval is a confidence interval too.  The numbers stay, under
+        # the "percentile range" wording ``TMLEResult.summary`` prints for them.
+        "bootstrap_ci_lower": "bootstrap_range_lower",
+        "bootstrap_ci_upper": "bootstrap_range_upper",
+        # RefutationTest.to_frame, which names the accessor it read.
+        "std_error": "plugin_std_error",
+        # StudyResult.to_frame.
+        "mean_std_error": "mean_plugin_std_error",
+        # NuisanceDiagnostics.repeat_spread_frame and its printed table.
+        "reported_standard_error": "plugin_standard_error",
+        "ratio_to_standard_error": "ratio_to_plugin_standard_error",
+        "reported se": "plugin se",
+        "sd/se": "sd/plugin se",
+    }
+)
+
+
+def spread_name(name: str, status: InferenceStatus) -> str:
+    """The name a spread of the reported curve is published under at an inference status.
+
+    An estimate the package supplies inference for keeps every inferential name. A
+    diagnostic estimate publishes the same number under the name
+    :data:`_DIAGNOSTIC_NAMES` gives it, which makes no coverage claim.
+
+    Parameters
+    ----------
+    name : str
+        The inferential name, as an ordinary fit publishes it.
+    status : {"influence_curve", "working_mechanism_plugin"}
+        The inference status of the estimate the number belongs to.
+
+    Returns
+    -------
+    str
+        ``name`` under ``"influence_curve"``, and its diagnostic name otherwise.
+
+    Raises
+    ------
+    KeyError
+        When ``status`` is a diagnostic status and ``name`` has no diagnostic name. A
+        new inferential column has to be entered in the table before a diagnostic fit
+        can publish it.
+    """
+    if status == "influence_curve":
+        return name
+    return _DIAGNOSTIC_NAMES[name]
 
 
 @dataclass(frozen=True)
@@ -154,6 +217,7 @@ class ParameterEstimate:
     ci : tuple of float
     plugin_interval : tuple of float
     pvalue : float
+    supplies_inference : bool
 
     See Also
     --------
@@ -223,6 +287,54 @@ class ParameterEstimate:
             low, high = normal_ci(center, self._plugin_std_error(), self.alpha)
             return (float(np.exp(low)), float(np.exp(high)))
         return normal_ci(center, self._plugin_std_error(), self.alpha)
+
+    def _plugin_pvalue(self) -> float:
+        """The two-sided p-value of the plug-in curve, under any inference status.
+
+        One body for :attr:`pvalue` and for the rejection rate
+        :class:`~cleverly.validation.CoverageStudy` measures, so a study that measures the
+        diagnostic evaluates the refused property's arithmetic rather than a second rule.
+        """
+        return two_sided_pvalue(self.inference_value, self._plugin_std_error())
+
+    @property
+    def supplies_inference(self) -> bool:
+        """Whether the package supplies inference for this estimate.
+
+        ``True`` when :attr:`inference` is ``"influence_curve"``, which is when
+        :attr:`std_error`, :attr:`ci` and :attr:`pvalue` answer.
+        """
+        return self.inference == "influence_curve"
+
+    def spread_columns(self, *, pvalue: bool = True) -> dict[str, float]:
+        """The standard error, interval and p-value, each under its status-appropriate name.
+
+        An estimate the package supplies inference for returns ``std_err``,
+        ``ci_lower``, ``ci_upper`` and ``p_value``. A diagnostic estimate returns the
+        same standard error and interval under the names :func:`spread_name` gives them,
+        and no p-value. The numbers are the bodies :attr:`plugin_std_error` and
+        :attr:`plugin_interval` read, so they are identical under either status.
+
+        Parameters
+        ----------
+        pvalue : bool, default=True
+            Whether to include ``p_value`` for an estimate that supplies inference. A
+            frame with no p-value column passes ``False``.
+
+        Returns
+        -------
+        dict of str to float
+            The columns, in the order ``to_dict`` publishes them.
+        """
+        low, high = self._wald_interval()
+        columns = {
+            spread_name("std_err", self.inference): self._plugin_std_error(),
+            spread_name("ci_lower", self.inference): low,
+            spread_name("ci_upper", self.inference): high,
+        }
+        if pvalue and self.supplies_inference:
+            columns["p_value"] = self._plugin_pvalue()
+        return columns
 
     @property
     def std_error(self) -> float:
@@ -297,7 +409,7 @@ class ParameterEstimate:
             no p-value.
         """
         refuse_working_mechanism_inference(self.inference, operation=".pvalue")
-        return two_sided_pvalue(self.inference_value, self._plugin_std_error())
+        return self._plugin_pvalue()
 
     @property
     def score(self) -> float:
@@ -330,53 +442,31 @@ class ParameterEstimate:
         ``ci_upper`` and ``p_value``. One whose :attr:`inference` is
         ``"working_mechanism_plugin"`` emits ``inference`` naming that status, and
         ``plugin_std_err``, ``plugin_interval_lower`` and ``plugin_interval_upper`` in
-        their place. Exactly one of ``std_err`` and ``inference`` is always present, so
-        a programmatic consumer has a total test.
+        their place. Its bootstrap percentile limits are ``bootstrap_range_lower`` and
+        ``bootstrap_range_upper`` rather than ``bootstrap_ci_lower`` and
+        ``bootstrap_ci_upper``. Exactly one of ``std_err`` and ``inference`` is always
+        present, so a programmatic consumer has a total test.
 
         Returns
         -------
         dict
             A JSON-compatible mapping of every reported field.
         """
-        row: dict[str, Any]
-        if self.inference != "influence_curve":
-            low, high = self.plugin_interval
-            row = {
-                "estimand": self.name,
-                "psi": self.psi,
-                "inference": self.inference,
-                "plugin_std_err": self.plugin_std_error,
-                "plugin_interval_lower": low,
-                "plugin_interval_upper": high,
-                "scale": self.scale,
-            }
-            if self.log_psi is not None:
-                row["log_psi"] = self.log_psi
-            if self.bootstrap is not None:
-                row["bootstrap_std_err"] = self.bootstrap.std_error
-                row["bootstrap_ci_lower"] = self.bootstrap.ci[0]
-                row["bootstrap_ci_upper"] = self.bootstrap.ci[1]
-            return row
-        low, high = self.ci
-        row = {
-            "estimand": self.name,
-            "psi": self.psi,
-            "std_err": self.std_error,
-            "ci_lower": low,
-            "ci_upper": high,
-            "p_value": self.pvalue,
-            "scale": self.scale,
-        }
+        row: dict[str, Any] = {"estimand": self.name, "psi": self.psi}
+        if not self.supplies_inference:
+            row["inference"] = self.inference
+        row.update(self.spread_columns())
+        row["scale"] = self.scale
         if self.log_psi is not None:
             row["log_psi"] = self.log_psi
         if self.bootstrap is not None:
             row["bootstrap_std_err"] = self.bootstrap.std_error
-            row["bootstrap_ci_lower"] = self.bootstrap.ci[0]
-            row["bootstrap_ci_upper"] = self.bootstrap.ci[1]
+            row[spread_name("bootstrap_ci_lower", self.inference)] = self.bootstrap.ci[0]
+            row[spread_name("bootstrap_ci_upper", self.inference)] = self.bootstrap.ci[1]
         return row
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        if self.inference != "influence_curve":
+        if not self.supplies_inference:
             low, high = self.plugin_interval
             return (
                 f"{self.name}: {self.psi:.5g} (working-mechanism se "

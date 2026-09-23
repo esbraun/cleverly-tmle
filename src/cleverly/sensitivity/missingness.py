@@ -68,6 +68,7 @@ import numpy as np
 from .._typing import FloatArray
 from ..exceptions import CapabilityError, refuse_working_mechanism_inference
 from ..inference.delta import normal_ci
+from ..inference.influence import spread_name
 from ..targets.population_intervention import (
     NATURAL_COURSE_TILT_REFUSAL,
     is_natural_course_fit,
@@ -232,26 +233,24 @@ def missingness_tilt(
                     ]
                 )
             )
-            # The branch ``truncation_curve`` takes, for the reason it takes it: a
+            # The names ``truncation_curve`` publishes, for the reason it publishes them: a
             # selector-path collaborative fit supplies no interval, so the sweep reports
             # the retained diagnostic under names that make no coverage claim rather than
             # raising after every tilt has been computed. ``plugin_std_error`` reads the
             # private body ``std_error`` reads, so an ordinary fit's numbers do not move.
-            estimate = result[name]
-            diagnostic = estimate.inference != "influence_curve"
-            std_error = estimate.plugin_std_error
-            error_key = "plugin_std_err" if diagnostic else "std_err"
-            lower_key = "plugin_interval_lower" if diagnostic else "ci_lower"
-            upper_key = "plugin_interval_upper" if diagnostic else "ci_upper"
+            # The interval is centred on the tilted estimate, so only the names come
+            # from ``spread_name``.
+            status = result[name].inference
+            std_error = result[name].plugin_std_error
             low, high = normal_ci(psi, std_error, result.config.alpha_sig)
             rows.append(
                 {
                     "gamma": value,
                     "estimand": name,
                     "psi": psi,
-                    error_key: std_error,
-                    lower_key: low,
-                    upper_key: high,
+                    spread_name("std_err", status): std_error,
+                    spread_name("ci_lower", status): low,
+                    spread_name("ci_upper", status): high,
                     "is_mar": bool(value == 0.0),
                     # The tilt each arm actually received, appended so the familiar
                     # columns stay where they were. Without these the direction lives
@@ -363,6 +362,11 @@ def _tilted(targeted: FloatArray, observed_probability: FloatArray, gamma: float
     )
 
 
+#: The request ``tipping_gamma`` refuses on a fit that supplies no inference, named as the
+#: caller writes it.  The raise and the argument-aware capability row both use it.
+_TIPPING_INTERVAL_OPERATION = "tipping_gamma(use_ci=True)"
+
+
 def tipping_gamma(
     result: TMLEResult,
     estimand: str = "ate",
@@ -439,7 +443,7 @@ def tipping_gamma(
         # default, answers for that fit unchanged.  A name this fit does not report falls
         # through to ``missingness_tilt``, which lists the tiltable ones.
         refuse_working_mechanism_inference(
-            result.estimates[estimand].inference, operation="tipping_gamma(use_ci=True)"
+            result.estimates[estimand].inference, operation=_TIPPING_INTERVAL_OPERATION
         )
 
     def row_at(value: float) -> Any:

@@ -999,7 +999,9 @@ class TestTheSelectorPathsPublishNoInference:
         result = self._fit("greedy", selection_folds=3)
         summary = result.summary()
 
-        assert "no confidence interval and no p-value" in summary
+        # The refusal's own sentence, with only its first letter raised, so the summary
+        # cannot paraphrase the raise into a second claim.
+        assert WORKING_MECHANISM_NOT_INFERENTIAL[1:] in summary
         assert "working-mechanism se" in summary
         # No `95% CI` heading with a "-" under it: the whole column is refused, and a dash
         # beneath that heading would still tell a reader an interval belongs there.
@@ -1031,7 +1033,7 @@ class TestTheSelectorPathsPublishNoInference:
         result = self._fit("greedy", selection_folds=3)
         capability = result.sensitivity.capability("evalue")
         assert capability.available is False
-        assert "supplies no interval" in (capability.reason or "")
+        assert WORKING_MECHANISM_NOT_INFERENTIAL in (capability.reason or "")
         assert result.sensitivity.capability("evalue").available is False
 
         # And the outcome-adaptive path keeps it.
