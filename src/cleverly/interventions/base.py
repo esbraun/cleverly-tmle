@@ -86,6 +86,9 @@ class Intervention(Protocol):
     written against the ``(n, K)`` matrix and needs to know nothing about which kind of
     intervention produced it.
 
+    A user-written class carries no declaration that its density is known, and no fit
+    checks one (roadmap row RM28).
+
     Parameters
     ----------
     *args, **kwargs
@@ -277,7 +280,7 @@ class Rule:
 class Stochastic:
     """A known stochastic regime: assign arm :math:`a` with probability :math:`g^\\star(a \\mid W)`.
 
-    ``density`` is handed the covariate frame and returns an ``(n, K)`` array whose
+    ``density_fn`` is handed the covariate frame and returns an ``(n, K)`` array whose
     columns are in :attr:`~cleverly.data.CausalData.arm_codes` order and whose rows sum
     to one.
 

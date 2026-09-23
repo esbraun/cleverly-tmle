@@ -290,8 +290,9 @@ number is wrong.
 
 | refused | what goes wrong if it is done anyway |
 | --- | --- |
-| a `Stochastic` regime whose density came from the estimated mechanism. **Not refused yet** | `g*` becomes a functional of `P`, so the influence curve carries a term for the pathwise derivative through `ghat` that a regime's curve does not have. Its standard error can be wrong; the direction needs a derivation. No code checks that a `density_fn` is known, so such a regime fits with no message. [RM25](../roadmap.md#rm25-declared-stochastic-regime-densities) tracks a declaration and a refusal |
-| an incremental intervention built by hand as a `Stochastic` regime | the same omission. Its size is exactly `Var(delta * (Qbar(1,W) - Qbar(0,W)) / D^2 * (A - g))`. Too small, always |
+| a `Stochastic` regime whose density came from the estimated mechanism | `g*` becomes a functional of `P`, so the influence curve carries a term for the pathwise derivative through `ghat` that a regime's curve does not have. `Stochastic` requires `density_kind="known"`. It refuses `None` and `"estimated"` when the regime is built, and `TMLE` refuses them again before any learner. No code can inspect a closure, so a density that reads the sample and is declared `"known"` still fits. On one exact law, the odds tilt of the sample mechanism reports 0.62 of the exact standard error at `delta = 2` (`tests/unit/test_stochastic_regime_densities.py`). [RM25](../roadmap.md#rm25-declared-stochastic-regime-densities) records the declaration and the witness |
+| an incremental intervention built by hand as a `Stochastic` regime | the same omission. Its size is exactly `Var(delta * (Qbar(1,W) - Qbar(0,W)) / D^2 * (A - g))`. Too small, always. `Stochastic` refuses the tilt when `density_kind` is `None` or `"estimated"`. `TMLE(incremental=)` fits the tilt, and its curve carries the term |
+| a user-written `Intervention` class whose density reads the sample. **Not refused yet** | the same omission. The class carries no declaration, and no fit checks its density. On the RM25 witness law, a class that returns the odds tilt of the sample mechanism reports 0.62 of the exact standard error. [RM28](../roadmap.md#rm28-declared-densities-of-user-written-interventions) tracks a declaration and a refusal |
 | a shift's inference taken from the regime inducing the same density | the means and the clever covariates agree entry for entry. The curves do not. The gap is `Var(Qbar(d(A,W),W) - E[Qbar(d(A,W),W) | W])`. Too small, always |
 | a shift fit run on the complete cases when outcomes are missing | it is an ordinary shift fit on a *different* joint law of `(A, W)`, so it converges to a different number, and nothing in its own output says so. Measured on the dose fixture at 0.17, four standard errors, with a mechanism whose slopes are mild. `delta=` is what corrects it |
 | a missingness or intermediate mechanism read at the observed dose rather than the assigned one | the fluctuation updates `Qbar` as a function of the dose, so `Qbar*(d(A,W),W)` is the update evaluated where the policy sends the unit. Silent wherever the mechanism does not depend on the dose, and invisible to a Gateaux check on an exact law |
@@ -311,7 +312,7 @@ number is wrong.
 | a binary-only target on a multi-arm fit | it would report a contrast of arms `0` and `1` out of five, under the name of a parameter about all of them. Targets declare `requires_binary_treatment` for this |
 | `MSM.linear` on non-numeric arm labels | a model linear in the arm reads it as a dose to interpolate between, and the fallback coding is the sort order. That is a dose scale nobody chose |
 
-Three of these share one mechanism, and it generalises past this package. **If an intervention's
+Four of these share one mechanism, and it generalises past this package. **If an intervention's
 density is a functional of `P`, the influence function carries its pathwise derivative.** Omitting
 that term changes the variance. The direction depends on its covariance with the retained curve.
 The incremental and shift rows above give their own variance gaps.

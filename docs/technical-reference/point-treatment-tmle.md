@@ -433,6 +433,12 @@ plug-in term. Deterministic static and dynamic rules are degenerate cases of $g^
 needs positivity only where the regime assigns mass. A known rule does not depend on $P$, so its
 influence function carries no term for estimating the rule.
 
+`Stochastic` asks for this condition as a declaration: pass `density_kind="known"`. The package
+refuses an undeclared density, and a density declared `"estimated"`, when the regime is built.
+`TMLE` refuses both again before any learner. The
+[scope page](scope-and-refusals.md#wrong-by-construction) gives the size of the missing term on
+one exact law.
+
 `Static`, `Rule`, and `Stochastic` implement the intervention protocol. `RegimeMean` and
 `RegimeContrast` define the levels and the contrasts. See Robins (2004), Diaz Munoz and van der
 Laan (2012), and Diaz and van der Laan (2013). Implementation:
