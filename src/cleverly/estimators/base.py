@@ -293,14 +293,17 @@ class CVTargeting:
 
     Attributes
     ----------
-    variance, std_error:
+    variance : dict of str to float
         The cross-validated variance of Zheng & van der Laan (2011) -- the fold-averaged
-        second moment of the fold-specific influence curves -- per estimand.  This is the
-        standard error attached to :attr:`canonical`; the pooled report carries the
-        ordinary influence-curve one.  The two agree when the folds are balanced and the
-        score equation is solved, so a gap between them is itself informative. Over
-        ``R`` draws, the median aggregation adds each point's squared displacement before
-        taking the median across draws.
+        second moment of the fold-specific influence curves -- per estimand.  Its square
+        root is the standard error attached to :attr:`canonical`; the pooled report
+        carries the ordinary influence-curve one.  The two agree when the folds are
+        balanced and the score equation is solved, so a gap between them is itself
+        informative. Over ``R`` draws, the median aggregation adds each point's squared
+        displacement before taking the median across draws. :attr:`std_error` returns
+        the square root at ``"influence_curve"`` and refuses at every other status;
+        :attr:`plugin_std_error` returns it at every status.
+    std_error : dict of str to float
     fold_estimates:
         Per-estimand tuple of fold-specific plug-in estimates, from the first draw.
         Estimands that some fold could not evaluate (no units in the conditioning arm, a
@@ -378,6 +381,30 @@ class CVTargeting:
     def fold_evaluated(self) -> dict[str, ParameterEstimate]:
         """The original fold-evaluated report (clear alias for ``canonical``)."""
         return self.canonical
+
+    def stamped(self, status: InferenceStatus) -> CVTargeting:
+        """This report with both fold-level reports declaring ``status``.
+
+        The one stamp for the fold-level reports. ``TMLE._retarget_detailed`` applies it
+        when it builds the report, and ``TMLEResult.__setstate__`` applies it to an
+        artifact saved under another status.
+
+        Parameters
+        ----------
+        status : str
+            One of :data:`~cleverly.inference.influence.InferenceStatus`.
+
+        Returns
+        -------
+        CVTargeting
+            A copy whose :attr:`pooled` and :attr:`canonical` estimates declare
+            ``status``, with every number unchanged.
+        """
+        return replace(
+            self,
+            pooled=stamp_inference(self.pooled, status),
+            canonical=stamp_inference(self.canonical, status),
+        )
 
     def to_frame(self, data: CausalData | None = None) -> Any:
         """One row per estimand: both reports, the CV standard error and the spread.
@@ -1139,8 +1166,9 @@ class TMLEResult:
         The stamp is written once, in ``TMLE._retarget_detailed``, so a live fit never
         needs this. The hook reads the estimator configuration and the prepared data, so
         the artifact holds everything it needs. The fit's estimates and both fold-level
-        reports are re-stamped together with
-        :func:`~cleverly.inference.influence.stamp_inference`. A re-stamped artifact also
+        reports are re-stamped together, with
+        :func:`~cleverly.inference.influence.stamp_inference` and
+        :meth:`CVTargeting.stamped`. A re-stamped artifact also
         drops what was derived under the old status: the simultaneous bands, a joint
         confidence statement that the fit now refuses, and the saved assessment answers,
         which may have read an interval.
@@ -1162,14 +1190,7 @@ class TMLEResult:
             return
         self.__dict__["estimates"] = stamp_inference(estimates, status)
         if isinstance(detail, CVTargeting):
-            self.__dict__["extra"] = {
-                **extra,
-                "cv_tmle": replace(
-                    detail,
-                    pooled=stamp_inference(detail.pooled, status),
-                    canonical=stamp_inference(detail.canonical, status),
-                ),
-            }
+            self.__dict__["extra"] = {**extra, "cv_tmle": detail.stamped(status)}
         self.__dict__["simultaneous"] = None
         self.__dict__["assessment_cache"] = {}
 

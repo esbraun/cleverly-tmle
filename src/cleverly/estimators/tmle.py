@@ -1392,10 +1392,11 @@ class TMLE:
             return
         if POPULATION_INTERVENTION_TARGETS.intersection(estimands):
             return
-        parts = [
-            *([_OFF_CONTRACT_AXIS_NAMES[self._axis]] if self._axis != "arm" else []),
-            *(["controlled-direct-effect"] if data.has_intermediate else []),
-        ]
+        parts = []
+        if self._axis != "arm":
+            parts.append(_OFF_CONTRACT_AXIS_NAMES[self._axis])
+        if data.has_intermediate:
+            parts.append("controlled-direct-effect")
         raise CapabilityError(
             _CROSS_FITTED_MISSING_CONTRACTS
             + f"no audited result covers {' and '.join(parts)} targets under cross-fitting "
@@ -2847,8 +2848,6 @@ class TMLE:
         # publishes their standard errors and reads its status off them.
         status = self._inference_status(data)
         ordered = stamp_inference(_in_report_order(estimates, requested), status)
-        pooled_report = stamp_inference(pooled_report, status)
-        canonical_report = stamp_inference(canonical_report, status)
         detail = (
             CVTargeting(
                 n_folds=len(indices),
@@ -2860,7 +2859,7 @@ class TMLE:
                 pooled=_in_report_order(pooled_report, requested),
                 canonical=_in_report_order(canonical_report, requested),
                 backend=data.backend,
-            )
+            ).stamped(status)
             if indices
             else None
         )

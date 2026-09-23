@@ -1413,7 +1413,7 @@ class TestTheInferenceStatus:
             "influence-curve standard errors": "plug-in standard errors",
             "cv_std_err": "cv_plugin_std_err",
             "pooled_std_err": "pooled_plugin_std_err",
-            "cv std_err": "cv plugin se",
+            "cv std_err": "cv plugin_std_err",
             "robustness_value_ci": "robustness_value_plugin_interval",
             "rva": "rv_plugin_interval",
             "confidence-limit value": "plug-in interval value",

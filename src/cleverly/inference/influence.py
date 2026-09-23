@@ -143,7 +143,7 @@ _DIAGNOSTIC_NAMES: Mapping[str, str] = MappingProxyType(
         # CVTargeting.to_frame and its printed table.
         "cv_std_err": "cv_plugin_std_err",
         "pooled_std_err": "pooled_plugin_std_err",
-        "cv std_err": "cv plugin se",
+        "cv std_err": "cv plugin_std_err",
         # SensitivityBounds.to_dict and summary, robustness_value, and the assessment's
         # robustness row.  The one-sided limits reuse ``ci_lower`` and ``ci_upper``.
         "robustness_value_ci": "robustness_value_plugin_interval",
