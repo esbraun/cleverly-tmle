@@ -360,10 +360,12 @@ def refuse_projection_weights(model: MSM) -> None:
         )
     if weights is not None and not callable(weights):
         raise CapabilityError(
-            f"MSM weights= must be a callable (arm_label, covariate_frame) -> (n,); got "
-            f"{type(weights).__name__}. An array is one evaluation of h(a, V), and nothing "
-            "here can show that it was not estimated from the sample, so it is refused as "
-            "an estimated weight would be: " + _ESTIMATED_WEIGHTS
+            "MSM weights= must be a callable that returns one weight per row: "
+            "(arm_label, covariate_frame) -> (n,) for a point treatment, and "
+            "(regimen_label, horizon, baseline_frame) -> (n,) for a longitudinal regimen "
+            f"MSM; got {type(weights).__name__}. An array is one evaluation of h(a, V), "
+            "and nothing here can show that it was not estimated from the sample, so it is "
+            "refused as an estimated weight would be: " + _ESTIMATED_WEIGHTS
         )
     if weights is not None and kind is None:
         raise CapabilityError(_UNDECLARED_WEIGHTS)
@@ -426,6 +428,13 @@ class MSM:
         ``h(a, V)``, as ``(arm_label, covariate_frame) -> (n,)``.  ``None`` means uniform,
         which weights every arm and every unit equally.  It must be a **known** function,
         and ``weights_kind`` declares that it is.
+    link : {"identity", "log", "logit"}
+        ``"identity"``, ``"log"`` or ``"logit"``.  The identity is the only one whose
+        :math:`\partial m/\partial\beta` is free of :math:`\beta`, and so the only one
+        whose fit is a single fluctuation; the others alternate.  What the coefficients
+        *mean* changes with it -- under ``"log"`` a coefficient is a log risk ratio and
+        under ``"logit"`` a log odds ratio, which is what
+        :meth:`~cleverly.estimators.base.TMLEResult.coefficients` exponentiates.
     weights_kind : {"known", "estimated"} or None
         The declaration that ``weights`` is a known function.  A callable ``weights``
         needs ``"known"``: a fixed function of the arm and the covariates, chosen without
@@ -434,22 +443,14 @@ class MSM:
         ``h`` a functional of :math:`P` and the reported influence curve omits its
         pathwise derivative.  It is unrelated to
         :data:`cleverly.data.weighting.WeightKind`, which describes observation weights.
-        A model pickled before this field existed loads as ``None``.
-    link : {"identity", "log", "logit"}
-        ``"identity"``, ``"log"`` or ``"logit"``.  The identity is the only one whose
-        :math:`\partial m/\partial\beta` is free of :math:`\beta`, and so the only one
-        whose fit is a single fluctuation; the others alternate.  What the coefficients
-        *mean* changes with it -- under ``"log"`` a coefficient is a log risk ratio and
-        under ``"logit"`` a log odds ratio, which is what
-        :meth:`~cleverly.estimators.base.TMLEResult.coefficients` exponentiates.
+        A model pickled before this field existed loads as ``None``.  It is the last
+        field, so the positional order of the fields before it is the order they had
+        before it existed: ``link`` stays the fourth.
     """
 
     design: Callable[[Any, Any], Any]
     terms: tuple[str, ...]
     weights: Callable[[Any, Any], Any] | None = None
-    #: A plain default, so it is a class attribute: a model pickled before the field
-    #: existed reads ``None`` here, and :func:`dataclasses.replace` still works on it.
-    weights_kind: MSMWeightsKind | None = None
     link: MSMLink = "identity"
     #: Set by :meth:`linear` and by nothing else.  That shorthand reads the label it is
     #: handed as a *dose*, which a treatment arm can be and a regimen cannot, so a
@@ -462,6 +463,9 @@ class MSM:
     #: Empty on the ordinary finite-arm path.  The grid is part of the estimand, not a
     #: random Monte Carlo tuning parameter.
     doses: tuple[float, ...] = ()
+    #: A plain default, so it is a class attribute: a model pickled before the field
+    #: existed reads ``None`` here, and :func:`dataclasses.replace` still works on it.
+    weights_kind: MSMWeightsKind | None = None
 
     def __post_init__(self) -> None:
         link_for(str(self.link))

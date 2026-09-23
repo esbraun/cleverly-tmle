@@ -30,7 +30,7 @@ from __future__ import annotations
 import importlib
 import pickle
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from typing import Any, ClassVar
 
 import numpy as np
@@ -138,6 +138,28 @@ class TestTheDeclarationIsRequired:
             PATHWISE,
         )
 
+    def test_the_array_refusal_names_both_callable_signatures(self) -> None:
+        """A point-treatment and a regimen MSM take different callables, and both refuse."""
+        signatures = (
+            "(arm_label, covariate_frame) -> (n,) for a point treatment",
+            "(regimen_label, horizon, baseline_frame) -> (n,) for a longitudinal regimen MSM",
+        )
+        assert_refused(
+            lambda: linear(weights=np.ones(10), weights_kind="known"),
+            CapabilityError,
+            *signatures,
+        )
+        assert_refused(
+            lambda: MSM(
+                design=duration_design,
+                terms=("(intercept)", "duration"),
+                weights=np.ones(10),
+                weights_kind="known",
+            ),
+            CapabilityError,
+            *signatures,
+        )
+
     def test_an_estimated_declaration_without_a_weight_is_inconsistent(self) -> None:
         assert_refused(lambda: linear(weights_kind="estimated"), DataError, "this model has none")
 
@@ -163,6 +185,38 @@ class TestTheDeclarationIsRequired:
     def test_the_named_refusal_is_a_capability_error(self) -> None:
         assert_refused(
             lambda: refuse_unsupported("estimated_weights"), CapabilityError, ESTIMATED, PATHWISE
+        )
+
+
+class TestThePositionalOrderIsUnchanged:
+    """``weights_kind`` is the last field, so ``link`` stays the fourth positional argument."""
+
+    def test_the_declaration_is_the_last_field(self) -> None:
+        assert [field.name for field in fields(MSM)] == [
+            "design",
+            "terms",
+            "weights",
+            "link",
+            "from_linear",
+            "doses",
+            "weights_kind",
+        ]
+
+    def test_the_fourth_positional_argument_is_the_link(self) -> None:
+        model = MSM(duration_design, ("(intercept)", "duration"), None, "log")
+        assert model.link == "log"
+        assert model.weights_kind is None
+        declared = MSM(
+            duration_design, ("(intercept)", "duration"), FixedWeight(), "log", weights_kind="known"
+        )
+        assert declared.link == "log"
+        assert declared.weights_kind == "known"
+
+    def test_a_positional_weight_without_a_declaration_still_refuses(self) -> None:
+        assert_refused(
+            lambda: MSM(duration_design, ("(intercept)", "duration"), FixedWeight(), "log"),
+            CapabilityError,
+            UNDECLARED,
         )
 
 
