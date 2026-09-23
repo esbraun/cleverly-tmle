@@ -8,6 +8,8 @@ before its first fit. The forced-status reach test and each surface's own test r
 here, so a later status inherits the same checks.
 The fold-level report checks and the stamp mutation that must fail them live here too,
 because the forced-status test and the clustered surfaces both fit ``cv_evaluation=True``.
+The boundary mutant of the shared cluster rule lives here, because the point-treatment and
+the longitudinal cluster tests both patch it into their estimator module.
 """
 
 from __future__ import annotations
@@ -17,14 +19,16 @@ import re
 from dataclasses import replace
 from typing import Any
 
+import numpy as np
 import pytest
 
 from cleverly import variable_importance
-from cleverly._inference_status import NON_INFERENTIAL
+from cleverly._inference_status import FEW_CLUSTER_THRESHOLD, NON_INFERENTIAL
 from cleverly.assessment import AssessmentStatus
 from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, inference_refusal
+from cleverly.inference.cluster import cluster_inference_status
 from cleverly.inference.influence import _DIAGNOSTIC_NAMES
 from cleverly.sensitivity.evalue import _EVALUE_NEEDS_INFERENCE
 from tests.unit._natural_course_support import NeverFit
@@ -221,6 +225,13 @@ def stamp_headline_only(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(TMLE, "_retarget_detailed", headline_only)
 
 
+def at_or_below(cluster: Any, *, cross_fit: bool, **settings: Any) -> str:
+    """The mutant that compares the cluster count with ``<=`` rather than ``<``."""
+    status = cluster_inference_status(cluster, cross_fit=cross_fit, **settings)
+    at_threshold = np.unique(cluster).size == FEW_CLUSTER_THRESHOLD
+    return "few_cluster_plugin" if status == "influence_curve" and at_threshold else status
+
+
 def legacy_copy(result: Any) -> Any:
     """A copy saved as an ordinary fit: every estimate and any fold report inferential.
 
@@ -230,7 +241,8 @@ def legacy_copy(result: Any) -> Any:
     """
     legacy = pickle.loads(pickle.dumps(result))
     reports = [legacy.estimates]
-    detail = legacy.cv_targeting
+    # A longitudinal result has no fold-level report.
+    detail = getattr(legacy, "cv_targeting", None)
     if detail is not None:
         reports.extend([detail.pooled, detail.canonical])
     for report in reports:

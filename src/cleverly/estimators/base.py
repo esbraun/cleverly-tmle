@@ -15,7 +15,12 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
-from .._inference_status import InferenceStatus, status_record, supplies_inference
+from .._inference_status import (
+    NO_SIMULTANEOUS_BANDS,
+    InferenceStatus,
+    status_record,
+    supplies_inference,
+)
 from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData, arm_share
 from ..exceptions import (
@@ -1435,14 +1440,7 @@ class TMLEResult:
             # under it.  A dash under that heading still tells a reader an interval is the
             # thing that belongs there.
             parts.append("")
-            # The refusal's own sentence rather than a paraphrase of it, so the summary
-            # and every raise say one thing.  Only the pointer to this table's column is
-            # the summary's own.
-            parts.append(
-                record.reason
-                + f' The "{record.summary_label}" column above is that diagnostic, and it is '
-                "not a standard error for this estimate."
-            )
+            parts.append(record.summary_note())
         if self.n_repeats > 1:
             # Printed under the table rather than left to the scope document, because a
             # reader who subtracts two rows of that table gets a third number the fit
@@ -1480,10 +1478,7 @@ class TMLEResult:
             # Stated rather than left blank: a reader who asked for bands, or who knows
             # they are the default, would otherwise have to guess why none are here.
             parts.append("")
-            parts.append(
-                "no simultaneous bands: a band is a joint confidence statement, and this "
-                "fit reports none."
-            )
+            parts.append(NO_SIMULTANEOUS_BANDS)
         if self.simultaneous is not None:
             parts.append("")
             parts.append(

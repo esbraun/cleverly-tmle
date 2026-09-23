@@ -69,14 +69,27 @@ from typing import TYPE_CHECKING, Any, ClassVar, NoReturn
 import numpy as np
 from sklearn.base import clone
 
+from .._inference_status import (
+    NO_SIMULTANEOUS_BANDS,
+    InferenceStatus,
+    status_record,
+    supplies_inference,
+)
 from .._typing import BoolArray, CumulativeGBounds, FloatArray, Learner
 from ..exceptions import CapabilityError, LongitudinalError, PositivityWarning
-from ..inference.cluster import influence_covariance
-from ..inference.influence import ParameterEstimate, Scale, make_estimate
+from ..inference.cluster import cluster_inference_status, fewest_clusters, influence_covariance
+from ..inference.influence import (
+    ParameterEstimate,
+    Scale,
+    make_estimate,
+    spread_name,
+    stamp_inference,
+)
 from ..inference.multiplier import SimultaneousBands, simultaneous_bands
 from ..inference.results import (
     estimate_covariance,
     estimate_curves,
+    inference_status,
     select_estimates,
     smooth_contrast,
     sole_estimate,
@@ -644,7 +657,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     Parameters
     ----------
     estimates : dict of str to ParameterEstimate
-        Estimates keyed by stable parameter alias.
+        Estimates keyed by stable parameter alias. Each declares the fit's one inference
+        status, which :attr:`inference_status` returns.
     fits : dict of str to RegimenFit
         Sequential fits by regimen, cause, and horizon.
     data : LongitudinalData
@@ -660,7 +674,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     provenance : Provenance
         Runtime, dependency, and data fingerprints.
     simultaneous : SimultaneousBands or None
-        Joint confidence bands.
+        Joint confidence bands. ``None`` on a fit whose status supplies no inference.
     parameter_index : dict or None
         Structured regimen, cause, and horizon index.
     msm : RegimenMSM or None
@@ -684,6 +698,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Saved diagnostic and sensitivity outputs. Not a constructor argument, so every
         constructed result owns its own cache. Persistence restores the mapping without
         the constructor.
+    inference_status : str
 
     See Also
     --------
@@ -787,6 +802,20 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         return sole_estimate(self.estimates)
 
     @property
+    def inference_status(self) -> InferenceStatus:
+        """The inference status every reported estimate declares.
+
+        One status per fit: ``LTMLE.fit`` stamps it on every estimate it reports, and
+        :func:`~cleverly.inference.results.inference_status` refuses a mix with
+        :class:`ValueError`. ``"influence_curve"`` when the fit reports no estimate,
+        because such a fit refuses nothing. A clustered fit with few clusters takes
+        ``"few_cluster_plugin"``, as a point-treatment fit does.
+        """
+        if not self.estimates:
+            return "influence_curve"
+        return inference_status(self.estimates, tuple(self.estimates))
+
+    @property
     def n(self) -> int:
         """Return the number of observations."""
         return self.data.n
@@ -822,7 +851,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Returns
         -------
         ndarray
-            Covariance matrix at the independent observation or cluster level.
+            Covariance matrix at the independent observation or cluster level. On a fit
+            whose status supplies no inference, it is the plug-in covariance of the
+            reported curves, a diagnostic.
         """
         return estimate_covariance(self.estimates, names, cluster=self.data.cluster)
 
@@ -853,7 +884,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Returns
         -------
         ParameterEstimate
-            Derived estimate with influence-curve inference.
+            Derived estimate with influence-curve inference. It inherits the status of
+            the selected estimates, so on a fit that supplies no inference it reports the
+            same diagnostic and no interval.
         """
         return smooth_contrast(
             self.estimates,
@@ -964,7 +997,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
         The ``total`` column carries a standard error because the sum is itself a
         parameter with an influence curve -- the sum of the causes' curves -- so
-        ``excess`` can be read against it rather than eyeballed.
+        ``excess`` can be read against it rather than eyeballed.  On a fit whose status
+        supplies no inference the column is ``plugin_std_err``, a diagnostic, as
+        :meth:`to_frame` names the same spread.
 
         Returns
         -------
@@ -977,11 +1012,14 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 "nothing to sum over. Declare competing risks -- outcome={cause: [...]} "
                 "-- to estimate a cumulative incidence per cause"
             )
+        # Renamed in place, as the point-treatment sweeps rename their spread columns:
+        # the number is the same plug-in standard error under either status.
+        column = spread_name("std_err", self.inference_status)
         rows: dict[str, list[Any]] = {
             "regimen": [],
             "time": [],
             "total": [],
-            "std_err": [],
+            column: [],
             "excess": [],
         }
         for regimen in self.config.regimens:
@@ -998,7 +1036,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 rows["regimen"].append(regimen.label)
                 rows["time"].append(int(horizon))
                 rows["total"].append(total)
-                rows["std_err"].append(float(np.sqrt(variance[0, 0])))
+                rows[column].append(float(np.sqrt(variance[0, 0])))
                 rows["excess"].append(max(0.0, total - 1.0))
         return self.data.frame_like(rows)
 
@@ -1090,9 +1128,14 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 The absorbing cause, on a fit that declared its causes only.
             ``time``
                 The horizon, as an integer.
+            ``inference``
+                The inference status, on a fit whose status supplies no inference only.
             ``psi``, ``std_err``, ``ci_lower``, ``ci_upper``
                 The estimate, its standard error, and its confidence interval, under
-                the requested view.
+                the requested view.  On a fit whose status supplies no inference the
+                three spread columns are ``plugin_std_err``, ``plugin_interval_lower``
+                and ``plugin_interval_upper``, a diagnostic, as :meth:`to_frame` names
+                them.
             ``scale``
                 ``"level"`` or ``"difference"``, as :meth:`to_frame` reports it.
             ``view``
@@ -1131,6 +1174,12 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 "inspect that sum"
             )
         competing = self.data.is_competing
+        # The names ``to_frame`` publishes for the same numbers, through the same table.
+        status = self.inference_status
+        diagnostic = not supplies_inference(status)
+        std_name, low_name, high_name = (
+            spread_name(name, status) for name in ("std_err", "ci_lower", "ci_upper")
+        )
         rows: dict[str, list[Any]] = {
             "estimand": [],
             "parameter": [],
@@ -1138,9 +1187,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             **({"cause": []} if competing else {}),
             "time": [],
             "psi": [],
-            "std_err": [],
-            "ci_lower": [],
-            "ci_upper": [],
+            **({"inference": []} if diagnostic else {}),
+            std_name: [],
+            low_name: [],
+            high_name: [],
             "scale": [],
             "view": [],
         }
@@ -1152,7 +1202,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         index_of = self.parameter_index or {}
         for name, estimate in self.estimates.items():
             label, cause, horizon = index_of[name]
-            low, high = estimate.ci
+            # The plug-in bodies, which ``ci`` and ``std_error`` also read, so an ordinary
+            # fit's numbers are unchanged and a diagnostic fit's are the same arithmetic.
+            low, high = estimate.plugin_interval
             if scale == "risk":
                 psi, low, high = estimate.psi, low, high
             elif estimate.scale == "level":
@@ -1175,9 +1227,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 rows["cause"].append(cause)
             rows["time"].append(int(horizon))
             rows["psi"].append(float(psi))
-            rows["std_err"].append(estimate.std_error)
-            rows["ci_lower"].append(float(low))
-            rows["ci_upper"].append(float(high))
+            if diagnostic:
+                rows["inference"].append(status)
+            rows[std_name].append(estimate.plugin_std_error)
+            rows[low_name].append(float(low))
+            rows[high_name].append(float(high))
             rows["scale"].append(estimate.scale)
             rows["view"].append(scale)
         return self.data.frame_like(rows)
@@ -1268,31 +1322,46 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             A printable report: the estimates, the settings, then the leverage.
         """
         level = f"{(1 - self.config.alpha_sig) * 100:g}%"
+        # One fit's estimates carry one status, as on a point-treatment fit, so the table
+        # is never half refused.
+        status = self.inference_status
+        record = None if supplies_inference(status) else status_record(status)
         rows = []
-        for name, estimate in self.estimates.items():
-            low, high = estimate.ci
-            rows.append(
-                [
-                    name,
-                    f"{estimate.psi:.4f}",
-                    f"{estimate.std_error:.4f}",
-                    f"[{low:.4f}, {high:.4f}]",
-                    format_pvalue(estimate.pvalue),
-                ]
+        if record is not None:
+            # The whole interval column is refused, so it is not printed with a dash under
+            # it: a heading would still tell a reader an interval belongs there.
+            for name, estimate in self.estimates.items():
+                rows.append([name, f"{estimate.psi:.4f}", f"{estimate.plugin_std_error:.4f}"])
+            table = format_table(["parameter", "estimate", record.summary_label], rows)
+        else:
+            for name, estimate in self.estimates.items():
+                low, high = estimate.ci
+                rows.append(
+                    [
+                        name,
+                        f"{estimate.psi:.4f}",
+                        f"{estimate.std_error:.4f}",
+                        f"[{low:.4f}, {high:.4f}]",
+                        format_pvalue(estimate.pvalue),
+                    ]
+                )
+            table = format_table(
+                ["parameter", "estimate", "std. error", f"{level} CI", "p-value"], rows
             )
-        table = format_table(
-            ["parameter", "estimate", "std. error", f"{level} CI", "p-value"], rows
-        )
         facts = list(self.config.describe())
         if self.identified_effect is not None:
             facts.extend(self.identified_effect.summary_lines())
         else:
             facts.append("causal study protocol: absent")
         if self.data.cluster is not None:
-            facts.append(
-                f"clusters = {self.data.n_clusters} ({self.data.cluster_name}, "
-                "cluster-robust variance)"
-            )
+            count = f"{self.data.n_clusters}"
+            # The count the status reads, when it differs from the count of labels: a
+            # cluster with zero weight mass contributes nothing to any estimate.
+            if self.data.is_weighted:
+                active = fewest_clusters(self.data.cluster, weights=self.data.weights)
+                if active < self.data.n_clusters:
+                    count += f", positive weight mass in {active}"
+            facts.append(f"clusters = {count} ({self.data.cluster_name}, cluster-robust variance)")
         if self.data.is_weighted:
             report = self.data.weight_report()
             facts.append(
@@ -1310,6 +1379,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             f"Longitudinal TMLE ({self.data.n_times} time points, n = {self.n})",
             "",
             table,
+            # The refusal's own reason, as ``TMLEResult.summary`` prints it.
+            *(["", record.summary_note()] if record is not None else []),
             "",
             *(f"  {line}" for line in facts),
         ]
@@ -1327,6 +1398,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 f"effective n {fit.effective_n:.0f}; max truncated share "
                 f"{truncated:.1%} at t={truncated_time}"
             )
+        if self.simultaneous is None and record is not None and len(self.estimates) > 1:
+            # Stated rather than left blank, as on a point-treatment fit: the bands are on
+            # by default, so a reader would otherwise have to guess why none are here.
+            lines.append("")
+            lines.append(f"  {NO_SIMULTANEOUS_BANDS}")
         if self.simultaneous is not None:
             lines.append("")
             lines.append(
@@ -1342,6 +1418,49 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"LongitudinalResult({', '.join(self.estimates)})"
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore a result, and re-apply the inference status its data determines.
+
+        A fit saved before :attr:`~cleverly.ParameterEstimate.inference` reached the
+        longitudinal path loads its estimates under the status they were saved with, and
+        would publish an interval this version refuses. The prepared data and the folds
+        are in the artifact, so the status is recomputed from them. A fit whose data
+        supplies inference, or whose estimates already carry the status, loads as it was
+        saved.
+
+        Parameters
+        ----------
+        state : dict of str to Any
+            The pickled instance state.
+        """
+        self.__dict__.update(state)
+        self._restamp_inference_status()
+
+    def _restamp_inference_status(self) -> None:
+        """Re-apply the fit's inference status to estimates saved without it.
+
+        The stamp is written in ``_estimates`` and ``_msm_estimates``, so a live fit never
+        needs this. It reads the prepared data and the folds, as the fit did, so the
+        artifact holds everything it needs. A re-stamped artifact also drops what was
+        derived under the old status: the simultaneous bands, a joint confidence statement
+        that the fit now refuses, and the saved assessment answers, which may have read an
+        interval. The re-stamp also keeps the truncation-curve replay, which stamps its
+        estimates from the same data and folds, equal to the restored fit.
+        """
+        data = self.__dict__.get("data")
+        folds = self.__dict__.get("folds")
+        if data is None or folds is None:
+            return
+        status = _inference_status(data, folds)
+        if supplies_inference(status):
+            return
+        estimates = self.__dict__.get("estimates") or {}
+        if all(estimate.inference == status for estimate in estimates.values()):
+            return
+        self.__dict__["estimates"] = stamp_inference(estimates, status)
+        self.__dict__["simultaneous"] = None
+        self.__dict__["assessment_cache"] = {}
 
     @staticmethod
     def _max_truncated(fit: RegimenFit) -> tuple[float, int]:
@@ -1495,6 +1614,42 @@ class _Reported:
     contributors: dict[str, tuple[RegimenFit, ...]]
 
 
+def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
+    """The one inference status of every estimate a longitudinal fit reports.
+
+    RM20's cluster rule, applied to the prepared cluster labels and, on a weighted fit, to
+    the unit weights. It reads nothing fitted. ``LongitudinalData`` carries no baseline
+    strata, so the count is the number of clusters with positive weight mass in the whole
+    fit, and :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` is the threshold.
+
+    ``LTMLE._refuse_cross_fitted_design`` refuses ``id=`` above one fold before this runs,
+    so a live fit can take ``"few_cluster_plugin"`` only. The fold count is still passed
+    through, so the rule reads what the fit did rather than assuming it.
+
+    Three callers ask it: ``LTMLE.fit`` and the truncation-curve replay ``_refit_bound``
+    pass it to :func:`_estimates` or :func:`_msm_estimates`, and
+    ``LongitudinalResult.__setstate__`` re-stamps a result saved before the status existed.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared data of the fit.
+    folds : Folds
+        The outer fold assignment of the fit.
+
+    Returns
+    -------
+    str
+        One of :data:`~cleverly.inference.influence.InferenceStatus`.
+        ``"influence_curve"`` on an unclustered fit.
+    """
+    return cluster_inference_status(
+        data.cluster,
+        cross_fit=folds.n_folds > 1,
+        weights=data.weights if data.is_weighted else None,
+    )
+
+
 def _estimates(
     data: LongitudinalData,
     fits: Mapping[str, RegimenFit],
@@ -1502,6 +1657,7 @@ def _estimates(
     reference: RegimenSpec,
     *,
     alpha_sig: float,
+    inference: InferenceStatus,
 ) -> _Reported:
     """Compose every reported name, its estimate, its index and its fits, in one pass.
 
@@ -1517,6 +1673,11 @@ def _estimates(
         The regimen every contrast is taken against.
     alpha_sig : float
         Significance level of the reported intervals.
+    inference : str
+        The inference status every estimate declares, from :func:`_inference_status`.
+        Stamped here rather than after the call, because the fit and the truncation-curve
+        replay both build their estimates here, and the replay must equal the fit field
+        for field.
 
     Returns
     -------
@@ -1551,6 +1712,7 @@ def _estimates(
             cluster=data.cluster,
             scale="level",
             alpha=alpha_sig,
+            inference=inference,
         )
     for fit in fits.values():
         if fit.regimen.label == reference.label:
@@ -1571,12 +1733,17 @@ def _estimates(
             cluster=data.cluster,
             scale="difference",
             alpha=alpha_sig,
+            inference=inference,
         )
     return _Reported(estimates=estimates, index=index, contributors=contributors)
 
 
 def _msm_estimates(
-    data: LongitudinalData, msm_fits: Sequence[MSMRegimenFit], *, alpha_sig: float
+    data: LongitudinalData,
+    msm_fits: Sequence[MSMRegimenFit],
+    *,
+    alpha_sig: float,
+    inference: InferenceStatus,
 ) -> _Reported:
     """One estimate per working-model term per cause, and no contrasts.
 
@@ -1599,6 +1766,9 @@ def _msm_estimates(
         One projection per cause, in the order the causes are reported.
     alpha_sig : float
         Significance level of the reported intervals.
+    inference : str
+        The inference status every coefficient declares, for the reason
+        :func:`_estimates` gives.
 
     Returns
     -------
@@ -1625,6 +1795,7 @@ def _msm_estimates(
                 cluster=data.cluster,
                 scale="level",
                 alpha=alpha_sig,
+                inference=inference,
             )
     return _Reported(estimates=estimates, index=None, contributors=contributors)
 
@@ -1689,7 +1860,9 @@ class LTMLE:
     simultaneous, n_multiplier, multiplier_kind:
         Simultaneous confidence bands across the reported parameters, via the multiplier
         bootstrap.  A fit with several regimens reports several correlated parameters,
-        which is what the bands are for; see :mod:`cleverly.inference.multiplier`.
+        which is what the bands are for; see :mod:`cleverly.inference.multiplier`.  A fit
+        whose inference status supplies no inference builds no band, and
+        :meth:`LongitudinalResult.summary` says so.
     run_id:
         An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
     """
@@ -1847,6 +2020,13 @@ class LTMLE:
         in the tilted population ``dP_w = w dP / E[w]``, every node's nuisance is fitted by
         weighted loss, every node's score equation is weighted, and the reported curve is
         ``(w / E[w]) D*(P_w)``.  See :mod:`cleverly.data.weighting`.
+
+        ``id=`` names a cluster column, and the variance is then cluster robust.  A fit
+        with fewer than :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters
+        with positive weight mass reports no interval, p-value or standard error: every
+        estimate takes the ``"few_cluster_plugin"`` status, as a point-treatment fit does.
+        The point estimate stands.  The inference reference, section *Clusters*, gives
+        the reason.  ``id=`` is taken in sample only.
         """
         refuse_unsupported(refused, where="LTMLE.fit")
         if self.msm is not None:
@@ -2004,11 +2184,14 @@ class LTMLE:
                 None if model is None else fingerprint_array(model.design, model.weights)
             ),
         )
+        status = _inference_status(prepared, folds)
         with phase("influence_curve"):
             reported = (
-                _estimates(prepared, fits, scaler, reference, alpha_sig=self.alpha_sig)
+                _estimates(
+                    prepared, fits, scaler, reference, alpha_sig=self.alpha_sig, inference=status
+                )
                 if model is None
-                else _msm_estimates(prepared, msm_fits, alpha_sig=self.alpha_sig)
+                else _msm_estimates(prepared, msm_fits, alpha_sig=self.alpha_sig, inference=status)
             )
         estimates = reported.estimates
         with phase("inference"):
@@ -2182,8 +2365,15 @@ class LTMLE:
         exist for, and the reason they are on by default here as they are on a
         point-treatment fit.  One regimen reports one parameter, and a band over one
         estimand is its pointwise interval.
+
+        A band is a joint confidence statement, so a fit that supplies no inference builds
+        none, as :meth:`cleverly.TMLE.fit` builds none.  It is skipped rather than raised,
+        because ``simultaneous`` defaults to ``True``: a raise would stop every default fit
+        with few clusters.  :meth:`LongitudinalResult.summary` states the omission.
         """
         if not self.simultaneous or len(estimates) < 2:
+            return None
+        if not supplies_inference(inference_status(estimates, tuple(estimates))):
             return None
         return simultaneous_bands(
             estimates,
@@ -2386,15 +2576,25 @@ def _refit_bound(
         tol=recipe.tol,
         n_jobs=recipe.n_jobs,
     )
+    # The status the fit stamped, recomputed from the same data and folds, so the replay at
+    # the fitted bound equals the fit in every field ``_fitted_replay_matches`` compares.
+    status = _inference_status(result.data, result.folds)
     if result.msm is None:
         reference = next(
             plan.regimen for plan in recipe.plans if plan.label == result.config.reference
         )
         reported = _estimates(
-            result.data, fits, result.scaler, reference, alpha_sig=result.config.alpha_sig
+            result.data,
+            fits,
+            result.scaler,
+            reference,
+            alpha_sig=result.config.alpha_sig,
+            inference=status,
         )
     else:
-        reported = _msm_estimates(result.data, msm_fits, alpha_sig=result.config.alpha_sig)
+        reported = _msm_estimates(
+            result.data, msm_fits, alpha_sig=result.config.alpha_sig, inference=status
+        )
     missing = [name for name in result.estimates if name not in reported.estimates]
     if missing:
         raise RuntimeError(
