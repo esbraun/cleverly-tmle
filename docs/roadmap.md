@@ -262,29 +262,30 @@ factor. Here $\nu^2$ is the second moment of the Riesz representer for the decla
 An estimate of $\nu^2$ is only as good as the fitted representer. The bound has one treatment-side
 strength and no response mechanism.
 
-The review found the defects below. Before the refusal shipped, `sensitivity_elements` built
-$\sigma^2$, $\nu^2$, and the representer from the nuisances of the reported repeat
-(`src/cleverly/sensitivity/omitted_variable.py:193-281`). The bounds, the benchmark, the robustness
-value, and the contour all called it (`:526`, `:762`, `:842`, `:866`). The assessment declared these
-operations for `tmle`, `collaborative_tmle`, and `drtmle` (`src/cleverly/assessment.py:312`,
-`:3414-3429`). A probe on a DR-TMLE fit reported each capability as available and returned a
-robustness value with no warning.
+The review found the defects below. A symbol in this section is in
+`src/cleverly/sensitivity/omitted_variable.py` unless the text names another file. Before the
+refusal shipped, `sensitivity_elements` built $\sigma^2$, $\nu^2$, and the representer from the
+nuisances of the reported repeat, in `_elements_for`. `omitted_variable_bounds`, `benchmark`,
+`robustness_value`, and `contour_data` all called it. The assessment declared these operations for
+`tmle`, `collaborative_tmle`, and `drtmle`, through `_capability` and `SensitivityFacade._declared`
+in `src/cleverly/assessment.py`. A probe on a DR-TMLE fit reported each capability as available and
+returned a robustness value with no warning.
 
 | defect | mechanism | evidence | consequence for users |
 | --- | --- | --- | --- |
-| DR-TMLE $\nu^2$ | the default estimator $E[2 m(\hat\alpha) - \hat\alpha^2]$ equals $\nu_0^2 - \lVert \hat\alpha - \alpha_0 \rVert^2$ by the Riesz identity. It is low when the fitted mechanism is wrong, which is the case DR-TMLE guards against. Only the bound's standard error adds the corrected curve (`:536-537`, `:561-564`), and no derivation covers that sum | on the `dr-tmle` notebook draw the review read, the reported $\nu^2$ was 4.34. The sample value of $E[1/g_0 + 1/(1 - g_0)]$ is 7.75 | the bounds are too narrow, and the robustness value is too large |
+| DR-TMLE $\nu^2$ | the default estimator $E[2 m(\hat\alpha) - \hat\alpha^2]$ equals $\nu_0^2 - \lVert \hat\alpha - \alpha_0 \rVert^2$ by the Riesz identity. It is low when the fitted mechanism is wrong, which is the case DR-TMLE guards against. Only the bound's standard error adds the corrected curve (`omitted_variable_bounds` through `_bound_std_error`), and no derivation covers that sum | on the `dr-tmle` notebook draw the review read, the reported $\nu^2$ was 4.34. The sample value of $E[1/g_0 + 1/(1 - g_0)]$ is 7.75 | the bounds are too narrow, and the robustness value is too large |
 | C-TMLE $\nu^2$ | a C-TMLE fit holds the selected working mechanism in `repeat.nuisance`. The intercept-only representer $A/p - (1 - A)/(1 - p)$ equals $E[\alpha_W \mid A]$, so its second moment cannot exceed that of $\alpha_W$. $\sigma^2$ still comes from a regression on every covariate | on `make_instrument(n=2000, seed=44)`, the plain fit gives $\nu^2 = 11.77$ and a robustness value of 0.229. The C-TMLE fit gives 4.00 and 0.381 | the collaborative robustness value is optimistic by construction, and $\sigma^2 \nu^2$ belongs to no single conditioning set |
-| refusal reason for a non-arm axis | the message says that a fit "whose counterfactuals are not arms does not have" a Riesz representer (`:178-185`) | a regime mean, a shift mean, and a point-treatment MSM coefficient are linear functionals of the regression, and each has a representer | a user reads a missing implementation as a mathematical limit |
-| suggestion for an MSM coefficient | a name outside `LINEAR_ESTIMANDS` receives "For a risk ratio or odds ratio use sensitivity.evalue()" (`:164-168`) | a probe on `msm[a]` returns that text. `evalue` refuses an `msm` target (`src/cleverly/sensitivity/evalue.py:342-346`) | the message sends the user to a second refusal |
-| missing-outcome fits | `sensitivity_elements` has no response-mechanism check. The representer carries the response weight through `nuisance_bound` (`:216`), $\sigma^2$ averages respondents only (`:245`), and the strength factor has no response-side term. The assessment offers the bounds, the robustness value, and the E-value on a `PointTreatment(missingness=...)` fit | a probe on a simulated fit with a response indicator reports all three capabilities as available and returns a robustness value of 0.040. The default $\nu^2$ estimator was not positive there, so the code fell back to `"plugin"` without a warning (`:258-259`). The `survey-nonresponse` notebook printed a bias-adjusted interval of [0.9567, 1.414] | a user reads a bound that no derivation covers for a fit that models response |
-| standardized E-value on a missing-outcome fit | the Gaussian conversion divides by the standard deviation of the observed outcomes (`src/cleverly/sensitivity/evalue.py:449-460`). Under missing at random, the respondents' standard deviation estimates a different quantity from the population standard deviation | the same probe returns an E-value of 1.97 with `sd(Y)` computed from respondents | the standardized scale belongs to the respondents, not to the population the estimate targets |
-| documented estimator names | the `omitted_variable_bounds` docstring lists `"auto"`, `"analytic"`, and `"riesz"` (`:518`) | the code accepts `"auto"`, `"doubly_robust"`, and `"plugin"`, and raises `ValueError` for any other value (`:251-266`) | a documented argument fails |
+| refusal reason for a non-arm axis | the message says that a fit "whose counterfactuals are not arms does not have" a Riesz representer (`resolve_parameter`) | a regime mean, a shift mean, and a point-treatment MSM coefficient are linear functionals of the regression, and each has a representer | a user reads a missing implementation as a mathematical limit |
+| suggestion for an MSM coefficient | a name outside `LINEAR_ESTIMANDS` receives "For a risk ratio or odds ratio use sensitivity.evalue()" (`resolve_parameter`) | a probe on `msm[a]` returns that text. `evalue` refuses an `msm` target (`_select_evalue` in `src/cleverly/sensitivity/evalue.py`) | the message sends the user to a second refusal |
+| missing-outcome fits | `sensitivity_elements` has no response-mechanism check. In `_elements_for`, the representer carries the response weight through `nuisance_bound`, $\sigma^2$ averages respondents only, and the strength factor has no response-side term. The assessment offers the bounds, the robustness value, and the E-value on a `PointTreatment(missingness=...)` fit | a probe on a simulated fit with a response indicator reports all three capabilities as available and returns a robustness value of 0.040. The default $\nu^2$ estimator was not positive there, so the code fell back to `"plugin"` without a warning. The `survey-nonresponse` notebook printed a bias-adjusted interval of [0.9567, 1.414] | a user reads a bound that no derivation covers for a fit that models response |
+| standardized E-value on a missing-outcome fit | the Gaussian conversion divides by the standard deviation of the observed outcomes (`_standardising_sd` in `src/cleverly/sensitivity/evalue.py`). Under missing at random, the respondents' standard deviation estimates a different quantity from the population standard deviation | the same probe returns an E-value of 1.97 with `sd(Y)` computed from respondents | the standardized scale belongs to the respondents, not to the population the estimate targets |
+| documented estimator names | the `omitted_variable_bounds` docstring lists `"auto"`, `"analytic"`, and `"riesz"` | the code accepts `"auto"`, `"doubly_robust"`, and `"plugin"`, and raises `ValueError` for any other value | a documented argument fails |
 
 Apply these corrections:
 
 1. Refuse every omitted-variable operation on a `drtmle` fit, a `collaborative_tmle` fit, or a fit
    with a response mechanism, before any computation. Put the refusal in `sensitivity_elements`,
-   so that all four entry points share it. Mark the matching assessment rows `unavailable` with the
+   so that every entry point shares it. Mark the matching assessment rows `unavailable` with the
    same reason.
 2. State the missing result in the reason. For DR-TMLE and C-TMLE, the package has no estimate of
    $\nu^2$ that stays valid when the estimator does not assume a consistent treatment mechanism.
@@ -303,20 +304,58 @@ Apply these corrections:
 7. Suggest `evalue()` only for a `rr` or `or` request.
 8. Correct the documented `nu2_estimator` values.
 
-These corrections shipped as follows. One ordered rule table in
-`src/cleverly/sensitivity/omitted_variable.py` refuses every omitted-variable operation on a
-longitudinal fit, a DR-TMLE fit, a C-TMLE fit, a fit with a response mechanism, and a non-arm
-parameter axis. `sensitivity_elements` raises that refusal before any computation, so the bounds,
-the benchmark, the robustness value, and the contour share it, and `benchmark` hears it before its
-refit. Each reason names the missing result. The response reason points at the missingness tilt,
-which is the registered sensitivity analysis for response. The assessment declares the same reason
-on all five sensitivity rows.
+These corrections shipped as follows. One ordered rule table, `_FIT_WIDE_BOUND_RULES`, refuses
+every omitted-variable operation on seven kinds of fit. The table gives them in its order.
+
+| rule | the fit it refuses |
+| --- | --- |
+| `longitudinal` | a longitudinal fit |
+| `drtmle` | a DR-TMLE fit |
+| `collaborative_tmle` | a C-TMLE fit |
+| `response_mechanism` | a fit with a response mechanism |
+| `intermediate` | a fit with an intermediate variable |
+| `parameter_axis` | a fit whose parameter axis is not the arm |
+| `repeats` | a fit that combines more than one cross-fitting draw |
+
+The five entry points share the table. `sensitivity_elements` raises its refusal before any
+computation. `omitted_variable_bounds`, `benchmark`, `robustness_value`, and `contour_data` call
+`sensitivity_elements` first, so `benchmark` hears the refusal before its refit. Each reason names
+the missing result. The response reason points at the missingness tilt, which is the registered
+sensitivity analysis for response. The assessment rows are the five that
+`OMITTED_VARIABLE_OPERATIONS` names, and each row declares the same reason.
 
 `_select_evalue` refuses the standardized E-value on a missing-outcome fit, so the capability row
 reads `unavailable` rather than raising mid-computation. An E-value from a reported ratio still
 answers. A nonpositive $\nu^2$ now raises and names the estimator whose value was not positive.
 Each per-axis message now names the fit's parameter axis, the `evalue` pointer survives only for an
-`rr` or `or` request, and the three docstrings now list the accepted estimator names.
+`rr` or `or` request, and five docstrings now list the accepted estimator names. They are the
+docstrings of the five entry points, and each also has a `Raises` section.
+
+The review of this branch changed four rules of the table.
+
+| rule | change | reason |
+| --- | --- | --- |
+| `intermediate` | added after `response_mechanism` | before the change the bound returned a number on a controlled-direct-effect fit. Theorem 2 of Chernozhukov et al. (2022) covers each fixed-level estimand. The representer carries the weight $1\{Z = z\} / P(Z = z \mid A, W)$, so $c_{f,d}$ would measure a joint strength over the treatment and intermediate mechanisms |
+| `repeats` | moved into the table, last | before the move, each capability row read available on a repeated fit and each call raised. A refit with one split lifts this rule and no other rule, so a fit that two rules refuse never sends its reader to that refit |
+| `response_mechanism` | reason reworded | the reason said that no derivation covers the case. Theorem 2 covers the regression of $\Delta Y$ on $(A, \Delta, W)$, so the case is well posed. The reason now names the three missing pieces: the representer omits $\Delta$, $\sigma^2$ averages the respondents, and $c_{f,d}$ would be a joint strength |
+| `collaborative_tmle` | reason reworded | the reason wrote the representer as $E[\alpha_W \mid A]$, which holds only for an empty selection. It now writes $E[\alpha_W \mid A, V]$. $V$ is the selected set $W_S$ on a selector path and the fitted outcome regression under `oat` |
+
+The same review found an older defect in the doubly robust $\nu^2$ for the ATT and the ATC. Since
+commit `6096dbc`, `_m_alpha` weighted the contrast by the fitted propensity $g_c(W) / P(A = c)$. The
+score of the functional weights it by the observed $1\{A = c\} / P(A = c)$, which `_elements_for`
+now passes. Example 2 of the online appendix of Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis
+(2022) gives that score, and the `_m_alpha` docstring cites DoubleML's form of it. With a fitted
+propensity in that place, the Riesz identity fails and the estimate can exceed $\nu_0^2$. The table
+gives the effect on `tests.discrete_law` with $\hat g = 1/2$, where $s$ is the share of the
+conditioning arm.
+
+| estimand | $\nu_0^2$ | before, $1/s^2$ | after, $4/s - 1/s^2$ |
+| --- | --- | --- | --- |
+| ATT | 4.5971 | 5.4083 | 3.8940 |
+| ATC | 4.7707 | 3.0779 | 3.9397 |
+
+The ATE and counterfactual-mean values did not move. No registered study imports
+`cleverly.sensitivity`, so the fix moves no committed artifact.
 
 No study was regenerated. The refusal exits before estimator construction, so it moves no fitted
 array, no influence curve, and no published estimate. The bound, the benchmark, the robustness
@@ -337,14 +376,22 @@ the estimator and its condition.
 `tests/unit/test_omitted_variable_refusals.py` and `tests/e2e/test_sensitivity_and_validation.py`
 carry the witnesses. Each witness fails when a component is wrong:
 
-- a pre-fit test pins each refusal and its message on a DR-TMLE fit, a C-TMLE fit, and a
-  missing-outcome fit;
+- a test pins each refusal and its message at all five entry points and all five capability rows.
+  The fits are DR-TMLE, C-TMLE, missing-outcome, intermediate, `ipsi`, shift, MSM, and repeated
+  fits;
 - a missing-outcome test pins the refused standardized E-value and the retained ratio E-value;
 - a test that a nonpositive $\nu^2$ raises, rather than returning the plug-in value;
 - a nonzero witness pins $\nu^2_{\text{intercept}} < \nu^2_{\text{full}}$ on one instrument law.
   A mutation that removes the C-TMLE refusal then reports the smaller value, and the test fails;
-- a finite-support law with a wrong mechanism and a known $\nu_0^2$ shows the DR-TMLE shortfall
-  that the refusal prevents;
+- a finite-support law with the wrong mechanism $\hat g = (0.5, 0.3, 0.6)$ shows the DR-TMLE
+  shortfall that the refusal prevents. The doubly robust $\nu^2$ is 3.202522675737, which equals
+  $\nu_0^2 - E[(\hat\alpha - \alpha_0)^2]$ from the law. The plug-in reads 5.321286848073. The
+  earlier form used $\hat g = 1/2$, where both estimators read 4, so it could not fail;
+- the ATT and ATC doubly robust $\nu^2$ equal $4/s - 1/s^2$ at $\hat g = 1/2$, and meet the same
+  identity. A mutation that reads the fitted propensity again fails four tests;
+- a nonzero witness that the intermediate representer is zero off the level $z$ and nonzero on
+  it;
+- a nonzero witness that the response representer is nonzero on rows with no outcome;
 - a message test for each parameter axis, including that an `msm` refusal does not name `evalue`;
 - a test that each documented `nu2_estimator` value is accepted.
 
@@ -374,11 +421,11 @@ folds it used before reported 1.2539. The study reports that ratio and does not 
 (`tests/studies/ctmle_selector_properties.py`).
 [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) records the change.
 
-The path record has a second defect. The `CTMLESelection.train_risk` docstring
-(`src/cleverly/estimators/ctmle.py:312-316`) and the module docstring (`:39-43`) say that the
-in-sample risk does not increase. `_forward_path` (`:1436-1477`) takes one more fluctuation step
-when no addition lowers the risk. If the next addition still raises it, the path adds that covariate
-anyway. The `collaborative-tmle` notebook output shows `risk` rising from 6.56613 to 6.56746.
+The path record has a second defect. The `CTMLESelection.train_risk` docstring and the module
+docstring of `src/cleverly/estimators/ctmle.py` said that the in-sample risk does not increase.
+The search in `_Selector._forward_path` takes one more fluctuation step when no addition lowers
+the risk. If the next addition still raises it, the path adds that covariate anyway. The
+`collaborative-tmle` notebook output shows `risk` rising from 6.56613 to 6.56746.
 
 Apply these corrections:
 
@@ -418,20 +465,73 @@ full-adjustment candidate is therefore refused although it is bit-identical to a
 The [technical reference](technical-reference/collaborative-tmle.md) records that over-refusal and
 names `TMLE` as the workaround.
 
+The review of this branch found surfaces that the refusal did not reach. One table,
+`influence.spread_name`, now gives the name that each spread takes under each status. It raises
+for an inferential name that has no diagnostic name. The table gives each surface on a selector fit.
+
+| surface | behavior on a selector fit |
+| --- | --- |
+| bootstrap percentile limits | `bootstrap_range_lower` and `bootstrap_range_upper`, because `summary()` calls them a range |
+| repeat spread of `nuisance_diagnostics` | `plugin_standard_error` and `ratio_to_plugin_standard_error` |
+| `RefutationTest` frame | `plugin_std_error`. `RefutationTest` carries `inference` |
+| `CoverageStudy` summary | `mean_plugin_std_error`, and each summary row carries `inference`. The verdict states that the coverage column certifies no confidence interval |
+| split-noise lines of `summary()` | each share is "of plugin_std_err" |
+| a fit saved before the `inference` field | `TMLEResult.__setstate__` re-stamps each estimate from the estimator that the artifact carries, and drops the saved bands and assessment answers. The loaded fit refuses `ci` |
+| `tipping_gamma(use_ci=True)` capability row | resolved per request. It reads `unavailable` with the refusal sentence, where it read available and then raised |
+| E-value | `_select_evalue` refuses a selector fit after its key and axis checks, so an `ey1` request reports `not_applicable` |
+| `variable_importance()` | asks the estimator's `_inference_status()` rather than the strategy |
+
+`TMLEResult.inference_status` is the fit-level status. `summary()`, the band decision in `fit`, and
+`nuisance_diagnostics` read it. Only names moved, and only on selector fits. Every renamed column
+reads the private body that it read before, so no number and no committed artifact moved.
+
 No study was regenerated. The reframing changed no arithmetic, so the two registered selector rows
 keep their committed replicate files and report what those columns now measure. The ratio E-value
 that [RM11](#rm11-sensitivity-bounds-outside-their-derivation) correction 3 keeps is
 unavailable on a selector path, because it reads an interval that these paths do not supply. RM11's
 sentence therefore means "keep it for a fit that has an interval".
 
-The witnesses must fail when a component is wrong:
+This row planned three witnesses. Each had to fail when a component is wrong. The table gives the
+state of each.
 
-- a discrete-strategy fit with only the intercept-only candidate, on a finite-support law with a
-  correct outcome regression. The test compares the reported curve variance with the exact
-  variance of that fixed-candidate estimator, and the two must differ by a stated margin;
-- a greedy path on a law where `train_risk` rises, which pins the documented behavior;
-- a registered coverage cell on the instrument law, with its thresholds fixed before the final
-  run.
+| witness | state |
+| --- | --- |
+| 1. a discrete fit with only the intercept-only candidate, on a finite-support law with a correct outcome regression. The reported curve variance and the exact variance of that fixed-candidate estimator differ by a stated margin | delivered as `TestTheWorkingMechanismDiagnosticMissesTheExactVariance` in `tests/unit/test_ctmle.py` |
+| 2. a greedy path on a law where `train_risk` rises, which pins the documented behavior | delivered as `TestTheRecordedRiskMayRiseWhileTheLossMayNot` in the same file, on `make_instrument(n=800, seed=11)` |
+| 3. a registered coverage cell on the instrument law, with its thresholds fixed before the final run | retired. The reasons follow |
+
+Witness 1 uses a variant of `tests.discrete_law` that 1,000 rows realise exactly. $W$ moves the
+treatment probability from 0.2 to 0.8. With saturated trees, the fit equals the saturated plug-in
+on the exact frame and on a resample. Its exact variance is therefore $P_0 D^{*2} = 1.4020$, from
+the Gateaux oracle `law.eif`. The reported diagnostic is $P_0 D^*(\bar Q_0, \pi)^2 = 0.8896$, a
+ratio of 0.634522 against a declared bound of 0.8. The saturated full-adjustment candidate is the
+control, and it reads a ratio of 1.
+
+Two mutations fail witness 1. A discrete path that fits every covariate fails two tests. A status
+of `influence_curve` on the selector paths fails one. The HC0 comparison on
+`make_instrument(n=2000, seed=44)` stays in `tests/e2e/test_ctmle.py` as corroboration on a
+continuous law.
+
+Witness 3 is retired for three reasons.
+
+| reason | detail |
+| --- | --- |
+| no interval to test | the refusal removed the interval that the cell would test. A selector fit publishes no `ci` |
+| no failure mode | the cell can measure only the retained diagnostic. A mutation that removes the refusal leaves the diagnostic unchanged, so the cell cannot fail on the defect |
+| existing measurement | the registered cells that the F18 acceptance names already measure the calibration of the diagnostic |
+
+The table gives those cells. Each has $n = 1500$. The SE ratio is the mean reported diagnostic
+standard error over the empirical standard deviation of the estimates.
+
+| study | cell | replicates | SE ratio | coverage |
+| --- | --- | --- | --- | --- |
+| `ctmle_selector` | `selector_necessity/collaborative` | 800 | 0.8011 | 0.9500 |
+| `multi_arm_ctmle_selector` | `selector_necessity/greedy` | 400 | 0.5913 | 0.7750 |
+| `multi_arm_ctmle_selector` | `selector_necessity/ordered` | 400 | 0.6245 | 0.8425 |
+
+Coverage alone does not detect the gap. The point-treatment cell covers at 0.95 while its SE ratio
+is 0.8011, so the SE ratio carries the evidence. The values come from `properties.csv` in
+`tests/canonical/ctmle_selector/` and `tests/canonical/multi_arm_ctmle_selector/`.
 
 ### RM13. Estimated MSM projection weights
 
