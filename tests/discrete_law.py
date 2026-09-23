@@ -202,6 +202,26 @@ MSM_LINKS: dict[str, Any] = {
 MSM_NEWTON_STEPS = 40
 
 
+def msm_beta(probs: Any, weights: Any) -> Any:
+    r"""The identity-link projection :math:`\beta = M^{-1} b` of :data:`MSM_DESIGN`.
+
+    ``weights`` is ``h(a, W = w)`` as a ``(3, 2)`` array, or a function of the cell
+    probabilities that returns one.  :func:`functional` passes the fixed
+    :data:`MSM_WEIGHTS`.  A function makes ``h`` a functional of :math:`P`, as the arm
+    shares are, and a complex step through this then differentiates through ``h`` too:
+    ``tests/unit/test_msm_projection_weights.py`` measures the term that adds.
+
+    Every operation is arithmetic, so this stays analytic in the cell probabilities.
+    """
+    p = np.asarray(probs)
+    p_w = p.sum(axis=(1, 2))  # P(W = w)
+    q = p[:, :, 1] / p.sum(axis=2)  # E[Y | A = a, W = w]
+    h = weights(p) if callable(weights) else weights
+    gram = np.einsum("wap,waq,wa,w->pq", MSM_DESIGN, MSM_DESIGN, h, p_w)
+    moment = np.einsum("wap,wa,wa,w->p", MSM_DESIGN, h, q, p_w)
+    return np.linalg.solve(gram, moment)
+
+
 def functional(probs: Any, estimand: str) -> Any:
     r"""The target parameter as a closed-form function of the cell probabilities.
 
@@ -277,9 +297,7 @@ def functional(probs: Any, estimand: str) -> Any:
         return functional(p, f"ey_ipsi[{left}]") - functional(p, f"ey_ipsi[{right}]")
 
     if estimand.startswith("msm["):
-        gram = np.einsum("wap,waq,wa,w->pq", MSM_DESIGN, MSM_DESIGN, MSM_WEIGHTS, p_w)
-        moment = np.einsum("wap,wa,wa,w->p", MSM_DESIGN, MSM_WEIGHTS, q, p_w)
-        beta = np.linalg.solve(gram, moment)
+        beta = msm_beta(p, MSM_WEIGHTS)
         return beta[MSM_TERMS.index(estimand[len("msm[") : -1])]
 
     # The same projection through a link, where the normal equations are no longer linear

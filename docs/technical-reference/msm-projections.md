@@ -125,6 +125,7 @@ scale, because a coefficient vector has no single scale to map back with.
 | --- | --- |
 | `MSM(...)` design | the working design vector, including effect modifiers and interactions |
 | projection weights | how the arms or regimens are traded off inside the projection |
+| `weights_kind="known"` | the declaration that a `weights=` callable is a fixed function of the arm and the covariates, chosen without reading the data. `MSM.linear` forwards it. Uniform weights, `weights=None`, need no declaration |
 | `link="identity"` | the clever covariate is free of the coefficient, and a correct mechanism drives the remainder to exactly zero |
 | `link="log"`, `link="logit"` | the covariate reads the coefficient, so the fluctuation and the projection alternate. `res.coefficients(scale="ratio")` exponentiates them |
 | `MSM.linear` | a model linear in the arm. **Refused on non-numeric labels**, because it would read the sort order as a dose scale nobody chose |
@@ -132,12 +133,32 @@ scale, because a coefficient vector has no single scale to map back with.
 | `targeting_scheme="fold"` | each fold solves its own coefficient, since the coefficient is something the covariate reads. This removes coupling *between* folds, and the rows inside a fold still fit both the coefficient and the fluctuation used for that fold. The pooled score is exactly zero because each fold's is zero at its own coefficient. This is a package extension and not the common-update CV-TMLE of Zheng and van der Laan |
 | point-treatment `"fold"` against longitudinal `n_folds` | point-treatment fold targeting is supported. Cross-fitted longitudinal MSM coefficient inference is refused pending separate evidence |
 
-One composition has **no refusal yet**, in the sense
-[scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) sets out.
+The package cannot inspect a callable, so it reads the declaration of the projection weight. The
+`MSM` class checks the declaration when you declare the model. The `TMLE` and `LTMLE` fits check it
+again before the first learner, because a restored or copied model can carry a declaration that
+this version refuses. Each refusal raises `CapabilityError`. The
+[scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) page defines its kind.
 
-| not refused | kind | what it would need |
+| refused | kind | reason |
 | --- | --- | --- |
-| weights derived from the estimated mechanism, a "stabilised" MSM | wrong by construction | the weight would be a functional of $P$, so the influence curve carries a further term for the pathwise derivative through the estimated mechanism. This is the same argument that gives an incremental intervention its own axis. The package cannot inspect a callable, so a weight that closes over an estimate fits with no message. That fit reports a standard error that is too small. [RM13](../roadmap.md#rm13-estimated-msm-projection-weights) tracks a declaration and a refusal |
+| a `weights=` callable with no `weights_kind` | wrong by construction | the package cannot tell a fixed weight from a weight computed from the sample. The message asks for `weights_kind="known"` |
+| `weights_kind="estimated"`, a "stabilised" MSM | wrong by construction | the weight is a functional of $P$, so the influence curve needs a further term for the pathwise derivative through the estimated mechanism. The reported curve does not have it. This is the same argument that gives an incremental intervention its own axis |
+| an array in place of a `weights=` callable | wrong by construction | an array is one evaluation of the weight, and nothing shows that the sample did not set it |
+
+An inconsistent declaration raises `DataError`. Two cases exist: `weights_kind="estimated"` with
+`weights=None`, and a value other than `"known"`, `"estimated"`, or `None`.
+
+A weight computed from the sample and declared `"known"` still fits, because the declaration is
+your statement. `tests/unit/test_msm_projection_weights.py` measures the cost on an exact law, with
+the arm share as the weight. The reported curve is the efficient influence function of the
+fixed-weight coefficient. The table gives its standard error over that of the estimated-weight
+coefficient. [RM13](../roadmap.md#rm13-estimated-msm-projection-weights) records the defect.
+
+| coefficient | standard-error ratio |
+| --- | --- |
+| `msm[W]` | 0.742 |
+| `msm[(intercept)]` | 0.913 |
+| `msm[a]` | 1.000, because the share term vanishes for this coefficient on this design |
 
 A one-shot non-identity-link fit is also refused. The derivative of the inverse link depends on the
 coefficient, so a single pass would report a standard error for an equation it did not solve. The

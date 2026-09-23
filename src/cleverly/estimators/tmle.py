@@ -153,7 +153,7 @@ from ..learners.crossfit import (
 )
 from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearner, resolve_learner
-from ..msm import MSM, MSMSet
+from ..msm import MSM, MSMSet, refuse_projection_weights
 from ..provenance import data_fingerprint
 from ..provenance import record as provenance_record
 from ..targets import TargetContext, groups_for, parameter_stem, targets_for
@@ -1343,7 +1343,9 @@ class TMLE:
         The declared fold policy is checked first and without reading the data, because a
         fit can arrive here without having run ``__init__``: :meth:`refit` copies an
         estimator, and an estimator restored from a pickle written by an earlier version
-        carries whatever policy that version allowed.
+        carries whatever policy that version allowed.  The working model's projection-weight
+        declaration is checked next for the same reason: ``MSM`` checks it when it is
+        declared, and a restored or modified model can carry one this version refuses.
 
         The natural-course contract runs next, because it resolves the target list the
         arm-indexed missing-outcome contract then reads.  The refusal of every other
@@ -1357,6 +1359,8 @@ class TMLE:
                 f"{reason}. This fit was configured under a fold policy this version "
                 "refuses, which a restored result or a copied estimator can still carry"
             )
+        if self.msm is not None:
+            refuse_projection_weights(self.msm)
         estimands = self._resolve_natural_course_contract(data)
         self._resolve_arm_indexed_missing_contract(data, estimands)
         self._refuse_cross_fitted_missing_off_contract(data, estimands)

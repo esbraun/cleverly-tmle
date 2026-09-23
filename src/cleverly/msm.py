@@ -59,7 +59,7 @@ working model rather than arms.  There are :math:`p` score equations, one per te
 :attr:`cleverly.Target.parameter_axis` says why the axes partition rather than accumulate.
 
 **What is deliberately refused**, because of the derivation and not for want of effort --
-see :func:`refuse_unsupported`:
+see :func:`refuse_unsupported` and :func:`refuse_projection_weights`:
 
 - **weights derived from the estimated mechanism** (the "stabilised" MSM).  Then
   :math:`h` is a functional of :math:`P` and the efficient influence function carries a
@@ -67,6 +67,16 @@ see :func:`refuse_unsupported`:
   that makes an incremental intervention need a second fluctuation and an axis of its
   own (:mod:`cleverly.interventions.incremental`).  A stabilised working model would
   need the same treatment, and until someone derives it the weights must stay known.
+
+  A callable can close over any estimate, and no code can inspect a closure, so the
+  status of a weight is a declaration: ``weights=`` needs ``weights_kind="known"``.  An
+  undeclared callable, an array, and ``weights_kind="estimated"`` are refused with
+  :class:`~cleverly.exceptions.CapabilityError`, when the model is declared and again
+  when a fit starts, since a restored or copied model can carry what this version
+  refuses.  A weight computed from the sample and declared ``"known"`` is not caught:
+  the declaration is the user's statement, and
+  ``tests/unit/test_msm_projection_weights.py`` measures the standard error it then
+  understates.
 
 References
 ----------
@@ -88,7 +98,7 @@ from scipy.special import expit
 
 from ._typing import FloatArray
 from .data.causal_data import CausalData
-from .exceptions import DataError
+from .exceptions import CapabilityError, DataError
 from .interventions.base import _as_array, _covariate_frame
 
 __all__ = [
@@ -97,9 +107,11 @@ __all__ = [
     "Link",
     "MSMLink",
     "MSMSet",
+    "MSMWeightsKind",
     "ProjectionFit",
     "check_projection_rank",
     "link_for",
+    "refuse_projection_weights",
     "refuse_unsupported",
     "register_link",
     "solve_projection",
@@ -110,6 +122,14 @@ __all__ = [
 #: declaring them alternates between the projection and the fluctuation
 #: (:func:`~cleverly.estimators.targeting.solve_with_projection`).
 MSMLink = Literal["identity", "log", "logit"]
+
+#: What a working model declares about its projection weight ``h(a, V)``.  ``"known"`` is a
+#: fixed function of the arm and the covariates, chosen without reading the data;
+#: ``"estimated"`` is one computed from the sample, which is refused.  A three-state
+#: ``Literal`` rather than a bool, because an undeclared callable has to refuse and a bool
+#: default would silently declare it.  Unrelated to
+#: :data:`cleverly.data.weighting.WeightKind`, which describes *observation* weights.
+MSMWeightsKind = Literal["known", "estimated"]
 
 #: How badly conditioned the weighted Gram matrix may be before the design is refused.
 #: A reciprocal condition number below this means two terms are collinear at every arm,
@@ -271,14 +291,80 @@ def refuse_unsupported(kind: str, detail: str = "") -> None:
             "projection it defines is solved by Newton rather than in closed form."
         )
     if kind == "estimated_weights":
-        raise NotImplementedError(
-            "MSM weights derived from the estimated mechanism (a 'stabilised' MSM) are not "
-            "implemented. h(a, V) would then be a functional of P, so the efficient "
-            "influence function carries a further term for the pathwise derivative through "
-            "g-hat that the curve reported here does not have. Pass weights= as a known "
-            "function of the arm and the covariates, or leave it None for uniform weights."
-        )
+        raise CapabilityError(_ESTIMATED_WEIGHTS)
     raise ValueError(f"unknown refusal {kind!r}")
+
+
+#: Why an estimated projection weight is refused.  Written once, and read by both
+#: :func:`refuse_unsupported` and :func:`refuse_projection_weights`, so the declaration
+#: layer and the fit layer cannot drift apart.
+_ESTIMATED_WEIGHTS = (
+    "an estimated MSM projection weight (a 'stabilised' MSM) is refused. h(a, V) is then "
+    "a functional of P, so the efficient influence function carries a further term for "
+    "the pathwise derivative through the estimated mechanism or arm shares, and the "
+    "influence curve reported here does not have it. The reported standard error would "
+    "be too small. docs/technical-reference/msm-projections.md (Variations) records the "
+    "refusal, and RM13 in docs/roadmap.md records the reason. Pass weights= as a known "
+    "function of the arm and the covariates with weights_kind='known', or leave "
+    "weights=None for uniform weights."
+)
+
+_UNDECLARED_WEIGHTS = (
+    "MSM weights= needs a declaration of what the callable is. Pass weights_kind='known' "
+    "when h(a, V) is a fixed function of the arm and the covariates, chosen without "
+    "reading the data. A weight computed from the sample, such as arm shares or a fitted "
+    "mechanism, is estimated: h is then a functional of P, the reported influence curve "
+    "omits its pathwise derivative, and the standard error is too small (RM13 in "
+    "docs/roadmap.md). weights_kind='estimated' is refused for that reason."
+)
+
+
+def refuse_projection_weights(model: MSM) -> None:
+    """Raise unless ``model`` declares a projection weight this package can report on.
+
+    A callable can close over any estimate, and nothing can inspect a closure, so the
+    status of ``h(a, V)`` is the declaration ``weights_kind``.  The checks run in order:
+
+    1. ``weights_kind="estimated"`` with no ``weights`` is a :class:`DataError`, because
+       the declaration describes a callable the model does not have.  ``None`` or
+       ``"known"`` with no ``weights`` passes: uniform weights are known.
+    2. A ``weights_kind`` outside ``"known"``, ``"estimated"`` and ``None`` is a
+       :class:`DataError`.
+    3. ``weights`` that is not callable is a :class:`CapabilityError`.  An array is one
+       evaluation of ``h``, and nothing shows that it was not estimated.
+    4. A callable with ``weights_kind=None`` is a :class:`CapabilityError`.
+    5. ``weights_kind="estimated"`` is a :class:`CapabilityError` that names the
+       missing pathwise-derivative term.
+
+    :class:`MSM` runs this when it is declared, and ``TMLE`` and ``LTMLE`` run it again
+    before any learner: a model restored from an older pickle, or changed with
+    ``object.__setattr__``, can carry a declaration this version refuses.
+    """
+    # Typed ``object`` on purpose: this checks what a restored or modified model holds at
+    # run time, which its annotations do not guarantee.
+    weights: object = model.weights
+    kind: object = model.weights_kind
+    if weights is None and kind == "estimated":
+        raise DataError(
+            "weights_kind='estimated' declares a weights= callable, and this model has none"
+        )
+    if kind not in (None, "known", "estimated"):
+        raise DataError(
+            f"weights_kind must be 'known', 'estimated' or None; got {kind!r}. It declares "
+            "whether the projection weight h(a, V) is a fixed function or one computed from "
+            "the sample, and it is unrelated to the observation-weight setting weights_type="
+        )
+    if weights is not None and not callable(weights):
+        raise CapabilityError(
+            f"MSM weights= must be a callable (arm_label, covariate_frame) -> (n,); got "
+            f"{type(weights).__name__}. An array is one evaluation of h(a, V), and nothing "
+            "here can show that it was not estimated from the sample, so it is refused as "
+            "an estimated weight would be: " + _ESTIMATED_WEIGHTS
+        )
+    if weights is not None and kind is None:
+        raise CapabilityError(_UNDECLARED_WEIGHTS)
+    if kind == "estimated":
+        refuse_unsupported("estimated_weights")
 
 
 # ------------------------------------------------------------------ the declaration
@@ -327,16 +413,25 @@ class MSM:
 
     Attributes
     ----------
-    design:
+    design : callable
         ``(arm_label, covariate_frame) -> (n, p)``.
-    terms:
+    terms : tuple of str
         One name per design column, used verbatim in the reported parameter names:
         ``msm[a:W1]``.
-    weights:
+    weights : callable or None
         ``h(a, V)``, as ``(arm_label, covariate_frame) -> (n,)``.  ``None`` means uniform,
-        which weights every arm and every unit equally.  It must be a **known** function;
-        see :func:`refuse_unsupported`.
-    link:
+        which weights every arm and every unit equally.  It must be a **known** function,
+        and ``weights_kind`` declares that it is.
+    weights_kind : {"known", "estimated"} or None
+        The declaration that ``weights`` is a known function.  A callable ``weights``
+        needs ``"known"``: a fixed function of the arm and the covariates, chosen without
+        reading the data.  ``None`` with a callable, and ``"estimated"``, are refused by
+        :func:`refuse_projection_weights`, because a weight computed from the sample makes
+        ``h`` a functional of :math:`P` and the reported influence curve omits its
+        pathwise derivative.  It is unrelated to
+        :data:`cleverly.data.weighting.WeightKind`, which describes observation weights.
+        A model pickled before this field existed loads as ``None``.
+    link : {"identity", "log", "logit"}
         ``"identity"``, ``"log"`` or ``"logit"``.  The identity is the only one whose
         :math:`\partial m/\partial\beta` is free of :math:`\beta`, and so the only one
         whose fit is a single fluctuation; the others alternate.  What the coefficients
@@ -348,6 +443,9 @@ class MSM:
     design: Callable[[Any, Any], Any]
     terms: tuple[str, ...]
     weights: Callable[[Any, Any], Any] | None = None
+    #: A plain default, so it is a class attribute: a model pickled before the field
+    #: existed reads ``None`` here, and :func:`dataclasses.replace` still works on it.
+    weights_kind: MSMWeightsKind | None = None
     link: MSMLink = "identity"
     #: Set by :meth:`linear` and by nothing else.  That shorthand reads the label it is
     #: handed as a *dose*, which a treatment arm can be and a regimen cannot, so a
@@ -370,12 +468,7 @@ class MSM:
             raise DataError(f"working-model terms must be distinct; got {list(terms)}")
         if not callable(self.design):
             raise DataError("design= must be callable: (arm_label, covariate_frame) -> (n, p)")
-        if self.weights is not None and not callable(self.weights):
-            # Defensive, and deliberately kept: ``weights`` is annotated ``Callable | None``,
-            # so ``mypy --warn-unreachable`` calls this dead -- but an annotation is not a
-            # runtime guarantee, and the mistake this catches is a user passing the *array*
-            # of estimated weights, which is precisely what the message addresses.
-            refuse_unsupported("estimated_weights")  # pragma: no cover - a type violation
+        refuse_projection_weights(self)
         object.__setattr__(self, "terms", terms)
         doses = tuple(float(value) for value in self.doses)
         if doses and (len(doses) < 3 or np.any(np.diff(doses) <= 0.0)):
@@ -391,6 +484,7 @@ class MSM:
         modifiers: Sequence[str] = (),
         interaction: bool = True,
         weights: Callable[[Any, Any], Any] | None = None,
+        weights_kind: MSMWeightsKind | None = None,
         link: MSMLink = "identity",
         doses: Sequence[float] = (),
     ) -> MSM:
@@ -409,6 +503,9 @@ class MSM:
         refused rather than coded silently, because ``{"low", "medium", "high"}`` sorts
         alphabetically and the resulting slope would be per-step in an order nobody chose.
         Pass ``design=`` and code the arms yourself where that is what you want.
+
+        ``weights=`` and ``weights_kind=`` are forwarded unchanged, so a callable weight
+        needs ``weights_kind="known"`` here as it does on :class:`MSM`.
         """
         names = tuple(str(m) for m in modifiers)
         terms = ("(intercept)", "a", *names)
@@ -419,6 +516,7 @@ class MSM:
             design=_LinearDesign(names, interaction),
             terms=terms,
             weights=weights,
+            weights_kind=weights_kind,
             link=link,
             from_linear=True,
             doses=tuple(float(value) for value in doses),

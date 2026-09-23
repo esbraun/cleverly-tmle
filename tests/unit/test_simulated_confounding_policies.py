@@ -122,6 +122,7 @@ def _model(*, saturated: bool = False, labels: bool = False, link: str = "identi
         design=_MSMDesign(treated),
         terms=("intercept", "treatment", "baseline"),
         weights=_MSMWeight(treated),
+        weights_kind="known",
         link=link,
     )
 

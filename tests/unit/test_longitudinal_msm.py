@@ -113,6 +113,7 @@ class TestItEvaluatesTheDeclaredModel:
             design=dose_design,
             terms=("(intercept)", "duration"),
             weights=lambda label, horizon, w: 1.0 + DURATION[label] + np.asarray(w["W2"]),
+            weights_kind="known",
         )
         model = evaluate_regimen_msm(msm, data, plans, (2,))
         w2 = data.baseline[:, 1]
@@ -215,6 +216,7 @@ class TestItRefusesByName:
             design=dose_design,
             terms=("(intercept)", "duration"),
             weights=lambda label, horizon, w: -np.ones(len(w)),
+            weights_kind="known",
         )
         with pytest.raises(DataError, match="not a signed contrast"):
             evaluate_regimen_msm(msm, data, plans_for(data), (2,))

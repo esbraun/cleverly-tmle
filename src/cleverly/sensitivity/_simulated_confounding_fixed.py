@@ -269,6 +269,10 @@ def _freeze_msm(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any
             raise DataError("declared MSM arrays disagree with a stored cross-fitting draw")
     replay: TMLE = copy.copy(estimator)
     baseline = _BaselineRows.from_data(data)
+    # The frozen arrays are a fixed function of the row, so a uniform weight replays as a
+    # known one.  A callable weight keeps its own declaration: an undeclared one, which a
+    # restored model can carry, is refused here as it would be at the fit.
+    weights_kind = "known" if model.weights is None else model.weights_kind
     if expected.continuous:
         assert expected.clever_weights is not None
         replay.msm = replace(
@@ -277,12 +281,14 @@ def _freeze_msm(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any
             weights=_FrozenDoseFunction(
                 expected.clever_weights.copy(), model.doses, baseline, model.weights, weights=True
             ),
+            weights_kind=weights_kind,
         )
     else:
         replay.msm = replace(
             model,
             design=_FrozenArmFunction(expected.design.copy(), baseline),
             weights=_FrozenArmFunction(expected.weights.copy(), baseline),
+            weights_kind=weights_kind,
         )
     return replay, parameter_name("msm", arm=key.term)
 
