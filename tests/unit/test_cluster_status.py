@@ -473,8 +473,10 @@ class TestTheStatusIsTheHooksToWithhold:
     ) -> None:
         """The rule's own module compares against a threshold of zero."""
         monkeypatch.setattr(cluster_module, "FEW_CLUSTER_THRESHOLD", 0)
-        with pytest.raises(AssertionError):
-            assert_withholds(fit(few_frame, **IN_SAMPLE), FEW)
+        result = fit(few_frame, **IN_SAMPLE)
+        for check in (assert_withholds, assert_assessment_note, assert_evalue_unavailable):
+            with pytest.raises(AssertionError):
+                check(result, FEW)
 
     def test_an_at_or_below_comparison_fails_the_boundary_control(
         self, few_frame: Any, equal_frame: Any, monkeypatch: pytest.MonkeyPatch

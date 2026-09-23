@@ -77,7 +77,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ..inference.influence import InferenceStatus, spread_name
+from .._inference_status import InferenceStatus
+from ..inference.influence import spread_name
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
 from ..utils.text import format_negligible, format_table

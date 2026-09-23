@@ -62,9 +62,10 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from .._inference_status import InferenceStatus
 from ..exceptions import CapabilityError
 from ..inference.bootstrap import Resampling, _bootstrap_design
-from ..inference.influence import InferenceStatus, spread_name
+from ..inference.influence import spread_name
 from ..utils.frames import emit_frame
 from ..utils.random import resolve_assessment_seed
 from ..utils.text import format_table
