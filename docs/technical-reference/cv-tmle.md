@@ -315,7 +315,7 @@ the audit used.
 | Chiang, Kato, Ma and Sasaki (2022) | Sections 3.1.2 and 3.2, Algorithm 1, Assumptions 1 and 3(i), and Theorem 1, read in the Taylor and Francis online-first PDF | a random, equal, data-independent partition of the cluster indices, for two-way clustering and linear Neyman-orthogonal DML scores. No stratification, no TMLE, and no one-way theorem. The online-first pages do not match the issue pages, so this project cites the sections and not the pages |
 | Park and Kang, arXiv:2110.07740 | Section 3.3 and Supplement A.1, Theorem A.1 with condition (M1)', read in v3 | an AIPW or DML estimator under a random two-fold cluster split, with independent clusters of bounded size. It weights cluster averages, which equals row weighting only at equal cluster sizes. Not a TMLE, and unrefereed |
 | Karim (2026), arXiv:2606.30918 | Section 3.3, condition (C2), and Theorems 1 and 2, read in the v2 main text | the closest estimator: a row-level TMLE with a pooled fluctuation. Its design has sampling strata rather than treatment strata, and (C2) excludes treatment strata. Unrefereed, and this project did not read the web appendix that holds the proofs |
-| Benitez, Nugent and Balzer (2023) | Sections 3.1.2 and 3.2.1, read in the NIHMS author manuscript | supports the cluster-sum aggregation for a row-weighted estimand, and states that sample splitting "must respect the cluster as the independent unit". It gives no fold law and no theorem |
+| Benitez et al. (2023) | Section 3.2.1, read in the NIHMS author manuscript | supports the cluster-sum aggregation for a row-weighted estimand, and states that sample splitting "must respect the cluster as the independent unit". It gives no fold law and no theorem. Its Section 3.1.2 aggregates to the cluster level first, for a cluster-level estimand |
 | Balzer, Zheng, van der Laan and Petersen (2019) | Section 3.1, Equation (9), and Section 4.2, Equations (20) and (21), read in the NIHMS author manuscript | a cluster-level exposure and a cluster-level estimand. No cross-fitting, and no split law |
 | Balzer, van der Laan and Petersen (2016) | Sections 3.1, 4.1, 5.1 and 6, read in the NIHMS author manuscript | selection by cross-validation over independent units, where a row is a cluster, in a randomized trial with a fixed GLM library. No post-selection theorem, and no row-level C-TMLE |
 | Balzer et al. (2023) | Sections 3.2 and 3.3 | a two-stage cluster-level estimator. No cross-fitting |
@@ -354,12 +354,12 @@ of rows takes the `"unequal_cluster_plugin"` status. `ci`, `pvalue`, and `std_er
 cluster is its row count, and the package does not read its weight mass.
 
 No source read here supports a normal reference interval with few clusters. The table gives what
-each source recommends.
+each source recommends. $J$ is the cluster count, which Nugent et al. write as $N$.
 
 | source | locator | recommendation |
 | --- | --- | --- |
-| Nugent et al. (2024) | Section 2.2, last paragraph, citing Hayes and Moulton (2009) | a $t$ reference with $N - 2$ degrees of freedom below 40 clusters |
-| Benitez et al. (2023) | Sections 3.1.2 and 3.2.1, last paragraph of each | a $t$ reference with $J - 2$ degrees of freedom at every cluster count, as a finite-sample approximation |
+| Nugent et al. (2024) | Section 2.2, last paragraph, citing Hayes and Moulton (2009) | a $t$ reference with $J - 2$ degrees of freedom below 40 clusters |
+| Benitez et al. (2023) | Section 3.1.2, paragraph on inference, and Section 3.2.1, last paragraph | a $t$ reference with $J - 2$ degrees of freedom at every cluster count, as a finite-sample approximation |
 
 The package keeps its normal reference. A fit with fewer than 40 clusters takes the
 `"few_cluster_plugin"` status, in sample or cross-fitted. [Clusters](inference.md#clusters) gives

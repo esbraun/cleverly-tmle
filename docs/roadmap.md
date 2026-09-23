@@ -2131,7 +2131,7 @@ every fit in them was in sample unless the row says otherwise.
 | DR-TMLE with `weights_estimated=True` | `DRTMLE(estimands=("ate",))` on `make_binary_outcome(n=500, seed=3)`, with weights drawn uniform on [0.5, 2]. The fit reported `ci` (0.1161, 0.2841) under the `influence_curve` status, and the summary marked the weights as estimated | the `DRTMLE` docstring and [supported estimands](technical-reference/dr-tmle/supported-estimands.md) said that no interval claim covers the case. The conditional argument concerns $D^*$, not the reduced regressions |
 | outcome-adaptive C-TMLE beyond one binary treatment-specific mean | `CTMLE(strategy="oat")` on `make_multi_arm(n=600, seed=5)` reported each `ate[...]` and `ey[...]` interval under the `influence_curve` status. The binary joint fit on `make_binary_outcome(n=500, seed=3)` did the same | Benkeser, Cai and van der Laan (2020), Theorem 1, proves one binary treatment-specific mean. [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) rejects the natural extension to the shared multinomial fit |
 | cross-fitted clustered TMLE at unequal cluster sizes | `make_clustered(n=400, cluster_size=10, seed=7)`, with rows removed from half the clusters, which leaves 315 rows in 40 clusters of 2 to 10 rows. The cross-fitted fit with `id=` reported an interval and no warning | the [grouped folds](technical-reference/cv-tmle.md#grouped-folds) rule states equal cluster sizes. A row-weighted target and a cluster-weighted target agree only at equal or non-informative sizes |
-| clustered fit with few clusters | the same construction with 6 clusters and 40 rows reported a normal-reference interval. No warning named the cluster count | Nugent et al. (2024), Section 2.2, recommend a $t$ reference with $J - 2$ degrees of freedom below 40 clusters. Benitez et al. (2023), Sections 3.1.2 and 3.2.1, recommend it at every cluster count. The package applies neither rule |
+| clustered fit with few clusters | the same construction with 6 clusters and 40 rows reported a normal-reference interval. No warning named the cluster count | Nugent et al. (2024), Section 2.2, recommend a $t$ reference with $J - 2$ degrees of freedom below 40 clusters. Benitez et al. (2023), Section 3.1.2, paragraph on inference, and Section 3.2.1, last paragraph, recommend it at every cluster count. The package applies neither rule |
 | in-sample outcome-adaptive C-TMLE with missing outcomes | `CTMLE(strategy="oat")` with `delta=` on `make_missing_outcome(n=500, seed=4)` reported `ci` (1.0090, 1.4173) under the `influence_curve` status. The selector paths reported the non-inferential status on the same law | the arm-indexed audit read no source for C-TMLE with missing outcomes. [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) holds the cross-fitted refusal |
 | shift, incremental, regime, MSM, and controlled-direct-effect targets, cross-fitted with missing outcomes | a cross-fitted shift fit with `delta=` on the same law, with the dose built as the arm plus standard normal noise, reported an interval for `ey_shift[+0.5]`. With linear learners, `q_bounds=(-5, 8)`, and `random_state=0`, it read 1.767366, `ci` (1.5881, 1.9467) | these fits ran outside the arm-indexed contract. `TestTheMnarTiltFollowsTheDraws` in `tests/unit/test_repeated_crossfit.py` was the only fast test that fitted repeated draws on this surface. It fitted a controlled direct effect with `repeats=2` |
 
@@ -2198,18 +2198,22 @@ of that page on an unequal cross-fitted weighted clustered study, so that page k
 "clusters = 40, sizes 2 to 10".
 
 The few-cluster threshold rests on the two sources in the table. Both were read first-hand on
-2026-09-22.
+2026-09-22. $J$ is the cluster count, which Nugent et al. write as $N$.
 
 | source | locator | what it recommends | threshold |
 | --- | --- | --- | --- |
-| Nugent, Marquez, Charlebois, Abbott and Balzer (2024), *Biostatistics* 25(3):599-616 | Section 2.2, last paragraph | a Student's $t$ reference with $N - 2$ degrees of freedom "In CRTs with fewer than 40 clusters randomized (N < 40)". It cites Hayes and Moulton (2009) | 40 clusters |
-| Benitez, Nugent and Balzer (2023), *Statistics in Medicine* 42(19):3443-3466 | Sections 3.1.2 and 3.2.1, last paragraph of each | a $t$ reference with $J - 2$ degrees of freedom "As a finite sample approximation to the normal distribution" | none. It applies at every cluster count |
+| Nugent, Marquez, Charlebois, Abbott and Balzer (2024), *Biostatistics* 25(3):599-616 | Section 2.2, last paragraph | a Student's $t$ reference with $J - 2$ degrees of freedom "In CRTs with fewer than 40 clusters randomized (N < 40)". It cites Hayes and Moulton (2009) | 40 clusters |
+| Benitez et al. (2023), *Statistics in Medicine* 42(19):3443-3466. [References](references.md#grouped-folds-and-clustered-cross-fitting) gives the ten authors | Section 3.1.2, paragraph on inference, and Section 3.2.1, last paragraph | a $t$ reference with $J - 2$ degrees of freedom "As a finite sample approximation to the normal distribution" | none. It applies at every cluster count |
 
 Nugent et al. give the only explicit threshold in a read source. Neither paper compares the
-normal reference with the $t$ reference. Each paper mentions 30 clusters only in a discussion of
-GEE or GLMM. Hayes and Moulton (2009) were not read. The surface table above said "below about 30
-to 40 clusters" until the plan, and no read source states that range. The same wording in
-`cv-tmle.md` and `references.md` is corrected.
+normal reference with the $t$ reference. Hayes and Moulton (2009) were not read. The surface
+table above said "below about 30 to 40 clusters" until the plan, and no read source states that
+range. The same wording in `cv-tmle.md` and `references.md` is corrected.
+
+Nugent et al. mention 30 clusters only in a discussion of GEE and GLMM, in Section 1. Benitez et
+al. mention 30 clusters twice. Section 3.1.2 recommends leave-one-cluster-out cross-validation
+"for small trials (eg, J≤30)". Section 6 cites a warning against GEE with fewer than 30 clusters.
+Neither passage concerns the reference distribution.
 
 The package keeps its normal reference. A switch to $t$ would move every clustered interval and the
 registered clustered study. That study runs 200 equal clusters, so it keeps the `influence_curve`
@@ -2568,8 +2572,8 @@ alone. The summed-incidence table of a competing-risk fit also reports a cluster
 | `multivalue_panel(n=300, seed=43)` from `tests/unit/test_sequential_design.py`, with 10 clusters of 30 rows, `n_folds=1`, regimens "never" and "always" | `ate_regimen[always vs never]` reports `ci` (-0.3023, -0.1287) under the `influence_curve` status. No warning names the cluster count |
 
 The sources and the threshold are those of RM20. Nugent et al. (2024), Section 2.2, recommend a
-$t$ reference below 40 clusters. Benitez et al. (2023), Sections 3.1.2 and 3.2.1, recommend it at
-every cluster count. No registered study fits a clustered longitudinal design, so the correction
+$t$ reference below 40 clusters. Benitez et al. (2023), Section 3.1.2, paragraph on inference, and
+Section 3.2.1, last paragraph, recommend it at every cluster count. No registered study fits a clustered longitudinal design, so the correction
 moves no study.
 
 Apply these corrections:

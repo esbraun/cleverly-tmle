@@ -626,16 +626,26 @@ article as the copy this project read.
   every stratum". Theorems 1 and 2 give the result. This is the closest estimator read: a row-level
   TMLE with a pooled fluctuation. Its strata are survey sampling strata, and (C2) excludes
   treatment strata. The preprint is unrefereed.
-- Benitez, Nugent & Balzer (2023), [*Defining and estimating effects in cluster randomized trials:
-  A methods comparison*](https://doi.org/10.1002/sim.9813), *Statistics in Medicine*
-  42(19):3443-3466, DOI 10.1002/sim.9813. Read first-hand in the NIHMS author manuscript
-  ([PMC10898620](https://pmc.ncbi.nlm.nih.gov/articles/PMC10898620/)). Section 3.1.2 and Section
-  3.2.1 give the cluster-sum aggregation for a row-weighted estimand. Section 3.2.1 states that
-  sample splitting and variance estimation "must respect the cluster as the independent unit". The
-  paper gives no fold law and no theorem for one. The last paragraph of Section 3.1.2 and of
-  Section 3.2.1 recommends a $t$ reference with $J-2$ degrees of freedom at every cluster count, "As
-  a finite sample approximation to the normal distribution". It states no threshold, and it does
-  not compare the normal reference with $t$.
+- Benitez, Petersen, van der Laan, Santos, Butrick, Walker, Ghosh, Otieno, Waiswa & Balzer
+  (2023), [*Defining and estimating effects in cluster randomized trials: A methods
+  comparison*](https://doi.org/10.1002/sim.9813), *Statistics in Medicine* 42(19):3443-3466, DOI
+  10.1002/sim.9813. Read first-hand in the NIHMS author manuscript
+  ([PMC10898620](https://pmc.ncbi.nlm.nih.gov/articles/PMC10898620/)). The package cites it as
+  Benitez et al. (2023).
+
+  Section 3.2.1, Hierarchical TMLE, gives the cluster-sum aggregation for a row-weighted
+  estimand. Section 3.1.2 aggregates the data to the cluster level first, and it estimates a
+  cluster-level estimand. Section 3.2.1 states that sample splitting and variance estimation "must
+  respect the cluster as the independent unit". The paper gives no fold law and no theorem for one.
+
+  Two passages recommend a $t$ reference with $J - 2$ degrees of freedom, where $J$ is the cluster
+  count. The paragraph on inference in Section 3.1.2 gives it "As a finite sample approximation to
+  the normal distribution". The last paragraph of Section 3.2.1 repeats it. The paper states no
+  threshold, and it does not compare the normal reference with $t$.
+
+  The paper mentions 30 clusters twice, and neither passage concerns the reference distribution.
+  Section 3.1.2 recommends leave-one-cluster-out cross-validation "for small trials (eg, J≤30)".
+  Section 6 cites a warning against GEE with fewer than 30 clusters.
 - Balzer, Zheng, van der Laan & Petersen (2019), [*A new approach to hierarchical data analysis:
   Targeted maximum likelihood estimation for the causal effect of a cluster-level
   exposure*](https://doi.org/10.1177/0962280218774936), *Statistical Methods in Medical Research*
@@ -662,9 +672,11 @@ article as the copy this project read.
   ([PMC11247188](https://pmc.ncbi.nlm.nih.gov/articles/PMC11247188/)). Section 2 treats
   subsampling and missingness, with the estimator in Section 2.1.3. Section 3 treats few
   independent units. There is no cross-fitting. The last paragraph of Section 2.2 recommends a $t$
-  reference with $N-2$ degrees of freedom "In CRTs with fewer than 40 clusters randomized (N <
-  40)", citing Hayes and Moulton (2009). The paper does not compare the normal reference with $t$.
-  This project did not read Hayes and Moulton (2009).
+  reference with $J - 2$ degrees of freedom, where $J$ is the cluster count. The paper writes $N$
+  for the cluster count: "In CRTs with fewer than 40 clusters randomized (N < 40)". It cites Hayes
+  and Moulton (2009). The paper does not compare the normal reference with $t$. Section 1
+  mentions 30 clusters only in a discussion of GEE and GLMM. This project did not read Hayes and
+  Moulton (2009).
 - Schnitzer, van der Laan, Moodie & Platt (2014), [*Effect of breastfeeding on gastrointestinal
   infection in infants: A targeted maximum likelihood approach for clustered longitudinal
   data*](https://doi.org/10.1214/14-AOAS727), *The Annals of Applied Statistics* 8(2):703-725, DOI

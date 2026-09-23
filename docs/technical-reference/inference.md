@@ -163,7 +163,7 @@ Two clustered settings of `TMLE` and `DRTMLE` report no interval. Each takes a s
 | setting | status | reason |
 | --- | --- | --- |
 | cross-fitted, and the clusters hold different numbers of rows | `"unequal_cluster_plugin"` | the [grouped folds](cv-tmle.md#grouped-folds) argument needs equal cluster sizes. Only then does the row-weighted target equal the cluster-weighted target |
-| fewer than 40 clusters, in sample or cross-fitted | `"few_cluster_plugin"` | the package uses a normal reference. Nugent et al. (2024), Section 2.2, recommend a $t$ reference with $J - 2$ degrees of freedom below 40 clusters. Benitez et al. (2023), Sections 3.1.2 and 3.2.1, recommend it at every cluster count. No registered study covers few clusters |
+| fewer than 40 clusters, in sample or cross-fitted | `"few_cluster_plugin"` | the package uses a normal reference. Nugent et al. (2024), Section 2.2, recommend a $t$ reference with $J - 2$ degrees of freedom below 40 clusters, where $J$ is the cluster count. Benitez et al. (2023), Section 3.1.2, paragraph on inference, and Section 3.2.1, last paragraph, recommend it at every cluster count. No registered study covers few clusters |
 
 The size of a cluster is its row count. A weighted fit whose clusters hold equal rows and unequal
 weight mass takes no status. An in-sample fit at unequal sizes keeps its interval when it has 40
