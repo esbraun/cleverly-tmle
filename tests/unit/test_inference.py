@@ -26,13 +26,14 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
+from cleverly._inference_status import NON_INFERENTIAL
 from cleverly.data import CausalData
 from cleverly.estimators.ctmle import (
     CTMLE_SELECTOR_STRATEGIES,
     CTMLEStrategy,
     is_selector_strategy,
 )
-from cleverly.exceptions import WORKING_MECHANISM_NOT_INFERENTIAL, CapabilityError
+from cleverly.exceptions import CapabilityError
 from cleverly.fluctuation import (
     InitialFit,
     att_submodel,
@@ -75,6 +76,9 @@ from cleverly.inference.multiplier import (
 from cleverly.inference.results import estimate_covariance, smooth_contrast
 from cleverly.utils.bounds import OutcomeScaler, expit
 from tests.conftest import binary_means
+
+#: The selector-path record, read where every raise and report reads it.
+WORKING_MECHANISM = NON_INFERENTIAL["working_mechanism_plugin"]
 
 
 @pytest.fixture
@@ -1343,7 +1347,7 @@ class TestTheInferenceStatus:
         with pytest.raises(CapabilityError) as raised:
             getattr(diagnostic, accessor)
         message = str(raised.value)
-        assert WORKING_MECHANISM_NOT_INFERENTIAL in message
+        assert WORKING_MECHANISM.reason in message
         assert f".{accessor} is not defined here" in message
 
     def test_the_point_estimate_and_the_curve_are_untouched(self) -> None:
@@ -1539,7 +1543,7 @@ class TestTheInferenceStatus:
         with pytest.raises(CapabilityError) as raised:
             simultaneous_bands(estimates, n_replicates=50, random_state=0)
         assert "simultaneous_bands() is not defined here" in str(raised.value)
-        assert WORKING_MECHANISM_NOT_INFERENTIAL in str(raised.value)
+        assert WORKING_MECHANISM.reason in str(raised.value)
 
 
 class TestTheSelectorStrategyPartition:

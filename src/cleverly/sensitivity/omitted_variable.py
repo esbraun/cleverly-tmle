@@ -69,12 +69,13 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from scipy import optimize, stats
 
+from .._inference_status import InferenceStatus, supplies_inference
 from .._typing import FloatArray
 from ..assessment import SENSITIVITY_ROUTES
 from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, repeats_refusal
 from ..inference.cluster import influence_variance
-from ..inference.influence import InferenceStatus, spread_name, supplies_inference
+from ..inference.influence import spread_name
 from ..targets import parameter_stem
 from ..targets.population_intervention import is_natural_course_fit
 from ..utils.bounds import g_bounds_for

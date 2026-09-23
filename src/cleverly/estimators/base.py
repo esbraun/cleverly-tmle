@@ -15,11 +15,10 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
-from .._inference_status import status_record
+from .._inference_status import InferenceStatus, status_record, supplies_inference
 from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData, arm_share
 from ..exceptions import (
-    capitalize_first,
     refuse_after_repeats,
     refuse_inference,
 )
@@ -27,12 +26,10 @@ from ..fluctuation.iterative import Fluctuation
 from ..inference.bootstrap import BootstrapResult
 from ..inference.cluster import cluster_sizes
 from ..inference.influence import (
-    InferenceStatus,
     ParameterEstimate,
     Scale,
     spread_name,
     stamp_inference,
-    supplies_inference,
 )
 from ..inference.multiplier import SimultaneousBands
 from ..inference.results import (
@@ -456,7 +453,7 @@ class CVTargeting:
             )
         if not supplies_inference(status):
             # The fit's own sentence, as ``TMLEResult.summary`` prints it under its table.
-            header.append(capitalize_first(status_record(status).reason))
+            header.append(status_record(status).reason)
         header.append("")
         epsilon_lines = ["", "common fluctuation coefficients:"]
         for group, eps in self.epsilon.items():
@@ -1416,7 +1413,7 @@ class TMLEResult:
             # and every raise say one thing.  Only the pointer to this table's column is
             # the summary's own.
             parts.append(
-                capitalize_first(record.reason)
+                record.reason
                 + f' The "{record.summary_label}" column above is that diagnostic, and it is '
                 "not a standard error for this estimate."
             )

@@ -19,6 +19,7 @@ from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 
+from cleverly._inference_status import NON_INFERENTIAL
 from cleverly.datasets import make_cde, make_instrument, make_linear_ate
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators import ctmle as ctmle_module
@@ -29,10 +30,13 @@ from cleverly.estimators.ctmle import (
     _weighted_partial_correlation,
 )
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import WORKING_MECHANISM_NOT_INFERENTIAL, CapabilityError
+from cleverly.exceptions import CapabilityError
 from cleverly.learners.crossfit import SplitPlan, make_folds, random_partition
 from tests import discrete_law as law
 from tests.conftest import FAST_KWARGS, linear_ctmle, mean_one_weights
+
+#: The selector-path record, read where every raise and report reads it.
+WORKING_MECHANISM = NON_INFERENTIAL["working_mechanism_plugin"]
 
 #: In sample: q_bounds stays None, and a cross-fitted continuous fit refuses that.
 #: Selector-based collaborative fits draw selection and nested folds whether or not
@@ -1163,7 +1167,7 @@ class TestTheWorkingMechanismDiagnosticMissesTheExactVariance:
         assert intercept_only.inference == "working_mechanism_plugin"
         with pytest.raises(CapabilityError) as raised:
             _ = intercept_only.ci
-        assert WORKING_MECHANISM_NOT_INFERENTIAL in str(raised.value)
+        assert WORKING_MECHANISM.reason in str(raised.value)
 
     def test_the_diagnostic_is_the_working_mechanism_variance(
         self, intercept_only: Any, working_variance: float

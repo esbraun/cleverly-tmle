@@ -23,8 +23,6 @@ __all__ = [
     "NON_INFERENTIAL",
     "InferenceStatus",
     "StatusRecord",
-    "assessment_note",
-    "inference_reason",
     "precedent_status",
     "status_record",
     "supplies_inference",
@@ -48,8 +46,9 @@ InferenceStatus = Literal[
 # Section 2.2, last paragraph: "In CRTs with fewer than 40 clusters randomized (N < 40),
 # we recommend using the Student's t distribution with N - 2 degrees of freedom", citing
 # Hayes and Moulton (2009). That is the only explicit threshold in a source read here.
-# Benitez, Nugent and Balzer (2023), Stat Med 42(19):3443-3466, Sections 3.1.2 and 3.2.1,
-# recommend t with J - 2 degrees of freedom at every cluster count. Neither paper compares
+# Benitez et al. (2023), Stat Med 42(19):3443-3466, Section 3.1.2, paragraph on inference,
+# and Section 3.2.1, last paragraph, recommend t with J - 2 degrees of freedom at every
+# cluster count. Neither paper compares
 # the normal reference with t. The package keeps its normal reference and withholds the
 # interval below this count; roadmap row RM20 records the decision and F22 the reopen route.
 #: The cluster count below which a clustered fit reports no interval (RM20).
@@ -63,9 +62,9 @@ class StatusRecord:
     Parameters
     ----------
     reason : str
-        The clause that says what the fit reports, what result is missing, and which
-        roadmap item reopens it. Every refusal ends with it, and ``summary()`` prints it
-        as a sentence under the table.
+        The sentences that say what the fit reports, what result is missing, and which
+        roadmap item reopens it. They open with a capital letter. Every refusal ends with
+        them, and ``summary()`` prints them under the table.
     assessment_note : str
         The clause the nuisance report and the assessment's nuisance-model item add.
     summary_label : str
@@ -96,7 +95,7 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
     {
         "working_mechanism_plugin": StatusRecord(
             reason=(
-                "the greedy, ordered and discrete collaborative paths report no confidence "
+                "The greedy, ordered and discrete collaborative paths report no confidence "
                 "interval, no p-value and no standard error. The reported curve is the "
                 "ordinary efficient influence curve at the candidate the search stopped at, "
                 "and no result shows it is this estimator's influence curve when that "
@@ -121,7 +120,7 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
         ),
         "generated_design_plugin": StatusRecord(
             reason=(
-                "the outcome-adaptive collaborative path, strategy='oat', reports no "
+                "The outcome-adaptive collaborative path, strategy='oat', reports no "
                 "confidence interval, no p-value and no standard error. It fits one treatment "
                 "mechanism on the estimated outcome predictions of every arm, and it targets "
                 "every arm mean jointly. Benkeser, Cai and van der Laan (2020), Theorem 1, "
@@ -147,7 +146,7 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
         ),
         "estimated_weight_plugin": StatusRecord(
             reason=(
-                "a DR-TMLE fit with a guard and weights declared estimated "
+                "A DR-TMLE fit with a guard and weights declared estimated "
                 "(weights_estimated=True) reports no confidence interval, no p-value and no "
                 "standard error. The argument that an interval conditions on the weights "
                 "concerns the efficient influence curve. No result read here gives the "
@@ -173,7 +172,7 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
         ),
         "unequal_cluster_plugin": StatusRecord(
             reason=(
-                "a cross-fitted clustered fit reports no confidence interval, no p-value and "
+                "A cross-fitted clustered fit reports no confidence interval, no p-value and "
                 "no standard error when its clusters hold different numbers of rows. The "
                 "package's grouped cross-fitting argument needs equal cluster sizes, because "
                 "only then does the row-weighted target equal the cluster-weighted one "
@@ -182,10 +181,9 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "stands. The plug-in standard error of the reported curve remains as a "
                 "diagnostic under plugin_std_error and plugin_interval. The same clusters "
                 "fitted in sample keep the interval when there are at least "
-                f"{FEW_CLUSTER_THRESHOLD} of them. Benitez, Nugent and Balzer (2023), "
-                "Sections 3.1.2 and 3.2.1, give the cluster-sum aggregation for that "
-                "row-weighted estimand. F22 in docs/roadmap.md reopens this when a result "
-                "covers unequal cluster sizes."
+                f"{FEW_CLUSTER_THRESHOLD} of them. Benitez et al. (2023), Section 3.2.1, "
+                "give the cluster-sum aggregation for that row-weighted estimand. F22 in "
+                "docs/roadmap.md reopens this when a result covers unequal cluster sizes."
             ),
             assessment_note=(
                 "the reported curve is an unequal-cluster diagnostic: no confidence interval "
@@ -202,18 +200,17 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
         ),
         "few_cluster_plugin": StatusRecord(
             reason=(
-                f"a clustered fit with fewer than {FEW_CLUSTER_THRESHOLD} clusters reports no "
+                f"A clustered fit with fewer than {FEW_CLUSTER_THRESHOLD} clusters reports no "
                 "confidence interval, no p-value and no standard error. The package uses a "
                 "normal reference distribution. Nugent, Marquez, Charlebois, Abbott and "
                 "Balzer (2024), Section 2.2, recommend a Student t reference with J - 2 "
-                f"degrees of freedom below {FEW_CLUSTER_THRESHOLD} clusters, and Benitez, "
-                "Nugent and Balzer (2023), Sections 3.1.2 and 3.2.1, recommend it at every "
-                "cluster count. No registered study covers a clustered fit with few "
-                "clusters. The point estimate stands. The plug-in standard error of the "
-                "reported curve remains as a diagnostic under plugin_std_error and "
-                "plugin_interval. "
-                "F22 in docs/roadmap.md reopens this with a t reference and a registered "
-                "study at few clusters."
+                f"degrees of freedom below {FEW_CLUSTER_THRESHOLD} clusters. Benitez et al. "
+                "(2023) recommend it at every cluster count, in Section 3.1.2, paragraph on "
+                "inference, and Section 3.2.1, last paragraph. No registered study covers a "
+                "clustered fit with few clusters. The point estimate stands. The plug-in "
+                "standard error of the reported curve remains as a diagnostic under "
+                "plugin_std_error and plugin_interval. F22 in docs/roadmap.md reopens this "
+                "with a t reference and a registered study at few clusters."
             ),
             assessment_note=(
                 "the reported curve is a few-cluster diagnostic: no confidence interval or "
@@ -273,38 +270,6 @@ def status_record(status: str) -> StatusRecord:
         When ``status`` has no record, which includes ``"influence_curve"``.
     """
     return NON_INFERENTIAL[status]
-
-
-def inference_reason(status: str) -> str:
-    """The reason a non-inferential status gives, as a clause.
-
-    Parameters
-    ----------
-    status : str
-        A declared :data:`InferenceStatus` other than ``"influence_curve"``.
-
-    Returns
-    -------
-    str
-        :attr:`StatusRecord.reason` of ``status``.
-    """
-    return status_record(status).reason
-
-
-def assessment_note(status: str) -> str:
-    """The note the nuisance report adds for a non-inferential status, as a clause.
-
-    Parameters
-    ----------
-    status : str
-        A declared :data:`InferenceStatus` other than ``"influence_curve"``.
-
-    Returns
-    -------
-    str
-        :attr:`StatusRecord.assessment_note` of ``status``.
-    """
-    return status_record(status).assessment_note
 
 
 def precedent_status(statuses: Iterable[str]) -> InferenceStatus:

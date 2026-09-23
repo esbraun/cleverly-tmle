@@ -36,15 +36,13 @@ from cleverly.datasets import (
 )
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators.targeting import build_submodel
-from cleverly.exceptions import (
-    WORKING_MECHANISM_ASSESSMENT_NOTE,
-    WORKING_MECHANISM_NOT_INFERENTIAL,
-    capitalize_first,
-)
 from cleverly.inference.influence import counterfactual_means
 from cleverly.validation.nuisance import NUISANCE_SELECTION_MISSING
 from tests.conftest import FAST_KWARGS, SELECTOR_CONFIGS, linear_ctmle, linear_in_sample
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
+
+#: The selector-path record, read where every raise and report reads it.
+WORKING_MECHANISM = NON_INFERENTIAL["working_mechanism_plugin"]
 
 TMLE_SETTINGS = {**FAST_KWARGS, "estimands": ("ate", "ey1", "ey0")}
 
@@ -828,7 +826,7 @@ class TestSelectionIsForcedWhenTheOutcomeModelCannotHelp:
             # package publishes no interval here.
             with pytest.raises(CapabilityError) as raised:
                 _ = collaborative["ate"].ci
-            assert WORKING_MECHANISM_NOT_INFERENTIAL in str(raised.value)
+            assert WORKING_MECHANISM.reason in str(raised.value)
 
 
 #: The most of the exact variance the reported working-mechanism diagnostic may account
@@ -919,7 +917,7 @@ class TestTheWorkingMechanismDiagnosticIsNotTheEstimatorsVariance:
         result, _, _ = fitted
         with pytest.raises(CapabilityError) as raised:
             _ = result["ate"].ci
-        assert WORKING_MECHANISM_NOT_INFERENTIAL in str(raised.value)
+        assert WORKING_MECHANISM.reason in str(raised.value)
 
 
 class TestTheSelectorPathsPublishNoInference:
@@ -972,7 +970,7 @@ class TestTheSelectorPathsPublishNoInference:
         assert estimate.inference == "working_mechanism_plugin"
         with pytest.raises(CapabilityError) as raised:
             getattr(estimate, accessor)
-        assert WORKING_MECHANISM_NOT_INFERENTIAL in str(raised.value)
+        assert WORKING_MECHANISM.reason in str(raised.value)
 
     @pytest.mark.parametrize("accessor", ["ci", "pvalue", "std_error"])
     def test_an_ordinary_tmle_still_answers(
@@ -991,7 +989,7 @@ class TestTheSelectorPathsPublishNoInference:
         with pytest.raises(CapabilityError) as raised:
             getattr(estimate, accessor)
         assert NON_INFERENTIAL["generated_design_plugin"].reason in str(raised.value)
-        assert WORKING_MECHANISM_NOT_INFERENTIAL not in str(raised.value)
+        assert WORKING_MECHANISM.reason not in str(raised.value)
 
     def test_the_retained_diagnostic_is_the_refused_number(
         self, shared: Callable[[str], Any]
@@ -1023,9 +1021,9 @@ class TestTheSelectorPathsPublishNoInference:
         result = self._fit("greedy")
         summary = result.summary()
 
-        # The refusal's own sentence, with only its first letter raised, so the summary
-        # cannot paraphrase the raise into a second claim.
-        assert WORKING_MECHANISM_NOT_INFERENTIAL[1:] in summary
+        # The refusal's own sentences, so the summary cannot paraphrase the raise into a
+        # second claim.
+        assert WORKING_MECHANISM.reason in summary
         assert "working-mechanism se" in summary
         # No `95% CI` heading with a "-" under it: the whole column is refused, and a dash
         # beneath that heading would still tell a reader an interval belongs there.
@@ -1041,9 +1039,9 @@ class TestTheSelectorPathsPublishNoInference:
         # the capability table is keyed by method and cannot tell a selector path from
         # the outcome-adaptive one, so it has no row to mark unavailable here.
         detail = result.diagnostics.run_all()["nuisance_models"].detail
-        assert WORKING_MECHANISM_ASSESSMENT_NOTE in detail
+        assert WORKING_MECHANISM.assessment_note in detail
         # And it reaches the assessment a reader actually prints.
-        assert WORKING_MECHANISM_ASSESSMENT_NOTE in result.assess().summary()
+        assert WORKING_MECHANISM.assessment_note in result.assess().summary()
 
     def test_the_evalue_capability_goes_unavailable_rather_than_raising(self) -> None:
         """The row must say so, not raise from inside the computation.
@@ -1057,16 +1055,14 @@ class TestTheSelectorPathsPublishNoInference:
         result = self._fit("greedy")
         capability = result.sensitivity.capability("evalue")
         assert capability.available is False
-        assert capitalize_first(WORKING_MECHANISM_NOT_INFERENTIAL) in (capability.reason or "")
+        assert WORKING_MECHANISM.reason in (capability.reason or "")
         assert result.sensitivity.capability("evalue").available is False
 
         # The ordinary fit keeps it, and the outcome-adaptive path refuses by its own reason.
         assert self._fit(self.ORDINARY).sensitivity.capability("evalue").available
         adaptive = self._fit("oat").sensitivity.capability("evalue")
         assert adaptive.available is False
-        assert capitalize_first(NON_INFERENTIAL["generated_design_plugin"].reason) in (
-            adaptive.reason or ""
-        )
+        assert NON_INFERENTIAL["generated_design_plugin"].reason in (adaptive.reason or "")
 
     def test_the_truncation_curve_reports_the_diagnostic_rather_than_raising(self) -> None:
         """Reachable on a C-TMLE fit, and it builds an inference-shaped frame per bound."""

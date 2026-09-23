@@ -91,6 +91,12 @@ class TestEachRecordIsComplete:
             assert text.strip() == text and text
 
     @pytest.mark.parametrize("status", list(NON_INFERENTIAL))
+    def test_the_reason_is_whole_sentences(self, status: str) -> None:
+        """Every refusal prints the reason after a full stop, so it opens a sentence."""
+        reason = NON_INFERENTIAL[status].reason
+        assert reason[0].isupper() and reason.endswith(".")
+
+    @pytest.mark.parametrize("status", list(NON_INFERENTIAL))
     def test_the_reason_withholds_all_three_accessors(self, status: str) -> None:
         reason = NON_INFERENTIAL[status].reason
         assert "no confidence interval, no p-value and no standard error" in reason
@@ -179,7 +185,7 @@ class TestTheFewClusterThreshold:
     def test_the_reason_states_the_threshold_it_applies(self) -> None:
         threshold = _inference_status.FEW_CLUSTER_THRESHOLD
         reason = NON_INFERENTIAL["few_cluster_plugin"].reason
-        assert reason.startswith(f"a clustered fit with fewer than {threshold} clusters")
+        assert reason.startswith(f"A clustered fit with fewer than {threshold} clusters")
         assert f"below {threshold} clusters" in reason
         assert f"at least {threshold} of them" in NON_INFERENTIAL["unequal_cluster_plugin"].reason
 

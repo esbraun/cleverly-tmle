@@ -45,11 +45,11 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
-from .._inference_status import assessment_note
+from .._inference_status import InferenceStatus, status_record, supplies_inference
 from .._typing import BoolArray, FloatArray
 from ..data.weighting import REPORTED_DRAW
 from ..exceptions import capitalize_first
-from ..inference.influence import InferenceStatus, spread_name, supplies_inference
+from ..inference.influence import spread_name
 from ..utils.bounds import logit
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
@@ -281,7 +281,7 @@ class NuisanceDiagnostics:
         :data:`~cleverly.inference.influence.InferenceStatus`, which the
         :doc:`inference reference </technical-reference/inference>` lists. Read here
         rather than off ``treatment_role``, which reads ``"collaborative_working_model"``
-        for the outcome-adaptive path as well, and that path keeps its inference.
+        for the outcome-adaptive path as well, and that path has a status of its own.
     """
 
     models: tuple[NuisanceModelReport, ...]
@@ -439,7 +439,7 @@ class NuisanceDiagnostics:
         note = self.inference_note
         if note is not None:
             # Keyed on the declared status and not on ``_working_model``, which is true for
-            # the outcome-adaptive path too, and that path reports an interval.
+            # the outcome-adaptive path too, and that path has a status of its own.
             lines.extend(["", capitalize_first(note) + "."])
         if self.selection is not None:
             # No draw suffix here. The header above already states which draw every
@@ -529,7 +529,7 @@ class NuisanceDiagnostics:
         path shares, and that path has a status of its own. :meth:`summary` and the
         assessment's nuisance-model row both read it here.
         """
-        return assessment_note(self.inference) if self._non_inferential else None
+        return status_record(self.inference).assessment_note if self._non_inferential else None
 
     def _working_mechanism(self, model: NuisanceModelReport) -> bool:
         """Whether this report is a collaborative fit's own selected propensity.

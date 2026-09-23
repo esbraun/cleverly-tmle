@@ -276,13 +276,14 @@ from typing import Any, Literal
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 
+from .._inference_status import InferenceStatus
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
 from ..exceptions import CapabilityError
 from ..fluctuation.iterative import InitialFit, apply_logistic, check_matching_arms
 from ..fluctuation.submodel import Submodel, restrict, weighted_form
 from ..inference.delta import log_odds_ratio_influence, log_ratio_influence
-from ..inference.influence import InferenceStatus, counterfactual_means
+from ..inference.influence import counterfactual_means
 from ..learners._fitting import Task, predict_mean, predict_probabilities
 from ..learners.crossfit import Folds, check_integrity, make_folds
 from ..learners.super_learner import resolve_learner

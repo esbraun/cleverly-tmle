@@ -25,7 +25,7 @@ from cleverly._inference_status import NON_INFERENTIAL
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_binary_outcome
 from cleverly.estimators import DRTMLE, TMLE
-from cleverly.exceptions import CapabilityError, WeightingWarning, capitalize_first
+from cleverly.exceptions import CapabilityError, WeightingWarning
 from tests.conftest import linear_in_sample
 from tests.unit._inference_status_support import (
     ROUTES,
@@ -82,7 +82,7 @@ class TestAnEstimatedWeightDRTMLEReportsNoInterval:
     def test_the_evalue_is_unavailable_with_the_reason(self, result: Any) -> None:
         capability = result.sensitivity.capability("evalue")
         assert capability.status is AssessmentStatus.UNAVAILABLE
-        assert capitalize_first(RECORD.reason) in (capability.reason or "")
+        assert RECORD.reason in (capability.reason or "")
 
 
 class TestTheNeighbouringFitsKeepTheirInterval:
@@ -118,7 +118,7 @@ class TestTheWeightTextAgreesWithTheStatus:
         text = result.data.weight_report().summary()
         assert "the interval conditions on the fitted weights" not in text
         assert STATUS in text
-        assert "F5 in docs/roadmap.md" in text
+        assert f"{RECORD.reopened_by} in docs/roadmap.md" in text
 
     def test_the_ordinary_tmle_has_the_interval_the_report_describes(self, frame: Any) -> None:
         control = fit(frame, estimator=TMLE)

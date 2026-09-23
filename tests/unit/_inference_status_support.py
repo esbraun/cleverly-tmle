@@ -20,7 +20,7 @@ import pytest
 from cleverly._inference_status import NON_INFERENTIAL
 from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import CapabilityError, capitalize_first
+from cleverly.exceptions import CapabilityError
 from cleverly.inference.influence import _DIAGNOSTIC_NAMES
 
 #: The two ways an artifact is restored: the package's own serializer and a bare pickle.
@@ -91,7 +91,7 @@ def assert_withholds(result: Any, status: str) -> None:
     record = NON_INFERENTIAL[status]
     text = result.summary()
     assert record.summary_label in text
-    assert capitalize_first(record.reason) in text
+    assert record.reason in text
     assert "95% CI" not in text
 
 

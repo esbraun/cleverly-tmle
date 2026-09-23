@@ -133,9 +133,8 @@ from typing import Any, cast
 
 import numpy as np
 
-from .._inference_status import precedent_status
+from .._inference_status import InferenceStatus, precedent_status
 from ..data.causal_data import CausalData
-from ..inference.influence import InferenceStatus
 from ..learners.crossfit import Folds
 from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearnerDiagnostics

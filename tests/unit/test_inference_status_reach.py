@@ -32,7 +32,7 @@ from cleverly._inference_status import NON_INFERENTIAL
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_clustered
 from cleverly.estimators import TMLE
-from cleverly.exceptions import CapabilityError, capitalize_first
+from cleverly.exceptions import CapabilityError
 from cleverly.sensitivity import omitted_variable as omitted_variable_module
 from cleverly.sensitivity import omitted_variable_bounds, robustness_value
 from tests.conftest import linear_in_sample
@@ -110,7 +110,7 @@ class TestTheEstimatesAndTheirReports:
         record = NON_INFERENTIAL[status]
         text = result.summary()
         assert record.summary_label in text
-        assert capitalize_first(record.reason) in text
+        assert record.reason in text
         assert_no_inferential_text(text)
 
     def test_the_frame_names_the_status(self, result: Any, status: str) -> None:
@@ -157,7 +157,7 @@ class TestTheCombinedReports:
             assert_no_inferential_text(item.detail)
         evalue = report["evalue"]
         assert evalue.status is AssessmentStatus.UNAVAILABLE
-        assert capitalize_first(NON_INFERENTIAL[status].reason) in evalue.detail
+        assert NON_INFERENTIAL[status].reason in evalue.detail
         assert_no_inferential_text(report.summary())
 
     def test_the_diagnostics_battery_answers(self, result: Any, status: str) -> None:
@@ -184,7 +184,7 @@ class TestTheCombinedReports:
         capability = result.sensitivity.capability("evalue")
         assert capability.available is False
         reason = capability.reason or ""
-        assert capitalize_first(NON_INFERENTIAL[status].reason) in reason
+        assert NON_INFERENTIAL[status].reason in reason
         # The status's reason follows the E-value clause as a new sentence.
         prefix = "an E-value is built from the reported estimate and its interval. "
         assert reason.startswith(prefix)

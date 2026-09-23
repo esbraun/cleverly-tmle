@@ -92,6 +92,7 @@ from typing import Any, cast, get_args
 
 import numpy as np
 
+from .._inference_status import InferenceStatus, supplies_inference
 from .._typing import (
     BoolArray,
     EstimandName,
@@ -128,14 +129,12 @@ from ..inference.bootstrap import Resampling, run_bootstrap
 from ..inference.cluster import cluster_inference_status, cross_validated_variance
 from ..inference.influence import (
     CorrectionParts,
-    InferenceStatus,
     ParameterEstimate,
     make_estimate,
     median_estimates,
     missing_outcome_correction_parts,
     reduced_correction_parts,
     stamp_inference,
-    supplies_inference,
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as_interventions

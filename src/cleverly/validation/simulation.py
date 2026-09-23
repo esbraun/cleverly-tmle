@@ -35,11 +35,16 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from .._inference_status import precedent_status, status_record
+from .._inference_status import (
+    InferenceStatus,
+    precedent_status,
+    status_record,
+    supplies_inference,
+)
 from .._typing import FloatArray
 from ..estimators.base import TMLEResultSet
 from ..estimators.direct_effect import check_level
-from ..inference.influence import InferenceStatus, spread_name, supplies_inference
+from ..inference.influence import spread_name
 from ..utils.parallel import map_parallel
 from ..utils.text import format_table
 

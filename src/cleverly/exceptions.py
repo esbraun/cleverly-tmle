@@ -8,11 +8,9 @@ them can reach it.
 
 from __future__ import annotations
 
-from ._inference_status import NON_INFERENTIAL, supplies_inference
+from ._inference_status import status_record, supplies_inference
 
 __all__ = [
-    "WORKING_MECHANISM_ASSESSMENT_NOTE",
-    "WORKING_MECHANISM_NOT_INFERENTIAL",
     "CapabilityError",
     "CleverlyError",
     "ConvergenceWarning",
@@ -91,22 +89,12 @@ class PositivityWarning(UserWarning):
     """
 
 
-#: Why a selector-path collaborative estimate reports no interval and no p-value.  The
-#: record in :data:`~cleverly._inference_status.NON_INFERENTIAL` holds the text, and every
-#: raise, report and capability row reads it there.  Kept under this name because tests
-#: and the tutorial semantics assert the refusal states its cause by importing it.
-WORKING_MECHANISM_NOT_INFERENTIAL = NON_INFERENTIAL["working_mechanism_plugin"].reason
-
-#: The fact the nuisance report adds for the same fit, read from the same record.
-WORKING_MECHANISM_ASSESSMENT_NOTE = NON_INFERENTIAL["working_mechanism_plugin"].assessment_note
-
-
 def capitalize_first(clause: str) -> str:
     """Raise the first letter of a clause, and leave every other letter as written.
 
-    The two constants above are clauses, so a report that prints one as a sentence has to
-    raise its first letter. ``str.capitalize`` also lowers every later letter, and it
-    printed "F18" as "f18".
+    A status record's assessment note is a clause, so a report that prints one as a
+    sentence has to raise its first letter. ``str.capitalize`` also lowers every later
+    letter, and it printed "F18" as "f18".
 
     Parameters
     ----------
@@ -141,7 +129,7 @@ def inference_refusal(operation: str, status: str) -> str:
         The operation, followed by the reason
         :data:`~cleverly._inference_status.NON_INFERENTIAL` records for ``status``.
     """
-    return f"{operation} is not defined here. {NON_INFERENTIAL[status].reason}"
+    return f"{operation} is not defined here. {status_record(status).reason}"
 
 
 def refuse_inference(status: str, *, operation: str) -> None:

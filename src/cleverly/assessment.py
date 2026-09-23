@@ -2622,7 +2622,7 @@ def _nuisance_item(
             facts.append(f"C-TMLE selection unavailable: {report.selection_omission}")
         # The report's own note, which is keyed on the declared inference status and not
         # on the selection artifact: the outcome-adaptive path has one of those too and
-        # keeps its interval.
+        # has a status of its own.
         note = getattr(report, "inference_note", None)
         if note is not None:
             facts.append(note)

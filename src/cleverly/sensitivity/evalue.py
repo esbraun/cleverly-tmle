@@ -43,9 +43,9 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
-from .._inference_status import inference_reason
+from .._inference_status import status_record
 from ..assessment import AssessmentStatus
-from ..exceptions import CapabilityError, capitalize_first
+from ..exceptions import CapabilityError
 from ._derived import _derived_risk_ratio, _risk_ratio_refusal
 from ._parameters import arm_parameter_keys
 
@@ -75,13 +75,13 @@ _STANDARDISED_MISSING_REFUSAL = (
 #: neither.  Raised in :func:`_select_evalue` rather than where the interval is read, so
 #: the capability row reports ``unavailable`` instead of the computation raising under a
 #: row that advertised ``available=True``.  The status's own reason follows it as a new
-#: sentence, so its first letter is raised.
+#: sentence.
 _EVALUE_NEEDS_INFERENCE = "an E-value is built from the reported estimate and its interval. "
 
 
 def _evalue_inference_refusal(status: str) -> str:
     """The E-value refusal at a non-inferential status, built on that status's reason."""
-    return _EVALUE_NEEDS_INFERENCE + capitalize_first(inference_reason(status))
+    return _EVALUE_NEEDS_INFERENCE + status_record(status).reason
 
 
 def evalue_from_rr(risk_ratio: float) -> float:

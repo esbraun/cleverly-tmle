@@ -284,6 +284,7 @@ from typing import Any, Final, Literal, TypedDict, cast
 
 import numpy as np
 
+from .._inference_status import status_record
 from .._typing import FloatArray
 from ..exceptions import DataError, WeightingWarning
 from .validate import check_weights
@@ -627,6 +628,10 @@ class WeightReport:
         return "\n".join(lines)
 
 
+#: The roadmap item the estimated-weight line names, read from the status record.
+_ESTIMATED_WEIGHT_REOPEN = status_record("estimated_weight_plugin").reopened_by
+
+
 def estimand_lines(report: WeightReport) -> list[str]:
     """The estimand statement, as lines for a report.
 
@@ -658,7 +663,8 @@ def estimand_lines(report: WeightReport) -> list[str]:
             "model in the resampling loop, outside this package. A DRTMLE fit with a "
             "non-empty guard reports no interval on estimated weights: the conditioning "
             "argument concerns D* and not the reduced regressions, so the fit takes the "
-            "estimated_weight_plugin status, and F5 in docs/roadmap.md reopens it."
+            f"estimated_weight_plugin status, and {_ESTIMATED_WEIGHT_REOPEN} in "
+            "docs/roadmap.md reopens it."
         )
     lines.append(
         "Complex designs: stratification and finite-population corrections are ignored "
