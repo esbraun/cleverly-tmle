@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
 
 from cleverly.datasets import make_cde, make_instrument, make_linear_ate
 from cleverly.estimators import CTMLE, TMLE
@@ -28,8 +29,9 @@ from cleverly.estimators.ctmle import (
     _weighted_partial_correlation,
 )
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import CapabilityError
+from cleverly.exceptions import WORKING_MECHANISM_NOT_INFERENTIAL, CapabilityError
 from cleverly.learners.crossfit import SplitPlan, make_folds, random_partition
+from tests import discrete_law as law
 from tests.conftest import FAST_KWARGS, mean_one_weights
 
 #: In sample: q_bounds stays None, and a cross-fitted continuous fit refuses that.
@@ -1046,3 +1048,148 @@ class TestTheRecordedRiskMayRiseWhileTheLossMayNot:
         assert "The recorded penalized risk may therefore increase." in fields
         assert "cannot worsen its own loss" in module
         assert "the recorded penalized selection risk can rise" in module
+
+
+#: A variant of :mod:`tests.discrete_law` on the same support, with a strong ``W -> A``
+#: link.  ``W`` shifts the treatment probability from 0.2 to 0.8 and the outcome
+#: probability by 0.1 per level, so the intercept-only working mechanism is far from the
+#: treatment law while the outcome regression stays correct.  Every cell probability is a
+#: multiple of ``1 / law.N``, so ``law.frame`` realises the law exactly.
+INSTRUMENT_COUNTS = law.cell_counts(
+    p_w=[0.4, 0.2, 0.4],
+    g=[0.2, 0.5, 0.8],
+    q=[[0.3, 0.5], [0.4, 0.6], [0.5, 0.7]],
+)
+INSTRUMENT_PROBS = INSTRUMENT_COUNTS / law.N
+
+#: The largest share of the estimator's exact variance the working-mechanism diagnostic
+#: may report.  The law fixes the ratio in closed form at 0.8896 / 1.4020 = 0.634522; no
+#: sample draw enters it.  The bound was set after a prototype computed that value.  It
+#: absorbs no noise, because there is none.  It only states how large a gap the test
+#: calls material: the diagnostic misses at least a fifth of the variance.  A diagnostic
+#: that were the estimator's variance reads 1, which the full-adjustment control shows.
+WORKING_TO_EXACT_VARIANCE_BOUND = 0.8
+
+
+class TestTheWorkingMechanismDiagnosticMissesTheExactVariance:
+    r"""RM12's first witness, on a law the test holds in its hand.
+
+    A ``discrete`` fit whose one candidate is the intercept-only mechanism, with a
+    saturated outcome regression, is the saturated plug-in :math:`\Psi(P_n)` on any
+    sample: the regression reproduces every cell mean, and a clever covariate that is
+    constant within an arm leaves the fit's score at zero.  Its influence function is
+    therefore the Gateaux derivative of :func:`tests.discrete_law.functional`, and its
+    exact asymptotic variance is :math:`P_0 D^{*2}` from ``law.eif``.  The retained
+    diagnostic is :math:`P_0 D^*(\bar Q_0, \pi)^2` at the marginal treatment rate
+    :math:`\pi`, which ignores the association between ``A`` and ``W``.
+
+    Every quantity is exact, so each assertion is an identity or a declared bound.  A
+    mutation that made the diagnostic the estimator's variance drives the ratio to one
+    and fails :meth:`test_the_diagnostic_is_a_fraction_of_the_exact_variance`.  A
+    mutation that dropped the refusal stamp fails
+    :meth:`test_the_fit_carries_the_refusal`.  ``tests/e2e/test_ctmle.py`` keeps the HC0
+    comparison on ``make_instrument(n=2000, seed=44)`` as corroboration on a continuous
+    law.
+    """
+
+    @staticmethod
+    def _fit(frame: Any, candidates: tuple[tuple[str, ...], ...]) -> Any:
+        return (
+            CTMLE(
+                strategy="discrete",
+                candidates=candidates,
+                # A fully grown tree on (A, W) has six leaves, one per cell, so it is the
+                # saturated regression. On W alone it is the saturated mechanism.
+                outcome_learner=DecisionTreeClassifier(random_state=0),
+                treatment_learner=DecisionTreeClassifier(random_state=0),
+                cross_fit=False,
+                selection_folds=3,
+                selection_inner_folds=2,
+                estimands=("ate",),
+                ctmle_estimand="ate",
+                simultaneous=False,
+                random_state=0,
+            )
+            .fit(frame, outcome="Y", treatment="A", covariates=["W"])
+            .single()
+        )
+
+    @pytest.fixture(scope="class")
+    def intercept_only(self) -> Any:
+        return self._fit(law.frame(INSTRUMENT_COUNTS), ((),))["ate"]
+
+    @pytest.fixture(scope="class")
+    def exact_variance(self) -> float:
+        curve = law.eif("ate", probs=INSTRUMENT_PROBS)
+        return float(np.sum(INSTRUMENT_PROBS.reshape(-1) * curve**2))
+
+    @pytest.fixture(scope="class")
+    def working_variance(self) -> float:
+        r""":math:`P_0 D^*(\bar Q_0, \pi)^2`, written longhand from the cell probabilities."""
+        nuisances = law.DiscreteLaw(INSTRUMENT_PROBS)
+        rate = INSTRUMENT_PROBS[:, 1, :].sum()
+        truth = float(law.functional(INSTRUMENT_PROBS, "ate"))
+        curve = np.array(
+            [
+                (a / rate - (1 - a) / (1 - rate)) * (y - nuisances.q[w, a])
+                + nuisances.q[w, 1]
+                - nuisances.q[w, 0]
+                - truth
+                for w, a, y in law.SUPPORT
+            ]
+        )
+        return float(np.sum(INSTRUMENT_PROBS.reshape(-1) * curve**2))
+
+    @staticmethod
+    def _reported_variance(estimate: Any) -> float:
+        # The package divides the ddof=1 sample variance of the curve by n, so the
+        # population second moment on an exact frame is the reported square times n - 1.
+        return float(estimate.plugin_std_error**2 * (law.N - 1))
+
+    def test_the_fit_is_the_saturated_plug_in(self, intercept_only: Any) -> None:
+        """What makes ``law.eif`` the estimator's influence function, on two samples."""
+        truth = float(law.functional(INSTRUMENT_PROBS, "ate"))
+        assert intercept_only.psi == pytest.approx(truth, abs=1e-12)
+
+        # On a resample the empirical law is no longer the declared one, and the fit
+        # must still be the plug-in at that empirical law. An exact frame alone could not
+        # separate the plug-in from an estimator that happens to be right at P_0.
+        resample = (
+            law.frame(INSTRUMENT_COUNTS)
+            .sample(n=800, replace=True, random_state=3)
+            .reset_index(drop=True)
+        )
+        empirical = law.empirical_probs(resample)
+        assert np.max(np.abs(empirical - INSTRUMENT_PROBS)) > 1e-3
+        refit = self._fit(resample, ((),))["ate"]
+        assert refit.psi == pytest.approx(float(law.functional(empirical, "ate")), abs=1e-12)
+
+    def test_the_fit_carries_the_refusal(self, intercept_only: Any) -> None:
+        assert intercept_only.inference == "working_mechanism_plugin"
+        with pytest.raises(CapabilityError) as raised:
+            _ = intercept_only.ci
+        assert WORKING_MECHANISM_NOT_INFERENTIAL in str(raised.value)
+
+    def test_the_diagnostic_is_the_working_mechanism_variance(
+        self, intercept_only: Any, working_variance: float
+    ) -> None:
+        assert self._reported_variance(intercept_only) == pytest.approx(working_variance, rel=1e-10)
+
+    def test_the_diagnostic_is_a_fraction_of_the_exact_variance(
+        self, intercept_only: Any, exact_variance: float
+    ) -> None:
+        ratio = self._reported_variance(intercept_only) / exact_variance
+        assert ratio <= WORKING_TO_EXACT_VARIANCE_BOUND, ratio
+
+    def test_the_full_adjustment_control_reaches_the_exact_variance(
+        self, exact_variance: float
+    ) -> None:
+        """The instrument reads one when the mechanism is the treatment law.
+
+        Without this control a diagnostic that fell short on every law would pass the
+        bound above. With the saturated mechanism on ``W`` the fitted ``g`` is the
+        treatment law, the curve is the EIF, and the ratio is one to rounding.
+        """
+        control = self._fit(law.frame(INSTRUMENT_COUNTS), (("W",),))["ate"]
+        ratio = self._reported_variance(control) / exact_variance
+        assert ratio == pytest.approx(1.0, abs=1e-10)

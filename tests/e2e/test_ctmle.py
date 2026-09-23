@@ -858,16 +858,20 @@ def _hc0_treatment_coefficient(frame, covariates) -> tuple[float, float]:  # typ
 
 
 class TestTheWorkingMechanismDiagnosticIsNotTheEstimatorsVariance:
-    """RM12's first witness, and the reason the refusal is not merely a relabelling.
+    """Corroboration of RM12's first witness on a continuous law.
+
+    The exact witness is
+    ``tests/unit/test_ctmle.py::TestTheWorkingMechanismDiagnosticMissesTheExactVariance``,
+    on a finite-support law whose variances are closed-form.  This class checks the same
+    gap where the exact variance is not available and the sandwich stands in for it.
 
     A ``discrete`` fit whose only candidate is the intercept-only one, with a correct
     linear outcome regression, **is** the least-squares coefficient on the treatment given
-    every covariate. That estimator has an exact sandwich variance, and the test computes
-    it. The reported plug-in curve variance is the intercept-only representer's,
+    every covariate. The test computes that coefficient's HC0 sandwich variance. The reported plug-in curve variance is the intercept-only representer's,
     :math:`\\sigma^2 \\nu^2 / n`, which ignores the association between the treatment and
     the covariates and is therefore too small.
 
-    This is the **nonzero witness** the project's scientific-change rule demands. A
+    Like the exact witness, it is a **nonzero witness** as the scientific-change rule demands. A
     mutation that made the retained diagnostic the *right* variance -- which would make
     the whole refusal pointless, because then there would be nothing wrong with reporting
     it -- drives the ratio to one and fails this test. A test that only asserted "the

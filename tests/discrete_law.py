@@ -46,13 +46,21 @@ Q = np.array([[0.40, 0.70], [0.20, 0.50], [0.60, 0.80]])
 SUPPORT: tuple[tuple[int, int, int], ...] = tuple(itertools.product(range(3), range(2), range(2)))
 
 
-def _cell_counts() -> np.ndarray:
-    """``N * P(W = w, A = a, Y = y)`` as a ``(3, 2, 2)`` integer array."""
+def cell_counts(p_w: Any = None, g: Any = None, q: Any = None) -> np.ndarray:
+    """``N * P(W = w, A = a, Y = y)`` as a ``(3, 2, 2)`` integer array.
+
+    ``p_w``, ``g`` and ``q`` default to :data:`P_W`, :data:`G` and :data:`Q`.  Another
+    set declares a variant law on the same support, which a test needs when this law's
+    mechanism is too weak to show what it checks.
+    """
+    p_w = P_W if p_w is None else np.asarray(p_w, dtype=float)
+    g = G if g is None else np.asarray(g, dtype=float)
+    q = Q if q is None else np.asarray(q, dtype=float)
     counts = np.empty((3, 2, 2))
     for w, a, y in SUPPORT:
-        arm = G[w] if a == 1 else 1.0 - G[w]
-        outcome = Q[w, a] if y == 1 else 1.0 - Q[w, a]
-        counts[w, a, y] = P_W[w] * arm * outcome * N
+        arm = g[w] if a == 1 else 1.0 - g[w]
+        outcome = q[w, a] if y == 1 else 1.0 - q[w, a]
+        counts[w, a, y] = p_w[w] * arm * outcome * N
     rounded = np.rint(counts)
     if np.max(np.abs(counts - rounded)) > 1e-6:  # pragma: no cover - guards the constants
         raise AssertionError(
@@ -63,23 +71,37 @@ def _cell_counts() -> np.ndarray:
 
 
 #: Cell counts in the realised sample.  Integral by construction -- checked above.
-COUNTS = _cell_counts()
+COUNTS = cell_counts()
 
 #: ``P(W, A, Y)``, shape ``(3, 2, 2)``.  Taken from the counts rather than from the
 #: constants above, so it is bit-for-bit the empirical law of :func:`frame`.
 PROBS = COUNTS / N
 
 
-def frame() -> pd.DataFrame:
-    """The ``N``-row sample whose empirical distribution is exactly this law.
+def frame(counts: Any = None) -> pd.DataFrame:
+    """The sample whose empirical distribution is exactly this law.
 
     Rows are laid out in :data:`SUPPORT` order, one contiguous block per support point,
-    so :func:`first_row_of` locates a representative row for each.
+    so :func:`first_row_of` locates a representative row for each.  ``counts`` defaults
+    to :data:`COUNTS`; a :func:`cell_counts` result realises that variant law instead.
     """
-    counts = [COUNTS[w, a, y] for w, a, y in SUPPORT]
-    cells = np.repeat(np.arange(len(SUPPORT)), counts)
+    table = COUNTS if counts is None else np.asarray(counts)
+    cells = np.repeat(np.arange(len(SUPPORT)), [table[w, a, y] for w, a, y in SUPPORT])
     columns = np.array(SUPPORT, dtype=float)[cells]
     return pd.DataFrame({"W": columns[:, 0], "A": columns[:, 1], "Y": columns[:, 2]})
+
+
+def empirical_probs(sample: pd.DataFrame) -> np.ndarray:
+    """The cell probabilities a sample on this support realises, shape ``(3, 2, 2)``.
+
+    The inverse of :func:`frame`.  On any other sample -- a resample, say -- it is the
+    empirical law :math:`P_n`, which a saturated plug-in estimator evaluates
+    :func:`functional` at.
+    """
+    cells = sample[["W", "A", "Y"]].to_numpy(dtype=float).astype(int)
+    counts = np.zeros((3, 2, 2))
+    np.add.at(counts, (cells[:, 0], cells[:, 1], cells[:, 2]), 1.0)
+    return counts / len(sample)
 
 
 def first_row_of() -> np.ndarray:
@@ -370,7 +392,7 @@ TRUTH = {
 }
 
 
-def gateaux(estimand: str, point: int, *, step: float = 1e-30) -> float:
+def gateaux(estimand: str, point: int, *, probs: Any = None, step: float = 1e-30) -> float:
     r"""The Gateaux derivative of ``estimand`` at support point ``point``.
 
     .. math::
@@ -389,17 +411,21 @@ def gateaux(estimand: str, point: int, *, step: float = 1e-30) -> float:
     enough that the truncation term is far below machine precision.  The result is the
     derivative to full double precision, which is what makes the comparison exact instead
     of merely close.
+
+    ``probs`` defaults to :data:`PROBS`.  A :func:`cell_counts` variant divided by
+    :data:`N` gets that law's influence curve from the same derivative, as
+    :func:`tests.discrete_law_mar.gateaux` does for its variants.
     """
-    base = PROBS.astype(complex)
+    base = (PROBS if probs is None else np.asarray(probs, dtype=float)).astype(complex)
     mass = np.zeros_like(base)
     mass[SUPPORT[point]] = 1.0
     perturbed = (1.0 - 1j * step) * base + 1j * step * mass
     return float(np.imag(functional(perturbed, estimand)) / step)
 
 
-def eif(estimand: str) -> np.ndarray:
+def eif(estimand: str, *, probs: Any = None) -> np.ndarray:
     """The EIF of ``estimand`` evaluated at every support point, in support order."""
-    return np.array([gateaux(estimand, point) for point in range(len(SUPPORT))])
+    return np.array([gateaux(estimand, point, probs=probs) for point in range(len(SUPPORT))])
 
 
 #: ``P(A = 1 | W = w)`` and ``E[Y | A = a, W = w]`` as the *realised sample* has them.
