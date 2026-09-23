@@ -438,6 +438,12 @@ and the outcome scale otherwise, so `ratio_to_standard_error` divides two like q
 `tests/unit/test_repeated_crossfit.py` reads `ate`, `rr`, and `or` off one fit. The ratio is
 descriptive and has no pass threshold.
 
+A selector-path collaborative fit supplies no standard error, so its row pairs the spread with the
+plug-in diagnostic. `repeat_spread_frame()` then names the last two columns
+`plugin_standard_error` and `ratio_to_plugin_standard_error`. The printed table heads them
+`plugin se` and `sd/plugin se`. The `RepeatSpreadRow` fields keep their names.
+`cleverly.inference.influence.spread_name` holds each renamed column.
+
 A one-draw fit retains an empty tuple instead of reporting zero. A table cell with no finite value
 prints `-`. `repeat_spread_frame()` follows the input dataframe backend.
 
@@ -1283,15 +1289,19 @@ The selected path depends on the reported contrast and retained artifacts.
 | reported risk ratio | use it directly and mark the result exact |
 | unambiguous default binary marginal ATE or odds ratio from ordinary TMLE | retarget cached nuisances to the matching risk ratio and mark the result exact; combined runs include this cheap retarget by default |
 | explicit reported odds ratio, or default odds ratio without exact retarget support | use the common-outcome approximation $\sqrt{OR}$ and mark the result approximate |
-| binary ATE without exact retarget support, with a usable reported reference-arm mean | hold the baseline risk fixed and mark the result approximate; includes DR-TMLE, collaborative TMLE, and CV evaluation |
+| binary ATE without exact retarget support, with a usable reported reference-arm mean | hold the baseline risk fixed and mark the result approximate; includes DR-TMLE, collaborative TMLE with `strategy="oat"`, and CV evaluation |
 | Gaussian ATE, ATT, or ATC with every outcome observed | standardize by the observed outcome standard deviation, weighted on a weighted fit, and mark the result approximate |
 | Gaussian ATE, ATT, or ATC on a fit with a response mechanism | report `unavailable`. The conversion divides by `sd(Y)` from the observed rows alone, and under missing at random the respondents' standard deviation estimates a different quantity from the population standard deviation. The refusal is on this path only, so a ratio E-value on the same fit stays available |
 | binomial ATT or ATC | refuse because the conditional baseline risk and conditional ratio target are absent |
 | level or non-arm parameter | report `not_applicable` because no supported two-arm contrast exists |
+| two-arm contrast on a `greedy`, `ordered`, or `discrete` collaborative fit | report `unavailable`. Each branch reads the estimate's interval or the reference arm's standard error, and this fit supplies neither. `strategy="oat"` keeps every branch |
 | binomial ATE without exact retarget support or a usable reported baseline; controlled direct effect needing derivation | report `unavailable` and name the missing evidence, artifact, or target |
 | several eligible contrasts and no explicit estimand | report `deferred` and name `estimand` in the next step |
 
-Several eligible contrasts require an explicit alias, which is the `deferred` row above.
+`_select_evalue` in `cleverly.sensitivity.evalue` applies the collaborative refusal after the
+`not_applicable` check. A request for `ey1` on a selector fit therefore still reports
+`not_applicable`. Several eligible contrasts require an explicit alias, which is the `deferred` row
+above.
 [The status contract](#the-status-contract) states that rule for every operation that shares it.
 Combined runs select availability and cost from the alias before they apply the cost flags.
 
@@ -1393,6 +1403,13 @@ and the paragraph below states its boundary.
 A refuter refits the nuisance models once for each replication. The three default operations use
 five replications each, so `refute()` costs about 15 fits. Empirical refuters use 100 draws by
 default because their rule reads a distribution. `run_all(include_refits=True)` runs `refute()`.
+
+A refutation also runs on a selector-path collaborative fit. The `placebo`, `random_common_cause`,
+`subset`, and `negative_control_outcome` rules scale their tolerance by a standard error. Each rule
+reads that scale through `plugin_std_error`, so the tolerance makes no coverage claim. On a fit
+that supplies no inference, each `RefutationTest` carries `inference`. `RefutationTest.to_frame()`
+and `RefutationResult.draws_frame()` then name the standard-error column `plugin_std_error` in
+place of `std_error`.
 
 A fit that declared `split_plan=` refuses two of these operations. A supplied plan labels the rows
 it was realized on, by position. It cannot label a refit that drops rows or draws them with
@@ -1579,6 +1596,20 @@ each draw, and summarises through `summarize_replications`. A failed draw is ret
 `ReplicationFailure` record carrying its index, its seed, and its exception. A study that silently
 replaced failed draws would report the distribution of the draws that happened to work.
 
+A study of a selector-path collaborative estimator measures the plug-in diagnostic. Each
+replication reads `plugin_interval`, `plugin_std_error`, and the same p-value arithmetic that
+`pvalue` refuses on that fit. The records carry the inference status, and the table changes as
+follows.
+
+| output | ordinary estimator | selector-path collaborative estimator |
+| --- | --- | --- |
+| `to_frame()` columns | `mean_std_error` | `inference` and `mean_plugin_std_error` |
+| `summary()` | the table and the verdict | a line above the table that says the columns describe the plug-in diagnostic |
+| `verdict()` with no finding | coverage and bias are consistent with a correctly working estimator | bias is consistent, and the coverage column certifies no confidence interval |
+
+`summarize_replications` raises `ValueError` when the records for one estimand mix the two
+statuses, because that coverage rate would average an interval with a diagnostic.
+
 The generators live in
 [`datasets/`](https://github.com/esbraun/cleverly-tmle/tree/main/src/cleverly/datasets) and each
 one carries an exact `truth`.
@@ -1596,6 +1627,11 @@ reports the target-relevant change with multiplicity-adjusted p-values
 ([`variable_importance.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/variable_importance.py)).
 It is an assessment of the fitted causal workflow. It is not a predictive feature-importance score,
 and it introduces no new influence function.
+
+A `greedy`, `ordered`, or `discrete` collaborative estimator is refused with `CapabilityError`
+before the first fit. The procedure adjusts one p-value per candidate with Benjamini and Hochberg,
+and those fits report no p-value. The check asks the estimator's own `_inference_status()`, which
+is the status its estimates carry. `strategy="oat"` is accepted.
 
 ## How the library certifies itself
 

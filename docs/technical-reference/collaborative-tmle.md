@@ -115,11 +115,15 @@ step from the selected candidate's own targeted regression, not from the initial
 iterative and the one-step sweeps are checked to solve the perturbed score. Rerun the fit to redo
 selection.
 
-**Omitted-variable outputs read the selected working mechanism.** The robustness value, the bounds,
-and `elements()` build $\nu^2$ from the selected g. An intercept-only representer is the within-arm
-average of the full representer, so its $\nu^2$ is never larger. The collaborative robustness value
-therefore overstates robustness for the declared adjustment set. Do not report it as a bound.
-[RM11](../roadmap.md#rm11-sensitivity-bounds-outside-their-derivation) tracks the refusal.
+**Omitted-variable outputs refuse a collaborative fit.** The robustness value, the bounds, and
+`elements()` raise `CapabilityError` on every strategy. The working mechanism conditions on a
+function $V$ of $W$: the selected set $W_S$ on the selector paths, and the fitted outcome
+regression under `oat`. The representer is then $E[\alpha_W \mid A, V]$, which averages the full
+representer $\alpha_W$ within each arm and each value of $V$. Its $\nu^2$ is therefore never
+larger, and a collaborative robustness value would overstate robustness for the declared
+adjustment set. The constant `_CTMLE_BOUND_REFUSAL` in `cleverly.sensitivity.omitted_variable`
+gives the full reason, and
+[RM11](../roadmap.md#rm11-sensitivity-bounds-outside-their-derivation) records the refusal.
 
 **A simulated common-cause surface reruns selection.** Binary complete-outcome fits accept fixed
 probability weights for this operation. The operation refuses estimated weights. Its clustered

@@ -106,6 +106,17 @@ states the rule and what is recomputed. The decision recorded here is that the p
 recomputes rather than reusing the wider family's critical value. *Reconsider when* an engine can
 be asked for the narrowed family directly, and the public layer stops selecting after the fact.
 
+An estimate's inference status is stamped once, in `TMLE._retarget_detailed`, from the
+estimator's `_inference_status()` hook. Every estimate passes through that method, including
+`fit`, `retarget`, and each sensitivity sweep, so no sweep builds an interval that the fit refuses.
+A reader of `std_error`, `ci`, or `pvalue` must branch on `supplies_inference` or
+`TMLEResult.inference_status`. A frame or label that publishes a spread must take its names from
+`spread_columns()` or `spread_name`, which raises `KeyError` for an inferential name with no
+diagnostic entry. [Inference status](technical-reference/inference.md#inference-status) gives the
+public contract, and `TMLEResult.__setstate__` re-stamps a result saved before the field existed.
+*Reconsider when* [F18](roadmap.md#f18-selector-path-c-tmle-inference) supplies the selector
+paths' influence curve, or an estimator's status depends on more than its configuration.
+
 Where a configuration group serves more than one engine, a default that differs between them is
 a sentinel resolved per engine, never a literal that silently picks one engine's answer for the
 other. `g_bounds="auto"` and `n_multiplier="auto"` are the two current cases. A restated engine

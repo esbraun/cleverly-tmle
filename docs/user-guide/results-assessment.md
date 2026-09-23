@@ -74,6 +74,15 @@ point = result[names[0]]
 print(point.psi, point.std_error, point.ci, point.pvalue)
 ```
 
+A collaborative fit with the default `strategy="greedy"`, or with `"ordered"` or `"discrete"`,
+refuses `std_error`, `ci`, and `pvalue` with `CapabilityError`. Read `point.plugin_std_error` and
+`point.plugin_interval` on that fit. Each is a diagnostic of the reported curve, and neither is a
+confidence statement. The property `result.inference_status` gives the status of the fit, and
+`point.supplies_inference` gives it for one estimate. For an interval, fit `TMLE`, or use
+`strategy="oat"`. [Inference status](../technical-reference/inference.md#inference-status) lists
+the renamed columns, and [collaborative TMLE](../technical-reference/collaborative-tmle.md) gives
+the reason.
+
 `result.parameter_keys` maps each alias to a structured `ParameterKey`. Use those fields for
 programmatic selection. Display aliases are not a serialization format.
 
@@ -93,6 +102,9 @@ if len(names) >= 2:
 
 Use cluster roles in the study design for cluster-robust variance. Use `Inference(simultaneous=True)`
 when the reported family, rather than each interval separately, needs error control.
+
+A contrast inherits the inference status of its inputs. On a selector-path collaborative fit the
+contrast refuses `ci` as its inputs do, and the fit builds no simultaneous band.
 
 ## Diagnostics
 
