@@ -111,7 +111,8 @@ validity or weighted parity with the canonical implementation.
 Each because the derivation read here does not cover it, not because the loop would not run. Every
 row raises at construction or at `fit`, with a message naming what a derivation would need. The
 `weights_estimated=` row is the one exception. The fit runs and reports its point estimate under
-the `"estimated_weight_plugin"` status. Its `ci`, `pvalue`, and `std_error` raise
+the `"estimated_weight_plugin"` status when its weights vary. Constant weights fit the unweighted
+estimator, so a constant column declared estimated keeps its interval. Its `ci`, `pvalue`, and `std_error` raise
 `CapabilityError`, and `plugin_std_error` and `plugin_interval` report the retained diagnostic.
 
 | refused | why |
@@ -129,7 +130,7 @@ the `"estimated_weight_plugin"` status. Its `ci`, `pvalue`, and `std_error` rais
 | `targeting_scheme="fold"` | each fold would need its own reduced regressions and alternation |
 | `cv_evaluation=True` | the common-update construction would need the corrected parameter and influence curve derived under fold-wise evaluation |
 | composition with `CTMLE` | a reduced regression conditions on `ĝ` *as a covariate*, and C-TMLE's `ĝ` is deliberately not an estimate of `g_0`. C-TMLE also scores its path by the loss of the targeted `Q̄`, so the criterion choosing `ĝ` presupposes that `Q̄` is informative. That is precisely the case this variant insures against. |
-| estimated weights (`weights_estimated=`) with a non-empty `guard` | **fits, and reports the `"estimated_weight_plugin"` status.** The ordinary answer is that the interval conditions on the weights. That answer is an argument about `D*`, and not about `Q_r`, `g_{r,1}` and `g_{r,2}`. `guard=()` fits the ordinary TMLE and keeps its interval. [F5](../../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) holds the result that would reopen it. `simulated_confounding` refuses the composition before it draws |
+| estimated weights (`weights_estimated=`) with a non-empty `guard` | **fits, and reports the `"estimated_weight_plugin"` status.** The ordinary answer is that the interval conditions on the weights. That answer is an argument about `D*`, and not about `Q_r`, `g_{r,1}` and `g_{r,2}`. `guard=()` fits the ordinary TMLE and keeps its interval. [F5](../../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) holds the result that would reopen it. `simulated_confounding` refuses the composition before it draws. Constant weights declared estimated fit the unweighted estimator, keep the interval, and `simulated_confounding` answers on them. `CausalData.declares_estimated_weights` is the one reading of the declaration |
 | `evaluation=` with `repeats>1`, `targeting="one_step"`, or `target_weights=True` | each by name; the middle one on cost, up to 20,000 adaptive steps |
 | `reduced_crossfit="nested"` with `cross_fit=False` or `n_folds < 3` | there is no complement to leave a fold out of; nested leaves two folds out at a time. `cross_fit=True` with fewer than two folds is refused earlier, when the declaration is constructed, so this row's fold clause reaches only `n_folds=2` |
 | a continuous outcome with `cross_fit=True` and `q_bounds=None` | the scale would come from every observed outcome, held-out rows included, and no shipped result covers it. See the [fold and outcome-scale rules](../cv-tmle.md#fold-and-outcome-scale-rules) |

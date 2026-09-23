@@ -1298,7 +1298,7 @@ The selected path depends on the reported contrast and retained artifacts.
 | Gaussian ATE, ATT, or ATC on a fit with a response mechanism | report `unavailable`. The conversion divides by `sd(Y)` from the observed rows alone, and under missing at random the respondents' standard deviation estimates a different quantity from the population standard deviation. The refusal is on this path only, so a ratio E-value on the same fit stays available |
 | binomial ATT or ATC | refuse because the conditional baseline risk and conditional ratio target are absent |
 | level or non-arm parameter | report `not_applicable` because no supported two-arm contrast exists |
-| two-arm contrast on a fit whose status supplies no inference: a collaborative fit at any `strategy`, or a `DRTMLE` fit with a `guard` and `weights_estimated=True` | report `unavailable`. Each branch reads the estimate's interval or the reference arm's standard error, and this fit supplies neither. The reason of the status follows |
+| two-arm contrast on a fit whose status supplies no inference: a collaborative fit at any `strategy`, a `DRTMLE` fit with a `guard` and varying weights declared estimated, or a clustered fit under `"unequal_cluster_plugin"` or `"few_cluster_plugin"` | report `unavailable`. Each branch reads the estimate's interval or the reference arm's standard error, and this fit supplies neither. The reason of the status follows |
 | binomial ATE without exact retarget support or a usable reported baseline; controlled direct effect needing derivation | report `unavailable` and name the missing evidence, artifact, or target |
 | several eligible contrasts and no explicit estimand | report `deferred` and name `estimand` in the next step |
 
@@ -1611,8 +1611,20 @@ follows.
 | `summary()` | the table and the verdict | a line above the table that says the columns describe the plug-in diagnostic |
 | `verdict()` with no finding | coverage and bias are consistent with a correctly working estimator | bias is consistent, and the coverage column certifies no confidence interval |
 
-`summarize_replications` raises `ValueError` when the records for one estimand mix the two
-statuses, because that coverage rate would average an interval with a diagnostic.
+A clustered status depends on the draw, so the replicates of one study can take different
+statuses. A cluster count that straddles 40 gives that mix. Every record measures the plug-in
+numbers, and on an inferential fit those numbers equal `ci` and `std_error`. So
+`summarize_replications` summarizes a mix under the status that `precedent_status` gives. The
+table gives what the summary adds.
+
+| output | a study whose replicates took more than one status |
+| --- | --- |
+| `EstimandSummary.status_counts` | each status with its replicate count. It is empty when every replicate took one status |
+| `to_dict()` and `to_frame()` | a `mixed_statuses` column, for example `few_cluster_plugin in 4, influence_curve in 4` |
+| `summary()` | the line above the table says that the estimator "supplies no interval on some replicates". One more line per mixed estimand names its statuses and counts |
+
+`tests/unit/test_simulation_summary.py` runs a study whose cluster count straddles 40. It holds
+the mixed witness, a mutation that labels the mix `influence_curve`, and a uniform control.
 
 The generators live in
 [`datasets/`](https://github.com/esbraun/cleverly-tmle/tree/main/src/cleverly/datasets) and each
@@ -1634,7 +1646,8 @@ and it introduces no new influence function.
 
 An estimator whose status supplies no inference is refused with `CapabilityError` before the
 first fit. That includes a collaborative estimator at any `strategy`, and a `DRTMLE` with a
-`guard` when `weights_estimated=True`. The procedure adjusts one p-value per candidate with
+`guard` and varying weights declared estimated. It also includes a clustered `TMLE` or `DRTMLE`
+under `"unequal_cluster_plugin"` or `"few_cluster_plugin"`. The procedure adjusts one p-value per candidate with
 Benjamini and Hochberg, and those fits report no p-value. The check prepares each candidate's data
 and asks the estimator's own `_inference_status()`, which is the status its estimates carry.
 

@@ -148,6 +148,13 @@ this version refuses. Each refusal raises `CapabilityError`. The
 An inconsistent declaration raises `DataError`. Two cases exist: `weights_kind="estimated"` with
 `weights=None`, and a value other than `"known"`, `"estimated"`, or `None`.
 
+A result saved before `weights_kind` existed loads with `weights_kind=None`. Loading checks
+nothing, so that result keeps its stored estimates, and they answer as saved. Every call that
+recomputes an estimate from it refuses with the undeclared-weight message. `retarget()` checks the
+declaration first, so each sweep that calls it refuses, for example `truncation_curve()`.
+`refute()` refits through `fit()`, which checks it too. `tests/unit/test_msm_projection_weights.py`
+pins the stored interval, the refusals, a declared control, and a mutation that removes the check.
+
 A weight computed from the sample and declared `"known"` still fits, because the declaration is
 your statement. `tests/unit/test_msm_projection_weights.py` measures the cost on an exact law, with
 the arm share as the weight. The reported curve is the efficient influence function of the

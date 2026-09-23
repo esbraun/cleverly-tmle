@@ -348,10 +348,11 @@ the empirical witness, and it is the only one. Its design satisfies all four con
 construction. No source read here proves that the estimator is valid under clustering.
 
 Row weighting and cluster weighting agree only at equal, or non-informative, cluster sizes. The
-documented scope is equal cluster sizes. A cross-fitted fit whose clusters hold different numbers
-of rows takes the `"unequal_cluster_plugin"` status. `ci`, `pvalue`, and `std_error` then raise
-`CapabilityError`, and `plugin_std_error` and `plugin_interval` keep the diagnostic. The size of a
-cluster is its row count, and the package does not read its weight mass.
+documented scope is equal cluster sizes. A weighted fit targets the weight-weighted mean, so on
+that fit the size of a cluster is its row count and its weight mass. A cross-fitted fit whose
+clusters differ in either takes the `"unequal_cluster_plugin"` status. `ci`, `pvalue`, and
+`std_error` then raise `CapabilityError`, and `plugin_std_error` and `plugin_interval` keep the
+diagnostic.
 
 No source read here supports a normal reference interval with few clusters. The table gives what
 each source recommends. $J$ is the cluster count, which Nugent et al. write as $N$.
@@ -362,7 +363,8 @@ each source recommends. $J$ is the cluster count, which Nugent et al. write as $
 | Benitez et al. (2023) | Section 3.1.2, paragraph on inference, and Section 3.2.1, last paragraph | a $t$ reference with $J - 2$ degrees of freedom at every cluster count, as a finite-sample approximation |
 
 The package keeps its normal reference. A fit with fewer than 40 clusters takes the
-`"few_cluster_plugin"` status, in sample or cross-fitted. [Clusters](inference.md#clusters) gives
+`"few_cluster_plugin"` status, in sample or cross-fitted. So does a fit with fewer than 40 clusters
+in one baseline stratum that it reports. [Clusters](inference.md#clusters) gives
 both statuses, and [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle)
 holds the routes that reopen them.
 

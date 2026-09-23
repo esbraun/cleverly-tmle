@@ -267,14 +267,14 @@ showing invalid coverage; the multi-arm pair does not resolve a deficit. Neither
 identifies a first-order term.
 [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) records those items.
 
-Neither path reports an interval. Each path reports the spread of the ordinary cross-fitted EIF
-plug-in curve as a diagnostic. Ordinary TMLE conditions alone do not
+Neither path reports an interval. Each path reports the spread of the ordinary EIF plug-in curve
+as a diagnostic. Ordinary TMLE conditions alone do not
 establish validity after selection or representation learning, and `cleverly` claims neither
 conditional selector coverage nor collaborative-double-robust coverage.
 
 A refit bootstrap reruns each adaptive construction, but no reviewed theorem validates it for
-either shipped path. On either path `summary()` therefore prints the bootstrap standard error
-and a `percentile range`, under the same diagnostic framing, rather than a percentile confidence
+either shipped path. On either path, `summary()` therefore prints the bootstrap standard error
+and a `percentile range` under the same diagnostic framing. It prints no percentile confidence
 interval. `to_frame()` emits the two limits as `bootstrap_range_lower` and `bootstrap_range_upper`
 in place of `bootstrap_ci_lower` and `bootstrap_ci_upper`. The `bootstrap_std_err` column keeps its
 name. The targeted-HAL bootstrap result cited in the audit fixes its data-adaptive complexity
