@@ -401,7 +401,7 @@ class TestAnOlderLongitudinalArtifact:
     def test_data_saved_before_its_weights_field_loads(
         self, k: int | None, status: str, route: str
     ) -> None:
-        """Data pickled before ``LongitudinalData`` carried ``weights`` loads as unweighted."""
+        """Data pickled before ``LongitudinalData`` had ``weights`` loads and takes its status."""
         legacy = legacy_copy(fit_end_of_study(k))
         del legacy.data.__dict__["weights"]
         # The nonzero witness: the saved data really lacks the field.

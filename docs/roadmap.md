@@ -69,9 +69,9 @@ The 2026-09-23 plan for RM25 found a fourth sibling surface.
 [RM28](#rm28-declared-densities-of-user-written-interventions) holds the density of a
 user-written `Intervention` class.
 
-The review of the RM26 delivery found a saved-result surface. [RM29](#rm29-saved-cross-fitted-clustered-longitudinal-results) holds a cross-fitted
-clustered `LTMLE` result that release 0.1.0 or 0.1.1 saved. The table below lists the rows that
-remain.
+The review of the RM26 delivery found a saved-result surface.
+[RM29](#rm29-saved-cross-fitted-clustered-longitudinal-results) holds a cross-fitted clustered
+`LTMLE` result that release 0.1.0 or 0.1.1 saved. The table below lists the rows that remain.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
@@ -121,9 +121,10 @@ tier.
 | RM19 | one configuration, which RM18 opened. Its Bonferroni interval covers zero, and it moves no verdict |
 
 No open row waits on another open row. RM27 reuses the declaration pattern of RM13 and the shared
-declaration of RM25. RM28 applies that declaration to custom interventions and rules. RM29 extends the re-stamp that RM26 delivered, and it needs no F22 result. RM13, RM20,
-RM25 and RM26 are delivered. The RM23 sweep fits only the kinds of fit that succeed, and the RM14
-and RM24 requests produce no fit.
+declaration of RM25. RM28 applies that declaration to custom interventions and rules. RM29 extends
+the re-stamp that RM26 delivered, and it needs no F22 result. RM13, RM20, RM25 and RM26 are
+delivered. The RM23 sweep fits only the kinds of fit that succeed, and the RM14 and RM24 requests
+produce no fit.
 
 Main-roadmap X9 depends on RM22. Every remediation row comes before main-roadmap priority 1, so
 the queue meets that dependency.
@@ -133,7 +134,7 @@ Keep each item's acceptance criteria separate inside its group.
 
 | delivery group | items | shared boundary |
 | --- | --- | --- |
-| inference claims | RM27, RM28 and RM29 | one decision rule for an interval that no derivation covers: register a claim, give the estimate a non-inferential status, or refuse the request before the fit |
+| inference claims | RM27, RM28 and RM29 | one decision rule for an interval that no derivation covers: register a claim, give the estimate a non-inferential status, or refuse the request before the fit or when a saved result loads |
 | sensitivity outputs | RM21 and RM22 | the E-value and omitted-variable reports, and one reading of the published sources they cite |
 | refusal surfaces | RM23, RM14 and RM24 | a refusal reaches the caller where its declaration says, before the work that it refuses |
 | diagnostic reports | RM15 and RM16 | one assessment and summary surface, with one documentation pass |
@@ -2831,11 +2832,11 @@ with the commit that shipped it.
 | shared texts | `StatusRecord.summary_note()` and `NO_SIMULTANEOUS_BANDS` in `src/cleverly/_inference_status.py` hold the two texts that both summaries print. `TMLEResult.summary()` reads them and stays byte-identical. Commit a41848d |
 | nuisance note | the longitudinal branch of `_nuisance_item` in `src/cleverly/assessment.py` adds the `assessment_note` of the status. It reads the status of the result. A call with no result adds no note (commit e12c545). Commit a41848d |
 | zero-mass clusters | the cluster line of `summary()` adds `positive weight mass in N` when a cluster has zero weight mass, as the point-treatment line does. A weighted fit with 40 or more positive-mass clusters and one zero-mass cluster now prints it too. Commit a41848d. Both lines now read the clause from `positive_mass_clause` in `src/cleverly/inference/cluster.py` (commit e12c545) |
-| a result saved before the status | `LongitudinalResult.__setstate__` recomputes the status from the saved data and folds. When that status supplies no inference and the saved estimates declare another, it stamps them again. It drops the bands and the assessment cache, as RM20 does. The replay then stays equal on a restored artifact. Commit a41848d. Data saved before `LongitudinalData` had `weights` (commit 16d2643) raised `AttributeError` at load. It now loads as unweighted, and an unclustered result loads as saved (commit e12c545) |
+| a result saved before the status | `LongitudinalResult.__setstate__` recomputes the status from the saved data and folds. When that status supplies no inference and the saved estimates declare another, it stamps them again. It drops the bands and the assessment cache, as RM20 does. The replay then stays equal on a restored artifact. Commit a41848d. Data saved before `LongitudinalData` had `weights` (commit 16d2643) raised `AttributeError` at load. It now loads, and its status reads the fit as unweighted. `summary()` still raises `AttributeError` on it, because it reads `data.is_weighted`. Releases 0.1.0 and 0.1.1 both carry the field, so only a development artifact lacks it. An unclustered result loads as saved (commit e12c545) |
 | E-value | no change. Each longitudinal fit reports the E-value row `unavailable` already |
 | test support | `at_or_below` moved to `tests/unit/_inference_status_support.py`, and `legacy_copy` reads `cv_targeting` with `getattr`, so both serve the longitudinal tests. Commit a41848d |
 | reference | the [data design guide](user-guide/data-design.md) and [results and assessment](user-guide/results-assessment.md#contrasts-and-simultaneous-inference) describe the status on the longitudinal fit. So do [inference status](technical-reference/inference.md#inference-status), [clusters](technical-reference/inference.md#clusters), the [scope page](technical-reference/scope-and-refusals.md), [CV-TMLE](technical-reference/cv-tmle.md), the [longitudinal reference](technical-reference/longitudinal-tmle.md), and the [architecture invariants](architecture-invariants.md). Commit f309679 |
-| a cross-fitted clustered result saved before F22 refused it | not in this row. No status names a refused composition, and [RM29](#rm29-saved-cross-fitted-clustered-longitudinal-results) holds it |
+| a cross-fitted clustered result saved before commit 5f32c14 refused the fit | not in this row. No status names a refused composition, and [RM29](#rm29-saved-cross-fitted-clustered-longitudinal-results) holds it |
 
 The row planned three witnesses, and the plan added two. The table gives the state of each. All of
 them are in `tests/unit/test_longitudinal_cluster_status.py`, which holds 39 tests.
@@ -3850,9 +3851,9 @@ data and folds. The table gives the outcome.
 | unequal in rows or weight mass | `unequal_cluster_plugin` | its reason cites the point-treatment argument for grouped folds |
 | fewer than 40 with positive weight mass, equal in size | `few_cluster_plugin` | its reason names the reference distribution, not the refused composition |
 
-RM26 found this case. [RM29](#rm29-saved-cross-fitted-clustered-longitudinal-results) holds the status or the refusal that
-a restored result needs now. The F22 route that reopens the cross-fitted longitudinal fit would
-also cover the saved interval.
+RM26 found this case. [RM29](#rm29-saved-cross-fitted-clustered-longitudinal-results) holds the
+status or the refusal that a restored result needs now. The F22 route that reopens the cross-fitted
+longitudinal fit would also cover the saved interval.
 
 [Grouped folds and clustered cross-fitting](references.md#grouped-folds-and-clustered-cross-fitting)
 gives every source the audit read, with the version whose locators it used.
