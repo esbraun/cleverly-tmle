@@ -15,7 +15,12 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
-from .._inference_status import InferenceStatus, status_record, supplies_inference
+from .._inference_status import (
+    NO_SIMULTANEOUS_BANDS,
+    InferenceStatus,
+    status_record,
+    supplies_inference,
+)
 from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData, arm_share
 from ..exceptions import (
@@ -28,6 +33,7 @@ from ..inference.cluster import (
     cluster_sizes,
     cluster_weight_mass,
     fewest_clusters,
+    positive_mass_clause,
     unequal_cluster_sizes,
 )
 from ..inference.influence import (
@@ -40,7 +46,7 @@ from ..inference.multiplier import SimultaneousBands
 from ..inference.results import (
     estimate_covariance,
     estimate_curves,
-    inference_status,
+    reported_status,
     select_estimates,
     smooth_contrast,
     sole_estimate,
@@ -356,9 +362,7 @@ class CVTargeting:
             for label, report in (("pooled", self.pooled), ("canonical", self.canonical))
             for name, estimate in report.items()
         }
-        if not reports:
-            return "influence_curve"
-        return inference_status(reports, tuple(reports))
+        return reported_status(reports)
 
     @property
     def std_error(self) -> dict[str, float]:
@@ -794,9 +798,7 @@ class TMLEResult:
         :class:`ValueError`. ``"influence_curve"`` when the fit reports no estimate,
         because such a fit refuses nothing.
         """
-        if not self.estimates:
-            return "influence_curve"
-        return inference_status(self.estimates, tuple(self.estimates))
+        return reported_status(self.estimates)
 
     def psi(self, name: str | None = None) -> float:
         """Return one point estimate.
@@ -1435,14 +1437,7 @@ class TMLEResult:
             # under it.  A dash under that heading still tells a reader an interval is the
             # thing that belongs there.
             parts.append("")
-            # The refusal's own sentence rather than a paraphrase of it, so the summary
-            # and every raise say one thing.  Only the pointer to this table's column is
-            # the summary's own.
-            parts.append(
-                record.reason
-                + f' The "{record.summary_label}" column above is that diagnostic, and it is '
-                "not a standard error for this estimate."
-            )
+            parts.append(record.summary_note())
         if self.n_repeats > 1:
             # Printed under the table rather than left to the scope document, because a
             # reader who subtracts two rows of that table gets a third number the fit
@@ -1480,10 +1475,7 @@ class TMLEResult:
             # Stated rather than left blank: a reader who asked for bands, or who knows
             # they are the default, would otherwise have to guess why none are here.
             parts.append("")
-            parts.append(
-                "no simultaneous bands: a band is a joint confidence statement, and this "
-                "fit reports none."
-            )
+            parts.append(NO_SIMULTANEOUS_BANDS)
         if self.simultaneous is not None:
             parts.append("")
             parts.append(
@@ -1682,10 +1674,7 @@ def _cluster_fact(data: CausalData) -> str:
     elif data.is_weighted and unequal_cluster_sizes(cluster, data.weights):
         mass = cluster_weight_mass(cluster, data.weights)
         fact += f", weight mass {mass.min():.4g} to {mass.max():.4g}"
-    if data.is_weighted:
-        active = fewest_clusters(cluster, weights=data.weights)
-        if active < counts.size:
-            fact += f", positive weight mass in {active}"
+    fact += positive_mass_clause(cluster, data.weights if data.is_weighted else None)
     if data.has_strata:
         assert data.strata is not None
         masks = (data.strata == level for level in np.unique(data.strata))

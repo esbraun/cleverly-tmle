@@ -28,7 +28,7 @@ from ._assessment_cache import (
     _pack_cached,
     _unpack_cached,
 )
-from ._inference_status import precedent_status, supplies_inference
+from ._inference_status import precedent_status, status_record, supplies_inference
 from ._typing import CumulativeGBounds
 from .data.weighting import REPORTED_DRAW, format_score_load
 from .exceptions import CapabilityError, inference_refusal
@@ -2603,6 +2603,12 @@ def _nuisance_item(
         detail = f"{len(finite)} longitudinal nuisance loss value(s) are available"
         if report.omissions:
             detail += f"; {len(report.omissions)} role omission(s) are recorded"
+        # The note a point-treatment report carries for the same status. The longitudinal
+        # report publishes no spread and holds no status, so the note is read off the
+        # result here. An interpreter called without a result adds none.
+        status = "influence_curve" if _result is None else _result.inference_status
+        if not supplies_inference(status):
+            detail += f"; {status_record(status).assessment_note}"
     else:
         facts = [
             "; ".join(findings)

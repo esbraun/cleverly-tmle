@@ -644,7 +644,23 @@ article as the copy this project read.
   ask that folds be "formed of whole PSUs, assigned by a data-independent rule and balanced within
   every stratum". Theorems 1 and 2 give the result. This is the closest estimator read: a row-level
   TMLE with a pooled fluctuation. Its strata are survey sampling strata, and (C2) excludes
-  treatment strata. The preprint is unrefereed.
+  treatment strata. It does not derive a longitudinal sequential estimator. The preprint is
+  unrefereed.
+- Nugent, Kakande, Chamie et al. (2024), [*Causal Inference in Randomized Trials with Partial
+  Clustering*](https://arxiv.org/abs/2406.04505v2), arXiv:2406.04505v2. Section 2.3 groups
+  splits by independent cluster and aggregates cluster influence curves for a participant-weighted
+  TMLE. It names R `ltmle` with `id=` as one variance implementation. The trial has partial
+  clustering and point treatment. It does not derive this package's cross-fitted longitudinal
+  recursion or its variance.
+- Balkus, Laith & Hejazi (2026), [*On the use of cross-fitting in causal machine learning with
+  correlated units*](https://arxiv.org/abs/2601.10899v3), arXiv:2601.10899v3. The paper shows
+  that splitting correlated units across folds can still remove a key empirical-process term
+  under its conditions. It gives no variance result for this package's longitudinal TMLE. Whole
+  clusters remain the package's supported fold design, not a universal cross-fitting requirement.
+- Zeileis, Köll & Graham (2020), [*Various Versatile Variances: An Object-Oriented Implementation
+  of Clustered Covariances in R*](https://www.jstatsoft.org/article/view/v095i01), *Journal of
+  Statistical Software* 95(1). The paper treats clustered sandwich estimators and small-sample
+  corrections for regression models. It does not supply a TMLE or grouped longitudinal theorem.
 - Benitez, Petersen, van der Laan, Santos, Butrick, Walker, Ghosh, Otieno, Waiswa & Balzer
   (2023), [*Defining and estimating effects in cluster randomized trials: A methods
   comparison*](https://doi.org/10.1002/sim.9813), *Statistics in Medicine* 42(19):3443-3466, DOI

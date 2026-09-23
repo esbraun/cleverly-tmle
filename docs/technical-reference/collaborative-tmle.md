@@ -182,7 +182,10 @@ and `p_value`.
 
 Five derived operations refuse for the same reason. A contrast of two refused estimates is itself
 refused. A simultaneous band is a joint confidence statement, so a selector fit builds none. An
-E-value reads the estimate and its interval, so every E-value branch reports `unavailable` on these
+explicit `simultaneous=True` also builds no band and emits no warning. The default is `True`, and
+`summary()` names the omission when the fit reports more than one estimate.
+
+An E-value reads the estimate and its interval, so every E-value branch reports `unavailable` on these
 paths. `variable_importance()` adjusts one p-value per candidate, so it refuses at its entry point
 rather than after it has fitted one model per candidate. `tipping_gamma(use_ci=True)` follows a
 confidence limit to the null, and it returns one float that cannot name the limit a diagnostic.

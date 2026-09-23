@@ -365,7 +365,8 @@ each source recommends. $J$ is the cluster count, which Nugent et al. write as $
 
 The package keeps its normal reference. A fit with fewer than 40 positive-mass clusters takes the
 `"few_cluster_plugin"` status, in sample or cross-fitted. So does a fit with fewer than 40 such
-clusters in one baseline stratum that it reports. [Clusters](inference.md#clusters) gives
+clusters in one baseline stratum that it reports. An in-sample `LTMLE` fit with `id=` takes the
+same status below 40 positive-mass clusters. [Clusters](inference.md#clusters) gives
 both statuses, and [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle)
 holds the routes that reopen them.
 

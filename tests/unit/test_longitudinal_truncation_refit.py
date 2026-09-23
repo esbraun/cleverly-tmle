@@ -288,7 +288,11 @@ def test_replay_recipe_is_the_only_appended_constructor_slot() -> None:
 
 
 def test_deterministic_recursive_learners_need_no_fit_level_seed() -> None:
-    frame, _ = make_longitudinal(n=140, seed=17)
+    # The fold draw is unseeded, so the sample must keep both classes of every binary
+    # target in each training fold. A fold that holds all of one class fails the fit. At
+    # n=140 that happens on 0.7% of draws, mostly through the 8 censorings at time 2. At
+    # n=600 the exact hypergeometric union bound over the six targets is below 5e-11.
+    frame, _ = make_longitudinal(n=600, seed=17)
     result = LTMLE(
         {"always": 1, "never": 0},
         **{**SETTINGS, "random_state": None},

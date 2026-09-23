@@ -8,6 +8,8 @@ before its first fit. The forced-status reach test and each surface's own test r
 here, so a later status inherits the same checks.
 The fold-level report checks and the stamp mutation that must fail them live here too,
 because the forced-status test and the clustered surfaces both fit ``cv_evaluation=True``.
+The boundary mutant of the shared cluster rule lives here, because the point-treatment and
+the longitudinal cluster tests both patch it into their estimator module.
 """
 
 from __future__ import annotations
@@ -17,14 +19,16 @@ import re
 from dataclasses import replace
 from typing import Any
 
+import numpy as np
 import pytest
 
 from cleverly import variable_importance
-from cleverly._inference_status import NON_INFERENTIAL
+from cleverly._inference_status import FEW_CLUSTER_THRESHOLD, NON_INFERENTIAL
 from cleverly.assessment import AssessmentStatus
 from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, inference_refusal
+from cleverly.inference.cluster import cluster_inference_status
 from cleverly.inference.influence import _DIAGNOSTIC_NAMES
 from cleverly.sensitivity.evalue import _EVALUE_NEEDS_INFERENCE
 from tests.unit._natural_course_support import NeverFit
@@ -80,8 +84,9 @@ def assert_withholds(result: Any, status: str) -> None:
 
     The status on the fit and on each estimate, a refusal with the status reason from
     each of ``ci``, ``pvalue`` and ``std_error``, a finite retained diagnostic, the frame
-    columns, and the ``summary()`` label and paragraph. A mutation that restores
-    ``"influence_curve"`` on the surface fails the first line.
+    columns, and the ``summary()`` paragraph under the diagnostic table. Each refusal
+    message is pinned whole: the accessor, then the reason the status table holds. A
+    mutation that restores ``"influence_curve"`` on the surface fails the first line.
     """
     assert result.inference_status == status
     for estimate in result.estimates.values():
@@ -89,15 +94,14 @@ def assert_withholds(result: Any, status: str) -> None:
         for accessor in ("ci", "pvalue", "std_error"):
             with pytest.raises(CapabilityError) as raised:
                 getattr(estimate, accessor)
-            assert_refused_by(status, raised)
+            assert str(raised.value) == inference_refusal(f".{accessor}", status)
         assert estimate.plugin_std_error > 0
     columns = set(result.to_frame().columns)
     assert not INFERENTIAL_COLUMNS & columns
     assert columns >= DIAGNOSTIC_COLUMNS
-    record = NON_INFERENTIAL[status]
     text = result.summary()
-    assert record.summary_label in text
-    assert record.reason in text
+    # The note names the diagnostic column's label and carries the status reason.
+    assert NON_INFERENTIAL[status].summary_note() in text
     assert "95% CI" not in text
 
 
@@ -221,6 +225,13 @@ def stamp_headline_only(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(TMLE, "_retarget_detailed", headline_only)
 
 
+def at_or_below(cluster: Any, *, cross_fit: bool, **settings: Any) -> str:
+    """The mutant that compares the cluster count with ``<=`` rather than ``<``."""
+    status = cluster_inference_status(cluster, cross_fit=cross_fit, **settings)
+    at_threshold = np.unique(cluster).size == FEW_CLUSTER_THRESHOLD
+    return "few_cluster_plugin" if status == "influence_curve" and at_threshold else status
+
+
 def legacy_copy(result: Any) -> Any:
     """A copy saved as an ordinary fit: every estimate and any fold report inferential.
 
@@ -230,7 +241,8 @@ def legacy_copy(result: Any) -> Any:
     """
     legacy = pickle.loads(pickle.dumps(result))
     reports = [legacy.estimates]
-    detail = legacy.cv_targeting
+    # A longitudinal result has no fold-level report.
+    detail = getattr(legacy, "cv_targeting", None)
     if detail is not None:
         reports.extend([detail.pooled, detail.canonical])
     for report in reports:

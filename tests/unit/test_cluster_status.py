@@ -59,6 +59,7 @@ from tests.unit._inference_status_support import (
     assert_restamped,
     assert_variable_importance_refuses,
     assert_withholds,
+    at_or_below,
     stamp_headline_only,
 )
 from tests.unit._natural_course_support import never_fit_learners
@@ -495,13 +496,6 @@ def ignores_sizes(cluster: Any, *, cross_fit: bool, **settings: Any) -> str:
 def ignores_cross_fit(cluster: Any, *, cross_fit: bool, **settings: Any) -> str:
     """The mutant that treats every fit as cross-fitted."""
     return cluster_inference_status(cluster, cross_fit=True, **settings)
-
-
-def at_or_below(cluster: Any, *, cross_fit: bool, **settings: Any) -> str:
-    """The mutant that compares the cluster count with ``<=`` rather than ``<``."""
-    status = cluster_inference_status(cluster, cross_fit=cross_fit, **settings)
-    at_threshold = np.unique(cluster).size == FEW_CLUSTER_THRESHOLD
-    return FEW if status == "influence_curve" and at_threshold else status
 
 
 def rows_only(cluster: Any, weights: Any = None) -> bool:

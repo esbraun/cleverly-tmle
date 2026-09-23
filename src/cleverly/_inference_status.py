@@ -21,6 +21,7 @@ from typing import Final, Literal, cast
 __all__ = [
     "FEW_CLUSTER_THRESHOLD",
     "NON_INFERENTIAL",
+    "NO_SIMULTANEOUS_BANDS",
     "InferenceStatus",
     "StatusRecord",
     "precedent_status",
@@ -37,6 +38,7 @@ InferenceStatus = Literal[
     "working_mechanism_plugin",
     "generated_design_plugin",
     "estimated_weight_plugin",
+    "cross_fitted_longitudinal_plugin",
     "unequal_cluster_plugin",
     "few_cluster_plugin",
 ]
@@ -55,6 +57,13 @@ InferenceStatus = Literal[
 #: The cluster count below which a clustered fit reports no interval (RM20).
 FEW_CLUSTER_THRESHOLD: Final[int] = 40
 
+#: The line a result summary prints when a fit that supplies no inference builds no
+#: simultaneous band. ``TMLEResult.summary`` and ``LongitudinalResult.summary`` both
+#: print it, and both estimators skip the default band on such a fit.
+NO_SIMULTANEOUS_BANDS: Final[str] = (
+    "no simultaneous bands: a band is a joint confidence statement, and this fit reports none."
+)
+
 
 @dataclass(frozen=True)
 class StatusRecord:
@@ -69,8 +78,8 @@ class StatusRecord:
     assessment_note : str
         The clause the nuisance report and the assessment's nuisance-model item add.
     summary_label : str
-        The header of the spread column in ``TMLEResult.summary()`` and the label in
-        ``ParameterEstimate.__repr__``.
+        The header of the spread column in ``TMLEResult.summary()`` and
+        ``LongitudinalResult.summary()``, and the label in ``ParameterEstimate.__repr__``.
     bootstrap_note : str
         The parenthesis ``summary()`` prints beside a bootstrap percentile range.
     diagnostic_noun : str
@@ -85,6 +94,25 @@ class StatusRecord:
     bootstrap_note: str
     diagnostic_noun: str
     reopened_by: str
+
+    def summary_note(self) -> str:
+        """The paragraph a result summary prints under its table of diagnostics.
+
+        The refusal's own reason rather than a paraphrase of it, so the summary and every
+        raise say one thing. Only the pointer to the table's spread column is the
+        summary's own. ``TMLEResult.summary`` and ``LongitudinalResult.summary`` both
+        print it.
+
+        Returns
+        -------
+        str
+            :attr:`reason`, then a sentence that names :attr:`summary_label` as that
+            diagnostic.
+        """
+        return (
+            self.reason + f' The "{self.summary_label}" column above is that diagnostic, and it '
+            "is not a standard error for this estimate."
+        )
 
 
 #: One record per non-inferential status. The insertion order is the precedence: when a
@@ -170,6 +198,30 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             diagnostic_noun="fixed-weight plug-in diagnostic",
             reopened_by="F5",
+        ),
+        "cross_fitted_longitudinal_plugin": StatusRecord(
+            reason=(
+                "A saved cross-fitted clustered LTMLE fit reports no confidence interval, "
+                "no p-value and no standard error. New fits of this design are refused. "
+                "No result read here establishes the cluster-robust variance of its "
+                "targeted sequential recursion under grouped folds. The saved point "
+                "estimate remains available without an inferential claim. The plug-in "
+                "standard error of the reported curve remains as a diagnostic under "
+                "plugin_std_error and plugin_interval. F22 in docs/roadmap.md reopens "
+                "this when a derivation and validation cover this design."
+            ),
+            assessment_note=(
+                "the reported curve is a grouped-longitudinal diagnostic: no confidence "
+                "interval or p-value is available for this saved fit, and F22 in the "
+                "roadmap is the condition that reopens it"
+            ),
+            summary_label="grouped-longitudinal plug-in se",
+            bootstrap_note=(
+                "a diagnostic; no result validates the bootstrap coverage of a "
+                "cross-fitted clustered longitudinal fit"
+            ),
+            diagnostic_noun="grouped-longitudinal plug-in diagnostic",
+            reopened_by="F22",
         ),
         "unequal_cluster_plugin": StatusRecord(
             reason=(
