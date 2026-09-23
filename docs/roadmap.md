@@ -2795,6 +2795,40 @@ The witnesses must fail when a component is wrong:
 - a control at 40 clusters keeps its interval;
 - a mutation that restores the `influence_curve` status makes the first test fail.
 
+The 2026-09-23 plan measured three facts on the code at dee5a5e. The end-of-study fit uses
+`multivalue_panel(n=400, seed=43)`, the competing-risk fit `make_longitudinal_competing(n=400,
+seed=3)`, and the MSM fit `make_longitudinal(n=400, seed=0)`. Each fit passes the labels
+`np.arange(400) * k // 400` as `id=`, and it has one fold.
+
+| probe | result |
+| --- | --- |
+| an end-of-study, a competing-risk, and an MSM fit at 39 and at 40 clusters | `cluster_inference_status` gives `few_cluster_plugin` at 39 clusters and `influence_curve` at 40, for each kind of fit. The point estimates at 39 and 40 clusters are bitwise identical |
+| the 39-cluster competing-risk fit, with `stamp_inference` applied to its estimates by hand | `summary()` and `curve()` raise `CapabilityError`, because they read `ci` and `std_error`. `to_frame()` and `incidence_total()` answer |
+| the same fit, with the stamp on the fit alone | `truncation_curve` raises `CapabilityError` with the code `longitudinal_replay_fitted_bound_mismatch`. The replay compares every field of each estimate, `inference` included |
+
+The plan fixes the decisions in the table below. The RM20 code supplies each one, unless the row
+says otherwise.
+
+| part | decision |
+| --- | --- |
+| status rule | a private function `_inference_status(data, folds)` in `cleverly.longitudinal.estimator` calls `cluster_inference_status` on the prepared cluster labels, and on the weights of a weighted fit. `LongitudinalData` has no strata, so the count is the positive-mass cluster count of the whole fit. The function reads nothing fitted |
+| stamp site | `_estimates` and `_msm_estimates` take the status and pass it to each `make_estimate` call. `LTMLE.fit` and the replay function `_refit_bound` both call them, so the replay stays equal to the fit. The third probe shows that a stamp in `fit` alone breaks it |
+| result status | `LongitudinalResult.inference_status` returns the status of the estimates, as `TMLEResult.inference_status` does |
+| `summary()` | a fit that supplies no inference prints the `normal-reference se` column and the status reason, and no interval column |
+| `curve()` | the three spread columns take their diagnostic names through `spread_name`, and an `inference` column is added, as `to_frame()` does |
+| `incidence_total()` | `std_err` takes the name `plugin_std_err` through `spread_name`, as RM12 renames the spread columns of a sweep |
+| simultaneous bands | `LTMLE` builds no band on a fit that supplies no inference, as `TMLE.fit` does, and `summary()` prints the RM20 sentence. `simultaneous=True` is the default, so a raise would stop each default fit. RM16 holds the question of an explicit request |
+| shared texts | `StatusRecord.summary_note()` and `NO_SIMULTANEOUS_BANDS` hold the two texts that both summaries print. `TMLEResult.summary()` stays byte-identical |
+| nuisance note | the longitudinal nuisance-model item adds the `assessment_note` of the status |
+| zero-mass clusters | the cluster line of `summary()` adds `positive weight mass in N` when a cluster has zero weight mass, as the point-treatment line does |
+| a result saved before the status | `LongitudinalResult.__setstate__` recomputes the status from the saved data and folds. It stamps the estimates again, and it drops the bands and the assessment cache, as RM20 does. The replay then stays equal on a restored artifact |
+| E-value | no change. Each longitudinal fit reports the E-value row `unavailable` already |
+| a cross-fitted clustered result saved before F22 refused it | not in this row. No status names a refused composition, and [F22](#f22-grouped-cross-fitting-beyond-point-treatment-tmle) holds it |
+
+The plan adds two witnesses to the three above. A mutation that ignores the weights must fail a
+fit with 40 clusters and zero weight on one of them. A replay that drops the status must fail the
+truncation curve.
+
 ### RM27. Declared MSM design functions
 
 The [MSM reference](technical-reference/msm-projections.md#the-algorithm-as-implemented) states
