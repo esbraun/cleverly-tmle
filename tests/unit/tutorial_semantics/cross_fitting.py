@@ -92,6 +92,8 @@ def check(namespace: dict[str, Any]) -> None:
     assert 1.4 < clustered["ate"].std_error / ignoring["ate"].std_error < 1.7
     assert covers(ignoring["ate"], team_truth) and covers(clustered["ate"], team_truth)
     assert clustered.data.n_clusters == 200
+    # "This fit has 200 teams of 15 patients, so it keeps its interval."
+    assert clustered.inference_status == "influence_curve"
 
     # Step 8: "each team spans at most 1 outer fold". The unclustered fit is the nonzero witness:
     # without the declaration a team does span several folds.
@@ -102,6 +104,8 @@ def check(namespace: dict[str, Any]) -> None:
     few = namespace["few"]
     assert few.data.n_clusters == 4
     assert few.split_plan.n_folds == 4
+    # "Four teams are fewer than 40, so this fit reports a point estimate and no interval."
+    assert few.inference_status == "few_cluster_plugin"
     assert any("only 4 clusters" in str(warning.message) for warning in namespace["caught"])
 
     # Step 9: a new seed draws new folds; the plan reproduces the folds, the point, and the curve;

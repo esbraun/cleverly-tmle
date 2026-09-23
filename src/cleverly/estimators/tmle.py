@@ -125,7 +125,7 @@ from ..fluctuation.iterative import (
 from ..fluctuation.mechanism import needs_mechanism
 from ..fluctuation.submodel import Submodel, TargetGroup, restrict, stitch
 from ..inference.bootstrap import Resampling, run_bootstrap
-from ..inference.cluster import cross_validated_variance
+from ..inference.cluster import cluster_inference_status, cross_validated_variance
 from ..inference.influence import (
     CorrectionParts,
     InferenceStatus,
@@ -549,9 +549,12 @@ class TMLE:
         -------
         str
             One of :data:`~cleverly.inference.influence.InferenceStatus`. The ordinary
-            estimator returns ``"influence_curve"``.
+            estimator returns what
+            :func:`~cleverly.inference.cluster.cluster_inference_status` gives the cluster
+            labels: ``"influence_curve"`` on an unclustered fit, and a clustered status
+            on a cross-fitted fit at unequal cluster sizes or on a fit with few clusters.
         """
-        return "influence_curve"
+        return cluster_inference_status(data.cluster, cross_fit=self.cross_fit)
 
     def __init__(
         self,

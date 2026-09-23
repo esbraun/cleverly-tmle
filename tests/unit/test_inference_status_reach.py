@@ -8,8 +8,10 @@ fold-level report, so neither report had met a status before.
 
 Each class here forces one status from :data:`~cleverly._inference_status.NON_INFERENTIAL`
 on the ordinary estimator's hook and fits a clustered TMLE with ``cv_evaluation=True``.
-The forced hook stands in for the data-dependent statuses the later RM20 work packages
-add, so a status added to the table is checked here with no new test. Every report must
+The forced hook reaches every status on one fit, the clustered statuses of
+``tests/unit/test_cluster_status.py`` included, so a status added to the table is checked
+here with no new test. The fit has 40 equal clusters, so its own hook gives it
+``"influence_curve"`` and only the forced status applies. Every report must
 then publish no inferential name and no confidence-limit text, and every operation must
 answer or refuse by the reason of the status.
 
@@ -20,9 +22,7 @@ status must fail the bound check.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterator
-from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -33,46 +33,26 @@ from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_clustered
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, capitalize_first
-from cleverly.inference.influence import _DIAGNOSTIC_NAMES
 from cleverly.sensitivity import omitted_variable as omitted_variable_module
 from cleverly.sensitivity import omitted_variable_bounds, robustness_value
 from tests.conftest import linear_in_sample
-from tests.unit._inference_status_support import ROUTES, assert_refused_by, assert_restamped
+from tests.unit._inference_status_support import (
+    ROUTES,
+    assert_fold_report_withholds,
+    assert_fold_reports_restamped,
+    assert_no_inferential_name,
+    assert_no_inferential_text,
+    assert_refused_by,
+    assert_restamped,
+    stamp_headline_only,
+)
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
 pytestmark = pytest.mark.xdist_group("inference_status_reach")
 
-#: Every name a report publishes only when the package supplies inference: each key of
-#: the diagnostic-name table that is a column or a key, and the p-value columns, which
-#: have no diagnostic name at all.
-INFERENTIAL_NAMES = frozenset(
-    name for name in _DIAGNOSTIC_NAMES if re.fullmatch(r"[a-z_]+", name)
-) | {"p_value", "p_value_adjusted"}
-
-#: Text that claims an interval or a standard error. A status reason says "no confidence
-#: interval", so the bare phrase is not here: these are the forms a published number takes.
-FORBIDDEN_TEXT = (
-    re.compile(r"\bCIs?\b"),
-    re.compile(r"confidence[- ](limit|bound)"),
-    re.compile(r"(?<![\w-])std_err\b"),
-    re.compile(r"\bp_value\b"),
-    re.compile(r"\bRVa?\b.*confidence"),
-)
-
 #: What the combined report writes when an operation it ran raised ``CapabilityError``
 #: under a capability row that said the operation was available.
 DECLINED = "the operation declined this request"
-
-
-def assert_no_inferential_name(names: Any) -> None:
-    leaked = INFERENTIAL_NAMES & set(names)
-    assert not leaked, f"inferential names published on a diagnostic fit: {sorted(leaked)}"
-
-
-def assert_no_inferential_text(text: str) -> None:
-    for pattern in FORBIDDEN_TEXT:
-        match = pattern.search(text)
-        assert match is None, f"{pattern.pattern!r} matched {match.group(0)!r} in:\n{text}"
 
 
 @pytest.fixture(scope="module")
@@ -101,27 +81,6 @@ def status(request: pytest.FixtureRequest) -> Iterator[str]:
 @pytest.fixture(scope="module")
 def result(status: str, frame: Any) -> Any:
     return fit(frame)
-
-
-def assert_fold_report_withholds(result: Any, status: str) -> None:
-    """The fold-level report carries the status and publishes no inferential name."""
-    report = result.cv_targeting
-    assert report is not None
-    assert report.inference == status
-    for name in report.pooled:
-        with pytest.raises(CapabilityError) as raised:
-            _ = report.pooled[name].ci
-        assert_refused_by(status, raised)
-        with pytest.raises(CapabilityError):
-            _ = report.canonical[name].std_error
-    with pytest.raises(CapabilityError) as raised:
-        _ = report.std_error
-    assert_refused_by(status, raised)
-    assert report.plugin_std_error
-    columns = set(report.to_frame().columns)
-    assert_no_inferential_name(columns)
-    assert {"inference", "cv_plugin_std_err", "pooled_plugin_std_err"} <= columns
-    assert_no_inferential_text(report.summary())
 
 
 def assert_bound_withholds(result: Any, status: str) -> None:
@@ -168,29 +127,11 @@ class TestTheFoldLevelReport:
         self, status: str, frame: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The mutation control: only the headline estimates carry the status."""
-        stamped = TMLE._retarget_detailed
-
-        def headline_only(self: Any, *args: Any, **kwargs: Any) -> Any:
-            ordered, fluctuations, detail = stamped(self, *args, **kwargs)
-            if detail is not None:
-                detail = replace(
-                    detail,
-                    pooled=_unstamped(detail.pooled),
-                    canonical=_unstamped(detail.canonical),
-                )
-            return ordered, fluctuations, detail
-
-        monkeypatch.setattr(TMLE, "_retarget_detailed", headline_only)
+        stamp_headline_only(monkeypatch)
         mutant = fit(frame)
         assert mutant.inference_status == status
         with pytest.raises(AssertionError):
             assert_fold_report_withholds(mutant, status)
-
-
-def _unstamped(report: dict[str, Any]) -> dict[str, Any]:
-    return {
-        name: replace(estimate, inference="influence_curve") for name, estimate in report.items()
-    }
 
 
 class TestTheOmittedVariableBound:
@@ -275,13 +216,4 @@ class TestARestoredArtifactIsReStamped:
     def test_every_report_carries_the_status_again(
         self, result: Any, status: str, route: str
     ) -> None:
-        restored = assert_restamped(result, status, route)
-        detail = restored.cv_targeting
-        assert detail.inference == status
-        for name in detail.pooled:
-            assert detail.pooled[name].inference == status
-            assert detail.canonical[name].inference == status
-            assert (
-                detail.pooled[name].plugin_std_error
-                == result.cv_targeting.pooled[name].plugin_std_error
-            )
+        assert_fold_reports_restamped(assert_restamped(result, status, route), result, status)

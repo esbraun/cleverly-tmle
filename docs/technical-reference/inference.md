@@ -86,6 +86,8 @@ Every other status is a non-inferential status.
 | `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, or `"discrete"`. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `working-mechanism se` | [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
 | `"generated_design_plugin"` | every `CTMLE` fit with `strategy="oat"`, including a fit with `delta=` and a fit that requests one arm mean. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `generated-design se` | [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | `"estimated_weight_plugin"` | a `DRTMLE` fit with a non-empty `guard` and `weights_estimated=True`. A fit with `guard=()` keeps `"influence_curve"`. [DR-TMLE supported estimands](dr-tmle/supported-estimands.md#refused-by-name) gives the reason | raise `CapabilityError` with the reason of the status | `fixed-weight se` | [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
+| `"unequal_cluster_plugin"` | a cross-fitted `TMLE` or `DRTMLE` fit with `id=` whose clusters hold different numbers of rows. This includes `cv_evaluation=True`. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `cluster-robust plug-in se` | [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
+| `"few_cluster_plugin"` | a `TMLE` or `DRTMLE` fit with `id=` and fewer than 40 clusters, in sample or cross-fitted. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
 
 At every status, `plugin_std_error` and `plugin_interval` return the plug-in spread of the
 reported curve. On `"influence_curve"` they return the numbers of `std_error` and `ci` under names
@@ -154,6 +156,26 @@ Two estimators refuse `cluster=` rather than draw that split. Collaborative TMLE
 every setting, and longitudinal TMLE refuses it above one fold. The
 [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give the audit and both
 messages.
+
+Two clustered settings of `TMLE` and `DRTMLE` report no interval. Each takes a status from the
+[status table](#inference-status). The estimator reads the cluster labels before any learner runs.
+
+| setting | status | reason |
+| --- | --- | --- |
+| cross-fitted, and the clusters hold different numbers of rows | `"unequal_cluster_plugin"` | the [grouped folds](cv-tmle.md#grouped-folds) argument needs equal cluster sizes. Only then does the row-weighted target equal the cluster-weighted target |
+| fewer than 40 clusters, in sample or cross-fitted | `"few_cluster_plugin"` | the package uses a normal reference. Nugent et al. (2024), Section 2.2, recommend a $t$ reference with $J - 2$ degrees of freedom below 40 clusters. Benitez et al. (2023), Sections 3.1.2 and 3.2.1, recommend it at every cluster count. No registered study covers few clusters |
+
+The size of a cluster is its row count. A weighted fit whose clusters hold equal rows and unequal
+weight mass takes no status. An in-sample fit at unequal sizes keeps its interval when it has 40
+or more clusters. Benitez et al. (2023), Section 3.2.1, give the cluster-sum aggregation for that
+row-weighted estimand. When both settings apply, the fit takes `"unequal_cluster_plugin"`, which
+comes first in the status table.
+
+`FEW_CLUSTER_THRESHOLD` in `cleverly._inference_status` holds the threshold of 40. The `summary()`
+facts block prints the cluster count, and it adds the range of cluster sizes when the sizes
+differ. [References](../references.md#grouped-folds-and-clustered-cross-fitting) gives both
+sources. [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle) holds the
+route that reopens each setting.
 
 ## Transformed parameters
 

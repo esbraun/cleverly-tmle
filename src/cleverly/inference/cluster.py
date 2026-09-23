@@ -31,9 +31,13 @@ from collections.abc import Iterable, Sequence
 
 import numpy as np
 
+from .. import _inference_status
+from .._inference_status import InferenceStatus, precedent_status
 from .._typing import FloatArray, IntArray
 
 __all__ = [
+    "cluster_inference_status",
+    "cluster_sizes",
     "cluster_sums",
     "cross_validated_variance",
     "influence_variance",
@@ -341,3 +345,80 @@ def influence_covariance(
     n_clusters = sums.shape[0]
     covariance = np.cov(sums, rowvar=False, ddof=1).reshape(ic.shape[1], ic.shape[1])
     return np.asarray(n_clusters * covariance / n**2, dtype=float)
+
+
+def cluster_sizes(cluster: IntArray) -> IntArray:
+    """The number of rows in each distinct cluster, in sorted label order.
+
+    Parameters
+    ----------
+    cluster : ndarray of int
+        The cluster label of each row.
+
+    Returns
+    -------
+    ndarray of int
+        One row count per distinct label.
+    """
+    _, counts = np.unique(np.asarray(cluster).reshape(-1), return_counts=True)
+    return np.asarray(counts, dtype=np.int64)
+
+
+def cluster_inference_status(cluster: IntArray | None, *, cross_fit: bool) -> InferenceStatus:
+    """The inference status the cluster labels of a fit give it, before any learner runs.
+
+    Two clustered settings report no interval, as roadmap row RM20 decides, and F22 holds
+    the route that reopens each one.
+
+    ``"unequal_cluster_plugin"``
+        A cross-fitted fit whose clusters hold different numbers of rows. The package's
+        grouped cross-fitting argument needs equal cluster sizes, because only then does
+        the row-weighted target equal the cluster-weighted one. Size is the row count.
+        A weighted fit whose clusters hold equal rows and unequal weight mass takes no
+        status. An in-sample fit takes no status here.
+    ``"few_cluster_plugin"``
+        A fit, in sample or cross-fitted, with fewer distinct clusters than
+        :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD`. The threshold is read
+        from its module at each call.
+
+    When both apply, :func:`~cleverly._inference_status.precedent_status` gives the one
+    the fit takes.
+
+    Parameters
+    ----------
+    cluster : ndarray of int or None
+        The cluster label of each row, or ``None`` for an unclustered fit.
+    cross_fit : bool
+        Whether the nuisances are cross-fitted.
+
+    Returns
+    -------
+    str
+        One of :data:`~cleverly.inference.influence.InferenceStatus`.
+        ``"influence_curve"`` when ``cluster`` is ``None`` or neither setting applies.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.inference.cluster import cluster_inference_status
+    >>> equal = np.repeat(np.arange(40), 10)
+    >>> cluster_inference_status(equal, cross_fit=True)
+    'influence_curve'
+    >>> cluster_inference_status(equal[:-1], cross_fit=True)
+    'unequal_cluster_plugin'
+    >>> cluster_inference_status(equal[:-1], cross_fit=False)
+    'influence_curve'
+    >>> cluster_inference_status(np.repeat(np.arange(39), 10), cross_fit=False)
+    'few_cluster_plugin'
+    """
+    if cluster is None:
+        return "influence_curve"
+    counts = cluster_sizes(cluster)
+    unequal = cross_fit and counts.size > 0 and int(counts.min()) != int(counts.max())
+    few = counts.size < _inference_status.FEW_CLUSTER_THRESHOLD
+    return precedent_status(
+        [
+            "unequal_cluster_plugin" if unequal else "influence_curve",
+            "few_cluster_plugin" if few else "influence_curve",
+        ]
+    )

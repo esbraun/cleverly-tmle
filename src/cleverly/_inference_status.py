@@ -16,9 +16,10 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Literal, cast
+from typing import Final, Literal, cast
 
 __all__ = [
+    "FEW_CLUSTER_THRESHOLD",
     "NON_INFERENTIAL",
     "InferenceStatus",
     "StatusRecord",
@@ -38,7 +39,21 @@ InferenceStatus = Literal[
     "working_mechanism_plugin",
     "generated_design_plugin",
     "estimated_weight_plugin",
+    "unequal_cluster_plugin",
+    "few_cluster_plugin",
 ]
+
+# A clustered fit with fewer clusters than this takes the ``"few_cluster_plugin"`` status.
+# Nugent, Marquez, Charlebois, Abbott and Balzer (2024), Biostatistics 25(3):599-616,
+# Section 2.2, last paragraph: "In CRTs with fewer than 40 clusters randomized (N < 40),
+# we recommend using the Student's t distribution with N - 2 degrees of freedom", citing
+# Hayes and Moulton (2009). That is the only explicit threshold in a source read here.
+# Benitez, Nugent and Balzer (2023), Stat Med 42(19):3443-3466, Sections 3.1.2 and 3.2.1,
+# recommend t with J - 2 degrees of freedom at every cluster count. Neither paper compares
+# the normal reference with t. The package keeps its normal reference and withholds the
+# interval below this count; roadmap row RM20 records the decision and F22 the reopen route.
+#: The cluster count below which a clustered fit reports no interval (RM20).
+FEW_CLUSTER_THRESHOLD: Final[int] = 40
 
 
 @dataclass(frozen=True)
@@ -155,6 +170,63 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             diagnostic_noun="fixed-weight plug-in diagnostic",
             reopened_by="F5",
+        ),
+        "unequal_cluster_plugin": StatusRecord(
+            reason=(
+                "a cross-fitted clustered fit reports no confidence interval, no p-value and "
+                "no standard error when its clusters hold different numbers of rows. The "
+                "package's grouped cross-fitting argument needs equal cluster sizes, because "
+                "only then does the row-weighted target equal the cluster-weighted one "
+                "(docs/technical-reference/cv-tmle.md, grouped folds). The size of a cluster "
+                "is its row count, and its weight mass is not read. The point estimate "
+                "stands. The plug-in standard error of the reported curve remains as a "
+                "diagnostic under plugin_std_error and plugin_interval. The same clusters "
+                "fitted in sample keep the interval when there are at least "
+                f"{FEW_CLUSTER_THRESHOLD} of them. Benitez, Nugent and Balzer (2023), "
+                "Sections 3.1.2 and 3.2.1, give the cluster-sum aggregation for that "
+                "row-weighted estimand. F22 in docs/roadmap.md reopens this when a result "
+                "covers unequal cluster sizes."
+            ),
+            assessment_note=(
+                "the reported curve is an unequal-cluster diagnostic: no confidence interval "
+                "or p-value is available for this fit, and F22 in the roadmap is the "
+                "condition that reopens it"
+            ),
+            summary_label="cluster-robust plug-in se",
+            bootstrap_note=(
+                "a diagnostic; no result validates the bootstrap coverage of a cross-fitted "
+                "fit at unequal cluster sizes"
+            ),
+            diagnostic_noun="unequal-cluster plug-in diagnostic",
+            reopened_by="F22",
+        ),
+        "few_cluster_plugin": StatusRecord(
+            reason=(
+                f"a clustered fit with fewer than {FEW_CLUSTER_THRESHOLD} clusters reports no "
+                "confidence interval, no p-value and no standard error. The package uses a "
+                "normal reference distribution. Nugent, Marquez, Charlebois, Abbott and "
+                "Balzer (2024), Section 2.2, recommend a Student t reference with J - 2 "
+                f"degrees of freedom below {FEW_CLUSTER_THRESHOLD} clusters, and Benitez, "
+                "Nugent and Balzer (2023), Sections 3.1.2 and 3.2.1, recommend it at every "
+                "cluster count. No registered study covers a clustered fit with few "
+                "clusters. The point estimate stands. The plug-in standard error of the "
+                "reported curve remains as a diagnostic under plugin_std_error and "
+                "plugin_interval. "
+                "F22 in docs/roadmap.md reopens this with a t reference and a registered "
+                "study at few clusters."
+            ),
+            assessment_note=(
+                "the reported curve is a few-cluster diagnostic: no confidence interval or "
+                "p-value is available for this fit, and F22 in the roadmap is the condition "
+                "that reopens it"
+            ),
+            summary_label="normal-reference se",
+            bootstrap_note=(
+                "a diagnostic; no result validates the bootstrap coverage of a clustered fit "
+                "with few clusters"
+            ),
+            diagnostic_noun="few-cluster plug-in diagnostic",
+            reopened_by="F22",
         ),
     }
 )

@@ -406,10 +406,10 @@ previous reader had is not a citation; a page number is.
   line search and the stopping rule act on the whole vector. A joint fluctuation therefore equals
   the per-arm fits only to solver tolerance.
 
-  The ordinary variance rule is `np.var(ic, ddof=1) / n` (`src/cleverly/inference/cluster.py:138`).
+  The ordinary variance rule is `np.var(ic, ddof=1) / n` (`src/cleverly/inference/cluster.py:141`).
   It equals the R rule `var(IC) / n` at lines 1596 and 1610. The arm-indexed stacked fit uses
   this centered rule (`src/cleverly/estimators/tmle.py:3213-3215`). The stacked natural-course
-  mean keeps the second-moment rule (`src/cleverly/inference/cluster.py:240-278`). A stacked curve
+  mean keeps the second-moment rule (`src/cleverly/inference/cluster.py:243-279`). A stacked curve
   has empirical mean zero to targeting tolerance, so the two rules agree to first order.
 
   The table gives the source verdict for each composition in the arm-indexed mean group. The
@@ -632,8 +632,10 @@ article as the copy this project read.
   ([PMC10898620](https://pmc.ncbi.nlm.nih.gov/articles/PMC10898620/)). Section 3.1.2 and Section
   3.2.1 give the cluster-sum aggregation for a row-weighted estimand. Section 3.2.1 states that
   sample splitting and variance estimation "must respect the cluster as the independent unit". The
-  paper gives no fold law and no theorem for one. It also recommends a $t$ reference when the
-  cluster count is small.
+  paper gives no fold law and no theorem for one. The last paragraph of Section 3.1.2 and of
+  Section 3.2.1 recommends a $t$ reference with $J-2$ degrees of freedom at every cluster count, "As
+  a finite sample approximation to the normal distribution". It states no threshold, and it does
+  not compare the normal reference with $t$.
 - Balzer, Zheng, van der Laan & Petersen (2019), [*A new approach to hierarchical data analysis:
   Targeted maximum likelihood estimation for the causal effect of a cluster-level
   exposure*](https://doi.org/10.1177/0962280218774936), *Statistical Methods in Medical Research*
@@ -656,9 +658,13 @@ article as the copy this project read.
 - Nugent, Marquez, Charlebois, Abbott & Balzer (2024), [*Blurring cluster randomized trials and
   observational studies: Two-Stage TMLE for subsampling, missingness, and few independent
   units*](https://doi.org/10.1093/biostatistics/kxad015), *Biostatistics* 25(3):599-616, DOI
-  10.1093/biostatistics/kxad015. Sections 2.1.3 and 2.2 treat subsampling, missingness and few
-  independent units. There is no cross-fitting. The paper recommends a $t$ reference with $J-2$
-  degrees of freedom when the cluster count is small.
+  10.1093/biostatistics/kxad015. Read first-hand in the published version
+  ([PMC11247188](https://pmc.ncbi.nlm.nih.gov/articles/PMC11247188/)). Section 2 treats
+  subsampling and missingness, with the estimator in Section 2.1.3. Section 3 treats few
+  independent units. There is no cross-fitting. The last paragraph of Section 2.2 recommends a $t$
+  reference with $N-2$ degrees of freedom "In CRTs with fewer than 40 clusters randomized (N <
+  40)", citing Hayes and Moulton (2009). The paper does not compare the normal reference with $t$.
+  This project did not read Hayes and Moulton (2009).
 - Schnitzer, van der Laan, Moodie & Platt (2014), [*Effect of breastfeeding on gastrointestinal
   infection in infants: A targeted maximum likelihood approach for clustered longitudinal
   data*](https://doi.org/10.1214/14-AOAS727), *The Annals of Applied Statistics* 8(2):703-725, DOI

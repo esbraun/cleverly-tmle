@@ -25,6 +25,7 @@ from ..exceptions import (
 )
 from ..fluctuation.iterative import Fluctuation
 from ..inference.bootstrap import BootstrapResult
+from ..inference.cluster import cluster_sizes
 from ..inference.influence import (
     InferenceStatus,
     ParameterEstimate,
@@ -1355,7 +1356,7 @@ class TMLEResult:
         else:
             facts.append("causal study protocol: absent")
         if data.cluster is not None:
-            facts.append(f"clusters = {data.n_clusters} (cluster-robust variance)")
+            facts.append(f"clusters = {_cluster_fact(data.cluster)} (cluster-robust variance)")
         if data.is_weighted:
             report = data.weight_report()
             facts.append(
@@ -1638,6 +1639,20 @@ def _level_order(value: float | None) -> tuple[int, float]:
 def _is_intercept(column: FloatArray) -> bool:
     """Whether a design column is the constant one at every arm and every row."""
     return bool(np.all(np.asarray(column, dtype=float) == 1.0))
+
+
+def _cluster_fact(cluster: Any) -> str:
+    """The cluster count, and the range of cluster sizes when the sizes differ.
+
+    A cross-fitted fit at unequal sizes withholds its interval, so the facts block states
+    the sizes it read. Equal sizes print the count alone, as they did before the sizes
+    mattered to a status.
+    """
+    counts = cluster_sizes(cluster)
+    smallest, largest = int(counts.min()), int(counts.max())
+    if smallest == largest:
+        return f"{counts.size}"
+    return f"{counts.size}, sizes {smallest} to {largest}"
 
 
 def _arm_shares(data: CausalData) -> str:

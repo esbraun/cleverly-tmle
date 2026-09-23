@@ -101,8 +101,11 @@ if len(names) >= 2:
     difference = result.contrast(lambda values: values[0] - values[1], names[:2])
 ```
 
-Use cluster roles in the study design for cluster-robust variance. Use `Inference(simultaneous=True)`
-when the reported family, rather than each interval separately, needs error control.
+Use cluster roles in the study design for cluster-robust variance. A fit with fewer than 40
+clusters, or a cross-fitted fit at unequal cluster sizes, reports no interval.
+[Clusters](../technical-reference/inference.md#clusters) gives both reasons. Use
+`Inference(simultaneous=True)` when the reported family, rather than each interval separately,
+needs error control.
 
 A contrast inherits the inference status of its inputs. On a selector-path collaborative fit the
 contrast refuses `ci` as its inputs do, and the fit builds no simultaneous band.

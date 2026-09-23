@@ -34,12 +34,13 @@ INFERENCE_PAGE = ROOT / "docs" / "technical-reference" / "inference.md"
 ROADMAP = ROOT / "docs" / "roadmap.md"
 
 #: The precedence order, written out. A fit that meets more than one status takes the
-#: first one here. The order is the one the roadmap's RM20 precedence table gives, and
-#: WP3 of RM20 appends the two clustered statuses to it.
+#: first one here. The order is the one the roadmap's RM20 precedence table gives.
 PRECEDENCE = (
     "working_mechanism_plugin",
     "generated_design_plugin",
     "estimated_weight_plugin",
+    "unequal_cluster_plugin",
+    "few_cluster_plugin",
 )
 
 
@@ -166,3 +167,25 @@ class TestThePrecedence:
         monkeypatch.setattr(_inference_status, "NON_INFERENTIAL", table)
         assert precedent_status(["first_by_name", "second_by_name"]) == "second_by_name"
         assert precedent_status(["first_by_name"]) == "first_by_name"
+
+
+class TestTheFewClusterThreshold:
+    """The one constant holds the threshold, and the text is formatted from it."""
+
+    def test_the_threshold_is_the_sourced_count(self) -> None:
+        # Nugent et al. (2024), Section 2.2: "fewer than 40 clusters randomized (N < 40)".
+        assert _inference_status.FEW_CLUSTER_THRESHOLD == 40
+
+    def test_the_reason_states_the_threshold_it_applies(self) -> None:
+        threshold = _inference_status.FEW_CLUSTER_THRESHOLD
+        reason = NON_INFERENTIAL["few_cluster_plugin"].reason
+        assert reason.startswith(f"a clustered fit with fewer than {threshold} clusters")
+        assert f"below {threshold} clusters" in reason
+        assert f"at least {threshold} of them" in NON_INFERENTIAL["unequal_cluster_plugin"].reason
+
+    def test_no_threshold_is_written_by_hand_in_the_module(self) -> None:
+        """The literal appears once, on the constant, so the text cannot drift from it."""
+        source = Path(_inference_status.__file__).read_text(encoding="utf-8")
+        code = [line for line in source.splitlines() if not line.lstrip().startswith("#")]
+        written = [line for line in code if re.search(r"\b40\b", line)]
+        assert written == ["FEW_CLUSTER_THRESHOLD: Final[int] = 40"]

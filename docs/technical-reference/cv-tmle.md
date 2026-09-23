@@ -16,7 +16,7 @@ nuisance prediction used for an observation comes from a model that never saw th
 | flexible learners for either nuisance | cross-fitting can avoid a Donsker restriction under its remaining conditions | one nuisance fit per outer fold; a Super Learner also fits its candidates on inner folds |
 | you want the package default | cross-fitting is on by default, at ten outer folds | a Super Learner uses five additional inner folds unless configured otherwise. Ten by five is fifty model fits per library candidate |
 | the fold draw itself worries you | `repeats=` runs a complete estimator per draw and aggregates | linear cost in the repeat count |
-| clustered data | clusters stay intact in every split | a cluster-robust interval, because clusters, not rows, are the independent units. With fewer clusters than folds, the fold count drops to the cluster count, and a warning names both |
+| clustered data | clusters stay intact in every split | a cluster-robust interval, because clusters, not rows, are the independent units. With fewer clusters than folds, the fold count drops to the cluster count, and a warning names both. Unequal cluster sizes and fewer than 40 clusters withhold the interval, as [clusters](inference.md#clusters) states |
 
 **Cross-fitting does not buy the rest of efficiency.** Four conditions stand behind a valid
 interval, and folds address one of them.
@@ -318,7 +318,7 @@ the audit used.
 | Balzer, Zheng, van der Laan and Petersen (2019) | Section 3.1, Equation (9), and Section 4.2, Equations (20) and (21), read in the NIHMS author manuscript | a cluster-level exposure and a cluster-level estimand. No cross-fitting, and no split law |
 | Balzer, van der Laan and Petersen (2016) | Sections 3.1, 4.1, 5.1 and 6, read in the NIHMS author manuscript | selection by cross-validation over independent units, where a row is a cluster, in a randomized trial with a fixed GLM library. No post-selection theorem, and no row-level C-TMLE |
 | Balzer et al. (2023) | Sections 3.2 and 3.3 | a two-stage cluster-level estimator. No cross-fitting |
-| Nugent et al. (2024) | Sections 2.1.3 and 2.2 | no cross-fitting |
+| Nugent et al. (2024) | Sections 2.1.3, 2.2 and 3 | no cross-fitting. Section 2.2 gives a $t$ reference below 40 clusters |
 | Schnitzer, van der Laan, Moodie and Platt (2014) | Section 3.4.1, read in the arXiv reprint | a clustered longitudinal TMLE with a sandwich variance and no splitting. No theorem, and no cross-fitting |
 
 No source covers treatment-stratified grouped folds for an observational estimator. No source
@@ -347,10 +347,23 @@ the empirical witness, and it is the only one. Its design satisfies all four con
 construction. No source read here proves that the estimator is valid under clustering.
 
 Row weighting and cluster weighting agree only at equal, or non-informative, cluster sizes. The
-documented scope is equal cluster sizes. The package does not refuse unequal ones, and it makes no
-claim for them. No source read here supports a normal reference interval with few clusters, and
-Benitez et al. (2023) and Nugent et al. (2024) recommend a $t$ reference with $J - 2$ degrees of
-freedom below about 30 to 40 clusters.
+documented scope is equal cluster sizes. A cross-fitted fit whose clusters hold different numbers
+of rows takes the `"unequal_cluster_plugin"` status. `ci`, `pvalue`, and `std_error` then raise
+`CapabilityError`, and `plugin_std_error` and `plugin_interval` keep the diagnostic. The size of a
+cluster is its row count, and the package does not read its weight mass.
+
+No source read here supports a normal reference interval with few clusters. The table gives what
+each source recommends.
+
+| source | locator | recommendation |
+| --- | --- | --- |
+| Nugent et al. (2024) | Section 2.2, last paragraph, citing Hayes and Moulton (2009) | a $t$ reference with $N - 2$ degrees of freedom below 40 clusters |
+| Benitez et al. (2023) | Sections 3.1.2 and 3.2.1, last paragraph of each | a $t$ reference with $J - 2$ degrees of freedom at every cluster count, as a finite-sample approximation |
+
+The package keeps its normal reference. A fit with fewer than 40 clusters takes the
+`"few_cluster_plugin"` status, in sample or cross-fitted. [Clusters](inference.md#clusters) gives
+both statuses, and [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle)
+holds the routes that reopen them.
 
 ### The Super Learner inner split
 

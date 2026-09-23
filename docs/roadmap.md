@@ -2449,7 +2449,7 @@ fewer than 40 clusters the `few_cluster_plugin` status. The longitudinal path ha
 reference and no status. An in-sample `LTMLE` fit with `id=` passes the cluster labels to
 `make_estimate` (`src/cleverly/longitudinal/estimator.py:1546-1553`). The estimate then reports a
 normal-reference Wald interval (`src/cleverly/inference/influence.py:306-315`). No check reads the
-cluster count, apart from the two-cluster minimum in `src/cleverly/inference/cluster.py:142`.
+cluster count, apart from the two-cluster minimum in `src/cleverly/inference/cluster.py:145-146`.
 
 `LongitudinalResult` (`src/cleverly/longitudinal/estimator.py:637`) has no status machinery, so
 the RM20 decision cannot reach it. The cross-fitted clustered fit refuses `id=`
