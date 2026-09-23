@@ -99,10 +99,9 @@ E-value row each read that table. `tests/unit/test_inference_status_registry.py`
 table, the `InferenceStatus` type, and the rows above list the same statuses.
 
 A fit has one status. `TMLEResult.inference_status` and `LongitudinalResult.inference_status`
-return it. The estimator decides the status from its configuration and the prepared data; it reads
-no fitted quantity. When more than one
-non-inferential status applies, the fit takes the first one in the table above. The rows are in
-that order.
+return it. The estimator decides the status from its configuration and the prepared data. It reads
+no fitted quantity. When more than one non-inferential status applies, the fit takes the first one
+in the table above. The rows are in that order.
 
 A report that publishes a spread names its columns through `spread_name` in
 `cleverly.inference.influence`. On a non-inferential status, `to_frame()` emits `inference`,

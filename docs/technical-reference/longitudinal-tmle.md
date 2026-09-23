@@ -180,9 +180,10 @@ one minus a cause-specific incidence is not all-cause survival. A fit that decla
 reports the view, because the sum over the causes is that one incidence. `incidence_total()` sums
 the cause-specific influence curves and reports their joint standard error.
 
-On a fit whose status supplies no inference, the `incidence_total()` column is `plugin_std_err`,
-a diagnostic. The method `curve()` then renames its three spread columns as `to_frame()` does, and
-it adds an `inference` column ([inference status](inference.md#inference-status)).
+On a fit whose status supplies no inference, `incidence_total()` names its `std_err` column
+`plugin_std_err`, a diagnostic. On such a fit, `curve()` renames its three spread columns as
+`to_frame()` does, and it adds an `inference` column
+([inference status](inference.md#inference-status)).
 
 Two vocabularies describe a row of the curve. Each vocabulary gets its own column.
 

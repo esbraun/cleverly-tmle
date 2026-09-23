@@ -126,7 +126,7 @@ alone would make `truncation_curve()` refuse.
 | `smooth_contrast` and `median_estimates` | the status of their inputs. Each raises `ValueError` on a mix |
 | `TMLEResult.__setstate__` | the hook's status on the saved data, when the saved estimates or fold-level reports declare another status |
 | `variable_importance` | none. It asks the hook on each candidate's prepared data, and it refuses before the first fit |
-| a longitudinal estimator | `cluster_inference_status` on the prepared cluster labels and weights. The fit and the truncation-curve replay pass it to `make_estimate` |
+| a longitudinal estimator | `cluster_inference_status` on the prepared cluster labels and weights. The fit and the truncation-curve replay pass it through `_estimates` and `_msm_estimates` to each `make_estimate` call |
 | `LongitudinalResult.__setstate__` | the status of the saved data and folds, when that status supplies no inference and the saved estimates declare another. It drops the saved bands and assessment answers |
 
 One fit has one status. When more than one non-inferential status applies, the fit takes the

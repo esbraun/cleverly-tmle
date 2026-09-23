@@ -816,7 +816,7 @@ The witnesses must fail when a component is wrong:
 | identification and result summaries | each summary reprints all 11 protocol lines, so a notebook that prints the protocol, the identified effect, and the result shows the record three times | `StudyProtocol.summary_lines` returns 11 lines (`src/cleverly/protocol.py:180-200`). `IdentifiedEffect.summary` and `IdentifiedEffect.summary_lines` append them (`src/cleverly/study.py:2569-2589`, `:2591-2610`), and the result summary appends `summary_lines` (`src/cleverly/estimators/base.py:1377-1378`). The `dr-tmle` notebook shows the block three times | add a summary option that prints only the `causal study protocol: schema N; fingerprint` line. Keep the full record as the default, so that a summary read alone stays complete |
 | missing-outcome `DataError` | tells a study user to pass `delta=<column>` | `src/cleverly/data/validate.py:311`. `PointTreatment` names the field `missingness` (`src/cleverly/study.py:403`). A probe through `CausalStudy` returns the `delta=` text | name `missingness=` for a study design. Keep `delta=` only where the low-level `CausalData` constructor raises the error |
 | split-spread fact of the `nuisance_models` assessment row on a selector fit | says "largest sd/se", while `summary()` of the same report says "sd/plugin se" | `_nuisance_item` in `src/cleverly/assessment.py` writes fixed text. A greedy fit of `make_instrument(n=600, seed=44)` with `repeats=2` prints "largest sd/se 0.0743 for ate" beside the working-mechanism note | read the name from `influence.spread_name`, as the other surfaces do |
-| an explicit `simultaneous=True` on a selector fit | the fit builds no band and raises no warning. Only `summary()` states the omission | a greedy fit of the same law with three estimands records no warning. Its summary prints "no simultaneous bands: a band is a joint confidence statement, and this fit reports none." The default is `True`, so the fit cannot tell an explicit request from the default | decide between a default that separates the two cases and the present summary line, and record the decision in the [collaborative reference](technical-reference/collaborative-tmle.md) |
+| an explicit `simultaneous=True` on a fit that supplies no inference | the fit builds no band and raises no warning. Only `summary()` states the omission | a greedy fit of the same law with three estimands records no warning. Its summary prints "no simultaneous bands: a band is a joint confidence statement, and this fit reports none." The default is `True`, so the fit cannot tell an explicit request from the default | decide between a default that separates the two cases and the present summary line, and record the decision in the [collaborative reference](technical-reference/collaborative-tmle.md) and in [inference status](technical-reference/inference.md#inference-status) |
 | in-sample C-TMLE selection-fold refusal | tells the caller to fit in sample with `cross_fit=False`, and the fit is already in sample. The downstream nuisance error says the same | `CTMLE(strategy="greedy", cross_fit=False, selection_folds=6, q_bounds=(0, 1))` with `delta=` on `respondents_in_one_fold()` from `tests/unit/test_fold_policy_rules.py`, at `random_state=1146`. The fit raises `DataError` "C-TMLE selection cannot fit its nuisances because repeat 0, fold 2's training complement contains no row with an observed outcome", which ends "Either fit in sample with cross_fit=False on the engine". With `TMLE._check_training_support` patched out, the nuisance fold loop raises `ValueError` "a cross-fitting fold has no trainable rows for a nuisance model", which says "Fit in sample instead (cross_fit=False on the engine ...)". The remedy is `_IN_SAMPLE_REMEDY` in `src/cleverly/learners/crossfit.py` and the text in `src/cleverly/estimators/_nuisance.py` | name the selection folds as the split that failed, and give a remedy that is true for an in-sample fit |
 | `DRTMLE` class docstring | describes an open centring defect on a quarter of splits, and names the test class `TestTheReportedCurveIsNotAlwaysCentred` | no test class has that name. `TestTheReportedCurveIsCentredWhereTheBoundBinds` in `tests/unit/test_drtmle_fit.py` records the fix, which solves the score at the truncated tilt. The docstring of `TestEachDrawSolvesItsOwnEquations` names the old class too | describe the fixed state, and name the present class in both docstrings |
 | bootstrap summary on a non-inferential fit | `estimate.bootstrap.ci` answers, and `to_dict` emits `bootstrap_std_err`, under inferential names on a fit whose status supplies no inference | `BootstrapSummary` in `src/cleverly/inference/influence.py` is a plain dataclass, and `ParameterEstimate.to_dict` writes `bootstrap_std_err` whatever the status. `to_dict` already renames the percentile limits to `bootstrap_range_lower` and `bootstrap_range_upper`. RM12 kept the `bootstrap_std_err` name on purpose, and the [collaborative reference](technical-reference/collaborative-tmle.md) says so | decide what the bootstrap publishes on such a fit, and record the decision in the collaborative reference and in [inference status](technical-reference/inference.md#inference-status). A refusal at `.bootstrap.ci` would break the `ci=` keyword of the `BootstrapSummary` constructor, every reader of that field, and results pickled before the change |
@@ -841,8 +841,7 @@ and assert that the message names the in-sample fit.
 The delivery of [RM26](#rm26-longitudinal-clustered-intervals-at-few-clusters) widened the
 simultaneous row. `LTMLE` now skips its default band below 40 clusters, as `TMLE` does under each
 non-inferential status. An explicit `simultaneous=True` on that fit also builds no band and raises
-no warning. The decision of the row must cover both estimators, and the
-[inference reference](technical-reference/inference.md#inference-status) must record it too.
+no warning. The decision of the row must cover both estimators.
 
 ### RM18. Red property cells after the fold, scale and law changes
 
@@ -2817,26 +2816,26 @@ with the commit that shipped it.
 | --- | --- |
 | status rule | `_inference_status` calls `cluster_inference_status` on the prepared cluster labels, and on the weights of a weighted fit. `LongitudinalData` has no strata, so the count is the positive-mass cluster count of the whole fit. The function reads nothing fitted, and it passes `folds.n_folds > 1` as `cross_fit`. A live fit refuses `id=` above one fold, so it can take `few_cluster_plugin` only. Commit a41848d |
 | stamp site | `_estimates` and `_msm_estimates` take a required `inference` argument and pass it to each `make_estimate` call. `LTMLE.fit` and the replay function `_refit_bound` both compute the status and call them, so the replay stays equal to the fit. Commit a41848d |
-| result status | `LongitudinalResult.inference_status` returns the one status of the estimates, as `TMLEResult.inference_status` does. It returns `influence_curve` on a fit with no estimate. Commit a41848d |
+| result status | `LongitudinalResult.inference_status` returns the one status of the estimates, as `TMLEResult.inference_status` does. It returns `influence_curve` on a fit with no estimate. Commit a41848d. Both properties and `CVTargeting.inference` now read that rule from `reported_status` in `src/cleverly/inference/results.py` (commit e12c545) |
 | `summary()` | a fit that supplies no inference prints the `normal-reference se` column, the reason of the status, and no interval or p-value column. The ordinary branch is byte-identical. Commit a41848d |
 | `curve()` | the three spread columns take the names `plugin_std_err`, `plugin_interval_lower`, and `plugin_interval_upper` through `spread_name`, and an `inference` column is added, as `to_frame()` does. The values come from `plugin_std_error` and `plugin_interval`, the bodies that `std_error` and `ci` read. Commit a41848d |
 | `incidence_total()` | `std_err` takes the name `plugin_std_err` through `spread_name`, as RM12 renames the spread columns of a sweep. Commit a41848d |
-| simultaneous bands | `LTMLE._bands` returns `None` on a fit that supplies no inference, as `TMLE.fit` does. `summary()` prints the RM20 sentence on a fit with two or more estimates. `simultaneous=True` is the default, so a raise would stop each default fit. [RM16](#rm16-summary-and-error-message-accuracy) holds the question of an explicit request. Commit a41848d |
+| simultaneous bands | `LTMLE._bands` returns `None` on a fit that supplies no inference, as `TMLE.fit` does. It reads the status that `LTMLE.fit` stamped (commit e12c545). `summary()` prints the RM20 sentence on a fit with two or more estimates. `simultaneous=True` is the default, so a raise would stop each default fit. [RM16](#rm16-summary-and-error-message-accuracy) holds the question of an explicit request. Commit a41848d |
 | shared texts | `StatusRecord.summary_note()` and `NO_SIMULTANEOUS_BANDS` in `src/cleverly/_inference_status.py` hold the two texts that both summaries print. `TMLEResult.summary()` reads them and stays byte-identical. Commit a41848d |
-| nuisance note | the longitudinal branch of `_nuisance_item` in `src/cleverly/assessment.py` adds the `assessment_note` of the status. It reads the status with `getattr`, because a call with no result has none. Commit a41848d |
-| zero-mass clusters | the cluster line of `summary()` adds `positive weight mass in N` when a cluster has zero weight mass, as the point-treatment line does. A weighted fit with 40 or more positive-mass clusters and one zero-mass cluster now prints it too. Commit a41848d |
-| a result saved before the status | `LongitudinalResult.__setstate__` recomputes the status from the saved data and folds. When that status supplies no inference and the saved estimates declare another, it stamps them again. It drops the bands and the assessment cache, as RM20 does. The replay then stays equal on a restored artifact. Commit a41848d |
+| nuisance note | the longitudinal branch of `_nuisance_item` in `src/cleverly/assessment.py` adds the `assessment_note` of the status. It reads the status of the result. A call with no result adds no note (commit e12c545). Commit a41848d |
+| zero-mass clusters | the cluster line of `summary()` adds `positive weight mass in N` when a cluster has zero weight mass, as the point-treatment line does. A weighted fit with 40 or more positive-mass clusters and one zero-mass cluster now prints it too. Commit a41848d. Both lines now read the clause from `positive_mass_clause` in `src/cleverly/inference/cluster.py` (commit e12c545) |
+| a result saved before the status | `LongitudinalResult.__setstate__` recomputes the status from the saved data and folds. When that status supplies no inference and the saved estimates declare another, it stamps them again. It drops the bands and the assessment cache, as RM20 does. The replay then stays equal on a restored artifact. Commit a41848d. Data saved before `LongitudinalData` had `weights` (commit 16d2643) raised `AttributeError` at load. It now loads as unweighted, and an unclustered result loads as saved (commit e12c545) |
 | E-value | no change. Each longitudinal fit reports the E-value row `unavailable` already |
 | test support | `at_or_below` moved to `tests/unit/_inference_status_support.py`, and `legacy_copy` reads `cv_targeting` with `getattr`, so both serve the longitudinal tests. Commit a41848d |
-| reference | the [data design guide](user-guide/data-design.md), [results and assessment](user-guide/results-assessment.md#contrasts-and-simultaneous-inference), [inference status](technical-reference/inference.md#inference-status), [clusters](technical-reference/inference.md#clusters), the [scope page](technical-reference/scope-and-refusals.md), [CV-TMLE](technical-reference/cv-tmle.md), the [longitudinal reference](technical-reference/longitudinal-tmle.md), and the [architecture invariants](architecture-invariants.md) describe the status on the longitudinal fit. Commit f309679 |
+| reference | the [data design guide](user-guide/data-design.md) and [results and assessment](user-guide/results-assessment.md#contrasts-and-simultaneous-inference) describe the status on the longitudinal fit. So do [inference status](technical-reference/inference.md#inference-status), [clusters](technical-reference/inference.md#clusters), the [scope page](technical-reference/scope-and-refusals.md), [CV-TMLE](technical-reference/cv-tmle.md), the [longitudinal reference](technical-reference/longitudinal-tmle.md), and the [architecture invariants](architecture-invariants.md). Commit f309679 |
 | a cross-fitted clustered result saved before F22 refused it | not in this row. No status names a refused composition, and [F22](#f22-grouped-cross-fitting-beyond-point-treatment-tmle) holds it |
 
 The row planned three witnesses, and the plan added two. The table gives the state of each. All of
-them are in `tests/unit/test_longitudinal_cluster_status.py`, which holds 30 tests.
+them are in `tests/unit/test_longitudinal_cluster_status.py`, which holds 39 tests.
 
 | witness | state |
 | --- | --- |
-| 1. a test fits an in-sample `LTMLE` with `id=` and 39 clusters, and pins the status, the refusal, and the message | delivered. `TestFewClustersWithholdTheLongitudinalInterval` fits an end-of-study, a competing-risk, and an MSM fit. It pins each refusal message whole, the summary note, and the renamed columns of `curve()`, `incidence_total()`, and `coefficients()`. It also checks the skipped bands, the nuisance note, the truncation replay, and the `CausalStudy` workflow |
+| 1. a test fits an in-sample `LTMLE` with `id=` and 39 clusters, and pins the status, the refusal, and the message | delivered. `TestFewClustersWithholdTheLongitudinalInterval` fits an end-of-study, a survival, a competing-risk, and an MSM fit. It pins each refusal message whole, the summary note, and the renamed columns of `curve()`, `incidence_total()`, and `coefficients()`. On the survival fit it reads both views of `curve()`, and it checks how each view maps the plug-in bounds. It also checks the skipped bands, the nuisance note, the truncation replay, and the `CausalStudy` workflow |
 | 2. a control at 40 clusters keeps its interval | delivered. `TestFortyClustersKeepTheLongitudinalInterval` fits the same rows in 40 clusters. They keep `influence_curve`, the inferential column names, and the default bands. Their point estimates equal those at 39 clusters |
 | 3. a mutation that restores the `influence_curve` status makes the first test fail | delivered as `test_restoring_the_influence_curve_status_fails` in `TestTheMutationsFailTheWitness`, on each kind of fit |
 | 4. a rule that ignores the weights fails a fit with 40 clusters and zero weight on one of them | delivered. `test_zero_mass_clusters_do_not_count` is the witness, and `test_all_positive_weights_keep_the_interval` is its control |
@@ -2844,34 +2843,42 @@ them are in `tests/unit/test_longitudinal_cluster_status.py`, which holds 30 tes
 
 `TestAnOlderLongitudinalArtifact` restores a 39-cluster fit saved without the status, through
 `pickle` and through `serialize`. The result loads under `few_cluster_plugin`, and its truncation
-curve answers. A 40-cluster artifact loads as saved.
+curve answers. A 40-cluster artifact loads as saved. The class also deletes the `weights` field
+of the saved data, on an unclustered fit and on a 39-cluster fit. The first loads under
+`influence_curve`, and the second loads under `few_cluster_plugin`.
 
-`TestTheMutationsFailTheWitness` commits five mutations in seven tests, through `monkeypatch`.
+`TestTheMutationsFailTheWitness` commits five mutations in eight tests, through `monkeypatch`.
 Restoring the `influence_curve` status fails the witness on each kind of fit. A threshold of 0
 fails the witness and the nuisance note. An at-or-below comparison still passes the witness, and
 it fails the 40-cluster control. A rule that ignores the weights fails the zero-mass witness. A
 replay without the status fails the truncation check.
 
-Fourteen more mutations ran by hand after commit f309679. Each run applied one mutation to the
-file at HEAD and ran `tests/unit/test_longitudinal_cluster_status.py`. It then restored the file,
-and the restored file matched its blob at HEAD. No mutation survived.
+Sixteen more mutations ran by hand at commit 3eef4a4, after the review fixes to the code and the
+tests. Each run applied one mutation to the file at HEAD and ran
+`tests/unit/test_longitudinal_cluster_status.py`. It then restored the file, and the restored file
+matched its blob at HEAD. Fifteen mutations failed at least one test. The table gives them.
 
 | mutation | file | tests that failed |
 | --- | --- | --- |
-| `_inference_status` returns `influence_curve` | `src/cleverly/longitudinal/estimator.py` | 14: the three withholding witnesses, the three report checks, the bands, the note, the zero-mass witness, the study workflow, both legacy routes, the at-or-below control, and the replay mutation test |
+| `_inference_status` returns `influence_curve` | `src/cleverly/longitudinal/estimator.py` | 18: the four withholding witnesses, the four report checks, the bands, the note, the zero-mass witness, the study workflow, both legacy routes, both 39-cluster loads without `weights`, the at-or-below control, and the replay mutation test |
+| `_inference_status` reads `data.weights` directly | `src/cleverly/longitudinal/estimator.py` | 2: both 39-cluster loads without `weights` |
 | `_refit_bound` stamps `influence_curve` | `src/cleverly/longitudinal/estimator.py` | 3: the truncation replay and both legacy routes |
 | `_bands` builds bands at any status | `src/cleverly/longitudinal/estimator.py` | 4: the skipped default bands, the study workflow, and both legacy routes |
-| `__setstate__` skips the re-stamp | `src/cleverly/longitudinal/estimator.py` | 2: both legacy routes |
-| the re-stamp keeps the bands | `src/cleverly/longitudinal/estimator.py` | 2: both legacy routes |
-| `curve()` keeps the inferential names | `src/cleverly/longitudinal/estimator.py` | 1: the competing-risk report check |
-| `curve()` adds no `inference` column | `src/cleverly/longitudinal/estimator.py` | 1: the competing-risk report check |
+| `__setstate__` skips the re-stamp | `src/cleverly/longitudinal/estimator.py` | 4: both legacy routes and both 39-cluster loads without `weights` |
+| the re-stamp keeps the bands | `src/cleverly/longitudinal/estimator.py` | 4: both legacy routes and both 39-cluster loads without `weights` |
+| `curve()` keeps the inferential names | `src/cleverly/longitudinal/estimator.py` | 2: the survival and competing-risk report checks |
+| `curve()` adds no `inference` column | `src/cleverly/longitudinal/estimator.py` | 2: the survival and competing-risk report checks |
 | `incidence_total()` keeps `std_err` | `src/cleverly/longitudinal/estimator.py` | 1: the competing-risk report check |
 | `summary()` drops the positive-mass fact | `src/cleverly/longitudinal/estimator.py` | 1: the zero-mass witness |
 | `summary()` drops the no-bands line | `src/cleverly/longitudinal/estimator.py` | 1: the skipped default bands |
-| `summary()` drops the reason of the status | `src/cleverly/longitudinal/estimator.py` | 5: the three withholding witnesses, the zero-mass witness, and the at-or-below control |
+| `summary()` drops the reason of the status | `src/cleverly/longitudinal/estimator.py` | 6: the four withholding witnesses, the zero-mass witness, and the at-or-below control |
 | the nuisance item drops the note | `src/cleverly/assessment.py` | 1: the nuisance and assessment note |
 | `_msm_estimates` drops the status | `src/cleverly/longitudinal/estimator.py` | 2: the MSM witness and the MSM report check |
-| `_estimates` drops the status of the contrasts | `src/cleverly/longitudinal/estimator.py` | 10: the end-of-study and competing-risk witnesses and report check, the bands, the note, the study workflow, the zero-mass witness, the at-or-below control, and both legacy routes |
+| `_estimates` drops the status of the contrasts | `src/cleverly/longitudinal/estimator.py` | 11: the end-of-study, survival, and competing-risk witnesses, the survival and competing-risk report checks, the bands, the note, the zero-mass witness, the at-or-below control, and both legacy routes |
+
+The sixteenth mutation survived. It removes the early return of the re-stamp on unclustered data.
+On unclustered data, `_inference_status` returns `influence_curve` without a read of the weights.
+So the load still succeeds, and the early return only skips that call.
 
 The row probe, re-run on the delivered code, reads `few_cluster_plugin`. The table gives the
 estimates.
@@ -2896,7 +2903,8 @@ and every hash matched. It covered `fit_cleverly` of `canonical_ltmle`,
 curves, incidence totals, coefficients, and truncation curves. It also covered unclustered and
 100-cluster end-of-study, survival, competing-risk, and MSM fits with default bands. It covered
 the point-treatment `TMLEResult` `summary()` and `to_frame()` at 39 and 40 clusters. The check ran
-again after commit f309679, and all 70 hashes still matched.
+again after commit f309679 and after the review fixes in commit e12c545, and all 70 hashes
+still matched.
 
 The delivery found four more surfaces. The table gives where each one is held.
 
