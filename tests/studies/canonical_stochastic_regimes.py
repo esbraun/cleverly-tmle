@@ -49,7 +49,7 @@ def interventions(*, uniform: bool = False) -> tuple[Any, ...]:
     density = np.full_like(law.REGIMES["tilt"], 0.5) if uniform else law.REGIMES["tilt"]
     return (
         Static(0.0, name="never"),
-        Stochastic(lambda frame: density[_levels(frame)], name="tilt"),
+        Stochastic(lambda frame: density[_levels(frame)], name="tilt", density_kind="known"),
     )
 
 

@@ -6,8 +6,9 @@ objects that must reproduce them.  Keeping the two apart is what makes the compa
 check rather than a restatement: the oracle never constructs an
 :class:`~cleverly.interventions.Intervention`, and these never state a functional.
 
-``tests/unit/test_regimes.py`` asserts the densities agree, which is the join between
-them; every other regime test may then use either side freely.
+``TestTheOracleAndTheLibraryDescribeTheSameRegimes`` in
+``tests/unit/test_influence_gateaux_regime.py`` asserts the densities agree, which is the
+join between them; every other regime test may then use either side freely.
 """
 
 from __future__ import annotations
@@ -37,5 +38,7 @@ def interventions() -> tuple[Any, ...]:
         # d(w) = 0 at w = 1 and 1 elsewhere: the rule has to *look* at W, or the
         # comparison against a static regime proves nothing.
         Rule(lambda frame: np.where(_levels(frame) == 1, 0, 1), name="rule"),
-        Stochastic(lambda frame: law.REGIMES["tilt"][_levels(frame)], name="tilt"),
+        Stochastic(
+            lambda frame: law.REGIMES["tilt"][_levels(frame)], name="tilt", density_kind="known"
+        ),
     )

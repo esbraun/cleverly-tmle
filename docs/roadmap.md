@@ -55,19 +55,24 @@ the measured result. RM20 is delivered, and its detail section records what ship
 
 The 2026-09-22 plan for RM20 and RM13 found two sibling surfaces that neither row names.
 [RM25](#rm25-declared-stochastic-regime-densities) holds a stochastic regime density that closes
-over an estimate. [RM26](#rm26-longitudinal-clustered-intervals-at-few-clusters) holds the
-few-cluster interval of the longitudinal path. The delivery of RM20 and RM13 found more late
-refusals and refusal messages, which RM24 and RM16 now hold.
+over an estimate. RM25 is delivered, and its detail section records what shipped.
+[RM26](#rm26-longitudinal-clustered-intervals-at-few-clusters) holds the few-cluster interval of
+the longitudinal path. The delivery of RM20 and RM13 found more late refusals and refusal
+messages, which RM24 and RM16 now hold.
 
 The review of that delivery found a third sibling surface.
 [RM27](#rm27-declared-msm-design-functions) holds an MSM design function that closes over a sample
-statistic. The table below lists the rows that remain.
+statistic.
+
+The 2026-09-23 plan for RM25 found a fourth sibling surface.
+[RM28](#rm28-declared-densities-of-user-written-interventions) holds the density of a
+user-written `Intervention` class. The table below lists the rows that remain.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.13 | Declared stochastic regime densities | require a declaration that a `Stochastic` density is known, and refuse an undeclared or estimated density before the fit | a `Stochastic` regime whose `density_fn` closes over a fitted mechanism fits without a message. The [scope page](technical-reference/scope-and-refusals.md#wrong-by-construction) lists that regime as refused | [RM25](#rm25-declared-stochastic-regime-densities) |
 | 0.14 | Longitudinal clustered intervals at few clusters | give `LongitudinalResult` an inference status, and apply the RM20 few-cluster decision to the in-sample clustered fit | an in-sample `LTMLE` fit with `id=` and fewer than 40 clusters reports a normal-reference interval. `LongitudinalResult` has no status machinery | [RM26](#rm26-longitudinal-clustered-intervals-at-few-clusters) |
 | 0.15 | Declared MSM design functions | decide how an MSM `design` declares that it is a known function, and refuse a design declared estimated before the fit | a `design` callable can close over a sample statistic, such as the sample mean of a covariate. The projection is then a functional of $P$ through the design, and the reported curve omits that derivative. Nothing declares or refuses it | [RM27](#rm27-declared-msm-design-functions) |
+| 0.16 | Declared densities of user-written interventions | require known-function declarations for custom `Intervention` densities and callable `Rule` and `DynamicRegimen` policies | a custom class receives the `CausalData` of the fit. On the RM25 witness law, its sample-mechanism tilt reports 0.6226 of the population-law odds-tilt target's exact standard error. The built-in rule callables also lack declarations | [RM28](#rm28-declared-densities-of-user-written-interventions) |
 | 0.21 | E-value on a controlled-direct-effect fit | find a source that derives an E-value for a controlled direct effect, or refuse each E-value branch that no source covers on a fit with an intermediate variable | the Gaussian branch and the reported-ratio branches answer on that fit, and the derived-ratio branch refuses it. No source read here covers the case | [RM21](#rm21-e-value-on-a-controlled-direct-effect-fit) |
 | 0.22 | Standard error of the omitted-variable bound | add the influence term of the conditioning share to the ATT and ATC curve, decide what the plug-in limits claim, and check each locator against the published article | the curve of $\nu^2$ omits $-2 \nu^2 (1\{A = c\} - p) / p$. Under the doubly robust estimator the omission widens the limits. No derivation covers the plug-in limits | [RM22](#rm22-standard-error-of-the-omitted-variable-bound) |
 | 0.31 | Capability rows that read available and then refuse | make each declared row match its call, and add a witness that sweeps the kinds of fit | four rows on three kinds of fit read available, and the call then refuses or raises. On one of them, `assess(include_refits=True)` raises `ValueError` and returns no report | [RM23](#rm23-capability-rows-that-read-available-and-then-refuse) |
@@ -84,7 +89,7 @@ A row that another row depends on comes before that row.
 
 | tier | defect | rows |
 | --- | --- | --- |
-| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM25, RM26, RM27, RM21, RM22 |
+| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM26, RM27, RM28, RM21, RM22 |
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM23, RM14 |
 | c | a correct refusal that arrives late or as the wrong type | RM24 |
 | d | a diagnostic or a warning that misleads | RM15 |
@@ -97,9 +102,9 @@ tier.
 
 | row | reason for its place |
 | --- | --- |
-| RM25 | a density that closes over an estimate leaves a term out of the reported curve. Its standard error can be wrong. This row reuses the declaration pattern that RM13 delivered |
-| RM26 | the few-cluster surface of RM20 on the longitudinal path. It reuses the threshold and the status table that RM20 delivered. No read source measures the size of its defect, so it follows RM25 |
-| RM27 | only a design that closes over a sample statistic reaches it. On one exact law, the reported standard error of the intercept is 0.893 of the exact one, and the other coefficients keep their curves. The omitted term can have either sign, so it follows RM25 and RM26 |
+| RM26 | the few-cluster surface of RM20 on the longitudinal path. It reuses the threshold and the status table that RM20 delivered. No read source measures the size of its defect |
+| RM27 | only a design that closes over a sample statistic reaches it. On one exact law, the reported standard error of the intercept is 0.893 of the exact one, and the other coefficients keep their curves. The omitted term can have either sign, so it follows RM26 |
+| RM28 | a custom `Intervention` or a callable rule reaches it. RM27's `MSM.design` is another constructor argument and keeps its earlier place. RM28 extends the declaration that RM25 delivered |
 | RM21 | an E-value that no read source covers, on controlled-direct-effect fits only |
 | RM22 | the defect widens the limits of the default doubly robust estimator, which is conservative. No derivation covers the plug-in limits, but the probe measured their ratios at 0.992 to 1.026 |
 | RM23 | one fit loses the whole assessment report, and four rows on three kinds of fit read available and then refuse |
@@ -110,9 +115,10 @@ tier.
 | RM18 | five open designs, which read 19 red rows in six studies. The ledger already publishes each of those verdicts |
 | RM19 | one configuration, which RM18 opened. Its Bonferroni interval covers zero, and it moves no verdict |
 
-No open row waits on another open row. RM25 and RM27 reuse the declaration pattern of RM13, and
-RM26 reuses the threshold and the status table of RM20. RM13 and RM20 are delivered. The RM23 sweep
-fits only the kinds of fit that succeed, and the RM14 and RM24 requests produce no fit.
+No open row waits on another open row. RM27 reuses the declaration pattern of RM13 and the shared
+declaration of RM25. RM28 applies that declaration to custom interventions and rules.
+RM26 reuses the threshold and the status table of RM20. RM13, RM20 and RM25 are delivered. The
+RM23 sweep fits only the kinds of fit that succeed, and the RM14 and RM24 requests produce no fit.
 
 Main-roadmap X9 depends on RM22. Every remediation row comes before main-roadmap priority 1, so
 the queue meets that dependency.
@@ -122,7 +128,7 @@ Keep each item's acceptance criteria separate inside its group.
 
 | delivery group | items | shared boundary |
 | --- | --- | --- |
-| inference claims | RM25, RM26 and RM27 | one decision rule for an interval that no derivation covers: register a claim, give the estimate a non-inferential status, or refuse the request before the fit |
+| inference claims | RM26, RM27 and RM28 | one decision rule for an interval that no derivation covers: register a claim, give the estimate a non-inferential status, or refuse the request before the fit |
 | sensitivity outputs | RM21 and RM22 | the E-value and omitted-variable reports, and one reading of the published sources they cite |
 | refusal surfaces | RM23, RM14 and RM24 | a refusal reaches the caller where its declaration says, before the work that it refuses |
 | diagnostic reports | RM15 and RM16 | one assessment and summary surface, with one documentation pass |
@@ -140,7 +146,7 @@ published a standard error that no derivation covers, so it joined RM20. RM14 re
 late, so it joined the refusal surfaces. The bias localization group held RM19 alone. RM19 joined
 RM18, because an RM18 owner holds its three red cells.
 
-The inference claims group then delivered RM20 and RM13, and it keeps RM25, RM26 and RM27.
+The inference claims group then delivered RM20, RM13 and RM25, and it keeps RM26, RM27 and RM28.
 
 Each group holds consecutive priorities, so the group order is the priority order. Deliver the
 items inside a group in priority order. The first decimal digit of a priority names its group, and
@@ -149,14 +155,14 @@ does not collide with a main-roadmap priority.
 
 Priorities give the current delivery order. This project reassigns them when it re-triages the
 queue. The RM IDs and their anchors never change, so a commit names a row by its ID. A delivered
-row takes its priority with it, and the other rows keep theirs. RM20 and RM13 held 0.11 and 0.12,
-so the inference claims group now starts at 0.13. The other rows keep their order, so none of them
-needs a new number.
+row takes its priority with it, and the other rows keep theirs. RM20, RM13 and RM25 held 0.11,
+0.12 and 0.13, so the inference claims group now starts at 0.14. The other rows keep their order,
+so none of them needs a new number.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
-The queue holds twelve rows, and none of them is delivered. Ten rows need their corrections: RM14
-to RM16 and RM21 to RM27. RM18 has five follow-up designs that are not declared and have not run.
-RM19 has no declared design.
+The queue holds twelve rows, and none of them is delivered. Ten rows need their corrections:
+RM14 to RM16, RM21 to RM24, and RM26 to RM28. RM18 has five follow-up designs that are not
+declared and have not run. RM19 has no declared design.
 
 The F18 and F19 derivations do not block priority 1, because an item with no published theory does
 not enter the sequence. Their cells stay red under `reporting` until F18 or F19 meets its
@@ -655,7 +661,7 @@ a declaration that this version refuses.
 | fit-layer check | `TMLE` and `LTMLE` call the function again before any learner call. `TMLE._retarget_detailed` calls it first too, so every recomputation checks it (commit a2f62a6) |
 | a result saved before the field existed | it loads undeclared. Loading checks nothing, so its stored estimates answer as saved. Every recomputation refuses: `retarget()`, each sweep that calls it, such as `truncation_curve()`, and `refute()`, which refits. `LTMLE` has no retarget sweep. The review probe was `make_binary_outcome(n=400, seed=3)` with `MSM.linear` and the weight $1 + a$, with `weights_kind` then set to `None`. Before the correction, its `truncation_curve` published `std_err`, `ci_lower`, and `ci_upper`. It now raises `CapabilityError`, and the stored `msm[a].ci` stays (0.07496, 0.25730) |
 | replay | `_freeze_msm` (`src/cleverly/sensitivity/_simulated_confounding_fixed.py`) replaces `weights` with a callable over frozen arrays, even when the model had no weights. It passes `weights_kind="known"` when the model had no weights, and the model's own declaration otherwise. A legacy callable-weight model with no declaration therefore still refuses at replay |
-| reference | the [MSM reference](technical-reference/msm-projections.md#variations) tabulates the declaration, both refusals, and the ratios below. The [scope page](technical-reference/scope-and-refusals.md) marks the `Stochastic` row "not refused yet" and links [RM25](#rm25-declared-stochastic-regime-densities) |
+| reference | the [MSM reference](technical-reference/msm-projections.md#variations) tabulates the declaration, both refusals, and the ratios below. The [scope page](technical-reference/scope-and-refusals.md) marked the `Stochastic` row "not refused yet" and linked [RM25](#rm25-declared-stochastic-regime-densities). RM25 has since shipped that refusal |
 
 The declaration is a three-state `Literal` and not a bool. Item 1 needs an undeclared state that
 refuses. `PointTreatment.weights_estimated` is a bool with the default `False`
@@ -2500,6 +2506,24 @@ controlled-direct-effect, multi-arm, outcome-adaptive C-TMLE, MSM, regime, weigh
 clustered, and DR-TMLE fits. The ordered fit loses the whole report, because a `ValueError` is not
 the refusal type that `run_all` catches.
 
+The 2026-09-23 review of RM25 found the same mismatch one level lower, in `replayability()`
+(`src/cleverly/assessment.py:1146-1161`). For a point-treatment result that holds an estimator, the
+function returns `retarget_cached_nuisances=True` and `refit_nuisances=True`. It reads no
+declaration and no fold policy. A probe fitted each case in sample with linear learners on the
+default law of `tests/discrete_law.py`, and restored it through `serialize.dumps` and `loads`. The
+cross-fitted case used two folds.
+
+| restored result | `replayability()` | `retarget()` | `refit()` |
+| --- | --- | --- | --- |
+| a `Stochastic` regime fit, restored without `density_kind` (RM25) | both slots `True` | `CapabilityError`: the undeclared density | `CapabilityError`: the undeclared density |
+| an MSM fit with a callable weight, restored without `weights_kind` (RM13) | both slots `True` | `CapabilityError`: the undeclared weight | `CapabilityError`: the undeclared weight |
+| a cross-fitted fit whose restored estimator carries `stratify_folds="treatment"` | both slots `True` | runs | `ValueError` from the fold-policy check |
+
+Each declared control, restored with its declaration and its fold policy, runs both calls. In the
+two declaration cases, the `refute` and `truncation_curve` rows read `available`.
+`assess(include_refits=True, include_retargets=True)` still returns a report. Its
+`truncation_curve` row then reads `unavailable` and quotes the refusal.
+
 Apply these corrections:
 
 1. Resolve each of the three declined rows from the predicate that its call uses, as RM12 did for
@@ -2507,6 +2531,9 @@ Apply these corrections:
 2. Make the `random_common_cause` refit of an explicit ordering run, or declare the row
    `unavailable` with a reason. A refit that adds the noise column to the ordering changes the
    declared ordering, so the contract must state where the column goes.
+3. Derive the two `replayability()` slots from the checks that `retarget()` and `refit()` run.
+   Alternatively, state in the `Replayability` docstring that the slots describe stored
+   configuration only.
 
 The witnesses must fail when a component is wrong:
 
@@ -2514,7 +2541,9 @@ The witnesses must fail when a component is wrong:
   `available` runs without a refusal. The list includes the three kinds above.
   `TestNoAvailableRowDeclinesOnASelectorPath` is the precedent on selector fits;
 - a mutation that restores an unconditional row makes the sweep fail on that kind of fit;
-- a test that the ordered fit with an explicit ordering completes `assess(include_refits=True)`.
+- a test that the ordered fit with an explicit ordering completes `assess(include_refits=True)`;
+- a test that restores each of the three results in the second table, and asserts that
+  `replayability()` agrees with what `retarget()` and `refit()` do.
 
 ### RM24. Refusals after the nuisance fit
 
@@ -2566,43 +2595,160 @@ The witnesses must fail when a component is wrong:
 
 ### RM25. Declared stochastic regime densities
 
-The [scope page](technical-reference/scope-and-refusals.md#wrong-by-construction) lists "a
+The [scope page](technical-reference/scope-and-refusals.md#wrong-by-construction) listed "a
 `Stochastic` regime whose density came from the estimated mechanism" as refused
-(`docs/technical-reference/scope-and-refusals.md:293`). Nothing refuses it. The `Stochastic`
-docstring asks for a known density (`src/cleverly/interventions/base.py:274-295`), and no code
-checks that word. The scope-page claim is therefore false today, and this row tracks it.
+(`docs/technical-reference/scope-and-refusals.md:293` at a937a20). Nothing refused it. The
+`Stochastic` docstring asked for a known density (`src/cleverly/interventions/base.py:274-295` at
+a937a20), and no code checked that word.
 
-A `density_fn` receives the covariate frame, and it can close over any estimate. The regime
-density is then a functional of $P$. The influence curve that the package reports for a regime has
-no term for that dependence. The scope page now says the standard error can be wrong.
+A `density_fn` receives the covariate frame, and it can close over any estimate. For the
+population-law target $\psi(P;q_\delta(g_P))$, the odds-tilt density depends on $P$ through its
+treatment mechanism. The regime curve has no term for that derivative. A realized learned density
+$\hat q$ instead defines a data-adaptive target $\psi(P;\hat q)$. Its fixed-density curve has no
+population-mechanism derivative, but same-sample inference needs separate conditions that this API
+does not check.
+
+Van der Laan, Luedtke and Díaz (2014), Section 5, and Hubbard et al. (2016)
+distinguish these targets. The [source audit](references.md#point-treatment-and-stochastic-interventions)
+records both sources.
 
 | probe | result |
 | --- | --- |
-| `make_linear_ate(n=400, seed=7)`, in sample, linear learners. `density_fn` returns a logistic mechanism fitted on the same frame, plus 0.1, clipped to [0, 1] | `ey_regime[fitted]` reports `ci` (2.5883, 2.9354) under the `influence_curve` status. No warning and no message names the density |
+| `make_linear_ate(n=400, seed=7)`, in sample, linear learners. `density_fn` returns a logistic mechanism fitted on the same frame, plus 0.1, clipped to [0, 1] | `ey_regime[fitted]` reported `ci` (2.5883, 2.9354) under the `influence_curve` status. No warning and no message named the density |
 
 [RM13](#rm13-estimated-msm-projection-weights) added the same kind of declaration for an MSM
-projection weight. Apply that pattern here:
+projection weight. The row asked for three corrections on that pattern:
 
 1. Require a declaration that a `Stochastic` density is known. Refuse an undeclared density before
    any nuisance fit.
-2. Refuse a density declared as estimated. The message names the missing pathwise-derivative term.
+2. Refuse a density declared as estimated. The message distinguishes the population-law target's
+   missing derivative from the unverified inference conditions of a realized learned-policy target.
 3. Correct the scope-page row, so that it describes the declaration and both refusals.
 
-The simulated-confounding replay swaps each regime for a `_FrozenRegime` that holds fixed arrays
-(`src/cleverly/sensitivity/_simulated_confounding_fixed.py:221-222`). A fit-layer check must admit
-that class, as RM13 does for `_freeze_msm`. The registered generator
-`tests/studies/canonical_stochastic_regimes.py` and each test that builds a `Stochastic` regime gain
-a known declaration. That change moves no fitted number.
+All three shipped. One function, `cleverly.interventions.base.refuse_regime_densities`, runs four
+checks in the order that the table lists them. The method `Stochastic.__post_init__` calls it. The
+fit layer calls it again in `TMLE._resolve_estimands_for_data` and `TMLE._retarget_detailed`,
+before any learner call. That second call catches a restored or modified regime, which can carry a
+declaration that this version refuses. Each row of the table ends with the commit that shipped it.
 
-The witnesses must fail when a component is wrong:
+| part | what shipped |
+| --- | --- |
+| declaration | a field `density_kind` on `Stochastic`. It takes `"known"`, `"estimated"`, or `None`, and it defaults to `None`. It is the last field, so `Stochastic(density_fn, name)` keeps its positional order. Commit 7ef1f57 |
+| a density that is not callable | `DataError` when the regime is built. Before the change, `Stochastic(0.6, "coin")` built, and an in-sample fit on the default law of `tests/discrete_law.py` raised `TypeError` after two learner fits. Commit 7ef1f57 |
+| an unknown value | a value other than `"known"`, `"estimated"`, or `None` raises `DataError`. Commit 7ef1f57. The review found that the check compared a value that is not a `str`. So `np.array(["known"])` built, a longer array raised `ValueError`, and `pandas.NA` raised `TypeError`, for RM13 and RM25 both. The shared check now refuses any value that is not `None` or a `str` with the same `DataError`. A `numpy.str_` is a `str` and passes |
+| undeclared density | `density_kind=None` raises `CapabilityError`. The message asks for `density_kind="known"`. Commit 7ef1f57 |
+| estimated density | `density_kind="estimated"` raises `CapabilityError`. The reviewed message now distinguishes the population-law derivative from the realized learned-policy target. It sends a population odds tilt to `TMLE(incremental=...)`, whose curve carries the mechanism term. Commit 7ef1f57 and this review |
+| shared declaration | a private leaf module, `cleverly._declarations`, holds `FunctionDeclaration`. That class holds the three-state check and the texts of its refusals. The RM13 weight declaration became its first user. A snapshot of 246 RM13 cases recorded the same exception type and message before and after, byte for byte. `cleverly.msm.MSMWeightsKind` stays public. Commit 83c6d72 |
+| fit-layer check | `TMLE._resolve_estimands_for_data` and `TMLE._retarget_detailed` call the function after the MSM weight check. So `fit`, `refit`, `CausalStudy.estimate`, `retarget`, and every sweep refuse a restored regime before any learner or density call. The check selects regimes with `isinstance`, so a subclass that skips `__post_init__` refuses at the fit. Commit 7ef1f57 |
+| replay | `_freeze_regimes` (`src/cleverly/sensitivity/_simulated_confounding_fixed.py`) calls the function on the source regimes before `RegimeSet.evaluate` runs any density. A `_FrozenRegime` is not a `Stochastic`, so the refit admits it. Commit 7ef1f57 |
+| a result saved before the field existed | it loads undeclared. Loading checks nothing, so its stored estimates answer as saved. `truncation_curve()`, `retarget()`, and `refit()` refuse. Commit 7ef1f57 |
+| call sites | each `Stochastic` in the two executed documentation fences, `tests/regimes.py`, the registered generator `tests/studies/canonical_stochastic_regimes.py`, and the unit tests declares `density_kind="known"`. Commit 7ef1f57 |
+| reference | the [scope page](technical-reference/scope-and-refusals.md#wrong-by-construction), the [user guide](user-guide/estimands.md#known-regimes), the [point-treatment reference](technical-reference/point-treatment-tmle.md#known-regimes), the [evidence table](technical-reference/evidence.md#the-table), and the [architecture invariants](architecture-invariants.md#public-causal-workflow) describe the declaration and both refusals. Commit df9326a |
+| other policy callables | not in this row. [RM28](#rm28-declared-densities-of-user-written-interventions) holds user-written `Intervention` classes, `Rule`, and `DynamicRegimen` callables |
 
-- a pre-fit test pins both refusals and their messages, and a spy learner shows that no nuisance
-  fit ran;
-- a mutation that removes the refusal makes that test fail;
-- an exact-law witness, as in RM13, on a density declared known that depends on the mechanism.
-  It compares the reported variance with the exact variance of that functional. The scope page gives
-  the missing term exactly for a hand-built incremental tilt, so that tilt is a candidate law;
-- a control shows that a density declared known keeps its interval.
+The default of the field is a plain class attribute, as in RM13. A regime pickled before the field
+existed therefore loads as undeclared, and `dataclasses.replace` still works on it.
+
+Commit 77b9fe1 declared the exact-law witness before its test landed. The law is that of
+`tests/discrete_law.py` with `p_w=[0.4, 0.4, 0.2]`, `g=[0.25, 0.5, 0.75]`, and
+`q=[[0.05, 0.95], [0.1, 0.9], [0.1, 0.9]]`. Its 1000 rows realise the law exactly, and the fit is
+in sample with oracle nuisances.
+
+The density is the odds tilt $\delta g_n(w) / (\delta g_n(w) + 1 - g_n(w))$. Here $g_n(w)$ is the
+sample treated share in stratum $w$. The density is declared `"known"`, and on this sample it
+equals the tilt of the true mechanism.
+
+The exact curve is the Gateaux derivative of the population-law tilted mean with $g$ recomputed
+from the perturbed law. It differs from the curve for a fixed density by exactly one term:
+
+$$
+T = \frac{\delta \{\bar Q(1, W) - \bar Q(0, W)\}}{D^2} \{A - g(W)\},
+\qquad D = \delta g(W) + 1 - g(W).
+$$
+
+`TestAnEstimatedTiltUnderstatesTheVariance` in `tests/unit/test_stochastic_regime_densities.py`
+holds the witness for $\psi(P;q_\delta(g_P))$. Kennedy (2019), Section 3.3 and Appendix Corollary 2,
+derives its mechanism term. The table gives the values measured on the delivered code. Each ratio
+is the reported standard error over that target's exact standard error, from second moments.
+
+| quantity | measured value | role |
+| --- | --- | --- |
+| ratio at $\delta = 2$ | 0.6226 | the witness. The test pins 0.6226 to 1e-4 and asserts a bound of 0.7 |
+| ratio at $\delta = 0.5$ | 0.6853 | recorded. The test pins it to 1e-4 and claims no bound |
+| reported curve against the Gateaux curve with $g^\star$ fixed | equal to 7.8e-16 at $\delta = 2$ and 1.1e-15 at $\delta = 0.5$ | the control. The test tolerance is 1e-12 |
+| exact curve minus fixed curve minus $T$ | at most 5.0e-16 | the form of $T$. The test tolerance is 1e-12 |
+| $E[T^2]$ | 0.1603 at $\delta = 2$ and 0.1158 at $\delta = 0.5$ | the nonzero witness. The test asserts that it exceeds 0.1 |
+| $E[D_{\text{fixed}} T]$, with $D_{\text{fixed}}$ the curve with $g^\star$ fixed | 8.7e-19 and 3.5e-18 | orthogonality. The exact variance equals the fixed variance plus $E[T^2]$ to 1.4e-17. The test tolerance is 1e-12 |
+| the reported curve against the fixed curve, as a ratio | 1.0000 | the mutation control. An oracle that froze $g$ would read 1 and fail the bound |
+| the `ey_ipsi[odds x2]` curve of `TMLE(incremental=)` minus the reported regime curve | $T$, to the test tolerance of 1e-12 | the incremental axis carries the term that the regime curve omits |
+
+The probe measured 0.6226 before the plan chose the bound. For the population-law target, the
+bound 0.7 claims an understatement of more than 30 percent. A curve that carried $T$ would read 1.
+The bound sits 0.077 above the
+measured value, so it pins no digit. The pinned value records the measurement, as RM13 records
+0.7417.
+
+The plan also chose the law after the probe. On the default law of `tests/discrete_law.py`, the
+ratio is 0.9667 at $\delta = 2$ and 0.9733 at $\delta = 0.5$. The $P(W)$ and $\bar Q$ of the
+witness law, with $g = 0.5$ at every level, give 0.6060 at both values. That law cannot separate
+$\delta$ from $1 / \delta$. The witness shows that the population-law target needs the term, and
+it measures the omission on one law. It does not estimate a typical size.
+
+For the population-law odds tilt, $T$ is orthogonal to the curve with $g^\star$ fixed. $T$ has mean zero given
+$W$. That curve is a function of $W$ plus a residual with mean zero given $A$ and $W$. So the
+omission understates the variance by exactly $\operatorname{Var}(T)$ at the truth. The probe
+checked this on the witness law and on the default law, at both values of $\delta$, to 5.2e-17.
+The row claims no direction for other densities.
+
+The row planned four witnesses. The table gives the state of each. All of them are in
+`tests/unit/test_stochastic_regime_densities.py`, which holds 75 tests.
+
+| witness | state |
+| --- | --- |
+| 1. a pre-fit test pins both refusals and their messages, and a spy learner shows that no nuisance fit ran | delivered. `TestTheDeclarationIsRequired` pins the four refusals. `TestTheFitRefusesARestoredRegime` sets `density_kind` to `None` or `"estimated"` after construction. `fit`, `CausalStudy.estimate`, and `refit` then refuse, `NeverFit.calls` is 0, and a spy density is never called. A control with `"known"` reaches the first learner |
+| 2. a mutation that removes the refusal makes that test fail | delivered. The test file commits four mutations in five tests, and nine more ran by hand. The text below gives them |
+| 3. the exact-law witness | delivered. The ratio reads 0.6226 against the bound of 0.7 |
+| 4. a control shows that a density declared known keeps its interval | delivered. `TestAKnownDensityKeepsItsInterval` fits the tilt of the true mechanism. The estimate keeps the `influence_curve` status and a finite `ci`, and its curve equals the fixed-density curve to 1e-12 |
+
+Five committed tests apply four mutations, and each mutation replaces a function with a no-op
+through `monkeypatch`. Removing the declaration check in `cleverly.interventions.base` fails every
+declaration witness. Removing the check in `cleverly.estimators.tmle` fails the fit witnesses, and
+`NeverFit` records fits. The same removal lets `truncation_curve()`, `retarget()`, and `refit()` run
+on a legacy result. Removing the replay check lets the replay evaluate the density.
+
+The fourth committed mutation replaces `FunctionDeclaration.refuse` with a no-op. Two RM13
+witnesses and three RM25 witnesses then fail, because each one depends on that shared refusal. A
+further test checks that the three sites call one function object.
+
+Nine more mutations ran by hand after commit 7ef1f57. Each run copied the file to a backup,
+applied one mutation, and ran the RM25 file `tests/unit/test_stochastic_regime_densities.py`. That
+file then held 63 tests. The ninth mutation also ran the RM13 file
+`tests/unit/test_msm_projection_weights.py`, which holds 46 tests, as a separate run.
+
+Each run then restored the file, and the restored file matched its blob at HEAD. No mutation
+survived. Each count in the table is for the RM25 file, unless the row names the RM13 file.
+
+| mutation | file | tests that failed |
+| --- | --- | --- |
+| remove the `Stochastic.__post_init__` call | `src/cleverly/interventions/base.py` | 16: each declaration refusal, the third positional argument, the `replace` of a legacy regime, and the refusal on the witness law |
+| remove the call in `_resolve_estimands_for_data` | `src/cleverly/estimators/tmle.py` | 8: each fit entry for both restored states, the subclass that skips the declaration, and a legacy regime at the fit |
+| remove the call in `_retarget_detailed` | `src/cleverly/estimators/tmle.py` | 2: `truncation_curve()` and `retarget()` on a legacy result |
+| remove the call in `_freeze_regimes` | `src/cleverly/sensitivity/_simulated_confounding_fixed.py` | 1: a legacy regime at replay |
+| `isinstance` changed to `type(item) is Stochastic` | `src/cleverly/interventions/base.py` | 2: the subclass that inherits the declaration, and the subclass that skips it |
+| move the `_freeze_regimes` check after `RegimeSet.evaluate` | `src/cleverly/sensitivity/_simulated_confounding_fixed.py` | 1: a legacy regime at replay. The density ran two times before the refusal |
+| remove the callable check | `src/cleverly/interventions/base.py` | 6: each density that is not callable, under each declaration |
+| swap the undeclared and estimated texts of `_DENSITY_DECLARATION` | `src/cleverly/interventions/base.py` | 18: each test that matches either text |
+| invert the membership test of `FunctionDeclaration.check` | `src/cleverly/_declarations.py` | 33 failures and 16 errors in the RM25 file. 26 failures and 14 errors in the RM13 file. Four failures in each file are its unknown-value witnesses |
+
+No study was regenerated. Only `refuse_regime_densities` reads `density_kind`. `RegimeSet.evaluate`,
+the influence code, and the estimator arguments did not change. So the change is result-neutral
+under [what makes a study stale](development/method-benchmarking.md#what-makes-a-study-stale), and
+no test gates the module hashes of a manifest.
+
+A bitwise check supports that judgment. A script fitted `canonical_stochastic_regimes.fit_cleverly`
+on replicates 0 and 1 of `draw_scenario`, once with the declared density and once with the uniform
+density. Its 12 rows of `psi`, `std_error`, and `ci` were bitwise identical before and after the
+change.
 
 ### RM26. Longitudinal clustered intervals at few clusters
 
@@ -2687,12 +2833,19 @@ $1 + 0.5 a + 0.25 W$, $\beta_W$ is 0.046 and the ratio is 0.9976.
 Apply these corrections:
 
 1. Decide how a `design` declares that it is a known function. RM13 put the weight declaration on
-   `MSM`. `MSM.linear` builds a known design, so it can carry the declaration itself.
+   `MSM`. `MSM.linear` builds a known design, so it can carry the declaration itself. RM25 added
+   `cleverly._declarations.FunctionDeclaration`, which holds the check and the texts of one
+   declaration, so a design declaration can be a third instance.
 2. Refuse a design declared estimated before any nuisance fit. The message names the missing
    pathwise-derivative term.
 3. Correct the [MSM reference](technical-reference/msm-projections.md) and the
    [scope page](technical-reference/scope-and-refusals.md#wrong-by-construction), so that each
    one describes the declaration and the refusal.
+
+The `MSM` docstring lists its fields under `Attributes` (`src/cleverly/msm.py:431`). `CLAUDE.md`
+puts the fields of a frozen dataclass under `Parameters`, because numpydoc reads the generated
+signature. The fields `from_linear` and `doses` have no entry. The RM25 plan found this and left
+it for this row, because item 1 changes that docstring.
 
 The witnesses must fail when a component is wrong:
 
@@ -2702,6 +2855,59 @@ The witnesses must fail when a component is wrong:
 - the exact-law witness above, with a bound on the intercept ratio fixed before its run, and
   `msm[a]` and `msm[W]` as negative controls;
 - a control shows that `MSM.linear`, and a design with a fixed centre, keep their intervals.
+
+### RM28. Declared densities of user-written interventions
+
+The `Intervention` protocol is public, and the [interventions API page](api/interventions.md)
+lists it first. Its docstring asks a user to implement `density` and carry a `name`
+(`src/cleverly/interventions/base.py:84-87`). `as_interventions` accepts any object that does both
+(`src/cleverly/interventions/base.py:701`). RM25 declares the density of `Stochastic` alone. A
+user-written class carries no declaration, and its `density` receives the `CausalData` of the fit.
+The docstring now says so and names this row (`src/cleverly/interventions/base.py:89-90`).
+
+The 2026-09-23 plan for RM25 found this surface. A probe measured it on the RM25 witness law.
+The exact standard error in this probe belongs to the population-mechanism odds-tilt target.
+It does not assess inference for the realized learned-density target.
+
+| probe | result |
+| --- | --- |
+| the RM25 witness law, in sample, with oracle nuisances. A user-written class has the `name` `"tilt"`. Its `density` returns the odds tilt at $\delta = 2$ of the sample treated share in each stratum. It reads `data.treatment` and `data.covariates` | `ey_regime[tilt]` reports its interval under the `influence_curve` status. Its standard error is 0.6226 of the population-law odds-tilt target's exact standard error. No warning and no message names the density |
+
+The source review resolves the policy question. `Intervention.density`, `Rule.rule`, and callable
+nodes of `DynamicRegimen` all admit functions learned from the analysis sample. A realized learned
+policy has a different target from a population-indexed policy. Nordland and Holst (2026)
+evaluate learned policies with cross-fitting; the current regime paths do not implement that
+contract. Luedtke and van der Laan (2016) show that the value of a population optimal rule can
+have a regular first-order curve away from exceptional laws, so RM25's missing-term statement
+cannot be copied to every learned rule. The [source audit](references.md#point-treatment-and-stochastic-interventions)
+records these results.
+
+The decision is to require a known-function declaration for all three surfaces. A function
+trained independently of the analysis sample may be declared fixed for an evaluation conditional
+on that training. A function learned from the analysis sample is refused by these generic paths
+until a separate learned-policy estimand and inference method exists. This is a conservative API
+decision, not a claim that every learned rule's fixed-rule influence curve is mathematically
+wrong. The declaration remains user-supplied because code cannot inspect a closure.
+
+Apply these corrections in RM28:
+
+1. Require a `density_kind` protocol member on each user-written `Intervention`. Reuse the
+   `FunctionDeclaration` states and refusal behavior of `Stochastic`.
+2. Require the same three-state declaration for `Rule.rule` and each callable
+   `DynamicRegimen` plan. Keep static labels exempt. Preserve the choice of inline rule syntax
+   only if it can carry an explicit declaration.
+3. Refuse undeclared and estimated functions before any learner call. Correct each API docstring,
+   the [scope page](technical-reference/scope-and-refusals.md#wrong-by-construction), and the
+   inference status of any restored result that cannot recompute.
+
+The witnesses must fail when a component is wrong:
+
+- a pre-fit test pins each refusal and its message, and a spy learner shows that no nuisance fit
+  ran;
+- a mutation that removes the refusal makes that test fail;
+- the RM25 exact-law witness, on a user-written class that item 1 admits;
+- a separate nonzero witness for a sample-learned `Rule` and a callable `DynamicRegimen` node;
+- a control shows that a user-written class with a known density keeps its interval.
 
 ### P1. EP learner
 

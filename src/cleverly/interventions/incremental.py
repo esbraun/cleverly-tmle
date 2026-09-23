@@ -108,19 +108,19 @@ def refuse_multi_arm_tilt(data: CausalData) -> None:
     the evaluator by another route.  The *message* is one string in one place so the two
     cannot drift into saying different things about the same refusal.
 
-    The reason is a property of the parameter and not of this package's coverage: an odds
-    multiplier names two arms, and a multinomial mechanism has no single odds to multiply.
-    One odds per contrast is a well-posed intervention, but a different one, with its own
-    influence function.
+    The binary odds multiplier names two arms, and a multinomial mechanism has no single
+    odds to multiply. A multi-arm policy needs further structure, such as selected
+    contrasts or a reference policy and costs. This API declares none of those policies.
     """
     if data.n_arms == 2:
         return
     raise DataError(
         f"an incremental propensity-score intervention tilts the *odds* of treatment, "
         f"which names two arms; {data.treatment_name} has {data.n_arms} "
-        f"({list(data.treatment_levels)}). Kennedy's tilt has no single-parameter "
-        "generalisation to a multinomial mechanism -- one odds per contrast would be a "
-        "different intervention with a different influence function."
+        f"({list(data.treatment_levels)}). Kennedy's binary odds multiplier alone does not "
+        "select a multinomial policy. This API has no declared multi-arm tilt; one odds "
+        "per contrast or a cost-based reference policy defines a different intervention "
+        "with its own influence function."
     )
 
 

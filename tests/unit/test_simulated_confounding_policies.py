@@ -106,7 +106,7 @@ def _policy(kind: str, *, labels: bool = False) -> Any:
     if kind == "rule":
         return Rule(lambda w: np.where(np.asarray(w["W"]) > 0, treated, control), name="policy")
     if kind == "stochastic":
-        return Stochastic(_stochastic_density, name="policy")
+        return Stochastic(_stochastic_density, name="policy", density_kind="known")
     raise AssertionError(kind)
 
 
@@ -503,7 +503,7 @@ def test_regime_callback_is_checked_once_then_frozen_for_every_cell() -> None:
     # now needs a declared q_bounds this module's Gaussian law does not have.
     result = _estimate(
         _study(binary=True),
-        RegimeMean((Stochastic(density, name="policy"),)),
+        RegimeMean((Stochastic(density, name="policy", density_kind="known"),)),
         repeats=3,
         binary=True,
     )
@@ -519,7 +519,9 @@ def test_changed_callback_cannot_silently_change_the_assessed_policy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     density = Counter(_stochastic_density)
-    result = _estimate(_study(), RegimeMean((Stochastic(density, name="policy"),)))
+    result = _estimate(
+        _study(), RegimeMean((Stochastic(density, name="policy", density_kind="known"),))
+    )
     density.function = lambda w: _stochastic_density(w)[:, ::-1]
     _forbid_draw_and_refit(monkeypatch, result.estimator)
     with pytest.raises(CapabilityError, match="declared regime densities disagree"):
@@ -620,7 +622,8 @@ class _CustomStochastic(Stochastic):
 
 def test_custom_intervention_refuses_before_draws(monkeypatch: pytest.MonkeyPatch) -> None:
     result = _estimate(
-        _study(), RegimeMean((_CustomStochastic(_stochastic_density, name="policy"),))
+        _study(),
+        RegimeMean((_CustomStochastic(_stochastic_density, name="policy", density_kind="known"),)),
     )
     _forbid_draw_and_refit(monkeypatch, result.estimator)
     with pytest.raises(CapabilityError, match="exact Static, Rule, and Stochastic regimes only"):
@@ -671,7 +674,7 @@ def test_user_callback_failure_keeps_its_original_error(component: str) -> None:
         )
 
     target = (
-        RegimeMean((Stochastic(callback, name="policy"),))
+        RegimeMean((Stochastic(callback, name="policy", density_kind="known"),))
         if component == "density"
         else MSMProjection(replace(_model(), **{component: callback}))
     )
@@ -699,7 +702,7 @@ def test_stochastic_density_refuses_nonfinite_values_on_original_fit(value: floa
         return values
 
     with pytest.raises(DataError, match="non-finite probability"):
-        _estimate(_study(), RegimeMean((Stochastic(density, name="policy"),)))
+        _estimate(_study(), RegimeMean((Stochastic(density, name="policy", density_kind="known"),)))
 
 
 def test_binary_fit_with_msm_doses_refuses_before_draws(monkeypatch: pytest.MonkeyPatch) -> None:

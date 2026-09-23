@@ -439,6 +439,28 @@ def test_cross_fitted_missing_outcomes_are_refused() -> None:
     )
 
 
+def test_cross_fitted_missing_outcomes_refuse_before_a_fold_draw(monkeypatch) -> None:
+    """An unsupported fit does not reach a seed-dependent fold-support check."""
+
+    def forbid_draw(*args: object, **kwargs: object) -> None:
+        raise AssertionError("an unsupported fit drew folds")
+
+    monkeypatch.setattr(DRTMLE, "_repeat_draws", forbid_draw)
+    learners = never_fit_learners()
+    with pytest.raises(NotImplementedError, match="does not establish its cross-validated"):
+        DRTMLE(
+            guard=(),
+            randomized=False,
+            n_folds=3,
+            stratify_folds="none",
+            estimands=("ate", "ey1", "ey0"),
+            **learners,
+        ).fit(
+            _binary_trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
+        )
+    assert NeverFit.calls == 0
+
+
 @pytest.mark.parametrize("stratify_folds", ["treatment", "none"])
 @pytest.mark.parametrize("randomized", [True, False])
 def test_an_unguarded_cross_fitted_missing_outcome_fit_is_refused(

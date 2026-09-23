@@ -138,6 +138,7 @@ from ..inference.influence import (
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as_interventions
+from ..interventions.base import refuse_regime_densities
 from ..interventions.incremental import refuse_multi_arm_tilt
 from ..learners._fitting import Task, infer_task
 from ..learners.crossfit import (
@@ -1354,6 +1355,8 @@ class TMLE:
         carries whatever policy that version allowed.  The working model's projection-weight
         declaration is checked next for the same reason: ``MSM`` checks it when it is
         declared, and a restored or modified model can carry one this version refuses.
+        Each ``Stochastic`` regime's density declaration follows, for the same reason and
+        before any density is evaluated (roadmap row RM25).
 
         The natural-course contract runs next, because it resolves the target list the
         arm-indexed missing-outcome contract then reads.  The refusal of every other
@@ -1369,6 +1372,7 @@ class TMLE:
             )
         if self.msm is not None:
             refuse_projection_weights(self.msm)
+        refuse_regime_densities(self.interventions)
         estimands = self._resolve_natural_course_contract(data)
         self._resolve_arm_indexed_missing_contract(data, estimands)
         self._refuse_cross_fitted_missing_off_contract(data, estimands)
@@ -2686,14 +2690,16 @@ class TMLE:
         is kept out of :meth:`retarget` so that the sensitivity analyses, which call
         that method on every perturbed input, keep their two-value signature.
 
-        It checks the MSM projection-weight declaration first, as :meth:`fit` does. Every
-        sweep that recomputes an estimate comes through here, so a result restored from an
-        artifact written before ``MSM.weights_kind`` existed refuses each recomputation
-        (roadmap row RM13). Loading re-checks nothing: that result keeps the estimates it
-        stored, and they answer as they were saved.
+        It checks the MSM projection-weight declaration and then each ``Stochastic``
+        regime's density declaration first, as :meth:`fit` does. Every sweep that
+        recomputes an estimate comes through here, so a result restored from an artifact
+        written before ``MSM.weights_kind`` or ``Stochastic.density_kind`` existed refuses
+        each recomputation (roadmap rows RM13 and RM25). Loading re-checks nothing: that
+        result keeps the estimates it stored, and they answer as they were saved.
         """
         if self.msm is not None:
             refuse_projection_weights(self.msm)
+        refuse_regime_densities(self.interventions)
         requested = tuple(estimands)
         level = self.alpha_sig if alpha_sig is None else alpha_sig
         regimes = nuisance.regimes

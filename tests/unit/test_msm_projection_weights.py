@@ -27,7 +27,6 @@ asymptotic form of "the reported standard error is below the sampling standard d
 
 from __future__ import annotations
 
-import importlib
 import pickle
 from collections.abc import Callable
 from dataclasses import dataclass, fields, replace
@@ -52,14 +51,22 @@ from cleverly.msm import (
 )
 from cleverly.sensitivity import _simulated_confounding_fixed as replay_module
 from cleverly.sensitivity import simulated_confounding
-from cleverly.sensitivity.positivity import truncation_curve
 from tests import discrete_law as law
 from tests.conftest import OracleOutcome, OracleTreatment, linear_in_sample
+from tests.unit._declaration_support import (
+    PATHWISE,
+    assert_every_witness_fails,
+    assert_refused,
+    assert_refused_before_any_call,
+    recomputations,
+    restored,
+    restored_states,
+    se_ratio,
+    tmle_module,
+)
+from tests.unit._declaration_support import legacy_result as legacy_result_of
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 from tests.unit.test_simulated_confounding_policies import _GRID, _alias, _fit_msm
-
-#: ``cleverly.estimators`` exports a function named ``tmle``, which shadows the module.
-tmle_module = importlib.import_module("cleverly.estimators.tmle")
 
 #: The two declaration refusals, imported from the module that raises them, so the text
 #: is written once.
@@ -68,7 +75,6 @@ ESTIMATED = _ESTIMATED_WEIGHTS
 #: Fragments of the other refusals.  A test matches a fragment, not the whole text, so a
 #: rewording of the explanation does not break it, but a message from another check does.
 NOT_CALLABLE = "must be a callable"
-PATHWISE = "pathwise derivative"
 
 
 @dataclass(frozen=True)
@@ -88,22 +94,6 @@ class SpyWeight:
         type(self).calls += 1
         frame = arguments[-1]
         return np.ones(len(frame))
-
-
-def assert_refused(build: Callable[[], Any], error: type[Exception], *fragments: str) -> None:
-    """``build()`` raises ``error`` with every fragment, or this raises ``AssertionError``.
-
-    Written out rather than as ``pytest.raises``, whose failure is not an
-    ``AssertionError``, so that the mutation controls below can require it to fail.
-    """
-    try:
-        build()
-    except error as raised:
-        message = str(raised)
-        for fragment in fragments:
-            assert fragment in message, message
-        return
-    raise AssertionError(f"no {error.__name__} was raised")
 
 
 def linear(**declaration: Any) -> MSM:
@@ -223,12 +213,6 @@ class TestThePositionalOrderIsUnchanged:
 # ------------------------------------------------------------------ the fit layer
 
 
-def restored(model: MSM, kind: Any) -> MSM:
-    """``model`` with its declaration changed after construction, as a restore can leave it."""
-    object.__setattr__(model, "weights_kind", kind)
-    return model
-
-
 def tmle_fit(model: MSM, learners: dict[str, Any]) -> Any:
     estimator = TMLE(msm=model, cross_fit=False, simultaneous=False, **learners)
     return estimator.fit(law.frame(), outcome="Y", treatment="A")
@@ -295,22 +279,20 @@ def regimen_model() -> MSM:
 
 def assert_tmle_refuses(kind: Any, *fragments: str) -> None:
     SpyWeight.calls = 0
-    model = restored(point_model(), kind)
-    assert_refused(lambda: tmle_fit(model, never_fit_learners()), CapabilityError, *fragments)
-    assert NeverFit.calls == 0, f"{NeverFit.calls} learner fit(s) ran before the refusal"
-    assert SpyWeight.calls == 0, "the weight was evaluated before the refusal"
+    model = restored(point_model(), "weights_kind", kind)
+    assert_refused_before_any_call(
+        lambda: tmle_fit(model, never_fit_learners()), SpyWeight, "weight", *fragments
+    )
 
 
 def assert_ltmle_refuses(kind: Any, *fragments: str) -> None:
     SpyWeight.calls = 0
-    model = restored(regimen_model(), kind)
-    assert_refused(lambda: ltmle_fit(model), CapabilityError, *fragments)
-    assert NeverFit.calls == 0, f"{NeverFit.calls} learner fit(s) ran before the refusal"
-    assert SpyWeight.calls == 0, "the weight was evaluated before the refusal"
+    model = restored(regimen_model(), "weights_kind", kind)
+    assert_refused_before_any_call(lambda: ltmle_fit(model), SpyWeight, "weight", *fragments)
 
 
 #: What a restored model can carry, and the refusal each one meets.
-RESTORED = {"undeclared": (None, (UNDECLARED,)), "estimated": ("estimated", (ESTIMATED, PATHWISE))}
+RESTORED = restored_states(UNDECLARED, ESTIMATED)
 
 
 class TestTheFitRefusesARestoredUndeclaredModel:
@@ -407,21 +389,11 @@ def fitted_known() -> Any:
 
 def legacy_result(result: Any) -> Any:
     """``result`` as an artifact written before ``weights_kind`` existed would restore it."""
-    old = loads(dumps(result))
-    vars(old.estimator.msm).pop("weights_kind")
-    old = loads(dumps(old))
-    assert old.estimator.msm.weights_kind is None
-    return old
+    return legacy_result_of(result, "weights_kind", lambda estimator: [estimator.msm])
 
 
-def recomputations(result: Any) -> dict[str, Callable[[], Any]]:
-    """Every entry to a recomputation a test drives: a sweep and the retarget it calls."""
-    return {
-        "truncation_curve": lambda: truncation_curve(result, bounds=[0.05]),
-        "retarget": lambda: result.estimator.retarget(
-            result.data, result.nuisance, estimands=("msm",)
-        ),
-    }
+#: The estimands a retarget of the legacy result requests.
+RETARGETED = ("msm",)
 
 
 class TestALegacyResultKeepsItsNumbersAndRefusesARecomputation:
@@ -444,12 +416,12 @@ class TestALegacyResultKeepsItsNumbersAndRefusesARecomputation:
     @pytest.mark.parametrize("entry", ["truncation_curve", "retarget"])
     def test_every_recomputation_refuses(self, result: Any, entry: str) -> None:
         old = legacy_result(result)
-        assert_refused(recomputations(old)[entry], CapabilityError, UNDECLARED)
+        assert_refused(recomputations(old, RETARGETED)[entry], CapabilityError, UNDECLARED)
 
     @pytest.mark.parametrize("entry", ["truncation_curve", "retarget"])
     def test_the_declared_result_recomputes(self, result: Any, entry: str) -> None:
         """The control: the same entry on the result before the declaration was lost."""
-        recomputations(result)[entry]()
+        recomputations(result, RETARGETED)[entry]()
 
     @pytest.mark.parametrize("entry", ["truncation_curve", "retarget"])
     def test_removing_the_retarget_check_fails_the_refusal(
@@ -458,7 +430,7 @@ class TestALegacyResultKeepsItsNumbersAndRefusesARecomputation:
         old = legacy_result(result)
         monkeypatch.setattr(tmle_module, "refuse_projection_weights", lambda model: None)
         with pytest.raises(AssertionError):
-            assert_refused(recomputations(old)[entry], CapabilityError, UNDECLARED)
+            assert_refused(recomputations(old, RETARGETED)[entry], CapabilityError, UNDECLARED)
 
 
 # ------------------------------------------------------------------ mutation controls
@@ -481,9 +453,7 @@ class TestTheWitnessesHaveTeeth:
         self, monkeypatch
     ) -> None:
         monkeypatch.setattr(msm_module, "refuse_projection_weights", lambda model: None)
-        for witness in declaration_witnesses():
-            with pytest.raises(AssertionError):
-                witness()
+        assert_every_witness_fails(declaration_witnesses())
 
     @pytest.mark.parametrize("name", list(RESTORED))
     def test_removing_the_fit_layer_check_fails_the_fit_witnesses(
@@ -559,7 +529,7 @@ def eif(weights: Any) -> np.ndarray:
 #: The reported SE over the exact estimated-share SE for ``msm[W]`` must stay below this.
 #: The measured ratio is 0.7417.  A reported curve that carried the share term would give
 #: 1.  The bound sits between the two, far enough from 0.7417 that it does not pin a
-#: digit, and far enough from 1 that an understatement of 20 percent or more is the claim.
+#: digit, and far enough from 1 that an understatement of more than 20 percent is the claim.
 UNDERSTATEMENT_BOUND = 0.8
 
 
@@ -579,12 +549,7 @@ def share_fit() -> Any:
     return estimator.fit(frame, outcome="Y", treatment="A").single()
 
 
-def first_rows() -> np.ndarray:
-    counts = np.array([SHARE_COUNTS[cell] for cell in law.SUPPORT])
-    return np.concatenate([[0], np.cumsum(counts)[:-1]])
-
-
-def se_ratio(fit: Any, index: int) -> float:
+def share_se_ratio(fit: Any, index: int) -> float:
     """The reported curve's SE over the exact estimated-share EIF's SE.
 
     Both are asymptotic: the reported curve's second moment on the exact sample, and the
@@ -593,8 +558,7 @@ def se_ratio(fit: Any, index: int) -> float:
     """
     curve = np.asarray(fit.estimates[f"msm[{law.MSM_TERMS[index]}]"].influence_curve)
     probs = np.array([SHARE_PROBS[cell] for cell in law.SUPPORT])
-    exact = float(probs @ eif(arm_share)[:, index] ** 2)
-    return float(np.sqrt(np.mean(curve**2) / exact))
+    return se_ratio(curve, eif(arm_share)[:, index], probs)
 
 
 class TestAnEstimatedShareWeightUnderstatesTheVariance:
@@ -611,7 +575,7 @@ class TestAnEstimatedShareWeightUnderstatesTheVariance:
         """Control 1: the curve is right for the functional the user declared."""
         curve = np.asarray(share_fit.estimates[f"msm[{law.MSM_TERMS[index]}]"].influence_curve)
         np.testing.assert_allclose(
-            curve[first_rows()], eif(FROZEN_SHARE)[:, index], atol=1e-10, rtol=0
+            curve[law.first_row_of(SHARE_COUNTS)], eif(FROZEN_SHARE)[:, index], atol=1e-10, rtol=0
         )
 
     def test_the_oracle_carries_the_share_term(self) -> None:
@@ -634,14 +598,14 @@ class TestAnEstimatedShareWeightUnderstatesTheVariance:
         )
 
     def test_witness_the_w_coefficient_understates_its_standard_error(self, share_fit) -> None:
-        ratio = se_ratio(share_fit, law.MSM_TERMS.index("W"))
+        ratio = share_se_ratio(share_fit, law.MSM_TERMS.index("W"))
         assert ratio == pytest.approx(0.7417, abs=1e-4)
         assert ratio < UNDERSTATEMENT_BOUND
 
     def test_the_intercept_understates_its_standard_error(self, share_fit) -> None:
-        ratio = se_ratio(share_fit, law.MSM_TERMS.index("(intercept)"))
+        ratio = share_se_ratio(share_fit, law.MSM_TERMS.index("(intercept)"))
         assert ratio == pytest.approx(0.9126, abs=1e-4)
 
     def test_control_the_arm_coefficient_is_unaffected(self, share_fit) -> None:
         """Control 2: on this design ``dbeta_a/dpi = 0``, so the term vanishes for ``a``."""
-        assert se_ratio(share_fit, law.MSM_TERMS.index("a")) == pytest.approx(1.0, abs=1e-9)
+        assert share_se_ratio(share_fit, law.MSM_TERMS.index("a")) == pytest.approx(1.0, abs=1e-9)
