@@ -2,8 +2,10 @@
 
 Two shapes recur in every status test: an estimate or a report that must withhold its
 inferential numbers by the reason of one status, and an artifact saved before its
-configuration took that status, which must load re-stamped. The forced-status reach test
-and each surface's own test read them here, so a later status inherits the same checks.
+configuration took that status, which must load re-stamped. Three surfaces recur beside
+them: the nuisance note, the E-value row, and the refusal of ``variable_importance``
+before its first fit. The forced-status reach test and each surface's own test read them
+here, so a later status inherits the same checks.
 The fold-level report checks and the stamp mutation that must fail them live here too,
 because the forced-status test and the clustered surfaces both fit ``cv_evaluation=True``.
 """
@@ -17,11 +19,15 @@ from typing import Any
 
 import pytest
 
+from cleverly import variable_importance
 from cleverly._inference_status import NON_INFERENTIAL
+from cleverly.assessment import AssessmentStatus
 from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import CapabilityError
+from cleverly.exceptions import CapabilityError, inference_refusal
 from cleverly.inference.influence import _DIAGNOSTIC_NAMES
+from cleverly.sensitivity.evalue import _EVALUE_NEEDS_INFERENCE
+from tests.unit._natural_course_support import NeverFit
 
 #: The two ways an artifact is restored: the package's own serializer and a bare pickle.
 ROUTES = ("serialize", "pickle")
@@ -93,6 +99,50 @@ def assert_withholds(result: Any, status: str) -> None:
     assert record.summary_label in text
     assert record.reason in text
     assert "95% CI" not in text
+
+
+def assert_assessment_note(result: Any, status: str) -> None:
+    """The nuisance report and the assessment's nuisance-model item carry the status note."""
+    note = NON_INFERENTIAL[status].assessment_note
+    assert note in result.diagnostics.run_all()["nuisance_models"].detail
+    # The assessment summary prints a warning row by name only, so the note is read off
+    # the assessment's own nuisance-model item.
+    (nuisance,) = (
+        item for item in result.assess().validation.items if item.name == "nuisance_models"
+    )
+    assert note in nuisance.detail
+
+
+def assert_evalue_unavailable(result: Any, status: str) -> None:
+    """The E-value row is unavailable, and its reason is the E-value clause and the status's.
+
+    The status's reason follows the clause as a new sentence.
+    """
+    capability = result.sensitivity.capability("evalue")
+    assert capability.status is AssessmentStatus.UNAVAILABLE
+    assert capability.reason == _EVALUE_NEEDS_INFERENCE + NON_INFERENTIAL[status].reason
+
+
+def assert_variable_importance_refuses(
+    status: str, frame: Any, *, estimator: Any, covariates: list[str], **roles: Any
+) -> None:
+    """``variable_importance`` refuses with the status's refusal before any learner runs.
+
+    ``estimator`` carries the learners of
+    :func:`tests.unit._natural_course_support.never_fit_learners`, so a fit raises and is
+    counted.
+    """
+    with pytest.raises(CapabilityError) as raised:
+        variable_importance(
+            frame,
+            outcome="Y",
+            candidates=["A"],
+            covariates=covariates,
+            estimator=estimator,
+            **roles,
+        )
+    assert str(raised.value) == inference_refusal("variable_importance()", status)
+    assert NeverFit.calls == 0
 
 
 def assert_keeps_inference(result: Any) -> None:

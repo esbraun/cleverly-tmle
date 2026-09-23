@@ -27,7 +27,6 @@ from typing import Any
 
 import pytest
 
-from cleverly import variable_importance
 from cleverly._inference_status import NON_INFERENTIAL
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_clustered
@@ -38,15 +37,18 @@ from cleverly.sensitivity import omitted_variable_bounds, robustness_value
 from tests.conftest import linear_in_sample
 from tests.unit._inference_status_support import (
     ROUTES,
+    assert_assessment_note,
+    assert_evalue_unavailable,
     assert_fold_report_withholds,
     assert_fold_reports_restamped,
     assert_no_inferential_name,
     assert_no_inferential_text,
     assert_refused_by,
     assert_restamped,
+    assert_variable_importance_refuses,
     stamp_headline_only,
 )
-from tests.unit._natural_course_support import NeverFit, never_fit_learners
+from tests.unit._natural_course_support import never_fit_learners
 
 pytestmark = pytest.mark.xdist_group("inference_status_reach")
 
@@ -165,49 +167,35 @@ class TestTheCombinedReports:
         for item in report.items:
             assert DECLINED not in item.detail, item
             assert_no_inferential_text(item.detail)
-        assert NON_INFERENTIAL[status].assessment_note in report["nuisance_models"].detail
         assert_no_inferential_text(report.summary())
+
+    def test_the_nuisance_report_and_the_assessment_carry_the_note(
+        self, result: Any, status: str
+    ) -> None:
+        assert_assessment_note(result, status)
 
     def test_the_assessment_answers(self, result: Any, status: str) -> None:
         assessment = result.assess()
-        # The summary prints a warning row by name only, so the note is read off the row.
-        (nuisance,) = (
-            item for item in assessment.validation.items if item.name == "nuisance_models"
-        )
-        assert NON_INFERENTIAL[status].assessment_note in nuisance.detail
         for item in assessment.validation.items:
             assert DECLINED not in item.detail, item
             assert_no_inferential_text(item.detail)
         assert_no_inferential_text(assessment.summary())
 
     def test_the_evalue_row_is_unavailable_with_the_reason(self, result: Any, status: str) -> None:
-        capability = result.sensitivity.capability("evalue")
-        assert capability.available is False
-        reason = capability.reason or ""
-        assert NON_INFERENTIAL[status].reason in reason
-        # The status's reason follows the E-value clause as a new sentence.
-        prefix = "an E-value is built from the reported estimate and its interval. "
-        assert reason.startswith(prefix)
-        assert reason[len(prefix)].isupper()
+        assert_evalue_unavailable(result, status)
 
 
 class TestVariableImportanceRefusesBeforeItFits:
     def test_the_refusal_arrives_before_the_first_learner_is_fitted(
         self, status: str, frame: Any
     ) -> None:
-        unfittable = estimator(**never_fit_learners())
-        with pytest.raises(CapabilityError) as raised:
-            variable_importance(
-                frame,
-                outcome="Y",
-                candidates=["A"],
-                covariates=["W1", "W2"],
-                estimator=unfittable,
-                id="cluster",
-            )
-        assert str(raised.value).startswith("variable_importance() is not defined here.")
-        assert_refused_by(status, raised)
-        assert NeverFit.calls == 0
+        assert_variable_importance_refuses(
+            status,
+            frame,
+            covariates=["W1", "W2"],
+            estimator=estimator(**never_fit_learners()),
+            id="cluster",
+        )
 
 
 class TestARestoredArtifactIsReStamped:

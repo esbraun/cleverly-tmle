@@ -20,7 +20,6 @@ from typing import Any
 
 import pytest
 
-from cleverly import variable_importance
 from cleverly._inference_status import NON_INFERENTIAL
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_binary_outcome, make_missing_outcome, make_multi_arm
@@ -30,12 +29,14 @@ from cleverly.exceptions import CapabilityError
 from tests.conftest import linear_in_sample
 from tests.unit._inference_status_support import (
     ROUTES,
+    assert_assessment_note,
+    assert_evalue_unavailable,
     assert_keeps_inference,
-    assert_refused_by,
     assert_restamped,
+    assert_variable_importance_refuses,
     assert_withholds,
 )
-from tests.unit._natural_course_support import NeverFit, never_fit_learners
+from tests.unit._natural_course_support import never_fit_learners
 
 pytestmark = pytest.mark.xdist_group("outcome_adaptive_status")
 
@@ -85,14 +86,7 @@ class TestEveryOutcomeAdaptiveFitReportsNoInterval:
         assert_withholds(result, STATUS)
 
     def test_the_nuisance_report_and_the_assessment_carry_the_note(self, result: Any) -> None:
-        detail = result.diagnostics.run_all()["nuisance_models"].detail
-        assert RECORD.assessment_note in detail
-        # The assessment summary prints a warning row by name only, so the note is read
-        # off the assessment's own nuisance-model item.
-        (nuisance,) = (
-            item for item in result.assess().validation.items if item.name == "nuisance_models"
-        )
-        assert RECORD.assessment_note in nuisance.detail
+        assert_assessment_note(result, STATUS)
 
     def test_the_evalue_is_unavailable_with_the_reason(self, result: Any, case: str) -> None:
         contrasts = [name for name in result.estimates if name.startswith("ate")]
@@ -110,9 +104,7 @@ class TestEveryOutcomeAdaptiveFitReportsNoInterval:
         if case != "multi_arm":
             # Two contrasts defer the bare row to an explicit estimand, so only a
             # single-contrast fit shows the reason on the bare capability row.
-            capability = result.sensitivity.capability("evalue")
-            assert capability.available is False
-            assert RECORD.reason in (capability.reason or "")
+            assert_evalue_unavailable(result, STATUS)
 
 
 class TestTheOrdinaryTMLEKeepsItsInterval:
@@ -124,18 +116,12 @@ class TestTheOrdinaryTMLEKeepsItsInterval:
 
 class TestVariableImportanceRefusesBeforeItFits:
     def test_the_refusal_arrives_before_the_first_learner_is_fitted(self) -> None:
-        frame = make_binary_outcome(n=200, seed=3)[0]
-        with pytest.raises(CapabilityError) as raised:
-            variable_importance(
-                frame,
-                outcome="Y",
-                candidates=["A"],
-                covariates=["W1", "W2", "W3"],
-                estimator=CTMLE(strategy="oat", **linear_in_sample(**never_fit_learners())),
-            )
-        assert str(raised.value).startswith("variable_importance() is not defined here.")
-        assert_refused_by(STATUS, raised)
-        assert NeverFit.calls == 0
+        assert_variable_importance_refuses(
+            STATUS,
+            make_binary_outcome(n=200, seed=3)[0],
+            covariates=["W1", "W2", "W3"],
+            estimator=CTMLE(strategy="oat", **linear_in_sample(**never_fit_learners())),
+        )
 
 
 class TestTheStatusIsTheHooksToWithhold:

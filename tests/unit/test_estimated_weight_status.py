@@ -21,21 +21,21 @@ from typing import Any
 import numpy as np
 import pytest
 
-from cleverly import variable_importance
 from cleverly._inference_status import NON_INFERENTIAL
-from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_binary_outcome
 from cleverly.estimators import DRTMLE, TMLE
-from cleverly.exceptions import CapabilityError, WeightingWarning
+from cleverly.exceptions import WeightingWarning
 from tests.conftest import linear_in_sample
 from tests.unit._inference_status_support import (
     ROUTES,
+    assert_assessment_note,
+    assert_evalue_unavailable,
     assert_keeps_inference,
-    assert_refused_by,
     assert_restamped,
+    assert_variable_importance_refuses,
     assert_withholds,
 )
-from tests.unit._natural_course_support import NeverFit, never_fit_learners
+from tests.unit._natural_course_support import never_fit_learners
 
 pytestmark = pytest.mark.xdist_group("estimated_weight_status")
 
@@ -72,18 +72,10 @@ class TestAnEstimatedWeightDRTMLEReportsNoInterval:
         assert_withholds(result, STATUS)
 
     def test_the_nuisance_report_and_the_assessment_carry_the_note(self, result: Any) -> None:
-        assert RECORD.assessment_note in result.diagnostics.run_all()["nuisance_models"].detail
-        # The assessment summary prints a warning row by name only, so the note is read
-        # off the assessment's own nuisance-model item.
-        (nuisance,) = (
-            item for item in result.assess().validation.items if item.name == "nuisance_models"
-        )
-        assert RECORD.assessment_note in nuisance.detail
+        assert_assessment_note(result, STATUS)
 
     def test_the_evalue_is_unavailable_with_the_reason(self, result: Any) -> None:
-        capability = result.sensitivity.capability("evalue")
-        assert capability.status is AssessmentStatus.UNAVAILABLE
-        assert RECORD.reason in (capability.reason or "")
+        assert_evalue_unavailable(result, STATUS)
 
 
 class TestTheNeighbouringFitsKeepTheirInterval:
@@ -160,19 +152,14 @@ class TestTheWeightTextAgreesWithTheStatus:
 class TestVariableImportanceRefusesBeforeItFits:
     def test_the_refusal_reads_the_prepared_weight_declaration(self, frame: Any) -> None:
         """A data-dependent status still refuses before the first learner is fitted."""
-        with pytest.raises(CapabilityError) as raised:
-            variable_importance(
-                frame,
-                outcome="Y",
-                candidates=["A"],
-                covariates=["W1", "W2", "W3"],
-                estimator=DRTMLE(**linear_in_sample(**never_fit_learners())),
-                weights="w",
-                weights_estimated=True,
-            )
-        assert str(raised.value).startswith("variable_importance() is not defined here.")
-        assert_refused_by(STATUS, raised)
-        assert NeverFit.calls == 0
+        assert_variable_importance_refuses(
+            STATUS,
+            frame,
+            covariates=["W1", "W2", "W3"],
+            estimator=DRTMLE(**linear_in_sample(**never_fit_learners())),
+            weights="w",
+            weights_estimated=True,
+        )
 
 
 class TestTheStatusIsTheHooksToWithhold:

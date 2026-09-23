@@ -41,27 +41,26 @@ from cleverly import (
     PointTreatment,
     Runtime,
     TMLEMethod,
-    variable_importance,
 )
-from cleverly._inference_status import FEW_CLUSTER_THRESHOLD, NON_INFERENTIAL
-from cleverly.assessment import AssessmentStatus
+from cleverly._inference_status import FEW_CLUSTER_THRESHOLD
 from cleverly.datasets import make_clustered
 from cleverly.estimators import DRTMLE, TMLE
-from cleverly.exceptions import CapabilityError
 from cleverly.inference import cluster as cluster_module
 from cleverly.inference.cluster import cluster_inference_status
 from tests.conftest import linear_in_sample
 from tests.unit._inference_status_support import (
     ROUTES,
+    assert_assessment_note,
+    assert_evalue_unavailable,
     assert_fold_report_withholds,
     assert_fold_reports_restamped,
     assert_keeps_inference,
-    assert_refused_by,
     assert_restamped,
+    assert_variable_importance_refuses,
     assert_withholds,
     stamp_headline_only,
 )
-from tests.unit._natural_course_support import NeverFit, never_fit_learners
+from tests.unit._natural_course_support import never_fit_learners
 
 pytestmark = pytest.mark.xdist_group("cluster_status")
 
@@ -160,14 +159,13 @@ class TestUnequalCrossFittedClustersReportNoInterval:
             unequal_result.summary()
         )
 
-    def test_the_nuisance_report_carries_the_note(self, unequal_result: Any) -> None:
-        detail = unequal_result.diagnostics.run_all()["nuisance_models"].detail
-        assert NON_INFERENTIAL[UNEQUAL].assessment_note in detail
+    def test_the_nuisance_report_and_the_assessment_carry_the_note(
+        self, unequal_result: Any
+    ) -> None:
+        assert_assessment_note(unequal_result, UNEQUAL)
 
     def test_the_evalue_is_unavailable_with_the_reason(self, unequal_result: Any) -> None:
-        capability = unequal_result.sensitivity.capability("evalue")
-        assert capability.status is AssessmentStatus.UNAVAILABLE
-        assert NON_INFERENTIAL[UNEQUAL].reason in (capability.reason or "")
+        assert_evalue_unavailable(unequal_result, UNEQUAL)
 
 
 class TestTheFoldReportIsStamped:
@@ -235,27 +233,17 @@ class TestFewClustersReportNoInterval:
 
     def test_variable_importance_refuses_before_it_fits(self, few_frame: Any) -> None:
         """The status reads the prepared cluster labels, so it refuses before a learner."""
-        with pytest.raises(CapabilityError) as raised:
-            variable_importance(
-                few_frame,
-                outcome="Y",
-                candidates=["A"],
-                covariates=["W1", "W2"],
-                estimator=TMLE(**linear_in_sample(**never_fit_learners())),
-                id="cluster",
-            )
-        assert str(raised.value).startswith("variable_importance() is not defined here.")
-        assert_refused_by(FEW, raised)
-        assert NeverFit.calls == 0
+        assert_variable_importance_refuses(
+            FEW,
+            few_frame,
+            covariates=["W1", "W2"],
+            estimator=TMLE(**linear_in_sample(**never_fit_learners())),
+            id="cluster",
+        )
 
 
 class TestThePrecedence:
     """A fit that meets several statuses takes the first in the table."""
-
-    def test_the_table_order_is_the_documented_one(self) -> None:
-        statuses = tuple(NON_INFERENTIAL)
-        assert statuses.index("estimated_weight_plugin") < statuses.index(UNEQUAL)
-        assert statuses.index(UNEQUAL) < statuses.index(FEW)
 
     def test_unequal_and_few_cross_fitted_take_the_unequal_status(
         self, few_unequal_frame: Any
