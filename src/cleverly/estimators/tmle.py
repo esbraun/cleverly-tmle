@@ -290,9 +290,12 @@ _IN_SAMPLE_ARM_INDEXED_REMEDY = (
 )
 
 #: The first clause of the refusal of every other cross-fitted missing-outcome target.
+#: Both contracts need arms, so the clause says so: a continuous treatment has neither,
+#: and its ``Shift(0.0, cap=None)`` natural course is a shift target this refusal meets.
 _CROSS_FITTED_MISSING_CONTRACTS = (
-    "Cross-fitted TMLE with missing outcomes (delta=) supports the natural-course mean and "
-    "the arm-indexed means and contrasts, each under its audited stacked CV-TMLE contract; "
+    "Cross-fitted TMLE with missing outcomes (delta=) has two audited stacked CV-TMLE "
+    "contracts, the natural-course mean and the arm-indexed means and contrasts, and both "
+    "apply to a discrete treatment only; "
 )
 
 #: What each parameter axis outside the two contracts is called in that refusal.
