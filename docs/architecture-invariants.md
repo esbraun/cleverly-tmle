@@ -114,19 +114,27 @@ A point-treatment estimator stamps the inference status in `TMLE._retarget_detai
 builds an interval that the fit refuses. The same method stamps both fold-level reports, and
 `CVTargeting.inference` reads the status from those reports rather than store it.
 
+The longitudinal estimator decides its status in `_inference_status(data, folds)`, in
+`cleverly.longitudinal.estimator`. That function calls `cluster_inference_status` on the prepared
+cluster labels and weights, and it reads nothing fitted. `LTMLE.fit` and the truncation-curve
+replay `_refit_bound` pass the status to `_estimates` and `_msm_estimates`. Those two builders
+stamp it on each estimate. The replay must equal the fit field for field, so a stamp in `fit`
+alone would make `truncation_curve()` refuse.
+
 | path | status it sets |
 | --- | --- |
 | `smooth_contrast` and `median_estimates` | the status of their inputs. Each raises `ValueError` on a mix |
 | `TMLEResult.__setstate__` | the hook's status on the saved data, when the saved estimates or fold-level reports declare another status |
 | `variable_importance` | none. It asks the hook on each candidate's prepared data, and it refuses before the first fit |
-| a longitudinal estimator | the default `"influence_curve"`. Its estimates never pass through `_retarget_detailed` |
+| a longitudinal estimator | `cluster_inference_status` on the prepared cluster labels and weights. The fit and the truncation-curve replay pass it to `make_estimate` |
+| `LongitudinalResult.__setstate__` | the status of the saved data and folds, when that status supplies no inference and the saved estimates declare another. It drops the saved bands and assessment answers |
 
 One fit has one status. When more than one non-inferential status applies, the fit takes the
 first one in `NON_INFERENTIAL` (`src/cleverly/_inference_status.py`). An override that finds more
 than one status passes them to `precedent_status`, so the order lives in the table.
 
-A reader of `std_error`, `ci`, or `pvalue` must branch on `supplies_inference`, or on
-`TMLEResult.inference_status`. A frame or label that publishes a spread must take its names from
+A reader of `std_error`, `ci`, or `pvalue` must branch on `supplies_inference`, or on the
+`inference_status` of the result. A frame or label that publishes a spread must take its names from
 `spread_columns()` or `spread_name`, which raises `KeyError` for an inferential name with no
 diagnostic entry. A text that names a status must read it from `NON_INFERENTIAL`.
 [Inference status](technical-reference/inference.md#inference-status) gives the public contract.

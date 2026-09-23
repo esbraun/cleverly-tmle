@@ -180,6 +180,10 @@ one minus a cause-specific incidence is not all-cause survival. A fit that decla
 reports the view, because the sum over the causes is that one incidence. `incidence_total()` sums
 the cause-specific influence curves and reports their joint standard error.
 
+On a fit whose status supplies no inference, the `incidence_total()` column is `plugin_std_err`,
+a diagnostic. The method `curve()` then renames its three spread columns as `to_frame()` does, and
+it adds an `inference` column ([inference status](inference.md#inference-status)).
+
 Two vocabularies describe a row of the curve. Each vocabulary gets its own column.
 
 | column | values | what it says |
@@ -306,7 +310,7 @@ The refusals that are statements about the *question* rather than about coverage
 | `mechanism=True` on `truncation_curve()` | a different question | a longitudinal fit holds one cumulative treatment-and-censoring bound, and it fits no separate observation mechanism to sweep. The option names a point-treatment axis, so the call raises `CapabilityError` rather than sweeping the cumulative bound under another name |
 | an outcome missing for a reason other than censoring | wrong by construction | left as it is, the probability of observing it is silently taken to be one. Encode it as a final censoring column, so it is estimated and enters the cumulative product |
 | the targeted bootstrap and longitudinal sensitivity-bound estimation | not written yet | the bootstrap needs a resampling and replay contract. Sensitivity-bound estimation needs a sample estimator and sampling theory for its bound functionals |
-| `id=` above one fold | not written yet | a grouped draw keeps each cluster whole, and the cluster-robust variance of the targeted sequential recursion under one is not established. The in-sample clustered fit is evidenced and stays available |
+| `id=` above one fold | not written yet | a grouped draw keeps each cluster whole, and the cluster-robust variance of the targeted sequential recursion under one is not established. The in-sample clustered fit is evidenced and stays available. Below 40 clusters with positive weight mass it takes `"few_cluster_plugin"` and reports no interval ([clusters](inference.md#clusters)) |
 | a continuous outcome with `q_bounds=None` above one fold | not written yet | with `q_bounds=None` the scale comes from every observed outcome, held-out rows included, and no shipped result covers that scale |
 
 See [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) for what each `kind` means.

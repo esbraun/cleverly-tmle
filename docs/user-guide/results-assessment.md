@@ -102,18 +102,17 @@ if len(names) >= 2:
     difference = result.contrast(lambda values: values[0] - values[1], names[:2])
 ```
 
-Use cluster roles in the study design for cluster-robust variance. A point-treatment TMLE or
-DR-TMLE fit reports no interval when it has fewer than 40 clusters with positive weight mass,
-in total or in one reported stratum. A cross-fitted fit at unequal row counts or weight masses,
-overall or within a reported stratum, reports none either.
-[Clusters](../technical-reference/inference.md#clusters) gives both reasons. An in-sample
-longitudinal fit with fewer than 40 clusters still reports an interval, and
-[RM26](../roadmap.md#rm26-longitudinal-clustered-intervals-at-few-clusters) tracks it. Use
+Use cluster roles in the study design for cluster-robust variance. A TMLE, DR-TMLE, or
+longitudinal TMLE fit reports no interval when it has fewer than 40 clusters with positive weight
+mass. For TMLE and DR-TMLE, this also applies to one reported stratum. A cross-fitted fit at
+unequal row counts or weight masses, overall or within a reported stratum, reports none either.
+[Clusters](../technical-reference/inference.md#clusters) gives both reasons. Use
 `Inference(simultaneous=True)` when the reported family, rather than each interval separately,
 needs error control.
 
-A contrast inherits the inference status of its inputs. On a selector-path collaborative fit the
-contrast refuses `ci` as its inputs do, and the fit builds no simultaneous band.
+A contrast inherits the inference status of its inputs. On a selector-path collaborative fit or a
+fit with few clusters, the contrast refuses `ci` as its inputs do. The fit builds no simultaneous
+band.
 
 ## Diagnostics
 
