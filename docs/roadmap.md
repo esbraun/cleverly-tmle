@@ -256,7 +256,7 @@ natural-course mean and arm-specific missing-outcome means also remain separate 
 
 ### RM11. Sensitivity bounds outside their derivation
 
-Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2022) bound the omitted-variable bias of a
+Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026) bound the omitted-variable bias of a
 linear functional of the outcome regression. The bound is $\sqrt{\sigma^2 \nu^2}$ times a strength
 factor. Here $\nu^2$ is the second moment of the Riesz representer for the declared adjustment set.
 An estimate of $\nu^2$ is only as good as the fitted representer. The bound has one treatment-side
@@ -335,7 +335,7 @@ The review of this branch changed four rules of the table.
 
 | rule | change | reason |
 | --- | --- | --- |
-| `intermediate` | added after `response_mechanism` | before the change the bound returned a number on a controlled-direct-effect fit. Theorem 2 of Chernozhukov et al. (2022) covers each fixed-level estimand. The representer carries the weight $1\{Z = z\} / P(Z = z \mid A, W)$, so $c_{f,d}$ would measure a joint strength over the treatment and intermediate mechanisms |
+| `intermediate` | added after `response_mechanism` | before the change the bound returned a number on a controlled-direct-effect fit. Theorem 2 of Chernozhukov et al. (2026) covers each fixed-level estimand. The representer carries the weight $1\{Z = z\} / P(Z = z \mid A, W)$, so $c_{f,d}$ would measure a joint strength over the treatment and intermediate mechanisms |
 | `repeats` | moved into the table, last | before the move, each capability row read available on a repeated fit and each call raised. A refit with one split lifts this rule and no other rule, so a fit that two rules refuse never sends its reader to that refit |
 | `response_mechanism` | reason reworded | the reason said that no derivation covers the case. Theorem 2 covers the regression of $\Delta Y$ on $(A, \Delta, W)$, so the case is well posed. The reason now names the three missing pieces: the representer omits $\Delta$, $\sigma^2$ averages the respondents, and $c_{f,d}$ would be a joint strength |
 | `collaborative_tmle` | reason reworded | the reason wrote the representer as $E[\alpha_W \mid A]$, which holds only for an empty selection. It now writes $E[\alpha_W \mid A, V]$. $V$ is the selected set $W_S$ on a selector path and the fitted outcome regression under `oat` |
@@ -344,7 +344,7 @@ The same review found an older defect in the doubly robust $\nu^2$ for the ATT a
 commit `6096dbc`, `_m_alpha` weighted the contrast by the fitted propensity $g_c(W) / P(A = c)$. The
 score of the functional weights it by the observed $1\{A = c\} / P(A = c)$, which `_elements_for`
 now passes. Example 2 of the online appendix of Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis
-(2022) gives that score, and the `_m_alpha` docstring cites DoubleML's form of it. With a fitted
+(2026) gives that score, and the `_m_alpha` docstring cites DoubleML's form of it. With a fitted
 propensity in that place, the Riesz identity fails and the estimate can exceed $\nu_0^2$. The table
 gives the effect on `tests.discrete_law` with $\hat g = 1/2$, where $s$ is the share of the
 conditioning arm.

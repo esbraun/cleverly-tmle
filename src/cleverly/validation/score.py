@@ -77,6 +77,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from ..inference.influence import InferenceStatus, spread_name
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
 from ..utils.text import format_negligible, format_table
@@ -237,6 +238,9 @@ class ScoreCheck:
         Those equations' own check, when it did.
     backend : str or None
         Dataframe backend :meth:`to_frame` returns when ``data`` is omitted.
+    inference : {"influence_curve", "working_mechanism_plugin"}
+        Inference status of the checked fit. A failing verdict names the spread the fit
+        reports by it, so a fit that supplies no inference reads "plug-in standard errors".
     """
 
     rows: tuple[ScoreCheckRow, ...]
@@ -261,6 +265,9 @@ class ScoreCheck:
     #: :meth:`to_frame` honours "results come back in the backend you passed in"
     #: without a caller having to thread the container back in by hand.
     backend: str | None = None
+    #: A class-level default, so a check built by hand, or pickled before the field
+    #: existed, reads as the ordinary fit it described.
+    inference: InferenceStatus = "influence_curve"
 
     @property
     def passed(self) -> bool:
@@ -341,7 +348,8 @@ class ScoreCheck:
                 f"score check: FAIL -- {len(failures)} of {len(self.rows)} not solved.",
                 f"  {named}",
                 *self._identity_lines(),
-                "  The standard errors above are read off an influence curve whose mean is",
+                f"  The {spread_name('standard errors', self.inference)} above are read off "
+                "an influence curve whose mean is",
                 "  not zero, so they do not describe this estimate.  See",
                 "  res.diagnostics.score_equations() for the table and cleverly.validation.score",
                 "  for the usual causes.",
@@ -398,9 +406,10 @@ class ScoreCheck:
         """
         if not self.passed:
             verdict = (
-                "FAIL: the score equation was not solved -- the influence-curve standard "
-                "errors this fit reports do not describe this estimate. See the module "
-                "docstring for the usual causes."
+                "FAIL: the score equation was not solved -- the "
+                f"{spread_name('influence-curve standard errors', self.inference)} this fit "
+                "reports do not describe this estimate. See the module docstring for the "
+                "usual causes."
             )
             if self.identity_failures:
                 # Named as its own thing and *first*, because the other failing rows on
@@ -416,7 +425,8 @@ class ScoreCheck:
                         "term the reported curve carries are not the same functional of "
                         "the state this fit",
                         "returned. That is a defect in the implementation rather than",
-                        "a fit that failed to converge, and the standard errors do not "
+                        "a fit that failed to converge, and the "
+                        f"{spread_name('standard errors', self.inference)} do not "
                         "describe this estimate.",
                         "Inspect the score rows. For guarded DR-TMLE, inspect "
                         "res.diagnostics.corrections() for the correction identities.",
@@ -687,6 +697,7 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
         ),
         corrections=corrections,
         backend=result.data.backend,
+        inference=result.inference_status,
     )
 
 

@@ -134,6 +134,7 @@ from ..inference.influence import (
     median_estimates,
     missing_outcome_correction_parts,
     reduced_correction_parts,
+    supplies_inference,
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as_interventions
@@ -1226,8 +1227,7 @@ class TMLE:
         # collaborative fit over an output RM12 refuses to report anyway.  The omission is
         # not silent -- ``summary()`` prints the reason, and ``simultaneous_bands()``
         # called directly still refuses, because that is an explicit request.
-        supplies_inference = result.inference_status == "influence_curve"
-        if self.simultaneous and len(estimates) > 1 and supplies_inference:
+        if self.simultaneous and len(estimates) > 1 and supplies_inference(result.inference_status):
             refuse_after_repeats(
                 self.repeats, operation="simultaneous=True", reason=_REPEATED_BANDS_REASON
             )
@@ -2768,7 +2768,7 @@ class TMLE:
         # input all report the same status.  Stamping in ``fit`` alone would leave the
         # truncation curve and the refutations building intervals the fit itself refuses.
         status = self._inference_status()
-        if status != "influence_curve":
+        if not supplies_inference(status):
             ordered = {
                 name: replace(estimate, inference=status) for name, estimate in ordered.items()
             }

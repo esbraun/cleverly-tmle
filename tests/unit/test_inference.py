@@ -1404,6 +1404,9 @@ class TestTheInferenceStatus:
             "ratio_to_standard_error": "ratio_to_plugin_standard_error",
             "reported se": "plugin se",
             "sd/se": "sd/plugin se",
+            "reported standard error": "plug-in standard error",
+            "standard errors": "plug-in standard errors",
+            "influence-curve standard errors": "plug-in standard errors",
         }
         for name, diagnostic in _DIAGNOSTIC_NAMES.items():
             assert spread_name(name, "influence_curve") == name

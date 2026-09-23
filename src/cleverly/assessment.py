@@ -34,7 +34,6 @@ from .exceptions import CapabilityError, working_mechanism_refusal
 from .targets.population_intervention import (
     NATURAL_COURSE_SUPPORT_REFUSAL,
     NATURAL_COURSE_TILT_REFUSAL,
-    has_response_mechanism,
     is_natural_course_fit,
 )
 from .utils.frames import emit_frame
@@ -3334,9 +3333,9 @@ class SensitivityFacade(_CapabilityFacade):
     def _declared(self) -> tuple[AssessmentCapability, ...]:
         family = _family(self._result)
         longitudinal = family == "longitudinal"
-        # One predicate for the tilt rows below and the bound's response rule, so the
-        # fit the bound refuses for its response mechanism is the fit offered the tilt.
-        missing = False if longitudinal else has_response_mechanism(self._result)
+        # The data flag the bound's response rule reads too, so the fit the bound
+        # refuses for its response mechanism is the fit offered the tilt.
+        missing = False if longitudinal else bool(self._result.data.has_missing_outcome)
         natural_course = missing and is_natural_course_fit(self._result)
         # ``simulated_confounding`` refuses the bare ``ate`` default on a continuous fit.
         # A binary arm, fixed-regime, incremental, or MSM fit can use the facade's sole-

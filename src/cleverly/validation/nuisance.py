@@ -47,8 +47,8 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray
 from ..data.weighting import REPORTED_DRAW
-from ..exceptions import WORKING_MECHANISM_ASSESSMENT_NOTE
-from ..inference.influence import InferenceStatus, spread_name
+from ..exceptions import WORKING_MECHANISM_ASSESSMENT_NOTE, capitalize_first
+from ..inference.influence import InferenceStatus, spread_name, supplies_inference
 from ..utils.bounds import logit
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
@@ -436,9 +436,8 @@ class NuisanceDiagnostics:
         note = self.inference_note
         if note is not None:
             # Keyed on the declared status and not on ``_working_model``, which is true for
-            # the outcome-adaptive path too, and that path reports an interval.  The first
-            # letter alone is raised: ``str.capitalize`` also lowercased "F18".
-            lines.extend(["", note[0].upper() + note[1:] + "."])
+            # the outcome-adaptive path too, and that path reports an interval.
+            lines.extend(["", capitalize_first(note) + "."])
         if self.selection is not None:
             # No draw suffix here. The header above already states which draw every
             # method-specific artifact in this report describes, and a repeated
@@ -510,7 +509,7 @@ class NuisanceDiagnostics:
     @property
     def _non_inferential(self) -> bool:
         """Whether the fit's estimates carry a diagnostic rather than inference."""
-        return self.inference != "influence_curve"
+        return not supplies_inference(self.inference)
 
     @property
     def inference_note(self) -> str | None:

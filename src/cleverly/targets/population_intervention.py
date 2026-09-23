@@ -45,7 +45,6 @@ __all__ = [
     "NATURAL_COURSE_TARGET",
     "NATURAL_COURSE_TILT_REFUSAL",
     "POPULATION_INTERVENTION_TARGETS",
-    "has_response_mechanism",
     "is_natural_course_fit",
     "population_intervention_refusal",
 ]
@@ -69,30 +68,6 @@ NATURAL_COURSE_SUPPORT_REFUSAL = (
     "response-only support report is not implemented; inspect the missingness row from "
     "diagnostics.nuisance_models() and the targeting score instead"
 )
-
-
-def has_response_mechanism(result: Any) -> bool:
-    """Whether a point fit's identified functional contains a response mechanism.
-
-    The sensitivity surfaces ask this one question in two places: the missingness-tilt
-    rows, which need the mechanism, and the omitted-variable rule, which refuses it.  They
-    asked it two ways, once of the stored missingness nuisance and once of the data.
-    Both now read the data, because a response mechanism is a property of the identified
-    functional and survives a replacement of the stored nuisances.
-
-    Parameters
-    ----------
-    result : object
-        A fitted point-treatment result.  ``result.data`` is read directly, with no
-        default, so a result without point-treatment data raises ``AttributeError``
-        rather than reporting no mechanism.
-
-    Returns
-    -------
-    bool
-        True when the outcome is unobserved on at least one row.
-    """
-    return bool(result.data.has_missing_outcome)
 
 
 def is_natural_course_fit(result: Any) -> bool:

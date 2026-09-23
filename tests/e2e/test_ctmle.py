@@ -867,7 +867,8 @@ class TestTheWorkingMechanismDiagnosticIsNotTheEstimatorsVariance:
 
     A ``discrete`` fit whose only candidate is the intercept-only one, with a correct
     linear outcome regression, **is** the least-squares coefficient on the treatment given
-    every covariate. The test computes that coefficient's HC0 sandwich variance. The reported plug-in curve variance is the intercept-only representer's,
+    every covariate. The test computes that coefficient's HC0 sandwich variance. The
+    reported plug-in curve variance is the intercept-only representer's,
     :math:`\\sigma^2 \\nu^2 / n`, which ignores the association between the treatment and
     the covariates and is therefore too small.
 

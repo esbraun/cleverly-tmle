@@ -1644,6 +1644,11 @@ def refute(
     # A tolerance scale for the refutation comparisons below, not a coverage claim, so
     # the plug-in accessor answers on a selector-path collaborative fit too.
     std_error = result[estimand].plugin_std_error
+    # Every refit reruns this estimator, so each test's standard errors carry the fit's
+    # own inference status. ``RefutationTest.to_frame`` names its column from it, and a
+    # detail below names the unit it counts in from it.
+    status = result[estimand].inference
+    unit = spread_name("standard errors", status)
     # The package convention for a stochastic operation on a fitted object: an explicit seed
     # wins, ``None`` inherits the fit's own.  ``is None`` rather than truthiness, because
     # ``random_state=0`` is falsy and still has to win.  Same form as ``ctmle.py:846``.
@@ -1695,8 +1700,8 @@ def refute(
                     expectation="~ 0",
                     passed=passed,
                     detail=(
-                        f"mean placebo estimate {mean:+.5g} is more than {tolerance:g} standard "
-                        "errors from zero, which suggests the pipeline is producing an effect "
+                        f"mean placebo estimate {mean:+.5g} is more than {tolerance:g} {unit} "
+                        "from zero, which suggests the pipeline is producing an effect "
                         "where none exists (fold leakage, or a misdefined estimand)"
                     ),
                 )
@@ -1719,7 +1724,7 @@ def refute(
                     passed=passed,
                     detail=(
                         f"adding an irrelevant covariate moved the estimate by {shift:+.5g} "
-                        f"({abs(shift) / std_error:.1f} standard errors); the nuisance models are "
+                        f"({abs(shift) / std_error:.1f} {unit}); the nuisance models are "
                         "unstable at this sample size"
                     ),
                 )
@@ -1777,7 +1782,7 @@ def refute(
                     passed=passed,
                     detail=(
                         f"the negative-control outcome shows an effect of {value:+.5g} "
-                        f"({abs(value) / control_se:.1f} standard errors). Under a valid, "
+                        f"({abs(value) / control_se:.1f} {unit}). Under a valid, "
                         "comparable control design, this flags residual bias. It can also "
                         "indicate that the negative-control assumptions fail"
                     ),
@@ -1814,9 +1819,6 @@ def refute(
                 )
             )
 
-    # Every refit reruns this estimator, so each test's standard errors carry the fit's
-    # own inference status, and ``RefutationTest.to_frame`` names its column from it.
-    status = result[estimand].inference
     return RefutationResult(
         tests=tuple(replace(test, inference=status) for test in outcomes),
         estimand=estimand,

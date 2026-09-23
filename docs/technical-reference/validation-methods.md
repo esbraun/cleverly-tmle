@@ -665,7 +665,7 @@ movement, which is additive for a difference and logarithmic for a ratio.
 ### Omitted-variable bounds, robustness value, benchmark, and contours
 
 **How.** [`sensitivity/omitted_variable.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/sensitivity/omitted_variable.py)
-implements Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2022). The bound is
+implements Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026). The bound is
 
 $$
 |\text{bias}| \le |\rho| \sqrt{\frac{c_D^2}{1-c_D^2}}\; c_Y \sqrt{\sigma^2 \nu^2},
@@ -675,15 +675,19 @@ with $\sigma^2 = E[(Y - \bar{Q})^2]$ and $\nu^2$ the second moment of the Riesz 
 two primitives are exposed as `elements()`.
 
 The estimate of $\nu^2$ reads the fitted treatment mechanism, so it needs a consistent assignment
-model. A wrong model makes $\nu^2$ too small. The bounds then read too narrow, and the robustness
-value reads too large. `cleverly` refuses every operation in this group on the fits below. The
+model. On a wrong model, the doubly robust estimate of $\nu^2$ falls below $\nu_0^2$ by
+$\lVert \hat\alpha - \alpha_0 \rVert^2$. The bounds then read too narrow, and the robustness value
+reads too large. The plug-in estimate can fall on either side of $\nu_0^2$. Witness 5 in
+`tests/unit/test_omitted_variable_refusals.py` gives the plug-in 5.32 against $\nu_0^2 = 4.4$.
+
+`cleverly` refuses every operation in this group on the fits below. The
 refusal runs in `sensitivity_elements()` before any computation. Every entry point and the
 matching capability row therefore carry one reason.
 
 | refused fit | the result the package does not have |
 | --- | --- |
 | a `drtmle` fit | an estimate of $\nu^2$ for an estimator that does not assume a consistent treatment mechanism. $E[2 m(\hat\alpha) - \hat\alpha^2]$ equals $\nu_0^2 - \lVert \hat\alpha - \alpha_0 \rVert^2$, so it falls where that mechanism is wrong |
-| a `collaborative_tmle` fit | the same estimate. The working mechanism conditions on a function $V$ of the covariates. $V$ is the selected set $W_S$ on the greedy, ordered, and discrete paths, and the fitted outcome regression under `strategy="oat"`. The representer is then $E[\alpha_W \mid A, V]$. Its second moment cannot exceed that of $\alpha_W$, while $\sigma^2$ reads every declared covariate |
+| a `collaborative_tmle` fit | the same estimate. The working mechanism conditions on a function $V$ of the covariates. $V$ is the selected set $W_S$ on the greedy, ordered, and discrete paths, and the fitted outcome regression under `strategy="oat"`. Where the working mechanism is $P(A \mid V)$ in the limit, the representer is $E[\alpha_W \mid A, V]$. Its second moment cannot exceed that of $\alpha_W$, while $\sigma^2$ reads every declared covariate |
 | a fit with a response mechanism | an implementation. The identified mean is a linear functional of the regression of $\Delta Y$ on $(A, \Delta, W)$, so Theorem 2 of the cited paper covers it. The implemented representer omits $\Delta$. $\sigma^2$ averages the respondents, and the theorem needs $E[\Delta (Y - \bar{Q})^2]$. $c_D$ would combine the treatment and response mechanisms. The missingness tilt remains the sensitivity analysis for response |
 | a fit with an intermediate variable | an implementation. Each estimand at the level $z$ is a linear functional of the regression of $Y$ on $(A, Z, W)$, so Theorem 2 covers it. The representer carries the weight $1\{Z = z\} / P(Z = z \mid A, W)$, so $c_D$ would combine the treatment and intermediate mechanisms |
 | a longitudinal fit | any registered longitudinal derivation. See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) |

@@ -54,6 +54,7 @@ from cleverly.exceptions import (
 from cleverly.inference.influence import spread_name
 from cleverly.sensitivity import missingness_tilt, tipping_gamma
 from cleverly.validation import CoverageStudy, refute
+from cleverly.validation.score import score_check
 from tests.conftest import SELECTOR_CONFIGS, linear_ctmle, linear_in_sample
 
 #: The status every selector path stamps, and the three spread columns an ordinary fit's
@@ -311,6 +312,58 @@ class TestALegacySelectorArtifactIsReStamped:
         assert restored["ate"].ci == ordinary_fit["ate"].ci
 
 
+def _pre_strategy(estimator: Any) -> Any:
+    """A copy of ``estimator`` shaped as one pickled before ``strategy`` replaced ``search``.
+
+    Commit d429d90 renamed the attribute. The old one took ``"greedy"``, ``"ordered"`` or
+    ``"discrete"``, so every such artifact holds a selector path.
+    """
+    legacy = pickle.loads(pickle.dumps(estimator))
+    legacy.__dict__["search"] = legacy.__dict__.pop("strategy")
+    return legacy
+
+
+class TestAPreStrategyArtifactLoadsAndRefuses:
+    """An estimator that stores ``search`` must load, and must re-stamp as a selector.
+
+    ``TMLEResult.__setstate__`` asks the estimator for its status while the result loads.
+    A reader of ``strategy`` alone raised ``AttributeError`` there, on an artifact that
+    loaded before the re-stamp existed. Mapping ``search`` to ``"oat"`` would load it as
+    inferential, so each test checks the refusal as well as the load.
+    """
+
+    @pytest.fixture(scope="class", params=["serialize", "pickle"])
+    def restored(self, request: Any, selector_fit: Any) -> Any:
+        legacy = _legacy(selector_fit)
+        legacy.__dict__["estimator"] = _pre_strategy(selector_fit.estimator)
+        if request.param == "serialize":
+            return loads(dumps(legacy))
+        return pickle.loads(pickle.dumps(legacy))
+
+    def test_the_estimator_carries_the_strategy_under_its_current_name(self, restored: Any) -> None:
+        assert restored.estimator.strategy == "greedy"
+        assert "search" not in restored.estimator.__dict__
+
+    def test_the_estimates_are_re_stamped_as_a_selector_path(self, restored: Any) -> None:
+        assert restored.inference_status == DIAGNOSTIC
+        assert restored.simultaneous is None
+        assert restored.assessment_cache == {}
+
+    def test_the_interval_is_refused(self, restored: Any) -> None:
+        with pytest.raises(CapabilityError) as raised:
+            _ = restored["ate"].ci
+        assert WORKING_MECHANISM_NOT_INFERENTIAL in str(raised.value)
+
+    @pytest.mark.parametrize("strategy", sorted(SELECTOR_CONFIGS))
+    def test_variable_importance_refuses_the_restored_estimator(self, strategy: str) -> None:
+        estimator = linear_ctmle(strategy, estimands=("ate",), **SELECTOR_CONFIGS[strategy])
+        restored = pickle.loads(pickle.dumps(_pre_strategy(estimator)))
+        assert restored.strategy == strategy
+        with pytest.raises(CapabilityError) as raised:
+            TestVariableImportanceRefusesBeforeItFits._call(restored)
+        assert str(raised.value).startswith("variable_importance() is not defined here.")
+
+
 @pytest.fixture(scope="module")
 def binary_frame() -> Any:
     return make_binary_outcome(n=400, seed=17)[0]
@@ -405,6 +458,33 @@ class TestEverySpreadIsNamedByItsStatus:
         columns = set(test.to_frame().columns)
         assert spread_name("std_error", DIAGNOSTIC) in columns
         assert "std_error" not in columns
+        # The detail counts the shift in the same unit the frame names.
+        assert f" {spread_name('standard errors', DIAGNOSTIC)}); " in test.detail
+
+    def test_an_ordinary_refutation_detail_counts_standard_errors(self, ordinary_fit: Any) -> None:
+        report = refute(
+            ordinary_fit, tests=("random_common_cause",), n_replicates=2, random_state=0
+        )
+        detail = report.tests[0].detail
+        assert " standard errors); " in detail
+        assert spread_name("standard errors", DIAGNOSTIC) not in detail
+
+    def test_a_failing_score_verdict_names_the_diagnostic(self, repeated_selector_fit: Any) -> None:
+        """A zero tolerance fails every nonzero score, which is what reaches the verdict."""
+        check = score_check(repeated_selector_fit, tolerance=0.0)
+        assert not check.passed
+        assert check.inference == DIAGNOSTIC
+        unit = spread_name("standard errors", DIAGNOSTIC)
+        assert f"The {unit} above" in check.one_line()
+        assert f"the {unit} this fit reports" in check.summary()
+        assert "influence-curve standard errors" not in check.summary()
+
+    def test_an_ordinary_failing_score_verdict_is_unchanged(self, ordinary_fit: Any) -> None:
+        check = score_check(ordinary_fit, tolerance=0.0)
+        assert not check.passed
+        assert check.inference == "influence_curve"
+        assert "  The standard errors above are read off" in check.one_line()
+        assert "the influence-curve standard errors this fit reports" in check.summary()
 
     def test_the_coverage_study_labels_what_it_measured(self) -> None:
         study = CoverageStudy(

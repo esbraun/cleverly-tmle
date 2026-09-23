@@ -90,6 +90,7 @@ __all__ = [
     "regime_means",
     "shift_means",
     "spread_name",
+    "supplies_inference",
 ]
 
 Scale = Literal["level", "difference", "ratio", "fraction"]
@@ -132,8 +133,33 @@ _DIAGNOSTIC_NAMES: Mapping[str, str] = MappingProxyType(
         "ratio_to_standard_error": "ratio_to_plugin_standard_error",
         "reported se": "plugin se",
         "sd/se": "sd/plugin se",
+        # The noun the coverage-study verdict traces a shortfall to.
+        "reported standard error": "plug-in standard error",
+        # The unit a refutation detail and a score-check verdict count in.
+        "standard errors": "plug-in standard errors",
+        "influence-curve standard errors": "plug-in standard errors",
     }
 )
+
+
+def supplies_inference(status: str) -> bool:
+    """Whether the package supplies inference at an inference status.
+
+    The one comparison against ``"influence_curve"``. An estimate, a fit, a frame and a
+    report each ask it of the status they hold.
+
+    Parameters
+    ----------
+    status : str
+        A declared :data:`InferenceStatus`.
+
+    Returns
+    -------
+    bool
+        ``True`` for ``"influence_curve"``, which is when ``std_error``, ``ci`` and
+        ``pvalue`` answer. ``False`` for every diagnostic status.
+    """
+    return status == "influence_curve"
 
 
 def spread_name(name: str, status: InferenceStatus) -> str:
@@ -162,7 +188,7 @@ def spread_name(name: str, status: InferenceStatus) -> str:
         new inferential column has to be entered in the table before a diagnostic fit
         can publish it.
     """
-    if status == "influence_curve":
+    if supplies_inference(status):
         return name
     return _DIAGNOSTIC_NAMES[name]
 
@@ -304,7 +330,7 @@ class ParameterEstimate:
         ``True`` when :attr:`inference` is ``"influence_curve"``, which is when
         :attr:`std_error`, :attr:`ci` and :attr:`pvalue` answer.
         """
-        return self.inference == "influence_curve"
+        return supplies_inference(self.inference)
 
     def spread_columns(self, *, pvalue: bool = True) -> dict[str, float]:
         """The standard error, interval and p-value, each under its status-appropriate name.

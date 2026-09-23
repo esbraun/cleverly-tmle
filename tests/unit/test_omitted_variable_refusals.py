@@ -1,6 +1,6 @@
 r"""Where the omitted-variable bound stops, and what it says it is missing.
 
-Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2022) derive the bound under a
+Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026) derive the bound under a
 consistently estimated treatment mechanism and a complete outcome.  Several shipped fits
 fall outside what this package implements, and each one reported a robustness value with
 nothing in the report to say so: a DR-TMLE fit, a collaborative TMLE fit, a fit with a
@@ -372,6 +372,8 @@ class TestEachReasonNamesTheMissingResult:
         assert reason is not None
         assert "E[alpha_W | A, V]" in reason
         assert "W_S" in reason
+        # The representer is that average only where the working mechanism is P(A | V).
+        assert "Where the working mechanism is P(A | V) in the limit" in reason
 
     @pytest.mark.parametrize(
         ("fixture", "axis", "phrase"),

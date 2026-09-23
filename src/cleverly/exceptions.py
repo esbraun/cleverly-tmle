@@ -116,6 +116,26 @@ WORKING_MECHANISM_ASSESSMENT_NOTE = (
 )
 
 
+def capitalize_first(clause: str) -> str:
+    """Raise the first letter of a clause, and leave every other letter as written.
+
+    The two constants above are clauses, so a report that prints one as a sentence has to
+    raise its first letter. ``str.capitalize`` also lowers every later letter, and it
+    printed "F18" as "f18".
+
+    Parameters
+    ----------
+    clause : str
+        The clause to open a sentence with.
+
+    Returns
+    -------
+    str
+        ``clause`` with its first character upper-cased.
+    """
+    return clause[:1].upper() + clause[1:]
+
+
 def working_mechanism_refusal(operation: str) -> str:
     """The sentence that refuses an inferential operation on a selector-path estimate.
 
@@ -153,7 +173,10 @@ def refuse_working_mechanism_inference(status: str, *, operation: str) -> None:
     CapabilityError
         When the estimate declares any status other than ``"influence_curve"``.
     """
-    if status != "influence_curve":
+    # Function-local, because :mod:`cleverly.inference.influence` imports this module.
+    from .inference.influence import supplies_inference
+
+    if not supplies_inference(status):
         raise CapabilityError(working_mechanism_refusal(operation))
 
 

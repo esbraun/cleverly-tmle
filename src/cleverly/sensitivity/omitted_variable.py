@@ -4,7 +4,7 @@ Positivity diagnostics tell you whether the data can support the estimate.  This
 module answers a different question: *how strong would an unmeasured confounder
 have to be to overturn the conclusion?*
 
-Following Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2022), the bias from
+Following Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2026), the bias from
 omitting a confounder is bounded by a product of three interpretable pieces:
 
 .. math::
@@ -70,11 +70,12 @@ import numpy as np
 from scipy import optimize, stats
 
 from .._typing import FloatArray
+from ..assessment import SENSITIVITY_ROUTES
 from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, repeats_refusal
 from ..inference.cluster import influence_variance
 from ..targets import parameter_stem
-from ..targets.population_intervention import has_response_mechanism, is_natural_course_fit
+from ..targets.population_intervention import is_natural_course_fit
 from ..utils.bounds import g_bounds_for
 from ..utils.random import resolve_assessment_seed
 from ..utils.text import format_table
@@ -111,13 +112,14 @@ NU2_ESTIMATORS: tuple[str, ...] = ("auto", "doubly_robust", "plugin")
 #: The capability rows :class:`~cleverly.assessment.SensitivityFacade` fills from this
 #: module's refusal, named once so the tests that check those rows read the set rather
 #: than respell it.  ``benchmark`` shares the refusal on every point fit.  On a
-#: longitudinal fit it names its own missing derivation instead.
-OMITTED_VARIABLE_OPERATIONS: tuple[str, ...] = (
-    "omitted_confounding",
-    "robustness_value",
-    "elements",
-    "contour",
-    "benchmark",
+#: longitudinal fit it names its own missing derivation instead.  Read off
+#: :data:`~cleverly.assessment.SENSITIVITY_ROUTES` rather than listed here, because that
+#: table already says which operations this module answers, and a second list is the
+#: registry its comment warns against.
+OMITTED_VARIABLE_OPERATIONS: tuple[str, ...] = tuple(
+    operation
+    for operation, route in SENSITIVITY_ROUTES.items()
+    if route.module == "omitted_variable"
 )
 
 #: What each non-arm parameter axis reports, named so the refusal says which functional
@@ -156,8 +158,9 @@ _CTMLE_BOUND_REFUSAL = (
     "the omitted-variable bound has no nu^2 estimate for a 'collaborative_tmle' fit. The "
     "working mechanism conditions on a function V of W: the selected adjustment set W_S "
     "on the greedy, ordered and discrete paths, and the fitted outcome regression under "
-    "'oat'. It gives the representer E[alpha_W | A, V], whose second moment cannot exceed "
-    "the second moment of alpha_W, while sigma^2 still comes from a regression on every "
+    "'oat'. Where the working mechanism is P(A | V) in the limit, the representer is "
+    "E[alpha_W | A, V], whose second moment cannot exceed the second moment of alpha_W, "
+    "while sigma^2 still comes from a regression on every "
     "declared covariate. The product sigma^2 nu^2 belongs to no single conditioning set, "
     "and the collaborative robustness value is optimistic by construction. " + _NO_NU2_DERIVATION
 )
@@ -165,7 +168,7 @@ _CTMLE_BOUND_REFUSAL = (
 #: The clause the two well-posed mechanism refusals share: each functional is linear in
 #: an outcome regression, which is the hypothesis of the general bound.
 _THEOREM_2_COVERS = (
-    "so Theorem 2 of Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2022) covers it, "
+    "so Theorem 2 of Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026) covers it, "
     "and the bound is well posed here."
 )
 
@@ -234,15 +237,16 @@ def _refuse_selected_mechanism(result: Any) -> str | None:
 def _refuse_response_mechanism(result: Any) -> str | None:
     """Refuse a fit whose outcome is unobserved on some rows.
 
-    The predicate is
-    :func:`~cleverly.targets.population_intervention.has_response_mechanism`, which the
-    missingness-tilt rows read too, so a fit this rule refuses is the fit those rows
-    offer the tilt on.  It reads the data rather than a fitted missingness nuisance on
-    one repeat, and it is the predicate the sibling surface
-    :mod:`~cleverly.sensitivity._simulated_confounding_request` uses for the same
-    boundary.
+    The predicate is the data flag ``has_missing_outcome``, which the missingness-tilt
+    rows read too, so a fit this rule refuses is the fit those rows offer the tilt on.
+    It reads the data rather than a fitted missingness nuisance on one repeat, because a
+    response mechanism is a property of the identified functional and survives a
+    replacement of the stored nuisances.  The sibling surface
+    :mod:`~cleverly.sensitivity._simulated_confounding_request` reads the same flag for
+    the same boundary.  ``result.data`` has no default here, so a result without
+    point-treatment data raises ``AttributeError`` rather than reporting no mechanism.
     """
-    if not has_response_mechanism(result):
+    if not result.data.has_missing_outcome:
         return None
     if is_natural_course_fit(result):
         return _RESPONSE_BOUND_REFUSAL
@@ -279,7 +283,7 @@ def _refuse_non_arm_axis(result: Any) -> str | None:
             "the omitted-variable bound does not cover a fit whose parameters are indexed "
             "by 'ipsi'. An incremental intervention tilts the treatment mechanism, so the "
             "mechanism is part of the estimand rather than a nuisance the bound conditions "
-            "on. Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2022) bound the bias "
+            "on. Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026) bound the bias "
             "of a linear functional of the outcome regression alone."
         )
     noun = _AXIS_NOUNS[axis]
@@ -652,7 +656,7 @@ def _m_alpha(
     nuisance in it.  An ATT averages the contrast over the units that received the
     conditioning arm ``c``, so its score weights the contrast by the observed
     :math:`1\{A = c\} / P(A = c)`.  That is Example 2 of the Online Appendix of
-    Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2022), with
+    Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026), with
     :math:`\omega = D / P(D = 1)`, and the score of their Theorem 5(2).  DoubleML's
     ``DoubleMLIRM._sensitivity_element_est`` writes the same score, expanded, as
     :math:`D / (p^2 (1 - \hat m))`.  A fitted :math:`\hat g_c(W) / P(A = c)` in that

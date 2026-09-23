@@ -38,7 +38,7 @@ import numpy as np
 from .._typing import FloatArray
 from ..estimators.base import TMLEResultSet
 from ..estimators.direct_effect import check_level
-from ..inference.influence import InferenceStatus, spread_name
+from ..inference.influence import InferenceStatus, spread_name, supplies_inference
 from ..utils.parallel import map_parallel
 from ..utils.text import format_table
 
@@ -55,13 +55,6 @@ __all__ = [
     "StudyResult",
     "summarize_replications",
 ]
-
-
-#: What the verdict calls the standard error a coverage shortfall is traced to.
-_SPREAD_NOUN: dict[InferenceStatus, str] = {
-    "influence_curve": "reported standard error",
-    "working_mechanism_plugin": "plug-in standard error",
-}
 
 
 @dataclass(frozen=True)
@@ -238,7 +231,7 @@ class EstimandSummary:
         # the columns it always carried, and a summary of a diagnostic carries
         # ``inference`` and names its mean spread through ``spread_name``.
         row: dict[str, Any] = {"estimand": self.estimand}
-        if self.inference != "influence_curve":
+        if not supplies_inference(self.inference):
             row["inference"] = self.inference
         return {
             **row,
@@ -353,7 +346,7 @@ class StudyResult:
     @property
     def _diagnostic(self) -> bool:
         """Whether any summary measured a working-mechanism diagnostic, not inference."""
-        return any(summary.inference != "influence_curve" for summary in self.summaries.values())
+        return any(not supplies_inference(summary.inference) for summary in self.summaries.values())
 
     def summary(self) -> str:
         """Return a printable summary.
@@ -433,7 +426,7 @@ class StudyResult:
                     f"{summary.estimand}: coverage {summary.coverage:.3f} is below the nominal "
                     f"{target:.0%} by more than Monte Carlo error"
                     + (
-                        f"; the {_SPREAD_NOUN[summary.inference]} is "
+                        f"; the {spread_name('reported standard error', summary.inference)} is "
                         f"{1 / summary.se_ratio:.2f}x too small"
                         if summary.se_ratio < 0.95
                         else "; the standard error looks right, so this is bias"

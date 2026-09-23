@@ -118,9 +118,9 @@ selection.
 **Omitted-variable outputs refuse a collaborative fit.** The robustness value, the bounds, and
 `elements()` raise `CapabilityError` on every strategy. The working mechanism conditions on a
 function $V$ of $W$: the selected set $W_S$ on the selector paths, and the fitted outcome
-regression under `oat`. The representer is then $E[\alpha_W \mid A, V]$, which averages the full
-representer $\alpha_W$ within each arm and each value of $V$. Its $\nu^2$ is therefore never
-larger, and a collaborative robustness value would overstate robustness for the declared
+regression under `oat`. Where the working mechanism is $P(A \mid V)$ in the limit, the
+representer is $E[\alpha_W \mid A, V]$. That representer averages the full representer $\alpha_W$
+within each arm and each value of $V$. Its $\nu^2$ is therefore never larger, and a collaborative robustness value would overstate robustness for the declared
 adjustment set. The constant `_CTMLE_BOUND_REFUSAL` in `cleverly.sensitivity.omitted_variable`
 gives the full reason, and
 [RM11](../roadmap.md#rm11-sensitivity-bounds-outside-their-derivation) records the refusal.

@@ -17,10 +17,20 @@ import numpy as np
 
 from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData, arm_share
-from ..exceptions import WORKING_MECHANISM_NOT_INFERENTIAL, refuse_after_repeats
+from ..exceptions import (
+    WORKING_MECHANISM_NOT_INFERENTIAL,
+    capitalize_first,
+    refuse_after_repeats,
+)
 from ..fluctuation.iterative import Fluctuation
 from ..inference.bootstrap import BootstrapResult
-from ..inference.influence import InferenceStatus, ParameterEstimate, Scale, spread_name
+from ..inference.influence import (
+    InferenceStatus,
+    ParameterEstimate,
+    Scale,
+    spread_name,
+    supplies_inference,
+)
 from ..inference.multiplier import SimultaneousBands
 from ..inference.results import (
     estimate_covariance,
@@ -1082,7 +1092,7 @@ class TMLEResult:
         if hook is None:
             return
         status = hook()
-        if status == "influence_curve":
+        if supplies_inference(status):
             return
         estimates = self.__dict__.get("estimates") or {}
         if all(estimate.inference == status for estimate in estimates.values()):
@@ -1302,7 +1312,7 @@ class TMLEResult:
         # One fit's estimates carry one status: ``median_estimates`` and
         # ``inference_status`` both refuse a mix, so the table is never half refused.
         status = self.inference_status
-        diagnostic = status != "influence_curve"
+        diagnostic = not supplies_inference(status)
         rows = []
         if diagnostic:
             for name, estimate in self.estimates.items():
@@ -1332,8 +1342,7 @@ class TMLEResult:
             # and every raise say one thing.  Only the pointer to this table's column is
             # the summary's own.
             parts.append(
-                WORKING_MECHANISM_NOT_INFERENTIAL[0].upper()
-                + WORKING_MECHANISM_NOT_INFERENTIAL[1:]
+                capitalize_first(WORKING_MECHANISM_NOT_INFERENTIAL)
                 + ' The "working-mechanism se" column above is that diagnostic, and it is '
                 "not a standard error for this estimate."
             )

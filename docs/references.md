@@ -1293,8 +1293,10 @@ is the only empirical witness for it.
 
 ## Sensitivity analysis
 
-- Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2022), *Long story short: omitted variable bias
-  in causal machine learning*.
+- Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2026),
+  [*Long Story Short: Omitted Variable Bias in Causal Machine
+  Learning*](https://doi.org/10.1162/REST.a.1705), *The Review of Economics and Statistics*,
+  DOI 10.1162/REST.a.1705. The preprint is arXiv:2112.13398.
 - VanderWeele & Ding (2017), *Sensitivity analysis in observational research: introducing the
   E-value*.
 - Scharfstein, Rotnitzky & Robins (1999), *Adjusting for nonignorable drop-out using semiparametric
@@ -1541,7 +1543,7 @@ and for the reading of its association.
 The notebook also cites two sources for its sensitivity analysis. Their entries are under
 [sensitivity analysis](#sensitivity-analysis).
 
-- Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2022), for the omitted-variable bounds.
+- Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2026), for the omitted-variable bounds.
 - VanderWeele & Ding (2017), for the E-value.
 
 ## Proposed methods on the roadmap
