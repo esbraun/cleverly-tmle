@@ -31,8 +31,7 @@ from collections.abc import Iterable, Sequence
 
 import numpy as np
 
-from .. import _inference_status
-from .._inference_status import InferenceStatus, precedent_status
+from .._inference_status import FEW_CLUSTER_THRESHOLD, InferenceStatus, precedent_status
 from .._typing import FloatArray, IntArray
 
 __all__ = [
@@ -378,8 +377,7 @@ def cluster_inference_status(cluster: IntArray | None, *, cross_fit: bool) -> In
         status. An in-sample fit takes no status here.
     ``"few_cluster_plugin"``
         A fit, in sample or cross-fitted, with fewer distinct clusters than
-        :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD`. The threshold is read
-        from its module at each call.
+        :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD`.
 
     When both apply, :func:`~cleverly._inference_status.precedent_status` gives the one
     the fit takes.
@@ -415,7 +413,7 @@ def cluster_inference_status(cluster: IntArray | None, *, cross_fit: bool) -> In
         return "influence_curve"
     counts = cluster_sizes(cluster)
     unequal = cross_fit and counts.size > 0 and int(counts.min()) != int(counts.max())
-    few = counts.size < _inference_status.FEW_CLUSTER_THRESHOLD
+    few = counts.size < FEW_CLUSTER_THRESHOLD
     return precedent_status(
         [
             "unequal_cluster_plugin" if unequal else "influence_curve",

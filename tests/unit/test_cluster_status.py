@@ -43,12 +43,12 @@ from cleverly import (
     TMLEMethod,
     variable_importance,
 )
-from cleverly import _inference_status as inference_status_module
 from cleverly._inference_status import FEW_CLUSTER_THRESHOLD, NON_INFERENTIAL
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_clustered
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError
+from cleverly.inference import cluster as cluster_module
 from cleverly.inference.cluster import cluster_inference_status
 from tests.conftest import linear_in_sample
 from tests.unit._inference_status_support import (
@@ -291,7 +291,7 @@ class TestThePrecedence:
 
 def ignores_sizes(cluster: Any, *, cross_fit: bool) -> str:
     """The mutant that never reads the row counts: only the cluster count decides."""
-    few = np.unique(cluster).size < inference_status_module.FEW_CLUSTER_THRESHOLD
+    few = np.unique(cluster).size < FEW_CLUSTER_THRESHOLD
     return FEW if few else "influence_curve"
 
 
@@ -303,7 +303,7 @@ def ignores_cross_fit(cluster: Any, *, cross_fit: bool) -> str:
 def at_or_below(cluster: Any, *, cross_fit: bool) -> str:
     """The mutant that compares the cluster count with ``<=`` rather than ``<``."""
     status = cluster_inference_status(cluster, cross_fit=cross_fit)
-    at_threshold = np.unique(cluster).size == inference_status_module.FEW_CLUSTER_THRESHOLD
+    at_threshold = np.unique(cluster).size == FEW_CLUSTER_THRESHOLD
     return FEW if status == "influence_curve" and at_threshold else status
 
 
@@ -329,8 +329,8 @@ class TestTheStatusIsTheHooksToWithhold:
     def test_a_threshold_of_zero_fails_the_few_cluster_check(
         self, few_frame: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Also the witness that the rule reads the constant at call time."""
-        monkeypatch.setattr(inference_status_module, "FEW_CLUSTER_THRESHOLD", 0)
+        """The rule's own module compares against a threshold of zero."""
+        monkeypatch.setattr(cluster_module, "FEW_CLUSTER_THRESHOLD", 0)
         with pytest.raises(AssertionError):
             assert_withholds(fit(few_frame, **IN_SAMPLE), FEW)
 
