@@ -86,8 +86,8 @@ Every other status is a non-inferential status.
 | `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, or `"discrete"`. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `working-mechanism se` | [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
 | `"generated_design_plugin"` | every `CTMLE` fit with `strategy="oat"`, including a fit with `delta=` and a fit that requests one arm mean. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `generated-design se` | [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | `"estimated_weight_plugin"` | a `DRTMLE` fit with a non-empty `guard` and varying weights declared estimated (`weights_estimated=True`). A fit with `guard=()` keeps `"influence_curve"`. Constant weights fit the unweighted estimator, so they keep it too. [DR-TMLE supported estimands](dr-tmle/supported-estimands.md#refused-by-name) gives the reason | raise `CapabilityError` with the reason of the status | `fixed-weight se` | [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
-| `"unequal_cluster_plugin"` | a cross-fitted `TMLE` or `DRTMLE` fit with `id=` whose clusters hold different numbers of rows, or different weight mass on a weighted fit. This includes `cv_evaluation=True`. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `cluster-robust plug-in se` | [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
-| `"few_cluster_plugin"` | a `TMLE` or `DRTMLE` fit with `id=` and fewer than 40 clusters in the fit or in one baseline stratum that it reports, in sample or cross-fitted. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
+| `"unequal_cluster_plugin"` | a cross-fitted `TMLE` or `DRTMLE` fit with `id=` whose clusters differ in row count or weight mass, overall or in one reported baseline stratum. This includes `cv_evaluation=True`. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `cluster-robust plug-in se` | [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
+| `"few_cluster_plugin"` | a `TMLE` or `DRTMLE` fit with `id=` and fewer than 40 clusters with positive weight mass in the fit or one reported baseline stratum. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
 
 At every status, `plugin_std_error` and `plugin_interval` return the plug-in spread of the
 reported curve. On `"influence_curve"` they return the numbers of `std_error` and `ci` under names
@@ -99,7 +99,7 @@ E-value row each read that table. `tests/unit/test_inference_status_registry.py`
 table, the `InferenceStatus` type, and the rows above list the same statuses.
 
 A fit has one status, and `TMLEResult.inference_status` returns it. The estimator decides the
-status from its configuration and the prepared data, before any learner runs. When more than one
+status from its configuration and the prepared data; it reads no fitted quantity. When more than one
 non-inferential status applies, the fit takes the first one in the table above. The rows are in
 that order.
 
@@ -158,35 +158,39 @@ every setting, and longitudinal TMLE refuses it above one fold. The
 messages.
 
 Two clustered settings of `TMLE` and `DRTMLE` report no interval. Each takes a status from the
-[status table](#inference-status). The estimator reads the cluster labels before any learner runs.
+[status table](#inference-status). The status is determined from prepared cluster labels, strata,
+and weights, without reading a fitted quantity.
 
 | setting | status | reason |
 | --- | --- | --- |
-| cross-fitted, and the clusters hold different numbers of rows, or different weight mass on a weighted fit | `"unequal_cluster_plugin"` | the [grouped folds](cv-tmle.md#grouped-folds) argument needs equal cluster sizes. Only then does the row-weighted target equal the cluster-weighted target. A weighted fit targets the weight-weighted mean, so the size of a cluster is its row count and its weight mass |
-| fewer than 40 clusters in the fit, or in one baseline stratum that the fit reports, in sample or cross-fitted | `"few_cluster_plugin"` | the package uses a normal reference. Nugent et al. (2024), Section 2.2, recommend a $t$ reference with $J - 2$ degrees of freedom below 40 clusters, where $J$ is the cluster count. Benitez et al. (2023), Section 3.1.2, paragraph on inference, and Section 3.2.1, last paragraph, recommend it at every cluster count. No registered study covers few clusters |
+| cross-fitted, and the clusters hold different numbers of rows or weight mass, overall or within a reported baseline stratum | `"unequal_cluster_plugin"` | the [grouped folds](cv-tmle.md#grouped-folds) argument and registered study cover equal sizes and masses. The point estimator remains row weighted at unequal sizes, but its cross-fitted interval lacks a validation result there |
+| fewer than 40 clusters with positive weight mass in the fit, or in one reported baseline stratum, in sample or cross-fitted | `"few_cluster_plugin"` | the package uses a normal reference. Nugent et al. (2024), Section 2.2, recommend a $t$ reference with $J - 2$ degrees of freedom below 40 clusters, where $J$ is the contributing cluster count. Benitez et al. (2023), Section 3.1.2, paragraph on inference, and Section 3.2.1, last paragraph, recommend it at every cluster count. No registered study covers few clusters |
 
 The table gives the functions in `cleverly.inference.cluster` that apply each rule.
 
 | function | what it reads |
 | --- | --- |
-| `unequal_cluster_sizes` | the row count of each cluster. On a weighted fit it also reads the weight mass of each cluster. Two masses count as equal when they differ by at most `WEIGHT_MASS_RTOL`, 1e-9, of the largest |
-| `fewest_clusters` | the distinct cluster count of the fit. On a fit with baseline strata, it also reads the distinct cluster count inside each stratum, and it returns the smallest count |
+| `unequal_cluster_sizes` | the row count and, on a weighted fit, the weight mass of each cluster. `cluster_inference_status` checks both measures again within each reported stratum. Two masses count as equal within `WEIGHT_MASS_RTOL`, 1e-9, of the largest |
+| `fewest_clusters` | the distinct cluster count with positive weight mass. On a fit with baseline strata, it also counts those clusters within each stratum and returns the smallest count |
 
-A fit has one status. So one stratum with fewer than 40 clusters withholds the interval of every
-estimate, the marginal estimates included. An in-sample fit at unequal sizes keeps its interval
-when it has 40 or more clusters in the fit and in each reported stratum. Benitez et al. (2023),
+A fit has one status. So one stratum with fewer than 40 contributing clusters withholds the interval
+of every estimate, the marginal estimates included. An in-sample fit at unequal sizes keeps its
+interval when it has 40 or more contributing clusters in the fit and in each reported stratum.
+Benitez et al. (2023),
 Section 3.2.1, give the cluster-sum aggregation for that row-weighted estimand. When both settings
 apply, the fit takes `"unequal_cluster_plugin"`, which comes first in the status table.
 `tests/unit/test_cluster_status.py` holds a witness, a control, and a mutation for each rule.
 
-The rule counts clusters, and it reads no row count. So a fit of 30 rows with `id=` and one row in
+The few-cluster rule counts contributing clusters, and it reads no row count. So a fit of 30 rows
+with `id=` and one row in
 each cluster takes `"few_cluster_plugin"`. The same rows without `id=` keep their interval. This
 refusal is conservative, and the roadmap records it as a known over-refusal.
 
 `FEW_CLUSTER_THRESHOLD` in `cleverly._inference_status` holds the threshold of 40. The `summary()`
-facts block prints the cluster count. It adds the range of row counts when the row counts differ,
-the range of weight mass when only the mass differs, and the fewest clusters in one stratum on a
-stratified fit. [References](../references.md#grouped-folds-and-clustered-cross-fitting) gives both
+facts block prints the cluster count. It adds unequal row or weight-mass ranges, including
+within-stratum ranges. It names clusters with positive weight mass when some have zero mass, and
+the fewest contributing clusters in one stratum.
+[References](../references.md#grouped-folds-and-clustered-cross-fitting) gives both
 sources. [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle) holds the
 route that reopens each setting.
 

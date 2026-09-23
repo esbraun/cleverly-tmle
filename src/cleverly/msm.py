@@ -302,8 +302,9 @@ _ESTIMATED_WEIGHTS = (
     "an estimated MSM projection weight (a 'stabilised' MSM) is refused. h(a, V) is then "
     "a functional of P, so the efficient influence function carries a further term for "
     "the pathwise derivative through the estimated mechanism or arm shares, and the "
-    "influence curve reported here does not have it. The reported standard error would "
-    "be too small. docs/technical-reference/msm-projections.md (Variations) records the "
+    "influence curve reported here does not have it. The reported standard error can "
+    "be too small, as the RM13 exact-law witness shows; its direction is not universal. "
+    "docs/technical-reference/msm-projections.md (Variations) records the "
     "refusal, and RM13 in docs/roadmap.md records the reason. Pass weights= as a known "
     "function of the arm and the covariates with weights_kind='known', or leave "
     "weights=None for uniform weights."
@@ -314,7 +315,7 @@ _UNDECLARED_WEIGHTS = (
     "when h(a, V) is a fixed function of the arm and the covariates, chosen without "
     "reading the data. A weight computed from the sample, such as arm shares or a fitted "
     "mechanism, is estimated: h is then a functional of P, the reported influence curve "
-    "omits its pathwise derivative, and the standard error is too small (RM13 in "
+    "omits its pathwise derivative, so its standard error can be wrong (RM13 in "
     "docs/roadmap.md). weights_kind='estimated' is refused for that reason."
 )
 

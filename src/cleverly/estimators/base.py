@@ -1665,14 +1665,12 @@ def _is_intercept(column: FloatArray) -> bool:
 
 
 def _cluster_fact(data: CausalData) -> str:
-    """The cluster count, the size range when sizes differ, and the fewest in one stratum.
+    """The cluster count and the size or active-cluster facts behind its status.
 
     A weighted fit whose clusters hold equal rows and unequal weight mass prints the mass
     range in place of the size range. The stratum count applies to a fit with baseline
-    strata. A cross-fitted fit at unequal sizes withholds its interval, and so does a fit
-    with a stratum of few clusters, so the facts block states the counts it read. Equal
-    sizes without strata print the count alone, as they did before the sizes mattered to
-    a status.
+    strata. The facts also name unequal sizes within a stratum and clusters that have
+    zero weight mass. Equal sizes without strata print the count alone.
     """
     cluster = data.cluster
     assert cluster is not None
@@ -1684,8 +1682,35 @@ def _cluster_fact(data: CausalData) -> str:
     elif data.is_weighted and unequal_cluster_sizes(cluster, data.weights):
         mass = cluster_weight_mass(cluster, data.weights)
         fact += f", weight mass {mass.min():.4g} to {mass.max():.4g}"
+    if data.is_weighted:
+        active = fewest_clusters(cluster, weights=data.weights)
+        if active < counts.size:
+            fact += f", positive weight mass in {active}"
     if data.has_strata:
-        fact += f", fewest in one stratum {fewest_clusters(cluster, data.strata)}"
+        assert data.strata is not None
+        masks = (data.strata == level for level in np.unique(data.strata))
+        parts = [(cluster[inside], data.weights[inside]) for inside in masks]
+        uneven = [cluster_sizes(part) for part, _ in parts]
+        uneven = [part for part in uneven if int(part.min()) != int(part.max())]
+        if uneven:
+            fact += (
+                f", within-stratum sizes {min(int(part.min()) for part in uneven)}"
+                f" to {max(int(part.max()) for part in uneven)}"
+            )
+        elif data.is_weighted:
+            uneven_mass = [
+                cluster_weight_mass(part, weight)
+                for part, weight in parts
+                if unequal_cluster_sizes(part, weight)
+            ]
+            if uneven_mass:
+                low_mass = min(float(part.min()) for part in uneven_mass)
+                high_mass = max(float(part.max()) for part in uneven_mass)
+                fact += f", within-stratum weight mass {low_mass:.4g} to {high_mass:.4g}"
+        stratum_count = fewest_clusters(
+            cluster, data.strata, data.weights if data.is_weighted else None
+        )
+        fact += f", fewest in one stratum {stratum_count}"
     return fact
 
 

@@ -696,6 +696,14 @@ is the only empirical witness for it.
 
 ## Collaborative TMLE
 
+- Schnitzer, Lok & Gruber (2016), [*Variable selection for confounder control, flexible modeling
+  and collaborative targeted minimum loss-based estimation in causal inference*](https://doi.org/10.1515/ijb-2015-0017),
+  *The International Journal of Biostatistics* 12(1):97–115, DOI 10.1515/ijb-2015-0017.
+  Read first-hand in the [publisher PDF](https://www.degruyterbrill.com/document/doi/10.1515/ijb-2015-0017/pdf?licenseType=free).
+  Section 5.3, Table 3 and the following discussion report that ordinary influence-curve standard
+  errors underestimate sampling spread and yield undercoverage for TMLE and C-TMLE with Super
+  Learner in some simulated settings. These are empirical warnings about variance calibration,
+  not a result for this package's global stopping-index selector or its joint targets.
 - van der Laan & Gruber (2010), [*Collaborative double robust targeted maximum likelihood
   estimation*](https://pmc.ncbi.nlm.nih.gov/articles/PMC2898626/), DOI
   10.2202/1557-4679.1181. Section 2.4 selects candidate depth by cross-validated targeted loss.

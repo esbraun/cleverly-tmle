@@ -4,13 +4,14 @@ Roadmap row RM20 decides two clustered statuses for ``TMLE`` and ``DRTMLE``, and
 the route that reopens each one.
 
 ``"unequal_cluster_plugin"``
-    A cross-fitted fit whose clusters hold different numbers of rows. The grouped
-    cross-fitting argument needs equal sizes, because only then does the row-weighted
-    target equal the cluster-weighted one. ``cv_evaluation=True`` and fold targeting are
-    cross-fitted, so their fold-level reports carry the status too.
+    A cross-fitted fit whose clusters hold different numbers of rows or, on a weighted
+    fit, different weight mass, overall or within a reported stratum. The point target
+    remains row weighted; its interval lacks validation for this setting.
+    ``cv_evaluation=True`` and fold targeting carry the status too.
 ``"few_cluster_plugin"``
     A fit with fewer than :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD`
-    clusters, in sample or cross-fitted. The package keeps its normal reference, and
+    contributing clusters, in sample or cross-fitted, overall or in a stratum.
+    The package keeps its normal reference, and
     Nugent et al. (2024), Section 2.2, recommend a t reference below 40 clusters.
 
 The unequal fit is the RM20 probe: ``make_clustered(n=400, cluster_size=10, seed=7)`` with
@@ -263,9 +264,9 @@ def stratified_frame(n_clusters: int, small: int) -> Any:
     return frame.assign(S=np.where(frame["cluster"] < small, "small", "big"))
 
 
-def fit_stratified(frame: Any) -> Any:
+def fit_stratified(frame: Any, **settings: Any) -> Any:
     return (
-        TMLE(**linear_in_sample(estimands=("ate",)))
+        TMLE(**linear_in_sample(estimands=("ate",), **settings))
         .fit(
             frame,
             outcome="Y",
@@ -273,6 +274,7 @@ def fit_stratified(frame: Any) -> Any:
             covariates=["W1", "W2", "S"],
             id="cluster",
             strata=["S"],
+            **({"weights": "w"} if "w" in frame else {}),
         )
         .single()
     )
@@ -310,6 +312,59 @@ class TestAStratumWithFewClustersReportsNoInterval:
         assert "clusters = 80, fewest in one stratum 40 (cluster-robust variance)" in (
             result.summary()
         )
+
+
+def within_cluster_strata(frame: Any, first: int, second: int) -> Any:
+    """Forty equal ten-row clusters, with two strata inside each cluster."""
+    assert first + second == 10
+    labels = np.concatenate(
+        [
+            np.r_[np.zeros(first if j < 20 else second), np.ones(second if j < 20 else first)]
+            for j in range(40)
+        ]
+    )
+    return frame.assign(S=labels.astype(int))
+
+
+class TestUnequalSizesInsideAReportedStratum:
+    def test_cross_fitted_fit_withholds(self, equal_frame: Any) -> None:
+        frame = within_cluster_strata(equal_frame, 3, 7)
+        result = fit_stratified(frame, **CROSS_FITTED)
+        assert sizes(frame) == (40, 10, 10)
+        assert all(frame.loc[frame["S"] == level, "cluster"].nunique() == 40 for level in (0, 1))
+        assert_withholds(result, UNEQUAL)
+        assert "within-stratum sizes 3 to 7" in result.summary()
+
+    def test_equal_sizes_inside_each_stratum_keep_the_interval(self, equal_frame: Any) -> None:
+        frame = within_cluster_strata(equal_frame, 5, 5)
+        result = fit_stratified(frame, **CROSS_FITTED)
+        assert_keeps_inference(result)
+
+    def test_equal_whole_mass_but_unequal_stratum_mass_withholds(self, equal_frame: Any) -> None:
+        frame = within_cluster_strata(equal_frame, 5, 5)
+        low_mass = (frame["cluster"] < 20) == (frame["S"] == 0)
+        frame = frame.assign(w=np.where(low_mass, 0.5, 1.5))
+        assert set(frame.groupby("cluster")["w"].sum()) == {10.0}
+        result = fit_stratified(frame, **CROSS_FITTED)
+        assert_withholds(result, UNEQUAL)
+        assert "within-stratum weight mass" in result.summary()
+
+    def test_equal_mass_inside_each_stratum_keeps_interval(self, equal_frame: Any) -> None:
+        frame = within_cluster_strata(equal_frame, 5, 5)
+        frame = frame.assign(w=np.tile([0.5, 1.5], len(frame) // 2))
+        assert_keeps_inference(fit_stratified(frame, **CROSS_FITTED))
+
+    def test_ignoring_stratum_sizes_fails(
+        self, equal_frame: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        frame = within_cluster_strata(equal_frame, 3, 7)
+
+        def whole_fit_only(cluster: Any, *, cross_fit: bool, weights: Any = None, **_: Any) -> str:
+            return cluster_inference_status(cluster, cross_fit=cross_fit, weights=weights)
+
+        monkeypatch.setattr(tmle_module, "cluster_inference_status", whole_fit_only)
+        with pytest.raises(AssertionError):
+            assert_withholds(fit_stratified(frame, **CROSS_FITTED), UNEQUAL)
 
     def test_a_count_that_ignores_the_strata_fails_the_check(
         self, few_stratum_frame: Any, monkeypatch: pytest.MonkeyPatch
@@ -444,9 +499,53 @@ def rows_only(cluster: Any, weights: Any = None) -> bool:
     return bool(np.ptp(np.unique(cluster, return_counts=True)[1]) > 0)
 
 
-def whole_fit_count(cluster: Any, strata: Any = None) -> int:
+def whole_fit_count(cluster: Any, strata: Any = None, weights: Any = None) -> int:
     """The mutant that counts the clusters of the whole fit and never reads the strata."""
     return int(np.unique(cluster).size)
+
+
+class TestZeroWeightClusters:
+    def test_only_positive_mass_clusters_count(self, equal_frame: Any) -> None:
+        frame = equal_frame.assign(w=(equal_frame["cluster"] < 6).astype(float))
+        result = (
+            TMLE(**linear_in_sample(estimands=("ate",), **IN_SAMPLE))
+            .fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=["W1", "W2"],
+                id="cluster",
+                weights="w",
+            )
+            .single()
+        )
+        assert result.data.n_clusters == 40
+        assert_withholds(result, FEW)
+        assert "positive weight mass in 6" in result.summary()
+
+    def test_all_positive_clusters_keep_the_interval(self, equal_frame: Any) -> None:
+        frame = equal_frame.assign(w=np.ones(len(equal_frame)))
+        assert_keeps_inference(fit_weighted(frame, **IN_SAMPLE))
+
+    def test_counting_zero_mass_clusters_fails(
+        self, equal_frame: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        frame = equal_frame.assign(w=(equal_frame["cluster"] < 6).astype(float))
+        monkeypatch.setattr(cluster_module, "fewest_clusters", whole_fit_count)
+        with pytest.raises(AssertionError):
+            assert_withholds(
+                TMLE(**linear_in_sample(estimands=("ate",), **IN_SAMPLE))
+                .fit(
+                    frame,
+                    outcome="Y",
+                    treatment="A",
+                    covariates=["W1", "W2"],
+                    id="cluster",
+                    weights="w",
+                )
+                .single(),
+                FEW,
+            )
 
 
 class TestTheStatusIsTheHooksToWithhold:

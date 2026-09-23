@@ -22,6 +22,7 @@ status must fail the bound check.
 
 from __future__ import annotations
 
+import pickle
 from collections.abc import Iterator
 from typing import Any
 
@@ -86,13 +87,20 @@ def result(status: str, frame: Any) -> Any:
 
 
 def assert_bound_withholds(result: Any, status: str) -> None:
-    """The omitted-variable bound and the robustness value publish no confidence limit."""
+    """The bound and robustness value expose no inferential limit, even as attributes."""
     bound = omitted_variable_bounds(result, "ate")
     assert bound.inference == status
+    for name in ("ci_lower", "ci_upper", "robustness_value_ci"):
+        with pytest.raises(CapabilityError) as raised:
+            getattr(bound, name)
+        assert_refused_by(status, raised)
     row = bound.to_dict()
     assert row["inference"] == status
     assert_no_inferential_name(row)
     assert {"plugin_interval_lower", "plugin_interval_upper"} <= set(row)
+    assert bound.plugin_interval_lower == row["plugin_interval_lower"]
+    assert bound.plugin_interval_upper == row["plugin_interval_upper"]
+    assert bound.robustness_value_plugin_interval == row["robustness_value_plugin_interval"]
     assert_no_inferential_text(bound.summary())
     values = robustness_value(result, "ate")
     assert_no_inferential_name(values)
@@ -139,6 +147,25 @@ class TestTheFoldLevelReport:
 class TestTheOmittedVariableBound:
     def test_the_bound_withholds(self, result: Any, status: str) -> None:
         assert_bound_withholds(result, status)
+
+    def test_pickle_keeps_the_guarded_accessors(self, result: Any, status: str) -> None:
+        bound = pickle.loads(pickle.dumps(omitted_variable_bounds(result, "ate")))
+        assert bound.inference == status
+        with pytest.raises(CapabilityError):
+            _ = bound.ci_lower
+        assert bound.plugin_interval_lower == bound.to_dict()["plugin_interval_lower"]
+
+    def test_old_pickle_fields_migrate_to_guarded_accessors(self, result: Any, status: str) -> None:
+        bound = omitted_variable_bounds(result, "ate")
+        old_state = dict(bound.__dict__)
+        for name in ("ci_lower", "ci_upper", "robustness_value_ci"):
+            old_state[name] = old_state.pop(f"_{name}")
+        restored = type(bound).__new__(type(bound))
+        restored.__setstate__(old_state)
+        with pytest.raises(CapabilityError):
+            _ = restored.ci_lower
+        assert restored.plugin_interval_lower == bound.plugin_interval_lower
+        assert restored.inference == status
 
     def test_a_module_that_ignores_the_status_fails_the_check(
         self, result: Any, status: str, monkeypatch: pytest.MonkeyPatch

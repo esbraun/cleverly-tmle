@@ -53,6 +53,11 @@ those columns now read `plugin_std_error` and `plugin_interval`. The two accesso
 body the refused ones call, so the reframing changed no number and no study was regenerated. Read a
 red `F18` coverage cell as a measurement of a diagnostic, and not as a refused coverage claim.
 
+The two red `F19` generated-design cells likewise measure `plugin_std_error` and
+`plugin_interval` for the shipped joint outcome-adaptive fit. Their coverage and SE-ratio numbers
+remain evidence about that diagnostic, not an inference claim. F19 needs a result for the exact
+shared-multinomial, jointly targeted construction before those cells can support one.
+
 The test fails on four states.
 
 | state | why the test refuses it |

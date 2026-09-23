@@ -41,9 +41,10 @@ study = CausalStudy(
   cross-fitted fit counts, so each treatment arm must appear in at least two clusters. C-TMLE
   refuses `cluster=` at every setting, and longitudinal TMLE refuses it above one fold.
 
-  A point-treatment TMLE or DR-TMLE fit reports no interval when it has fewer than 40 clusters, in
-  total or in one reported stratum. A cross-fitted fit reports none when its clusters differ in
-  rows, or in weight mass on a weighted fit
+  A point-treatment TMLE or DR-TMLE fit reports no interval when it has fewer than 40 clusters
+  with positive weight mass, in total or in one reported stratum. A cross-fitted fit reports none
+  when its clusters differ in rows or, on a weighted fit, weight mass, overall or within a
+  reported stratum
   ([clusters](../technical-reference/inference.md#clusters)). An in-sample longitudinal fit with
   fewer than 40 clusters still reports an interval, and
   [RM26](../roadmap.md#rm26-longitudinal-clustered-intervals-at-few-clusters) tracks it.

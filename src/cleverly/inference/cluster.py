@@ -400,9 +400,9 @@ def cluster_weight_mass(cluster: IntArray, weights: FloatArray) -> FloatArray:
 def unequal_cluster_sizes(cluster: IntArray, weights: FloatArray | None = None) -> bool:
     """Whether the clusters differ in size: in row count, or in weight mass when weighted.
 
-    A weighted fit targets the weight-weighted mean, and that equals the cluster-weighted
-    mean only when every cluster carries the same weight mass. Equal row counts are not
-    enough, so a weighted fit reads both. Two masses count as equal within
+    Equal weight mass makes the weight-weighted and equal-cluster means coincide for
+    every possible outcome. Equal row counts do not ensure equal mass, so a weighted
+    fit reads both. Two masses count as equal within
     :data:`WEIGHT_MASS_RTOL` of the largest.
 
     Parameters
@@ -439,12 +439,16 @@ def unequal_cluster_sizes(cluster: IntArray, weights: FloatArray | None = None) 
     return bool(float(np.ptp(mass)) > WEIGHT_MASS_RTOL * float(np.max(np.abs(mass))))
 
 
-def fewest_clusters(cluster: IntArray, strata: IntArray | None = None) -> int:
-    """The smallest number of distinct clusters that one reported estimate reads.
+def fewest_clusters(
+    cluster: IntArray,
+    strata: IntArray | None = None,
+    weights: FloatArray | None = None,
+) -> int:
+    """The fewest clusters with positive weight mass that one estimate reads.
 
-    A fit without strata reads every cluster. A fit with baseline strata also reports
-    one estimate per stratum, and each of those reads only the clusters with a row in
-    its stratum, so the smallest of those counts is the one that matters.
+    A fit without strata reads every positive-mass cluster. A fit with baseline strata also reports
+    one estimate per stratum. A cluster with zero weight mass contributes nothing to
+    that estimate, so it does not count, including inside a stratum.
 
     Parameters
     ----------
@@ -452,12 +456,14 @@ def fewest_clusters(cluster: IntArray, strata: IntArray | None = None) -> int:
         The cluster label of each row.
     strata : ndarray of int or None, default None
         The baseline stratum code of each row, or ``None`` for a fit without strata.
+    weights : ndarray of float or None, default None
+        The observation weight of each row. ``None`` counts every cluster.
 
     Returns
     -------
     int
-        The distinct cluster count of the whole fit, or the smallest distinct cluster
-        count within one stratum when that is smaller.
+        The distinct positive-mass cluster count of the whole fit, or the smallest
+        positive-mass count within one reported stratum when that is smaller.
 
     Examples
     --------
@@ -470,12 +476,19 @@ def fewest_clusters(cluster: IntArray, strata: IntArray | None = None) -> int:
     6
     """
     labels = np.asarray(cluster).reshape(-1)
-    count = int(np.unique(labels).size)
+    positive = (
+        np.ones(labels.size, dtype=bool)
+        if weights is None
+        else np.asarray(weights, dtype=float).reshape(-1) > 0.0
+    )
+    count = int(np.unique(labels[positive]).size)
     if strata is None:
         return count
-    pairs = np.unique(np.column_stack([np.asarray(strata).reshape(-1), labels]), axis=0)
-    _, per_stratum = np.unique(pairs[:, 0], return_counts=True)
-    return min(count, int(per_stratum.min()))
+    levels = np.asarray(strata).reshape(-1)
+    return min(
+        count,
+        *(int(np.unique(labels[positive & (levels == level)]).size) for level in np.unique(levels)),
+    )
 
 
 def cluster_inference_status(
@@ -485,21 +498,21 @@ def cluster_inference_status(
     strata: IntArray | None = None,
     weights: FloatArray | None = None,
 ) -> InferenceStatus:
-    """The inference status the cluster labels of a fit give it, before any learner runs.
+    """The inference status the fit's cluster labels, strata, and weights determine.
 
     Two clustered settings report no interval, as roadmap row RM20 decides, and F22 holds
     the route that reopens each one.
 
     ``"unequal_cluster_plugin"``
         A cross-fitted fit whose clusters hold different numbers of rows, or, when the
-        fit is weighted, different weight mass. The package's grouped cross-fitting
-        argument needs equal cluster sizes, because only then does the row-weighted
-        target equal the cluster-weighted one. A weighted fit targets the weight-weighted
-        mean, so its size is the row count and the weight mass, and
-        :func:`unequal_cluster_sizes` reads both. An in-sample fit takes no status here.
+        fit is weighted, different weight mass. This applies to the whole fit and to
+        every reported baseline stratum. The package's grouped cross-fitting argument
+        and registered study cover equal sizes only; unequal sizes need their own
+        expansion and variance check. :func:`unequal_cluster_sizes` reads both measures.
+        An in-sample fit takes no status here.
     ``"few_cluster_plugin"``
         A fit, in sample or cross-fitted, where one reported estimate reads fewer
-        distinct clusters than
+        distinct clusters with positive weight mass than
         :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD`. That is the whole
         fit, or, with baseline strata, any one stratum: :func:`fewest_clusters` gives
         the count. The fit takes one status, so a stratum with few clusters withholds
@@ -547,7 +560,16 @@ def cluster_inference_status(
     if cluster is None:
         return "influence_curve"
     unequal = cross_fit and unequal_cluster_sizes(cluster, weights)
-    few = fewest_clusters(cluster, strata) < FEW_CLUSTER_THRESHOLD
+    if cross_fit and not unequal and strata is not None:
+        # A marginal fit can have equal cluster sizes while its reported stratum fits
+        # do not. Each conditional estimate reads only the rows inside its stratum.
+        labels = np.asarray(strata).reshape(-1)
+        for level in np.unique(labels):
+            inside = labels == level
+            if unequal_cluster_sizes(cluster[inside], None if weights is None else weights[inside]):
+                unequal = True
+                break
+    few = fewest_clusters(cluster, strata, weights) < FEW_CLUSTER_THRESHOLD
     return precedent_status(
         [
             "unequal_cluster_plugin" if unequal else "influence_curve",

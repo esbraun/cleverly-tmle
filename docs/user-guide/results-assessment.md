@@ -103,8 +103,9 @@ if len(names) >= 2:
 ```
 
 Use cluster roles in the study design for cluster-robust variance. A point-treatment TMLE or
-DR-TMLE fit reports no interval when it has fewer than 40 clusters, in total or in one reported
-stratum. A cross-fitted fit at unequal cluster sizes reports none either.
+DR-TMLE fit reports no interval when it has fewer than 40 clusters with positive weight mass,
+in total or in one reported stratum. A cross-fitted fit at unequal row counts or weight masses,
+overall or within a reported stratum, reports none either.
 [Clusters](../technical-reference/inference.md#clusters) gives both reasons. An in-sample
 longitudinal fit with fewer than 40 clusters still reports an interval, and
 [RM26](../roadmap.md#rm26-longitudinal-clustered-intervals-at-few-clusters) tracks it. Use

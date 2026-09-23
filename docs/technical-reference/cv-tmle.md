@@ -337,7 +337,7 @@ units, and it needs four conditions.
 | condition | what it asks |
 | --- | --- |
 | independent clusters | one cluster's rows carry no information about another cluster's rows |
-| equal cluster sizes | every cluster holds the same number of rows, so the row-weighted target equals the cluster-weighted one |
+| equal cluster sizes and mass | every cluster holds the same number of rows and, on a weighted fit, the same weight mass. The rule applies within each reported baseline stratum too |
 | no interference | one cluster's treatment does not change another cluster's outcome |
 | remainder rates | the product rate on the two nuisances holds at the cluster level, as it does at the row level for iid data |
 
@@ -347,12 +347,13 @@ clusters in place of rows. The registered
 the empirical witness, and it is the only one. Its design satisfies all four conditions by
 construction. No source read here proves that the estimator is valid under clustering.
 
-Row weighting and cluster weighting agree only at equal, or non-informative, cluster sizes. The
-documented scope is equal cluster sizes. A weighted fit targets the weight-weighted mean, so on
-that fit the size of a cluster is its row count and its weight mass. A cross-fitted fit whose
-clusters differ in either takes the `"unequal_cluster_plugin"` status. `ci`, `pvalue`, and
-`std_error` then raise `CapabilityError`, and `plugin_std_error` and `plugin_interval` keep the
-diagnostic.
+The point estimator remains row weighted when cluster sizes differ. Benitez et al. (2023),
+Section 3.2.1, give a row-weighted TMLE and cluster-sum curve with varying cluster sizes.
+They do not establish this package's cross-fitted construction. Its current argument and
+registered study cover equal sizes and weight masses, overall and within each reported
+baseline stratum. A cross-fitted fit outside that scope takes `"unequal_cluster_plugin"`.
+`ci`, `pvalue`, and `std_error` then raise `CapabilityError`. `plugin_std_error` and
+`plugin_interval` keep the diagnostic.
 
 No source read here supports a normal reference interval with few clusters. The table gives what
 each source recommends. $J$ is the cluster count, which Nugent et al. write as $N$.
@@ -362,9 +363,9 @@ each source recommends. $J$ is the cluster count, which Nugent et al. write as $
 | Nugent et al. (2024) | Section 2.2, last paragraph, citing Hayes and Moulton (2009) | a $t$ reference with $J - 2$ degrees of freedom below 40 clusters |
 | Benitez et al. (2023) | Section 3.1.2, paragraph on inference, and Section 3.2.1, last paragraph | a $t$ reference with $J - 2$ degrees of freedom at every cluster count, as a finite-sample approximation |
 
-The package keeps its normal reference. A fit with fewer than 40 clusters takes the
-`"few_cluster_plugin"` status, in sample or cross-fitted. So does a fit with fewer than 40 clusters
-in one baseline stratum that it reports. [Clusters](inference.md#clusters) gives
+The package keeps its normal reference. A fit with fewer than 40 positive-mass clusters takes the
+`"few_cluster_plugin"` status, in sample or cross-fitted. So does a fit with fewer than 40 such
+clusters in one baseline stratum that it reports. [Clusters](inference.md#clusters) gives
 both statuses, and [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle)
 holds the routes that reopen them.
 

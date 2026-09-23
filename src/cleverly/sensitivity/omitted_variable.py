@@ -73,7 +73,7 @@ from .._inference_status import InferenceStatus, supplies_inference
 from .._typing import FloatArray
 from ..assessment import SENSITIVITY_ROUTES
 from ..estimators.targeting import build_submodel
-from ..exceptions import CapabilityError, repeats_refusal
+from ..exceptions import CapabilityError, refuse_inference, repeats_refusal
 from ..inference.cluster import influence_variance
 from ..inference.influence import spread_name
 from ..targets import parameter_stem
@@ -704,7 +704,7 @@ def _m_alpha(
     return np.asarray((conditioning_indicator / conditioning_share) * difference, dtype=float)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class SensitivityBounds:
     """Bias-adjusted bounds under an assumed confounder strength.
 
@@ -729,20 +729,17 @@ class SensitivityBounds:
     upper : float
         Bias-adjusted upper bound on the estimate.
     ci_lower : float
-        Lower one-sided confidence limit of the adjusted bound. It is read off the
-        estimate's influence curve, so at a non-inferential ``inference`` it is a
-        plug-in diagnostic, and :meth:`to_dict` and :meth:`summary` publish it under the
-        name :func:`~cleverly.inference.influence.spread_name` gives it.
+        Lower one-sided confidence limit of the adjusted bound. It refuses at a
+        non-inferential status; :attr:`plugin_interval_lower` keeps the diagnostic.
     ci_upper : float
-        Upper one-sided confidence limit of the adjusted bound, published as
-        ``ci_lower`` is.
+        Upper one-sided confidence limit of the adjusted bound. It follows ``ci_lower``.
     level : float
         Coverage level of those limits.
     robustness_value : float
         Confounding strength that would move the point estimate to the null.
     robustness_value_ci : float
-        The same strength for the confidence limit rather than the point estimate,
-        published as ``ci_lower`` is.
+        The same strength for the confidence limit. It refuses with ``ci_lower``;
+        :attr:`robustness_value_plugin_interval` keeps the diagnostic.
     null_hypothesis : float
         The value the robustness values are measured against.
     inference : str, default="influence_curve"
@@ -760,16 +757,97 @@ class SensitivityBounds:
     max_bias: float
     lower: float
     upper: float
-    ci_lower: float
-    ci_upper: float
+    _ci_lower: float
+    _ci_upper: float
     level: float
     robustness_value: float
-    robustness_value_ci: float
+    _robustness_value_ci: float
     null_hypothesis: float
     #: A plain default, so a bound pickled before the field existed loads as inferential,
     #: which every such bound was: RM11 refused the bound on the only fits that carried
     #: another status.
     inference: InferenceStatus = "influence_curve"
+
+    def __init__(
+        self,
+        estimand: str,
+        psi: float,
+        cf_y: float,
+        cf_d: float,
+        rho: float,
+        confounding_strength: float,
+        max_bias: float,
+        lower: float,
+        upper: float,
+        ci_lower: float,
+        ci_upper: float,
+        level: float,
+        robustness_value: float,
+        robustness_value_ci: float,
+        null_hypothesis: float,
+        inference: InferenceStatus = "influence_curve",
+    ) -> None:
+        # Preserve the public constructor while guarding its inferential values.
+        for name, value in (
+            ("estimand", estimand),
+            ("psi", psi),
+            ("cf_y", cf_y),
+            ("cf_d", cf_d),
+            ("rho", rho),
+            ("confounding_strength", confounding_strength),
+            ("max_bias", max_bias),
+            ("lower", lower),
+            ("upper", upper),
+            ("_ci_lower", ci_lower),
+            ("_ci_upper", ci_upper),
+            ("level", level),
+            ("robustness_value", robustness_value),
+            ("_robustness_value_ci", robustness_value_ci),
+            ("null_hypothesis", null_hypothesis),
+            ("inference", inference),
+        ):
+            object.__setattr__(self, name, value)
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Move the public stored fields of an older pickle behind the guarded accessors."""
+        restored = dict(state)
+        for name in ("ci_lower", "ci_upper", "robustness_value_ci"):
+            if name in restored:
+                restored[f"_{name}"] = restored.pop(name)
+        self.__dict__.update(restored)
+
+    @property
+    def ci_lower(self) -> float:
+        """Lower confidence limit, when this bound supplies inference."""
+        refuse_inference(self.inference, operation="SensitivityBounds.ci_lower")
+        return self._ci_lower
+
+    @property
+    def ci_upper(self) -> float:
+        """Upper confidence limit, when this bound supplies inference."""
+        refuse_inference(self.inference, operation="SensitivityBounds.ci_upper")
+        return self._ci_upper
+
+    @property
+    def robustness_value_ci(self) -> float:
+        """Robustness value for a confidence limit, when inference is supplied."""
+        refuse_inference(self.inference, operation="SensitivityBounds.robustness_value_ci")
+        return self._robustness_value_ci
+
+    @property
+    def plugin_interval_lower(self) -> float:
+        """Lower plug-in limit, a diagnostic at a non-inferential status."""
+        return self._ci_lower
+
+    @property
+    def plugin_interval_upper(self) -> float:
+        """Upper plug-in limit, a diagnostic at a non-inferential status."""
+        return self._ci_upper
+
+    @property
+    def robustness_value_plugin_interval(self) -> float:
+        """Robustness value from the plug-in limit, a diagnostic when inference is absent."""
+        return self._robustness_value_ci
 
     @property
     def bias(self) -> float:
@@ -803,10 +881,10 @@ class SensitivityBounds:
             "bias": self.bias,
             "lower": self.lower,
             "upper": self.upper,
-            spread_name("ci_lower", status): self.ci_lower,
-            spread_name("ci_upper", status): self.ci_upper,
+            spread_name("ci_lower", status): self.plugin_interval_lower,
+            spread_name("ci_upper", status): self.plugin_interval_upper,
             "robustness_value": self.robustness_value,
-            spread_name("robustness_value_ci", status): self.robustness_value_ci,
+            spread_name("robustness_value_ci", status): self.robustness_value_plugin_interval,
         }
         return row
 
@@ -824,6 +902,9 @@ class SensitivityBounds:
             else "the effect could be explained away"
         )
         status = self.inference
+        lower = self.plugin_interval_lower
+        upper = self.plugin_interval_upper
+        rv_interval = self.robustness_value_plugin_interval
         return "\n".join(
             [
                 f"Omitted-variable sensitivity for {self.estimand!r}",
@@ -834,12 +915,12 @@ class SensitivityBounds:
                 f" -> bias <= {self.bias:.5g}",
                 f"bias-adjusted bounds:  [{self.lower:.5g}, {self.upper:.5g}]",
                 f"with {self.level:.0%} {spread_name('one-sided CIs', status)}: "
-                f"[{self.ci_lower:.5g}, {self.ci_upper:.5g}] ({conclusion})",
+                f"[{lower:.5g}, {upper:.5g}] ({conclusion})",
                 "",
                 f"robustness value RV   = {self.robustness_value:.4f}: a confounder explaining "
                 f"{self.robustness_value:.1%} of the residual variation in BOTH the outcome and "
                 f"treatment would move the estimate to {self.null_hypothesis:g}.",
-                f"robustness value RVa  = {self.robustness_value_ci:.4f}: the same, for the "
+                f"robustness value RVa  = {rv_interval:.4f}: the same, for the "
                 f"{self.level:.0%} {spread_name('confidence bound', status)}.",
             ]
         )

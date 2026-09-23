@@ -17,6 +17,11 @@ uses the estimated outcome regression. The `drtmle` `adapt_g` option builds the 
 any number of arms and reports the ordinary influence-curve covariance. Neither source covers the
 shipped joint all-arm targeting or simultaneous inference.
 
+Every `CTMLE(strategy="oat")` fit has the `generated_design_plugin` status. The coverage and
+standard-error ratios below measure `plugin_interval` and `plugin_std_error` as diagnostics;
+their pass labels do not authorize `ci`, `pvalue`, or `std_error`. [F19](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference)
+holds the missing inference result, including the two red generated-design property cells.
+
 ## What was compared
 
 | setting | `cleverly` | R `ctmle3` |

@@ -219,7 +219,7 @@ class TestAStudyWhoseReplicatesMixStatuses:
         assert summary.n_replicates == len(records) == 8
         assert summary.coverage == np.mean([record.covered for record in records])
         text = study.summary()
-        assert "supplies no interval on some replicates" in text
+        assert "estimates supply no interval on some replicates" in text
         assert (
             f"ate: the replicates took more than one status (few_cluster_plugin in {few}, "
             f"influence_curve in {8 - few}), and every column reads them as the "
@@ -241,3 +241,24 @@ class TestAStudyWhoseReplicatesMixStatuses:
         assert summary.status_counts == ()
         assert summary.mixed_statuses == ""
         assert "mixed_statuses" not in summary.to_dict()
+
+    def test_two_diagnostic_statuses_keep_their_distinct_names(self) -> None:
+        summary = _summary(
+            estimand="ate",
+            inference="unequal_cluster_plugin",
+            status_counts=(("unequal_cluster_plugin", 2), (FEW, 2)),
+        )
+        study = StudyResult(
+            summaries={"ate": summary},
+            replications=(),
+            failures=(),
+            n=500,
+            n_replicates=4,
+            alpha=0.05,
+            label="two diagnostics",
+        )
+        text = study.summary()
+        assert "measuring a plug-in diagnostic" in text
+        assert "every column reads them as the plug-in diagnostic" in text
+        assert "on some replicates" not in text
+        assert "unequal_cluster_plugin in 2, few_cluster_plugin in 2" in text

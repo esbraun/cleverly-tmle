@@ -108,7 +108,8 @@ be asked for the narrowed family directly, and the public layer stops selecting 
 
 A point-treatment estimator stamps the inference status in `TMLE._retarget_detailed`, from its
 `_inference_status(data)` hook. The hook reads the estimator configuration and the prepared
-`CausalData`, and nothing fitted, so the estimator decides the status before any learner runs.
+`CausalData`, and nothing fitted. The status can be determined before learner runs, though
+`_retarget_detailed` stamps estimates after nuisance fitting.
 `fit`, `retarget`, and each sensitivity sweep get their estimates from that method, so no sweep
 builds an interval that the fit refuses. The same method stamps both fold-level reports, and
 `CVTargeting.inference` reads the status from those reports rather than store it.

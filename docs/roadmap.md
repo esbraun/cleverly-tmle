@@ -97,7 +97,7 @@ tier.
 
 | row | reason for its place |
 | --- | --- |
-| RM25 | the scope page states that the standard error is too small, and only a density that closes over an estimate reaches it. It reuses the declaration pattern that RM13 delivered |
+| RM25 | a density that closes over an estimate leaves a term out of the reported curve. Its standard error can be wrong. This row reuses the declaration pattern that RM13 delivered |
 | RM26 | the few-cluster surface of RM20 on the longitudinal path. It reuses the threshold and the status table that RM20 delivered. No read source measures the size of its defect, so it follows RM25 |
 | RM27 | only a design that closes over a sample statistic reaches it. On one exact law, the reported standard error of the intercept is 0.893 of the exact one, and the other coefficients keep their curves. The omitted term can have either sign, so it follows RM25 and RM26 |
 | RM21 | an E-value that no read source covers, on controlled-direct-effect fits only |
@@ -233,7 +233,7 @@ the missing result. Package code and a related estimator do not remove the stop.
 | Outcome-adaptive C-TMLE generated-design inference | exact scalar expansions for the shipped joint binary fit and a multi-arm vector extension of the paper-backed fold-local construction | point estimates only. Every `strategy="oat"` fit refuses `ci`, `pvalue`, and `std_error` under the `generated_design_plugin` status, and reports a named generated-design plug-in diagnostic. No shipped fit is the proved binary scalar construction | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | Missing-outcome attributable effects | a direct observed-data derivation for the joint natural-course and reference-intervention means, their remainder, and attributable-effect inference | complete-data PAR and PAF, one iid MAR natural-course mean, and arm-specific missing-outcome means remain separate | [F20](#f20-missing-outcome-attributable-effects) |
 | Other missing-outcome CV-TMLE variants | a direct interval result for fold-specific targeting and for the fixed-repeat median and split-dispersion report after CV-TMLE targeting | the package supports the ordinary natural-course estimator, the stacked natural-course estimator for a binary outcome, and the stacked arm-indexed means and contrasts. Each stacked estimator uses one repeat and pooled targeting. F21 also records their follow-ups. Shift, incremental, regime, MSM, and controlled-direct-effect targets refuse a cross-fitted fit with missing outcomes before any learner | [F21](#f21-other-missing-outcome-cv-tmle-variants) |
-| Grouped cross-fitting beyond point-treatment TMLE | a split law and a cluster-robust variance for the C-TMLE selection folds, a cluster-robust variance for the cross-fitted longitudinal recursion under a grouped draw, and for the point-treatment fits a target at unequal cluster sizes and a $t$-reference claim at few clusters | whole-cluster outer folds for cross-fitted point-treatment TMLE and DR-TMLE only. A cross-fitted fit at unequal cluster sizes, in rows or in weight mass, takes the `unequal_cluster_plugin` status. A fit with fewer than 40 clusters, in total or in one reported stratum, takes `few_cluster_plugin`. Neither reports an interval | [F22](#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
+| Grouped cross-fitting beyond point-treatment TMLE | a split law and a cluster-robust variance for the C-TMLE selection folds, a cluster-robust variance for the cross-fitted longitudinal recursion under a grouped draw, and for the point-treatment fits an interval result at unequal cluster sizes and a $t$-reference claim at few clusters | whole-cluster outer folds for cross-fitted point-treatment TMLE and DR-TMLE only. A cross-fitted fit at unequal cluster sizes, in rows or in weight mass, overall or within a reported stratum, takes the `unequal_cluster_plugin` status. A fit with fewer than 40 positive-mass clusters, in total or in one reported stratum, takes `few_cluster_plugin`. Neither reports an interval | [F22](#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
 | MNAR and incremental-intermediate compositions | identification and influence-function results for the exact compositions | point-treatment sensitivity and implemented interventions remain separate | [F6](#f6-mnar-and-incremental-intermediate-compositions) |
 | Joint point-treatment parameter axes | a targeting and inference result for one fit that carries an MSM projection together with a regime, shift, or incremental intervention, including its joint score and covariance | single-axis point-treatment fits only | [F17](#f17-joint-point-treatment-parameter-axes) |
 | Time-respecting cross-fitting | dependence and split-specific TMLE inference for blocked-temporal or rolling-origin folds | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
@@ -626,8 +626,8 @@ pragma marked that branch as unreachable. `tests/unit/test_msm.py` reached it.
 
 A callable receives an arm label and a covariate frame, and it can close over any estimate. A
 callable over sample shares or a fitted mechanism therefore fitted with no message. The weight is
-then a functional of $P$, and the influence curve omits its pathwise derivative. The reported
-standard error is too small, and the reference called the composition refused.
+then a functional of $P$, and the influence curve omits its pathwise derivative. The standard error
+can be wrong. The exact-law witness below gives a case where it is too small.
 
 The package cannot inspect a closure, so the status of the weight is now a declaration. The row
 asked for three corrections:
@@ -2146,7 +2146,7 @@ every fit in them was in sample unless the row says otherwise.
 | --- | --- | --- |
 | DR-TMLE with `weights_estimated=True` | `DRTMLE(estimands=("ate",))` on `make_binary_outcome(n=500, seed=3)`, with weights drawn uniform on [0.5, 2]. The fit reported `ci` (0.1161, 0.2841) under the `influence_curve` status, and the summary marked the weights as estimated | the `DRTMLE` docstring and [supported estimands](technical-reference/dr-tmle/supported-estimands.md) said that no interval claim covers the case. The conditional argument concerns $D^*$, not the reduced regressions |
 | outcome-adaptive C-TMLE beyond one binary treatment-specific mean | `CTMLE(strategy="oat")` on `make_multi_arm(n=600, seed=5)` reported each `ate[...]` and `ey[...]` interval under the `influence_curve` status. The binary joint fit on `make_binary_outcome(n=500, seed=3)` did the same | Benkeser, Cai and van der Laan (2020), Theorem 1, proves one binary treatment-specific mean. [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) rejects the natural extension to the shared multinomial fit |
-| cross-fitted clustered TMLE at unequal cluster sizes | `make_clustered(n=400, cluster_size=10, seed=7)`, with rows removed from half the clusters, which leaves 315 rows in 40 clusters of 2 to 10 rows. The cross-fitted fit with `id=` reported an interval and no warning | the [grouped folds](technical-reference/cv-tmle.md#grouped-folds) rule states equal cluster sizes. A row-weighted target and a cluster-weighted target agree only at equal or non-informative sizes |
+| cross-fitted clustered TMLE at unequal cluster sizes | `make_clustered(n=400, cluster_size=10, seed=7)`, with rows removed from half the clusters, which leaves 315 rows in 40 clusters of 2 to 10 rows. The cross-fitted fit with `id=` reported an interval and no warning | the [grouped folds](technical-reference/cv-tmle.md#grouped-folds) argument and registered study cover equal cluster sizes. The point estimator stays row weighted, but its interval lacks a result at unequal sizes |
 | clustered fit with few clusters | the same construction with 6 clusters and 40 rows reported a normal-reference interval. No warning named the cluster count | Nugent et al. (2024), Section 2.2, recommend a $t$ reference with $J - 2$ degrees of freedom below 40 clusters. Benitez et al. (2023), Section 3.1.2, paragraph on inference, and Section 3.2.1, last paragraph, recommend it at every cluster count. The package applies neither rule |
 | in-sample outcome-adaptive C-TMLE with missing outcomes | `CTMLE(strategy="oat")` with `delta=` on `make_missing_outcome(n=500, seed=4)` reported `ci` (1.0090, 1.4173) under the `influence_curve` status. The selector paths reported the non-inferential status on the same law | the arm-indexed audit read no source for C-TMLE with missing outcomes. [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) holds the cross-fitted refusal |
 | shift, incremental, regime, MSM, and controlled-direct-effect targets, cross-fitted with missing outcomes | a cross-fitted shift fit with `delta=` on the same law, with the dose built as the arm plus standard normal noise, reported an interval for `ey_shift[+0.5]`. With linear learners, `q_bounds=(-5, 8)`, and `random_state=0`, it read 1.767366, `ci` (1.5881, 1.9467) | these fits ran outside the arm-indexed contract. `TestTheMnarTiltFollowsTheDraws` in `tests/unit/test_repeated_crossfit.py` was the only fast test that fitted repeated draws on this surface. It fitted a controlled direct effect with `repeats=2` |
@@ -2177,19 +2177,21 @@ route.
 | --- | --- | --- | --- |
 | DR-TMLE with `weights_estimated=True` | the status `estimated_weight_plugin`, when `guard` is not empty and the weights vary | the same weights declared fixed. Also `guard=()` with the weights declared estimated, because that setting fits the ordinary TMLE, whose interval conditions on the weights. Also constant weights declared estimated, which fit the unweighted estimator (commit fbee899). Also the ordinary `TMLE` | [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
 | outcome-adaptive C-TMLE, with complete or missing outcomes | the status `generated_design_plugin`, on every `strategy="oat"` fit | the ordinary `TMLE` on the same law | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) |
-| cross-fitted clustered `TMLE` and `DRTMLE` at unequal cluster sizes: row counts, or weight mass on a weighted fit | the status `unequal_cluster_plugin`. It includes `cv_evaluation=True` and fold targeting | equal cluster sizes, cross-fitted, at 40 clusters. Also equal weight mass on a weighted fit. Also the same unequal clusters, fitted in sample, on `TMLE` and `DRTMLE` | [F22](#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
-| clustered `TMLE` and `DRTMLE` with fewer than 40 clusters in the fit or in one reported baseline stratum, in sample and cross-fitted | the status `few_cluster_plugin`. `FEW_CLUSTER_THRESHOLD` in `src/cleverly/_inference_status.py` holds the threshold of 40 | a fit with 40 clusters, which pins `<` against `<=`. Also 80 clusters in two strata of 40 | [F22](#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
+| cross-fitted clustered `TMLE` and `DRTMLE` at unequal cluster sizes: row counts, or weight mass on a weighted fit, overall or within a reported stratum | the status `unequal_cluster_plugin`. It includes `cv_evaluation=True` and fold targeting | equal cluster sizes and masses within every reported stratum, cross-fitted, at 40 clusters. Also the same unequal clusters, fitted in sample, on `TMLE` and `DRTMLE` | [F22](#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
+| clustered `TMLE` and `DRTMLE` with fewer than 40 positive-mass clusters in the fit or in one reported baseline stratum, in sample and cross-fitted | the status `few_cluster_plugin`. `FEW_CLUSTER_THRESHOLD` in `src/cleverly/_inference_status.py` holds the threshold of 40 | a fit with 40 contributing clusters, which pins `<` against `<=`. Also 80 clusters in two strata of 40 | [F22](#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
 | shift, incremental, regime, MSM, and controlled-direct-effect targets, cross-fitted with `delta=` | a pre-fit `CapabilityError` that names F21. Its remedy is the in-sample fit | each composition in sample. Also the cross-fitted `ate` with `delta=`, which reaches the arm-indexed contract, and `par` with `delta=`, which keeps its F20 refusal | [F21](#f21-other-missing-outcome-cv-tmle-variants) |
 
-The review of the delivery found three defects in it. Two were in the cluster rules above, and one
-was in the coverage study. The table gives each finding, its probe, and the commit that corrected
-it. Each commit adds a witness, a control, and a mutation.
+The delivery review found three defects: two in the cluster rules and one in the coverage study.
+This review found two more cluster-rule gaps. The table gives each finding and its probe.
+The tests pair each new witness with a control and a mutation where the old rule is represented.
 
 | finding | defect | correction | probe |
 | --- | --- | --- | --- |
 | C1 | the few-cluster rule counted the clusters of the whole fit. A stratum reads only the clusters with a row in it | the rule also counts the distinct clusters inside each reported baseline stratum. `fewest_clusters` in `src/cleverly/inference/cluster.py` returns the smallest count. The fit keeps one status, so one stratum below 40 withholds every interval (commit e480843) | `make_clustered(n=500, cluster_size=10, seed=7)` gives 50 clusters. A cluster-level stratum `S` holds 6 of them. In sample, with `id="cluster"` and `strata=["S"]`, the fit reported `ate[S='small']` 3.0331 with `ci` (1.3797, 4.6866) and a p-value of 0.0003. It now takes `few_cluster_plugin`, and no point estimate or plug-in standard error moved |
-| C2 | the unequal-size rule read the row counts only. A weighted fit targets the weight-weighted mean, which equals the cluster-weighted mean only at equal weight mass | on a weighted fit, `unequal_cluster_sizes` reads the weight mass of each cluster too. Two masses are equal within `WEIGHT_MASS_RTOL`, 1e-9, of the largest (commit 2b05c78) | `make_clustered(n=400, cluster_size=10, seed=7)` gives 40 clusters of 10 rows. With cluster weights 0.5 or 2, cross-fitted, `id="cluster"`, and `weights="w"`, the fit took `influence_curve` and reported `ci` (-0.451, 1.653). It now takes `unequal_cluster_plugin` |
+| C2 | the unequal-size rule read row counts only. A weighted fit also needs an argument for varying cluster weight mass | on a weighted fit, `unequal_cluster_sizes` reads the weight mass of each cluster too. Two masses are equal within `WEIGHT_MASS_RTOL`, 1e-9, of the largest (commit 2b05c78) | `make_clustered(n=400, cluster_size=10, seed=7)` gives 40 clusters of 10 rows. With cluster weights 0.5 or 2, cross-fitted, `id="cluster"`, and `weights="w"`, the fit took `influence_curve` and reported `ci` (-0.451, 1.653). It now takes `unequal_cluster_plugin` |
 | C3 | `summarize_replications` raised `ValueError` when the records of one estimand mixed statuses. A `CoverageStudy` whose cluster count straddles 40 ran every replicate and then stopped | it summarizes a mix under `precedent_status`, and it names the statuses and their counts. [Validation methods](technical-reference/validation-methods.md) gives the columns (commit 3380131) | an in-sample clustered `TMLE` with the cluster count drawn from 38 to 42, 8 replicates, seed 0. It raised "the records for 'ate' declare different inference statuses". It now reports bias -0.0863, a mean plug-in standard error of 0.4253, and coverage 0.750 under `few_cluster_plugin` |
+| C4 | the unequal-size rule checked only the whole fit; equal whole-cluster sizes and masses can hide unequal counts or masses within a reported baseline stratum | `cluster_inference_status` also checks each reported stratum. The point remains row weighted, but its interval lacks validation there | 40 ten-row clusters have three versus seven rows in one stratum across cluster groups; the old rule reported intervals, and the corrected fit takes `unequal_cluster_plugin`. A second witness holds five rows in each stratum but moves weight mass between them while keeping whole-cluster mass equal. Equal within-stratum sizes and masses retain intervals |
+| C5 | the few-cluster rule counted zero-weight clusters as contributors | `fewest_clusters` counts positive-weight rows only, including within strata | 40 ten-row clusters with positive weight in only six formerly reported intervals. The corrected fit takes `few_cluster_plugin`; an otherwise identical fit with positive weight in all 40 retains intervals |
 
 The review also recorded one over-refusal, and this row keeps it. A fit with `id=` and one row in
 each cluster counts each row as a cluster. Below 40 rows it takes `few_cluster_plugin`, and the
@@ -2223,8 +2225,9 @@ For unequal clusters, size means the row count, and on a weighted fit the weight
 equal-size condition belongs to the package's cross-fitted argument
 ([grouped folds](technical-reference/cv-tmle.md#grouped-folds)). `summary()` now prints the range
 of row counts when they differ, for example "clusters = 40, sizes 2 to 10". It prints the range of
-weight mass when only the mass differs, and the fewest clusters in one stratum on a stratified
-fit.
+weight mass when only the mass differs, and the within-stratum range when that is the failing
+condition. It names the number of positive-mass clusters when zero-weight clusters are present,
+and the fewest contributors in one stratum on a stratified fit.
 
 The [workflow page](workflow.md) runs `result.sensitivity.run_all()` on a cross-fitted clustered
 fit. `TestTheWorkflowPageRunsOnUnequalClusters` in `tests/unit/test_cluster_status.py` runs the
@@ -2296,13 +2299,16 @@ missing-outcome contract. The docstring of `TMLE._resolve_arm_indexed_missing_co
 | 1 | `working_mechanism_plugin` | no result shows that the reported curve is the influence curve of the estimator |
 | 2 | `generated_design_plugin` | the same premise |
 | 3 | `estimated_weight_plugin` | the same premise |
-| 4 | `unequal_cluster_plugin` | the target of the curve is not the declared target |
+| 4 | `unequal_cluster_plugin` | the cross-fitted interval lacks validation at unequal cluster sizes or masses |
 | 5 | `few_cluster_plugin` | no read source supports the reference distribution |
 
 Only three pairs can meet. On DR-TMLE, the estimated-weight status meets each clustered status. On
 TMLE and DR-TMLE, the two clustered statuses meet each other. C-TMLE refuses `id=` at every
-setting. Each status reads the estimator configuration and the prepared data alone. No status
-reads a fitted quantity, so the status is known before any learner runs.
+setting.
+
+Each status reads the estimator configuration and the prepared data alone. No status
+reads a fitted quantity, so the applicable status can be determined from the prepared data and
+configuration alone. The estimator stamps the status after nuisance fitting.
 
 The plan found two surfaces that published an inferential number under any non-inferential status.
 The table gives each one and its correction.
@@ -2568,7 +2574,7 @@ checks that word. The scope-page claim is therefore false today, and this row tr
 
 A `density_fn` receives the covariate frame, and it can close over any estimate. The regime
 density is then a functional of $P$. The influence curve that the package reports for a regime has
-no term for that dependence. The scope page states that the reported standard error is too small.
+no term for that dependence. The scope page now says the standard error can be wrong.
 
 | probe | result |
 | --- | --- |
@@ -3153,6 +3159,11 @@ arXiv:2008.12892v2 numbers it Section 3.5, Theorem 4. The search read the other 
 abstracts. They are Schnitzer, Sango, Ferreira Guerra and van der Laan (2020), Zrnic and Jordan
 (2023), and Van Lancker, Díaz and Vansteelandt (2024), arXiv:2404.11150v2.
 
+This review also read Schnitzer, Lok and Gruber (2016), Section 5.3, Table 3 and discussion.
+Their simulations show ordinary influence-curve undercoverage for TMLE and C-TMLE with Super
+Learner in some settings. This cautions against treating a plug-in interval as validated, but
+their construction does not supply the selector-path expansion F18 needs.
+
 The theorem needs a joint normal limit at a fixed parameter and an asymptotically unbiased
 baseline estimator. The published text calls the inference "usually
 not uniformly valid" and asks readers to use it "with caution". The shipped selector minimizes a
@@ -3436,8 +3447,8 @@ reopens each one.
 
 | boundary | decision | reopen route |
 | --- | --- | --- |
-| the target at unequal cluster sizes, where a row-weighted and a cluster-weighted target differ | a cross-fitted `TMLE` or `DRTMLE` fit whose clusters hold different numbers of rows, or different weight mass on a weighted fit, takes the `unequal_cluster_plugin` status. The in-sample fit keeps its interval at 40 or more clusters, in the fit and in each reported stratum | an argument for the cross-fitted target at unequal sizes, and a registered study at unequal sizes |
-| the normal reference interval with few clusters, which no source read here supports | a clustered `TMLE` or `DRTMLE` fit with fewer than 40 clusters, in the fit or in one reported baseline stratum, in sample or cross-fitted, takes the `few_cluster_plugin` status | a $t$-reference claim, with a registered study at few clusters |
+| the cross-fitted interval at unequal cluster sizes or weight masses | a cross-fitted `TMLE` or `DRTMLE` fit whose clusters differ in row count or weight mass, overall or in a reported stratum, takes `unequal_cluster_plugin`. Its point estimator remains row weighted. The in-sample fit keeps its interval with 40 or more contributing clusters | an expansion and variance result for the current cross-fitted estimator, plus a registered study at unequal sizes |
+| the normal reference interval with few clusters, which no source read here supports | a clustered `TMLE` or `DRTMLE` fit with fewer than 40 positive-mass clusters, in the fit or in one reported baseline stratum, in sample or cross-fitted, takes the `few_cluster_plugin` status | a $t$-reference claim, with a registered study at few clusters |
 
 Each status keeps the point estimate, and `ci`, `pvalue`, and `std_error` refuse. The longitudinal
 few-cluster interval is [RM26](#rm26-longitudinal-clustered-intervals-at-few-clusters).

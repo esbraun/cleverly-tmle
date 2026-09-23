@@ -175,17 +175,18 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             reason=(
                 "A cross-fitted clustered fit reports no confidence interval, no p-value and "
                 "no standard error when its clusters hold different numbers of rows, or "
-                "different weight mass on a weighted fit. The package's grouped "
-                "cross-fitting argument needs equal cluster sizes, because only then does "
-                "the row-weighted target equal the cluster-weighted one "
-                "(docs/technical-reference/cv-tmle.md, grouped folds). A weighted fit "
-                "targets the weight-weighted mean, so the size of a cluster is its row count "
-                "and its weight mass. The point estimate stands. The plug-in standard error "
+                "different weight mass on a weighted fit, overall or within a reported "
+                "baseline stratum. The point estimator remains row weighted. The package's "
+                "grouped cross-fitting argument and registered study cover equal cluster "
+                "sizes and weight masses only (docs/technical-reference/cv-tmle.md, grouped "
+                "folds). No result here validates its cross-fitted interval at unequal "
+                "sizes. The point estimate stands. The plug-in standard error "
                 "of the reported curve remains as a diagnostic under plugin_std_error and "
                 "plugin_interval. The same clusters fitted in sample keep the interval when "
                 f"there are at least {FEW_CLUSTER_THRESHOLD} of them in the fit and in each "
-                "reported stratum. Benitez et al. (2023), Section 3.2.1, give the "
-                "cluster-sum aggregation for that row-weighted estimand. F22 in "
+                "reported stratum with positive weight mass. Benitez et al. (2023), "
+                "Section 3.2.1, give cluster-sum aggregation for a row-weighted estimand "
+                "but no result for this cross-fitted construction. F22 in "
                 "docs/roadmap.md reopens this when a result covers unequal cluster sizes."
             ),
             assessment_note=(
@@ -204,8 +205,9 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
         "few_cluster_plugin": StatusRecord(
             reason=(
                 "A clustered fit reports no confidence interval, no p-value and no standard "
-                f"error when it has fewer than {FEW_CLUSTER_THRESHOLD} clusters, or when one "
-                "baseline stratum it reports has fewer. The package uses a "
+                f"error when it has fewer than {FEW_CLUSTER_THRESHOLD} clusters with "
+                "positive weight mass, or when one baseline stratum it reports has fewer. "
+                "The package uses a "
                 "normal reference distribution. Nugent, Marquez, Charlebois, Abbott and "
                 "Balzer (2024), Section 2.2, recommend a Student t reference with J - 2 "
                 f"degrees of freedom below {FEW_CLUSTER_THRESHOLD} clusters. Benitez et al. "

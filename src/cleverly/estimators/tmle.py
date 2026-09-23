@@ -554,7 +554,7 @@ class TMLE:
 
         A hook rather than a check at the assembly point, because only the estimator
         knows what it did. It reads the estimator configuration and the prepared data
-        and nothing fitted, so the status is known before any learner runs. Three callers
+        and nothing fitted, so the status can be determined without learner results. Three callers
         ask it: ``_retarget_detailed`` stamps the estimates, ``TMLEResult.__setstate__``
         re-stamps a restored artifact, and ``variable_importance`` refuses before its
         first fit. An override that finds more than one status resolves them with

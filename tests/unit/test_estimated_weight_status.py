@@ -77,6 +77,14 @@ class TestAnEstimatedWeightDRTMLEReportsNoInterval:
     def test_the_evalue_is_unavailable_with_the_reason(self, result: Any) -> None:
         assert_evalue_unavailable(result, STATUS)
 
+    def test_the_score_verdict_does_not_claim_an_interval(self, result: Any) -> None:
+        check = result.score_verdict
+        assert check.passed
+        text = check.summary()
+        assert "entitled to be believed" not in text
+        assert "verifies its score equations, not an interval" in text
+        assert RECORD.reason in text
+
 
 class TestTheNeighbouringFitsKeepTheirInterval:
     """The controls: each differs from the status fit in one declaration."""

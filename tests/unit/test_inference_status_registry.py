@@ -185,9 +185,10 @@ class TestTheFewClusterThreshold:
     def test_the_reason_states_the_threshold_it_applies(self) -> None:
         threshold = _inference_status.FEW_CLUSTER_THRESHOLD
         reason = NON_INFERENTIAL["few_cluster_plugin"].reason
-        assert f"when it has fewer than {threshold} clusters, or when one baseline stratum" in (
-            reason
-        )
+        assert (
+            f"when it has fewer than {threshold} clusters with positive weight mass, "
+            "or when one baseline stratum"
+        ) in reason
         assert f"below {threshold} clusters" in reason
         assert f"at least {threshold} of them" in NON_INFERENTIAL["unequal_cluster_plugin"].reason
 

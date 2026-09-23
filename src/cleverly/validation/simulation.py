@@ -30,7 +30,7 @@ estimator configuration is trustworthy for your problem before you rely on it.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -314,6 +314,14 @@ def summarize_replications(
     )
 
 
+def _diagnostic_noun(statuses: Iterable[str]) -> str:
+    """Use a specific noun only when every diagnostic has the same status."""
+    diagnostic = {status for status in statuses if not supplies_inference(status)}
+    if len(diagnostic) != 1:
+        return "plug-in diagnostic"
+    return status_record(next(iter(diagnostic))).diagnostic_noun
+
+
 @dataclass(frozen=True)
 class StudyResult:
     """The full output of a :class:`CoverageStudy`.
@@ -382,9 +390,12 @@ class StudyResult:
 
     @property
     def _diagnostic_noun(self) -> str:
-        """What the diagnostic columns measured, in the words the status table gives."""
-        status = precedent_status(summary.inference for summary in self.summaries.values())
-        return status_record(status).diagnostic_noun
+        """What the diagnostic columns measured across all summaries and replicates."""
+        return _diagnostic_noun(
+            status
+            for summary in self.summaries.values()
+            for status, _ in (summary.status_counts or ((summary.inference, summary.n_replicates),))
+        )
 
     def summary(self) -> str:
         """Return a printable summary.
@@ -405,11 +416,14 @@ class StudyResult:
             # estimator's own inference or its retained diagnostic.
             *(
                 [
-                    f"measuring a {self._diagnostic_noun}: this estimator "
-                    "supplies no interval"
+                    f"measuring a {self._diagnostic_noun}: one or more reported "
+                    "estimates supply no interval"
                     + (
                         " on some replicates"
-                        if any(summary.status_counts for summary in self.summaries.values())
+                        if any(
+                            any(status == "influence_curve" for status, _ in summary.status_counts)
+                            for summary in self.summaries.values()
+                        )
                         else ""
                     )
                     + ", so the columns below describe the spread of "
@@ -421,7 +435,7 @@ class StudyResult:
             *(
                 f"{summary.estimand}: the replicates took more than one status "
                 f"({summary.mixed_statuses}), and every column reads them as the "
-                f"{status_record(summary.inference).diagnostic_noun}"
+                f"{_diagnostic_noun(status for status, _ in summary.status_counts)}"
                 for summary in self.summaries.values()
                 if summary.status_counts
             ),
