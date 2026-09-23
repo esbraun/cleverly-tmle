@@ -307,6 +307,73 @@ class TestAStratumWithFewClustersReportsNoInterval:
             assert_withholds(fit_stratified(few_stratum_frame), FEW)
 
 
+def fit_weighted(frame: Any, **settings: Any) -> Any:
+    return (
+        TMLE(**linear_in_sample(estimands=ESTIMANDS, **settings))
+        .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"], id="cluster", weights="w")
+        .single()
+    )
+
+
+@pytest.fixture(scope="module")
+def unequal_mass_frame(equal_frame: Any) -> Any:
+    """40 clusters of 10 rows, with weight 0.5 in the even clusters and 2 in the odd ones.
+
+    The R1 review's probe: equal row counts, and cluster weight mass 5 or 20.
+    """
+    frame = equal_frame.assign(w=np.where(equal_frame["cluster"] % 2 == 0, 0.5, 2.0))
+    assert sizes(frame) == (40, 10, 10)
+    assert set(frame.groupby("cluster")["w"].sum()) == {5.0, 20.0}
+    return frame
+
+
+class TestUnequalWeightMassIsAnUnequalSize:
+    """A weighted fit targets the weight-weighted mean, so weight mass is a cluster size."""
+
+    def test_equal_rows_and_unequal_mass_cross_fitted_withhold(
+        self, unequal_mass_frame: Any
+    ) -> None:
+        result = fit_weighted(unequal_mass_frame, **CROSS_FITTED)
+        assert_withholds(result, UNEQUAL)
+        # Weights are normalised to mean one, so the masses 5 and 20 print as 4 and 16.
+        assert "clusters = 40, weight mass 4 to 16 (cluster-robust variance)" in (result.summary())
+
+    def test_equal_mass_weighted_cross_fitted_keeps_the_interval(self, equal_frame: Any) -> None:
+        """The control: the weights vary inside each cluster, and every cluster sums to 10."""
+        frame = equal_frame.assign(w=np.tile([0.5, 1.5], len(equal_frame) // 2))
+        assert set(frame.groupby("cluster")["w"].sum()) == {10.0}
+        result = fit_weighted(frame, **CROSS_FITTED)
+        assert_keeps_inference(result)
+        assert "clusters = 40 (cluster-robust variance)" in result.summary()
+
+    def test_unequal_mass_in_sample_keeps_the_interval(self, unequal_mass_frame: Any) -> None:
+        assert_keeps_inference(fit_weighted(unequal_mass_frame, **IN_SAMPLE))
+
+    def test_a_rule_that_ignores_the_weights_fails_the_check(
+        self, unequal_mass_frame: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(cluster_module, "unequal_cluster_sizes", rows_only)
+        with pytest.raises(AssertionError):
+            assert_withholds(fit_weighted(unequal_mass_frame, **CROSS_FITTED), UNEQUAL)
+
+    def test_the_same_weights_summed_in_another_order_are_equal(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The tolerance absorbs rounding: each cluster holds the same ten weights, permuted.
+
+        The nonzero witness is that the sums differ in the last place, so an exact
+        comparison, the mutation, calls the clusters unequal.
+        """
+        rng = np.random.default_rng(0)
+        base = rng.uniform(0.1, 3.0, 10)
+        weights = np.concatenate([rng.permutation(base) for _ in range(40)])
+        cluster = np.repeat(np.arange(40), 10)
+        assert np.ptp(cluster_module.cluster_weight_mass(cluster, weights)) > 0
+        assert not cluster_module.unequal_cluster_sizes(cluster, weights)
+        monkeypatch.setattr(cluster_module, "WEIGHT_MASS_RTOL", 0.0)
+        assert cluster_module.unequal_cluster_sizes(cluster, weights)
+
+
 class TestThePrecedence:
     """A fit that meets several statuses takes the first in the table."""
 
@@ -358,6 +425,11 @@ def at_or_below(cluster: Any, *, cross_fit: bool, **settings: Any) -> str:
     status = cluster_inference_status(cluster, cross_fit=cross_fit, **settings)
     at_threshold = np.unique(cluster).size == FEW_CLUSTER_THRESHOLD
     return FEW if status == "influence_curve" and at_threshold else status
+
+
+def rows_only(cluster: Any, weights: Any = None) -> bool:
+    """The mutant that compares row counts and never reads the weight mass."""
+    return bool(np.ptp(np.unique(cluster, return_counts=True)[1]) > 0)
 
 
 def whole_fit_count(cluster: Any, strata: Any = None) -> int:

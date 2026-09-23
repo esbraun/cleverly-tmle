@@ -28,6 +28,7 @@ Zheng & van der Laan pair with the cross-validated targeting step.
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from typing import Final
 
 import numpy as np
 
@@ -35,14 +36,17 @@ from .._inference_status import FEW_CLUSTER_THRESHOLD, InferenceStatus, preceden
 from .._typing import FloatArray, IntArray
 
 __all__ = [
+    "WEIGHT_MASS_RTOL",
     "cluster_inference_status",
     "cluster_sizes",
     "cluster_sums",
+    "cluster_weight_mass",
     "cross_validated_variance",
     "fewest_clusters",
     "influence_variance",
     "stacked_second_moment_covariance",
     "stacked_second_moment_variance",
+    "unequal_cluster_sizes",
 ]
 
 
@@ -364,6 +368,77 @@ def cluster_sizes(cluster: IntArray) -> IntArray:
     return np.asarray(counts, dtype=np.int64)
 
 
+#: Two cluster weight masses count as equal when they differ by at most this share of the
+#: largest one. Weights are normalised to mean one, so the same weights summed in another
+#: order differ by a few units in the last place, far below this, and a design that
+#: gives clusters different mass differs far above it.
+WEIGHT_MASS_RTOL: Final[float] = 1e-9
+
+
+def cluster_weight_mass(cluster: IntArray, weights: FloatArray) -> FloatArray:
+    """The summed observation weight of each distinct cluster, in sorted label order.
+
+    Parameters
+    ----------
+    cluster : ndarray of int
+        The cluster label of each row.
+    weights : ndarray of float
+        The observation weight of each row.
+
+    Returns
+    -------
+    ndarray of float
+        One weight sum per distinct label, in the order of :func:`cluster_sizes`.
+    """
+    _, inverse = np.unique(np.asarray(cluster).reshape(-1), return_inverse=True)
+    return np.asarray(
+        np.bincount(inverse.reshape(-1), weights=np.asarray(weights, dtype=float).reshape(-1)),
+        dtype=float,
+    )
+
+
+def unequal_cluster_sizes(cluster: IntArray, weights: FloatArray | None = None) -> bool:
+    """Whether the clusters differ in size: in row count, or in weight mass when weighted.
+
+    A weighted fit targets the weight-weighted mean, and that equals the cluster-weighted
+    mean only when every cluster carries the same weight mass. Equal row counts are not
+    enough, so a weighted fit reads both. Two masses count as equal within
+    :data:`WEIGHT_MASS_RTOL` of the largest.
+
+    Parameters
+    ----------
+    cluster : ndarray of int
+        The cluster label of each row.
+    weights : ndarray of float or None, default None
+        The observation weight of each row, or ``None`` for an unweighted fit.
+
+    Returns
+    -------
+    bool
+        ``True`` when two clusters hold different numbers of rows, or different weight
+        mass beyond the tolerance.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.inference.cluster import unequal_cluster_sizes
+    >>> cluster = np.repeat(np.arange(4), 3)
+    >>> unequal_cluster_sizes(cluster)
+    False
+    >>> unequal_cluster_sizes(cluster, weights=np.where(cluster % 2 == 0, 0.5, 2.0))
+    True
+    """
+    counts = cluster_sizes(cluster)
+    if counts.size == 0:
+        return False
+    if int(counts.min()) != int(counts.max()):
+        return True
+    if weights is None:
+        return False
+    mass = cluster_weight_mass(cluster, weights)
+    return bool(float(np.ptp(mass)) > WEIGHT_MASS_RTOL * float(np.max(np.abs(mass))))
+
+
 def fewest_clusters(cluster: IntArray, strata: IntArray | None = None) -> int:
     """The smallest number of distinct clusters that one reported estimate reads.
 
@@ -408,6 +483,7 @@ def cluster_inference_status(
     *,
     cross_fit: bool,
     strata: IntArray | None = None,
+    weights: FloatArray | None = None,
 ) -> InferenceStatus:
     """The inference status the cluster labels of a fit give it, before any learner runs.
 
@@ -415,11 +491,12 @@ def cluster_inference_status(
     the route that reopens each one.
 
     ``"unequal_cluster_plugin"``
-        A cross-fitted fit whose clusters hold different numbers of rows. The package's
-        grouped cross-fitting argument needs equal cluster sizes, because only then does
-        the row-weighted target equal the cluster-weighted one. Size is the row count.
-        A weighted fit whose clusters hold equal rows and unequal weight mass takes no
-        status. An in-sample fit takes no status here.
+        A cross-fitted fit whose clusters hold different numbers of rows, or, when the
+        fit is weighted, different weight mass. The package's grouped cross-fitting
+        argument needs equal cluster sizes, because only then does the row-weighted
+        target equal the cluster-weighted one. A weighted fit targets the weight-weighted
+        mean, so its size is the row count and the weight mass, and
+        :func:`unequal_cluster_sizes` reads both. An in-sample fit takes no status here.
     ``"few_cluster_plugin"``
         A fit, in sample or cross-fitted, where one reported estimate reads fewer
         distinct clusters than
@@ -439,6 +516,8 @@ def cluster_inference_status(
         Whether the nuisances are cross-fitted.
     strata : ndarray of int or None, default None
         The baseline stratum code of each row, or ``None`` for a fit without strata.
+    weights : ndarray of float or None, default None
+        The observation weight of each row, or ``None`` for an unweighted fit.
 
     Returns
     -------
@@ -461,11 +540,13 @@ def cluster_inference_status(
     'few_cluster_plugin'
     >>> cluster_inference_status(equal, cross_fit=False, strata=(equal < 6).astype(int))
     'few_cluster_plugin'
+    >>> mass = np.where(equal % 2 == 0, 0.5, 2.0)
+    >>> cluster_inference_status(equal, cross_fit=True, weights=mass)
+    'unequal_cluster_plugin'
     """
     if cluster is None:
         return "influence_curve"
-    counts = cluster_sizes(cluster)
-    unequal = cross_fit and counts.size > 0 and int(counts.min()) != int(counts.max())
+    unequal = cross_fit and unequal_cluster_sizes(cluster, weights)
     few = fewest_clusters(cluster, strata) < FEW_CLUSTER_THRESHOLD
     return precedent_status(
         [

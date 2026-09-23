@@ -24,7 +24,12 @@ from ..exceptions import (
 )
 from ..fluctuation.iterative import Fluctuation
 from ..inference.bootstrap import BootstrapResult
-from ..inference.cluster import cluster_sizes, fewest_clusters
+from ..inference.cluster import (
+    cluster_sizes,
+    cluster_weight_mass,
+    fewest_clusters,
+    unequal_cluster_sizes,
+)
 from ..inference.influence import (
     ParameterEstimate,
     Scale,
@@ -1662,10 +1667,12 @@ def _is_intercept(column: FloatArray) -> bool:
 def _cluster_fact(data: CausalData) -> str:
     """The cluster count, the size range when sizes differ, and the fewest in one stratum.
 
-    The last applies to a fit with baseline strata. A cross-fitted fit at unequal sizes
-    withholds its interval, and so does a fit with a stratum of few clusters, so the facts
-    block states the counts it read. Equal sizes without strata print the count alone, as
-    they did before the sizes mattered to a status.
+    A weighted fit whose clusters hold equal rows and unequal weight mass prints the mass
+    range in place of the size range. The stratum count applies to a fit with baseline
+    strata. A cross-fitted fit at unequal sizes withholds its interval, and so does a fit
+    with a stratum of few clusters, so the facts block states the counts it read. Equal
+    sizes without strata print the count alone, as they did before the sizes mattered to
+    a status.
     """
     cluster = data.cluster
     assert cluster is not None
@@ -1674,6 +1681,9 @@ def _cluster_fact(data: CausalData) -> str:
     fact = f"{counts.size}"
     if smallest != largest:
         fact += f", sizes {smallest} to {largest}"
+    elif data.is_weighted and unequal_cluster_sizes(cluster, data.weights):
+        mass = cluster_weight_mass(cluster, data.weights)
+        fact += f", weight mass {mass.min():.4g} to {mass.max():.4g}"
     if data.has_strata:
         fact += f", fewest in one stratum {fewest_clusters(cluster, data.strata)}"
     return fact
