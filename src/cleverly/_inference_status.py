@@ -38,6 +38,7 @@ InferenceStatus = Literal[
     "working_mechanism_plugin",
     "generated_design_plugin",
     "estimated_weight_plugin",
+    "cross_fitted_longitudinal_plugin",
     "unequal_cluster_plugin",
     "few_cluster_plugin",
 ]
@@ -197,6 +198,30 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             diagnostic_noun="fixed-weight plug-in diagnostic",
             reopened_by="F5",
+        ),
+        "cross_fitted_longitudinal_plugin": StatusRecord(
+            reason=(
+                "A saved cross-fitted clustered LTMLE fit reports no confidence interval, "
+                "no p-value and no standard error. New fits of this design are refused. "
+                "No result read here establishes the cluster-robust variance of its "
+                "targeted sequential recursion under grouped folds. The saved point "
+                "estimate remains available without an inferential claim. The plug-in "
+                "standard error of the reported curve remains as a diagnostic under "
+                "plugin_std_error and plugin_interval. F22 in docs/roadmap.md reopens "
+                "this when a derivation and validation cover this design."
+            ),
+            assessment_note=(
+                "the reported curve is a grouped-longitudinal diagnostic: no confidence "
+                "interval or p-value is available for this saved fit, and F22 in the "
+                "roadmap is the condition that reopens it"
+            ),
+            summary_label="grouped-longitudinal plug-in se",
+            bootstrap_note=(
+                "a diagnostic; no result validates the bootstrap coverage of a "
+                "cross-fitted clustered longitudinal fit"
+            ),
+            diagnostic_noun="grouped-longitudinal plug-in diagnostic",
+            reopened_by="F22",
         ),
         "unequal_cluster_plugin": StatusRecord(
             reason=(

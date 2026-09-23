@@ -1617,14 +1617,16 @@ class _Reported:
 def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
     """The one inference status of every estimate a longitudinal fit reports.
 
-    RM20's cluster rule, applied to the prepared cluster labels and, on a weighted fit, to
-    the unit weights. It reads nothing fitted. ``LongitudinalData`` carries no baseline
+    A saved cross-fitted clustered result takes its own status at every cluster count and
+    size. New fits of that design are refused before this function runs. Otherwise RM20's
+    cluster rule applies to the prepared cluster labels and, on a weighted fit, to the
+    unit weights. It reads nothing fitted. ``LongitudinalData`` carries no baseline
     strata, so the count is the number of clusters with positive weight mass in the whole
     fit, and :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` is the threshold.
 
     ``LTMLE._refuse_cross_fitted_design`` refuses ``id=`` above one fold before this runs,
-    so a live fit can take ``"few_cluster_plugin"`` only. The fold count is still passed
-    through, so the rule reads what the fit did rather than assuming it.
+    so a live fit can take ``"few_cluster_plugin"`` only. The fold count is still read
+    from the saved result, so an older grouped fit cannot publish an unsupported interval.
 
     Three callers ask it: ``LTMLE.fit`` and the truncation-curve replay ``_refit_bound``
     pass it to :func:`_estimates` or :func:`_msm_estimates`, and
@@ -1643,13 +1645,12 @@ def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
         One of :data:`~cleverly.inference.influence.InferenceStatus`.
         ``"influence_curve"`` on an unclustered fit.
     """
-    # Data saved before ``LongitudinalData`` carried ``weights`` (commit 16d2643) has no
-    # such field, and that fit was unweighted.
-    weights = getattr(data, "weights", None)
+    if data.cluster is not None and folds.n_folds > 1:
+        return "cross_fitted_longitudinal_plugin"
     return cluster_inference_status(
         data.cluster,
         cross_fit=folds.n_folds > 1,
-        weights=weights if weights is not None and data.is_weighted else None,
+        weights=data.weights if data.is_weighted else None,
     )
 
 

@@ -81,6 +81,9 @@ with positive weight mass. A cross-fitted clustered fit also refuses them at une
 or weight masses. The property `result.inference_status` gives the status of the fit, and
 `point.supplies_inference` gives it for one estimate.
 
+An older saved cross-fitted clustered `LTMLE` result also reports no interval after it loads.
+Its `"cross_fitted_longitudinal_plugin"` status names the design that current fits refuse.
+
 Read `point.plugin_std_error` and `point.plugin_interval` on such a fit. Each is a diagnostic of
 the reported curve, and neither is a confidence statement.
 [Inference status](../technical-reference/inference.md#inference-status) lists each status, the

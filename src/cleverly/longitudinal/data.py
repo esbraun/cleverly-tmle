@@ -193,6 +193,30 @@ class LongitudinalData:
     #: :attr:`cleverly.data.CausalData.backend`, which this mirrors exactly.
     backend: str | None = None
 
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore an unweighted artifact saved before observation weights existed.
+
+        Before the weights field was added, every longitudinal fit was unweighted. Supply
+        its unit weights and weight declaration on load so all report and replay paths
+        read the same data shape as a current unweighted fit.
+
+        Parameters
+        ----------
+        state : dict of str to Any
+            The pickled instance state.
+        """
+        self.__dict__.update(state)
+        if "weights" not in state:
+            object.__setattr__(self, "weights", np.ones(self.n, dtype=float))
+        if "weights_name" not in state:
+            object.__setattr__(self, "weights_name", None)
+        if "weight_spec" not in state:
+            object.__setattr__(self, "weight_spec", WeightSpec())
+        # Older artifacts retained the whole input frame. Current data needs its name only.
+        template = self.__dict__.pop("_template", None)
+        if "backend" not in state:
+            object.__setattr__(self, "backend", None if template is None else backend_of(template))
+
     # ------------------------------------------------------------------ build
 
     @classmethod

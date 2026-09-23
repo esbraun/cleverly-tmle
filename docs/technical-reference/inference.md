@@ -86,6 +86,7 @@ Every other status is a non-inferential status.
 | `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, or `"discrete"`. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `working-mechanism se` | [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
 | `"generated_design_plugin"` | every `CTMLE` fit with `strategy="oat"`, including a fit with `delta=` and a fit that requests one arm mean. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `generated-design se` | [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | `"estimated_weight_plugin"` | a `DRTMLE` fit with a non-empty `guard` and varying weights declared estimated (`weights_estimated=True`). A fit with `guard=()` keeps `"influence_curve"`. Constant weights fit the unweighted estimator, so they keep it too. [DR-TMLE supported estimands](dr-tmle/supported-estimands.md#refused-by-name) gives the reason | raise `CapabilityError` with the reason of the status | `fixed-weight se` | [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
+| `"cross_fitted_longitudinal_plugin"` | a saved cross-fitted `LTMLE` result with `id=`. New fits refuse this design. [RM29](../roadmap.md#rm29-saved-cross-fitted-clustered-longitudinal-results) gives the load rule | raise `CapabilityError` with the reason of the status | `grouped-longitudinal plug-in se` | [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
 | `"unequal_cluster_plugin"` | a cross-fitted `TMLE` or `DRTMLE` fit with `id=` whose clusters differ in row count or weight mass, overall or in one reported baseline stratum. This includes `cv_evaluation=True`. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `cluster-robust plug-in se` | [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
 | `"few_cluster_plugin"` | a `TMLE`, `DRTMLE`, or `LTMLE` fit with `id=` and fewer than 40 clusters with positive weight mass in the fit or one reported baseline stratum. `LTMLE` takes `id=` in sample only. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
 
@@ -129,8 +130,9 @@ a fit with 39 clusters.
 A contrast inherits the status of its inputs, so a contrast of two diagnostic estimates refuses
 `ci` as its inputs do. A simultaneous band refuses every non-inferential status with
 `CapabilityError`. On such a fit, `TMLE` and `LTMLE` skip the band, so the default
-`simultaneous=True` does not raise. `summary()` states the omission on a fit with two or more
-estimates.
+`simultaneous=True` does not raise. An explicit `simultaneous=True` has the same behavior. Neither
+case emits a warning; `summary()` states the omission on a fit with two or more estimates. The
+constructor default does not distinguish an explicit request from the default.
 
 Two selections that mix the statuses raise `ValueError`. No fit produces either input, because the
 estimator stamps one status on every estimate it reports.
@@ -157,8 +159,10 @@ covariance and for fold construction. It does not change the estimand.
 
 A cluster stays intact in every split. `random_partition` permutes the distinct cluster labels and
 cuts them into near-equal parts. Splitting a cluster across folds to buy more folds is
-refused: the out-of-fold predictions stop being independent of the rows they are used on, and the
-standard error shrinks in the exact direction the cluster role was declared to prevent.
+refused under the package's fold contract. Such a split can couple nuisance training to the
+evaluation rows. No derivation here covers its interval. Balkus, Laith and Hejazi (2026) show that
+split correlated units can still remove an empirical-process term under their conditions. Their
+result does not establish the variance of this package's estimators.
 
 Two estimators refuse `cluster=` rather than draw that split. Collaborative TMLE refuses it at
 every setting, and longitudinal TMLE refuses it above one fold. The
@@ -178,6 +182,12 @@ The few-cluster setting applies to the in-sample `LTMLE` fit too. The data of a 
 hold no baseline strata, so the count is that of the whole fit. The file
 `tests/unit/test_longitudinal_cluster_status.py` holds a witness at 39 clusters, a control at 40,
 and mutations of the rule.
+
+The threshold is a reporting policy, not a coverage guarantee at 40 clusters. It counts clusters
+with positive weight mass but does not measure weight concentration. A fit with 40 such clusters
+can still put almost all weight on one. Inspect the weight report and overlap before using an
+interval. A restored cross-fitted clustered `LTMLE` result takes
+`"cross_fitted_longitudinal_plugin"` at every cluster count and size. New fits refuse that design.
 
 The table gives the functions in `cleverly.inference.cluster` that apply each rule.
 

@@ -39,6 +39,7 @@ PRECEDENCE = (
     "working_mechanism_plugin",
     "generated_design_plugin",
     "estimated_weight_plugin",
+    "cross_fitted_longitudinal_plugin",
     "unequal_cluster_plugin",
     "few_cluster_plugin",
 )

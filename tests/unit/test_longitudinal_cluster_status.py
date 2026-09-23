@@ -16,6 +16,7 @@ its surface passes.
 from __future__ import annotations
 
 import importlib
+import warnings
 from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
@@ -39,6 +40,7 @@ from cleverly.exceptions import CapabilityError
 from cleverly.inference import cluster as cluster_module
 from cleverly.inference.cluster import cluster_inference_status
 from cleverly.longitudinal import LTMLE
+from cleverly.utils.frames import as_frame
 from tests.unit._inference_status_support import (
     DIAGNOSTIC_COLUMNS,
     INFERENTIAL_COLUMNS,
@@ -236,8 +238,11 @@ class TestFewClustersWithholdTheLongitudinalInterval:
     def test_each_report_renames_its_spread(self, few_result: Any, kind: str) -> None:
         assert_reports_withhold(few_result, kind)
 
-    def test_the_default_bands_are_skipped_and_named(self) -> None:
-        result = fit_end_of_study(FEW_CLUSTER_THRESHOLD - 1, simultaneous=True)
+    def test_an_explicit_band_request_is_skipped_and_named(self) -> None:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = fit_end_of_study(FEW_CLUSTER_THRESHOLD - 1, simultaneous=True)
+        assert not caught
         assert result.simultaneous is None
         assert NO_SIMULTANEOUS_BANDS in result.summary()
 
@@ -401,15 +406,32 @@ class TestAnOlderLongitudinalArtifact:
     def test_data_saved_before_its_weights_field_loads(
         self, k: int | None, status: str, route: str
     ) -> None:
-        """Data pickled before ``LongitudinalData`` had ``weights`` loads and takes its status."""
+        """An artifact from before weights existed retains its reports and replay."""
         legacy = legacy_copy(fit_end_of_study(k))
-        del legacy.data.__dict__["weights"]
-        # The nonzero witness: the saved data really lacks the field.
-        with pytest.raises(AttributeError):
-            _ = legacy.data.weights
+        if k is None:
+            legacy.__dict__["simultaneous"] = None
+        legacy.data.__dict__["_template"] = as_frame(legacy.to_frame())
+        for field in ("weights", "weights_name", "weight_spec", "backend"):
+            del legacy.data.__dict__[field]
+        # The nonzero witness: the saved data really lacks the required fields.
+        assert (
+            not {"weights", "weights_name", "weight_spec", "backend"} & legacy.data.__dict__.keys()
+        )
         restored = restore(legacy, route)
         assert restored.inference_status == status
-        assert (restored.simultaneous is None) == (status == FEW)
+        assert restored.simultaneous is None
+        assert np.array_equal(restored.data.weights, np.ones(N))
+        assert restored.data.weights_name is None
+        assert restored.data.is_weighted is False
+        assert restored.data.backend == "pandas"
+        assert "_template" not in restored.data.__dict__
+        assert "Longitudinal TMLE" in restored.summary()
+        assert len(restored.to_frame()) == len(restored.estimates)
+        restored.validate()
+        restored.assess()
+        restored.diagnostics.run_all()
+        replay = restored.diagnostics.truncation_curve(bounds=[0.05])
+        assert len(replay) == len(restored.estimates)
 
     @pytest.mark.parametrize("route", ROUTES)
     def test_a_forty_cluster_artifact_loads_as_saved(self, route: str) -> None:
@@ -421,3 +443,69 @@ class TestAnOlderLongitudinalArtifact:
         assert restored.assessment_cache == legacy.assessment_cache
         for name, estimate in restored.estimates.items():
             assert estimate.ci == result[name].ci
+
+
+SAVED_GROUPED = "cross_fitted_longitudinal_plugin"
+
+
+def fit_saved_grouped_shape(monkeypatch: pytest.MonkeyPatch, shape: str) -> Any:
+    """Build a pre-refusal result shape, then let the restore path decide its status."""
+    frame, _ = make_longitudinal(n=N, seed=0)
+    if shape == "unequal":
+        cluster = np.repeat(np.arange(40), np.tile([5, 15], 20))
+    else:
+        count = 20 if shape == "few" else 40
+        cluster = labels(N, count)
+    frame = frame.assign(cluster=cluster)
+    # Releases 0.1.0 and 0.1.1 accepted this design. The patch restores that entry
+    # point only for the witness; current public fits still refuse it before fitting.
+    monkeypatch.setattr(LTMLE, "_refuse_cross_fitted_design", lambda self, data: None)
+    return LTMLE(
+        {"always": 1, "never": 0},
+        reference="never",
+        **learners(n_folds=5, simultaneous=True),
+    ).fit(frame, outcome="Y", **NODES, id="cluster")
+
+
+class TestASavedCrossFittedClusteredResult:
+    """RM29: every saved grouped longitudinal fit withholds an unsupported interval."""
+
+    @pytest.mark.parametrize("route", ROUTES)
+    @pytest.mark.parametrize("shape", ["equal", "few", "unequal"])
+    def test_restored_artifact_takes_its_own_status(
+        self, monkeypatch: pytest.MonkeyPatch, shape: str, route: str
+    ) -> None:
+        result = fit_saved_grouped_shape(monkeypatch, shape)
+        if shape == "unequal":
+            assert set(np.bincount(result.data.cluster)) == {5, 15}
+        restored = assert_restamped(result, SAVED_GROUPED, route)
+        assert_withholds(restored, SAVED_GROUPED)
+        assert_assessment_note(restored, SAVED_GROUPED)
+        assert NO_SIMULTANEOUS_BANDS in restored.summary()
+        replay = restored.diagnostics.truncation_curve(bounds=[0.05])
+        assert len(replay) == len(restored.estimates)
+
+    def test_skipping_the_grouped_decision_fails_the_witness(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result = fit_saved_grouped_shape(monkeypatch, "equal")
+        monkeypatch.setattr(
+            longitudinal_estimator,
+            "_inference_status",
+            lambda data, folds: cluster_inference_status(data.cluster, cross_fit=folds.n_folds > 1),
+        )
+        with pytest.raises(AssertionError):
+            assert_restamped(result, SAVED_GROUPED, "pickle")
+
+    def test_supported_artifacts_keep_their_intervals(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        in_sample = fit_end_of_study(FEW_CLUSTER_THRESHOLD, simultaneous=True)
+        assert_keeps_inference(restore(in_sample, "pickle"))
+        frame, _ = make_longitudinal(n=N, seed=0)
+        unclustered = LTMLE(
+            {"always": 1, "never": 0},
+            reference="never",
+            **learners(n_folds=5, simultaneous=True),
+        ).fit(frame, outcome="Y", **NODES)
+        assert_keeps_inference(restore(unclustered, "pickle"))
