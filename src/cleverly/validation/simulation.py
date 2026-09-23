@@ -29,6 +29,7 @@ estimator configuration is trustworthy for your problem before you rely on it.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -36,6 +37,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._inference_status import (
+    NON_INFERENTIAL,
     InferenceStatus,
     precedent_status,
     status_record,
@@ -152,8 +154,19 @@ class EstimandSummary:
     inference_estimates: FloatArray | None = None
     #: What ``std_errors``, ``covered`` and ``rejected`` measured: the estimator's own
     #: inference, or its retained plug-in diagnostic when it supplies none.
-    #: :func:`summarize_replications` reads it off the records and refuses a mix.
+    #: :func:`summarize_replications` reads it off the records. When the replicates took
+    #: more than one status, it is the one :func:`precedent_status` gives.
     inference: InferenceStatus = "influence_curve"
+    #: The statuses the replicates took, each with its replicate count, when they took
+    #: more than one; empty when every replicate took :attr:`inference`. A fit whose
+    #: status depends on the draw, such as a clustered fit whose cluster count straddles
+    #: the few-cluster threshold, gives a mix.
+    status_counts: tuple[tuple[str, int], ...] = ()
+
+    @property
+    def mixed_statuses(self) -> str:
+        """The replicates' statuses and counts as one phrase, or ``""`` when uniform."""
+        return ", ".join(f"{status} in {count}" for status, count in self.status_counts)
 
     @property
     def mean_estimate(self) -> float:
@@ -241,6 +254,8 @@ class EstimandSummary:
         row: dict[str, Any] = {"estimand": self.estimand}
         if not supplies_inference(self.inference):
             row["inference"] = self.inference
+        if self.status_counts:
+            row["mixed_statuses"] = self.mixed_statuses
         return {
             **row,
             "truth": self.truth,
@@ -263,19 +278,23 @@ class EstimandSummary:
 def summarize_replications(
     records: Sequence[ReplicationRecord], *, estimand: str, n: int
 ) -> EstimandSummary:
-    """Build the canonical descriptive summary for one estimand's records."""
+    """Build the canonical descriptive summary for one estimand's records.
+
+    Every record measures the plug-in numbers of its replicate: the interval and standard
+    error an inferential fit reports are the same numbers a diagnostic fit retains. So
+    records that took different statuses summarize together, under the status
+    :func:`~cleverly._inference_status.precedent_status` gives, and the summary names the
+    statuses it read in :attr:`EstimandSummary.status_counts`.
+    """
     selected = tuple(record for record in records if record.estimand == estimand)
     if not selected:
         raise ValueError(f"no successful replication records for estimand {estimand!r}")
     estimates = np.asarray([record.estimate for record in selected], dtype=float)
     inference = np.asarray([record.inference_estimate for record in selected], dtype=float)
-    statuses = {record.inference for record in selected}
-    if len(statuses) != 1:
-        raise ValueError(
-            f"the records for {estimand!r} declare different inference statuses "
-            f"{sorted(statuses)}; a coverage rate over a mix would average an interval "
-            "with a diagnostic"
-        )
+    counts: Counter[str] = Counter(record.inference for record in selected)
+    status = precedent_status(counts)
+    # The table order, then "influence_curve", which has no record and comes last.
+    order = [*NON_INFERENTIAL, "influence_curve"]
     return EstimandSummary(
         estimand=estimand,
         truth=float(np.mean([record.truth for record in selected])),
@@ -286,7 +305,12 @@ def summarize_replications(
         covered=np.asarray([record.covered for record in selected], dtype=float),
         rejected=np.asarray([record.rejected for record in selected], dtype=float),
         inference_estimates=None if np.array_equal(inference, estimates) else inference,
-        inference=statuses.pop(),
+        inference=status,
+        status_counts=(
+            tuple((name, counts[name]) for name in order if name in counts)
+            if len(counts) > 1
+            else ()
+        ),
     )
 
 
@@ -382,11 +406,24 @@ class StudyResult:
             *(
                 [
                     f"measuring a {self._diagnostic_noun}: this estimator "
-                    "supplies no interval, so the columns below describe the spread of "
+                    "supplies no interval"
+                    + (
+                        " on some replicates"
+                        if any(summary.status_counts for summary in self.summaries.values())
+                        else ""
+                    )
+                    + ", so the columns below describe the spread of "
                     "the curve it reports and not a confidence interval"
                 ]
                 if self._diagnostic
                 else []
+            ),
+            *(
+                f"{summary.estimand}: the replicates took more than one status "
+                f"({summary.mixed_statuses}), and every column reads them as the "
+                f"{status_record(summary.inference).diagnostic_noun}"
+                for summary in self.summaries.values()
+                if summary.status_counts
             ),
             "",
             format_table(

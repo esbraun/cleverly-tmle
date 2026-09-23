@@ -14,8 +14,14 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from cleverly._inference_status import NON_INFERENTIAL
+from cleverly.datasets import make_clustered
+from cleverly.estimators import TMLE
 from cleverly.inference import make_estimate
-from cleverly.validation import CoverageStudy, EstimandSummary, StudyResult
+from cleverly.validation import CoverageStudy, EstimandSummary, StudyResult, simulation
+from tests.conftest import linear_in_sample
+
+FEW = "few_cluster_plugin"
 
 
 def _summary(**overrides: object) -> EstimandSummary:
@@ -171,3 +177,67 @@ def test_the_undercoverage_verdict_names_the_spread_by_its_status(
         label="spread noun",
     )
     assert f"; the {noun} is " in study.verdict()
+
+
+def _straddling_dgp(n: int, seed: int) -> tuple[object, dict[str, float]]:
+    """A clustered law whose cluster count is drawn from 38 to 42, around the threshold."""
+    j = int(np.random.default_rng(seed).integers(38, 43))
+    frame, truth = make_clustered(n=10 * j, cluster_size=10, seed=int(seed))
+    return frame, truth
+
+
+def _straddling_study() -> StudyResult:
+    """The R1 review's probe: eight in-sample clustered fits, four on each side of 40."""
+    return CoverageStudy(
+        dgp=_straddling_dgp,
+        estimator=lambda: TMLE(**linear_in_sample(estimands=("ate",))),
+        n=400,
+        n_replicates=8,
+        seed=0,
+        fit_kwargs={"outcome": "Y", "treatment": "A", "covariates": ["W1", "W2"], "id": "cluster"},
+    ).run()
+
+
+class TestAStudyWhoseReplicatesMixStatuses:
+    """A draw-dependent status summarizes under the precedent status, not a refusal.
+
+    Every record measures the plug-in numbers of its replicate, so the mix averages one
+    kind of number. The summary takes the status that withholds, and names the mix.
+    """
+
+    def test_the_mix_summarizes_as_the_diagnostic_and_names_the_statuses(self) -> None:
+        study = _straddling_study()
+        records = study.replications
+        # The witness: the draws straddle the threshold, so both statuses occur.
+        taken = {record.inference for record in records}
+        assert taken == {FEW, "influence_curve"}
+        summary = study["ate"]
+        assert summary.inference == FEW
+        few = sum(record.inference == FEW for record in records)
+        assert summary.status_counts == ((FEW, few), ("influence_curve", len(records) - few))
+        # Every replicate counts, whichever status it took.
+        assert summary.n_replicates == len(records) == 8
+        assert summary.coverage == np.mean([record.covered for record in records])
+        text = study.summary()
+        assert "supplies no interval on some replicates" in text
+        assert (
+            f"ate: the replicates took more than one status (few_cluster_plugin in {few}, "
+            f"influence_curve in {8 - few}), and every column reads them as the "
+            f"{NON_INFERENTIAL[FEW].diagnostic_noun}"
+        ) in text
+        row = study.to_frame().iloc[0]
+        assert row["inference"] == FEW
+        assert row["mixed_statuses"] == summary.mixed_statuses
+        assert "mean_std_error" not in row.index
+
+    def test_a_mix_read_as_inference_fails_the_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The mutation: a summary that labels the mix with the inferential status."""
+        monkeypatch.setattr(simulation, "precedent_status", lambda statuses: "influence_curve")
+        with pytest.raises(AssertionError):
+            assert _straddling_study()["ate"].inference == FEW
+
+    def test_a_uniform_study_names_no_mix(self) -> None:
+        summary = _summary(inference=FEW)
+        assert summary.status_counts == ()
+        assert summary.mixed_statuses == ""
+        assert "mixed_statuses" not in summary.to_dict()
