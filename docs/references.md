@@ -396,7 +396,7 @@ previous reader had is not a citation; a page number is.
   No reviewed source states the K-arm contrast curve. Each contrast curve is a standard consequence
   of the joint expansion and the Appendix A delta-method form, and the papers do not state it. The
   default simultaneous band uses Rademacher multiplier draws on the centered curves of the same rows
-  (`src/cleverly/methods.py:312`). Its validity follows from the joint expansion and a conditional
+  (`src/cleverly/methods.py:329`). Its validity follows from the joint expansion and a conditional
   multiplier central limit theorem for a fixed number of estimands. That step is also a standard
   consequence that the papers do not state.
 
@@ -406,10 +406,10 @@ previous reader had is not a citation; a page number is.
   line search and the stopping rule act on the whole vector. A joint fluctuation therefore equals
   the per-arm fits only to solver tolerance.
 
-  The ordinary variance rule is `np.var(ic, ddof=1) / n` (`src/cleverly/inference/cluster.py:141`).
+  The ordinary variance rule is `np.var(ic, ddof=1) / n` (`src/cleverly/inference/cluster.py:146`).
   It equals the R rule `var(IC) / n` at lines 1596 and 1610. The arm-indexed stacked fit uses
-  this centered rule (`src/cleverly/estimators/tmle.py:3213-3215`). The stacked natural-course
-  mean keeps the second-moment rule (`src/cleverly/inference/cluster.py:243-279`). A stacked curve
+  this centered rule (`src/cleverly/estimators/tmle.py:3628-3630`). The stacked natural-course
+  mean keeps the second-moment rule (`src/cleverly/inference/cluster.py:248-284`). A stacked curve
   has empirical mean zero to targeting tolerance, so the two rules agree to first order.
 
   The table gives the source verdict for each composition in the arm-indexed mean group. The

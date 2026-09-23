@@ -36,6 +36,10 @@ $$
 
 With $M=E\sum_a h\phi\phi^\top$ and $r=E\sum_a h\phi\,\bar Q_P(a,W)$, the coefficient is
 $\beta=M^{-1}r$. The working design and the weights are known functions, and $M$ must be full rank.
+The package reads a declaration for the weights, and it reads none for the design. A design that
+closes over a sample statistic, such as a covariate centred at its sample mean, therefore fits with
+no message. Its reported curve omits the derivative through that statistic.
+[RM27](../roadmap.md#rm27-declared-msm-design-functions) records the gap and a probe of its size.
 
 With the identity link the clever covariate is $h(a,V)\,\phi(a,V)/g(a\mid W)$, one column per term,
 so the score equation is one per coefficient rather than one per arm. The counterfactuals are still

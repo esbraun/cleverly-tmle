@@ -179,6 +179,10 @@ Section 3.2.1, give the cluster-sum aggregation for that row-weighted estimand. 
 apply, the fit takes `"unequal_cluster_plugin"`, which comes first in the status table.
 `tests/unit/test_cluster_status.py` holds a witness, a control, and a mutation for each rule.
 
+The rule counts clusters, and it reads no row count. So a fit of 30 rows with `id=` and one row in
+each cluster takes `"few_cluster_plugin"`. The same rows without `id=` keep their interval. This
+refusal is conservative, and the roadmap records it as a known over-refusal.
+
 `FEW_CLUSTER_THRESHOLD` in `cleverly._inference_status` holds the threshold of 40. The `summary()`
 facts block prints the cluster count. It adds the range of row counts when the row counts differ,
 the range of weight mass when only the mass differs, and the fewest clusters in one stratum on a
