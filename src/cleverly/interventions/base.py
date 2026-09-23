@@ -29,11 +29,11 @@ regime is :class:`Static`.
 **What is deliberately not here.**  Both are about the *influence function*, not about
 effort -- and both are implemented, elsewhere, under keywords of their own:
 
-- An **incremental propensity-score intervention** tilts the estimated mechanism,
+- An **incremental propensity-score intervention** tilts the population mechanism,
   :math:`g^\star_\delta(1 \mid W) = \delta g_1 / (\delta g_1 + 1 - g_1)`.  Its
   :math:`g^\star` is a functional of :math:`P`, so the efficient influence function
   carries a further term for the pathwise derivative through :math:`g` (Kennedy, 2019)
-  that none of the regimes here need, and the estimator has to fluctuate the mechanism
+  that a fixed-density regime curve lacks, and the estimator has to fluctuate the mechanism
   as well as :math:`\bar Q`.  Neither this Protocol -- whose ``density`` sees only the
   data -- nor the influence curve below can express that, which is why it is a parameter
   axis of its own: :mod:`cleverly.interventions.incremental` and ``TMLE(incremental=)``.
@@ -86,8 +86,9 @@ class Intervention(Protocol):
     written against the ``(n, K)`` matrix and needs to know nothing about which kind of
     intervention produced it.
 
-    A user-written class carries no declaration that its density is known, and no fit
-    checks one (roadmap row RM28).
+    A user-written class currently carries no declaration that its density is fixed, and
+    no fit checks one (roadmap row RM28). Its density may use only a fixed policy for the
+    inference this path reports.
 
     Parameters
     ----------
@@ -242,6 +243,9 @@ class Rule:
     density, so a rule with a typo or an off-by-one fails naming the levels that exist
     rather than producing a regime nobody asked for.
 
+    Prespecify ``rule`` independently of the analysis sample. The fit cannot inspect a
+    closure and does not yet require a known-rule declaration (roadmap row RM28).
+
     Parameters
     ----------
     rule : callable
@@ -285,15 +289,15 @@ class Stochastic:
     to one.
 
     *Known* is the load-bearing word, and ``density_kind="known"`` declares it.
-    :math:`g^\\star` must be a fixed function of :math:`W`, chosen without reading the
-    data.  A density computed from the sample, such as a tilt of a fitted treatment
-    mechanism, makes :math:`g^\\star` a functional of :math:`P`.  The influence curve this
-    package reports for a regime has no term for its pathwise derivative.  A callable can
-    close over any estimate and no code can inspect a closure, so the declaration is the
-    check.  :func:`refuse_regime_densities` refuses ``None`` and ``"estimated"`` when the
-    regime is built, and ``TMLE`` refuses them again before any learner.  For an odds tilt
-    of the treatment mechanism, use :class:`~cleverly.interventions.Incremental`, whose
-    curve carries that term.  See the module docstring.
+    :math:`g^\\star` must be a fixed function of :math:`W`, chosen independently of the
+    analysis sample.  For a population-mechanism-indexed odds tilt, the regime influence
+    curve omits the pathwise derivative through the mechanism.  A realized learned density
+    defines a different, data-adaptive target; inference for it needs conditions this API
+    does not check.  A callable can close over any estimate and no code can inspect a
+    closure, so the declaration is the check.  :func:`refuse_regime_densities` refuses
+    ``None`` and ``"estimated"`` when the regime is built, and ``TMLE`` refuses them again
+    before any learner.  For the population odds-tilt target, use
+    :class:`~cleverly.interventions.Incremental`, whose curve carries the mechanism term.
 
     Parameters
     ----------
@@ -306,7 +310,7 @@ class Stochastic:
         value a fit accepts.  ``None``, the default, and ``"estimated"`` raise
         :class:`~cleverly.exceptions.CapabilityError`, and any other value raises
         :class:`~cleverly.exceptions.DataError`.  A regime pickled before this field
-        existed loads as ``None`` and refuses every recomputation.  It is the last field,
+        existed loads as ``None`` and refuses every estimator recomputation.  It is the last field,
         so ``Stochastic(density_fn, name)`` keeps its positional order.
     """
 
@@ -395,25 +399,24 @@ def refuse_unsupported(kind: str) -> None:
 #: Why an estimated regime density is refused.  ``_DENSITY_DECLARATION`` reads it, and
 #: :func:`refuse_regime_densities` runs that declaration at every site that checks it.
 _ESTIMATED_DENSITY = (
-    "a Stochastic regime with an estimated density is refused. g*(a | W) is then a "
-    "functional of P, so the efficient influence function carries a further term for the "
-    "pathwise derivative of g* through P, such as through the estimated treatment "
-    "mechanism, and the influence curve reported for a regime does not have it. The "
-    "reported standard error can be wrong; on the RM25 exact law it is too small. "
+    "a Stochastic regime with an estimated density is refused. For a population-law target "
+    "whose g*(a | W) depends on P, the regime influence curve omits its pathwise derivative; "
+    "the RM25 odds-tilt witness understates that target's standard error. A realized learned "
+    "density instead defines a data-adaptive target whose inference needs conditions this "
+    "API does not check. "
     "docs/technical-reference/scope-and-refusals.md (Wrong by construction) records the "
-    "refusal, and RM25 in docs/roadmap.md records the reason. For an odds tilt of the "
-    "treatment mechanism, declare cleverly.interventions.Incremental and pass it to "
+    "refusal, and RM25 in docs/roadmap.md records the reason. For the population odds tilt "
+    "of the treatment mechanism, declare cleverly.interventions.Incremental and pass it to "
     "TMLE(incremental=...), whose curve carries that term. Otherwise pass density_fn= as "
     "a fixed function of the covariates with density_kind='known'."
 )
 
 _UNDECLARED_DENSITY = (
     "Stochastic needs a declaration of what density_fn is. Pass density_kind='known' "
-    "when g*(a | W) is a fixed function of the covariates, chosen without reading the "
-    "data. A density computed from the sample, such as a tilt of a fitted treatment "
-    "mechanism, is estimated: g* is then a functional of P, the reported influence curve "
-    "omits its pathwise derivative, so its standard error can be wrong (RM25 in "
-    "docs/roadmap.md). density_kind='estimated' is refused for that reason."
+    "when g*(a | W) is a fixed function of the covariates, chosen independently of the "
+    "analysis sample. A sample-derived density is refused: the regime curve omits a term "
+    "for a population-law-dependent policy, while inference for a realized learned policy "
+    "needs conditions this API does not check (RM25 in docs/roadmap.md)."
 )
 
 #: The regime-density declaration: the field ``density_kind``, and the texts of its
@@ -442,7 +445,7 @@ def refuse_regime_densities(interventions: Iterable[object]) -> None:
        :class:`DataError`.
     3. ``density_kind=None`` is a :class:`~cleverly.exceptions.CapabilityError`.
     4. ``density_kind="estimated"`` is a :class:`~cleverly.exceptions.CapabilityError`
-       that names the missing pathwise-derivative term.
+       that distinguishes a population-law target from a realized learned-policy target.
 
     :class:`Stochastic` runs this when it is built.  ``TMLE`` runs it again before any
     learner and at the start of every retarget, and the simulated-confounding replay runs
@@ -454,7 +457,8 @@ def refuse_regime_densities(interventions: Iterable[object]) -> None:
     The check selects regimes with ``isinstance``, so a subclass that skips
     :meth:`Stochastic.__post_init__` still refuses at the fit.  Every other intervention
     passes unchecked: :class:`Static` and :class:`Rule` hold no density function, and a
-    user-written :class:`Intervention` carries no declaration (roadmap row RM28).
+    user-written :class:`Intervention` carries no declaration (roadmap row RM28). A
+    :class:`Rule` can still hold a learned rule; RM28 also tracks that gap.
 
     Parameters
     ----------

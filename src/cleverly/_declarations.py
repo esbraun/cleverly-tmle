@@ -6,9 +6,10 @@ a function is a declaration with three states:
 
 - ``"known"`` is a fixed function, chosen without reading the data. It is the one state that a
   fit accepts.
-- ``"estimated"`` is a function computed from the sample. The target is then a functional of
-  :math:`P` through the function, and the reported influence curve omits that pathwise
-  derivative, so the package refuses it.
+- ``"estimated"`` is a function computed from the analysis sample. If the intended target
+  indexes that function by the population law, its influence curve can need an additional
+  pathwise derivative. Inference for the realized learned-function target instead needs
+  conditions that this API does not establish. The package refuses either use here.
 - ``None`` is the default, and it means undeclared. The package refuses it for a supplied
   function, so an object restored from before its declaration field existed refuses every
   recomputation. A user can accept ``None`` when no function is supplied: an MSM with
@@ -34,8 +35,9 @@ from .exceptions import CapabilityError, DataError
 __all__ = ["FunctionDeclaration", "FunctionKind"]
 
 #: What a declaration says about a user-supplied function. ``"known"`` is a fixed function,
-#: chosen without reading the data. ``"estimated"`` is one computed from the sample, which is
-#: refused. A declaration field holds one of these or ``None``, which means undeclared.
+#: chosen independently of the analysis sample. ``"estimated"`` is one computed from that
+#: sample, which is refused. A declaration field holds one of these or ``None``, which means
+#: undeclared.
 FunctionKind = Literal["known", "estimated"]
 
 

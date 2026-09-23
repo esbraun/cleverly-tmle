@@ -115,18 +115,20 @@ plans = (
 result = study.estimate(RegimeContrast(plans, reference="treat none"), method=quick, random_state=3)
 ```
 
-A rule is a known function of observed history. An intervention estimated from the treatment
-mechanism is a different parameter.
+Prespecify a `Rule` as a rowwise function of observed history. The fit does not check whether
+the rule was learned from the analysis sample. [RM28](../roadmap.md#rm28-declared-densities-of-user-written-interventions)
+tracks that gap.
 
 `Stochastic` takes the assignment *density*, not a scalar probability. The density is a function
 of the covariate frame. It returns one column per arm in `data.treatment_levels` order, and its
-rows sum to one. It must be a fixed function of the covariates, and `density_kind="known"`
-declares that.
+rows sum to one. For this API, choose it independently of the analysis sample, and declare
+`density_kind="known"`.
 
 `Stochastic` raises `CapabilityError` for a density with no declaration and for a density declared
-`"estimated"`. The influence curve reported for a regime carries no term for a $g^\star$ that
-depends on $P$. For an odds tilt of the treatment mechanism, use an
-[incremental intervention](#incremental-propensity-score-interventions).
+`"estimated"`. For a population-law target whose $g^\star$ depends on $P$, the regime curve
+omits the derivative of that dependence. A realized learned density is a different target whose
+inference needs conditions this API does not check. For the population odds tilt of the treatment
+mechanism, use an [incremental intervention](#incremental-propensity-score-interventions).
 
 ## Modified treatment policies
 

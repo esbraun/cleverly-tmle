@@ -510,6 +510,25 @@ previous reader had is not a citation; a page number is.
   cited for the stochastic-regime parameter rather than the population-intervention one. The
   byline differs between them: *Díaz Muñoz* in 2012 and *Díaz* in 2013. The prose follows
   each as published.
+- van der Laan, Luedtke & Díaz (2014), [*Discussion of Identification, Estimation and Approximation
+  of Risk under Interventions that Depend on the Natural Value of Treatment Using Observational
+  Data*](https://doi.org/10.1515/em-2014-0012), *Epidemiologic Methods* 3(1):21–31,
+  DOI 10.1515/em-2014-0012. Section 5 distinguishes the population-law intervention from a
+  realized learned intervention. The latter defines a data-adaptive target and needs its own
+  inference conditions. [RM25](roadmap.md#rm25-declared-stochastic-regime-densities) uses this
+  distinction when interpreting its exact-law odds-tilt witness.
+- Nordland & Holst (2026), [*Policy Learning with the polle Package*](https://doi.org/10.18637/jss.v116.i04),
+  *Journal of Statistical Software* 116(4), DOI 10.18637/jss.v116.i04. Sections 2 and 3 describe
+  policy value scores and cross-fitted evaluation of learned policies. This is evidence for a
+  distinct learned-policy contract, not for treating `Rule` or `DynamicRegimen` as checked by the
+  current package. [RM28](roadmap.md#rm28-declared-densities-of-user-written-interventions)
+  tracks those functions.
+- Luedtke & van der Laan (2016), [*Statistical inference for the mean outcome under a possibly
+  non-unique optimal treatment strategy*](https://doi.org/10.1214/15-AOS1384), *Annals of
+  Statistics* 44(2):713–742, DOI 10.1214/15-AOS1384. The paper gives the pathwise
+  differentiability condition for the population optimal-rule value. A learned optimal rule does
+  not always require a first-order rule-estimation term; non-unique optima can cause nonregularity.
+  The package's generic `Rule` path does not implement this optimal-value analysis.
 - Haneuse & Rotnitzky (2013), *Estimation of the effect of interventions that modify the received
   treatment*, *Statistics in Medicine* 32(30):5260–5277, DOI
   [10.1002/sim.5907](https://doi.org/10.1002/sim.5907).
@@ -1290,6 +1309,15 @@ is the only empirical witness for it.
 - Kennedy (2019), [*Nonparametric causal effects based on incremental propensity score
   interventions*](https://doi.org/10.1080/01621459.2017.1422737), *Journal of the American
   Statistical Association* 114(526):645–656, DOI 10.1080/01621459.2017.1422737.
+  [The arXiv manuscript](https://arxiv.org/html/1704.00211v3), Section 3.3 and Appendix
+  Corollary 2, derives the extra mechanism term for a population-law odds tilt. It does not
+  establish inference for the realized learned-density target.
+- de Aguas (2026), [*Interpolated Stochastic Interventions Based on Propensity Scores, Target
+  Policies and Treatment-Specific Costs*](https://arxiv.org/html/2511.11353),
+  arXiv:2511.11353v3. The preprint constructs scalar-parameter categorical propensity policies
+  from a reference policy and treatment-specific costs and derives their influence functions.
+  It shows that a multi-arm extension is possible after its extra policy inputs are declared.
+  It does not validate a multi-arm `TMLE(incremental=...)` in this package.
 
 ## Riesz representation and nested targeted learning
 

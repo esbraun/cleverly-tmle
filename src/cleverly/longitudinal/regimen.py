@@ -110,8 +110,9 @@ class DynamicRegimen:
 
     For theorem-backed inference, every callable is a prespecified rowwise map of one
     unit's available history. A rule may not estimate a threshold or otherwise aggregate
-    across the supplied sample. Such a data-adaptive policy is a different estimand whose
-    extra estimation step is not represented in the reported influence curve.
+    across the supplied sample. A learned policy is a different, data-adaptive target, and
+    inference for it needs conditions this path does not check. The fit cannot inspect a
+    closure and does not yet require a known-rule declaration (roadmap row RM28).
 
     Attributes
     ----------

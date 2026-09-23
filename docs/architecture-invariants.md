@@ -190,15 +190,18 @@ TMLE refuses declared clusters at every setting, and cross-fitted longitudinal T
 above one fold, because no reviewed result covers a grouped draw of those splits.
 *Reconsider when* a cluster-level result covers the selection path or the sequential recursion.
 
-A user-supplied function that the reported influence curve treats as fixed carries a declaration
-of what it is. A callable can close over any estimate, and no code can inspect a closure. So the
-declaration takes `"known"`, `"estimated"`, or `None`, and only `"known"` fits.
+An MSM projection weight and a `Stochastic` density are user-supplied functions that the reported
+influence curve treats as fixed. Each carries a declaration with `"known"`, `"estimated"`, or
+`None`, and only `"known"` fits. A callable can close over an estimate, and code cannot inspect
+that closure.
 
-The object refuses the other two when it is built. Every fit and recomputation refuses them again
-before any learner, because a restored object can carry a declaration that this version refuses.
-One class, `cleverly._declarations.FunctionDeclaration`, holds the check and the refusal texts. So
-the MSM weight (RM13) and the `Stochastic` density (RM25) refuse the same way. *Reconsider when* the
-package can report the pathwise-derivative term of an estimated function in the influence curve.
+The MSM and `Stochastic` objects refuse undeclared and estimated functions at construction. Their
+estimator paths check again before a fit or a result recomputation, because a restored object can
+carry an invalid declaration. `cleverly._declarations.FunctionDeclaration` shares the check and
+refusal texts. The declaration does not cover `Rule.rule`, `DynamicRegimen` rules, or custom
+`Intervention.density` methods. [RM28](roadmap.md#rm28-declared-densities-of-user-written-interventions)
+tracks those policy functions. *Reconsider when* the package adds supported inference for learned
+policies or population-law-dependent intervention functions.
 
 A normalized method declaration either changes the selected engine request or fails before that
 engine is constructed. Shared configuration groups do not imply shared implementation: every

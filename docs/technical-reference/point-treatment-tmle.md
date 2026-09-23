@@ -430,14 +430,17 @@ $$
 
 Its efficient influence function has residual weight $g^*(A\mid W)/g_P(A\mid W)$ and a centered
 plug-in term. Deterministic static and dynamic rules are degenerate cases of $g^*$. Identification
-needs positivity only where the regime assigns mass. A known rule does not depend on $P$, so its
-influence function carries no term for estimating the rule.
+needs positivity only where the regime assigns mass. A prespecified rule does not depend on $P$,
+so its influence function carries no term for learning the rule. The fit does not verify that a
+`Rule` is prespecified; [RM28](../roadmap.md#rm28-declared-densities-of-user-written-interventions)
+tracks the declaration needed for learned rules.
 
 `Stochastic` asks for this condition as a declaration: pass `density_kind="known"`. The package
 refuses an undeclared density, and a density declared `"estimated"`, when the regime is built.
-`TMLE` refuses both again before any learner. The
-[scope page](scope-and-refusals.md#wrong-by-construction) gives the size of the missing term on
-one exact law.
+`TMLE` refuses both again before any learner. For a population-law odds tilt of the mechanism,
+the [scope page](scope-and-refusals.md#wrong-by-construction) gives the omitted variance term on
+one exact law. A realized learned density defines a different target. Its inference needs
+conditions that the `Stochastic` API does not check.
 
 `Static`, `Rule`, and `Stochastic` implement the intervention protocol. `RegimeMean` and
 `RegimeContrast` define the levels and the contrasts. See Robins (2004), Diaz Munoz and van der

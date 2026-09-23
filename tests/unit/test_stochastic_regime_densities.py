@@ -2,10 +2,10 @@ r"""A ``Stochastic`` regime density must be declared known, and an estimated one
 
 A regime density :math:`g^\star(a \mid W)` is part of the estimand.  When it is a fixed
 function of the covariates, the influence curve that the package reports for a regime is the
-efficient influence function of the regime mean.  When it is computed from the sample, such
-as a tilt of a fitted mechanism, :math:`g^\star` is a functional of :math:`P`.  The efficient
-influence function then carries a further term for the pathwise derivative of
-:math:`g^\star`, and the reported curve does not have it.
+efficient influence function of the regime mean.  When the target is the population-law
+odds tilt of the mechanism, :math:`g^\star` is a functional of :math:`P`.  Its efficient
+influence function then carries a further pathwise-derivative term that the regime curve
+lacks.  A realized learned density defines a different, data-adaptive target.
 
 A callable can close over any estimate, and no code can inspect a closure, so the status of
 the density is a declaration: ``Stochastic(density_kind=...)``.  RM25 in ``docs/roadmap.md``
@@ -22,7 +22,7 @@ records the defect.  This module pins these things:
   its density runs;
 * a deliberate mutation that removes a refusal makes those witnesses fail;
 * on an exact law, the odds tilt of the sample mechanism declared ``"known"`` gets the
-  influence curve of the fixed density, which understates the variance of the estimated one;
+  fixed-density curve, which understates variance for the population-law odds-tilt target;
 * a density that is known keeps its interval.
 
 The exact-law gap is the reason for the refusal, measured without sampling error, as
@@ -130,7 +130,8 @@ class TestTheDeclarationIsRequired:
             CapabilityError,
             ESTIMATED,
             PATHWISE,
-            "functional of P",
+            "population-law target",
+            "data-adaptive target",
             "TMLE(incremental=",
         )
 
