@@ -942,6 +942,12 @@ class DRTMLE(TMLE):
             n_jobs=self.n_jobs,
         )
 
+    def _resolve_estimands_for_data(self, data: CausalData) -> tuple[str, ...]:
+        """Refuse unsupported DR-TMLE compositions before drawing any folds."""
+        estimands = super()._resolve_estimands_for_data(data)
+        self._check_drtmle(data)
+        return estimands
+
     def _check_drtmle(self, data: CausalData) -> None:
         """The refusals that need the data, each naming what the derivation would need."""
         if isinstance(self, CTMLE):
