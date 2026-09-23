@@ -11,9 +11,14 @@ published theory do not enter this sequence.
 
 ## Remediation
 
-The examples are executable, but their review exposed gaps in the public study record and in
-post-fit coverage. Deliver the rows in priority order. Complete every row before main-roadmap
-priority 1. A new capability still needs its own contract and evidence, even in this queue.
+This queue is the triage set that must be complete before a beta release. It holds shipped
+behavior that needs a correction or a recorded decision. That behavior includes wrong numbers,
+intervals that no claimed contract covers, capability rows that do not match their calls, and late
+refusals. New capability, and work that waits on published theory, stays in the main roadmap or in
+the future investigations grid. Deliver the rows in priority order, and complete every row before
+main-roadmap priority 1.
+
+A new capability still needs its own contract and evidence, even in this queue.
 
 The "next action" column states the remediation work. It is not a readiness label.
 
@@ -43,16 +48,26 @@ shipped estimators, diagnostics, and messages. Each detail section names its sou
 the probe that measured it. RM11 and RM12 are delivered. Their detail sections record what shipped,
 and the table below lists the rows that remain.
 
+The review of pull request 223, which delivered RM11 and RM12, recorded problems that it did not
+fix. A survey of this roadmap for shipped behavior then found more in other items. RM20 to RM24
+hold both sets, and three smaller findings extend RM16. Each detail section gives its probe and
+the measured result.
+
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
 | 0.1 | Red property cells after the fold, scale and law changes | keep each red verdict under `reporting` with its interval, and admit inference only when F18 or F19 supplies the exact result. The [red-cell ledger](technical-reference/method-evidence/red-cells.md) delivers this. Then declare and run the five open RM18 follow-up designs, each declared before its run | registered studies publish red verdicts after the fold, scale and law changes and the pooled update. The ledger lists each one and the ask that owns it. Five RM18 follow-up designs are not declared and have not run | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
 | 0.4 | Estimated MSM projection weights | require a declaration that a projection weight is known, and refuse an estimated weight before the fit | a callable that closes over estimated weights fits without a message and reports a standard error that is too small | [RM13](#rm13-estimated-msm-projection-weights) |
 | 0.5 | Intervention refusals at identification | refuse mixed intervention kinds in `CausalStudy.identify`, and name the typed estimands in each message | a mixed request passes identification and then fails at estimation, once with an `AttributeError` | [RM14](#rm14-intervention-refusals-at-identification) |
 | 0.6 | Calibration-slope warning rule | replace the fixed band with a rule that a registered calibration study supports | the band flagged 14 of 40 fits of a correctly specified weak-signal propensity model | [RM15](#rm15-calibration-slope-warning-rule) |
-| 0.7 | Summary and error-message accuracy | correct four display surfaces and one data error message, and add a fingerprint-only protocol option | each surface omits, misstates, or repeats a fact that the fit records | [RM16](#rm16-summary-and-error-message-accuracy) |
+| 0.7 | Summary and error-message accuracy | correct six display surfaces and one data error message, add a fingerprint-only protocol option, and decide which refusal an explicit simultaneous request on a selector fit gets | each surface omits, misstates, or repeats a fact that the fit records | [RM16](#rm16-summary-and-error-message-accuracy) |
 | 0.8 | One-sided robustness bias increment in DR-TMLE | investigate the exploratory between-implementation increment on binary `treatment_correct`, under a design declared before it runs | the RM18 reading is `mixed` on that configuration. The unadjusted paired 99% interval of `cleverly` minus R `drtmle` runs 0.000068 to 0.001942, while the Bonferroni interval for that comparison covers zero. No implementation defect is established | [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) |
+| 0.9 | Intervals outside every claimed contract | record one decision for each surface: register a claim with its source and evidence, give the estimate a non-inferential status, or refuse the interval | six shipped surfaces report `ci` under the `influence_curve` status. For each one, the technical reference says that no claim covers the interval, or no audit read a source for it | [RM20](#rm20-intervals-outside-every-claimed-contract) |
+| 0.91 | E-value on a controlled-direct-effect fit | find a source that derives an E-value for a controlled direct effect, or refuse each E-value branch that no source covers on a fit with an intermediate variable | the Gaussian branch and the reported-ratio branches answer on that fit, and the derived-ratio branch refuses it. No source read here covers the case | [RM21](#rm21-e-value-on-a-controlled-direct-effect-fit) |
+| 0.92 | Standard error of the omitted-variable bound | add the influence term of the conditioning share to the ATT and ATC curve, decide what the plug-in limits claim, and check each locator against the published article | the curve of $\nu^2$ omits $-2 \nu^2 (1\{A = c\} - p) / p$. Under the doubly robust estimator the omission widens the limits. No derivation covers the plug-in limits | [RM22](#rm22-standard-error-of-the-omitted-variable-bound) |
+| 0.93 | Capability rows that read available and then refuse | make each declared row match its call, and add a witness that sweeps the kinds of fit | four rows on three kinds of fit read available, and the call then refuses or raises. On one of them, `assess(include_refits=True)` raises `ValueError` and returns no report | [RM23](#rm23-capability-rows-that-read-available-and-then-refuse) |
+| 0.94 | Refusals after the nuisance fit | raise each refusal as `CapabilityError` before any learner call | three well-posed requests refuse after 2 to 8 learner fits, as `NotImplementedError` or `ValueError` | [RM24](#rm24-refusals-after-the-nuisance-fit) |
 
-Use four delivery groups for these six rows and investigations. Keep each item's acceptance
+Use seven delivery groups for these eleven rows and investigations. Keep each item's acceptance
 criteria separate inside its group.
 
 | delivery group | items | shared boundary |
@@ -61,6 +76,9 @@ criteria separate inside its group.
 | pre-fit declarations | RM13 and RM14 | refuse unsupported requests before any nuisance fit |
 | diagnostic reports | RM15 and RM16 | one assessment and summary surface, with one documentation pass |
 | bias localization | RM19 | one declared design that localizes a measured paired increment, and moves no verdict |
+| inference claims | RM20 | one decision rule for an interval that no claimed contract covers, applied to each surface |
+| sensitivity outputs | RM21 and RM22 | the E-value and omitted-variable reports, and one reading of the published sources they cite |
+| refusal surfaces | RM23 and RM24 | a refusal reaches the caller where its declaration says, before the work that it refuses |
 
 Two groups left this table. The sensitivity refusals group held RM11 and the F5 refusal boundary,
 and the collaborative inference group held RM12 and the F18 audit. Each group delivered its
@@ -74,16 +92,21 @@ items inside a group in priority order. The delivered rows held 0.2 and 0.3, and
 keep their own numbers. This project does not renumber a row when another row leaves the table. A
 number names the row in the commit record, and a renumber moves every row below it.
 
-RM19 is the last group. No rule in this roadmap orders the groups, so the order rests on the
-defects. RM13 to RM16 correct shipped defects. RM11 and RM12 also corrected shipped defects, and
-each published a number that no derivation covers, so both came first. RM19 localizes a paired
-increment whose Bonferroni interval covers zero, and it moves no verdict.
+No rule in this roadmap orders the groups, so the order rests on the defects. RM13 to RM16 correct
+shipped defects. RM11 and RM12 also corrected shipped defects, and each published a number that no
+derivation covers, so both came first. RM19 localizes a paired increment whose Bonferroni interval
+covers zero, and it moves no verdict.
+
+The groups that hold RM20 to RM24 follow RM19. The number 0.8 was the last in use, and this
+project does not renumber a row. Inside them, RM20 and RM21 come first. Each publishes a number
+that no claimed contract or read source covers. The doubly robust defect in RM22 widens a limit,
+and RM23 and RM24 move no number.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
 Three things block it now. RM18 has five follow-up designs that are not declared and have not
-run. RM19 has no declared design, and RM13 to RM16 are not delivered. The F18 and F19 derivations
-do not block it, because an item with no published theory does not enter the sequence. Their
-cells stay red under `reporting` until F18 or F19 meets its acceptance.
+run. RM19 has no declared design, and RM13 to RM16 and RM20 to RM24 are not delivered. The F18
+and F19 derivations do not block it, because an item with no published theory does not enter the
+sequence. Their cells stay red under `reporting` until F18 or F19 meets its acceptance.
 
 The source audit found no result for the shipped global selector or for the complete jointly
 targeted outcome-adaptive inference surface. Selector post-selection inference remains in
@@ -105,8 +128,9 @@ families. The RM8 audit moved ordinary TMLE under `missingness=` to
 The 2026-09-12 and 2026-09-14 audits did not find a direct interval result for a fold-targeted
 update or for the package's repeated-split report. The natural-course mean and the arm-indexed
 means and contrasts refuse both variants. [F21](#f21-other-missing-outcome-cv-tmle-variants)
-tracks them. It also records the retained follow-ups of the arm-indexed stacked contract and two
-unexamined sibling gaps.
+tracks them. It also records the retained follow-ups of the arm-indexed stacked contract.
+[RM20](#rm20-intervals-outside-every-claimed-contract) holds the two sibling surfaces that the
+audit did not examine, because both fit today.
 
 The examples also expose the joint point-treatment parameter axes. No published targeting and
 inference result covers that composition, so it is a hard stop in
@@ -122,6 +146,7 @@ inference result covers that composition, so it is a hard stop in
 | 2.3 | Continuous-time survival and competing risks | published support; pending source read | continuous-time intensity and targeting contracts | [X6](#x6-continuous-time-survival-and-competing-risks) |
 | 2.4 | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
 | 2.5 | Stratified incremental and MSM targeting | source audit | implemented pooled stratified fluctuation, and marginal incremental and MSM targeting | [X8](#x8-stratified-incremental-and-msm-targeting) |
+| 2.6 | Omitted-variable bounds on the other linear functionals | published support; pending source read | the shipped arm-axis bound, and RM22 | [X9](#x9-omitted-variable-bounds-on-the-other-linear-functionals) |
 | 3 | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
 | 4.1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | 4.2 | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -150,7 +175,8 @@ the missing result. Package code and a related estimator do not remove the stop.
 | Selector-path C-TMLE inference | an influence function and covariance after the shipped data-adaptive stopping-index selection | point estimates and path diagnostics only. The greedy, ordered, and discrete paths refuse `ci`, `pvalue`, and `std_error`, and report a named working-mechanism plug-in diagnostic | [F18](#f18-selector-path-c-tmle-inference) |
 | Outcome-adaptive C-TMLE generated-design inference | exact scalar expansions for the shipped joint binary fit and a multi-arm vector extension of the paper-backed fold-local construction | ordinary adaptive-propensity EIF covariance with a proved binary scalar construction and open joint-target extensions | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | Missing-outcome attributable effects | a direct observed-data derivation for the joint natural-course and reference-intervention means, their remainder, and attributable-effect inference | complete-data PAR and PAF, one iid MAR natural-course mean, and arm-specific missing-outcome means remain separate | [F20](#f20-missing-outcome-attributable-effects) |
-| Other missing-outcome CV-TMLE variants | a direct interval result for fold-specific targeting and for the fixed-repeat median and split-dispersion report after CV-TMLE targeting | the package supports the ordinary natural-course estimator, the stacked natural-course estimator for a binary outcome, and the stacked arm-indexed means and contrasts. Each stacked estimator uses one repeat and pooled targeting. F21 also records their follow-ups and two sibling gaps | [F21](#f21-other-missing-outcome-cv-tmle-variants) |
+| Other missing-outcome CV-TMLE variants | a direct interval result for fold-specific targeting and for the fixed-repeat median and split-dispersion report after CV-TMLE targeting | the package supports the ordinary natural-course estimator, the stacked natural-course estimator for a binary outcome, and the stacked arm-indexed means and contrasts. Each stacked estimator uses one repeat and pooled targeting. F21 also records their follow-ups, and RM20 holds two sibling gaps | [F21](#f21-other-missing-outcome-cv-tmle-variants) |
+| Grouped cross-fitting beyond point-treatment TMLE | a split law and a cluster-robust variance for the C-TMLE selection folds, and a cluster-robust variance for the cross-fitted longitudinal recursion under a grouped draw | whole-cluster outer folds for cross-fitted point-treatment TMLE and DR-TMLE only | [F22](#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
 | MNAR and incremental-intermediate compositions | identification and influence-function results for the exact compositions | point-treatment sensitivity and implemented interventions remain separate | [F6](#f6-mnar-and-incremental-intermediate-compositions) |
 | Joint point-treatment parameter axes | a targeting and inference result for one fit that carries an MSM projection together with a regime, shift, or incremental intervention, including its joint score and covariance | single-axis point-treatment fits only | [F17](#f17-joint-point-treatment-parameter-axes) |
 | Time-respecting cross-fitting | dependence and split-specific TMLE inference for blocked-temporal or rolling-origin folds | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
@@ -554,6 +580,9 @@ The package cannot inspect a closure, so make the status of the weight a declara
 2. Refuse a weight declared as estimated. The message names the missing pathwise-derivative term.
 3. Correct the reference row, so that it describes the declaration and both refusals.
 
+`MSM.__post_init__` is the earliest pre-fit place for the check. `MSM.linear` forwards `weights=`
+(`src/cleverly/msm.py:421`), so the new declaration field must pass through both.
+
 The witnesses must fail when a component is wrong:
 
 - a pre-fit test pins both refusals and their messages, and a spy learner shows that no nuisance
@@ -564,9 +593,9 @@ The witnesses must fail when a component is wrong:
 ### RM14. Intervention refusals at identification
 
 The typed estimands do not check the kinds of their elements. `RegimeMean.regimens` and
-`RegimeContrast.regimens` are typed `Any` (`src/cleverly/study.py:953`, `:991`), and
+`RegimeContrast.regimens` are typed `Any` (`src/cleverly/study.py:955`, `:993`), and
 `IncrementalMean.interventions` and `IncrementalEffect.interventions` declare
-`Sequence[Incremental]` with no runtime check (`:1062`, `:1104`). The refusal
+`Sequence[Incremental]` with no runtime check (`:1064`, `:1106`). The refusal
 happens only when the estimator runs `as_interventions` (`src/cleverly/interventions/base.py:558-584`).
 
 | request | behavior | evidence |
@@ -594,10 +623,17 @@ Apply these corrections:
 3. Keep `as_interventions` as a second guard for direct estimator use, and name the typed estimands
    there too.
 
+Put the check in `_identify_point`, not in `_point_functional`.
+`_matches_registered_point_identification` calls `_point_functional` inside a `try` that catches
+`CapabilityError` and returns `False`. A refusal there would become a silent mismatch.
+
 The witnesses must fail when a component is wrong:
 
 - a pre-fit test for each row above pins the refusal, its message, and its raise at `identify`;
-- a spy learner shows that no nuisance fit ran;
+- for the `IncrementalEffect` row, a spy learner shows that no nuisance fit ran. A 2026-09-22
+  probe recorded one learner fit before the present `AttributeError`, so this spy can fail. The
+  `RegimeContrast` refusal already runs before any learner fit, so a spy cannot fail on that
+  row, and only the raise at `identify` witnesses it;
 - a mutation that removes the identification check makes the test fail at `identify`, rather than
   pass at `estimate`.
 
@@ -650,10 +686,17 @@ The witnesses must fail when a component is wrong:
 | regime support table | `min g`, `max ratio`, and `ratio effective n` use the mechanism before truncation. `score load` uses the truncated weights. The table does not say so | `src/cleverly/interventions/support.py:276-294` and the header at `:244-260`. In the `interventions` notebook, offer to all prints a `min g` of 0.001463, below the fit's bound of 0.0114 | label the basis of each column. The source chooses the untruncated mechanism on purpose, so this is a display gap and not an estimator defect |
 | identification and result summaries | each summary reprints all 11 protocol lines, so a notebook that prints the protocol, the identified effect, and the result shows the record three times | `StudyProtocol.summary_lines` returns 11 lines (`src/cleverly/protocol.py:180-200`). `IdentifiedEffect.summary` and `IdentifiedEffect.summary_lines` append them (`src/cleverly/study.py:2566-2578`, `:2587-2597`), and the result summary appends `summary_lines` (`src/cleverly/estimators/base.py:1190-1191`). The `dr-tmle` notebook shows the block three times | add a summary option that prints only the `causal study protocol: schema N; fingerprint` line. Keep the full record as the default, so that a summary read alone stays complete |
 | missing-outcome `DataError` | tells a study user to pass `delta=<column>` | `src/cleverly/data/validate.py:311`. `PointTreatment` names the field `missingness` (`src/cleverly/study.py:403`). A probe through `CausalStudy` returns the `delta=` text | name `missingness=` for a study design. Keep `delta=` only where the low-level `CausalData` constructor raises the error |
+| split-spread fact of the `nuisance_models` assessment row on a selector fit | says "largest sd/se", while `summary()` of the same report says "sd/plugin se" | `_nuisance_item` in `src/cleverly/assessment.py` writes fixed text. A greedy fit of `make_instrument(n=600, seed=44)` with `repeats=2` prints "largest sd/se 0.0743 for ate" beside the working-mechanism note | read the name from `influence.spread_name`, as the other surfaces do |
+| an explicit `simultaneous=True` on a selector fit | the fit builds no band and raises no warning. Only `summary()` states the omission | a greedy fit of the same law with three estimands records no warning. Its summary prints "no simultaneous bands: a band is a joint confidence statement, and this fit reports none." The default is `True`, so the fit cannot tell an explicit request from the default | decide between a default that separates the two cases and the present summary line, and record the decision in the [collaborative reference](technical-reference/collaborative-tmle.md) |
+| `DRTMLE` class docstring | describes an open centring defect on a quarter of splits, and names the test class `TestTheReportedCurveIsNotAlwaysCentred` | no test class has that name. `TestTheReportedCurveIsCentredWhereTheBoundBinds` in `tests/unit/test_drtmle_fit.py` records the fix, which solves the score at the truncated tilt. The docstring of `TestEachDrawSolvesItsOwnEquations` names the old class too | describe the fixed state, and name the present class in both docstrings |
 
 Each correction needs a unit test that fails without it. Three tests are nonzero witnesses. A
 `RegimeContrast` summary keeps its reference line. A design with a time-varying covariate prints it
 at its node. A truncated fit labels a `score load` that differs from its `ratio effective n`.
+
+The review of pull request 223 found the split-spread and simultaneous rows. The split-spread test
+fails on a selector fit with `repeats=2`, and it passes on an ordinary fit. The docstring test
+asserts that each test class that a docstring names exists.
 
 ### RM18. Red property cells after the fold, scale and law changes
 
@@ -1955,6 +1998,216 @@ Acceptance:
 - The declaration states whether its design can read the multi-arm excess. If it cannot, the row
   records that, and the multi-arm cell keeps its owner.
 
+### RM20. Intervals outside every claimed contract
+
+Each surface in the table below reports `ci`, `pvalue`, and `std_error` under the
+`influence_curve` status. For each one, the technical reference says that no claim covers the
+interval, or no audit read a source for it. [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism)
+found the same pattern on the selector paths and refused their intervals. The 2026-09-22 probes
+used linear learners, and every fit in them was in sample unless the row says otherwise.
+
+| surface | probe | what the record says |
+| --- | --- | --- |
+| DR-TMLE with `weights_estimated=True` | `DRTMLE(estimands=("ate",))` on `make_binary_outcome(n=500, seed=3)`, with weights drawn uniform on [0.5, 2]. The fit reports `ci` (0.1161, 0.2841) under the `influence_curve` status, and the summary marks the weights as estimated | the `DRTMLE` docstring and [supported estimands](technical-reference/dr-tmle/supported-estimands.md) say that no interval claim covers the case. The conditional argument concerns $D^*$, not the reduced regressions |
+| outcome-adaptive C-TMLE beyond one binary treatment-specific mean | `CTMLE(strategy="oat")` on `make_multi_arm(n=600, seed=5)` reports each `ate[...]` and `ey[...]` interval under the `influence_curve` status. The binary joint fit on `make_binary_outcome(n=500, seed=3)` does the same | Benkeser, Cai and van der Laan (2020), Theorem 1, proves one binary treatment-specific mean. [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) rejects the natural extension to the shared multinomial fit |
+| cross-fitted clustered TMLE at unequal cluster sizes | `make_clustered(n=400, cluster_size=10, seed=7)`, with rows removed from half the clusters so that the sizes run from 2 to 10. The cross-fitted fit with `id=` reports an interval and no warning | the [grouped folds](technical-reference/cv-tmle.md#grouped-folds) rule states equal cluster sizes. A row-weighted target and a cluster-weighted target agree only at equal or non-informative sizes |
+| clustered fit with few clusters | the same construction with 6 clusters and 40 rows reports a normal-reference interval. No warning names the cluster count | Benitez et al. (2023) and Nugent et al. (2024) recommend a $t$ reference with $J - 2$ degrees of freedom below about 30 to 40 clusters. The package applies neither rule |
+| in-sample outcome-adaptive C-TMLE with missing outcomes | `CTMLE(strategy="oat")` with `delta=` on `make_missing_outcome(n=500, seed=4)` reports `ci` (1.0090, 1.4173) under the `influence_curve` status. The selector paths report the non-inferential status on the same law | the arm-indexed audit read no source for C-TMLE with missing outcomes. [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) holds the cross-fitted refusal |
+| shift, incremental, regime, MSM, and controlled-direct-effect targets, cross-fitted with missing outcomes | a cross-fitted shift fit with `delta=` on the same law, with the dose built as the arm plus standard normal noise, reports an interval for `ey_shift[+0.5]` | these fits run outside the arm-indexed contract, and tests cover them. `TestTheMnarTiltFollowsTheDraws` in `tests/unit/test_repeated_crossfit.py` is the only fast test that fits repeated draws on this surface. It fits a controlled direct effect with `repeats=2` |
+
+Until this row, F5 said that the estimated-weight DR-TMLE interval conditions on the supplied
+weights. The `DRTMLE` docstring states why that argument does not reach the reduced regressions,
+so F5 no longer says it. The last two rows came from F21, and the two clustered rows came from
+F22. Each of those items keeps the derivation that would support a claim.
+
+Record one decision for each surface. The table gives the three options.
+
+| decision | what it needs |
+| --- | --- |
+| register a claim | a source that covers the surface, its exact locator, and a registered study with a nonzero witness for each step that can vanish at the truth. The [Eligibility](#eligibility) rule applies |
+| a non-inferential status | an `inference` status for the surface, with a name and a reason, through the table that RM12 added. `ci`, `pvalue`, and `std_error` then refuse, and the plug-in values keep diagnostic names |
+| a refusal | a pre-fit `CapabilityError` that names the missing result and the roadmap item that holds it |
+
+The existing evidence limits a claim. The binary outcome-adaptive study passes 14 of 14 property
+cells on the bounded law it runs. The registered clustered study fixes ten rows per cluster.
+Neither study covers the multi-arm fit, unequal sizes, or few clusters.
+
+The witnesses must fail when a component is wrong:
+
+- for each surface that takes a status or a refusal, a test fits it and pins the status, the
+  refusal, and the message;
+- a mutation that restores the `influence_curve` status on that surface makes its test fail;
+- for each surface that keeps its interval, the registered study and its nonzero witnesses;
+- a control shows that the neighboring supported surface keeps its interval. The neighbors are
+  fixed weights, the binary treatment-specific mean, equal cluster sizes, and complete outcomes.
+
+Acceptance: the [technical reference](technical-reference/index.md) states the decision for each
+surface. The result reports the decision at `ci`, in `summary()`, and in the assessment.
+
+### RM21. E-value on a controlled-direct-effect fit
+
+`_select_evalue` in `src/cleverly/sensitivity/evalue.py` returns the Gaussian-difference branch
+before any check for an intermediate variable. The reported-ratio branches return before that
+check too. The derived-ratio branch refuses the same fit in `_risk_ratio_refusal`
+(`src/cleverly/sensitivity/_derived.py`), because no controlled direct risk-ratio target is
+registered. The fixed-baseline branch refuses it as well.
+
+| fit | request | result |
+| --- | --- | --- |
+| `make_cde(n=2000, seed=3)`, Gaussian outcome, level $z = 0$ | `evalue(result, "ate")` | E-value 2.3563 from a ratio of 1.4955. The capability row reads available |
+| the same fit, level $z = 1$ | `evalue(result, "ate")` | E-value 3.5149 from a ratio of 2.0489 |
+| the same law with the outcome split at its median, level $z = 0$ | `ate` | refused: "derived risk ratios are unavailable for controlled direct effects" |
+| the same binary fit | `rr` | E-value 3.4858 from the reported ratio 2.0348 |
+| the same binary fit | `or` | E-value 2.6318 |
+
+Both Gaussian levels divide by one value, sd(Y) = 1.907. That is the standard deviation of the
+observed outcome. A controlled direct effect compares means under an intervention on the
+intermediate variable, so that value is not the scale of either counterfactual mean. The
+identification of the effect also assumes no unmeasured confounding of the intermediate variable
+and the outcome. The E-value of VanderWeele and Ding (2017) is defined for the confounding of one
+exposure-outcome relation. No source read for this roadmap extends it to this case.
+
+Apply these corrections:
+
+1. Search for a source that derives an E-value for a controlled direct effect. If one covers a
+   branch, record its locator and the outcome scale that it uses.
+2. Refuse each branch that no source covers, before any computation. Put the check in
+   `_select_evalue` ahead of the branch selection, so that the capability row reads `unavailable`.
+   The reason names the missing result.
+
+The witnesses must fail when a component is wrong:
+
+- a test on a Gaussian and a binary controlled-direct-effect fit pins the result of each branch;
+- a mutation that moves the intermediate check back below the Gaussian branch makes that test
+  fail;
+- a control shows that a fit without an intermediate variable keeps each branch.
+
+### RM22. Standard error of the omitted-variable bound
+
+`_elements_for` in `src/cleverly/sensitivity/omitted_variable.py` builds `psi_nu2` as the centred
+element $\nu^2_i - \hat\nu^2$. For the ATT and the ATC, the representer and $m(\alpha)$ both
+divide by the share $p = P(A = c)$ of the conditioning arm. The estimate is therefore a sample mean
+divided by $\hat p^2$. Its influence curve has the term $-2 \nu^2 (1\{A = c\} - p) / p$. The code
+omits the term, as does DoubleML's `DoubleMLIRM`. The function `_bound_std_error` adds the bias
+curve to the curve of the estimate, so the standard error of the bound omits the term as well.
+
+The 2026-09-22 probe fitted each law in sample with linear learners. The large strength is
+$c_Y = 0.5$, $c_D = 0.3$, and $\rho = 1$. A ratio is the mean reported standard error over the
+sampling standard deviation of the bound, for the lower bound and then the upper bound.
+
+| law | $\nu^2$ estimator | fits | without the term | with the term |
+| --- | --- | ---: | --- | --- |
+| `att_result` in `tests/unit/test_assessment_contract.py`: `make_linear_ate(n=350, seed=11)`, ATT | doubly robust | 1 | standard deviation of `psi_nu2` 9.387, and a lower-bound standard error of 0.1325 at the large strength | 3.321, and 0.1206 |
+| `make_linear_ate(n=1000)`, ATT | doubly robust | 500 | 1.118, 1.132 | 1.021, 1.033 |
+| the same law, ATC | doubly robust | 500 | 1.098, 1.111 | 1.003, 1.015 |
+| the same law, ATT | plug-in | 500 | 1.015, 1.026 | 1.113, 1.125 |
+| the same law, ATC | plug-in | 500 | 0.992, 1.010 | 1.088, 1.108 |
+| residual standard deviation 0.2 in the treated arm and 3 in the untreated arm, $n = 1000$, ATT | doubly robust | 500 | 0.971, 0.977 | 0.959, 0.966 |
+
+At the default strength $c_Y = c_D = 0.03$, no ratio moves by more than 0.001.
+
+A calculation in the probe explains the direction for the doubly robust estimator of a binary
+ATT. Let $B = E[g^2 / (1 - g)]$. At the truth, the term lowers the variance of the $\nu^2$ curve by
+$4 \nu^2 B / p^3$. An arm-dependent residual variance adds a cross term with $\sigma^2$. Jensen's
+inequality, $B \ge p^2 / (1 - p)$, keeps the net change in the variance of the bound's curve at or
+below zero. The omission therefore widens the doubly robust limits of a binary ATT.
+
+The calculation is not a published result, and it does not cover more than two arms. The plug-in
+estimator has no such result. Its $\nu^2$ is first-order sensitive to the fitted mechanism, and its
+curve carries no term for that. On the linear law, the plug-in limits without the share term read
+close to the sampling spread, and the share term alone overshoots. No derivation covers either
+form. The `point-treatment-tmle` and `cross-fitting` tutorials request
+`nu2_estimator="plugin"` and print its confidence-limit robustness value and one-sided limits.
+
+The locators are not checked against the published article. `doi.org/10.1162/REST.a.1705`
+redirects to `direct.mit.edu`, which returned HTTP 403 on 2026-09-22. The package cites Theorem 2,
+Theorem 5(2), and Example 2 of the online appendix. The arXiv version 2112.13398v6, dated
+2026-09-21, carries the journal reference. No record compares it with the published text.
+
+Apply these corrections:
+
+1. Add the term to `psi_nu2` for each parameter that conditions on an arm, under the doubly robust
+   estimator. Derive the multi-arm form from the same share.
+2. Decide what the plug-in confidence limits and `rva` claim. Derive the plug-in curve with its
+   mechanism term, report the limits under a diagnostic name, or refuse them. Update the two
+   tutorials to match the decision.
+3. Read the published article and its online appendix. Correct each locator in the source, the
+   refusal messages, and the reference pages.
+
+The witnesses must fail when a component is wrong:
+
+- on an exact finite-support law, the reported curve of $\hat\nu^2$ equals its Gateaux derivative,
+  including the derivative through $p$. The term has mean zero, so a check of the mean cannot see
+  it. The test compares the curves row by row, and a mutation that drops the term fails it;
+- a repeated-sampling control, with its thresholds fixed before its run, reads the
+  standard-error ratio of the doubly robust limits of the ATT;
+- a test pins the ATE and counterfactual-mean curves, which the correction must not move.
+
+### RM23. Capability rows that read available and then refuse
+
+The assessment declares each operation in a capability row before any call. The rows below read
+`available`, and the call then refuses or raises. A 2026-09-22 probe fitted 16 kinds of fit with
+linear learners. It compared each declared row with the status that
+`assess(include_refits=True, include_retargets=True)` reports. Three kinds of fit disagree.
+
+| fit | row | what the call does |
+| --- | --- | --- |
+| ordered `CTMLE` with an explicit `ordering=`, `make_instrument(n=500, seed=44)` | `refute` | `random_common_cause` adds the column `_noise_0`, and the refit raises `ValueError`: "ordering must cover every covariate; missing ['_noise_0']". `assess(include_refits=True)` raises the same error and returns no report. The same fit with the default `preorder` completes |
+| shift fit with missing outcomes, `make_missing_outcome(n=400, seed=4)`, with the dose built as the arm plus standard normal noise | `missingness` | declines: "missingness_tilt is written for the arm-indexed estimands" (`src/cleverly/sensitivity/missingness.py:166`) |
+| the same fit | `tipping_gamma` | declines with the same reason |
+| incremental fit, `make_linear_ate(n=400, seed=2)` | `truncation_curve` | declines: "the propensity g is *inside* the estimand for an incremental intervention" (`src/cleverly/assessment.py:2311`) |
+
+The other 13 kinds of fit agree with their rows. They are ordinary, binary, missing-outcome, shift,
+controlled-direct-effect, multi-arm, outcome-adaptive C-TMLE, MSM, regime, weighted, stratified,
+clustered, and DR-TMLE fits. The ordered fit loses the whole report, because a `ValueError` is not
+the refusal type that `run_all` catches.
+
+Apply these corrections:
+
+1. Resolve each of the three declined rows from the predicate that its call uses, as RM12 did for
+   `tipping_gamma(use_ci=True)`.
+2. Make the `random_common_cause` refit of an explicit ordering run, or declare the row
+   `unavailable` with a reason. A refit that adds the noise column to the ordering changes the
+   declared ordering, so the contract must state where the column goes.
+
+The witnesses must fail when a component is wrong:
+
+- a sweep test fits each kind of fit in a fixed list, and asserts that every row declared
+  `available` runs without a refusal. The list includes the three kinds above.
+  `TestNoAvailableRowDeclinesOnASelectorPath` is the precedent on selector fits;
+- a mutation that restores an unconditional row makes the sweep fail on that kind of fit;
+- a test that the ordered fit with an explicit ordering completes `assess(include_refits=True)`.
+
+### RM24. Refusals after the nuisance fit
+
+The [Definition of done](#definition-of-done) asks for a pre-fit test for every well-posed
+composition that is still refused. The refusals below run after learner fits, and none raises
+`CapabilityError`. A 2026-09-22 probe counted the `fit` calls of spy learners.
+
+| request | where it raises | learner fits before the raise | exception |
+| --- | --- | ---: | --- |
+| `TMLE(incremental=...)` with `strata=`, `make_linear_ate(n=400, seed=2)` | the strata guard in `_retarget_detailed`, `src/cleverly/estimators/tmle.py:2641` | 2 | `NotImplementedError` |
+| `DRTMLE` with `strata=`, the same law | the same guard, for the `mean` group | 8 | `NotImplementedError` |
+| `TMLE(incremental=...)` with `intermediate=`, `make_cde(n=400, seed=3)` | `_check_incremental`, `tmle.py:2063`. `fit` fits the shared nuisances first | 3 | `ValueError` |
+
+[X8](#x8-stratified-incremental-and-msm-targeting) holds the stratified targeting construction,
+and [F6](#f6-mnar-and-incremental-intermediate-compositions) holds the incremental-intermediate
+composition. This row changes only when each refusal reaches the caller, and its type.
+
+Apply these corrections:
+
+1. Raise each refusal as `CapabilityError` before any learner call. Decide it from the estimator
+   configuration and the data declaration alone.
+2. Keep each message, and its pointer to X8 or F6.
+3. Search the other `NotImplementedError` and `ValueError` refusals in `src/cleverly/estimators/`
+   for the same order. List each refusal that this row moves.
+
+The witnesses must fail when a component is wrong:
+
+- for each request, a spy-learner test asserts that no learner call ran, and pins the message;
+- a mutation that moves a guard back after the nuisance fit makes its test fail;
+- a control shows that stratified arm, regime, and shift targets still fit.
+
 ### P1. EP learner
 
 Van der Laan, Carone and Luedtke (2024), arXiv:2402.01972, govern this item. After first-hand
@@ -2588,6 +2841,10 @@ If the result requires a new contribution, propagate it through pointwise and si
 inference. Acceptance needs a fixed-design reduction, a generated-design comparison, and
 registered coverage evidence for every claimed treatment and target dimension.
 
+Every outcome-adaptive fit reports its interval under the `influence_curve` status today.
+[RM20](#rm20-intervals-outside-every-claimed-contract) holds the decision about that status
+before a beta release. F19 holds the derivation that would settle it.
+
 ### F20. Missing-outcome attributable effects
 
 Wait for a published derivation of PAR and PAF under a declared outcome-response process. The
@@ -2637,24 +2894,23 @@ of one extension for another.
 | bounded-continuous stacked natural-course mean | an exact contract for scaling the fluctuation, score, point, and influence curve |
 
 The arm-indexed audit did not examine two sibling surfaces. Each needs its own source audit before
-any contract.
-
-| sibling surface | current behavior |
-| --- | --- |
-| the shift, incremental, regime, MSM, and controlled-direct-effect targets under cross-fitting with missing outcomes | they fit today, outside the arm-indexed contract, and tests cover them. `TestTheMnarTiltFollowsTheDraws` in `tests/unit/test_repeated_crossfit.py` is the only fast test that fits repeated draws on this surface, a controlled direct effect with `repeats=2`. Remove or move that test when this gap closes |
-| ordinary, in-sample C-TMLE with missing outcomes | it fits today; the audit read no source for it. [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) holds cross-fitted C-TMLE |
+any contract. The first is the shift, incremental, regime, MSM, and controlled-direct-effect targets
+under cross-fitting with missing outcomes. The second is ordinary, in-sample C-TMLE with missing
+outcomes. Both fit today and report intervals, so
+[RM20](#rm20-intervals-outside-every-claimed-contract) now holds them. Remove or move
+`TestTheMnarTiltFollowsTheDraws` in `tests/unit/test_repeated_crossfit.py` when RM20 closes the
+first surface.
 
 ### F22. Grouped cross-fitting beyond point-treatment TMLE
 
 The package draws whole-cluster outer folds for the ordinary cross-fitted point-treatment TMLE and
-DR-TMLE. Every other cross-fitted surface refuses `id=`, each for its own stated reason. Three
+DR-TMLE. Every other cross-fitted surface refuses `id=`, each for its own stated reason. Two
 compositions need their own result before that refusal can be lifted.
 
 | composition | what ships | what a result must supply |
 | --- | --- | --- |
 | C-TMLE with `id=` | refused at every `cross_fit` setting (`CTMLE._resolve_estimands_for_data`) | a split law for the selection folds and the nested selection folds under clustering, and the cluster-robust variance of the candidate the search stops at. [F18](#f18-selector-path-c-tmle-inference) is open for iid rows, so a clustered result needs that one first |
 | cross-fitted longitudinal TMLE with `id=` | refused above one fold (`LTMLE._refuse_cross_fitted_design`). The in-sample clustered fit is evidenced, and it stays available | the cluster-robust variance of the targeted sequential recursion under a grouped draw. The audit read no source for it |
-| a row-weighted against a cluster-weighted target at unequal cluster sizes | not refused, and not claimed | the two weightings agree only at equal, or non-informative, cluster sizes. The documented scope is equal sizes, and the registered study fixes ten rows per cluster |
 
 The grouped point-treatment split itself is supported for the partition alone. Wang, Park, Small
 and Li (2024), Section 4.2 and Theorem 4(b), prove a cross-fitted result under a random, roughly
@@ -2666,10 +2922,11 @@ rates. The registered
 [clustered point-treatment CV-TMLE study](technical-reference/method-evidence/clustered-point-treatment-cv-tmle.md)
 is its only empirical witness.
 
-A result must also state two further boundaries. No source read here supports a normal reference
-interval with few clusters. Benitez et al. (2023) and Nugent et al. (2024) recommend a $t$
-reference with $J - 2$ degrees of freedom below about 30 to 40 clusters, and the package applies
-neither rule.
+Two boundaries of the shipped grouped split are open. The first is the target at unequal cluster
+sizes, where a row-weighted and a cluster-weighted target differ. The second is the normal
+reference interval with few clusters, which no source read here supports. Each concerns an
+interval that the package reports today, so
+[RM20](#rm20-intervals-outside-every-claimed-contract) holds both.
 
 [Grouped folds and clustered cross-fitting](references.md#grouped-folds-and-clustered-cross-fitting)
 gives every source the audit read, with the version whose locators it used.
@@ -2709,9 +2966,11 @@ valid when the estimator does not assume a consistent treatment mechanism. It al
 influence curve of the bound under that estimator. A separately fitted full mechanism is a new
 estimator of the bound, and it needs the same derivation.
 
-An estimated-weight DR-TMLE fit is not refused. Its interval conditions on the supplied weights.
-An unconditional interval claim needs the influence contribution from weight estimation. This
-inference gap is separate from F11, which tracks weight-model replay after a perturbation.
+An estimated-weight DR-TMLE fit is not refused, and it reports an interval that no claim covers.
+[RM20](#rm20-intervals-outside-every-claimed-contract) holds the decision about that shipped
+interval. An interval claim needs the influence contribution from weight estimation, and F5 holds
+that derivation. This inference gap is separate from F11, which tracks weight-model replay after a
+perturbation.
 
 ## Other extension and investigation contracts
 
@@ -2739,6 +2998,11 @@ simultaneous inference if it is claimed.
 
 An MNAR tilt for continuous-dose shifts and intermediate variables with incremental interventions
 wait for identification and influence-function results covering those exact compositions.
+
+The incremental-intermediate refusal runs after the shared nuisance fit.
+[RM24](#rm24-refusals-after-the-nuisance-fit) moves it before any learner call. The tilt on a
+shift fit reads available in its capability row and then declines, and
+[RM23](#rm23-capability-rows-that-read-available-and-then-refuse) holds that row.
 
 The four items below add methods rather than studies. Each item names the maintained implementation
 that a paired study would use. A named comparator is provenance for the construction. It is not the
@@ -2805,6 +3069,38 @@ each row as [not written yet](technical-reference/scope-and-refusals.md#not-writ
 Match the stratum-indexed targeting construction to a published derivation before implementation.
 Continuous MSMs also need dose-indexed strata semantics. Add the targeting equations and their
 validation evidence next. Complete simulated-confounding replay receives its own audit last.
+
+The ordinary TMLE and DR-TMLE refusals run after 2 and 8 learner fits on the probes that
+[RM24](#rm24-refusals-after-the-nuisance-fit) records. RM24 moves them before any learner call.
+This item holds the targeting construction.
+
+### X9. Omitted-variable bounds on the other linear functionals
+
+[RM11](#rm11-sensitivity-bounds-outside-their-derivation) refuses the omitted-variable bound on
+five kinds of fit whose parameter is a linear functional of an outcome regression. Each refusal is
+correct, and each message says that the bound is well posed and not implemented. Theorem 2 of
+Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026) bounds the bias of such a functional.
+[RM22](#rm22-standard-error-of-the-omitted-variable-bound) asks for a check of that locator against
+the published article, so this item starts after RM22.
+
+| fit | the functional | what the contract must add |
+| --- | --- | --- |
+| `regime` axis | a regime mean, linear in the regression of $Y$ on $(A, W)$ | the representer of each regime, from the fit's clever covariate |
+| `shift` axis | a shifted-dose mean, linear in the same regression | the representer of each shift, which reads the treatment density |
+| `msm` axis | an MSM coefficient, linear in the same regression | the representer of each coefficient through the projection |
+| a response mechanism | the mean of the regression of $\Delta Y$ on $(A, \Delta, W)$ | a representer that carries $\Delta$, and $\sigma^2 = E[\Delta (Y - \bar Q)^2]$ |
+| an intermediate variable | a mean at the level $z$ of the regression of $Y$ on $(A, Z, W)$ | a representer with the weight $1\{Z = z\} / P(Z = z \mid A, W)$ |
+
+The response and intermediate representers carry a second mechanism. On those fits the strength
+$c_D$ measures a joint strength over the treatment mechanism and that second mechanism. Each
+contract must state that reading, and its benchmark must measure the same joint strength.
+
+Each contract names the representer, the $\nu^2$ estimator, and its influence curve. The evidence
+needs an exact finite-support law for each representer. It also needs a nonzero witness for each
+weight that is zero off its support, as RM11 has for the intermediate representer. DR-TMLE and
+C-TMLE fits stay in [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions), and longitudinal fits
+stay in [F16](#f16-longitudinal-sensitivity-bound-estimation). The `ipsi` axis stays refused,
+because its functional depends on the treatment mechanism.
 
 ## Reading a gap correctly
 
