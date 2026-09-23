@@ -44,6 +44,7 @@ rather than implying the request was ill-posed.
 | --- | --- |
 | missing-outcome `NaturalCourseMean` outside its two scalar TMLE contracts | [missing-outcome natural-course contracts](#missing-outcome-natural-course-contracts) lists every refusal. [Observed-data extensions](point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects) defines both estimators |
 | cross-fitted arm-indexed means and contrasts with missing outcomes outside the stacked CV-TMLE contract | [missing-outcome arm-indexed contract](#missing-outcome-arm-indexed-contract) lists every refusal. [Stacked CV-TMLE for arm-indexed targets](point-treatment-tmle.md#stacked-cv-tmle-for-arm-indexed-targets) defines the estimator |
+| a cross-fitted shift, incremental, regime, MSM, or controlled-direct-effect fit with missing outcomes (`delta=`) | [the refusals a caller can meet](cv-tmle.md#the-refusals-a-caller-can-meet). No audit read a source for these fits. The fit raises `CapabilityError` before any learner is fitted. The in-sample fit with `delta=` remains available. [F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants) reopens it |
 | `DRTMLE` with observational missing outcomes, cross-fitted missing outcomes at every `guard` including `guard=()`, missing treatment, `intermediate=`, fold-wise targeting, `treatment_probabilities=` under `n_bootstrap=`, composition with `CTMLE`, or `reduction="bivariate"` composed with `delta=` | [method presets](../user-guide/methods-learners.md#method-presets), and the [DR-TMLE refusals](dr-tmle/supported-estimands.md#refused-by-name) |
 | the MNAR tilt on a `shifts=` fit | [modified treatment policies](../user-guide/estimands.md#modified-treatment-policies) |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [incremental interventions](../user-guide/estimands.md#incremental-propensity-score-interventions) |
@@ -83,7 +84,7 @@ Which multi-arm surfaces are covered, and which five are not, is tabulated in on
 Several former gaps have landed. `cleverly` now supports multi-valued longitudinal treatment
 nodes. It supports multi-valued selector-based C-TMLE, outcome-adaptive C-TMLE, DR-TMLE, `ATT`,
 and `ATC`. `LTMLE` supports observation weights and a working model over regimens. Shift fits
-support `delta=`, `intermediate=`, and weights. `cleverly` also supports multi-arm
+support `intermediate=` and weights. They support `delta=` in sample. `cleverly` also supports multi-arm
 omitted-variable and MNAR sensitivity analyses. TMLE supports the scalar missing-outcome
 natural-course mean with ordinary fitting or one generated split of stacked CV-TMLE.
 [Missing-outcome natural-course contracts](#missing-outcome-natural-course-contracts) gives the

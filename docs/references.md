@@ -445,7 +445,7 @@ previous reader had is not a citation; a page number is.
 
   | sibling surface | fact |
   | --- | --- |
-  | shift, incremental, regime, MSM, and controlled-direct-effect targets | they fit today under cross-fitting with missing outcomes, and tests cover them |
+  | shift, incremental, regime, MSM, and controlled-direct-effect targets | under cross-fitting with missing outcomes, the fit raises `CapabilityError` before any learner is fitted. The in-sample fits remain. [F21](roadmap.md#f21-other-missing-outcome-cv-tmle-variants) holds the missing result |
   | ordinary arm-indexed missing-outcome study | it registers only binary `ey1`, `ey0`, and `ate` |
   | registered complete-outcome stacked study | it now declares unstratified folds and `q_bounds=(0, 1)` on a bounded law, and it asserts the realized scheme before it reports a row (`tests/studies/canonical_cvtmle.py`). The gap this row recorded is closed |
   | ordinary C-TMLE with missing outcomes | the audit did not read a source for it |

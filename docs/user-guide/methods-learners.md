@@ -147,8 +147,9 @@ observations at the rare level.
 | --- | --- | --- |
 | binary `NaturalCourseMean`, stacked | a binary outcome, pooled targeting, and one repeat | [natural-course contracts](../technical-reference/scope-and-refusals.md#missing-outcome-natural-course-contracts) |
 | arm-indexed means and contrasts, cross-fitted | ordinary TMLE, and no `ATT` or `ATC` target | [arm-indexed contract](../technical-reference/scope-and-refusals.md#missing-outcome-arm-indexed-contract) |
+| shift, incremental, regime, MSM, and controlled-direct-effect targets, cross-fitted | no contract. The fit refuses them before the first learner | [not written yet](../technical-reference/scope-and-refusals.md#not-written-yet) |
 
-To fit either target in sample, set `CrossFitting(enabled=False)`. One fold balances nothing, so
+To fit any target in the table in sample, set `CrossFitting(enabled=False)`. One fold balances nothing, so
 the fold policy makes no difference there.
 
 The two layers multiply: one nuisance fit at the defaults is `10 × 5` model fits per library

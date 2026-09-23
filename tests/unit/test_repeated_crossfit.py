@@ -35,7 +35,7 @@ from cleverly.exceptions import CapabilityError
 from cleverly.inference.cluster import cross_validated_variance, influence_variance
 from cleverly.inference.influence import ParameterEstimate, make_estimate, median_estimates
 from cleverly.provenance import fingerprint_array
-from cleverly.sensitivity import missingness_tilt, positivity_report, truncation_curve
+from cleverly.sensitivity import positivity_report, truncation_curve
 from cleverly.targets import parameter_stem
 from cleverly.utils.bounds import expit
 from cleverly.validation import score_check
@@ -78,30 +78,6 @@ def split_spread(result: Any, name: str) -> float:
     if result.estimates[name].scale == "ratio":
         values = np.log(values)
     return float(np.std(values, ddof=1))
-
-
-def _binary_cde_with_missingness(n: int, seed: int) -> Any:
-    """A binary-outcome controlled direct effect with missing outcomes.
-
-    :func:`~cleverly.datasets.make_cde` has no bounded or binary variant, and this
-    module's ``TestTheMnarTiltFollowsTheDraws`` needs one: it fits a cross-fitted
-    controlled direct effect with ``repeats=2``, which a Gaussian outcome cannot do
-    without a declared ``q_bounds`` that would not be true of that law. The structure
-    here matches :func:`~cleverly.datasets.cde_dgp`'s propensity and intermediate
-    mechanisms; only the outcome differs, from a Gaussian mean to a Bernoulli draw.
-    """
-    rng = np.random.default_rng(seed)
-    w1, w2, w3 = rng.normal(size=(3, n))
-    a = rng.binomial(1, expit(0.3 * w1 + 0.2 * w2)).astype(float)
-    z = rng.binomial(1, expit(-0.3 + 1.1 * a + 0.5 * w1 - 0.4 * w3)).astype(float)
-    linear = 0.5 + 0.9 * a + 1.4 * z + 0.6 * a * z + 0.8 * w1 - 0.5 * w2 + 0.3 * w3
-    y = rng.binomial(1, expit(linear)).astype(float)
-    observed = rng.random(n) < 0.8
-    frame = pd.DataFrame(
-        {"Y": y, "A": a, "Z": z, "W1": w1, "W2": w2, "W3": w3, "Delta": observed.astype(float)}
-    )
-    frame.loc[~observed, "Y"] = np.nan
-    return frame
 
 
 def _binary_outcome_with_an_omitted_covariate(n: int, seed: int) -> Any:
@@ -1057,47 +1033,6 @@ class TestTheSensitivityLayerFollowsTheDraws:
         assert f"draw {REPORTED_DRAW} of {REPEATS}" in positivity_report(repeated).summary()
 
         assert f"draw {REPORTED_DRAW:02d} of 01" in once.diagnostics.run_all()["support"].detail
-
-
-class TestTheMnarTiltFollowsTheDraws:
-    """The tilt combines every draw's tilted estimate by the median, as the fit did.
-
-    This fixture rides on an unexamined F21 sibling surface. It fits a cross-fitted
-    controlled direct effect (``intermediate=``) with missing outcomes and ``repeats=2``.
-    No audited contract covers that composition. F21 in ``docs/roadmap.md`` lists it as a
-    sibling surface that fits today, and the arm-indexed contract refuses ``repeats``
-    above 1 for the arm-indexed means. No other fast test fits repeated draws on that
-    surface. The tests check the median-combination mechanics of the tilt, not a
-    scientific claim about the tilt on a controlled direct effect. When F21 closes the gap,
-    by a contract or by a refusal, remove this fixture or move it to an admitted
-    composition.
-    """
-
-    @pytest.fixture(scope="class")
-    def missing_fit(self) -> Any:
-        frame = _binary_cde_with_missingness(n=600, seed=13)
-        results = fast_tmle(repeats=2, estimands=["ate", "ey1", "ey0"]).fit(
-            frame,
-            outcome="Y",
-            treatment="A",
-            covariates=["W1", "W2", "W3"],
-            intermediate="Z",
-            delta="Delta",
-        )
-        result = results[0.0]
-        assert result.n_repeats == 2
-        return result
-
-    def test_the_tilt_at_zero_reproduces_the_reported_estimate(self, missing_fit: Any) -> None:
-        # gamma = 0 is MAR, so the tilt is the identity and the curve must pass through
-        # the fit's own psi. Reading one draw's targeted Qbar would put it elsewhere --
-        # the curve would step at its own origin.
-        tilt = missingness_tilt(missing_fit, gamma=[0.0], estimands=["ate"])
-        assert float(tilt["psi"][0]) == pytest.approx(missing_fit.psi("ate"), rel=1e-9)
-
-    def test_the_tilt_still_moves_the_estimate(self, missing_fit: Any) -> None:
-        tilt = missingness_tilt(missing_fit, gamma=[0.0, 2.0], estimands=["ate"])
-        assert float(tilt["psi"][0]) != float(tilt["psi"][1])
 
 
 class TestTheOmittedVariableBoundNeedsItsOwnMedianInfluenceFunction:

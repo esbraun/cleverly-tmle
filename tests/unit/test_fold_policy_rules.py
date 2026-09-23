@@ -1028,9 +1028,10 @@ def seed_stranding_rows(n: int, n_folds: int, rows: np.ndarray, limit: int = 20_
 def respondents_in_one_fold(n: int = 60, n_folds: int = 6) -> tuple[pd.DataFrame, int]:
     """A continuous-outcome sample whose four respondents share one fold.
 
-    The fit that reads it declares a regime axis, which keeps it off the arm-indexed
-    stacked surface and that contract's own preflight, so the general complement check is
-    what has to catch the respondentless training complement.
+    The fit that reads it is an in-sample collaborative search, whose selection folds are
+    drawn by the same generator from the same seed. That fit is off the arm-indexed stacked
+    surface and that contract's own preflight, so the general complement check is what
+    has to catch the respondentless training complement.
     """
     rng = np.random.default_rng(0)
     respondents = np.array([0, 1, 2, 3])
@@ -1055,13 +1056,28 @@ class TestARespondentlessComplementIsRefusedOnEveryScale:
     The binary case was covered through the outcome classes, which a Gaussian outcome has
     none of, so a continuous outcome with ``delta=`` reached a learner and failed inside
     one. The complement check asks for a respondent on every scale.
+
+    The witness is an in-sample greedy C-TMLE with ``delta=``, whose selection folds ask
+    that check before any learner. A cross-fitted regime fit carried this witness until
+    the F21 refusal closed that composition. The arm-indexed and natural-course contracts
+    run their own preflights, so this admitted fit is the one that reaches the general
+    response branch.
     """
 
     @staticmethod
-    def regime_fit(**overrides: Any) -> TMLE:
-        from cleverly.interventions import Static
-
-        return bounded_fit(interventions={"treat": Static(1)}, estimands=None, **overrides)
+    def selection_fit(**overrides: Any) -> CTMLE:
+        settings: dict[str, Any] = {
+            "strategy": "greedy",
+            "cross_fit": False,
+            "selection_folds": 6,
+            "outcome_learner": LinearRegression(),
+            "treatment_learner": LogisticRegression(max_iter=1000),
+            "q_bounds": (0.0, 1.0),
+            "estimands": ["ate"],
+            "simultaneous": False,
+        }
+        settings.update(overrides)
+        return CTMLE(**settings)
 
     @staticmethod
     def columns() -> dict[str, Any]:
@@ -1070,20 +1086,25 @@ class TestARespondentlessComplementIsRefusedOnEveryScale:
     def test_the_fit_is_refused_with_no_learner_fitted(self) -> None:
         frame, seed = respondents_in_one_fold()
         reset_counter()
-        estimator = self.regime_fit(
+        estimator = self.selection_fit(
             outcome_learner=CountingLinear(),
             treatment_learner=CountingLogistic(max_iter=1000),
-            n_folds=6,
             random_state=seed,
         )
-        with pytest.raises(DataError, match="contains no row with an observed outcome"):
+        with pytest.raises(
+            DataError,
+            match=(
+                r"C-TMLE selection cannot fit its nuisances because .*training complement "
+                "contains no row with an observed outcome"
+            ),
+        ):
             estimator.fit(frame, **self.columns())
         assert _FIT_COUNTER == [], f"{len(_FIT_COUNTER)} learner fit(s) ran before the refusal"
 
     def test_the_refusal_names_no_redraw(self) -> None:
         frame, seed = respondents_in_one_fold()
         with pytest.raises(DataError) as raised:
-            self.regime_fit(n_folds=6, random_state=seed).fit(frame, **self.columns())
+            self.selection_fit(random_state=seed).fit(frame, **self.columns())
         message = str(raised.value)
         for forbidden in ("Increase n_folds", "different random_state", "reduce n_folds"):
             assert forbidden not in message, f"the refusal offers {forbidden!r}"
@@ -1092,13 +1113,12 @@ class TestARespondentlessComplementIsRefusedOnEveryScale:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The control. Without the check the respondentless complement reaches a fit."""
-        monkeypatch.setattr(TMLE, "_preflight_training_support", lambda *a, **k: None)
+        monkeypatch.setattr(TMLE, "_check_training_support", lambda *a, **k: None)
         frame, seed = respondents_in_one_fold()
         reset_counter()
-        estimator = self.regime_fit(
+        estimator = self.selection_fit(
             outcome_learner=CountingLinear(),
             treatment_learner=CountingLogistic(max_iter=1000),
-            n_folds=6,
             random_state=seed,
         )
         with pytest.raises(Exception):  # noqa: B017 - any downstream failure will do

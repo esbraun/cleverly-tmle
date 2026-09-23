@@ -290,6 +290,20 @@ _IN_SAMPLE_ARM_INDEXED_REMEDY = (
     "fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))"
 )
 
+#: The first clause of the refusal of every other cross-fitted missing-outcome target.
+_CROSS_FITTED_MISSING_CONTRACTS = (
+    "Cross-fitted TMLE with missing outcomes (delta=) supports the natural-course mean and "
+    "the arm-indexed means and contrasts, each under its audited stacked CV-TMLE contract; "
+)
+
+#: What each parameter axis outside the two contracts is called in that refusal.
+_OFF_CONTRACT_AXIS_NAMES: dict[ParameterAxis, str] = {
+    "shift": "shift",
+    "ipsi": "incremental",
+    "regime": "regime",
+    "msm": "MSM",
+}
+
 
 def _independent_units(data: CausalData) -> tuple[IntArray, str]:
     """One label per row naming the unit a split moves as a whole, and what to call it.
@@ -372,6 +386,10 @@ class TMLE:
         fitted, and it refuses a sample or a fold whose training complement cannot fit
         the response, treatment, and outcome learners. The point-treatment TMLE reference
         gives the contract and its evidence.
+
+        With missing outcomes, a cross-fitted shift, incremental, regime, MSM, or
+        controlled-direct-effect fit is refused before any learner is fitted, because no
+        audited result covers it (F21 in ``docs/roadmap.md``). Fit it in sample.
     targeting_scheme:
         Where the fluctuation is fit, given cross-fitted nuisances.  ``"pooled"``
         (default) fits one common ``epsilon`` vector on the stacked out-of-fold rows.
@@ -1328,9 +1346,10 @@ class TMLE:
         carries whatever policy that version allowed.
 
         The natural-course contract runs next, because it resolves the target list the
-        arm-indexed missing-outcome contract then reads.  Both name a narrower surface
-        than the outcome-scale rule below, so each keeps its own sentence and the general
-        rule catches what is left.
+        arm-indexed missing-outcome contract then reads.  The refusal of every other
+        cross-fitted missing-outcome target follows them.  All three name a narrower
+        surface than the outcome-scale rule below, so each keeps its own sentence and the
+        general rule catches what is left.
         """
         reason = self._cross_fit_policy_reason()
         if reason is not None:
@@ -1340,8 +1359,46 @@ class TMLE:
             )
         estimands = self._resolve_natural_course_contract(data)
         self._resolve_arm_indexed_missing_contract(data, estimands)
+        self._refuse_cross_fitted_missing_off_contract(data, estimands)
         self._refuse_unbounded_cross_fitted_scale(data)
         return estimands
+
+    def _refuse_cross_fitted_missing_off_contract(
+        self, data: CausalData, estimands: tuple[str, ...]
+    ) -> None:
+        """Refuse a cross-fitted missing-outcome fit that neither audited contract covers.
+
+        The two contracts are the natural-course mean and the arm-indexed means and
+        contrasts. A shift, incremental, regime, or MSM axis, or a declared intermediate,
+        puts the fit outside both. Without this refusal such a fit ran and reported an
+        interval that no audit read a source for, and a ``Static`` regime or a saturated
+        MSM reproduced the arm-indexed fit while it escaped that contract's refusals of
+        ``repeats``, fold targeting, ``cv_evaluation``, the linear fluctuation, and
+        ``id=``. F21 in ``docs/roadmap.md`` holds the missing results.
+
+        Ordinary TMLE alone reaches this surface. :class:`~cleverly.DRTMLE` refuses the
+        four axes at construction and ``intermediate=`` before its nuisances, and
+        :class:`~cleverly.CTMLE` refuses every axis-indexed estimand and ``intermediate=``
+        before this method runs. A requested population-intervention target keeps its
+        F20 refusal. The natural-course mean is arm-axis only, and its contract refuses
+        ``intermediate=``, so it cannot reach the check below.
+        """
+        if not (self._assessment_method == "tmle" and self.cross_fit and data.has_missing_outcome):
+            return
+        if self._axis == "arm" and not data.has_intermediate:
+            return
+        if POPULATION_INTERVENTION_TARGETS.intersection(estimands):
+            return
+        parts = [
+            *([_OFF_CONTRACT_AXIS_NAMES[self._axis]] if self._axis != "arm" else []),
+            *(["controlled-direct-effect"] if data.has_intermediate else []),
+        ]
+        raise CapabilityError(
+            _CROSS_FITTED_MISSING_CONTRACTS
+            + f"no audited result covers {' and '.join(parts)} targets under cross-fitting "
+            "with missing outcomes (F21 in docs/roadmap.md). To estimate them, "
+            + _IN_SAMPLE_ARM_INDEXED_REMEDY
+        )
 
     def _refuse_unbounded_cross_fitted_scale(self, data: CausalData) -> None:
         """Refuse a cross-fitted continuous outcome whose scale the held-out rows set.
