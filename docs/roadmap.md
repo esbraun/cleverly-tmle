@@ -2691,7 +2691,7 @@ checked this on the witness law and on the default law, at both values of $\delt
 The row claims no direction for other densities.
 
 The row planned four witnesses. The table gives the state of each. All of them are in
-`tests/unit/test_stochastic_regime_densities.py`, which holds 63 tests.
+`tests/unit/test_stochastic_regime_densities.py`, which holds 75 tests.
 
 | witness | state |
 | --- | --- |
@@ -2706,13 +2706,13 @@ declaration witness. Removing the check in `cleverly.estimators.tmle` fails the 
 `NeverFit` records fits. The same removal lets `truncation_curve()`, `retarget()`, and `refit()` run
 on a legacy result. Removing the replay check lets the replay evaluate the density.
 
-The fourth committed mutation replaces `FunctionDeclaration.refuse` with a no-op. The RM13 witness
-and the RM25 witness then both build with no refusal. A further test checks that the three sites
-call one function object.
+The fourth committed mutation replaces `FunctionDeclaration.refuse` with a no-op. Two RM13
+witnesses and three RM25 witnesses then fail, because each one depends on that shared refusal. A
+further test checks that the three sites call one function object.
 
 Nine more mutations ran by hand after commit 7ef1f57. Each run copied the file to a backup,
 applied one mutation, and ran the RM25 file `tests/unit/test_stochastic_regime_densities.py`. That
-file holds 63 tests. The ninth mutation also ran the RM13 file
+file then held 63 tests. The ninth mutation also ran the RM13 file
 `tests/unit/test_msm_projection_weights.py`, which holds 46 tests, as a separate run.
 
 Each run then restored the file, and the restored file matched its blob at HEAD. No mutation
