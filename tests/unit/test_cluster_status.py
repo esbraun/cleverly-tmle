@@ -326,6 +326,13 @@ def within_cluster_strata(frame: Any, first: int, second: int) -> Any:
     return frame.assign(S=labels.astype(int))
 
 
+def unequal_mass_inside_strata(frame: Any) -> Any:
+    """Keep ten weight units per cluster but swap each stratum's share."""
+    frame = within_cluster_strata(frame, 5, 5)
+    low_mass = (frame["cluster"] < 20) == (frame["S"] == 0)
+    return frame.assign(w=np.where(low_mass, 0.5, 1.5))
+
+
 class TestUnequalSizesInsideAReportedStratum:
     def test_cross_fitted_fit_withholds(self, equal_frame: Any) -> None:
         frame = within_cluster_strata(equal_frame, 3, 7)
@@ -341,9 +348,7 @@ class TestUnequalSizesInsideAReportedStratum:
         assert_keeps_inference(result)
 
     def test_equal_whole_mass_but_unequal_stratum_mass_withholds(self, equal_frame: Any) -> None:
-        frame = within_cluster_strata(equal_frame, 5, 5)
-        low_mass = (frame["cluster"] < 20) == (frame["S"] == 0)
-        frame = frame.assign(w=np.where(low_mass, 0.5, 1.5))
+        frame = unequal_mass_inside_strata(equal_frame)
         assert set(frame.groupby("cluster")["w"].sum()) == {10.0}
         result = fit_stratified(frame, **CROSS_FITTED)
         assert_withholds(result, UNEQUAL)
@@ -354,10 +359,15 @@ class TestUnequalSizesInsideAReportedStratum:
         frame = frame.assign(w=np.tile([0.5, 1.5], len(frame) // 2))
         assert_keeps_inference(fit_stratified(frame, **CROSS_FITTED))
 
-    def test_ignoring_stratum_sizes_fails(
-        self, equal_frame: Any, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("probe", ["rows", "mass"])
+    def test_ignoring_stratum_sizes_or_mass_fails(
+        self, equal_frame: Any, monkeypatch: pytest.MonkeyPatch, probe: str
     ) -> None:
-        frame = within_cluster_strata(equal_frame, 3, 7)
+        frame = (
+            within_cluster_strata(equal_frame, 3, 7)
+            if probe == "rows"
+            else unequal_mass_inside_strata(equal_frame)
+        )
 
         def whole_fit_only(cluster: Any, *, cross_fit: bool, weights: Any = None, **_: Any) -> str:
             return cluster_inference_status(cluster, cross_fit=cross_fit, weights=weights)
