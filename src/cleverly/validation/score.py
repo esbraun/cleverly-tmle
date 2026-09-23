@@ -238,9 +238,12 @@ class ScoreCheck:
         Those equations' own check, when it did.
     backend : str or None
         Dataframe backend :meth:`to_frame` returns when ``data`` is omitted.
-    inference : {"influence_curve", "working_mechanism_plugin"}
-        Inference status of the checked fit. A failing verdict names the spread the fit
-        reports by it, so a fit that supplies no inference reads "plug-in standard errors".
+    inference : str
+        Inference status of the checked fit. One of
+        :data:`~cleverly.inference.influence.InferenceStatus`, which the
+        :doc:`inference reference </technical-reference/inference>` lists. A failing
+        verdict names the spread the fit reports by it, so a fit that supplies no
+        inference reads "plug-in standard errors".
     """
 
     rows: tuple[ScoreCheckRow, ...]

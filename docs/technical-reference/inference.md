@@ -77,26 +77,51 @@ the five refusals. A repeated fit refuses `covariance()` and `contrast()` altoge
 ## Inference status
 
 Each `ParameterEstimate` declares an `inference` status. The status says whether `cleverly`
-supplies inference for the estimate. `supplies_inference` is `True` for the first status only.
+supplies inference for the estimate. `supplies_inference` is `True` for `"influence_curve"` only.
+Every other status is a non-inferential status.
 
-| status | declared by | `std_error`, `ci`, and `pvalue` | `plugin_std_error` and `plugin_interval` |
-| --- | --- | --- | --- |
-| `"influence_curve"` | every estimate except the ones below. This is the default | return the values on this page | return the same numbers under names that claim no coverage |
-| `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, or `"discrete"` | raise `CapabilityError` | return the plug-in spread of the reported curve, as a diagnostic |
+| status | declared by | `std_error`, `ci`, and `pvalue` | `summary()` column | reopened by |
+| --- | --- | --- | --- | --- |
+| `"influence_curve"` | every estimate except the ones below. This is the default | return the values on this page | `std_err` | not applicable |
+| `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, or `"discrete"`. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `working-mechanism se` | [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
 
-[Collaborative TMLE](collaborative-tmle.md) gives the reason for the second status. A fit has one
-status, and `TMLEResult.inference_status` returns it.
+At every status, `plugin_std_error` and `plugin_interval` return the plug-in spread of the
+reported curve. On `"influence_curve"` they return the numbers of `std_error` and `ci` under names
+that claim no coverage. On a non-inferential status they return a diagnostic.
+
+One table in `cleverly._inference_status`, `NON_INFERENTIAL`, holds the texts of each
+non-inferential status. The refusal, the `summary()` paragraph, the assessment note, and the
+E-value row each read that table. `tests/unit/test_inference_status_registry.py` checks that the
+table, the `InferenceStatus` type, and the rows above list the same statuses.
+
+A fit has one status, and `TMLEResult.inference_status` returns it. The estimator decides the
+status from its configuration and the prepared data, before any learner runs. When more than one
+non-inferential status applies, the fit takes the first one in the table above. The rows are in
+that order.
 
 A report that publishes a spread names its columns through `spread_name` in
-`cleverly.inference.influence`. On the second status, `to_frame()` emits `inference`,
+`cleverly.inference.influence`. On a non-inferential status, `to_frame()` emits `inference`,
 `plugin_std_err`, `plugin_interval_lower`, and `plugin_interval_upper` in place of `std_err`,
 `ci_lower`, and `ci_upper`. It emits no `p_value`. `ParameterEstimate.spread_columns()` returns
-those columns under the name that fits the status.
+those columns under the name that fits the status. The table below gives the other reports that
+rename a number on a non-inferential status.
+
+| report | inferential name | name on a non-inferential status |
+| --- | --- | --- |
+| `result.cv_targeting.to_frame()` | `cv_std_err`, `pooled_std_err` | `cv_plugin_std_err`, `pooled_plugin_std_err`, and an `inference` column |
+| `result.cv_targeting.std_error` | the property | refused. `plugin_std_error` returns the same numbers |
+| `omitted_variable_bounds(...).to_dict()` | `ci_lower`, `ci_upper`, `robustness_value_ci` | `plugin_interval_lower`, `plugin_interval_upper`, `robustness_value_plugin_interval`, and an `inference` key |
+| `robustness_value(...)` | `rva` | `rv_plugin_interval`, and an `inference` key |
+
+`CVTargeting.inference` reads the status from the two fold-level reports. The fit stamps those
+reports where it stamps its own estimates. `SensitivityBounds.inference` carries the status of the
+estimate that the bound adjusts. `tests/unit/test_inference_status_reach.py` forces each
+non-inferential status on a clustered fit and checks every report in this section.
 
 A contrast inherits the status of its inputs, so a contrast of two diagnostic estimates refuses
-`ci` as its inputs do. A simultaneous band refuses the second status with `CapabilityError`. Two
-selections that mix the statuses raise `ValueError`. No fit produces either input, because the
-estimator stamps one status on every estimate it reports.
+`ci` as its inputs do. A simultaneous band refuses every non-inferential status with
+`CapabilityError`. Two selections that mix the statuses raise `ValueError`. No fit produces
+either input, because the estimator stamps one status on every estimate it reports.
 
 | function | selection | reason |
 | --- | --- | --- |

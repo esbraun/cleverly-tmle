@@ -15,12 +15,13 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
+from .._inference_status import status_record
 from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData, arm_share
 from ..exceptions import (
-    WORKING_MECHANISM_NOT_INFERENTIAL,
     capitalize_first,
     refuse_after_repeats,
+    refuse_inference,
 )
 from ..fluctuation.iterative import Fluctuation
 from ..inference.bootstrap import BootstrapResult
@@ -29,6 +30,7 @@ from ..inference.influence import (
     ParameterEstimate,
     Scale,
     spread_name,
+    stamp_inference,
     supplies_inference,
 )
 from ..inference.multiplier import SimultaneousBands
@@ -317,6 +319,8 @@ class CVTargeting:
     repeats:
         How many cross-fitting draws :attr:`pooled`, :attr:`canonical` and
         :attr:`variance` cover.
+    inference : str
+    plugin_std_error : dict of str to float
     """
 
     n_folds: int
@@ -333,8 +337,43 @@ class CVTargeting:
     backend: str | None = None
 
     @property
+    def inference(self) -> InferenceStatus:
+        """The inference status both reports declare.
+
+        Read off the stamped estimates of :attr:`pooled` and :attr:`canonical` rather than
+        stored, so the fold-level report cannot claim a status its own estimates do not
+        carry. ``"influence_curve"`` when neither report holds an estimate. A mix raises
+        :class:`ValueError`, as :attr:`TMLEResult.inference_status` does.
+        """
+        reports = {
+            f"{label}[{name}]": estimate
+            for label, report in (("pooled", self.pooled), ("canonical", self.canonical))
+            for name, estimate in report.items()
+        }
+        if not reports:
+            return "influence_curve"
+        return inference_status(reports, tuple(reports))
+
+    @property
     def std_error(self) -> dict[str, float]:
-        """Cross-validated standard error per estimand."""
+        """Cross-validated standard error per estimand.
+
+        Raises
+        ------
+        CapabilityError
+            When :attr:`inference` supplies no inference. Read :attr:`plugin_std_error`
+            for the same numbers as a diagnostic.
+        """
+        refuse_inference(self.inference, operation="CVTargeting.std_error")
+        return self.plugin_std_error
+
+    @property
+    def plugin_std_error(self) -> dict[str, float]:
+        """The square root of :attr:`variance` per estimand, at every inference status.
+
+        :attr:`std_error` under a name that makes no coverage claim. At a
+        non-inferential status it is a diagnostic and not a standard error.
+        """
         return {name: float(np.sqrt(value)) for name, value in self.variance.items()}
 
     @property
@@ -343,15 +382,26 @@ class CVTargeting:
         return self.canonical
 
     def to_frame(self, data: CausalData | None = None) -> Any:
-        """One row per estimand: both reports, the CV standard error and the spread."""
+        """One row per estimand: both reports, the CV standard error and the spread.
+
+        The two standard-error columns take their names from
+        :func:`~cleverly.inference.influence.spread_name`. At a non-inferential status
+        the frame also carries an ``inference`` column naming it, and the columns read
+        ``cv_plugin_std_err`` and ``pooled_plugin_std_err``.
+        """
         names = list(self.variance)
-        errors = self.std_error
-        payload: dict[str, Any] = {
-            "estimand": names,
+        errors = self.plugin_std_error
+        status = self.inference
+        payload: dict[str, Any] = {"estimand": names}
+        if not supplies_inference(status):
+            payload["inference"] = [status for _ in names]
+        payload |= {
             "canonical_psi": [self.canonical[name].psi for name in names],
             "pooled_psi": [self.pooled[name].psi for name in names],
-            "cv_std_err": [errors[name] for name in names],
-            "pooled_std_err": [self.pooled[name].std_error for name in names],
+            spread_name("cv_std_err", status): [errors[name] for name in names],
+            spread_name("pooled_std_err", status): [
+                self.pooled[name].plugin_std_error for name in names
+            ],
             "fold_sd": [
                 float(np.std(self.fold_estimates[name], ddof=1))
                 if len(self.fold_estimates.get(name, ())) > 1
@@ -363,7 +413,9 @@ class CVTargeting:
 
     def summary(self) -> str:
         """A printable report of the fold-level targeting."""
-        errors = self.std_error
+        errors = self.plugin_std_error
+        status = self.inference
+        cv_label = spread_name("cv std_err", status)
         rows = []
         for name, values in self.fold_estimates.items():
             spread = f"{np.std(values, ddof=1):.4g}" if len(values) > 1 else "n/a"
@@ -373,7 +425,7 @@ class CVTargeting:
                     f"{self.canonical[name].psi:.5g}",
                     f"{errors[name]:.4g}",
                     f"{self.pooled[name].psi:.5g}",
-                    f"{self.pooled[name].std_error:.4g}",
+                    f"{self.pooled[name].plugin_std_error:.4g}",
                     spread,
                     f"[{min(values):.5g}, {max(values):.5g}]",
                 ]
@@ -382,9 +434,9 @@ class CVTargeting:
             [
                 "estimand",
                 "fold-evaluated",
-                "cv std_err",
+                cv_label,
                 "pooled",
-                "std_err",
+                spread_name("std_err", status),
                 "fold sd",
                 "fold range",
             ],
@@ -398,9 +450,12 @@ class CVTargeting:
         ]
         if self.repeats > 1:
             header.append(
-                f"both reports and the cv std_err combine {self.repeats} draws by their "
+                f"both reports and the {cv_label} combine {self.repeats} draws by their "
                 "median and split dispersion; the fold columns describe the first."
             )
+        if not supplies_inference(status):
+            # The fit's own sentence, as ``TMLEResult.summary`` prints it under its table.
+            header.append(capitalize_first(status_record(status).reason))
         header.append("")
         epsilon_lines = ["", "common fluctuation coefficients:"]
         for group, eps in self.epsilon.items():
@@ -792,10 +847,9 @@ class TMLEResult:
         mixes rules, or a raw second-moment selection on a clustered result, raises
         ``ValueError``.
 
-        On a selector-path collaborative fit the matrix is the working-mechanism plug-in
-        covariance of the reported curves. It is a diagnostic and it licenses no
-        interval, because no result shows those curves are the estimator's influence
-        curves at a mechanism that is not consistent for the treatment law.
+        On a fit whose :attr:`inference_status` supplies no inference, the matrix is the
+        plug-in covariance of the reported curves. It is a diagnostic and it licenses no
+        interval, for the reason that status records.
 
         Parameters
         ----------
@@ -842,7 +896,7 @@ class TMLEResult:
         The result is an ordinary :class:`~cleverly.inference.ParameterEstimate`, so it
         carries its own influence curve and can itself be fed back into a contrast.
         It inherits the inference status of the estimates it reads, so a contrast of
-        selector-path collaborative estimates refuses an interval exactly as they do.
+        non-inferential estimates refuses an interval exactly as they do.
 
         Parameters
         ----------
@@ -1064,13 +1118,14 @@ class TMLEResult:
         cannot reach one an older version wrote, and that artifact is the migration case:
         the stale verdict is inside the file. Filtering on the way in heals it.
 
-        The inference status is the second migration. A selector-path collaborative fit
-        saved before :attr:`~cleverly.ParameterEstimate.inference` existed loads its
-        estimates with the field's class-level default, ``"influence_curve"``, and would
-        publish the interval this version refuses. The estimator that produced the
-        estimates is in the artifact, so its status is re-applied here. Only such an
-        artifact changes: a fit whose estimator supplies inference, or whose estimates
-        already carry its status, loads as it was saved.
+        The inference status is the second migration. A fit saved before
+        :attr:`~cleverly.ParameterEstimate.inference` existed, or before this version gave
+        its configuration a non-inferential status, loads its estimates with the status
+        they were saved under, and would publish an interval this version refuses. The
+        estimator that produced the estimates and the data it read are in the artifact, so
+        the status is recomputed from them and re-applied here. Only such an artifact
+        changes: a fit whose estimator supplies inference, or whose estimates already
+        carry its status, loads as it was saved.
 
         Parameters
         ----------
@@ -1084,22 +1139,39 @@ class TMLEResult:
         """Re-apply the estimator's inference status to estimates saved without it.
 
         The stamp is written once, in ``TMLE._retarget_detailed``, so a live fit never
-        needs this. A re-stamped artifact also drops what was derived under the old
-        status: the simultaneous bands, a joint confidence statement that the fit now
-        refuses, and the saved assessment answers, which may have read an interval.
+        needs this. The hook reads the estimator configuration and the prepared data, so
+        the artifact holds everything it needs. The fit's estimates and both fold-level
+        reports are re-stamped together with
+        :func:`~cleverly.inference.influence.stamp_inference`. A re-stamped artifact also
+        drops what was derived under the old status: the simultaneous bands, a joint
+        confidence statement that the fit now refuses, and the saved assessment answers,
+        which may have read an interval.
         """
         hook = getattr(self.estimator, "_inference_status", None)
-        if hook is None:
+        data = self.__dict__.get("data")
+        if hook is None or data is None:
             return
-        status = hook()
+        status = hook(data)
         if supplies_inference(status):
             return
         estimates = self.__dict__.get("estimates") or {}
-        if all(estimate.inference == status for estimate in estimates.values()):
+        extra = self.__dict__.get("extra") or {}
+        detail = extra.get("cv_tmle")
+        reports = [estimates]
+        if isinstance(detail, CVTargeting):
+            reports.extend([detail.pooled, detail.canonical])
+        if all(estimate.inference == status for report in reports for estimate in report.values()):
             return
-        self.__dict__["estimates"] = {
-            name: replace(estimate, inference=status) for name, estimate in estimates.items()
-        }
+        self.__dict__["estimates"] = stamp_inference(estimates, status)
+        if isinstance(detail, CVTargeting):
+            self.__dict__["extra"] = {
+                **extra,
+                "cv_tmle": replace(
+                    detail,
+                    pooled=stamp_inference(detail.pooled, status),
+                    canonical=stamp_inference(detail.canonical, status),
+                ),
+            }
         self.__dict__["simultaneous"] = None
         self.__dict__["assessment_cache"] = {}
 
@@ -1129,7 +1201,7 @@ class TMLEResult:
         """Tidy results, one row per estimand, in the caller's dataframe backend.
 
         An ordinary fit emits ``std_err``, ``ci_lower``, ``ci_upper`` and ``p_value``.
-        A selector-path collaborative fit supplies no inference, so it emits an
+        A fit whose :attr:`inference_status` supplies no inference emits an
         ``inference`` column naming that status, and ``plugin_std_err``,
         ``plugin_interval_lower`` and ``plugin_interval_upper`` in their place. Those
         three are a diagnostic and they are not a confidence interval. Exactly one of
@@ -1246,9 +1318,9 @@ class TMLEResult:
     def influence_frame(self) -> Any:
         """One column per estimand of per-observation influence-curve values.
 
-        On a selector-path collaborative fit the column is the plug-in curve at the
-        selected working mechanism. No result shows it is the estimator's influence
-        curve, so this frame emits curves and not inference.
+        On a fit whose :attr:`inference_status` supplies no inference, no result shows
+        the column is the estimator's influence curve, so this frame emits curves and
+        not inference.
 
         Returns
         -------
@@ -1314,10 +1386,11 @@ class TMLEResult:
         status = self.inference_status
         diagnostic = not supplies_inference(status)
         rows = []
-        if diagnostic:
+        record = status_record(status) if diagnostic else None
+        if record is not None:
             for name, estimate in self.estimates.items():
                 rows.append([name, f"{estimate.psi:.5g}", f"{estimate.plugin_std_error:.4g}"])
-            table = format_table(["estimand", "psi", "working-mechanism se"], rows)
+            table = format_table(["estimand", "psi", record.summary_label], rows)
         else:
             for name, estimate in self.estimates.items():
                 low, high = estimate.ci
@@ -1333,7 +1406,7 @@ class TMLEResult:
             table = format_table(["estimand", "psi", "std_err", f"{level} CI", "p_value"], rows)
 
         parts = [*header, *facts, "", table]
-        if diagnostic:
+        if record is not None:
             # The whole column is refused, so no ``95% CI`` heading is printed with a "-"
             # under it.  A dash under that heading still tells a reader an interval is the
             # thing that belongs there.
@@ -1342,8 +1415,8 @@ class TMLEResult:
             # and every raise say one thing.  Only the pointer to this table's column is
             # the summary's own.
             parts.append(
-                capitalize_first(WORKING_MECHANISM_NOT_INFERENTIAL)
-                + ' The "working-mechanism se" column above is that diagnostic, and it is '
+                capitalize_first(record.reason)
+                + f' The "{record.summary_label}" column above is that diagnostic, and it is '
                 "not a standard error for this estimate."
             )
         if self.n_repeats > 1:
@@ -1414,9 +1487,8 @@ class TMLEResult:
                 if not estimate.supplies_inference:
                     parts.append(
                         f"  {name:<5s} se {estimate.bootstrap.std_error:.4g}  "
-                        f"percentile range [{low:.5g}, {high:.5g}] (a diagnostic; the "
-                        "refit bootstrap reruns the selection, and no result validates "
-                        "its coverage for this path)"
+                        f"percentile range [{low:.5g}, {high:.5g}] "
+                        f"({status_record(estimate.inference).bootstrap_note})"
                     )
                     continue
                 parts.append(

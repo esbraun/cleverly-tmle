@@ -1261,8 +1261,9 @@ def truncation_curve(
     """Re-estimate across a grid of truncation bounds.
 
     Returns a tidy frame with one row per evaluated bound pair and estimand, giving the
-    point estimate and confidence interval.  A selector-path collaborative fit supplies no
-    interval, so its frame carries ``plugin_std_err``, ``plugin_interval_lower`` and
+    point estimate and confidence interval.  A fit whose inference status supplies no
+    inference, such as a selector-path collaborative fit, has no interval, so its frame
+    carries ``plugin_std_err``, ``plugin_interval_lower`` and
     ``plugin_interval_upper`` in place of ``std_err``, ``ci_lower`` and ``ci_upper``.
     A scalar bound supplied by the caller remains
     shorthand for the symmetric treatment-mechanism pair ``(bound, 1 - bound)``; an

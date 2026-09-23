@@ -15,9 +15,10 @@ from typing import Any
 
 import numpy as np
 
+from .data.causal_data import CausalData
 from .estimators.base import TMLEResult
 from .estimators.tmle import TMLE
-from .exceptions import DataError, refuse_working_mechanism_inference
+from .exceptions import DataError, refuse_inference
 from .inference.influence import ParameterEstimate
 from .targets import parameter_stem
 from .utils.frames import as_frame, backend_of, emit_frame, is_dataframe
@@ -143,10 +144,13 @@ def variable_importance(
     one for ratios), then adjusted jointly by Benjamini--Hochberg.  This corrects the
     one-tail normal probability used by the historical ``tmle3_vim`` helper.
 
-    Refuses a :class:`~cleverly.estimators.CTMLE` whose ``strategy`` is ``"greedy"``,
-    ``"ordered"`` or ``"discrete"``, before the first fit.  The adjustment above needs one
-    p-value per candidate, and those paths supply none, so this procedure has no
-    diagnostic form to fall back to.  ``strategy="oat"`` is admitted.
+    Refuses, before the first fit, when the estimator's inference status on any
+    candidate's prepared data supplies no inference. A
+    :class:`~cleverly.estimators.CTMLE` whose ``strategy`` is ``"greedy"``, ``"ordered"``
+    or ``"discrete"`` is one such case, and the
+    :doc:`inference reference </technical-reference/inference>` lists each status. The
+    adjustment above needs one p-value per candidate, and such a fit supplies none, so
+    this procedure has no diagnostic form to fall back to.
 
     Parameters
     ----------
@@ -161,8 +165,9 @@ def variable_importance(
     estimand : str
         Alias targeted for each candidate.
     estimator : TMLE or None
-        Configured estimator to reuse. ``None`` builds one with the defaults. A
-        selector-path ``CTMLE`` is refused here, because it reports no p-value.
+        Configured estimator to reuse. ``None`` builds one with the defaults. An
+        estimator whose status supplies no inference is refused here, because it reports
+        no p-value.
     adjust_for_other_candidates : bool
         Whether the other candidates join the baseline covariates. Set it false when
         they are descendants, colliders, or otherwise should not be conditioned on.
@@ -194,16 +199,10 @@ def variable_importance(
     if outcome in candidate_names:
         raise DataError("the outcome cannot also be a candidate exposure")
     template = TMLE(estimands=estimand) if estimator is None else estimator
-    # Before the first fit, not after the last one.  This procedure ends in a
-    # Benjamini--Hochberg adjustment of one p-value per candidate, so an estimator that
-    # supplies no p-value leaves it with nothing to adjust.  Asked of the estimator's own
-    # hook, which is what ``_retarget_detailed`` stamps the estimates with, so the refusal
-    # and the estimates the adjustment would read cannot disagree.
-    refuse_working_mechanism_inference(
-        template._inference_status(), operation="variable_importance()"
-    )
-    fits: dict[str, TMLEResult] = {}
-    raw: list[tuple[str, str, tuple[str, ...], ParameterEstimate]] = []
+    # Two loops.  The first prepares every candidate's data, which fits no learner, so
+    # the refusal below still arrives before the first fit when the status depends on
+    # the data as well as on the configuration.
+    prepared: dict[str, tuple[tuple[str, ...], CausalData]] = {}
     for candidate in candidate_names:
         adjustment = [name for name in base_covariates if name != candidate]
         if adjust_for_other_candidates:
@@ -214,20 +213,38 @@ def variable_importance(
                 f"candidate {candidate!r} has an empty adjustment set; cleverly's "
                 "point-treatment estimator requires at least one baseline covariate"
             )
+        prepared[candidate] = (
+            adjustment_set,
+            template._prepare(
+                data,
+                outcome=outcome,
+                treatment=candidate,
+                covariates=adjustment_set,
+                delta=delta,
+                weights=weights,
+                weights_type=weights_type,
+                weights_estimated=weights_estimated,
+                id=id,
+                intermediate=None,
+                treatment_kind="discrete",
+            ),
+        )
+    # Before the first fit, not after the last one.  This procedure ends in a
+    # Benjamini--Hochberg adjustment of one p-value per candidate, so an estimator that
+    # supplies no p-value leaves it with nothing to adjust.  Asked of the estimator's own
+    # hook on each candidate's prepared data, which is what ``_retarget_detailed`` stamps
+    # the estimates with, so the refusal and the estimates the adjustment would read
+    # cannot disagree.
+    for _, candidate_data in prepared.values():
+        refuse_inference(
+            template._inference_status(candidate_data), operation="variable_importance()"
+        )
+    fits: dict[str, TMLEResult] = {}
+    raw: list[tuple[str, str, tuple[str, ...], ParameterEstimate]] = []
+    for candidate, (adjustment_set, candidate_data) in prepared.items():
         fitted_estimator = copy(template)
         fitted_estimator.estimands = estimand
-        result = fitted_estimator.fit(
-            data,
-            outcome=outcome,
-            treatment=candidate,
-            covariates=adjustment_set,
-            delta=delta,
-            weights=weights,
-            weights_type=weights_type,
-            weights_estimated=weights_estimated,
-            id=id,
-            treatment_kind="discrete",
-        ).single()
+        result = fitted_estimator.fit(candidate_data).single()
         fits[candidate] = result
         estimates = [
             estimate

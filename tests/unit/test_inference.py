@@ -1407,6 +1407,14 @@ class TestTheInferenceStatus:
             "reported standard error": "plug-in standard error",
             "standard errors": "plug-in standard errors",
             "influence-curve standard errors": "plug-in standard errors",
+            "cv_std_err": "cv_plugin_std_err",
+            "pooled_std_err": "pooled_plugin_std_err",
+            "cv std_err": "cv plugin se",
+            "robustness_value_ci": "robustness_value_plugin_interval",
+            "rva": "rv_plugin_interval",
+            "confidence-limit value": "plug-in interval value",
+            "one-sided CIs": "one-sided plug-in intervals",
+            "confidence bound": "plug-in interval limit",
         }
         for name, diagnostic in _DIAGNOSTIC_NAMES.items():
             assert spread_name(name, "influence_curve") == name

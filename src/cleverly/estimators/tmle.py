@@ -134,6 +134,7 @@ from ..inference.influence import (
     median_estimates,
     missing_outcome_correction_parts,
     reduced_correction_parts,
+    stamp_inference,
     supplies_inference,
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
@@ -528,17 +529,27 @@ class TMLE:
 
     _assessment_method = "tmle"
 
-    def _inference_status(self) -> InferenceStatus:
-        """Whether this estimator's estimates carry inference or a named diagnostic.
+    def _inference_status(self, data: CausalData) -> InferenceStatus:
+        """Whether this estimator's estimates on ``data`` carry inference or a diagnostic.
 
         A hook rather than a check at the assembly point, because only the estimator
-        knows what it did. Every estimator here reports influence-curve inference;
-        :class:`~cleverly.estimators.CTMLE` overrides it for the selector paths.
+        knows what it did. It reads the estimator configuration and the prepared data
+        and nothing fitted, so the status is known before any learner runs. Three callers
+        ask it: ``_retarget_detailed`` stamps the estimates, ``TMLEResult.__setstate__``
+        re-stamps a restored artifact, and ``variable_importance`` refuses before its
+        first fit. An override that finds more than one status resolves them with
+        :func:`~cleverly._inference_status.precedent_status`.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data the estimates are fitted on.
 
         Returns
         -------
-        {"influence_curve", "working_mechanism_plugin"}
-            ``"influence_curve"``.
+        str
+            One of :data:`~cleverly.inference.influence.InferenceStatus`. The ordinary
+            estimator returns ``"influence_curve"``.
         """
         return "influence_curve"
 
@@ -1177,8 +1188,9 @@ class TMLE:
         repeats: list[RepeatFit] = []
         details: list[CVTargeting | None] = []
         for nuisance, seed in zip(nuisances, draw_seeds, strict=True):
-            # ``_retarget_detailed`` applies ``_inference_status`` to what it returns, so
-            # ``per_repeat``, ``median_estimates`` and ``result.repeats`` all carry it.
+            # ``_retarget_detailed`` applies ``_inference_status`` to what it returns, and to
+            # both fold-level reports, so ``per_repeat``, ``median_estimates``,
+            # ``result.repeats`` and ``result.cv_targeting`` all carry it.
             estimates, fluctuations, detail = self._retarget_detailed(
                 data,
                 nuisance,
@@ -2762,16 +2774,16 @@ class TMLE:
             )
             estimates.update(canonical if self.cv_evaluation else pooled)
 
-        ordered = _in_report_order(estimates, requested)
         # Stamped at the one place every estimate this estimator produces comes from, so
         # ``fit``, ``retarget`` and every sensitivity sweep that retargets a perturbed
         # input all report the same status.  Stamping in ``fit`` alone would leave the
         # truncation curve and the refutations building intervals the fit itself refuses.
-        status = self._inference_status()
-        if not supplies_inference(status):
-            ordered = {
-                name: replace(estimate, inference=status) for name, estimate in ordered.items()
-            }
+        # The two fold-level reports are stamped here too, because ``CVTargeting``
+        # publishes their standard errors and reads its status off them.
+        status = self._inference_status(data)
+        ordered = stamp_inference(_in_report_order(estimates, requested), status)
+        pooled_report = stamp_inference(pooled_report, status)
+        canonical_report = stamp_inference(canonical_report, status)
         detail = (
             CVTargeting(
                 n_folds=len(indices),

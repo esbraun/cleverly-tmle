@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from .._inference_status import precedent_status, status_record
 from .._typing import FloatArray
 from ..estimators.base import TMLEResultSet
 from ..estimators.direct_effect import check_level
@@ -83,11 +84,13 @@ class ReplicationRecord:
         The estimate on the inference scale.
     alpha : float
         Significance level the interval was built at.
-    inference : {"influence_curve", "working_mechanism_plugin"}
-        Which quantity ``std_error``, ``covered`` and ``rejected`` measured. The
-        ordinary value says the estimator's own reported inference. The other says the
-        estimator supplies none, and the study measured its retained
-        working-mechanism plug-in diagnostic instead.
+    inference : str
+        Which quantity ``std_error``, ``covered`` and ``rejected`` measured. One of
+        :data:`~cleverly.inference.influence.InferenceStatus`, which the
+        :doc:`inference reference </technical-reference/inference>` lists.
+        ``"influence_curve"`` says the estimator's own reported inference. Any other
+        status says the estimator supplies none, and the study measured its retained
+        plug-in diagnostic instead.
     """
 
     replicate: int
@@ -143,7 +146,7 @@ class EstimandSummary:
     #: Only :attr:`se_ratio` reads it; see there for why it has to exist.
     inference_estimates: FloatArray | None = None
     #: What ``std_errors``, ``covered`` and ``rejected`` measured: the estimator's own
-    #: inference, or its retained working-mechanism diagnostic when it supplies none.
+    #: inference, or its retained plug-in diagnostic when it supplies none.
     #: :func:`summarize_replications` reads it off the records and refuses a mix.
     inference: InferenceStatus = "influence_curve"
 
@@ -345,8 +348,14 @@ class StudyResult:
 
     @property
     def _diagnostic(self) -> bool:
-        """Whether any summary measured a working-mechanism diagnostic, not inference."""
+        """Whether any summary measured a plug-in diagnostic, not inference."""
         return any(not supplies_inference(summary.inference) for summary in self.summaries.values())
+
+    @property
+    def _diagnostic_noun(self) -> str:
+        """What the diagnostic columns measured, in the words the status table gives."""
+        status = precedent_status(summary.inference for summary in self.summaries.values())
+        return status_record(status).diagnostic_noun
 
     def summary(self) -> str:
         """Return a printable summary.
@@ -367,7 +376,7 @@ class StudyResult:
             # estimator's own inference or its retained diagnostic.
             *(
                 [
-                    "measuring a working-mechanism plug-in diagnostic: this estimator "
+                    f"measuring a {self._diagnostic_noun}: this estimator "
                     "supplies no interval, so the columns below describe the spread of "
                     "the curve it reports and not a confidence interval"
                 ]
@@ -446,7 +455,7 @@ class StudyResult:
             # point estimate, which this path does report.
             return (
                 "VERDICT: bias is consistent with a correctly working estimator. The "
-                "coverage column measures a working-mechanism plug-in diagnostic, so it "
+                f"coverage column measures a {self._diagnostic_noun}, so it "
                 "certifies no confidence interval for this estimator."
             )
         if not notes:

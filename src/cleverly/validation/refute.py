@@ -575,9 +575,12 @@ class RefutationTest:
         Requested empirical draw count.
     resampling : str or None
         Resolved bootstrap mode for a bootstrap-based refuter.
-    inference : {"influence_curve", "working_mechanism_plugin"}
-        Inference status of the refitted estimates. On a fit that supplies no inference,
-        ``standard_errors`` and each record's ``std_error`` hold the plug-in diagnostic
+    inference : str
+        Inference status of the refitted estimates. One of
+        :data:`~cleverly.inference.influence.InferenceStatus`, which the
+        :doc:`inference reference </technical-reference/inference>` lists. On a fit
+        that supplies no inference, ``standard_errors`` and each record's ``std_error``
+        hold the plug-in diagnostic
         :attr:`~cleverly.ParameterEstimate.plugin_std_error`, and :meth:`to_frame`
         publishes that column as ``plugin_std_error``.
     """

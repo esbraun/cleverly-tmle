@@ -49,7 +49,7 @@ from cleverly.exceptions import (
     WORKING_MECHANISM_ASSESSMENT_NOTE,
     WORKING_MECHANISM_NOT_INFERENTIAL,
     CapabilityError,
-    working_mechanism_refusal,
+    inference_refusal,
 )
 from cleverly.inference.influence import spread_name
 from cleverly.sensitivity import missingness_tilt, tipping_gamma
@@ -517,7 +517,7 @@ class TestTheArgumentAwareRowsAgreeWithTheCall:
         )
         item = report["tipping_gamma"]
         assert item.status is AssessmentStatus.UNAVAILABLE
-        assert working_mechanism_refusal("tipping_gamma(use_ci=True)") in item.detail
+        assert inference_refusal("tipping_gamma(use_ci=True)", DIAGNOSTIC) in item.detail
         assert DECLINED not in item.detail
 
     def test_the_point_tipping_row_stays_available(self, selector_fit: Any) -> None:

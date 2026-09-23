@@ -74,6 +74,7 @@ from ..assessment import SENSITIVITY_ROUTES
 from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, repeats_refusal
 from ..inference.cluster import influence_variance
+from ..inference.influence import InferenceStatus, spread_name, supplies_inference
 from ..targets import parameter_stem
 from ..targets.population_intervention import is_natural_course_fit
 from ..utils.bounds import g_bounds_for
@@ -727,17 +728,26 @@ class SensitivityBounds:
     upper : float
         Bias-adjusted upper bound on the estimate.
     ci_lower : float
-        Lower confidence limit of the adjusted bound.
+        Lower one-sided confidence limit of the adjusted bound. It is read off the
+        estimate's influence curve, so at a non-inferential ``inference`` it is a
+        plug-in diagnostic, and :meth:`to_dict` and :meth:`summary` publish it under the
+        name :func:`~cleverly.inference.influence.spread_name` gives it.
     ci_upper : float
-        Upper confidence limit of the adjusted bound.
+        Upper one-sided confidence limit of the adjusted bound, published as
+        ``ci_lower`` is.
     level : float
         Coverage level of those limits.
     robustness_value : float
         Confounding strength that would move the point estimate to the null.
     robustness_value_ci : float
-        The same strength for the confidence limit rather than the point estimate.
+        The same strength for the confidence limit rather than the point estimate,
+        published as ``ci_lower`` is.
     null_hypothesis : float
         The value the robustness values are measured against.
+    inference : str, default="influence_curve"
+        The inference status of the estimate the bound adjusts. One of
+        :data:`~cleverly.inference.influence.InferenceStatus`, which the
+        :doc:`inference reference </technical-reference/inference>` lists.
     """
 
     estimand: str
@@ -755,6 +765,10 @@ class SensitivityBounds:
     robustness_value: float
     robustness_value_ci: float
     null_hypothesis: float
+    #: A plain default, so a bound pickled before the field existed loads as inferential,
+    #: which every such bound was: RM11 refused the bound on the only fits that carried
+    #: another status.
+    inference: InferenceStatus = "influence_curve"
 
     @property
     def bias(self) -> float:
@@ -764,13 +778,22 @@ class SensitivityBounds:
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-compatible representation.
 
+        At a non-inferential :attr:`inference` the mapping carries ``inference``, and
+        the three quantities read off the influence curve take the names
+        :func:`~cleverly.inference.influence.spread_name` gives them:
+        ``plugin_interval_lower``, ``plugin_interval_upper`` and
+        ``robustness_value_plugin_interval``.
+
         Returns
         -------
         dict
             A JSON-compatible mapping of every reported field.
         """
-        return {
-            "estimand": self.estimand,
+        status = self.inference
+        row: dict[str, Any] = {"estimand": self.estimand}
+        if not supplies_inference(status):
+            row["inference"] = status
+        row |= {
             "psi": self.psi,
             "cf_y": self.cf_y,
             "cf_d": self.cf_d,
@@ -779,11 +802,12 @@ class SensitivityBounds:
             "bias": self.bias,
             "lower": self.lower,
             "upper": self.upper,
-            "ci_lower": self.ci_lower,
-            "ci_upper": self.ci_upper,
+            spread_name("ci_lower", status): self.ci_lower,
+            spread_name("ci_upper", status): self.ci_upper,
             "robustness_value": self.robustness_value,
-            "robustness_value_ci": self.robustness_value_ci,
+            spread_name("robustness_value_ci", status): self.robustness_value_ci,
         }
+        return row
 
     def summary(self) -> str:
         """Return a printable summary.
@@ -798,6 +822,7 @@ class SensitivityBounds:
             if (self.lower - self.null_hypothesis) * (self.upper - self.null_hypothesis) > 0
             else "the effect could be explained away"
         )
+        status = self.inference
         return "\n".join(
             [
                 f"Omitted-variable sensitivity for {self.estimand!r}",
@@ -807,14 +832,14 @@ class SensitivityBounds:
                 f"rho = {self.rho:.3g}"
                 f" -> bias <= {self.bias:.5g}",
                 f"bias-adjusted bounds:  [{self.lower:.5g}, {self.upper:.5g}]",
-                f"with {self.level:.0%} one-sided CIs: [{self.ci_lower:.5g}, {self.ci_upper:.5g}] "
-                f"({conclusion})",
+                f"with {self.level:.0%} {spread_name('one-sided CIs', status)}: "
+                f"[{self.ci_lower:.5g}, {self.ci_upper:.5g}] ({conclusion})",
                 "",
                 f"robustness value RV   = {self.robustness_value:.4f}: a confounder explaining "
                 f"{self.robustness_value:.1%} of the residual variation in BOTH the outcome and "
                 f"treatment would move the estimate to {self.null_hypothesis:g}.",
                 f"robustness value RVa  = {self.robustness_value_ci:.4f}: the same, for the "
-                f"{self.level:.0%} confidence bound.",
+                f"{self.level:.0%} {spread_name('confidence bound', status)}.",
             ]
         )
 
@@ -916,6 +941,7 @@ def omitted_variable_bounds(
         robustness_value=rv,
         robustness_value_ci=rva,
         null_hypothesis=null_hypothesis,
+        inference=estimate.inference,
     )
 
 
@@ -1179,7 +1205,7 @@ def robustness_value(
     level: float = 0.95,
     null_hypothesis: float = 0.0,
     nu2_estimator: str = "auto",
-) -> dict[str, float]:
+) -> dict[str, Any]:
     """The confounding strength that would explain the effect away.
 
     Returns ``{"rv": ..., "rva": ...}``: the value of ``cf_y = cf_d`` at which the point
@@ -1187,6 +1213,12 @@ def robustness_value(
     does.  This is the single most useful number in this module, because it requires no
     guess about how strong an unmeasured confounder might be -- it reports the
     threshold and lets the reader judge whether it is plausible.
+
+    The confidence bound is read off the estimate's influence curve, so at a
+    non-inferential status ``"rva"`` takes the name
+    :func:`~cleverly.inference.influence.spread_name` gives it, ``"rv_plugin_interval"``,
+    and the mapping opens with ``"inference"`` naming the status, as
+    :meth:`SensitivityBounds.to_dict` does.
 
     Parameters
     ----------
@@ -1205,9 +1237,10 @@ def robustness_value(
 
     Returns
     -------
-    dict of str to float
-        The strength that moves the point estimate to the null, and the one that
-        moves the confidence limit there.
+    dict of str to Any
+        The strength that moves the point estimate to the null, the one that moves the
+        confidence limit there, and ``max_bias``. At a non-inferential status, also the
+        status under ``"inference"``.
 
     Raises
     ------
@@ -1220,10 +1253,12 @@ def robustness_value(
         ``nu^2`` that is not positive.
     """
     elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
-    rv, rva = _robustness_values(
-        result, elements, result[estimand].psi, rho, level, null_hypothesis
-    )
-    return {"rv": rv, "rva": rva, "max_bias": elements.max_bias}
+    estimate = result[estimand]
+    rv, rva = _robustness_values(result, elements, estimate.psi, rho, level, null_hypothesis)
+    status = estimate.inference
+    values: dict[str, Any] = {} if supplies_inference(status) else {"inference": status}
+    values |= {"rv": rv, spread_name("rva", status): rva, "max_bias": elements.max_bias}
+    return values
 
 
 def contour_data(

@@ -107,23 +107,30 @@ recomputes rather than reusing the wider family's critical value. *Reconsider wh
 be asked for the narrowed family directly, and the public layer stops selecting after the fact.
 
 A point-treatment estimator stamps the inference status in `TMLE._retarget_detailed`, from its
-`_inference_status()` hook. `fit`, `retarget`, and each sensitivity sweep get their estimates
-from that method, so no sweep builds an interval that the fit refuses. Three other paths set the
-status outside that method, and none of them reads the hook.
+`_inference_status(data)` hook. The hook reads the estimator configuration and the prepared
+`CausalData`, and nothing fitted, so the estimator decides the status before any learner runs.
+`fit`, `retarget`, and each sensitivity sweep get their estimates from that method, so no sweep
+builds an interval that the fit refuses. The same method stamps both fold-level reports, and
+`CVTargeting.inference` reads the status from those reports rather than store it.
 
 | path | status it sets |
 | --- | --- |
 | `smooth_contrast` and `median_estimates` | the status of their inputs. Each raises `ValueError` on a mix |
-| `TMLEResult.__setstate__` | the estimator's status, on a result saved before the field existed |
+| `TMLEResult.__setstate__` | the hook's status on the saved data, when the saved estimates or fold-level reports declare another status |
+| `variable_importance` | none. It asks the hook on each candidate's prepared data, and it refuses before the first fit |
 | a longitudinal estimator | the default `"influence_curve"`. Its estimates never pass through `_retarget_detailed` |
+
+One fit has one status. When more than one non-inferential status applies, the fit takes the
+first one in `NON_INFERENTIAL` (`src/cleverly/_inference_status.py`). An override that finds more
+than one status passes them to `precedent_status`, so the order lives in the table.
 
 A reader of `std_error`, `ci`, or `pvalue` must branch on `supplies_inference`, or on
 `TMLEResult.inference_status`. A frame or label that publishes a spread must take its names from
 `spread_columns()` or `spread_name`, which raises `KeyError` for an inferential name with no
-diagnostic entry. [Inference status](technical-reference/inference.md#inference-status) gives the
-public contract.
+diagnostic entry. A text that names a status must read it from `NON_INFERENTIAL`.
+[Inference status](technical-reference/inference.md#inference-status) gives the public contract.
 *Reconsider when* [F18](roadmap.md#f18-selector-path-c-tmle-inference) supplies the selector
-paths' influence curve, or an estimator's status depends on more than its configuration.
+paths' influence curve, or an estimator's status depends on a fitted quantity.
 
 Where a configuration group serves more than one engine, a default that differs between them is
 a sentinel resolved per engine, never a literal that silently picks one engine's answer for the

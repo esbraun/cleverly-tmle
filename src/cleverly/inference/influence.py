@@ -58,8 +58,9 @@ from typing import Any, Literal, NamedTuple
 
 import numpy as np
 
+from .._inference_status import InferenceStatus, status_record, supplies_inference
 from .._typing import BoolArray, FloatArray, IntArray
-from ..exceptions import refuse_working_mechanism_inference
+from ..exceptions import refuse_inference
 from ..fluctuation.iterative import InitialFit
 from ..fluctuation.submodel import Submodel
 from ..msm import link_for, solve_projection
@@ -90,6 +91,7 @@ __all__ = [
     "regime_means",
     "shift_means",
     "spread_name",
+    "stamp_inference",
     "supplies_inference",
 ]
 
@@ -100,13 +102,13 @@ Scale = Literal["level", "difference", "ratio", "fraction"]
 #: loads as ``"centered"``, the rule every such estimate used.
 CovarianceRule = Literal["centered", "second_moment"]
 
-#: Whether the package supplies inference for an estimate, or only a point estimate and a
-#: named diagnostic.  A class-level default on :class:`ParameterEstimate`, so a bare
-#: estimate pickled before the field existed loads as ``"influence_curve"``.  A
-#: :class:`~cleverly.estimators.TMLEResult` restored from such a pickle re-stamps its
-#: estimates from the estimator that produced them, so a selector-path fit written
-#: before the field existed still refuses.
-InferenceStatus = Literal["influence_curve", "working_mechanism_plugin"]
+# ``InferenceStatus`` and ``supplies_inference`` live in the leaf module
+# :mod:`cleverly._inference_status`, beside the table of what each status says, and are
+# re-exported here, where the documentation names them.  ``inference`` is a field with a
+# class-level default on :class:`ParameterEstimate`, so a bare estimate pickled before the
+# field existed loads as ``"influence_curve"``.  A :class:`~cleverly.estimators.TMLEResult`
+# restored from such a pickle re-stamps its estimates from the estimator that produced
+# them, so a fit written before the field existed still refuses.
 
 #: The name each spread column takes when the package supplies no inference.  The one
 #: table of "which number under which name": every frame, record and printed label that
@@ -138,28 +140,19 @@ _DIAGNOSTIC_NAMES: Mapping[str, str] = MappingProxyType(
         # The unit a refutation detail and a score-check verdict count in.
         "standard errors": "plug-in standard errors",
         "influence-curve standard errors": "plug-in standard errors",
+        # CVTargeting.to_frame and its printed table.
+        "cv_std_err": "cv_plugin_std_err",
+        "pooled_std_err": "pooled_plugin_std_err",
+        "cv std_err": "cv plugin se",
+        # SensitivityBounds.to_dict and summary, robustness_value, and the assessment's
+        # robustness row.  The one-sided limits reuse ``ci_lower`` and ``ci_upper``.
+        "robustness_value_ci": "robustness_value_plugin_interval",
+        "rva": "rv_plugin_interval",
+        "confidence-limit value": "plug-in interval value",
+        "one-sided CIs": "one-sided plug-in intervals",
+        "confidence bound": "plug-in interval limit",
     }
 )
-
-
-def supplies_inference(status: str) -> bool:
-    """Whether the package supplies inference at an inference status.
-
-    The one comparison against ``"influence_curve"``. An estimate, a fit, a frame and a
-    report each ask it of the status they hold.
-
-    Parameters
-    ----------
-    status : str
-        A declared :data:`InferenceStatus`.
-
-    Returns
-    -------
-    bool
-        ``True`` for ``"influence_curve"``, which is when ``std_error``, ``ci`` and
-        ``pvalue`` answer. ``False`` for every diagnostic status.
-    """
-    return status == "influence_curve"
 
 
 def spread_name(name: str, status: InferenceStatus) -> str:
@@ -173,8 +166,10 @@ def spread_name(name: str, status: InferenceStatus) -> str:
     ----------
     name : str
         The inferential name, as an ordinary fit publishes it.
-    status : {"influence_curve", "working_mechanism_plugin"}
-        The inference status of the estimate the number belongs to.
+    status : str
+        The inference status of the estimate the number belongs to. One of
+        :data:`InferenceStatus`, which the
+        :doc:`inference reference </technical-reference/inference>` lists.
 
     Returns
     -------
@@ -191,6 +186,34 @@ def spread_name(name: str, status: InferenceStatus) -> str:
     if supplies_inference(status):
         return name
     return _DIAGNOSTIC_NAMES[name]
+
+
+def stamp_inference(
+    estimates: Mapping[str, ParameterEstimate], status: InferenceStatus
+) -> dict[str, ParameterEstimate]:
+    """Declare ``status`` on every estimate of a report.
+
+    The one stamp. ``TMLE._retarget_detailed`` applies it to the fit's estimates and to
+    both fold-level reports, and ``TMLEResult.__setstate__`` applies it to an artifact
+    saved under another status, so no report can carry a status the others do not.
+
+    Parameters
+    ----------
+    estimates : mapping of str to ParameterEstimate
+        The report, keyed by estimand.
+    status : str
+        One of :data:`InferenceStatus`.
+
+    Returns
+    -------
+    dict of str to ParameterEstimate
+        ``estimates`` in the same order. Under ``"influence_curve"`` each estimate is
+        returned as it was given. Otherwise each is a copy declaring ``status``, with
+        every array and number unchanged.
+    """
+    if supplies_inference(status):
+        return dict(estimates)
+    return {name: replace(estimate, inference=status) for name, estimate in estimates.items()}
 
 
 @dataclass(frozen=True)
@@ -226,14 +249,15 @@ class ParameterEstimate:
         unit, which can differ from :attr:`variance` on a fold-evaluated or repeated fit.
         ``"second_moment"`` uses the raw second moment that the stacked cross-fitted
         natural-course mean reports as its variance.
-    inference : {"influence_curve", "working_mechanism_plugin"}
-        Whether the package supplies inference for this estimate. ``"influence_curve"``
-        is the ordinary case, and :attr:`std_error`, :attr:`ci` and :attr:`pvalue`
-        answer. ``"working_mechanism_plugin"`` says the reported curve is the plug-in
-        curve at a selected working mechanism, and no result shows it is this
-        estimator's influence curve. Those three accessors then raise, and
-        :attr:`plugin_std_error` and :attr:`plugin_interval` report the retained
-        diagnostic.
+    inference : str
+        Whether the package supplies inference for this estimate. One of
+        :data:`InferenceStatus`. The
+        :doc:`inference reference </technical-reference/inference>` lists each status
+        and its reason.
+        ``"influence_curve"`` is the ordinary case, and :attr:`std_error`, :attr:`ci`
+        and :attr:`pvalue` answer. At any other status those three accessors raise
+        with the status's reason, and :attr:`plugin_std_error` and
+        :attr:`plugin_interval` report the retained diagnostic.
 
     Attributes
     ----------
@@ -369,18 +393,18 @@ class ParameterEstimate:
         Raises
         ------
         CapabilityError
-            When :attr:`inference` is ``"working_mechanism_plugin"``. Read
+            When :attr:`supplies_inference` is ``False``. Read
             :attr:`plugin_std_error` for the retained diagnostic.
         """
-        refuse_working_mechanism_inference(self.inference, operation=".std_error")
+        refuse_inference(self.inference, operation=".std_error")
         return self._plugin_std_error()
 
     @property
     def plugin_std_error(self) -> float:
         """Plug-in standard error of the reported curve, at every inference status.
 
-        A diagnostic and not a standard error for an estimate whose :attr:`inference`
-        is ``"working_mechanism_plugin"``. On an ordinary estimate it is
+        A diagnostic and not a standard error for an estimate whose
+        :attr:`supplies_inference` is ``False``. On an ordinary estimate it is
         :attr:`std_error` under a name that makes no coverage claim.
         """
         return self._plugin_std_error()
@@ -401,10 +425,10 @@ class ParameterEstimate:
         Raises
         ------
         CapabilityError
-            When :attr:`inference` is ``"working_mechanism_plugin"``. Read
+            When :attr:`supplies_inference` is ``False``. Read
             :attr:`plugin_interval` for the retained diagnostic.
         """
-        refuse_working_mechanism_inference(self.inference, operation=".ci")
+        refuse_inference(self.inference, operation=".ci")
         return self._wald_interval()
 
     @property
@@ -414,10 +438,10 @@ class ParameterEstimate:
         A diagnostic and not a confidence interval. It is the interval :attr:`ci`
         builds, read through a name that makes no coverage claim, so a fit whose
         inference the package refuses can still report the spread of the curve it
-        computed. On a selector-path collaborative fit no result shows that curve is the
-        estimator's influence curve, and the interval's coverage is therefore
-        unestablished. The registered selector studies measure it and report it as a
-        diagnostic.
+        computed. At a non-inferential status the coverage of this interval is
+        unestablished, for the reason the
+        :doc:`inference reference </technical-reference/inference>` gives. The
+        registered selector studies measure it and report it as a diagnostic.
         """
         return self._wald_interval()
 
@@ -431,10 +455,10 @@ class ParameterEstimate:
         Raises
         ------
         CapabilityError
-            When :attr:`inference` is ``"working_mechanism_plugin"``. This fit reports
-            no p-value.
+            When :attr:`supplies_inference` is ``False``. This fit reports no
+            p-value.
         """
-        refuse_working_mechanism_inference(self.inference, operation=".pvalue")
+        refuse_inference(self.inference, operation=".pvalue")
         return self._plugin_pvalue()
 
     @property
@@ -465,8 +489,8 @@ class ParameterEstimate:
         """Return a JSON-compatible representation.
 
         An estimate the package supplies inference for emits ``std_err``, ``ci_lower``,
-        ``ci_upper`` and ``p_value``. One whose :attr:`inference` is
-        ``"working_mechanism_plugin"`` emits ``inference`` naming that status, and
+        ``ci_upper`` and ``p_value``. One whose :attr:`supplies_inference` is ``False``
+        emits ``inference`` naming its status, and
         ``plugin_std_err``, ``plugin_interval_lower`` and ``plugin_interval_upper`` in
         their place. Its bootstrap percentile limits are ``bootstrap_range_lower`` and
         ``bootstrap_range_upper`` rather than ``bootstrap_ci_lower`` and
@@ -495,7 +519,7 @@ class ParameterEstimate:
         if not self.supplies_inference:
             low, high = self.plugin_interval
             return (
-                f"{self.name}: {self.psi:.5g} (working-mechanism se "
+                f"{self.name}: {self.psi:.5g} ({status_record(self.inference).summary_label} "
                 f"{self.plugin_std_error:.4g}, plug-in interval [{low:.5g}, {high:.5g}]; "
                 "a diagnostic, and no confidence interval or p-value is reported)"
             )
@@ -573,9 +597,12 @@ def make_estimate(
         ``"second_moment"`` stores
         :func:`~cleverly.inference.cluster.stacked_second_moment_variance` and refuses a
         cluster.
-    inference : {"influence_curve", "working_mechanism_plugin"}, default="influence_curve"
-        Whether the package supplies inference for the estimate. The default is the
-        ordinary case, so a caller that does not pass it builds an inferential estimate.
+    inference : str, default="influence_curve"
+        Whether the package supplies inference for the estimate. One of
+        :data:`InferenceStatus`, which the
+        :doc:`inference reference </technical-reference/inference>` lists. The default
+        is the ordinary case, so a caller that does not pass it builds an inferential
+        estimate.
 
     Returns
     -------

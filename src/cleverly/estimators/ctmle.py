@@ -616,7 +616,7 @@ class CTMLE(TMLE):
 
     _assessment_method = "collaborative_tmle"
 
-    def _inference_status(self) -> InferenceStatus:
+    def _inference_status(self, data: CausalData) -> InferenceStatus:
         """Refuse inference on the selector paths, and supply it on ``"oat"``.
 
         Keyed on the strategy, which is what F18 and roadmap row RM12 key on. A
@@ -625,12 +625,19 @@ class CTMLE(TMLE):
         supply. That over-refusal is deliberate and
         ``docs/technical-reference/collaborative-tmle.md`` records it.
 
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data. Not read: collaborative TMLE refuses ``id=`` at every
+            setting, so no data-dependent status applies to it.
+
         Returns
         -------
-        {"influence_curve", "working_mechanism_plugin"}
+        str
+            One of :data:`~cleverly.inference.influence.InferenceStatus`:
             ``"working_mechanism_plugin"`` for ``"greedy"``, ``"ordered"`` and
-            ``"discrete"``. ``"influence_curve"`` for ``"oat"``, whose inference F19
-            owns.
+            ``"discrete"``, and ``"influence_curve"`` for ``"oat"``, whose inference
+            F19 owns.
         """
         if is_selector_strategy(self.strategy):
             return "working_mechanism_plugin"
