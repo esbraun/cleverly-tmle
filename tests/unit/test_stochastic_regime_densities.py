@@ -31,7 +31,6 @@ The exact-law gap is the reason for the refusal, measured without sampling error
 
 from __future__ import annotations
 
-import importlib
 from collections.abc import Callable
 from dataclasses import dataclass, fields, replace
 from typing import Any, ClassVar
@@ -45,7 +44,6 @@ import cleverly.interventions.base as base_module
 from cleverly import CausalStudy, PointTreatment, RegimeMean
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE
-from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Incremental, Static, Stochastic
 from cleverly.interventions.base import (
@@ -55,13 +53,24 @@ from cleverly.interventions.base import (
 )
 from cleverly.sensitivity import _simulated_confounding_fixed as replay_module
 from cleverly.sensitivity import simulated_confounding
-from cleverly.sensitivity.positivity import truncation_curve
 from tests import discrete_law as law
 from tests.conftest import OracleOutcome, OracleTreatment, linear_in_sample
 from tests.pickles import legacy_without
 from tests.unit._confounding_support import Counter, forbid_draw_and_refit
+from tests.unit._declaration_support import (
+    PATHWISE,
+    assert_every_witness_fails,
+    assert_refused,
+    assert_refused_before_any_call,
+    recomputations,
+    restored,
+    restored_states,
+    se_ratio,
+    tmle_module,
+)
+from tests.unit._declaration_support import legacy_result as legacy_result_of
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
-from tests.unit.test_msm_projection_weights import FixedWeight, assert_refused, linear
+from tests.unit.test_msm_projection_weights import FixedWeight, linear
 from tests.unit.test_simulated_confounding_policies import (
     _GRID,
     _alias,
@@ -71,9 +80,6 @@ from tests.unit.test_simulated_confounding_policies import (
     _study,
 )
 
-#: ``cleverly.estimators`` exports a function named ``tmle``, which shadows the module.
-tmle_module = importlib.import_module("cleverly.estimators.tmle")
-
 #: The two declaration refusals, imported from the module that raises them, so the text
 #: is written once.
 UNDECLARED = _UNDECLARED_DENSITY
@@ -82,7 +88,6 @@ ESTIMATED = _ESTIMATED_DENSITY
 #: rewording of the explanation does not break it, but a message from another check does.
 NOT_CALLABLE = "density_fn= must be callable"
 UNKNOWN = "density_kind must be 'known', 'estimated' or None"
-PATHWISE = "pathwise derivative"
 
 
 @dataclass(frozen=True)
@@ -105,12 +110,6 @@ class SpyDensity(FixedDensity):
 
 def coin(density: Any = None, **declaration: Any) -> Stochastic:
     return Stochastic(FixedDensity() if density is None else density, "coin", **declaration)
-
-
-def restored(regime: Stochastic, kind: Any) -> Stochastic:
-    """``regime`` with its declaration changed after construction, as a restore can leave it."""
-    object.__setattr__(regime, "density_kind", kind)
-    return regime
 
 
 def causal_data() -> CausalData:
@@ -212,15 +211,13 @@ ENTRIES: dict[str, Callable[[Any, dict[str, Any]], Any]] = {
 }
 
 #: What a restored regime can carry, and the refusal each one meets.
-RESTORED = {"undeclared": (None, (UNDECLARED,)), "estimated": ("estimated", (ESTIMATED, PATHWISE))}
+RESTORED = restored_states(UNDECLARED, ESTIMATED)
 
 
 def assert_entry_refuses(entry: str, regime: Any, *fragments: str) -> None:
-    assert_refused(
-        lambda: ENTRIES[entry](regime, never_fit_learners()), CapabilityError, *fragments
+    assert_refused_before_any_call(
+        lambda: ENTRIES[entry](regime, never_fit_learners()), SpyDensity, "density", *fragments
     )
-    assert NeverFit.calls == 0, f"{NeverFit.calls} learner fit(s) ran before the refusal"
-    assert SpyDensity.calls == 0, "the density was evaluated before the refusal"
 
 
 class TestTheFitRefusesARestoredRegime:
@@ -230,7 +227,7 @@ class TestTheFitRefusesARestoredRegime:
         self, entry: str, name: str
     ) -> None:
         kind, fragments = RESTORED[name]
-        assert_entry_refuses(entry, restored(spy_coin(), kind), *fragments)
+        assert_entry_refuses(entry, restored(spy_coin(), "density_kind", kind), *fragments)
 
     def test_a_subclass_that_skips_the_declaration_refuses_at_the_fit(self) -> None:
         """The fit selects regimes with ``isinstance``, so a subclass cannot opt out."""
@@ -275,27 +272,17 @@ class TestALegacyRegimeLoads:
         assert_entry_refuses("fit", legacy(coin(SpyDensity(), density_kind="known")), UNDECLARED)
 
 
+def stochastic_regimes(estimator: Any) -> list[Any]:
+    return [item for item in estimator.interventions if isinstance(item, Stochastic)]
+
+
 def legacy_result(result: Any) -> Any:
     """``result`` as an artifact written before ``density_kind`` existed would restore it."""
-    old = loads(dumps(result))
-    for item in old.estimator.interventions:
-        if isinstance(item, Stochastic):
-            vars(item).pop("density_kind")
-    old = loads(dumps(old))
-    assert any(isinstance(item, Stochastic) for item in old.estimator.interventions)
-    assert all(getattr(item, "density_kind", None) is None for item in old.estimator.interventions)
-    return old
+    return legacy_result_of(result, "density_kind", stochastic_regimes)
 
 
-def recomputations(result: Any) -> dict[str, Callable[[], Any]]:
-    """Every entry to a recomputation a test drives: a sweep, a retarget, and a refit."""
-    return {
-        "truncation_curve": lambda: truncation_curve(result, bounds=[0.05]),
-        "retarget": lambda: result.estimator.retarget(
-            result.data, result.nuisance, estimands=("ey_regime", "ate_regime")
-        ),
-        "refit": lambda: result.estimator.refit(result.data),
-    }
+#: The estimands a retarget of the legacy result requests.
+RETARGETED = ("ey_regime", "ate_regime")
 
 
 class TestALegacyResultKeepsItsNumbersAndRefusesARecomputation:
@@ -322,12 +309,12 @@ class TestALegacyResultKeepsItsNumbersAndRefusesARecomputation:
     @pytest.mark.parametrize("entry", ["truncation_curve", "retarget", "refit"])
     def test_every_recomputation_refuses(self, result: Any, entry: str) -> None:
         old = legacy_result(result)
-        assert_refused(recomputations(old)[entry], CapabilityError, UNDECLARED)
+        assert_refused(recomputations(old, RETARGETED)[entry], CapabilityError, UNDECLARED)
 
     @pytest.mark.parametrize("entry", ["truncation_curve", "retarget", "refit"])
     def test_the_declared_result_recomputes(self, result: Any, entry: str) -> None:
         """The control: the same entry on the result before the declaration was lost."""
-        recomputations(result)[entry]()
+        recomputations(result, RETARGETED)[entry]()
 
     @pytest.mark.parametrize("entry", ["truncation_curve", "retarget", "refit"])
     def test_removing_the_fit_layer_check_fails_the_refusal(
@@ -336,7 +323,7 @@ class TestALegacyResultKeepsItsNumbersAndRefusesARecomputation:
         old = legacy_result(result)
         monkeypatch.setattr(tmle_module, "refuse_regime_densities", lambda interventions: None)
         with pytest.raises(AssertionError):
-            assert_refused(recomputations(old)[entry], CapabilityError, UNDECLARED)
+            assert_refused(recomputations(old, RETARGETED)[entry], CapabilityError, UNDECLARED)
 
 
 # ------------------------------------------------------------------ the replay
@@ -414,9 +401,7 @@ class TestTheWitnessesHaveTeeth:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(base_module, "refuse_regime_densities", lambda interventions: None)
-        for witness in declaration_witnesses():
-            with pytest.raises(AssertionError):
-                witness()
+        assert_every_witness_fails(declaration_witnesses())
 
     @pytest.mark.parametrize("entry", list(ENTRIES))
     @pytest.mark.parametrize("name", list(RESTORED))
@@ -426,7 +411,7 @@ class TestTheWitnessesHaveTeeth:
         kind, fragments = RESTORED[name]
         monkeypatch.setattr(tmle_module, "refuse_regime_densities", lambda interventions: None)
         with pytest.raises(AssertionError):
-            assert_entry_refuses(entry, restored(spy_coin(), kind), *fragments)
+            assert_entry_refuses(entry, restored(spy_coin(), "density_kind", kind), *fragments)
         assert NeverFit.calls > 0, "the mutated fit refused before a learner"
 
     def test_every_site_calls_the_one_refusal(self) -> None:
@@ -546,12 +531,6 @@ class SampleTilt:
         return self.star[levels(frame)]
 
 
-def first_rows() -> np.ndarray:
-    """The first row of each support point in :func:`law.frame`, in support order."""
-    counts = np.array([TILT_COUNTS[cell] for cell in law.SUPPORT])
-    return np.concatenate([[0], np.cumsum(counts)[:-1]])
-
-
 def fixed_eif(star: np.ndarray, *, step: float = 1e-30) -> np.ndarray:
     """The Gateaux derivative of ``sum_w P(w) sum_a q*(a | w) Qbar(a, w)``, ``q*`` frozen.
 
@@ -596,14 +575,6 @@ def tilt_curve(result: Any) -> np.ndarray:
     return np.asarray(result.estimates["ey_regime[tilt]"].influence_curve)
 
 
-def se_ratio(curve: np.ndarray, exact: np.ndarray) -> float:
-    """The reported curve's SE over the exact curve's SE, from second moments, as RM13.
-
-    ``std_error`` itself divides by ``n - 1``, which would move this by a factor of 1.0005.
-    """
-    return float(np.sqrt(np.mean(curve**2) / float(CELL_P @ exact**2)))
-
-
 @pytest.fixture(scope="module")
 def sample_fits() -> dict[str, Any]:
     """The sample tilt, declared ``"known"``: the lie that no declaration can detect."""
@@ -631,7 +602,7 @@ class TestAnEstimatedTiltUnderstatesTheVariance:
     def test_control_the_curve_is_the_fixed_density_eif(self, sample_fits, label: str) -> None:
         """Control: the curve is right for the functional the user declared."""
         np.testing.assert_allclose(
-            tilt_curve(sample_fits[label])[first_rows()],
+            tilt_curve(sample_fits[label])[law.first_row_of(TILT_COUNTS)],
             fixed_eif(KnownTilt(DELTAS[label]).star),
             atol=1e-12,
             rtol=0,
@@ -662,7 +633,9 @@ class TestAnEstimatedTiltUnderstatesTheVariance:
 
     def test_witness_the_reported_se_understates_the_exact_se(self, sample_fits) -> None:
         ratio = se_ratio(
-            tilt_curve(sample_fits["odds x2"]), law.eif("ey_ipsi[odds x2]", probs=TILT_PROBS)
+            tilt_curve(sample_fits["odds x2"]),
+            law.eif("ey_ipsi[odds x2]", probs=TILT_PROBS),
+            CELL_P,
         )
         assert ratio == pytest.approx(0.6226, abs=1e-4)
         assert ratio < UNDERSTATEMENT_BOUND
@@ -670,20 +643,24 @@ class TestAnEstimatedTiltUnderstatesTheVariance:
     def test_the_other_side_of_one_is_recorded(self, sample_fits) -> None:
         """delta = 0.5 tilts toward control; the ratio is recorded, and no bound is claimed."""
         ratio = se_ratio(
-            tilt_curve(sample_fits["odds x0.5"]), law.eif("ey_ipsi[odds x0.5]", probs=TILT_PROBS)
+            tilt_curve(sample_fits["odds x0.5"]),
+            law.eif("ey_ipsi[odds x0.5]", probs=TILT_PROBS),
+            CELL_P,
         )
         assert ratio == pytest.approx(0.6853, abs=1e-4)
 
     def test_mutation_a_frozen_oracle_loses_the_witness(self, sample_fits) -> None:
         """An oracle that froze ``g`` would read 1 and fail the bound."""
-        frozen = se_ratio(tilt_curve(sample_fits["odds x2"]), fixed_eif(KnownTilt(2.0).star))
+        frozen = se_ratio(
+            tilt_curve(sample_fits["odds x2"]), fixed_eif(KnownTilt(2.0).star), CELL_P
+        )
         assert frozen == pytest.approx(1.0, abs=1e-12)
         assert not frozen < UNDERSTATEMENT_BOUND
 
     def test_the_package_ipsi_curve_differs_by_the_same_term(self, sample_fits) -> None:
         """The incremental axis carries the term that the regime curve omits."""
         ipsi = oracle_tmle(incremental=(Incremental(2.0, name="odds x2"),))
-        rows = first_rows()
+        rows = law.first_row_of(TILT_COUNTS)
         gap = (
             np.asarray(ipsi.estimates["ey_ipsi[odds x2]"].influence_curve)[rows]
             - tilt_curve(sample_fits["odds x2"])[rows]
@@ -710,5 +687,8 @@ class TestAKnownDensityKeepsItsInterval:
         assert estimate.inference == "influence_curve"
         assert np.all(np.isfinite(estimate.ci))
         np.testing.assert_allclose(
-            tilt_curve(result)[first_rows()], fixed_eif(KnownTilt(2.0).star), atol=1e-12, rtol=0
+            tilt_curve(result)[law.first_row_of(TILT_COUNTS)],
+            fixed_eif(KnownTilt(2.0).star),
+            atol=1e-12,
+            rtol=0,
         )

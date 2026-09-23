@@ -104,10 +104,14 @@ def empirical_probs(sample: pd.DataFrame) -> np.ndarray:
     return counts / len(sample)
 
 
-def first_row_of() -> np.ndarray:
-    """Index of the first sample row belonging to each support point, in support order."""
-    counts = np.array([COUNTS[w, a, y] for w, a, y in SUPPORT])
-    return np.concatenate([[0], np.cumsum(counts)[:-1]])
+def first_row_of(counts: np.ndarray = COUNTS) -> np.ndarray:
+    """Index of the first sample row belonging to each support point, in support order.
+
+    ``counts`` is the cell array that :func:`frame` realised.  It defaults to
+    :data:`COUNTS`, and a variant law from :func:`cell_counts` passes its own.
+    """
+    per_point = np.array([counts[w, a, y] for w, a, y in SUPPORT])
+    return np.concatenate([[0], np.cumsum(per_point)[:-1]])
 
 
 #: The regimes the regime-indexed estimands are checked against, ``g*(a | W = w)`` as a
