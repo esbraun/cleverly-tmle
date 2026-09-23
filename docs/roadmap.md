@@ -2688,8 +2688,12 @@ and the RM25 witness then both build with no refusal. A further test checks that
 call one function object.
 
 Nine more mutations ran by hand after commit 7ef1f57. Each run copied the file to a backup,
-applied one mutation, and ran `tests/unit/test_stochastic_regime_densities.py`. It then restored
-the file, and the restored file matched its blob at HEAD. No mutation survived.
+applied one mutation, and ran the RM25 file `tests/unit/test_stochastic_regime_densities.py`. That
+file holds 63 tests. The ninth mutation also ran the RM13 file
+`tests/unit/test_msm_projection_weights.py`, which holds 46 tests, as a separate run.
+
+Each run then restored the file, and the restored file matched its blob at HEAD. No mutation
+survived. Each count in the table is for the RM25 file, unless the row names the RM13 file.
 
 | mutation | file | tests that failed |
 | --- | --- | --- |
@@ -2701,7 +2705,7 @@ the file, and the restored file matched its blob at HEAD. No mutation survived.
 | move the `_freeze_regimes` check after `RegimeSet.evaluate` | `src/cleverly/sensitivity/_simulated_confounding_fixed.py` | 1: a legacy regime at replay. The density ran two times before the refusal |
 | remove the callable check | `src/cleverly/interventions/base.py` | 6: each density that is not callable, under each declaration |
 | swap the undeclared and estimated texts of `_DENSITY_DECLARATION` | `src/cleverly/interventions/base.py` | 18: each test that matches either text |
-| invert the membership test of `FunctionDeclaration.check` | `src/cleverly/_declarations.py` | 37 failures and 16 errors. Eight of them are the unknown-value witnesses of RM13 and RM25 |
+| invert the membership test of `FunctionDeclaration.check` | `src/cleverly/_declarations.py` | 33 failures and 16 errors in the RM25 file. 26 failures and 14 errors in the RM13 file. Four failures in each file are its unknown-value witnesses |
 
 No study was regenerated. Only `refuse_regime_densities` reads `density_kind`. `RegimeSet.evaluate`,
 the influence code, and the estimator arguments did not change. So the change is result-neutral
