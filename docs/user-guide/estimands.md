@@ -109,6 +109,7 @@ plans = (
     Stochastic(
         lambda data: np.column_stack([np.full(len(data), 0.4), np.full(len(data), 0.6)]),
         name="assign with probability 0.6",
+        density_kind="known",
     ),
 )
 result = study.estimate(RegimeContrast(plans, reference="treat none"), method=quick, random_state=3)

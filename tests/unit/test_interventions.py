@@ -113,28 +113,29 @@ def test_rule_refuses_the_wrong_length() -> None:
 def test_stochastic_passes_a_normalised_density_through() -> None:
     data = make_data()
     values = np.column_stack([np.full(data.n, 0.3), np.full(data.n, 0.7)])
-    assert np.array_equal(Stochastic(lambda w: values, "coin").density(data), values)
+    regime = Stochastic(lambda w: values, "coin", density_kind="known")
+    assert np.array_equal(regime.density(data), values)
 
 
 def test_stochastic_refuses_rows_that_do_not_sum_to_one() -> None:
     data = make_data()
     values = np.column_stack([np.full(data.n, 0.3), np.full(data.n, 0.5)])
     with pytest.raises(DataError, match="rows summing to"):
-        Stochastic(lambda w: values, "unnormalised").density(data)
+        Stochastic(lambda w: values, "unnormalised", density_kind="known").density(data)
 
 
 def test_stochastic_refuses_a_negative_probability() -> None:
     data = make_data()
     values = np.column_stack([np.full(data.n, -0.2), np.full(data.n, 1.2)])
     with pytest.raises(DataError, match="negative probability"):
-        Stochastic(lambda w: values, "negative").density(data)
+        Stochastic(lambda w: values, "negative", density_kind="known").density(data)
 
 
 def test_stochastic_refuses_the_wrong_number_of_arms() -> None:
     data = make_data(levels=(0, 1, 2))
     values = np.column_stack([np.full(data.n, 0.5), np.full(data.n, 0.5)])
     with pytest.raises(DataError, match=r"expected \(40, 3\)"):
-        Stochastic(lambda w: values, "two of three").density(data)
+        Stochastic(lambda w: values, "two of three", density_kind="known").density(data)
 
 
 # ------------------------------------------------------------------- refusals
@@ -247,7 +248,8 @@ def test_is_static_separates_the_degenerate_regimes() -> None:
     values = np.column_stack([np.full(data.n, 0.3), np.full(data.n, 0.7)])
     assert RegimeSet.evaluate([Static(0), Static(1)], data).is_static
     assert not RegimeSet.evaluate([rule], data).is_static
-    assert not RegimeSet.evaluate([Stochastic(lambda w: values, "coin")], data).is_static
+    coin = Stochastic(lambda w: values, "coin", density_kind="known")
+    assert not RegimeSet.evaluate([coin], data).is_static
 
 
 def test_bare_levels_are_read_as_static_regimes() -> None:
@@ -296,7 +298,8 @@ def test_support_report_effective_sample_size_is_n_when_the_regime_is_the_mechan
     data = make_data(n=40)
     g1 = np.full(data.n, 0.5)
     propensity = np.column_stack([1.0 - g1, g1])
-    regimes = RegimeSet.evaluate([Stochastic(lambda w: propensity, "observed")], data)
+    observed = Stochastic(lambda w: propensity, "observed", density_kind="known")
+    regimes = RegimeSet.evaluate([observed], data)
     support = check_support(regimes, data.treatment, propensity).regimes["observed"]
     assert support.effective_sample_size == pytest.approx(data.n)
     assert support.max_ratio == pytest.approx(1.0)

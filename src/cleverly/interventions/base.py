@@ -38,7 +38,8 @@ effort -- and both are implemented, elsewhere, under keywords of their own:
   data -- nor the influence curve below can express that, which is why it is a parameter
   axis of its own: :mod:`cleverly.interventions.incremental` and ``TMLE(incremental=)``.
   The paragraph stays here rather than being deleted, because the thing to stop a reader
-  doing is writing one as a :class:`Stochastic`.
+  doing is writing one as a :class:`Stochastic`.  A :class:`Stochastic` must declare
+  ``density_kind="known"``, and one declared ``"estimated"`` is refused (roadmap row RM25).
 - A **modified treatment policy** shifting a continuous treatment needs
   :math:`g^\star` and :math:`g` as conditional *densities* on a continuum, which the
   learner layer does not estimate -- there is no ``predict_density``.
@@ -48,12 +49,13 @@ effort -- and both are implemented, elsewhere, under keywords of their own:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
 
+from .._declarations import FunctionDeclaration, FunctionKind
 from .._typing import FloatArray
 from ..data.causal_data import CausalData
 from ..exceptions import DataError
@@ -65,6 +67,7 @@ __all__ = [
     "Static",
     "Stochastic",
     "as_interventions",
+    "refuse_regime_densities",
     "refuse_unsupported",
 ]
 
@@ -278,10 +281,16 @@ class Stochastic:
     columns are in :attr:`~cleverly.data.CausalData.arm_codes` order and whose rows sum
     to one.
 
-    *Known* is the load-bearing word.  :math:`g^\\star` must be a fixed function of
-    :math:`W`, not one derived from the estimated mechanism: the influence curve this
-    package reports for a regime has no term for :math:`g^\\star` depending on
-    :math:`P`.  See the module docstring, and :func:`refuse_unsupported`.
+    *Known* is the load-bearing word, and ``density_kind="known"`` declares it.
+    :math:`g^\\star` must be a fixed function of :math:`W`, chosen without reading the
+    data.  A density computed from the sample, such as a tilt of a fitted treatment
+    mechanism, makes :math:`g^\\star` a functional of :math:`P`.  The influence curve this
+    package reports for a regime has no term for its pathwise derivative.  A callable can
+    close over any estimate and no code can inspect a closure, so the declaration is the
+    check.  :func:`refuse_regime_densities` refuses ``None`` and ``"estimated"`` when the
+    regime is built, and ``TMLE`` refuses them again before any learner.  For an odds tilt
+    of the treatment mechanism, use :class:`~cleverly.interventions.Incremental`, whose
+    curve carries that term.  See the module docstring.
 
     Parameters
     ----------
@@ -289,10 +298,23 @@ class Stochastic:
         Maps the covariate frame to an ``(n, K)`` array of arm probabilities.
     name : str
         Label used in reported parameter names.
+    density_kind : {"known", "estimated"} or None
+        The declaration that ``density_fn`` is a known function.  ``"known"`` is the one
+        value a fit accepts.  ``None``, the default, and ``"estimated"`` raise
+        :class:`~cleverly.exceptions.CapabilityError`, and any other value raises
+        :class:`~cleverly.exceptions.DataError`.  A regime pickled before this field
+        existed loads as ``None`` and refuses every recomputation.  It is the last field,
+        so ``Stochastic(density_fn, name)`` keeps its positional order.
     """
 
     density_fn: Callable[[Any], Any]
     name: str
+    #: A plain default, so it is a class attribute: a regime pickled before the field
+    #: existed reads ``None`` here, and :func:`dataclasses.replace` still works on it.
+    density_kind: FunctionKind | None = None
+
+    def __post_init__(self) -> None:
+        refuse_regime_densities((self,))
 
     def density(self, data: CausalData) -> FloatArray:
         """Evaluate this regime's arm probabilities for every row.
@@ -365,6 +387,98 @@ def refuse_unsupported(kind: str) -> None:
             "*discrete* treatment can be written as a Rule."
         )
     raise ValueError(f"unknown intervention kind {kind!r}")
+
+
+#: Why an estimated regime density is refused.  ``_DENSITY_DECLARATION`` reads it, and
+#: :func:`refuse_regime_densities` runs that declaration at every site that checks it.
+_ESTIMATED_DENSITY = (
+    "a Stochastic regime with an estimated density is refused. g*(a | W) is then a "
+    "functional of P, so the efficient influence function carries a further term for the "
+    "pathwise derivative of g* through P, such as through the estimated treatment "
+    "mechanism, and the influence curve reported for a regime does not have it. The "
+    "reported standard error can be wrong; on the RM25 exact law it is too small. "
+    "docs/technical-reference/scope-and-refusals.md (Wrong by construction) records the "
+    "refusal, and RM25 in docs/roadmap.md records the reason. For an odds tilt of the "
+    "treatment mechanism, declare cleverly.interventions.Incremental and pass it to "
+    "TMLE(incremental=...), whose curve carries that term. Otherwise pass density_fn= as "
+    "a fixed function of the covariates with density_kind='known'."
+)
+
+_UNDECLARED_DENSITY = (
+    "Stochastic needs a declaration of what density_fn is. Pass density_kind='known' "
+    "when g*(a | W) is a fixed function of the covariates, chosen without reading the "
+    "data. A density computed from the sample, such as a tilt of a fitted treatment "
+    "mechanism, is estimated: g* is then a functional of P, the reported influence curve "
+    "omits its pathwise derivative, so its standard error can be wrong (RM25 in "
+    "docs/roadmap.md). density_kind='estimated' is refused for that reason."
+)
+
+#: The regime-density declaration: the field ``density_kind``, and the texts of its
+#: refusals.  :mod:`cleverly._declarations` holds the three-state check, which the MSM
+#: projection-weight declaration shares.
+_DENSITY_DECLARATION = FunctionDeclaration(
+    "density_kind",
+    meaning=(
+        "It declares whether the regime density g*(a | W) is a fixed function of the "
+        "covariates or one computed from the sample."
+    ),
+    undeclared=_UNDECLARED_DENSITY,
+    estimated=_ESTIMATED_DENSITY,
+)
+
+
+def refuse_regime_densities(interventions: Iterable[object]) -> None:
+    """Raise unless every :class:`Stochastic` among ``interventions`` declares a known density.
+
+    A callable can close over any estimate, and no code can inspect a closure, so the
+    status of :math:`g^\\star` is the declaration ``density_kind``.  For each
+    :class:`Stochastic`, the checks run in order:
+
+    1. A ``density_fn`` that is not callable is a :class:`DataError`.
+    2. A ``density_kind`` outside ``"known"``, ``"estimated"`` and ``None`` is a
+       :class:`DataError`.
+    3. ``density_kind=None`` is a :class:`~cleverly.exceptions.CapabilityError`.
+    4. ``density_kind="estimated"`` is a :class:`~cleverly.exceptions.CapabilityError`
+       that names the missing pathwise-derivative term.
+
+    :class:`Stochastic` runs this when it is built.  ``TMLE`` runs it again before any
+    learner and at the start of every retarget, and the simulated-confounding replay runs
+    it before any density is evaluated.  A regime restored from an older pickle, or
+    changed with ``object.__setattr__``, can carry a declaration this version refuses.
+    Loading runs no check, so a restored result keeps the estimates it stored, and they
+    answer as saved (roadmap row RM25).
+
+    The check selects regimes with ``isinstance``, so a subclass that skips
+    :meth:`Stochastic.__post_init__` still refuses at the fit.  Every other intervention
+    passes unchecked: :class:`Static` and :class:`Rule` hold no density function, and a
+    user-written :class:`Intervention` carries no declaration (roadmap row RM28).
+
+    Parameters
+    ----------
+    interventions : iterable of object
+        The declared regimes of a fit, or of a replay.
+
+    Raises
+    ------
+    DataError
+        If a ``density_fn`` is not callable, or a ``density_kind`` is not one of the
+        three states.
+    CapabilityError
+        If a ``density_kind`` is ``None`` or ``"estimated"``.
+    """
+    for item in interventions:
+        if not isinstance(item, Stochastic):
+            continue
+        # Typed ``object`` on purpose: this checks what a restored or modified regime holds
+        # at run time, which its annotations do not guarantee.
+        density_fn: object = item.density_fn
+        if not callable(density_fn):
+            raise DataError(
+                "Stochastic density_fn= must be callable: covariate_frame -> (n, K) arm "
+                "probabilities, one column per level of data.treatment_levels; got "
+                f"{type(density_fn).__name__}"
+            )
+        _DENSITY_DECLARATION.refuse(item.density_kind)
 
 
 # ------------------------------------------------------------------ regime sets

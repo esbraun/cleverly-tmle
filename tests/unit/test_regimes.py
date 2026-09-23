@@ -151,7 +151,11 @@ class TestAStochasticRegime:
         coin = fit(
             frame,
             interventions=(
-                Stochastic(lambda w: np.column_stack([np.full(len(w), 0.5)] * 2), "coin"),
+                Stochastic(
+                    lambda w: np.column_stack([np.full(len(w), 0.5)] * 2),
+                    "coin",
+                    density_kind="known",
+                ),
             ),
         )
         midpoint = 0.5 * (arms["ey1"].psi + arms["ey0"].psi)
@@ -164,7 +168,11 @@ class TestAStochasticRegime:
             fit(
                 frame,
                 interventions=(
-                    Stochastic(lambda w: np.column_stack([np.full(len(w), 0.5)] * 2) * 3, "bad"),
+                    Stochastic(
+                        lambda w: np.column_stack([np.full(len(w), 0.5)] * 2) * 3,
+                        "bad",
+                        density_kind="known",
+                    ),
                 ),
             )
 

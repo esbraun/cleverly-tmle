@@ -18,7 +18,12 @@ from .._typing import FloatArray
 from ..data import CausalData
 from ..exceptions import CapabilityError, DataError
 from ..interventions import RegimeSet, Rule, Static, Stochastic
-from ..interventions.base import _as_array, as_interventions, check_regime_density
+from ..interventions.base import (
+    _as_array,
+    as_interventions,
+    check_regime_density,
+    refuse_regime_densities,
+)
 from ..msm import MSM, MSMSet, _DataBoundArmFunction
 from ..provenance import fingerprint_array
 from ..study import MSMProjection, RegimeContrast, RegimeMean
@@ -195,6 +200,10 @@ def _freeze_regimes(result: Any, key: Any, typed: Any, functional: Any) -> tuple
         or typed.horizons is not None
     ):
         raise DataError("regime declarations disagree")
+    # A frozen regime holds fixed arrays and is not a Stochastic, so the refit admits it.
+    # Check the source declarations here, before any density runs, so a regime restored
+    # with no declaration refuses at replay as it would at the fit (roadmap row RM25).
+    refuse_regime_densities(declarations)
     expected = _checked_regimes(
         RegimeSet.evaluate(declarations, data, reference=functional.reference), data
     )

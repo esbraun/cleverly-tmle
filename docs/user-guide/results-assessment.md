@@ -589,7 +589,10 @@ policy_result = (
     )
     .identify(
         RegimeContrast(
-            regimens=(Static(0, name="never"), Stochastic(navigation_probability, name="policy")),
+            regimens=(
+                Static(0, name="never"),
+                Stochastic(navigation_probability, name="policy", density_kind="known"),
+            ),
             reference="never",
         )
     )
