@@ -1411,17 +1411,34 @@ is the only empirical witness for it.
   E-value*.
 - VanderWeele (2010), [*Bias formulas for sensitivity analysis for direct and indirect
   effects*](https://doi.org/10.1097/EDE.0b013e3181df191c), *Epidemiology* 21(4):540-551. The
-  E-value paths cite it for the bias of a controlled direct effect. It gives no E-value.
+  prior RM21 review cited its controlled-direct-effect bias formulas. The present review could
+  not verify the earlier Appendix 1 characterization from the full text.
 - Smith & VanderWeele (2019), [*Mediational E-values: approximate sensitivity analysis for
-  unmeasured mediator-outcome confounding*](https://doi.org/10.1097/EDE.0000000000001064),
-  *Epidemiology* 30(6):835-837. Its E-value covers natural direct and indirect effects only.
+  unmeasured mediator-outcome confounding*](https://www.louisahsmith.com/publications/smith2019mediational.pdf),
+  *Epidemiology* 30(6):835-837. The [supplement](https://download.lww.com/wolterskluwer_vitalstream_com/PermaLink/EDE/B/EDE_2019_07_22_SMITH_EDE18-0696R2_SDC1.pdf)
+  gives its natural-effect confounding model. The paper does not map it to this package's fitted
+  population controlled direct effect at fixed intermediate level.
 - Ding & VanderWeele (2016), [*Sharp sensitivity bounds for mediation under unmeasured
-  mediator-outcome confounding*](https://arxiv.org/abs/1601.05155), *Biometrika*
-  103(2):483-490, DOI 10.1093/biomet/asw012. This package read the arXiv version only.
+  mediator-outcome confounding*](https://arxiv.org/html/1601.05155), *Biometrika*
+  103(2):483-490, DOI 10.1093/biomet/asw012. Sections 2–4 and Appendix D.4 of the arXiv
+  version concern natural effects, including a natural direct effect among unexposed people.
 - Ding & VanderWeele (2016), [*Sensitivity analysis without
-  assumptions*](https://doi.org/10.1097/EDE.0000000000000457), *Epidemiology* 27(3):368-377.
+  assumptions*](https://arxiv.org/html/1507.03984), *Epidemiology* 27(3):368-377. Sections
+  2–3 and Appendix 2.5 give the bounding factor for an exposure contrast, general confounders,
+  and averaging over measured covariates.
+- Gilbert, Fong, Kenny & Carone (2023), [*A controlled effects approach to assessing immune
+  correlates of protection*](https://academic.oup.com/biostatistics/article/24/4/850/7320953),
+  *Biostatistics* 24(4):850-865. Its E-value compares marker interventions within one vaccination
+  arm, rather than treatment arms at one fixed marker value.
+- Mathur, Ding, Riddell & VanderWeele (2018), [*Website and R Package for Computing
+  E-Values*](https://pmc.ncbi.nlm.nih.gov/articles/PMC6066405/), *Epidemiology* 29(5):e45-e47.
+  The article describes ordinary E-values and effect-scale conversions in software.
+- Tingley, Yamamoto, Hirose, Keele & Imai (2014), [*mediation: R Package for Causal Mediation
+  Analysis*](https://www.jstatsoft.org/article/view/v059i05), *Journal of Statistical Software*
+  59(5):1-38. Its mediation sensitivity software does not provide an E-value mapping for the
+  fitted controlled direct effect here.
 - The R package [`EValue` 4.1.4](https://cran.r-project.org/package=EValue), which has no
-  function for mediation or a direct effect.
+  function for mediation or a direct effect. That describes the software API only.
 - Scharfstein, Rotnitzky & Robins (1999), *Adjusting for nonignorable drop-out using semiparametric
   nonresponse models*.
 - Sharma & Kiciman (2020), [*DoWhy: An End-to-End Library for Causal

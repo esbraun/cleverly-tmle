@@ -1,9 +1,8 @@
 """Every E-value request on a controlled-direct-effect fit refuses (roadmap row RM21).
 
 A controlled direct effect is identified under two assumptions of no unmeasured confounding: one
-for the treatment and the outcome, and one for the intermediate variable and the outcome. The
-E-value of VanderWeele and Ding (2017) inverts a bound on the confounding of one exposure-outcome
-relation, and no source read for this package derives one for a controlled direct effect. So
+for the treatment and the outcome, and one for the intermediate variable and the outcome. This
+package has no implemented E-value bound for its fitted target and confounding model. So
 :func:`~cleverly.sensitivity.evalue._select_evalue` refuses every request on such a fit, before it
 resolves the estimand, and the capability row reads ``unavailable``. F25 in ``docs/roadmap.md``
 holds the missing result.

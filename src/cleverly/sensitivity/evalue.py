@@ -37,10 +37,10 @@ Conversions for other effect scales are approximations and are flagged as such:
   :func:`cleverly.sensitivity.omitted_variable_bounds` for a continuous outcome,
   which needs no such conversion.
 
-No conversion applies to a controlled direct effect. That effect is identified under no
-unmeasured confounding of the treatment and the outcome, and of the intermediate variable and
-the outcome, and no source read for this package derives an E-value for it.
-:func:`_select_evalue` therefore refuses every request on a fit with an intermediate variable.
+This package has no implemented E-value bound for its fitted controlled direct effect
+and confounding model. :func:`_select_evalue` refuses every request on a fit with an
+intermediate variable, because the ordinary conversion does not establish sensitivity
+to unmeasured confounding for that target.
 """
 
 from __future__ import annotations
@@ -86,22 +86,19 @@ _STANDARDISED_MISSING_REFUSAL = (
 #: sentence.
 _EVALUE_NEEDS_INFERENCE = "an E-value is built from the reported estimate and its interval. "
 
-#: Why every E-value branch stops on a fit with an intermediate variable.  A controlled direct
-#: effect is identified under two no-unmeasured-confounding assumptions, and the E-value
-#: inverts a bound for one exposure-outcome relation.  The E-value section of
-#: ``docs/technical-reference/validation-methods.md`` tabulates the sources read, and F25 in
-#: ``docs/roadmap.md`` holds the missing result.  Raised in :func:`_select_evalue` before the
+#: Why every E-value branch stops on a fit with an intermediate variable. This package
+#: has no implemented bound for its fitted controlled direct effect and confounding model.
+#: The E-value section of ``docs/technical-reference/validation-methods.md`` gives the
+#: support boundary, and F25 in ``docs/roadmap.md`` tracks the gap. Raised in
+#: :func:`_select_evalue` before the
 #: estimand is resolved, so the row reads ``unavailable`` on every such fit with a discrete
 #: treatment, a multi-arm fit included, and no branch computes.  A continuous-treatment fit
 #: meets the check before it and reads ``not_applicable``, so it is refused as well.
 _DIRECT_EFFECT_REFUSAL = (
-    "no source that this package has read derives an E-value for controlled direct "
-    "effects. The E-value of VanderWeele and Ding (2017) bounds the unmeasured "
-    "confounding of one exposure-outcome relation. A controlled direct effect also "
-    "assumes no unmeasured confounding of the intermediate variable and the outcome, "
-    "and the mediational E-value of Smith and VanderWeele (2019) covers natural direct "
-    "and indirect effects only. This package refuses every E-value request on a fit "
-    "with an intermediate variable; docs/roadmap.md F25 tracks this stop"
+    "this package has no implemented E-value bound for the fitted controlled direct "
+    "effect and its confounding model. Applying the ordinary E-value conversion does "
+    "not establish sensitivity to unmeasured treatment-outcome or intermediate-outcome "
+    "confounding for this target. docs/roadmap.md F25 tracks this support gap"
 )
 
 
@@ -506,8 +503,8 @@ def evalue(result: TMLEResult, estimand: str | None = None) -> EValue:
     ------
     CapabilityError
         If no branch covers the request. A fit with an intermediate variable estimates a
-        controlled direct effect, and every request on it refuses, because no source read
-        for this package derives an E-value for that target.
+        controlled direct effect, and every request on it refuses because this package
+        has no implemented E-value bound for its fitted target and confounding model.
     """
     return _evalue_from_selection(result, _select_evalue(result, estimand))
 
