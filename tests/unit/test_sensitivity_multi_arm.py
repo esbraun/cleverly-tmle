@@ -331,13 +331,19 @@ class TestTheBoundOnAWeightedFit:
     def test_the_influence_curve_contributions_carry_the_weights(
         self, weighted_exact_fit: Any
     ) -> None:
-        """``psi_sigma2`` and ``psi_nu2`` row by row, and not merely their averages.
+        """``psi_sigma2`` row by row, and not merely its average.
 
-        These two arrays never reach ``max_bias``; they reach the standard error the bound
+        This array never reaches ``max_bias``; it reaches the standard error the bound
         reports, so an implementation that weighted the point and not the contributions
         returns a correct bound with an interval for a different population.  The fit is
-        exact, so both are known in closed form: the targeted regression *is* ``Q``, and
-        the representer of ``ey[high]`` *is* ``1{A = high} / g_high``.
+        exact, so the curve is known in closed form: the targeted regression *is* ``Q``,
+        and the representer of ``ey[high]`` *is* ``1{A = high} / g_high``.
+
+        The curve of ``nu^2`` has its own witness.  Under the plug-in estimator it is
+        ``None``, because no derivation gives it (docs/roadmap.md F26).  Under the doubly
+        robust estimator ``tests/unit/test_omitted_variable_standard_error.py`` compares
+        it, on this weighted fit, with the Gateaux derivative row by row for every
+        parameter.
         """
         w_code, a_code, y = _rows()
         weights = _normalised_weights(w_code)
@@ -352,13 +358,12 @@ class TestTheBoundOnAWeightedFit:
 
         representer = (a_code == arm).astype(float) / G[w_code, arm]
         assert elements.riesz_representer == pytest.approx(representer, abs=1e-12)
-        nu2 = _nu2("ey", arm, WEIGHTED_PROBS)
-        assert elements.psi_nu2 == pytest.approx((representer**2 - nu2) * weights, abs=1e-12)
+        assert elements.psi_nu2 is None
+        assert elements.psi_max_bias is None
 
-        # Not vacuous: dropping either weight factor moves a real row's contribution, by
-        # 0.588 for sigma^2 and by 10.3 for nu^2 at this profile.
+        # Not vacuous: dropping the weight factor moves a real row's contribution, by 0.588
+        # at this profile.
         assert np.max(np.abs(elements.psi_sigma2 - (residual**2 - sigma2))) > 0.5
-        assert np.max(np.abs(elements.psi_nu2 - (representer**2 - nu2))) > 5.0
 
 
 class TestTheOverlapReportOnAWeightedFit:

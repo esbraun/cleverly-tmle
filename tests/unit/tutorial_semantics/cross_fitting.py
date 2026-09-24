@@ -18,6 +18,7 @@ from cleverly.datasets import navigation_protocol
 from cleverly.inference import median_estimates
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
+    assert_plugin_limits_refuse,
     assert_protocol_recorded,
     covers,
     stored_output,
@@ -230,8 +231,9 @@ def check(namespace: dict[str, Any]) -> None:
     assert 0.15 < robustness["rv"] < 0.35
     assert (confounding.cf_y, confounding.cf_d, confounding.rho) == (0.03, 0.03, 1.0)
     assert confounding.lower < cross_fitted.psi < confounding.upper
-    assert confounding.ci_lower < confounding.lower
-    assert confounding.ci_upper > confounding.upper
+    # "The page reports no one-sided limit": the plug-in bound refuses its limits with the
+    # F26 reason, which the page prints.
+    assert_plugin_limits_refuse(first, confounding, namespace)
     at_rv = first.sensitivity.omitted_confounding(
         cf_y=robustness["rv"], cf_d=robustness["rv"], rho=1.0, nu2_estimator="plugin"
     )

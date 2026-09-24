@@ -2865,6 +2865,15 @@ def _robustness_item(
     # non-inferential status in the report itself, so a saved report reads the same name
     # and prints the same noun with no fit at hand.
     status = report.get("inference", "influence_curve")
+    if report.get("nu2_estimator") == "plugin":
+        # No confidence-limit value exists under the plug-in nu^2, under any name, so the
+        # row says why rather than reading a key the report does not carry.
+        return AssessmentItem(
+            "robustness_value",
+            AssessmentStatus.COMPLETED,
+            f"point robustness value {report['rv']:.4g}; no confidence-limit value under the "
+            "plug-in nu^2 (docs/roadmap.md F26)",
+        )
     return AssessmentItem(
         "robustness_value",
         AssessmentStatus.COMPLETED,
