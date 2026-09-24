@@ -121,6 +121,11 @@ rename a number on a non-inferential status.
 | `LongitudinalResult.curve()` | `std_err`, `ci_lower`, `ci_upper` | `plugin_std_err`, `plugin_interval_lower`, `plugin_interval_upper`, and an `inference` column |
 | `LongitudinalResult.incidence_total()` | `std_err` | `plugin_std_err` |
 
+Under `nu2_estimator="plugin"` an omitted-variable bound refuses its limits at every status, for a
+different reason. No derivation gives their standard error. `to_dict()` then omits the three limit
+keys and carries `nu2_estimator`, and `robustness_value()` omits `rva` under every name. The
+[standard error of the omitted-variable bound](validation-methods.md#standard-error-of-the-omitted-variable-bound) gives the rule.
+
 `CVTargeting.inference` reads the status from the two fold-level reports. The fit stamps those
 reports where it stamps its own estimates. `SensitivityBounds.inference` carries the status of the
 estimate that the bound adjusts. The file `tests/unit/test_inference_status_reach.py` forces each
