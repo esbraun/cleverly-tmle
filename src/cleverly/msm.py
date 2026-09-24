@@ -78,9 +78,11 @@ see :func:`refuse_unsupported` and :func:`refuse_msm_functions`:
   ``tests/unit/test_msm_projection_weights.py`` measures the standard error it then
   understates.
 - **a design computed from the sample**, such as a covariate centred at its sample mean.
-  Then :math:`\varphi` is a functional of :math:`P`, and the efficient influence function
-  carries a further term for the pathwise derivative through that statistic.  The status
-  of the design is a declaration too: a written ``design=`` needs ``design_kind="known"``,
+  For a population-law target that centres at :math:`E_P[W]`, :math:`\varphi` is a
+  functional of :math:`P`, and its influence function can need a pathwise-derivative
+  term through that statistic.  A realized learned-design target needs separate
+  inference conditions that this API does not establish.  The status of the design is
+  a declaration too: a written ``design=`` needs ``design_kind="known"``,
   and an undeclared design and ``design_kind="estimated"`` are refused with
   :class:`~cleverly.exceptions.CapabilityError`.  :meth:`MSM.linear` needs no
   declaration: its design is known by its exact type, which a user design does not have.
@@ -349,24 +351,26 @@ _WEIGHTS_DECLARATION = FunctionDeclaration(
 
 _ESTIMATED_DESIGN = (
     "an estimated MSM design is refused. A design computed from the sample, such as a "
-    "covariate centred at its sample mean, makes phi a functional of P, so the efficient "
-    "influence function carries a further term for the pathwise derivative through that "
-    "statistic, and the influence curve reported here does not have it. The reported "
-    "standard error can be wrong in either direction; the RM27 exact-law witness shows one "
-    "that is too small. docs/technical-reference/msm-projections.md (Variations) records "
-    "the refusal, and RM27 in docs/roadmap.md records the reason. Fix the statistic before "
-    "the fit, for example centre at a stated constant, and pass design_kind='known'."
+    "covariate centred at its sample mean, can define a population-law target where phi "
+    "is a functional of P. Its influence function can need a further term for the "
+    "pathwise derivative through that statistic, which the reported influence curve lacks. "
+    "The standard error can be wrong in either direction; the RM27 exact-law witness "
+    "shows one that is too small. A realized learned-design target instead needs inference "
+    "conditions that this API does not establish. docs/technical-reference/msm-projections.md "
+    "(Variations) records the refusal, and RM27 in docs/roadmap.md records the reason. "
+    "Choose any centre independently of the analysis sample, then pass design_kind='known'."
 )
 
 _UNDECLARED_DESIGN = (
     "MSM design= needs a declaration of what the callable is. Pass design_kind='known' "
     "when phi is a fixed function of the arm (or the regimen and horizon) and the "
     "covariates, chosen without reading the data. A design computed from the sample, such "
-    "as a covariate centred at its sample mean, is estimated: phi is then a functional of "
-    "P, and the reported influence curve omits its pathwise derivative, so its standard "
-    "error can be wrong (RM27 in docs/roadmap.md). design_kind='estimated' is refused for "
-    "that reason. MSM.linear needs no declaration: the design it builds is known by "
-    "construction."
+    "as a covariate centred at its sample mean, is estimated. For a population-law target, "
+    "phi is then a functional of P and the reported influence curve can omit its pathwise "
+    "derivative, so its standard error can be wrong (RM27 in docs/roadmap.md). A realized "
+    "learned-design target needs separate inference conditions that this API does not "
+    "establish. design_kind='estimated' is refused for these reasons. MSM.linear needs no "
+    "declaration: the design it builds is known by construction."
 )
 
 #: The working-design declaration: the field ``design_kind``, and the texts of its
@@ -394,11 +398,11 @@ def refuse_msm_functions(model: MSM) -> None:
     1. A ``design`` that is not callable is a :class:`DataError`.
     2. A ``design_kind`` outside ``"known"``, ``"estimated"`` and ``None`` is a
        :class:`DataError`.  ``design_kind=None`` is a :class:`CapabilityError`, and so is
-       ``design_kind="estimated"``, whose message names the missing pathwise-derivative
-       term.  A model whose ``design_kind`` is ``None`` and whose design has the exact
-       type that :meth:`MSM.linear` builds reads as ``"known"``.  That shorthand leaves
-       the field ``None``, so its design is known by its type and by nothing else.  A
-       model pickled before the field existed reads the same way.
+       ``design_kind="estimated"``, whose message names the pathwise-derivative term a
+       population-law target can need.  A model whose ``design_kind`` is ``None`` and whose
+       design has the exact type that :meth:`MSM.linear` builds reads as ``"known"``.
+       That shorthand leaves the field ``None``, so its design is known by its type alone.
+       A model pickled before the field existed reads the same way.
     3. A ``weights_kind`` outside ``"known"``, ``"estimated"`` and ``None`` is a
        :class:`DataError`.  A value that is not a ``str``, such as an array or
        ``pandas.NA``, is outside them.
@@ -579,10 +583,10 @@ class MSM:
     design_kind : {"known", "estimated"} or None
         The declaration that ``design`` is a known function: a fixed function of the arm
         (or the regimen and horizon) and the covariates, chosen without reading the data.
-        ``None`` and ``"estimated"`` are refused by :func:`refuse_msm_functions`, because
-        a design computed from the sample, such as a covariate centred at its sample mean,
-        makes :math:`\varphi` a functional of :math:`P` and the reported influence curve
-        omits its pathwise derivative.  ``None`` reads as ``"known"`` only when the design
+        ``None`` and ``"estimated"`` are refused by :func:`refuse_msm_functions`.  A
+        population-law target using a sample-computed design, such as a covariate centred
+        at its sample mean, can need a pathwise derivative through that statistic, which
+        the reported curve lacks.  ``None`` reads as ``"known"`` only when the design
         has the exact type that :meth:`linear` builds.  That design is known by
         construction, so :meth:`linear` leaves this field ``None``, and a design swapped
         into its model with :func:`dataclasses.replace` needs its own declaration.  A model

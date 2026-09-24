@@ -2953,6 +2953,26 @@ it can close over any statistic of the sample. A design that centres a covariate
 mean is a common example. The projection is then a functional of $P$ through the design, and the
 reported influence curve omits that pathwise derivative.
 
+The published MSM derivations cover a user-supplied working design.
+[Petersen et al. (2014)](https://doi.org/10.1515/jci-2013-0007), Section 3, derive the pooled
+longitudinal TMLE for that target. [Martin, Santacatterina and Díaz (2024)](https://arxiv.org/html/2409.18782v1),
+Definition 1, also use a user-given transformation. Their Section 1 says MSM model selection lacks
+general post-selection inference.
+
+The software articles document inputs and variance calculations. They do not derive the curve
+for this sample-centred design.
+
+| source | relevant scope |
+| --- | --- |
+| JSS [`tmle`](https://www.jstatsoft.org/article/view/v051i13), Section 2.6, pages 8-9; Section 2.7, page 10; Section 3.6, pages 20-21 | the working MSM is user-specified, and the printed influence curve uses that design. `hAVform` can estimate the projection weight $h(A,V)$. That weight option does not derive a curve for an estimated design |
+| JSS [`ltmle`](https://www.jstatsoft.org/article/view/v081i01), Sections 4.1-4.3, pages 13-18 | the working model uses specified functions $\phi_j(d,t)$ and a `summary.measures` array. `msm.weights` can use empirical regime shares. That weight option does not derive a curve for an estimated design |
+| R Journal [`CIMTx`](https://journal.r-project.org/articles/RJ-2022-058/), Section 3.1 | its multi-treatment TMLE calls `tmle` and uses bootstrap intervals for treatment effects. It does not study a learned MSM design |
+
+The omitted term concerns a population-law target whose design uses $c(P)=E_P[W]$. A fixed
+design with the observed sample centre defines a different, sample-dependent target. The
+fixed-design curve alone does not validate an interval for that target when the same rows set the
+centre and estimate the projection.
+
 The review of the RM20 and RM13 delivery raised this surface as a plausible finding. A 2026-09-23
 probe measured it on an exact law, as RM13 measured the weight.
 

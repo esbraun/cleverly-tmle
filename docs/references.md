@@ -974,10 +974,10 @@ is the only empirical witness for it.
   near-tie margin has been proved for the package's discrete argmin.
 - Li, Qiu, Wang & van der Laan (2025), [*Regularized Targeted Maximum Likelihood Estimation in
   Highly Adaptive Lasso Implied Working Models*](https://arxiv.org/abs/2506.17214),
-  arXiv:2506.17214, and Xu & van der Laan (2026), [*Adaptive Targeted Maximum Likelihood Estimation
-  of the Mean Potential Outcome under a Treatment Rule*](https://arxiv.org/abs/2605.01671),
-  arXiv:2605.01671, are recent adjacent adaptive-working-model results. They use explicit working
-  projections or regularized targeting rather than the shipped global candidate-depth selector.
+  arXiv:2506.17214, studies explicit working projections and regularized targeting. It does not
+  cover the shipped global candidate-depth selector. The adjacent Xu & van der Laan
+  [arXiv:2605.01671](https://arxiv.org/abs/2605.01671) is marked withdrawn. Its abstract remains
+  online, but the manuscript is not a source for an inference claim.
 - Hahn & Ridder (2013), [*Asymptotic variance of semiparametric estimators with generated
   regressors*](https://doi.org/10.3982/ECTA9609), *Econometrica* 81(1):315-340, DOI
   10.3982/ECTA9609. The abstract derives the first-step contribution to the influence function
@@ -1308,6 +1308,12 @@ is the only empirical witness for it.
 - Rosenblum & van der Laan (2010), [*Targeted Maximum Likelihood Estimation of the
   Parameter of a Marginal Structural Model*](https://doi.org/10.2202/1557-4679.1238),
   DOI 10.2202/1557-4679.1238.
+- Martin, Santacatterina & Díaz (2024), [*Non-parametric efficient estimation of marginal
+  structural models with multi-valued time-varying treatments*](https://arxiv.org/html/2409.18782v1),
+  arXiv:2409.18782v1. Definition 1 fixes a user-given transformation and projection distribution.
+  Section 1 says available MSM model-selection methods lack general post-selection inference.
+  Its estimator and projection measure differ from those in `cleverly`; it does not validate a
+  design estimated on the analysis sample.
 - Orellana, Rotnitzky & Robins (2010), *Dynamic regime marginal structural mean models for
   estimation of optimal dynamic treatment regimes*.
 - Hernán & Robins, [*Causal Inference: What If*](https://miguelhernan.org/whatifbook), Chapman &

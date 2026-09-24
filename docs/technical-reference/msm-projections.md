@@ -153,7 +153,7 @@ Each refusal raises `CapabilityError`. The
 | refused | kind | reason |
 | --- | --- | --- |
 | a `design=` callable with no `design_kind` | wrong by construction | the package cannot tell a fixed design from a design computed from the sample. The message asks for `design_kind="known"` |
-| `design_kind="estimated"`, for example a covariate centred at its sample mean | wrong by construction | the design is a functional of $P$, so the influence curve needs a further term for the pathwise derivative through that statistic. The reported curve does not have it |
+| `design_kind="estimated"`, for example a covariate centred at its sample mean | wrong by construction | for a population-law target that centres at $E_P[W]$, the curve needs the derivative through that mean. The reported curve omits it. Conditioning on a centre learned from these same rows defines a different target, with no validated interval here |
 | a `weights=` callable with no `weights_kind` | wrong by construction | the package cannot tell a fixed weight from a weight computed from the sample. The message asks for `weights_kind="known"` |
 | `weights_kind="estimated"`, a "stabilised" MSM | wrong by construction | the weight is a functional of $P$, so the influence curve needs a further term for the pathwise derivative through the estimated mechanism. The reported curve does not have it. This is the same argument that gives an incremental intervention its own axis |
 | an array in place of a `weights=` callable | wrong by construction | an array is one evaluation of the weight, and nothing shows that the sample did not set it |
