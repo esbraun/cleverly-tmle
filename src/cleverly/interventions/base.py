@@ -95,7 +95,8 @@ class Intervention(Protocol):
     one value a fit accepts.  :func:`refuse_regime_densities` refuses ``None`` and
     ``"estimated"`` before any learner (roadmap row RM28).  A plain class attribute
     ``density_kind = "known"`` satisfies the protocol.  :class:`Static`, :class:`Rule` and
-    :class:`Stochastic` carry their own declarations.
+    :class:`Stochastic` carry their own declarations.  A subclass of :class:`Static` can
+    override ``density``, so it declares ``density_kind`` itself.
 
     Parameters
     ----------
@@ -548,7 +549,8 @@ _UNDECLARED_INTERVENTION = (
     "covariates, chosen independently of the analysis sample. density receives the data of "
     "the fit, so it can compute g*(a | W) from the analysis sample, and such a density is "
     "refused (RM28 in docs/roadmap.md). Static, Rule and Stochastic carry their own "
-    "declarations."
+    "declarations. A subclass of Static can override density, so it declares density_kind "
+    "itself."
 )
 
 #: Why a user-written intervention with an estimated density is refused.

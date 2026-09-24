@@ -142,6 +142,8 @@ NOT_CALLABLE = "Rule rule= must be callable"
 NO_DENSITY = "an Intervention needs a density(data) method"
 BARE_CALLABLE = "interventions= received a callable"
 NO_NAME = "has a density method but no name"
+#: The sentence of the undeclared refusal that a subclass of ``Static`` needs.
+STATIC_SUBCLASS = "A subclass of Static can override density, so it declares density_kind itself."
 
 #: The replay regime class, read before any test can replace the module global.
 FROZEN = replay_module._FrozenRegime
@@ -363,6 +365,38 @@ class TestTheFitRefusesAnUndeclaredIntervention:
             ENTRIES[entry](item, never_fit_learners())
         assert NeverFit.calls == 1
         assert item.calls == 0, "a density ran before the first learner"
+
+
+class CountedStatic(Static):
+    """A subclass that counts its ``density`` calls on the class, because ``Static`` is frozen."""
+
+    calls = 0
+
+    def density(self, data: Any) -> Any:
+        type(self).calls += 1
+        return super().density(data)
+
+
+class DeclaredCountedStatic(CountedStatic):
+    density_kind = "known"
+
+
+class TestTheFitRefusesAStaticSubclass:
+    """A subclass of ``Static`` reads as undeclared, and its refusal says why."""
+
+    @pytest.mark.parametrize("entry", list(ENTRIES))
+    def test_every_entry_refuses_before_any_learner_or_density_call(self, entry: str) -> None:
+        CountedStatic.calls = 0
+        assert_entry_refuses(entry, CountedStatic(1), UNDECLARED_CLASS, STATIC_SUBCLASS)
+
+    @pytest.mark.parametrize("entry", list(ENTRIES))
+    def test_a_subclass_that_declares_known_reaches_the_first_learner(self, entry: str) -> None:
+        """The control: the same subclass with ``density_kind = "known"`` goes past the check."""
+        CountedStatic.calls = 0
+        with pytest.raises(AssertionError, match="before any learner is fitted"):
+            ENTRIES[entry](DeclaredCountedStatic(1), never_fit_learners())
+        assert NeverFit.calls == 1
+        assert CountedStatic.calls == 0, "a density ran before the first learner"
 
 
 class TestTheFitRefusesARestoredRule:

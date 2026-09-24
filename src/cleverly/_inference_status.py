@@ -176,9 +176,10 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
         ),
         "undeclared_function_plugin": StatusRecord(
             reason=(
-                "A restored result whose regime rule, regime density, or MSM function is "
-                "not declared 'known' reports no confidence interval, no p-value and no "
-                "standard error. Each new fit refuses such a function before any learner. "
+                "A restored result whose regime rule, regime density, or, on a TMLE result, "
+                "MSM function is not declared 'known' reports no confidence interval, no "
+                "p-value and no standard error. Each new fit refuses such a function before "
+                "any learner. "
                 "The saved curve treats the function as fixed, and no code can check that a "
                 "saved closure was fixed. A function learned from the analysis sample "
                 "defines a data-adaptive target, and this API does not check the conditions "
@@ -189,8 +190,9 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             assessment_note=(
                 "the reported curve is an undeclared-function diagnostic: no confidence "
-                "interval or p-value is available for this result, and RM28 in the roadmap "
-                "is the condition that reopens it"
+                "interval or p-value is available for this result, RM28 in the roadmap "
+                "records the rule, and a refit with each function declared known reports "
+                "an interval"
             ),
             summary_label="undeclared-function se",
             bootstrap_note=(
