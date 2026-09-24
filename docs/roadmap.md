@@ -4677,11 +4677,14 @@ term for that fit. On `tests/discrete_law.py` with the oracle nuisances, that cu
 Gateaux derivative of $\nu^2$ by up to 21.3 for the ATE and 45.9 for the ATC. Chernozhukov,
 Cinelli, Newey, Sharma and Syrgkanis (2026) estimate $\nu^2$ through the orthogonal score of their
 Lemma 3 only. DoubleML calls its plug-in fallback non-orthogonal. No read source gives the influence
-function of the plug-in bound.
+function of the plug-in bound for every mechanism learner this API accepts.
 
-Wait for a result that gives that influence function under a stated estimator of the mechanism, or
-an inference result for the plug-in bound. Then open `ci_lower`, `ci_upper`, `robustness_value_ci`
-and `rva` under the plug-in estimator.
+Saul and Hudgens (2020) give the stacked estimating-equation and sandwich-variance method for
+smooth, finite-dimensional estimators. That method supplies a route for a specified parametric
+mechanism: include its score, the second-moment equation, and their joint Jacobian. It does not
+provide one curve for the arbitrary learners accepted here. A specialization needs a nuisance-score
+interface, a derived joint curve, stated model and rate conditions, and a validation study. Open
+`ci_lower`, `ci_upper`, `robustness_value_ci` and `rva` only for a specialization that meets them.
 
 ## Longitudinal contracts
 

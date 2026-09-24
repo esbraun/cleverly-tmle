@@ -1412,6 +1412,16 @@ is the only empirical witness for it.
   main text, so this package did not read it. The main-text locators follow v6. The published
   appendix cites "C.7. Proof of Theorem 2" and "C.10. Proof of Lemma 3 and Theorem 4", which
   match v6.
+- Saul & Hudgens (2020), [*The Calculus of M-Estimation in R with geex*](https://www.jstatsoft.org/article/view/v092i02),
+  *Journal of Statistical Software* 92(2), DOI 10.18637/jss.v092.i02. Its general stacked
+  estimating-equation method computes a sandwich variance for specified smooth equations. It
+  supplies a route for parametric plug-in inference, not a curve for arbitrary mechanism learners.
+- Bjelac, Chernozhukov, Klotz, Kueck & Schmitz (2026),
+  [*Automatic debiased machine learning and sensitivity analysis for sample selection models*](https://proceedings.mlr.press/v323/bjelac26a.html),
+  *Proceedings of Machine Learning Research* 323:353–392. The locators below follow
+  [arXiv:2601.08643v1](https://arxiv.org/abs/2601.08643). Theorem 1 and Section 3.3 extend Riesz bounds to sample selection.
+  Assumption 3 rules out unobserved confounding of treatment assignment. The result points to a
+  response-mechanism specialization; it does not cover the general refusal in this package.
 - The R package `dml.sensemakr` in the repository `carloscinelli/dml.sensemakr`,
   [`R/short-parameters.R` at commit
   `d5293ecb`](https://github.com/carloscinelli/dml.sensemakr/commit/d5293ecb48ee1ea5816b84a01b31b68f2f17fa6a),

@@ -728,6 +728,14 @@ estimate plus or minus the strength times the curve of the maximal bias. The sta
 square root of `influence_variance` of that curve, which sums the rows of each cluster on a
 clustered fit. The table gives each curve per row, with weights $w$ of mean one.
 
+Theorem 4 inherits Lemma 3's DML conditions. They include cross-fitting, the cited DML
+assumptions, and $o_P(n^{-1/4})$ $L^2$ rates for the outcome regression and representer. The
+maximal-bias scale $S = \sqrt{\sigma^2\nu^2}$ must be positive. An in-sample TMLE also needs
+conditions that control the empirical-process remainder. The registered study checks correct GLMs
+on its declared law; it does not establish coverage for arbitrary learners.
+The theorem's DML result uses independent rows. The cluster sum and fixed-weight calculations use
+the same row curve, but the registered study does not measure their coverage.
+
 | quantity | curve per row | source |
 | --- | --- | --- |
 | estimate | the estimate's own influence curve. For the ATT and the ATC it includes the share term of $\theta_s$ | Online Appendix A, "Statistical Inference", Equation (15) |
@@ -768,7 +776,10 @@ table shows that either direction occurs and not how often.
 
 `nu2_estimator="plugin"` reports no confidence limits. The plug-in $E_n[\hat\alpha^2]$ moves at
 first order with the fitted treatment mechanism, and its curve $\hat\alpha^2 - \nu^2$ has no term
-for that fit. No read source gives its influence function.
+for that fit. The cited sources give no curve that covers every mechanism learner this API accepts.
+For a specified smooth, finite-dimensional mechanism model, stacked M-estimation can include its
+score and Jacobian. [F26](../roadmap.md#f26-confidence-limits-of-the-plug-in-omitted-variable-bound)
+records the implementation and validation that such a specialization would need.
 
 | under the plug-in | result |
 | --- | --- |
