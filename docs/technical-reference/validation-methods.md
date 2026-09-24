@@ -752,6 +752,7 @@ mean or of a point estimate cannot see it.
 | witness | what it checks |
 | --- | --- |
 | `tests/unit/test_omitted_variable_standard_error.py` | on the two exact laws, weighted and unweighted, each curve of $\hat\nu^2$ equals the Gateaux derivative of $\nu^2$ row by row. The whole lower bound and its clustered standard error match the exact curve. Seven committed mutations fail it |
+| [omitted-variable bound standard error](method-evidence/omitted-variable-bound-standard-error.md) | the ratio of the reported standard error to the sampling spread of each bound, over 10,000 samples, and two controls that read the curve without the share term |
 
 The term does not always widen the limits. On an iid fit of the two-arm exact law, the
 lower-bound standard error of the ATT is 0.03882 without the term and 0.03544 with it. On the same

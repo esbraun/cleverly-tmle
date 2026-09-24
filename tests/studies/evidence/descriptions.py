@@ -63,6 +63,13 @@ ARMS: dict[str, str] = {
     "tilt": "known stochastic tilt",
     "z0": "controlled direct effect at intermediate level zero",
     "z1": "controlled direct effect at intermediate level one",
+    # The six ends of the omitted-variable bounds, each a calibration label of its own.
+    "att_lower": "lower omitted-variable bound on the ATT",
+    "att_upper": "upper omitted-variable bound on the ATT",
+    "atc_lower": "lower omitted-variable bound on the ATC",
+    "atc_upper": "upper omitted-variable bound on the ATC",
+    "ate_lower": "lower omitted-variable bound on the ATE",
+    "ate_upper": "upper omitted-variable bound on the ATE",
     # The four laws of the stacked arm-indexed missing-outcome study, and each estimand's
     # calibration label.  L1 and L2 have two arms; L3 and L4 have three, with ``high`` as
     # the reference arm.  L1 and L3 have a binary outcome; L2 and L4 a bounded continuous one.
@@ -139,6 +146,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-fold-evaluated-cvtmle": "`cleverly` fold-evaluated CV-TMLE",
     "cleverly-fold-targeted-cvtmle": "`cleverly` fold-targeted CV-TMLE",
     "cleverly-repeated-cvtmle": "`cleverly` repeated stacked CV-TMLE",
+    "cleverly-omitted-variable-bound": "`cleverly` omitted-variable bound",
     "cleverly-mar-drtmle": "`cleverly` randomized missing-outcome DR-TMLE",
     "cleverly-mar-natural-course-tmle": "`cleverly` missing-outcome natural-course TMLE",
     "cleverly-stacked-mar-natural-course-cvtmle": (
@@ -188,6 +196,7 @@ IMPLEMENTATIONS: dict[str, str] = {
 
 SCENARIOS: dict[str, str] = {
     "binary": "binary-outcome law",
+    "linear": "linear Gaussian-outcome law with a constant effect, `make_linear_ate`",
     "binary_discrete": "binary-outcome law, discrete selector",
     "binary_greedy": "binary-outcome law, greedy selector",
     "binary_ordered": "binary-outcome law, ordered selector",
@@ -251,8 +260,14 @@ SCENARIOS: dict[str, str] = {
 
 ESTIMANDS: dict[str, str] = {
     "atc": "average effect on the untreated",
+    "atc_lower": "lower omitted-variable bound on the ATC, at cf_y 0.5, cf_d 0.3, rho 1",
+    "atc_upper": "upper omitted-variable bound on the ATC, at cf_y 0.5, cf_d 0.3, rho 1",
     "ate": "average treatment effect",
+    "ate_lower": "lower omitted-variable bound on the ATE, at cf_y 0.5, cf_d 0.3, rho 1",
+    "ate_upper": "upper omitted-variable bound on the ATE, at cf_y 0.5, cf_d 0.3, rho 1",
     "att": "average effect on the treated",
+    "att_lower": "lower omitted-variable bound on the ATT, at cf_y 0.5, cf_d 0.3, rho 1",
+    "att_upper": "upper omitted-variable bound on the ATT, at cf_y 0.5, cf_d 0.3, rho 1",
     "ey0": "counterfactual mean under no treatment",
     "ey1": "counterfactual mean under treatment",
     "ey_obs": "observed outcome mean under the natural course",
