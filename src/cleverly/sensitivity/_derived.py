@@ -89,8 +89,8 @@ def _risk_ratio_refusal(
         return "derived risk ratios are unavailable for CV-evaluated fits"
     if declares_intermediate(result):
         return (
-            "derived risk ratios are unavailable for controlled direct effects because no "
-            "controlled direct risk-ratio target is registered"
+            "derived risk ratios are unavailable for controlled direct effects because "
+            "cached-nuisance retargeting does not pass the fitted intermediate intervention level"
         )
     from ..assessment import replayability
 

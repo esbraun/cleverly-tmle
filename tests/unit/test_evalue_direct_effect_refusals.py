@@ -46,6 +46,7 @@ from cleverly.estimators import direct_effect
 from cleverly.estimators.direct_effect import LEVELS, declares_intermediate
 from cleverly.exceptions import CapabilityError, DataError, PositivityWarning
 from cleverly.interventions import Shift
+from cleverly.sensitivity._parameters import arm_parameter_keys
 from cleverly.sensitivity.evalue import (
     _DERIVED_RR,
     _DIRECT_EFFECT_REFUSAL,
@@ -76,8 +77,10 @@ derived_module = importlib.import_module("cleverly.sensitivity._derived")
 #: A result saved by that version carries its combined report under this number.
 GENERATION_BEFORE_RM21 = 2
 
-#: The text of the older rule in ``_risk_ratio_refusal``, which a direct call still meets.
-DERIVED_TEXT = "no controlled direct risk-ratio target is registered"
+#: The text of the cached-retarget rule in ``_risk_ratio_refusal``, which a direct call meets.
+DERIVED_TEXT = (
+    "cached-nuisance retargeting does not pass the fitted intermediate intervention level"
+)
 
 
 #: Each law: its frame and the estimands its fit reports. ``odds`` reports no ``rr``, so its
@@ -364,8 +367,11 @@ class TestAControlledDirectEffectRefusesEveryBranch:
             assert_refused(result, estimand)
 
     def test_the_derived_helper_keeps_its_own_boundary(self, cde_fits: dict[str, Any]) -> None:
-        """A direct call of the helper still refuses, because it is not behind the E-value."""
-        assert derived_helper_refuses(replace(cde_fits["ratio"][0.0]))
+        """A reported CDE ratio exists, but the cached retarget omits its fixed level."""
+        result = cde_fits["ratio"][0.0]
+        assert {"rr", "or"} <= result.estimates.keys()
+        assert arm_parameter_keys(result)["rr"].estimand == "rr"
+        assert derived_helper_refuses(replace(result))
 
 
 #: The requests whose branch reads a stored estimate. ``derived_rr`` is left out, because its

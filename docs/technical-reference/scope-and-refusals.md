@@ -78,7 +78,7 @@ rather than implying the request was ill-posed.
 | a fixed-baseline E-value on a reference-arm mean that its own standard error does not separate from zero | [the E-value paths](validation-methods.md#e-value). The conversion divides by that mean, so the ratio has no stable denominator |
 | a fixed-baseline E-value whose risk difference is at or below the negative of the reference-arm mean | [the E-value paths](validation-methods.md#e-value). The difference implies a nonpositive risk in the contrast arm, and no risk ratio describes one |
 | a cached-nuisance risk ratio after CV evaluation | the estimator refuses nonlinear ratio targets on this evaluation path. Post-fit retargeting keeps that boundary |
-| a controlled direct risk ratio | fixing an intermediate variable defines another target. The library registers no controlled direct risk-ratio target |
+| a controlled direct risk ratio from cached nuisances | the fitted result can report a controlled direct risk ratio. The post-fit retarget path does not pass the fitted intermediate intervention level, so it cannot derive one from cached nuisances |
 
 Which multi-arm surfaces are covered, and which five are not, is tabulated in one place:
 [where a multi-valued treatment is supported](#where-a-multi-valued-treatment-is-supported).
