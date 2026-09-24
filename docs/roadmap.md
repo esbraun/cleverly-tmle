@@ -3371,6 +3371,103 @@ The witnesses must fail when a component is wrong:
 - a separate nonzero witness for a sample-learned `Rule` and a callable `DynamicRegimen` node;
 - a control shows that a user-written class with a known density keeps its interval.
 
+The 2026-09-23 plan fixes the decisions in the table below. The RM25 and RM27 patterns supply each
+one, unless the row says otherwise.
+
+| part | decision |
+| --- | --- |
+| rule declaration | `Rule` and `DynamicRegimen` each gain a last field `rule_kind`: `"known"`, `"estimated"`, or `None`, with the default `None`. `Rule(rule, name)` keeps its positional order. The default is a plain class attribute, so an old pickle loads with `None` |
+| one declaration per regimen | the `rule_kind` of a `DynamicRegimen` covers every callable node of its plan. A plan with no callable node is exempt from the refusal. An unknown value is still refused |
+| protocol member | `Intervention` gains a read-only `density_kind`. `Stochastic` keeps its field, and `Rule` returns its `rule_kind`. `Static` returns `"known"` only when its exact type is `Static`, by the RM27 exact-type rule. The replay's `_FrozenRegime` gains a `density_kind` field |
+| admission | `as_interventions` stops using the runtime protocol check. A string is a level. An object with a callable `density` is taken as is, and one with no `name` raises `DataError`. Any other callable raises `DataError`. Every other value becomes `Static` |
+| shared declarations | `_RULE_DECLARATION` serves `Rule` and `DynamicRegimen`. `_INTERVENTION_DECLARATION` serves a user-written class. Both sit beside `_DENSITY_DECLARATION` in `src/cleverly/interventions/base.py`, and each estimated text names the pathwise derivative |
+| point check | `refuse_regime_densities` keeps its name and checks every item. A `Stochastic` meets the density declaration, a `Rule` meets the rule declaration, and any other object meets the intervention declaration |
+| longitudinal check | a new `refuse_regimen_rules` in `cleverly.longitudinal.regimen` reads the raw `regimens=` value. It checks each plan that holds a callable node |
+| check sites | `Rule.__post_init__`, `Rule.density`, and the three RM25 sites for a point fit. `DynamicRegimen.__post_init__`, `DynamicRegimen.assignment`, `LTMLE.fit` before `_prepare`, and the first statement of `longitudinal_truncation_curve` for a longitudinal fit |
+| no constructor check | `as_interventions` and `TMLE.__init__` check no declaration. So the RM25 mutation of the fit-layer check still finds a fit witness that fails |
+| carry | `_resolve_one` keeps `rule_kind` when it rebuilds a `DynamicRegimen`. The replay builds each `_FrozenRegime` with the `density_kind` of its source, and never with the literal `"known"` |
+| inline syntax | a callable written inline in a `regimens=` mapping carries no declaration, and the fit refuses it. The message asks for `DynamicRegimen(label, plan, rule_kind='known')`. A mapping still takes static plans and declared `DynamicRegimen` values. No estimator keyword declares a rule |
+| restored results | a new non-inferential status, `undeclared_function_plugin`, is third in the precedence. A restored `TMLE` or `LTMLE` result takes it when a rule, a user-written class, a `Stochastic` density, or a written MSM function is not declared `"known"` |
+| what the status keeps | the point estimates stand, and `ci`, `pvalue` and `std_error` refuse. The plug-in standard error remains a diagnostic. This reverses the RM13, RM25 and RM27 decisions that a restored interval answers as saved |
+| remedy for a user-written tilt | the estimated text sends the user to `TMLE(incremental=...)` for the population odds tilt of the mechanism |
+| a false declaration | not detected. A rule computed from the sample and declared `"known"` fits. The witness below measures what the false statement costs |
+| `dataclasses.replace(rule, rule=new)` | it keeps the old `rule_kind`, as RM27 keeps `design_kind`. The reference records this limit |
+
+The plan probed six more surfaces on 40b8e643. The table gives the decision for each.
+
+| surface | probe | decision |
+| --- | --- | --- |
+| a bare callable in `interventions=` | `as_interventions` wraps it as `Static` with the name `"always <function ...>"`. The fit then raises `DataError`, because the function is not a level of `A` | in this row. `as_interventions` refuses it with a message that names `Rule(rule, name, rule_kind='known')` |
+| a restored `Rule` result | a module-level rule survives a pickle round trip. The result keeps its three intervals under `influence_curve`, and `truncation_curve` recomputes | in this row. The result takes the new status, and each recomputation refuses |
+| an inline rule in `LTMLE` | a `regimens=` mapping with a lambda fits under `influence_curve`. A module-level rule survives a pickle round trip, keeps its intervals, and recomputes `longitudinal_truncation_curve` | in this row. The fit refuses the inline rule, and a restored result takes the new status |
+| capability rows of a restored result | on a restored `Rule` result, the `truncation_curve` and `refute` rows read available. On a restored `LTMLE` result, the `truncation_curve` row reads available | not in this row. After RM28 these rows read available, and then the call refuses. [RM23](#rm23-capability-rows-that-read-available-and-then-refuse) records it |
+| `CTMLE` | `CTMLE` runs its own estimand checks before the inherited declaration check (`src/cleverly/estimators/ctmle.py:1186`). A regime fit meets a C-TMLE refusal first, as under RM25 | not in this row. Every C-TMLE status is already non-inferential, so `CTMLE._inference_status` does not change |
+| `dataclasses.replace` | `replace` copies every field that the call does not name | not in this row. `replace` keeps the declaration, and the reference records the limit |
+
+The plan declares three exact-law witnesses here, before their tests land. The threshold law
+follows Luedtke and van der Laan (2016). A covariate with finite support makes a threshold at a
+sample statistic locally constant, and then the omitted term is zero. So the threshold law uses a
+continuous covariate.
+
+| part | the point threshold witness | the regimen threshold witness |
+| --- | --- | --- |
+| law | $W \sim U(0, 1)$, $A \mid W \sim \mathrm{Bern}(1/2)$, $Y = 3W + A + \varepsilon$ | $W \sim U(0, 1)$, $A_1$ and $A_2 \sim \mathrm{Bern}(1/2)$, $Y = 3W + A_2 + \varepsilon$ |
+| rule | `Rule` with $d(w) = 1\{w \le c\}$, where $c$ is the sample mean of $W$, declared `"known"` | the regimen $(1, d)$ as a `DynamicRegimen` declared `"known"` |
+| sample | $W_j = (j - 1/2)/200$. Four rows at each $W_j$: $A \in \{0, 1\}$ and $\varepsilon = \pm 1/4$. 800 rows | eight rows at each $W_j$: $A_1$, $A_2$ and $\varepsilon$. 1600 rows |
+| fit | in sample, with `tests.discrete_law_longitudinal.CellMeans` as each learner | the same, with `n_folds=1` |
+| omitted term | $T = W - c$, because $\partial\psi/\partial c = f(c)\{Q(1, c) - Q(0, c)\} = 1$ | the same $T$. The node-one term is zero |
+| exact moments | $E[D^2] = 3/8$, $E[T^2] = 1/12$, $E[DT] = 1/8$ | $E[D^2] = 1/2$, and the same $T$ moments |
+| exact ratio | $3/\sqrt{17} = 0.727607$ | $\sqrt{3/5} = 0.774597$ |
+
+Here $D$ is the fixed-rule curve and $T$ the omitted term. The positive cross moment means that
+the reported standard error understates the exact one. Each sample ratio is
+$\sqrt{E_n[D^2] / E_n[(D + T)^2]}$. The third witness is the RM25 witness on a user-written class
+`DataTilt`. Its `density` returns the odds tilt at $\delta = 2$ of the sample treated share in each
+stratum, and it declares `density_kind = "known"`. The plan measured each value on 40b8e643, with
+the `Rule` and the inline regimen `{"x": (1, d)}` in place of the declared objects.
+
+| assertion | tolerance or bound | point | regimen | `DataTilt` |
+| --- | --- | --- | --- | --- |
+| $c = 0.5$, and the learned rule equals the fixed threshold 0.5 on each row | exact | yes | yes | not applicable |
+| $\psi = 2$ | 1e-12 | 4.4e-16 | 0 | not applicable |
+| each targeting coefficient | exactly 0 | 0 | 0 at both nodes | 0 |
+| the reported curve minus the fixed-rule curve, row by row | 1e-10 | 1.6e-15 | 3.6e-15 | not applicable |
+| $E_n[T^2]$, the nonzero witness | above 0.05 | 0.08333125 | 0.08333125 | not applicable |
+| $E_n[DT]$, recorded | none | 0.12499375 | 0.12499375 | not applicable |
+| the ratio, the witness | pinned to 1e-4, and below the bound | 0.727606, pin 0.7276, bound 0.8 | 0.774598, pin 0.7746, bound 0.85 | 0.622637, pin 0.6226, bound 0.7 |
+| the curve against the `Stochastic(SampleTilt)` curve of RM25 | 1e-12 | not applicable | not applicable | 0 |
+| `"estimated"` on this law | refused before any learner | none yet | none yet | none yet |
+
+The sample moments differ from the exact ones only through $\mathrm{Var}_n(W) = 1/12 - 1/(12 \cdot
+200^2)$. So $E_n[DT] = 1/8 - 1/(4 \cdot 200^2)$, and each ratio moves by less than 3e-5. The
+measured moves are 1.1e-6 and 9.7e-7. Each bound sits at least 0.07 above its measured ratio, so
+it pins no digit. A curve that carried $T$ would read 1.
+
+Three controls keep their intervals. The fixed threshold 0.5, declared `"known"`, keeps
+`influence_curve` and a finite `ci`. Its curve is bitwise equal to the witness curve, for the
+`Rule` and for the regimen. A user-written class that returns the tilt of the true mechanism keeps
+its interval, and its curve equals the RM25 fixed-density curve to 1e-12.
+
+The plan commits ten mutations. Each one replaces a function through `monkeypatch`, except R10.
+
+| mutation | the witness that must fail |
+| --- | --- |
+| R1. `refuse_regime_densities` in `cleverly.interventions.base` becomes a no-op | the `Rule` declaration witnesses, and the evaluator witnesses of a `Rule` and a user-written class |
+| R2. the same in `cleverly.estimators.tmle` | the fit witnesses of a restored `Rule` and an undeclared class, where `NeverFit` records fits, and the recomputations of a legacy result |
+| R3. `refuse_regimen_rules` in `cleverly.longitudinal.regimen` becomes a no-op | the `DynamicRegimen` declaration and evaluator witnesses |
+| R4. the same in `cleverly.longitudinal.estimator` | the order witnesses, where a later refusal answers, and the legacy truncation witness. With R3 it also fails the `LTMLE` fit witnesses |
+| R5. `_resolve_one` drops `rule_kind` | the witness that a declared `DynamicRegimen` in a mapping keeps its declaration |
+| R6. the replay passes `None` for `density_kind` | the replay witnesses |
+| R7. `FunctionDeclaration.refuse` becomes a no-op | each row of the extended RM25 table of shared refusals |
+| R8. each status predicate returns `"influence_curve"` | the witnesses of a restored result's status |
+| R9. `as_interventions` uses the protocol check again | a class with no `density_kind` becomes `Static`, and its refusal witness fails |
+| R10. the oracle freezes the threshold, for the point and the regimen | the ratio reads 1 and fails its bound |
+
+The plan also runs fourteen mutations by hand, H1 to H14, with a hash-checked backup of each file.
+The delivery record gives each one and its counts. The plan regenerates no study. A bitwise
+check hashes the replicate 0 and 1 rows of twelve canonical generators and eleven property
+generators, at 40b8e643 and after the change.
+
 ### RM29. Saved cross-fitted clustered longitudinal results
 
 Releases 0.1.0 and 0.1.1 predate commit 5f32c14, which refused `id=` on a cross-fitted `LTMLE` fit.
