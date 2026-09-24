@@ -13,9 +13,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly.exceptions import DataError
-from cleverly.longitudinal import LongitudinalData, resolve_plans, resolve_regimens
+from cleverly.estimators.serialize import dumps, loads
+from cleverly.exceptions import CapabilityError, DataError
+from cleverly.longitudinal import LTMLE, LongitudinalData, resolve_plans, resolve_regimens
 from cleverly.longitudinal.msm import Cell, RegimenMSM, evaluate_regimen_msm
 from cleverly.msm import MSM
 
@@ -70,6 +72,74 @@ def dose_design(label: Any, horizon: int, frame: Any) -> np.ndarray:
 
 
 DOSE = MSM(design=dose_design, terms=("(intercept)", "duration"), design_kind="known")
+
+
+def fitted_regimens(*, msm: MSM | None) -> Any:
+    """A compact fitted panel with or without a declared working model."""
+    return LTMLE(
+        {"always": 1, "never": 0},
+        msm=msm,
+        n_folds=1,
+        simultaneous=False,
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=0),
+        pseudo_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000, random_state=0),
+        censoring_learner=LogisticRegression(max_iter=1000, random_state=0),
+    ).fit(
+        panel(120),
+        outcome="Y",
+        treatment=("A1", "A2"),
+        baseline=("W1", "W2"),
+        time_varying=(("L1",), ("L2",)),
+        censoring=("C1", "C2"),
+    )
+
+
+class TestSavedWorkingModelDeclarations:
+    @pytest.fixture(scope="class")
+    def known(self) -> Any:
+        return fitted_regimens(msm=DOSE)
+
+    def test_new_evaluation_and_roundtrip_keep_known_inference(self, known: Any) -> None:
+        assert known.msm is not None
+        assert known.msm.functions_kind == "known"
+        restored = loads(dumps(known))
+        assert restored.msm.functions_kind == "known"
+        assert restored.inference_status == "influence_curve"
+        for name, estimate in known.estimates.items():
+            assert restored[name].psi == estimate.psi
+            assert restored[name].ci == estimate.ci
+        curve = restored.diagnostics.truncation_curve([restored.config.g_bounds])
+        assert len(curve) == len(restored.estimates)
+
+    def test_legacy_arrays_keep_estimates_but_withhold_inference_and_replay(
+        self, known: Any
+    ) -> None:
+        legacy = loads(dumps(known))
+        assert legacy.msm is not None
+        vars(legacy.msm).pop("functions_kind")
+        object.__setattr__(legacy, "simultaneous", "stale band")
+        legacy.assessment_cache["stale"] = "answer based on an interval"
+        legacy = loads(dumps(legacy))
+        assert legacy.msm.functions_kind is None
+        assert legacy.inference_status == "undeclared_function_plugin"
+        for name, estimate in known.estimates.items():
+            assert legacy[name].psi == estimate.psi
+            assert legacy[name].plugin_interval == estimate.ci
+            with pytest.raises(CapabilityError):
+                _ = legacy[name].ci
+        assert legacy.simultaneous is None
+        assert legacy.assessment_cache == {}
+        with pytest.raises(CapabilityError, match="Refit the original MSM"):
+            legacy.diagnostics.truncation_curve([0.2])
+
+    def test_legacy_fit_without_an_msm_keeps_its_interval(self) -> None:
+        known = fitted_regimens(msm=None)
+        restored = loads(dumps(known))
+        assert restored.msm is None
+        assert restored.inference_status == "influence_curve"
+        for name, estimate in known.estimates.items():
+            assert restored[name].ci == estimate.ci
 
 
 class TestItEvaluatesTheDeclaredModel:

@@ -119,7 +119,13 @@ from ..utils.phases import PhaseProfile, phase, profile_phases
 from ..utils.records import _DefaultingUnpickle
 from ..utils.text import format_pvalue, format_table
 from .data import LongitudinalData
-from .msm import MSMRegimenFit, RegimenMSM, evaluate_regimen_msm, fit_regimens_msm
+from .msm import (
+    MSMRegimenFit,
+    RegimenMSM,
+    evaluate_regimen_msm,
+    fit_regimens_msm,
+    refuse_evaluated_msm_functions,
+)
 from .regimen import (
     DynamicRegimen,
     Plan,
@@ -686,7 +692,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     parameter_index : dict or None
         Structured regimen, cause, and horizon index.
     msm : RegimenMSM or None
-        Working marginal structural model.
+        Evaluated working model. Its ``functions_kind`` records whether the source design
+        and projection weights passed their declaration checks.
     msm_fits : tuple of MSMRegimenFit
         Projection fits by cause.
     identified_effect : IdentifiedEffect or None
@@ -1429,8 +1436,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         A fit saved before :attr:`~cleverly.ParameterEstimate.inference` reached the
         longitudinal path, or before this version refused its configuration, loads its
         estimates under the status they were saved with, and would publish an interval
-        this version refuses. The prepared data, the folds and the resolved regimens are
-        in the artifact, so the status is recomputed from them. A fit whose status
+        this version refuses. The prepared data, folds, resolved regimens, and evaluated
+        MSM declaration are in the artifact, so the status is recomputed from them. A
+        legacy MSM with no retained declaration loses inference. A fit whose status
         supplies inference, or whose estimates already carry the status, loads as it was
         saved.
 
@@ -1448,7 +1456,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         The stamp is written in ``_estimates`` and ``_msm_estimates``, so a live fit never
         needs this. It reads the prepared data, the folds and the resolved regimens, as the
         fit did, so the artifact holds everything it needs. A regimen restored from before
-        its ``rule_kind`` existed reads ``None``, so a result with a callable node takes
+        its ``rule_kind`` existed reads ``None``. An MSM restored from before
+        ``functions_kind`` existed does too. Either result takes
         ``"undeclared_function_plugin"`` (roadmap row RM28). A re-stamped artifact also
         drops what was derived under the old status: the simultaneous bands, a joint
         confidence statement that the fit now refuses, and the saved assessment answers,
@@ -1461,7 +1470,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         if data is None or folds is None:
             return
         regimens = getattr(self.__dict__.get("config"), "regimens", ())
-        status = _inference_status(data, folds, regimens)
+        status = _inference_status(data, folds, regimens, self.__dict__.get("msm"))
         if supplies_inference(status):
             return
         estimates = self.__dict__.get("estimates") or {}
@@ -1623,12 +1632,17 @@ class _Reported:
     contributors: dict[str, tuple[RegimenFit, ...]]
 
 
-def _inference_status(data: LongitudinalData, folds: Folds, regimens: Any) -> InferenceStatus:
+def _inference_status(
+    data: LongitudinalData, folds: Folds, regimens: Any, msm: RegimenMSM | None = None
+) -> InferenceStatus:
     """The one inference status of every estimate a longitudinal fit reports.
 
     :func:`_declared_regimen_status` gives ``"undeclared_function_plugin"`` to a restored
     result with a callable node whose regimen is not declared known. A saved cross-fitted
-    clustered result takes its own status at every cluster count and size. New fits of
+    MSM projection with no proof that its source functions were declared known takes the
+    same status. The evaluated design and weights cannot establish that proof. A saved
+    cross-fitted clustered result takes its own status at every cluster count and size.
+    New fits of
     either kind are refused before this function runs. Otherwise RM20's
     cluster rule applies to the prepared cluster labels and, on a weighted fit, to the
     unit weights. It reads nothing fitted. ``LongitudinalData`` carries no baseline
@@ -1653,6 +1667,8 @@ def _inference_status(data: LongitudinalData, folds: Folds, regimens: Any) -> In
     regimens : Any
         The regimens of the fit: the ``regimens=`` argument, or the resolved regimens of a
         result.
+    msm : RegimenMSM or None
+        The evaluated working model, with provenance of its source function declarations.
 
     Returns
     -------
@@ -1669,7 +1685,13 @@ def _inference_status(data: LongitudinalData, folds: Folds, regimens: Any) -> In
             weights=data.weights if data.is_weighted else None,
         )
     )
-    return precedent_status([_declared_regimen_status(regimens), cluster])
+    return precedent_status(
+        [
+            _declared_regimen_status(regimens),
+            declaration_status(lambda: refuse_evaluated_msm_functions(msm)),
+            cluster,
+        ]
+    )
 
 
 def _declared_regimen_status(regimens: Any) -> InferenceStatus:
@@ -2314,7 +2336,7 @@ class LTMLE:
                 None if model is None else fingerprint_array(model.design, model.weights)
             ),
         )
-        status = _inference_status(prepared, folds, regimens)
+        status = _inference_status(prepared, folds, regimens, model)
         with phase("influence_curve"):
             reported = (
                 _estimates(
@@ -2692,6 +2714,7 @@ def _refit_bound(
         When the replay did not report a parameter the fit reports.
     """
 
+    refuse_evaluated_msm_functions(result.msm)
     if recipe.outcome_learner is None or recipe.pseudo_learner is None:
         _refuse_replay(LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE)
     fits, msm_fits = _run_recursion(
@@ -2712,7 +2735,7 @@ def _refit_bound(
     )
     # The status the fit stamped, recomputed from the same data and folds, so the replay at
     # the fitted bound equals the fit in every field ``_fitted_replay_matches`` compares.
-    status = _inference_status(result.data, result.folds, result.config.regimens)
+    status = _inference_status(result.data, result.folds, result.config.regimens, result.msm)
     if result.msm is None:
         reference = next(
             plan.regimen for plan in recipe.plans if plan.label == result.config.reference
@@ -2910,6 +2933,7 @@ def longitudinal_truncation_curve(
     refuses, and the replay would report a recomputation for it (roadmap row RM28).
     """
     refuse_regimen_rules(result.config.regimens)
+    refuse_evaluated_msm_functions(result.msm)
     recipe = getattr(result, "replay_recipe", None)
     if recipe is None:
         _refuse_replay(LONGITUDINAL_REPLAY_RECIPE_MISSING)

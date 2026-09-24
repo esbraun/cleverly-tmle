@@ -335,7 +335,7 @@ class TestTheMutationsFailTheWitness:
         monkeypatch.setattr(
             longitudinal_estimator,
             "_inference_status",
-            lambda data, folds, regimens: "influence_curve",
+            lambda data, folds, regimens, msm=None: "influence_curve",
         )
         with pytest.raises(AssertionError):
             assert_withholds(FITS[kind](FEW_CLUSTER_THRESHOLD - 1), FEW)
@@ -363,7 +363,7 @@ class TestTheMutationsFailTheWitness:
         monkeypatch.setattr(
             longitudinal_estimator,
             "_inference_status",
-            lambda data, folds, regimens: cluster_inference_status(
+            lambda data, folds, regimens, msm=None: cluster_inference_status(
                 data.cluster, cross_fit=folds.n_folds > 1
             ),
         )
@@ -496,7 +496,7 @@ class TestASavedCrossFittedClusteredResult:
         monkeypatch.setattr(
             longitudinal_estimator,
             "_inference_status",
-            lambda data, folds, regimens: cluster_inference_status(
+            lambda data, folds, regimens, msm=None: cluster_inference_status(
                 data.cluster, cross_fit=folds.n_folds > 1
             ),
         )
