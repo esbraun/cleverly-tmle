@@ -733,8 +733,14 @@ assumptions, and $o_P(n^{-1/4})$ $L^2$ rates for the outcome regression and repr
 maximal-bias scale $S = \sqrt{\sigma^2\nu^2}$ must be positive. An in-sample TMLE also needs
 conditions that control the empirical-process remainder. The registered study checks correct GLMs
 on its declared law; it does not establish coverage for arbitrary learners.
+
 The theorem's DML result uses independent rows. The cluster sum and fixed-weight calculations use
 the same row curve, but the registered study does not measure their coverage.
+
+When $\sigma^2=0$, the point bias bound is zero. The ordinary curve in the table divides by
+$S=0$, so the package keeps the point bounds and refuses their limits. A robustness threshold is
+`None` if no equal strength below one reaches the null. If the baseline confidence limit already
+includes the null, its robustness threshold is zero.
 
 | quantity | curve per row | source |
 | --- | --- | --- |
