@@ -105,7 +105,11 @@ from cleverly.interventions import Rule, Static, Stochastic
 plans = (
     Static(1, name="treat all"),
     Static(0, name="treat none"),
-    Rule(lambda data: (data["W1"] > 0).astype(float), name="treat if W1 positive"),
+    Rule(
+        lambda data: (data["W1"] > 0).astype(float),
+        name="treat if W1 positive",
+        rule_kind="known",
+    ),
     Stochastic(
         lambda data: np.column_stack([np.full(len(data), 0.4), np.full(len(data), 0.6)]),
         name="assign with probability 0.6",

@@ -51,7 +51,11 @@ from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Incremental, RegimeSet, Static, Stochastic
 from cleverly.interventions.base import (
     _ESTIMATED_DENSITY,
+    _ESTIMATED_INTERVENTION,
+    _ESTIMATED_RULE,
     _UNDECLARED_DENSITY,
+    _UNDECLARED_INTERVENTION,
+    _UNDECLARED_RULE,
     refuse_regime_densities,
 )
 from cleverly.msm import (
@@ -88,6 +92,13 @@ from tests.unit._msm_declaration_support import (
     written,
 )
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
+from tests.unit._policy_declaration_support import (
+    INTERVENTION_UNKNOWN,
+    RULE_UNKNOWN,
+    DataTilt,
+    checked,
+    threshold_rule,
+)
 from tests.unit._simulated_confounding_support import (
     _GRID,
     _alias,
@@ -411,14 +422,16 @@ class TestTheReplay:
         """The deliberate-mutation control: without the check the replay runs the density.
 
         ``RegimeSet.evaluate`` and ``Stochastic.density`` read the module global, so the
-        mutation removes both.  A frozen regime is not a ``Stochastic``, so nothing after
-        the evaluation refuses.
+        mutation removes both.  Each frozen regime carries the source's ``None`` (roadmap row
+        RM28), and ``TMLE`` holds its own reference to the check, so the refit still refuses.
+        The refusal arrives after the density ran, which is what the check removes.
         """
         old, density = counted_fit()
         monkeypatch.setattr(base_module, "refuse_regime_densities", lambda interventions: None)
         replay = validate_replay(old)
         assert all(type(item) is replay_module._FrozenRegime for item in replay.interventions)
         assert density.calls == 1
+        assert_refused(lambda: replay.refit(old.data), CapabilityError, _UNDECLARED_INTERVENTION)
 
 
 # ------------------------------------------------------------------ mutation controls
@@ -463,7 +476,7 @@ class TestTheWitnessesHaveTeeth:
     def test_removing_the_shared_declaration_fails_each_of_its_users(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """RM13, RM25 and RM27 refuse through one ``FunctionDeclaration.refuse``.
+        """RM13, RM25, RM27 and RM28 refuse through one ``FunctionDeclaration.refuse``.
 
         Each witness that the shared refusal decides refuses before the mutation and fails
         under it.
@@ -481,6 +494,7 @@ class TestTheWitnessesHaveTeeth:
         assert linear(weights=FixedWeight()).weights_kind is None
         assert coin().density_kind is None
         assert written().design_kind is None
+        assert threshold_rule().rule_kind is None
 
 
 #: Each refusal that ``FunctionDeclaration.refuse`` decides: a build, the error it raises,
@@ -511,6 +525,23 @@ SHARED_REFUSALS: dict[str, tuple[Callable[[], Any], type[Exception], tuple[str, 
         (_ESTIMATED_DESIGN, PATHWISE),
     ),
     "unknown design": (lambda: written(design_kind="Known"), DataError, (DESIGN_UNKNOWN,)),
+    "undeclared rule": (threshold_rule, CapabilityError, (_UNDECLARED_RULE, "rule_kind='known'")),
+    "estimated rule": (
+        lambda: threshold_rule(rule_kind="estimated"),
+        CapabilityError,
+        (_ESTIMATED_RULE, PATHWISE),
+    ),
+    "unknown rule": (lambda: threshold_rule(rule_kind="Known"), DataError, (RULE_UNKNOWN,)),
+    "undeclared intervention": (
+        lambda: checked(DataTilt()),
+        CapabilityError,
+        (_UNDECLARED_INTERVENTION, "density_kind attribute of 'known'"),
+    ),
+    "estimated intervention": (
+        lambda: checked(DataTilt(density_kind="estimated")),
+        CapabilityError,
+        (_ESTIMATED_INTERVENTION, PATHWISE),
+    ),
 }
 
 
@@ -528,6 +559,12 @@ DECLARATION_USERS: dict[str, tuple[Callable[[Any], Any], str, str]] = {
     "uniform msm": (lambda kind: linear(weights_kind=kind), WEIGHTS_UNKNOWN, "weights_kind"),
     "regime density": (lambda kind: coin(density_kind=kind), UNKNOWN, "density_kind"),
     "msm design": (lambda kind: written(design_kind=kind), DESIGN_UNKNOWN, "design_kind"),
+    "rule": (lambda kind: threshold_rule(rule_kind=kind), RULE_UNKNOWN, "rule_kind"),
+    "intervention": (
+        lambda kind: checked(DataTilt(density_kind=kind)),
+        INTERVENTION_UNKNOWN,
+        "density_kind",
+    ),
 }
 
 #: Values that are not a string.  Before the check tested the type, the first built, the

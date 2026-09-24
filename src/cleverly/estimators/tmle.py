@@ -1356,6 +1356,8 @@ class TMLE:
         :func:`~cleverly.msm.refuse_msm_functions` and
         :func:`~cleverly.interventions.base.refuse_regime_densities` for the same reason: a
         restored or modified model or regime can carry a declaration this version refuses.
+        The regime check covers a ``Stochastic`` density, a ``Rule``, and a user-written
+        ``Intervention``, which ``TMLE.__init__`` admits without a check.
         Those functions state what each one refuses.  They run before every refusal of the
         fit configuration, here and in :meth:`_fit_single`, because each of those names a
         remedy that cannot make an undeclared function fit.  :meth:`MSMSet.evaluate
@@ -2698,7 +2700,8 @@ class TMLE:
         :func:`~cleverly.interventions.base.refuse_regime_densities` first, as :meth:`fit`
         does.  Every sweep that recomputes an estimate comes through here, so a
         recomputation from a restored result refuses when those functions refuse its model
-        or its regimes.  They state which declarations they refuse.  Loading re-checks
+        or its regimes: a ``Stochastic`` density, a ``Rule``, or a user-written
+        ``Intervention``.  They state which declarations they refuse.  Loading re-checks
         nothing: a restored result keeps the estimates it stored, and they answer as they
         were saved.
         """

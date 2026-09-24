@@ -73,7 +73,11 @@ def test_static_refuses_a_level_the_data_does_not_have() -> None:
 
 def test_rule_assigns_per_row() -> None:
     data = make_data()
-    rule = Rule(lambda w: np.where(np.asarray(w["W1"]) > 0.0, 1, 0), name="treat if W1 > 0")
+    rule = Rule(
+        lambda w: np.where(np.asarray(w["W1"]) > 0.0, 1, 0),
+        name="treat if W1 > 0",
+        rule_kind="known",
+    )
     density = rule.density(data)
     expected = (data.covariates[:, 0] > 0.0).astype(float)
     assert np.array_equal(density[:, 1], expected)
@@ -83,7 +87,7 @@ def test_rule_assigns_per_row() -> None:
 def test_a_constant_rule_is_the_static_regime() -> None:
     """The property every equivalence claim downstream rests on."""
     data = make_data()
-    rule = Rule(lambda w: np.ones(len(w), dtype=int), name="everyone")
+    rule = Rule(lambda w: np.ones(len(w), dtype=int), name="everyone", rule_kind="known")
     assert np.array_equal(rule.density(data), Static(1).density(data))
 
 
@@ -91,15 +95,15 @@ def test_rule_sees_covariates_only() -> None:
     """A regime is a function of W; reading Y or A is a different object entirely."""
     data = make_data()
     seen: list[list[str]] = []
-    Rule(lambda w: (seen.append(list(w.columns)), np.zeros(len(w), dtype=int))[1], "peek").density(
-        data
-    )
+    Rule(
+        lambda w: (seen.append(list(w.columns)), np.zeros(len(w), dtype=int))[1], "peek", "known"
+    ).density(data)
     assert seen == [["W1", "W2"]]
 
 
 def test_rule_refuses_an_undeclared_level() -> None:
     data = make_data()
-    rule = Rule(lambda w: np.full(len(w), 3), name="off by three")
+    rule = Rule(lambda w: np.full(len(w), 3), name="off by three", rule_kind="known")
     with pytest.raises(DataError, match="not a level of A"):
         rule.density(data)
 
@@ -107,7 +111,7 @@ def test_rule_refuses_an_undeclared_level() -> None:
 def test_rule_refuses_the_wrong_length() -> None:
     data = make_data()
     with pytest.raises(DataError, match="one treatment level per row"):
-        Rule(lambda w: np.zeros(3, dtype=int), name="short").density(data)
+        Rule(lambda w: np.zeros(3, dtype=int), name="short", rule_kind="known").density(data)
 
 
 def test_stochastic_passes_a_normalised_density_through() -> None:
@@ -236,7 +240,7 @@ def test_regime_set_refuses_duplicate_names() -> None:
 
 def test_regime_set_subset_slices_rather_than_re_evaluates() -> None:
     data = make_data()
-    rule = Rule(lambda w: (np.asarray(w["W1"]) > 0).astype(int), name="rule")
+    rule = Rule(lambda w: (np.asarray(w["W1"]) > 0).astype(int), name="rule", rule_kind="known")
     regimes = RegimeSet.evaluate([rule], data)
     index = np.arange(0, data.n, 2)
     assert np.array_equal(regimes.subset(index).values, regimes.values[index])
@@ -244,7 +248,7 @@ def test_regime_set_subset_slices_rather_than_re_evaluates() -> None:
 
 def test_is_static_separates_the_degenerate_regimes() -> None:
     data = make_data()
-    rule = Rule(lambda w: (np.asarray(w["W1"]) > 0).astype(int), name="rule")
+    rule = Rule(lambda w: (np.asarray(w["W1"]) > 0).astype(int), name="rule", rule_kind="known")
     values = np.column_stack([np.full(data.n, 0.3), np.full(data.n, 0.7)])
     assert RegimeSet.evaluate([Static(0), Static(1)], data).is_static
     assert not RegimeSet.evaluate([rule], data).is_static
@@ -273,7 +277,7 @@ def test_support_report_finds_the_assigned_arm_not_the_marginal() -> None:
     data = make_data(n=40)
     g1 = np.linspace(0.005, 0.9, data.n)
     propensity = np.column_stack([1.0 - g1, g1])
-    rule = Rule(lambda w: np.zeros(len(w), dtype=int), name="never")
+    rule = Rule(lambda w: np.zeros(len(w), dtype=int), name="never", rule_kind="known")
     regimes = RegimeSet.evaluate([Static(1), rule], data)
 
     report = check_support(regimes, data.treatment, propensity)

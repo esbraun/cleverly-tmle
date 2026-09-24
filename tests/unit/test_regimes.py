@@ -86,7 +86,11 @@ class TestARuleIsEstimated:
             frame,
             interventions=(
                 Static(0, name="never"),
-                Rule(lambda w: (np.asarray(w["W1"]) > 0).astype(int), name="treat if W1 > 0"),
+                Rule(
+                    lambda w: (np.asarray(w["W1"]) > 0).astype(int),
+                    name="treat if W1 > 0",
+                    rule_kind="known",
+                ),
             ),
         )
 
@@ -119,7 +123,7 @@ class TestARuleIsEstimated:
             frame,
             interventions=(
                 Static(0, name="never"),
-                Rule(lambda w: np.ones(len(w), dtype=int), name="everyone"),
+                Rule(lambda w: np.ones(len(w), dtype=int), name="everyone", rule_kind="known"),
             ),
         )
         static = fit(frame, interventions=(Static(0, name="never"), Static(1, name="everyone")))
@@ -131,7 +135,11 @@ class TestARuleIsEstimated:
             reference="treat if W1 > 0",
             interventions=(
                 Static(0, name="never"),
-                Rule(lambda w: (np.asarray(w["W1"]) > 0).astype(int), name="treat if W1 > 0"),
+                Rule(
+                    lambda w: (np.asarray(w["W1"]) > 0).astype(int),
+                    name="treat if W1 > 0",
+                    rule_kind="known",
+                ),
             ),
         )
         assert "ate_regime[never vs treat if W1 > 0]" in flipped.estimates
@@ -198,7 +206,7 @@ class TestTheRegimesTravelWithTheFit:
             frame,
             interventions=(
                 Static(0, name="never"),
-                Rule(_positive_w1, name="rule"),
+                Rule(_positive_w1, name="rule", rule_kind="known"),
             ),
         )
 

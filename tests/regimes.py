@@ -37,7 +37,7 @@ def interventions() -> tuple[Any, ...]:
         Static(0.0, name="never"),
         # d(w) = 0 at w = 1 and 1 elsewhere: the rule has to *look* at W, or the
         # comparison against a static regime proves nothing.
-        Rule(lambda frame: np.where(_levels(frame) == 1, 0, 1), name="rule"),
+        Rule(lambda frame: np.where(_levels(frame) == 1, 0, 1), name="rule", rule_kind="known"),
         Stochastic(
             lambda frame: law.REGIMES["tilt"][_levels(frame)], name="tilt", density_kind="known"
         ),
