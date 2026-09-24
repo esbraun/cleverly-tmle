@@ -333,7 +333,9 @@ class TestTheMutationsFailTheWitness:
     ) -> None:
         """The row's third witness: the fit stamps what the rule returns."""
         monkeypatch.setattr(
-            longitudinal_estimator, "_inference_status", lambda data, folds: "influence_curve"
+            longitudinal_estimator,
+            "_inference_status",
+            lambda data, folds, regimens, msm=None: "influence_curve",
         )
         with pytest.raises(AssertionError):
             assert_withholds(FITS[kind](FEW_CLUSTER_THRESHOLD - 1), FEW)
@@ -361,7 +363,9 @@ class TestTheMutationsFailTheWitness:
         monkeypatch.setattr(
             longitudinal_estimator,
             "_inference_status",
-            lambda data, folds: cluster_inference_status(data.cluster, cross_fit=folds.n_folds > 1),
+            lambda data, folds, regimens, msm=None: cluster_inference_status(
+                data.cluster, cross_fit=folds.n_folds > 1
+            ),
         )
         with pytest.raises(AssertionError):
             assert_withholds(fit_end_of_study(FEW_CLUSTER_THRESHOLD, **ONE_ZERO_MASS_CLUSTER), FEW)
@@ -492,7 +496,9 @@ class TestASavedCrossFittedClusteredResult:
         monkeypatch.setattr(
             longitudinal_estimator,
             "_inference_status",
-            lambda data, folds: cluster_inference_status(data.cluster, cross_fit=folds.n_folds > 1),
+            lambda data, folds, regimens, msm=None: cluster_inference_status(
+                data.cluster, cross_fit=folds.n_folds > 1
+            ),
         )
         with pytest.raises(AssertionError):
             assert_restamped(result, SAVED_GROUPED, "pickle")

@@ -75,6 +75,7 @@ from typing import Any
 
 import numpy as np
 
+from .._declarations import FunctionDeclaration, FunctionKind
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..estimators.targeting import ProjectionFluctuation
 from ..exceptions import DataError
@@ -120,6 +121,7 @@ __all__ = [
     "RegimenMSM",
     "evaluate_regimen_msm",
     "fit_regimens_msm",
+    "refuse_evaluated_msm_functions",
 ]
 
 
@@ -132,6 +134,23 @@ _STALL_FACTOR = 0.95
 #: A relative shift in ``beta`` above this at exit is reported as a failure rather than as
 #: convergence.  Beside :data:`_STALL_FACTOR`.
 _UNSOLVED = 1e-6
+
+
+_EVALUATED_FUNCTIONS_DECLARATION = FunctionDeclaration(
+    field="functions_kind",
+    meaning="It records whether the source MSM design and projection weights were declared known.",
+    undeclared=(
+        "the saved longitudinal MSM projection has no proof that its design and projection "
+        "weights were declared known. Its evaluated arrays and point estimates remain "
+        "available, but a replay or interval cannot treat those functions as fixed. "
+        "Refit the original MSM with design_kind='known' and, when weights= is callable, "
+        "weights_kind='known' to restore inference."
+    ),
+    estimated=(
+        "the saved longitudinal MSM projection does not declare known design and projection "
+        "weights. Refit the original MSM with fixed functions declared known to restore inference."
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -164,20 +183,24 @@ class RegimenMSM:
     What the two share is the rank rule, which lives in
     :func:`cleverly.msm.check_projection_rank` so that it cannot drift.
 
-    Attributes
+    Parameters
     ----------
-    terms:
+    terms : tuple of str
         One name per coefficient, in column order.
-    design:
+    design : ndarray
         ``(n, C, p)``: ``design[i, k, :]`` is :math:`\varphi(c_k, V_i)`.
-    weights:
+    weights : ndarray
         ``(n, C)``: ``weights[i, k]`` is :math:`h(c_k, V_i)` -- the *working model's*
         weight, never the observation weights.
-    cells:
+    cells : tuple of Cell
         What the second axis is keyed by, in its order.
-    link:
+    link : str
         The declared link, by name.  A string rather than a :class:`cleverly.msm.Link`,
         keeping this object arrays-and-scalars as its point-treatment sibling is.
+    functions_kind : {"known", "estimated"} or None
+        ``"known"`` only when :func:`evaluate_regimen_msm` checked the source MSM's
+        design and projection-weight declarations. ``None`` on an older saved projection
+        or a manually built one, whose evaluated arrays cannot prove those declarations.
     """
 
     terms: tuple[str, ...]
@@ -185,6 +208,8 @@ class RegimenMSM:
     weights: FloatArray
     cells: tuple[Cell, ...]
     link: str = "identity"
+    #: A plain default makes an older pickle read as undeclared without migrating arrays.
+    functions_kind: FunctionKind | None = None
 
     def __post_init__(self) -> None:
         link_for(str(self.link))
@@ -290,6 +315,30 @@ class RegimenMSM:
         return np.asarray(spec.inverse(np.einsum("ikp,p->ik", self.design, beta)), dtype=float)
 
 
+def refuse_evaluated_msm_functions(model: RegimenMSM | None) -> None:
+    """Refuse replay or inference without provenance for the MSM's source functions.
+
+    A result stores evaluated arrays rather than the design and weight callables. Only the
+    evaluation site can assert that their declarations passed; an older artifact has no
+    such assertion and must be refitted from its original MSM for inference.
+
+    Parameters
+    ----------
+    model : RegimenMSM or None
+        The evaluated model retained by a longitudinal result, or ``None`` if the fit
+        reported regimen means instead of a working-model projection.
+
+    Raises
+    ------
+    CapabilityError
+        If a projection has no proof that its source functions were declared known.
+    DataError
+        If the saved declaration has a value outside the three supported states.
+    """
+    if model is not None:
+        _EVALUATED_FUNCTIONS_DECLARATION.refuse(getattr(model, "functions_kind", None))
+
+
 # ------------------------------------------------------------------ evaluation
 
 
@@ -358,6 +407,7 @@ def evaluate_regimen_msm(
         np.column_stack(weights),
         cells,
         msm.link,
+        functions_kind="known",
     )
 
 

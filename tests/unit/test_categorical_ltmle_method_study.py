@@ -192,18 +192,18 @@ def test_each_rule_mutation_has_large_exact_law_separation() -> None:
     """
     arm = {label: law.ARM_LABELS.index(label) for label in law.ARM_LABELS}
     for name, specification in (
-        ("declared", common.REGIMENS["respond"]),
-        ("mutated", common.MUTATED_REGIMENS["respond"]),
+        ("declared", common.REGIMENS["respond"].plan),
+        ("mutated", common.MUTATED_REGIMENS["respond"].plan),
     ):
         assert specification[0] == "standard", (
             f"the {name} respond plan starts at {specification[0]}, so _regimen_mean measures a "
             f"first node neither rule assigns"
         )
 
-    declared = _second_node_arms(common.REGIMENS["respond"])
+    declared = _second_node_arms(common.REGIMENS["respond"].plan)
     assert _regimen_mean(declared) == pytest.approx(law.TRUTH["ey_regimen[respond]"], abs=1e-12)
 
-    shipped = _second_node_arms(common.MUTATED_REGIMENS["respond"])
+    shipped = _second_node_arms(common.MUTATED_REGIMENS["respond"].plan)
     assert shipped != declared, (
         "MUTATED_REGIMENS leaves the respond plan's second node alone, so the rule_necessity "
         "control mutates nothing"

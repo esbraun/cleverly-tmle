@@ -17,6 +17,7 @@ from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_competing as law
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_ltmle_competing as canonical
+from tests.studies.canonical_ltmle import declared_regimens
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
@@ -62,7 +63,7 @@ TARGETING_DISPLACEMENT = 0.25
 RECURSION_DISPLACEMENT = TARGETING_DISPLACEMENT
 
 STUDY = canonical.STUDY
-REGIMENS = law.REGIMEN_SPEC
+REGIMENS = declared_regimens(law.REGIMEN_SPEC)
 REFERENCE = law.REGIMEN_REFERENCE
 PROPERTY_LABELS = canonical.PROPERTY_LABELS
 CONTRASTS = {

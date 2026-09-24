@@ -48,6 +48,7 @@ import cleverly.longitudinal.estimator as ltmle_module
 import cleverly.longitudinal.msm as regimen_msm_module
 import cleverly.msm as msm_module
 from cleverly import MSMProjection
+from cleverly.assessment import replayability
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.msm import (
@@ -67,8 +68,10 @@ from tests.unit._confounding_support import Counter, forbid_draw_and_refit, vali
 from tests.unit._declaration_support import (
     PATHWISE,
     assert_every_witness_fails,
+    assert_keeps_its_interval,
     assert_refused,
     assert_refused_before_any_call,
+    assert_stored_interval_is_a_diagnostic,
     cell_p,
     oracle_fit,
     recomputations,
@@ -423,10 +426,12 @@ RETARGETED = ("msm",)
 RECOMPUTATIONS = ["truncation_curve", "retarget", "refit"]
 
 
-class TestALegacyResultKeepsItsNumbersAndRefusesARecomputation:
-    """RM27: a restored result with a written design holds what it computed.
+class TestALegacyResultKeepsItsPointEstimatesAndRefusesARecomputation:
+    """RM27: a restored result with a written design keeps its point estimates.
 
-    Loading checks nothing, so the stored estimates answer as they were saved.  Every sweep
+    Loading raises nothing.  A written design restored without its declaration gives the
+    result the ``"undeclared_function_plugin"`` status of RM28, so the stored interval
+    becomes a diagnostic.  Every sweep
     recomputes through ``_retarget_detailed``, and a refit through
     ``_resolve_estimands_for_data``, and both check the declaration as the fit does.
     """
@@ -439,12 +444,20 @@ class TestALegacyResultKeepsItsNumbersAndRefusesARecomputation:
     def shorthand(self) -> Any:
         return in_sample_fit(linear())
 
-    def test_the_stored_interval_answers_unchanged(self, result: Any) -> None:
-        old = legacy_result(result)
+    def test_the_stored_interval_becomes_a_diagnostic(self, result: Any) -> None:
         assert "msm[W]" in result.estimates
-        for name, estimate in result.estimates.items():
-            assert old[name].ci == estimate.ci
-            assert old[name].psi == estimate.psi
+        old = legacy_result(result)
+        assert_stored_interval_is_a_diagnostic(result, old)
+        assert not replayability(old).retarget_cached_nuisances
+        assert not replayability(old).refit_nuisances
+        assert not old.diagnostics.capability("truncation_curve").available
+        assert replayability(result).refit_nuisances
+
+    def test_a_legacy_shorthand_result_keeps_its_interval(self, shorthand: Any) -> None:
+        """The over-refusal control: ``MSM.linear`` saved before both declarations existed."""
+        old = legacy_msm_result(legacy_result(shorthand), "weights_kind")
+        assert type(old.estimator.msm.design) is _LinearDesign
+        assert_keeps_its_interval(shorthand, old)
 
     @pytest.mark.parametrize("entry", RECOMPUTATIONS)
     def test_every_recomputation_refuses(self, result: Any, entry: str) -> None:

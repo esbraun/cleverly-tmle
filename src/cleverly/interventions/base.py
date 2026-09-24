@@ -40,6 +40,8 @@ effort -- and both are implemented, elsewhere, under keywords of their own:
   The paragraph stays here rather than being deleted, because the thing to stop a reader
   doing is writing one as a :class:`Stochastic`.  A :class:`Stochastic` must declare
   ``density_kind="known"``, and one declared ``"estimated"`` is refused (roadmap row RM25).
+  A :class:`Rule` declares ``rule_kind="known"``, and a user-written :class:`Intervention`
+  declares ``density_kind = "known"``, by the same three states (roadmap row RM28).
 - A **modified treatment policy** shifting a continuous treatment needs
   :math:`g^\star` and :math:`g` as conditional *densities* on a continuum, which the
   learner layer does not estimate -- there is no ``predict_density``.
@@ -51,7 +53,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, cast, runtime_checkable
 
 import numpy as np
 
@@ -81,14 +83,20 @@ _SIMPLEX_TOLERANCE = 1e-8
 class Intervention(Protocol):
     """A conditional distribution over the treatment arms.
 
-    Implement :meth:`density` and carry a :attr:`name`; everything else -- the clever
-    covariate, the influence curve, the positivity report, the parameter names -- is
-    written against the ``(n, K)`` matrix and needs to know nothing about which kind of
-    intervention produced it.
+    Implement :meth:`density`, carry a :attr:`name`, and declare :attr:`density_kind`;
+    everything else -- the clever covariate, the influence curve, the positivity report,
+    the parameter names -- is written against the ``(n, K)`` matrix and needs to know
+    nothing about which kind of intervention produced it.
 
-    A user-written class currently carries no declaration that its density is fixed, and
-    no fit checks one (roadmap row RM28). Its density may use only a fixed policy for the
-    inference this path reports.
+    ``density`` receives the data of the fit, so it can compute :math:`g^\\star` from the
+    analysis sample, and no code can inspect what it computes.  So a user-written class
+    declares ``density_kind``.  ``"known"`` says that ``density(data)`` returns a fixed
+    function of the covariates, chosen independently of the analysis sample, and it is the
+    one value a fit accepts.  :func:`refuse_regime_densities` refuses ``None`` and
+    ``"estimated"`` before any learner (roadmap row RM28).  A plain class attribute
+    ``density_kind = "known"`` satisfies the protocol.  :class:`Static`, :class:`Rule` and
+    :class:`Stochastic` carry their own declarations.  A subclass of :class:`Static` can
+    override ``density``, so it declares ``density_kind`` itself.
 
     Parameters
     ----------
@@ -99,7 +107,18 @@ class Intervention(Protocol):
     Attributes
     ----------
     name : str
+    density_kind : {"known", "estimated"} or None
     """
+
+    @property
+    def density_kind(self) -> FunctionKind | None:
+        """The declaration that :meth:`density` is a fixed function of the covariates.
+
+        ``"known"`` is the one value a fit accepts.  ``None`` means undeclared, and it is
+        refused with ``"estimated"``, a density computed from the analysis sample.  Any
+        other value is a :class:`~cleverly.exceptions.DataError`.
+        """
+        ...
 
     @property
     def name(self) -> str:
@@ -201,6 +220,10 @@ class Static:
         The treatment level to assign to every row, as the caller spells it.
     name : str
         Label used in reported parameter names.  Empty builds ``"always <level>"``.
+
+    Attributes
+    ----------
+    density_kind : {"known", "estimated"} or None
     """
 
     level: Any
@@ -209,6 +232,16 @@ class Static:
     def __post_init__(self) -> None:
         if not self.name:
             object.__setattr__(self, "name", f"always {self.level}")
+
+    @property
+    def density_kind(self) -> FunctionKind | None:
+        """``"known"`` when the exact type is :class:`Static`, and ``None`` for a subclass.
+
+        A level is not a function of the sample, so :class:`Static` needs no declaration.  A
+        subclass can override :meth:`density`, so it reads as undeclared, by the exact-type
+        rule of roadmap row RM27, until it declares ``density_kind`` itself.
+        """
+        return "known" if type(self) is Static else None
 
     def density(self, data: CausalData) -> FloatArray:
         """Evaluate this regime's arm probabilities for every row.
@@ -235,16 +268,20 @@ class Rule:
     the backend the data arrived in, and returns the *level* -- the user's own label, not
     an internal code -- to assign to each row.
 
-    ``` python
-    Rule(lambda w: np.where(w["age"] > 65, 1, 0), name="treat the elderly")
-    ```
+    .. code-block:: python
+
+        Rule(lambda w: np.where(w["age"] > 65, 1, 0), name="treat the elderly", rule_kind="known")
 
     Every returned level is checked against the declared support before it becomes a
     density, so a rule with a typo or an off-by-one fails naming the levels that exist
     rather than producing a regime nobody asked for.
 
-    Prespecify ``rule`` independently of the analysis sample. The fit cannot inspect a
-    closure and does not yet require a known-rule declaration (roadmap row RM28).
+    ``rule_kind="known"`` declares that ``rule`` is a fixed rowwise function of the
+    covariates, chosen independently of the analysis sample.  A callable can close over any
+    estimate, such as a threshold at a sample mean, and no code can inspect a closure, so
+    the declaration is the check.  :func:`refuse_regime_densities` refuses ``None`` and
+    ``"estimated"`` when the rule is built, and ``TMLE`` refuses them again before any
+    learner (roadmap row RM28).
 
     Parameters
     ----------
@@ -252,10 +289,34 @@ class Rule:
         Maps the covariate frame to the treatment level assigned to each row.
     name : str
         Label used in reported parameter names.
+    rule_kind : {"known", "estimated"} or None
+        The declaration that ``rule`` is a known function.  ``"known"`` is the one value a
+        fit accepts.  ``None``, the default, and ``"estimated"`` raise
+        :class:`~cleverly.exceptions.CapabilityError`, and any other value raises
+        :class:`~cleverly.exceptions.DataError`.  A rule pickled before this field existed
+        loads as ``None`` and refuses every estimator recomputation.  It is the last field,
+        so ``Rule(rule, name)`` keeps its positional order.
+        :func:`dataclasses.replace` copies it, so a rule replaced with ``rule=`` keeps the
+        old declaration.
+
+    Attributes
+    ----------
+    density_kind : {"known", "estimated"} or None
     """
 
     rule: Callable[[Any], Any]
     name: str
+    #: A plain default, so it is a class attribute: a rule pickled before the field existed
+    #: reads ``None`` here, and :func:`dataclasses.replace` still works on it.
+    rule_kind: FunctionKind | None = None
+
+    def __post_init__(self) -> None:
+        refuse_regime_densities((self,))
+
+    @property
+    def density_kind(self) -> FunctionKind | None:
+        """The declaration ``rule_kind``, under the name that the protocol reads."""
+        return self.rule_kind
 
     def density(self, data: CausalData) -> FloatArray:
         """Evaluate this regime's arm probabilities for every row.
@@ -269,7 +330,14 @@ class Rule:
         -------
         ndarray
             ``(n, K)`` density, columns in arm-code order.
+
+        Notes
+        -----
+        It runs :func:`refuse_regime_densities` before it calls ``rule``, because a
+        restored or modified rule can reach it directly with a declaration this version
+        refuses.
         """
+        refuse_regime_densities((self,))
         assigned = _as_array(self.rule(_covariate_frame(data)))
         if assigned.shape[0] != data.n or assigned.ndim > 1:
             raise DataError(
@@ -439,35 +507,113 @@ _DENSITY_DECLARATION = FunctionDeclaration(
     estimated=_ESTIMATED_DENSITY,
 )
 
+_UNDECLARED_RULE = (
+    "a treatment rule needs a declaration of what it is. Pass rule_kind='known' when every "
+    "rule is a fixed rowwise function of the covariates or the node history, chosen "
+    "independently of the analysis sample: Rule(rule, name, rule_kind='known'), or "
+    "DynamicRegimen(label, plan, rule_kind='known') from cleverly.longitudinal. A callable "
+    "written inline in regimens= carries no declaration, so write that plan as a "
+    "DynamicRegimen. A rule learned from the analysis sample is refused (RM28 in "
+    "docs/roadmap.md)."
+)
+
+#: Why a learned treatment rule is refused.  ``_RULE_DECLARATION`` reads it.
+_ESTIMATED_RULE = (
+    "a treatment rule learned from the analysis sample is refused. A realized learned rule "
+    "defines a data-adaptive target, and inference for it needs conditions this API does "
+    "not check. For a population-indexed rule, such as a threshold at a sample mean, the "
+    "regime influence curve can omit a pathwise derivative through the learned statistic; "
+    "the RM28 threshold witness measures that gap. An optimal rule can also be nonregular "
+    "at ties. docs/technical-reference/scope-and-refusals.md (Wrong by construction) "
+    "records the refusal, and RM28 in docs/roadmap.md records the reason. Fix the rule "
+    "before the fit, or learn it on data independent of the analysis sample, and declare "
+    "rule_kind='known'."
+)
+
+#: The treatment-rule declaration that :class:`Rule` and
+#: :class:`~cleverly.longitudinal.DynamicRegimen` share: the field ``rule_kind``, and the
+#: texts of its refusals.
+_RULE_DECLARATION = FunctionDeclaration(
+    "rule_kind",
+    meaning=(
+        "It declares whether a treatment rule is a fixed function of the covariates or the "
+        "node history, or one learned from the sample."
+    ),
+    undeclared=_UNDECLARED_RULE,
+    estimated=_ESTIMATED_RULE,
+)
+
+_UNDECLARED_INTERVENTION = (
+    "a user-written Intervention needs a declaration of what its density is. Give the class "
+    "a density_kind attribute of 'known' when density(data) returns a fixed function of the "
+    "covariates, chosen independently of the analysis sample. density receives the data of "
+    "the fit, so it can compute g*(a | W) from the analysis sample, and such a density is "
+    "refused (RM28 in docs/roadmap.md). Static, Rule and Stochastic carry their own "
+    "declarations. A subclass of Static can override density, so it declares density_kind "
+    "itself."
+)
+
+#: Why a user-written intervention with an estimated density is refused.
+#: ``_INTERVENTION_DECLARATION`` reads it.
+_ESTIMATED_INTERVENTION = (
+    "a user-written Intervention with an estimated density is refused. For a population-law "
+    "target whose g*(a | W) depends on P, the regime influence curve omits its pathwise "
+    "derivative; on the RM25 witness law, a class that computes the sample-mechanism odds "
+    "tilt reports 0.62 of that target's exact standard error. A realized learned density "
+    "instead defines a data-adaptive target whose inference needs conditions this API does "
+    "not check. docs/technical-reference/scope-and-refusals.md (Wrong by construction) "
+    "records the refusal, and RM28 in docs/roadmap.md records the reason. For the "
+    "population odds tilt of the treatment mechanism, pass "
+    "cleverly.interventions.Incremental to TMLE(incremental=...). Otherwise make "
+    "density(data) a fixed function of the covariates and set density_kind = 'known'."
+)
+
+#: The density declaration of a user-written :class:`Intervention`: the attribute
+#: ``density_kind``, and the texts of its refusals.
+_INTERVENTION_DECLARATION = FunctionDeclaration(
+    "density_kind",
+    meaning=(
+        "It declares whether the density g*(a | W) of a user-written Intervention is a "
+        "fixed function of the covariates or one computed from the sample."
+    ),
+    undeclared=_UNDECLARED_INTERVENTION,
+    estimated=_ESTIMATED_INTERVENTION,
+)
+
 
 def refuse_regime_densities(interventions: Iterable[object]) -> None:
-    """Raise unless every :class:`Stochastic` among ``interventions`` declares a known density.
+    """Raise unless every item of ``interventions`` declares a known function.
 
     A callable can close over any estimate, and no code can inspect a closure, so the
-    status of :math:`g^\\star` is the declaration ``density_kind``.  For each
-    :class:`Stochastic`, the checks run in order:
+    status of each regime function is a declaration.  The table gives the checks for each
+    item, in order.  The declaration check raises
+    :class:`~cleverly.exceptions.DataError` for a value outside ``"known"``,
+    ``"estimated"`` and ``None``.  It raises
+    :class:`~cleverly.exceptions.CapabilityError` for ``None`` and for ``"estimated"``.
 
-    1. A ``density_fn`` that is not callable is a :class:`DataError`.
-    2. A ``density_kind`` outside ``"known"``, ``"estimated"`` and ``None`` is a
-       :class:`DataError`.
-    3. ``density_kind=None`` is a :class:`~cleverly.exceptions.CapabilityError`.
-    4. ``density_kind="estimated"`` is a :class:`~cleverly.exceptions.CapabilityError`
-       that distinguishes a population-law target from a realized learned-policy target.
+    ============================  ==========================  ===================================
+    item                          callable check              declaration
+    ============================  ==========================  ===================================
+    a :class:`Stochastic`         ``density_fn``              ``density_kind`` (RM25)
+    a :class:`Rule`               ``rule``                    ``rule_kind`` (RM28)
+    any other object              a ``density`` method        ``density_kind``, ``None`` if absent
+    ============================  ==========================  ===================================
 
-    :class:`Stochastic` runs this when it is built.  ``TMLE`` runs it again before any
-    learner and at the start of every retarget.  :meth:`Stochastic.density` and
-    :meth:`RegimeSet.evaluate` run it before any density is evaluated, so a direct call and
-    the simulated-confounding replay refuse before ``density_fn`` runs.  A regime restored
-    from an older pickle, or changed with ``object.__setattr__``, can carry a declaration
-    this version refuses.
-    Loading runs no check, so a restored result keeps the estimates it stored, and they
-    answer as saved (roadmap row RM25).
+    The first two rows select by ``isinstance``, so a subclass that skips
+    ``__post_init__`` still refuses at the fit.  :class:`Static` meets the last row, and its
+    ``density_kind`` reads ``"known"`` by its exact type.  A user-written
+    :class:`Intervention` meets the last row too (roadmap row RM28).  The refusal of
+    ``"estimated"`` distinguishes a population-law target from a realized learned target.
 
-    The check selects regimes with ``isinstance``, so a subclass that skips
-    :meth:`Stochastic.__post_init__` still refuses at the fit.  Every other intervention
-    passes unchecked: :class:`Static` and :class:`Rule` hold no density function, and a
-    user-written :class:`Intervention` carries no declaration (roadmap row RM28). A
-    :class:`Rule` can still hold a learned rule; RM28 also tracks that gap.
+    :class:`Stochastic` and :class:`Rule` run this when they are built.  ``TMLE`` runs it
+    again before any learner and at the start of every retarget.
+    :meth:`Stochastic.density`, :meth:`Rule.density` and :meth:`RegimeSet.evaluate` run it
+    before any regime function is evaluated, so a direct call and the simulated-confounding
+    replay refuse before that function runs.  A regime restored from an older pickle, or
+    changed with ``object.__setattr__``, can carry a declaration this version refuses.
+    Loading raises nothing.  A restored result whose declaration this version refuses keeps
+    its point estimates and takes the ``"undeclared_function_plugin"`` status, so its
+    ``ci``, ``pvalue`` and ``std_error`` refuse (roadmap rows RM25 and RM28).
 
     Parameters
     ----------
@@ -477,24 +623,39 @@ def refuse_regime_densities(interventions: Iterable[object]) -> None:
     Raises
     ------
     DataError
-        If a ``density_fn`` is not callable, or a ``density_kind`` is not one of the
-        three states.
+        If a regime function is not callable, or a declaration is not one of the three
+        states.
     CapabilityError
-        If a ``density_kind`` is ``None`` or ``"estimated"``.
+        If a declaration is ``None`` or ``"estimated"``.
     """
     for item in interventions:
-        if not isinstance(item, Stochastic):
-            continue
         # Typed ``object`` on purpose: this checks what a restored or modified regime holds
         # at run time, which its annotations do not guarantee.
-        density_fn: object = item.density_fn
-        if not callable(density_fn):
-            raise DataError(
-                "Stochastic density_fn= must be callable: covariate_frame -> (n, K) arm "
-                "probabilities, one column per level of data.treatment_levels; got "
-                f"{type(density_fn).__name__}"
-            )
-        _DENSITY_DECLARATION.refuse(item.density_kind)
+        function: object
+        if isinstance(item, Stochastic):
+            function = item.density_fn
+            if not callable(function):
+                raise DataError(
+                    "Stochastic density_fn= must be callable: covariate_frame -> (n, K) arm "
+                    "probabilities, one column per level of data.treatment_levels; got "
+                    f"{type(function).__name__}"
+                )
+            _DENSITY_DECLARATION.refuse(item.density_kind)
+        elif isinstance(item, Rule):
+            function = item.rule
+            if not callable(function):
+                raise DataError(
+                    "Rule rule= must be callable: covariate_frame -> one treatment level per "
+                    f"row; got {type(function).__name__}"
+                )
+            _RULE_DECLARATION.refuse(item.rule_kind)
+        else:
+            function = getattr(item, "density", None)
+            if not callable(function):
+                raise DataError(
+                    f"an Intervention needs a density(data) method; got {type(item).__name__}"
+                )
+            _INTERVENTION_DECLARATION.refuse(getattr(item, "density_kind", None))
 
 
 # ------------------------------------------------------------------ regime sets
@@ -578,9 +739,10 @@ class RegimeSet:
         Notes
         -----
         It runs :func:`refuse_regime_densities` on every intervention before it evaluates
-        any density.  A regime restored from an older pickle, or changed with
-        ``object.__setattr__``, can reach this method directly with a declaration this
-        version refuses.
+        any density, so a :class:`Rule` or a user-written :class:`Intervention` meets its
+        declaration check as a :class:`Stochastic` does.  A regime restored from an older
+        pickle, or changed with ``object.__setattr__``, can reach this method directly with
+        a declaration this version refuses.
         """
         if len(interventions) < 1:
             raise DataError("at least one intervention is required")
@@ -697,15 +859,51 @@ def as_interventions(value: Any) -> tuple[Intervention, ...]:
     """Normalise the ``interventions=`` argument into a tuple.
 
     A bare level is read as :class:`Static` on it, so ``interventions=(1, 0)`` means what
-    it looks like it means; anything implementing :class:`Intervention` is taken as is.
+    it looks like it means.  Each item meets the first row of the table that matches it.
+
+    ==============================================  =======================================
+    item                                            result
+    ==============================================  =======================================
+    a ``str`` or ``bytes``                          :class:`Static` on that level
+    an object with a callable ``density``, named    the object as is
+    an object with a callable ``density``, no name  :class:`~cleverly.exceptions.DataError`
+    any other callable                              :class:`~cleverly.exceptions.DataError`
+    any other value                                 :class:`Static` on that level
+    ==============================================  =======================================
+
+    The second and third rows do not use the runtime :class:`Intervention` check.  That check
+    requires ``density_kind``, and an object with no declaration must reach
+    :func:`refuse_regime_densities`, whose refusal says what to declare.  This function
+    checks no declaration, so a fit refuses an undeclared object before its first learner
+    (roadmap row RM28).  A callable is not a treatment level, and it carries no name and no
+    declaration, so the fourth row refuses it and names :class:`Rule`.
 
     A :class:`~cleverly.interventions.Shift` or
-    :class:`~cleverly.interventions.Incremental` is neither, and is sent to
-    :func:`refuse_unsupported` rather than falling through to ``Static``.  Both are
+    :class:`~cleverly.interventions.Incremental` is neither a level nor a regime, and is
+    sent to :func:`refuse_unsupported` rather than falling through to ``Static``.  Both are
     implemented, under keywords of their own, and the ``Static`` fallthrough would wrap
     the object as though it were a treatment *level* -- giving a regime named
     ``"always Shift(delta=0.5, ...)"`` and an error much further downstream, about
     something else.
+
+    Parameters
+    ----------
+    value : Any
+        The ``interventions=`` argument: ``None``, one item, or a list or tuple of items.
+
+    Returns
+    -------
+    tuple of Intervention
+        The regimes in the order given.  ``None`` gives the empty tuple.
+
+    Raises
+    ------
+    DataError
+        If an item is a callable with no ``density``, or an object with a ``density`` and
+        no ``name``.
+    ValueError
+        If an item is a :class:`~cleverly.interventions.Shift` or an
+        :class:`~cleverly.interventions.Incremental`.
     """
     from .incremental import Incremental
     from .shift import Shift
@@ -719,8 +917,23 @@ def as_interventions(value: Any) -> tuple[Intervention, ...]:
             refuse_unsupported("shift")
         if isinstance(item, Incremental):
             refuse_unsupported("ipsi")
-        if isinstance(item, Intervention) and not isinstance(item, (str, bytes)):
-            out.append(item)
+        if isinstance(item, (str, bytes)):
+            out.append(Static(item))
+        elif callable(getattr(item, "density", None)):
+            if not hasattr(item, "name"):
+                raise DataError(
+                    f"{type(item).__name__} has a density method but no name. An "
+                    "Intervention carries a name, a density(data) method and a density_kind "
+                    "declaration."
+                )
+            out.append(cast(Intervention, item))
+        elif callable(item):
+            label = getattr(item, "__name__", type(item).__name__)
+            raise DataError(
+                f"interventions= received a callable, {label}, and a callable is not a "
+                "treatment level. Write a rule as Rule(rule, name, rule_kind='known'); a "
+                "bare callable carries no name and no declaration."
+            )
         else:
             out.append(Static(item))
     return tuple(out)

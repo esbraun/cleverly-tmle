@@ -105,7 +105,11 @@ from cleverly.interventions import Rule, Static, Stochastic
 plans = (
     Static(1, name="treat all"),
     Static(0, name="treat none"),
-    Rule(lambda data: (data["W1"] > 0).astype(float), name="treat if W1 positive"),
+    Rule(
+        lambda data: (data["W1"] > 0).astype(float),
+        name="treat if W1 positive",
+        rule_kind="known",
+    ),
     Stochastic(
         lambda data: np.column_stack([np.full(len(data), 0.4), np.full(len(data), 0.6)]),
         name="assign with probability 0.6",
@@ -115,9 +119,12 @@ plans = (
 result = study.estimate(RegimeContrast(plans, reference="treat none"), method=quick, random_state=3)
 ```
 
-Prespecify a `Rule` as a rowwise function of observed history. The fit does not check whether
-the rule was learned from the analysis sample. [RM28](../roadmap.md#rm28-declared-densities-of-user-written-interventions)
-tracks that gap.
+Write a `Rule` as a fixed rowwise function of the covariates, and declare `rule_kind="known"`.
+Choose the rule independently of the analysis sample. `Rule` raises `CapabilityError` for a rule
+with no declaration and for a rule declared `"estimated"`. For a threshold at a sample mean, the
+fixed-rule curve omits the derivative through that mean. Code cannot inspect a closure, so the
+fit accepts a false `"known"` declaration. The [scope page](../technical-reference/scope-and-refusals.md#wrong-by-construction)
+gives the size of that error on one exact law.
 
 `Stochastic` takes the assignment *density*, not a scalar probability. The density is a function
 of the covariate frame. It returns one column per arm in `data.treatment_levels` order, and its

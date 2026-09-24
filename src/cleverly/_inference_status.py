@@ -37,6 +37,7 @@ InferenceStatus = Literal[
     "influence_curve",
     "working_mechanism_plugin",
     "generated_design_plugin",
+    "undeclared_function_plugin",
     "estimated_weight_plugin",
     "cross_fitted_longitudinal_plugin",
     "unequal_cluster_plugin",
@@ -172,6 +173,35 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             diagnostic_noun="generated-design plug-in diagnostic",
             reopened_by="F19",
+        ),
+        "undeclared_function_plugin": StatusRecord(
+            reason=(
+                "A restored result whose regime rule, regime density, or MSM function lacks "
+                "a known-function declaration reports no confidence interval, no "
+                "p-value and no standard error. Each new fit refuses such a function before "
+                "any learner. A saved longitudinal MSM also needs retained evidence that its "
+                "source declarations passed. "
+                "The saved curve treats the function as fixed, and no code can check that a "
+                "saved closure was fixed. A function learned from the analysis sample "
+                "defines a data-adaptive target, and this API does not check the conditions "
+                "its inference needs. The point estimate stands. The plug-in standard error "
+                "of the reported curve remains as a diagnostic under plugin_std_error and "
+                "plugin_interval. RM28 in docs/roadmap.md records the rule. Fit the "
+                "analysis again with each function declared known to report an interval."
+            ),
+            assessment_note=(
+                "the reported curve is an undeclared-function diagnostic: no confidence "
+                "interval or p-value is available for this result, RM28 in the roadmap "
+                "records the rule, and a refit with each function declared known reports "
+                "an interval"
+            ),
+            summary_label="undeclared-function se",
+            bootstrap_note=(
+                "a diagnostic; the bootstrap reuses the saved function, and no result "
+                "validates its coverage when that function was learned from the sample"
+            ),
+            diagnostic_noun="undeclared-function plug-in diagnostic",
+            reopened_by="RM28",
         ),
         "estimated_weight_plugin": StatusRecord(
             reason=(

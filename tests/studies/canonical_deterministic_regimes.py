@@ -48,7 +48,7 @@ def _levels(frame: Any) -> np.ndarray:
 def interventions() -> tuple[Any, ...]:
     return (
         Static(0.0, name="never"),
-        Rule(lambda frame: np.where(_levels(frame) == 1, 0, 1), name="rule"),
+        Rule(lambda frame: np.where(_levels(frame) == 1, 0, 1), name="rule", rule_kind="known"),
     )
 
 

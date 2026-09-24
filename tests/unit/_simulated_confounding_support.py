@@ -61,7 +61,11 @@ def _policy(kind: str, *, labels: bool = False) -> Any:
     if kind == "static":
         return Static(treated, name="policy")
     if kind == "rule":
-        return Rule(lambda w: np.where(np.asarray(w["W"]) > 0, treated, control), name="policy")
+        return Rule(
+            lambda w: np.where(np.asarray(w["W"]) > 0, treated, control),
+            name="policy",
+            rule_kind="known",
+        )
     if kind == "stochastic":
         return Stochastic(_stochastic_density, name="policy", density_kind="known")
     raise AssertionError(kind)

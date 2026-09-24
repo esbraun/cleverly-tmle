@@ -150,7 +150,9 @@ def variable_importance(
     or ``"discrete"`` is one such case, and the
     :doc:`inference reference </technical-reference/inference>` lists each status. The
     adjustment above needs one p-value per candidate, and such a fit supplies none, so
-    this procedure has no diagnostic form to fall back to.
+    this procedure has no diagnostic form to fall back to. Before that check, an estimator
+    with a rule, a regime density or an MSM function that is not declared known meets the
+    refusal that its own fit gives.
 
     Parameters
     ----------
@@ -199,6 +201,10 @@ def variable_importance(
     if outcome in candidate_names:
         raise DataError("the outcome cannot also be a candidate exposure")
     template = TMLE(estimands=estimand) if estimator is None else estimator
+    # The declaration refusals of every fit come first, as they do in ``fit``.  Asked
+    # below, the status hook would report an undeclared function as the status of a
+    # restored result (roadmap row RM28), and its reason does not name the remedy.
+    template._refuse_undeclared_functions()
     # Every candidate's data is prepared, and its status asked, before the first fit.
     # This procedure ends in a Benjamini--Hochberg adjustment of one p-value per
     # candidate, so an estimator that supplies no p-value leaves it with nothing to

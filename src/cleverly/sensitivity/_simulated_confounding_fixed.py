@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from .._declarations import FunctionKind
 from .._typing import FloatArray
 from ..data import CausalData
 from ..exceptions import CapabilityError, DataError
@@ -94,6 +95,9 @@ class _FrozenRegime:
     name: str
     values: FloatArray
     baseline: _BaselineRows
+    #: The declaration of the source regime, carried and never forged as ``"known"``, so
+    #: the refit checks it as the fit checked the source (roadmap row RM28).
+    density_kind: FunctionKind | None = None
 
     def density(self, data: CausalData) -> FloatArray:
         self.baseline.check_data(data)
@@ -195,10 +199,10 @@ def _freeze_regimes(result: Any, key: Any, typed: Any, functional: Any) -> tuple
         or typed.horizons is not None
     ):
         raise DataError("regime declarations disagree")
-    # A frozen regime holds fixed arrays and is not a Stochastic, so the refit admits it.
     # ``RegimeSet.evaluate`` checks the source declarations before any density runs, so a
     # regime restored with no declaration refuses at replay as it would at the fit
-    # (roadmap row RM25).
+    # (roadmap rows RM25 and RM28).  A frozen regime holds fixed arrays and carries the
+    # ``density_kind`` of its source, and the refit checks it again.
     expected = _checked_regimes(
         RegimeSet.evaluate(declarations, data, reference=functional.reference), data
     )
@@ -223,7 +227,12 @@ def _freeze_regimes(result: Any, key: Any, typed: Any, functional: Any) -> tuple
     replay: TMLE = copy.copy(estimator)
     baseline = _BaselineRows.from_data(data)
     replay.interventions = tuple(
-        _FrozenRegime(name, expected.values[:, :, index].copy(), baseline)
+        _FrozenRegime(
+            name,
+            expected.values[:, :, index].copy(),
+            baseline,
+            density_kind=declarations[index].density_kind,
+        )
         for index, name in enumerate(expected.names)
     )
     return replay, alias

@@ -110,7 +110,7 @@ SPECS: dict[str, tuple[Callable[..., Any], int, dict[str, Any]]] = {
             "interventions": (
                 Static(0, name="none"),
                 Static(1, name="all"),
-                Rule(_screen_on_risk, name="screen"),
+                Rule(_screen_on_risk, name="screen", rule_kind="known"),
             )
         },
     ),

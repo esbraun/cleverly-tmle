@@ -1,7 +1,9 @@
 # Interventions
 
 Use interventions to define static, dynamic, stochastic, incremental, or shifted treatment
-assignments. Run the matching support check before you interpret an estimate.
+assignments. Run the matching support check before you interpret an estimate. `DynamicRegimen`
+defines a plan across the treatment nodes of a longitudinal fit. A node of that plan can be a
+rule.
 
 ```{eval-rst}
 .. autosummary::
@@ -11,6 +13,7 @@ assignments. Run the matching support check before you interpret an estimate.
    cleverly.interventions.Static
    cleverly.interventions.Rule
    cleverly.interventions.Stochastic
+   cleverly.longitudinal.DynamicRegimen
    cleverly.interventions.RegimeSet
    cleverly.interventions.Incremental
    cleverly.interventions.IPSISet

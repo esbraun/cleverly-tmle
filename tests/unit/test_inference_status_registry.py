@@ -34,10 +34,13 @@ INFERENCE_PAGE = ROOT / "docs" / "technical-reference" / "inference.md"
 ROADMAP = ROOT / "docs" / "roadmap.md"
 
 #: The precedence order, written out. A fit that meets more than one status takes the
-#: first one here. The order is the one the roadmap's RM20 precedence table gives.
+#: first one here. The order is the one the roadmap's RM20 precedence table gives. RM28
+#: puts its status third: every fit runs the declaration refusals before any refusal of the
+#: data or the design, and the two collaborative statuses never meet it.
 PRECEDENCE = (
     "working_mechanism_plugin",
     "generated_design_plugin",
+    "undeclared_function_plugin",
     "estimated_weight_plugin",
     "cross_fitted_longitudinal_plugin",
     "unequal_cluster_plugin",

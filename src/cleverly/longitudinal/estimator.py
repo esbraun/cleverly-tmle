@@ -69,9 +69,11 @@ from typing import TYPE_CHECKING, Any, ClassVar, NoReturn
 import numpy as np
 from sklearn.base import clone
 
+from .._declarations import declaration_status
 from .._inference_status import (
     NO_SIMULTANEOUS_BANDS,
     InferenceStatus,
+    precedent_status,
     status_record,
     supplies_inference,
 )
@@ -117,12 +119,19 @@ from ..utils.phases import PhaseProfile, phase, profile_phases
 from ..utils.records import _DefaultingUnpickle
 from ..utils.text import format_pvalue, format_table
 from .data import LongitudinalData
-from .msm import MSMRegimenFit, RegimenMSM, evaluate_regimen_msm, fit_regimens_msm
+from .msm import (
+    MSMRegimenFit,
+    RegimenMSM,
+    evaluate_regimen_msm,
+    fit_regimens_msm,
+    refuse_evaluated_msm_functions,
+)
 from .regimen import (
     DynamicRegimen,
     Plan,
     RegimenSpec,
     describe_plan,
+    refuse_regimen_rules,
     resolve_plans,
     resolve_regimens,
 )
@@ -145,6 +154,8 @@ LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE = "longitudinal_replay_learner_unclonable
 LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED = "longitudinal_replay_random_state_unseeded"
 LONGITUDINAL_REPLAY_RANDOM_STATE_NON_INTEGER = "longitudinal_replay_random_state_non_integer"
 LONGITUDINAL_REPLAY_FITTED_BOUND_MISMATCH = "longitudinal_replay_fitted_bound_mismatch"
+LONGITUDINAL_REPLAY_REGIMEN_DECLARATION = "longitudinal_replay_regimen_declaration"
+LONGITUDINAL_REPLAY_MSM_DECLARATION = "longitudinal_replay_msm_declaration"
 
 #: Match the point-treatment estimator's warning threshold.  The exact share remains
 #: available in ``diagnostics()`` below this value; the warning is only the interruption.
@@ -190,7 +201,8 @@ _REFUSED: dict[str, str] = {
         "a regime is a density over the arms at one node, and a regimen is a plan "
         "across nodes -- so the longitudinal analogue of a rule d(W) is not a further "
         "parameter axis but a regimen whose nodes are rules. Declare it in regimens=, "
-        "for example regimens={'treat once L2 rises': (0, lambda h: h['L2'] > 0)}"
+        "for example regimens=[DynamicRegimen('treat once L2 rises', (0, lambda h: "
+        "h['L2'] > 0), rule_kind='known')], with DynamicRegimen from cleverly.longitudinal"
     ),
     "shifts": (
         "a shift moves a continuous dose, and a longitudinal fit takes a binary "
@@ -682,7 +694,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     parameter_index : dict or None
         Structured regimen, cause, and horizon index.
     msm : RegimenMSM or None
-        Working marginal structural model.
+        Evaluated working model. Its ``functions_kind`` records whether the source design
+        and projection weights passed their declaration checks.
     msm_fits : tuple of MSMRegimenFit
         Projection fits by cause.
     identified_effect : IdentifiedEffect or None
@@ -1420,12 +1433,14 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         return f"LongitudinalResult({', '.join(self.estimates)})"
 
     def __setstate__(self, state: dict[str, Any]) -> None:
-        """Restore a result, and re-apply the inference status its data determines.
+        """Restore a result, and re-apply the inference status its data and regimens determine.
 
         A fit saved before :attr:`~cleverly.ParameterEstimate.inference` reached the
-        longitudinal path loads its estimates under the status they were saved with, and
-        would publish an interval this version refuses. The prepared data and the folds
-        are in the artifact, so the status is recomputed from them. A fit whose data
+        longitudinal path, or before this version refused its configuration, loads its
+        estimates under the status they were saved with, and would publish an interval
+        this version refuses. The prepared data, folds, resolved regimens, and evaluated
+        MSM declaration are in the artifact, so the status is recomputed from them. A
+        legacy MSM with no retained declaration loses inference. A fit whose status
         supplies inference, or whose estimates already carry the status, loads as it was
         saved.
 
@@ -1441,18 +1456,23 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         """Re-apply the fit's inference status to estimates saved without it.
 
         The stamp is written in ``_estimates`` and ``_msm_estimates``, so a live fit never
-        needs this. It reads the prepared data and the folds, as the fit did, so the
-        artifact holds everything it needs. A re-stamped artifact also drops what was
-        derived under the old status: the simultaneous bands, a joint confidence statement
-        that the fit now refuses, and the saved assessment answers, which may have read an
-        interval. The re-stamp also keeps the truncation-curve replay, which stamps its
-        estimates from the same data and folds, equal to the restored fit.
+        needs this. It reads the prepared data, the folds and the resolved regimens, as the
+        fit did, so the artifact holds everything it needs. A regimen restored from before
+        its ``rule_kind`` existed reads ``None``. An MSM restored from before
+        ``functions_kind`` existed does too. Either result takes
+        ``"undeclared_function_plugin"`` (roadmap row RM28). A re-stamped artifact also
+        drops what was derived under the old status: the simultaneous bands, a joint
+        confidence statement that the fit now refuses, and the saved assessment answers,
+        which may have read an interval. The re-stamp also keeps the truncation-curve
+        replay, which stamps its estimates from the same data, folds and regimens, equal
+        to the restored fit.
         """
         data = self.__dict__.get("data")
         folds = self.__dict__.get("folds")
         if data is None or folds is None:
             return
-        status = _inference_status(data, folds)
+        regimens = getattr(self.__dict__.get("config"), "regimens", ())
+        status = _inference_status(data, folds, regimens, self.__dict__.get("msm"))
         if supplies_inference(status):
             return
         estimates = self.__dict__.get("estimates") or {}
@@ -1614,15 +1634,23 @@ class _Reported:
     contributors: dict[str, tuple[RegimenFit, ...]]
 
 
-def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
+def _inference_status(
+    data: LongitudinalData, folds: Folds, regimens: Any, msm: RegimenMSM | None = None
+) -> InferenceStatus:
     """The one inference status of every estimate a longitudinal fit reports.
 
-    A saved cross-fitted clustered result takes its own status at every cluster count and
-    size. New fits of that design are refused before this function runs. Otherwise RM20's
+    :func:`_declared_regimen_status` gives ``"undeclared_function_plugin"`` to a restored
+    result with a callable node whose regimen is not declared known. A saved cross-fitted
+    MSM projection with no proof that its source functions were declared known takes the
+    same status. The evaluated design and weights cannot establish that proof. A saved
+    cross-fitted clustered result takes its own status at every cluster count and size.
+    New fits of
+    either kind are refused before this function runs. Otherwise RM20's
     cluster rule applies to the prepared cluster labels and, on a weighted fit, to the
     unit weights. It reads nothing fitted. ``LongitudinalData`` carries no baseline
     strata, so the count is the number of clusters with positive weight mass in the whole
     fit, and :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` is the threshold.
+    :func:`~cleverly._inference_status.precedent_status` resolves the statuses that apply.
 
     ``LTMLE._refuse_cross_fitted_design`` refuses ``id=`` above one fold before this runs,
     so a live fit can take ``"few_cluster_plugin"`` only. The fold count is still read
@@ -1638,20 +1666,59 @@ def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
         The prepared data of the fit.
     folds : Folds
         The outer fold assignment of the fit.
+    regimens : Any
+        The regimens of the fit: the ``regimens=`` argument, or the resolved regimens of a
+        result.
+    msm : RegimenMSM or None
+        The evaluated working model, with provenance of its source function declarations.
 
     Returns
     -------
     str
         One of :data:`~cleverly.inference.influence.InferenceStatus`.
-        ``"influence_curve"`` on an unclustered fit.
+        ``"influence_curve"`` on an unclustered fit whose rules are declared known.
     """
-    if data.cluster is not None and folds.n_folds > 1:
-        return "cross_fitted_longitudinal_plugin"
-    return cluster_inference_status(
-        data.cluster,
-        cross_fit=folds.n_folds > 1,
-        weights=data.weights if data.is_weighted else None,
+    cluster: InferenceStatus = (
+        "cross_fitted_longitudinal_plugin"
+        if data.cluster is not None and folds.n_folds > 1
+        else cluster_inference_status(
+            data.cluster,
+            cross_fit=folds.n_folds > 1,
+            weights=data.weights if data.is_weighted else None,
+        )
     )
+    return precedent_status(
+        [
+            _declared_regimen_status(regimens),
+            declaration_status(lambda: refuse_evaluated_msm_functions(msm)),
+            cluster,
+        ]
+    )
+
+
+def _declared_regimen_status(regimens: Any) -> InferenceStatus:
+    """Whether every callable node of ``regimens`` is declared known, as a status.
+
+    The longitudinal status predicate of roadmap row RM28. It passes
+    :func:`~cleverly.longitudinal.regimen.refuse_regimen_rules`, which ``LTMLE.fit`` runs
+    before any learner, to :func:`~cleverly._declarations.declaration_status`, which
+    reports a refusal as a status. So only a restored or modified result reaches
+    ``"undeclared_function_plugin"``.
+
+    Parameters
+    ----------
+    regimens : Any
+        The regimens of the fit: the ``regimens=`` argument, or the resolved regimens of a
+        result.
+
+    Returns
+    -------
+    str
+        ``"undeclared_function_plugin"`` when the refusal raises
+        :class:`~cleverly.exceptions.CapabilityError` or
+        :class:`~cleverly.exceptions.DataError`, and ``"influence_curve"`` otherwise.
+    """
+    return declaration_status(lambda: refuse_regimen_rules(regimens))
 
 
 def _estimates(
@@ -1809,19 +1876,43 @@ class LTMLE:
 
     Parameters
     ----------
-    regimens:
+    regimens : mapping, Regimen, DynamicRegimen, or sequence of regimens
         Mapping from label to plan: a sequence of ``T`` arms, or a single arm meaning
-        that arm at every node.  ``{"always": 1, "never": 0}`` is the usual pair.
-    reference:
+        that arm at every node.  ``{"always": 1, "never": 0}`` is the usual pair.  A plan
+        with a rule node is a :class:`~cleverly.longitudinal.DynamicRegimen` declared
+        ``rule_kind="known"``, as a mapping value or an item of a sequence.  A callable
+        written inline in a mapping carries no declaration, and :meth:`fit` refuses it
+        before any learner (roadmap row RM28).
+    reference : str or None
         Which regimen contrasts are taken against; the first declared by default.
         Part of the estimand rather than a display setting -- ``ate_regimen[a vs b]``
-        and ``ate_regimen[a vs c]`` are different parameters.
-    outcome_learner, pseudo_learner, treatment_learner, censoring_learner:
-        Learner specifications, as for :class:`~cleverly.TMLE`.  ``pseudo_learner``
-        fits the intermediate regressions, whose outcome is a ``[0, 1]``-valued
-        prediction rather than the outcome itself, and defaults to ``outcome_learner``'s
-        library read as a regression.
-    n_folds:
+        and ``ate_regimen[a vs c]`` are different parameters.  Refused with ``msm=``.
+    horizons : sequence of int or None
+        Which time points a **survival** fit reports the cumulative risk at.  ``None``
+        reports all of them, which is the curve.  Each horizon is its own backward pass
+        -- the pseudo-outcome carried back differs at every node, so nothing is shared
+        between them but the mechanism -- and the cost is therefore ``T(T+1)/2``
+        regressions per regimen rather than ``T``.  At two or three nodes that is not
+        worth a keyword; over a monthly panel it is the difference between a fit and an
+        afternoon, so name the horizons you will report.  Refused on a fit with one
+        end-of-study outcome, where the only horizon is the end of the study.
+    msm : MSM or None
+        A working model over the regimen and horizon cells, which reports coefficients
+        and no contrasts.  It requires ``n_folds=1``.
+    outcome_learner : object or None
+        Learner specification for the regression at the reported horizon, as for
+        :class:`~cleverly.TMLE`.
+    pseudo_learner : object or None
+        Learner specification for the intermediate regressions, whose outcome is a
+        ``[0, 1]``-valued prediction rather than the outcome itself.  It defaults to
+        ``outcome_learner``'s library read as a regression.
+    treatment_learner : object or None
+        Learner specification for the treatment mechanism at each node, as for
+        :class:`~cleverly.TMLE`.
+    censoring_learner : object or None
+        Learner specification for the censoring mechanism at each node, as for
+        :class:`~cleverly.TMLE`.
+    n_folds : int
         Outer cross-fitting folds; one split serves every node and every regimen, so a unit
         is out of fold in all of them at once.  Above one fold the fit follows the
         cross-fitted construction of Díaz, Williams, Hoffman and Schenck (2023, *JASA*
@@ -1839,36 +1930,51 @@ class LTMLE:
         A longitudinal ``msm=`` fit requires ``n_folds=1``.  Cross-fitted coefficient
         inference remains refused until a dedicated unsaturated projection property and
         repeated-sampling study establish it.
-    g_bounds:
+    learner_folds : int
+        The inner folds of the default :class:`~cleverly.learners.SuperLearner` that a
+        learner slot left at ``None`` builds.
+    g_bounds : float or tuple of float
         Fixed truncation applied to each cumulative treatment-and-censoring probability,
         after multiplying the raw node factors.  The default is the explicit pair
         ``(0.01, 1.0)``, R ``ltmle``'s heuristic convention.  It is not an automatic,
         sample-size-dependent, or follow-up-depth-dependent selection procedure.
-    alpha:
+    q_bounds : tuple of float or None
+        The bounds that map a continuous outcome onto the ``[0, 1]`` scale of the
+        recursion.  ``None`` widens the observed range by 10 % on each side.  Above one fold, a
+        continuous outcome must declare them, and a binary outcome refuses them.
+    alpha : float
         Predicted probabilities are bounded into ``[1 - alpha, alpha]`` before the logit
         is taken, as for :class:`~cleverly.TMLE`.
-    horizons:
-        Which time points a **survival** fit reports the cumulative risk at.  ``None``
-        reports all of them, which is the curve.  Each horizon is its own backward pass
-        -- the pseudo-outcome carried back differs at every node, so nothing is shared
-        between them but the mechanism -- and the cost is therefore ``T(T+1)/2``
-        regressions per regimen rather than ``T``.  At two or three nodes that is not
-        worth a keyword; over a monthly panel it is the difference between a fit and an
-        afternoon, so name the horizons you will report.  Refused on a fit with one
-        end-of-study outcome, where the only horizon is the end of the study.
-    alpha_sig:
+    alpha_sig : float
         Significance level for confidence intervals, as for :class:`~cleverly.TMLE`.
         The two ``alpha``\\ s mean what they mean there and not the other way round: this
         pair used to be spelled ``alpha`` / ``alpha_shrink`` here, which made
         ``LTMLE(alpha=0.9995)`` a silent 0.05 %-level interval.
-    simultaneous, n_multiplier, multiplier_kind:
-        Simultaneous confidence bands across the reported parameters, via the multiplier
-        bootstrap.  A fit with several regimens reports several correlated parameters,
-        which is what the bands are for; see :mod:`cleverly.inference.multiplier`.  A fit
-        whose inference status supplies no inference builds no band, and
-        :meth:`LongitudinalResult.summary` says so.
-    run_id:
+    simultaneous : bool
+        Whether to report simultaneous confidence bands across the reported parameters,
+        via the multiplier bootstrap.  A fit with several regimens reports several
+        correlated parameters, which is what the bands are for; see
+        :mod:`cleverly.inference.multiplier`.  A fit whose inference status supplies no
+        inference builds no band, and :meth:`LongitudinalResult.summary` says so.
+    n_multiplier : int
+        The number of multiplier draws behind each band.
+    multiplier_kind : {"rademacher", "mammen", "normal"}
+        The distribution of the multiplier draws.
+    max_iter : int
+        Maximum targeting iterations per node.
+    tol : float
+        Targeting tolerance per node.
+    random_state : int or None
+        The seed of the outer split.  A default learner, and a
+        :class:`~cleverly.learners.SuperLearner` with no seed of its own, inherit it.
+        ``None`` draws a fresh seed for the split.
+    run_id : str or None
         An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
+    n_jobs : int
+        Worker count for the parallel fan-out of the recursion.
+    **refused : Any
+        A point-treatment keyword.  Each one raises :class:`TypeError` with the reason
+        that a longitudinal fit does not support it.
     """
 
     def __init__(
@@ -2031,6 +2137,46 @@ class LTMLE:
         estimate takes the ``"few_cluster_plugin"`` status, as a point-treatment fit does.
         The point estimate stands.  The inference reference, section *Clusters*, gives
         the reason.  ``id=`` is taken in sample only.
+
+        Parameters
+        ----------
+        data : DataFrame or LongitudinalData
+            One wide frame, a row per unit and a column per node, or a container that
+            has already read the columns.  A container takes none of the column
+            keywords below.
+        outcome : str, sequence of str, mapping, or None
+            One column for an end-of-study outcome, one column per node for a survival
+            outcome, or a mapping of cause to one column per node for competing risks,
+            as for :meth:`LongitudinalData.from_frame`.
+        treatment : sequence of str or None
+            The treatment column of each node, in time order.  Its length declares ``T``.
+        baseline : sequence of str or None
+            The covariates measured before any treatment.
+        time_varying : sequence of sequence of str or None
+            One list of covariate columns per node, measured before that node's
+            treatment.  ``None`` means that there are none.
+        censoring : sequence of str or None
+            One column per node, ``1`` where the unit is still under observation after
+            that node.  ``None`` means that nobody was censored.
+        id : str or None
+            A cluster column, read as described above.
+        weights : str or None
+            A column of observation weights, read as described above.
+        weights_type : str
+            How to read ``weights``, as for :meth:`LongitudinalData.from_frame`.
+        weights_estimated : bool
+            Declare that the weights came out of a fitted model.  It changes no number.
+        family : {"auto", "binomial", "gaussian"}
+            The outcome family.  ``"auto"`` infers it from the outcome.
+        **refused : Any
+            A point-treatment keyword.  Each one raises :class:`TypeError` with the
+            reason that a longitudinal fit does not support it.
+
+        Returns
+        -------
+        LongitudinalResult
+            The regimen estimates, their contrasts or working-model coefficients, and
+            the fits behind them.
         """
         refuse_unsupported(refused, where="LTMLE.fit")
         if self.msm is not None:
@@ -2038,6 +2184,10 @@ class LTMLE:
             # weight declarations only when it is declared, and a restored or modified
             # model can carry one this version refuses.
             refuse_msm_functions(self.msm)
+        # The raw ``regimens=``, before ``_prepare`` and any learner: an inline callable
+        # carries no declaration, and a restored or modified regimen can carry one this
+        # version refuses.  Its refusal comes before any refusal of the data or the design.
+        refuse_regimen_rules(self.regimens)
         prepared = self._prepare(
             data,
             outcome=outcome,
@@ -2188,7 +2338,7 @@ class LTMLE:
                 None if model is None else fingerprint_array(model.design, model.weights)
             ),
         )
-        status = _inference_status(prepared, folds)
+        status = _inference_status(prepared, folds, regimens, model)
         with phase("influence_curve"):
             reported = (
                 _estimates(
@@ -2566,6 +2716,8 @@ def _refit_bound(
         When the replay did not report a parameter the fit reports.
     """
 
+    refuse_regimen_rules(result.config.regimens)
+    refuse_evaluated_msm_functions(result.msm)
     if recipe.outcome_learner is None or recipe.pseudo_learner is None:
         _refuse_replay(LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE)
     fits, msm_fits = _run_recursion(
@@ -2586,7 +2738,7 @@ def _refit_bound(
     )
     # The status the fit stamped, recomputed from the same data and folds, so the replay at
     # the fitted bound equals the fit in every field ``_fitted_replay_matches`` compares.
-    status = _inference_status(result.data, result.folds)
+    status = _inference_status(result.data, result.folds, result.config.regimens, result.msm)
     if result.msm is None:
         reference = next(
             plan.regimen for plan in recipe.plans if plan.label == result.config.reference
@@ -2769,11 +2921,22 @@ def longitudinal_truncation_curve(
     Raises
     ------
     CapabilityError
-        When the grid is empty or holds a bound this package cannot resolve, when it names
-        an estimand this fit does not report, or when the stored artifacts cannot replay the
-        recursion.
-    """
+        When a regimen of the result has a rule node that is not declared
+        ``rule_kind="known"``, when the grid is empty or holds a bound this package cannot
+        resolve, when it names an estimand this fit does not report, or when the stored
+        artifacts cannot replay the recursion.
+    DataError
+        When a regimen of the result carries a ``rule_kind`` outside the three states.
 
+    Notes
+    -----
+    It runs :func:`~cleverly.longitudinal.regimen.refuse_regimen_rules` on
+    ``result.config.regimens`` first.  A result restored from an older pickle, or a
+    regimen changed with ``object.__setattr__``, can carry a declaration this version
+    refuses, and the replay would report a recomputation for it (roadmap row RM28).
+    """
+    refuse_regimen_rules(result.config.regimens)
+    refuse_evaluated_msm_functions(result.msm)
     recipe = getattr(result, "replay_recipe", None)
     if recipe is None:
         _refuse_replay(LONGITUDINAL_REPLAY_RECIPE_MISSING)

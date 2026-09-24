@@ -15,6 +15,7 @@ from cleverly.longitudinal import LTMLE
 from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_longitudinal as law
 from tests.parallel import STUDY_JOBS
+from tests.studies.canonical_ltmle import declared_regimens
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, control_row, replicate_row
 from tests.studies.evidence.property_verdicts import (
     alternative_target_necessity_verdicts,
@@ -46,7 +47,9 @@ WEIGHT_DISPLACEMENT = NECESSITY_DISPLACEMENT
 LEARNER_WEIGHT_DISPLACEMENT = NECESSITY_DISPLACEMENT
 G_BOUNDS = (1e-8, 1.0)
 
-REGIMENS = {key: law.REGIMEN_SPEC[key] for key in ("never", "always", "treat_if_l2")}
+REGIMENS = declared_regimens(
+    {key: law.REGIMEN_SPEC[key] for key in ("never", "always", "treat_if_l2")}
+)
 REFERENCE = "never"
 CONTRASTS = {
     "static": "ate_regimen[always vs never]",

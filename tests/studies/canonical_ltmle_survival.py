@@ -16,7 +16,7 @@ import pandas as pd
 
 from cleverly.datasets import RULE_LABEL, make_longitudinal_survival, rule_arm_at_node_two
 from cleverly.datasets.longitudinal import _L2, _hazard_one, _hazard_two, survival_truth
-from cleverly.longitudinal import LTMLE
+from cleverly.longitudinal import LTMLE, DynamicRegimen
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ltmle import (
@@ -41,7 +41,11 @@ SCENARIO = "censored_survival_curve"
 REGIMENS: dict[str, Any] = {
     "never": 0,
     "always": 1,
-    RULE_LABEL: (1, lambda history: rule_arm_at_node_two(history["L2"])),
+    RULE_LABEL: DynamicRegimen(
+        RULE_LABEL,
+        (1, lambda history: rule_arm_at_node_two(history["L2"])),
+        rule_kind="known",
+    ),
 }
 REFERENCE = "never"
 HORIZONS = (1, 2)

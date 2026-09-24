@@ -9,12 +9,13 @@ from cleverly.longitudinal import LTMLE
 
 from .. import discrete_law_longitudinal as binary_law
 from .. import discrete_law_longitudinal_multivalue as law
+from ..studies.canonical_ltmle import declared_regimens
 
 
 @pytest.fixture(scope="module")
 def fit() -> object:
     return LTMLE(
-        law.REGIMEN_SPEC,
+        declared_regimens(law.REGIMEN_SPEC),
         reference=law.REFERENCE,
         outcome_learner=binary_law.CellMeans(),
         pseudo_learner=binary_law.CellMeans(),

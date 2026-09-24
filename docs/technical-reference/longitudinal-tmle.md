@@ -15,7 +15,7 @@ treatment plan followed at every node, by iterating a regression backward throug
 | --- | --- | --- |
 | repeated treatment with time-varying confounders | the mean outcome under a plan, identified by the g-formula and estimated as a plug-in | one regression per node per regimen, and positivity is now a statement about a *cumulative* product |
 | units drop out over time | censoring enters the same cumulative product as treatment, and each node's regression uses only its uncensored followers | a censoring model per node |
-| the plan depends on the history | fixed, rowwise dynamic rules receive the history available at their node, and no static plan can express them | the prespecified rule is part of the estimand. A rule learned from the same sample needs additional inference that this estimator does not provide |
+| the plan depends on the history | fixed, rowwise dynamic rules receive the history available at their node, and no static plan can express them | the fixed rule is part of the estimand. A rule learned from the same sample needs additional inference that this estimator does not provide |
 | you want a survival curve | the same recursion, seeded at the horizon, reports cumulative risk at each horizon you name | each horizon is its own backward pass. The cost is quadratic in the node count |
 | several causes of failure compete | cause-specific cumulative incidence, with the competing causes left alone | that is a *total* effect. Eliminating the competing event is a different question, and is refused by name |
 | you want the effects summarised across regimens | a working model over regimen and horizon cells | see [MSM projections](msm-projections.md) |
@@ -69,7 +69,7 @@ accumulating.
 
 Bang and Robins (2005) supplies the sequential-regression foundation. Van der Laan and Gruber
 (2012) gives longitudinal TMLE for multiple intervention points. Chaffee and van der Laan (2012)
-covers prespecified rowwise dynamic rules. See the
+covers fixed rowwise dynamic rules. See the
 [longitudinal references](../references.md#longitudinal-survival-and-marginal-structural-models).
 Implementation:
 [`longitudinal/sequential.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/longitudinal/sequential.py),
@@ -212,7 +212,7 @@ der Laan (2012) is the survival implementation reference.
 
 | option | what it does |
 | --- | --- |
-| `regimens=` | static plans, prespecified rowwise dynamic rules, or categorical arms. A plan is a sequence of arms, or one arm meaning that arm at every node. Sample-adaptive thresholds and learned rules need additional inference and are outside this contract |
+| `regimens=` | static plans, fixed rowwise dynamic rules, or categorical arms. A plan is a sequence of arms, or one arm meaning that arm at every node. A plan with a callable node must be a `DynamicRegimen` declared `rule_kind="known"`. `LTMLE.fit` refuses an undeclared or `"estimated"` rule, and a callable written inline in a mapping, before any learner. Sample-adaptive thresholds and learned rules need additional inference and are outside this contract. The [scope page](scope-and-refusals.md#wrong-by-construction) gives the threshold witness |
 | `reference=` | which regimen the contrasts are taken against. It is part of the estimand rather than a display setting |
 | `horizons=` | which time points a survival fit reports cumulative risk at. `None` reports the whole curve. Name the horizons you will report: the cost is $T(T+1)/2$ regressions per regimen rather than $T$ |
 | `msm=` | a working model over the regimen and horizon cells. It requires `n_folds=1`. See [MSM projections](msm-projections.md) |
@@ -266,7 +266,7 @@ step, and established argument.
 | cumulative risk at a horizon | Díaz, Hoffman, Hejazi and Williams (2024), corrected in 2025, with one cause | $Y$ is the indicator of an event by the horizon. The survival pseudo-outcome is $Z_t = Y_t + (1 - Y_t)\,\bar Q^*_{t+1}$ | Appendix E gives the cross-fitted pooled TMLE directly; a single event type is its one-cause reduction | [survival-curve study](method-evidence/cross-fitted-survival-curve-longitudinal-tmle.md) |
 | cause-specific cumulative incidence | Díaz, Hoffman, Hejazi and Williams (2024), corrected in 2025 | $Y$ is the indicator of an event of one cause by the horizon. A competing event ends follow-up, and the regression is zero after it | Proposition 1 identifies the target and Appendix E gives the out-of-fold nuisances, all-row per-node fluctuation, pooled backward carry, and score argument | [competing-risk study](method-evidence/cross-fitted-competing-risk-longitudinal-tmle.md) |
 | known observation weights | Theorem 3 under iid sampling | the target is a weighted mean of the node-1 regression, and every fluctuation carries the weight in its loss | the chain rule for influence functions, applied to a ratio of two means under iid draws of the observation and its known, bounded weight | [weighted study](method-evidence/cross-fitted-weighted-end-of-study-longitudinal-tmle.md), which fails two property cells and three paired comparisons that conclude underpowered, and publishes them under a `reporting` policy |
-| categorical treatments and deterministic dynamic rules | Theorem 3 for a fixed modified treatment policy $d(a_t, h_t)$ that does not depend on $P$ | a prespecified rowwise rule assigns one level from that unit's history | Section 2 lets a fixed policy depend on the unit's history, and Section 4, journal page 850, gives the intervention density for a discrete exposure. A sample-adaptive threshold or learned rule is outside this result | [categorical study](method-evidence/cross-fitted-categorical-longitudinal-tmle.md), and the fixed dynamic rule in the [end-of-study study](method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md) |
+| categorical treatments and deterministic dynamic rules | Theorem 3 for a fixed modified treatment policy $d(a_t, h_t)$ that does not depend on $P$ | a fixed rowwise rule assigns one level from that unit's history | Section 2 lets a fixed policy depend on the unit's history, and Section 4, journal page 850, gives the intervention density for a discrete exposure. A sample-adaptive threshold or learned rule is outside this result | [categorical study](method-evidence/cross-fitted-categorical-longitudinal-tmle.md), and the fixed dynamic rule in the [end-of-study study](method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md) |
 | several horizons, causes, regimens, and their contrasts | Theorem 3 for each parameter | each parameter has its own recursion on one shared split, and the report stacks their influence curves | a fixed-dimension stack by Cramér–Wold, then linearity or the delta method for each contrast | the survival-curve and competing-risk studies |
 
 Theorem 3 also requires every mechanism ratio and targeted sequential regression to be consistent,
@@ -309,6 +309,8 @@ The refusals that are statements about the *question* rather than about coverage
 | a **stochastic** categorical policy at a node | a different question | a deterministic rule assigns one label per unit, and the clever covariate selects that label's probability. A policy that assigns a *distribution* replaces the intervention density itself, so the cumulative product carries a ratio rather than a selected column |
 | a **continuous dose** at a node | a different question | there is no label to assign, so the intervention is a shift along a conditional density at every node. A numeric node with coarse support is accepted, and warns that its values became unordered arms |
 | `mechanism=True` on `truncation_curve()` | a different question | a longitudinal fit holds one cumulative treatment-and-censoring bound, and it fits no separate observation mechanism to sweep. The option names a point-treatment axis, so the call raises `CapabilityError` rather than sweeping the cumulative bound under another name |
+| a callable node that is not declared `"known"`, or that is declared `"estimated"` | wrong by construction | the fit treats each rule as fixed. A rule learned from the analysis sample needs a learned-policy estimand and its own inference. `LTMLE.fit` raises `CapabilityError` before any learner. Declare a rule fixed before the fit with `DynamicRegimen(label, plan, rule_kind="known")` |
+| a callable written inline in a `regimens=` mapping | wrong by construction | an inline callable carries no declaration, so the fit refuses it before any learner. Write the plan as a `DynamicRegimen` declared `rule_kind="known"`, with `(rule,) * T` for one rule at every node |
 | an outcome missing for a reason other than censoring | wrong by construction | left as it is, the probability of observing it is silently taken to be one. Encode it as a final censoring column, so it is estimated and enters the cumulative product |
 | the targeted bootstrap and longitudinal sensitivity-bound estimation | not written yet | the bootstrap needs a resampling and replay contract. Sensitivity-bound estimation needs a sample estimator and sampling theory for its bound functionals |
 | `id=` above one fold | not written yet | a grouped draw keeps each cluster whole, and the cluster-robust variance of the targeted sequential recursion under one is not established. The package permits the in-sample clustered fit. Below 40 clusters with positive weight mass it takes `"few_cluster_plugin"` and reports no interval ([clusters](inference.md#clusters)) |
@@ -317,7 +319,17 @@ The refusals that are statements about the *question* rather than about coverage
 Releases 0.1.0 and 0.1.1 could save a cross-fitted fit with `id=`. Such a result now loads under
 `"cross_fitted_longitudinal_plugin"` at every cluster count and size. It retains point estimates
 and plug-in diagnostics. It reports no interval or band. [RM29](../roadmap.md#rm29-saved-cross-fitted-clustered-longitudinal-results)
-records the correction.
+records the correction. A restored result whose regimen has a callable node not declared `"known"`
+loads under `"undeclared_function_plugin"`, keeps its point estimates, and reports no interval or
+band ([RM28](../roadmap.md#rm28-declared-densities-of-user-written-interventions)).
+
+Two plan shapes raise `DataError` before any learner. Each one is a statement about the input, so
+the table of kinds above does not list it.
+
+| plan | what the refusal asks for |
+| --- | --- |
+| an iterator in `regimens=`, such as a generator | a tuple, or a `DynamicRegimen`, which reads its plan once and stores it as a tuple. The fit does not read the iterator: a fit reads `regimens=` at each call, and an iterator is empty after its first read |
+| a `DynamicRegimen` plan that is one label or one callable | one entry per node. Write one rule for every node as `(rule,) * T` |
 
 See [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) for what each `kind` means.
 

@@ -4,9 +4,13 @@
 ``tests/unit/test_stochastic_regime_densities.py`` (RM25) and
 ``tests/unit/test_msm_design_declaration.py`` (RM27) test the three users of
 :class:`cleverly._declarations.FunctionDeclaration`.  This module holds the parts that do
-not depend on which field is declared.  ``tests/unit/_msm_declaration_support.py`` holds the
-MSM builders that the RM13 and RM27 files share.  The three test files import these support
-modules and not each other.
+not depend on which field is declared: the refusal checks, the restored states, a legacy
+point or longitudinal result and the checks of its status (RM28), the fit entries, the
+two-node :func:`panel` with its columns and ``NeverFit`` learners, and the exact-law oracle
+fit.  ``tests/unit/_msm_declaration_support.py``
+holds the MSM builders that the RM13 and RM27 files share, and
+``tests/unit/_tilt_law_support.py`` holds the exact tilt law of the RM25 witness.  The test
+files import these support modules and not each other.
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ from collections.abc import Callable, Iterable
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from cleverly import CausalStudy, PointTreatment
@@ -26,6 +31,7 @@ from cleverly.exceptions import CapabilityError
 from cleverly.sensitivity.positivity import truncation_curve
 from tests import discrete_law as law
 from tests.conftest import OracleOutcome, OracleTreatment
+from tests.unit._inference_status_support import assert_withholds
 from tests.unit._natural_course_support import NeverFit
 
 #: ``cleverly.estimators`` exports a function named ``tmle``, which shadows the module.
@@ -33,6 +39,9 @@ tmle_module = importlib.import_module("cleverly.estimators.tmle")
 
 #: A fragment of every refusal of ``"estimated"``: the term the reported curve omits.
 PATHWISE = "pathwise derivative"
+
+#: The status of a result restored with a function this version refuses (RM28).
+UNDECLARED_STATUS = "undeclared_function_plugin"
 
 
 def assert_refused(build: Callable[[], Any], error: type[Exception], *fragments: str) -> None:
@@ -92,17 +101,46 @@ def restored_states(undeclared: str, estimated: str) -> dict[str, tuple[Any, tup
 def legacy_result(result: Any, field: str, select: Callable[[Any], list[Any]]) -> Any:
     """``result`` as an artifact written before ``field`` existed would restore it.
 
-    ``select`` maps the estimator to the objects that carry ``field``.  It must select at
-    least one, or the result would restore with nothing to drop.
+    ``select`` maps the result to the objects that carry ``field``.  A point result holds
+    them on ``result.estimator``, and a longitudinal result holds its resolved regimens on
+    ``result.config.regimens``.  ``select`` must select at least one, or the result would
+    restore with nothing to drop.
     """
     old = loads(dumps(result))
-    for item in select(old.estimator):
+    for item in select(old):
         vars(item).pop(field)
     old = loads(dumps(old))
-    items = select(old.estimator)
-    assert items, f"the estimator carries no object with {field}"
+    items = select(old)
+    assert items, f"the result carries no object with {field}"
     assert all(getattr(item, field) is None for item in items)
     return old
+
+
+def assert_stored_interval_is_a_diagnostic(result: Any, old: Any) -> None:
+    """``old``, ``result`` restored without its declaration, withholds inference (RM28).
+
+    Every point estimate is unchanged.  Every estimate takes
+    :data:`UNDECLARED_STATUS`, and ``ci``, ``pvalue`` and ``std_error`` refuse with its
+    reason, which ``summary()`` prints.  The stored interval and standard error remain as
+    ``plugin_interval`` and ``plugin_std_error``, and the simultaneous bands are dropped.
+    The first line is the nonzero witness: the declared result reported an interval.
+    """
+    assert result.inference_status == "influence_curve"
+    assert_withholds(old, UNDECLARED_STATUS)
+    assert old.estimates.keys() == result.estimates.keys()
+    for name, estimate in result.estimates.items():
+        assert old.estimates[name].psi == estimate.psi
+        assert old.estimates[name].plugin_interval == estimate.ci
+        assert old.estimates[name].plugin_std_error == estimate.std_error
+    assert old.simultaneous is None
+
+
+def assert_keeps_its_interval(result: Any, old: Any) -> None:
+    """``old``, ``result`` restored, keeps ``"influence_curve"`` and every stored interval."""
+    assert old.inference_status == "influence_curve"
+    for name, estimate in result.estimates.items():
+        assert old.estimates[name].psi == estimate.psi
+        assert old.estimates[name].ci == estimate.ci
 
 
 def recomputations(result: Any, estimands: tuple[str, ...]) -> dict[str, Callable[[], Any]]:
@@ -153,6 +191,44 @@ def point_entries(
         )
 
     return {"fit": fit, "study": study, "refit": refit}
+
+
+def panel(n: int = 60, seed: int = 0) -> pd.DataFrame:
+    """Two nodes, censoring, and a binary end-of-study outcome."""
+    rng = np.random.default_rng(seed)
+    c1 = (rng.random(n) < 0.9).astype(float)
+    c2 = np.where(c1 == 1, (rng.random(n) < 0.9).astype(float), np.nan)
+    observed = (c1 == 1) & (c2 == 1)
+    return pd.DataFrame(
+        {
+            "W1": rng.standard_normal(n),
+            "A1": rng.integers(0, 2, n).astype(float),
+            "C1": c1,
+            "A2": np.where(c1 == 1, rng.integers(0, 2, n).astype(float), np.nan),
+            "C2": c2,
+            "Y": np.where(observed, rng.integers(0, 2, n).astype(float), np.nan),
+        }
+    )
+
+
+#: The columns of :func:`panel`, as ``LTMLE.fit`` and ``LongitudinalData.from_frame`` read them.
+PANEL_COLUMNS: dict[str, Any] = {
+    "outcome": "Y",
+    "treatment": ["A1", "A2"],
+    "baseline": ["W1"],
+    "censoring": ["C1", "C2"],
+}
+
+
+def never_fit_longitudinal_learners() -> dict[str, NeverFit]:
+    """Every longitudinal learner slot, each one a :class:`NeverFit`, with calls reset."""
+    NeverFit.calls = 0
+    return {
+        "outcome_learner": NeverFit(),
+        "pseudo_learner": NeverFit(),
+        "treatment_learner": NeverFit(),
+        "censoring_learner": NeverFit(),
+    }
 
 
 # ------------------------------------------------------------------ the exact-law witness

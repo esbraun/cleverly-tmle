@@ -19,7 +19,7 @@ from cleverly.datasets import (
     make_longitudinal_survival,
 )
 from cleverly.exceptions import DataError, PositivityWarning
-from cleverly.longitudinal import LTMLE, LongitudinalError, LongitudinalResult
+from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalError, LongitudinalResult
 from cleverly.longitudinal.estimator import _level_head
 from cleverly.validation.longitudinal import STITCHED_SCORE_Z_TOLERANCE, _stitched_score_z
 
@@ -828,8 +828,14 @@ class TestADynamicRule:
     RULE: ClassVar[dict[str, Any]] = {
         "always": 1,
         "never": 0,
-        "always_rule": (lambda h: np.ones(len(h)), lambda h: np.ones(len(h))),
-        "treat if l2 rises": (0, lambda h: (h["L2"] > 0.0).astype(float)),
+        "always_rule": DynamicRegimen(
+            "always_rule",
+            (lambda h: np.ones(len(h)), lambda h: np.ones(len(h))),
+            rule_kind="known",
+        ),
+        "treat if l2 rises": DynamicRegimen(
+            "treat if l2 rises", (0, lambda h: (h["L2"] > 0.0).astype(float)), rule_kind="known"
+        ),
     }
 
     @pytest.fixture(scope="class")
@@ -923,7 +929,10 @@ class TestTheReportSaysWhichRuleWasRun:
 
     @staticmethod
     def _fit(frame: pd.DataFrame, threshold: float) -> LongitudinalResult:
-        regimens = {"never": 0, "rule": (1, lambda h: h["L2"] > threshold)}
+        regimens = {
+            "never": 0,
+            "rule": DynamicRegimen("rule", (1, lambda h: h["L2"] > threshold), rule_kind="known"),
+        }
         return run(frame, regimens=regimens, reference="never", simultaneous=False)
 
     def test_two_rules_that_print_alike_carry_different_fingerprints(self) -> None:
@@ -956,7 +965,10 @@ class TestTheReportSaysWhichRuleWasRun:
         frame, _ = make_longitudinal(n=600, seed=13)
         result = run(
             frame,
-            regimens={"never": 0, "rule": (1, responders)},
+            regimens={
+                "never": 0,
+                "rule": DynamicRegimen("rule", (1, responders), rule_kind="known"),
+            },
             reference="never",
             simultaneous=False,
         )

@@ -26,6 +26,7 @@ from tests.studies.canonical_longitudinal_msm import (
 from tests.studies.canonical_longitudinal_msm import (
     PROJECTION_WEIGHT as study_projection_weights,
 )
+from tests.studies.canonical_ltmle import declared_regimens
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
@@ -60,7 +61,7 @@ PROJECTION_DISPLACEMENT = 0.25
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 
 LABELS = ("never", "always", "early", "treat_if_l2")
-REGIMENS = {label: law.REGIMEN_SPEC[label] for label in LABELS}
+REGIMENS = declared_regimens({label: law.REGIMEN_SPEC[label] for label in LABELS})
 
 # The two laws spell the same dynamic plan differently: ``cleverly.datasets`` calls it
 # ``RULE_LABEL`` and the finite-support law calls it ``treat_if_l2``.  Only the spelling

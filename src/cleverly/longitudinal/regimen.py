@@ -26,19 +26,27 @@ Not the outcome, because reading it is not an intervention; not the earlier trea
 because under the regimen those are what the rule itself assigned, and passing them would
 let a rule read the treatment of a unit that *deviated*.  The same restriction, enforced
 the same way, as :func:`cleverly.interventions.base._covariate_frame` at one time point.
+
+A rule can close over any estimate, such as a threshold at a sample mean, and no code can
+inspect a closure.  So a :class:`DynamicRegimen` declares ``rule_kind``, and
+:func:`refuse_regimen_rules` refuses a plan with a callable node unless it is ``"known"``
+(roadmap row RM28).  The declaration is the one that :class:`~cleverly.interventions.Rule`
+carries.  A callable written inline in a ``regimens=`` mapping carries no declaration, so a
+fit refuses it.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 import numpy as np
 
+from .._declarations import FunctionKind
 from .._typing import FloatArray
 from ..exceptions import DataError
-from ..interventions.base import _as_array
+from ..interventions.base import _RULE_DECLARATION, _as_array
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle avoidance, types only
     from .data import LongitudinalData
@@ -48,6 +56,7 @@ __all__ = [
     "Plan",
     "Regimen",
     "RegimenSpec",
+    "refuse_regimen_rules",
     "resolve_plans",
     "resolve_regimens",
 ]
@@ -108,37 +117,86 @@ class Regimen:
 class DynamicRegimen:
     """A plan whose nodes may be *rules* rather than constants.
 
-    For theorem-backed inference, every callable is a prespecified rowwise map of one
-    unit's available history. A rule may not estimate a threshold or otherwise aggregate
-    across the supplied sample. A learned policy is a different, data-adaptive target, and
-    inference for it needs conditions this path does not check. The fit cannot inspect a
-    closure and does not yet require a known-rule declaration (roadmap row RM28).
+    ``rule_kind="known"`` declares that every callable node is a fixed rowwise function of
+    one unit's available history, chosen independently of the analysis sample.  A rule
+    that estimates a threshold, or otherwise aggregates across the sample, defines a
+    different, data-adaptive target, and inference for it needs conditions this path does
+    not check.  No code can inspect a closure, so the declaration is the check.
+    :func:`refuse_regimen_rules` refuses ``None`` and ``"estimated"`` when the regimen is
+    built, and ``LTMLE.fit`` refuses them again before any learner (roadmap row RM28).
 
-    Attributes
+    .. code-block:: python
+
+        DynamicRegimen("treat once L2 rises", (0, lambda h: h["L2"] > 0), rule_kind="known")
+
+    Parameters
     ----------
-    label:
+    label : str
         What the reported parameter is named by, exactly as for :class:`Regimen`.
-    plan:
+    plan : tuple
         One entry per time point.  An entry is either a categorical treatment label,
         meaning that label for everybody at that node, or a callable :math:`d_t(H_t)`
         handed that node's history frame and returning one arm per row.  Mixing the two
         is the ordinary case: "treat at the first node, then keep treating only while
-        the biomarker stays high" is a constant followed by a rule.
+        the biomarker stays high" is a constant followed by a rule.  The regimen stores
+        the plan as a tuple, so a list or an iterator is read once, when it is built.  A
+        single label or callable is not a plan and raises
+        :class:`~cleverly.exceptions.DataError`.
+    rule_kind : {"known", "estimated"} or None
+        The declaration that every callable node of ``plan`` is a known function.  One
+        declaration covers every node.  ``"known"`` is the one value a fit accepts for a
+        plan with a callable node.  ``None``, the default, and ``"estimated"`` raise
+        :class:`~cleverly.exceptions.CapabilityError` for such a plan, and a plan of
+        labels alone is exempt.  Any other value raises
+        :class:`~cleverly.exceptions.DataError`.  A regimen pickled before this field
+        existed loads as ``None``.  It is the last field, so ``DynamicRegimen(label,
+        plan)`` keeps its positional order.
+
+    Attributes
+    ----------
+    n_times : int
     """
 
     label: str
     plan: tuple[RuleNode, ...]
+    #: A plain default, so it is a class attribute: a regimen pickled before the field
+    #: existed reads ``None`` here.
+    rule_kind: FunctionKind | None = None
 
     def __post_init__(self) -> None:
+        # The plan is stored as a tuple before any check, so the check reads the nodes that
+        # every later reader reads.  An iterator is read here, once, and never again.
+        plan: Any = self.plan
+        nodes = _plan_nodes(self.label, tuple(plan) if isinstance(plan, Iterator) else plan)
+        if nodes is None:
+            raise DataError(
+                f"regimen {self.label!r} needs a plan with one entry per treatment node; got "
+                f"{plan!r}. Write one rule for every node as (rule,) * T, with T the number "
+                "of nodes"
+            )
+        object.__setattr__(self, "plan", nodes)
         if not self.plan:
             raise DataError(f"regimen {self.label!r} assigns no treatment at any time point")
+        refuse_regimen_rules(self)
 
     @property
     def n_times(self) -> int:
+        """The number of treatment nodes, one for each entry of ``plan``."""
         return len(self.plan)
 
     def is_rule(self, time: int) -> bool:
-        """Whether ``time``'s arm is decided by a rule rather than declared."""
+        """Whether ``time``'s arm is decided by a rule rather than declared.
+
+        Parameters
+        ----------
+        time : int
+            The treatment node, counted from one.
+
+        Returns
+        -------
+        bool
+            ``True`` when the entry of ``plan`` at ``time`` is callable.
+        """
         return callable(self.plan[time - 1])
 
     def assignment(self, data: LongitudinalData) -> Any:
@@ -162,7 +220,31 @@ class DynamicRegimen:
         validated, because such a row is masked out of every regression and every
         influence curve, and the only way it could still matter is by putting a ``nan``
         into a design matrix that a learner is called on.
+
+        It runs :func:`refuse_regimen_rules` before it calls any rule, because a restored
+        or modified regimen can reach it directly with a declaration this version refuses.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The validated panel, which supplies each node's history frame and the rows
+            still in the study.
+
+        Returns
+        -------
+        ndarray
+            ``(n, T)`` object array of treatment labels, one column per node.  A row that
+            has left the study before a node holds ``None`` at that node.
+
+        Raises
+        ------
+        CapabilityError
+            If a node is callable and ``rule_kind`` is ``None`` or ``"estimated"``.
+        DataError
+            If ``rule_kind`` is not one of the three states, or a rule raises or returns
+            other than one arm per row.
         """
+        refuse_regimen_rules(self)
         columns = []
         for time, node in enumerate(self.plan, start=1):
             reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
@@ -262,19 +344,177 @@ def resolve_plans(regimens: Sequence[RegimenSpec], data: LongitudinalData) -> tu
     )
 
 
+def refuse_regimen_rules(regimens: Any) -> None:
+    """Raise unless every plan among ``regimens`` with a callable node declares it known.
+
+    A rule can close over any estimate, and no code can inspect a closure, so the status
+    of each callable node is the ``rule_kind`` of its :class:`DynamicRegimen`.  The table
+    gives the plans this reads from each shape of the ``regimens=`` argument.  Any other
+    value holds no plan, and :func:`resolve_regimens` raises its own error for it.
+
+    ==============================================  ============
+    ``regimens``                                    plans
+    ==============================================  ============
+    a :class:`Regimen` or :class:`DynamicRegimen`   that regimen
+    a mapping                                       its values
+    a sequence other than a ``str``                 its items
+    ==============================================  ============
+
+    The declaration of a plan is the ``rule_kind`` of a :class:`DynamicRegimen`, and
+    ``None`` for any other plan.  So a callable written inline in a mapping, or held by a
+    :class:`Regimen`, is undeclared.  The check of each plan runs in order:
+
+    1. A plan that is an iterator, such as a generator, is a
+       :class:`~cleverly.exceptions.DataError`.  Reading it would consume it, and a fit
+       reads its ``regimens=`` each time it runs.
+    2. A declaration outside ``"known"``, ``"estimated"`` and ``None`` is a
+       :class:`~cleverly.exceptions.DataError`, whatever the plan holds.
+    3. A plan with a callable node and a declaration of ``None`` or ``"estimated"`` is a
+       :class:`~cleverly.exceptions.CapabilityError`.  A plan of labels alone passes.
+
+    This check and :func:`resolve_regimens` read the shape of a plan through one helper,
+    so they cannot read one plan two ways.  :class:`DynamicRegimen` runs this when it is
+    built and before :meth:`DynamicRegimen.assignment` calls a rule.  ``LTMLE.fit`` runs
+    it on the raw ``regimens=`` before any other check of the data and before any learner,
+    and :func:`~cleverly.longitudinal.estimator.longitudinal_truncation_curve` runs it on
+    the resolved regimens of a result.  A regimen restored from an older pickle, or changed
+    with ``object.__setattr__``, can carry a declaration this version refuses.
+
+    Parameters
+    ----------
+    regimens : Any
+        The ``regimens=`` argument of a fit, or the resolved regimens of a result.
+
+    Raises
+    ------
+    DataError
+        If a plan is an iterator, or a declaration is not one of the three states.
+    CapabilityError
+        If a plan with a callable node declares ``None`` or ``"estimated"``.
+    """
+    for label, plan in _plans(regimens):
+        # Typed ``object`` on purpose: this checks what a restored or modified regimen holds
+        # at run time, which its annotations do not guarantee.
+        kind: object = plan.rule_kind if isinstance(plan, DynamicRegimen) else None
+        nodes = _plan_nodes(label, plan)
+        if any(callable(node) for node in ((plan,) if nodes is None else nodes)):
+            # ``refuse`` runs ``check`` first, so every refusal of a rule is the shared one.
+            _RULE_DECLARATION.refuse(kind)
+        else:
+            _RULE_DECLARATION.check(kind)
+
+
+def _plans(regimens: Any) -> tuple[tuple[object, Any], ...]:
+    """The labelled plans of ``regimens=``, by the table of :func:`refuse_regimen_rules`.
+
+    A mapping labels each plan by its key.  Any other plan carries its own label, or
+    ``None`` when it is not a regimen, and :func:`resolve_regimens` refuses that plan.
+    """
+    if isinstance(regimens, (Regimen, DynamicRegimen)):
+        return ((regimens.label, regimens),)
+    if isinstance(regimens, Mapping):
+        return tuple(regimens.items())
+    if isinstance(regimens, Sequence) and not isinstance(regimens, (str, bytes)):
+        return tuple((getattr(plan, "label", None), plan) for plan in regimens)
+    return ()
+
+
+#: The scalar types that one entry broadcasts across every node, as one treatment label.
+_LABEL_TYPES = (bool, int, float, str, np.str_, np.number)
+
+
+def _plan_nodes(label: object, plan: Any) -> tuple[Any, ...] | None:
+    """Read the shape of one plan: its nodes, or ``None`` for a plan of one entry.
+
+    :class:`DynamicRegimen`, :func:`refuse_regimen_rules` and :func:`resolve_regimens`
+    read the shape of a plan here and nowhere else, so the check and the resolver cannot
+    disagree about the nodes of one plan.
+
+    ======================================================  ===========================
+    ``plan``                                                reads as
+    ======================================================  ===========================
+    a :class:`Regimen`                                      its ``values``
+    a :class:`DynamicRegimen`                               its ``plan``
+    a callable, a treatment label, or no ``__iter__``       ``None``
+    an iterator, such as a generator                        a ``DataError``
+    any other iterable                                      a tuple of its items
+    ======================================================  ===========================
+
+    ``None`` leaves the one entry to the caller, which broadcasts a callable or a label
+    across the nodes and refuses anything else.  An iterator is refused, not read: reading
+    it would consume it, and a fit reads its ``regimens=`` again at the next call.
+    :class:`DynamicRegimen` reads an iterator into a tuple before it calls this, because it
+    stores its plan.
+    """
+    if isinstance(plan, Regimen):
+        return tuple(plan.values)
+    if isinstance(plan, DynamicRegimen):
+        return tuple(plan.plan)
+    if isinstance(plan, Mapping):
+        raise DataError(
+            f"the plan of regimen {label!r} is a mapping. Pass its treatment nodes as a "
+            "tuple in time order, or use DynamicRegimen(label, ordered_nodes, rule_kind='known') "
+            "for a plan with a rule"
+        )
+    if isinstance(plan, np.ndarray) and plan.ndim == 0:
+        raise DataError(
+            f"the plan of regimen {label!r} is a zero-dimensional array. Pass a treatment "
+            "label to assign it at every node, or a sequence with one entry per node"
+        )
+    if callable(plan) or isinstance(plan, _LABEL_TYPES) or not hasattr(plan, "__iter__"):
+        return None
+    if isinstance(plan, Iterator):
+        raise DataError(
+            f"the plan of regimen {label!r} is an iterator, {type(plan).__name__}. A fit reads "
+            "regimens= each time it runs, and an iterator is empty after its first read. "
+            "Pass the plan as a tuple, or as a DynamicRegimen, which stores its plan"
+        )
+    return tuple(plan)
+
+
 def resolve_regimens(spec: Any, n_times: int) -> tuple[RegimenSpec, ...]:
     """Turn a user's ``regimens=`` argument into an ordered tuple of regimens.
 
     Accepts a mapping from label to plan, where a plan is a single arm meaning "that arm
-    at every node", a single rule meaning "that rule at every node", or a sequence of
-    ``n_times`` entries each of which is an arm or a rule.  A sequence of
-    :class:`Regimen` or :class:`DynamicRegimen` objects passes through.
+    at every node", or a sequence of ``n_times`` arms.  A mapping value may also be a
+    :class:`Regimen` or a :class:`DynamicRegimen`, and the key is then its label.  A
+    sequence of :class:`Regimen` or :class:`DynamicRegimen` objects passes through.  A
+    plan that is an iterator, such as a generator, is refused: a fit reads its
+    ``regimens=`` each time it runs, and an iterator is empty after its first read.
+
+    A plan with a callable node must be a :class:`DynamicRegimen` declared
+    ``rule_kind="known"``.  A callable written inline in a mapping, as one rule for every
+    node or as a node of a sequence, carries no declaration.  Its regimen is built with
+    ``rule_kind=None``, and :func:`refuse_regimen_rules` refuses it (roadmap row RM28).
+    A resolved :class:`DynamicRegimen` keeps the ``rule_kind`` of the one it was given.
 
     A plan with no rule in it comes back a :class:`Regimen`, which is what keeps a static
     fit on exactly the code path it was on before rules existed.
 
     Order is preserved, because the first regimen is the one contrasts are taken
     against by default and so is part of what the fit reports.
+
+    Parameters
+    ----------
+    spec : Any
+        The ``regimens=`` argument: a mapping from label to plan, one regimen, or a
+        sequence of regimens.
+    n_times : int
+        The number of treatment nodes, which a single arm is broadcast across.
+
+    Returns
+    -------
+    tuple of Regimen or DynamicRegimen
+        The regimens in the order given.
+
+    Raises
+    ------
+    DataError
+        If ``spec`` is missing, empty or malformed, if a label repeats, if a plan is an
+        iterator or has the wrong number of nodes, or if a declaration is not one of the
+        three states.
+    CapabilityError
+        If a plan with a callable node is not declared ``rule_kind="known"``.
     """
     if spec is None:
         raise DataError(
@@ -313,39 +553,35 @@ def resolve_regimens(spec: Any, n_times: int) -> tuple[RegimenSpec, ...]:
 
 
 def _resolve_one(label: str, plan: Any, n_times: int) -> RegimenSpec:
-    """Read one plan into the regimen kind it describes."""
-    if isinstance(plan, Regimen):
-        plan = plan.values
-    elif isinstance(plan, DynamicRegimen):
-        plan = plan.plan
-    if callable(plan):
-        # The same broadcast a scalar arm gets, and the reason a rule reading a
-        # late-measured covariate is diagnosed at evaluation rather than here: whether
-        # ``lambda h: h["L2"] > 0`` is usable at node 1 is a question about the data.
-        return DynamicRegimen(label, (plan,) * n_times)
+    """Read one plan into the regimen kind it describes.
+
+    A rebuilt :class:`DynamicRegimen` carries the ``rule_kind`` of the one it was given,
+    and ``None`` for any other plan, so its construction checks the declaration.
+    """
+    kind: FunctionKind | None = plan.rule_kind if isinstance(plan, DynamicRegimen) else None
     nodes = _nodes(label, plan, n_times)
-    arms: list[object] = []
-    for node in nodes:
-        if callable(node):
-            return DynamicRegimen(label, nodes)
-        arms.append(node)
-    return Regimen(label, tuple(arms))
+    if any(callable(node) for node in nodes):
+        return DynamicRegimen(label, nodes, rule_kind=kind)
+    return Regimen(label, nodes)
 
 
 def _nodes(label: str, plan: Any, n_times: int) -> tuple[RuleNode, ...]:
-    """Read one plan into one entry per node, broadcasting a scalar arm across them."""
-    if isinstance(plan, (bool, int, float, str, np.str_, np.number)):
+    """Read one plan into one entry per node, broadcasting a single entry across them."""
+    nodes = _plan_nodes(label, plan)
+    if nodes is None:
+        # A numpy array and a pandas Series are plans by every reading except
+        # ``isinstance(..., Sequence)``, which neither registers for.  ``_plan_nodes`` tests
+        # for the iteration protocol instead, so the message about rules is not aimed at
+        # an array whose diagnosis it gets wrong.
+        if not (callable(plan) or isinstance(plan, _LABEL_TYPES)):
+            raise DataError(
+                f"regimen {label!r} must be a treatment label, a rule d_t(H_t), or a "
+                f"sequence of {n_times} of either; got {plan!r}"
+            )
+        # A rule gets the broadcast that a scalar arm gets.  So a rule that reads a
+        # late-measured covariate is diagnosed at evaluation rather than here: whether
+        # ``lambda h: h["L2"] > 0`` is usable at node 1 is a question about the data.
         return (plan,) * n_times
-    # A numpy array and a pandas Series are plans by every reading except
-    # ``isinstance(..., Sequence)``, which neither registers for.  Testing for the
-    # iteration protocol instead keeps the message about rules where it belongs, rather
-    # than aiming it at an array whose diagnosis it gets wrong.
-    if not hasattr(plan, "__iter__"):
-        raise DataError(
-            f"regimen {label!r} must be a treatment label, a rule d_t(H_t), or a sequence "
-            f"of {n_times} of either; got {plan!r}"
-        )
-    nodes: tuple[RuleNode, ...] = tuple(plan)
     if len(nodes) != n_times:
         raise DataError(
             f"regimen {label!r} assigns {len(nodes)} arm(s) but the data has {n_times} "

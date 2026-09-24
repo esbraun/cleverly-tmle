@@ -49,6 +49,7 @@ import pytest
 from cleverly.longitudinal import LTMLE
 
 from .. import discrete_law_longitudinal as law
+from ..studies.canonical_ltmle import declared_regimens
 
 #: Truncation wide enough never to bind: the law's conditionals all lie in [0.25, 0.75].
 NO_TRUNCATION = (1e-8, 1.0 - 1e-8)
@@ -59,7 +60,7 @@ NO_TRUNCATION = (1e-8, 1.0 - 1e-8)
 #: the weighting cannot break on its own -- and the fast tier pays per regimen per weight
 #: function.
 LABELS = ("never", "always", "treat_if_l2")
-SPEC = {label: law.REGIMEN_SPEC[label] for label in LABELS}
+SPEC = declared_regimens({label: law.REGIMEN_SPEC[label] for label in LABELS})
 REFERENCE = "never"
 
 NAMES: tuple[str, ...] = tuple(f"ey_regimen[{label}]" for label in LABELS) + tuple(
@@ -389,7 +390,7 @@ class TestAWorkingModelUnderTheSameTilt:
 
     #: Every regimen, because a projection is over all of them: a subset is a different
     #: design and so a different coefficient vector.
-    ALL = law.REGIMEN_SPEC
+    ALL = declared_regimens(law.REGIMEN_SPEC)
 
     def _fit(self, weights: np.ndarray) -> Any:
         return LTMLE(

@@ -27,7 +27,8 @@ records the defect.  This module pins these things:
 * a density that is known keeps its interval.
 
 The exact-law gap is the reason for the refusal, measured without sampling error, as
-``tests/unit/test_msm_projection_weights.py`` measures it for RM13.
+``tests/unit/test_msm_projection_weights.py`` measures it for RM13.  The law and its closed
+forms are in ``tests/unit/_tilt_law_support.py``.
 """
 
 from __future__ import annotations
@@ -44,13 +45,18 @@ import pytest
 import cleverly._declarations as declarations_module
 import cleverly.interventions.base as base_module
 from cleverly import RegimeMean
+from cleverly.assessment import replayability
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Incremental, RegimeSet, Static, Stochastic
 from cleverly.interventions.base import (
     _ESTIMATED_DENSITY,
+    _ESTIMATED_INTERVENTION,
+    _ESTIMATED_RULE,
     _UNDECLARED_DENSITY,
+    _UNDECLARED_INTERVENTION,
+    _UNDECLARED_RULE,
     refuse_regime_densities,
 )
 from cleverly.msm import (
@@ -70,7 +76,7 @@ from tests.unit._declaration_support import (
     assert_every_witness_fails,
     assert_refused,
     assert_refused_before_any_call,
-    cell_p,
+    assert_stored_interval_is_a_diagnostic,
     oracle_fit,
     point_entries,
     recomputations,
@@ -88,6 +94,14 @@ from tests.unit._msm_declaration_support import (
     written,
 )
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
+from tests.unit._policy_declaration_support import (
+    INTERVENTION_UNKNOWN,
+    RULE_UNKNOWN,
+    DataTilt,
+    checked,
+    threshold_regimen,
+    threshold_rule,
+)
 from tests.unit._simulated_confounding_support import (
     _GRID,
     _alias,
@@ -95,6 +109,18 @@ from tests.unit._simulated_confounding_support import (
     _fit_policy,
     _stochastic_density,
     _study,
+)
+from tests.unit._tilt_law_support import (
+    CELL_P,
+    DELTAS,
+    TILT_COUNTS,
+    TILT_PROBS,
+    UNDERSTATEMENT_BOUND,
+    KnownTilt,
+    SampleTilt,
+    fixed_eif,
+    kennedy_term,
+    tilt_curve,
 )
 
 #: The two declaration refusals, imported from the module that raises them, so the text
@@ -296,8 +322,8 @@ class TestALegacyRegimeLoads:
         assert_entry_refuses("fit", legacy(spy_coin()), UNDECLARED)
 
 
-def stochastic_regimes(estimator: Any) -> list[Any]:
-    return [item for item in estimator.interventions if isinstance(item, Stochastic)]
+def stochastic_regimes(result: Any) -> list[Any]:
+    return [item for item in result.estimator.interventions if isinstance(item, Stochastic)]
 
 
 def legacy_result(result: Any) -> Any:
@@ -309,10 +335,12 @@ def legacy_result(result: Any) -> Any:
 RETARGETED = ("ey_regime", "ate_regime")
 
 
-class TestALegacyResultKeepsItsNumbersAndRefusesARecomputation:
-    """RM25: a restored result holds what it computed and computes nothing new.
+class TestALegacyResultKeepsItsPointEstimatesAndRefusesARecomputation:
+    """RM25: a restored result keeps its point estimates and computes nothing new.
 
-    Loading checks nothing, so the stored estimates answer as they were saved.  Every sweep
+    Loading raises nothing.  A density restored without its declaration gives the result
+    the ``"undeclared_function_plugin"`` status of RM28, so the stored interval becomes a
+    diagnostic.  Every sweep
     recomputes through ``_retarget_detailed``, and a refit through
     ``_resolve_estimands_for_data``, and both check the declaration as the fit does.
     """
@@ -323,12 +351,14 @@ class TestALegacyResultKeepsItsNumbersAndRefusesARecomputation:
         estimator = TMLE(interventions=regimes, **linear_in_sample())
         return estimator.fit(law.frame(), outcome="Y", treatment="A").single()
 
-    def test_the_stored_interval_answers_unchanged(self, result: Any) -> None:
-        old = legacy_result(result)
+    def test_the_stored_interval_becomes_a_diagnostic(self, result: Any) -> None:
         assert "ey_regime[coin]" in result.estimates
-        for name, estimate in result.estimates.items():
-            assert old[name].ci == estimate.ci
-            assert old[name].psi == estimate.psi
+        old = legacy_result(result)
+        assert_stored_interval_is_a_diagnostic(result, old)
+        assert not replayability(old).retarget_cached_nuisances
+        assert not replayability(old).refit_nuisances
+        assert not old.diagnostics.capability("truncation_curve").available
+        assert replayability(result).refit_nuisances
 
     @pytest.mark.parametrize("entry", ["truncation_curve", "retarget", "refit"])
     def test_every_recomputation_refuses(self, result: Any, entry: str) -> None:
@@ -399,14 +429,16 @@ class TestTheReplay:
         """The deliberate-mutation control: without the check the replay runs the density.
 
         ``RegimeSet.evaluate`` and ``Stochastic.density`` read the module global, so the
-        mutation removes both.  A frozen regime is not a ``Stochastic``, so nothing after
-        the evaluation refuses.
+        mutation removes both.  Each frozen regime carries the source's ``None`` (roadmap row
+        RM28), and ``TMLE`` holds its own reference to the check, so the refit still refuses.
+        The refusal arrives after the density ran, which is what the check removes.
         """
         old, density = counted_fit()
         monkeypatch.setattr(base_module, "refuse_regime_densities", lambda interventions: None)
         replay = validate_replay(old)
         assert all(type(item) is replay_module._FrozenRegime for item in replay.interventions)
         assert density.calls == 1
+        assert_refused(lambda: replay.refit(old.data), CapabilityError, _UNDECLARED_INTERVENTION)
 
 
 # ------------------------------------------------------------------ mutation controls
@@ -451,7 +483,7 @@ class TestTheWitnessesHaveTeeth:
     def test_removing_the_shared_declaration_fails_each_of_its_users(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """RM13, RM25 and RM27 refuse through one ``FunctionDeclaration.refuse``.
+        """RM13, RM25, RM27 and RM28 refuse through one ``FunctionDeclaration.refuse``.
 
         Each witness that the shared refusal decides refuses before the mutation and fails
         under it.
@@ -469,6 +501,8 @@ class TestTheWitnessesHaveTeeth:
         assert linear(weights=FixedWeight()).weights_kind is None
         assert coin().density_kind is None
         assert written().design_kind is None
+        assert threshold_rule().rule_kind is None
+        assert threshold_regimen().rule_kind is None
 
 
 #: Each refusal that ``FunctionDeclaration.refuse`` decides: a build, the error it raises,
@@ -499,6 +533,38 @@ SHARED_REFUSALS: dict[str, tuple[Callable[[], Any], type[Exception], tuple[str, 
         (_ESTIMATED_DESIGN, PATHWISE),
     ),
     "unknown design": (lambda: written(design_kind="Known"), DataError, (DESIGN_UNKNOWN,)),
+    "undeclared rule": (threshold_rule, CapabilityError, (_UNDECLARED_RULE, "rule_kind='known'")),
+    "estimated rule": (
+        lambda: threshold_rule(rule_kind="estimated"),
+        CapabilityError,
+        (_ESTIMATED_RULE, PATHWISE),
+    ),
+    "unknown rule": (lambda: threshold_rule(rule_kind="Known"), DataError, (RULE_UNKNOWN,)),
+    "undeclared regimen": (
+        threshold_regimen,
+        CapabilityError,
+        (_UNDECLARED_RULE, "DynamicRegimen(label, plan, rule_kind='known')"),
+    ),
+    "estimated regimen": (
+        lambda: threshold_regimen(rule_kind="estimated"),
+        CapabilityError,
+        (_ESTIMATED_RULE, PATHWISE),
+    ),
+    "unknown regimen": (
+        lambda: threshold_regimen(rule_kind="Known"),
+        DataError,
+        (RULE_UNKNOWN,),
+    ),
+    "undeclared intervention": (
+        lambda: checked(DataTilt()),
+        CapabilityError,
+        (_UNDECLARED_INTERVENTION, "density_kind attribute of 'known'"),
+    ),
+    "estimated intervention": (
+        lambda: checked(DataTilt(density_kind="estimated")),
+        CapabilityError,
+        (_ESTIMATED_INTERVENTION, PATHWISE),
+    ),
 }
 
 
@@ -516,6 +582,13 @@ DECLARATION_USERS: dict[str, tuple[Callable[[Any], Any], str, str]] = {
     "uniform msm": (lambda kind: linear(weights_kind=kind), WEIGHTS_UNKNOWN, "weights_kind"),
     "regime density": (lambda kind: coin(density_kind=kind), UNKNOWN, "density_kind"),
     "msm design": (lambda kind: written(design_kind=kind), DESIGN_UNKNOWN, "design_kind"),
+    "rule": (lambda kind: threshold_rule(rule_kind=kind), RULE_UNKNOWN, "rule_kind"),
+    "regimen": (lambda kind: threshold_regimen(rule_kind=kind), RULE_UNKNOWN, "rule_kind"),
+    "intervention": (
+        lambda kind: checked(DataTilt(density_kind=kind)),
+        INTERVENTION_UNKNOWN,
+        "density_kind",
+    ),
 }
 
 #: Values that are not a string.  Before the check tested the type, the first built, the
@@ -545,83 +618,6 @@ class TestTheSharedCheckRefusesAValueThatIsNotAString:
 
 
 # ------------------------------------------------------------------ the witness
-
-#: A variant law on which the omitted term is material and asymmetric in delta.  ``g``
-#: differs across ``W``, and ``Qbar(1, w) - Qbar(0, w)`` is 0.8 or 0.9 at every ``w``.
-#: Every cell is a multiple of ``1 / N``, so the 1000 rows realise the law exactly.
-TILT_COUNTS = law.cell_counts(
-    p_w=[0.4, 0.4, 0.2], g=[0.25, 0.5, 0.75], q=[[0.05, 0.95], [0.1, 0.9], [0.1, 0.9]]
-)
-TILT_PROBS = TILT_COUNTS / law.N
-CELL_P = cell_p(TILT_PROBS)
-W_OF = np.array([w for w, _, _ in law.SUPPORT])
-A_OF = np.array([a for _, a, _ in law.SUPPORT], dtype=float)
-DGP = law.DiscreteLaw(TILT_PROBS)
-
-#: The two tilts, by the labels the oracle's ``ey_ipsi`` keys on.
-DELTAS = {label: law.IPSI_DELTAS[label] for label in ("odds x2", "odds x0.5")}
-
-#: The reported SE over the exact estimated-density SE at delta = 2 must stay below this.
-#: The probe measured 0.6226 before this bound was chosen.  A curve that carried the
-#: Kennedy term would read 1.  The bound claims an understatement of more than 30 percent and
-#: pins no digit; the approx line records the measured value, as RM13 records 0.7417.
-UNDERSTATEMENT_BOUND = 0.7
-
-
-def levels(frame: Any) -> np.ndarray:
-    return np.rint(np.asarray(frame["W"], dtype=float)).astype(int)
-
-
-def odds_tilt(g: np.ndarray, delta: float) -> np.ndarray:
-    """Kennedy's tilt, ``q(1 | w) = delta g / (delta g + 1 - g)``, as ``(3, 2)`` columns."""
-    one = delta * g / (delta * g + 1.0 - g)
-    return np.column_stack([1.0 - one, one])
-
-
-class KnownTilt:
-    """The tilt of the law's true mechanism, a fixed function of ``W``."""
-
-    def __init__(self, delta: float) -> None:
-        self.star = odds_tilt(DGP.g, delta)
-
-    def __call__(self, frame: Any) -> np.ndarray:
-        return self.star[levels(frame)]
-
-
-class SampleTilt:
-    """The user lie: the tilt of the sample's treated share in each stratum."""
-
-    def __init__(self, sample: Any, delta: float) -> None:
-        w, a = levels(sample), np.asarray(sample["A"], dtype=float)
-        self.star = odds_tilt(np.array([a[w == k].mean() for k in range(3)]), delta)
-
-    def __call__(self, frame: Any) -> np.ndarray:
-        return self.star[levels(frame)]
-
-
-def fixed_eif(star: np.ndarray, *, step: float = 1e-30) -> np.ndarray:
-    """The Gateaux derivative of ``sum_w P(w) sum_a q*(a | w) Qbar(a, w)``, ``q*`` frozen.
-
-    It is :func:`law.gateaux_eif` of that functional.  Only ``P(W)`` and ``Qbar`` move with
-    the law; the density does not.
-    """
-
-    def psi(p: Any) -> Any:
-        q = p[:, :, 1] / p.sum(axis=2)
-        return (p.sum(axis=(1, 2)) * (star * q).sum(axis=1)).sum()
-
-    return law.gateaux_eif(psi, TILT_PROBS, step=step)
-
-
-def kennedy_term(delta: float) -> np.ndarray:
-    """``T = delta (Qbar(1, W) - Qbar(0, W)) / D^2 (A - g(W))``, at every support point."""
-    g, q = DGP.g, DGP.q
-    slope = delta * (q[:, 1] - q[:, 0]) / (delta * g + 1.0 - g) ** 2
-    return slope[W_OF] * (A_OF - g[W_OF])
-
-
-def tilt_curve(result: Any) -> np.ndarray:
-    return np.asarray(result.estimates["ey_regime[tilt]"].influence_curve)
 
 
 @pytest.fixture(scope="module")

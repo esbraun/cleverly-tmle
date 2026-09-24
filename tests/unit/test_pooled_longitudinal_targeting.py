@@ -52,7 +52,7 @@ from cleverly.datasets import (
     make_longitudinal_weighted,
 )
 from cleverly.exceptions import ConvergenceWarning, PositivityWarning
-from cleverly.longitudinal import LTMLE, LongitudinalResult, sequential
+from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalResult, sequential
 from cleverly.longitudinal.sequential import Mechanism, RegimenFit
 from cleverly.validation.longitudinal import _longitudinal_nuisances, _longitudinal_scores
 from tests.unit.test_sequential_design import multivalue_panel
@@ -124,7 +124,11 @@ def fit_categorical(**overrides: Any) -> LongitudinalResult:
     return LTMLE(
         {
             "never": 0,
-            "dynamic": (2, lambda history: (history["L2"] > 0).astype(float)),
+            "dynamic": DynamicRegimen(
+                "dynamic",
+                (2, lambda history: (history["L2"] > 0).astype(float)),
+                rule_kind="known",
+            ),
         },
         **_misspecified(reference="never", **overrides),
     ).fit(
@@ -562,7 +566,11 @@ def fit_linear_categorical() -> LongitudinalResult:
     return LTMLE(
         {
             "never": 0,
-            "dynamic": (2, lambda history: (history["L2"] > 0).astype(float)),
+            "dynamic": DynamicRegimen(
+                "dynamic",
+                (2, lambda history: (history["L2"] > 0).astype(float)),
+                rule_kind="known",
+            ),
         },
         **_linear_settings(reference="never"),
     ).fit(

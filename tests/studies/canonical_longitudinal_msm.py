@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from cleverly.datasets import RULE_LABEL, make_longitudinal, rule_arm_at_node_two
-from cleverly.longitudinal import LTMLE
+from cleverly.longitudinal import LTMLE, DynamicRegimen
 from cleverly.msm import MSM, solve_projection
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
@@ -35,7 +35,11 @@ REGIMENS: dict[str, Any] = {
     "never": 0,
     "always": 1,
     "early": (1, 0),
-    RULE_LABEL: (1, lambda history: rule_arm_at_node_two(history["L2"])),
+    RULE_LABEL: DynamicRegimen(
+        RULE_LABEL,
+        (1, lambda history: rule_arm_at_node_two(history["L2"])),
+        rule_kind="known",
+    ),
 }
 DURATION = {"never": 0.0, "always": 2.0, "early": 1.0, RULE_LABEL: 1.0}
 PROJECTION_WEIGHT = {"never": 0.1, "always": 10.0, "early": 0.1, RULE_LABEL: 10.0}

@@ -171,12 +171,20 @@ The simulated-confounding replay reports each of these inputs as `CapabilityErro
 `validate_fixed_replay` converts each `DataError` that its checks raise into a `CapabilityError`.
 
 A result saved before a declaration existed loads with that declaration set to `None`. Loading
-checks nothing, so that result keeps its stored estimates, and they answer as saved. Except under
-the rule below, every call that recomputes an estimate from a saved `TMLE` result refuses with the
-undeclared message. `retarget()` checks the declarations first, so each sweep that calls it
-refuses, for example `truncation_curve()`. `refute()` refits through `fit()`, which checks them
-too. The simulated-confounding replay refuses in `MSMSet.evaluate`, before the design or the weight
-runs.
+raises nothing. Except under the rule below, a saved `TMLE` result keeps its point estimates and
+takes the `undeclared_function_plugin` status, so its `ci`, `pvalue` and `std_error` refuse.
+
+A longitudinal MSM stores evaluated arrays and evidence that its source declarations passed.
+A restored projection without that evidence takes the same status and refuses truncation replay.
+This includes older projections whose original functions were fixed, because their arrays cannot
+prove the declarations. Refit the original analysis with fixed functions declared known.
+Newly fitted projections keep their declaration evidence when saved and restored.
+
+Except under the rule below, every call that recomputes an estimate from a saved `TMLE` result
+refuses with the undeclared message. `retarget()` checks the declarations first, so each sweep
+that calls it refuses, for example `truncation_curve()`. `refute()` refits through `fit()`, which
+checks them too. The simulated-confounding replay refuses in `MSMSet.evaluate`, before the design
+or the weight runs.
 
 One rule reads a design with no declaration as known. `MSM.linear` leaves `design_kind` as `None`.
 When the design has the exact type that `MSM.linear` builds, the model reads as
