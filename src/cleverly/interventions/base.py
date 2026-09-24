@@ -335,7 +335,14 @@ class Stochastic:
         -------
         ndarray
             ``(n, K)`` density, columns in arm-code order.
+
+        Notes
+        -----
+        It runs :func:`refuse_regime_densities` before it calls ``density_fn``, because a
+        restored or modified regime can reach it directly with a declaration this version
+        refuses.
         """
+        refuse_regime_densities((self,))
         values = np.asarray(_as_array(self.density_fn(_covariate_frame(data))), dtype=float)
         check_regime_density(
             values, label=f"stochastic regime {self.name!r}", shape=(data.n, data.n_arms)
@@ -448,9 +455,11 @@ def refuse_regime_densities(interventions: Iterable[object]) -> None:
        that distinguishes a population-law target from a realized learned-policy target.
 
     :class:`Stochastic` runs this when it is built.  ``TMLE`` runs it again before any
-    learner and at the start of every retarget, and the simulated-confounding replay runs
-    it before any density is evaluated.  A regime restored from an older pickle, or
-    changed with ``object.__setattr__``, can carry a declaration this version refuses.
+    learner and at the start of every retarget.  :meth:`Stochastic.density` and
+    :meth:`RegimeSet.evaluate` run it before any density is evaluated, so a direct call and
+    the simulated-confounding replay refuse before ``density_fn`` runs.  A regime restored
+    from an older pickle, or changed with ``object.__setattr__``, can carry a declaration
+    this version refuses.
     Loading runs no check, so a restored result keeps the estimates it stored, and they
     answer as saved (roadmap row RM25).
 
@@ -565,9 +574,17 @@ class RegimeSet:
         -------
         RegimeSet
             The evaluated densities, keyed by code.
+
+        Notes
+        -----
+        It runs :func:`refuse_regime_densities` on every intervention before it evaluates
+        any density.  A regime restored from an older pickle, or changed with
+        ``object.__setattr__``, can reach this method directly with a declaration this
+        version refuses.
         """
         if len(interventions) < 1:
             raise DataError("at least one intervention is required")
+        refuse_regime_densities(interventions)
         names = tuple(str(intervention.name) for intervention in interventions)
         stacked = np.stack(
             [np.asarray(intervention.density(data), dtype=float) for intervention in interventions],

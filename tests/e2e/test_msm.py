@@ -85,6 +85,7 @@ def dose_response(link: str = "identity") -> MSM:
         design=_dose_design,
         terms=("(intercept)", "dose"),
         link=link,  # type: ignore[arg-type]
+        design_kind="known",
     )
 
 
@@ -94,6 +95,7 @@ def centred_dose_response() -> MSM:
         design=_centred_dose_design,
         terms=("(intercept)", "dose"),
         link="identity",
+        design_kind="known",
     )
 
 
@@ -103,6 +105,7 @@ def scaled_centred_dose_response() -> MSM:
         design=_scaled_centred_dose_design,
         terms=("(intercept)", "dose"),
         link="identity",
+        design_kind="known",
     )
 
 
@@ -112,6 +115,7 @@ def saturated(link: str = "identity") -> MSM:
         design=_saturated_design,
         terms=tuple(f"arm[{label}]" for label in DOSE),
         link=link,  # type: ignore[arg-type]
+        design_kind="known",
     )
 
 

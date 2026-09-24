@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from copy import copy
-from dataclasses import dataclass, replace
-from functools import cache
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -14,23 +13,20 @@ from cleverly import (
     ATE,
     AssessmentStatus,
     CounterfactualMean,
-    CrossFitting,
     IncrementalMean,
     MSMProjection,
     RegimeContrast,
     RegimeMean,
-    TMLEMethod,
 )
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError
-from cleverly.interventions import Incremental, Rule, Static, Stochastic
-from cleverly.msm import MSM, MSMSet
-from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
+from cleverly.interventions import Incremental, Static, Stochastic
+from cleverly.msm import MSMSet
 from cleverly.sensitivity import _simulated_confounding_fixed as fixed_replay
+from cleverly.sensitivity import simulated_confounding
 from tests.unit._confounding_support import (
     Counter,
-    alias_for,
     with_estimator,
     with_functional,
     with_key,
@@ -38,151 +34,21 @@ from tests.unit._confounding_support import (
     with_typed,
 )
 from tests.unit._confounding_support import (
-    confounding_estimate as _confounding_estimate,
-)
-from tests.unit._confounding_support import (
-    confounding_study as _study,
-)
-from tests.unit._confounding_support import (
     forbid_draw_and_refit as _forbid_draw_and_refit,
 )
 from tests.unit._confounding_support import (
     replacement as _replacement,
 )
-
-#: This module's subject is the fixed-policy replay contract, not cross-fitting, so
-#: every fit here runs in sample. A cross-fitted fit of a continuous outcome now needs a
-#: declared q_bounds (the fold and outcome-scale rules), and this module's Gaussian law does not have one.
-_IN_SAMPLE_METHOD = TMLEMethod(cross_fitting=CrossFitting(enabled=False))
-
-
-def _estimate(*args: Any, **kwargs: Any) -> Any:
-    """``confounding_estimate``, fit in sample unless the caller asks for repeats.
-
-    ``repeats`` needs cross-fitting to draw independent splits from at all, so a caller
-    asking for more than one keeps the default cross-fitted method and must declare
-    ``binary=True`` itself: a cross-fitted continuous outcome needs a declared
-    ``q_bounds`` (the fold and outcome-scale rules), and this module's Gaussian law does not have one to declare
-    honestly.
-    """
-    if kwargs.get("repeats", 1) <= 1:
-        kwargs.setdefault("method", _IN_SAMPLE_METHOD)
-    return _confounding_estimate(*args, **kwargs)
-
-
-_GRID = ConfounderStrengthGrid(treatment=(0.0, 0.22), outcome=(0.0, 0.17))
-
-
-def _stochastic_density(w: Any) -> np.ndarray:
-    p = 0.3 + 0.4 * (np.asarray(w["W"]) > 0)
-    return np.column_stack((1 - p, p))
-
-
-@dataclass(frozen=True)
-class _MSMDesign:
-    treated: Any = 1
-    saturated: bool = False
-
-    def __call__(self, a: Any, w: Any) -> np.ndarray:
-        columns = [np.ones(len(w)), np.full(len(w), a == self.treated)]
-        if not self.saturated:
-            columns.append(np.asarray(w["W"]))
-        return np.column_stack(columns)
-
-
-@dataclass(frozen=True)
-class _MSMWeight:
-    treated: Any = 1
-
-    def __call__(self, a: Any, w: Any) -> np.ndarray:
-        return (0.5 + 2.0 * (np.asarray(w["W"]) > 0)) * (1.8 if a == self.treated else 0.6)
-
-
-def _policy(kind: str, *, labels: bool = False) -> Any:
-    """All declarations see baseline covariates and preserve the arm-label contract."""
-    control, treated = ("control", "treated") if labels else (0, 1)
-    if kind == "static":
-        return Static(treated, name="policy")
-    if kind == "rule":
-        return Rule(lambda w: np.where(np.asarray(w["W"]) > 0, treated, control), name="policy")
-    if kind == "stochastic":
-        return Stochastic(_stochastic_density, name="policy", density_kind="known")
-    raise AssertionError(kind)
-
-
-def _model(*, saturated: bool = False, labels: bool = False, link: str = "identity") -> MSM:
-    treated = "treated" if labels else 1
-    if saturated:
-        return MSM(
-            design=_MSMDesign(treated, True),
-            terms=("intercept", "treatment"),
-            link=link,
-        )
-    return MSM(
-        design=_MSMDesign(treated),
-        terms=("intercept", "treatment", "baseline"),
-        weights=_MSMWeight(treated),
-        weights_kind="known",
-        link=link,
-    )
-
-
-@cache
-def _fit_policy(
-    kind: str = "stochastic",
-    *,
-    contrast: bool = True,
-    backend: str = "pandas",
-    labels: bool = False,
-    weighted: bool = False,
-    strata: bool = False,
-    repeats: int = 1,
-    binary: bool = False,
-) -> Any:
-    control = "control" if labels else 0
-    interventions = (Static(control, name="reference"), _policy(kind, labels=labels))
-    target = (
-        RegimeContrast(interventions, reference="reference")
-        if contrast
-        else RegimeMean((interventions[1],))
-    )
-    return _estimate(
-        _study(backend=backend, labels=labels, weighted=weighted, strata=strata, binary=binary),
-        target,
-        repeats=repeats,
-        binary=binary,
-    )
-
-
-@cache
-def _fit_msm(
-    *,
-    saturated: bool = False,
-    weighted: bool = False,
-    labels: bool = False,
-    backend: str = "pandas",
-    repeats: int = 1,
-    binary: bool = False,
-    link: str = "identity",
-    strata: bool = False,
-) -> Any:
-    return _estimate(
-        _study(weighted=weighted, labels=labels, backend=backend, binary=binary, strata=strata),
-        MSMProjection(_model(saturated=saturated, labels=labels, link=link)),
-        repeats=repeats,
-        binary=binary,
-    )
-
-
-def _alias(
-    result: Any, *, stratum: tuple[str, ...] | None = None, coefficient: str = "treatment"
-) -> str:
-    return alias_for(
-        result,
-        stratum=stratum,
-        coefficient=coefficient if result.config.parameter_axis == "msm" else None,
-        value=None if result.config.parameter_axis == "msm" else "policy",
-    )
+from tests.unit._simulated_confounding_support import (
+    _GRID,
+    _alias,
+    _estimate,
+    _fit_msm,
+    _fit_policy,
+    _model,
+    _stochastic_density,
+    _study,
+)
 
 
 @pytest.mark.parametrize(

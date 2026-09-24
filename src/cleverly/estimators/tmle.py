@@ -153,7 +153,7 @@ from ..learners.crossfit import (
 )
 from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearner, resolve_learner
-from ..msm import MSM, MSMSet, refuse_projection_weights
+from ..msm import MSM, MSMSet, refuse_msm_functions
 from ..provenance import data_fingerprint
 from ..provenance import record as provenance_record
 from ..targets import TargetContext, groups_for, parameter_stem, targets_for
@@ -1352,11 +1352,15 @@ class TMLE:
         The declared fold policy is checked first and without reading the data, because a
         fit can arrive here without having run ``__init__``: :meth:`refit` copies an
         estimator, and an estimator restored from a pickle written by an earlier version
-        carries whatever policy that version allowed.  The working model's projection-weight
-        declaration is checked next for the same reason: ``MSM`` checks it when it is
-        declared, and a restored or modified model can carry one this version refuses.
-        Each ``Stochastic`` regime's density declaration follows, for the same reason and
-        before any density is evaluated (roadmap row RM25).
+        carries whatever policy that version allowed.  It then runs
+        :func:`~cleverly.msm.refuse_msm_functions` and
+        :func:`~cleverly.interventions.base.refuse_regime_densities` for the same reason: a
+        restored or modified model or regime can carry a declaration this version refuses.
+        Those functions state what each one refuses.  They run before every refusal of the
+        fit configuration, here and in :meth:`_fit_single`, because each of those names a
+        remedy that cannot make an undeclared function fit.  :meth:`MSMSet.evaluate
+        <cleverly.msm.MSMSet.evaluate>` checks the model again, but a fit reaches it only
+        after those refusals.
 
         The natural-course contract runs next, because it resolves the target list the
         arm-indexed missing-outcome contract then reads.  The refusal of every other
@@ -1371,7 +1375,7 @@ class TMLE:
                 "refuses, which a restored result or a copied estimator can still carry"
             )
         if self.msm is not None:
-            refuse_projection_weights(self.msm)
+            refuse_msm_functions(self.msm)
         refuse_regime_densities(self.interventions)
         estimands = self._resolve_natural_course_contract(data)
         self._resolve_arm_indexed_missing_contract(data, estimands)
@@ -2690,15 +2694,16 @@ class TMLE:
         is kept out of :meth:`retarget` so that the sensitivity analyses, which call
         that method on every perturbed input, keep their two-value signature.
 
-        It checks the MSM projection-weight declaration and then each ``Stochastic``
-        regime's density declaration first, as :meth:`fit` does. Every sweep that
-        recomputes an estimate comes through here, so a result restored from an artifact
-        written before ``MSM.weights_kind`` or ``Stochastic.density_kind`` existed refuses
-        each recomputation (roadmap rows RM13 and RM25). Loading re-checks nothing: that
-        result keeps the estimates it stored, and they answer as they were saved.
+        It runs :func:`~cleverly.msm.refuse_msm_functions` and
+        :func:`~cleverly.interventions.base.refuse_regime_densities` first, as :meth:`fit`
+        does.  Every sweep that recomputes an estimate comes through here, so a
+        recomputation from a restored result refuses when those functions refuse its model
+        or its regimes.  They state which declarations they refuse.  Loading re-checks
+        nothing: a restored result keeps the estimates it stored, and they answer as they
+        were saved.
         """
         if self.msm is not None:
-            refuse_projection_weights(self.msm)
+            refuse_msm_functions(self.msm)
         refuse_regime_densities(self.interventions)
         requested = tuple(estimands)
         level = self.alpha_sig if alpha_sig is None else alpha_sig

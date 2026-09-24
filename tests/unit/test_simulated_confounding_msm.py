@@ -27,7 +27,7 @@ from tests.unit._confounding_support import (
     with_estimator,
     with_last_nuisance,
 )
-from tests.unit.test_simulated_confounding_policies import _alias, _fit_msm
+from tests.unit._simulated_confounding_support import _alias, _fit_msm
 
 _GRID = ConfounderStrengthGrid(treatment=(0.0, 0.3), outcome=(0.0, 0.02))
 _DOSES = (-1.4, -0.8, -0.15, 0.35, 1.1, 1.6)
@@ -47,7 +47,13 @@ def _fit_continuous(
     strata: bool = False,
     backend: str = "pandas",
     binary: bool = False,
+    uniform: bool = False,
 ) -> Any:
+    """A continuous ``MSM.linear`` fit, weighted by ``_DoseWeight`` unless ``uniform``.
+
+    A uniform fit leaves ``weights`` and ``weights_kind`` unset, so only the replay can
+    declare its frozen weight.  The declaration modules replay it.
+    """
     rng = np.random.default_rng(81)
     n = 180
     w = rng.normal(size=n)
@@ -92,8 +98,8 @@ def _fit_continuous(
             MSM.linear(
                 modifiers=("W",),
                 interaction=False,
-                weights=_DoseWeight(),
-                weights_kind="known",
+                weights=None if uniform else _DoseWeight(),
+                weights_kind=None if uniform else "known",
                 link=link,
                 doses=_DOSES,
             )

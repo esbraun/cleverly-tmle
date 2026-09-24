@@ -36,10 +36,9 @@ $$
 
 With $M=E\sum_a h\phi\phi^\top$ and $r=E\sum_a h\phi\,\bar Q_P(a,W)$, the coefficient is
 $\beta=M^{-1}r$. The working design and the weights are known functions, and $M$ must be full rank.
-The package reads a declaration for the weights, and it reads none for the design. A design that
-closes over a sample statistic, such as a covariate centred at its sample mean, therefore fits with
-no message. Its reported curve omits the derivative through that statistic.
-[RM27](../roadmap.md#rm27-declared-msm-design-functions) records the gap and a probe of its size.
+The package cannot inspect a callable, so it reads a declaration for each one. `design_kind`
+declares the design, and `weights_kind` declares the weights. [Variations](#variations) gives both
+declarations and their refusals.
 
 With the identity link the clever covariate is $h(a,V)\,\phi(a,V)/g(a\mid W)$, one column per term,
 so the score equation is one per coefficient rather than one per arm. The counterfactuals are still
@@ -128,6 +127,7 @@ scale, because a coefficient vector has no single scale to map back with.
 | option | what it does |
 | --- | --- |
 | `MSM(...)` design | the working design vector, including effect modifiers and interactions |
+| `design_kind="known"` | the declaration that a `design=` callable is a fixed function of the arm, or of the regimen and horizon, and the covariates, chosen without reading the data. `MSM.linear` takes no `design_kind`, because the design it builds is known by construction |
 | projection weights | how the arms or regimens are traded off inside the projection |
 | `weights_kind="known"` | the declaration that a `weights=` callable is a fixed function of the arm and the covariates, chosen without reading the data. `MSM.linear` forwards it. Uniform weights, `weights=None`, need no declaration |
 | `link="identity"` | the clever covariate is free of the coefficient, and a correct mechanism drives the remainder to exactly zero |
@@ -137,28 +137,70 @@ scale, because a coefficient vector has no single scale to map back with.
 | `targeting_scheme="fold"` | each fold solves its own coefficient, since the coefficient is something the covariate reads. This removes coupling *between* folds, and the rows inside a fold still fit both the coefficient and the fluctuation used for that fold. The pooled score is exactly zero because each fold's is zero at its own coefficient. This is a package extension and not the common-update CV-TMLE of Zheng and van der Laan |
 | point-treatment `"fold"` against longitudinal `n_folds` | point-treatment fold targeting is supported. Cross-fitted longitudinal MSM coefficient inference is refused pending separate evidence |
 
-The package cannot inspect a callable, so it reads the declaration of the projection weight. The
-`MSM` class checks the declaration when you declare the model. The `TMLE` and `LTMLE` fits check it
-again before the first learner, because a restored or copied model can carry a declaration that
-this version refuses. Each refusal raises `CapabilityError`. The
+The package cannot inspect a callable, so it reads the declarations of the design and of the
+projection weight. The table gives each place that checks both declarations.
+
+| checked by | when |
+| --- | --- |
+| the `MSM` class | when you declare the model |
+| the `TMLE` and `LTMLE` fits | before the first learner and before the first call to the design. A restored or copied model can carry a declaration that this version refuses. The `TMLE` fit also checks before each refusal of its configuration, for example `cv_evaluation=True`. So a restored model gets the declaration refusal first |
+| `TMLE.retarget()` | before it recomputes an estimate. Each sweep that calls it, such as `truncation_curve()`, meets this check |
+| `MSMSet.evaluate` and `evaluate_regimen_msm` | before they call the design or the weight. A direct call and the simulated-confounding replay both meet this check |
+
+Each refusal raises `CapabilityError`. The
 [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) page defines its kind.
 
 | refused | kind | reason |
 | --- | --- | --- |
+| a `design=` callable with no `design_kind` | wrong by construction | the package cannot tell a fixed design from a design computed from the sample. The message asks for `design_kind="known"` |
+| `design_kind="estimated"`, for example a covariate centred at its sample mean | wrong by construction | for a population-law target that centres at $E_P[W]$, the curve needs the derivative through that mean. The reported curve omits it. Conditioning on a centre learned from these same rows defines a different target, with no validated interval here |
 | a `weights=` callable with no `weights_kind` | wrong by construction | the package cannot tell a fixed weight from a weight computed from the sample. The message asks for `weights_kind="known"` |
 | `weights_kind="estimated"`, a "stabilised" MSM | wrong by construction | the weight is a functional of $P$, so the influence curve needs a further term for the pathwise derivative through the estimated mechanism. The reported curve does not have it. This is the same argument that gives an incremental intervention its own axis |
 | an array in place of a `weights=` callable | wrong by construction | an array is one evaluation of the weight, and nothing shows that the sample did not set it |
 
-An inconsistent declaration raises `DataError`. Two cases exist: `weights_kind="estimated"` with
-`weights=None`, and a value other than `"known"`, `"estimated"`, or `None`. An array or
-`pandas.NA` is such a value.
+A malformed input raises `DataError`. The table gives the four cases.
 
-A result saved before `weights_kind` existed loads with `weights_kind=None`. Loading checks
-nothing, so that result keeps its stored estimates, and they answer as saved. Every call that
-recomputes an estimate from it refuses with the undeclared-weight message. `retarget()` checks the
-declaration first, so each sweep that calls it refuses, for example `truncation_curve()`.
-`refute()` refits through `fit()`, which checks it too. `tests/unit/test_msm_projection_weights.py`
-pins the stored interval, the refusals, a declared control, and a mutation that removes the check.
+| input | example |
+| --- | --- |
+| a `design=` value that is not callable | an array or a float. The message gives the point-treatment signature and the longitudinal signature |
+| a `design_kind` value other than `"known"`, `"estimated"`, or `None` | `"Known"`, `True`, or `1` |
+| a `weights_kind` value other than `"known"`, `"estimated"`, or `None` | an array or `pandas.NA` |
+| `weights_kind="estimated"` with `weights=None` | the declaration describes a weight that the model does not have |
+
+The simulated-confounding replay reports each of these inputs as `CapabilityError`. Its function
+`validate_fixed_replay` converts each `DataError` that its checks raise into a `CapabilityError`.
+
+A result saved before a declaration existed loads with that declaration set to `None`. Loading
+checks nothing, so that result keeps its stored estimates, and they answer as saved. Except under
+the rule below, every call that recomputes an estimate from a saved `TMLE` result refuses with the
+undeclared message. `retarget()` checks the declarations first, so each sweep that calls it
+refuses, for example `truncation_curve()`. `refute()` refits through `fit()`, which checks them
+too. The simulated-confounding replay refuses in `MSMSet.evaluate`, before the design or the weight
+runs.
+
+One rule reads a design with no declaration as known. `MSM.linear` leaves `design_kind` as `None`.
+When the design has the exact type that `MSM.linear` builds, the model reads as
+`design_kind="known"`. Its result still recomputes when its weight is uniform or declared
+`"known"`. That design is a fixed function of the arm and the named covariates.
+
+A saved result with any other undeclared design refuses every recomputation. The `from_linear` flag
+is not a declaration, because a user can set it on any design. A subclass of the `MSM.linear` design
+type is not a declaration either.
+
+| test file | what it pins |
+| --- | --- |
+| `tests/unit/test_msm_projection_weights.py` | for the weight: the stored interval, the refusals, the evaluator checks, a declared control, and a mutation that removes the check |
+| `tests/unit/test_msm_design_declaration.py` | for the design: the same five items, the exact-type rule, a malformed model at each fit entry, the replay refusal before any call to the design or the weight, and a saved `MSM.linear` result that still recomputes |
+
+A saved `LTMLE` MSM result holds the evaluated design and weight arrays, not the `MSM` object. Its
+`truncation_curve()` reuses those arrays, runs no user function, and reports point estimates only.
+It therefore needs no declaration check. `tests/unit/test_longitudinal_truncation_refit.py` pins the
+columns of an `LTMLE` truncation curve, and it replays an MSM result from the stored arrays.
+
+`dataclasses.replace(model, design=new)` keeps the `design_kind` of `model`, as it keeps
+`weights_kind`. Pass `design_kind` again when you replace the design function. A model from
+`MSM.linear` holds `None`, so `replace` refuses a new design that has no `design_kind`. The test
+`test_replacing_the_shorthand_design_drops_its_declaration` pins this.
 
 A weight computed from the sample and declared `"known"` still fits, because the declaration is
 your statement. `tests/unit/test_msm_projection_weights.py` measures the cost on an exact law, with
@@ -171,6 +213,26 @@ coefficient. [RM13](../roadmap.md#rm13-estimated-msm-projection-weights) records
 | `msm[W]` | 0.742 |
 | `msm[(intercept)]` | 0.913 |
 | `msm[a]` | 1.000, because the share term vanishes for this coefficient on this design |
+
+A design computed from the sample and declared `"known"` also still fits.
+`tests/unit/test_msm_design_declaration.py` measures the cost on an exact law with the design
+$[1, a, W-c]$. Here $c$ is the sample mean of $W$, which is 0.7. The reported curve is the efficient
+influence function of the fixed-centre coefficient. The table gives its standard error over that of
+the estimated-centre coefficient. [RM27](../roadmap.md#rm27-declared-msm-design-functions) records
+the defect.
+
+| coefficient | standard-error ratio |
+| --- | --- |
+| `msm[(intercept)]` | 0.893 |
+| `msm[a]` | 1.000, because the centre term moves only the intercept |
+| `msm[W]` | 1.000, because the centre term moves only the intercept |
+
+The omitted term is $\beta_W(W-c)$ in the intercept curve. It changes the variance of the intercept
+by $\beta_W^2\,\mathrm{Var}(W)+2\beta_W\,\mathrm{Cov}(D,W)$, where $D$ is the reported curve. That
+change can have either sign, and it vanishes at $\beta_W=0$. The class
+`TestAKnownDesignKeepsItsInterval` fits two controls, a design with the fixed centre 0.7 and
+`MSM.linear`. Both keep their intervals. The code cannot detect the false `"known"` declaration: the
+fixed-centre curve and the witness curve are bitwise equal.
 
 A one-shot non-identity-link fit is also refused. The derivative of the inverse link depends on the
 coefficient, so a single pass would report a standard error for an equation it did not solve. The

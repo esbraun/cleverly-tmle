@@ -19,7 +19,7 @@ The declaration is a three-state ``Literal`` and not a bool, because an undeclar
 has to refuse and a bool default would declare it silently. :class:`FunctionDeclaration`
 holds the check and the texts of the refusals for one field, so each user refuses the same way.
 The MSM projection weight (roadmap row RM13) is the first user. The stochastic regime
-density (roadmap row RM25) is the second, and RM27 can add the MSM design as a third.
+density (roadmap row RM25) is the second, and the MSM design (roadmap row RM27) is the third.
 
 A leaf module. It imports the standard library and :mod:`cleverly.exceptions` only, so
 :mod:`cleverly.msm` and :mod:`cleverly.interventions` can both import it without a cycle.

@@ -829,7 +829,7 @@ def test_msm_curve_replays_projection_artifacts_and_reports_only_terms() -> None
 
     result = LTMLE(
         {"always": 1, "never": 0, "late": (0, 1)},
-        msm=MSM(design=design, terms=("intercept", "duration")),
+        msm=MSM(design=design, terms=("intercept", "duration"), design_kind="known"),
         **{name: value for name, value in SETTINGS.items() if name not in {"reference", "n_folds"}},
         n_folds=1,
     ).fit(frame, **COLUMNS)

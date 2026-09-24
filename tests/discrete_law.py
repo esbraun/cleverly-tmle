@@ -25,6 +25,7 @@ the unmodified nuisances.
 from __future__ import annotations
 
 import itertools
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -206,8 +207,8 @@ MSM_LINKS: dict[str, Any] = {
 MSM_NEWTON_STEPS = 40
 
 
-def msm_beta(probs: Any, weights: Any) -> Any:
-    r"""The identity-link projection :math:`\beta = M^{-1} b` of :data:`MSM_DESIGN`.
+def msm_beta(probs: Any, weights: Any, design: Any = None) -> Any:
+    r"""The identity-link projection :math:`\beta = M^{-1} b` of a working design.
 
     ``weights`` is ``h(a, W = w)`` as a ``(3, 2)`` array, or a function of the cell
     probabilities that returns one.  :func:`functional` passes the fixed
@@ -215,14 +216,22 @@ def msm_beta(probs: Any, weights: Any) -> Any:
     shares are, and a complex step through this then differentiates through ``h`` too:
     ``tests/unit/test_msm_projection_weights.py`` measures the term that adds.
 
+    ``design`` is :math:`\varphi(a, W = w)` as a ``(3, 2, p)`` array indexed
+    ``[w, a, term]``, or a function of the cell probabilities that returns one.  ``None``
+    means :data:`MSM_DESIGN`, which :func:`functional` uses.  A function makes
+    :math:`\varphi` a functional of :math:`P`, as a covariate centred at its mean is:
+    ``tests/unit/test_msm_design_declaration.py`` measures the term that adds.
+
     Every operation is arithmetic, so this stays analytic in the cell probabilities.
     """
     p = np.asarray(probs)
     p_w = p.sum(axis=(1, 2))  # P(W = w)
     q = p[:, :, 1] / p.sum(axis=2)  # E[Y | A = a, W = w]
     h = weights(p) if callable(weights) else weights
-    gram = np.einsum("wap,waq,wa,w->pq", MSM_DESIGN, MSM_DESIGN, h, p_w)
-    moment = np.einsum("wap,wa,wa,w->p", MSM_DESIGN, h, q, p_w)
+    phi = MSM_DESIGN if design is None else design
+    phi = phi(p) if callable(phi) else phi
+    gram = np.einsum("wap,waq,wa,w->pq", phi, phi, h, p_w)
+    moment = np.einsum("wap,wa,wa,w->p", phi, h, q, p_w)
     return np.linalg.solve(gram, moment)
 
 
@@ -445,9 +454,31 @@ def gateaux(estimand: str, point: int, *, probs: Any = None, step: float = 1e-30
     return float(np.imag(functional(perturbed, estimand)) / step)
 
 
+def gateaux_eif(
+    functional: Callable[[Any], Any], probs: Any = None, *, step: float = 1e-30
+) -> np.ndarray:
+    """The Gateaux derivative of ``functional`` at every support point, in support order.
+
+    ``functional`` maps the ``(3, 2, 2)`` cell probabilities to a value or a vector, and
+    ``probs``, which defaults to :data:`PROBS`, is the law it is differentiated at.  This
+    is the contamination path and the complex step of :func:`gateaux`, applied to any
+    analytic functional: an estimand of :func:`functional`, a tilted estimand, or one a
+    test writes, such as a projection whose weight or design is frozen or moves with the
+    law.  The first axis of the result follows :data:`SUPPORT`.
+    """
+    base = (PROBS if probs is None else np.asarray(probs, dtype=float)).astype(complex)
+    rows = []
+    for cell in SUPPORT:
+        mass = np.zeros_like(base)
+        mass[cell] = 1.0
+        perturbed = (1.0 - 1j * step) * base + 1j * step * mass
+        rows.append(np.imag(functional(perturbed)) / step)
+    return np.array(rows)
+
+
 def eif(estimand: str, *, probs: Any = None) -> np.ndarray:
     """The EIF of ``estimand`` evaluated at every support point, in support order."""
-    return np.array([gateaux(estimand, point, probs=probs) for point in range(len(SUPPORT))])
+    return gateaux_eif(lambda p: functional(p, estimand), probs)
 
 
 #: ``P(A = 1 | W = w)`` and ``E[Y | A = a, W = w]`` as the *realised sample* has them.
@@ -546,5 +577,8 @@ def weighted_gateaux(estimand: str, point: int, weights: Any, *, step: float = 1
 
 
 def weighted_eif(estimand: str, weights: Any) -> np.ndarray:
-    """The EIF of ``Psi(P_w)`` at every support point, in support order."""
-    return np.array([weighted_gateaux(estimand, point, weights) for point in range(len(SUPPORT))])
+    """The EIF of ``Psi(P_w)`` at every support point, in support order.
+
+    The contamination is of :math:`P`, as in :func:`weighted_gateaux`.
+    """
+    return gateaux_eif(lambda p: weighted_functional(p, estimand, weights))

@@ -63,7 +63,7 @@ hold.
 
 The review of that delivery found a third sibling surface.
 [RM27](#rm27-declared-msm-design-functions) holds an MSM design function that closes over a sample
-statistic.
+statistic. RM27 is delivered, and its detail section records what shipped.
 
 The 2026-09-23 plan for RM25 found a fourth sibling surface.
 [RM28](#rm28-declared-densities-of-user-written-interventions) holds the density of a
@@ -76,7 +76,6 @@ rows that remain.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.15 | Declared MSM design functions | decide how an MSM `design` declares that it is a known function, and refuse a design declared estimated before the fit | a `design` callable can close over a sample statistic, such as the sample mean of a covariate. The projection is then a functional of $P$ through the design, and the reported curve omits that derivative. Nothing declares or refuses it | [RM27](#rm27-declared-msm-design-functions) |
 | 0.16 | Declared densities of user-written interventions | require known-function declarations for custom `Intervention` densities and callable `Rule` and `DynamicRegimen` policies | a custom class receives the `CausalData` of the fit. On the RM25 witness law, its sample-mechanism tilt reports 0.6226 of the population-law odds-tilt target's exact standard error. The built-in rule callables also lack declarations | [RM28](#rm28-declared-densities-of-user-written-interventions) |
 | 0.21 | E-value on a controlled-direct-effect fit | find a source that derives an E-value for a controlled direct effect, or refuse each E-value branch that no source covers on a fit with an intermediate variable | the Gaussian branch and the reported-ratio branches answer on that fit, and the derived-ratio branch refuses it. No source read here covers the case | [RM21](#rm21-e-value-on-a-controlled-direct-effect-fit) |
 | 0.22 | Standard error of the omitted-variable bound | add the influence term of the conditioning share to the ATT and ATC curve, decide what the plug-in limits claim, and check each locator against the published article | the curve of $\nu^2$ omits $-2 \nu^2 (1\{A = c\} - p) / p$. Under the doubly robust estimator the omission widens the limits. No derivation covers the plug-in limits | [RM22](#rm22-standard-error-of-the-omitted-variable-bound) |
@@ -94,7 +93,7 @@ A row that another row depends on comes before that row.
 
 | tier | defect | rows |
 | --- | --- | --- |
-| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM27, RM28, RM21, RM22 |
+| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM28, RM21, RM22 |
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM23, RM14 |
 | c | a correct refusal that arrives late or as the wrong type | RM24 |
 | d | a diagnostic or a warning that misleads | RM15 |
@@ -107,8 +106,7 @@ tier.
 
 | row | reason for its place |
 | --- | --- |
-| RM27 | only a design that closes over a sample statistic reaches it. On one exact law, the reported standard error of the intercept is 0.893 of the exact one, and the other coefficients keep their curves. The omitted term can have either sign |
-| RM28 | a custom `Intervention` or a callable rule reaches it. RM27's `MSM.design` is another constructor argument and keeps its earlier place. RM28 extends the declaration that RM25 delivered |
+| RM28 | a custom `Intervention` or a callable rule reaches it. RM28 extends the shared declaration that RM25 delivered and that RM27 reused for the MSM design |
 | RM21 | an E-value that no read source covers, on controlled-direct-effect fits only |
 | RM22 | the defect widens the limits of the default doubly robust estimator, which is conservative. No derivation covers the plug-in limits, but the probe measured their ratios at 0.992 to 1.026 |
 | RM23 | one fit loses the whole assessment report, and four rows on three kinds of fit read available and then refuse |
@@ -119,20 +117,20 @@ tier.
 | RM18 | five open designs, which read 19 red rows in six studies. The ledger already publishes each of those verdicts |
 | RM19 | one configuration, which RM18 opened. Its Bonferroni interval covers zero, and it moves no verdict |
 
-No open row waits on another open row. RM27 reuses the declaration pattern of RM13 and the shared
-declaration of RM25. RM28 applies that declaration to custom interventions and rules. RM13, RM20,
-RM25, RM26 and RM29 are delivered. The RM23 sweep fits only the kinds of fit that succeed, and the
-RM14 and RM24 requests produce no fit.
+No open row waits on another open row. RM28 applies the shared declaration of RM25 to custom
+interventions and rules, as RM27 applied it to the MSM design. RM13, RM20, RM25, RM26, RM27 and
+RM29 are delivered. The RM23 sweep fits only the kinds of fit that succeed, and the RM14 and RM24
+requests produce no fit.
 
 Main-roadmap X9 depends on RM22. Every remediation row comes before main-roadmap priority 1, so
 the queue meets that dependency.
 
-Use five delivery groups for these eleven rows and the two investigations that RM18 waits on.
+Use five delivery groups for these ten rows and the two investigations that RM18 waits on.
 Keep each item's acceptance criteria separate inside its group.
 
 | delivery group | items | shared boundary |
 | --- | --- | --- |
-| inference claims | RM27 and RM28 | one decision rule for an interval that no derivation covers: register a claim, give the estimate a non-inferential status, or refuse the request before the fit |
+| inference claims | RM28 | one decision rule for an interval that no derivation covers: register a claim, give the estimate a non-inferential status, or refuse the request before the fit |
 | sensitivity outputs | RM21 and RM22 | the E-value and omitted-variable reports, and one reading of the published sources they cite |
 | refusal surfaces | RM23, RM14 and RM24 | a refusal reaches the caller where its declaration says, before the work that it refuses |
 | diagnostic reports | RM15 and RM16 | one assessment and summary surface, with one documentation pass |
@@ -150,7 +148,7 @@ published a standard error that no derivation covers, so it joined RM20. RM14 re
 late, so it joined the refusal surfaces. The bias localization group held RM19 alone. RM19 joined
 RM18, because an RM18 owner holds its three red cells.
 
-The inference claims group then delivered RM20, RM13, RM25, RM26 and RM29. It keeps RM27 and RM28.
+The inference claims group then delivered RM20, RM13, RM25, RM26, RM29 and RM27. It keeps RM28.
 
 Each group holds consecutive priorities, so the group order is the priority order. Deliver the
 items inside a group in priority order. The first decimal digit of a priority names its group, and
@@ -159,12 +157,13 @@ does not collide with a main-roadmap priority.
 
 Priorities give the current delivery order. This project reassigns them when it re-triages the
 queue. The RM IDs and their anchors never change, so a commit names a row by its ID. A delivered
-row takes its priority with it, and the other rows keep theirs. RM20, RM13, RM25 and RM26 held
-0.11, 0.12, 0.13 and 0.14, so the inference claims group now starts at 0.15. RM29 held 0.17.
+row takes its priority with it, and the other rows keep theirs. RM20, RM13, RM25, RM26 and RM27
+held 0.11 to 0.15, in that order, and RM29 held 0.17. The inference claims group now starts at
+0.16.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
-The queue holds eleven rows, and none of them is delivered. Nine rows need their corrections:
-RM14 to RM16, RM21 to RM24, and RM27 to RM28. RM18 has five follow-up designs that are not
+The queue holds ten rows, and none of them is delivered. Eight rows need their corrections:
+RM14 to RM16, RM21 to RM24, and RM28. RM18 has five follow-up designs that are not
 declared and have not run. RM19 has no declared design.
 
 The F18 and F19 derivations do not block priority 1, because an item with no published theory does
@@ -648,9 +647,12 @@ asked for three corrections:
 3. Correct the reference row, so that it describes the declaration and both refusals.
 
 All three shipped. One function, `cleverly.msm.refuse_projection_weights`, runs the checks in the
-order of the table. `MSM.__post_init__` calls it. `TMLE._resolve_estimands_for_data` and
+order of the table. [RM27](#rm27-declared-msm-design-functions) later renamed it
+`refuse_msm_functions` (commit 03917d1), and it now checks the design first.
+`MSM.__post_init__` calls it. `TMLE._resolve_estimands_for_data` and
 `LTMLE.fit` call it again before any learner call, because a restored or modified model can carry
-a declaration that this version refuses.
+a declaration that this version refuses. The RM27 review added calls in `MSMSet.evaluate` and
+`evaluate_regimen_msm` (commit e360555).
 
 | part | what shipped |
 | --- | --- |
@@ -662,8 +664,8 @@ a declaration that this version refuses.
 | estimated weight | `weights_kind="estimated"` raises `CapabilityError`. The message names the missing pathwise-derivative term |
 | exception type | `CapabilityError`, which the [architecture invariants](architecture-invariants.md#public-causal-workflow) give to a well-posed composition that the package refuses by name. `refuse_unsupported("estimated_weights")` raised `NotImplementedError`. It now raises the same `CapabilityError` text |
 | fit-layer check | `TMLE` and `LTMLE` call the function again before any learner call. `TMLE._retarget_detailed` calls it first too, so every recomputation checks it (commit a2f62a6) |
-| a result saved before the field existed | it loads undeclared. Loading checks nothing, so its stored estimates answer as saved. Every recomputation refuses: `retarget()`, each sweep that calls it, such as `truncation_curve()`, and `refute()`, which refits. `LTMLE` has no retarget sweep. The review probe was `make_binary_outcome(n=400, seed=3)` with `MSM.linear` and the weight $1 + a$, with `weights_kind` then set to `None`. Before the correction, its `truncation_curve` published `std_err`, `ci_lower`, and `ci_upper`. It now raises `CapabilityError`, and the stored `msm[a].ci` stays (0.07496, 0.25730) |
-| replay | `_freeze_msm` (`src/cleverly/sensitivity/_simulated_confounding_fixed.py`) replaces `weights` with a callable over frozen arrays, even when the model had no weights. It passes `weights_kind="known"` when the model had no weights, and the model's own declaration otherwise. A legacy callable-weight model with no declaration therefore still refuses at replay |
+| a result saved before the field existed | it loads undeclared. Loading checks nothing, so its stored estimates answer as saved. Every recomputation refuses: `retarget()`, each sweep that calls it, such as `truncation_curve()`, and `refute()`, which refits. `LTMLE` has a truncation sweep, `longitudinal_truncation_curve`, which commit 4a8b09b added on 2026-09-10. A saved `LTMLE` MSM result holds arrays and no `MSM` object, so that sweep calls no design and no weight, and its curve publishes no spread. `tests/unit/test_longitudinal_truncation_refit.py` pins the columns of that curve. This record first said that `LTMLE` has no retarget sweep, and [RM27](#rm27-declared-msm-design-functions) corrected it. The review probe was `make_binary_outcome(n=400, seed=3)` with `MSM.linear` and the weight $1 + a$, with `weights_kind` then set to `None`. Before the correction, its `truncation_curve` published `std_err`, `ci_lower`, and `ci_upper`. It now raises `CapabilityError`, and the stored `msm[a].ci` stays (0.07496, 0.25730) |
+| replay | `_freeze_msm` (`src/cleverly/sensitivity/_simulated_confounding_fixed.py`) replaces `weights` with a callable over frozen arrays, even when the model had no weights. It passes `weights_kind="known"` when the model had no weights, and the model's own declaration otherwise. A legacy callable-weight model with no declaration therefore still refuses at replay. RM27 moved that refusal before `MSMSet.evaluate` runs the design or the weight (commit 67ab7fc). The RM27 review then moved the check into `MSMSet.evaluate` itself and removed the replay's own call (commit e360555). The `replace` call still passes the model's own declaration, so it refuses as a backstop |
 | reference | the [MSM reference](technical-reference/msm-projections.md#variations) tabulates the declaration, both refusals, and the ratios below. The [scope page](technical-reference/scope-and-refusals.md) marked the `Stochastic` row "not refused yet" and linked [RM25](#rm25-declared-stochastic-regime-densities). RM25 has since shipped that refusal |
 
 The declaration is a three-state `Literal` and not a bool. Item 1 needs an undeclared state that
@@ -716,7 +718,9 @@ The row planned three witnesses. The table gives the state of each. All of them 
 
 Three committed mutations fail as they must. Removing the declaration check fails every
 declaration witness. Removing the `TMLE` and `LTMLE` fit-layer calls fails the fit witnesses, and
-the spy learners record fits. A replay that drops the declaration refuses.
+the spy learners record fits. A replay that drops the declaration refuses. Since commit e360555,
+the fit-layer mutation also removes the evaluator checks. A `TMLE` point fit evaluates the weight
+before its first learner, so `MSMSet.evaluate` would refuse first.
 
 No study was regenerated. The generators `tests/studies/canonical_point_msm.py` and
 `tests/studies/canonical_longitudinal_msm.py`, and every other MSM call site that passes
@@ -2650,9 +2654,9 @@ declaration that this version refuses. Each row of the table ends with the commi
 | an unknown value | a value other than `"known"`, `"estimated"`, or `None` raises `DataError`. Commit 7ef1f57. The review found that the check compared a value that is not a `str`. So `np.array(["known"])` built, a longer array raised `ValueError`, and `pandas.NA` raised `TypeError`, for RM13 and RM25 both. The shared check now refuses any value that is not `None` or a `str` with the same `DataError`. A `numpy.str_` is a `str` and passes |
 | undeclared density | `density_kind=None` raises `CapabilityError`. The message asks for `density_kind="known"`. Commit 7ef1f57 |
 | estimated density | `density_kind="estimated"` raises `CapabilityError`. The reviewed message now distinguishes the population-law derivative from the realized learned-policy target. It sends a population odds tilt to `TMLE(incremental=...)`, whose curve carries the mechanism term. Commit 7ef1f57 and this review |
-| shared declaration | a private leaf module, `cleverly._declarations`, holds `FunctionDeclaration`. That class holds the three-state check and the texts of its refusals. The RM13 weight declaration became its first user. A snapshot of 246 RM13 cases recorded the same exception type and message before and after, byte for byte. `cleverly.msm.MSMWeightsKind` stays public. Commit 83c6d72 |
+| shared declaration | a private leaf module, `cleverly._declarations`, holds `FunctionDeclaration`. That class holds the three-state check and the texts of its refusals. The RM13 weight declaration became its first user. [RM27](#rm27-declared-msm-design-functions) later made the MSM design its third user (commit 268dc62). A snapshot of 246 RM13 cases recorded the same exception type and message before and after, byte for byte. `cleverly.msm.MSMWeightsKind` stays public. Commit 83c6d72 |
 | fit-layer check | `TMLE._resolve_estimands_for_data` and `TMLE._retarget_detailed` call the function after the MSM weight check. So `fit`, `refit`, `CausalStudy.estimate`, `retarget`, and every sweep refuse a restored regime before any learner or density call. The check selects regimes with `isinstance`, so a subclass that skips `__post_init__` refuses at the fit. Commit 7ef1f57 |
-| replay | `_freeze_regimes` (`src/cleverly/sensitivity/_simulated_confounding_fixed.py`) calls the function on the source regimes before `RegimeSet.evaluate` runs any density. A `_FrozenRegime` is not a `Stochastic`, so the refit admits it. Commit 7ef1f57 |
+| replay | `_freeze_regimes` (`src/cleverly/sensitivity/_simulated_confounding_fixed.py`) calls the function on the source regimes before `RegimeSet.evaluate` runs any density. A `_FrozenRegime` is not a `Stochastic`, so the refit admits it. Commit 7ef1f57. The RM27 review moved the check into `RegimeSet.evaluate`, which checks every regime before the first density, and into `Stochastic.density`. It removed the call in `_freeze_regimes` (commit e360555) |
 | a result saved before the field existed | it loads undeclared. Loading checks nothing, so its stored estimates answer as saved. `truncation_curve()`, `retarget()`, and `refit()` refuse. Commit 7ef1f57 |
 | call sites | each `Stochastic` in the two executed documentation fences, `tests/regimes.py`, the registered generator `tests/studies/canonical_stochastic_regimes.py`, and the unit tests declares `density_kind="known"`. Commit 7ef1f57 |
 | reference | the [scope page](technical-reference/scope-and-refusals.md#wrong-by-construction), the [user guide](user-guide/estimands.md#known-regimes), the [point-treatment reference](technical-reference/point-treatment-tmle.md#known-regimes), the [evidence table](technical-reference/evidence.md#the-table), and the [architecture invariants](architecture-invariants.md#public-causal-workflow) describe the declaration and both refusals. Commit df9326a |
@@ -2713,7 +2717,8 @@ checked this on the witness law and on the default law, at both values of $\delt
 The row claims no direction for other densities.
 
 The row planned four witnesses. The table gives the state of each. All of them are in
-`tests/unit/test_stochastic_regime_densities.py`, which holds 75 tests.
+`tests/unit/test_stochastic_regime_densities.py`, which holds 86 tests. RM27 added four of them,
+and the RM27 review added the seven tests of `TestTheEvaluatorsCheckFirst` (commit e360555).
 
 | witness | state |
 | --- | --- |
@@ -2726,16 +2731,25 @@ Five committed tests apply four mutations, and each mutation replaces a function
 through `monkeypatch`. Removing the declaration check in `cleverly.interventions.base` fails every
 declaration witness. Removing the check in `cleverly.estimators.tmle` fails the fit witnesses, and
 `NeverFit` records fits. The same removal lets `truncation_curve()`, `retarget()`, and `refit()` run
-on a legacy result. Removing the replay check lets the replay evaluate the density.
+on a legacy result. Removing the replay check lets the replay evaluate the density. Since commit
+e360555, `test_removing_the_evaluator_check_evaluates_the_density` removes the check that
+`RegimeSet.evaluate` and `Stochastic.density` run.
 
 The fourth committed mutation replaces `FunctionDeclaration.refuse` with a no-op. Two RM13
-witnesses and three RM25 witnesses then fail, because each one depends on that shared refusal. A
-further test checks that the three sites call one function object.
+witnesses and three RM25 witnesses then fail, because each one depends on that shared refusal.
+RM27 added three design witnesses to that mutation test and renamed it
+`test_removing_the_shared_declaration_fails_each_of_its_users`. Since commit 983b743, the test
+draws its eight witnesses from `SHARED_REFUSALS`, and it runs each one as a control before the
+mutation.
+
+A further test checks that the three sites call one function object. Since commits e360555 and
+983b743, it checks only `cleverly.estimators.tmle`. The replay no longer imports the function, and
+the `cleverly.interventions.base` line compared the function with itself.
 
 Nine more mutations ran by hand after commit 7ef1f57. Each run copied the file to a backup,
 applied one mutation, and ran the RM25 file `tests/unit/test_stochastic_regime_densities.py`. That
 file then held 63 tests. The ninth mutation also ran the RM13 file
-`tests/unit/test_msm_projection_weights.py`, which holds 46 tests, as a separate run.
+`tests/unit/test_msm_projection_weights.py`, which then held 46 tests, as a separate run.
 
 Each run then restored the file, and the restored file matched its blob at HEAD. No mutation
 survived. Each count in the table is for the RM25 file, unless the row names the RM13 file.
@@ -2751,6 +2765,11 @@ survived. Each count in the table is for the RM25 file, unless the row names the
 | remove the callable check | `src/cleverly/interventions/base.py` | 6: each density that is not callable, under each declaration |
 | swap the undeclared and estimated texts of `_DENSITY_DECLARATION` | `src/cleverly/interventions/base.py` | 18: each test that matches either text |
 | invert the membership test of `FunctionDeclaration.check` | `src/cleverly/_declarations.py` | 33 failures and 16 errors in the RM25 file. 26 failures and 14 errors in the RM13 file. Four failures in each file are its unknown-value witnesses |
+
+The two replay rows no longer apply as written, because commit e360555 removed the call in
+`_freeze_regimes`. At that commit, a deletion of the check in `RegimeSet.evaluate` failed 1 test,
+and a deletion of the check in `Stochastic.density` failed 2. Commit 983b743 repeated the first
+deletion, and it still failed 1 test.
 
 No study was regenerated. Only `refuse_regime_densities` reads `density_kind`. `RegimeSet.evaluate`,
 the influence code, and the estimator arguments did not change. So the change is result-neutral
@@ -2929,10 +2948,30 @@ The delivery found four more surfaces. The table gives where each one is held.
 
 The [MSM reference](technical-reference/msm-projections.md#the-algorithm-as-implemented) states
 that "The working design and the weights are known functions". RM13 made the weight a declaration.
-Nothing declares the design. A `design` callable receives an arm label and a covariate frame, and
+Nothing declared the design. A `design` callable receives an arm label and a covariate frame, and
 it can close over any statistic of the sample. A design that centres a covariate at its sample
 mean is a common example. The projection is then a functional of $P$ through the design, and the
 reported influence curve omits that pathwise derivative.
+
+The published MSM derivations cover a user-supplied working design.
+[Petersen et al. (2014)](https://doi.org/10.1515/jci-2013-0007), Section 3, derive the pooled
+longitudinal TMLE for that target. [Martin, Santacatterina and Díaz (2024, arXiv v1)](https://arxiv.org/html/2409.18782v1),
+Definition 1, also use a user-given transformation. Their Section 1 says MSM model selection lacks
+general post-selection inference.
+
+The software articles document inputs and variance calculations. They do not derive the curve
+for this sample-centred design.
+
+| source | relevant scope |
+| --- | --- |
+| JSS [`tmle`](https://www.jstatsoft.org/article/view/v051i13), Section 2.6, pages 8-9; Section 2.7, page 10; Section 3.6, pages 20-21 | the working MSM is user-specified, and the printed influence curve uses that design. `hAVform` can estimate the projection weight $h(A,V)$. That weight option does not derive a curve for an estimated design |
+| JSS [`ltmle`](https://www.jstatsoft.org/article/view/v081i01), Sections 4.1-4.3, pages 13-18 | the working model uses specified functions $\phi_j(d,t)$ and a `summary.measures` array. `msm.weights` can use empirical regime shares. That weight option does not derive a curve for an estimated design |
+| R Journal [`CIMTx`](https://journal.r-project.org/articles/RJ-2022-058/), Section 3.1 | its multi-treatment TMLE calls `tmle` and uses bootstrap intervals for treatment effects. It does not study a learned MSM design |
+
+The omitted term concerns a population-law target whose design uses $c(P)=E_P[W]$. A fixed
+design with the observed sample centre defines a different, sample-dependent target. The
+fixed-design curve alone does not validate an interval for that target when the same rows set the
+centre and estimate the projection.
 
 The review of the RM20 and RM13 delivery raised this surface as a plausible finding. A 2026-09-23
 probe measured it on an exact law, as RM13 measured the weight.
@@ -2950,9 +2989,10 @@ sample mean of $W$, 0.7. On this sample, $c$ equals $E_P[W]$.
 
 The exact curve comes from the Gateaux derivative of the projection with $c = E_P[W]$ recomputed
 from the perturbed law. It differs from the curve with $c$ fixed by exactly $\beta_W (W - E_P[W])$,
-to 2.2e-16. The reported curve equals the fixed-$c$ Gateaux curve to 1.6e-13. So the reported
-curve is right for the design that the user fixed, and it omits the term of the design that the
-user estimated. The ratio uses the second moment of the curve, as RM13 does.
+to 2.2e-16. On the probe's oracle, the reported curve equals the fixed-$c$ Gateaux curve to
+1.6e-13. The delivered test measures 1.93e-13 against its own oracle. So the reported curve is right
+for the design that the user fixed, and it omits the term of the design that the user estimated.
+The ratio uses the second moment of the curve, as RM13 does.
 
 The omitted term changes the variance by $\beta_W^2 \operatorname{Var}(W) + 2 \beta_W
 \operatorname{Cov}(D, W)$, where $D$ is the reported intercept curve. That change can have either
@@ -2960,31 +3000,323 @@ sign, and it vanishes at $\beta_W = 0$. On the default law of `tests/discrete_la
 0.034, and the intercept ratio is 0.9980 with uniform weights. With the known weight
 $1 + 0.5 a + 0.25 W$, $\beta_W$ is 0.046 and the ratio is 0.9976.
 
-Apply these corrections:
+The row asked for three corrections:
 
 1. Decide how a `design` declares that it is a known function. RM13 put the weight declaration on
    `MSM`. `MSM.linear` builds a known design, so it can carry the declaration itself. RM25 added
    `cleverly._declarations.FunctionDeclaration`, which holds the check and the texts of one
-   declaration, so a design declaration can be a third instance.
+   declaration, so a design declaration can be a third instance. The review later removed the
+   declaration from `MSM.linear`, and the exact type of its design now reads as known (commit
+   a237257).
 2. Refuse a design declared estimated before any nuisance fit. The message names the missing
    pathwise-derivative term.
 3. Correct the [MSM reference](technical-reference/msm-projections.md) and the
    [scope page](technical-reference/scope-and-refusals.md#wrong-by-construction), so that each
    one describes the declaration and the refusal.
 
-The `MSM` docstring lists its fields under `Attributes` (`src/cleverly/msm.py:431`). `CLAUDE.md`
-puts the fields of a frozen dataclass under `Parameters`, because numpydoc reads the generated
-signature. The fields `from_linear` and `doses` have no entry. The RM25 plan found this and left
-it for this row, because item 1 changes that docstring.
+The `MSM` docstring listed its fields under `Attributes` (`src/cleverly/msm.py:434` at 0e09dd6).
+`CLAUDE.md` puts the fields of a frozen dataclass under `Parameters`, because numpydoc reads the
+generated signature. The fields `from_linear` and `doses` had no entry. The RM25 plan found this
+and left it for this row, because item 1 changes that docstring.
 
-The witnesses must fail when a component is wrong:
+All three corrections shipped, with the decisions that commit 1d0aff6 recorded. One function,
+`cleverly.msm.refuse_msm_functions`, checks the design and then the weight. The RM13 and RM25
+patterns supply each part, unless the row says otherwise. Each row that shipped a change names its
+commit. Later commits changed nine rows, and each of those rows names the later commit too. The
+review fixes at the end of this section give the reason for each change.
 
-- a pre-fit test pins the refusal and its message, and a spy learner shows that no nuisance fit
-  ran;
-- a mutation that removes the refusal makes that test fail;
-- the exact-law witness above, with a bound on the intercept ratio fixed before its run, and
-  `msm[a]` and `msm[W]` as negative controls;
-- a control shows that `MSM.linear`, and a design with a fixed centre, keep their intervals.
+| part | what shipped |
+| --- | --- |
+| declaration | a field `design_kind` on `MSM`. It takes `"known"`, `"estimated"`, or `None`, and it defaults to `None`. Its annotation is the one that `density_kind` has: `FunctionKind` or `None`. No new public alias names it. Commit 268dc62 |
+| field order | `design_kind` is the last field, after `weights_kind`. So `link` stays the fourth positional argument, as the RM13 review required in commit 8a33661. Commit 268dc62 |
+| a model saved before the field existed | the default is a plain class attribute, and no `__setstate__` was added. An old model loads with `design_kind` read as `None`, and `dataclasses.replace` still works on it. Commit 268dc62 |
+| shared declaration | a third `FunctionDeclaration`, `_DESIGN_DECLARATION`, sits beside `_WEIGHTS_DECLARATION` in `src/cleverly/msm.py`. Its meaning text says that the field declares whether the working design is a fixed function or one computed from the sample. The docstring of `cleverly._declarations` names the MSM design as the third user. Commit 268dc62 |
+| `MSM.linear` | it passed `design_kind="known"` itself, because `_LinearDesign` is known by construction. Commit 268dc62. Commit a237257 removed that keyword, so the model holds `None`, and the exact-type rule reads its design as known. It takes no `design_kind` argument |
+| exact-type rule | a private helper, `_design_kind(model)`, reads `"known"` when `design_kind` is `None` and `type(model.design) is _LinearDesign`. Otherwise it reads the field. Only the refusal and the replay call it. Commit 268dc62 added it for a model saved before the field existed. Since commit a237257, it is the only way that any `MSM.linear` model reads as known |
+| why the exact type | a pickled `MSM.linear` model keeps the type `_LinearDesign`. A user can set `from_linear=True` on any design, and a subclass of `_LinearDesign` passes `isinstance`. Neither of those two shows a known design, so each one refuses when it is undeclared. Commit 268dc62 |
+| undeclared design | a callable `design` with `design_kind=None`, outside the exact-type rule, raises `CapabilityError`. The message asks for `design_kind="known"`. Commit 268dc62. Commit a237257 changed its last sentence to "MSM.linear needs no declaration: the design it builds is known by construction." |
+| estimated design | `design_kind="estimated"` raises `CapabilityError`. The message names the pathwise derivative through the sample statistic. It asks the user to fix the statistic before the fit, for example to centre at a stated constant. Commit 268dc62 |
+| an unknown value | a value other than `"known"`, `"estimated"`, or `None` raises `DataError`, from the shared check. Commit 268dc62 |
+| a design that is not callable | `DataError`, as before. The message now names both signatures: `(arm_label, covariate_frame) -> (n, p)` for a point treatment, and `(regimen_label, horizon, baseline_frame) -> (n, p)` for a longitudinal regimen MSM. The check moved from `MSM.__post_init__` into the shared function. Commit 268dc62 |
+| check function | `refuse_projection_weights` became `refuse_msm_functions`, with no alias. Only `cleverly.msm.__all__` lists the name, and no API page does. The body, each message, and each check site stayed the same. Commit 03917d1 |
+| check order | 1. a design that is not callable. 2. the design declaration: an unknown value, then `None` or `"estimated"`. 3. the RM13 weight checks, unchanged. RM25 uses the same order for the density. Commit 268dc62 |
+| check sites | the four RM13 sites call the renamed function: `MSM.__post_init__`, `TMLE._resolve_estimands_for_data`, `TMLE._retarget_detailed`, and `LTMLE.fit`. So each one checks the design too. Commit 268dc62. Commit e360555 added `MSMSet.evaluate` and `evaluate_regimen_msm`, which check before they call the design or the weight |
+| replay check | `_freeze_msm` called `refuse_msm_functions` before `MSMSet.evaluate` ran any design or weight. Before the change, a result whose callable weight lost its declaration refused at replay only after the design and the weight had each run two times. Each then ran zero times. Commit 67ab7fc. Commit e360555 removed that call, because `MSMSet.evaluate` now runs the same check on the same argument first. Each count stays zero |
+| replay carry | both `replace` calls in `_freeze_msm`, for an arm replay and for a dose replay, pass `design_kind=_design_kind(model)`. Neither passes the literal `"known"`. Commit 268dc62. Commit 28df2fb added the witnesses of the dose call, and the text below gives the reason. Since commit e360555, these calls are a backstop: they refuse an undeclared model if the evaluator check is removed |
+| remedy texts | three messages send the user from `MSM.linear` to a written design: the `MSM.linear` docstring, the `_numeric_level` message, and the `from_linear` message in `cleverly.longitudinal.msm`. Each one now names `design_kind='known'`. Commit 268dc62 |
+| call sites | 65 written `MSM(design=...)` calls in `tests/` declare `design_kind="known"`. They include the two registered generators and the tutorial semantics. The two code cells of the `msm-projections` notebook and the `MSM` docstring example declare it too. A call to `MSM.linear` needed no change. Commit 268dc62 |
+| test oracle | `msm_beta` in `tests/discrete_law.py` takes an optional `design`. `gateaux_eif` in `tests/unit/_declaration_support.py` computes the Gateaux curve for the RM13, RM25, and RM27 witnesses. Commit 268dc62. Commit 16b88e3 moved `gateaux_eif` to `tests/discrete_law.py`, where `eif` and `weighted_eif` call it |
+| `refuse_unsupported("estimated_design")` | not added. No caller needs a named refusal for the design |
+| docstrings | the `MSM` docstring lists all eight fields under `Parameters`, and it absorbs the `#:` comments of the fields. `MSM.linear` and `refuse_msm_functions` have full numpydoc sections. `python -m numpydoc validate` reports no finding of the checks that `docs/conf.py` enables on the three objects. Commit 268dc62. Commit e360555 gave `MSMSet.evaluate` and `evaluate_regimen_msm` their `Parameters`, `Returns`, and `Raises` sections |
+| reference | the [MSM reference](technical-reference/msm-projections.md#variations) and the [scope page](technical-reference/scope-and-refusals.md#wrong-by-construction) describe the declaration and both refusals. So do the [evidence table](technical-reference/evidence.md#the-table), the [architecture invariants](architecture-invariants.md#public-causal-workflow), the [user guide](user-guide/estimands.md#marginal-structural-models), and the [validation methods](technical-reference/validation-methods.md#simulated-common-cause-stress-surface). The markdown cells of the notebook explain the declaration. Commit 4b693b4 |
+| a false declaration | not detected. A design computed from the sample and declared `"known"` fits. The exact-law witness below measures what the false statement costs |
+| `dataclasses.replace(model, design=new)` | it keeps the old `design_kind`, as `weights_kind` does for a new weight. The MSM reference records this limit. Commit 4b693b4. Since commit a237257, an `MSM.linear` model holds `None`, so `replace` refuses a new design that has no declaration |
+
+The plan probes found two more surfaces on 0e09dd6. The table gives the decision for each.
+
+| surface | probe | decision |
+| --- | --- | --- |
+| replay of a result whose callable weight lost its declaration | `validate_fixed_replay` refused with the RM13 message. Before the refusal, `MSMSet.evaluate` called the design two times and the weight two times. RM25 checks before its `RegimeSet.evaluate`, and RM13 did not | in this row. The replay check moved before `MSMSet.evaluate`, and both counts are now zero. Commit 67ab7fc. Commit e360555 moved the check into `MSMSet.evaluate`, and both counts stay zero |
+| a saved `LTMLE` MSM result | the pickled result carries no `MSM` object. After a load, its truncation curve calls no design and no weight, and it has no standard-error column. `refute` refuses a longitudinal fit (`src/cleverly/validation/refute.py:1037` at 0e09dd6) | not in this row. No user function runs on a recomputation, and no standard error is published. `tests/unit/test_longitudinal_truncation_refit.py` pins the column list |
+
+The RM13 record said that "`LTMLE` has no retarget sweep". That was not accurate.
+`longitudinal_truncation_curve` arrived in commit 4a8b09b on 2026-09-10, before RM13. This
+delivery corrected the [RM13 record](#rm13-estimated-msm-projection-weights).
+
+Commit 1d0aff6 declared the exact-law witness before its test landed. The law and the fit are the
+2026-09-23 probe above. The test design is $[1, a, W - c]$, where $c$ is the sample mean of $W$.
+The test declares that design `"known"`, which is false. On this sample, $c$ is 0.7, so the
+fixed-centre design is $[1, a, W - 0.7]$.
+
+The omitted term is $T = \beta_W (W - 0.7)$ in the intercept curve.
+`TestAnEstimatedCentreMisstatesTheVariance` in `tests/unit/test_msm_design_declaration.py` holds
+the witness. The table gives the values measured on the delivered code. Each ratio is the reported
+standard error over the exact standard error, from second moments.
+
+| assertion | tolerance or bound | measured value |
+| --- | --- | --- |
+| the premise: $c = 0.7$, and each coefficient equals the fixed-centre projection | 1e-12 | at most 1.5e-14 |
+| the reported curve equals the fixed-centre Gateaux curve, term by term | 1e-10 | at most 1.9e-13 |
+| the exact curve minus the fixed-centre curve equals $T$ for the intercept, and zero for `a` and `W` | 1e-12 | 2.2e-16 and 4.4e-16 |
+| $E[T^2]$, the nonzero witness | above 0.05 | 0.0779 |
+| the intercept ratio, the witness | pinned at 0.8927 to 1e-4, and below 0.95 | 0.8926840770 |
+| the `msm[a]` and `msm[W]` ratios, the negative controls | within 1e-9 of 1 | within 3.8e-15 and 2.0e-14 of 1 |
+| a design declared `"estimated"` on this law | refused before any learner | refused, in `test_an_estimated_declaration_is_refused_on_this_law` |
+| the intercept ratio with an oracle that freezes the centre, mutation M6 | fails the bound of 0.95 | 1.000000000000006 |
+
+The probe measured 0.8927 before the plan chose the bound. The bound 0.95 claims an
+understatement of more than 5 percent. A curve that carried $T$ would read 1. The bound sits 0.057
+above the measured value, so it pins no digit. RM13 left a margin of 0.058 between 0.7417 and 0.8.
+The control tolerance of 1e-9 sits at least four orders of magnitude above the measured error.
+
+`TestAKnownDesignKeepsItsInterval` holds two controls that keep their intervals. The first is the
+fixed centre 0.7, declared `"known"`. Its curve equals the fixed-centre Gateaux curve to 1.9e-13,
+against the tolerance 1e-10, and it is bitwise equal to the witness curve. The second is
+`MSM.linear(modifiers=("W",), interaction=False)`. Its curve equals its Gateaux curve to 1.6e-14,
+against the same tolerance. Each control keeps the `influence_curve` status and a finite `ci`.
+
+The row planned four witnesses. The table gives the state of each. All of them are in
+`tests/unit/test_msm_design_declaration.py`, which holds 88 tests at commit 5e055cc and 100 at
+commit 97cc57e.
+
+| witness | state |
+| --- | --- |
+| 1. a pre-fit test pins the refusal and its message, and a spy learner shows that no nuisance fit ran | delivered. `TestTheDeclarationIsRequired` pins each refusal and its message. `TestTheFitRefusesARestoredModel` sets `design_kind` to `None` or `"estimated"` after construction. `fit`, `CausalStudy.estimate`, `refit`, and `LTMLE.fit` then refuse, `NeverFit.calls` is 0, and a spy design is never called. A control with `"known"` reaches the first learner. The review added a malformed model at each of the four entries, which raises `DataError` before any call (commit 9258d5a). `TestTheEvaluatorsCheckFirst` hands a restored model to `MSMSet.evaluate` and `evaluate_regimen_msm` (commit e360555). `TestTheDeclarationRefusalComesFirst` shows that a restored model meets its own refusal before a refusal of the fit configuration (commit 97cc57e) |
+| 2. a mutation that removes the refusal makes that test fail | delivered. The test files commit six mutations, and commit 97cc57e added M7. Eighteen more ran by hand in the first pass, and eight more after the review. The text below gives them |
+| 3. the exact-law witness, with a bound fixed before its run, and `msm[a]` and `msm[W]` as negative controls | delivered. The intercept ratio reads 0.8927 against the bound of 0.95, and each control is within 2.0e-14 of 1 |
+| 4. a control shows that `MSM.linear`, and a design with a fixed centre, keep their intervals | delivered in `TestAKnownDesignKeepsItsInterval` |
+
+Three more classes cover the exact-type rule and results saved before the field existed.
+`TestTheExactTypeRuleReadsTheShorthand` shows that an `MSM.linear` model passes the check, whether
+it is new or saved before the field existed. A design put into it with `dataclasses.replace`, a
+legacy written design, a forged `from_linear=True`, and a subclass of `_LinearDesign` refuse. The
+class `TestALegacyResultKeepsItsNumbersAndRefusesARecomputation` keeps the stored interval of a
+legacy result with a written design, and `truncation_curve()`, `retarget()`, and `refit()` refuse. A
+legacy `MSM.linear` result still recomputes all three. `TestTheReplayChecksAndCarriesTheDeclaration`
+covers the replay of an arm fit and of a dose fit.
+
+Each committed mutation replaces a function through `monkeypatch`. The table gives the test that
+each one fails.
+
+| mutation | the test that fails |
+| --- | --- |
+| M1. `refuse_msm_functions` in `cleverly.msm` becomes a no-op | `test_removing_the_declaration_check_fails_every_declaration_witness`. Commit a237257 added `test_replacing_the_shorthand_design_drops_its_declaration` to its witnesses |
+| M2. the same in `cleverly.estimators.tmle` and `cleverly.longitudinal.estimator` | `test_removing_the_fit_layer_check_fails_the_fit_witnesses`, where `NeverFit` records fits, and `test_removing_the_fit_layer_check_fails_the_recomputation_refusal`, for `truncation_curve()`, `retarget()`, and `refit()` on a legacy result. Since commit e360555, M2 also removes the checks of `cleverly.msm` and `cleverly.longitudinal.msm` for a fit and a refit. A `TMLE` point fit evaluates the design before its first learner, so `MSMSet.evaluate` would refuse first. A sweep and a retarget reuse the stored arrays, so their M2 removes only the `TMLE` check |
+| M3. `MSMSet.evaluate` runs without its check. Before commit e360555, M3 removed the check in the replay module | `test_removing_the_evaluator_check_evaluates_both_and_still_refuses`, once for `weights_kind` and once for `design_kind`. The design and the weight each run two times. Then `replace` refuses the undeclared function, which shows that the replay carries the declaration and does not forge it. Commit 983b743 made the RM13 twin of this test its `weights_kind` case |
+| M4. the replay `replace` drops `design_kind` | `test_a_replay_that_drops_the_declaration_refuses`, on an `MSM.linear` fit. The table of deviations below gives the reason |
+| M5. `FunctionDeclaration.refuse` becomes a no-op | the RM13, RM25, and RM27 witnesses, in `test_removing_the_shared_declaration_fails_each_of_its_users` of `tests/unit/test_stochastic_regime_densities.py`. Since commit 983b743, it draws its eight witnesses from `SHARED_REFUSALS`, and it runs each one as a control before the mutation |
+| M6. the oracle freezes the centre | `test_mutation_a_frozen_oracle_loses_the_witness`. The ratio reads 1.000000000000006 and fails the bound of 0.95 |
+| M7. the same in `cleverly.estimators.tmle` alone | `test_removing_the_fit_layer_check_alone_lets_the_later_refusal_answer`, once for each of three refusals of the fit configuration. The restored model then meets the refusal of the configuration. Commit 97cc57e |
+
+`test_every_site_calls_the_one_refusal` checks that `cleverly.estimators.tmle`,
+`cleverly.longitudinal.estimator`, and `cleverly.longitudinal.msm` hold the function that
+`cleverly.msm` defines. It also checks that the replay module and `cleverly.msm` hold one
+`_design_kind`. The replay module no longer imports the function (commit e360555).
+
+The first pass ran eighteen more mutations by hand, against commit 268dc62. At that commit, the
+exact-type rule was called the legacy rule. The plan named H1 to H12. The delivery added H13, the
+pair H2 and H3, and one mutation for each declaration on each `replace` call of the replay.
+
+Each run copied the file to a backup with its sha256, applied one mutation, and ran three files.
+These are the RM27 file, the RM13 file `tests/unit/test_msm_projection_weights.py`, and the RM25
+file. Each run then restored the file, and the restored file matched its blob at that commit.
+
+| mutation | file | failures in the RM27, RM13, and RM25 files | the tests that failed |
+| --- | --- | --- | --- |
+| H1. remove the `MSM.__post_init__` call | `src/cleverly/msm.py` | 18, 15, and 9 | the declaration witnesses |
+| H2. remove the call in `_resolve_estimands_for_data` | `src/cleverly/estimators/tmle.py` | 7, 3, and 0 | the `fit`, `CausalStudy.estimate`, and `refit` entries, and the estimated declaration on the witness law |
+| H3. remove the call in `_retarget_detailed` | `src/cleverly/estimators/tmle.py` | 2, 2, and 0 | `truncation_curve()` and `retarget()` on a legacy result |
+| H2 and H3 together | `src/cleverly/estimators/tmle.py` | 10, 5, and 0 | the failures of H2 and H3, and `refit()` on a legacy result, which each of the two calls refuses alone |
+| H4. remove the call in `LTMLE.fit` | `src/cleverly/longitudinal/estimator.py` | 2, 2, and 0 | the `LTMLE` fit witnesses |
+| H5. move the `_freeze_msm` check after `MSMSet.evaluate` | `src/cleverly/sensitivity/_simulated_confounding_fixed.py` | 1, 1, and 0 | the replay witness of each file, because the design and the weight run before the refusal |
+| H6. `_design_kind` ignores the legacy rule | `src/cleverly/msm.py` | 5, 0, and 0 | the legacy `MSM.linear` controls |
+| H7. the legacy rule reads `from_linear` | `src/cleverly/msm.py` | 2, 0, and 0 | the forged `from_linear=True` witness |
+| H8. the legacy rule uses `isinstance` | `src/cleverly/msm.py` | 1, 0, and 0 | the subclass witness |
+| H9. swap the undeclared and estimated texts | `src/cleverly/msm.py` | 20, 0, and 0 | each test that matches either text |
+| H10. remove the callable check | `src/cleverly/msm.py` | 6, 0, and 0 | each design that is not callable, under each declaration |
+| H11. `MSM.linear` stops passing `"known"` | `src/cleverly/msm.py` | 1, 0, and 0 | the witness that reads `design_kind` on `MSM.linear` |
+| H12. the replay passes the literal `"known"`, and its check is removed | `src/cleverly/sensitivity/_simulated_confounding_fixed.py` | 2, 1, and 0 | the M3 test, in the RM27 file |
+| H13. `refuse_msm_functions` skips the weight checks | `src/cleverly/msm.py` | 0, 22, and 6 | the weight witnesses in the RM13 and RM25 files |
+| H14a. the dose `replace` drops `design_kind` | `src/cleverly/sensitivity/_simulated_confounding_fixed.py` | 1, 0, and 0 | `test_a_legacy_shorthand_dose_fit_replays`. The mutation survived at commit 268dc62 |
+| H14b. the arm `replace` drops `design_kind` | `src/cleverly/sensitivity/_simulated_confounding_fixed.py` | 1, 0, and 0 | `test_a_legacy_shorthand_fit_replays` |
+| H15a. the dose `replace` drops `weights_kind` | `src/cleverly/sensitivity/_simulated_confounding_fixed.py` | 1, 1, and 0 | `test_a_legacy_shorthand_dose_fit_replays` and `test_a_uniform_weight_dose_fit_replays`. The mutation survived at commit 268dc62 |
+| H15b. the arm `replace` drops `weights_kind` | `src/cleverly/sensitivity/_simulated_confounding_fixed.py` | 1, 1, and 0 | one RM27 replay test and `test_a_legacy_uniform_weight_fit_replays`. Two tests in `tests/unit/test_simulated_confounding_policies.py` fail too |
+
+H14a and H15a survived the first pass. Each continuous replay test used a declared weight, which
+`replace` copies on its own. No test replayed a dose fit with uniform weights or a legacy design.
+H15a was also a gap of RM13 for current users. A declared uniform-weight dose fit would refuse on
+replay if that call dropped `weights_kind`. Commit 28df2fb added a uniform-weight dose fit to the
+RM13 and RM27 files, and both mutations now fail.
+
+The review fixes changed what six of these rows test. The table gives each one at commit 5e055cc.
+H2, H3, and H4 were run again there. Each run restored the file, and the restored file matched its
+blob at HEAD.
+
+| mutation | failures in the RM27, RM13, and RM25 files at commit 5e055cc | reading |
+| --- | --- | --- |
+| H2 | 0, 0, and 0 | the mutation survives. `MSMSet.evaluate` now refuses a point fit before its first learner, so no test separates the fit-layer call from the evaluator check. The call is still in `_resolve_estimands_for_data`. Commit 97cc57e added its witness, and the text after the review fixes gives the new counts |
+| H3 | 2, 2, and 0 | unchanged. A sweep and a retarget reuse the stored arrays, so the call in `_retarget_detailed` is the only check on their path |
+| H4 | 4, 2, and 0 | two more than the first pass. The two added failures are the malformed models at the `LTMLE.fit` entry (commit 9258d5a) |
+| H5 | not run | it no longer applies, because commit e360555 removed the `_freeze_msm` check. Mutation e below deletes the check in `MSMSet.evaluate` instead |
+| H11 | not run | it is inverted, because commit a237257 made `MSM.linear` leave `design_kind` as `None`. Mutation d below adds the keyword back |
+| H12 | not run | it no longer applies as written, because the replay check that it removed is gone |
+
+Commit 983b743 ran eight hand mutations across the three files. It ran each one before its test
+changes, at commit 87f70ed, and after them. Each run restored the file to its blob. Two mutations
+gained one failure. That failure is the control run of the shared-declaration witnesses.
+
+| mutation | file | failures before the test changes | failures after the test changes |
+| --- | --- | --- | --- |
+| a. remove the `MSM.__post_init__` refusal | `src/cleverly/msm.py` | 43 | 44 |
+| b. `_design_kind` reads `None` as known for any type | `src/cleverly/msm.py` | 17 | 18 |
+| c. `_design_kind` keys on `isinstance` | `src/cleverly/msm.py` | 1 | 1 |
+| d. `MSM.linear` writes `design_kind="known"` | `src/cleverly/msm.py` | 4 | 4 |
+| e. remove the check in `MSMSet.evaluate` | `src/cleverly/msm.py` | 6 | 6 |
+| f. remove the check in `RegimeSet.evaluate` | `src/cleverly/interventions/base.py` | 1 | 1 |
+| g. the dose `replace` drops `design_kind` | `src/cleverly/sensitivity/_simulated_confounding_fixed.py` | 2 | 2 |
+| h. the dose `replace` drops `weights_kind` | `src/cleverly/sensitivity/_simulated_confounding_fixed.py` | 2 | 2 |
+
+Commit e360555 also deleted each new evaluator check by hand. The deletion failed 6 tests in
+`MSMSet.evaluate`, 4 in `evaluate_regimen_msm`, 1 in `RegimeSet.evaluate`, and 2 in
+`Stochastic.density`. Commit a237257 ran mutation d first, and it failed 4 tests, including the new
+witness.
+
+The delivery departed from the plan in four places. The table gives each one.
+
+| deviation | reason |
+| --- | --- |
+| M4 uses an `MSM.linear` fit, not a declared written design | a declared design keeps `"known"` through `replace` on its own. So only a declaration that the replay supplies can be dropped, and the exact-type rule supplies it for `MSM.linear`. The delivery used a legacy fit. Since commit a237257, a new fit holds `None` too, and M4 uses one. The RM13 twin of the test keeps the uniform-weight fit |
+| `gateaux_eif` in `tests/unit/_declaration_support.py` | it replaced the `beta_gateaux` function and the `eif` loop of the RM13 file, and the loop in `fixed_eif` of the RM25 file. The three witness files now share one contamination path. Commit 16b88e3 moved it to `tests/discrete_law.py` |
+| the RM25 shared-declaration test | it covers three users, so its name changed from `..._fails_both_of_its_users` to `..._fails_each_of_its_users` |
+| the notebook code cells | commit 268dc62 changed them, not the documentation commit. The fast suite runs the notebook, so an undeclared design would fail it. The markdown cells followed in commit 4b693b4 |
+
+No study was regenerated. The generators of `tmle3_msm` and `ltmle_msm` gained only the
+`design_kind="known"` keyword. `MSMSet.evaluate`, `evaluate_regimen_msm`, `solve_projection`, and
+the influence code did not change in the delivery. The review added only a declaration check at
+the start of the two evaluators, which returns `None` on a declared model. So each change is
+result-neutral under
+[what makes a study stale](development/method-benchmarking.md#what-makes-a-study-stale). No test
+gates the module hashes of a manifest, and no container or R-runner file changed.
+
+A bitwise check supports that judgment. For replicates 0 and 1 of each generator, a script took
+the sha256 of the expression below.
+
+```text
+json.dumps(
+    cleverly_rows(*draw_scenario(SCENARIO, PRIMARY_N, r), SCENARIO, r),
+    sort_keys=True,
+    default=repr,
+)
+```
+
+The table gives the first 16 hexadecimal digits. They were identical at commits 67ab7fc, 268dc62,
+and 5e055cc. The discrete-law oracle over the nine `msm` names hashed to `03b16bf86c5b9478` before
+and after the `msm_beta` extension. Commit 16b88e3 records the same hash after its change.
+
+| study | replicate 0 | replicate 1 |
+| --- | --- | --- |
+| `tmle3_msm`, point treatment, $n = 2000$ | `d7253da81059a0fd` | `bc47a47180d6d695` |
+| `ltmle_msm`, longitudinal, $n = 2500$ | `734dafff18c8b28f` | `8fdeeca3cd3b7c91` |
+
+#### RM27 review fixes
+
+The review of this delivery found five defects, F1 to F5. Three more commits then removed repeated
+test code, and one more added a witness. The table gives each commit.
+
+| commit | what it changed |
+| --- | --- |
+| a237257, F1 | `MSM.linear` stopped writing `design_kind="known"`. Before it, `dataclasses.replace(MSM.linear(...), design=user_fn)` copied that field. So the package accepted a user design that nobody had declared, and the library had forged the declaration. The model now holds `None`, and the exact-type rule is the only way that its design reads as known. The undeclared message now ends "MSM.linear needs no declaration: the design it builds is known by construction." `test_replacing_the_shorthand_design_drops_its_declaration` is the witness |
+| e360555, F2 | `MSMSet.evaluate` and `evaluate_regimen_msm` are public, and they ran the design and the weight with no check. A restored model with `design_kind=None` ran its design two times in `MSMSet.evaluate`, and nothing refused. Both now call `refuse_msm_functions` first. The RM25 evaluators had the same gap, so `RegimeSet.evaluate` and `Stochastic.density` now call `refuse_regime_densities` first. `TestTheEvaluatorsCheckFirst` in the RM13, RM25, and RM27 files holds the witnesses |
+| 9258d5a, F3 | the fit-entry witnesses restored only `None` and `"estimated"`. `test_every_entry_refuses_a_malformed_model_before_any_call` restores `design_kind="Known"` or an array design at `fit`, `CausalStudy.estimate`, `refit`, and `LTMLE.fit`. Each entry raises `DataError` with zero learner calls and zero design calls |
+| a94ce9f, F4 | the `_retarget_detailed` docstring said that an `MSM.linear` result "still recomputes". That holds only when its weight is uniform or declared `"known"`. The two `TMLE` docstrings now point at `refuse_msm_functions` and `refuse_regime_densities`. No code changed |
+| 87f70ed, F5 | a comment in `_freeze_msm` said that the replay refuses an undeclared weight there. The comment now calls the `replace` calls a backstop to the check in `MSMSet.evaluate`. No code changed |
+| 16b88e3 | `gateaux_eif` moved from `tests/unit/_declaration_support.py` to `tests/discrete_law.py`, and `eif` and `weighted_eif` now call it. The oracle hash `03b16bf86c5b9478` and a broader hash of the law, `fe962fd144da740d`, did not change |
+| 983b743 | `tests/unit/_msm_declaration_support.py` holds the MSM builders of the RM13 and RM27 files. The three test files import support modules, and not one another. Each spy is a `Counter`. `CentredDesign` and `sample_centre` replace two fixed-centre classes. The RM13 file went from 55 to 52 tests, and the RM27 file from 87 to 88. Each of 32 exact-law arrays stayed equal |
+| 5e055cc | `dose_msm` in `tests/e2e/test_ltmle_msm.py` builds the dose working model at eight sites, and `_fit_continuous` passes its weight keywords explicitly. Each construction builds the same `MSM` |
+| 97cc57e | H2 survived at commit 5e055cc. `TestTheDeclarationRefusalComesFirst` in the RM27 file is now its witness, and mutation M7 is its control. The docstring of `_resolve_estimands_for_data` states the order of the refusals. The text below gives the probe |
+
+F1 closes the hole that the review found. Before commit a237257, a declaration that the user never
+wrote could reach a user design. F2 applies the same fix to the RM25 evaluators, because a restored
+regime could reach `RegimeSet.evaluate` and `Stochastic.density` in the same way. No other public
+evaluator runs a declared user function. `Static` and `Rule` hold none, and a user-written
+`Intervention` carries no declaration, which RM28 holds.
+
+Commit e360555 removed the explicit checks in `_freeze_msm` and `_freeze_regimes`. Each one stood
+directly before an evaluator call that now runs the same check on the same argument. The commit
+replaced both calls with `pass` while the evaluator checks were in place. The RM13, RM25, RM27, and
+replay-policy files then gave the same 13 failures as with the calls in place. All 13 were mutation
+controls that patched a module name. Every replay witness that counts user-function calls passed
+with zero calls.
+
+The `replace` calls in `_freeze_msm` stay. They pass the source declarations, so they refuse an
+undeclared model if the evaluator check is removed. Mutation M3 depends on that backstop.
+
+The evaluator check changed which check a point fit depends on. `MSMSet.evaluate` now refuses a
+point fit before its first learner. So M2 removes the evaluator checks for `fit`,
+`CausalStudy.estimate`, and `refit`, and only the `TMLE` check for `truncation_curve()` and
+`retarget()`. H2 at commit 5e055cc shows that no test now fails without the call in
+`_resolve_estimands_for_data`. H3 and H4 show that the calls in `_retarget_detailed` and `LTMLE.fit`
+are still required.
+
+Commit 97cc57e resolved H2. A probe replaced the name in `cleverly.estimators.tmle` with a no-op in
+memory. It then ran each fit entry with and without the call. The table gives the result.
+
+| fit | with the call | without the call |
+| --- | --- | --- |
+| `fit`, `CausalStudy.estimate`, `refit`, and `tmle(Y, A, W)`. Also `fit` with `intermediate=`, `repeats=3`, or `n_bootstrap=5` | the declaration refusal | the same exception and message, from `MSMSet.evaluate` |
+| `fit` with `cv_evaluation=True` | the declaration refusal | the `cv_evaluation` refusal of an MSM, a `ValueError` |
+| a cross-fitted `fit` of a continuous outcome with `q_bounds=None` | the declaration refusal | the outcome-scale refusal, a `CapabilityError` |
+| a cross-fitted `fit` with `delta=` | the declaration refusal | the F21 missing-outcome refusal, a `CapabilityError` |
+
+The probe used three restored models: an undeclared design, an estimated design, and an undeclared
+weight. It also used four malformed models: `design_kind="Known"`, an array design,
+`weights_kind="Known"`, and `weights_kind="estimated"` with no weight. Every model gave the row
+above. No run called a learner, the design, or the weight.
+
+So no path runs a learner or a user function before `MSMSet.evaluate`. The call decides only which
+refusal answers. Each later refusal names a remedy, and no remedy lets an undeclared or estimated
+design fit. The call stays, because removing it would make the refusal depend on the configuration.
+Removing it would also have left each remaining check witnessed.
+`TestTheDeclarationRefusalComesFirst` pins the order, and a declared model under each
+configuration is its control.
+
+The RM25 call at the same site already had a witness. A fit evaluates its regimes after its
+learners, so that call is the only check before the first learner. The table gives each run at
+commit 97cc57e. Each run restored the file, and the restored file matched its blob at HEAD.
+
+| mutation | failures in the RM27, RM13, and RM25 files at commit 97cc57e | reading |
+| --- | --- | --- |
+| H2 | 6, 0, and 0 | the two restored states under the three configurations of `TestTheDeclarationRefusalComesFirst` |
+| H3 | 2, 2, and 0 | unchanged |
+| H4 | 4, 2, and 0 | unchanged |
+| R2. remove the `refuse_regime_densities` call in `_resolve_estimands_for_data` | 0, 0, and 8 | each RM25 fit entry for both restored states, the subclass that skips the declaration, and a legacy regime at the fit |
+| R3. remove the same call in `_retarget_detailed` | 0, 0, and 2 | `truncation_curve()` and `retarget()` on a legacy result |
+
+At commit 5e055cc, `tests/unit/test_msm_design_declaration.py` holds 88 tests,
+`tests/unit/test_msm_projection_weights.py` holds 52, and
+`tests/unit/test_stochastic_regime_densities.py` holds 86. The full fast suite gave 11223 passed
+and 87 skipped. At commit 97cc57e, the RM27 file holds 100 tests, and the full fast suite gave
+11235 passed and 87 skipped.
 
 ### RM28. Declared densities of user-written interventions
 

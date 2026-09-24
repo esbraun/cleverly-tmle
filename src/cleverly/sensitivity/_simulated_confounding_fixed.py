@@ -18,13 +18,8 @@ from .._typing import FloatArray
 from ..data import CausalData
 from ..exceptions import CapabilityError, DataError
 from ..interventions import RegimeSet, Rule, Static, Stochastic
-from ..interventions.base import (
-    _as_array,
-    as_interventions,
-    check_regime_density,
-    refuse_regime_densities,
-)
-from ..msm import MSM, MSMSet, _DataBoundArmFunction
+from ..interventions.base import _as_array, as_interventions, check_regime_density
+from ..msm import MSM, MSMSet, _DataBoundArmFunction, _design_kind
 from ..provenance import fingerprint_array
 from ..study import MSMProjection, RegimeContrast, RegimeMean
 from ..targets.base import parameter_name
@@ -201,9 +196,9 @@ def _freeze_regimes(result: Any, key: Any, typed: Any, functional: Any) -> tuple
     ):
         raise DataError("regime declarations disagree")
     # A frozen regime holds fixed arrays and is not a Stochastic, so the refit admits it.
-    # Check the source declarations here, before any density runs, so a regime restored
-    # with no declaration refuses at replay as it would at the fit (roadmap row RM25).
-    refuse_regime_densities(declarations)
+    # ``RegimeSet.evaluate`` checks the source declarations before any density runs, so a
+    # regime restored with no declaration refuses at replay as it would at the fit
+    # (roadmap row RM25).
     expected = _checked_regimes(
         RegimeSet.evaluate(declarations, data, reference=functional.reference), data
     )
@@ -251,6 +246,9 @@ def _freeze_msm(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any
         or key.term not in model.terms
     ):
         raise DataError("MSM declarations disagree")
+    # ``MSMSet.evaluate`` checks the source model before it runs the user's design or
+    # weight, so a model restored with no declaration refuses at replay as it would at the
+    # fit (roadmap rows RM13 and RM27).
     expected = MSMSet.evaluate(model, data)
     for nuisance in result.nuisances:
         state = nuisance.msm
@@ -279,9 +277,15 @@ def _freeze_msm(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any
     replay: TMLE = copy.copy(estimator)
     baseline = _BaselineRows.from_data(data)
     # The frozen arrays are a fixed function of the row, so a uniform weight replays as a
-    # known one.  A callable weight keeps its own declaration: an undeclared one, which a
-    # restored model can carry, is refused here as it would be at the fit.
+    # known one.  A callable weight keeps its own declaration.  The ``replace`` calls below
+    # are a backstop to the check in ``MSMSet.evaluate`` above: they pass the source
+    # declarations, never a literal "known" for a callable, so ``replace`` still refuses an
+    # undeclared model if that check is removed (mutation M3).
     weights_kind = "known" if model.weights is None else model.weights_kind
+    # The design carries its declaration the same way, never a literal "known".  The frozen
+    # arrays replace the exact type by which ``_design_kind`` reads an ``MSM.linear`` design
+    # as known, so the rule is applied to the source model here.
+    design_kind = _design_kind(model)
     if expected.continuous:
         assert expected.clever_weights is not None
         replay.msm = replace(
@@ -291,6 +295,7 @@ def _freeze_msm(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any
                 expected.clever_weights.copy(), model.doses, baseline, model.weights, weights=True
             ),
             weights_kind=weights_kind,
+            design_kind=design_kind,
         )
     else:
         replay.msm = replace(
@@ -298,6 +303,7 @@ def _freeze_msm(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any
             design=_FrozenArmFunction(expected.design.copy(), baseline),
             weights=_FrozenArmFunction(expected.weights.copy(), baseline),
             weights_kind=weights_kind,
+            design_kind=design_kind,
         )
     return replay, parameter_name("msm", arm=key.term)
 

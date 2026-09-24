@@ -925,7 +925,11 @@ weights define the empirical population. The surface preserves both without comb
 
 The operation checks typed identification, parameter keys, replay configuration, and every fitted
 repeat before it draws the latent vector. It evaluates the original policy or projection callbacks
-and compares their output with the stored arrays. A disagreement raises `CapabilityError`.
+through `RegimeSet.evaluate` or `MSMSet.evaluate`. Each evaluator checks the declaration of each
+`Stochastic` density, or of the `MSM` design and weight, before it runs a callback. The operation
+compares the callback output with the stored arrays. A refused declaration or a disagreement raises
+`CapabilityError`.
+
 The replay freezes baseline policy and grid arrays after validation.
 Continuous observed-dose evaluations use the declared deterministic callbacks on each new dose vector.
 This also prevents an assessment from changing the original estimator's configuration.

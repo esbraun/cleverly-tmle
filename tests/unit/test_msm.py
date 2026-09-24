@@ -42,6 +42,7 @@ def constant_design(terms: tuple[str, ...] = ("(intercept)", "a")) -> MSM:
     return MSM(
         design=lambda a, w: np.column_stack([np.ones(len(w)), np.full(len(w), float(a))]),
         terms=terms,
+        design_kind="known",
     )
 
 
@@ -51,18 +52,28 @@ def constant_design(terms: tuple[str, ...] = ("(intercept)", "a")) -> MSM:
 class TestDeclaration:
     def test_terms_must_be_distinct_and_non_empty(self) -> None:
         with pytest.raises(DataError, match="distinct"):
-            MSM(design=lambda a, w: np.ones((len(w), 2)), terms=("a", "a"))
+            MSM(design=lambda a, w: np.ones((len(w), 2)), terms=("a", "a"), design_kind="known")
         with pytest.raises(DataError, match="at least one term"):
-            MSM(design=lambda a, w: np.ones((len(w), 0)), terms=())
+            MSM(design=lambda a, w: np.ones((len(w), 0)), terms=(), design_kind="known")
 
     @pytest.mark.parametrize("link", ["identity", "log", "logit"])
     def test_a_registered_link_is_accepted(self, link: str) -> None:
-        model = MSM(design=lambda a, w: np.ones((len(w), 1)), terms=("(intercept)",), link=link)  # type: ignore[arg-type]
+        model = MSM(
+            design=lambda a, w: np.ones((len(w), 1)),
+            terms=("(intercept)",),
+            link=link,  # type: ignore[arg-type]
+            design_kind="known",
+        )
         assert model.link == link
 
     def test_an_unknown_link_is_refused_with_the_ones_that_exist(self) -> None:
         with pytest.raises(NotImplementedError, match="registered ones are"):
-            MSM(design=lambda a, w: np.ones((len(w), 1)), terms=("(intercept)",), link="probit")  # type: ignore[arg-type]
+            MSM(
+                design=lambda a, w: np.ones((len(w), 1)),
+                terms=("(intercept)",),
+                link="probit",  # type: ignore[arg-type]
+                design_kind="known",
+            )
 
     def test_a_link_cannot_be_registered_twice(self) -> None:
         with pytest.raises(ValueError, match="already registered"):
@@ -77,6 +88,7 @@ class TestDeclaration:
                 terms=("(intercept)",),
                 weights=np.ones(10),  # type: ignore[arg-type]
                 weights_kind="known",
+                design_kind="known",
             )
 
     def test_refuse_unsupported_rejects_an_unknown_kind(self) -> None:
@@ -178,7 +190,11 @@ class TestEvaluate:
 
     def test_a_design_of_the_wrong_shape_says_which_shape_it_wanted(self) -> None:
         data = make_data()
-        wrong = MSM(design=lambda a, w: np.ones((len(w), 3)), terms=("(intercept)", "a"))
+        wrong = MSM(
+            design=lambda a, w: np.ones((len(w), 3)),
+            terms=("(intercept)", "a"),
+            design_kind="known",
+        )
         with pytest.raises(DataError, match=r"expected \(40, 2\)"):
             MSMSet.evaluate(wrong, data)
 
@@ -189,6 +205,7 @@ class TestEvaluate:
             terms=("(intercept)", "a"),
             weights=lambda a, w: np.ones(3),
             weights_kind="known",
+            design_kind="known",
         )
         with pytest.raises(DataError, match="one weight per unit"):
             MSMSet.evaluate(wrong, data)
@@ -200,6 +217,7 @@ class TestEvaluate:
             terms=("(intercept)", "a"),
             weights=lambda a, w: -np.ones(len(w)),
             weights_kind="known",
+            design_kind="known",
         )
         with pytest.raises(DataError, match="not a signed contrast"):
             MSMSet.evaluate(wrong, data)
@@ -213,6 +231,7 @@ class TestEvaluate:
                 [np.full(len(w), float(a)), np.full(len(w), 2.0 * float(a))]
             ),
             terms=("a", "twice_a"),
+            design_kind="known",
         )
         with pytest.raises(DataError, match="collinear across the arms"):
             MSMSet.evaluate(collinear, data)
@@ -248,6 +267,7 @@ class TestTheGramMatrix:
                 [np.full(len(w), float(float(a) == level)) for level in arms]
             ),
             terms=("arm0", "arm1", "arm2"),
+            design_kind="known",
         )
         assert np.allclose(MSMSet.evaluate(saturated, data).gram, np.eye(3))
 

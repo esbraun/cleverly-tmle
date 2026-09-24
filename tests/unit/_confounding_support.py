@@ -17,6 +17,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import PolynomialFeatures
 
 from cleverly import CausalStudy, CollaborativeTMLEMethod, PointTreatment
+from cleverly.sensitivity import _simulated_confounding_fixed as replay_module
 
 
 def _collaborative_method(
@@ -249,6 +250,20 @@ def alias_for(
     ]
     assert matches
     return sorted(matches)[0]
+
+
+def validate_replay(result: Any, coefficient: str = "treatment") -> Any:
+    """The validated replay estimator of ``result``, from ``validate_fixed_replay``.
+
+    An MSM fit replays the coefficient named ``coefficient``.  A regime fit replays the
+    regime named ``policy``, as the builders of
+    ``tests/unit/test_simulated_confounding_policies.py`` name it.
+    """
+    msm = result.config.parameter_axis == "msm"
+    alias = alias_for(
+        result, coefficient=coefficient if msm else None, value=None if msm else "policy"
+    )
+    return replay_module.validate_fixed_replay(result, alias, result.parameter_keys[alias])
 
 
 @dataclass(eq=False)
