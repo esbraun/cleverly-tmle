@@ -230,7 +230,7 @@ the missing result. Package code and a related estimator do not remove the stop.
 | Longitudinal simulated-confounding replay | a time-indexed latent law for treatments, censoring, histories, outcomes, and contrasts | point-treatment results only | [F13](#f13-longitudinal-simulated-confounding-replay) |
 | Controlled-direct-effect simulated-confounding replay | an ordered treatment, intermediate, observation, and outcome law with a contrast contract | fits without an intermediate only | [F15](#f15-controlled-direct-effect-simulated-confounding-replay) |
 | Simulated confounding on a declared outcome scale | a latent perturbation law for an outcome confined to a known support, and the reading of its strength | additive perturbation of an unbounded outcome only, so a fit that declares `q_bounds` refuses the outcome axis | [F23](#f23-simulated-confounding-on-a-declared-outcome-scale) |
-| Controlled-direct-effect E-value | a bound on the bias of a controlled direct effect from unmeasured confounding, of the treatment and the outcome or of the intermediate variable and the outcome, and its inversion to an E-value on a stated outcome scale | every E-value request on a fit with an intermediate variable reports `unavailable` | [F25](#f25-e-value-for-a-controlled-direct-effect) |
+| Controlled-direct-effect E-value | a bound on the bias of a controlled direct effect from unmeasured confounding, of the treatment and the outcome or of the intermediate variable and the outcome, and its inversion to an E-value on a stated outcome scale | every E-value request on a fit with an intermediate variable and a discrete treatment reports `unavailable`. A continuous-treatment fit reports `not_applicable` first | [F25](#f25-e-value-for-a-controlled-direct-effect) |
 | Stochastic categorical policies at a longitudinal node | longitudinal identification, influence function, remainder, and interval conditions for a distribution-valued policy | deterministic categorical regimens only | [F1](#f1-stochastic-categorical-policies-at-a-longitudinal-node) |
 | Targeted bootstrap inference | a construction that defines what is fixed, resampled, refitted, and retargeted, plus the sampling law of the interval | existing bootstrap inference is not this procedure | [F2](#f2-targeted-bootstrap-inference) |
 | Longitudinal sensitivity-bound estimation | sample estimation of the bound functionals, a specialized algorithm, and sampling inference | no sensitivity bound on a longitudinal fit | [F16](#f16-longitudinal-sensitivity-bound-estimation) |
@@ -854,8 +854,8 @@ The delivery of RM20 found the selection-fold row. Its test must fit the probe a
 that neither message offers `cross_fit=False` to an in-sample fit. A control must keep that remedy
 on a cross-fitted fit.
 
-The review of that delivery found the last two rows. The bootstrap row needs a decision before a
-test. The test of the `DataError` row must fit the suggested shift, cross-fitted with `delta=`,
+The review of that delivery found the bootstrap and continuous-treatment rows. The bootstrap row
+needs a decision before a test. The test of the `DataError` row must fit the suggested shift, cross-fitted with `delta=`,
 and assert that the message names the in-sample fit.
 
 The delivery of [RM26](#rm26-longitudinal-clustered-intervals-at-few-clusters) widened the
@@ -863,9 +863,9 @@ simultaneous row. `LTMLE` skips its default band below 40 clusters, as `TMLE` do
 non-inferential status. An explicit `simultaneous=True` also builds no band and raises no warning.
 The result summary names the omission for both estimators.
 
-The delivery of [RM21](#rm21-e-value-on-a-controlled-direct-effect-fit) found the last two rows.
-Each test must read the message at the probe above. A control must keep each other reason of the
-same function.
+The plan and the delivery of [RM21](#rm21-e-value-on-a-controlled-direct-effect-fit) found the
+derived risk-ratio row and the E-value-reason row. Each test must read the message on the RM21
+probe fit. A control must keep each other reason of the same function.
 
 ### RM18. Red property cells after the fold, scale and law changes
 
@@ -2439,7 +2439,8 @@ the [scope page](technical-reference/scope-and-refusals.md), the
 before any check for an intermediate variable. The reported-ratio branches return before that
 check too. The derived-ratio branch refuses the same fit in `_risk_ratio_refusal`
 (`src/cleverly/sensitivity/_derived.py`), because no controlled direct risk-ratio target is
-registered. The fixed-baseline branch refuses it as well.
+registered. [RM16](#rm16-summary-and-error-message-accuracy) records that this reason misstates
+the fit. The fixed-baseline branch refuses it as well.
 
 | fit | request | result |
 | --- | --- | --- |
@@ -2557,7 +2558,7 @@ sources. Each row gives the locator, the version read, and what the source does 
 delivery checked the Biometrika volume and pages of Ding and VanderWeele (2016) at the publisher.
 It read that paper as arXiv 1601.05155 only.
 
-The table gives the outcome of the surface that the plan found, and of two that the delivery
+The table gives the outcome of the two surfaces that the plan found, and of one that the delivery
 found.
 
 | surface | outcome |
@@ -2567,7 +2568,7 @@ found.
 | the reason for `ey1` on a fit without an intermediate variable, found by the delivery | not in this row. The reason names the arm axis, which the level has. RM16 holds the row |
 
 The row named three witnesses. The table gives the state of each. They are in
-`tests/unit/test_evalue_direct_effect_refusals.py`, which holds 69 tests. The table `REQUESTS`
+`tests/unit/test_evalue_direct_effect_refusals.py`, which held 69 tests at commit 581bdc0. The table `REQUESTS`
 drives each witness.
 
 | witness | state |
@@ -2623,7 +2624,8 @@ registered study, notebook, or executed documentation example calls the E-value 
 or neither. No container or R-runner file changed, so `tests/canonical/provenance-revisions.md`
 needs no row.
 
-The full fast suite gave 11556 passed and 87 skipped at 44f44998, and 11627 passed and 87 skipped at this record.
+The full fast suite gave 11556 passed and 87 skipped at 44f44998, and 11627 passed and 87
+skipped at commit 63d8862.
 
 ### RM22. Standard error of the omitted-variable bound
 
@@ -4347,7 +4349,7 @@ and the outcome (`src/cleverly/estimators/direct_effect.py`). The E-value of Van
 The sources that RM21 read do not close this gap. VanderWeele (2010) gives bias formulas for a
 controlled direct effect, but no threshold and no inversion to an E-value. Smith and VanderWeele
 (2019) derive a mediational E-value for natural direct and indirect effects only. Ding and
-VanderWeele (2016) bound a natural direct effect only. The
+VanderWeele (2016, *Biometrika*) bound a natural direct effect only. The
 [E-value paths](technical-reference/validation-methods.md#e-value) give the locator of each source.
 
 Wait for a source that derives the bound and its inversion for a controlled direct effect. Record

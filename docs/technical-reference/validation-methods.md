@@ -1303,15 +1303,16 @@ The selected path depends on the reported contrast and retained artifacts.
 | binomial ATT or ATC | refuse because the conditional baseline risk and conditional ratio target are absent |
 | level or non-arm parameter | report `not_applicable` because no supported two-arm contrast exists |
 | two-arm contrast on a fit whose status supplies no inference: a collaborative fit at any `strategy`, a `DRTMLE` fit with a `guard` and varying weights declared estimated, or a clustered fit under `"unequal_cluster_plugin"` or `"few_cluster_plugin"` | report `unavailable`. Each branch reads the estimate's interval or the reference arm's standard error, and this fit supplies neither. The reason of the status follows |
-| any request on a controlled-direct-effect fit, which is a fit with `intermediate=` | report `unavailable` before the estimand is resolved. No read source derives an E-value for a controlled direct effect. [F25](../roadmap.md#f25-e-value-for-a-controlled-direct-effect) holds the missing result |
+| any request on a controlled-direct-effect fit with a discrete treatment, which is such a fit with `intermediate=` | report `unavailable` before the estimand is resolved. No read source derives an E-value for a controlled direct effect. [F25](../roadmap.md#f25-e-value-for-a-controlled-direct-effect) holds the missing result |
 | binomial ATE without exact retarget support or a usable reported baseline | report `unavailable` and name the missing evidence, artifact, or target |
 | several eligible contrasts and no explicit estimand | report `deferred` and name `estimand` in the next step |
 
 `_select_evalue` in `cleverly.sensitivity.evalue` runs three fit-wide checks before it resolves
 the estimand. A longitudinal fit and a controlled-direct-effect fit report `unavailable`. A fit
-with a continuous treatment reports `not_applicable`. So a request for `ey1` on a
-controlled-direct-effect fit reports `unavailable`, and a multi-arm controlled-direct-effect fit
-does not defer.
+with a continuous treatment reports `not_applicable`. The checks run in this order. So a
+continuous-treatment fit with an intermediate variable reports `not_applicable`. A request for
+`ey1` on a controlled-direct-effect fit reports `unavailable`, and a multi-arm
+controlled-direct-effect fit does not defer.
 
 The status refusal follows the `not_applicable` check of the request. A request for `ey1` on a
 collaborative fit therefore still reports `not_applicable`. Several eligible contrasts require an
@@ -1360,13 +1361,19 @@ exposure-outcome relation. The RM21 search read the sources in the table below.
 | source, and the version read | what it covers | what it does not cover |
 | --- | --- | --- |
 | VanderWeele (2010), author manuscript [PMC4231822](https://pmc.ncbi.nlm.nih.gov/articles/PMC4231822/) | Theorem 1 and Corollary 1 give the bias of a controlled direct effect on the difference scale. Appendix 1 gives the risk-ratio bias for a binary confounder with a constant effect, and the odds ratio for a rare outcome only | Theorem 1 assumes no unmeasured confounding of the treatment and the outcome. The paper gives no threshold and no inversion to an E-value |
-| Smith and VanderWeele (2019), published article, [PMC6768718](https://pmc.ncbi.nlm.nih.gov/articles/PMC6768718/) | page 837 gives the mediational E-value for a natural direct or indirect effect risk ratio. Page 835 assumes that the confounder is independent of the treatment given the covariates | a controlled direct effect |
-| Ding and VanderWeele (2016), *Biometrika*, read as [arXiv 1601.05155](https://arxiv.org/abs/1601.05155) only | Theorem 1 and Theorem 5 (Section 4.5) bound a natural direct effect under confounding of the mediator and the outcome | a controlled direct effect. The published version was not read |
+| Smith and VanderWeele (2019), published article, [DOI 10.1097/EDE.0000000000001064](https://doi.org/10.1097/EDE.0000000000001064) | page 837 gives the mediational E-value for a natural direct or indirect effect risk ratio. Page 835 assumes that the confounder is independent of the treatment given the covariates | a controlled direct effect |
+| Ding and VanderWeele (2016), *Biometrika*, read as [arXiv 1601.05155](https://arxiv.org/abs/1601.05155) only | Theorem 1 and Theorem 5 (Section 4.5) bound a natural direct effect under confounding of the mediator and the outcome | a controlled direct effect. This package read the arXiv version only |
 | Ding and VanderWeele (2016), *Epidemiology*, [PMC4820664](https://pmc.ncbi.nlm.nih.gov/articles/PMC4820664/) | the bounding factor for one exposure, for any two levels of that exposure | an intermediate variable |
 | the R package `EValue` 4.1.4, [CRAN manual](https://cran.r-project.org/web/packages/EValue/EValue.pdf) | E-values for confounding, selection bias, and measurement error | no function for mediation or a direct effect |
 
-The search did not read the appendix of VanderWeele and Ding (2017). It also did not read
-VanderWeele, Mathur and Ding (2019), VanderWeele (2015), or any eAppendix.
+The search did not read these sources.
+
+| source | title |
+| --- | --- |
+| VanderWeele and Ding (2017), appendix | the online appendix of *Sensitivity analysis in observational research: introducing the E-value* |
+| VanderWeele, Mathur and Ding (2019) | *Technical considerations in the use of the E-value*, *Journal of Causal Inference* |
+| VanderWeele (2015) | *Explanation in Causal Inference: Methods for Mediation and Interaction*, a book |
+| any eAppendix | the supplements of the sources in the table above |
 
 A weighted fit standardizes by the weighted outcome standard deviation.
 The estimate targets the population the observation weights describe, and the standardizing scale describes the same population.
