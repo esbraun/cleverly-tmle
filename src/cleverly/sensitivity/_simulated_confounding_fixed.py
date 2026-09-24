@@ -287,9 +287,9 @@ def _freeze_msm(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any
     # known one.  A callable weight keeps its own declaration: an undeclared one, which a
     # restored model can carry, is refused here as it would be at the fit.
     weights_kind = "known" if model.weights is None else model.weights_kind
-    # The design carries its declaration the same way, never a literal "known": the frozen
-    # arrays replace the type that the legacy rule of ``_design_kind`` reads, so the rule
-    # is applied to the source model here.
+    # The design carries its declaration the same way, never a literal "known".  The frozen
+    # arrays replace the exact type by which ``_design_kind`` reads an ``MSM.linear`` design
+    # as known, so the rule is applied to the source model here.
     design_kind = _design_kind(model)
     if expected.continuous:
         assert expected.clever_weights is not None

@@ -8,14 +8,15 @@ carries a further term for the pathwise derivative through that statistic, and t
 curve does not have it.
 
 A callable can close over any estimate, and no code can inspect a closure, so the status of
-the design is a declaration: ``MSM(design_kind=...)``.  ``MSM.linear`` declares its own
-design known.  RM27 in ``docs/roadmap.md`` records the defect.  This module pins these
-things:
+the design is a declaration: ``MSM(design_kind=...)``.  ``MSM.linear`` writes none: the
+exact type of the design it builds reads as known.  RM27 in ``docs/roadmap.md`` records the
+defect.  This module pins these things:
 
 * the declaration is required, ``"estimated"`` is refused, and a design that is not callable
   is refused, with their messages;
-* a model pickled before the field existed reads as known only when ``MSM.linear`` built it,
-  by the exact type of its design;
+* ``design_kind=None`` reads as known only on a design that ``MSM.linear`` built, by its
+  exact type, so a user design swapped into the shorthand needs its own declaration, and a
+  shorthand pickled before the field existed still reads as known;
 * every fit entry refuses a restored or modified model before any learner or design call;
 * a result restored with an undeclared written design keeps its stored estimates, and every
   recomputation from it refuses, while a restored ``MSM.linear`` result still recomputes;
@@ -173,28 +174,42 @@ class TestTheDeclarationIsRequired:
         )
         assert regimen.design_kind == "known"
 
-    def test_the_shorthand_declares_its_own_design_known(self) -> None:
-        assert linear().design_kind == "known"
-        assert MSM.linear().design_kind == "known"
+    def test_the_shorthand_design_is_known_by_its_type(self) -> None:
+        """``MSM.linear`` writes no declaration: the exact type of its design reads known."""
+        for model in (linear(), MSM.linear()):
+            assert model.design_kind is None
+            assert msm_module._design_kind(model) == "known"
+            assert refuse_msm_functions(model) is None
 
     def test_the_declaration_is_the_last_field(self) -> None:
         """The full order is pinned by the RM13 module, which added the field before it."""
         assert [field.name for field in fields(MSM)][-2:] == ["weights_kind", "design_kind"]
 
 
-# ------------------------------------------------------------------ old pickles
+# ------------------------------------------------------------------ the exact-type rule
 
 
-class TestTheLegacyRuleReadsTheExactType:
-    """A model saved before the field existed reads known only if ``MSM.linear`` built it."""
+class TestTheExactTypeRuleReadsTheShorthand:
+    """``design_kind=None`` reads known only on a design that ``MSM.linear`` built.
 
-    def test_a_legacy_shorthand_model_reads_known(self) -> None:
+    The shorthand and a model saved before the field existed both carry ``None``, so the
+    one rule serves both, and nothing else reads as known without a declaration.
+    """
+
+    def test_replacing_the_shorthand_design_drops_its_declaration(self) -> None:
+        """A user design swapped into ``MSM.linear`` inherits no declaration from it."""
+        assert_refused(lambda: replace(linear(), design=FixedDesign()), CapabilityError, UNDECLARED)
+        assert_refused(
+            lambda: replace(linear(), design_kind="estimated"), CapabilityError, ESTIMATED, PATHWISE
+        )
+        assert replace(linear(), design=FixedDesign(), design_kind="known").design_kind == "known"
+
+    def test_a_shorthand_pickled_before_the_field_reads_known(self) -> None:
         old = legacy_without(linear(), "design_kind")
         assert "design_kind" not in vars(old)
         assert old.design_kind is None
         assert refuse_msm_functions(old) is None
         assert replace(old).design_kind is None
-        assert refuse_msm_functions(restored(linear(), "design_kind", None)) is None
 
     def test_a_legacy_written_design_refuses(self) -> None:
         old = legacy_without(written(design_kind="known"), "design_kind")
@@ -398,8 +413,14 @@ class TestTheReplayChecksAndCarriesTheDeclaration:
         assert validate_replay(_fit_msm()).msm.design_kind == "known"
 
     def test_a_legacy_shorthand_fit_replays(self) -> None:
-        """The frozen arrays replace ``_LinearDesign``, so the replay carries the rule."""
+        """The frozen arrays replace ``_LinearDesign``, so the replay carries the rule.
+
+        The shorthand model holds ``None`` whether it was fitted now or restored from an
+        artifact that predates the field, so both replay declared ``"known"``.
+        """
         result = shorthand_fit()
+        assert result.estimator.msm.design_kind is None
+        assert validate_replay(result, SLOPE).msm.design_kind == "known"
         alias = _alias(result, coefficient=SLOPE)
         expected = simulated_confounding(result, estimand=alias, grid=_GRID, random_state=31)
         old = legacy_shorthand_fit()
@@ -426,18 +447,18 @@ class TestTheReplayChecksAndCarriesTheDeclaration:
     ) -> None:
         """Mutation M4: drop what ``_freeze_msm`` passes.
 
-        A declared source model would carry ``"known"`` through ``replace`` on its own, so
-        the witness is the legacy shorthand fit, whose declaration only the replay supplies.
-        The RM13 module holds the same test for the weight.
+        A written design declares ``"known"``, which ``replace`` would carry on its own, so
+        the witness is a shorthand fit.  Its model holds ``None``, so only the replay
+        supplies the declaration.  The RM13 module holds the same test for the weight.
         """
-        old = legacy_shorthand_fit()
+        result = shorthand_fit()
 
         def dropping(model: Any, **changes: Any) -> Any:
             changes.pop("design_kind", None)
             return replace(model, **changes)
 
         monkeypatch.setattr(replay_module, "replace", dropping)
-        assert_refused(lambda: validate_replay(old, SLOPE), CapabilityError, UNDECLARED)
+        assert_refused(lambda: validate_replay(result, SLOPE), CapabilityError, UNDECLARED)
 
 
 # ------------------------------------------------------------------ mutation controls
@@ -446,14 +467,15 @@ class TestTheReplayChecksAndCarriesTheDeclaration:
 def declaration_witnesses() -> list[Callable[[], None]]:
     """Every declaration-layer witness above, as a call that must raise to pass."""
     suite = TestTheDeclarationIsRequired()
-    legacy = TestTheLegacyRuleReadsTheExactType()
+    rule = TestTheExactTypeRuleReadsTheShorthand()
     return [
         suite.test_an_undeclared_design_is_refused,
         suite.test_an_estimated_design_is_refused_by_its_missing_term,
         lambda: suite.test_an_unknown_declaration_is_refused("Known"),
         lambda: suite.test_a_design_that_is_not_callable_is_refused(np.ones((3, 3)), "known"),
-        legacy.test_a_forged_shorthand_flag_is_not_a_declaration,
-        legacy.test_a_subclass_of_the_shorthand_design_is_not_a_declaration,
+        rule.test_replacing_the_shorthand_design_drops_its_declaration,
+        rule.test_a_forged_shorthand_flag_is_not_a_declaration,
+        rule.test_a_subclass_of_the_shorthand_design_is_not_a_declaration,
     ]
 
 

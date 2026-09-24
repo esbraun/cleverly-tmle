@@ -82,8 +82,9 @@ see :func:`refuse_unsupported` and :func:`refuse_msm_functions`:
   carries a further term for the pathwise derivative through that statistic.  The status
   of the design is a declaration too: a written ``design=`` needs ``design_kind="known"``,
   and an undeclared design and ``design_kind="estimated"`` are refused with
-  :class:`~cleverly.exceptions.CapabilityError`.  :meth:`MSM.linear` declares its own
-  design known.  A design computed from the sample and declared ``"known"`` is not
+  :class:`~cleverly.exceptions.CapabilityError`.  :meth:`MSM.linear` needs no
+  declaration: its design is known by its exact type, which a user design does not have.
+  A design computed from the sample and declared ``"known"`` is not
   caught, and ``tests/unit/test_msm_design_declaration.py`` measures the standard error
   it then misstates.
 
@@ -364,7 +365,8 @@ _UNDECLARED_DESIGN = (
     "as a covariate centred at its sample mean, is estimated: phi is then a functional of "
     "P, and the reported influence curve omits its pathwise derivative, so its standard "
     "error can be wrong (RM27 in docs/roadmap.md). design_kind='estimated' is refused for "
-    "that reason. MSM.linear declares its own design known."
+    "that reason. MSM.linear needs no declaration: the design it builds is known by "
+    "construction."
 )
 
 #: The working-design declaration: the field ``design_kind``, and the texts of its
@@ -394,8 +396,9 @@ def refuse_msm_functions(model: MSM) -> None:
        :class:`DataError`.  ``design_kind=None`` is a :class:`CapabilityError`, and so is
        ``design_kind="estimated"``, whose message names the missing pathwise-derivative
        term.  A model whose ``design_kind`` is ``None`` and whose design has the exact
-       type that :meth:`MSM.linear` builds reads as ``"known"``: that is a model pickled
-       before the field existed.
+       type that :meth:`MSM.linear` builds reads as ``"known"``.  That shorthand leaves
+       the field ``None``, so its design is known by its type and by nothing else.  A
+       model pickled before the field existed reads the same way.
     3. A ``weights_kind`` outside ``"known"``, ``"estimated"`` and ``None`` is a
        :class:`DataError`.  A value that is not a ``str``, such as an array or
        ``pandas.NA``, is outside them.
@@ -428,7 +431,8 @@ def refuse_msm_functions(model: MSM) -> None:
         If ``design`` is not callable, if a declaration is not one of the three states,
         or if ``weights_kind="estimated"`` declares a weight the model does not have.
     CapabilityError
-        If ``design_kind`` is ``None`` outside the legacy rule or ``"estimated"``, if
+        If ``design_kind`` is ``"estimated"``, or ``None`` on a design that
+        :meth:`MSM.linear` did not build, if
         ``weights`` is not callable, or if a callable ``weights`` has ``weights_kind``
         ``None`` or ``"estimated"``.
     """
@@ -485,14 +489,17 @@ class _LinearDesign:
 
 
 def _design_kind(model: MSM) -> FunctionKind | None:
-    """The design declaration of ``model``, with the rule for a model saved before it existed.
+    """The design declaration of ``model``, with the rule that reads the shorthand's design.
 
-    A model pickled before ``design_kind`` existed reads ``None``.  When its design has the
-    exact type :class:`_LinearDesign`, :meth:`MSM.linear` built it, and that design is known
-    by construction, so this reads ``"known"``.  The rule tests the exact type: a user can
-    set ``from_linear=True`` on any design, and a subclass passes ``isinstance``, so neither
-    shows a known design.  Only :func:`refuse_msm_functions` and the simulated-confounding
-    replay call this.
+    :meth:`MSM.linear` leaves ``design_kind`` ``None``.  When the field is ``None`` and the
+    design has the exact type :class:`_LinearDesign`, :meth:`MSM.linear` built it, and that
+    design is known by construction, so this reads ``"known"``.  The rule is the only way
+    the shorthand's design reads as known, so a design swapped in with
+    :func:`dataclasses.replace` has no declaration unless the user writes one.  A model
+    pickled before ``design_kind`` existed also reads ``None`` and meets the same rule.
+    The rule tests the exact type: a user can set ``from_linear=True`` on any design, and a
+    subclass passes ``isinstance``, so neither shows a known design.  Only
+    :func:`refuse_msm_functions` and the simulated-confounding replay call this.
     """
     if model.design_kind is None and type(model.design) is _LinearDesign:
         return "known"
@@ -573,11 +580,12 @@ class MSM:
         ``None`` and ``"estimated"`` are refused by :func:`refuse_msm_functions`, because
         a design computed from the sample, such as a covariate centred at its sample mean,
         makes :math:`\varphi` a functional of :math:`P` and the reported influence curve
-        omits its pathwise derivative.  :meth:`linear` declares its own design
-        ``"known"``.  A model pickled before this field existed loads as ``None``, and it
-        reads as ``"known"`` only when its design has the exact type that :meth:`linear`
-        builds.  It is the last field, so the positional order of the fields before it is
-        unchanged.
+        omits its pathwise derivative.  ``None`` reads as ``"known"`` only when the design
+        has the exact type that :meth:`linear` builds.  That design is known by
+        construction, so :meth:`linear` leaves this field ``None``, and a design swapped
+        into its model with :func:`dataclasses.replace` needs its own declaration.  A model
+        pickled before this field existed loads as ``None`` and meets the same rule.  It is
+        the last field, so the positional order of the fields before it is unchanged.
     """
 
     design: Callable[[Any, Any], Any]
@@ -637,7 +645,10 @@ class MSM:
         is what you want.
 
         The design this builds is a fixed function of the arm and the named covariates, so
-        the model declares ``design_kind="known"`` itself.  ``weights=`` and
+        it needs no declaration, and the model leaves ``design_kind`` ``None``.
+        :func:`refuse_msm_functions` reads the exact type of this design as known.  A
+        design swapped in with :func:`dataclasses.replace` has another type, so it needs
+        ``design_kind="known"`` of its own.  ``weights=`` and
         ``weights_kind=`` are forwarded unchanged, so a callable weight needs
         ``weights_kind="known"`` here as it does on :class:`MSM`.
 
@@ -663,7 +674,7 @@ class MSM:
         -------
         MSM
             A working model whose design is linear in the dose and the modifiers, with
-            ``from_linear=True`` and ``design_kind="known"``.
+            ``from_linear=True`` and ``design_kind=None``.
         """
         names = tuple(str(m) for m in modifiers)
         terms = ("(intercept)", "a", *names)
@@ -678,7 +689,6 @@ class MSM:
             link=link,
             from_linear=True,
             doses=tuple(float(value) for value in doses),
-            design_kind="known",
         )
 
 
