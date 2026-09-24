@@ -8,9 +8,9 @@ the conditioning arm, which RM22 added. The study reads each bound as an estimat
 population value. It reads the bound's standard error back off the reported limit.
 
 **No canonical implementation is compared.** DoubleML omits the share term. The R package
-`dml.sensemakr` carries it, but it estimates the share out of fold and divides the point estimate
-of $\nu^2$ as well, so its bounds are a different estimate. The zero-row equivalence artifact
-records the absence of a comparator.
+`dml.sensemakr` carries it. It estimates the share out of fold, and at its commit `58ac44d` it
+divides the point estimate of $\nu^2$ as well, so its bounds are a different estimate. The zero-row
+equivalence artifact records the absence of a comparator.
 
 ## What was tested
 
@@ -121,10 +121,12 @@ from the committed results and checked at the precision printed.
 | The row publishes under the reporting policy, not gated | Every declared cell is green. The `reporting` policy does not assert that, so the fast tier recomputes each verdict and does not fail on a red one |
 | There is no cross-implementation evidence | No maintained implementation computes the same bounds with the same curve |
 | The fit is in sample, with correctly specified GLMs | The row does not cover cross-fitting, a flexible learner, or a misspecified nuisance |
-| One law, one sample size and one strength | The row covers `make_linear_ate` at $n = 1000$ and $c_Y = 0.5$, $c_D = 0.3$, $\rho = 1$. At the default strength of 0.03 the share term moves no ratio by 0.001 |
+| One law, one sample size and one strength | The row covers `make_linear_ate` at $n = 1000$ and $c_Y = 0.5$, $c_D = 0.3$, $\rho = 1$. At the default strength of 0.03 the share term moves no ratio by more than 0.001 |
 | Two arms, no weights and no clusters | The exact-law witness covers three arms, weights and clusters. This row does not |
 | Only the doubly robust estimator | The plug-in estimator reports no limits, so the row says nothing about it |
-| The ATC has no control | The ATC's positive cells pass, and no control shows that the band would detect its omission |
+| The ATC has no control | The ATC's positive cells pass, and no control shows that the band would detect its omission. The plan left it out because its 500-fit probe put the ATC ratios without the term at 1.098 and 1.111, too close to 1.07 to predict a failure. The ATT controls then measured about the same inflation, 1.0987 and 1.0922. No ATC control was added after the run |
+| The `att_upper` control passed narrowly | Its lower edge is 1.0732 against the band edge of 1.07. The Monte Carlo standard deviation of its ratio is about 0.0078, so at another seed it would fail about 35 to 40% of the time. The plan sized the budget on the 500-fit ratio of 1.118, whose Monte Carlo error did not cover the measured inflation of about 1.0955. A future design would pair each control with its positive cell and read the ratio of their standard errors, which cancels most of that error |
+| The law is symmetric | On `make_linear_ate` the ATT and the ATC are equal, and so are their $\nu^2$ and their bounds. The study cannot see an implementation that swaps the conditioning arm. The exact-law witness covers that case: mutations M5 and M7 in `tests/unit/test_omitted_variable_standard_error.py` |
 | Point treatment only | The bound refuses longitudinal fits, so the row covers none |
 
 ## Reproduction

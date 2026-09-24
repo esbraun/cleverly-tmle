@@ -1417,8 +1417,9 @@ is the only empirical witness for it.
   `d5293ecb`](https://github.com/carloscinelli/dml.sensemakr/commit/d5293ecb48ee1ea5816b84a01b31b68f2f17fa6a),
   function `ate.npm`.
   From that commit its curve of $\nu^2$ carries the influence term of the estimated treatment
-  share. The reference section on the bound's standard error cites it as the one implementation
-  with that term.
+  share. The reference section on the bound's standard error cites it as the implementation this
+  package found with that term. Of the two implementations this package surveyed, the other is
+  DoubleML. At its later commit `58ac44d` it also divides the point estimate of $\nu^2$.
 - DoubleML for Python, [`doubleml/irm/irm.py` at commit
   `b69f86ef`](https://github.com/DoubleML/doubleml-for-py/blob/b69f86ef7bdb50d3f9e94fbaf40f18ce050f13d2/doubleml/irm/irm.py),
   method `_sensitivity_element_est`. Its curve of $\nu^2$ omits the share term, and its ATTE score

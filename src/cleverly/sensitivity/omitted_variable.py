@@ -34,7 +34,7 @@ The parameterisation, including the definition of the benchmark gain statistics,
 follows DoubleML's ``sensitivity_analysis``, so a strength means the same thing in both
 libraries.  The confidence limits of an ATT or an ATC differ: this module adds the
 influence term of the conditioning share to the curve of ``nu^2``, and
-``DoubleMLIRM._sensitivity_element_est`` omits it (doubleml-for-py at ``b69f86e``).  The
+``DoubleMLIRM._sensitivity_element_est`` omits it (doubleml-for-py at ``b69f86ef``).  The
 estimates differ too, because DoubleML fits a cross-fitted AIPW score and this package a
 TMLE.
 

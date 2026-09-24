@@ -93,15 +93,13 @@ A row that another row depends on comes before that row.
 
 | tier | reason | rows |
 | --- | --- | --- |
+| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | none. RM20, RM13, RM21 and RM22 held it, and all four are delivered |
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM23, RM14 |
 | c | a correct refusal that arrives late or as the wrong type | RM24 |
 | d | a diagnostic or a warning that misleads | RM15 |
 | e | a display or a message that misstates a fact that the fit records | RM16 |
 | f | an investigation or a declared design that moves no verdict | RM18, RM19 |
 | g | a published method needed to resolve a shipped refusal | RM30 |
-
-Tier a is empty. RM21 and RM22 were its rows, and both are delivered. A new row that publishes a
-wrong or uncovered number enters it.
 
 The order of the tiers follows the reason that put RM11 and RM12 first. Each of those rows
 published a number that no derivation covers. The table gives the reason for each place inside a
@@ -137,14 +135,14 @@ Keep each item's acceptance criteria separate inside its group.
 Four groups left this table when their rows were delivered. The sensitivity refusals group held
 RM11 and the F5 refusal boundary, and the collaborative inference group held RM12 and the F18
 audit. The inference claims group delivered RM20, RM13, RM25, RM26, RM29, RM27 and RM28. Its
-boundary was one decision rule for an interval that no derivation covers.
+boundary was one decision rule for an interval that no derivation covers. The sensitivity
+outputs group held RM21 and RM22. Its boundary was the E-value and omitted-variable reports, and
+one reading of the published sources they cite.
+
 [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) now holds the derivation that would
 reopen an omitted-variable bound on a DR-TMLE or C-TMLE fit.
 [F18](#f18-selector-path-c-tmle-inference) now holds the influence curve that would reopen
 selector-path inference.
-
-The sensitivity outputs group held RM21 and RM22. Its boundary was the
-E-value and omitted-variable reports, and one reading of the published sources they cite.
 
 The re-triage removed two more groups. The pre-fit declarations group held RM13 and RM14. RM13
 published a standard error that no derivation covers, so it joined RM20. RM14 refuses a request
@@ -159,11 +157,12 @@ does not collide with a main-roadmap priority.
 Priorities give the current delivery order. This project reassigns them when it re-triages the
 queue. The RM IDs and their anchors never change, so a commit names a row by its ID. A delivered
 row takes its priority with it, and the other rows keep theirs. RM20, RM13, RM25, RM26 and RM27
-held 0.11 to 0.15, in that order. RM28 held 0.16, RM29 held 0.17, RM21 held 0.21, and RM22 held 0.22.
+held 0.11 to 0.15, in that order. RM28 held 0.16, RM29 held 0.17, RM21 held 0.21, and RM22 held
+0.22.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
-The queue holds eight rows. Five rows need their corrections: RM14 to RM16, RM23 and RM24. RM18 has five follow-up designs that are not declared and have
-not run. RM19 has no declared design. RM30 holds the published learned-policy implementation.
+The queue holds eight rows. Five rows need their corrections: RM14 to RM16, RM23 and RM24.
+RM18 has five follow-up designs that are not declared and have not run. RM19 has no declared design. RM30 holds the published learned-policy implementation.
 
 The F18 and F19 derivations do not block priority 1, because an item with no published theory does
 not enter the sequence. Their cells stay red under `reporting` until F18 or F19 meets its
@@ -231,7 +230,7 @@ the missing result. Package code and a related estimator do not remove the stop.
 | Controlled-direct-effect simulated-confounding replay | an ordered treatment, intermediate, observation, and outcome law with a contrast contract | fits without an intermediate only | [F15](#f15-controlled-direct-effect-simulated-confounding-replay) |
 | Simulated confounding on a declared outcome scale | a latent perturbation law for an outcome confined to a known support, and the reading of its strength | additive perturbation of an unbounded outcome only, so a fit that declares `q_bounds` refuses the outcome axis | [F23](#f23-simulated-confounding-on-a-declared-outcome-scale) |
 | Controlled-direct-effect E-value | a bound on the bias of a controlled direct effect from unmeasured confounding, of the treatment and the outcome or of the intermediate variable and the outcome, and its inversion to an E-value on a stated outcome scale | every E-value request on a fit with an intermediate variable and a discrete treatment reports `unavailable`. A continuous-treatment fit reports `not_applicable` first | [F25](#f25-e-value-for-a-controlled-direct-effect) |
-| Plug-in omitted-variable confidence limits | an influence function or an inference result for the plug-in estimate of the Riesz second moment with an estimated treatment mechanism | the plug-in bounds, `rv`, `max_bias`, `benchmark()` and `contour_data()`. The one-sided limits and `rva` refuse | [F26](#f26-confidence-limits-of-the-plug-in-omitted-variable-bound) |
+| Plug-in omitted-variable confidence limits | an influence function or an inference result for the plug-in estimate of the Riesz second moment with an estimated treatment mechanism | the plug-in bounds, `rv`, `max_bias`, `benchmark()` and `contour()`. The one-sided limits and `rva` refuse | [F26](#f26-confidence-limits-of-the-plug-in-omitted-variable-bound) |
 | Stochastic categorical policies at a longitudinal node | longitudinal identification, influence function, remainder, and interval conditions for a distribution-valued policy | deterministic categorical regimens only | [F1](#f1-stochastic-categorical-policies-at-a-longitudinal-node) |
 | Targeted bootstrap inference | a construction that defines what is fixed, resampled, refitted, and retargeted, plus the sampling law of the interval | existing bootstrap inference is not this procedure | [F2](#f2-targeted-bootstrap-inference) |
 | Longitudinal sensitivity-bound estimation | sample estimation of the bound functionals, a specialized algorithm, and sampling inference | no sensitivity bound on a longitudinal fit | [F16](#f16-longitudinal-sensitivity-bound-estimation) |
@@ -2723,7 +2722,7 @@ The 2026-09-24 plan fixes the decisions in the table below. Line numbers are at 
 | share term | the doubly robust curve of $\nu^2$ gains $-2 \nu^2 w (1\{A = c\} - p) / p$ for each parameter whose `conditions_on` is not `None`. That is the ATT and the ATC, at two arms and at $K$ arms, weighted or not. Clusters need no change, because `influence_variance` sums the rows of a cluster. One private helper, `_conditioning_share_influence` in OV, computes the term |
 | point $\nu^2$ | unchanged. The package divides by the full-sample weighted share, so $E_n^w[2 \ell - 1] = 1$ exactly and the division of `dml.sensemakr` is the identity here |
 | ATE and means | unchanged. A new exact-law witness pins their curves |
-| plug-in limits | refused. Under `nu2_estimator="plugin"` the accessors `ci_lower`, `ci_upper`, `robustness_value_ci`, the three `plugin_interval_*` accessors, and `rva` raise `CapabilityError`. `lower`, `upper`, `max_bias`, `rv`, `benchmark()` and `contour_data()` stay. `SensitivityElements.psi_nu2` and `psi_max_bias` read `None` under the plug-in. A bound saved before RM22 reads `nu2_estimator="unrecorded"` and refuses its limits too |
+| plug-in limits | refused. Under `nu2_estimator="plugin"` the accessors `ci_lower`, `ci_upper`, `robustness_value_ci`, the three `plugin_interval_*` accessors, and `rva` raise `CapabilityError`. `lower`, `upper`, `max_bias`, `rv`, `benchmark()` and `contour()` stay. `SensitivityElements.psi_nu2` and `psi_max_bias` read `None` under the plug-in. A bound saved before RM22 reads `nu2_estimator="unrecorded"` and refuses its limits too |
 | missing result | [F26](#f26-confidence-limits-of-the-plug-in-omitted-variable-bound) and its future-grid row |
 | locators | keep Theorem 2 for the bias. Tie the bounds to Equation (14) in Section 4. Cite Lemma 3 and Theorem 4 for the score and the limits, and Theorem 5(2) only for $m$ and the representer. Cite Online Appendix A, "Statistical Inference", Equation (15), for the share term of $\theta_s$. State that the paper gives no share term for $\nu^2$ |
 | cached reports | the generation of `sensitivity.run_all` moves from 3 to 4. `sensitivity.omitted_confounding`, `sensitivity.robustness_value` and `sensitivity.elements` gain generation 2 |
@@ -2766,8 +2765,8 @@ probabilities. Its Gateaux derivative differs from the reported curve by 0.6202 
 0.4766 for the ATC, and by at most 8.9e-16 after the fix. The probe also clusters the exact
 sample, with the cluster of a row equal to its index modulo 50. The reported lower-bound standard
 error of the ATT is 0.02129 without the term and 0.02303 with it. So on that sample the omission
-narrows the limit, and the contract's statement that the omission widens the limits holds only
-without clusters.
+narrows the ATT limit, and the contract's statement that the omission widens the limits does not
+hold there.
 
 ##### Witnesses
 
@@ -2866,6 +2865,9 @@ The contract named three witnesses. The table gives the state of each.
 | 2. a repeated-sampling control reads the standard-error ratio of the doubly robust ATT limits | delivered by the registered study. Every primary test and every property cell passed. The inflated-SE controls read 1.0987 (1.0791 to 1.1189) for the ATT lower bound and 1.0922 (1.0732 to 1.1129) for the upper bound, both above 1.07. The positive cells read 0.9970 to 1.0091. The run took 163 s on 16 cores |
 | 3. a test pins the ATE and counterfactual-mean curves | delivered in the same file. Sixteen unconditional cases match the Gateaux derivative row by row, and a spy shows that the helper never runs for them |
 
+The RM22 review fixes below correct this record on one point. The 200-replication
+smoke run of the study was not discarded: it computed the property verdicts before commit 8db70ff.
+
 The file commits seven mutations. The table compares each measured minimum with the plan.
 
 | mutation | predicted | measured minimum | cases that fail |
@@ -2899,8 +2901,12 @@ The contract says that the omission widens the doubly robust limits. That holds 
 the two-arm exact law the lower-bound standard error of the ATT is 0.03882 without the term and
 0.03544 with it. It does not hold in general. On the same sample in 50 clusters of 20 rows, the
 standard error is 0.02129 without the term and 0.02303 with it, so the omission narrowed the
-limit. The tier reasoning that ranked RM22 as conservative therefore held for iid fits only. On a
-clustered fit the shipped limit could be too narrow.
+limit.
+
+For the ATC on the same clustered sample the omission widened it, 0.02572 against 0.02413.
+The tier reasoning that ranked RM22 as conservative rested on one exact law and the contract's
+calculation for a binary ATT without clusters. That evidence does not cover a clustered fit, where
+the shipped ATT limit could be too narrow.
 
 The delivery departed from the plan in these places.
 
@@ -2925,6 +2931,61 @@ version of the stored run: solver residuals near 1e-18 and the float display of 
 
 The full fast suite gave 11631 passed and 87 skipped at 29e25599, and 11778 passed and 96 skipped
 at commit cee8142.
+
+#### RM22 review fixes
+
+Three reviews read the RM22 delivery: the code and its derivation, the study and its framework,
+and the documents, notebooks and citations. None found a defect in a published number. All 14
+study verdicts recompute from the artifacts. The reviews found five defects in the study and its
+record, S1 to S5, four in the code and tests, C1 to C4, and eight in the documents, D1 to D8. The
+table gives each commit. "This record" is the commit that adds this table.
+
+| commit | what it changed |
+| --- | --- |
+| 8a00b84, S1 | the shared driver passed `--replicates` to the primary phase only. Each property module fixes its own budget, so a smoke run ran the declared property study in full. `_arguments` now treats a run below the declared primary budget as a smoke run, and it skips the property study. `test_a_run_below_the_declared_budget_skips_the_property_study` pins the rule. The record of the RM22 smoke run is in the paragraph below the table |
+| this record, S2 | the working tree held CRLF copies of 18 files that this branch added or changed, although `.gitattributes` sets `eol=lf`. The study ran from two of them. Its manifest records `9f900e4b...` for `tests/studies/omitted_variable_bound_properties.py` and `335c61d3...` for `tests/studies/evidence/property_verdicts.py`. The committed LF blobs hash to `f5666660...` and `c8a60ed7...`. The content is identical and only the line endings differ. Every working file is now LF. The recorded hashes stay, because they are the bytes that ran. `method-benchmarking.md` gates no Python module hash and asks for a ledger row only for a module gap, so `provenance-revisions.md` needs no row |
+| this record, S3 | the study page gains three limitations: the narrow pass of the `att_upper` control, the reason the ATC has no control, and the symmetric law. The grid row counts ten limits |
+| f0de42f, S4 | `bound_standard_errors` rebuilds the bias curve with the term added back. It raises unless the rebuild equals the package's `psi_max_bias` and gives each reported standard error within 1e-10. For the ATE the control curve must equal the package's curve outright. `fit()` suppresses no warning, because the declared fit raises none. Both edits are result-neutral: with warnings raised as errors, the first three primary and property replications refit to a difference of 0.0. The manifest keeps the recorded hashes |
+| f0de42f, S5 | the generic kind `inflated_se_control` carried text about $\nu^2$ and the share term. Its `CELLS` entry is now generic. `descriptions.ARM_CELLS` holds this study's text for `att_lower` and `att_upper`, so the published page reads the same |
+| c54252f, C1 | M5 moves `conditions_on`, which also moves `_m_alpha` and the point $\nu^2$. M7 computes the term alone on the complement of the conditioning arm. It fails the twelve conditional cases by 21.38 to 120.2, and the sixteen unconditional cases pass. The M5 docstring says what M5 moves |
+| ee5a77f, C2 | the comment on `_PLUGIN_LIMITS_REFUSAL` claimed one text, and `summary()` and the robustness row wrote their own. `limit_refusal_reason` now builds the one text for the six accessors, `summary()` and the robustness row |
+| ee5a77f, C3 | a plug-in bound stored NaN limits, so two identical plug-in bounds compared unequal, and so did a pickle round trip. It now stores `None`. `test_identical_plugin_bounds_compare_equal` is the witness |
+| none, C4 | declined. The private helpers beside `_conditioning_share_influence`, such as `_m_alpha` and `_riesz_representer`, carry prose docstrings with no Parameters section, and this one matches them |
+| this record, D1 | the witness row said "Seven committed mutations fail it". M0 is a passing control. With M7 the row reads "Seven committed mutations fail it, and an unchanged control (M0) passes" |
+| this record, D2 | the reference said "The term does not always widen the limits", which reverses the direction. A table now gives the lower-bound standard error for the ATT without clusters, the ATT in clusters, and the ATC in clusters. The omission widened the first and the third and narrowed the second. The delivery record now scopes the tier reasoning to its evidence |
+| this record, D3 | the queue said that tier a held RM21 and RM22 only, and it dropped the rule that an anti-conservative number ranks above a conservative one. The tier row is back with its reason, and it reads "none. RM20, RM13, RM21 and RM22 held it" |
+| this record, D4 | X9 said "Nobody has read the published main text". It now says "This project has not read" it |
+| this record, D5 | the study page and the grid row say that `dml.sensemakr` divides the point estimate at `58ac44d`, not at `d5293ecb`. The references entry calls it "the implementation this package found with that term". The module docstring spells the DoubleML commit `b69f86ef`, as the other pages do |
+| ee5a77f, D6 | the point-treatment tutorial's refusal paragraph now follows the review paragraph and opens "Reading `ci_lower` refuses". Its 26-word sentence is two sentences |
+| ee5a77f, D7 | the plug-in refusal reads "no derivation in a source this package cites" and names `benchmark()` and `contour()`. The unrecorded refusal names `result.sensitivity.omitted_confounding()` too. Both tutorials print the plug-in text, so both were re-executed. `--check` reproduces every cell, and only the refusal line of each moved |
+| this record, D8 | Theorem 5(2) "writes $m$ and the representer", which keeps "score" for Lemma 3. The F26 grid row and the plan name `contour()`, the public method. The study page says "moves no ratio by more than 0.001". Two long queue lines are reflowed, and the sensitivity-outputs sentence joins the paragraph on the groups that left |
+
+The RM22 smoke run showed the property verdicts before the study modules were committed. The
+commit message of 8db70ff calls that run disposable and discarded. It was not discarded. The
+smoke run discarded its 200 primary replications. It also ran the full property study at 10,000
+replications, and it wrote the eight property verdicts at 11:44:58 on 2026-09-24.
+
+The working tree was then at ec15c85, with the study modules not yet committed. Commit 8db70ff followed at
+11:51:48, about seven minutes later.
+
+The declaration still binds. The plan commit e251457, at 10:24:09, fixed the law, the budget, the
+seeds, the margins and the red-cell route before either run. Nothing moved after it. The smoke and
+published manifests record the same module hashes, and their configurations differ only in the
+primary replication count. The two runs wrote byte-identical property artifacts: `properties.csv`
+hashes to `f140e0c3...` and `property-replicates.csv.gz` to `585e6480...` in both.
+
+The `att_upper` control passed narrowly. Its lower edge is 1.0732 against the band edge of 1.07.
+Its Monte Carlo standard deviation is about 0.0078, so at another seed it would fail about 35 to
+40% of the time. The plan sized the budget on the 500-fit ratio of 1.118. That estimate's error did
+not cover the measured inflation of about 1.0955.
+
+The verdict stands under the declared route. A future design would pair each control with its positive cell and read the ratio of their standard
+errors.
+
+At this record the new witness file holds 59 tests and commits eight mutations, M0 to M7. The
+refusal file holds 115 tests. The hand-mutation counts of the delivery record were measured at
+cee8142 and were not run again. The full fast suite gave 11784 passed and 96 skipped at commit
+f0de42f.
 
 ### RM23. Capability rows that read available and then refuse
 
@@ -5238,7 +5299,7 @@ correct, and each message says that the bound is well posed and not implemented.
 Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026) gives the bias of such a functional, and
 Equation (14) in their Section 4 gives the bounds.
 [RM22](#rm22-standard-error-of-the-omitted-variable-bound) checked those locators against the
-published online appendix and arXiv v6. Nobody has read the published main text, so the source
+published online appendix and arXiv v6. This project has not read the published main text, so the source
 read of this item still needs it.
 
 | fit | the functional | what the contract must add |

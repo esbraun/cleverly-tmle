@@ -709,7 +709,7 @@ representer. The plug-in estimator reports no confidence limits. The
 For the ATT and the ATC, the doubly robust score weights the contrast by $1\{A = c\} / P(A = c)$.
 Here $c$ is the arm the estimand conditions on. This weight is the observed arm indicator of the
 ATT and the ATU in Example 2 of Online Appendix A of the cited paper, not the fitted $\hat g_c$.
-Item (2) of Theorem 5 there writes the score and the representer. Only the observed
+Item (2) of Theorem 5 there writes $m$ and the representer. Only the observed
 indicator keeps the Riesz identity above. `TestTheConditionalEffectScoreReadsTheObservedArm` in
 `tests/unit/test_omitted_variable_refusals.py` checks both conditional effects on an exact law.
 
@@ -751,12 +751,20 @@ mean or of a point estimate cannot see it.
 
 | witness | what it checks |
 | --- | --- |
-| `tests/unit/test_omitted_variable_standard_error.py` | on the two exact laws, weighted and unweighted, each curve of $\hat\nu^2$ equals the Gateaux derivative of $\nu^2$ row by row. The whole lower bound and its clustered standard error match the exact curve. Seven committed mutations fail it |
+| `tests/unit/test_omitted_variable_standard_error.py` | on the two exact laws, weighted and unweighted, each curve of $\hat\nu^2$ equals the Gateaux derivative of $\nu^2$ row by row. The whole lower bound and its clustered standard error match the exact curve. Seven committed mutations fail it, and an unchanged control (M0) passes |
 | [omitted-variable bound standard error](method-evidence/omitted-variable-bound-standard-error.md) | the ratio of the reported standard error to the sampling spread of each bound, over 10,000 samples, and two controls that read the curve without the share term |
 
-The term does not always widen the limits. On an iid fit of the two-arm exact law, the
-lower-bound standard error of the ATT is 0.03882 without the term and 0.03544 with it. On the same
-sample in 50 clusters it is 0.02129 without the term and 0.02303 with it.
+Omitting the term does not always widen the limits. The table gives the lower-bound standard
+error on the two-arm exact law, with the curve before RM22 and with the exact curve.
+
+| parameter and sample | without the term | exact | effect of the omission |
+| --- | ---: | ---: | --- |
+| ATT, iid | 0.03882 | 0.03544 | wider |
+| ATT, 50 clusters of 20 rows | 0.02129 | 0.02303 | narrower |
+| ATC, 50 clusters of 20 rows | 0.02572 | 0.02413 | wider |
+
+The direction depends on the parameter and on the sampling design. This is one exact law, so the
+table shows that either direction occurs and not how often.
 
 `nu2_estimator="plugin"` reports no confidence limits. The plug-in $E_n[\hat\alpha^2]$ moves at
 first order with the fitted treatment mechanism, and its curve $\hat\alpha^2 - \nu^2$ has no term
