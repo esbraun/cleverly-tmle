@@ -16,6 +16,8 @@ No code can inspect a closure, so the status of the rule is the declaration
   and a plan of labels alone is exempt, with their messages;
 * the positional order of ``DynamicRegimen`` is unchanged;
 * an inline callable is refused, and a declared regimen in a mapping keeps its declaration;
+* the check and the resolver read a plan through one helper: a ``DynamicRegimen`` stores
+  an iterator plan as a tuple, and a mapping refuses an iterator plan without reading it;
 * every fit entry refuses an inline, restored or modified rule before any learner or rule
   call, and so do ``DynamicRegimen.assignment``, ``resolve_plans`` and ``resolve_regimens``;
 * the declaration refusal comes before a refusal of the data or the fit configuration;
@@ -36,7 +38,7 @@ regimen among the users of the shared check.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import fields, replace
 from typing import Any
 
@@ -248,6 +250,89 @@ class TestInlineCallablesAreRefused:
     def test_a_declared_regimen_in_a_sequence_passes_through(self) -> None:
         (resolved,) = resolve_regimens([threshold_regimen(rule_kind="known")], 2)
         assert (resolved.label, resolved.rule_kind) == ("thr", "known")
+
+
+# ------------------------------------------------------------------ the shape of a plan
+
+#: A fragment of the refusal of a plan that is an iterator.
+ITERATOR = "is an iterator"
+
+
+def iterated(*nodes: Any) -> Iterator[Any]:
+    """``nodes`` as a generator, which the first reader consumes."""
+    return (node for node in nodes)
+
+
+class TestAPlanIsReadOnce:
+    """The check and the resolver read the shape of a plan through one helper.
+
+    A ``DynamicRegimen`` stores its plan as a tuple before it checks the plan, so the check
+    and every evaluator read the same nodes.  A plan in a ``regimens=`` mapping is read at
+    every fit, so an iterator there is refused and not consumed.
+    """
+
+    def test_an_undeclared_iterator_plan_is_refused_at_construction(self) -> None:
+        """The defect: the check skipped an iterator, and ``assignment`` ran the rule."""
+        rule = panel_rule()
+        assert_refused(
+            lambda: DynamicRegimen("thr", iterated(1, rule)), CapabilityError, UNDECLARED
+        )
+        assert rule.calls == 0
+
+    def test_a_declared_iterator_plan_keeps_its_nodes(self) -> None:
+        rule = panel_rule()
+        regimen = DynamicRegimen("thr", iterated(1, rule), rule_kind="known")
+        assert regimen.plan == (1, rule)
+        assert regimen.n_times == 2
+        (resolved,) = resolve_regimens([regimen], 2)
+        assert resolved.plan == (1, rule)
+        np.testing.assert_array_equal(regimen.assignment(panel_data())[:, 0], 1)
+        assert rule.calls == 1
+        # The check reads the stored nodes, so a lost declaration still refuses the rule.
+        restored(regimen, "rule_kind", None)
+        assert_refused(lambda: regimen.assignment(panel_data()), CapabilityError, UNDECLARED)
+        assert rule.calls == 1
+
+    def test_a_list_plan_is_stored_as_a_tuple(self) -> None:
+        """The same regimen however its plan was written, so it hashes and compares equal."""
+        rule = FixedThreshold()
+        regimen = DynamicRegimen("thr", [1, rule], rule_kind="known")
+        assert regimen.plan == (1, rule)
+        assert regimen == DynamicRegimen("thr", (1, rule), rule_kind="known")
+        assert hash(regimen) == hash(DynamicRegimen("thr", (1, rule), rule_kind="known"))
+
+    @pytest.mark.parametrize("plan", [FixedThreshold(), 1], ids=["rule", "label"])
+    def test_a_single_entry_is_not_a_plan(self, plan: Any) -> None:
+        assert_refused(
+            lambda: DynamicRegimen("thr", plan, rule_kind="known"),
+            DataError,
+            "one entry per treatment node",
+        )
+
+    @pytest.mark.parametrize("rule", [True, False], ids=["with a rule", "labels alone"])
+    def test_an_iterator_plan_in_a_mapping_is_refused_unread(self, rule: bool) -> None:
+        plan = iterated(1, FixedThreshold() if rule else 0)
+        spec = {"never": 0, "thr": plan}
+        assert_refused(lambda: refuse_regimen_rules(spec), DataError, "'thr'", ITERATOR)
+        assert_refused(lambda: resolve_regimens(spec, 2), DataError, "'thr'", ITERATOR)
+        assert next(plan) == 1, "a check consumed the plan"
+
+    @pytest.mark.parametrize("entry", list(ENTRIES))
+    def test_every_entry_refuses_an_iterator_plan_before_any_learner_or_rule_call(
+        self, entry: str
+    ) -> None:
+        rule = panel_rule()
+        spec = {"never": 0, "thr": iterated(1, rule)}
+        assert_refused_before_any_call(
+            lambda: ENTRIES[entry](spec), rule, "rule", ITERATOR, error=DataError
+        )
+
+    def test_the_iterator_refusal_comes_before_the_data_check(self) -> None:
+        """``LTMLE.fit`` checks the raw ``regimens=`` before ``_prepare`` reads the frame."""
+        rule = panel_rule()
+        spec = {"never": 0, "thr": iterated(1, rule)}
+        fit, _, _, _ = LATER_REFUSALS["missing column"]
+        assert_refused_before_any_call(lambda: fit(spec), rule, "rule", ITERATOR, error=DataError)
 
 
 # ------------------------------------------------------------------ the fit layer
