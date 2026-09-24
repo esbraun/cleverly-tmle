@@ -34,7 +34,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, fields, replace
-from typing import Any, ClassVar
+from functools import partial
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -42,9 +43,7 @@ import pytest
 
 import cleverly._declarations as declarations_module
 import cleverly.interventions.base as base_module
-import tests.unit.test_msm_design_declaration as rm27_tests
-import tests.unit.test_msm_projection_weights as rm13_tests
-from cleverly import CausalStudy, PointTreatment, RegimeMean
+from cleverly import RegimeMean
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, DataError
@@ -54,18 +53,26 @@ from cleverly.interventions.base import (
     _UNDECLARED_DENSITY,
     refuse_regime_densities,
 )
+from cleverly.msm import (
+    _ESTIMATED_DESIGN,
+    _ESTIMATED_WEIGHTS,
+    _UNDECLARED_DESIGN,
+    _UNDECLARED_WEIGHTS,
+)
 from cleverly.sensitivity import _simulated_confounding_fixed as replay_module
 from cleverly.sensitivity import simulated_confounding
 from tests import discrete_law as law
-from tests.conftest import OracleOutcome, OracleTreatment, linear_in_sample
+from tests.conftest import linear_in_sample
 from tests.pickles import legacy_without
-from tests.unit._confounding_support import Counter, forbid_draw_and_refit
+from tests.unit._confounding_support import Counter, forbid_draw_and_refit, validate_replay
 from tests.unit._declaration_support import (
     PATHWISE,
     assert_every_witness_fails,
     assert_refused,
     assert_refused_before_any_call,
-    gateaux_eif,
+    cell_p,
+    oracle_fit,
+    point_entries,
     recomputations,
     restored,
     restored_states,
@@ -73,8 +80,14 @@ from tests.unit._declaration_support import (
     tmle_module,
 )
 from tests.unit._declaration_support import legacy_result as legacy_result_of
+from tests.unit._msm_declaration_support import (
+    DESIGN_UNKNOWN,
+    WEIGHTS_UNKNOWN,
+    FixedWeight,
+    linear,
+    written,
+)
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
-from tests.unit.test_msm_projection_weights import FixedWeight, linear
 from tests.unit.test_simulated_confounding_policies import (
     _GRID,
     _alias,
@@ -100,16 +113,6 @@ class FixedDensity:
 
     def __call__(self, frame: Any) -> np.ndarray:
         return np.column_stack([np.full(len(frame), 0.4), np.full(len(frame), 0.6)])
-
-
-class SpyDensity(FixedDensity):
-    """A known density that counts its calls.  A refusal must come before the first one."""
-
-    calls: ClassVar[int] = 0
-
-    def __call__(self, frame: Any) -> np.ndarray:
-        type(self).calls += 1
-        return super().__call__(frame)
 
 
 def coin(density: Any = None, **declaration: Any) -> Stochastic:
@@ -181,39 +184,15 @@ class TestThePositionalOrderIsUnchanged:
 
 
 def spy_coin() -> Stochastic:
-    SpyDensity.calls = 0
-    return coin(SpyDensity(), density_kind="known")
+    """A known regime whose density counts its calls in ``regime.density_fn.calls``."""
+    return coin(Counter(FixedDensity()), density_kind="known")
 
 
-def tmle_fit(regime: Any, learners: dict[str, Any]) -> Any:
-    estimator = TMLE(interventions=(regime,), cross_fit=False, simultaneous=False, **learners)
-    return estimator.fit(law.frame(), outcome="Y", treatment="A")
-
-
-def study_fit(regime: Any, learners: dict[str, Any]) -> Any:
-    study = CausalStudy(
-        law.frame(), design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",))
-    )
-    return study.identify(RegimeMean((regime,))).estimate(
-        outcome_learner=learners["outcome_learner"],
-        treatment_learner=learners["treatment_learner"],
-        cross_fit=False,
-        simultaneous=False,
-    )
-
-
-def direct_refit(regime: Any, learners: dict[str, Any]) -> Any:
-    """``TMLE.refit`` on prepared data: the entry the refutations and the replay use."""
-    estimator = TMLE(interventions=(regime,), cross_fit=False, simultaneous=False, **learners)
-    return estimator.refit(causal_data())
-
-
-#: Every fit entry that can reach a restored regime.
-ENTRIES: dict[str, Callable[[Any, dict[str, Any]], Any]] = {
-    "fit": tmle_fit,
-    "study": study_fit,
-    "refit": direct_refit,
-}
+#: Every fit entry that can reach a restored regime: ``TMLE.fit``, ``CausalStudy.estimate``,
+#: and ``TMLE.refit``.
+ENTRIES = point_entries(
+    lambda regime: {"interventions": (regime,)}, lambda regime: RegimeMean((regime,))
+)
 
 #: What a restored regime can carry, and the refusal each one meets.
 RESTORED = restored_states(UNDECLARED, ESTIMATED)
@@ -221,7 +200,10 @@ RESTORED = restored_states(UNDECLARED, ESTIMATED)
 
 def assert_entry_refuses(entry: str, regime: Any, *fragments: str) -> None:
     assert_refused_before_any_call(
-        lambda: ENTRIES[entry](regime, never_fit_learners()), SpyDensity, "density", *fragments
+        lambda: ENTRIES[entry](regime, never_fit_learners()),
+        regime.density_fn,
+        "density",
+        *fragments,
     )
 
 
@@ -241,8 +223,7 @@ class TestTheFitRefusesARestoredRegime:
             def __post_init__(self) -> None:
                 pass
 
-        SpyDensity.calls = 0
-        regime = Skips(SpyDensity(), "coin")
+        regime = Skips(Counter(FixedDensity()), "coin")
         assert regime.density_kind is None
         assert_entry_refuses("fit", regime, UNDECLARED)
 
@@ -253,7 +234,7 @@ class TestTheFitRefusesARestoredRegime:
         with pytest.raises(AssertionError, match="before any learner is fitted"):
             ENTRIES[entry](regime, never_fit_learners())
         assert NeverFit.calls == 1
-        assert SpyDensity.calls == 0, "a density ran before the first learner"
+        assert regime.density_fn.calls == 0, "a density ran before the first learner"
 
 
 #: Each public evaluator that runs a density, called directly as a user can call it.
@@ -274,7 +255,7 @@ class TestTheEvaluatorsCheckFirst:
         kind, fragments = RESTORED[name]
         regime = restored(spy_coin(), "density_kind", kind)
         assert_refused(lambda: EVALUATORS[evaluator](regime), CapabilityError, *fragments)
-        assert SpyDensity.calls == 0, "the density was evaluated before the refusal"
+        assert regime.density_fn.calls == 0, "the density was evaluated before the refusal"
 
     def test_the_set_checks_every_regime_before_the_first_density(self) -> None:
         """A declared regime listed first does not run before a restored one refuses."""
@@ -284,13 +265,14 @@ class TestTheEvaluatorsCheckFirst:
             lambda: RegimeSet.evaluate((first, regime), causal_data()), CapabilityError, UNDECLARED
         )
         assert first.density_fn.calls == 0, "the first density ran before the refusal"
-        assert SpyDensity.calls == 0
+        assert regime.density_fn.calls == 0
 
     @pytest.mark.parametrize("evaluator", list(EVALUATORS))
     def test_a_declared_regime_is_evaluated(self, evaluator: str) -> None:
         """The control: the same call with the declaration intact runs the density."""
-        EVALUATORS[evaluator](spy_coin())
-        assert SpyDensity.calls == 1
+        regime = spy_coin()
+        EVALUATORS[evaluator](regime)
+        assert regime.density_fn.calls == 1
 
 
 # ------------------------------------------------------------------ old pickles
@@ -310,8 +292,8 @@ class TestALegacyRegimeLoads:
         assert replace(old, density_kind="known").density_kind == "known"
 
     def test_a_legacy_regime_refuses_at_the_fit(self) -> None:
-        SpyDensity.calls = 0
-        assert_entry_refuses("fit", legacy(coin(SpyDensity(), density_kind="known")), UNDECLARED)
+        """The pickle copies the counter, so the spy is the one on the restored regime."""
+        assert_entry_refuses("fit", legacy(spy_coin()), UNDECLARED)
 
 
 def stochastic_regimes(estimator: Any) -> list[Any]:
@@ -386,15 +368,10 @@ def counted_fit() -> tuple[Any, Counter]:
     return old, density
 
 
-def validate(result: Any) -> Any:
-    alias = _alias(result)
-    return replay_module.validate_fixed_replay(result, alias, result.parameter_keys[alias])
-
-
 class TestTheReplay:
     def test_a_known_regime_replays_through_frozen_regimes(self) -> None:
         result = _fit_policy()
-        replay = validate(result)
+        replay = validate_replay(result)
         assert replay.interventions
         assert all(type(item) is replay_module._FrozenRegime for item in replay.interventions)
         assert refuse_regime_densities(replay.interventions) is None
@@ -413,7 +390,7 @@ class TestTheReplay:
             CapabilityError,
             UNDECLARED,
         )
-        assert_refused(lambda: validate(old), CapabilityError, UNDECLARED)
+        assert_refused(lambda: validate_replay(old), CapabilityError, UNDECLARED)
         assert density.calls == 0, "the density was evaluated before the refusal"
 
     def test_removing_the_evaluator_check_evaluates_the_density(
@@ -427,7 +404,7 @@ class TestTheReplay:
         """
         old, density = counted_fit()
         monkeypatch.setattr(base_module, "refuse_regime_densities", lambda interventions: None)
-        replay = validate(old)
+        replay = validate_replay(old)
         assert all(type(item) is replay_module._FrozenRegime for item in replay.interventions)
         assert density.calls == 1
 
@@ -465,40 +442,64 @@ class TestTheWitnessesHaveTeeth:
         assert NeverFit.calls > 0, "the mutated fit refused before a learner"
 
     def test_every_site_calls_the_one_refusal(self) -> None:
-        """One refusal, one text: the fit layer and the evaluators call the same check."""
+        """One refusal, one text: the fit layer calls the check that the evaluators call.
+
+        ``cleverly.interventions.base`` defines that check, and its evaluators call it.
+        """
         assert tmle_module.refuse_regime_densities is refuse_regime_densities
-        assert base_module.refuse_regime_densities is refuse_regime_densities
 
     def test_removing_the_shared_declaration_fails_each_of_its_users(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """RM13, RM25 and RM27 refuse through one ``FunctionDeclaration.refuse``.
 
-        Each witness that the shared refusal decides must fail under the mutation.  The RM13
-        unknown-value witness is not among them: ``refuse_msm_functions`` calls
-        ``check`` itself for the weight, so that witness still refuses.
+        Each witness that the shared refusal decides refuses before the mutation and fails
+        under it.
         """
+        witnesses = [
+            partial(assert_refused, build, error, *fragments)
+            for build, error, fragments in SHARED_REFUSALS.values()
+        ]
+        for witness in witnesses:
+            witness()
         monkeypatch.setattr(
             declarations_module.FunctionDeclaration, "refuse", lambda self, kind: None
         )
-        weight_suite = rm13_tests.TestTheDeclarationIsRequired()
-        density_suite = TestTheDeclarationIsRequired()
-        design_suite = rm27_tests.TestTheDeclarationIsRequired()
-        assert_every_witness_fails(
-            [
-                weight_suite.test_an_undeclared_callable_is_refused,
-                weight_suite.test_an_estimated_weight_is_refused_by_its_missing_term,
-                density_suite.test_an_undeclared_density_is_refused,
-                density_suite.test_an_estimated_density_is_refused_by_its_missing_term,
-                lambda: density_suite.test_an_unknown_declaration_is_refused("Known"),
-                design_suite.test_an_undeclared_design_is_refused,
-                design_suite.test_an_estimated_design_is_refused_by_its_missing_term,
-                lambda: design_suite.test_an_unknown_declaration_is_refused("Known"),
-            ]
-        )
+        assert_every_witness_fails(witnesses)
         assert linear(weights=FixedWeight()).weights_kind is None
         assert coin().density_kind is None
-        assert rm27_tests.written().design_kind is None
+        assert written().design_kind is None
+
+
+#: Each refusal that ``FunctionDeclaration.refuse`` decides: a build, the error it raises,
+#: and the fragments of its message.  The RM13 unknown-value refusal is not among them:
+#: ``refuse_msm_functions`` calls ``check`` itself for the weight, so it still refuses.
+SHARED_REFUSALS: dict[str, tuple[Callable[[], Any], type[Exception], tuple[str, ...]]] = {
+    "undeclared weight": (
+        lambda: linear(weights=FixedWeight()),
+        CapabilityError,
+        (_UNDECLARED_WEIGHTS, "'known'"),
+    ),
+    "estimated weight": (
+        lambda: linear(weights=FixedWeight(), weights_kind="estimated"),
+        CapabilityError,
+        (_ESTIMATED_WEIGHTS, PATHWISE),
+    ),
+    "undeclared density": (coin, CapabilityError, (UNDECLARED, "density_kind='known'")),
+    "estimated density": (
+        lambda: coin(density_kind="estimated"),
+        CapabilityError,
+        (ESTIMATED, PATHWISE),
+    ),
+    "unknown density": (lambda: coin(density_kind="Known"), DataError, (UNKNOWN,)),
+    "undeclared design": (written, CapabilityError, (_UNDECLARED_DESIGN, "design_kind='known'")),
+    "estimated design": (
+        lambda: written(design_kind="estimated"),
+        CapabilityError,
+        (_ESTIMATED_DESIGN, PATHWISE),
+    ),
+    "unknown design": (lambda: written(design_kind="Known"), DataError, (DESIGN_UNKNOWN,)),
+}
 
 
 # ------------------------------------------------------------------ the shared check
@@ -509,20 +510,12 @@ class TestTheWitnessesHaveTeeth:
 DECLARATION_USERS: dict[str, tuple[Callable[[Any], Any], str, str]] = {
     "msm weight": (
         lambda kind: linear(weights=FixedWeight(), weights_kind=kind),
-        "weights_kind must be 'known', 'estimated' or None",
+        WEIGHTS_UNKNOWN,
         "weights_kind",
     ),
-    "uniform msm": (
-        lambda kind: linear(weights_kind=kind),
-        "weights_kind must be 'known', 'estimated' or None",
-        "weights_kind",
-    ),
+    "uniform msm": (lambda kind: linear(weights_kind=kind), WEIGHTS_UNKNOWN, "weights_kind"),
     "regime density": (lambda kind: coin(density_kind=kind), UNKNOWN, "density_kind"),
-    "msm design": (
-        lambda kind: rm27_tests.written(design_kind=kind),
-        rm27_tests.UNKNOWN,
-        "design_kind",
-    ),
+    "msm design": (lambda kind: written(design_kind=kind), DESIGN_UNKNOWN, "design_kind"),
 }
 
 #: Values that are not a string.  Before the check tested the type, the first built, the
@@ -560,7 +553,7 @@ TILT_COUNTS = law.cell_counts(
     p_w=[0.4, 0.4, 0.2], g=[0.25, 0.5, 0.75], q=[[0.05, 0.95], [0.1, 0.9], [0.1, 0.9]]
 )
 TILT_PROBS = TILT_COUNTS / law.N
-CELL_P = np.array([TILT_PROBS[cell] for cell in law.SUPPORT])
+CELL_P = cell_p(TILT_PROBS)
 W_OF = np.array([w for w, _, _ in law.SUPPORT])
 A_OF = np.array([a for _, a, _ in law.SUPPORT], dtype=float)
 DGP = law.DiscreteLaw(TILT_PROBS)
@@ -609,15 +602,15 @@ class SampleTilt:
 def fixed_eif(star: np.ndarray, *, step: float = 1e-30) -> np.ndarray:
     """The Gateaux derivative of ``sum_w P(w) sum_a q*(a | w) Qbar(a, w)``, ``q*`` frozen.
 
-    The contamination path and the complex step of :func:`law.gateaux`.  Only ``P(W)`` and
-    ``Qbar`` move with the law; the density does not.
+    It is :func:`law.gateaux_eif` of that functional.  Only ``P(W)`` and ``Qbar`` move with
+    the law; the density does not.
     """
 
     def psi(p: Any) -> Any:
         q = p[:, :, 1] / p.sum(axis=2)
         return (p.sum(axis=(1, 2)) * (star * q).sum(axis=1)).sum()
 
-    return np.asarray(gateaux_eif(psi, TILT_PROBS, step=step))
+    return law.gateaux_eif(psi, TILT_PROBS, step=step)
 
 
 def kennedy_term(delta: float) -> np.ndarray:
@@ -625,19 +618,6 @@ def kennedy_term(delta: float) -> np.ndarray:
     g, q = DGP.g, DGP.q
     slope = delta * (q[:, 1] - q[:, 0]) / (delta * g + 1.0 - g) ** 2
     return slope[W_OF] * (A_OF - g[W_OF])
-
-
-def oracle_tmle(**axis: Any) -> Any:
-    """In sample, with the law's own nuisances, so the curve has no learner error."""
-    estimator = TMLE(
-        outcome_learner=OracleOutcome(DGP),
-        treatment_learner=OracleTreatment(DGP),
-        cross_fit=False,
-        simultaneous=False,
-        random_state=0,
-        **axis,
-    )
-    return estimator.fit(law.frame(TILT_COUNTS), outcome="Y", treatment="A").single()
 
 
 def tilt_curve(result: Any) -> np.ndarray:
@@ -649,8 +629,9 @@ def sample_fits() -> dict[str, Any]:
     """The sample tilt, declared ``"known"``: the lie that no declaration can detect."""
     sample = law.frame(TILT_COUNTS)
     return {
-        label: oracle_tmle(
-            interventions=(Stochastic(SampleTilt(sample, delta), "tilt", density_kind="known"),)
+        label: oracle_fit(
+            TILT_COUNTS,
+            interventions=(Stochastic(SampleTilt(sample, delta), "tilt", density_kind="known"),),
         )
         for label, delta in DELTAS.items()
     }
@@ -728,7 +709,7 @@ class TestAnEstimatedTiltUnderstatesTheVariance:
 
     def test_the_package_ipsi_curve_differs_by_the_same_term(self, sample_fits) -> None:
         """The incremental axis carries the term that the regime curve omits."""
-        ipsi = oracle_tmle(incremental=(Incremental(2.0, name="odds x2"),))
+        ipsi = oracle_fit(TILT_COUNTS, incremental=(Incremental(2.0, name="odds x2"),))
         rows = law.first_row_of(TILT_COUNTS)
         gap = (
             np.asarray(ipsi.estimates["ey_ipsi[odds x2]"].influence_curve)[rows]
@@ -749,8 +730,8 @@ class TestAnEstimatedTiltUnderstatesTheVariance:
 
 class TestAKnownDensityKeepsItsInterval:
     def test_a_known_tilt_reports_the_fixed_density_eif_under_influence_curve(self) -> None:
-        result = oracle_tmle(
-            interventions=(Stochastic(KnownTilt(2.0), "tilt", density_kind="known"),)
+        result = oracle_fit(
+            TILT_COUNTS, interventions=(Stochastic(KnownTilt(2.0), "tilt", density_kind="known"),)
         )
         estimate = result.estimates["ey_regime[tilt]"]
         assert estimate.inference == "influence_curve"

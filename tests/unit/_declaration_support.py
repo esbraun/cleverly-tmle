@@ -3,8 +3,10 @@
 ``tests/unit/test_msm_projection_weights.py`` (RM13),
 ``tests/unit/test_stochastic_regime_densities.py`` (RM25) and
 ``tests/unit/test_msm_design_declaration.py`` (RM27) test the three users of
-:class:`cleverly._declarations.FunctionDeclaration`.  Each file declares its own builders
-and witnesses.  This module holds the parts that do not depend on which field is declared.
+:class:`cleverly._declarations.FunctionDeclaration`.  This module holds the parts that do
+not depend on which field is declared.  ``tests/unit/_msm_declaration_support.py`` holds the
+MSM builders that the RM13 and RM27 files share.  The three test files import these support
+modules and not each other.
 """
 
 from __future__ import annotations
@@ -16,10 +18,14 @@ from typing import Any
 import numpy as np
 import pytest
 
+from cleverly import CausalStudy, PointTreatment
+from cleverly.data import CausalData
+from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError
 from cleverly.sensitivity.positivity import truncation_curve
 from tests import discrete_law as law
+from tests.conftest import OracleOutcome, OracleTreatment
 from tests.unit._natural_course_support import NeverFit
 
 #: ``cleverly.estimators`` exports a function named ``tmle``, which shadows the module.
@@ -47,17 +53,18 @@ def assert_refused(build: Callable[[], Any], error: type[Exception], *fragments:
 
 def assert_refused_before_any_call(
     build: Callable[[], Any],
-    spy: type,
+    spy: Any,
     function: str,
     *fragments: str,
     error: type[Exception] = CapabilityError,
 ) -> None:
     """``build()`` refuses before any learner fit and before any call of the spy ``function``.
 
-    ``spy`` is the class whose class-level ``calls`` counts the calls of the declared
-    function.  The caller resets it.  :func:`never_fit_learners` resets ``NeverFit``.
-    ``error`` is the class of the refusal: a declaration that is refused raises
-    ``CapabilityError``, and a value that is not a declaration raises ``DataError``.
+    ``spy`` is the declared function, a :class:`tests.unit._confounding_support.Counter`
+    whose ``calls`` starts at 0.  Pass the object the fit receives: a pickle round trip
+    copies a counter.  :func:`never_fit_learners` resets ``NeverFit``.  ``error`` is the
+    class of the refusal: a declaration that is refused raises ``CapabilityError``, and a
+    value that is not a declaration raises ``DataError``.
     """
     assert_refused(build, error, *fragments)
     assert NeverFit.calls == 0, f"{NeverFit.calls} learner fit(s) ran before the refusal"
@@ -109,6 +116,71 @@ def recomputations(result: Any, estimands: tuple[str, ...]) -> dict[str, Callabl
     }
 
 
+def point_entries(
+    declare: Callable[[Any], dict[str, Any]], target: Callable[[Any], Any]
+) -> dict[str, Callable[[Any, dict[str, Any]], Any]]:
+    """Every point-treatment fit entry that can reach a declared object, on the default law.
+
+    ``declare`` maps the object to the ``TMLE`` keyword that carries it, and ``target``
+    maps it to the target of ``CausalStudy.identify``.  Each entry takes the object and
+    the learners: ``"fit"`` is ``TMLE.fit``, ``"study"`` is ``CausalStudy.estimate``, and
+    ``"refit"`` is ``TMLE.refit`` on prepared data, which the refutations and the replay
+    use.
+    """
+
+    def estimator(item: Any, learners: dict[str, Any]) -> TMLE:
+        return TMLE(cross_fit=False, simultaneous=False, **declare(item), **learners)
+
+    def fit(item: Any, learners: dict[str, Any]) -> Any:
+        return estimator(item, learners).fit(law.frame(), outcome="Y", treatment="A")
+
+    def study(item: Any, learners: dict[str, Any]) -> Any:
+        design = PointTreatment(outcome="Y", treatment="A", adjustment=("W",))
+        return (
+            CausalStudy(law.frame(), design=design)
+            .identify(target(item))
+            .estimate(
+                outcome_learner=learners["outcome_learner"],
+                treatment_learner=learners["treatment_learner"],
+                cross_fit=False,
+                simultaneous=False,
+            )
+        )
+
+    def refit(item: Any, learners: dict[str, Any]) -> Any:
+        return estimator(item, learners).refit(
+            CausalData.from_frame(law.frame(), outcome="Y", treatment="A")
+        )
+
+    return {"fit": fit, "study": study, "refit": refit}
+
+
+# ------------------------------------------------------------------ the exact-law witness
+
+
+def oracle_fit(counts: Any, **axis: Any) -> Any:
+    """In sample on the law of ``counts``, with its own nuisances, so no learner error.
+
+    ``counts`` is a :func:`tests.discrete_law.cell_counts` table, and ``axis`` is the
+    ``TMLE`` keyword that carries the declared function.
+    """
+    dgp = law.DiscreteLaw(counts / law.N)
+    estimator = TMLE(
+        outcome_learner=OracleOutcome(dgp),
+        treatment_learner=OracleTreatment(dgp),
+        cross_fit=False,
+        simultaneous=False,
+        random_state=0,
+        **axis,
+    )
+    return estimator.fit(law.frame(counts), outcome="Y", treatment="A").single()
+
+
+def cell_p(probs: Any) -> np.ndarray:
+    """The probability of each support point, in the order of ``law.SUPPORT``."""
+    return np.array([probs[cell] for cell in law.SUPPORT])
+
+
 def se_ratio(curve: np.ndarray, exact: np.ndarray, cell_p: np.ndarray) -> float:
     """The reported curve's SE over the exact curve's SE, from second moments.
 
@@ -117,22 +189,3 @@ def se_ratio(curve: np.ndarray, exact: np.ndarray, cell_p: np.ndarray) -> float:
     ``n - 1``, which would move this by a factor of 1.0005.
     """
     return float(np.sqrt(np.mean(curve**2) / float(cell_p @ exact**2)))
-
-
-def gateaux_eif(functional: Callable[[Any], Any], probs: Any, *, step: float = 1e-30) -> Any:
-    """The Gateaux derivative of ``functional`` at every support point of the discrete law.
-
-    ``functional`` maps the ``(3, 2, 2)`` cell probabilities of :mod:`tests.discrete_law`
-    to a value or a vector, and ``probs`` is the law it is differentiated at.  This is the
-    contamination path and the complex step of :func:`tests.discrete_law.gateaux`, applied
-    to a functional that a test writes: a frozen weight, density, or design, or one that
-    moves with the law.  The first axis of the result follows ``law.SUPPORT``.
-    """
-    base = np.asarray(probs, dtype=float).astype(complex)
-    rows = []
-    for cell in law.SUPPORT:
-        mass = np.zeros_like(base)
-        mass[cell] = 1.0
-        perturbed = (1.0 - 1j * step) * base + 1j * step * mass
-        rows.append(np.imag(functional(perturbed)) / step)
-    return np.array(rows)

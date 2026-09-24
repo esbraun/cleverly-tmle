@@ -17,10 +17,15 @@ the defect.  This module pins seven things:
   before the weight runs;
 * a model pickled before the field existed loads, and a uniform-weight fit still replays;
 * a result restored with an undeclared callable weight keeps its stored estimates, and
-  every recomputation from it refuses, the replay before it runs the design or the weight;
+  every recomputation from it refuses;
 * a deliberate mutation that removes the refusal makes those witnesses fail;
 * on an exact law, a share weight declared ``"known"`` gets an influence curve that is right
   for the fixed-weight functional and understates the variance of the estimated-weight one.
+
+The replay refuses a restored undeclared weight before it runs the design or the weight.
+``tests/unit/test_msm_design_declaration.py`` drives that witness for both MSM
+declarations, and ``tests/unit/_msm_declaration_support.py`` holds the builders the two
+files share.
 
 The last item is the reason for the refusal, measured without sampling error.  The testing
 strategy keeps repeated sampling out of the fast suite, and the exact-law gap is the
@@ -29,63 +34,59 @@ asymptotic form of "the reported standard error is below the sampling standard d
 
 from __future__ import annotations
 
-import pickle
 from collections.abc import Callable
-from dataclasses import dataclass, fields, replace
-from typing import Any, ClassVar
+from dataclasses import fields, replace
+from typing import Any
 
 import numpy as np
-import pandas as pd
 import pytest
 
-import cleverly.longitudinal.estimator as ltmle_module
-import cleverly.longitudinal.msm as regimen_msm_module
 import cleverly.msm as msm_module
-from cleverly import MSMProjection
-from cleverly.data import CausalData
-from cleverly.estimators import TMLE
-from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError
-from cleverly.longitudinal import LTMLE, LongitudinalData, resolve_plans, resolve_regimens
-from cleverly.longitudinal.msm import evaluate_regimen_msm
 from cleverly.msm import (
     _ESTIMATED_WEIGHTS,
     _UNDECLARED_WEIGHTS,
     MSM,
-    MSMSet,
-    refuse_msm_functions,
     refuse_unsupported,
 )
-from cleverly.sensitivity import _simulated_confounding_fixed as replay_module
 from cleverly.sensitivity import simulated_confounding
 from tests import discrete_law as law
-from tests.conftest import OracleOutcome, OracleTreatment, linear_in_sample
-from tests.unit._confounding_support import Counter, forbid_draw_and_refit
+from tests.pickles import legacy_without
+from tests.unit._confounding_support import Counter, validate_replay
 from tests.unit._declaration_support import (
     PATHWISE,
     assert_every_witness_fails,
     assert_refused,
     assert_refused_before_any_call,
-    gateaux_eif,
+    cell_p,
+    oracle_fit,
     recomputations,
     restored,
     restored_states,
     se_ratio,
     tmle_module,
 )
-from tests.unit._declaration_support import legacy_result as legacy_result_of
-from tests.unit._natural_course_support import NeverFit, never_fit_learners
-from tests.unit.test_simulated_confounding_msm import _GRID as DOSE_GRID
-from tests.unit.test_simulated_confounding_msm import _fit_continuous
-from tests.unit.test_simulated_confounding_policies import (
-    _GRID,
-    _alias,
-    _estimate,
-    _fit_msm,
-    _MSMDesign,
-    _MSMWeight,
-    _study,
+from tests.unit._msm_declaration_support import (
+    DOSE_SLOPE,
+    WEIGHTS_UNKNOWN,
+    FixedWeight,
+    dose_surface,
+    drop_from_the_replay,
+    duration_design,
+    evaluate_point,
+    evaluate_regimen,
+    in_sample_fit,
+    legacy_msm_result,
+    linear,
+    ltmle_fit,
+    msm_curve,
+    msm_eif,
+    remove_every_fit_check,
+    tmle_fit,
+    uniform_dose_fit,
 )
+from tests.unit._natural_course_support import NeverFit, never_fit_learners
+from tests.unit.test_simulated_confounding_policies import _GRID, _alias, _fit_msm
 
 #: The two declaration refusals, imported from the module that raises them, so the text
 #: is written once.
@@ -96,27 +97,9 @@ ESTIMATED = _ESTIMATED_WEIGHTS
 NOT_CALLABLE = "must be a callable"
 
 
-@dataclass(frozen=True)
-class FixedWeight:
-    """A known weight, ``1 + a``.  A class rather than a lambda, so a model pickles."""
-
-    def __call__(self, arm: Any, frame: Any) -> np.ndarray:
-        return np.full(len(frame), 1.0 + float(arm))
-
-
-class SpyWeight:
-    """A known weight that counts its calls.  A refusal must come before the first one."""
-
-    calls: ClassVar[int] = 0
-
-    def __call__(self, *arguments: Any) -> np.ndarray:
-        type(self).calls += 1
-        frame = arguments[-1]
-        return np.ones(len(frame))
-
-
-def linear(**declaration: Any) -> MSM:
-    return MSM.linear(modifiers=("W",), interaction=False, **declaration)
+def unit_weight(*arguments: Any) -> np.ndarray:
+    """A known weight of 1 for either signature.  A ``Counter`` around it counts its calls."""
+    return np.ones(len(arguments[-1]))
 
 
 # ------------------------------------------------------------------ the declaration
@@ -176,9 +159,7 @@ class TestTheDeclarationIsRequired:
     @pytest.mark.parametrize("kind", ["Known", "probability", True, 1])
     def test_an_unknown_declaration_is_refused(self, kind: Any) -> None:
         assert_refused(
-            lambda: linear(weights=FixedWeight(), weights_kind=kind),
-            DataError,
-            "weights_kind must be 'known', 'estimated' or None",
+            lambda: linear(weights=FixedWeight(), weights_kind=kind), DataError, WEIGHTS_UNKNOWN
         )
 
     def test_a_known_callable_is_accepted_and_forwarded_by_the_shorthand(self) -> None:
@@ -249,83 +230,32 @@ class TestThePositionalOrderIsUnchanged:
 # ------------------------------------------------------------------ the fit layer
 
 
-def tmle_fit(model: MSM, learners: dict[str, Any]) -> Any:
-    estimator = TMLE(msm=model, cross_fit=False, simultaneous=False, **learners)
-    return estimator.fit(law.frame(), outcome="Y", treatment="A")
-
-
-def panel(n: int = 60, seed: int = 0) -> pd.DataFrame:
-    """Two nodes, censoring, and a binary end-of-study outcome."""
-    rng = np.random.default_rng(seed)
-    c1 = (rng.random(n) < 0.9).astype(float)
-    c2 = np.where(c1 == 1, (rng.random(n) < 0.9).astype(float), np.nan)
-    observed = (c1 == 1) & (c2 == 1)
-    return pd.DataFrame(
-        {
-            "W1": rng.standard_normal(n),
-            "A1": rng.integers(0, 2, n).astype(float),
-            "C1": c1,
-            "A2": np.where(c1 == 1, rng.integers(0, 2, n).astype(float), np.nan),
-            "C2": c2,
-            "Y": np.where(observed, rng.integers(0, 2, n).astype(float), np.nan),
-        }
-    )
-
-
-def duration_design(label: Any, horizon: int, frame: Any) -> np.ndarray:
-    del horizon
-    return np.column_stack(
-        [np.ones(len(frame)), np.full(len(frame), {"always": 2.0}.get(label, 0.0))]
-    )
-
-
-def ltmle_fit(model: MSM) -> Any:
-    NeverFit.calls = 0
-    estimator = LTMLE(
-        {"always": 1, "never": 0},
-        msm=model,
-        n_folds=1,
-        simultaneous=False,
-        outcome_learner=NeverFit(),
-        pseudo_learner=NeverFit(),
-        treatment_learner=NeverFit(),
-        censoring_learner=NeverFit(),
-    )
-    return estimator.fit(
-        panel(),
-        outcome="Y",
-        treatment=["A1", "A2"],
-        baseline=["W1"],
-        censoring=["C1", "C2"],
-    )
-
-
 def point_model() -> MSM:
-    return linear(weights=SpyWeight(), weights_kind="known")
+    """A point MSM whose known weight counts its calls in ``model.weights.calls``."""
+    return linear(weights=Counter(unit_weight), weights_kind="known")
 
 
 def regimen_model() -> MSM:
+    """A regimen MSM whose known weight counts its calls in ``model.weights.calls``."""
     return MSM(
         design=duration_design,
         terms=("(intercept)", "duration"),
-        weights=SpyWeight(),
+        weights=Counter(unit_weight),
         weights_kind="known",
         design_kind="known",
     )
 
 
 def assert_tmle_refuses(kind: Any, *fragments: str) -> None:
-    SpyWeight.calls = 0
     model = restored(point_model(), "weights_kind", kind)
     assert_refused_before_any_call(
-        lambda: tmle_fit(model, never_fit_learners()), SpyWeight, "weight", *fragments
+        lambda: tmle_fit(model, never_fit_learners()), model.weights, "weight", *fragments
     )
 
 
 def assert_ltmle_refuses(kind: Any, *fragments: str) -> None:
-    SpyWeight.calls = 0
     model = restored(regimen_model(), "weights_kind", kind)
-    assert_refused_before_any_call(lambda: ltmle_fit(model), SpyWeight, "weight", *fragments)
+    assert_refused_before_any_call(lambda: ltmle_fit(model), model.weights, "weight", *fragments)
 
 
 #: What a restored model can carry, and the refusal each one meets.
@@ -355,21 +285,6 @@ class TestTheFitRefusesARestoredUndeclaredModel:
 
 # ------------------------------------------------------------------ the evaluators
 
-
-def evaluate_point(model: MSM) -> MSMSet:
-    """``MSMSet.evaluate`` called directly, as a user can call it."""
-    return MSMSet.evaluate(model, CausalData.from_frame(law.frame(), outcome="Y", treatment="A"))
-
-
-def evaluate_regimen(model: MSM) -> Any:
-    """``evaluate_regimen_msm`` called directly on the panel of :func:`ltmle_fit`."""
-    data = LongitudinalData.from_frame(
-        panel(), outcome="Y", treatment=["A1", "A2"], baseline=["W1"], censoring=["C1", "C2"]
-    )
-    plans = resolve_plans(resolve_regimens({"always": 1, "never": 0}, data.n_times), data)
-    return evaluate_regimen_msm(model, data, plans, (2,))
-
-
 #: Each public evaluator that runs a working model's design and weight, with a builder of a
 #: model it accepts.  ``tests/unit/test_msm_design_declaration.py`` drives the same pair.
 EVALUATORS: dict[str, tuple[Callable[[], MSM], Callable[[MSM], Any]]] = {
@@ -389,33 +304,29 @@ class TestTheEvaluatorsCheckFirst:
         kind, fragments = RESTORED[name]
         build, evaluate = EVALUATORS[evaluator]
         model = restored(build(), "weights_kind", kind)
-        SpyWeight.calls = 0
         assert_refused(lambda: evaluate(model), CapabilityError, *fragments)
-        assert SpyWeight.calls == 0, "the weight was evaluated before the refusal"
+        assert model.weights.calls == 0, "the weight was evaluated before the refusal"
 
     @pytest.mark.parametrize("evaluator", list(EVALUATORS))
     def test_a_declared_model_is_evaluated(self, evaluator: str) -> None:
         """The control: the same call with the declaration intact runs the weight."""
         build, evaluate = EVALUATORS[evaluator]
         model = build()
-        SpyWeight.calls = 0
         evaluate(model)
-        assert SpyWeight.calls > 0
+        assert model.weights.calls > 0
 
 
 # ------------------------------------------------------------------ old pickles
 
 
-def legacy(model: MSM) -> MSM:
-    """``model`` as a pickle written before ``weights_kind`` existed would restore it."""
-    copied = pickle.loads(pickle.dumps(model))
-    vars(copied).pop("weights_kind")
-    return pickle.loads(pickle.dumps(copied))
+def legacy_result(result: Any) -> Any:
+    """``result`` as an artifact written before ``weights_kind`` existed would restore it."""
+    return legacy_msm_result(result, "weights_kind")
 
 
 class TestALegacyModelLoads:
     def test_a_pickle_without_the_field_reads_none_and_can_be_replaced(self) -> None:
-        old = legacy(linear())
+        old = legacy_without(linear(), "weights_kind")
         assert "weights_kind" not in vars(old)
         assert old.weights_kind is None
         assert replace(old).weights_kind is None
@@ -424,7 +335,7 @@ class TestALegacyModelLoads:
 
     def test_a_legacy_callable_weight_refuses_at_the_fit(self) -> None:
         """An old model with a callable weight has no declaration, so it is refused."""
-        old = legacy(linear(weights=FixedWeight(), weights_kind="known"))
+        old = legacy_without(linear(weights=FixedWeight(), weights_kind="known"), "weights_kind")
         assert old.weights_kind is None
         assert_refused(lambda: tmle_fit(old, never_fit_learners()), CapabilityError, UNDECLARED)
         assert NeverFit.calls == 0
@@ -436,15 +347,12 @@ class TestALegacyModelLoads:
         assert result.estimator.msm.weights is None
         alias = _alias(result)
         expected = simulated_confounding(result, estimand=alias, grid=_GRID, random_state=31)
-        old = loads(dumps(result))
-        vars(old.estimator.msm).pop("weights_kind")
-        old = loads(dumps(old))
+        old = legacy_result(result)
         assert "weights_kind" not in vars(old.estimator.msm)
         surface = simulated_confounding(old, estimand=alias, grid=_GRID, random_state=31)
         assert all(cell.failure is None for cell in surface.cells)
         assert surface == expected
-        replay = replay_module.validate_fixed_replay(old, alias, old.parameter_keys[alias])
-        assert replay.msm.weights_kind == "known"
+        assert validate_replay(old).msm.weights_kind == "known"
 
     def test_a_uniform_weight_dose_fit_replays(self) -> None:
         """The continuous twin: ``_freeze_msm`` declares the frozen dose weight known.
@@ -458,146 +366,13 @@ class TestALegacyModelLoads:
         dose_surface(result)
         assert validate_replay(result, DOSE_SLOPE).msm.weights_kind == "known"
 
-    def test_a_replay_that_drops_the_declaration_refuses(self, monkeypatch) -> None:
+    def test_a_replay_that_drops_the_declaration_refuses(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """The deliberate-mutation control for the replay: drop what ``_freeze_msm`` passes."""
         result = _fit_msm(saturated=True)
-
-        def dropping(model: Any, **changes: Any) -> Any:
-            changes.pop("weights_kind", None)
-            return replace(model, **changes)
-
-        monkeypatch.setattr(replay_module, "replace", dropping)
-        alias = _alias(result)
-        assert_refused(
-            lambda: replay_module.validate_fixed_replay(
-                result, alias, result.parameter_keys[alias]
-            ),
-            CapabilityError,
-            UNDECLARED,
-        )
-
-
-def counted_msm_fit(field: str = "weights_kind") -> tuple[Any, Counter, Counter]:
-    """A fitted MSM whose design and weight count their calls, restored without ``field``.
-
-    Both functions are declared known before the fit, so the restored model lacks only the
-    declaration ``field`` names.  ``tests/unit/test_msm_design_declaration.py`` drops
-    ``design_kind``.  The counters are read off the restored result, because a pickle round
-    trip copies them.
-    """
-    model = MSM(
-        design=Counter(_MSMDesign()),
-        terms=("intercept", "treatment", "baseline"),
-        weights=Counter(_MSMWeight()),
-        weights_kind="known",
-        design_kind="known",
-    )
-    fitted = _estimate(_study(), MSMProjection(model))
-    old = legacy_result_of(fitted, field, lambda estimator: [estimator.msm])
-    design, weights = old.estimator.msm.design, old.estimator.msm.weights
-    design.calls = weights.calls = 0
-    return old, design, weights
-
-
-def remove_the_evaluator_check(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mutation M3: ``MSMSet.evaluate`` runs the user functions without checking the model.
-
-    ``MSM.__post_init__`` reads the same module global, so the no-op holds only while
-    ``evaluate`` runs, and the ``replace`` that builds a replay model still checks.
-    """
-    evaluate = MSMSet.evaluate.__func__
-
-    def unchecked(cls: type[MSMSet], msm: MSM, data: Any) -> MSMSet:
-        with pytest.MonkeyPatch.context() as inner:
-            inner.setattr(msm_module, "refuse_msm_functions", lambda model: None)
-            return evaluate(cls, msm, data)
-
-    monkeypatch.setattr(MSMSet, "evaluate", classmethod(unchecked))
-
-
-def remove_every_fit_check(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mutation M2: the fit layer and both evaluators stop checking the model.
-
-    A point fit evaluates its design before the first learner, and ``MSMSet.evaluate``
-    checks the model first.  Removing the fit-layer check alone would still refuse before
-    any learner, so the mutation removes the evaluator checks too.
-    """
-    for module in (tmle_module, ltmle_module, msm_module, regimen_msm_module):
-        monkeypatch.setattr(module, "refuse_msm_functions", lambda model: None)
-
-
-def validate_replay(result: Any, coefficient: str = "treatment") -> Any:
-    alias = _alias(result, coefficient=coefficient)
-    return replay_module.validate_fixed_replay(result, alias, result.parameter_keys[alias])
-
-
-#: The dose slope: the coefficient of a continuous fit that the replay targets.
-DOSE_SLOPE = "a"
-
-
-def uniform_dose_fit() -> Any:
-    """A continuous ``MSM.linear`` fit with uniform weights, cached across both modules.
-
-    ``_freeze_msm`` builds a continuous replay with its own ``replace`` call.  Only an
-    undeclared weight or a legacy design makes that call supply a declaration, so
-    ``tests/unit/test_msm_design_declaration.py`` replays this fit too.
-    """
-    return _fit_continuous(uniform=True)
-
-
-def dose_surface(result: Any) -> Any:
-    """The simulated-confounding surface of the dose slope, with every cell replayed."""
-    alias = _alias(result, coefficient=DOSE_SLOPE)
-    surface = simulated_confounding(result, estimand=alias, grid=DOSE_GRID, random_state=31)
-    assert all(cell.failure is None for cell in surface.cells)
-    return surface
-
-
-class TestTheReplayChecksBeforeItEvaluates:
-    """``MSMSet.evaluate`` checks the source model of ``_freeze_msm`` before it runs it."""
-
-    def test_a_legacy_callable_weight_refuses_before_any_user_function_runs(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        old, design, weights = counted_msm_fit()
-        forbid_draw_and_refit(monkeypatch, old.estimator)
-        assert_refused(
-            lambda: simulated_confounding(old, estimand=_alias(old), grid=_GRID, random_state=31),
-            CapabilityError,
-            UNDECLARED,
-        )
-        assert_refused(lambda: validate_replay(old), CapabilityError, UNDECLARED)
-        assert design.calls == 0, "the design was evaluated before the refusal"
-        assert weights.calls == 0, "the weight was evaluated before the refusal"
-
-    def test_removing_the_evaluator_check_evaluates_both_functions(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The deliberate-mutation control: without the check the replay runs both.
-
-        ``replace`` still refuses the undeclared weight, because it builds the replay model
-        with the source model's declaration.  The refusal arrives after the user functions
-        ran, which is what the check removes.
-        """
-        old, design, weights = counted_msm_fit()
-        remove_the_evaluator_check(monkeypatch)
-        assert_refused(lambda: validate_replay(old), CapabilityError, UNDECLARED)
-        assert design.calls == 2
-        assert weights.calls == 2
-
-
-def fitted_known() -> Any:
-    """A fit whose model declares its callable weight known: the valid pre-load state."""
-    return (
-        TMLE(msm=linear(weights=FixedWeight(), weights_kind="known"), **linear_in_sample())
-        .fit(law.frame(), outcome="Y", treatment="A")
-        .single()
-    )
-
-
-def legacy_result(result: Any) -> Any:
-    """``result`` as an artifact written before ``weights_kind`` existed would restore it."""
-    return legacy_result_of(result, "weights_kind", lambda estimator: [estimator.msm])
+        drop_from_the_replay(monkeypatch, "weights_kind")
+        assert_refused(lambda: validate_replay(result), CapabilityError, UNDECLARED)
 
 
 #: The estimands a retarget of the legacy result requests.
@@ -613,7 +388,8 @@ class TestALegacyResultKeepsItsNumbersAndRefusesARecomputation:
 
     @pytest.fixture(scope="class")
     def result(self) -> Any:
-        return fitted_known()
+        """A fit whose model declares its callable weight known: the valid pre-load state."""
+        return in_sample_fit(linear(weights=FixedWeight(), weights_kind="known"))
 
     def test_the_stored_interval_answers_unchanged(self, result: Any) -> None:
         old = legacy_result(result)
@@ -658,14 +434,14 @@ def declaration_witnesses() -> list[Callable[[], None]]:
 
 class TestTheWitnessesHaveTeeth:
     def test_removing_the_declaration_check_fails_every_declaration_witness(
-        self, monkeypatch
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(msm_module, "refuse_msm_functions", lambda model: None)
         assert_every_witness_fails(declaration_witnesses())
 
     @pytest.mark.parametrize("name", list(RESTORED))
     def test_removing_the_fit_layer_check_fails_the_fit_witnesses(
-        self, name: str, monkeypatch
+        self, name: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         kind, fragments = RESTORED[name]
         remove_every_fit_check(monkeypatch)
@@ -675,13 +451,6 @@ class TestTheWitnessesHaveTeeth:
         with pytest.raises(AssertionError):
             assert_ltmle_refuses(kind, *fragments)
         assert NeverFit.calls > 0, "the mutated LTMLE fit refused before a learner"
-
-    def test_the_fit_layer_calls_the_shared_refusal(self) -> None:
-        """One refusal, one text: the fit layer and the evaluators call the same check."""
-        assert tmle_module.refuse_msm_functions is refuse_msm_functions
-        assert ltmle_module.refuse_msm_functions is refuse_msm_functions
-        assert msm_module.refuse_msm_functions is refuse_msm_functions
-        assert regimen_msm_module.refuse_msm_functions is refuse_msm_functions
 
 
 # ------------------------------------------------------------------ the witness
@@ -693,6 +462,7 @@ SHARE_COUNTS = law.cell_counts(
     p_w=[0.4, 0.2, 0.4], g=[0.5, 0.5, 0.5], q=[[0.05, 0.05], [0.3, 0.7], [0.05, 0.95]]
 )
 SHARE_PROBS = SHARE_COUNTS / law.N
+CELL_P = cell_p(SHARE_PROBS)
 
 
 def arm_share(probs: Any) -> Any:
@@ -722,7 +492,7 @@ def eif(weights: Any) -> np.ndarray:
     When ``weights`` is :func:`arm_share`, ``h`` is recomputed from the perturbed law, so the
     derivative carries the term through ``h`` that the fixed-weight derivative does not.
     """
-    return np.asarray(gateaux_eif(lambda p: law.msm_beta(p, weights), SHARE_PROBS))
+    return msm_eif(SHARE_PROBS, weights)
 
 
 #: The reported SE over the exact estimated-share SE for ``msm[W]`` must stay below this.
@@ -734,18 +504,9 @@ UNDERSTATEMENT_BOUND = 0.8
 
 @pytest.fixture(scope="module")
 def share_fit() -> Any:
-    frame = law.frame(SHARE_COUNTS)
-    dgp = law.DiscreteLaw(SHARE_PROBS)
-    estimator = TMLE(
-        outcome_learner=OracleOutcome(dgp),
-        treatment_learner=OracleTreatment(dgp),
-        cross_fit=False,
-        msm=linear(weights=SampleShare(frame["A"]), weights_kind="known"),
-        estimands="all",
-        simultaneous=False,
-        random_state=0,
-    )
-    return estimator.fit(frame, outcome="Y", treatment="A").single()
+    weights = SampleShare(law.frame(SHARE_COUNTS)["A"])
+    model = linear(weights=weights, weights_kind="known")
+    return oracle_fit(SHARE_COUNTS, msm=model, estimands="all")
 
 
 def share_se_ratio(fit: Any, index: int) -> float:
@@ -755,9 +516,7 @@ def share_se_ratio(fit: Any, index: int) -> float:
     estimated-share EIF's variance under the law.  ``std_error`` itself divides by
     ``n - 1``, which would move this by a factor of 1.0005.
     """
-    curve = np.asarray(fit.estimates[f"msm[{law.MSM_TERMS[index]}]"].influence_curve)
-    probs = np.array([SHARE_PROBS[cell] for cell in law.SUPPORT])
-    return se_ratio(curve, eif(arm_share)[:, index], probs)
+    return se_ratio(msm_curve(fit, index), eif(arm_share)[:, index], CELL_P)
 
 
 class TestAnEstimatedShareWeightUnderstatesTheVariance:
@@ -772,9 +531,11 @@ class TestAnEstimatedShareWeightUnderstatesTheVariance:
     @pytest.mark.parametrize("index", range(len(law.MSM_TERMS)))
     def test_control_the_curve_is_the_fixed_weight_eif(self, share_fit, index: int) -> None:
         """Control 1: the curve is right for the functional the user declared."""
-        curve = np.asarray(share_fit.estimates[f"msm[{law.MSM_TERMS[index]}]"].influence_curve)
         np.testing.assert_allclose(
-            curve[law.first_row_of(SHARE_COUNTS)], eif(FROZEN_SHARE)[:, index], atol=1e-10, rtol=0
+            msm_curve(share_fit, index)[law.first_row_of(SHARE_COUNTS)],
+            eif(FROZEN_SHARE)[:, index],
+            atol=1e-10,
+            rtol=0,
         )
 
     def test_the_oracle_carries_the_share_term(self) -> None:
