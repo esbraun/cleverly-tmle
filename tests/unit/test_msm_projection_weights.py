@@ -15,7 +15,7 @@ the defect.  This module pins six things:
 * the fit refuses a restored or modified model before any learner or weight call;
 * a model pickled before the field existed loads, and a uniform-weight fit still replays;
 * a result restored with an undeclared callable weight keeps its stored estimates, and
-  every recomputation from it refuses;
+  every recomputation from it refuses, the replay before it runs the design or the weight;
 * a deliberate mutation that removes the refusal makes those witnesses fail;
 * on an exact law, a share weight declared ``"known"`` gets an influence curve that is right
   for the fixed-weight functional and understates the variance of the estimated-weight one.
@@ -38,6 +38,7 @@ import pytest
 
 import cleverly.longitudinal.estimator as ltmle_module
 import cleverly.msm as msm_module
+from cleverly import MSMProjection
 from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError
@@ -53,6 +54,7 @@ from cleverly.sensitivity import _simulated_confounding_fixed as replay_module
 from cleverly.sensitivity import simulated_confounding
 from tests import discrete_law as law
 from tests.conftest import OracleOutcome, OracleTreatment, linear_in_sample
+from tests.unit._confounding_support import Counter, forbid_draw_and_refit
 from tests.unit._declaration_support import (
     PATHWISE,
     assert_every_witness_fails,
@@ -66,7 +68,15 @@ from tests.unit._declaration_support import (
 )
 from tests.unit._declaration_support import legacy_result as legacy_result_of
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
-from tests.unit.test_simulated_confounding_policies import _GRID, _alias, _fit_msm
+from tests.unit.test_simulated_confounding_policies import (
+    _GRID,
+    _alias,
+    _estimate,
+    _fit_msm,
+    _MSMDesign,
+    _MSMWeight,
+    _study,
+)
 
 #: The two declaration refusals, imported from the module that raises them, so the text
 #: is written once.
@@ -378,6 +388,61 @@ class TestALegacyModelLoads:
         )
 
 
+def counted_msm_fit() -> tuple[Any, Counter, Counter]:
+    """A fitted MSM whose design and weight count their calls, restored with no declaration.
+
+    The counters are read off the restored result, because a pickle round trip copies them.
+    """
+    model = MSM(
+        design=Counter(_MSMDesign()),
+        terms=("intercept", "treatment", "baseline"),
+        weights=Counter(_MSMWeight()),
+        weights_kind="known",
+    )
+    old = legacy_result(_estimate(_study(), MSMProjection(model)))
+    design, weights = old.estimator.msm.design, old.estimator.msm.weights
+    design.calls = weights.calls = 0
+    return old, design, weights
+
+
+def validate_replay(result: Any) -> Any:
+    alias = _alias(result)
+    return replay_module.validate_fixed_replay(result, alias, result.parameter_keys[alias])
+
+
+class TestTheReplayChecksBeforeItEvaluates:
+    """``_freeze_msm`` checks the source model before ``MSMSet.evaluate`` runs it."""
+
+    def test_a_legacy_callable_weight_refuses_before_any_user_function_runs(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        old, design, weights = counted_msm_fit()
+        forbid_draw_and_refit(monkeypatch, old.estimator)
+        assert_refused(
+            lambda: simulated_confounding(old, estimand=_alias(old), grid=_GRID, random_state=31),
+            CapabilityError,
+            UNDECLARED,
+        )
+        assert_refused(lambda: validate_replay(old), CapabilityError, UNDECLARED)
+        assert design.calls == 0, "the design was evaluated before the refusal"
+        assert weights.calls == 0, "the weight was evaluated before the refusal"
+
+    def test_removing_the_replay_check_evaluates_both_functions(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The deliberate-mutation control: without the check the replay runs both.
+
+        ``replace`` still refuses the undeclared weight, because it builds the replay model
+        with the source model's declaration.  The refusal arrives after the user functions
+        ran, which is what the check removes.
+        """
+        old, design, weights = counted_msm_fit()
+        monkeypatch.setattr(replay_module, "refuse_msm_functions", lambda model: None)
+        assert_refused(lambda: validate_replay(old), CapabilityError, UNDECLARED)
+        assert design.calls == 2
+        assert weights.calls == 2
+
+
 def fitted_known() -> Any:
     """A fit whose model declares its callable weight known: the valid pre-load state."""
     return (
@@ -470,9 +535,10 @@ class TestTheWitnessesHaveTeeth:
         assert NeverFit.calls > 0, "the mutated LTMLE fit refused before a learner"
 
     def test_the_fit_layer_calls_the_shared_refusal(self) -> None:
-        """One refusal, one text: the fit layer calls the function the declaration does."""
+        """One refusal, one text: the fit layer and the replay call the declaration's check."""
         assert tmle_module.refuse_msm_functions is refuse_msm_functions
         assert ltmle_module.refuse_msm_functions is refuse_msm_functions
+        assert replay_module.refuse_msm_functions is refuse_msm_functions
 
 
 # ------------------------------------------------------------------ the witness
