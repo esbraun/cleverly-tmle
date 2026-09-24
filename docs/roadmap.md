@@ -2986,6 +2986,111 @@ The witnesses must fail when a component is wrong:
   `msm[a]` and `msm[W]` as negative controls;
 - a control shows that `MSM.linear`, and a design with a fixed centre, keep their intervals.
 
+The 2026-09-23 plan fixes the decisions in the table below. The RM13 and RM25 patterns supply each
+one, unless the row says otherwise.
+
+| part | decision |
+| --- | --- |
+| declaration | a field `design_kind` on `MSM`. It takes `"known"`, `"estimated"`, or `None`, and it defaults to `None`. Its annotation is the one that `density_kind` has: `FunctionKind` or `None`. No new public alias names it |
+| field order | `design_kind` is the last field, after `weights_kind`. So `link` stays the fourth positional argument, as the RM13 review required in commit 8a33661 |
+| a model saved before the field existed | the default is a plain class attribute, as in RM13, and no `__setstate__` is added. An old model loads with `design_kind` read as `None`, and `dataclasses.replace` still works on it |
+| shared declaration | a third `FunctionDeclaration`, `_DESIGN_DECLARATION`, beside `_WEIGHTS_DECLARATION` in `src/cleverly/msm.py`. Its meaning text says that the field declares whether the working design is a fixed function or one computed from the sample |
+| `MSM.linear` | it passes `design_kind="known"` itself, because `_LinearDesign` is known by construction. It takes no `design_kind` argument |
+| legacy rule | a private helper, `_design_kind(model)`, reads `"known"` when `design_kind` is `None` and `type(model.design) is _LinearDesign`. Otherwise it reads the field. Only the refusal and the replay call it |
+| why the exact type | a pickled `MSM.linear` model keeps the type `_LinearDesign`. A user can set `from_linear=True` on any design, and a subclass of `_LinearDesign` passes `isinstance`. Neither of those two shows a known design |
+| undeclared design | a callable `design` with `design_kind=None`, outside the legacy rule, raises `CapabilityError`. The message asks for `design_kind="known"`, and it says that `MSM.linear` declares its own design |
+| estimated design | `design_kind="estimated"` raises `CapabilityError`. The message names the pathwise derivative through the sample statistic. It asks the user to fix the statistic before the fit, for example to centre at a stated constant |
+| an unknown value | a value other than `"known"`, `"estimated"`, or `None` raises `DataError`, from the shared check |
+| a design that is not callable | `DataError`, as today. The message names both signatures: `(arm_label, covariate_frame) -> (n, p)` for a point treatment, and `(regimen_label, horizon, baseline_frame) -> (n, p)` for a longitudinal regimen MSM. Today it names only the first |
+| check function | `refuse_projection_weights` becomes `refuse_msm_functions`, with no alias. The function checks the design first, and then it runs the RM13 weight checks byte for byte. Only `cleverly.msm.__all__` lists the name, and no API page does |
+| check order | 1. a design that is not callable. 2. the design declaration: an unknown value, then `None` or `"estimated"`. 3. the RM13 weight checks. RM25 uses the same order for the density |
+| check sites | the four RM13 sites: `MSM.__post_init__`, `TMLE._resolve_estimands_for_data`, `TMLE._retarget_detailed`, and `LTMLE.fit`. `_freeze_msm` is a new fifth site. The table below gives the reason |
+| replay | `_freeze_msm` calls `refuse_msm_functions` before `MSMSet.evaluate` runs any design or weight. Its `replace` calls pass `design_kind=_design_kind(model)`, and never the literal `"known"` |
+| remedy texts | three messages send the user from `MSM.linear` to a written design. They are the `MSM.linear` docstring, the `_numeric_level` message, and the `from_linear` message in `cleverly.longitudinal.msm`. Each one adds `design_kind='known'` |
+| call sites | each `MSM(design=...)` in `tests/`, in the two registered generators, in the tutorial semantics, in the notebook, and in the `MSM` docstring example declares `design_kind="known"`. A call to `MSM.linear` needs no change |
+| `refuse_unsupported("estimated_design")` | not added. No caller needs a named refusal for the design |
+| docstrings | the `MSM` docstring lists all eight fields under `Parameters`, and it absorbs the `#:` comments of the fields. `MSM.linear` and `refuse_msm_functions` get full numpydoc sections. The site build does not validate `MSM`, so the delivery runs `python -m numpydoc validate` on the three objects |
+| a false declaration | not detected. A design computed from the sample and declared `"known"` fits. The exact-law witness below measures what the false statement costs |
+| `dataclasses.replace(model, design=new)` | it keeps the old `design_kind`, as `weights_kind` does for a new weight. The reference records this limit |
+
+The plan probes found two more surfaces on 0e09dd6. The table gives the decision for each.
+
+| surface | probe | decision |
+| --- | --- | --- |
+| replay of a result whose callable weight lost its declaration | `validate_fixed_replay` refuses with the RM13 message. Before the refusal, `MSMSet.evaluate` called the design two times and the weight two times. RM25 checks before its `RegimeSet.evaluate`, and RM13 does not | in this row. The replay check moves before `MSMSet.evaluate`, so both counts become zero |
+| a saved `LTMLE` MSM result | the pickled result carries no `MSM` object. After a load, its truncation curve calls no design and no weight, and it has no standard-error column. `refute` refuses a longitudinal fit (`src/cleverly/validation/refute.py:1037`) | not in this row. No user function runs on a recomputation, and no standard error is published. `tests/unit/test_longitudinal_truncation_refit.py` pins the column list |
+
+The RM13 record says that "`LTMLE` has no retarget sweep". That is not accurate.
+`longitudinal_truncation_curve` arrived in commit 4a8b09b on 2026-09-10, before RM13. The delivery
+record of this row corrects that sentence.
+
+The plan declares the exact-law witness here, before its test lands. The law and the fit are the
+2026-09-23 probe above. The test design is $[1, a, W - c]$, where $c$ is the sample mean of $W$.
+The test declares that design `"known"`, which is false. On this sample, $c$ is 0.7, so the
+fixed-centre design is $[1, a, W - 0.7]$.
+
+The omitted term is $T = \beta_W (W - 0.7)$ in the intercept curve. The test file is
+`tests/unit/test_msm_design_declaration.py`. The plan measured each value again on 0e09dd6. Each
+ratio is the reported standard error over the exact standard error, from second moments.
+
+| assertion | tolerance or bound | measured value |
+| --- | --- | --- |
+| the premise: $c = 0.7$, and each coefficient equals the fixed-centre projection | 1e-12 | at most 1.5e-14 |
+| the reported curve equals the fixed-centre Gateaux curve, term by term | 1e-10 | at most 1.9e-13 |
+| the exact curve minus the fixed-centre curve equals $T$ for the intercept, and zero for `a` and `W` | 1e-12 | 2.2e-16 and 4.4e-16 |
+| $E[T^2]$, the nonzero witness | above 0.05 | 0.0779 |
+| the intercept ratio, the witness | pinned at 0.8927 to 1e-4, and below 0.95 | 0.8927 |
+| the `msm[a]` and `msm[W]` ratios, the negative controls | within 1e-9 of 1 | within 2.0e-14 of 1 |
+| a design declared `"estimated"` on this law | refused before any learner | none, because the refusal does not exist yet |
+
+The probe measured 0.8927 before this plan chose the bound. The bound 0.95 claims an
+understatement of more than 5 percent. A curve that carried $T$ would read 1. The bound sits 0.057
+above the measured value, so it pins no digit. RM13 left a margin of 0.058 between 0.7417 and 0.8.
+The control tolerance of 1e-9 sits five orders of magnitude above the measured error.
+
+Two controls keep their intervals. The first is the fixed centre 0.7, declared `"known"`. Its curve
+equals the fixed-centre Gateaux curve to 1e-10, and it is bitwise equal to the witness curve. The
+second is `MSM.linear(modifiers=("W",), interaction=False)`, whose curve equals its Gateaux curve
+to 1e-10. Each control keeps the `influence_curve` status and a finite `ci`.
+
+The plan commits six mutations. Each one replaces a function through `monkeypatch`.
+
+| mutation | the witness that must fail |
+| --- | --- |
+| M1. `refuse_msm_functions` in `cleverly.msm` becomes a no-op | every declaration witness |
+| M2. the same in `cleverly.estimators.tmle` and `cleverly.longitudinal.estimator` | the fit witnesses, where `NeverFit` records fits, and the refusals of `truncation_curve()`, `retarget()`, and `refit()` on a legacy result |
+| M3. the same in the replay module | the replay witness. The design and the weight each run two times. Then `replace` refuses the undeclared design, which shows that the replay carries the declaration and does not forge it |
+| M4. the replay `replace` drops `design_kind` | a declared written design refuses at replay. The RM13 file holds the same test for the weight |
+| M5. `FunctionDeclaration.refuse` becomes a no-op | the RM13, RM25, and RM27 witnesses, in the extended RM25 test |
+| M6. the oracle freezes the centre | the ratio reads 1 and fails the bound of 0.95 |
+
+A further test checks that `cleverly.msm`, the two fit modules, and the replay module hold one
+function object.
+
+The plan runs twelve more mutations by hand. Each run copies the file to a backup, and it applies
+one mutation. It then runs the RM27, RM13, and RM25 test files. It restores the file, and it
+checks that the file matches its blob at HEAD. The delivery record gives the counts.
+
+| mutation | file | the witness that must fail |
+| --- | --- | --- |
+| H1. remove the `MSM.__post_init__` call | `src/cleverly/msm.py` | the declaration witnesses |
+| H2. remove the call in `_resolve_estimands_for_data` | `src/cleverly/estimators/tmle.py` | the `TMLE` fit witnesses |
+| H3. remove the call in `_retarget_detailed` | `src/cleverly/estimators/tmle.py` | the recomputations of a legacy result |
+| H4. remove the call in `LTMLE.fit` | `src/cleverly/longitudinal/estimator.py` | the `LTMLE` fit witnesses |
+| H5. move the `_freeze_msm` check after `MSMSet.evaluate` | `src/cleverly/sensitivity/_simulated_confounding_fixed.py` | the replay witnesses, because the design and the weight run before the refusal |
+| H6. `_design_kind` ignores the legacy rule | `src/cleverly/msm.py` | the legacy `MSM.linear` controls |
+| H7. the legacy rule reads `from_linear` | `src/cleverly/msm.py` | the forged `from_linear=True` witness |
+| H8. the legacy rule uses `isinstance` | `src/cleverly/msm.py` | the subclass witness |
+| H9. swap the undeclared and estimated texts | `src/cleverly/msm.py` | each test that matches either text |
+| H10. remove the callable check | `src/cleverly/msm.py` | the witnesses of a design that is not callable |
+| H11. `MSM.linear` stops passing `"known"` | `src/cleverly/msm.py` | the witness that reads `design_kind` on `MSM.linear` |
+| H12. the replay passes the literal `"known"`, with M3 applied | `src/cleverly/sensitivity/_simulated_confounding_fixed.py` | the M3 test |
+
+The plan regenerates no study. The generators of `tmle3_msm` and `ltmle_msm` gain only the
+`design_kind="known"` keyword. Only `refuse_msm_functions` and the replay read it, and the
+projection and the influence code do not change. A bitwise check on replicates 0 and 1 of each
+generator supports that judgment.
+
 ### RM28. Declared densities of user-written interventions
 
 The `Intervention` protocol is public, and the [interventions API page](api/interventions.md)
