@@ -198,17 +198,23 @@ TMLE refuses declared clusters at every setting, and cross-fitted longitudinal T
 above one fold, because no reviewed result covers a grouped draw of those splits.
 *Reconsider when* a cluster-level result covers the selection path or the sequential recursion.
 
-An MSM projection weight and a `Stochastic` density are user-supplied functions that the reported
-influence curve treats as fixed. Each carries a declaration with `"known"`, `"estimated"`, or
-`None`, and only `"known"` fits. A callable can close over an estimate, and code cannot inspect
-that closure.
+An MSM projection weight, an MSM design, and a `Stochastic` density are user-supplied functions
+that the reported influence curve treats as fixed. Each carries a declaration with `"known"`,
+`"estimated"`, or `None`, and only `"known"` fits. A callable can close over an estimate, and code
+cannot inspect that closure. `MSM.linear` builds its own design, so it declares that design
+`"known"`.
 
 The MSM and `Stochastic` objects refuse undeclared and estimated functions at construction. Their
 estimator paths check again before a fit or a result recomputation, because a restored object can
-carry an invalid declaration. `cleverly._declarations.FunctionDeclaration` shares the check and
-refusal texts. The declaration does not cover `Rule.rule`, `DynamicRegimen` rules, or custom
-`Intervention.density` methods. [RM28](roadmap.md#rm28-declared-densities-of-user-written-interventions)
-tracks those policy functions. *Reconsider when* the package adds supported inference for learned
+carry an invalid declaration. The simulated-confounding replay checks them before it evaluates any
+user function. Its replay model reads each MSM declaration from the source model, under the same
+rules as the fit. An MSM saved before `design_kind` existed reads as `"known"` only when its design
+has the exact type that `MSM.linear` builds.
+
+`cleverly._declarations.FunctionDeclaration` shares the check and refusal texts. The declaration
+does not cover `Rule.rule`, `DynamicRegimen` rules, or custom `Intervention.density` methods.
+[RM28](roadmap.md#rm28-declared-densities-of-user-written-interventions) tracks those policy
+functions. *Reconsider when* the package adds supported inference for learned
 policies or population-law-dependent intervention functions.
 
 A normalized method declaration either changes the selected engine request or fails before that
