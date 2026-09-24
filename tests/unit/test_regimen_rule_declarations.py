@@ -62,10 +62,10 @@ from cleverly.longitudinal import (
 )
 from cleverly.longitudinal.estimator import longitudinal_truncation_curve
 from cleverly.longitudinal.regimen import refuse_regimen_rules
-from tests.discrete_law_longitudinal import CellMeans
 from tests.pickles import legacy_without
 from tests.unit._confounding_support import Counter
 from tests.unit._declaration_support import (
+    PANEL_COLUMNS,
     PATHWISE,
     UNDECLARED_STATUS,
     assert_every_witness_fails,
@@ -73,6 +73,7 @@ from tests.unit._declaration_support import (
     assert_refused,
     assert_refused_before_any_call,
     assert_stored_interval_is_a_diagnostic,
+    never_fit_longitudinal_learners,
     panel,
     restored,
     restored_states,
@@ -82,7 +83,6 @@ from tests.unit._inference_status_support import assert_withholds
 from tests.unit._natural_course_support import NeverFit
 from tests.unit._policy_declaration_support import (
     CENTRE,
-    PANEL_COLUMNS,
     PSI,
     REGIMEN_EXACT_RATIO,
     REGIMEN_RATIO_PIN,
@@ -94,7 +94,6 @@ from tests.unit._policy_declaration_support import (
     exact_regimen_curve,
     fixed_regimen_curve,
     longitudinal_entries,
-    never_fit_longitudinal_learners,
     plugin_se,
     regimen_curve,
     regimen_fit,
@@ -518,7 +517,7 @@ def legacy_result(result: Any) -> Any:
 @pytest.fixture(scope="module")
 def regimen_result() -> Any:
     """A declared regimen fit in sample on the two-node law.  Its rule is module-level."""
-    return regimen_fit(threshold_regimen(rule_kind="known"))
+    return regimen_fit([threshold_regimen(rule_kind="known")])
 
 
 #: The cumulative bound grid of each truncation curve here.
@@ -570,25 +569,8 @@ class TestALegacyLongitudinalResultRefusesARecomputation:
 
 def status_fit(regimen: DynamicRegimen, frame: Any = None, **keywords: Any) -> Any:
     """A static regimen and ``regimen`` on the two-node law, with simultaneous bands."""
-    estimator = LTMLE(
-        [Regimen("never", (0, 0)), regimen],
-        reference="never",
-        n_folds=1,
-        simultaneous=True,
-        random_state=0,
-        **cell_mean_learners(),
-    )
-    data = threshold_frame(2) if frame is None else frame
-    return estimator.fit(data, **THRESHOLD_COLUMNS, **keywords)
-
-
-def cell_mean_learners() -> dict[str, Any]:
-    return {
-        "outcome_learner": CellMeans(),
-        "pseudo_learner": CellMeans(),
-        "treatment_learner": CellMeans(),
-        "censoring_learner": CellMeans(),
-    }
+    regimens = [Regimen("never", (0, 0)), regimen]
+    return regimen_fit(regimens, frame, reference="never", simultaneous=True, **keywords)
 
 
 @pytest.fixture(scope="module")
@@ -639,14 +621,7 @@ class TestARestoredUndeclaredResultWithholdsInference:
         restored_result = loads(dumps(banded_regimen_result))
         assert_keeps_its_interval(banded_regimen_result, restored_result)
         assert restored_result.simultaneous is not None
-        static = LTMLE(
-            {"always": 1, "never": 0},
-            reference="never",
-            n_folds=1,
-            simultaneous=True,
-            random_state=0,
-            **cell_mean_learners(),
-        ).fit(threshold_frame(2), **THRESHOLD_COLUMNS)
+        static = regimen_fit({"always": 1, "never": 0}, reference="never", simultaneous=True)
         assert_keeps_its_interval(static, loads(dumps(static)))
 
 
@@ -656,7 +631,8 @@ class TestARestoredUndeclaredResultWithholdsInference:
 @pytest.fixture(scope="module")
 def sample_regimen_fit() -> Any:
     """The regimen ``(1, d)`` at the sample mean, declared ``"known"``: an undetected lie."""
-    return regimen_fit(threshold_regimen(SampleThreshold.of(threshold_frame(2)), rule_kind="known"))
+    learned = SampleThreshold.of(threshold_frame(2))
+    return regimen_fit([threshold_regimen(learned, rule_kind="known")])
 
 
 class TestASampleThresholdNodeMisstatesTheVariance:
@@ -764,7 +740,7 @@ class TestAKnownNodeKeepsItsInterval:
         self, sample_regimen_fit: Any
     ) -> None:
         """A stated threshold of 0.5 reports the curve of the sample threshold, bit for bit."""
-        result = regimen_fit(threshold_regimen(rule_kind="known"))
+        result = regimen_fit([threshold_regimen(rule_kind="known")])
         estimate = result.estimates["ey_regimen[thr]"]
         assert estimate.inference == "influence_curve"
         assert np.all(np.isfinite(estimate.ci))
@@ -819,7 +795,7 @@ def remove_the_fit_check(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ltmle_module, "refuse_regimen_rules", lambda regimens: None)
 
 
-def drop_the_carry(monkeypatch: pytest.MonkeyPatch) -> None:
+def drop_the_resolve_carry(monkeypatch: pytest.MonkeyPatch) -> None:
     """Mutation R5: ``_resolve_one`` rebuilds a ``DynamicRegimen`` without its ``rule_kind``."""
     original = regimen_module._resolve_one
 
@@ -913,11 +889,11 @@ class TestTheWitnessesHaveTeeth:
         for name in [*RESTORED, INLINE_SHAPES[0]]:
             fit_witness(entry, name)
 
-    def test_dropping_the_carry_fails_the_declared_mapping_witness(
+    def test_dropping_the_resolve_carry_fails_the_declared_mapping_witness(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Mutation R5: the rebuilt regimen reads ``None``, so resolving it refuses."""
-        drop_the_carry(monkeypatch)
+        drop_the_resolve_carry(monkeypatch)
         witness = TestInlineCallablesAreRefused().test_a_declared_regimen_in_a_mapping_keeps_its_declaration
         with pytest.raises((AssertionError, CapabilityError)):
             witness()

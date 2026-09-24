@@ -4,14 +4,21 @@ r"""Builders for the tests of a declared treatment rule and a user-written inter
 of ``Rule`` and the density declaration of a user-written ``Intervention``.
 ``tests/unit/test_regimen_rule_declarations.py`` (RM28) tests the same rule declaration on
 the callable nodes of a ``DynamicRegimen``.  ``tests/unit/test_stochastic_regime_densities.py``
-lists all three among the users of the shared check.  This module holds what those files
-share:
+lists all three among the users of the shared check.  This module holds the builders of
+those files, and not all of them are shared:
 
-* module-level rules and user-written classes, so each one pickles, and each class counts
-  its ``density`` calls in ``calls``;
-* the threshold law of the RM28 witness, after Luedtke and van der Laan (2016), with its
-  closed forms, at one treatment node and at two;
-* every longitudinal fit entry that can reach a regimen, with ``NeverFit`` learners.
+* all three files use the unknown-value fragments, ``threshold_rule``,
+  ``threshold_regimen`` and ``DataTilt``;
+* both RM28 files use the threshold rules and the grid of the threshold law, after Luedtke
+  and van der Laan (2016);
+* only the rule file uses the other user-written classes, and the one-node law with its
+  closed forms and fit;
+* only the regimen file uses the two-node law with its closed forms and fit, and every
+  longitudinal fit entry that can reach a regimen, with ``NeverFit`` learners.
+
+The rules and classes are module-level, so each one pickles, and each class counts its
+``density`` calls in ``calls``.  Each law sits beside its closed forms, so a pin and the
+value it pins are written in one place.
 
 The threshold law is :math:`W \sim U(0, 1)`, :math:`A \mid W \sim \mathrm{Bern}(1/2)`, and
 :math:`Y = 3W + A + \varepsilon` with :math:`\varepsilon = \pm 1/4`.  The learned rule is
@@ -52,8 +59,7 @@ from cleverly.interventions import Rule
 from cleverly.interventions.base import refuse_regime_densities
 from cleverly.longitudinal import LTMLE, DynamicRegimen, ltmle
 from tests.discrete_law_longitudinal import CellMeans
-from tests.unit._declaration_support import panel
-from tests.unit._natural_course_support import NeverFit
+from tests.unit._declaration_support import PANEL_COLUMNS, never_fit_longitudinal_learners, panel
 from tests.unit._tilt_law_support import DGP, odds_tilt
 
 #: Fragments of the two unknown-value refusals.  The density declaration of a user-written
@@ -274,21 +280,32 @@ def exact_regimen_curve(frame: pd.DataFrame) -> np.ndarray:
 THRESHOLD_COLUMNS: dict[str, Any] = {"outcome": "Y", "treatment": ["A1", "A2"], "baseline": ["W"]}
 
 
-def regimen_fit(regimen: DynamicRegimen) -> Any:
-    """``regimen`` fitted in sample on the two-node law, with ``CellMeans`` in every slot."""
+def regimen_fit(
+    regimens: Any, frame: pd.DataFrame | None = None, *, id: str | None = None, **settings: Any
+) -> Any:
+    """``regimens`` fitted in sample on ``frame``, with ``CellMeans`` in every learner slot.
+
+    ``regimens`` is any ``regimens=`` value, and ``frame`` is the two-node law unless it is
+    given.  ``settings`` replace the ``LTMLE`` settings here, and ``id`` names a cluster
+    column of ``frame``.
+    """
     estimator = LTMLE(
-        [regimen],
-        outcome_learner=CellMeans(),
-        pseudo_learner=CellMeans(),
-        treatment_learner=CellMeans(),
-        censoring_learner=CellMeans(),
-        n_folds=1,
-        simultaneous=False,
-        max_iter=100,
-        tol=1e-10,
-        random_state=0,
+        regimens,
+        **{
+            "outcome_learner": CellMeans(),
+            "pseudo_learner": CellMeans(),
+            "treatment_learner": CellMeans(),
+            "censoring_learner": CellMeans(),
+            "n_folds": 1,
+            "simultaneous": False,
+            "max_iter": 100,
+            "tol": 1e-10,
+            "random_state": 0,
+            **settings,
+        },
     )
-    return estimator.fit(threshold_frame(2), **THRESHOLD_COLUMNS)
+    data = threshold_frame(2) if frame is None else frame
+    return estimator.fit(data, **THRESHOLD_COLUMNS, id=id)
 
 
 def regimen_curve(result: Any) -> np.ndarray:
@@ -297,51 +314,30 @@ def regimen_curve(result: Any) -> np.ndarray:
 
 # ------------------------------------------------------------------ the longitudinal entries
 
-#: The columns of :func:`tests.unit._declaration_support.panel`.
-PANEL_COLUMNS: dict[str, Any] = {
-    "outcome": "Y",
-    "treatment": ["A1", "A2"],
-    "baseline": ["W1"],
-    "censoring": ["C1", "C2"],
-}
 
-
-def never_fit_longitudinal_learners() -> dict[str, NeverFit]:
-    """Every longitudinal learner slot, each one a :class:`NeverFit`, with calls reset."""
-    NeverFit.calls = 0
-    return {
-        "outcome_learner": NeverFit(),
-        "pseudo_learner": NeverFit(),
-        "treatment_learner": NeverFit(),
-        "censoring_learner": NeverFit(),
-    }
-
-
-def longitudinal_entries(
-    frame: Callable[[], pd.DataFrame] = panel, columns: dict[str, Any] = PANEL_COLUMNS
-) -> dict[str, Callable[..., Any]]:
+def longitudinal_entries() -> dict[str, Callable[[Any], Any]]:
     """Every longitudinal fit entry that can reach a regimen, with ``NeverFit`` learners.
 
-    Each entry takes the raw ``regimens=`` value and keyword settings of ``LTMLE``, and fits
-    ``frame()`` on ``columns``: ``"fit"`` is ``LTMLE.fit``, ``"study"`` is
+    Each entry takes the raw ``regimens=`` value and fits :func:`panel` on
+    :data:`PANEL_COLUMNS`: ``"fit"`` is ``LTMLE.fit``, ``"study"`` is
     ``CausalStudy.estimate`` on a ``LongitudinalTreatment`` design, and ``"ltmle"`` is the
     one-call :func:`cleverly.longitudinal.ltmle`.  Each entry resets ``NeverFit.calls``.
     """
 
-    def fit(regimens: Any, **settings: Any) -> Any:
-        estimator = LTMLE(regimens, n_folds=1, **never_fit_longitudinal_learners(), **settings)
-        return estimator.fit(frame(), **columns)
+    def fit(regimens: Any) -> Any:
+        estimator = LTMLE(regimens, n_folds=1, **never_fit_longitudinal_learners())
+        return estimator.fit(panel(), **PANEL_COLUMNS)
 
-    def study(regimens: Any, **settings: Any) -> Any:
-        design = LongitudinalTreatment(**columns)
+    def study(regimens: Any) -> Any:
+        design = LongitudinalTreatment(**PANEL_COLUMNS)
         return (
-            CausalStudy(frame(), design=design)
+            CausalStudy(panel(), design=design)
             .identify(RegimeMean(regimens))
-            .estimate(cross_fit=False, **never_fit_longitudinal_learners(), **settings)
+            .estimate(cross_fit=False, **never_fit_longitudinal_learners())
         )
 
-    def one_call(regimens: Any, **settings: Any) -> Any:
+    def one_call(regimens: Any) -> Any:
         learners = never_fit_longitudinal_learners()
-        return ltmle(frame(), regimens=regimens, n_folds=1, **learners, **settings, **columns)
+        return ltmle(panel(), regimens=regimens, n_folds=1, **learners, **PANEL_COLUMNS)
 
     return {"fit": fit, "study": study, "ltmle": one_call}

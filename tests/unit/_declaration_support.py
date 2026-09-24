@@ -6,7 +6,8 @@
 :class:`cleverly._declarations.FunctionDeclaration`.  This module holds the parts that do
 not depend on which field is declared: the refusal checks, the restored states, a legacy
 point or longitudinal result and the checks of its status (RM28), the fit entries, the
-two-node :func:`panel`, and the exact-law oracle fit.  ``tests/unit/_msm_declaration_support.py``
+two-node :func:`panel` with its columns and ``NeverFit`` learners, and the exact-law oracle
+fit.  ``tests/unit/_msm_declaration_support.py``
 holds the MSM builders that the RM13 and RM27 files share, and
 ``tests/unit/_tilt_law_support.py`` holds the exact tilt law of the RM25 witness.  The test
 files import these support modules and not each other.
@@ -208,6 +209,26 @@ def panel(n: int = 60, seed: int = 0) -> pd.DataFrame:
             "Y": np.where(observed, rng.integers(0, 2, n).astype(float), np.nan),
         }
     )
+
+
+#: The columns of :func:`panel`, as ``LTMLE.fit`` and ``LongitudinalData.from_frame`` read them.
+PANEL_COLUMNS: dict[str, Any] = {
+    "outcome": "Y",
+    "treatment": ["A1", "A2"],
+    "baseline": ["W1"],
+    "censoring": ["C1", "C2"],
+}
+
+
+def never_fit_longitudinal_learners() -> dict[str, NeverFit]:
+    """Every longitudinal learner slot, each one a :class:`NeverFit`, with calls reset."""
+    NeverFit.calls = 0
+    return {
+        "outcome_learner": NeverFit(),
+        "pseudo_learner": NeverFit(),
+        "treatment_learner": NeverFit(),
+        "censoring_learner": NeverFit(),
+    }
 
 
 # ------------------------------------------------------------------ the exact-law witness

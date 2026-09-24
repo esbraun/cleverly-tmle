@@ -31,8 +31,14 @@ from cleverly.sensitivity import simulated_confounding
 from tests import discrete_law as law
 from tests.conftest import linear_in_sample
 from tests.unit._confounding_support import alias_for
-from tests.unit._declaration_support import legacy_result, panel, point_entries, tmle_module
-from tests.unit._natural_course_support import NeverFit
+from tests.unit._declaration_support import (
+    PANEL_COLUMNS,
+    legacy_result,
+    never_fit_longitudinal_learners,
+    panel,
+    point_entries,
+    tmle_module,
+)
 from tests.unit.test_simulated_confounding_msm import _GRID as DOSE_GRID
 from tests.unit.test_simulated_confounding_msm import _fit_continuous
 
@@ -96,24 +102,14 @@ def tmle_fit(model: MSM, learners: dict[str, Any]) -> Any:
 
 def ltmle_fit(model: MSM) -> Any:
     """``LTMLE.fit`` of a regimen ``model`` on :func:`panel`, with ``NeverFit`` learners."""
-    NeverFit.calls = 0
     estimator = LTMLE(
         {"always": 1, "never": 0},
         msm=model,
         n_folds=1,
         simultaneous=False,
-        outcome_learner=NeverFit(),
-        pseudo_learner=NeverFit(),
-        treatment_learner=NeverFit(),
-        censoring_learner=NeverFit(),
+        **never_fit_longitudinal_learners(),
     )
-    return estimator.fit(
-        panel(),
-        outcome="Y",
-        treatment=["A1", "A2"],
-        baseline=["W1"],
-        censoring=["C1", "C2"],
-    )
+    return estimator.fit(panel(), **PANEL_COLUMNS)
 
 
 def in_sample_fit(model: MSM) -> Any:
@@ -137,9 +133,7 @@ def evaluate_point(model: MSM) -> MSMSet:
 
 def evaluate_regimen(model: MSM) -> Any:
     """``evaluate_regimen_msm`` called directly on the panel of :func:`ltmle_fit`."""
-    data = LongitudinalData.from_frame(
-        panel(), outcome="Y", treatment=["A1", "A2"], baseline=["W1"], censoring=["C1", "C2"]
-    )
+    data = LongitudinalData.from_frame(panel(), **PANEL_COLUMNS)
     plans = resolve_plans(resolve_regimens({"always": 1, "never": 0}, data.n_times), data)
     return evaluate_regimen_msm(model, data, plans, (2,))
 

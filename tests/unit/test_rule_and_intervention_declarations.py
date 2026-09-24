@@ -612,12 +612,25 @@ RETARGETED = ("ey_regime", "ate_regime")
 RECOMPUTATIONS = ["truncation_curve", "retarget", "refit"]
 
 
+def referenced_rule() -> tuple[Static, Rule]:
+    """A ``Static`` reference and a declared ``Rule``: the regimes of every rule result here."""
+    return (Static(0, name="never"), threshold_rule(rule_kind="known"))
+
+
+def rule_fit(frame: pd.DataFrame | None = None, *, id: str | None = None, **settings: Any) -> Any:
+    """:func:`referenced_rule` fitted in sample on ``frame``, the default law unless given.
+
+    ``settings`` replace those of ``linear_in_sample``, and ``id`` names a cluster column.
+    """
+    estimator = TMLE(interventions=referenced_rule(), **linear_in_sample(**settings))
+    data = law.frame() if frame is None else frame
+    return estimator.fit(data, outcome="Y", treatment="A", id=id).single()
+
+
 @pytest.fixture(scope="module")
 def rule_result() -> Any:
     """A declared ``Rule`` fit on the default law, beside a ``Static`` reference."""
-    regimes = (Static(0, name="never"), threshold_rule(rule_kind="known"))
-    estimator = TMLE(interventions=regimes, **linear_in_sample())
-    return estimator.fit(law.frame(), outcome="Y", treatment="A").single()
+    return rule_fit()
 
 
 class TestALegacyRuleResultRefusesARecomputation:
@@ -654,9 +667,7 @@ def legacy_class_result(result: Any) -> Any:
 @pytest.fixture(scope="module")
 def banded_rule_result() -> Any:
     """The fit of :func:`rule_result` with simultaneous bands, which a restore must drop."""
-    regimes = (Static(0, name="never"), threshold_rule(rule_kind="known"))
-    estimator = TMLE(interventions=regimes, **linear_in_sample(simultaneous=True))
-    return estimator.fit(law.frame(), outcome="Y", treatment="A").single()
+    return rule_fit(simultaneous=True)
 
 
 @pytest.fixture(scope="module")
@@ -667,11 +678,8 @@ def user_class_result() -> Any:
 
 def clustered_rule_fit() -> Any:
     """The fit of :func:`rule_result` with 10 clusters, which takes ``"few_cluster_plugin"``."""
-    regimes = (Static(0, name="never"), threshold_rule(rule_kind="known"))
     frame = law.frame()
-    frame = frame.assign(cluster=np.arange(len(frame)) * 10 // len(frame))
-    estimator = TMLE(interventions=regimes, **linear_in_sample())
-    return estimator.fit(frame, outcome="Y", treatment="A", id="cluster").single()
+    return rule_fit(frame.assign(cluster=np.arange(len(frame)) * 10 // len(frame)), id="cluster")
 
 
 class TestARestoredUndeclaredResultWithholdsInference:
@@ -771,7 +779,7 @@ def counted_rule_fit() -> tuple[Any, Counter]:
     return old, function
 
 
-def drop_the_carry(monkeypatch: pytest.MonkeyPatch) -> None:
+def drop_the_replay_carry(monkeypatch: pytest.MonkeyPatch) -> None:
     """Mutation R6: the replay builds each frozen regime with ``density_kind=None``."""
 
     def dropping(*arguments: Any, density_kind: Any = None) -> Any:
@@ -831,7 +839,7 @@ class TestTheReplay:
     ) -> None:
         """Mutation R6: without the carry, the refit of a known rule's replay refuses."""
         result = _fit_policy("rule")
-        drop_the_carry(monkeypatch)
+        drop_the_replay_carry(monkeypatch)
         replay = validate_replay(result)
         assert_refused(lambda: replay.refit(result.data), CapabilityError, UNDECLARED_CLASS)
 
@@ -929,11 +937,11 @@ class TestTheWitnessesHaveTeeth:
         with pytest.raises(AssertionError):
             suite.test_an_undeclared_object_meets_the_declaration_refusal(refusal, kind)
 
-    def test_dropping_the_carry_fails_the_replay_witness(
+    def test_dropping_the_replay_carry_fails_the_replay_witness(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Mutation R6: the replay passes ``None``, and the refit of a known fit refuses."""
-        drop_the_carry(monkeypatch)
+        drop_the_replay_carry(monkeypatch)
         witness = TestTheReplay().test_a_known_rule_replays_with_the_declaration_of_each_source
         assert_every_witness_fails([witness])
 
