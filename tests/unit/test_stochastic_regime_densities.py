@@ -45,6 +45,7 @@ import pytest
 import cleverly._declarations as declarations_module
 import cleverly.interventions.base as base_module
 from cleverly import RegimeMean
+from cleverly.assessment import replayability
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, DataError
@@ -352,7 +353,12 @@ class TestALegacyResultKeepsItsPointEstimatesAndRefusesARecomputation:
 
     def test_the_stored_interval_becomes_a_diagnostic(self, result: Any) -> None:
         assert "ey_regime[coin]" in result.estimates
-        assert_stored_interval_is_a_diagnostic(result, legacy_result(result))
+        old = legacy_result(result)
+        assert_stored_interval_is_a_diagnostic(result, old)
+        assert not replayability(old).retarget_cached_nuisances
+        assert not replayability(old).refit_nuisances
+        assert not old.diagnostics.capability("truncation_curve").available
+        assert replayability(result).refit_nuisances
 
     @pytest.mark.parametrize("entry", ["truncation_curve", "retarget", "refit"])
     def test_every_recomputation_refuses(self, result: Any, entry: str) -> None:

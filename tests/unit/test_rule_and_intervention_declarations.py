@@ -53,6 +53,7 @@ import cleverly.interventions.base as base_module
 import cleverly.longitudinal.estimator as ltmle_module
 from cleverly import RegimeMean, variable_importance
 from cleverly._declarations import declaration_status
+from cleverly.assessment import replayability
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE, tmle
 from cleverly.estimators.serialize import dumps, loads
@@ -706,9 +707,10 @@ class TestALegacyRuleResultRefusesARecomputation:
         self, study_rule_result: Any, entry: str
     ) -> None:
         old, function = never_fitting(legacy_result(study_rule_result))
-        assert_refused_before_any_call(
-            lambda: REFUTATIONS[entry](old), function, "rule", UNDECLARED_RULE
-        )
+        # The facade reports its unavailable capability before the refutation reaches
+        # the estimator. A direct refutation reaches the estimator's specific refusal.
+        reason = "known-function declaration" if entry == "diagnostics.refute" else UNDECLARED_RULE
+        assert_refused_before_any_call(lambda: REFUTATIONS[entry](old), function, "rule", reason)
 
     @pytest.mark.parametrize("entry", list(REFUTATIONS))
     def test_the_declared_result_reaches_the_first_refit_learner(
@@ -764,6 +766,11 @@ class TestARestoredUndeclaredResultWithholdsInference:
         assert banded_rule_result.simultaneous is not None
         old = legacy_result(banded_rule_result)
         assert_stored_interval_is_a_diagnostic(banded_rule_result, old)
+        assert not replayability(old).retarget_cached_nuisances
+        assert not replayability(old).refit_nuisances
+        capability = old.diagnostics.capability("truncation_curve")
+        assert not capability.available
+        assert "known-function declaration" in capability.reason
 
     def test_a_restored_study_result_withholds_inference(self, study_rule_result: Any) -> None:
         """A ``CausalStudy`` result restores through the same status hook as a fit."""
@@ -773,6 +780,8 @@ class TestARestoredUndeclaredResultWithholdsInference:
     def test_a_restored_user_class_result_withholds_inference(self, user_class_result: Any) -> None:
         old = legacy_class_result(user_class_result)
         assert_stored_interval_is_a_diagnostic(user_class_result, old)
+        assert not replayability(old).retarget_cached_nuisances
+        assert not replayability(old).refit_nuisances
 
     @pytest.mark.parametrize("kind", ["estimated", "Known"])
     def test_a_modified_declaration_withholds_inference(self, rule_result: Any, kind: str) -> None:
@@ -793,7 +802,10 @@ class TestARestoredUndeclaredResultWithholdsInference:
     ) -> None:
         """The control: a declared rule and a declared class load under their interval."""
         for result in (banded_rule_result, user_class_result):
-            assert_keeps_its_interval(result, loads(dumps(result)))
+            restored_result = loads(dumps(result))
+            assert_keeps_its_interval(result, restored_result)
+            assert replayability(restored_result).retarget_cached_nuisances
+            assert replayability(restored_result).refit_nuisances
         assert loads(dumps(banded_rule_result)).simultaneous is not None
 
     def test_a_live_configuration_meets_the_declaration_refusal(self) -> None:

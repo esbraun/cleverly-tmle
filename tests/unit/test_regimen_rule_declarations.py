@@ -48,6 +48,7 @@ import pytest
 
 import cleverly.longitudinal.estimator as ltmle_module
 import cleverly.longitudinal.regimen as regimen_module
+from cleverly.assessment import replayability
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError, LongitudinalError
 from cleverly.interventions import base as base_module
@@ -569,8 +570,14 @@ class TestALegacyLongitudinalResultRefusesARecomputation:
 
     def test_the_assessment_entry_refuses(self, regimen_result: Any) -> None:
         old = legacy_result(regimen_result)
+        assert not replayability(old).refit_nuisances
+        capability = old.diagnostics.capability("truncation_curve")
+        assert not capability.available
+        assert "saved regimen rule lacks" in capability.reason
         assert_refused(
-            lambda: old.diagnostics.truncation_curve(BOUNDS), CapabilityError, UNDECLARED
+            lambda: old.diagnostics.truncation_curve(BOUNDS),
+            CapabilityError,
+            "saved regimen rule lacks",
         )
 
     def test_a_modified_declaration_refuses(self, regimen_result: Any) -> None:
@@ -582,7 +589,10 @@ class TestALegacyLongitudinalResultRefusesARecomputation:
 
     def test_the_declared_result_recomputes(self, regimen_result: Any) -> None:
         """The control: the same curve on the result before the declaration was lost."""
-        curve = longitudinal_truncation_curve(loads(dumps(regimen_result)), BOUNDS)
+        restored = loads(dumps(regimen_result))
+        assert replayability(restored).refit_nuisances
+        assert restored.diagnostics.capability("truncation_curve").available
+        curve = longitudinal_truncation_curve(restored, BOUNDS)
         assert list(curve["estimand"]) == ["ey_regimen[thr]"]
 
 

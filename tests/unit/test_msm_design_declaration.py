@@ -48,6 +48,7 @@ import cleverly.longitudinal.estimator as ltmle_module
 import cleverly.longitudinal.msm as regimen_msm_module
 import cleverly.msm as msm_module
 from cleverly import MSMProjection
+from cleverly.assessment import replayability
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.msm import (
@@ -445,7 +446,12 @@ class TestALegacyResultKeepsItsPointEstimatesAndRefusesARecomputation:
 
     def test_the_stored_interval_becomes_a_diagnostic(self, result: Any) -> None:
         assert "msm[W]" in result.estimates
-        assert_stored_interval_is_a_diagnostic(result, legacy_result(result))
+        old = legacy_result(result)
+        assert_stored_interval_is_a_diagnostic(result, old)
+        assert not replayability(old).retarget_cached_nuisances
+        assert not replayability(old).refit_nuisances
+        assert not old.diagnostics.capability("truncation_curve").available
+        assert replayability(result).refit_nuisances
 
     def test_a_legacy_shorthand_result_keeps_its_interval(self, shorthand: Any) -> None:
         """The over-refusal control: ``MSM.linear`` saved before both declarations existed."""

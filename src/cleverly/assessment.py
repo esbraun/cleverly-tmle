@@ -31,7 +31,7 @@ from ._assessment_cache import (
 from ._inference_status import precedent_status, status_record, supplies_inference
 from ._typing import CumulativeGBounds
 from .data.weighting import REPORTED_DRAW, format_score_load
-from .exceptions import CapabilityError, inference_refusal
+from .exceptions import CapabilityError, DataError, inference_refusal
 from .inference.influence import spread_name
 from .targets.population_intervention import (
     NATURAL_COURSE_SUPPORT_REFUSAL,
@@ -1147,17 +1147,38 @@ def replayability(result: Any) -> Replayability:
     """Derive replay capabilities from stored artifacts and the normalized method."""
 
     if _family(result) == "longitudinal":
-        from .longitudinal.estimator import LONGITUDINAL_REPLAY_RECIPE_MISSING
+        from .longitudinal.estimator import (
+            LONGITUDINAL_REPLAY_MSM_DECLARATION,
+            LONGITUDINAL_REPLAY_RECIPE_MISSING,
+            LONGITUDINAL_REPLAY_REGIMEN_DECLARATION,
+        )
+        from .longitudinal.msm import refuse_evaluated_msm_functions
+        from .longitudinal.regimen import refuse_regimen_rules
 
         recipe = getattr(result, "replay_recipe", None)
-        missing = (
-            (LONGITUDINAL_REPLAY_RECIPE_MISSING,) if recipe is None else tuple(recipe.omissions)
-        )
-        return Replayability(True, False, False, not missing, False, missing)
+        missing = [LONGITUDINAL_REPLAY_RECIPE_MISSING] if recipe is None else list(recipe.omissions)
+        # These are the same guards the replay runs. An old artifact may retain every
+        # learner template and evaluated array yet lack the declarations needed to use
+        # them as a new fitted result.
+        try:
+            refuse_regimen_rules(result.config.regimens)
+        except (CapabilityError, DataError):
+            missing.append(LONGITUDINAL_REPLAY_REGIMEN_DECLARATION)
+        try:
+            refuse_evaluated_msm_functions(result.msm)
+        except (CapabilityError, DataError):
+            missing.append(LONGITUDINAL_REPLAY_MSM_DECLARATION)
+        return Replayability(True, False, False, not missing, False, tuple(missing))
 
     estimator = getattr(result, "estimator", None)
     if estimator is None:
         return Replayability(True, False, False, False, False, ("estimator configuration",))
+    refuse_functions = getattr(estimator, "_refuse_undeclared_functions", None)
+    if callable(refuse_functions):
+        try:
+            refuse_functions()
+        except (CapabilityError, DataError):
+            return Replayability(True, False, False, False, False, (POINT_REPLAY_DECLARATION,))
     return Replayability(True, True, False, True, False)
 
 
@@ -1219,6 +1240,7 @@ def _method_gated(item: AssessmentCapability, method: str) -> AssessmentCapabili
 #: it cannot do is come back from a clone with the same draws.  Saying "no longer carries"
 #: there sends a reader to look for a field that nothing dropped.
 _REPLAY_ARTIFACT_MISSING = "this stored result no longer carries the components it needs"
+POINT_REPLAY_DECLARATION = "point_replay_function_declaration"
 
 
 def _replay_omission_causes() -> dict[str, str]:
@@ -1230,11 +1252,17 @@ def _replay_omission_causes() -> dict[str, str]:
         Stable omission code to the sentence a refusal uses for it.
     """
     from .longitudinal.estimator import (
+        LONGITUDINAL_REPLAY_MSM_DECLARATION,
         LONGITUDINAL_REPLAY_RANDOM_STATE_NON_INTEGER,
         LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED,
+        LONGITUDINAL_REPLAY_REGIMEN_DECLARATION,
     )
 
     return {
+        POINT_REPLAY_DECLARATION: (
+            "a saved regime or MSM function lacks an accepted known-function declaration; "
+            "refit with the original functions declared known to restore recomputation"
+        ),
         LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED: (
             "a retained learner template declares no random_state, so a clone of it cannot "
             "repeat this fit's draws"
@@ -1242,6 +1270,14 @@ def _replay_omission_causes() -> dict[str, str]:
         LONGITUDINAL_REPLAY_RANDOM_STATE_NON_INTEGER: (
             "a retained learner template carries a random generator object rather than an "
             "integer seed, so a clone of it cannot repeat this fit's draws"
+        ),
+        LONGITUDINAL_REPLAY_REGIMEN_DECLARATION: (
+            "a saved regimen rule lacks an accepted known-function declaration; refit the "
+            "original regimen with rule_kind='known' to restore replay"
+        ),
+        LONGITUDINAL_REPLAY_MSM_DECLARATION: (
+            "a saved MSM projection lacks proof that its design and weights were declared "
+            "known; refit the original MSM with known functions to restore replay"
         ),
     }
 

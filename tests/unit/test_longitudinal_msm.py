@@ -15,6 +15,7 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+from cleverly.assessment import replayability
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.longitudinal import LTMLE, LongitudinalData, resolve_plans, resolve_regimens
@@ -106,6 +107,8 @@ class TestSavedWorkingModelDeclarations:
         restored = loads(dumps(known))
         assert restored.msm.functions_kind == "known"
         assert restored.inference_status == "influence_curve"
+        assert replayability(restored).refit_nuisances
+        assert restored.diagnostics.capability("truncation_curve").available
         for name, estimate in known.estimates.items():
             assert restored[name].psi == estimate.psi
             assert restored[name].ci == estimate.ci
@@ -130,7 +133,11 @@ class TestSavedWorkingModelDeclarations:
                 _ = legacy[name].ci
         assert legacy.simultaneous is None
         assert legacy.assessment_cache == {}
-        with pytest.raises(CapabilityError, match="Refit the original MSM"):
+        assert not replayability(legacy).refit_nuisances
+        capability = legacy.diagnostics.capability("truncation_curve")
+        assert not capability.available
+        assert "saved MSM projection lacks proof" in capability.reason
+        with pytest.raises(CapabilityError, match="saved MSM projection lacks proof"):
             legacy.diagnostics.truncation_curve([0.2])
 
     def test_legacy_fit_without_an_msm_keeps_its_interval(self) -> None:

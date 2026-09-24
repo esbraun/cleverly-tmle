@@ -154,6 +154,8 @@ LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE = "longitudinal_replay_learner_unclonable
 LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED = "longitudinal_replay_random_state_unseeded"
 LONGITUDINAL_REPLAY_RANDOM_STATE_NON_INTEGER = "longitudinal_replay_random_state_non_integer"
 LONGITUDINAL_REPLAY_FITTED_BOUND_MISMATCH = "longitudinal_replay_fitted_bound_mismatch"
+LONGITUDINAL_REPLAY_REGIMEN_DECLARATION = "longitudinal_replay_regimen_declaration"
+LONGITUDINAL_REPLAY_MSM_DECLARATION = "longitudinal_replay_msm_declaration"
 
 #: Match the point-treatment estimator's warning threshold.  The exact share remains
 #: available in ``diagnostics()`` below this value; the warning is only the interruption.
@@ -2714,6 +2716,7 @@ def _refit_bound(
         When the replay did not report a parameter the fit reports.
     """
 
+    refuse_regimen_rules(result.config.regimens)
     refuse_evaluated_msm_functions(result.msm)
     if recipe.outcome_learner is None or recipe.pseudo_learner is None:
         _refuse_replay(LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE)
