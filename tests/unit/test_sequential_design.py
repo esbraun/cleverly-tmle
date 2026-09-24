@@ -33,7 +33,7 @@ import sklearn.linear_model
 from sklearn.linear_model import LogisticRegression
 
 from cleverly.datasets import make_longitudinal_survival
-from cleverly.longitudinal import LTMLE, LongitudinalData
+from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalData
 
 COLUMNS: dict[str, Any] = {
     "outcome": "Y",
@@ -49,7 +49,9 @@ COLUMNS: dict[str, Any] = {
 #: comparison in the first place, and would hide the mutation from a width check here.
 REGIMENS: dict[str, Any] = {
     "never": 0,
-    "treat if l2 rises": (1, lambda history: history["L2"] > 0.0),
+    "treat if l2 rises": DynamicRegimen(
+        "treat if l2 rises", (1, lambda history: history["L2"] > 0.0), rule_kind="known"
+    ),
 }
 
 

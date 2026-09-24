@@ -97,6 +97,7 @@ from tests.unit._policy_declaration_support import (
     RULE_UNKNOWN,
     DataTilt,
     checked,
+    threshold_regimen,
     threshold_rule,
 )
 from tests.unit._simulated_confounding_support import (
@@ -495,6 +496,7 @@ class TestTheWitnessesHaveTeeth:
         assert coin().density_kind is None
         assert written().design_kind is None
         assert threshold_rule().rule_kind is None
+        assert threshold_regimen().rule_kind is None
 
 
 #: Each refusal that ``FunctionDeclaration.refuse`` decides: a build, the error it raises,
@@ -532,6 +534,21 @@ SHARED_REFUSALS: dict[str, tuple[Callable[[], Any], type[Exception], tuple[str, 
         (_ESTIMATED_RULE, PATHWISE),
     ),
     "unknown rule": (lambda: threshold_rule(rule_kind="Known"), DataError, (RULE_UNKNOWN,)),
+    "undeclared regimen": (
+        threshold_regimen,
+        CapabilityError,
+        (_UNDECLARED_RULE, "DynamicRegimen(label, plan, rule_kind='known')"),
+    ),
+    "estimated regimen": (
+        lambda: threshold_regimen(rule_kind="estimated"),
+        CapabilityError,
+        (_ESTIMATED_RULE, PATHWISE),
+    ),
+    "unknown regimen": (
+        lambda: threshold_regimen(rule_kind="Known"),
+        DataError,
+        (RULE_UNKNOWN,),
+    ),
     "undeclared intervention": (
         lambda: checked(DataTilt()),
         CapabilityError,
@@ -560,6 +577,7 @@ DECLARATION_USERS: dict[str, tuple[Callable[[Any], Any], str, str]] = {
     "regime density": (lambda kind: coin(density_kind=kind), UNKNOWN, "density_kind"),
     "msm design": (lambda kind: written(design_kind=kind), DESIGN_UNKNOWN, "design_kind"),
     "rule": (lambda kind: threshold_rule(rule_kind=kind), RULE_UNKNOWN, "rule_kind"),
+    "regimen": (lambda kind: threshold_regimen(rule_kind=kind), RULE_UNKNOWN, "rule_kind"),
     "intervention": (
         lambda kind: checked(DataTilt(density_kind=kind)),
         INTERVENTION_UNKNOWN,

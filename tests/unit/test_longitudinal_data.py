@@ -141,7 +141,7 @@ class TestWhatARuleIsHandedAndWhatItMayReturn:
             return np.zeros(len(history))
 
         LTMLE(
-            {"watched": (watcher, watcher)},
+            [DynamicRegimen("watched", (watcher, watcher), rule_kind="known")],
             outcome_learner=sklearn.linear_model.LinearRegression(),
             pseudo_learner=sklearn.linear_model.LinearRegression(),
             treatment_learner=SuperLearner(
@@ -161,13 +161,15 @@ class TestWhatARuleIsHandedAndWhatItMayReturn:
 
     def test_refuses_a_rule_that_returns_the_wrong_number_of_rows(self) -> None:
         data = build(panel())
-        regimen = DynamicRegimen("short", (lambda history: np.zeros(3), 0.0))
+        regimen = DynamicRegimen("short", (lambda history: np.zeros(3), 0.0), rule_kind="known")
         with pytest.raises(DataError, match="one arm per row"):
             regimen.assignment(data)
 
     def test_refuses_a_rule_that_returns_an_unknown_label(self) -> None:
         data = build(panel())
-        regimen = DynamicRegimen("dose", (lambda history: np.full(data.n, 0.5), 0.0))
+        regimen = DynamicRegimen(
+            "dose", (lambda history: np.full(data.n, 0.5), 0.0), rule_kind="known"
+        )
         with pytest.raises(DataError, match=r"assigns 0.5 at time 1.*levels"):
             resolve_plans((regimen,), data)
 
@@ -179,7 +181,9 @@ class TestWhatARuleIsHandedAndWhatItMayReturn:
         rather than let a bare ``KeyError`` surface.
         """
         data = build(panel())
-        regimen = DynamicRegimen("too early", (lambda history: history["L2"],) * 2)
+        regimen = DynamicRegimen(
+            "too early", (lambda history: history["L2"],) * 2, rule_kind="known"
+        )
         with pytest.raises(DataError, match=r"time 1 .*raised KeyError"):
             regimen.assignment(data)
         with pytest.raises(DataError, match=r"\['W1'\]"):
@@ -196,7 +200,11 @@ class TestWhatARuleIsHandedAndWhatItMayReturn:
         -- on precisely the rows the fill created.
         """
         data = build(panel())
-        regimen = DynamicRegimen("reciprocal", (0.0, lambda history: history["L2"] / history["L2"]))
+        regimen = DynamicRegimen(
+            "reciprocal",
+            (0.0, lambda history: history["L2"] / history["L2"]),
+            rule_kind="known",
+        )
         assigned = regimen.assignment(data)
         (plan,) = resolve_plans((regimen,), data)
         censored = ~data.uncensored_through(1)
@@ -243,7 +251,11 @@ def test_the_fill_cannot_reach_the_estimate() -> None:
     regimens: dict[str, Any] = {
         "always": 1,
         "never": 0,
-        "treat if l2 rises": (0, lambda history: (history["L2"] > 0.0).astype(float)),
+        "treat if l2 rises": DynamicRegimen(
+            "treat if l2 rises",
+            (0, lambda history: (history["L2"] > 0.0).astype(float)),
+            rule_kind="known",
+        ),
     }
     frame = panel(n=400, seed=3)
     settings: dict[str, Any] = {
@@ -447,7 +459,13 @@ def test_the_refusal_names_the_arms_a_rule_wanted() -> None:
     frame.loc[treated_first, "A2"] = "intensive"
     with pytest.raises(LongitudinalError, match=r"assigned 'intensive' to \d+, 'none' to 0"):
         LTMLE(
-            {"escalate": (0, lambda history: np.full(len(history), "intensive"))},
+            [
+                DynamicRegimen(
+                    "escalate",
+                    (0, lambda history: np.full(len(history), "intensive")),
+                    rule_kind="known",
+                )
+            ],
             outcome_learner=sklearn.linear_model.LinearRegression(),
             pseudo_learner=sklearn.linear_model.LinearRegression(),
             treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
@@ -565,12 +583,14 @@ class TestRegimens:
     def test_a_rule_that_reads_the_history_is_a_dynamic_regimen(self) -> None:
         """This used to be a refusal, and the shape of the replacement is the point.
 
-        A callable plan is broadcast across the nodes exactly as a scalar arm is, and
-        comes back a ``DynamicRegimen`` rather than a ``Regimen`` -- so which class
-        ``resolve_regimens`` returns *is* the statement about whether the followers are a
-        fixed slice or a set this sample determines.
+        A declared plan of rules comes back a ``DynamicRegimen`` rather than a
+        ``Regimen`` -- so which class ``resolve_regimens`` returns *is* the statement
+        about whether the followers are a fixed slice or a set this sample determines.
+        A bare callable is no longer broadcast: it carries no declaration, and
+        ``tests/unit/test_regimen_rule_declarations.py`` pins its refusal (RM28).
         """
-        resolved = resolve_regimens({"dynamic": lambda history: history["W"]}, 2)
+        rule = DynamicRegimen("dynamic", (lambda history: history["W"],) * 2, rule_kind="known")
+        resolved = resolve_regimens({"dynamic": rule}, 2)
         assert isinstance(resolved[0], DynamicRegimen)
         assert len(resolved[0].plan) == 2
         assert all(callable(node) for node in resolved[0].plan)
@@ -584,7 +604,8 @@ class TestRegimens:
         assert isinstance(resolve_regimens({"early": (1, 0)}, 2)[0], Regimen)
 
     def test_a_plan_may_mix_a_constant_node_with_a_rule(self) -> None:
-        resolved = resolve_regimens({"then decide": (1, lambda history: history["L2"])}, 2)
+        rule = DynamicRegimen("then decide", (1, lambda history: history["L2"]), rule_kind="known")
+        resolved = resolve_regimens([rule], 2)
         assert isinstance(resolved[0], DynamicRegimen)
         assert resolved[0].plan[0] == 1.0
         assert resolved[0].is_rule(2) and not resolved[0].is_rule(1)

@@ -123,6 +123,7 @@ from .regimen import (
     Plan,
     RegimenSpec,
     describe_plan,
+    refuse_regimen_rules,
     resolve_plans,
     resolve_regimens,
 )
@@ -190,7 +191,8 @@ _REFUSED: dict[str, str] = {
         "a regime is a density over the arms at one node, and a regimen is a plan "
         "across nodes -- so the longitudinal analogue of a rule d(W) is not a further "
         "parameter axis but a regimen whose nodes are rules. Declare it in regimens=, "
-        "for example regimens={'treat once L2 rises': (0, lambda h: h['L2'] > 0)}"
+        "for example regimens=[DynamicRegimen('treat once L2 rises', (0, lambda h: "
+        "h['L2'] > 0), rule_kind='known')], with DynamicRegimen from cleverly.longitudinal"
     ),
     "shifts": (
         "a shift moves a continuous dose, and a longitudinal fit takes a binary "
@@ -1809,9 +1811,13 @@ class LTMLE:
 
     Parameters
     ----------
-    regimens:
+    regimens : mapping, Regimen, DynamicRegimen, or sequence of regimens
         Mapping from label to plan: a sequence of ``T`` arms, or a single arm meaning
-        that arm at every node.  ``{"always": 1, "never": 0}`` is the usual pair.
+        that arm at every node.  ``{"always": 1, "never": 0}`` is the usual pair.  A plan
+        with a rule node is a :class:`~cleverly.longitudinal.DynamicRegimen` declared
+        ``rule_kind="known"``, as a mapping value or an item of a sequence.  A callable
+        written inline in a mapping carries no declaration, and :meth:`fit` refuses it
+        before any learner (roadmap row RM28).
     reference:
         Which regimen contrasts are taken against; the first declared by default.
         Part of the estimand rather than a display setting -- ``ate_regimen[a vs b]``
@@ -2038,6 +2044,10 @@ class LTMLE:
             # weight declarations only when it is declared, and a restored or modified
             # model can carry one this version refuses.
             refuse_msm_functions(self.msm)
+        # The raw ``regimens=``, before ``_prepare`` and any learner: an inline callable
+        # carries no declaration, and a restored or modified regimen can carry one this
+        # version refuses.  Its refusal comes before any refusal of the data or the design.
+        refuse_regimen_rules(self.regimens)
         prepared = self._prepare(
             data,
             outcome=outcome,
@@ -2769,11 +2779,21 @@ def longitudinal_truncation_curve(
     Raises
     ------
     CapabilityError
-        When the grid is empty or holds a bound this package cannot resolve, when it names
-        an estimand this fit does not report, or when the stored artifacts cannot replay the
-        recursion.
-    """
+        When a regimen of the result has a rule node that is not declared
+        ``rule_kind="known"``, when the grid is empty or holds a bound this package cannot
+        resolve, when it names an estimand this fit does not report, or when the stored
+        artifacts cannot replay the recursion.
+    DataError
+        When a regimen of the result carries a ``rule_kind`` outside the three states.
 
+    Notes
+    -----
+    It runs :func:`~cleverly.longitudinal.regimen.refuse_regimen_rules` on
+    ``result.config.regimens`` first.  A result restored from an older pickle, or a
+    regimen changed with ``object.__setattr__``, can carry a declaration this version
+    refuses, and the replay would report a recomputation for it (roadmap row RM28).
+    """
+    refuse_regimen_rules(result.config.regimens)
     recipe = getattr(result, "replay_recipe", None)
     if recipe is None:
         _refuse_replay(LONGITUDINAL_REPLAY_RECIPE_MISSING)

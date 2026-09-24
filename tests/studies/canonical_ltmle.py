@@ -18,7 +18,7 @@ from scipy.special import expit
 from sklearn.base import BaseEstimator
 
 from cleverly.datasets import RULE_LABEL, make_longitudinal, rule_arm_at_node_two
-from cleverly.longitudinal import LTMLE
+from cleverly.longitudinal import LTMLE, DynamicRegimen
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
@@ -39,10 +39,34 @@ SEED = 20260822
 SCENARIO = "censored_end_of_study"
 G_BOUNDS = (1e-8, 1.0)
 
+
+def declared_regimens(spec: Mapping[str, Any]) -> dict[str, Any]:
+    """``spec`` with each plan that holds a rule declared known (roadmap row RM28).
+
+    The oracles ``tests/discrete_law*.py`` state their plans without importing ``cleverly``,
+    so a callable node there carries no declaration, and a fit refuses it.  Each such plan
+    becomes ``DynamicRegimen(label, plan, rule_kind="known")``, because each is a fixed
+    function of the node history.  A static plan is unchanged.  Every study that fits an
+    oracle's plans imports this module already, so no manifest gains a module.
+    """
+    return {
+        label: (
+            DynamicRegimen(label, tuple(plan), rule_kind="known")
+            if isinstance(plan, tuple) and any(callable(node) for node in plan)
+            else plan
+        )
+        for label, plan in spec.items()
+    }
+
+
 REGIMENS: dict[str, Any] = {
     "never": 0,
     "always": 1,
-    RULE_LABEL: (1, lambda history: rule_arm_at_node_two(history["L2"])),
+    RULE_LABEL: DynamicRegimen(
+        RULE_LABEL,
+        (1, lambda history: rule_arm_at_node_two(history["L2"])),
+        rule_kind="known",
+    ),
 }
 REFERENCE = "never"
 MEAN_NAMES = tuple(f"ey_regimen[{label}]" for label in REGIMENS)
@@ -237,6 +261,8 @@ def untargeted(frame: pd.DataFrame, label: str) -> float:
     much of the agreement between the two implementations the fluctuation is responsible for.
     """
     plan = REGIMENS[label]
+    if isinstance(plan, DynamicRegimen):
+        plan = plan.plan
     baseline = frame[["W1", "W2"]].to_numpy(dtype=float)
     l2 = np.nan_to_num(frame["L2"].to_numpy(dtype=float))
     history = np.column_stack([baseline, l2])

@@ -2,13 +2,16 @@ r"""Builders for the tests of a declared treatment rule and a user-written inter
 
 ``tests/unit/test_rule_and_intervention_declarations.py`` (RM28) tests the rule declaration
 of ``Rule`` and the density declaration of a user-written ``Intervention``.
-``tests/unit/test_stochastic_regime_densities.py`` lists both among the users of the shared
-check.  This module holds what those files share:
+``tests/unit/test_regimen_rule_declarations.py`` (RM28) tests the same rule declaration on
+the callable nodes of a ``DynamicRegimen``.  ``tests/unit/test_stochastic_regime_densities.py``
+lists all three among the users of the shared check.  This module holds what those files
+share:
 
 * module-level rules and user-written classes, so each one pickles, and each class counts
   its ``density`` calls in ``calls``;
 * the threshold law of the RM28 witness, after Luedtke and van der Laan (2016), with its
-  closed forms.
+  closed forms, at one treatment node and at two;
+* every longitudinal fit entry that can reach a regimen, with ``NeverFit`` learners.
 
 The threshold law is :math:`W \sim U(0, 1)`, :math:`A \mid W \sim \mathrm{Bern}(1/2)`, and
 :math:`Y = 3W + A + \varepsilon` with :math:`\varepsilon = \pm 1/4`.  The learned rule is
@@ -24,10 +27,18 @@ The sample is the midpoint grid :math:`W_j = (j - 1/2)/200`, with four rows at e
 its residuals, so the cell means are the true :math:`Q`, :math:`g = 1/2`, and the targeting
 step moves nothing.  The tilt law of the user-written class is in
 ``tests/unit/_tilt_law_support.py``.
+
+The two-node law draws :math:`A_1` and :math:`A_2` from :math:`\mathrm{Bern}(1/2)`, with
+:math:`Y = 3W + A_2 + \varepsilon`.  The regimen :math:`(1, d)` has the fixed-rule curve
+:math:`D = 4 \cdot 1\{A_1 = 1, A_2 = d(W)\}\varepsilon + 3W + d(W) - \psi`, whose node-one
+term is zero, so :math:`E[D^2] = 1/2` and the ratio is :math:`\sqrt{3/5}`.  Its grid holds
+eight rows at each point.
 """
 
 from __future__ import annotations
 
+import itertools
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -35,10 +46,14 @@ import numpy as np
 import pandas as pd
 from scipy.integrate import quad
 
+from cleverly import CausalStudy, LongitudinalTreatment, RegimeMean
 from cleverly.estimators import TMLE
 from cleverly.interventions import Rule
 from cleverly.interventions.base import refuse_regime_densities
+from cleverly.longitudinal import LTMLE, DynamicRegimen, ltmle
 from tests.discrete_law_longitudinal import CellMeans
+from tests.unit._declaration_support import panel
+from tests.unit._natural_course_support import NeverFit
 from tests.unit._tilt_law_support import DGP, odds_tilt
 
 #: Fragments of the two unknown-value refusals.  The density declaration of a user-written
@@ -115,12 +130,17 @@ CENTRE = 0.5
 
 @dataclass(frozen=True)
 class FixedThreshold:
-    """``d(w) = 1{w <= centre}``, with the centre fixed before the fit: a known rule."""
+    """``d(w) = 1{w <= centre}``, with the centre fixed before the fit: a known rule.
+
+    ``column`` names the covariate ``w`` it reads: ``W`` on the threshold law, and ``W1``
+    on :func:`tests.unit._declaration_support.panel`.
+    """
 
     centre: float = CENTRE
+    column: str = "W"
 
     def __call__(self, frame: Any) -> np.ndarray:
-        return np.where(np.asarray(frame["W"], dtype=float) <= self.centre, 1, 0)
+        return np.where(np.asarray(frame[self.column], dtype=float) <= self.centre, 1, 0)
 
 
 @dataclass(frozen=True)
@@ -137,6 +157,11 @@ def threshold_rule(rule: Any = None, **declaration: Any) -> Rule:
     return Rule(FixedThreshold() if rule is None else rule, "thr", **declaration)
 
 
+def threshold_regimen(rule: Any = None, **declaration: Any) -> DynamicRegimen:
+    """The regimen ``(1, d)`` labelled ``"thr"``, the fixed threshold unless ``rule`` is given."""
+    return DynamicRegimen("thr", (1, FixedThreshold() if rule is None else rule), **declaration)
+
+
 # ------------------------------------------------------------------ the threshold law
 
 GRID_SIZE = 200
@@ -151,14 +176,31 @@ GRID_W = (np.arange(1, GRID_SIZE + 1) - 0.5) / GRID_SIZE
 EXACT_RATIO = 3.0 / np.sqrt(17.0)
 RATIO_PIN = 0.7276
 UNDERSTATEMENT_BOUND = 0.8
-#: The exact value of the regime at the fixed threshold.
+#: The same three for the regimen ``(1, d)`` on the two-node law.  The plan measured
+#: 0.7745976 before it chose them.  The bound claims an understatement of more than 15
+#: percent.
+REGIMEN_EXACT_RATIO = float(np.sqrt(3.0 / 5.0))
+REGIMEN_RATIO_PIN = 0.7746
+REGIMEN_UNDERSTATEMENT_BOUND = 0.85
+#: The exact value of the regime at the fixed threshold, and of the regimen ``(1, d)``.
 PSI = 2.0
 
 
-def threshold_frame() -> pd.DataFrame:
-    """The 800 rows of the point threshold law: four at each grid point."""
-    rows = [(w, float(a), 3.0 * w + a + e) for w in GRID_W for a in (0, 1) for e in (-NOISE, NOISE)]
-    return pd.DataFrame(rows, columns=["W", "A", "Y"])
+def threshold_frame(nodes: int = 1) -> pd.DataFrame:
+    """The rows of the threshold law: each arm at each node, and both noise signs, at each point.
+
+    One node gives the 800 rows of the point law, with columns ``W``, ``A`` and ``Y``.  Two
+    give the 1600 rows of the two-node law, with columns ``W``, ``A1``, ``A2`` and ``Y``.
+    ``Y`` reads the arm of the last node.
+    """
+    arms = ["A"] if nodes == 1 else [f"A{time}" for time in range(1, nodes + 1)]
+    rows = [
+        (w, *(float(arm) for arm in path), 3.0 * w + path[-1] + e)
+        for w in GRID_W
+        for path in itertools.product((0, 1), repeat=nodes)
+        for e in (-NOISE, NOISE)
+    ]
+    return pd.DataFrame(rows, columns=["W", *arms, "Y"])
 
 
 def regime_value(centre: float) -> float:
@@ -199,3 +241,91 @@ def threshold_fit(rule: Rule) -> Any:
 
 def threshold_curve(result: Any) -> np.ndarray:
     return np.asarray(result.estimates["ey_regime[thr]"].influence_curve, dtype=float)
+
+
+# ------------------------------------------------------------------ the two-node law
+
+
+def fixed_regimen_curve(frame: pd.DataFrame, centre: float = CENTRE) -> np.ndarray:
+    """``D = 4 1{A1 = 1, A2 = d(W)} (Y - Q2) + Q2(1, d(W), W) - psi``, the fixed-rule curve."""
+    w, a1, a2, y = (np.asarray(frame[column], dtype=float) for column in ("W", "A1", "A2", "Y"))
+    rule = (w <= centre).astype(float)
+    followed = (a1 == 1.0) & (a2 == rule)
+    return 4.0 * followed * (y - (3.0 * w + a2)) + 3.0 * w + rule - PSI
+
+
+#: The columns of the two-node law, as ``LTMLE.fit`` reads them.
+THRESHOLD_COLUMNS: dict[str, Any] = {"outcome": "Y", "treatment": ["A1", "A2"], "baseline": ["W"]}
+
+
+def regimen_fit(regimen: DynamicRegimen) -> Any:
+    """``regimen`` fitted in sample on the two-node law, with ``CellMeans`` in every slot."""
+    estimator = LTMLE(
+        [regimen],
+        outcome_learner=CellMeans(),
+        pseudo_learner=CellMeans(),
+        treatment_learner=CellMeans(),
+        censoring_learner=CellMeans(),
+        n_folds=1,
+        simultaneous=False,
+        max_iter=100,
+        tol=1e-10,
+        random_state=0,
+    )
+    return estimator.fit(threshold_frame(2), **THRESHOLD_COLUMNS)
+
+
+def regimen_curve(result: Any) -> np.ndarray:
+    return np.asarray(result.estimates["ey_regimen[thr]"].influence_curve, dtype=float)
+
+
+# ------------------------------------------------------------------ the longitudinal entries
+
+#: The columns of :func:`tests.unit._declaration_support.panel`.
+PANEL_COLUMNS: dict[str, Any] = {
+    "outcome": "Y",
+    "treatment": ["A1", "A2"],
+    "baseline": ["W1"],
+    "censoring": ["C1", "C2"],
+}
+
+
+def never_fit_longitudinal_learners() -> dict[str, NeverFit]:
+    """Every longitudinal learner slot, each one a :class:`NeverFit`, with calls reset."""
+    NeverFit.calls = 0
+    return {
+        "outcome_learner": NeverFit(),
+        "pseudo_learner": NeverFit(),
+        "treatment_learner": NeverFit(),
+        "censoring_learner": NeverFit(),
+    }
+
+
+def longitudinal_entries(
+    frame: Callable[[], pd.DataFrame] = panel, columns: dict[str, Any] = PANEL_COLUMNS
+) -> dict[str, Callable[..., Any]]:
+    """Every longitudinal fit entry that can reach a regimen, with ``NeverFit`` learners.
+
+    Each entry takes the raw ``regimens=`` value and keyword settings of ``LTMLE``, and fits
+    ``frame()`` on ``columns``: ``"fit"`` is ``LTMLE.fit``, ``"study"`` is
+    ``CausalStudy.estimate`` on a ``LongitudinalTreatment`` design, and ``"ltmle"`` is the
+    one-call :func:`cleverly.longitudinal.ltmle`.  Each entry resets ``NeverFit.calls``.
+    """
+
+    def fit(regimens: Any, **settings: Any) -> Any:
+        estimator = LTMLE(regimens, n_folds=1, **never_fit_longitudinal_learners(), **settings)
+        return estimator.fit(frame(), **columns)
+
+    def study(regimens: Any, **settings: Any) -> Any:
+        design = LongitudinalTreatment(**columns)
+        return (
+            CausalStudy(frame(), design=design)
+            .identify(RegimeMean(regimens))
+            .estimate(cross_fit=False, **never_fit_longitudinal_learners(), **settings)
+        )
+
+    def one_call(regimens: Any, **settings: Any) -> Any:
+        learners = never_fit_longitudinal_learners()
+        return ltmle(frame(), regimens=regimens, n_folds=1, **learners, **settings, **columns)
+
+    return {"fit": fit, "study": study, "ltmle": one_call}

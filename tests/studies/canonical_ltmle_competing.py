@@ -20,7 +20,7 @@ from cleverly.longitudinal import LTMLE
 from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_competing as law
 from tests.parallel import STUDY_JOBS
-from tests.studies.canonical_ltmle import G_BOUNDS, regimen_rows
+from tests.studies.canonical_ltmle import G_BOUNDS, declared_regimens, regimen_rows
 from tests.studies.canonical_ltmle_crossfit import (
     LMTP_SOURCE_COMMIT,
     LMTP_TARBALL_SHA256,
@@ -40,7 +40,7 @@ PRIMARY_N = 4_000
 SEED = 20260826
 SCENARIO = "censored_competing_risk_curve"
 
-REGIMENS = law.REGIMEN_SPEC
+REGIMENS = declared_regimens(law.REGIMEN_SPEC)
 REFERENCE = law.REGIMEN_REFERENCE
 HORIZONS = law.HORIZONS
 CAUSES = law.CAUSES

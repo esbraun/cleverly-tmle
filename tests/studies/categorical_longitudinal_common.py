@@ -11,12 +11,12 @@ from sklearn.base import BaseEstimator, clone
 from sklearn.dummy import DummyClassifier, DummyRegressor
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
-from cleverly.longitudinal import LTMLE
+from cleverly.longitudinal import LTMLE, DynamicRegimen
 from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_longitudinal as binary_law
 from tests import discrete_law_longitudinal_multivalue as law
 from tests.parallel import STUDY_JOBS
-from tests.studies.canonical_ltmle import QuasiBinomialGLM
+from tests.studies.canonical_ltmle import QuasiBinomialGLM, declared_regimens
 from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
@@ -24,7 +24,7 @@ from tests.studies.evidence.seeds import draw_replicate
 G_BOUNDS = (1e-8, 1.0)
 N_FOLDS = 5
 SCENARIO = "categorical_end_of_study"
-REGIMENS = law.REGIMEN_SPEC
+REGIMENS = declared_regimens(law.REGIMEN_SPEC)
 REFERENCE = law.REFERENCE
 ESTIMANDS = law.NAMES
 LEVELS = tuple(sorted(law.ARM_LABELS))
@@ -61,9 +61,13 @@ CONTRASTS = {"static": STATIC_NAME, "dynamic": DYNAMIC_NAME}
 #: repeated-sampling instrument discriminates a changed rule.
 MUTATED_REGIMENS = {
     **REGIMENS,
-    "respond": (
-        "standard",
-        lambda history: np.where(history["L2"] == 1, "low", "high"),
+    "respond": DynamicRegimen(
+        "respond",
+        (
+            "standard",
+            lambda history: np.where(history["L2"] == 1, "low", "high"),
+        ),
+        rule_kind="known",
     ),
 }
 

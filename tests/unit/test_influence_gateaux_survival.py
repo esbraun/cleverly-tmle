@@ -40,6 +40,7 @@ import pytest
 from cleverly.longitudinal import LTMLE
 
 from .. import discrete_law_survival as law
+from ..studies.canonical_ltmle import declared_regimens
 
 #: Truncation wide enough never to bind: the law's conditionals all lie in [0.25, 0.75].
 NO_TRUNCATION = (1e-8, 1.0 - 1e-8)
@@ -72,7 +73,7 @@ def _oracle_fit(frame: object, **overrides: object) -> object:
         if key in overrides:
             columns[key] = overrides.pop(key)  # type: ignore[assignment]
     settings.update(overrides)
-    regimens = settings.pop("regimens", law.REGIMEN_SPEC)
+    regimens = settings.pop("regimens", declared_regimens(law.REGIMEN_SPEC))
     return LTMLE(regimens, **settings).fit(frame, **columns)  # type: ignore[arg-type]
 
 

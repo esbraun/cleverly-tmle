@@ -32,6 +32,7 @@ from cleverly.longitudinal import LTMLE
 from cleverly.msm import MSM
 
 from .. import discrete_law_longitudinal as law
+from ..studies.canonical_ltmle import declared_regimens
 
 #: Wide enough that no factor is truncated: the law's conditionals all sit in
 #: ``[0.25, 0.75]``, so a bound this loose cannot bind and the estimator runs on the
@@ -82,7 +83,7 @@ def declared(family: str) -> MSM:
 
 def oracle_fit(family: str) -> Any:
     return LTMLE(
-        law.REGIMEN_SPEC,
+        declared_regimens(law.REGIMEN_SPEC),
         msm=declared(family),
         outcome_learner=law.CellMeans(),
         pseudo_learner=law.CellMeans(),
@@ -302,7 +303,7 @@ class TestTheComparisonHasTeeth:
             design_kind="known",
         )
         wrong = LTMLE(
-            law.REGIMEN_SPEC,
+            declared_regimens(law.REGIMEN_SPEC),
             msm=uniform,
             outcome_learner=law.CellMeans(),
             pseudo_learner=law.CellMeans(),

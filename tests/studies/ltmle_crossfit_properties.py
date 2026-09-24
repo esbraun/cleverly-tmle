@@ -17,7 +17,7 @@ from cleverly.longitudinal import LTMLE
 from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_longitudinal as law
 from tests.parallel import STUDY_JOBS
-from tests.studies.canonical_ltmle import KnownLongitudinalMechanism
+from tests.studies.canonical_ltmle import KnownLongitudinalMechanism, declared_regimens
 from tests.studies.canonical_ltmle_crossfit import G_BOUNDS, STUDY
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
@@ -74,7 +74,9 @@ OVERFIT_N = 1_000
 #: controls, and the untargeted arm, which has no interval of its own to copy.
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 
-REGIMENS = {key: law.REGIMEN_SPEC[key] for key in ("never", "always", "treat_if_l2")}
+REGIMENS = declared_regimens(
+    {key: law.REGIMEN_SPEC[key] for key in ("never", "always", "treat_if_l2")}
+)
 REFERENCE = "never"
 CONTRASTS = {
     "static": "ate_regimen[always vs never]",

@@ -34,6 +34,7 @@ import pytest
 from cleverly.longitudinal import LTMLE, LongitudinalError
 
 from .. import discrete_law_longitudinal as law
+from ..studies.canonical_ltmle import declared_regimens
 
 #: Truncation wide enough never to bind: the law's conditionals all lie in [0.25, 0.75].
 NO_TRUNCATION = (1e-8, 1.0 - 1e-8)
@@ -43,7 +44,7 @@ NO_TRUNCATION = (1e-8, 1.0 - 1e-8)
 def fit() -> object:
     """One fit of the exact law, shared by every test in the module."""
     return LTMLE(
-        law.REGIMEN_SPEC,
+        declared_regimens(law.REGIMEN_SPEC),
         reference=law.REGIMEN_REFERENCE,
         outcome_learner=law.CellMeans(),
         pseudo_learner=law.CellMeans(),
@@ -222,7 +223,7 @@ def test_dropping_the_censoring_factor_would_be_wrong() -> None:
     frame = law.frame()
     complete = frame[(frame["C1"] == 1) & (frame["C2"] == 1)].reset_index(drop=True)
     naive = LTMLE(
-        law.REGIMEN_SPEC,
+        declared_regimens(law.REGIMEN_SPEC),
         outcome_learner=law.CellMeans(),
         pseudo_learner=law.CellMeans(),
         treatment_learner=law.CellMeans(),

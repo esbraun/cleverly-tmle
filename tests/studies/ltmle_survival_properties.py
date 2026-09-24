@@ -14,7 +14,7 @@ from cleverly.longitudinal import LTMLE
 from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_survival as law
 from tests.parallel import STUDY_JOBS
-from tests.studies.canonical_ltmle import G_BOUNDS
+from tests.studies.canonical_ltmle import G_BOUNDS, declared_regimens
 from tests.studies.canonical_ltmle_survival import PROPERTY_LABELS, STUDY
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
@@ -76,7 +76,7 @@ RECURSION_DISPLACEMENT = TARGETING_DISPLACEMENT
 
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 
-REGIMENS = law.REGIMEN_SPEC
+REGIMENS = declared_regimens(law.REGIMEN_SPEC)
 REFERENCE = law.REGIMEN_REFERENCE
 CONTRASTS = {
     "static_t1": "ate_regimen[always vs never @ t=1]",

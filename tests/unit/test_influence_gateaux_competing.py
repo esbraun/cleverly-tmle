@@ -54,6 +54,7 @@ import pytest
 from cleverly.longitudinal import LTMLE
 
 from .. import discrete_law_competing as law
+from ..studies.canonical_ltmle import declared_regimens
 
 
 def _cif(label: str, cause: str, horizon: int) -> float:
@@ -380,7 +381,7 @@ def _oracle_fit(frame: object, **overrides: object) -> object:
         if key in overrides:
             columns[key] = overrides.pop(key)  # type: ignore[assignment]
     settings.update(overrides)
-    regimens = settings.pop("regimens", law.REGIMEN_SPEC)
+    regimens = settings.pop("regimens", declared_regimens(law.REGIMEN_SPEC))
     return LTMLE(regimens, **settings).fit(frame, outcome=outcome, **columns)  # type: ignore[arg-type]
 
 

@@ -28,7 +28,7 @@ import pytest
 import sklearn.linear_model
 
 from cleverly.datasets import make_longitudinal, make_longitudinal_survival
-from cleverly.longitudinal import LTMLE, LongitudinalData
+from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalData
 
 
 def _end_of_study(n: int = 1200, seed: int = 3) -> LongitudinalData:
@@ -137,7 +137,8 @@ def test_a_dynamic_rule_scans_the_same_masks() -> None:
     data = _end_of_study()
     from cleverly.longitudinal.regimen import resolve_plans, resolve_regimens
 
-    plans = resolve_plans(resolve_regimens({"rule": [1, _rule]}, data.n_times), data)
+    rule = DynamicRegimen("rule", (1, _rule), rule_kind="known")
+    plans = resolve_plans(resolve_regimens([rule], data.n_times), data)
     values = plans[0].values
     masks = data.regimen_masks(values)
     for time in range(1, data.n_times + 1):

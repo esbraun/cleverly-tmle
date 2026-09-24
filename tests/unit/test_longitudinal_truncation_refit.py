@@ -31,7 +31,7 @@ from cleverly.datasets import (
     make_longitudinal_survival,
 )
 from cleverly.learners import SuperLearner
-from cleverly.longitudinal import LTMLE, LongitudinalResult
+from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalResult
 from cleverly.longitudinal import estimator as longitudinal_estimator
 from cleverly.longitudinal import sequential as longitudinal_sequential
 from cleverly.longitudinal.estimator import (
@@ -941,7 +941,11 @@ def test_dynamic_categorical_weighted_clustered_recipe_replays_exactly() -> None
     result = LTMLE(
         {
             "never": 0,
-            "dynamic": (2, lambda history: (history["L2"] > 0).astype(float)),
+            "dynamic": DynamicRegimen(
+                "dynamic",
+                (2, lambda history: (history["L2"] > 0).astype(float)),
+                rule_kind="known",
+            ),
         },
         reference="never",
         outcome_learner=LogisticRegression(max_iter=1000, random_state=43),

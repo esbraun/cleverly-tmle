@@ -127,6 +127,10 @@ def rule_arm_at_node_two(l2: Any) -> Any:
     either side: the quadrature applies this to a grid of latent draws and a fit applies
     it to a column of a dataframe, so the surrounding code is written twice and only the
     number in the middle is written once.
+
+    It is a fixed function, so a regimen that uses it declares ``rule_kind="known"``:
+    ``DynamicRegimen(RULE_LABEL, (1, lambda h: rule_arm_at_node_two(h["L2"])),
+    rule_kind="known")``, with ``DynamicRegimen`` from :mod:`cleverly.longitudinal`.
     """
     return (np.asarray(l2) > 0.0).astype(float)
 

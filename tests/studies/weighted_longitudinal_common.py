@@ -14,7 +14,7 @@ from cleverly.datasets import (
     make_longitudinal_weighted,
     rule_arm_at_node_two,
 )
-from cleverly.longitudinal import LTMLE
+from cleverly.longitudinal import LTMLE, DynamicRegimen
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ltmle import (
@@ -38,7 +38,11 @@ SELECTION_LOW, SELECTION_HIGH = WEIGHTED_SELECTION_PROBABILITIES
 REGIMENS: dict[str, Any] = {
     "never": 0,
     "always": 1,
-    RULE_LABEL: (1, lambda history: rule_arm_at_node_two(history["L2"])),
+    RULE_LABEL: DynamicRegimen(
+        RULE_LABEL,
+        (1, lambda history: rule_arm_at_node_two(history["L2"])),
+        rule_kind="known",
+    ),
 }
 REFERENCE = "never"
 MEAN_NAMES = tuple(f"ey_regimen[{label}]" for label in REGIMENS)
