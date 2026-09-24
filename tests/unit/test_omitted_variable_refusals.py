@@ -815,7 +815,8 @@ class TestTheConditionalEffectScoreReadsTheObservedArm:
         odds = g_c / (1.0 - g_c)
         # alpha_0 is 1/s on the conditioning arm and -odds/s on the other; alpha_hat is
         # 1/s and -1/s. Squares and differences only, so the sign convention drops out.
-        truth = float(np.sum(_P_W * (g_c + (1.0 - g_c) * odds**2))) / share**2
+        # The truth is the law's own oracle, which the witness of the curve differentiates.
+        truth = float(law.riesz_second_moment(law.PROBS, estimand))
         error = float(np.sum(_P_W * (1.0 - g_c) * (odds - 1.0) ** 2)) / share**2
         return share, truth, error
 

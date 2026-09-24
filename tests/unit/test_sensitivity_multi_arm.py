@@ -52,13 +52,15 @@ from cleverly.sensitivity.omitted_variable import (
     sensitivity_elements,
 )
 from tests import discrete_law_multi as law
+from tests.unit import _exact_sensitivity_support as support
+from tests.unit._exact_sensitivity_support import multi_oracle_fit
 
 # --------------------------------------------------------------------------- the bound
 
 #: The reference these fits report against, as a *label*: "low" has arm code 1, since
 #: the levels sort to ("high", "low", "mid"). A test whose reference were also code 0
 #: could not tell an implementation reading the reference from one assuming it.
-REFERENCE = "low"
+REFERENCE = support.REFERENCE
 
 #: This module's arm index for the reference, for the closed forms below, which are
 #: written in the law's own arm order rather than in the library's codes.
@@ -73,52 +75,25 @@ Q = law.Q_EXACT
 
 
 def _sigma2(probs: Any = law.PROBS) -> float:
-    r"""``E[(Y - Qbar(A, W))^2]``, which for a binary ``Y`` is ``E[Q(1 - Q)]``.
+    r"""``E[(Y - Qbar(A, W))^2]``, from :func:`tests.discrete_law_multi.residual_variance`.
 
     Averaged over ``probs`` rather than over :data:`tests.discrete_law_multi.PROBS` alone,
-    so the same arithmetic answers for the weighted sample below.  ``Q`` is shared,
-    because a weight that is a function of ``W`` leaves the conditional means where they
-    were.
+    so the same arithmetic answers for the weighted sample below.
     """
-    total = 0.0
-    for w in range(3):
-        for a in range(law.K):
-            for y in range(2):
-                total += probs[w, a, y] * (y - Q[w, a]) ** 2
-    return float(total)
+    return float(law.residual_variance(probs))
 
 
 def _nu2(estimand: str, arm: int, probs: Any = law.PROBS) -> float:
-    r"""``E[alpha(A, W)^2]`` for one parameter, longhand from its Riesz representer.
+    r"""``E[alpha(A, W)^2]`` for one parameter, from :func:`tests.discrete_law_multi.riesz_second_moment`.
 
-    The representers, with ``r`` the reference arm and ``P_a = P(A = a)``:
-
-    ``ey``   ``1{A = a} / g_a``
-    ``ate``  ``1{A = a} / g_a - 1{A = r} / g_r``
-    ``att``  ``(1{A = a} - 1{A = r} g_a / g_r) / P_a``
-    ``atc``  ``(1{A = a} g_r / g_a - 1{A = r}) / P_r``
-
-    Squaring drops the cross terms -- the two indicators are disjoint -- and averaging
-    over the arm leaves one factor of ``g`` behind each.
-
-    ``P(W)`` and ``P(A)`` are read off ``probs`` and ``g`` is not, which is the whole
-    difference the weighted sample makes: the weight retilts the covariate distribution
-    and the arm shares with it, and leaves the propensity alone.  ``P_a`` is the
-    conditioning share the ATT and the ATC divide by, which the library takes weighted
-    from :attr:`~cleverly.data.CausalData.arm_fractions`.
+    That oracle writes each representer longhand, reads ``P(W)``, ``g`` and the conditioning
+    share off ``probs``, and shares no code with the library.  A weight of ``W`` alone
+    retilts ``P(W)`` and the arm shares, and leaves ``g`` where it was.  The share ``P_a`` is
+    the one the ATT and the ATC divide by, which the library takes weighted from
+    :attr:`~cleverly.data.CausalData.arm_fractions`.
     """
-    p_w = np.asarray(probs).sum(axis=(1, 2))
-    p_a = np.asarray(probs).sum(axis=(0, 2))
-    r = REFERENCE_ARM
-    if estimand == "ey":
-        return float((p_w / G[:, arm]).sum())
-    if estimand == "ate":
-        return float((p_w * (1.0 / G[:, arm] + 1.0 / G[:, r])).sum())
-    if estimand == "att":
-        return float((p_w * G[:, arm] * (1.0 + G[:, arm] / G[:, r])).sum() / p_a[arm] ** 2)
-    if estimand == "atc":
-        return float((p_w * G[:, r] * (1.0 + G[:, r] / G[:, arm])).sum() / p_a[r] ** 2)
-    raise ValueError(estimand)  # pragma: no cover - a typo in a parametrisation
+    name = f"ey[{arm}]" if estimand == "ey" else f"{estimand}[{arm} vs {REFERENCE_ARM}]"
+    return float(law.riesz_second_moment(probs, name))
 
 
 def _name(estimand: str, arm: int) -> str:
@@ -144,19 +119,7 @@ def exact_fit() -> Any:
     Every group at once -- the conditional effects share the nuisance fits, and asking
     for them separately would fit the same models three times.
     """
-    return (
-        TMLE(
-            outcome_learner=law.OracleMultiOutcome(),
-            treatment_learner=law.OracleMultiTreatment(),
-            cross_fit=False,
-            estimands=("ey", "ate", "att", "atc"),
-            reference=REFERENCE,
-            simultaneous=False,
-            random_state=0,
-        )
-        .fit(law.frame(), outcome="Y", treatment="A", covariates=["W"])
-        .single()
-    )
+    return multi_oracle_fit()
 
 
 class TestTheBoundAtThreeArms:
@@ -238,16 +201,13 @@ class TestTheBoundAtThreeArms:
 
 # ------------------------------------------------------------- the bound, under weights
 
-#: The observation weight each value of ``W`` carries, before normalisation.
-#:
-#: A function of ``W`` alone, and that is not a convenience.  It is what keeps the
-#: weighted sample an exact law: ``g(a | W)`` and ``Qbar(a, W)`` are conditional on ``W``,
-#: so a weight depending on nothing else leaves both where they were, the oracle nuisances
-#: stay exact, and the weighted score is zero cell by cell at ``epsilon = 0``.  A profile
-#: laid across the rows -- ``np.linspace(0.5, 1.5, n)`` -- varies *inside* a cell, moves
-#: the targeting step off zero, and leaves the closed forms below describing a regression
-#: the fit no longer uses.
-RAW_WEIGHT = np.array([0.5, 1.0, 2.0])
+#: The observation weight each value of ``W`` carries, before normalisation, shared with
+#: the exact-law witness of the bound's standard error.  A function of ``W`` alone, which is
+#: what keeps the weighted sample an exact law: see
+#: :data:`tests.unit._exact_sensitivity_support.RAW_WEIGHT`.  A profile laid across the rows
+#: -- ``np.linspace(0.5, 1.5, n)`` -- varies *inside* a cell, moves the targeting step off
+#: zero, and leaves the closed forms below describing a regression the fit no longer uses.
+RAW_WEIGHT = support.RAW_WEIGHT
 
 
 def _weighted_probs(raw: Any) -> Any:
@@ -302,27 +262,7 @@ def weighted_exact_fit() -> Any:
     ``test_the_weighted_fit_is_still_exactly_targeted`` -- so the closed forms above still
     describe it, evaluated at :data:`WEIGHTED_PROBS` instead.
     """
-    frame = law.frame()
-    weighted = frame.assign(obs_weight=RAW_WEIGHT[frame["W"].to_numpy().astype(int)])
-    return (
-        TMLE(
-            outcome_learner=law.OracleMultiOutcome(),
-            treatment_learner=law.OracleMultiTreatment(),
-            cross_fit=False,
-            estimands=("ey", "ate", "att", "atc"),
-            reference=REFERENCE,
-            simultaneous=False,
-            random_state=0,
-        )
-        .fit(
-            weighted,
-            outcome="Y",
-            treatment="A",
-            covariates=["W"],
-            weights="obs_weight",
-        )
-        .single()
-    )
+    return multi_oracle_fit(weighted=True)
 
 
 class TestTheBoundOnAWeightedFit:

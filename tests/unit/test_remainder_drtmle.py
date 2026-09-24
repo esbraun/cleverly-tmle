@@ -111,15 +111,12 @@ BOTH = ("Q", "g")
 
 ESTIMANDS = ("ey1", "ey0", "ate")
 
-#: Copied verbatim from :mod:`tests.unit.test_weighted_estimand`, as the nuisance constants
-#: above are copied from :mod:`tests.unit.test_remainder`, so the two modules disagree about
-#: nothing except which expansion they take.  The first tilts on a baseline covariate alone,
-#: the second on the treatment and the outcome -- so the second moves ``G`` and ``Q`` and not
-#: merely ``P_W``, which is what makes the reduced regressions' conditioning law matter.
-WEIGHT_FUNCTIONS = {
-    "baseline": lambda w, a, y: 1.0 + 0.6 * w,
-    "treatment_and_outcome": lambda w, a, y: 1.0 + 0.5 * a + 0.8 * y,
-}
+#: The weight functions :mod:`tests.unit.test_weighted_estimand` uses, read from the law
+#: that both modules share, so the two modules disagree about nothing except which
+#: expansion they take.  The first tilts on a baseline covariate alone, the second on the
+#: treatment and the outcome -- so the second moves ``G`` and ``Q`` and not merely ``P_W``,
+#: which is what makes the reduced regressions' conditioning law matter.
+WEIGHT_FUNCTIONS = law.WEIGHT_FUNCTIONS
 
 
 class Law(NamedTuple):

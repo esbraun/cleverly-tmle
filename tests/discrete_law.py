@@ -25,7 +25,7 @@ the unmodified nuisances.
 from __future__ import annotations
 
 import itertools
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import numpy as np
@@ -113,6 +113,15 @@ def first_row_of(counts: np.ndarray = COUNTS) -> np.ndarray:
     """
     per_point = np.array([counts[w, a, y] for w, a, y in SUPPORT])
     return np.concatenate([[0], np.cumsum(per_point)[:-1]])
+
+
+def cell_of_row() -> np.ndarray:
+    """Support-point index for each row of :func:`frame`, in row order.
+
+    The inverse of :func:`first_row_of`: indexing a per-support-point array with this
+    expands it to one value per row, which a check of a clustered sum needs.
+    """
+    return np.repeat(np.arange(len(SUPPORT)), [COUNTS[w, a, y] for w, a, y in SUPPORT])
 
 
 #: The regimes the regime-indexed estimands are checked against, ``g*(a | W = w)`` as a
@@ -454,6 +463,31 @@ def gateaux(estimand: str, point: int, *, probs: Any = None, step: float = 1e-30
     return float(np.imag(functional(perturbed, estimand)) / step)
 
 
+def contamination_eif(
+    functional: Callable[[Any], Any],
+    probs: Any,
+    support: Sequence[tuple[int, ...]],
+    *,
+    step: float = 1e-30,
+) -> np.ndarray:
+    """The Gateaux derivative of ``functional`` at every point of ``support``, in order.
+
+    The contamination path and the complex step of :func:`gateaux`, for a law on any finite
+    support.  ``probs`` holds the cell probabilities, and each entry of ``support`` indexes
+    one cell of it.  :func:`gateaux_eif` applies this to the law of this module, and
+    ``tests/unit/_exact_sensitivity_support.py`` applies it to
+    :mod:`tests.discrete_law_multi`, so the loop is written once.
+    """
+    base = np.asarray(probs, dtype=float).astype(complex)
+    rows = []
+    for cell in support:
+        mass = np.zeros_like(base)
+        mass[cell] = 1.0
+        perturbed = (1.0 - 1j * step) * base + 1j * step * mass
+        rows.append(np.imag(functional(perturbed)) / step)
+    return np.array(rows)
+
+
 def gateaux_eif(
     functional: Callable[[Any], Any], probs: Any = None, *, step: float = 1e-30
 ) -> np.ndarray:
@@ -466,14 +500,7 @@ def gateaux_eif(
     test writes, such as a projection whose weight or design is frozen or moves with the
     law.  The first axis of the result follows :data:`SUPPORT`.
     """
-    base = (PROBS if probs is None else np.asarray(probs, dtype=float)).astype(complex)
-    rows = []
-    for cell in SUPPORT:
-        mass = np.zeros_like(base)
-        mass[cell] = 1.0
-        perturbed = (1.0 - 1j * step) * base + 1j * step * mass
-        rows.append(np.imag(functional(perturbed)) / step)
-    return np.array(rows)
+    return contamination_eif(functional, PROBS if probs is None else probs, SUPPORT, step=step)
 
 
 def eif(estimand: str, *, probs: Any = None) -> np.ndarray:
@@ -520,6 +547,16 @@ class DiscreteLaw:
 
 # --------------------------------------------------------------------- weighting
 
+#: Two weight functions of ``(w, a, y)``, shared by every test of a weighted fit on this law.
+#: ``baseline`` tilts on the covariate alone and leaves ``G`` and ``Q`` where they were.
+#: ``treatment_and_outcome`` tilts on the treatment and the outcome, so it moves ``G`` and
+#: ``Q`` too, and an implementation that reweighted only the final average estimates
+#: something else.
+WEIGHT_FUNCTIONS: dict[str, Callable[[int, int, int], float]] = {
+    "baseline": lambda w, a, y: 1.0 + 0.6 * w,
+    "treatment_and_outcome": lambda w, a, y: 1.0 + 0.5 * a + 0.8 * y,
+}
+
 
 def cell_weights(weight_of: Any) -> np.ndarray:
     """A weight per support point, from a function of ``(w, a, y)``.
@@ -536,19 +573,29 @@ def row_weights(weights: np.ndarray) -> np.ndarray:
     return np.repeat(np.asarray(weights, dtype=float), counts)
 
 
+def tilt_on(probs: Any, weights: Any, support: Sequence[tuple[int, ...]]) -> Any:
+    r"""The weighted law :math:`dP_w = w\,dP / E_P[w]` of any finite law, as cell probabilities.
+
+    ``weights`` holds one value per entry of ``support``, in its order.  Kept analytic in
+    ``probs`` -- a ratio of linear functions -- so a complex step can differentiate
+    through it.  :func:`tilt` applies it to this module's law.
+    """
+    p = np.asarray(probs)
+    w = np.asarray(weights, dtype=float).reshape(len(support))
+    cells = np.zeros_like(p)
+    for index, cell in enumerate(support):
+        cells[cell] = w[index]
+    tilted = cells * p
+    return tilted / tilted.sum()
+
+
 def tilt(probs: Any, weights: Any) -> Any:
     r"""The weighted law :math:`dP_w = w\,dP / E_P[w]`, as cell probabilities.
 
     Kept analytic in ``probs`` -- a ratio of linear functions -- so :func:`weighted_gateaux`
     can differentiate through it by a complex step.
     """
-    p = np.asarray(probs)
-    w = np.asarray(weights, dtype=float).reshape(len(SUPPORT))
-    cells = np.zeros_like(p)
-    for index, (a, b, c) in enumerate(SUPPORT):
-        cells[a, b, c] = w[index]
-    tilted = cells * p
-    return tilted / tilted.sum()
+    return tilt_on(probs, weights, SUPPORT)
 
 
 def weighted_functional(probs: Any, estimand: str, weights: Any) -> Any:
@@ -582,3 +629,49 @@ def weighted_eif(estimand: str, weights: Any) -> np.ndarray:
     The contamination is of :math:`P`, as in :func:`weighted_gateaux`.
     """
     return gateaux_eif(lambda p: weighted_functional(p, estimand, weights))
+
+
+# ----------------------------------------------------------- omitted-variable bound
+
+#: The three pieces of the omitted-variable bound, written from the cell probabilities.  Each
+#: one is analytic in ``probs``, so :func:`gateaux_eif` differentiates it, and a weighted fit
+#: evaluates it at :func:`tilt` of the law.  None of them reads a fitted nuisance.
+
+
+def residual_variance(probs: Any) -> Any:
+    r"""``sigma^2 = E[(Y - Qbar(A, W))^2]``, which for a binary ``Y`` is ``E[Q (1 - Q)]``."""
+    p = np.asarray(probs)
+    q = p[:, :, 1] / p.sum(axis=2)
+    return (p.sum(axis=2) * q * (1.0 - q)).sum()
+
+
+def riesz_second_moment(probs: Any, estimand: str) -> Any:
+    r"""``nu^2 = E[alpha(A, W)^2]`` of one linear estimand, from its Riesz representer.
+
+    With ``g = P(A = 1 | W)`` and ``p = P(A = 1)``, the representers are
+
+    ``ey1``  ``A / g``
+    ``ey0``  ``(1 - A) / (1 - g)``
+    ``ate``  ``A / g - (1 - A) / (1 - g)``
+    ``att``  ``(A - (1 - A) g / (1 - g)) / p``
+    ``atc``  ``(A (1 - g) / g - (1 - A)) / (1 - p)``
+
+    Squaring drops the cross terms, because the two indicators are disjoint.  The shares
+    ``p`` and ``1 - p`` are functionals of ``probs`` too, so a Gateaux derivative of this
+    function includes the derivative through the conditioning share.
+    """
+    p = np.asarray(probs)
+    p_w = p.sum(axis=(1, 2))
+    p_wa = p.sum(axis=2)
+    g = p_wa[:, 1] / p_w
+    if estimand == "ey1":
+        return (p_w / g).sum()
+    if estimand == "ey0":
+        return (p_w / (1.0 - g)).sum()
+    if estimand == "ate":
+        return (p_w * (1.0 / g + 1.0 / (1.0 - g))).sum()
+    if estimand == "att":
+        return (p_w * g / (1.0 - g)).sum() / p_wa[:, 1].sum() ** 2
+    if estimand == "atc":
+        return (p_w * (1.0 - g) / g).sum() / p_wa[:, 0].sum() ** 2
+    raise ValueError(f"no Riesz representer is written for {estimand!r}")
