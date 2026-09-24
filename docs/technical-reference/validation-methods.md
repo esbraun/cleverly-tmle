@@ -658,7 +658,7 @@ movement, which is additive for a difference and logarithmic for a ratio.
 | robustness value | no unmeasured confounding | the single strength at which the conclusion flips | that the two strengths are equal |
 | benchmark | no unmeasured confounding | the strength of a confounder "as strong as" a named observed covariate | that dropping the covariate and refitting calibrates the scale |
 | simulated common cause | no unmeasured confounding | estimate displacement across a declared strength grid, on the additive scale or the log scale | a supported latent perturbation family and plausible declared strengths |
-| E-value | no unmeasured confounding | the minimum risk-ratio association with both treatment and outcome that explains away the effect | a risk-ratio scale |
+| E-value | no unmeasured confounding | the equal-strength threshold for treatment and outcome confounder associations that explains away the effect | a risk-ratio scale |
 | missingness tilt | outcomes missing at random | how the estimate moves as the unobserved outcomes are tilted away from the observed ones | the tilt is a constant on the logit scale |
 | tipping gamma | outcomes missing at random | the tilt at which the conclusion changes | as above |
 
@@ -1290,6 +1290,13 @@ implements VanderWeele and Ding (2017): $E = RR + \sqrt{RR(RR-1)}$. It computes 
 point estimate and, separately, for the confidence limit, because the second is the one an
 adversarial reader asks for.
 
+The E-value is the threshold when the two confounder associations have equal strength.
+Unequal strengths can trade off under the bounding factor of
+[Ding and VanderWeele (2016)](https://arxiv.org/html/1507.03984).
+For $RR=2$, the E-value is $3.414$. Associations of $3$ and $4$ give a bounding factor of
+$3\times4/(3+4-1)=2$, so both associations need not reach $3.414$.
+The E-value does not decide whether a confounder of either strength is plausible.
+
 The selected path depends on the reported contrast and retained artifacts.
 
 | request | E-value path |
@@ -1303,13 +1310,20 @@ The selected path depends on the reported contrast and retained artifacts.
 | binomial ATT or ATC | refuse because the conditional baseline risk and conditional ratio target are absent |
 | level or non-arm parameter | report `not_applicable` because no supported two-arm contrast exists |
 | two-arm contrast on a fit whose status supplies no inference: a collaborative fit at any `strategy`, a `DRTMLE` fit with a `guard` and varying weights declared estimated, or a clustered fit under `"unequal_cluster_plugin"` or `"few_cluster_plugin"` | report `unavailable`. Each branch reads the estimate's interval or the reference arm's standard error, and this fit supplies neither. The reason of the status follows |
-| binomial ATE without exact retarget support or a usable reported baseline; controlled direct effect needing derivation | report `unavailable` and name the missing evidence, artifact, or target |
+| any request on a controlled-direct-effect fit with a discrete treatment, which is such a fit with `intermediate=` | report `unavailable` before the estimand is resolved. This package has no implemented E-value bound for the fitted controlled direct effect and its confounding model. [F25](../roadmap.md#f25-e-value-for-a-controlled-direct-effect) tracks the support gap |
+| binomial ATE without exact retarget support or a usable reported baseline | report `unavailable` and name the missing evidence, artifact, or target |
 | several eligible contrasts and no explicit estimand | report `deferred` and name `estimand` in the next step |
 
-`_select_evalue` in `cleverly.sensitivity.evalue` applies the status refusal after the
-`not_applicable` check. A request for `ey1` on a collaborative fit therefore still reports
-`not_applicable`. Several eligible contrasts require an explicit alias, which is the `deferred` row
-above.
+`_select_evalue` in `cleverly.sensitivity.evalue` runs three fit-wide checks before it resolves
+the estimand. A longitudinal fit and a controlled-direct-effect fit report `unavailable`. A fit
+with a continuous treatment reports `not_applicable`. The checks run in this order. So a
+continuous-treatment fit with an intermediate variable reports `not_applicable`. A request for
+`ey1` on a controlled-direct-effect fit reports `unavailable`, and a multi-arm
+controlled-direct-effect fit does not defer.
+
+The status refusal follows the `not_applicable` check of the request. A request for `ey1` on a
+collaborative fit therefore still reports `not_applicable`. Several eligible contrasts require an
+explicit alias, which is the `deferred` row above.
 [The status contract](#the-status-contract) states that rule for every operation that shares it.
 Combined runs select availability and cost from the alias before they apply the cost flags.
 
@@ -1344,6 +1358,36 @@ The Gaussian path first applies Chinn's odds-ratio to standardized-mean-differen
 It then applies the common-outcome square-root approximation before calculating the E-value.
 The resulting conversion is $RR \approx \exp((1.81 / 2)d) = \exp(0.905d)$.
 This retains an approximate analysis, not an exact continuous-outcome risk ratio.
+
+This package has no implemented E-value bound for its fitted controlled direct effect and
+confounding model. That fit invokes assumptions about treatment-outcome and
+intermediate-outcome confounding (`estimators/direct_effect.py`, assumptions 2 and 3).
+The ordinary conversion does not by itself quantify sensitivity for that target.
+[F25](../roadmap.md#f25-e-value-for-a-controlled-direct-effect) states what a source-backed
+specialization must connect. `tests/unit/test_evalue_direct_effect_refusals.py` pins the refusal.
+
+| source, and the version read | what it covers | what it does not cover |
+| --- | --- | --- |
+| VanderWeele (2010), [PMC4231822](https://pmc.ncbi.nlm.nih.gov/articles/PMC4231822/) | the prior RM21 review recorded controlled-direct-effect bias formulas | the present review could not retrieve the full text, so its earlier Appendix 1 characterization is unverified here |
+| Smith and VanderWeele (2019), [author PDF](https://www.louisahsmith.com/publications/smith2019mediational.pdf), pages 835–837, and [supplement](https://download.lww.com/wolterskluwer_vitalstream_com/PermaLink/EDE/B/EDE_2019_07_22_SMITH_EDE18-0696R2_SDC1.pdf), Sections 1–2 | an approximate mediational E-value for natural direct and indirect effects under its stated confounding model | no mapping in this source to the fitted population controlled direct effect at fixed $z$ |
+| Ding and VanderWeele (2016), *Biometrika*, [arXiv 1601.05155](https://arxiv.org/html/1601.05155), Sections 2–4 and Appendix D.4 | bounds for natural direct and indirect effects; Appendix D.4 drops treatment-confounder independence and changes the target to the unexposed population | no stated mapping to this package's population controlled direct effect at fixed $z$ |
+| Ding and VanderWeele (2016), *Epidemiology*, [arXiv 1507.03984](https://arxiv.org/html/1507.03984), Sections 2–3 and Appendix 2.5 | a bounding factor for an exposure contrast with general, possibly multivariate confounders and averaging over measured covariates | a composite exposure such as $(A,Z)$ needs an explicit confounding and standardization mapping before the factor describes the fitted target |
+| Gilbert, Fong, Kenny and Carone (2023), [*Biostatistics*](https://academic.oup.com/biostatistics/article/24/4/850/7320953), Sections 2.1 and 4.1 | a controlled direct effect and an E-value for a marker contrast within a fixed vaccination arm | its E-value compares marker interventions within one vaccination arm, not treatment arms at fixed marker value |
+| Mathur, Ding, Riddell and VanderWeele (2018), [PMC6066405](https://pmc.ncbi.nlm.nih.gov/articles/PMC6066405/) | software for ordinary E-values and effect-scale conversions | no mapping of that software's ordinary conversion to this fitted controlled direct effect |
+| Tingley, Yamamoto, Hirose, Keele and Imai (2014), [*Journal of Statistical Software*](https://www.jstatsoft.org/article/view/v059i05) | the `mediation` package and its mediation sensitivity analysis | no E-value bound for this fitted controlled direct effect is supplied by its software account |
+| the R package `EValue` 4.1.4, [CRAN manual](https://cran.r-project.org/web/packages/EValue/EValue.pdf) | software for confounding, selection bias, and measurement error | its lack of a mediation API is a software limit, not a mathematical impossibility |
+
+The search did not read these sources.
+
+| source | title |
+| --- | --- |
+| VanderWeele and Ding (2017), appendix | the online appendix of *Sensitivity analysis in observational research: introducing the E-value* |
+| VanderWeele, Ding and Mathur (2019) | [*Technical considerations in the use of the E-value*](https://biostats.bepress.com/harvardbiostat/paper215/), *Journal of Causal Inference*. The abstract was available; the full text was not |
+| VanderWeele (2015) | *Explanation in Causal Inference: Methods for Mediation and Interaction*, a book |
+
+The Smith and VanderWeele supplement was read in the present review. The 2017 appendix and
+the full text of the 2019 technical discussion remain unread. A search that did not locate a
+target-specific theorem does not establish that none exists.
 
 A weighted fit standardizes by the weighted outcome standard deviation.
 The estimate targets the population the observation weights describe, and the standardizing scale describes the same population.

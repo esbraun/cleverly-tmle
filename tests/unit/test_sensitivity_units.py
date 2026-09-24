@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from cleverly.sensitivity import evalue_from_rr
-from cleverly.sensitivity.evalue import _evalue_for_limit
+from cleverly.sensitivity.evalue import EValue, _evalue_for_limit
 from cleverly.sensitivity.omitted_variable import _confounding_strength
 
 
@@ -53,6 +53,17 @@ class TestEValue:
 
     def test_a_limit_away_from_the_null_uses_the_formula(self) -> None:
         assert _evalue_for_limit(2.0, above_null=True) == pytest.approx(evalue_from_rr(2.0))
+
+    def test_summary_qualifies_equal_strength_and_allows_a_tradeoff(self) -> None:
+        evalue = evalue_from_rr(2.0)
+        assert evalue == pytest.approx(2.0 + np.sqrt(2.0))
+        assert 3.0 < evalue < 4.0
+        assert pytest.approx(2.0) == 3.0 * 4.0 / (3.0 + 4.0 - 1.0)
+        report = EValue("rr", "risk ratio", 2.0, (1.5, 2.5), evalue, evalue_from_rr(1.5), False)
+        summary = report.summary()
+        assert "If its two risk-ratio associations had equal strength" in summary
+        assert "Unequal strengths can trade off" in summary
+        assert "at least 3.41 with both" not in summary
 
 
 class TestConfoundingStrength:

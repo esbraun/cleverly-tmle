@@ -72,6 +72,7 @@ from scipy import optimize, stats
 from .._inference_status import InferenceStatus, supplies_inference
 from .._typing import FloatArray
 from ..assessment import SENSITIVITY_ROUTES
+from ..estimators.direct_effect import declares_intermediate
 from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, refuse_inference, repeats_refusal
 from ..inference.cluster import influence_variance
@@ -258,14 +259,12 @@ def _refuse_response_mechanism(result: Any) -> str | None:
 def _refuse_intermediate(result: Any) -> str | None:
     """Refuse a fit that declares an intermediate variable.
 
-    The predicate is the one :mod:`~cleverly.sensitivity._simulated_confounding_request`
-    uses for the same boundary, so the two surfaces refuse the same fits.  Without this
-    rule the bound returns a number, and nothing in it says that ``cf_d`` has changed
-    meaning.
+    The predicate is :func:`~cleverly.estimators.direct_effect.declares_intermediate`,
+    which every sensitivity surface reads for this boundary, so they refuse the same fits.
+    Without this rule the bound returns a number, and nothing in it says that ``cf_d`` has
+    changed meaning.
     """
-    if result.data.has_intermediate or result.intermediate_value is not None:
-        return _INTERMEDIATE_BOUND_REFUSAL
-    return None
+    return _INTERMEDIATE_BOUND_REFUSAL if declares_intermediate(result) else None
 
 
 def _refuse_non_arm_axis(result: Any) -> str | None:

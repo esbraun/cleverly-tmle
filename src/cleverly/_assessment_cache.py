@@ -101,11 +101,16 @@ def _normalize(value: Any) -> Any:
 #: construction.  Its truncation row now counts cells of the one out-of-fold mechanism, and
 #: a battery cached on an artifact from the fold-fluctuated construction reports a curve
 #: that this version's fitted-bound replay gate refuses.
+#:
+#: ``sensitivity.run_all`` moved to 3 with RM21. Every E-value request on a fit with an
+#: intermediate variable now refuses, and a battery cached on a controlled-direct-effect
+#: result before that change carries a completed E-value row. The single ``evalue`` entry
+#: needs no bump, because the facade selects the branch before it reads the cache.
 _CACHE_GENERATIONS: dict[str, int] = {
     "diagnostics.support": 4,
     "diagnostics.nuisance_models": 2,
     "diagnostics.run_all": 10,
-    "sensitivity.run_all": 2,
+    "sensitivity.run_all": 3,
     "validate": 5,
 }
 

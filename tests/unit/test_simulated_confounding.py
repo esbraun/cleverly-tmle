@@ -95,6 +95,11 @@ from tests.unit._confounding_support import (
 from tests.unit._confounding_support import (
     with_functional as _with_functional,
 )
+from tests.unit._direct_effect_support import (
+    column_only,
+    level_only,
+    with_intermediate_column,
+)
 
 
 def _fit(
@@ -2244,15 +2249,7 @@ def test_fit_wide_refusals_have_one_order_and_match_assessment(
             weight_spec=replace(clustered.data.weight_spec, estimated=True),
         ),
     )
-    intermediate = replace(
-        estimated,
-        data=replace(
-            estimated.data,
-            intermediate=np.zeros(estimated.data.n),
-            intermediate_name="Z",
-        ),
-        intermediate_value=0.0,
-    )
+    intermediate = level_only(column_only(estimated))
     observed = intermediate.data.observed.copy()
     observed[0] = False
     missing = replace(intermediate, data=replace(intermediate.data, observed=observed))
@@ -3988,7 +3985,7 @@ def test_unsupported_compositions_are_refused_before_refit(
         observed[0] = False
         data = replace(data, observed=observed)
     elif change == "intermediate":
-        data = replace(data, intermediate=np.zeros(data.n), intermediate_name="Z")
+        data = with_intermediate_column(data)
     elif change == "cluster":
         data = replace(data, cluster=np.arange(data.n), cluster_name="id")
     elif change == "restored":

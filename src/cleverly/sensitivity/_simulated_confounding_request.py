@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 
 from ..estimators.base import MEAN_GROUP_ESTIMANDS, TMLEResult
+from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import CapabilityError
 from ..study import (
     ATC,
@@ -195,10 +196,12 @@ def _refuse_missing_outcome(result: Any) -> str | None:
 
 
 def _refuse_intermediate(result: Any) -> str | None:
-    """Refuse a fit that declares an intermediate variable."""
-    if result.data.has_intermediate or result.intermediate_value is not None:
-        return _INTERMEDIATE_REFUSAL
-    return None
+    """Refuse a fit that declares an intermediate variable.
+
+    The predicate is :func:`~cleverly.estimators.direct_effect.declares_intermediate`,
+    which every sensitivity surface reads for this boundary.
+    """
+    return _INTERMEDIATE_REFUSAL if declares_intermediate(result) else None
 
 
 def _refuse_estimated_weights(result: Any) -> str | None:

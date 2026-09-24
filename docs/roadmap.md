@@ -52,7 +52,8 @@ shipped.
 The review of pull request 223, which delivered RM11 and RM12, recorded problems that it did not
 fix. A survey of this roadmap for shipped behavior then found more in other items. RM20 to RM24
 hold both sets, and three smaller findings extend RM16. Each detail section gives its probe and
-the measured result. RM20 is delivered, and its detail section records what shipped.
+the measured result. RM20 and RM21 are delivered, and each detail section records what
+shipped.
 
 The 2026-09-22 plan for RM20 and RM13 found two sibling surfaces that neither row names.
 [RM25](#rm25-declared-stochastic-regime-densities) holds a stochastic regime density that closes
@@ -77,13 +78,12 @@ rows that remain.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.21 | E-value on a controlled-direct-effect fit | find a source that derives an E-value for a controlled direct effect, or refuse each E-value branch that no source covers on a fit with an intermediate variable | the Gaussian branch and the reported-ratio branches answer on that fit, and the derived-ratio branch refuses it. No source read here covers the case | [RM21](#rm21-e-value-on-a-controlled-direct-effect-fit) |
 | 0.22 | Standard error of the omitted-variable bound | add the influence term of the conditioning share to the ATT and ATC curve, decide what the plug-in limits claim, and check each locator against the published article | the curve of $\nu^2$ omits $-2 \nu^2 (1\{A = c\} - p) / p$. Under the doubly robust estimator the omission widens the limits. No derivation covers the plug-in limits | [RM22](#rm22-standard-error-of-the-omitted-variable-bound) |
 | 0.31 | Capability rows that read available and then refuse | make each declared row match its call, and add a witness that sweeps the kinds of fit | four rows on three kinds of fit read available, and the call then refuses or raises. On one of them, `assess(include_refits=True)` raises `ValueError` and returns no report | [RM23](#rm23-capability-rows-that-read-available-and-then-refuse) |
 | 0.32 | Intervention refusals at identification | refuse mixed intervention kinds in `CausalStudy.identify`, and name the typed estimands in each message. Refuse a zero-dimensional regimen plan by name | a mixed request passes identification and then fails at estimation, once with an `AttributeError` | [RM14](#rm14-intervention-refusals-at-identification) |
 | 0.33 | Refusals after the nuisance fit | raise each refusal as `CapabilityError` before any learner call | four well-posed requests refuse after 2 to 20 learner fits. Three of them raise `NotImplementedError` or `ValueError` | [RM24](#rm24-refusals-after-the-nuisance-fit) |
 | 0.41 | Calibration-slope warning rule | replace the fixed band with a rule that a registered calibration study supports | the band flagged 14 of 40 fits of a correctly specified weak-signal propensity model | [RM15](#rm15-calibration-slope-warning-rule) |
-| 0.42 | Summary and error-message accuracy | correct six display surfaces, three data error messages, and one refusal remedy, add a fingerprint-only protocol option, and decide what a bootstrap summary publishes on a non-inferential fit. The simultaneous-request policy is settled below | each surface omits, misstates, or repeats a fact that the fit records | [RM16](#rm16-summary-and-error-message-accuracy) |
+| 0.42 | Summary and error-message accuracy | correct six display surfaces, three data error messages, one refusal remedy, and two refusal reasons, add a fingerprint-only protocol option, and decide what a bootstrap summary publishes on a non-inferential fit. The simultaneous-request policy is settled below | each surface omits, misstates, or repeats a fact that the fit records | [RM16](#rm16-summary-and-error-message-accuracy) |
 | 0.51 | Red property cells after the fold, scale and law changes | keep each red verdict under `reporting` with its interval, and admit inference only when F18 or F19 supplies the exact result. The [red-cell ledger](technical-reference/method-evidence/red-cells.md) delivers this. Then declare and run the five open RM18 follow-up designs, each declared before its run | registered studies publish red verdicts after the fold, scale and law changes and the pooled update. The ledger lists each one and the ask that owns it. Five RM18 follow-up designs are not declared and have not run | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
 | 0.52 | One-sided robustness bias increment in DR-TMLE | investigate the exploratory between-implementation increment on binary `treatment_correct`, under a design declared before it runs | the RM18 reading is `mixed` on that configuration. The unadjusted paired 99% interval of `cleverly` minus R `drtmle` runs 0.000068 to 0.001942, while the Bonferroni interval for that comparison covers zero. No implementation defect is established | [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) |
 | 0.61 | Learned-policy value evaluation | implement a typed learned-policy target with fold-local training and evaluation, using a published estimating and inference contract | fixed-rule paths refuse a rule learned from the analysis sample; published learned-policy methods give distinct targets and inference | [RM30](#rm30-learned-policy-value-evaluation) |
@@ -94,7 +94,7 @@ A row that another row depends on comes before that row.
 
 | tier | reason | rows |
 | --- | --- | --- |
-| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM21, RM22 |
+| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM22 |
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM23, RM14 |
 | c | a correct refusal that arrives late or as the wrong type | RM24 |
 | d | a diagnostic or a warning that misleads | RM15 |
@@ -108,7 +108,6 @@ tier.
 
 | row | reason for its place |
 | --- | --- |
-| RM21 | an E-value that no read source covers, on controlled-direct-effect fits only |
 | RM22 | the defect widens the limits of the default doubly robust estimator, which is conservative. No derivation covers the plug-in limits, but the probe measured their ratios at 0.992 to 1.026 |
 | RM23 | one fit loses the whole assessment report, and four rows on three kinds of fit read available and then refuse |
 | RM14 | one mixed request raises an `AttributeError`. It also has a late refusal of tier c, so it takes the higher tier |
@@ -119,19 +118,19 @@ tier.
 | RM19 | one configuration, which RM18 opened. Its Bonferroni interval covers zero, and it moves no verdict |
 | RM30 | a published learned-policy method can resolve the current refusal, but requires a distinct target, fold-local evaluation, and inference validation |
 
-No open row waits on another open row. RM13, RM20, RM25, RM26, RM27, RM28 and RM29 are
+No open row waits on another open row. RM13, RM20, RM21, RM25, RM26, RM27, RM28 and RM29 are
 delivered. The RM23 sweep fits only the kinds of fit that succeed, and the RM14 and RM24 requests
 produce no fit.
 
 Main-roadmap X9 depends on RM22. Every remediation row comes before main-roadmap priority 1, so
 the queue meets that dependency.
 
-Use five delivery groups for these ten rows and the two investigations that RM18 waits on.
+Use five delivery groups for these nine rows and the two investigations that RM18 waits on.
 Keep each item's acceptance criteria separate inside its group.
 
 | delivery group | items | shared boundary |
 | --- | --- | --- |
-| sensitivity outputs | RM21 and RM22 | the E-value and omitted-variable reports, and one reading of the published sources they cite |
+| sensitivity outputs | RM22 | the omitted-variable report, and one reading of the published sources that it cites |
 | refusal surfaces | RM23, RM14 and RM24 | a refusal reaches the caller where its declaration says, before the work that it refuses |
 | diagnostic reports | RM15 and RM16 | one assessment and summary surface, with one documentation pass |
 | red property cells | RM18 and RM19, and the F18 and F19 derivations that RM18 waits on | the recorded rule that a red cell is reporting evidence, designs declared before their runs that move no verdict, and two exact derivations that would close the inferential gaps |
@@ -159,11 +158,11 @@ does not collide with a main-roadmap priority.
 Priorities give the current delivery order. This project reassigns them when it re-triages the
 queue. The RM IDs and their anchors never change, so a commit names a row by its ID. A delivered
 row takes its priority with it, and the other rows keep theirs. RM20, RM13, RM25, RM26 and RM27
-held 0.11 to 0.15, in that order. RM28 held 0.16, and RM29 held 0.17.
+held 0.11 to 0.15, in that order. RM28 held 0.16, RM29 held 0.17, and RM21 held 0.21.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
-The queue holds ten rows, and none of them is delivered. Seven rows need their corrections:
-RM14 to RM16, and RM21 to RM24. RM18 has five follow-up designs that are not declared and have
+The queue holds nine rows, and none of them is delivered. Six rows need their corrections:
+RM14 to RM16, and RM22 to RM24. RM18 has five follow-up designs that are not declared and have
 not run. RM19 has no declared design. RM30 holds the published learned-policy implementation.
 
 The F18 and F19 derivations do not block priority 1, because an item with no published theory does
@@ -231,6 +230,7 @@ the missing result. Package code and a related estimator do not remove the stop.
 | Longitudinal simulated-confounding replay | a time-indexed latent law for treatments, censoring, histories, outcomes, and contrasts | point-treatment results only | [F13](#f13-longitudinal-simulated-confounding-replay) |
 | Controlled-direct-effect simulated-confounding replay | an ordered treatment, intermediate, observation, and outcome law with a contrast contract | fits without an intermediate only | [F15](#f15-controlled-direct-effect-simulated-confounding-replay) |
 | Simulated confounding on a declared outcome scale | a latent perturbation law for an outcome confined to a known support, and the reading of its strength | additive perturbation of an unbounded outcome only, so a fit that declares `q_bounds` refuses the outcome axis | [F23](#f23-simulated-confounding-on-a-declared-outcome-scale) |
+| Controlled-direct-effect E-value | a bound on the bias of a controlled direct effect from unmeasured confounding, of the treatment and the outcome or of the intermediate variable and the outcome, and its inversion to an E-value on a stated outcome scale | every E-value request on a fit with an intermediate variable and a discrete treatment reports `unavailable`. A continuous-treatment fit reports `not_applicable` first | [F25](#f25-e-value-for-a-controlled-direct-effect) |
 | Stochastic categorical policies at a longitudinal node | longitudinal identification, influence function, remainder, and interval conditions for a distribution-valued policy | deterministic categorical regimens only | [F1](#f1-stochastic-categorical-policies-at-a-longitudinal-node) |
 | Targeted bootstrap inference | a construction that defines what is fixed, resampled, refitted, and retargeted, plus the sampling law of the interval | existing bootstrap inference is not this procedure | [F2](#f2-targeted-bootstrap-inference) |
 | Longitudinal sensitivity-bound estimation | sample estimation of the bound functionals, a specialized algorithm, and sampling inference | no sensitivity bound on a longitudinal fit | [F16](#f16-longitudinal-sensitivity-bound-estimation) |
@@ -838,6 +838,8 @@ The witnesses must fail when a component is wrong:
 | bootstrap summary on a non-inferential fit | `estimate.bootstrap.ci` answers, and `to_dict` emits `bootstrap_std_err`, under inferential names on a fit whose status supplies no inference | `BootstrapSummary` in `src/cleverly/inference/influence.py` is a plain dataclass, and `ParameterEstimate.to_dict` writes `bootstrap_std_err` whatever the status. `to_dict` already renames the percentile limits to `bootstrap_range_lower` and `bootstrap_range_upper`. RM12 kept the `bootstrap_std_err` name on purpose, and the [collaborative reference](technical-reference/collaborative-tmle.md) says so | decide what the bootstrap publishes on such a fit, and record the decision in the collaborative reference and in [inference status](technical-reference/inference.md#inference-status). A refusal at `.bootstrap.ci` would break the `ci=` keyword of the `BootstrapSummary` constructor, every reader of that field, and results pickled before the change |
 | continuous-treatment `DataError` | the error for a continuous treatment with no `shifts=` and no `msm=` offers `Shift(0.0, cap=None)` as "the natural course". A cross-fitted fit with `delta=` then meets the F21 refusal of a shift target, whose remedy is the in-sample fit | `TMLE._check_shifts` in `src/cleverly/estimators/tmle.py`. The review probe of the F21 refusal (commit 45f072b) fitted `make_missing_outcome_binary(n=400, seed=4)` with a continuous dose and `Shift(0.0, cap=None)`, cross-fitted with `delta=`. It refused before any learner. Its in-sample fit reports `ey_shift[natural course]` 0.51256 | on a cross-fitted fit with `delta=`, name the in-sample fit beside the natural course, so that the suggested request does not meet a refusal |
 | longitudinal plan written as a mapping | `{"x": {"t1": 1, "t2": d}}` resolves to `Regimen('x', t1/t2)`, with the dictionary keys as arms. The fit then raises `DataError`: "regimen 'x' assigns 't1' at time 1". The message names a label that the user did not mean as an arm, and nothing checks or calls `d` | `_plan_nodes` in `src/cleverly/longitudinal/regimen.py` reads any iterable that is not an iterator as a tuple of its items. The review of RM28 probed the plan at a0e93bb6 and at commit 75e86be, with the same result | refuse a mapping plan by name, and name the sequence form and `DynamicRegimen` in the message |
+| derived risk-ratio refusal on a controlled-direct-effect fit | `_risk_ratio_refusal` says that "no controlled direct risk-ratio target is registered". A binary fit with `intermediate=` reports `rr` and `or` at each level. The [scope page](technical-reference/scope-and-refusals.md) row on a controlled direct risk ratio repeats the claim | `src/cleverly/sensitivity/_derived.py`. The RM21 probe fitted `make_cde(n=400, seed=3)` with Y split at its median, and read `rr` at both levels. `_derived_risk_ratio` calls `retarget` with no `intermediate_value`. Mutation M5 of RM21 removes the rule, and the direct call then raises `DataError`: "the data carries an intermediate variable but no intermediate_value was supplied" | name the missing part, which is a retarget at the level of the fit. The E-value no longer reaches this rule, because RM21 refuses first |
+| E-value reason for a level | a request for `ey1` on a fit without an intermediate variable reads "an E-value needs an unconditioned two-arm contrast, not axis 'arm'". The level has the arm axis. It lacks a reference arm | `_select_evalue` in `src/cleverly/sensitivity/evalue.py` prints `key.axis` for each of three failed conditions. The RM21 probe read this text on the Gaussian fit | name the condition that failed |
 
 Each correction needs a unit test that fails without it. Three tests are nonzero witnesses. A
 `RegimeContrast` summary keeps its reference line. A design with a time-varying covariate prints it
@@ -852,14 +854,24 @@ The delivery of RM20 found the selection-fold row. Its test must fit the probe a
 that neither message offers `cross_fit=False` to an in-sample fit. A control must keep that remedy
 on a cross-fitted fit.
 
-The review of that delivery found the last two rows. The bootstrap row needs a decision before a
-test. The test of the `DataError` row must fit the suggested shift, cross-fitted with `delta=`,
+The review of that delivery found the bootstrap and continuous-treatment rows. The bootstrap row
+needs a decision before a test. The test of the `DataError` row must fit the suggested shift, cross-fitted with `delta=`,
 and assert that the message names the in-sample fit.
 
 The delivery of [RM26](#rm26-longitudinal-clustered-intervals-at-few-clusters) widened the
 simultaneous row. `LTMLE` skips its default band below 40 clusters, as `TMLE` does under each
 non-inferential status. An explicit `simultaneous=True` also builds no band and raises no warning.
 The result summary names the omission for both estimators.
+
+The plan and the delivery of [RM21](#rm21-e-value-on-a-controlled-direct-effect-fit) found the
+derived risk-ratio row and the E-value-reason row. Each test must read the message on the RM21
+probe fit. A control must keep each other reason of the same function.
+
+The PR 229 review resolved these two message rows. `_risk_ratio_refusal` now names the missing
+intermediate intervention level in cached retargeting. A binary controlled-direct-effect fit
+reports both `rr` and `or`, and the direct helper still refuses. `_select_evalue` now gives
+separate reasons for a non-arm axis, a level without a reference arm, and a baseline stratum.
+`test_evalue_direct_effect_refusals.py` checks the fitted ratio and each refusal reason.
 
 ### RM18. Red property cells after the fold, scale and law changes
 
@@ -2432,8 +2444,9 @@ the [scope page](technical-reference/scope-and-refusals.md), the
 `_select_evalue` in `src/cleverly/sensitivity/evalue.py` returns the Gaussian-difference branch
 before any check for an intermediate variable. The reported-ratio branches return before that
 check too. The derived-ratio branch refuses the same fit in `_risk_ratio_refusal`
-(`src/cleverly/sensitivity/_derived.py`), because no controlled direct risk-ratio target is
-registered. The fixed-baseline branch refuses it as well.
+(`src/cleverly/sensitivity/_derived.py`). Its former reason claimed that no controlled direct
+risk-ratio target was registered. [RM16](#rm16-summary-and-error-message-accuracy) records why
+that reason misstated the fit. The fixed-baseline branch refuses it as well.
 
 | fit | request | result |
 | --- | --- | --- |
@@ -2443,18 +2456,18 @@ registered. The fixed-baseline branch refuses it as well.
 | the same binary fit | `rr` | E-value 3.4858 from the reported ratio 2.0348 |
 | the same binary fit | `or` | E-value 2.6318 |
 
-Both Gaussian levels divide by one value, sd(Y) = 1.907. That is the standard deviation of the
-observed outcome. A controlled direct effect compares means under an intervention on the
-intermediate variable, so that value is not the scale of either counterfactual mean. The
-identification of the effect also assumes no unmeasured confounding of the intermediate variable
-and the outcome. The E-value of VanderWeele and Ding (2017) is defined for the confounding of one
-exposure-outcome relation. No source read for this roadmap extends it to this case.
+Both Gaussian levels divide by the observed outcome's sd(Y) = 1.907. That arithmetic does not
+supply a source-backed confounding bound for the controlled-direct-effect target. Identification
+also assumes no unmeasured confounding of the intermediate variable and the outcome. The ordinary
+E-value conversion does not by itself describe both sources of
+confounding for this fitted target. [F25](#f25-e-value-for-a-controlled-direct-effect) records
+the mapping needed before a supported branch can open.
 
 Apply these corrections:
 
-1. Search for a source that derives an E-value for a controlled direct effect. If one covers a
-   branch, record its locator and the outcome scale that it uses.
-2. Refuse each branch that no source covers, before any computation. Put the check in
+1. Search for a source-backed bound and a mapping to the fitted controlled direct effect.
+   A natural specialization can qualify. Record the locator, confounding model, and outcome scale.
+2. Refuse each branch without a verified mapping, before any computation. Put the check in
    `_select_evalue` ahead of the branch selection, so that the capability row reads `unavailable`.
    The reason names the missing result.
 
@@ -2464,6 +2477,195 @@ The witnesses must fail when a component is wrong:
 - a mutation that moves the intermediate check back below the Gaussian branch makes that test
   fail;
 - a control shows that a fit without an intermediate variable keeps each branch.
+
+#### RM21 plan
+
+The source search found no verified mapping that covers a branch of this fitted target.
+[F25](#f25-e-value-for-a-controlled-direct-effect) records what each read source covers. So the
+plan refuses every branch. The 2026-09-24 plan fixes the decisions in the table below. Line
+numbers are at 44f44998.
+
+| part | decision |
+| --- | --- |
+| predicate | a new `declares_intermediate(result)` in `src/cleverly/estimators/direct_effect.py` reads `data.has_intermediate or intermediate_value is not None`. A package fit sets both or neither, because `clever_covariate_inputs` raises `DataError` otherwise. `dataclasses.replace` can set one alone. The E-value, the omitted-variable bound, the simulated-confounding replay, and `_risk_ratio_refusal` call this one predicate |
+| placement | `_select_evalue` runs the check after the longitudinal and continuous-treatment checks, and before `arm_parameter_keys`. Like those two checks, it is fit-wide. A check after the default estimand would leave a multi-arm controlled-direct-effect fit `deferred` |
+| status and reason | `unavailable`, with the constant `_DIRECT_EFFECT_REFUSAL`. The reason names the missing result and ends "docs/roadmap.md F25 tracks this stop", as the simulated-confounding stops do |
+| cost | on such a fit, an explicit `ey1` or an alias that the fit did not report reads `unavailable` with this reason. On a fit without an intermediate variable, the same request reads `not_applicable` or "was not requested". A continuous-dose fit with an intermediate variable stays `not_applicable`, because the continuous check runs first |
+| dead branch | the `intermediate_value` check before the fixed-baseline branch (`evalue.py:395-396`) becomes unreachable. The plan deletes it |
+| derived helper | `_risk_ratio_refusal` keeps its text, because a direct call of `_derived_risk_ratio` still needs it |
+
+The plan measured each branch on `make_cde(n=400, seed=3)`, fitted in sample by
+`fast_tmle(**IN_SAMPLE)` of `tests/conftest.py` with the covariates W1 to W3. The binary law splits
+Y at its median. The table gives the result at 44f44998.
+
+| fit | request | branch | E-value |
+| --- | --- | --- | --- |
+| Gaussian, $z = 0$ | default, `ate`, `att`, `atc` | `gaussian_difference` | 2.6947, 2.6947, 2.8060, 2.5774 |
+| Gaussian, $z = 1$ | default, `ate`, `att`, `atc` | `gaussian_difference` | 3.3650, 3.3650, 3.3351, 3.4013 |
+| binary with `rr`, `or` and `ate`, $z = 0$ | default and `rr`, then `or` | `reported_rr`, then `reported_or` | 3.7159, then 2.7570 |
+| binary with `rr`, `or` and `ate`, $z = 1$ | `rr`, then `or` | `reported_rr`, then `reported_or` | 2.6570, then 3.9461 |
+| binary with `rr`, `or` and `ate`, both levels | `ate` | refused by `_risk_ratio_refusal` | none |
+| binary with `or` and `ate` only, $z = 0$ | default | `reported_or` | 2.7570 |
+| the same fit, read as CV-evaluated | `ate` | refused with the CV text, through `evalue.py:395-396` | none |
+
+The last two rows add a leak that the row did not name. A default request meets the odds-ratio
+fallback at `evalue.py:393-394`, which returns before the intermediate check. Both Gaussian levels
+divide by one observed value, sd(Y) = 1.942.
+
+The same fits without `intermediate=` reach all five branches. The Gaussian fit reads
+`gaussian_difference`. The binary fit with `rr` reads `reported_rr` and `reported_or`, and its
+`ate` reads `derived_rr`. The binary fit without `rr` reads `derived_rr` by default. Read as
+CV-evaluated, its default reads `reported_or` and its `ate` reads `fixed_baseline_ate`.
+
+The new file `tests/unit/test_evalue_direct_effect_refusals.py` drives every witness from one
+table of eleven requests. Each row names its law, its edit, its estimand, and the branch that the
+fit without an intermediate variable takes.
+
+| witness | test |
+| --- | --- |
+| 1. each branch refuses | each request, at both levels, reads an `unavailable` row with the RM21 reason. The free function and the facade raise it. A multi-arm fit, `ey1`, the assessment battery, and a `CausalStudy` fit refuse too |
+| 2. the check moved below the Gaussian branch fails the test | the mutation tests rebuild `_select_evalue` from its own source with the check moved, and assert the exact set of requests that leak |
+| 3. a fit without an intermediate variable keeps each branch | each request on that fit keeps its branch, and the rows reach all five branches |
+| nonzero witness | each blocked branch computes a finite E-value above 1 on the same fit, so the refusal withholds a number |
+
+The mutation tests commit six mutations. The plan predicts each set. The delivery measures it.
+
+| mutation | predicted requests that leak |
+| --- | --- |
+| M0. the rebuilt function, unchanged | none. The control also keeps each branch |
+| M1. the check below the Gaussian branch | the four Gaussian requests, the three ratio requests except `ate`, `ey1`, and the multi-arm default |
+| M2. the check at its place before RM21, above the fixed-baseline branch | the M1 set, and the two odds-ratio defaults |
+| M3. the check beside the status refusal | `ey1` and the multi-arm default |
+| M4. the predicate in `evalue.py` returns `False` | every request |
+| M5. the predicate in `_derived.py` returns `False` | none. The direct test of `_derived_risk_ratio` fails |
+
+Five hand mutations then run one at a time, each on a copy with its sha256 recorded. H1 inlines
+`intermediate_value is not None`. H2 reads `data.has_intermediate` alone. H3 reports
+`not_applicable`. H4 restores `evalue.py` at 44f44998. H5 removes the rule from
+`_risk_ratio_refusal`.
+
+#### RM21 delivery
+
+Both corrections shipped as commit f97076f planned them. The review found no verified mapping
+that covers a branch of this fitted target, so every branch refuses. Each row ends with the commit
+that shipped it.
+
+| part | what shipped |
+| --- | --- |
+| predicate | `declares_intermediate(result)` in `src/cleverly/estimators/direct_effect.py`. `_refuse_intermediate` in `omitted_variable.py` and in `_simulated_confounding_request.py`, and `_risk_ratio_refusal` in `_derived.py`, call it. Commit a4378d2 |
+| refusal | `_select_evalue` raises `_DIRECT_EFFECT_REFUSAL` with the `unavailable` status. The check runs after the longitudinal and continuous-treatment checks, and before `arm_parameter_keys`. The reason cites F25. Commit 581bdc0 |
+| dead branch | the check at `evalue.py:395-396` at 44f44998 is deleted. Commit 581bdc0 |
+| docstrings | the module docstring of `evalue.py` names the refusal, and `evalue()` gains a `Raises` section. Commit 581bdc0 |
+| existing tests | the battery drops its `intermediate_value` case, which the new level-only test covers. Its cached-refusal test matches the full reason. `test_documentation_links.py` checks that the reason cites F25. Commit 581bdc0 |
+| reference | the [E-value paths](technical-reference/validation-methods.md#e-value) gain the refusal row, the order of the fit-wide checks, and the table of read sources. The [scope page](technical-reference/scope-and-refusals.md) gains the refusal row. The [references](references.md#sensitivity-analysis) gain five entries. Commit 95e934e |
+| missing result | [F25](#f25-e-value-for-a-controlled-direct-effect) and its future-grid row. Commit f97076f |
+
+The [E-value paths](technical-reference/validation-methods.md#e-value) hold the table of read
+sources. Each row gives the locator, the version read, and what the source does not cover. The
+delivery checked the Biometrika volume and pages of Ding and VanderWeele (2016) at the publisher.
+It read that paper as arXiv 1601.05155 only.
+
+The table gives the outcome of the two surfaces that the plan found, and of one that the delivery
+found.
+
+| surface | outcome |
+| --- | --- |
+| a multi-arm controlled-direct-effect fit, found by the plan | its default row read `deferred`, and a check after the default estimand would keep it so. The check runs before the estimand, so the row reads `unavailable`. `test_a_multi_arm_fit_does_not_defer` pins the default and each `ate[...]` alias. Commit 581bdc0 |
+| the text of `_risk_ratio_refusal`, found by the plan | its former text said that no controlled direct risk-ratio target was registered, while the binary fit reported `rr` at each level. Mutation M5 measured the limit: a direct call without the rule raises `DataError`, because `retarget` receives no level. [RM16](#rm16-summary-and-error-message-accuracy) records its later correction |
+| the reason for `ey1` on a fit without an intermediate variable, found by the delivery | its former text named the arm axis, which the level has. RM16 records its later correction |
+
+The row named three witnesses. The table gives the state of each. They are in
+`tests/unit/test_evalue_direct_effect_refusals.py`, which held 69 tests at commit 581bdc0. The table `REQUESTS`
+drives each witness.
+
+| witness | state |
+| --- | --- |
+| 1. a test on a Gaussian and a binary fit pins the result of each branch | delivered in `TestAControlledDirectEffectRefusesEveryBranch`. Eleven requests at both levels read the row, the free function, and the facade. The same class covers `ey1`, the multi-arm fit, `assess()`, a `CausalStudy` fit, a level alone, and a column alone. `test_no_branch_computes` replaces each helper after the check with a function that raises, and every request still refuses |
+| 2. the mutation that moves the check below the Gaussian branch fails that test | delivered as M1 below, with M0 to M5 |
+| 3. a fit without an intermediate variable keeps each branch | delivered in `TestAFitWithoutAnIntermediateKeepsEachBranch`. The eleven requests reach all five branches, and `test_the_controls_reach_every_branch` checks that against `_Branch` |
+| the nonzero witness | delivered in `TestTheRefusalBlocksANumber`. Each branch that reads a stored estimate computes a finite E-value above 1 on the same fit, at both levels. Both Gaussian levels and the fit without an intermediate variable divide by one sd(Y) |
+
+Each committed mutation either compiles `_select_evalue` again from its own source with the check
+moved, or replaces a predicate through `monkeypatch`. The measured sets equal the plan's
+predictions.
+
+| mutation | requests that leak, measured | the test that fails |
+| --- | --- | --- |
+| M0. the source compiled unchanged | none | none. `test_m0_the_rebuilt_function_refuses_and_keeps` is the control |
+| M1. the check below the Gaussian branch | the four Gaussian requests, `ratio-default`, `ratio-rr`, `ratio-or`, `ey1`, and the multi-arm default. The leaked Gaussian `ate` at $z = 0$ reads 2.694664, the value before RM21 | `test_m1_the_check_below_the_gaussian_branch_leaks` |
+| M2. the check at its place before RM21 | the M1 set, `odds-default`, and `odds-cv-default` | `test_m2_the_check_at_its_place_before_rm21_leaks` |
+| M3. the check beside the status refusal | `ey1` and the multi-arm default | `test_m3_the_check_after_the_estimand_resolves_leaks` |
+| M4. the predicate in `evalue.py` returns `False` | all thirteen requests | `test_m4_a_predicate_that_reads_no_fit_leaks_every_request` |
+| M5. the predicate in `_derived.py` returns `False` | none. A direct call of `_derived_risk_ratio` raises `DataError` | `test_m5_the_derived_rule_removed_fails_its_own_witness` |
+
+Six mutations ran by hand, one at a time. Each run copied the source file to a backup with its
+sha256, applied one mutation, and ran the new file, the battery file,
+`tests/unit/test_omitted_variable_refusals.py`, and `tests/unit/test_simulated_confounding.py`.
+That is 552 tests. Each run then restored the file, the restored file matched its hash, and
+`git status` was clean. The last two files failed no test in any run.
+
+| mutation | file | failures |
+| --- | --- | --- |
+| H1. the check reads `result.intermediate_value is not None` | `src/cleverly/sensitivity/evalue.py` | 6 in the new file: the column-alone test, and M0 to M4 |
+| H2. the predicate reads `data.has_intermediate` alone | `src/cleverly/estimators/direct_effect.py` | 2 in the new file, 1 in the battery file |
+| H3. the check reports `not_applicable` | `src/cleverly/sensitivity/evalue.py` | 36 in the new file, 1 in the battery file |
+| H4. the whole file at 44f44998 | `src/cleverly/sensitivity/evalue.py` | the new file and the battery file fail to import `_DIRECT_EFFECT_REFUSAL` |
+| H4b. the file at 44f44998, with the constant and the import added | `src/cleverly/sensitivity/evalue.py` | 36 in the new file, 1 in the battery file |
+| H5. `_risk_ratio_refusal` loses the rule | `src/cleverly/sensitivity/_derived.py` | 2 in the new file: the helper witness, and M2, where the two derived requests then raise `DataError` |
+
+The delivery departed from the plan in seven places. The table gives each one.
+
+| deviation | reason |
+| --- | --- |
+| the row for an explicit estimand comes from `_capability_for_arguments` | that is the row that `assess()` builds for a request. The plan named `_evalue_row`, which it calls |
+| M1 compares the leaked value with the blocked branch, not with 2.6947 | the equality measures the same claim, and it does not pin learner output across platforms |
+| M5 asserts `DataError` | the measured result. Without the rule, `_derived_risk_ratio` reaches `retarget`, which receives no level |
+| `test_no_branch_computes` replaces six helpers and runs all eleven requests | the plan named three helpers and two requests. `arm_parameter_keys` and `_default_estimand` witness that the check runs before the estimand resolves |
+| the nonzero witness takes its requests from `REQUESTS` | one table drives every witness. It covers the four branches that read a stored estimate |
+| H4b | H4 as planned stops the two test files at import, so it measures no behavior |
+| the literature table is in the E-value paths only | one table serves the reader and this record |
+
+This delivery regenerated no study. The refusal sits in the selection, before any computation. No
+registered study, notebook, or executed documentation example calls the E-value on a fit with
+`intermediate=`. The shared predicate changes no package fit, because such a fit sets both halves
+or neither. No container or R-runner file changed, so `tests/canonical/provenance-revisions.md`
+needs no row.
+
+The full fast suite gave 11556 passed and 87 skipped at 44f44998, and 11627 passed and 87
+skipped at commit 63d8862.
+
+#### RM21 review fixes
+
+Two reviews of this delivery found one defect in the source, C1, and three in the tests, C2 to C4.
+They also found six defects in the documentation, D1 to D6. The table gives each one, with the
+commit that fixed it.
+
+| finding | fix |
+| --- | --- |
+| C1. a combined report saved before RM21 still publishes its E-value | `_run_all` caches the report under `sensitivity.run_all`, and `_cached` serves a hit without a new gate. A controlled-direct-effect result that ran `run_all()` or `assess()` before RM21 kept a completed E-value row after `load`, and its capability row read `unavailable`. The generation of that key moves from 2 to 3, so the older entry is a cache miss. `test_a_battery_saved_before_rm21_does_not_publish_its_e_value` writes the stale report at generation 2, and a control reads it back at that generation. With the bump reverted, that test fails and the rest of its file and of `tests/unit/test_assessment_contract.py` passes. Commit 9c9f0ba |
+| C1, the sibling check | no other cache key serves an E-value. `validate` and `diagnostics.run_all` hold diagnostics only. The single `sensitivity.evalue` entry is safe, because `_invoke` selects before it reads the cache. `sensitivity.derived_risk_ratio` held nothing on such a fit, because `_risk_ratio_refusal` refused it before RM21. Commit 9c9f0ba |
+| C2. three copies of the probe law and of the edits that only `dataclasses.replace` makes | `tests/unit/_direct_effect_support.py` holds them once. The RM21 file, the intermediate fit of `tests/unit/test_omitted_variable_refusals.py`, and both intermediate edits of `tests/unit/test_simulated_confounding.py` use it. The four affected files passed 601 tests before and after. Commit 669663e |
+| C3. the facade message matched by containment | `assert_refused` compares it exactly. A default request raises `sensitivity 'evalue' is unavailable:` before the reason, and an explicit estimand raises the reason alone. Commit 669663e |
+| C4. `cv_evaluated` did not say that it refits nothing | its docstring says that the two requests on it witness the routing only. Commit 669663e |
+| D1. the Smith and VanderWeele (2019) row called an author manuscript the published article | the row links the DOI of the published article. Its page locators are published page numbers. Commit 7a2ff41 |
+| D2. the surface table of the delivery miscounted its sources | the sentence names two surfaces from the plan and one from the delivery. Commit 7a2ff41 |
+| D3. two RM16 paragraphs each claimed "the last two rows" | each paragraph names its rows. Commit 7a2ff41 |
+| D4. the comment on `_DIRECT_EFFECT_REFUSAL` sent the reader to RM21 for the sources | it names the source table in the E-value paths and F25. Commit 9c9f0ba |
+| D5. four texts said that every request reads `unavailable` | a continuous-treatment fit with an intermediate variable reads `not_applicable`, because that check runs first. The E-value row, the scope row, and the F25 grid row now name a discrete treatment, and the E-value paths state the order. `test_a_continuous_dose_with_an_intermediate_is_not_applicable` pins the status on a shift fit. The reason text stays, because it says that the package refuses every request, and `not_applicable` is a refusal too. Commits 9c9f0ba and 7a2ff41 |
+| D6. six smaller corrections | F25 names the *Biometrika* paper. The E-value paths give the title of each source that the search did not read, and say in the active voice which version of Ding and VanderWeele (2016) was read. The RM21 problem text points at the RM16 row, the suite line is wrapped, and the comment before the status refusal names the checks it follows. Commits 9c9f0ba and 7a2ff41 |
+
+At commit 7a2ff41 the RM21 file held 71 tests. The full fast suite gave 11631 passed and 87
+skipped. The four new tests are the two RM21 tests above, and the two source scans of
+`tests/unit/test_documentation_links.py` on the new support file.
+
+The PR 229 review corrected two further claims. The refusal now states the package's missing
+implemented bound for its fitted controlled direct effect and confounding model. It no longer
+infers that no such bound can exist from the two identification assumptions. The source table
+distinguishes a natural effect, a marker contrast within one vaccination arm, and the fitted
+population controlled direct effect at fixed $z$. The E-value summary now names the
+equal-strength threshold and the tradeoff between unequal strengths. For $RR=2$, strengths
+$3$ and $4$ give bounding factor $2$, although the equal-strength E-value is $3.414$.
+`test_sensitivity_units.py` checks this arithmetic and the summary text.
 
 ### RM22. Standard error of the omitted-variable bound
 
@@ -4176,6 +4378,32 @@ The treatment axis is unaffected, and the surface records the failure of each re
 than abandoning the run. `docs/examples/interventions.ipynb` shows two refused cells and states
 this reason. The generated-outcome refutation refuses the same composition for the same reason, in
 `_validate_generated_eligibility` (`src/cleverly/validation/refute.py`).
+
+### F25. E-value for a controlled direct effect
+
+A controlled direct effect is identified under two assumptions of no unmeasured confounding.
+Assumption 2 covers the treatment and the outcome. Assumption 3 covers the intermediate variable
+and the outcome (`src/cleverly/estimators/direct_effect.py`). The E-value of VanderWeele and Ding
+(2017) inverts a risk-ratio bounding factor for a stated exposure contrast.
+
+The [E-value paths](technical-reference/validation-methods.md#e-value) record the sources read
+and their coverage. Ding and VanderWeele (2016, *Epidemiology*) allow a multivariate confounder
+and two levels of a general exposure. This does not itself map a composite $(A,Z)$ exposure onto
+the package's population contrast between $A$ arms at one fixed $Z=z$. The natural-effect
+results of Ding and VanderWeele (2016, *Biometrika*) and Smith and VanderWeele (2019) use
+different targets and confounding models. Gilbert, Fong, Kenny and Carone (2023) study a
+controlled effect, but their E-value compares marker interventions within a vaccination arm.
+
+A source-backed specialization of an existing bound is eligible; no paper has to name this
+package's API. Before implementation, specify the fitted target, the target population, and the
+outcome scale.
+
+Map each allowed unmeasured confounder to its time in the treatment-intermediate-
+outcome sequence. Define the treatment-confounder and outcome-confounder strengths under the
+intervention on $Z$, including any conditioning on $Z$ or joint $(A,Z)$ assignment. Show that
+the observed-data contrast and its standardization match the source's bounding factor for this
+target. Then derive the inversion for the point estimate and the reported interval. Validate
+the mapping with a nonzero law and controls that fail for a wrong arm, level, or confounding path.
 
 ## Longitudinal contracts
 
