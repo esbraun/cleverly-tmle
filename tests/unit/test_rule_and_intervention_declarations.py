@@ -49,7 +49,9 @@ import pandas as pd
 import pytest
 
 import cleverly.interventions.base as base_module
+import cleverly.longitudinal.estimator as ltmle_module
 from cleverly import RegimeMean, variable_importance
+from cleverly._declarations import declaration_status
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
@@ -688,6 +690,35 @@ class TestARestoredUndeclaredResultWithholdsInference:
             UNDECLARED_CLASS,
         )
         assert NeverFit.calls == 0
+
+
+def raising(error: type[Exception]) -> Callable[[], None]:
+    """A declaration check that raises ``error``."""
+
+    def refuse() -> None:
+        raise error("refused")
+
+    return refuse
+
+
+class TestTheStatusPredicateIsShared:
+    """``TMLE`` and ``LTMLE`` read a refusal as a status through one function."""
+
+    @pytest.mark.parametrize("error", [CapabilityError, DataError])
+    def test_a_refusal_is_the_undeclared_status(self, error: type[Exception]) -> None:
+        assert declaration_status(raising(error)) == UNDECLARED_STATUS
+
+    def test_no_refusal_is_the_influence_curve(self) -> None:
+        assert declaration_status(lambda: None) == "influence_curve"
+
+    def test_another_error_is_not_a_status(self) -> None:
+        """Only a refusal is a status, so a defect in a check is not read as one."""
+        with pytest.raises(ValueError, match="refused"):
+            declaration_status(raising(ValueError))
+
+    def test_both_estimators_call_the_one_predicate(self) -> None:
+        assert tmle_module.declaration_status is declaration_status
+        assert ltmle_module.declaration_status is declaration_status
 
 
 # ------------------------------------------------------------------ the replay

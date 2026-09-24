@@ -69,6 +69,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, NoReturn
 import numpy as np
 from sklearn.base import clone
 
+from .._declarations import declaration_status
 from .._inference_status import (
     NO_SIMULTANEOUS_BANDS,
     InferenceStatus,
@@ -77,7 +78,7 @@ from .._inference_status import (
     supplies_inference,
 )
 from .._typing import BoolArray, CumulativeGBounds, FloatArray, Learner
-from ..exceptions import CapabilityError, DataError, LongitudinalError, PositivityWarning
+from ..exceptions import CapabilityError, LongitudinalError, PositivityWarning
 from ..inference.cluster import (
     cluster_inference_status,
     influence_covariance,
@@ -1674,10 +1675,11 @@ def _inference_status(data: LongitudinalData, folds: Folds, regimens: Any) -> In
 def _declared_regimen_status(regimens: Any) -> InferenceStatus:
     """Whether every callable node of ``regimens`` is declared known, as a status.
 
-    The longitudinal status predicate of roadmap row RM28. It runs
+    The longitudinal status predicate of roadmap row RM28. It passes
     :func:`~cleverly.longitudinal.regimen.refuse_regimen_rules`, which ``LTMLE.fit`` runs
-    before any learner, and it reports a refusal as a status. So only a restored or
-    modified result reaches ``"undeclared_function_plugin"``.
+    before any learner, to :func:`~cleverly._declarations.declaration_status`, which
+    reports a refusal as a status. So only a restored or modified result reaches
+    ``"undeclared_function_plugin"``.
 
     Parameters
     ----------
@@ -1692,11 +1694,7 @@ def _declared_regimen_status(regimens: Any) -> InferenceStatus:
         :class:`~cleverly.exceptions.CapabilityError` or
         :class:`~cleverly.exceptions.DataError`, and ``"influence_curve"`` otherwise.
     """
-    try:
-        refuse_regimen_rules(regimens)
-    except (CapabilityError, DataError):
-        return "undeclared_function_plugin"
-    return "influence_curve"
+    return declaration_status(lambda: refuse_regimen_rules(regimens))
 
 
 def _estimates(

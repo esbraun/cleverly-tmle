@@ -24,18 +24,25 @@ RM28 adds two users: the rule declaration that :class:`~cleverly.interventions.R
 :class:`~cleverly.longitudinal.DynamicRegimen` share, and the density declaration of a
 user-written :class:`~cleverly.interventions.Intervention`.
 
-A leaf module. It imports the standard library and :mod:`cleverly.exceptions` only, so
-:mod:`cleverly.msm` and :mod:`cleverly.interventions` can both import it without a cycle.
+A restored result can hold a function whose declaration this version refuses.
+:func:`declaration_status` turns the refusal of such a function into the status
+``"undeclared_function_plugin"``, and the point and the longitudinal estimators both call it.
+
+A leaf module. It imports the standard library, :mod:`cleverly.exceptions` and the leaf
+:mod:`cleverly._inference_status` only, so :mod:`cleverly.msm` and
+:mod:`cleverly.interventions` can both import it without a cycle.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
+from ._inference_status import InferenceStatus
 from .exceptions import CapabilityError, DataError
 
-__all__ = ["FunctionDeclaration", "FunctionKind"]
+__all__ = ["FunctionDeclaration", "FunctionKind", "declaration_status"]
 
 #: What a declaration says about a user-supplied function. ``"known"`` is a fixed function,
 #: chosen independently of the analysis sample. ``"estimated"`` is one computed from that
@@ -115,3 +122,32 @@ class FunctionDeclaration:
             raise CapabilityError(self.undeclared)
         if kind == "estimated":
             raise CapabilityError(self.estimated)
+
+
+def declaration_status(refuse: Callable[[], None]) -> InferenceStatus:
+    """The inference status of a configuration, from the refusal of its declarations.
+
+    The status predicate of roadmap row RM28. ``refuse`` is the declaration check that
+    every fit runs before any learner, so a live fit never reaches the refusal here. Only
+    a restored or modified configuration does, and its saved estimates then take
+    ``"undeclared_function_plugin"``. ``TMLE._declared_function_status`` passes the point
+    check, and the longitudinal ``_declared_regimen_status`` passes the regimen check.
+
+    Parameters
+    ----------
+    refuse : callable
+        Called with no argument. It raises if a function of the configuration is not
+        declared known.
+
+    Returns
+    -------
+    str
+        ``"undeclared_function_plugin"`` when ``refuse`` raises
+        :class:`~cleverly.exceptions.CapabilityError` or
+        :class:`~cleverly.exceptions.DataError`, and ``"influence_curve"`` otherwise.
+    """
+    try:
+        refuse()
+    except (CapabilityError, DataError):
+        return "undeclared_function_plugin"
+    return "influence_curve"

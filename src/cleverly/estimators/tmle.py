@@ -92,6 +92,7 @@ from typing import Any, cast, get_args
 
 import numpy as np
 
+from .._declarations import declaration_status
 from .._inference_status import InferenceStatus, precedent_status, supplies_inference
 from .._typing import (
     BoolArray,
@@ -593,13 +594,14 @@ class TMLE:
     def _declared_function_status(self) -> InferenceStatus:
         """Whether every function of the configuration is declared known, as a status.
 
-        The status predicate of roadmap row RM28. It runs
-        :meth:`_refuse_undeclared_functions`, which every fit runs before any learner, and
-        it reports a refusal as a status. A live fit refuses such a function in
-        ``_resolve_estimands_for_data`` and ``_retarget_detailed`` before it stamps, and
-        :func:`cleverly.variable_importance` refuses it before it asks the status. So only
-        a restored or modified estimator reaches ``"undeclared_function_plugin"``, and
-        ``TMLEResult.__setstate__`` then re-stamps its saved estimates.
+        The status predicate of roadmap row RM28. It passes
+        :meth:`_refuse_undeclared_functions`, which every fit runs before any learner, to
+        :func:`~cleverly._declarations.declaration_status`, which reports a refusal as a
+        status. A live fit refuses such a function in ``_resolve_estimands_for_data`` and
+        ``_retarget_detailed`` before it stamps, and :func:`cleverly.variable_importance`
+        refuses it before it asks the status. So only a restored or modified estimator
+        reaches ``"undeclared_function_plugin"``, and ``TMLEResult.__setstate__`` then
+        re-stamps its saved estimates.
 
         Returns
         -------
@@ -608,11 +610,7 @@ class TMLE:
             :class:`~cleverly.exceptions.CapabilityError` or
             :class:`~cleverly.exceptions.DataError`, and ``"influence_curve"`` otherwise.
         """
-        try:
-            self._refuse_undeclared_functions()
-        except (CapabilityError, DataError):
-            return "undeclared_function_plugin"
-        return "influence_curve"
+        return declaration_status(self._refuse_undeclared_functions)
 
     def _refuse_undeclared_functions(self) -> None:
         """Raise unless every function of the configuration is declared known.
