@@ -317,6 +317,28 @@ class TestAPlanIsReadOnce:
         assert_refused(lambda: resolve_regimens(spec, 2), DataError, "'thr'", ITERATOR)
         assert next(plan) == 1, "a check consumed the plan"
 
+    def test_a_mapping_plan_is_refused_without_reading_its_keys_as_arms(self) -> None:
+        rule = panel_rule()
+        spec = {"thr": {"time one": 1, "time two": rule}}
+        for evaluate in (
+            lambda: refuse_regimen_rules(spec),
+            lambda: resolve_regimens(spec, 2),
+            lambda: ENTRIES["fit"](spec),
+        ):
+            assert_refused(evaluate, DataError, "regimen 'thr'", "is a mapping", "tuple")
+        assert rule.calls == 0
+        assert NeverFit.calls == 0
+
+    def test_a_zero_dimensional_array_plan_is_a_data_error_before_any_learner(self) -> None:
+        spec = {"thr": np.array(1)}
+        for evaluate in (
+            lambda: refuse_regimen_rules(spec),
+            lambda: resolve_regimens(spec, 2),
+            lambda: ENTRIES["fit"](spec),
+        ):
+            assert_refused(evaluate, DataError, "regimen 'thr'", "zero-dimensional array")
+        assert NeverFit.calls == 0
+
     @pytest.mark.parametrize("entry", list(ENTRIES))
     def test_every_entry_refuses_an_iterator_plan_before_any_learner_or_rule_call(
         self, entry: str

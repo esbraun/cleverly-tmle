@@ -450,6 +450,17 @@ def _plan_nodes(label: object, plan: Any) -> tuple[Any, ...] | None:
         return tuple(plan.values)
     if isinstance(plan, DynamicRegimen):
         return tuple(plan.plan)
+    if isinstance(plan, Mapping):
+        raise DataError(
+            f"the plan of regimen {label!r} is a mapping. Pass its treatment nodes as a "
+            "tuple in time order, or use DynamicRegimen(label, ordered_nodes, rule_kind='known') "
+            "for a plan with a rule"
+        )
+    if isinstance(plan, np.ndarray) and plan.ndim == 0:
+        raise DataError(
+            f"the plan of regimen {label!r} is a zero-dimensional array. Pass a treatment "
+            "label to assign it at every node, or a sequence with one entry per node"
+        )
     if callable(plan) or isinstance(plan, _LABEL_TYPES) or not hasattr(plan, "__iter__"):
         return None
     if isinstance(plan, Iterator):
