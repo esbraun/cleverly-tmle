@@ -88,7 +88,7 @@ from tests.unit._msm_declaration_support import (
     written,
 )
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
-from tests.unit.test_simulated_confounding_policies import (
+from tests.unit._simulated_confounding_support import (
     _GRID,
     _alias,
     _estimate,

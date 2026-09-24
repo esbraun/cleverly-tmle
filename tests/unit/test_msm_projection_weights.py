@@ -86,7 +86,7 @@ from tests.unit._msm_declaration_support import (
     uniform_dose_fit,
 )
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
-from tests.unit.test_simulated_confounding_policies import _GRID, _alias, _fit_msm
+from tests.unit._simulated_confounding_support import _GRID, _alias, _fit_msm
 
 #: The two declaration refusals, imported from the module that raises them, so the text
 #: is written once.

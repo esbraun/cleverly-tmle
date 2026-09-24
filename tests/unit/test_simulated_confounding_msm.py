@@ -27,7 +27,7 @@ from tests.unit._confounding_support import (
     with_estimator,
     with_last_nuisance,
 )
-from tests.unit.test_simulated_confounding_policies import _alias, _fit_msm
+from tests.unit._simulated_confounding_support import _alias, _fit_msm
 
 _GRID = ConfounderStrengthGrid(treatment=(0.0, 0.3), outcome=(0.0, 0.02))
 _DOSES = (-1.4, -0.8, -0.15, 0.35, 1.1, 1.6)

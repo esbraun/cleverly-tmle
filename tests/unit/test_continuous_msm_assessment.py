@@ -10,8 +10,8 @@ import pytest
 from cleverly import AssessmentStatus
 from cleverly.assessment import DiagnosticsFacade, assessment_capabilities
 from cleverly.exceptions import CapabilityError, DataError
+from tests.unit._simulated_confounding_support import _fit_msm
 from tests.unit.test_simulated_confounding_msm import _GRID, _fit_continuous
-from tests.unit.test_simulated_confounding_policies import _fit_msm
 
 
 @pytest.mark.parametrize("link", ["identity", "log", "logit"])
