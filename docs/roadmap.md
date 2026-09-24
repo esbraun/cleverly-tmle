@@ -67,7 +67,7 @@ statistic. RM27 is delivered, and its detail section records what shipped.
 
 The 2026-09-23 plan for RM25 found a fourth sibling surface.
 [RM28](#rm28-declared-densities-of-user-written-interventions) holds the density of a
-user-written `Intervention` class.
+user-written `Intervention` class. RM28 is delivered, and its detail section records what shipped.
 
 The review of the RM26 delivery found a saved-result surface.
 [RM29](#rm29-saved-cross-fitted-clustered-longitudinal-results) held a cross-fitted clustered
@@ -76,7 +76,6 @@ rows that remain.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.16 | Declared densities of user-written interventions | require known-function declarations for custom `Intervention` densities and callable `Rule` and `DynamicRegimen` policies | a custom class receives the `CausalData` of the fit. On the RM25 witness law, its sample-mechanism tilt reports 0.6226 of the population-law odds-tilt target's exact standard error. The built-in rule callables also lack declarations | [RM28](#rm28-declared-densities-of-user-written-interventions) |
 | 0.21 | E-value on a controlled-direct-effect fit | find a source that derives an E-value for a controlled direct effect, or refuse each E-value branch that no source covers on a fit with an intermediate variable | the Gaussian branch and the reported-ratio branches answer on that fit, and the derived-ratio branch refuses it. No source read here covers the case | [RM21](#rm21-e-value-on-a-controlled-direct-effect-fit) |
 | 0.22 | Standard error of the omitted-variable bound | add the influence term of the conditioning share to the ATT and ATC curve, decide what the plug-in limits claim, and check each locator against the published article | the curve of $\nu^2$ omits $-2 \nu^2 (1\{A = c\} - p) / p$. Under the doubly robust estimator the omission widens the limits. No derivation covers the plug-in limits | [RM22](#rm22-standard-error-of-the-omitted-variable-bound) |
 | 0.31 | Capability rows that read available and then refuse | make each declared row match its call, and add a witness that sweeps the kinds of fit | four rows on three kinds of fit read available, and the call then refuses or raises. On one of them, `assess(include_refits=True)` raises `ValueError` and returns no report | [RM23](#rm23-capability-rows-that-read-available-and-then-refuse) |
@@ -93,7 +92,7 @@ A row that another row depends on comes before that row.
 
 | tier | defect | rows |
 | --- | --- | --- |
-| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM28, RM21, RM22 |
+| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM21, RM22 |
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM23, RM14 |
 | c | a correct refusal that arrives late or as the wrong type | RM24 |
 | d | a diagnostic or a warning that misleads | RM15 |
@@ -106,7 +105,6 @@ tier.
 
 | row | reason for its place |
 | --- | --- |
-| RM28 | a custom `Intervention` or a callable rule reaches it. RM28 extends the shared declaration that RM25 delivered and that RM27 reused for the MSM design |
 | RM21 | an E-value that no read source covers, on controlled-direct-effect fits only |
 | RM22 | the defect widens the limits of the default doubly robust estimator, which is conservative. No derivation covers the plug-in limits, but the probe measured their ratios at 0.992 to 1.026 |
 | RM23 | one fit loses the whole assessment report, and four rows on three kinds of fit read available and then refuse |
@@ -117,28 +115,28 @@ tier.
 | RM18 | five open designs, which read 19 red rows in six studies. The ledger already publishes each of those verdicts |
 | RM19 | one configuration, which RM18 opened. Its Bonferroni interval covers zero, and it moves no verdict |
 
-No open row waits on another open row. RM28 applies the shared declaration of RM25 to custom
-interventions and rules, as RM27 applied it to the MSM design. RM13, RM20, RM25, RM26, RM27 and
-RM29 are delivered. The RM23 sweep fits only the kinds of fit that succeed, and the RM14 and RM24
-requests produce no fit.
+No open row waits on another open row. RM13, RM20, RM25, RM26, RM27, RM28 and RM29 are
+delivered. The RM23 sweep fits only the kinds of fit that succeed, and the RM14 and RM24 requests
+produce no fit.
 
 Main-roadmap X9 depends on RM22. Every remediation row comes before main-roadmap priority 1, so
 the queue meets that dependency.
 
-Use five delivery groups for these ten rows and the two investigations that RM18 waits on.
+Use four delivery groups for these nine rows and the two investigations that RM18 waits on.
 Keep each item's acceptance criteria separate inside its group.
 
 | delivery group | items | shared boundary |
 | --- | --- | --- |
-| inference claims | RM28 | one decision rule for an interval that no derivation covers: register a claim, give the estimate a non-inferential status, or refuse the request before the fit |
 | sensitivity outputs | RM21 and RM22 | the E-value and omitted-variable reports, and one reading of the published sources they cite |
 | refusal surfaces | RM23, RM14 and RM24 | a refusal reaches the caller where its declaration says, before the work that it refuses |
 | diagnostic reports | RM15 and RM16 | one assessment and summary surface, with one documentation pass |
 | red property cells | RM18 and RM19, and the F18 and F19 derivations that RM18 waits on | the recorded rule that a red cell is reporting evidence, designs declared before their runs that move no verdict, and two exact derivations that would close the inferential gaps |
 
-Two groups left this table when their rows were delivered. The sensitivity refusals group held
+Three groups left this table when their rows were delivered. The sensitivity refusals group held
 RM11 and the F5 refusal boundary, and the collaborative inference group held RM12 and the F18
-audit. [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) now holds the derivation that would
+audit. The inference claims group delivered RM20, RM13, RM25, RM26, RM29, RM27 and RM28. Its
+boundary was one decision rule for an interval that no derivation covers.
+[F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) now holds the derivation that would
 reopen an omitted-variable bound on a DR-TMLE or C-TMLE fit.
 [F18](#f18-selector-path-c-tmle-inference) now holds the influence curve that would reopen
 selector-path inference.
@@ -148,8 +146,6 @@ published a standard error that no derivation covers, so it joined RM20. RM14 re
 late, so it joined the refusal surfaces. The bias localization group held RM19 alone. RM19 joined
 RM18, because an RM18 owner holds its three red cells.
 
-The inference claims group then delivered RM20, RM13, RM25, RM26, RM29 and RM27. It keeps RM28.
-
 Each group holds consecutive priorities, so the group order is the priority order. Deliver the
 items inside a group in priority order. The first decimal digit of a priority names its group, and
 the second digit orders the rows inside that group. Each remediation priority is below 1, so it
@@ -158,13 +154,12 @@ does not collide with a main-roadmap priority.
 Priorities give the current delivery order. This project reassigns them when it re-triages the
 queue. The RM IDs and their anchors never change, so a commit names a row by its ID. A delivered
 row takes its priority with it, and the other rows keep theirs. RM20, RM13, RM25, RM26 and RM27
-held 0.11 to 0.15, in that order, and RM29 held 0.17. The inference claims group now starts at
-0.16.
+held 0.11 to 0.15, in that order. RM28 held 0.16, and RM29 held 0.17.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
-The queue holds ten rows, and none of them is delivered. Eight rows need their corrections:
-RM14 to RM16, RM21 to RM24, and RM28. RM18 has five follow-up designs that are not
-declared and have not run. RM19 has no declared design.
+The queue holds nine rows, and none of them is delivered. Seven rows need their corrections:
+RM14 to RM16, and RM21 to RM24. RM18 has five follow-up designs that are not declared and have
+not run. RM19 has no declared design.
 
 The F18 and F19 derivations do not block priority 1, because an item with no published theory does
 not enter the sequence. Their cells stay red under `reporting` until F18 or F19 meets its
@@ -664,7 +659,7 @@ a declaration that this version refuses. The RM27 review added calls in `MSMSet.
 | estimated weight | `weights_kind="estimated"` raises `CapabilityError`. The message names the missing pathwise-derivative term |
 | exception type | `CapabilityError`, which the [architecture invariants](architecture-invariants.md#public-causal-workflow) give to a well-posed composition that the package refuses by name. `refuse_unsupported("estimated_weights")` raised `NotImplementedError`. It now raises the same `CapabilityError` text |
 | fit-layer check | `TMLE` and `LTMLE` call the function again before any learner call. `TMLE._retarget_detailed` calls it first too, so every recomputation checks it (commit a2f62a6) |
-| a result saved before the field existed | it loads undeclared. Loading checks nothing, so its stored estimates answer as saved. Every recomputation refuses: `retarget()`, each sweep that calls it, such as `truncation_curve()`, and `refute()`, which refits. `LTMLE` has a truncation sweep, `longitudinal_truncation_curve`, which commit 4a8b09b added on 2026-09-10. A saved `LTMLE` MSM result holds arrays and no `MSM` object, so that sweep calls no design and no weight, and its curve publishes no spread. `tests/unit/test_longitudinal_truncation_refit.py` pins the columns of that curve. This record first said that `LTMLE` has no retarget sweep, and [RM27](#rm27-declared-msm-design-functions) corrected it. The review probe was `make_binary_outcome(n=400, seed=3)` with `MSM.linear` and the weight $1 + a$, with `weights_kind` then set to `None`. Before the correction, its `truncation_curve` published `std_err`, `ci_lower`, and `ci_upper`. It now raises `CapabilityError`, and the stored `msm[a].ci` stays (0.07496, 0.25730) |
+| a result saved before the field existed | it loads undeclared. Loading checks nothing, so its stored estimates answer as saved. Every recomputation refuses: `retarget()`, each sweep that calls it, such as `truncation_curve()`, and `refute()`, which refits. `LTMLE` has a truncation sweep, `longitudinal_truncation_curve`, which commit 4a8b09b added on 2026-09-10. A saved `LTMLE` MSM result holds arrays and no `MSM` object, so that sweep calls no design and no weight, and its curve publishes no spread. `tests/unit/test_longitudinal_truncation_refit.py` pins the columns of that curve. This record first said that `LTMLE` has no retarget sweep, and [RM27](#rm27-declared-msm-design-functions) corrected it. The review probe was `make_binary_outcome(n=400, seed=3)` with `MSM.linear` and the weight $1 + a$, with `weights_kind` then set to `None`. Before the correction, its `truncation_curve` published `std_err`, `ci_lower`, and `ci_upper`. It now raises `CapabilityError`, and the stored `msm[a].ci` stays (0.07496, 0.25730). [RM28](#rm28-declared-densities-of-user-written-interventions) later gave such a `TMLE` result the `undeclared_function_plugin` status. Its point estimates answer as saved, and `ci`, `pvalue` and `std_error` refuse (commit ed8e73e) |
 | replay | `_freeze_msm` (`src/cleverly/sensitivity/_simulated_confounding_fixed.py`) replaces `weights` with a callable over frozen arrays, even when the model had no weights. It passes `weights_kind="known"` when the model had no weights, and the model's own declaration otherwise. A legacy callable-weight model with no declaration therefore still refuses at replay. RM27 moved that refusal before `MSMSet.evaluate` runs the design or the weight (commit 67ab7fc). The RM27 review then moved the check into `MSMSet.evaluate` itself and removed the replay's own call (commit e360555). The `replace` call still passes the model's own declaration, so it refuses as a backstop |
 | reference | the [MSM reference](technical-reference/msm-projections.md#variations) tabulates the declaration, both refusals, and the ratios below. The [scope page](technical-reference/scope-and-refusals.md) marked the `Stochastic` row "not refused yet" and linked [RM25](#rm25-declared-stochastic-regime-densities). RM25 has since shipped that refusal |
 
@@ -2320,11 +2315,18 @@ missing-outcome contract. The docstring of `TMLE._resolve_arm_indexed_missing_co
 | ---: | --- | --- |
 | 1 | `working_mechanism_plugin` | no result shows that the reported curve is the influence curve of the estimator |
 | 2 | `generated_design_plugin` | the same premise |
-| 3 | `estimated_weight_plugin` | the same premise |
-| 4 | `unequal_cluster_plugin` | the cross-fitted interval lacks validation at unequal cluster sizes or masses |
-| 5 | `few_cluster_plugin` | no read source supports the reference distribution |
+| 3 | `undeclared_function_plugin` | the saved curve treats a restored function as fixed, and no code can check that it was fixed |
+| 4 | `estimated_weight_plugin` | the same premise as order 1 |
+| 5 | `cross_fitted_longitudinal_plugin` | no read source covers the cluster-robust variance of the sequential recursion under grouped folds |
+| 6 | `unequal_cluster_plugin` | the cross-fitted interval lacks validation at unequal cluster sizes or masses |
+| 7 | `few_cluster_plugin` | no read source supports the reference distribution |
 
-Only three pairs can meet. On DR-TMLE, the estimated-weight status meets each clustered status. On
+RM20 shipped orders 1, 2, 4, 6 and 7. [RM29](#rm29-saved-cross-fitted-clustered-longitudinal-results)
+added order 5, and [RM28](#rm28-declared-densities-of-user-written-interventions) added order 3.
+`PRECEDENCE` in `tests/unit/test_inference_status_registry.py` pins the order of the table.
+
+Among the five RM20 statuses, only three pairs can meet. On DR-TMLE, the estimated-weight status
+meets each clustered status. On
 TMLE and DR-TMLE, the two clustered statuses meet each other. C-TMLE refuses `id=` at every
 setting.
 
@@ -2540,6 +2542,13 @@ two declaration cases, the `refute` and `truncation_curve` rows read `available`
 `assess(include_refits=True, include_retargets=True)` still returns a report. Its
 `truncation_curve` row then reads `unavailable` and quotes the refusal.
 
+[RM28](#rm28-declared-densities-of-user-written-interventions) left the same mismatch on a
+restored result whose rule is undeclared. A restored `Rule` result reads `available` in its
+`truncation_curve` and `refute` rows. A restored `LTMLE` result reads `available` in its
+`truncation_curve` row. Each call then raises `CapabilityError`. A 2026-09-24 probe on commit
+faa0a5f measured these rows, and `assess(include_refits=True, include_retargets=True)` still
+returned a report.
+
 Apply these corrections:
 
 1. Resolve each of the three declined rows from the predicate that its call uses, as RM12 did for
@@ -2657,10 +2666,10 @@ declaration that this version refuses. Each row of the table ends with the commi
 | shared declaration | a private leaf module, `cleverly._declarations`, holds `FunctionDeclaration`. That class holds the three-state check and the texts of its refusals. The RM13 weight declaration became its first user. [RM27](#rm27-declared-msm-design-functions) later made the MSM design its third user (commit 268dc62). A snapshot of 246 RM13 cases recorded the same exception type and message before and after, byte for byte. `cleverly.msm.MSMWeightsKind` stays public. Commit 83c6d72 |
 | fit-layer check | `TMLE._resolve_estimands_for_data` and `TMLE._retarget_detailed` call the function after the MSM weight check. So `fit`, `refit`, `CausalStudy.estimate`, `retarget`, and every sweep refuse a restored regime before any learner or density call. The check selects regimes with `isinstance`, so a subclass that skips `__post_init__` refuses at the fit. Commit 7ef1f57 |
 | replay | `_freeze_regimes` (`src/cleverly/sensitivity/_simulated_confounding_fixed.py`) calls the function on the source regimes before `RegimeSet.evaluate` runs any density. A `_FrozenRegime` is not a `Stochastic`, so the refit admits it. Commit 7ef1f57. The RM27 review moved the check into `RegimeSet.evaluate`, which checks every regime before the first density, and into `Stochastic.density`. It removed the call in `_freeze_regimes` (commit e360555) |
-| a result saved before the field existed | it loads undeclared. Loading checks nothing, so its stored estimates answer as saved. `truncation_curve()`, `retarget()`, and `refit()` refuse. Commit 7ef1f57 |
+| a result saved before the field existed | it loads undeclared. Loading checks nothing, so its stored estimates answer as saved. `truncation_curve()`, `retarget()`, and `refit()` refuse. Commit 7ef1f57. [RM28](#rm28-declared-densities-of-user-written-interventions) later gave such a result the `undeclared_function_plugin` status. Its point estimates answer as saved, and `ci`, `pvalue` and `std_error` refuse (commit ed8e73e) |
 | call sites | each `Stochastic` in the two executed documentation fences, `tests/regimes.py`, the registered generator `tests/studies/canonical_stochastic_regimes.py`, and the unit tests declares `density_kind="known"`. Commit 7ef1f57 |
 | reference | the [scope page](technical-reference/scope-and-refusals.md#wrong-by-construction), the [user guide](user-guide/estimands.md#known-regimes), the [point-treatment reference](technical-reference/point-treatment-tmle.md#known-regimes), the [evidence table](technical-reference/evidence.md#the-table), and the [architecture invariants](architecture-invariants.md#public-causal-workflow) describe the declaration and both refusals. Commit df9326a |
-| other policy callables | not in this row. [RM28](#rm28-declared-densities-of-user-written-interventions) holds user-written `Intervention` classes, `Rule`, and `DynamicRegimen` callables |
+| other policy callables | not in this row. [RM28](#rm28-declared-densities-of-user-written-interventions) delivered the declarations of user-written `Intervention` classes, `Rule`, and callable `DynamicRegimen` nodes |
 
 The default of the field is a plain class attribute, as in RM13. A regime pickled before the field
 existed therefore loads as undeclared, and `dataclasses.replace` still works on it.
@@ -3110,10 +3119,16 @@ Three more classes cover the exact-type rule and results saved before the field 
 `TestTheExactTypeRuleReadsTheShorthand` shows that an `MSM.linear` model passes the check, whether
 it is new or saved before the field existed. A design put into it with `dataclasses.replace`, a
 legacy written design, a forged `from_linear=True`, and a subclass of `_LinearDesign` refuse. The
-class `TestALegacyResultKeepsItsNumbersAndRefusesARecomputation` keeps the stored interval of a
+class `TestALegacyResultKeepsItsNumbersAndRefusesARecomputation` kept the stored interval of a
 legacy result with a written design, and `truncation_curve()`, `retarget()`, and `refit()` refuse. A
 legacy `MSM.linear` result still recomputes all three. `TestTheReplayChecksAndCarriesTheDeclaration`
 covers the replay of an arm fit and of a dose fit.
+
+[RM28](#rm28-declared-densities-of-user-written-interventions) reversed the stored interval
+(commit ed8e73e). A legacy result with a written design now takes the `undeclared_function_plugin`
+status, and its point estimates stand. `ci`, `pvalue` and `std_error` refuse, and the old interval
+remains as `plugin_interval`. The class is now
+`TestALegacyResultKeepsItsPointEstimatesAndRefusesARecomputation`.
 
 Each committed mutation replaces a function through `monkeypatch`. The table gives the test that
 each one fails.
@@ -3259,7 +3274,8 @@ F1 closes the hole that the review found. Before commit a237257, a declaration t
 wrote could reach a user design. F2 applies the same fix to the RM25 evaluators, because a restored
 regime could reach `RegimeSet.evaluate` and `Stochastic.density` in the same way. No other public
 evaluator runs a declared user function. `Static` and `Rule` hold none, and a user-written
-`Intervention` carries no declaration, which RM28 holds.
+`Intervention` carries no declaration, which RM28 holds. RM28 later added those declarations and
+the evaluator checks of `Rule.density` and `DynamicRegimen.assignment` (commits 7c74997 and 7f87570).
 
 Commit e360555 removed the explicit checks in `_freeze_msm` and `_freeze_regimes`. Each one stood
 directly before an evaluator call that now runs the same check on the same argument. The commit
@@ -3322,10 +3338,11 @@ and 87 skipped. At commit 97cc57e, the RM27 file holds 100 tests, and the full f
 
 The `Intervention` protocol is public, and the [interventions API page](api/interventions.md)
 lists it first. Its docstring asks a user to implement `density` and carry a `name`
-(`src/cleverly/interventions/base.py:84-87`). `as_interventions` accepts any object that does both
-(`src/cleverly/interventions/base.py:701`). RM25 declares the density of `Stochastic` alone. A
-user-written class carries no declaration, and its `density` receives the `CausalData` of the fit.
-The docstring now says so and names this row (`src/cleverly/interventions/base.py:89-90`).
+(`src/cleverly/interventions/base.py:84-87` at 40b8e643). `as_interventions` accepts any object that
+does both (`src/cleverly/interventions/base.py:701` at 40b8e643). RM25 declares the density of
+`Stochastic` alone. A user-written class carries no declaration, and its `density` receives the
+`CausalData` of the fit. At 40b8e643 the docstring said so and named this row
+(`src/cleverly/interventions/base.py:89-90`).
 
 The 2026-09-23 plan for RM25 found this surface. A probe measured it on the RM25 witness law.
 The exact standard error in this probe belongs to the population-mechanism odds-tilt target.
@@ -3467,6 +3484,171 @@ The plan also runs fourteen mutations by hand, H1 to H14, with a hash-checked ba
 The delivery record gives each one and its counts. The plan regenerates no study. A bitwise
 check hashes the replicate 0 and 1 rows of twelve canonical generators and eleven property
 generators, at 40b8e643 and after the change.
+
+#### RM28 delivery
+
+All three corrections shipped, with the decisions that commit d23ab9f recorded. Commit 65f407c first
+moved the RM25 tilt law into `tests/unit/_tilt_law_support.py`. The RM25, RM13 and RM27 files
+passed the same 86, 52 and 100 tests before and after that move. The RM25 and RM27 patterns supply
+each part, unless the row says otherwise. Each row ends with the commit that shipped it.
+
+| part | what shipped |
+| --- | --- |
+| rule declaration | `Rule` gains a last field `rule_kind`: `"known"`, `"estimated"`, or `None`. Its default `None` is a plain class attribute, so an old pickle loads undeclared. `Rule(rule, name)` keeps its positional order. `Rule.__post_init__` and `Rule.density` run the check. Commit 7c74997 |
+| protocol member | `Intervention` gains a read-only `density_kind`. `Stochastic` keeps its field, and `Rule.density_kind` returns `rule_kind`. `Static.density_kind` reads `"known"` only when the exact type is `Static`, so a subclass reads `None`. Commit 7c74997 |
+| admission | `as_interventions` takes any object with a callable `density` as is, and it runs no runtime protocol check. It raises `DataError` for such an object with no `name`, and for a bare callable. Commit 7c74997 |
+| point check | `refuse_regime_densities` checks each item. A `Stochastic` meets `_DENSITY_DECLARATION`, and a `Rule` meets `_RULE_DECLARATION`. Every other object needs a `density` method, and it meets `_INTERVENTION_DECLARATION`. Commit 7c74997 |
+| shared declarations | `_RULE_DECLARATION` and `_INTERVENTION_DECLARATION` are the fourth and fifth users of `FunctionDeclaration`. Each estimated text names the pathwise derivative. `DynamicRegimen` uses `_RULE_DECLARATION` too. Commits 7c74997 and 7f87570 |
+| replay carry | `_freeze_regimes` builds each `_FrozenRegime` with the `density_kind` of its source, and never with the literal `"known"`. Commit 7c74997 |
+| regimen declaration | `DynamicRegimen` gains a last field `rule_kind`. A plan of labels alone is exempt from the refusal, and its value is still checked. Commit 7f87570 |
+| longitudinal check | `refuse_regimen_rules` in `cleverly.longitudinal.regimen` reads the raw `regimens=` value. `DynamicRegimen.__post_init__`, `DynamicRegimen.assignment`, `LTMLE.fit` before `_prepare`, and the first statement of `longitudinal_truncation_curve` call it. `_resolve_one` carries `rule_kind`. Commit 7f87570 |
+| inline callables | a callable in a `regimens=` mapping is refused, bare or in a tuple. The broadcast form `{label: fn}` is refused too, and a user writes `(fn,) * T` inside a `DynamicRegimen`. The message names `DynamicRegimen(label, plan, rule_kind='known')`. Commit 7f87570 |
+| call sites | each `Rule` and each callable plan in `tests`, the documentation fences, and both notebooks declares `"known"`. `tests/studies/canonical_ltmle.py` gains `declared_regimens(spec)` for the oracle plans. No study's required-module set changed. Commits 7c74997 and 7f87570 |
+| restored results | a new status, `undeclared_function_plugin`, is third in the precedence, after the two collaborative statuses. `TMLEResult` and `LongitudinalResult` re-stamp on load. The point estimates stand, and `ci`, `pvalue` and `std_error` refuse. The old interval remains as `plugin_interval`. The [status table](technical-reference/inference.md#inference-status) gains its row. Commit ed8e73e |
+| one point refusal | `TMLE._refuse_undeclared_functions` runs the MSM check and the regime check. `fit`, `retarget`, the status predicate, and `variable_importance` share it. Commit ed8e73e |
+| longitudinal status | `_declared_regimen_status` runs `refuse_regimen_rules` on the regimens of the fit, of a truncation refit, or of the restored configuration. Commit ed8e73e |
+| legacy tests | the RM13, RM25 and RM27 legacy tests now assert that the stored interval becomes a diagnostic. Each class is now `TestALegacyResultKeepsItsPointEstimatesAndRefusesARecomputation`. Commit ed8e73e |
+| reference | the [scope page](technical-reference/scope-and-refusals.md#wrong-by-construction) marks both rows refused, and five rows now share the pathwise mechanism. The rule row claims that mechanism for a population-indexed rule only. The architecture invariants, the point-treatment, longitudinal and MSM references, the user guide, the references page, the evidence table, and both notebooks describe the declaration. `DynamicRegimen` gains an API page. Commit faa0a5f |
+| a false declaration | not detected. A rule computed from the sample and declared `"known"` fits. The witnesses below measure what the false statement costs |
+| `dataclasses.replace(rule, rule=new)` | it keeps the old `rule_kind`, as RM27 keeps `design_kind`. `test_replacing_the_function_keeps_the_declaration` pins the limit. Commit 7c74997 |
+
+The table gives the outcome of each surface that the plan probed, and of two that the delivery
+found.
+
+| surface | outcome |
+| --- | --- |
+| a bare callable in `interventions=` | refused with `DataError`. The message names `Rule(rule, name, rule_kind='known')`. Commit 7c74997 |
+| a restored `Rule` result | it takes `undeclared_function_plugin`. `truncation_curve()`, `retarget()` and `refit()` refuse. Commits 7c74997 and ed8e73e |
+| an inline rule in `LTMLE` | the fit refuses it. A restored result with an undeclared node takes the status, and `longitudinal_truncation_curve` refuses. Commits 7f87570 and ed8e73e |
+| capability rows of a restored result | not in this row. The rows read `available`, and the call then refuses. [RM23](#rm23-capability-rows-that-read-available-and-then-refuse) records it |
+| `CTMLE` | not in this row. `CTMLE._check_estimands` refuses every regime estimand first, so no C-TMLE regime result exists |
+| `dataclasses.replace` | not in this row. `replace` keeps the declaration, and the reference records the limit |
+| the MSM of a restored `LTMLE` result, found by the delivery | not in this row. A `LongitudinalResult` keeps only the evaluated arrays of its MSM, so no status can read the MSM declaration. The status table and the `msm.py` docstring state the limit. Commit ed8e73e |
+| `variable_importance`, found by the delivery | it asked for the status of a live template before any refusal ran. So a live undeclared estimator met the restored-result reason. It now runs the declaration refusals first, and `test_a_live_configuration_meets_the_declaration_refusal` pins that. Commit ed8e73e |
+
+The tests measured each witness on the delivered code. A 2026-09-24 probe on commit faa0a5f
+measured the same values. The ratio of each witness is the reported standard error over the exact
+one.
+
+| assertion | tolerance or bound | point `Rule` | regimen $(1, d)$ | `DataTilt` |
+| --- | --- | --- | --- | --- |
+| $c = 0.5$, and the learned rule equals the fixed threshold 0.5 on each row | exact | yes | yes | not applicable |
+| $\psi = 2$ | 1e-12 | 4.4e-16 | 0 | not applicable |
+| each targeting coefficient | exactly 0 | 0 | 0 at both nodes | not tested |
+| the reported curve minus the fixed-rule curve, row by row | 1e-10 | 1.6e-15 | 3.6e-15 | not applicable |
+| $\partial\psi/\partial c$ by quadrature | 1e-8 | 1 | not tested | not applicable |
+| $E_n[T^2]$, the nonzero witness | above 0.05 | 0.08333125 | 0.08333125 | not applicable |
+| $E_n[DT]$ against $1/8 - 1/(4 \cdot 200^2)$ | 1e-12 | 0.12499375 | 0.12499375 | not applicable |
+| the ratio, the witness | pinned to 1e-4, within 3e-5 of the exact ratio, and below the bound | 0.7276058, pin 0.7276, exact 0.7276069, bound 0.8 | 0.7745976, pin 0.7746, exact 0.7745967, bound 0.85 | 0.6226371, pin 0.6226, bound 0.7. No exact ratio is pinned |
+| the curve against the `Stochastic(SampleTilt)` curve of RM25 | 1e-12 | not applicable | not applicable | 0 |
+| the ratio with an oracle that freezes the threshold or the mechanism, mutation R10 | fails the bound | 1 | 1 | 1 |
+| `"estimated"` on this law | refused before any learner | refused | refused | refused |
+
+Three controls keep `influence_curve` and a finite `ci`. The fixed threshold 0.5, declared
+`"known"`, reports a curve bitwise equal to the witness curve, for the `Rule` and for the regimen.
+The class `KnownUserTilt` returns the tilt of the true mechanism. Its curve equals the RM25 fixed-density
+curve to 3.3e-16, against the tolerance 1e-12.
+
+The row named five witnesses. The table gives the state of each. They are in
+`tests/unit/test_rule_and_intervention_declarations.py`, the rule file, and
+`tests/unit/test_regimen_rule_declarations.py`, the regimen file.
+
+| witness | state |
+| --- | --- |
+| 1. a pre-fit test pins each refusal and its message, and a spy learner shows that no nuisance fit ran | delivered. `TestTheFitRefusesAnUndeclaredIntervention`, `TestTheFitRefusesARestoredRule` and `TestTheFitRefusesARestoredRegimen` run `fit`, `CausalStudy.estimate`, and `refit` or `ltmle`. `NeverFit.calls` is 0, and a `Counter` spy records no rule or density call. A control declared `"known"` reaches the first learner. `TestTheDeclarationRefusalComesFirst` and `TestTheEvaluatorsCheckFirst` pin the order |
+| 2. a mutation that removes the refusal makes that test fail | delivered. The files commit mutations R1 to R10, and seventeen more ran by hand. The tables below give them |
+| 3. the RM25 exact-law witness on a user-written class | delivered in `TestAUserWrittenTiltUnderstatesTheVariance`. The ratio reads 0.6226 against the bound of 0.7 |
+| 4. a separate nonzero witness for a sample-learned `Rule` and a callable `DynamicRegimen` node | delivered in `TestASampleThresholdRuleMisstatesTheVariance` and `TestASampleThresholdNodeMisstatesTheVariance`. The ratios read 0.7276 and 0.7746 against the bounds of 0.8 and 0.85 |
+| 5. a control shows that a user-written class with a known density keeps its interval | delivered in `TestAKnownUserWrittenDensityKeepsItsInterval`. `TestAKnownRuleKeepsItsInterval` and `TestAKnownNodeKeepsItsInterval` add the fixed threshold |
+
+Each committed mutation replaces a function through `monkeypatch`, except R10, which mutates the
+test oracle. R7 is an RM25 test that this row extends.
+
+| mutation | the test that fails |
+| --- | --- |
+| R1. `refuse_regime_densities` in `cleverly.interventions.base` becomes a no-op | `test_removing_the_check_fails_every_declaration_and_evaluator_witness`, for a `Rule` and a user-written class |
+| R2. the same in `cleverly.estimators.tmle` | `test_removing_the_fit_layer_check_fails_the_fit_witnesses`, where `NeverFit` records fits. Also `..._fails_the_recomputation_refusal` and `..._alone_lets_the_later_refusal_answer` |
+| R3. `refuse_regimen_rules` in `cleverly.longitudinal.regimen` becomes a no-op | `test_removing_the_regimen_check_fails_every_declaration_and_evaluator_witness` |
+| R4. the same in `cleverly.longitudinal.estimator` | `test_removing_the_fit_check_alone_lets_a_data_refusal_answer` and `test_removing_the_fit_check_fails_the_legacy_truncation_witness`. `..._alone_still_refuses_before_any_learner` is its control |
+| R4 with R3 | `test_removing_both_checks_fails_the_fit_witnesses` and `test_removing_both_checks_lets_every_later_refusal_answer` |
+| R5. `_resolve_one` drops `rule_kind` | `test_dropping_the_carry_fails_the_declared_mapping_witness` |
+| R6. the replay passes `None` for `density_kind` | `test_dropping_the_carry_fails_the_replay_witness` and `test_a_replay_that_drops_the_declaration_refuses` |
+| R7. `FunctionDeclaration.refuse` becomes a no-op | `test_removing_the_shared_declaration_fails_each_of_its_users` in the RM25 file. Its table `SHARED_REFUSALS` grows from 8 to 16 witnesses |
+| R8. each status predicate returns `"influence_curve"` | `test_a_status_that_ignores_the_declarations_fails_the_restored_witnesses` and `test_a_status_that_ignores_the_regimens_fails_the_restored_witnesses` |
+| R9. `as_interventions` uses the protocol check again | `test_the_protocol_check_admits_a_bare_class_as_a_level`. `BareTilt` becomes `Static`, and a learner runs |
+| R10. the oracle freezes the threshold or the mechanism | `test_mutation_a_frozen_threshold_oracle_loses_the_witness`, in each file, and `test_mutation_a_frozen_oracle_loses_the_witness` for `DataTilt`. Each ratio reads 1 and fails its bound |
+
+`test_every_site_calls_the_one_refusal` in each file checks that the fit layer holds the function
+that the evaluators call. It also checks that `DynamicRegimen` and `Rule` share one
+`_RULE_DECLARATION`.
+
+Seventeen mutations ran by hand. Each run copied the source file to a backup with its sha256, and
+applied one mutation. It ran the declaration files with the nearby regime, replay and status files.
+Each run then restored the file, and the restored file matched its hash. A file that the table does
+not name failed no test.
+
+The plan named H11 and H12 for the two text swaps, and they ran as H11a and H11b. The delivery
+added H13b, H15 and H16.
+
+| mutation | file | failures |
+| --- | --- | --- |
+| H1. remove the `Rule.__post_init__` check | `src/cleverly/interventions/base.py` | 16 in the rule file, 4 in the RM25 file |
+| H2. remove the `Rule` branch, so a `Rule` meets the generic branch | `src/cleverly/interventions/base.py` | 35 in the rule file, 4 in the RM25 file |
+| H3. the generic branch passes every other object | `src/cleverly/interventions/base.py` | 22 in the rule file, 5 in the RM25 file |
+| H4. `Static.density_kind` reads `"known"` for any subclass | `src/cleverly/interventions/base.py` | 1 in the rule file |
+| H5. the replay passes the literal `"known"` | `src/cleverly/sensitivity/_simulated_confounding_fixed.py` | 1 in the rule file, 1 in the RM25 file |
+| H6. remove the `LTMLE.fit` check | `src/cleverly/longitudinal/estimator.py` | 1 in the regimen file: the missing-column order witness |
+| H7. remove the `longitudinal_truncation_curve` check | `src/cleverly/longitudinal/estimator.py` | 3 in the regimen file |
+| H8. remove the `DynamicRegimen.__post_init__` check | `src/cleverly/longitudinal/regimen.py` | 16 in the regimen file, 4 in the RM25 file |
+| H9. remove the `DynamicRegimen.assignment` check | `src/cleverly/longitudinal/regimen.py` | 4 in the regimen file |
+| H10. a `DynamicRegimen` of labels loses its exemption | `src/cleverly/longitudinal/regimen.py` | 2 in the regimen file |
+| H11a. swap the undeclared and estimated texts of `_RULE_DECLARATION` | `src/cleverly/interventions/base.py` | 24 in the rule file and 1 in the RM25 file at commit 7c74997. At commit 7f87570, 43 in the regimen file too |
+| H11b. swap the same texts of `_INTERVENTION_DECLARATION` | `src/cleverly/interventions/base.py` | 20 in the rule file, 2 in the RM25 file |
+| H13. the longitudinal status ignores the regimens | `src/cleverly/longitudinal/estimator.py` | 4 in the regimen file |
+| H13b. the longitudinal re-stamp passes no regimens | `src/cleverly/longitudinal/estimator.py` | 4 in the regimen file |
+| H14. the new status moves first in the precedence | `src/cleverly/_inference_status.py` | 2 in `tests/unit/test_inference_status_registry.py` |
+| H15. the point status predicate ignores the MSM | `src/cleverly/estimators/tmle.py` | 1 in the RM13 file, 1 in the RM27 file |
+| H16. the point status predicate ignores the interventions | `src/cleverly/estimators/tmle.py` | 5 in the rule file, 1 in the RM25 file |
+
+Commit ed8e73e also ran an instrument that is not a mutation. An assertion at each live stamp site
+raised if a new fit took `undeclared_function_plugin`. The full fast suite raised it only in
+`tests/unit/test_inference_status_reach.py`, which forces each status on the hook. So no real fit
+reached the status.
+
+The delivery departed from the plan in six places. The table gives each one.
+
+| deviation | reason |
+| --- | --- |
+| the `REGIMEN_SPEC` oracle constants stay plain tables | `tests/unit/test_oracle_independence.py` forbids a `cleverly` import in `tests/discrete_law*.py`. So `declared_regimens(spec)` in `tests/studies/canonical_ltmle.py` wraps each plan for its consumers. Every study that fits an oracle plan already imports that module (commit 7f87570) |
+| H6 fails one test only | `resolve_regimens` rebuilds each regimen, and `DynamicRegimen.__post_init__` refuses it before any learner. So the `LTMLE.fit` check decides only that the declaration refusal comes before `_prepare`. The missing-column order witness pins it, and R4 alone is its control |
+| a restored `Rule` at the replay refit meets the text of a user-written class | the replay refit sees a `_FrozenRegime`, which the generic branch checks. This path opens only when the evaluator check is removed. `test_removing_the_evaluator_check_still_refuses_through_the_carry` pins the text |
+| the point order witnesses use two later refusals, not three as in RM27 | a declared regime fit with `cv_evaluation=True` reaches its first learner. So no refusal follows the declaration check on that path |
+| the MSM of a restored `LTMLE` result | the plan gave the status to a written MSM function on every restored result. A `LongitudinalResult` keeps no `MSM` object, so the status covers the `TMLE` MSM alone |
+| `variable_importance` | the plan did not name it. It read the status before any refusal ran, so commit ed8e73e made it run the declaration refusals first |
+
+No study was regenerated. Each check returns `None` on a declared function, and the call sites
+gained only the `"known"` declaration. After their checks, `RegimeSet.evaluate`, `resolve_plans`,
+the targeting code, and the influence code compute the same numbers. So each commit is
+result-neutral under
+[what makes a study stale](development/method-benchmarking.md#what-makes-a-study-stale). No test
+gates the module hashes of a manifest. No container or R-runner file changed, so
+`tests/canonical/provenance-revisions.md` needs no row.
+
+A bitwise check supports that judgment. For replicates 0 and 1, a script took the sha256 of the
+RM27 expression for each canonical generator. For each property generator, it hashed the output of
+each row function on every replicate 0 or 1 payload. The 316 hashes were identical at 40b8e643,
+at commit 7f87570, and at commit ed8e73e. Commit faa0a5f changed only docstrings in the source,
+and this record changes only the roadmap.
+
+| generators | modules |
+| --- | --- |
+| canonical, 24 hashes | `canonical_deterministic_regimes`, `canonical_ltmle`, `canonical_ltmle_crossfit`, `canonical_ltmle_survival`, `canonical_ltmle_survival_crossfit`, `canonical_ltmle_competing`, `canonical_ltmle_competing_crossfit`, `canonical_longitudinal_msm`, `canonical_weighted_ltmle`, `canonical_weighted_ltmle_crossfit`, `canonical_categorical_ltmle`, and `canonical_categorical_ltmle_crossfit` |
+| property, 292 hashes | `ltmle_properties`, `ltmle_crossfit_properties`, `ltmle_survival_properties`, `ltmle_survival_crossfit_properties`, `ltmle_competing_properties`, `ltmle_competing_crossfit_properties`, `longitudinal_msm_properties`, `weighted_ltmle_properties`, `weighted_ltmle_crossfit_properties`, `categorical_ltmle_properties`, and `categorical_ltmle_crossfit_properties` |
+
+At commit faa0a5f the rule file holds 130 tests and the regimen file 96. The RM25 file holds 98,
+the RM13 file 53, and the RM27 file 101. The RM13 and RM27 files each gained a legacy control that
+keeps its interval. The full fast suite gave 11237 passed and 87 skipped at 40b8e643, and 11506
+passed and 87 skipped at commit faa0a5f and at this record.
 
 ### RM29. Saved cross-fitted clustered longitudinal results
 
