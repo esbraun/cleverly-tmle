@@ -87,7 +87,15 @@ from ..fluctuation.iterative import (
 from ..fluctuation.submodel import Submodel
 from ..learners.crossfit import Folds
 from ..learners.super_learner import SuperLearnerDiagnostics
-from ..msm import MSM, Link, ProjectionFit, check_projection_rank, link_for, solve_projection
+from ..msm import (
+    MSM,
+    Link,
+    ProjectionFit,
+    check_projection_rank,
+    link_for,
+    refuse_msm_functions,
+    solve_projection,
+)
 from ..utils.bounds import OutcomeScaler
 from ..utils.parallel import map_parallel
 from ..utils.phases import PhaseProfile, collect_phases, merge_worker_phases, phase, profiling
@@ -297,7 +305,38 @@ def evaluate_regimen_msm(
     code -- the horizon, and the baseline covariates in the backend the data arrived in.
     That the frame stops at the baseline is the estimand's own statement rather than a
     convenience; :meth:`~cleverly.longitudinal.LongitudinalData.baseline_frame` says why.
+
+    It runs :func:`~cleverly.msm.refuse_msm_functions` before it calls the design or the
+    weight, because a restored or modified model can reach it directly with a declaration
+    this version refuses.
+
+    Parameters
+    ----------
+    msm : MSM
+        The declared working model, with a design that takes
+        ``(regimen_label, horizon, baseline_frame)``.
+    data : LongitudinalData
+        Validated panel data, which supplies the baseline covariates.
+    plans : sequence of Plan
+        The declared regimens, in cell order.
+    horizons : sequence of int
+        The horizons the cells cross the regimens with.
+
+    Returns
+    -------
+    RegimenMSM
+        The design and the weights at every ``(regimen, horizon)`` cell, as arrays.
+
+    Raises
+    ------
+    CapabilityError
+        If :func:`~cleverly.msm.refuse_msm_functions` refuses a declaration of ``msm``.
+    DataError
+        If a declaration is not one of the three states, if ``msm`` came from
+        :meth:`MSM.linear <cleverly.msm.MSM.linear>`, or if the design or the weights do not
+        fit the data.
     """
+    refuse_msm_functions(msm)
     if msm.from_linear:
         raise DataError(
             "MSM.linear reads the label it is handed as a dose to interpolate between, "

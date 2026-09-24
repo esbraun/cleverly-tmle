@@ -18,13 +18,8 @@ from .._typing import FloatArray
 from ..data import CausalData
 from ..exceptions import CapabilityError, DataError
 from ..interventions import RegimeSet, Rule, Static, Stochastic
-from ..interventions.base import (
-    _as_array,
-    as_interventions,
-    check_regime_density,
-    refuse_regime_densities,
-)
-from ..msm import MSM, MSMSet, _DataBoundArmFunction, _design_kind, refuse_msm_functions
+from ..interventions.base import _as_array, as_interventions, check_regime_density
+from ..msm import MSM, MSMSet, _DataBoundArmFunction, _design_kind
 from ..provenance import fingerprint_array
 from ..study import MSMProjection, RegimeContrast, RegimeMean
 from ..targets.base import parameter_name
@@ -201,9 +196,9 @@ def _freeze_regimes(result: Any, key: Any, typed: Any, functional: Any) -> tuple
     ):
         raise DataError("regime declarations disagree")
     # A frozen regime holds fixed arrays and is not a Stochastic, so the refit admits it.
-    # Check the source declarations here, before any density runs, so a regime restored
-    # with no declaration refuses at replay as it would at the fit (roadmap row RM25).
-    refuse_regime_densities(declarations)
+    # ``RegimeSet.evaluate`` checks the source declarations before any density runs, so a
+    # regime restored with no declaration refuses at replay as it would at the fit
+    # (roadmap row RM25).
     expected = _checked_regimes(
         RegimeSet.evaluate(declarations, data, reference=functional.reference), data
     )
@@ -251,11 +246,9 @@ def _freeze_msm(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any
         or key.term not in model.terms
     ):
         raise DataError("MSM declarations disagree")
-    # The replay model holds frozen arrays, and ``replace`` checks it only after
-    # ``MSMSet.evaluate`` has run the user's design and weight. Check the source model here,
-    # before any of them runs, so a model restored with no declaration refuses at replay as
-    # it would at the fit (roadmap rows RM13 and RM27).
-    refuse_msm_functions(model)
+    # ``MSMSet.evaluate`` checks the source model before it runs the user's design or
+    # weight, so a model restored with no declaration refuses at replay as it would at the
+    # fit (roadmap rows RM13 and RM27).
     expected = MSMSet.evaluate(model, data)
     for nuisance in result.nuisances:
         state = nuisance.msm

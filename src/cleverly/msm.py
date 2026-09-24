@@ -415,10 +415,12 @@ def refuse_msm_functions(model: MSM) -> None:
     before any learner: a model restored from an older pickle, or changed with
     ``object.__setattr__``, can carry a declaration this version refuses. ``TMLE`` also
     runs it at the start of every retarget, which each sensitivity sweep calls, so a
-    result restored with such a model refuses every recomputation. The
-    simulated-confounding replay runs it before it evaluates the design or the weight.
-    Loading runs no check, so that result keeps the estimates it stored, and they answer
-    as saved (roadmap rows RM13 and RM27).
+    result restored with such a model refuses every recomputation.
+    :meth:`MSMSet.evaluate` and :func:`cleverly.longitudinal.msm.evaluate_regimen_msm`
+    run it before they call the design or the weight, so a direct call and the
+    simulated-confounding replay refuse before any user function runs.  Loading runs no
+    check, so a restored result keeps the estimates it stored, and they answer as saved
+    (roadmap rows RM13 and RM27).
 
     Parameters
     ----------
@@ -848,7 +850,32 @@ class MSMSet:
         Called once, where the nuisances are fitted, so that a fit and everything
         retargeted from it agree on what the working model is by construction rather than
         by re-running the user's function and hoping it is deterministic.
+
+        It runs :func:`refuse_msm_functions` before it calls the design or the weight.  A
+        model restored from an older pickle, or changed with ``object.__setattr__``, can
+        reach this method directly with a declaration this version refuses.
+
+        Parameters
+        ----------
+        msm : MSM
+            The declared working model.
+        data : CausalData
+            Validated study data, which supplies the covariates and the arms.
+
+        Returns
+        -------
+        MSMSet
+            The design and the weights at every arm, as arrays.
+
+        Raises
+        ------
+        CapabilityError
+            If :func:`refuse_msm_functions` refuses a declaration of ``msm``.
+        DataError
+            If a declaration is not one of the three states, or if the design or the
+            weights do not fit the data.
         """
+        refuse_msm_functions(msm)
         for function in (msm.design, msm.weights):
             if isinstance(function, _DataBoundArmFunction):
                 function.check_data(data)

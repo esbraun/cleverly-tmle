@@ -17,7 +17,8 @@ defect.  This module pins these things:
 * ``design_kind=None`` reads as known only on a design that ``MSM.linear`` built, by its
   exact type, so a user design swapped into the shorthand needs its own declaration, and a
   shorthand pickled before the field existed still reads as known;
-* every fit entry refuses a restored or modified model before any learner or design call;
+* every fit entry refuses a restored or modified model before any learner or design call,
+  and so do ``MSMSet.evaluate`` and ``evaluate_regimen_msm`` called directly;
 * a result restored with an undeclared written design keeps its stored estimates, and every
   recomputation from it refuses, while a restored ``MSM.linear`` result still recomputes;
 * the simulated-confounding replay refuses such a result before it runs the design or the
@@ -41,6 +42,7 @@ import numpy as np
 import pytest
 
 import cleverly.longitudinal.estimator as ltmle_module
+import cleverly.longitudinal.msm as regimen_msm_module
 import cleverly.msm as msm_module
 from cleverly import CausalStudy, MSMProjection, PointTreatment
 from cleverly.data import CausalData
@@ -78,8 +80,12 @@ from tests.unit.test_msm_projection_weights import (
     counted_msm_fit,
     dose_surface,
     duration_design,
+    evaluate_point,
+    evaluate_regimen,
     linear,
     ltmle_fit,
+    remove_every_fit_check,
+    remove_the_evaluator_check,
     tmle_fit,
     uniform_dose_fit,
     validate_replay,
@@ -303,6 +309,35 @@ class TestTheFitRefusesARestoredModel:
         assert NeverFit.calls == 1
 
 
+#: Each public evaluator that runs the design, with a builder of a model it accepts.
+EVALUATORS: dict[str, tuple[Callable[[], MSM], Callable[[MSM], Any]]] = {
+    "MSMSet.evaluate": (point_model, evaluate_point),
+    "evaluate_regimen_msm": (regimen_model, evaluate_regimen),
+}
+
+
+class TestTheEvaluatorsCheckFirst:
+    """A restored model handed straight to an evaluator refuses before its design runs."""
+
+    @pytest.mark.parametrize("evaluator", list(EVALUATORS))
+    @pytest.mark.parametrize("name", list(RESTORED))
+    def test_a_restored_model_refuses_before_the_design_runs(
+        self, evaluator: str, name: str
+    ) -> None:
+        kind, fragments = RESTORED[name]
+        build, evaluate = EVALUATORS[evaluator]
+        model = restored(build(), "design_kind", kind)
+        assert_refused(lambda: evaluate(model), CapabilityError, *fragments)
+        assert SpyDesign.calls == 0, "the design was evaluated before the refusal"
+
+    @pytest.mark.parametrize("evaluator", list(EVALUATORS))
+    def test_a_declared_model_is_evaluated(self, evaluator: str) -> None:
+        """The control: the same call with the declaration intact runs the design."""
+        build, evaluate = EVALUATORS[evaluator]
+        evaluate(build())
+        assert SpyDesign.calls > 0
+
+
 # ------------------------------------------------------------------ a restored result
 
 
@@ -395,16 +430,16 @@ class TestTheReplayChecksAndCarriesTheDeclaration:
         assert design.calls == 0, "the design was evaluated before the refusal"
         assert weights.calls == 0, "the weight was evaluated before the refusal"
 
-    def test_removing_the_replay_check_evaluates_both_and_still_refuses(
+    def test_removing_the_evaluator_check_evaluates_both_and_still_refuses(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Mutation M3: without the check the replay runs the design and the weight.
+        """Mutation M3: without the check in ``MSMSet.evaluate`` the replay runs both.
 
         ``replace`` still refuses the undeclared design, because the replay passes the
         source model's declaration and never forges ``"known"``.
         """
         old, design, weights = counted_msm_fit("design_kind")
-        monkeypatch.setattr(replay_module, "refuse_msm_functions", lambda model: None)
+        remove_the_evaluator_check(monkeypatch)
         assert_refused(lambda: validate_replay(old), CapabilityError, UNDECLARED)
         assert design.calls == 2
         assert weights.calls == 2
@@ -492,10 +527,9 @@ class TestTheWitnessesHaveTeeth:
     def test_removing_the_fit_layer_check_fails_the_fit_witnesses(
         self, entry: str, name: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Mutation M2, at the fit."""
+        """Mutation M2, at the fit, which removes the evaluator checks too."""
         kind, fragments = RESTORED[name]
-        monkeypatch.setattr(tmle_module, "refuse_msm_functions", lambda model: None)
-        monkeypatch.setattr(ltmle_module, "refuse_msm_functions", lambda model: None)
+        remove_every_fit_check(monkeypatch)
         with pytest.raises(AssertionError):
             assert_entry_refuses(entry, kind, *fragments)
         assert NeverFit.calls > 0, "the mutated fit refused before a learner"
@@ -504,18 +538,26 @@ class TestTheWitnessesHaveTeeth:
     def test_removing_the_fit_layer_check_fails_the_recomputation_refusal(
         self, entry: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Mutation M2, at a recomputation of a legacy result."""
+        """Mutation M2, at a recomputation of a legacy result.
+
+        A refit evaluates the design again, so its mutation removes the evaluator checks
+        too.  A sweep and a retarget reuse the stored arrays, so the check in
+        ``_retarget_detailed`` is the only one on their path.
+        """
         old = legacy_result(in_sample_fit(written(design_kind="known")))
-        monkeypatch.setattr(tmle_module, "refuse_msm_functions", lambda model: None)
+        if entry == "refit":
+            remove_every_fit_check(monkeypatch)
+        else:
+            monkeypatch.setattr(tmle_module, "refuse_msm_functions", lambda model: None)
         with pytest.raises(AssertionError):
             assert_refused(recomputations(old, RETARGETED)[entry], CapabilityError, UNDECLARED)
 
     def test_every_site_calls_the_one_refusal(self) -> None:
-        """One refusal, one text: the model, the fit layer and the replay share one check."""
+        """One refusal, one text: the model, the fit layer and the evaluators share one check."""
         assert msm_module.refuse_msm_functions is refuse_msm_functions
         assert tmle_module.refuse_msm_functions is refuse_msm_functions
         assert ltmle_module.refuse_msm_functions is refuse_msm_functions
-        assert replay_module.refuse_msm_functions is refuse_msm_functions
+        assert regimen_msm_module.refuse_msm_functions is refuse_msm_functions
         assert replay_module._design_kind is msm_module._design_kind
 
 

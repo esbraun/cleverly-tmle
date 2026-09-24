@@ -14,7 +14,8 @@ records the defect.  This module pins these things:
 * the declaration is required, ``"estimated"`` is refused, and a density that is not
   callable is refused, with their messages;
 * the positional order of ``Stochastic`` is unchanged;
-* every fit entry refuses a restored or modified regime before any learner or density call;
+* every fit entry refuses a restored or modified regime before any learner or density call,
+  and so do ``RegimeSet.evaluate`` and ``Stochastic.density`` called directly;
 * a regime pickled before the field existed loads undeclared;
 * a result restored with such a regime keeps its stored estimates, and every recomputation
   from it refuses;
@@ -47,7 +48,7 @@ from cleverly import CausalStudy, PointTreatment, RegimeMean
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, DataError
-from cleverly.interventions import Incremental, Static, Stochastic
+from cleverly.interventions import Incremental, RegimeSet, Static, Stochastic
 from cleverly.interventions.base import (
     _ESTIMATED_DENSITY,
     _UNDECLARED_DENSITY,
@@ -255,6 +256,43 @@ class TestTheFitRefusesARestoredRegime:
         assert SpyDensity.calls == 0, "a density ran before the first learner"
 
 
+#: Each public evaluator that runs a density, called directly as a user can call it.
+EVALUATORS: dict[str, Callable[[Stochastic], Any]] = {
+    "RegimeSet.evaluate": lambda regime: RegimeSet.evaluate((regime,), causal_data()),
+    "Stochastic.density": lambda regime: regime.density(causal_data()),
+}
+
+
+class TestTheEvaluatorsCheckFirst:
+    """A restored regime handed straight to an evaluator refuses before its density runs."""
+
+    @pytest.mark.parametrize("evaluator", list(EVALUATORS))
+    @pytest.mark.parametrize("name", list(RESTORED))
+    def test_a_restored_regime_refuses_before_its_density_runs(
+        self, evaluator: str, name: str
+    ) -> None:
+        kind, fragments = RESTORED[name]
+        regime = restored(spy_coin(), "density_kind", kind)
+        assert_refused(lambda: EVALUATORS[evaluator](regime), CapabilityError, *fragments)
+        assert SpyDensity.calls == 0, "the density was evaluated before the refusal"
+
+    def test_the_set_checks_every_regime_before_the_first_density(self) -> None:
+        """A declared regime listed first does not run before a restored one refuses."""
+        first = Stochastic(Counter(FixedDensity()), "first", density_kind="known")
+        regime = restored(spy_coin(), "density_kind", None)
+        assert_refused(
+            lambda: RegimeSet.evaluate((first, regime), causal_data()), CapabilityError, UNDECLARED
+        )
+        assert first.density_fn.calls == 0, "the first density ran before the refusal"
+        assert SpyDensity.calls == 0
+
+    @pytest.mark.parametrize("evaluator", list(EVALUATORS))
+    def test_a_declared_regime_is_evaluated(self, evaluator: str) -> None:
+        """The control: the same call with the declaration intact runs the density."""
+        EVALUATORS[evaluator](spy_coin())
+        assert SpyDensity.calls == 1
+
+
 # ------------------------------------------------------------------ old pickles
 
 
@@ -324,8 +362,11 @@ class TestALegacyResultKeepsItsNumbersAndRefusesARecomputation:
     def test_removing_the_fit_layer_check_fails_the_refusal(
         self, result: Any, entry: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """A refit evaluates the densities again, so its mutation removes those checks too."""
         old = legacy_result(result)
         monkeypatch.setattr(tmle_module, "refuse_regime_densities", lambda interventions: None)
+        if entry == "refit":
+            monkeypatch.setattr(base_module, "refuse_regime_densities", lambda items: None)
         with pytest.raises(AssertionError):
             assert_refused(recomputations(old, RETARGETED)[entry], CapabilityError, UNDECLARED)
 
@@ -375,12 +416,17 @@ class TestTheReplay:
         assert_refused(lambda: validate(old), CapabilityError, UNDECLARED)
         assert density.calls == 0, "the density was evaluated before the refusal"
 
-    def test_removing_the_replay_check_evaluates_the_density(
+    def test_removing_the_evaluator_check_evaluates_the_density(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The deliberate-mutation control: without the check the replay runs the density."""
+        """The deliberate-mutation control: without the check the replay runs the density.
+
+        ``RegimeSet.evaluate`` and ``Stochastic.density`` read the module global, so the
+        mutation removes both.  A frozen regime is not a ``Stochastic``, so nothing after
+        the evaluation refuses.
+        """
         old, density = counted_fit()
-        monkeypatch.setattr(replay_module, "refuse_regime_densities", lambda interventions: None)
+        monkeypatch.setattr(base_module, "refuse_regime_densities", lambda interventions: None)
         replay = validate(old)
         assert all(type(item) is replay_module._FrozenRegime for item in replay.interventions)
         assert density.calls == 1
@@ -419,9 +465,8 @@ class TestTheWitnessesHaveTeeth:
         assert NeverFit.calls > 0, "the mutated fit refused before a learner"
 
     def test_every_site_calls_the_one_refusal(self) -> None:
-        """One refusal, one text: the fit layer and the replay call the declaration's check."""
+        """One refusal, one text: the fit layer and the evaluators call the same check."""
         assert tmle_module.refuse_regime_densities is refuse_regime_densities
-        assert replay_module.refuse_regime_densities is refuse_regime_densities
         assert base_module.refuse_regime_densities is refuse_regime_densities
 
     def test_removing_the_shared_declaration_fails_each_of_its_users(

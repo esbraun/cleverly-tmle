@@ -9,10 +9,12 @@ have it, and the reported standard error is too small.
 
 A callable can close over any estimate, and no code can inspect a closure, so the status of
 the weight is a declaration: ``MSM(weights_kind=...)``.  RM13 in ``docs/roadmap.md`` records
-the defect.  This module pins six things:
+the defect.  This module pins seven things:
 
 * the declaration is required, and ``"estimated"`` is refused, with their messages;
 * the fit refuses a restored or modified model before any learner or weight call;
+* ``MSMSet.evaluate`` and ``evaluate_regimen_msm``, called directly, refuse such a model
+  before the weight runs;
 * a model pickled before the field existed loads, and a uniform-weight fit still replays;
 * a result restored with an undeclared callable weight keeps its stored estimates, and
   every recomputation from it refuses, the replay before it runs the design or the weight;
@@ -37,16 +39,20 @@ import pandas as pd
 import pytest
 
 import cleverly.longitudinal.estimator as ltmle_module
+import cleverly.longitudinal.msm as regimen_msm_module
 import cleverly.msm as msm_module
 from cleverly import MSMProjection
+from cleverly.data import CausalData
 from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError
-from cleverly.longitudinal import LTMLE
+from cleverly.longitudinal import LTMLE, LongitudinalData, resolve_plans, resolve_regimens
+from cleverly.longitudinal.msm import evaluate_regimen_msm
 from cleverly.msm import (
     _ESTIMATED_WEIGHTS,
     _UNDECLARED_WEIGHTS,
     MSM,
+    MSMSet,
     refuse_msm_functions,
     refuse_unsupported,
 )
@@ -347,6 +353,56 @@ class TestTheFitRefusesARestoredUndeclaredModel:
         assert NeverFit.calls == 1
 
 
+# ------------------------------------------------------------------ the evaluators
+
+
+def evaluate_point(model: MSM) -> MSMSet:
+    """``MSMSet.evaluate`` called directly, as a user can call it."""
+    return MSMSet.evaluate(model, CausalData.from_frame(law.frame(), outcome="Y", treatment="A"))
+
+
+def evaluate_regimen(model: MSM) -> Any:
+    """``evaluate_regimen_msm`` called directly on the panel of :func:`ltmle_fit`."""
+    data = LongitudinalData.from_frame(
+        panel(), outcome="Y", treatment=["A1", "A2"], baseline=["W1"], censoring=["C1", "C2"]
+    )
+    plans = resolve_plans(resolve_regimens({"always": 1, "never": 0}, data.n_times), data)
+    return evaluate_regimen_msm(model, data, plans, (2,))
+
+
+#: Each public evaluator that runs a working model's design and weight, with a builder of a
+#: model it accepts.  ``tests/unit/test_msm_design_declaration.py`` drives the same pair.
+EVALUATORS: dict[str, tuple[Callable[[], MSM], Callable[[MSM], Any]]] = {
+    "MSMSet.evaluate": (point_model, evaluate_point),
+    "evaluate_regimen_msm": (regimen_model, evaluate_regimen),
+}
+
+
+class TestTheEvaluatorsCheckFirst:
+    """A restored model handed straight to an evaluator refuses before its weight runs."""
+
+    @pytest.mark.parametrize("evaluator", list(EVALUATORS))
+    @pytest.mark.parametrize("name", list(RESTORED))
+    def test_a_restored_model_refuses_before_the_weight_runs(
+        self, evaluator: str, name: str
+    ) -> None:
+        kind, fragments = RESTORED[name]
+        build, evaluate = EVALUATORS[evaluator]
+        model = restored(build(), "weights_kind", kind)
+        SpyWeight.calls = 0
+        assert_refused(lambda: evaluate(model), CapabilityError, *fragments)
+        assert SpyWeight.calls == 0, "the weight was evaluated before the refusal"
+
+    @pytest.mark.parametrize("evaluator", list(EVALUATORS))
+    def test_a_declared_model_is_evaluated(self, evaluator: str) -> None:
+        """The control: the same call with the declaration intact runs the weight."""
+        build, evaluate = EVALUATORS[evaluator]
+        model = build()
+        SpyWeight.calls = 0
+        evaluate(model)
+        assert SpyWeight.calls > 0
+
+
 # ------------------------------------------------------------------ old pickles
 
 
@@ -443,6 +499,33 @@ def counted_msm_fit(field: str = "weights_kind") -> tuple[Any, Counter, Counter]
     return old, design, weights
 
 
+def remove_the_evaluator_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation M3: ``MSMSet.evaluate`` runs the user functions without checking the model.
+
+    ``MSM.__post_init__`` reads the same module global, so the no-op holds only while
+    ``evaluate`` runs, and the ``replace`` that builds a replay model still checks.
+    """
+    evaluate = MSMSet.evaluate.__func__
+
+    def unchecked(cls: type[MSMSet], msm: MSM, data: Any) -> MSMSet:
+        with pytest.MonkeyPatch.context() as inner:
+            inner.setattr(msm_module, "refuse_msm_functions", lambda model: None)
+            return evaluate(cls, msm, data)
+
+    monkeypatch.setattr(MSMSet, "evaluate", classmethod(unchecked))
+
+
+def remove_every_fit_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation M2: the fit layer and both evaluators stop checking the model.
+
+    A point fit evaluates its design before the first learner, and ``MSMSet.evaluate``
+    checks the model first.  Removing the fit-layer check alone would still refuse before
+    any learner, so the mutation removes the evaluator checks too.
+    """
+    for module in (tmle_module, ltmle_module, msm_module, regimen_msm_module):
+        monkeypatch.setattr(module, "refuse_msm_functions", lambda model: None)
+
+
 def validate_replay(result: Any, coefficient: str = "treatment") -> Any:
     alias = _alias(result, coefficient=coefficient)
     return replay_module.validate_fixed_replay(result, alias, result.parameter_keys[alias])
@@ -471,7 +554,7 @@ def dose_surface(result: Any) -> Any:
 
 
 class TestTheReplayChecksBeforeItEvaluates:
-    """``_freeze_msm`` checks the source model before ``MSMSet.evaluate`` runs it."""
+    """``MSMSet.evaluate`` checks the source model of ``_freeze_msm`` before it runs it."""
 
     def test_a_legacy_callable_weight_refuses_before_any_user_function_runs(
         self, monkeypatch: pytest.MonkeyPatch
@@ -487,7 +570,7 @@ class TestTheReplayChecksBeforeItEvaluates:
         assert design.calls == 0, "the design was evaluated before the refusal"
         assert weights.calls == 0, "the weight was evaluated before the refusal"
 
-    def test_removing_the_replay_check_evaluates_both_functions(
+    def test_removing_the_evaluator_check_evaluates_both_functions(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The deliberate-mutation control: without the check the replay runs both.
@@ -497,7 +580,7 @@ class TestTheReplayChecksBeforeItEvaluates:
         ran, which is what the check removes.
         """
         old, design, weights = counted_msm_fit()
-        monkeypatch.setattr(replay_module, "refuse_msm_functions", lambda model: None)
+        remove_the_evaluator_check(monkeypatch)
         assert_refused(lambda: validate_replay(old), CapabilityError, UNDECLARED)
         assert design.calls == 2
         assert weights.calls == 2
@@ -585,8 +668,7 @@ class TestTheWitnessesHaveTeeth:
         self, name: str, monkeypatch
     ) -> None:
         kind, fragments = RESTORED[name]
-        monkeypatch.setattr(tmle_module, "refuse_msm_functions", lambda model: None)
-        monkeypatch.setattr(ltmle_module, "refuse_msm_functions", lambda model: None)
+        remove_every_fit_check(monkeypatch)
         with pytest.raises(AssertionError):
             assert_tmle_refuses(kind, *fragments)
         assert NeverFit.calls > 0, "the mutated TMLE fit refused before a learner"
@@ -595,10 +677,11 @@ class TestTheWitnessesHaveTeeth:
         assert NeverFit.calls > 0, "the mutated LTMLE fit refused before a learner"
 
     def test_the_fit_layer_calls_the_shared_refusal(self) -> None:
-        """One refusal, one text: the fit layer and the replay call the declaration's check."""
+        """One refusal, one text: the fit layer and the evaluators call the same check."""
         assert tmle_module.refuse_msm_functions is refuse_msm_functions
         assert ltmle_module.refuse_msm_functions is refuse_msm_functions
-        assert replay_module.refuse_msm_functions is refuse_msm_functions
+        assert msm_module.refuse_msm_functions is refuse_msm_functions
+        assert regimen_msm_module.refuse_msm_functions is refuse_msm_functions
 
 
 # ------------------------------------------------------------------ the witness
