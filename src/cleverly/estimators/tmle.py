@@ -1352,12 +1352,11 @@ class TMLE:
         The declared fold policy is checked first and without reading the data, because a
         fit can arrive here without having run ``__init__``: :meth:`refit` copies an
         estimator, and an estimator restored from a pickle written by an earlier version
-        carries whatever policy that version allowed.  The working model's design and
-        projection-weight declarations are checked next for the same reason: ``MSM`` checks
-        them when it is declared, and a restored or modified model can carry one this
-        version refuses.
-        Each ``Stochastic`` regime's density declaration follows, for the same reason and
-        before any density is evaluated (roadmap row RM25).
+        carries whatever policy that version allowed.  It then runs
+        :func:`~cleverly.msm.refuse_msm_functions` and
+        :func:`~cleverly.interventions.base.refuse_regime_densities` for the same reason: a
+        restored or modified model or regime can carry a declaration this version refuses.
+        Those functions state what each one refuses.
 
         The natural-course contract runs next, because it resolves the target list the
         arm-indexed missing-outcome contract then reads.  The refusal of every other
@@ -2691,14 +2690,13 @@ class TMLE:
         is kept out of :meth:`retarget` so that the sensitivity analyses, which call
         that method on every perturbed input, keep their two-value signature.
 
-        It checks the MSM design and projection-weight declarations and then each
-        ``Stochastic`` regime's density declaration first, as :meth:`fit` does. Every sweep
-        that recomputes an estimate comes through here, so a result restored from an
-        artifact written before ``MSM.weights_kind``, ``MSM.design_kind`` or
-        ``Stochastic.density_kind`` existed refuses each recomputation (roadmap rows RM13,
-        RM25 and RM27). The design that ``MSM.linear`` builds reads as known, so a result
-        that uses it still recomputes. Loading re-checks nothing: that result keeps the
-        estimates it stored, and they answer as they were saved.
+        It runs :func:`~cleverly.msm.refuse_msm_functions` and
+        :func:`~cleverly.interventions.base.refuse_regime_densities` first, as :meth:`fit`
+        does.  Every sweep that recomputes an estimate comes through here, so a
+        recomputation from a restored result refuses when those functions refuse its model
+        or its regimes.  They state which declarations they refuse.  Loading re-checks
+        nothing: a restored result keeps the estimates it stored, and they answer as they
+        were saved.
         """
         if self.msm is not None:
             refuse_msm_functions(self.msm)
