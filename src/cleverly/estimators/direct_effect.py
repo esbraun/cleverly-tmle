@@ -286,7 +286,7 @@ with learned nuisances under outcome misspecification.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -297,7 +297,7 @@ if TYPE_CHECKING:  # pragma: no cover - import cycle only matters for type check
     from ..data.causal_data import CausalData
     from ._nuisance import NuisanceEstimates
 
-__all__ = ["LEVELS", "check_level", "clever_covariate_inputs", "describe"]
+__all__ = ["LEVELS", "check_level", "clever_covariate_inputs", "declares_intermediate", "describe"]
 
 #: The levels of the intermediate variable a controlled direct effect may be targeted at.
 #: ``Z`` is validated binary on the way in (:func:`cleverly.data.validate.encode_binary`),
@@ -377,6 +377,30 @@ def targeted_rows(data: CausalData, intermediate_value: float | None) -> FloatAr
         return mask
     assert data.intermediate is not None
     return mask & (data.intermediate == check_level(intermediate_value))
+
+
+def declares_intermediate(result: Any) -> bool:
+    """Whether a fitted result estimates a controlled direct effect.
+
+    A fit through this package sets both halves or neither: :func:`clever_covariate_inputs`
+    raises :class:`~cleverly.exceptions.DataError` for a level without an intermediate
+    column, and for a column without a level. ``dataclasses.replace`` can still build a
+    result that carries one half alone, so the predicate reads either half. The E-value,
+    the omitted-variable bound, the simulated-confounding replay, and the derived risk
+    ratio call this one predicate, so they refuse the same results.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A point-treatment result.
+
+    Returns
+    -------
+    bool
+        ``True`` when the data declares an intermediate variable or the result targets a
+        level of one.
+    """
+    return bool(result.data.has_intermediate or result.intermediate_value is not None)
 
 
 def describe(intermediate_value: float, name: str | None) -> str:

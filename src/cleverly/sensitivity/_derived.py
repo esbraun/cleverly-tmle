@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from .._assessment_cache import _cached
+from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import CapabilityError
 from ..inference.influence import ParameterEstimate, median_estimates
 from ..targets.base import arm_alias
@@ -86,7 +87,7 @@ def _risk_ratio_refusal(
         )
     if result.config.cv_evaluation:
         return "derived risk ratios are unavailable for CV-evaluated fits"
-    if result.intermediate_value is not None:
+    if declares_intermediate(result):
         return (
             "derived risk ratios are unavailable for controlled direct effects because no "
             "controlled direct risk-ratio target is registered"
