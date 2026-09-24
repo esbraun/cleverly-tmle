@@ -91,12 +91,13 @@ from tests.unit._policy_declaration_support import (
     THRESHOLD_COLUMNS,
     FixedThreshold,
     SampleThreshold,
+    exact_regimen_curve,
     fixed_regimen_curve,
     longitudinal_entries,
     never_fit_longitudinal_learners,
+    plugin_se,
     regimen_curve,
     regimen_fit,
-    sample_ratio,
     threshold_frame,
     threshold_regimen,
     threshold_term,
@@ -693,10 +694,19 @@ class TestASampleThresholdNodeMisstatesTheVariance:
         cross = float(np.mean(regimen_curve(sample_regimen_fit) * term))
         assert cross == pytest.approx(0.125 - 1.0 / (4 * 200**2), abs=1e-12)
 
+    def test_the_reported_se_is_the_plugin_se_of_the_curve(self, sample_regimen_fit: Any) -> None:
+        """``std_error`` is ``sqrt(Var_n(curve) / n)``, so the witness below is about it."""
+        reported = sample_regimen_fit.estimates["ey_regimen[thr]"].std_error
+        assert reported == pytest.approx(plugin_se(regimen_curve(sample_regimen_fit)), rel=1e-12)
+        # The plan measured 0.0176829.
+        assert reported == pytest.approx(0.0176829, abs=1e-7)
+
     def test_witness_the_reported_se_understates_the_exact_se(
         self, sample_regimen_fit: Any
     ) -> None:
-        ratio = sample_ratio(regimen_curve(sample_regimen_fit), threshold_term(threshold_frame(2)))
+        """The exact SE comes from the closed forms, not from the reported curve."""
+        reported = sample_regimen_fit.estimates["ey_regimen[thr]"].std_error
+        ratio = reported / plugin_se(exact_regimen_curve(threshold_frame(2)))
         assert ratio == pytest.approx(REGIMEN_RATIO_PIN, abs=1e-4)
         assert ratio == pytest.approx(REGIMEN_EXACT_RATIO, abs=3e-5)
         assert ratio < REGIMEN_UNDERSTATEMENT_BOUND
@@ -705,10 +715,30 @@ class TestASampleThresholdNodeMisstatesTheVariance:
         self, sample_regimen_fit: Any
     ) -> None:
         """Mutation R10: an oracle that froze the threshold has no term, reads 1, and fails."""
-        curve = regimen_curve(sample_regimen_fit)
-        frozen = sample_ratio(curve, np.zeros_like(curve))
+        frozen = plugin_se(regimen_curve(sample_regimen_fit)) / plugin_se(
+            fixed_regimen_curve(threshold_frame(2))
+        )
         assert frozen == pytest.approx(1.0, abs=1e-12)
         assert not frozen < REGIMEN_UNDERSTATEMENT_BOUND
+
+    def test_mutation_a_curve_with_the_term_fails_the_witness(
+        self, sample_regimen_fit: Any
+    ) -> None:
+        """Mutation R10: the witness detects a package that adds ``T``, and one that subtracts it.
+
+        A reported curve of ``D + T`` reads 1 and fails the bound.  ``D - T`` has second
+        moment ``1/2 + 1/12 - 1/4 = 1/3``, so it reads ``sqrt(2/5)``: it passes the bound,
+        and the pin fails it.
+        """
+        frame = threshold_frame(2)
+        curve, term = regimen_curve(sample_regimen_fit), threshold_term(frame)
+        exact = plugin_se(exact_regimen_curve(frame))
+        right = plugin_se(curve + term) / exact
+        assert right == pytest.approx(1.0, abs=1e-12)
+        assert not right < REGIMEN_UNDERSTATEMENT_BOUND
+        wrong = plugin_se(curve - term) / exact
+        assert wrong == pytest.approx(np.sqrt(2.0 / 5.0), abs=3e-5)
+        assert wrong != pytest.approx(REGIMEN_RATIO_PIN, abs=1e-4)
 
     def test_an_estimated_declaration_is_refused_on_this_law(self) -> None:
         """The honest declaration of the sample threshold meets the refusal, before any fit."""

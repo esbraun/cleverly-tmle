@@ -103,15 +103,16 @@ from tests.unit._policy_declaration_support import (
     PSI,
     RATIO_PIN,
     RULE_UNKNOWN,
-    UNDERSTATEMENT_BOUND,
+    THRESHOLD_UNDERSTATEMENT_BOUND,
     BareTilt,
     DataTilt,
     FixedThreshold,
     KnownUserTilt,
     SampleThreshold,
+    exact_rule_curve,
     fixed_rule_curve,
+    plugin_se,
     regime_value,
-    sample_ratio,
     threshold_curve,
     threshold_fit,
     threshold_frame,
@@ -123,12 +124,12 @@ from tests.unit._tilt_law_support import (
     CELL_P,
     TILT_COUNTS,
     TILT_PROBS,
+    UNDERSTATEMENT_BOUND,
     KnownTilt,
     SampleTilt,
     fixed_eif,
     tilt_curve,
 )
-from tests.unit._tilt_law_support import UNDERSTATEMENT_BOUND as TILT_BOUND
 
 #: The four declaration refusals, imported from the module that raises them, so each text
 #: is written once.
@@ -995,6 +996,8 @@ class TestASampleThresholdRuleMisstatesTheVariance:
     def test_the_fit_is_exact(self, sample_rule_fit: Any) -> None:
         """``psi = 2``, and the targeting step moves nothing: the nuisances are the truth."""
         assert sample_rule_fit.estimates["ey_regime[thr]"].psi == pytest.approx(PSI, abs=1e-12)
+        # The loop below passes on an empty mapping, so the one regime step must be there.
+        assert list(sample_rule_fit.fluctuations) == ["regime"]
         for fluctuation in sample_rule_fit.fluctuations.values():
             assert np.all(np.asarray(fluctuation.epsilon) == 0.0)
 
@@ -1022,20 +1025,47 @@ class TestASampleThresholdRuleMisstatesTheVariance:
         cross = float(np.mean(threshold_curve(sample_rule_fit) * term))
         assert cross == pytest.approx(0.125 - 1.0 / (4 * 200**2), abs=1e-12)
 
+    def test_the_reported_se_is_the_plugin_se_of_the_curve(self, sample_rule_fit: Any) -> None:
+        """``std_error`` is ``sqrt(Var_n(curve) / n)``, so the witness below is about it."""
+        reported = sample_rule_fit.estimates["ey_regime[thr]"].std_error
+        assert reported == pytest.approx(plugin_se(threshold_curve(sample_rule_fit)), rel=1e-12)
+        # The plan measured 0.0216636.
+        assert reported == pytest.approx(0.0216636, abs=1e-7)
+
     def test_witness_the_reported_se_understates_the_exact_se(self, sample_rule_fit: Any) -> None:
-        ratio = sample_ratio(threshold_curve(sample_rule_fit), threshold_term(threshold_frame()))
+        """The exact SE comes from the closed forms, not from the reported curve."""
+        reported = sample_rule_fit.estimates["ey_regime[thr]"].std_error
+        ratio = reported / plugin_se(exact_rule_curve(threshold_frame()))
         assert ratio == pytest.approx(RATIO_PIN, abs=1e-4)
         assert ratio == pytest.approx(EXACT_RATIO, abs=3e-5)
-        assert ratio < UNDERSTATEMENT_BOUND
+        assert ratio < THRESHOLD_UNDERSTATEMENT_BOUND
 
     def test_mutation_a_frozen_threshold_oracle_loses_the_witness(
         self, sample_rule_fit: Any
     ) -> None:
         """Mutation R10: an oracle that froze the threshold has no term, reads 1, and fails."""
-        curve = threshold_curve(sample_rule_fit)
-        frozen = sample_ratio(curve, np.zeros_like(curve))
+        frozen = plugin_se(threshold_curve(sample_rule_fit)) / plugin_se(
+            fixed_rule_curve(threshold_frame())
+        )
         assert frozen == pytest.approx(1.0, abs=1e-12)
-        assert not frozen < UNDERSTATEMENT_BOUND
+        assert not frozen < THRESHOLD_UNDERSTATEMENT_BOUND
+
+    def test_mutation_a_curve_with_the_term_fails_the_witness(self, sample_rule_fit: Any) -> None:
+        """Mutation R10: the witness detects a package that adds ``T``, and one that subtracts it.
+
+        A reported curve of ``D + T`` reads 1 and fails the bound.  ``D - T`` has second
+        moment ``3/8 + 1/12 - 1/4 = 5/24``, so it reads ``sqrt(5/17)``: it passes the
+        bound, and the pin fails it.
+        """
+        frame = threshold_frame()
+        curve, term = threshold_curve(sample_rule_fit), threshold_term(frame)
+        exact = plugin_se(exact_rule_curve(frame))
+        right = plugin_se(curve + term) / exact
+        assert right == pytest.approx(1.0, abs=1e-12)
+        assert not right < THRESHOLD_UNDERSTATEMENT_BOUND
+        wrong = plugin_se(curve - term) / exact
+        assert wrong == pytest.approx(np.sqrt(5.0 / 17.0), abs=3e-5)
+        assert wrong != pytest.approx(RATIO_PIN, abs=1e-4)
 
     def test_an_estimated_declaration_is_refused_on_this_law(self) -> None:
         """The honest declaration of the sample threshold meets the refusal, before any fit."""
@@ -1096,13 +1126,13 @@ class TestAUserWrittenTiltUnderstatesTheVariance:
             tilt_curve(data_tilt_fit), law.eif("ey_ipsi[odds x2]", probs=TILT_PROBS), CELL_P
         )
         assert ratio == pytest.approx(0.6226, abs=1e-4)
-        assert ratio < TILT_BOUND
+        assert ratio < UNDERSTATEMENT_BOUND
 
     def test_mutation_a_frozen_oracle_loses_the_witness(self, data_tilt_fit: Any) -> None:
         """An oracle that froze the mechanism would read 1 and fail the bound."""
         frozen = se_ratio(tilt_curve(data_tilt_fit), fixed_eif(KnownTilt(2.0).star), CELL_P)
         assert frozen == pytest.approx(1.0, abs=1e-12)
-        assert not frozen < TILT_BOUND
+        assert not frozen < UNDERSTATEMENT_BOUND
 
     def test_an_estimated_declaration_is_refused_on_this_law(self) -> None:
         """The honest declaration of the class meets the refusal, before any learner."""

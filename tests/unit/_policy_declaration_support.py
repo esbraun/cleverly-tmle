@@ -172,10 +172,11 @@ GRID_W = (np.arange(1, GRID_SIZE + 1) - 0.5) / GRID_SIZE
 #: The exact ratio of the reported to the exact standard error, and its pin and bound.  The
 #: plan measured 0.7276058 before it chose them (RM28 in docs/roadmap.md).  A curve that
 #: carried ``T`` would read 1.  The bound claims an understatement of more than 20 percent
-#: and pins no digit.
+#: and pins no digit.  ``_tilt_law_support.UNDERSTATEMENT_BOUND`` is the bound of another
+#: witness, so this one carries the law in its name.
 EXACT_RATIO = 3.0 / np.sqrt(17.0)
 RATIO_PIN = 0.7276
-UNDERSTATEMENT_BOUND = 0.8
+THRESHOLD_UNDERSTATEMENT_BOUND = 0.8
 #: The same three for the regimen ``(1, d)`` on the two-node law.  The plan measured
 #: 0.7745976 before it chose them.  The bound claims an understatement of more than 15
 #: percent.
@@ -221,9 +222,19 @@ def threshold_term(frame: pd.DataFrame, centre: float = CENTRE) -> np.ndarray:
     return np.asarray(frame["W"], dtype=float) - centre
 
 
-def sample_ratio(curve: np.ndarray, term: np.ndarray) -> float:
-    """``sqrt(E_n[D^2] / E_n[(D + T)^2])``: the reported SE over the exact SE, in sample."""
-    return float(np.sqrt(np.mean(curve**2) / np.mean((curve + term) ** 2)))
+def exact_rule_curve(frame: pd.DataFrame) -> np.ndarray:
+    """``D + T``: the curve of the population-indexed rule, from the closed forms alone."""
+    return fixed_rule_curve(frame) + threshold_term(frame)
+
+
+def plugin_se(curve: np.ndarray) -> float:
+    """``sqrt(Var_n(curve) / n)`` with ``ddof=1``: the unclustered plug-in standard error.
+
+    Written out here, not imported, so a witness can tie the reported ``std_error`` to the
+    reported curve by a second computation.
+    """
+    curve = np.asarray(curve, dtype=float)
+    return float(np.sqrt(np.var(curve, ddof=1) / curve.shape[0]))
 
 
 def threshold_fit(rule: Rule) -> Any:
@@ -252,6 +263,11 @@ def fixed_regimen_curve(frame: pd.DataFrame, centre: float = CENTRE) -> np.ndarr
     rule = (w <= centre).astype(float)
     followed = (a1 == 1.0) & (a2 == rule)
     return 4.0 * followed * (y - (3.0 * w + a2)) + 3.0 * w + rule - PSI
+
+
+def exact_regimen_curve(frame: pd.DataFrame) -> np.ndarray:
+    """``D + T`` for the regimen ``(1, d)``, from the closed forms alone."""
+    return fixed_regimen_curve(frame) + threshold_term(frame)
 
 
 #: The columns of the two-node law, as ``LTMLE.fit`` reads them.
