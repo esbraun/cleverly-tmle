@@ -36,8 +36,10 @@ from tests.studies.evidence.properties import Rate, rate, require_complete, summ
 from tests.studies.evidence.property_verdicts import (
     DIAGNOSTIC_ROLE,
     ROOT_N_SLOPE_MARGIN,
+    SE_CONTROL_SIDES,
     alternative_target_necessity_verdicts,
     calibration_verdicts,
+    se_ratio_leaves_band,
 )
 from tests.studies.evidence.registry import Margins, StudyRecord, registered
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
@@ -145,6 +147,37 @@ def test_calibration_verdicts_read_a_bandless_study_on_the_se_ratio_alone() -> N
         inert, margins=Margins(), efficiency_band=None, positive_suffix="treatment_correct"
     )
     assert list(inert["passed"]) == [True, True, False]
+
+
+def test_an_inflated_standard_error_control_must_rise_above_the_band() -> None:
+    """The control of the other direction, which the omitted-variable bound study declares.
+
+    One interval, (1.08, 1.12), lies wholly above the calibration band (0.93, 1.07): it
+    passes as an inflated control and fails as a positive arm and as a shrunken control.
+    An interval that straddles the upper edge, (1.05, 1.10), resolves nothing and fails as
+    the control.
+    """
+    summary = pd.DataFrame(
+        {
+            "property": ["interval_calibration"] * 4,
+            "cell": [
+                "att_lower__inflated_se_control",
+                "att_lower__correctly_specified",
+                "att_lower__shrunken_se_control",
+                "att_upper__inflated_se_control",
+            ],
+            "se_ratio_ci_lower": [1.08, 1.08, 1.08, 1.05],
+            "se_ratio_ci_upper": [1.12, 1.12, 1.12, 1.10],
+            "coverage_ci_lower": [0.95, 0.95, 0.95, 0.95],
+            "coverage_ci_upper": [0.97, 0.97, 0.97, 0.97],
+            "passed": [False, False, False, True],
+        }
+    )
+    calibration_verdicts(summary, margins=Margins(), efficiency_band=None)
+    assert list(summary["passed"]) == [True, False, False, False]
+    assert SE_CONTROL_SIDES == {"shrunken_se_control": "below", "inflated_se_control": "above"}
+    with pytest.raises(ValueError, match="unknown side"):
+        se_ratio_leaves_band(Interval(1.0, 1.1), (0.93, 1.07), "beside")  # type: ignore[arg-type]
 
 
 def test_an_alternative_target_control_must_recover_the_target_it_claims() -> None:

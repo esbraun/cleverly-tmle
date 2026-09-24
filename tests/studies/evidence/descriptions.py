@@ -724,6 +724,11 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the reported standard errors are multiplied by a declared factor below one",
         "the SE-ratio interval must fall below the calibration band",
     ),
+    ("interval_calibration", "inflated_se_control"): (
+        "the standard errors come from the curve of nu^2 without the conditioning-share term, "
+        "as before RM22",
+        "the SE-ratio interval must fall above the calibration band",
+    ),
     ("interval_calibration", "noise_control"): (
         "one efficiency-bound unit of independent noise is added to each estimate",
         "the empirical efficiency ratio must rise above the band",
