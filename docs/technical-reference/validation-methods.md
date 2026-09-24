@@ -924,9 +924,10 @@ movement on its original scale. Projection weights define the working approximat
 weights define the empirical population. The surface preserves both without combining their roles.
 
 The operation checks typed identification, parameter keys, replay configuration, and every fitted
-repeat before it draws the latent vector. It checks the declaration of each `Stochastic` density
-and each `MSM` design and weight before it evaluates any callback. It evaluates the original policy
-or projection callbacks and compares their output with the stored arrays. A disagreement raises
+repeat before it draws the latent vector. It evaluates the original policy or projection callbacks
+through `RegimeSet.evaluate` or `MSMSet.evaluate`. Each evaluator checks the declaration of each
+`Stochastic` density, or of the `MSM` design and weight, before it runs a callback. The operation
+compares the callback output with the stored arrays. A refused declaration or a disagreement raises
 `CapabilityError`.
 
 The replay freezes baseline policy and grid arrays after validation.

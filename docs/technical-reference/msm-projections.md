@@ -127,7 +127,7 @@ scale, because a coefficient vector has no single scale to map back with.
 | option | what it does |
 | --- | --- |
 | `MSM(...)` design | the working design vector, including effect modifiers and interactions |
-| `design_kind="known"` | the declaration that a `design=` callable is a fixed function of the arm, or of the regimen and horizon, and the covariates, chosen without reading the data. `MSM.linear` declares its own design, so it takes no `design_kind` |
+| `design_kind="known"` | the declaration that a `design=` callable is a fixed function of the arm, or of the regimen and horizon, and the covariates, chosen without reading the data. `MSM.linear` takes no `design_kind`, because the design it builds is known by construction |
 | projection weights | how the arms or regimens are traded off inside the projection |
 | `weights_kind="known"` | the declaration that a `weights=` callable is a fixed function of the arm and the covariates, chosen without reading the data. `MSM.linear` forwards it. Uniform weights, `weights=None`, need no declaration |
 | `link="identity"` | the clever covariate is free of the coefficient, and a correct mechanism drives the remainder to exactly zero |
@@ -144,7 +144,8 @@ projection weight. The table gives each place that checks both declarations.
 | --- | --- |
 | the `MSM` class | when you declare the model |
 | the `TMLE` and `LTMLE` fits | before the first learner and before the first call to the design. A restored or copied model can carry a declaration that this version refuses |
-| the simulated-confounding replay | before it runs the design or the weight |
+| `TMLE.retarget()` | before it recomputes an estimate. Each sweep that calls it, such as `truncation_curve()`, meets this check |
+| `MSMSet.evaluate` and `evaluate_regimen_msm` | before they call the design or the weight. A direct call and the simulated-confounding replay both meet this check |
 
 Each refusal raises `CapabilityError`. The
 [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) page defines its kind.
@@ -166,23 +167,30 @@ A malformed input raises `DataError`. The table gives the four cases.
 | a `weights_kind` value other than `"known"`, `"estimated"`, or `None` | an array or `pandas.NA` |
 | `weights_kind="estimated"` with `weights=None` | the declaration describes a weight that the model does not have |
 
+The simulated-confounding replay reports each of these inputs as `CapabilityError`. Its function
+`validate_fixed_replay` converts each `DataError` that its checks raise into a `CapabilityError`.
+
 A result saved before a declaration existed loads with that declaration set to `None`. Loading
 checks nothing, so that result keeps its stored estimates, and they answer as saved. Except under
-the rule below, every call that recomputes an estimate from it refuses with the undeclared message.
-`retarget()` checks the declarations first, so each sweep that calls it refuses, for example
-`truncation_curve()`. `refute()` refits through `fit()`, which checks them too. The
-simulated-confounding replay refuses before it runs the design or the weight.
+the rule below, every call that recomputes an estimate from a saved `TMLE` result refuses with the
+undeclared message. `retarget()` checks the declarations first, so each sweep that calls it
+refuses, for example `truncation_curve()`. `refute()` refits through `fit()`, which checks them
+too. The simulated-confounding replay refuses in `MSMSet.evaluate`, before the design or the weight
+runs.
 
-One rule reads a saved design as known. When the design has the exact type that `MSM.linear`
-builds, the model reads as `design_kind="known"`, and its result still recomputes. That design is a
-fixed function of the arm and the named covariates. Any other saved design refuses every
-recomputation. The `from_linear` flag is not a declaration, because a user can set it on any design.
-A subclass of the `MSM.linear` design type is not a declaration either.
+One rule reads a design with no declaration as known. `MSM.linear` leaves `design_kind` as `None`.
+When the design has the exact type that `MSM.linear` builds, the model reads as
+`design_kind="known"`. Its result still recomputes when its weight is uniform or declared
+`"known"`. That design is a fixed function of the arm and the named covariates.
+
+A saved result with any other undeclared design refuses every recomputation. The `from_linear` flag
+is not a declaration, because a user can set it on any design. A subclass of the `MSM.linear` design
+type is not a declaration either.
 
 | test file | what it pins |
 | --- | --- |
-| `tests/unit/test_msm_projection_weights.py` | for the weight: the stored interval, the refusals, a declared control, and a mutation that removes the check |
-| `tests/unit/test_msm_design_declaration.py` | for the design: the same four items, the exact-type rule, the replay refusal before any call to the design or the weight, and a saved `MSM.linear` result that still recomputes |
+| `tests/unit/test_msm_projection_weights.py` | for the weight: the stored interval, the refusals, the evaluator checks, a declared control, and a mutation that removes the check |
+| `tests/unit/test_msm_design_declaration.py` | for the design: the same five items, the exact-type rule, a malformed model at each fit entry, the replay refusal before any call to the design or the weight, and a saved `MSM.linear` result that still recomputes |
 
 A saved `LTMLE` MSM result holds the evaluated design and weight arrays, not the `MSM` object. Its
 `truncation_curve()` reuses those arrays, runs no user function, and reports point estimates only.
@@ -190,7 +198,9 @@ It therefore needs no declaration check. `tests/unit/test_longitudinal_truncatio
 columns of an `LTMLE` truncation curve, and it replays an MSM result from the stored arrays.
 
 `dataclasses.replace(model, design=new)` keeps the `design_kind` of `model`, as it keeps
-`weights_kind`. Pass `design_kind` again when you replace the design function.
+`weights_kind`. Pass `design_kind` again when you replace the design function. A model from
+`MSM.linear` holds `None`, so `replace` refuses a new design that has no `design_kind`. The test
+`test_replacing_the_shorthand_design_drops_its_declaration` pins this.
 
 A weight computed from the sample and declared `"known"` still fits, because the declaration is
 your statement. `tests/unit/test_msm_projection_weights.py` measures the cost on an exact law, with

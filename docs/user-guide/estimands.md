@@ -167,7 +167,8 @@ result = study.estimate(IncrementalEffect(tilts), method=quick, random_state=3)
 
 `MSMProjection` defines a projection of counterfactual means onto a declared working model. A
 coefficient remains a projection parameter when the working model is misspecified. A written
-`design=` function needs `design_kind="known"`, and `MSM.linear` declares its own design.
+`design=` function needs `design_kind="known"`. A design that `MSM.linear` builds needs no
+declaration.
 [MSM projections](../technical-reference/msm-projections.md#variations) gives the refusals.
 
 ## Controlled direct effects

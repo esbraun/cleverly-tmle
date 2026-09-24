@@ -201,15 +201,16 @@ above one fold, because no reviewed result covers a grouped draw of those splits
 An MSM projection weight, an MSM design, and a `Stochastic` density are user-supplied functions
 that the reported influence curve treats as fixed. Each carries a declaration with `"known"`,
 `"estimated"`, or `None`, and only `"known"` fits. A callable can close over an estimate, and code
-cannot inspect that closure. `MSM.linear` builds its own design, so it declares that design
-`"known"`.
+cannot inspect that closure. `MSM.linear` leaves `design_kind` as `None`, because the design it
+builds is known by construction. An MSM with no design declaration reads as `"known"` only when its
+design has the exact type that `MSM.linear` builds.
 
 The MSM and `Stochastic` objects refuse undeclared and estimated functions at construction. Their
 estimator paths check again before a fit or a result recomputation, because a restored object can
-carry an invalid declaration. The simulated-confounding replay checks them before it evaluates any
-user function. Its replay model reads each MSM declaration from the source model, under the same
-rules as the fit. An MSM saved before `design_kind` existed reads as `"known"` only when its design
-has the exact type that `MSM.linear` builds.
+carry an invalid declaration. The public evaluators `MSMSet.evaluate`, `evaluate_regimen_msm`,
+`RegimeSet.evaluate`, and `Stochastic.density` check before they run a user function. The
+simulated-confounding replay evaluates through them. Its replay model reads each MSM declaration
+from the source model, under the same rules as the fit.
 
 `cleverly._declarations.FunctionDeclaration` shares the check and refusal texts. The declaration
 does not cover `Rule.rule`, `DynamicRegimen` rules, or custom `Intervention.density` methods.
