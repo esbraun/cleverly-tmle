@@ -1021,6 +1021,27 @@ class TestThePluginLimitsRefuse:
         assert list(robust) == ["rv", "rva", "max_bias"]
         assert plugin["rv"] == pytest.approx(robust["rv"], abs=1e-6)
 
+    def test_identical_plugin_bounds_compare_equal(self, exact_fit: Any) -> None:
+        """A plug-in bound stores no limit, so it equals its twin and its pickle round trip.
+
+        It stored NaN before, and NaN compares unequal to itself, so the dataclass equality
+        failed for two identical bounds.
+        """
+        first = omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin", **STRONG)
+        second = omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin", **STRONG)
+        assert first._ci_lower is None and first._robustness_value_ci is None
+        assert first == second
+        assert pickle.loads(pickle.dumps(first)) == first
+
+    def test_the_summary_uses_the_refusal_text(self, exact_fit: Any) -> None:
+        """The summary line carries the accessors' own reason, not a second wording of it."""
+        plugin = omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin").summary()
+        assert plugin.endswith(f"under nu2_estimator='plugin': {_PLUGIN_LIMITS_REFUSAL}.")
+        legacy = legacy_without(omitted_variable_bounds(exact_fit, "att"), "nu2_estimator")
+        assert legacy.summary().endswith(
+            f"under nu2_estimator='unrecorded': {_UNRECORDED_ESTIMATOR_REFUSAL}."
+        )
+
     def test_the_elements_carry_no_curve(self, exact_fit: Any) -> None:
         plugin = sensitivity_elements(exact_fit, "att", nu2_estimator="plugin")
         robust = sensitivity_elements(exact_fit, "att")
@@ -1059,12 +1080,16 @@ class TestThePluginLimitsRefuse:
     def test_a_guard_that_refuses_nothing_fails_the_witness(
         self, exact_fit: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The mutation control: without the guard the plug-in limits read as numbers."""
+        """The mutation control: without the guard the F26 reason is lost.
+
+        A plug-in bound stores no limit, so an accessor with no guard still raises, but it
+        says only that nothing was stored. The witness requires the F26 reason, so it fails.
+        """
         bound = omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin")
         monkeypatch.setattr(
             SensitivityBounds, "_limit_refusal", lambda self, operation, diagnostic=False: None
         )
-        with pytest.raises(pytest.fail.Exception):
+        with pytest.raises(AssertionError):
             _assert_the_limits_refuse(bound, "plugin", _PLUGIN_LIMITS_REFUSAL)
 
     def test_the_assessment_row_names_the_stop(self, exact_fit: Any) -> None:
@@ -1073,5 +1098,6 @@ class TestThePluginLimitsRefuse:
         )
         item = report["robustness_value"]
         assert item.status is AssessmentStatus.COMPLETED
-        assert "no confidence-limit value under the plug-in nu^2" in item.detail
+        assert "no confidence-limit value under nu2_estimator='plugin': " in item.detail
+        assert item.detail.endswith(_PLUGIN_LIMITS_REFUSAL + ".")
         assert "F26" in item.detail

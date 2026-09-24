@@ -191,15 +191,17 @@ _THEOREM_2_COVERS = (
 )
 
 #: Why the plug-in estimator of nu^2 publishes no confidence limit.  One text for the six
-#: guarded accessors of :class:`SensitivityBounds`, its summary line and the robustness row.
+#: guarded accessors of :class:`SensitivityBounds`, its summary line and the robustness row
+#: of the assessment, which all read it through :func:`limit_refusal_reason`.
 #: ``tests/unit/test_documentation_links.py`` checks that it cites F26.
 _PLUGIN_LIMITS_REFUSAL = (
-    "no derivation that this package has read gives the standard error of a bound built on "
-    "the plug-in nu^2. E_n[alpha_hat^2] squares the fitted Riesz representer, so it moves at "
-    "first order with the fitted treatment mechanism, and its curve alpha_hat^2 - nu^2 has no "
-    "term for that fit. Lemma 3 and Theorem 4 of Chernozhukov, Cinelli, Newey, Sharma and "
+    "no derivation in a source this package cites gives the standard error of a bound built "
+    "on the plug-in nu^2. E_n[alpha_hat^2] squares the fitted Riesz representer, so it moves "
+    "at first order with the fitted treatment mechanism, and its curve alpha_hat^2 - nu^2 has "
+    "no term for that fit. Lemma 3 and Theorem 4 of Chernozhukov, Cinelli, Newey, Sharma and "
     "Syrgkanis (2026) give the limits for the doubly robust estimator only. The bias-adjusted "
-    "bounds, rv and max_bias remain available. docs/roadmap.md F26 tracks this stop"
+    "bounds, rv, max_bias, benchmark() and contour() remain available. docs/roadmap.md F26 "
+    "tracks this stop"
 )
 
 #: Why a bound saved before RM22 publishes no confidence limit.  Such a pickle did not record
@@ -209,7 +211,7 @@ _UNRECORDED_ESTIMATOR_REFUSAL = (
     "this bound was saved before the package recorded the estimator of nu^2 that built it. "
     "Its limits may come from the plug-in estimator, which has no derived standard error, or "
     "from an ATT or ATC curve without the conditioning-share term that RM22 added. Call "
-    "omitted_variable_bounds() on the fit again"
+    "omitted_variable_bounds() or result.sensitivity.omitted_confounding() on the fit again"
 )
 
 #: The estimators of nu^2 whose bounds refuse their limits, and why.  The doubly robust
@@ -218,6 +220,29 @@ _ESTIMATOR_LIMIT_REFUSALS: dict[str, str] = {
     "plugin": _PLUGIN_LIMITS_REFUSAL,
     "unrecorded": _UNRECORDED_ESTIMATOR_REFUSAL,
 }
+
+
+def limit_refusal_reason(nu2_estimator: str) -> str | None:
+    """Why a bound built by ``nu2_estimator`` publishes no limit, or ``None`` when it does.
+
+    The accessors of :class:`SensitivityBounds`, its summary and the robustness row of the
+    assessment each prefix their own subject to this one text, so the three cannot disagree.
+
+    Parameters
+    ----------
+    nu2_estimator : str
+        The resolved estimator a bound or a robustness report records.
+
+    Returns
+    -------
+    str or None
+        ``"nu2_estimator='plugin': <reason>."``, or ``None`` for the doubly robust estimator.
+    """
+    reason = _ESTIMATOR_LIMIT_REFUSALS.get(nu2_estimator)
+    if reason is None:
+        return None
+    return f"nu2_estimator={nu2_estimator!r}: {reason}."
+
 
 _RESPONSE_BOUND_REFUSAL = (
     "the omitted-variable bound is not implemented for a fit with a response mechanism. "
@@ -860,11 +885,13 @@ class SensitivityBounds:
     max_bias: float
     lower: float
     upper: float
-    _ci_lower: float
-    _ci_upper: float
+    #: ``None`` when no derivation gives the limits, so two identical plug-in bounds, and a
+    #: pickle round trip of one, compare equal.  A NaN here compared unequal to itself.
+    _ci_lower: float | None
+    _ci_upper: float | None
     level: float
     robustness_value: float
-    _robustness_value_ci: float
+    _robustness_value_ci: float | None
     null_hypothesis: float
     #: A plain default, so a bound pickled before the field existed loads as inferential,
     #: which every such bound was: RM11 refused the bound on the only fits that carried
@@ -886,11 +913,11 @@ class SensitivityBounds:
         max_bias: float,
         lower: float,
         upper: float,
-        ci_lower: float,
-        ci_upper: float,
+        ci_lower: float | None,
+        ci_upper: float | None,
         level: float,
         robustness_value: float,
-        robustness_value_ci: float,
+        robustness_value_ci: float | None,
         null_hypothesis: float,
         inference: InferenceStatus = "influence_curve",
         nu2_estimator: str = "doubly_robust",
@@ -946,49 +973,49 @@ class SensitivityBounds:
         """
         if not diagnostic:
             refuse_inference(self.inference, operation=operation)
-        reason = _ESTIMATOR_LIMIT_REFUSALS.get(self.nu2_estimator)
+        reason = limit_refusal_reason(self.nu2_estimator)
         if reason is not None:
-            raise CapabilityError(
-                f"{operation} is not defined under nu2_estimator={self.nu2_estimator!r}: "
-                + reason
-                + "."
-            )
+            raise CapabilityError(f"{operation} is not defined under {reason}")
+
+    def _guarded(self, name: str, stored: float | None, *, diagnostic: bool = False) -> float:
+        """One stored limit, after :meth:`_limit_refusal` has let it through."""
+        operation = f"SensitivityBounds.{name}"
+        self._limit_refusal(operation, diagnostic=diagnostic)
+        if stored is None:  # pragma: no cover - a derived bound always stores its limits
+            raise CapabilityError(f"{operation} was not stored on this bound")
+        return stored
 
     @property
     def ci_lower(self) -> float:
         """Lower confidence limit, when this bound supplies inference."""
-        self._limit_refusal("SensitivityBounds.ci_lower")
-        return self._ci_lower
+        return self._guarded("ci_lower", self._ci_lower)
 
     @property
     def ci_upper(self) -> float:
         """Upper confidence limit, when this bound supplies inference."""
-        self._limit_refusal("SensitivityBounds.ci_upper")
-        return self._ci_upper
+        return self._guarded("ci_upper", self._ci_upper)
 
     @property
     def robustness_value_ci(self) -> float:
         """Robustness value for a confidence limit, when inference is supplied."""
-        self._limit_refusal("SensitivityBounds.robustness_value_ci")
-        return self._robustness_value_ci
+        return self._guarded("robustness_value_ci", self._robustness_value_ci)
 
     @property
     def plugin_interval_lower(self) -> float:
         """Lower plug-in limit, a diagnostic at a non-inferential status."""
-        self._limit_refusal("SensitivityBounds.plugin_interval_lower", diagnostic=True)
-        return self._ci_lower
+        return self._guarded("plugin_interval_lower", self._ci_lower, diagnostic=True)
 
     @property
     def plugin_interval_upper(self) -> float:
         """Upper plug-in limit, a diagnostic at a non-inferential status."""
-        self._limit_refusal("SensitivityBounds.plugin_interval_upper", diagnostic=True)
-        return self._ci_upper
+        return self._guarded("plugin_interval_upper", self._ci_upper, diagnostic=True)
 
     @property
     def robustness_value_plugin_interval(self) -> float:
         """Robustness value from the plug-in limit, a diagnostic when inference is absent."""
-        self._limit_refusal("SensitivityBounds.robustness_value_plugin_interval", diagnostic=True)
-        return self._robustness_value_ci
+        return self._guarded(
+            "robustness_value_plugin_interval", self._robustness_value_ci, diagnostic=True
+        )
 
     @property
     def bias(self) -> float:
@@ -1063,21 +1090,15 @@ class SensitivityBounds:
             f"{self.robustness_value:.1%} of the residual variation in BOTH the outcome and "
             f"treatment would move the estimate to {self.null_hypothesis:g}."
         )
-        if not self._limits_derived:
-            reason = (
-                "under the plug-in nu^2: no derivation gives their standard error "
-                "(docs/roadmap.md F26)"
-                if self.nu2_estimator == "plugin"
-                else "on a bound saved before its nu^2 estimator was recorded: call "
-                "omitted_variable_bounds() again"
-            )
+        reason = limit_refusal_reason(self.nu2_estimator)
+        if reason is not None:
             return "\n".join(
                 [
                     *header,
                     f"bias-adjusted bounds:  [{self.lower:.5g}, {self.upper:.5g}] ({conclusion})",
                     "",
                     rv_line,
-                    f"no one-sided limits or RVa {reason}",
+                    f"no one-sided limits or RVa under {reason}",
                 ]
             )
         status = self.inference
@@ -1177,7 +1198,8 @@ def omitted_variable_bounds(
     # One-sided limits on each end, Theorem 4 in Section 4 of Chernozhukov et al. (2026).
     # The curve adds the uncertainty of the bias term to that of the estimate. The plug-in
     # has no curve, so its bound stores no limit and its accessors refuse.
-    ci_lower = ci_upper = float("nan")
+    ci_lower: float | None = None
+    ci_upper: float | None = None
     if elements.psi_max_bias is not None:
         quantile = float(stats.norm.ppf(level))
         psi_bias = elements.psi_max_bias
@@ -1221,10 +1243,10 @@ def _robustness_values(
     rho: float,
     level: float,
     null_hypothesis: float,
-) -> tuple[float, float]:
+) -> tuple[float, float | None]:
     """Solve for ``cf_y = cf_d = v`` at which a bound reaches the null.
 
-    The second value is ``nan`` when the elements carry no curve, which is the plug-in
+    The second value is ``None`` when the elements carry no curve, which is the plug-in
     estimator: no limit exists to solve for.
     """
     side = 1.0 if null_hypothesis > psi else -1.0
@@ -1250,7 +1272,7 @@ def _robustness_values(
         optimize.minimize_scalar(objective, bounds=(0.0, 0.9999), method="bounded", args=(False,)).x
     )
     if psi_bias is None:
-        return rv, float("nan")
+        return rv, None
     rva = float(
         optimize.minimize_scalar(objective, bounds=(0.0, 0.9999), method="bounded", args=(True,)).x
     )
