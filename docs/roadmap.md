@@ -231,6 +231,7 @@ the missing result. Package code and a related estimator do not remove the stop.
 | Controlled-direct-effect simulated-confounding replay | an ordered treatment, intermediate, observation, and outcome law with a contrast contract | fits without an intermediate only | [F15](#f15-controlled-direct-effect-simulated-confounding-replay) |
 | Simulated confounding on a declared outcome scale | a latent perturbation law for an outcome confined to a known support, and the reading of its strength | additive perturbation of an unbounded outcome only, so a fit that declares `q_bounds` refuses the outcome axis | [F23](#f23-simulated-confounding-on-a-declared-outcome-scale) |
 | Controlled-direct-effect E-value | a bound on the bias of a controlled direct effect from unmeasured confounding, of the treatment and the outcome or of the intermediate variable and the outcome, and its inversion to an E-value on a stated outcome scale | every E-value request on a fit with an intermediate variable and a discrete treatment reports `unavailable`. A continuous-treatment fit reports `not_applicable` first | [F25](#f25-e-value-for-a-controlled-direct-effect) |
+| Plug-in omitted-variable confidence limits | an influence function or an inference result for the plug-in estimate of the Riesz second moment with an estimated treatment mechanism | the plug-in bounds, `rv`, `max_bias`, `benchmark()` and `contour_data()`. The one-sided limits and `rva` refuse | [F26](#f26-confidence-limits-of-the-plug-in-omitted-variable-bound) |
 | Stochastic categorical policies at a longitudinal node | longitudinal identification, influence function, remainder, and interval conditions for a distribution-valued policy | deterministic categorical regimens only | [F1](#f1-stochastic-categorical-policies-at-a-longitudinal-node) |
 | Targeted bootstrap inference | a construction that defines what is fixed, resampled, refitted, and retargeted, plus the sampling law of the interval | existing bootstrap inference is not this procedure | [F2](#f2-targeted-bootstrap-inference) |
 | Longitudinal sensitivity-bound estimation | sample estimation of the bound functionals, a specialized algorithm, and sampling inference | no sensitivity bound on a longitudinal fit | [F16](#f16-longitudinal-sensitivity-bound-estimation) |
@@ -2712,6 +2713,131 @@ The witnesses must fail when a component is wrong:
   standard-error ratio of the doubly robust limits of the ATT;
 - a test pins the ATE and counterfactual-mean curves, which the correction must not move.
 
+#### RM22 plan
+
+The 2026-09-24 plan fixes the decisions in the table below. Line numbers are at 29e25599. OV is
+`src/cleverly/sensitivity/omitted_variable.py`.
+
+| part | decision |
+| --- | --- |
+| share term | the doubly robust curve of $\nu^2$ gains $-2 \nu^2 w (1\{A = c\} - p) / p$ for each parameter whose `conditions_on` is not `None`. That is the ATT and the ATC, at two arms and at $K$ arms, weighted or not. Clusters need no change, because `influence_variance` sums the rows of a cluster. One private helper, `_conditioning_share_influence` in OV, computes the term |
+| point $\nu^2$ | unchanged. The package divides by the full-sample weighted share, so $E_n^w[2 \ell - 1] = 1$ exactly and the division of `dml.sensemakr` is the identity here |
+| ATE and means | unchanged. A new exact-law witness pins their curves |
+| plug-in limits | refused. Under `nu2_estimator="plugin"` the accessors `ci_lower`, `ci_upper`, `robustness_value_ci`, the three `plugin_interval_*` accessors, and `rva` raise `CapabilityError`. `lower`, `upper`, `max_bias`, `rv`, `benchmark()` and `contour_data()` stay. `SensitivityElements.psi_nu2` and `psi_max_bias` read `None` under the plug-in. A bound saved before RM22 reads `nu2_estimator="unrecorded"` and refuses its limits too |
+| missing result | [F26](#f26-confidence-limits-of-the-plug-in-omitted-variable-bound) and its future-grid row |
+| locators | keep Theorem 2 for the bias. Tie the bounds to Equation (14) in Section 4. Cite Lemma 3 and Theorem 4 for the score and the limits, and Theorem 5(2) only for $m$ and the representer. Cite Online Appendix A, "Statistical Inference", Equation (15), for the share term of $\theta_s$. State that the paper gives no share term for $\nu^2$ |
+| cached reports | the generation of `sensitivity.run_all` moves from 3 to 4. `sensitivity.omitted_confounding`, `sensitivity.robustness_value` and `sensitivity.elements` gain generation 2 |
+| studies | no existing study imports `cleverly.sensitivity`, so none is regenerated. One new study is declared below |
+
+The derivation takes four steps. The ATT estimate is $\hat F / \hat p^2$, with
+$\hat F = E_n^w[T(O; \hat g)]$ and $\hat p = E_n^w[1\{A = c\}]$. At a fixed $p$, the Riesz identity
+makes $\hat F$ orthogonal in $g$, so its curve is the score of Lemma 3. The curve of $\hat p$ is
+$w (1\{A = c\} - p)$, and the derivative of $F / p^2$ in $p$ is $-2 \nu^2 / p$. The ATC and each
+contrast at $K$ arms take the same steps with their own conditioning arm.
+
+The plan probes are read-only. The first probe fits the two laws of `tests/discrete_law.py` and
+`tests/discrete_law_multi.py` with their oracle nuisances. It compares the curve of $\hat\nu^2$ with
+the complex-step Gateaux derivative of $\nu^2$, written from the cell probabilities. The table gives
+the largest error over the support points.
+
+| law | parameters | without the term | with the term |
+| --- | --- | ---: | ---: |
+| two arms, unweighted | `att`, `atc` | 12.19, 9.541 | 1.2e-14, 1.2e-14 |
+| two arms, weights $1 + 0.5a + 0.8y$ | `att`, `atc` | 11.9, 13.28 | 1.2e-14, 2.8e-14 |
+| three arms, unweighted | the four ATT and ATC contrasts | 22.44 to 42.29 | at most 2.5e-14 |
+| three arms, weights of $W$ | the four ATT and ATC contrasts | 56.78 to 84.75 | at most 6.0e-14 |
+| both laws, both weightings | `ey1`, `ey0`, `ate`, and each `ate[...]` | at most 1.4e-14 | unchanged |
+
+The plug-in curve $\hat\alpha^2 - \hat\nu^2$ differs from the same derivative by 15.1 to 45.9 on
+the two-arm law, and by 21.3 for the ATE. The share term does not repair it.
+
+The second probe applies the term to six fits. The first row is the `att_result` row of the
+contract.
+
+| fit | parameter | sd of `psi_nu2` | lower-bound standard error at the large strength |
+| --- | --- | --- | --- |
+| `make_linear_ate(n=350, seed=11)` | `att` | 9.3871 to 3.3206 | 0.1325 to 0.1206 |
+| `make_linear_ate(n=1000, seed=1)` | `att`, `atc` | 9.0683 to 2.9203, 9.0106 to 2.7020 | 0.0750 to 0.0687, 0.0745 to 0.0678 |
+| the same fit | `ate`, `ey[1]`, `ey[0]` | unchanged | unchanged |
+| `make_clustered(n=400, cluster_size=10, seed=7)` | `att`, `atc` | 14.0813 to 9.2066, 13.1080 to 7.9655 | 0.5339 to 0.5040, 0.5593 to 0.5048 |
+
+The third probe writes the whole lower bound $\theta - s \sqrt{\sigma^2 \nu^2}$ from the cell
+probabilities. Its Gateaux derivative differs from the reported curve by 0.6202 for the ATT and
+0.4766 for the ATC, and by at most 8.9e-16 after the fix. The probe also clusters the exact
+sample, with the cluster of a row equal to its index modulo 50. The reported lower-bound standard
+error of the ATT is 0.02129 without the term and 0.02303 with it. So on that sample the omission
+narrows the limit, and the contract's statement that the omission widens the limits holds only
+without clusters.
+
+##### Witnesses
+
+A new file `tests/unit/test_omitted_variable_standard_error.py` holds the exact-law witnesses. Its
+tolerance is `atol=1e-11`. Each comparator is a Gateaux derivative of a functional in
+`tests/discrete_law.py` or `tests/discrete_law_multi.py`, which import no package code.
+
+| witness | assertion |
+| --- | --- |
+| conditional curve | twelve ATT and ATC cases, at two and three arms, weighted and unweighted, equal the Gateaux derivative row by row |
+| unconditional curve | the ATE, the means and each `ate[...]` contrast equal the Gateaux derivative row by row, and the helper is not called for them |
+| lower-bound curve | the curve of the lower bound equals the derivative of the whole bound for the ATE, the ATT and the ATC |
+| clustered standard error | the reported lower-bound standard error equals the cluster sum of the exact curve |
+| plug-in refusal | each refused accessor raises with the F26 reason. The same fit under the doubly robust estimator reports finite limits |
+
+The file commits these mutations. The predicted deviation is the smallest one that the probe
+measured.
+
+| mutation | predicted deviation | predicted failures |
+| --- | --- | --- |
+| M0. the helper, wrapped and unchanged | none | none |
+| M1. the helper returns zeros | 9.54 | every conditional case, the lower-bound curve of the ATT and the ATC, and the clustered standard error |
+| M2. the sign of the term flips | 19.1 | every conditional case |
+| M3. an unweighted share | 3.98 | the six weighted cases only |
+| M4. the weights dropped from the term | 3.64 | the six weighted cases only |
+| M5. the ATT conditions on the reference | 37.9 at three arms | the ATT cases |
+| M6. the term applied to every parameter | 3.70 | the unconditional cases |
+
+The delivery then runs eight hand mutations of the source, one at a time. H1 deletes the helper
+call, H2 flips its sign, H3 uses an unweighted share, H4 drops the weights, and H5 applies the
+term to every parameter. H6 removes the plug-in guard, H7 reverts the cache generations, and H8
+restores OV at 29e25599 with the new constants added.
+
+##### Repeated-sampling control
+
+A registered study reads the standard-error ratio. The declaration below is fixed before any run.
+
+| field | value |
+| --- | --- |
+| name, slug | `omitted-variable bound standard error`, `omitted-variable-bound-se` |
+| law | `make_linear_ate(n=1000)`. The four covariates are standard normal, $g = \operatorname{expit}(0.3 W_1 - 0.2 W_2 + 0.1 W_3)$, the noise is standard normal, and the effect is a constant 1.5 |
+| fit | in-sample `TMLE` with `LinearRegression()` and an unpenalized main-effects `LogisticRegression`, `simultaneous=False`, and the estimands `ate`, `att` and `atc`. Both models are correctly specified. The estimator of $\nu^2$ is the default |
+| strength | $c_Y = 0.5$, $c_D = 0.3$, $\rho = 1$ |
+| truth | $\nu^2 = 4 e^{0.07}$ for the ATT and the ATC, $\nu^2 = 2 + 2 e^{0.07}$ for the ATE, $\sigma^2 = 1$, and $s = \sqrt{0.15 / 0.7}$. The six bounds are 0.541202 and 2.458798 for the ATT and the ATC, and 0.557547 and 2.442453 for the ATE |
+| primary estimands | `att_lower`, `att_upper`, `atc_lower`, `atc_upper`, `ate_lower`, `ate_upper`, in the scenario `linear` |
+| primary row | the estimate is the bound. The standard error is `(lower - ci_lower) / z_0.95` for a lower bound and `(ci_upper - upper) / z_0.95` for an upper bound. The interval is the estimate plus or minus 1.959964 standard errors |
+| property cells | `interval_calibration` only. The six positive cells `<bound>__correctly_specified`, and two controls, `att_lower__inflated_se_control` and `att_upper__inflated_se_control` |
+| control | the same fits. The standard error comes from the curve with the share term removed, which is the curve before RM22 |
+| replicates, n | 10,000 primary and 10,000 per property cell, at $n = 1000$. The property cells share their draws |
+| seeds | 20262201 for the samples, 20262202 for resampling |
+| margins | `Margins()` unchanged |
+| publication policy | `reporting` |
+| reference | none. DoubleML omits the term, and `dml.sensemakr` is R code with a cross-fitted share and a different point estimate |
+
+A positive cell passes when the 99% interval of its SE ratio lies inside (0.93, 1.07) and its
+coverage interval inside (0.92, 0.98). A control passes when its SE-ratio interval lies wholly above
+1.07. The 500-fit probe of the contract gave 1.033 for the ATT upper bound with the term and 1.118
+for the ATT lower bound without it. At 10,000 replicates the half-width of the interval is about
+0.02, so the plan predicts that every cell passes. The ATC has no control, because its ratios
+without the term, 1.098 and 1.111, sit too close to 1.07 to predict a failure.
+
+The control needs one change to the framework. `calibration_verdicts` reads the side of the band
+that an SE control must leave from the kind of the cell. `shrunken_se_control` must fall below the
+band and `inflated_se_control` above it, and one function holds that rule for both kinds.
+
+The red-cell route is fixed now. If a verdict is red, it stays red at this budget and these
+margins. The delivery then adds an ask to the "What this row asks for" table of RM18, names it in
+the ledger, and states which witness failed. It does not run the study again at a larger budget,
+and it moves no margin.
+
 ### RM23. Capability rows that read available and then refuse
 
 The assessment declares each operation in a capability row before any call. The rows below read
@@ -4378,6 +4504,20 @@ VanderWeele (2016, *Biometrika*) bound a natural direct effect only. The
 
 Wait for a source that derives the bound and its inversion for a controlled direct effect. Record
 its locator and outcome scale, and open the branch that it covers.
+
+### F26. Confidence limits of the plug-in omitted-variable bound
+
+`nu2_estimator="plugin"` estimates the Riesz second moment as $E_n[\hat\alpha^2]$. That value moves
+at first order with the fitted treatment mechanism, and its curve $\hat\alpha^2 - \hat\nu^2$ has no
+term for that fit. On `tests/discrete_law.py` with the oracle nuisances, that curve differs from the
+Gateaux derivative of $\nu^2$ by up to 21.3 for the ATE and 45.9 for the ATC. Chernozhukov,
+Cinelli, Newey, Sharma and Syrgkanis (2026) estimate $\nu^2$ through the orthogonal score of their
+Lemma 3 only. DoubleML calls its plug-in fallback non-orthogonal. No read source gives the influence
+function of the plug-in bound.
+
+Wait for a result that gives that influence function under a stated estimator of the mechanism, or
+an inference result for the plug-in bound. Then open `ci_lower`, `ci_upper`, `robustness_value_ci`
+and `rva` under the plug-in estimator.
 
 ## Longitudinal contracts
 
