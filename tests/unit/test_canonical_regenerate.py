@@ -79,6 +79,30 @@ def _stub_primary(monkeypatch: pytest.MonkeyPatch, tmp_path: Any, record: Any) -
     )
 
 
+@pytest.mark.parametrize(
+    ("argv", "skipped"),
+    [
+        ([], False),
+        (["--replicates", "2"], True),
+        (["--replicates", "2", "--skip-properties"], True),
+    ],
+)
+def test_a_run_below_the_declared_budget_skips_the_property_study(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any, argv: list[str], skipped: bool
+) -> None:
+    """A smoke run cannot compute the declared property verdicts before their declaration.
+
+    Each property module fixes its own budget, so a run with ``--replicates 2`` would
+    otherwise run the full property study.  RM22's 200-replication smoke run did, and it
+    produced the published property verdicts before the study was committed.
+    """
+    record = fold_evaluated_cvtmle.STUDY
+    study = SimpleNamespace(STUDY=record, PRIMARY_REPLICATES=record.replicates, PRIMARY_N=record.n)
+    monkeypatch.setattr("sys.argv", ["regenerate", *argv])
+    arguments = regenerate._arguments(study, tmp_path, None)  # type: ignore[arg-type]
+    assert arguments.skip_properties is skipped
+
+
 @pytest.mark.parametrize("paired", [False, True])
 def test_primary_only_stops_before_properties_manifest_and_gates(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Any, paired: bool
