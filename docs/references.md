@@ -1409,6 +1409,19 @@ is the only empirical witness for it.
   DOI 10.1162/REST.a.1705. The preprint is arXiv:2112.13398.
 - VanderWeele & Ding (2017), *Sensitivity analysis in observational research: introducing the
   E-value*.
+- VanderWeele (2010), [*Bias formulas for sensitivity analysis for direct and indirect
+  effects*](https://doi.org/10.1097/EDE.0b013e3181df191c), *Epidemiology* 21(4):540-551. The
+  E-value paths cite it for the bias of a controlled direct effect. It gives no E-value.
+- Smith & VanderWeele (2019), [*Mediational E-values: approximate sensitivity analysis for
+  unmeasured mediator-outcome confounding*](https://doi.org/10.1097/EDE.0000000000001064),
+  *Epidemiology* 30(6):835-837. Its E-value covers natural direct and indirect effects only.
+- Ding & VanderWeele (2016), [*Sharp sensitivity bounds for mediation under unmeasured
+  mediator-outcome confounding*](https://arxiv.org/abs/1601.05155), *Biometrika*
+  103(2):483-490, DOI 10.1093/biomet/asw012. This package read the arXiv version only.
+- Ding & VanderWeele (2016), [*Sensitivity analysis without
+  assumptions*](https://doi.org/10.1097/EDE.0000000000000457), *Epidemiology* 27(3):368-377.
+- The R package [`EValue` 4.1.4](https://cran.r-project.org/package=EValue), which has no
+  function for mediation or a direct effect.
 - Scharfstein, Rotnitzky & Robins (1999), *Adjusting for nonignorable drop-out using semiparametric
   nonresponse models*.
 - Sharma & Kiciman (2020), [*DoWhy: An End-to-End Library for Causal
