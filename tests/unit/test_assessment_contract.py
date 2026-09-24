@@ -1406,17 +1406,18 @@ def test_changed_assessment_schemas_ignore_persisted_unversioned_cache_entries(
 
     result.assessment_cache.clear()
     legacy_keys = {_without_cache_generation(key) for key in versioned}
-    # Generation one covers the sensitivity aggregate's own immediately previous version:
-    # both aggregates now report ``deferred`` where they reported ``unavailable`` for an
-    # ambiguous default estimand, and a result saved before that carries the old row in
-    # its own cache.
+    # Generation one: both aggregates now report ``deferred`` where they reported
+    # ``unavailable`` for an ambiguous default estimand, and a result saved before that
+    # carries the old row in its own cache. The generation directly below each aggregate's
+    # current one puts its latest bump under test: the pooled longitudinal construction for
+    # the diagnostic aggregate, and the RM21 E-value refusal for the sensitivity one.
     generation_one_keys = {_with_cache_generation(key, 1) for key in versioned}
-    previous_diagnostic_aggregate = {
+    previous_aggregates = {
         _with_previous_generation(key)
         for key in versioned
-        if key.startswith("diagnostics.run_all:")
+        if key.startswith(("diagnostics.run_all:", "sensitivity.run_all:"))
     }
-    stale_keys = legacy_keys | generation_one_keys | previous_diagnostic_aggregate
+    stale_keys = legacy_keys | generation_one_keys | previous_aggregates
     result.assessment_cache.update(dict.fromkeys(stale_keys, "legacy cached report"))
     restored = load(result.save(tmp_path / "legacy-assessment-cache.joblib"))
 

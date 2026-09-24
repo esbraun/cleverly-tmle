@@ -86,9 +86,12 @@ _EVALUE_NEEDS_INFERENCE = "an E-value is built from the reported estimate and it
 
 #: Why every E-value branch stops on a fit with an intermediate variable.  A controlled direct
 #: effect is identified under two no-unmeasured-confounding assumptions, and the E-value
-#: inverts a bound for one exposure-outcome relation.  RM21 in ``docs/roadmap.md`` records the
-#: sources read.  Raised in :func:`_select_evalue` before the estimand is resolved, so the row
-#: reads ``unavailable`` on every such fit, a multi-arm fit included, and no branch computes.
+#: inverts a bound for one exposure-outcome relation.  The E-value section of
+#: ``docs/technical-reference/validation-methods.md`` tabulates the sources read, and F25 in
+#: ``docs/roadmap.md`` holds the missing result.  Raised in :func:`_select_evalue` before the
+#: estimand is resolved, so the row reads ``unavailable`` on every such fit with a discrete
+#: treatment, a multi-arm fit included, and no branch computes.  A continuous-treatment fit
+#: meets the check before it and reads ``not_applicable``, so it is refused as well.
 _DIRECT_EFFECT_REFUSAL = (
     "no source that this package has read derives an E-value for controlled direct "
     "effects. The E-value of VanderWeele and Ding (2017) bounds the unmeasured "
@@ -380,8 +383,10 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
     # Fit-wide rather than branch-scoped, unlike the standardized rule below: the reported
     # and derived ratio branches read ``estimate.ci`` and the Gaussian branch reads the
     # reference arm's ``std_error``, so no branch survives a fit that supplies neither.
-    # After the two checks above, which say an E-value is not defined for this request
-    # on any fit: a level such as ``ey1`` stays ``not_applicable`` here too.
+    # It runs after the request checks directly above, the requested name, its key and its
+    # axis, which say that an E-value is not defined for this request on any fit.  So on a
+    # fit without an intermediate variable, a level such as ``ey1`` stays ``not_applicable``
+    # here too.
     if not result.estimates[source].supplies_inference:
         raise _EValueRefusal(
             AssessmentStatus.UNAVAILABLE,

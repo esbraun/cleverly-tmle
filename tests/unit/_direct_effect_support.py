@@ -34,9 +34,13 @@ def binary_cde_frame() -> Any:
     return frame
 
 
-def fit_cde(frame: Any, estimands: tuple[str, ...] | None = None) -> Any:
-    """Fit a controlled direct effect in sample, and return the result at each level of ``Z``."""
-    return fast_tmle(**IN_SAMPLE, estimands=estimands).fit(
+def fit_cde(frame: Any, estimands: tuple[str, ...] | None = None, **overrides: Any) -> Any:
+    """Fit a controlled direct effect in sample, and return the result at each level of ``Z``.
+
+    ``overrides`` reach :func:`tests.conftest.fast_tmle`, for a fit that also declares an
+    intervention such as a shift of a continuous dose.
+    """
+    return fast_tmle(**IN_SAMPLE, estimands=estimands, **overrides).fit(
         frame, outcome="Y", treatment="A", covariates=COVARIATES, intermediate="Z"
     )
 
