@@ -22,9 +22,10 @@ things:
   learner or regime-function call, and so do ``RegimeSet.evaluate`` and ``Rule.density``;
 * the declaration refusal comes before a refusal of the fit configuration;
 * a rule pickled before the field existed loads undeclared, and a result restored with such a
-  rule refuses every recomputation;
-* a result restored with an undeclared rule or class keeps its point estimates and takes the
-  ``"undeclared_function_plugin"`` status, and a declared one keeps its interval;
+  rule refuses every recomputation and refutation before any learner;
+* a fit or study result restored with an undeclared rule or class keeps its point estimates
+  and takes the ``"undeclared_function_plugin"`` status, and a declared one keeps its
+  interval;
 * the simulated-confounding replay refuses a restored rule before it runs, and each frozen
   regime carries the declaration of its source;
 * a deliberate mutation that removes a check makes those witnesses fail;
@@ -53,7 +54,7 @@ import cleverly.longitudinal.estimator as ltmle_module
 from cleverly import RegimeMean, variable_importance
 from cleverly._declarations import declaration_status
 from cleverly.data import CausalData
-from cleverly.estimators import TMLE
+from cleverly.estimators import TMLE, tmle
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import (
@@ -73,6 +74,7 @@ from cleverly.interventions.base import (
 )
 from cleverly.sensitivity import _simulated_confounding_fixed as replay_module
 from cleverly.sensitivity import simulated_confounding
+from cleverly.validation.refute import refute
 from tests import discrete_law as law
 from tests.conftest import linear_in_sample
 from tests.pickles import legacy_without
@@ -302,9 +304,27 @@ def spy_rule() -> Rule:
     return threshold_rule(Counter(FixedThreshold()), rule_kind="known")
 
 
+def one_call(item: Any, learners: dict[str, Any]) -> Any:
+    """The array entry :func:`cleverly.estimators.tmle.tmle` on the default law."""
+    frame = law.frame()
+    return tmle(
+        frame["Y"].to_numpy(),
+        frame["A"].to_numpy(),
+        frame[["W"]].to_numpy(),
+        covariate_names=["W"],
+        interventions=(item,),
+        cross_fit=False,
+        simultaneous=False,
+        **learners,
+    )
+
+
 #: Every fit entry that can reach a declared object: ``TMLE.fit``, ``CausalStudy.estimate``,
-#: and ``TMLE.refit``.
-ENTRIES = point_entries(lambda item: {"interventions": (item,)}, lambda item: RegimeMean((item,)))
+#: ``TMLE.refit``, and the one-call ``tmle``.
+ENTRIES = {
+    **point_entries(lambda item: {"interventions": (item,)}, lambda item: RegimeMean((item,))),
+    "tmle": one_call,
+}
 
 #: What a restored object can carry, and the refusal each one meets.
 RESTORED_RULE = restored_states(UNDECLARED_RULE, ESTIMATED_RULE)
@@ -633,6 +653,36 @@ def rule_result() -> Any:
     return rule_fit()
 
 
+@pytest.fixture(scope="module")
+def study_rule_result() -> Any:
+    """A declared counting ``Rule`` estimated through ``CausalStudy`` on the default law."""
+    return ENTRIES["study"](spy_rule(), linear_in_sample())
+
+
+def never_fitting(result: Any) -> tuple[Any, Counter]:
+    """``result`` with ``NeverFit`` learners, and the counter of its rule, reset to zero.
+
+    A refutation refits ``result.estimator``, so its learners are the spies.  A pickle
+    round trip copies the counter, so it is read off ``result``.
+    """
+    for role, learner in never_fit_learners().items():
+        setattr(result.estimator, role, learner)
+    function = rules(result)[0].rule
+    function.calls = 0
+    return result, function
+
+
+#: Each refutation entry of a point result: the function, and the assessment method.
+REFUTATIONS: dict[str, Callable[[Any], Any]] = {
+    "refute": lambda result: refute(
+        result, estimand="ey_regime[thr]", tests=("subset",), n_replicates=2, random_state=0
+    ),
+    "diagnostics.refute": lambda result: result.diagnostics.refute(
+        estimand="ey_regime[thr]", tests=("subset",), n_replicates=2, random_state=0
+    ),
+}
+
+
 class TestALegacyRuleResultRefusesARecomputation:
     """RM28: every recomputation from a restored result checks the rule as the fit does.
 
@@ -650,6 +700,26 @@ class TestALegacyRuleResultRefusesARecomputation:
         """The control: the same entry on the result before the declaration was lost."""
         assert "ey_regime[thr]" in rule_result.estimates
         recomputations(rule_result, RETARGETED)[entry]()
+
+    @pytest.mark.parametrize("entry", list(REFUTATIONS))
+    def test_a_refutation_refuses_before_any_learner_or_rule_call(
+        self, study_rule_result: Any, entry: str
+    ) -> None:
+        old, function = never_fitting(legacy_result(study_rule_result))
+        assert_refused_before_any_call(
+            lambda: REFUTATIONS[entry](old), function, "rule", UNDECLARED_RULE
+        )
+
+    @pytest.mark.parametrize("entry", list(REFUTATIONS))
+    def test_the_declared_result_reaches_the_first_refit_learner(
+        self, study_rule_result: Any, entry: str
+    ) -> None:
+        """The control: the same refutation of the declared result refits a learner."""
+        copy, function = never_fitting(loads(dumps(study_rule_result)))
+        with pytest.raises(AssertionError, match="before any learner is fitted"):
+            REFUTATIONS[entry](copy)
+        assert NeverFit.calls == 1
+        assert function.calls == 0
 
 
 # ------------------------------------------------------------------ a restored result's status
@@ -694,6 +764,11 @@ class TestARestoredUndeclaredResultWithholdsInference:
         assert banded_rule_result.simultaneous is not None
         old = legacy_result(banded_rule_result)
         assert_stored_interval_is_a_diagnostic(banded_rule_result, old)
+
+    def test_a_restored_study_result_withholds_inference(self, study_rule_result: Any) -> None:
+        """A ``CausalStudy`` result restores through the same status hook as a fit."""
+        old = legacy_result(study_rule_result)
+        assert_stored_interval_is_a_diagnostic(study_rule_result, old)
 
     def test_a_restored_user_class_result_withholds_inference(self, user_class_result: Any) -> None:
         old = legacy_class_result(user_class_result)
@@ -967,6 +1042,7 @@ class TestTheWitnessesHaveTeeth:
         banded_rule_result: Any,
         user_class_result: Any,
         rule_result: Any,
+        study_rule_result: Any,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Mutation R8: the status predicate returns ``"influence_curve"``."""
@@ -975,6 +1051,7 @@ class TestTheWitnessesHaveTeeth:
         assert_every_witness_fails(
             [
                 lambda: suite.test_a_restored_rule_result_withholds_inference(banded_rule_result),
+                lambda: suite.test_a_restored_study_result_withholds_inference(study_rule_result),
                 lambda: suite.test_a_restored_user_class_result_withholds_inference(
                     user_class_result
                 ),
