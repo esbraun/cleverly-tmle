@@ -52,7 +52,7 @@ shipped.
 The review of pull request 223, which delivered RM11 and RM12, recorded problems that it did not
 fix. A survey of this roadmap for shipped behavior then found more in other items. RM20 to RM24
 hold both sets, and three smaller findings extend RM16. Each detail section gives its probe and
-the measured result. RM20 and RM21 are delivered, and each detail section records what
+the measured result. RM20, RM21 and RM22 are delivered, and each detail section records what
 shipped.
 
 The 2026-09-22 plan for RM20 and RM13 found two sibling surfaces that neither row names.
@@ -78,7 +78,6 @@ rows that remain.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.22 | Standard error of the omitted-variable bound | add the influence term of the conditioning share to the ATT and ATC curve, decide what the plug-in limits claim, and check each locator against the published article | the curve of $\nu^2$ omits $-2 \nu^2 (1\{A = c\} - p) / p$. Under the doubly robust estimator the omission widens the limits. No derivation covers the plug-in limits | [RM22](#rm22-standard-error-of-the-omitted-variable-bound) |
 | 0.31 | Capability rows that read available and then refuse | make each declared row match its call, and add a witness that sweeps the kinds of fit | four rows on three kinds of fit read available, and the call then refuses or raises. On one of them, `assess(include_refits=True)` raises `ValueError` and returns no report | [RM23](#rm23-capability-rows-that-read-available-and-then-refuse) |
 | 0.32 | Intervention refusals at identification | refuse mixed intervention kinds in `CausalStudy.identify`, and name the typed estimands in each message. Refuse a zero-dimensional regimen plan by name | a mixed request passes identification and then fails at estimation, once with an `AttributeError` | [RM14](#rm14-intervention-refusals-at-identification) |
 | 0.33 | Refusals after the nuisance fit | raise each refusal as `CapabilityError` before any learner call | four well-posed requests refuse after 2 to 20 learner fits. Three of them raise `NotImplementedError` or `ValueError` | [RM24](#rm24-refusals-after-the-nuisance-fit) |
@@ -94,7 +93,6 @@ A row that another row depends on comes before that row.
 
 | tier | reason | rows |
 | --- | --- | --- |
-| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM22 |
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM23, RM14 |
 | c | a correct refusal that arrives late or as the wrong type | RM24 |
 | d | a diagnostic or a warning that misleads | RM15 |
@@ -102,13 +100,15 @@ A row that another row depends on comes before that row.
 | f | an investigation or a declared design that moves no verdict | RM18, RM19 |
 | g | a published method needed to resolve a shipped refusal | RM30 |
 
+Tier a is empty. RM21 and RM22 were its rows, and both are delivered. A new row that publishes a
+wrong or uncovered number enters it.
+
 The order of the tiers follows the reason that put RM11 and RM12 first. Each of those rows
 published a number that no derivation covers. The table gives the reason for each place inside a
 tier.
 
 | row | reason for its place |
 | --- | --- |
-| RM22 | the defect widens the limits of the default doubly robust estimator, which is conservative. No derivation covers the plug-in limits, but the probe measured their ratios at 0.992 to 1.026 |
 | RM23 | one fit loses the whole assessment report, and four rows on three kinds of fit read available and then refuse |
 | RM14 | one mixed request raises an `AttributeError`. It also has a late refusal of tier c, so it takes the higher tier |
 | RM24 | four refusals arrive after 2 to 20 learner fits, and three of them have the wrong type |
@@ -118,25 +118,23 @@ tier.
 | RM19 | one configuration, which RM18 opened. Its Bonferroni interval covers zero, and it moves no verdict |
 | RM30 | a published learned-policy method can resolve the current refusal, but requires a distinct target, fold-local evaluation, and inference validation |
 
-No open row waits on another open row. RM13, RM20, RM21, RM25, RM26, RM27, RM28 and RM29 are
-delivered. The RM23 sweep fits only the kinds of fit that succeed, and the RM14 and RM24 requests
+No open row waits on another open row. RM13, RM20, RM21, RM22, RM25, RM26, RM27, RM28 and RM29
+are delivered. The RM23 sweep fits only the kinds of fit that succeed, and the RM14 and RM24 requests
 produce no fit.
 
-Main-roadmap X9 depends on RM22. Every remediation row comes before main-roadmap priority 1, so
-the queue meets that dependency.
+Main-roadmap X9 depended on RM22, which checked the locators X9 cites. RM22 is delivered.
 
-Use five delivery groups for these nine rows and the two investigations that RM18 waits on.
+Use four delivery groups for these eight rows and the two investigations that RM18 waits on.
 Keep each item's acceptance criteria separate inside its group.
 
 | delivery group | items | shared boundary |
 | --- | --- | --- |
-| sensitivity outputs | RM22 | the omitted-variable report, and one reading of the published sources that it cites |
 | refusal surfaces | RM23, RM14 and RM24 | a refusal reaches the caller where its declaration says, before the work that it refuses |
 | diagnostic reports | RM15 and RM16 | one assessment and summary surface, with one documentation pass |
 | red property cells | RM18 and RM19, and the F18 and F19 derivations that RM18 waits on | the recorded rule that a red cell is reporting evidence, designs declared before their runs that move no verdict, and two exact derivations that would close the inferential gaps |
 | learned-policy evaluation | RM30 | a typed target and a published fold-local learning, evaluation, and inference contract with validation |
 
-Three groups left this table when their rows were delivered. The sensitivity refusals group held
+Four groups left this table when their rows were delivered. The sensitivity refusals group held
 RM11 and the F5 refusal boundary, and the collaborative inference group held RM12 and the F18
 audit. The inference claims group delivered RM20, RM13, RM25, RM26, RM29, RM27 and RM28. Its
 boundary was one decision rule for an interval that no derivation covers.
@@ -144,6 +142,9 @@ boundary was one decision rule for an interval that no derivation covers.
 reopen an omitted-variable bound on a DR-TMLE or C-TMLE fit.
 [F18](#f18-selector-path-c-tmle-inference) now holds the influence curve that would reopen
 selector-path inference.
+
+The sensitivity outputs group held RM21 and RM22. Its boundary was the
+E-value and omitted-variable reports, and one reading of the published sources they cite.
 
 The re-triage removed two more groups. The pre-fit declarations group held RM13 and RM14. RM13
 published a standard error that no derivation covers, so it joined RM20. RM14 refuses a request
@@ -158,11 +159,10 @@ does not collide with a main-roadmap priority.
 Priorities give the current delivery order. This project reassigns them when it re-triages the
 queue. The RM IDs and their anchors never change, so a commit names a row by its ID. A delivered
 row takes its priority with it, and the other rows keep theirs. RM20, RM13, RM25, RM26 and RM27
-held 0.11 to 0.15, in that order. RM28 held 0.16, RM29 held 0.17, and RM21 held 0.21.
+held 0.11 to 0.15, in that order. RM28 held 0.16, RM29 held 0.17, RM21 held 0.21, and RM22 held 0.22.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
-The queue holds nine rows, and none of them is delivered. Six rows need their corrections:
-RM14 to RM16, and RM22 to RM24. RM18 has five follow-up designs that are not declared and have
+The queue holds eight rows. Five rows need their corrections: RM14 to RM16, RM23 and RM24. RM18 has five follow-up designs that are not declared and have
 not run. RM19 has no declared design. RM30 holds the published learned-policy implementation.
 
 The F18 and F19 derivations do not block priority 1, because an item with no published theory does
@@ -210,7 +210,7 @@ inference result covers that composition, so it is a hard stop in
 | 2.3 | Continuous-time survival and competing risks | published support; pending source read | continuous-time intensity and targeting contracts | [X6](#x6-continuous-time-survival-and-competing-risks) |
 | 2.4 | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
 | 2.5 | Stratified incremental and MSM targeting | source audit | implemented pooled stratified fluctuation, and marginal incremental and MSM targeting | [X8](#x8-stratified-incremental-and-msm-targeting) |
-| 2.6 | Omitted-variable bounds on the other linear functionals | published support; pending source read | the shipped arm-axis bound, and RM22 | [X9](#x9-omitted-variable-bounds-on-the-other-linear-functionals) |
+| 2.6 | Omitted-variable bounds on the other linear functionals | published support; pending source read | the shipped arm-axis bound | [X9](#x9-omitted-variable-bounds-on-the-other-linear-functionals) |
 | 3 | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
 | 4.1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | 4.2 | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -2838,6 +2838,94 @@ margins. The delivery then adds an ask to the "What this row asks for" table of 
 the ledger, and states which witness failed. It does not run the study again at a larger budget,
 and it moves no margin.
 
+#### RM22 delivery
+
+The three corrections shipped as commit e251457 planned them. Each row ends with the commit that
+shipped it.
+
+| part | what shipped |
+| --- | --- |
+| shared oracles | `tests/discrete_law.py` gains `contamination_eif`, `tilt_on`, `residual_variance`, `riesz_second_moment` and the shared `WEIGHT_FUNCTIONS`. `tests/discrete_law_multi.py` gains the two functionals. `tests/unit/_exact_sensitivity_support.py` holds the oracle fits that four test modules built by hand. The seven affected files ran 497 tests before and after. Commit c4ff6d3 |
+| share term | `_conditioning_share_influence` in `src/cleverly/sensitivity/omitted_variable.py` computes $-2 \nu^2 w (1\{A = c\} - p) / p$, and `_elements_for` adds it under the doubly robust estimator for every parameter that conditions on an arm. The point $\nu^2$ does not move. The module docstrings carry the corrected locators. Commit 1581f25 |
+| plug-in limits | `SensitivityBounds` records `nu2_estimator`. Under `"plugin"` the six limit accessors raise `CapabilityError` with the F26 reason, after the status guard. `to_dict()`, `summary()` and `robustness_value()` publish no limit, and the plug-in elements carry no curve. A bound pickled before RM22 reads `"unrecorded"` and refuses its limits. The assessment row names the stop. The two plug-in tutorials print the refusal. Commit bbf7d0d |
+| cached reports | `sensitivity.run_all` moves from 3 to 4. `sensitivity.elements`, `sensitivity.omitted_confounding` and `sensitivity.robustness_value` gain generation 2. Commit a4a2d37 |
+| reference | the section [standard error of the omitted-variable bound](technical-reference/validation-methods.md#standard-error-of-the-omitted-variable-bound), the scope row, the inference note, and the reference entries. Commit 9205aa8 |
+| framework | `SE_CONTROL_SIDES` and `se_ratio_leaves_band` in `tests/studies/evidence/property_verdicts.py`. The shrunken and the inflated control share one rule. Commit ec15c85 |
+| study | the declared modules, commit 8db70ff. The artifacts, the registration, the [study page](technical-reference/method-evidence/omitted-variable-bound-standard-error.md) and the grid row, commit cee8142 |
+| missing result | [F26](#f26-confidence-limits-of-the-plug-in-omitted-variable-bound) and its future-grid row. Commit e251457 |
+
+The repository keeps no changelog and no release-notes file. The GitHub release notes are
+drafted at release time. The plug-in refusal is a direct change with no deprecation step, so the
+pull request states it for the release notes.
+
+The contract named three witnesses. The table gives the state of each.
+
+| witness | state |
+| --- | --- |
+| 1. the curve of $\hat\nu^2$ equals its Gateaux derivative, row by row, including the derivative through $p$ | delivered in `tests/unit/test_omitted_variable_standard_error.py`. Before the fix the twelve ATT and ATC curves missed by 9.541 to 84.75. After it each row agrees within 1e-11. The file also checks the curve of the whole lower bound, which missed by 0.6202 for the ATT and 0.4766 for the ATC, and the clustered lower-bound standard error, which missed by 0.00174 and 0.00159 |
+| 2. a repeated-sampling control reads the standard-error ratio of the doubly robust ATT limits | delivered by the registered study. Every primary test and every property cell passed. The inflated-SE controls read 1.0987 (1.0791 to 1.1189) for the ATT lower bound and 1.0922 (1.0732 to 1.1129) for the upper bound, both above 1.07. The positive cells read 0.9970 to 1.0091. The run took 163 s on 16 cores |
+| 3. a test pins the ATE and counterfactual-mean curves | delivered in the same file. Sixteen unconditional cases match the Gateaux derivative row by row, and a spy shows that the helper never runs for them |
+
+The file commits seven mutations. The table compares each measured minimum with the plan.
+
+| mutation | predicted | measured minimum | cases that fail |
+| --- | ---: | ---: | --- |
+| M0. the helper, wrapped and unchanged | none | at most 6.0e-14 | none |
+| M1. the helper returns zeros | 9.54 | 9.541 | the twelve conditional cases, the two conditional bound curves, and the clustered standard error |
+| M2. the sign flips | 19.1 | 19.08 | the twelve conditional cases |
+| M3. an unweighted share | 3.98 | 3.977 | the six weighted cases. The six unweighted cases pass |
+| M4. the weights dropped | 3.64 | 3.638 | the six weighted cases. The six unweighted cases pass |
+| M5. the ATT conditions on the reference | 37.9 at three arms | 6.864 at two arms, 20.63 at three | the six ATT cases. The ATC cases pass |
+| M6. the term on every parameter | 3.70 | 3.700 | the sixteen unconditional cases |
+
+Eight hand mutations ran one at a time. Each run copied the source file to a backup with its
+sha256, applied one mutation, and ran the new file, `tests/unit/test_omitted_variable_refusals.py`,
+`tests/unit/test_sensitivity_multi_arm.py`, `tests/unit/test_inference_status_reach.py` and
+`tests/unit/test_assessment_contract.py`. That is 541 tests. Each run then restored the file, the
+restored file matched its hash, and `git status` was clean.
+
+| mutation | file | failures |
+| --- | --- | --- |
+| H1. the helper call deleted | `omitted_variable.py` | 36: 35 in the new file, and the cache witness |
+| H2. the sign of the term flipped | `omitted_variable.py` | 23: 22 in the new file, and the cache witness |
+| H3. an unweighted share inside the helper | `omitted_variable.py` | 15 in the new file: the weighted cases, and M0, M5 and M6 |
+| H4. the weights dropped inside the helper | `omitted_variable.py` | 15 in the new file, the same set as H3 |
+| H5. `conditioning = parameter.arm` for every parameter | `omitted_variable.py` | 43: 39 in the new file, and 4 in the multi-arm file |
+| H6. the estimator guard removed | `omitted_variable.py` | 6 in the refusal file |
+| H7. the cache generations reverted | `_assessment_cache.py` | 1: the cache witness |
+| H8. the module at 29e25599, with the two refusal constants added | `omitted_variable.py` | 53: 36 in the new file, 15 in the refusal file, 1 in the multi-arm file, and the cache witness |
+
+The contract says that the omission widens the doubly robust limits. That holds on an iid fit: on
+the two-arm exact law the lower-bound standard error of the ATT is 0.03882 without the term and
+0.03544 with it. It does not hold in general. On the same sample in 50 clusters of 20 rows, the
+standard error is 0.02129 without the term and 0.02303 with it, so the omission narrowed the
+limit. The tier reasoning that ranked RM22 as conservative therefore held for iid fits only. On a
+clustered fit the shipped limit could be too narrow.
+
+The delivery departed from the plan in these places.
+
+| departure | reason |
+| --- | --- |
+| the tutorial re-execution landed in the refusal commit, not in a commit of its own | the fast suite re-executes the tutorial code, so the refusal alone fails it. Each commit passes the suite |
+| `tests/discrete_law_multi.py` and `tests/discrete_law_mar.py` do not import the generic derivative and tilt | registered studies import both modules, and a new import would open a gap in their recorded module lists. The support module applies the generic functions to the three-arm law |
+| `WEIGHT_FUNCTIONS` moved into `tests/discrete_law.py`, and the verbatim copy in `tests/unit/test_remainder_drtmle.py` now reads it | one declaration for two modules. The plan named a support module and one copy |
+| M5 measured 6.864 and 20.63, not the predicted 37.9 | the committed mutation patches `ArmParameter.conditions_on`, which also moves the ATT score $m(\alpha)$. The probe moved the term alone |
+| the reference section is a level-3 heading, "Standard error of the omitted-variable bound" | the documentation build gives no anchor to a level-4 heading, so the planned `#### Standard error of the bound` could not be linked |
+| the study's treatment model is an unpenalized `LogisticRegression(C=1e6)` | the committed declaration names an unpenalized model, so the GLM is the maximum-likelihood fit that "correctly specified" claims. `plan.md` named the default penalty |
+| the study registration moved from the declaration commit to the artifacts commit | the register's tests read the artifacts, so a registered study without them fails the suite |
+| a bound pickled before RM22 also omits its limit keys from `to_dict()` and names the reason in `summary()` | the plan defined its accessors only. A mapping that raised would break a saved report |
+| the tutorials name the handler variable `limit_error` | `except ... as refusal` deletes a `refusal` name that an earlier cell of `cross-fitting.ipynb` defines |
+
+This delivery regenerated no existing study. No registered study imports `cleverly.sensitivity`.
+One new study was generated. No container or R-runner file changed, so
+`tests/canonical/provenance-revisions.md` needs no row. `--check` reproduces every cell of
+`point-treatment-tmle`, `cross-fitting`, `collaborative-tmle`, `msm-projections` and `dr-tmle`.
+It reports three cells of `twins-causal-inference` outside its sensitivity step, from the Python
+version of the stored run: solver residuals near 1e-18 and the float display of one table.
+
+The full fast suite gave 11631 passed and 87 skipped at 29e25599, and 11778 passed and 96 skipped
+at commit cee8142.
+
 ### RM23. Capability rows that read available and then refuse
 
 The assessment declares each operation in a capability row before any call. The rows below read
@@ -5147,9 +5235,11 @@ This item holds the targeting construction.
 [RM11](#rm11-sensitivity-bounds-outside-their-derivation) refuses the omitted-variable bound on
 five kinds of fit whose parameter is a linear functional of an outcome regression. Each refusal is
 correct, and each message says that the bound is well posed and not implemented. Theorem 2 of
-Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026) bounds the bias of such a functional.
-[RM22](#rm22-standard-error-of-the-omitted-variable-bound) asks for a check of that locator against
-the published article, so this item starts after RM22.
+Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026) gives the bias of such a functional, and
+Equation (14) in their Section 4 gives the bounds.
+[RM22](#rm22-standard-error-of-the-omitted-variable-bound) checked those locators against the
+published online appendix and arXiv v6. Nobody has read the published main text, so the source
+read of this item still needs it.
 
 | fit | the functional | what the contract must add |
 | --- | --- | --- |
