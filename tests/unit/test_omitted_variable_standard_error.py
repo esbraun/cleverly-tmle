@@ -53,14 +53,16 @@ STRENGTH = float(np.sqrt(CF_Y * CF_D / (1.0 - CF_D)))
 #: The smallest deviation from the derivative that each committed mutation produced when the
 #: RM22 delivery measured it, rounded down.  Each is at least ten orders of magnitude above
 #: :data:`ATOL`.  M1 drops the term, M2 flips its sign, M3 uses an unweighted share, M4 drops
-#: the weights, M5 makes the ATT condition on the reference, and M6 adds the term to every
-#: parameter.  The minima measured were 9.541, 19.08, 3.977, 3.638, 6.864 and 3.700.
+#: the weights, M5 makes the ATT condition on the reference, M6 adds the term to every
+#: parameter, and M7 computes the term on the complement of the conditioning arm.  The minima
+#: measured were 9.541, 19.08, 3.977, 3.638, 6.864, 3.700 and 21.38.
 M1_FLOOR = 9.5
 M2_FLOOR = 19.0
 M3_FLOOR = 3.9
 M4_FLOOR = 3.6
 M5_FLOOR = 6.8
 M6_FLOOR = 3.6
+M7_FLOOR = 21.0
 
 #: How far the lower-bound curve of the ATT and the ATC moves without the term (0.6202 and
 #: 0.4766 measured), and how far the clustered standard error moves (0.00174 and 0.00159).
@@ -426,6 +428,11 @@ class TestTheWitnessHasTeeth:
     def test_m5_an_att_that_conditions_on_the_reference_fails_the_att_witnesses(
         self, fits: dict[tuple[str, bool], Any], monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """The ATT's conditioning arm moved to the reference, everywhere it is read.
+
+        ``conditions_on`` feeds ``_m_alpha`` as well as the term, so this moves the score and
+        the point ``nu^2`` too.  It does not isolate the arm of the term; M7 does.
+        """
         _conditioning_mutation(
             monkeypatch,
             lambda parameter, arm: parameter.versus if parameter.group == "att" else arm,
@@ -442,3 +449,22 @@ class TestTheWitnessHasTeeth:
         )
         _assert_every_case_fails(fits, UNCONDITIONAL, floor=M6_FLOOR)
         _assert_every_case_passes(fits, CONDITIONAL)
+
+    def test_m7_a_term_on_the_other_arm_fails_every_conditional_witness(
+        self, fits: dict[tuple[str, bool], Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The term alone reads the complement of the conditioning arm and its share.
+
+        The score and the point ``nu^2`` keep the right arm, so only the arm of the term is
+        wrong.  At two arms the complement is the other arm, and the binary cases move by
+        21.38 to 25.44.  At three arms the complement is no arm at all, and those cases move
+        further.
+        """
+        _share_mutation(
+            monkeypatch,
+            lambda original, nu2, indicator, share, weights: original(
+                nu2, 1.0 - indicator, 1.0 - share, weights
+            ),
+        )
+        _assert_every_case_fails(fits, CONDITIONAL, floor=M7_FLOOR)
+        _assert_every_case_passes(fits, UNCONDITIONAL)
