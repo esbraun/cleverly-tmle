@@ -4,9 +4,12 @@
 ``tests/unit/test_stochastic_regime_densities.py`` (RM25) and
 ``tests/unit/test_msm_design_declaration.py`` (RM27) test the three users of
 :class:`cleverly._declarations.FunctionDeclaration`.  This module holds the parts that do
-not depend on which field is declared.  ``tests/unit/_msm_declaration_support.py`` holds the
-MSM builders that the RM13 and RM27 files share.  The three test files import these support
-modules and not each other.
+not depend on which field is declared: the refusal checks, the restored states, a legacy
+point or longitudinal result, the fit entries, the two-node :func:`panel`, and the
+exact-law oracle fit.  ``tests/unit/_msm_declaration_support.py`` holds the MSM builders
+that the RM13 and RM27 files share, and ``tests/unit/_tilt_law_support.py`` holds the exact
+tilt law of the RM25 witness.  The test files import these support modules and not each
+other.
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ from collections.abc import Callable, Iterable
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from cleverly import CausalStudy, PointTreatment
@@ -92,15 +96,17 @@ def restored_states(undeclared: str, estimated: str) -> dict[str, tuple[Any, tup
 def legacy_result(result: Any, field: str, select: Callable[[Any], list[Any]]) -> Any:
     """``result`` as an artifact written before ``field`` existed would restore it.
 
-    ``select`` maps the estimator to the objects that carry ``field``.  It must select at
-    least one, or the result would restore with nothing to drop.
+    ``select`` maps the result to the objects that carry ``field``.  A point result holds
+    them on ``result.estimator``, and a longitudinal result holds its resolved regimens on
+    ``result.config.regimens``.  ``select`` must select at least one, or the result would
+    restore with nothing to drop.
     """
     old = loads(dumps(result))
-    for item in select(old.estimator):
+    for item in select(old):
         vars(item).pop(field)
     old = loads(dumps(old))
-    items = select(old.estimator)
-    assert items, f"the estimator carries no object with {field}"
+    items = select(old)
+    assert items, f"the result carries no object with {field}"
     assert all(getattr(item, field) is None for item in items)
     return old
 
@@ -153,6 +159,24 @@ def point_entries(
         )
 
     return {"fit": fit, "study": study, "refit": refit}
+
+
+def panel(n: int = 60, seed: int = 0) -> pd.DataFrame:
+    """Two nodes, censoring, and a binary end-of-study outcome."""
+    rng = np.random.default_rng(seed)
+    c1 = (rng.random(n) < 0.9).astype(float)
+    c2 = np.where(c1 == 1, (rng.random(n) < 0.9).astype(float), np.nan)
+    observed = (c1 == 1) & (c2 == 1)
+    return pd.DataFrame(
+        {
+            "W1": rng.standard_normal(n),
+            "A1": rng.integers(0, 2, n).astype(float),
+            "C1": c1,
+            "A2": np.where(c1 == 1, rng.integers(0, 2, n).astype(float), np.nan),
+            "C2": c2,
+            "Y": np.where(observed, rng.integers(0, 2, n).astype(float), np.nan),
+        }
+    )
 
 
 # ------------------------------------------------------------------ the exact-law witness

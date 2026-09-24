@@ -5,7 +5,8 @@
 build the same working models, fit them through the same entries, and replay the same fits,
 so those builders live here.  ``tests/unit/test_stochastic_regime_densities.py`` (RM25)
 builds an MSM from here to test the declaration that all three share.  The parts that do
-not depend on the declared field are in ``tests/unit/_declaration_support.py``.
+not depend on the declared field, the two-node :func:`panel` among them, are in
+``tests/unit/_declaration_support.py``.
 """
 
 from __future__ import annotations
@@ -14,7 +15,6 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
-import pandas as pd
 import pytest
 
 import cleverly.longitudinal.estimator as ltmle_module
@@ -31,7 +31,7 @@ from cleverly.sensitivity import simulated_confounding
 from tests import discrete_law as law
 from tests.conftest import linear_in_sample
 from tests.unit._confounding_support import alias_for
-from tests.unit._declaration_support import legacy_result, point_entries, tmle_module
+from tests.unit._declaration_support import legacy_result, panel, point_entries, tmle_module
 from tests.unit._natural_course_support import NeverFit
 from tests.unit.test_simulated_confounding_msm import _GRID as DOSE_GRID
 from tests.unit.test_simulated_confounding_msm import _fit_continuous
@@ -94,24 +94,6 @@ def tmle_fit(model: MSM, learners: dict[str, Any]) -> Any:
     return MSM_ENTRIES["fit"](model, learners)
 
 
-def panel(n: int = 60, seed: int = 0) -> pd.DataFrame:
-    """Two nodes, censoring, and a binary end-of-study outcome."""
-    rng = np.random.default_rng(seed)
-    c1 = (rng.random(n) < 0.9).astype(float)
-    c2 = np.where(c1 == 1, (rng.random(n) < 0.9).astype(float), np.nan)
-    observed = (c1 == 1) & (c2 == 1)
-    return pd.DataFrame(
-        {
-            "W1": rng.standard_normal(n),
-            "A1": rng.integers(0, 2, n).astype(float),
-            "C1": c1,
-            "A2": np.where(c1 == 1, rng.integers(0, 2, n).astype(float), np.nan),
-            "C2": c2,
-            "Y": np.where(observed, rng.integers(0, 2, n).astype(float), np.nan),
-        }
-    )
-
-
 def ltmle_fit(model: MSM) -> Any:
     """``LTMLE.fit`` of a regimen ``model`` on :func:`panel`, with ``NeverFit`` learners."""
     NeverFit.calls = 0
@@ -142,7 +124,7 @@ def in_sample_fit(model: MSM) -> Any:
 
 def legacy_msm_result(result: Any, field: str) -> Any:
     """``result`` as an artifact written before the MSM field ``field`` existed."""
-    return legacy_result(result, field, lambda estimator: [estimator.msm])
+    return legacy_result(result, field, lambda restored: [restored.estimator.msm])
 
 
 # ------------------------------------------------------------------ the evaluators
