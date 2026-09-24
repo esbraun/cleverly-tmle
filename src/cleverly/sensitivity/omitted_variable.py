@@ -4,8 +4,9 @@ Positivity diagnostics tell you whether the data can support the estimate.  This
 module answers a different question: *how strong would an unmeasured confounder
 have to be to overturn the conclusion?*
 
-Following Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2026), the bias from
-omitting a confounder is bounded by a product of three interpretable pieces:
+Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2026) bound the bias from omitting a
+confounder by a product of three interpretable pieces.  Their Theorem 2 gives the bias of a
+linear functional, and Equation (14) in their Section 4 gives the bounds:
 
 .. math::
 
@@ -30,8 +31,19 @@ guess sensitivity parameters at all.  Second, :func:`benchmark` calibrates
 age" is a claim a reader can evaluate, where "cf_y = 0.03" is not.
 
 The parameterisation, including the definition of the benchmark gain statistics,
-matches DoubleML's ``sensitivity_analysis`` so numbers are comparable across the two
-libraries.
+follows DoubleML's ``sensitivity_analysis``, so a strength means the same thing in both
+libraries.  The confidence limits of an ATT or an ATC differ: this module adds the
+influence term of the conditioning share to the curve of ``nu^2``, and
+``DoubleMLIRM._sensitivity_element_est`` omits it (doubleml-for-py at ``b69f86e``).  The
+estimates differ too, because DoubleML fits a cross-fitted AIPW score and this package a
+TMLE.
+
+Inference.  Each bound has one-sided limits, from Theorem 4 in Section 4 of Chernozhukov et
+al.  For the ATT and the ATC the curve of the doubly robust ``nu^2`` also carries
+``-2 nu^2 (1{A = c} - p) / p``, the influence of the estimated share ``p`` of the
+conditioning arm ``c``.  The paper gives this kind of term for the estimate only (Online
+Appendix A, "Statistical Inference", Equation (15)).  :func:`_conditioning_share_influence`
+holds this package's derivation.
 
 Scope: the bound applies to the linear functionals this library estimates -- the
 counterfactual means, their contrasts against the reference arm, and the two conditional
@@ -44,8 +56,9 @@ representer.  Ratios are not linear functionals of the outcome regression, so us
 Scope of the refusals: :data:`_FIT_WIDE_BOUND_RULES` refuses the fits below, for four
 reasons.
 
-* A DR-TMLE fit and a collaborative TMLE fit break a premise.  The published ``nu^2``
-  estimate and its standard error assume a consistently estimated treatment mechanism.
+* A DR-TMLE fit and a collaborative TMLE fit break a premise.  The ``nu^2`` score of
+  Lemma 3 of Chernozhukov et al. and the standard error of their Theorem 4 assume a
+  consistently estimated treatment mechanism.
 * A fit with a response mechanism, a fit with an intermediate variable, and a fit indexed
   by a regime, a shift, or an MSM term are well posed.  Theorem 2 of Chernozhukov et al.
   covers each one as a linear functional of the outcome regression, and no implementation
@@ -370,10 +383,13 @@ class SensitivityElements:
     psi_sigma2 : ndarray
         Influence curve of ``sigma2``.
     psi_nu2 : ndarray
-        Influence curve of ``nu2``.
+        Influence curve of ``nu2``.  Under the doubly robust estimator it is the score of
+        Lemma 3 of Chernozhukov et al. (2026), plus the influence of the conditioning
+        share for the ATT and the ATC.
     psi_max_bias : ndarray
-        Influence curve of ``max_bias``, so the bias-adjusted bounds get confidence
-        intervals rather than being treated as known constants.
+        Influence curve of ``max_bias``, as in Theorem 4 of the same paper, so the
+        bias-adjusted bounds get confidence limits rather than being treated as known
+        constants.
 
     riesz_representer : ndarray
         ``(n,)`` values of :math:`\\alpha(A, W)` for the targeted functional.
@@ -601,6 +617,13 @@ def _elements_for(
         nu2_element = representer**2
         nu2 = float(np.average(nu2_element, weights=weights))
     psi_nu2 = (nu2_element - nu2) * weights
+    if method == "doubly_robust" and conditioning_indicator is not None:
+        # The estimate divides by the estimated share of the conditioning arm, so its curve
+        # carries that share's influence. See _conditioning_share_influence.
+        assert conditioning_share is not None
+        psi_nu2 = psi_nu2 + _conditioning_share_influence(
+            nu2, conditioning_indicator, conditioning_share, weights
+        )
 
     max_bias = float(np.sqrt(sigma2 * nu2))
     psi_max_bias = (sigma2 * psi_nu2 + nu2 * psi_sigma2) / (2.0 * max_bias)
@@ -656,9 +679,11 @@ def _m_alpha(
     The identity holds only when ``m`` is the functional's own score, with no fitted
     nuisance in it.  An ATT averages the contrast over the units that received the
     conditioning arm ``c``, so its score weights the contrast by the observed
-    :math:`1\{A = c\} / P(A = c)`.  That is Example 2 of the Online Appendix of
+    :math:`1\{A = c\} / P(A = c)`.  That is the ATT of Example 2 in Online Appendix A of
     Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026), with
-    :math:`\omega = D / P(D = 1)`, and the score of their Theorem 5(2).  DoubleML's
+    :math:`\ell(W_s) = D / P(D = 1)`.  Item (2) of their Theorem 5 writes this :math:`m`
+    and the representer.  That theorem establishes the bias formula; the score and the
+    limits are Lemma 3 and Theorem 4.  DoubleML's
     ``DoubleMLIRM._sensitivity_element_est`` writes the same score, expanded, as
     :math:`D / (p^2 (1 - \hat m))`.  A fitted :math:`\hat g_c(W) / P(A = c)` in that
     place has the right mean only at :math:`\hat g = g_0`.  Anywhere else the identity
@@ -701,6 +726,41 @@ def _m_alpha(
         dtype=float,
     )
     return np.asarray((conditioning_indicator / conditioning_share) * difference, dtype=float)
+
+
+def _conditioning_share_influence(
+    nu2: float, indicator: FloatArray, share: float, weights: FloatArray
+) -> FloatArray:
+    r"""The influence of the estimated conditioning share on the doubly robust ``nu^2``.
+
+    For the ATT and the ATC, the representer and :math:`m(O, \alpha)` both divide by the
+    share :math:`p = P_w(A = c)` of the arm :math:`c` that the parameter conditions on.  So
+    the estimate is :math:`\hat F / \hat p^2`, where :math:`\hat F` is the weighted mean of
+    :math:`\hat p^2 (2 m(O, \hat\alpha) - \hat\alpha^2)`.  At a fixed :math:`p`, the Riesz
+    identity makes :math:`\hat F` insensitive at first order to the fitted mechanism, so its
+    curve is the score of Lemma 3 of Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis
+    (2026).  The weighted share :math:`\hat p` has the curve :math:`w (1\{A = c\} - p)`, and
+    the derivative of :math:`F / p^2` in :math:`p` is :math:`-2 \nu^2 / p`.  The delta method
+    therefore adds
+
+    .. math::
+
+        -2 \nu^2 w (1\{A = c\} - p) / p
+
+    to the curve.  With ``K`` arms each contrast has its own :math:`c` and :math:`p`.  Under
+    clustering the term enters the cluster sum of
+    :func:`~cleverly.inference.cluster.influence_variance` like every other row term.
+
+    The paper gives a term of this kind for the estimate only, in Online Appendix A,
+    "Statistical Inference", Equation (15), and the estimate's own curve here carries it.
+    It gives none for :math:`\nu^2`, so this is the package's derivation.  The R package
+    ``dml.sensemakr`` carries the same term since commit ``d5293ecb``, and DoubleML's
+    ``DoubleMLIRM._sensitivity_element_est`` omits it.  The weighted rows of the term sum
+    to zero, so no check of a mean or of a point can see it.
+    ``tests/unit/test_omitted_variable_standard_error.py`` compares the curve with its
+    Gateaux derivative row by row.
+    """
+    return np.asarray(-2.0 * nu2 * (indicator - share) / share * weights, dtype=float)
 
 
 @dataclass(frozen=True, init=False)
@@ -997,8 +1057,8 @@ def omitted_variable_bounds(
     lower = estimate.psi - strength * elements.max_bias
     upper = estimate.psi + strength * elements.max_bias
 
-    # One-sided confidence bounds on each end, accounting for uncertainty in the bias
-    # term itself as well as in the estimate.
+    # One-sided limits on each end, Theorem 4 in Section 4 of Chernozhukov et al. (2026).
+    # The curve adds the uncertainty of the bias term to that of the estimate.
     quantile = float(stats.norm.ppf(level))
     se_lower = _bound_std_error(estimate.influence_curve, -strength * elements.psi_max_bias, result)
     se_upper = _bound_std_error(estimate.influence_curve, strength * elements.psi_max_bias, result)
