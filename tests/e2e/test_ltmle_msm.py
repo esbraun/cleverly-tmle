@@ -68,7 +68,7 @@ def saturated(labels: tuple[str, ...]) -> MSM:
         del horizon
         return np.eye(len(labels))[labels.index(label)] * np.ones((len(frame), 1))
 
-    return MSM(design=design, terms=labels)
+    return MSM(design=design, terms=labels, design_kind="known")
 
 
 def projection(means: dict[str, float], labels: tuple[str, ...]) -> np.ndarray:
@@ -81,7 +81,9 @@ def projection(means: dict[str, float], labels: tuple[str, ...]) -> np.ndarray:
 @pytest.fixture(scope="module")
 def fitted() -> Any:
     frame, truth = make_longitudinal(n=3000, seed=0)
-    result = LTMLE(SPEC, msm=MSM(design=dose, terms=TERMS), **FAST).fit(frame, **COLUMNS)
+    result = LTMLE(SPEC, msm=MSM(design=dose, terms=TERMS, design_kind="known"), **FAST).fit(
+        frame, **COLUMNS
+    )
     return result, truth
 
 
@@ -152,9 +154,9 @@ class TestItReportsTheProjection:
         the equation posed to its solver.
         """
         frame, _ = make_longitudinal(n=3000, seed=0)
-        result = LTMLE(SPEC, msm=MSM(design=dose, terms=TERMS), **{**FAST, "n_folds": 1}).fit(
-            frame, **COLUMNS
-        )
+        result = LTMLE(
+            SPEC, msm=MSM(design=dose, terms=TERMS, design_kind="known"), **{**FAST, "n_folds": 1}
+        ).fit(frame, **COLUMNS)
         model = result.msm
         covariate = model.weighted_design_at(result.msm_fits[0].beta)
         scale = float(np.sum(result.data.weights * np.abs(covariate).max(axis=(1, 2))))
@@ -246,7 +248,9 @@ class TestASaturatedModelIsThePerRegimenReport:
         plain = LTMLE(spec, reference="never", **settings).fit(frame, **COLUMNS)
         design = saturated(labels)
         linked = LTMLE(
-            spec, msm=MSM(design=design.design, terms=labels, link="logit"), **settings
+            spec,
+            msm=MSM(design=design.design, terms=labels, link="logit", design_kind="known"),
+            **settings,
         ).fit(frame, **COLUMNS)
         for label in labels:
             beta = linked[f"msm_regimen[{label}]"].psi
@@ -260,9 +264,9 @@ class TestALink:
     def test_the_alternation_converges(self, link: str) -> None:
         """Under a link a round is a whole backward pass, so it had better be few of them."""
         frame, _ = make_longitudinal(n=1500, seed=2)
-        result = LTMLE(SPEC, msm=MSM(design=dose, terms=TERMS, link=link), **FAST).fit(
-            frame, **COLUMNS
-        )
+        result = LTMLE(
+            SPEC, msm=MSM(design=dose, terms=TERMS, link=link, design_kind="known"), **FAST
+        ).fit(frame, **COLUMNS)
         alternation = result.msm_fits[0].alternation
         assert alternation.converged
         assert alternation.n_outer <= 10
@@ -273,9 +277,9 @@ class TestALink:
 
     def test_the_exponentiated_view_names_what_each_row_is(self) -> None:
         frame, _ = make_longitudinal(n=1000, seed=3)
-        result = LTMLE(SPEC, msm=MSM(design=dose, terms=TERMS, link="logit"), **FAST).fit(
-            frame, **COLUMNS
-        )
+        result = LTMLE(
+            SPEC, msm=MSM(design=dose, terms=TERMS, link="logit", design_kind="known"), **FAST
+        ).fit(frame, **COLUMNS)
         frame_out = result.coefficients(scale="ratio")
         assert list(frame_out["scale"]) == ["baseline", "odds ratio"]
         np.testing.assert_allclose(
@@ -310,10 +314,10 @@ class TestTheProjectionIsSolvedOnTheOutcomeScale:
             "outcome_learner": sklearn.linear_model.LinearRegression(),
             "pseudo_learner": sklearn.linear_model.LinearRegression(),
         }
-        base = LTMLE(SPEC, msm=MSM(design=dose, terms=TERMS), **settings).fit(
+        base = LTMLE(SPEC, msm=MSM(design=dose, terms=TERMS, design_kind="known"), **settings).fit(
             frame, family="gaussian", **COLUMNS
         )
-        moved = LTMLE(SPEC, msm=MSM(design=dose, terms=TERMS), **settings).fit(
+        moved = LTMLE(SPEC, msm=MSM(design=dose, terms=TERMS, design_kind="known"), **settings).fit(
             relabelled, family="gaussian", **COLUMNS
         )
         intercept = base["msm_regimen[(intercept)]"].psi
@@ -452,11 +456,11 @@ class TestTheSurroundingMachineryStillWorks:
 class TestItRefusesByName:
     def test_cross_fitted_working_model_inference_is_refused_pending_evidence(self) -> None:
         with pytest.raises(ValueError, match="unsaturated projection property"):
-            LTMLE(SPEC, msm=MSM(design=dose, terms=TERMS), n_folds=2)
+            LTMLE(SPEC, msm=MSM(design=dose, terms=TERMS, design_kind="known"), n_folds=2)
 
     def test_a_reference_regimen_and_a_working_model_cannot_be_combined(self) -> None:
         with pytest.raises(ValueError, match="reference= names the regimen"):
-            LTMLE(SPEC, reference="never", msm=MSM(design=dose, terms=TERMS))
+            LTMLE(SPEC, reference="never", msm=MSM(design=dose, terms=TERMS, design_kind="known"))
 
     def test_a_working_model_must_be_an_msm(self) -> None:
         with pytest.raises(TypeError, match=r"must be a cleverly\.msm\.MSM"):

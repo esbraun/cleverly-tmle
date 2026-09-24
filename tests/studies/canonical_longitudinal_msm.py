@@ -149,7 +149,9 @@ def declared_msm(
         del horizon
         return np.full(len(frame), float(projection_weights[str(label)]))
 
-    return MSM(design=design, terms=TERMS, weights=weight, weights_kind="known")
+    return MSM(
+        design=design, terms=TERMS, weights=weight, weights_kind="known", design_kind="known"
+    )
 
 
 def project_means(means: Mapping[str, float]) -> np.ndarray:

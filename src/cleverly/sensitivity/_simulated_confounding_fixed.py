@@ -24,7 +24,7 @@ from ..interventions.base import (
     check_regime_density,
     refuse_regime_densities,
 )
-from ..msm import MSM, MSMSet, _DataBoundArmFunction, refuse_msm_functions
+from ..msm import MSM, MSMSet, _DataBoundArmFunction, _design_kind, refuse_msm_functions
 from ..provenance import fingerprint_array
 from ..study import MSMProjection, RegimeContrast, RegimeMean
 from ..targets.base import parameter_name
@@ -287,6 +287,10 @@ def _freeze_msm(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any
     # known one.  A callable weight keeps its own declaration: an undeclared one, which a
     # restored model can carry, is refused here as it would be at the fit.
     weights_kind = "known" if model.weights is None else model.weights_kind
+    # The design carries its declaration the same way, never a literal "known": the frozen
+    # arrays replace the type that the legacy rule of ``_design_kind`` reads, so the rule
+    # is applied to the source model here.
+    design_kind = _design_kind(model)
     if expected.continuous:
         assert expected.clever_weights is not None
         replay.msm = replace(
@@ -296,6 +300,7 @@ def _freeze_msm(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any
                 expected.clever_weights.copy(), model.doses, baseline, model.weights, weights=True
             ),
             weights_kind=weights_kind,
+            design_kind=design_kind,
         )
     else:
         replay.msm = replace(
@@ -303,6 +308,7 @@ def _freeze_msm(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any
             design=_FrozenArmFunction(expected.design.copy(), baseline),
             weights=_FrozenArmFunction(expected.weights.copy(), baseline),
             weights_kind=weights_kind,
+            design_kind=design_kind,
         )
     return replay, parameter_name("msm", arm=key.term)
 

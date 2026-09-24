@@ -71,7 +71,12 @@ def declared(family: str) -> MSM:
         return weights[w, labels.index(label)]
 
     return MSM(
-        design=build, terms=terms, weights=weight, weights_kind="known", link=LINK_OF[family]
+        design=build,
+        terms=terms,
+        weights=weight,
+        weights_kind="known",
+        link=LINK_OF[family],
+        design_kind="known",
     )
 
 
@@ -294,6 +299,7 @@ class TestTheComparisonHasTeeth:
                 np.asarray(frame["W"], dtype=int), labels.index(label), :
             ],
             terms=terms,
+            design_kind="known",
         )
         wrong = LTMLE(
             law.REGIMEN_SPEC,

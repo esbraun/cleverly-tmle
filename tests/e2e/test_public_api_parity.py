@@ -261,7 +261,9 @@ def test_end_of_study_longitudinal_results_are_bit_for_bit_unchanged(
 def test_longitudinal_msm_is_bit_for_bit_unchanged(tmp_path: Any) -> None:
     frame, _ = make_longitudinal(n=220, seed=28)
     regimens = {"always": 1, "never": 0, "early": (1, 0)}
-    model = MSM(design=longitudinal_msm_design, terms=("(intercept)", "duration"))
+    model = MSM(
+        design=longitudinal_msm_design, terms=("(intercept)", "duration"), design_kind="known"
+    )
     settings = {**LONG_SETTINGS, "n_folds": 1}
     old = LTMLE(regimens, msm=model, **settings).fit(frame, **LONG_COLUMNS)
     study = CausalStudy(frame, design=LongitudinalTreatment(**LONG_COLUMNS))
@@ -278,7 +280,9 @@ def test_longitudinal_msm_is_bit_for_bit_unchanged(tmp_path: Any) -> None:
 def test_study_api_refuses_cross_fitted_longitudinal_msm_pending_evidence() -> None:
     frame, _ = make_longitudinal(n=220, seed=28)
     regimens = {"always": 1, "never": 0, "early": (1, 0)}
-    model = MSM(design=longitudinal_msm_design, terms=("(intercept)", "duration"))
+    model = MSM(
+        design=longitudinal_msm_design, terms=("(intercept)", "duration"), design_kind="known"
+    )
     study = CausalStudy(frame, design=LongitudinalTreatment(**LONG_COLUMNS))
     with pytest.raises(ValueError, match="unsaturated projection property"):
         study.estimate(MSMProjection(model, regimens=regimens), **LONG_SETTINGS)
@@ -313,7 +317,9 @@ def test_a_longitudinal_fit_draws_the_multipliers_its_engine_declares() -> None:
     """The study path drew 1000 where ``LTMLE`` declares 2000, so every band was narrower."""
     frame, _ = make_longitudinal(n=220, seed=28)
     regimens = {"always": 1, "never": 0, "early": (1, 0)}
-    model = MSM(design=longitudinal_msm_design, terms=("(intercept)", "duration"))
+    model = MSM(
+        design=longitudinal_msm_design, terms=("(intercept)", "duration"), design_kind="known"
+    )
     settings = {**BAND_LONG_SETTINGS, "n_folds": 1}
     old = LTMLE(regimens, msm=model, **settings).fit(frame, **LONG_COLUMNS)
     study = CausalStudy(frame, design=LongitudinalTreatment(**LONG_COLUMNS))

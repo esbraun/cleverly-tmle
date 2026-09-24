@@ -69,7 +69,7 @@ def dose_design(label: Any, horizon: int, frame: Any) -> np.ndarray:
     return np.column_stack([np.ones(n), np.full(n, DURATION[label])])
 
 
-DOSE = MSM(design=dose_design, terms=("(intercept)", "duration"))
+DOSE = MSM(design=dose_design, terms=("(intercept)", "duration"), design_kind="known")
 
 
 class TestItEvaluatesTheDeclaredModel:
@@ -96,7 +96,7 @@ class TestItEvaluatesTheDeclaredModel:
                 [np.ones(n), np.full(n, DURATION[label]), np.full(n, float(horizon))]
             )
 
-        msm = MSM(design=with_time, terms=("(intercept)", "duration", "t"))
+        msm = MSM(design=with_time, terms=("(intercept)", "duration", "t"), design_kind="known")
         model = evaluate_regimen_msm(msm, data, plans, (1, 2))
         assert model.cells == (
             Cell("always", 1),
@@ -114,6 +114,7 @@ class TestItEvaluatesTheDeclaredModel:
             terms=("(intercept)", "duration"),
             weights=lambda label, horizon, w: 1.0 + DURATION[label] + np.asarray(w["W2"]),
             weights_kind="known",
+            design_kind="known",
         )
         model = evaluate_regimen_msm(msm, data, plans, (2,))
         w2 = data.baseline[:, 1]
@@ -142,7 +143,10 @@ class TestTheDesignSeesTheBaselineAndNothingElse:
             return np.column_stack([np.ones(len(frame)), np.full(len(frame), DURATION[label])])
 
         evaluate_regimen_msm(
-            MSM(design=spy, terms=("(intercept)", "duration")), data, plans_for(data), (2,)
+            MSM(design=spy, terms=("(intercept)", "duration"), design_kind="known"),
+            data,
+            plans_for(data),
+            (2,),
         )
         assert [entry[0] for entry in seen] == ["always", "never"]
         assert {entry[1] for entry in seen} == {2}
@@ -175,7 +179,11 @@ class TestItRefusesByName:
 
     def test_a_two_argument_design_says_what_the_signature_is(self) -> None:
         data = build(panel())
-        msm = MSM(design=lambda label, w: np.ones((len(w), 1)), terms=("(intercept)",))
+        msm = MSM(
+            design=lambda label, w: np.ones((len(w), 1)),
+            terms=("(intercept)",),
+            design_kind="known",
+        )
         with pytest.raises(DataError, match="takes three arguments"):
             evaluate_regimen_msm(msm, data, plans_for(data), (2,))
 
@@ -186,13 +194,15 @@ class TestItRefusesByName:
             rows = len(frame) if label == "always" else len(frame) - 1
             return np.column_stack([np.ones(rows), np.zeros(rows)])
 
-        msm = MSM(design=short, terms=("(intercept)", "duration"))
+        msm = MSM(design=short, terms=("(intercept)", "duration"), design_kind="known")
         with pytest.raises(DataError, match="for regimen 'never' at horizon 2"):
             evaluate_regimen_msm(msm, data, plans_for(data), (2,))
 
     def test_a_term_count_mismatch_is_refused(self) -> None:
         data = build(panel())
-        msm = MSM(design=dose_design, terms=("(intercept)", "duration", "spare"))
+        msm = MSM(
+            design=dose_design, terms=("(intercept)", "duration", "spare"), design_kind="known"
+        )
         with pytest.raises(DataError, match="but names 3 term"):
             evaluate_regimen_msm(msm, data, plans_for(data), (2,))
 
@@ -206,7 +216,7 @@ class TestItRefusesByName:
             dose = np.full(len(frame), DURATION[label])
             return np.column_stack([dose, 2.0 * dose])
 
-        msm = MSM(design=twice, terms=("duration", "twice"))
+        msm = MSM(design=twice, terms=("duration", "twice"), design_kind="known")
         with pytest.raises(DataError, match="collinear across the regimens"):
             evaluate_regimen_msm(msm, data, plans_for(data), (2,))
 
@@ -217,6 +227,7 @@ class TestItRefusesByName:
             terms=("(intercept)", "duration"),
             weights=lambda label, horizon, w: -np.ones(len(w)),
             weights_kind="known",
+            design_kind="known",
         )
         with pytest.raises(DataError, match="not a signed contrast"):
             evaluate_regimen_msm(msm, data, plans_for(data), (2,))
@@ -225,7 +236,9 @@ class TestItRefusesByName:
         frame = panel()
         frame["Y"] = frame["Y"] * 4.0
         data = build(frame)
-        msm = MSM(design=dose_design, terms=("(intercept)", "duration"), link="logit")
+        msm = MSM(
+            design=dose_design, terms=("(intercept)", "duration"), link="logit", design_kind="known"
+        )
         with pytest.raises(DataError, match="needs an outcome in"):
             evaluate_regimen_msm(msm, data, plans_for(data), (2,))
 
@@ -264,7 +277,12 @@ class TestTheCovariateNumerator:
     def test_a_link_needs_a_beta_to_build_the_covariate_at(self) -> None:
         data = build(panel())
         model = evaluate_regimen_msm(
-            MSM(design=dose_design, terms=("(intercept)", "duration"), link="logit"),
+            MSM(
+                design=dose_design,
+                terms=("(intercept)", "duration"),
+                link="logit",
+                design_kind="known",
+            ),
             data,
             plans_for(data),
             (2,),

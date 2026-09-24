@@ -77,6 +77,15 @@ see :func:`refuse_unsupported` and :func:`refuse_msm_functions`:
   the declaration is the user's statement, and
   ``tests/unit/test_msm_projection_weights.py`` measures the standard error it then
   understates.
+- **a design computed from the sample**, such as a covariate centred at its sample mean.
+  Then :math:`\varphi` is a functional of :math:`P`, and the efficient influence function
+  carries a further term for the pathwise derivative through that statistic.  The status
+  of the design is a declaration too: a written ``design=`` needs ``design_kind="known"``,
+  and an undeclared design and ``design_kind="estimated"`` are refused with
+  :class:`~cleverly.exceptions.CapabilityError`.  :meth:`MSM.linear` declares its own
+  design known.  A design computed from the sample and declared ``"known"`` is not
+  caught, and ``tests/unit/test_msm_design_declaration.py`` measures the standard error
+  it then misstates.
 
 References
 ----------
@@ -337,35 +346,103 @@ _WEIGHTS_DECLARATION = FunctionDeclaration(
     estimated=_ESTIMATED_WEIGHTS,
 )
 
+_ESTIMATED_DESIGN = (
+    "an estimated MSM design is refused. A design computed from the sample, such as a "
+    "covariate centred at its sample mean, makes phi a functional of P, so the efficient "
+    "influence function carries a further term for the pathwise derivative through that "
+    "statistic, and the influence curve reported here does not have it. The reported "
+    "standard error can be wrong in either direction; the RM27 exact-law witness shows one "
+    "that is too small. docs/technical-reference/msm-projections.md (Variations) records "
+    "the refusal, and RM27 in docs/roadmap.md records the reason. Fix the statistic before "
+    "the fit, for example centre at a stated constant, and pass design_kind='known'."
+)
+
+_UNDECLARED_DESIGN = (
+    "MSM design= needs a declaration of what the callable is. Pass design_kind='known' "
+    "when phi is a fixed function of the arm (or the regimen and horizon) and the "
+    "covariates, chosen without reading the data. A design computed from the sample, such "
+    "as a covariate centred at its sample mean, is estimated: phi is then a functional of "
+    "P, and the reported influence curve omits its pathwise derivative, so its standard "
+    "error can be wrong (RM27 in docs/roadmap.md). design_kind='estimated' is refused for "
+    "that reason. MSM.linear declares its own design known."
+)
+
+#: The working-design declaration: the field ``design_kind``, and the texts of its
+#: refusals.  It shares the three-state check of :mod:`cleverly._declarations` with the
+#: projection-weight declaration above.
+_DESIGN_DECLARATION = FunctionDeclaration(
+    "design_kind",
+    meaning=(
+        "It declares whether the working design phi is a fixed function or one computed "
+        "from the sample."
+    ),
+    undeclared=_UNDECLARED_DESIGN,
+    estimated=_ESTIMATED_DESIGN,
+)
+
 
 def refuse_msm_functions(model: MSM) -> None:
-    """Raise unless ``model`` declares a projection weight this package can report on.
+    """Raise unless ``model`` declares a design and a weight this package can report on.
 
     A callable can close over any estimate, and nothing can inspect a closure, so the
-    status of ``h(a, V)`` is the declaration ``weights_kind``.  The checks run in order:
+    status of the design :math:`\\varphi(a, V)` is the declaration ``design_kind``, and
+    the status of the weight ``h(a, V)`` is the declaration ``weights_kind``.  The checks
+    run in order:
 
-    1. A ``weights_kind`` outside ``"known"``, ``"estimated"`` and ``None`` is a
+    1. A ``design`` that is not callable is a :class:`DataError`.
+    2. A ``design_kind`` outside ``"known"``, ``"estimated"`` and ``None`` is a
+       :class:`DataError`.  ``design_kind=None`` is a :class:`CapabilityError`, and so is
+       ``design_kind="estimated"``, whose message names the missing pathwise-derivative
+       term.  A model whose ``design_kind`` is ``None`` and whose design has the exact
+       type that :meth:`MSM.linear` builds reads as ``"known"``: that is a model pickled
+       before the field existed.
+    3. A ``weights_kind`` outside ``"known"``, ``"estimated"`` and ``None`` is a
        :class:`DataError`.  A value that is not a ``str``, such as an array or
        ``pandas.NA``, is outside them.
-    2. ``weights_kind="estimated"`` with no ``weights`` is a :class:`DataError`, because
+    4. ``weights_kind="estimated"`` with no ``weights`` is a :class:`DataError`, because
        the declaration describes a callable the model does not have.  ``None`` or
        ``"known"`` with no ``weights`` passes: uniform weights are known.
-    3. ``weights`` that is not callable is a :class:`CapabilityError`.  An array is one
+    5. ``weights`` that is not callable is a :class:`CapabilityError`.  An array is one
        evaluation of ``h``, and nothing shows that it was not estimated.
-    4. A callable with ``weights_kind=None`` is a :class:`CapabilityError`.
-    5. ``weights_kind="estimated"`` is a :class:`CapabilityError` that names the
+    6. A callable with ``weights_kind=None`` is a :class:`CapabilityError`.
+    7. ``weights_kind="estimated"`` is a :class:`CapabilityError` that names the
        missing pathwise-derivative term.
 
     :class:`MSM` runs this when it is declared, and ``TMLE`` and ``LTMLE`` run it again
     before any learner: a model restored from an older pickle, or changed with
     ``object.__setattr__``, can carry a declaration this version refuses. ``TMLE`` also
     runs it at the start of every retarget, which each sensitivity sweep calls, so a
-    result restored with such a model refuses every recomputation. Loading runs no
-    check, so that result keeps the estimates it stored, and they answer as saved
-    (roadmap row RM13).
+    result restored with such a model refuses every recomputation. The
+    simulated-confounding replay runs it before it evaluates the design or the weight.
+    Loading runs no check, so that result keeps the estimates it stored, and they answer
+    as saved (roadmap rows RM13 and RM27).
+
+    Parameters
+    ----------
+    model : MSM
+        The working model of a fit, or of a replay.
+
+    Raises
+    ------
+    DataError
+        If ``design`` is not callable, if a declaration is not one of the three states,
+        or if ``weights_kind="estimated"`` declares a weight the model does not have.
+    CapabilityError
+        If ``design_kind`` is ``None`` outside the legacy rule or ``"estimated"``, if
+        ``weights`` is not callable, or if a callable ``weights`` has ``weights_kind``
+        ``None`` or ``"estimated"``.
     """
     # Typed ``object`` on purpose: this checks what a restored or modified model holds at
     # run time, which its annotations do not guarantee.
+    design: object = model.design
+    if not callable(design):
+        raise DataError(
+            "MSM design= must be a callable that returns the (n, p) design: "
+            "(arm_label, covariate_frame) -> (n, p) for a point treatment, and "
+            "(regimen_label, horizon, baseline_frame) -> (n, p) for a longitudinal regimen "
+            f"MSM; got {type(design).__name__}."
+        )
+    _DESIGN_DECLARATION.refuse(_design_kind(model))
     weights: object = model.weights
     kind: object = model.weights_kind
     # The check runs first, so the comparison below sees only None or a str.
@@ -407,6 +484,21 @@ class _LinearDesign:
         return np.column_stack(columns)
 
 
+def _design_kind(model: MSM) -> FunctionKind | None:
+    """The design declaration of ``model``, with the rule for a model saved before it existed.
+
+    A model pickled before ``design_kind`` existed reads ``None``.  When its design has the
+    exact type :class:`_LinearDesign`, :meth:`MSM.linear` built it, and that design is known
+    by construction, so this reads ``"known"``.  The rule tests the exact type: a user can
+    set ``from_linear=True`` on any design, and a subclass passes ``isinstance``, so neither
+    shows a known design.  Only :func:`refuse_msm_functions` and the simulated-confounding
+    replay call this.
+    """
+    if model.design_kind is None and type(model.design) is _LinearDesign:
+        return "known"
+    return model.design_kind
+
+
 @dataclass(frozen=True)
 class MSM:
     r"""A working model, declared as a design function and the names of its terms.
@@ -414,12 +506,14 @@ class MSM:
     ``design`` is handed one treatment *level* -- the user's own label, not an internal
     code -- and a dataframe of the covariates in the backend the data arrived in, and
     returns the ``(n, p)`` design :math:`\varphi(a, V)` for that arm.  It is called once
-    per arm.
+    per arm.  A written design declares that it is a fixed function with
+    ``design_kind="known"``.
 
     ``` python
     MSM(
         design=lambda a, w: np.column_stack([np.ones(len(w)), np.full(len(w), a)]),
         terms=("(intercept)", "a"),
+        design_kind="known",
     )
     ```
 
@@ -431,10 +525,12 @@ class MSM:
     categorical column appears as the indicators the data layer expanded it into;
     ``data.covariate_names`` is the list to write a design against.
 
-    Attributes
+    Parameters
     ----------
     design : callable
-        ``(arm_label, covariate_frame) -> (n, p)``.
+        ``(arm_label, covariate_frame) -> (n, p)`` for a point treatment, and
+        ``(regimen_label, horizon, baseline_frame) -> (n, p)`` for a longitudinal regimen
+        MSM.  It must be a **known** function, and ``design_kind`` declares that it is.
     terms : tuple of str
         One name per design column, used verbatim in the reported parameter names:
         ``msm[a:W1]``.
@@ -449,6 +545,18 @@ class MSM:
         *mean* changes with it -- under ``"log"`` a coefficient is a log risk ratio and
         under ``"logit"`` a log odds ratio, which is what
         :meth:`~cleverly.estimators.base.TMLEResult.coefficients` exponentiates.
+    from_linear : bool
+        Set by :meth:`linear` and by nothing else.  That shorthand reads the label it is
+        handed as a *dose*, which a treatment arm can be and a regimen cannot, so a
+        working model over regimens refuses it (:mod:`cleverly.longitudinal.msm`).
+        ``_numeric_level`` already refuses a string label, but a regimen legitimately
+        called ``"0"`` would be read as a dose of zero and reported without complaint --
+        a flag on the declaration is what makes that structural rather than lucky.  It
+        declares nothing about the design: the design declaration is ``design_kind``.
+    doses : tuple of float
+        Increasing dose grid used to integrate a continuous-treatment projection.  Empty
+        on the ordinary finite-arm path.  The grid is part of the estimand, not a random
+        Monte Carlo tuning parameter.
     weights_kind : {"known", "estimated"} or None
         The declaration that ``weights`` is a known function.  A callable ``weights``
         needs ``"known"``: a fixed function of the arm and the covariates, chosen without
@@ -457,29 +565,32 @@ class MSM:
         ``h`` a functional of :math:`P` and the reported influence curve omits its
         pathwise derivative.  It is unrelated to
         :data:`cleverly.data.weighting.WeightKind`, which describes observation weights.
-        A model pickled before this field existed loads as ``None``.  It is the last
-        field, so the positional order of the fields before it is the order they had
-        before it existed: ``link`` stays the fourth.
+        A model pickled before this field existed loads as ``None``.  It follows
+        ``doses``, so ``link`` stays the fourth positional argument.
+    design_kind : {"known", "estimated"} or None
+        The declaration that ``design`` is a known function: a fixed function of the arm
+        (or the regimen and horizon) and the covariates, chosen without reading the data.
+        ``None`` and ``"estimated"`` are refused by :func:`refuse_msm_functions`, because
+        a design computed from the sample, such as a covariate centred at its sample mean,
+        makes :math:`\varphi` a functional of :math:`P` and the reported influence curve
+        omits its pathwise derivative.  :meth:`linear` declares its own design
+        ``"known"``.  A model pickled before this field existed loads as ``None``, and it
+        reads as ``"known"`` only when its design has the exact type that :meth:`linear`
+        builds.  It is the last field, so the positional order of the fields before it is
+        unchanged.
     """
 
     design: Callable[[Any, Any], Any]
     terms: tuple[str, ...]
     weights: Callable[[Any, Any], Any] | None = None
     link: MSMLink = "identity"
-    #: Set by :meth:`linear` and by nothing else.  That shorthand reads the label it is
-    #: handed as a *dose*, which a treatment arm can be and a regimen cannot, so a
-    #: working model over regimens refuses it (:mod:`cleverly.longitudinal.msm`).
-    #: ``_numeric_level`` already refuses a string label, but a regimen legitimately
-    #: called ``"0"`` would be read as a dose of zero and reported without complaint --
-    #: a flag on the declaration is what makes that structural rather than lucky.
     from_linear: bool = False
-    #: Increasing dose grid used to integrate a continuous-treatment projection.
-    #: Empty on the ordinary finite-arm path.  The grid is part of the estimand, not a
-    #: random Monte Carlo tuning parameter.
     doses: tuple[float, ...] = ()
-    #: A plain default, so it is a class attribute: a model pickled before the field
-    #: existed reads ``None`` here, and :func:`dataclasses.replace` still works on it.
+    # The two declarations have plain defaults, so each is a class attribute: a model
+    # pickled before the field existed reads ``None`` there, and
+    # :func:`dataclasses.replace` still works on it.
     weights_kind: MSMWeightsKind | None = None
+    design_kind: FunctionKind | None = None
 
     def __post_init__(self) -> None:
         link_for(str(self.link))
@@ -488,8 +599,6 @@ class MSM:
             raise DataError("a working model needs at least one term")
         if len(set(terms)) != len(terms):
             raise DataError(f"working-model terms must be distinct; got {list(terms)}")
-        if not callable(self.design):
-            raise DataError("design= must be callable: (arm_label, covariate_frame) -> (n, p)")
         refuse_msm_functions(self)
         object.__setattr__(self, "terms", terms)
         doses = tuple(float(value) for value in self.doses)
@@ -524,10 +633,37 @@ class MSM:
         the arms as a dose to be extrapolated between.  A string-labelled treatment is
         refused rather than coded silently, because ``{"low", "medium", "high"}`` sorts
         alphabetically and the resulting slope would be per-step in an order nobody chose.
-        Pass ``design=`` and code the arms yourself where that is what you want.
+        Pass ``design=`` with ``design_kind='known'`` and code the arms yourself where that
+        is what you want.
 
-        ``weights=`` and ``weights_kind=`` are forwarded unchanged, so a callable weight
-        needs ``weights_kind="known"`` here as it does on :class:`MSM`.
+        The design this builds is a fixed function of the arm and the named covariates, so
+        the model declares ``design_kind="known"`` itself.  ``weights=`` and
+        ``weights_kind=`` are forwarded unchanged, so a callable weight needs
+        ``weights_kind="known"`` here as it does on :class:`MSM`.
+
+        Parameters
+        ----------
+        modifiers : sequence of str
+            The encoded covariates that enter the model as main effects.
+        interaction : bool
+            Whether each modifier also enters as a product with the dose, named
+            ``a:<modifier>``.
+        weights : callable or None
+            The projection weight ``h(a, V)``, forwarded to :class:`MSM`.  ``None`` means
+            uniform.
+        weights_kind : {"known", "estimated"} or None
+            The declaration of ``weights``, forwarded to :class:`MSM`.
+        link : {"identity", "log", "logit"}
+            The link, forwarded to :class:`MSM`.
+        doses : sequence of float
+            The increasing dose grid of a continuous-treatment projection.  Empty on the
+            finite-arm path.
+
+        Returns
+        -------
+        MSM
+            A working model whose design is linear in the dose and the modifiers, with
+            ``from_linear=True`` and ``design_kind="known"``.
         """
         names = tuple(str(m) for m in modifiers)
         terms = ("(intercept)", "a", *names)
@@ -542,6 +678,7 @@ class MSM:
             link=link,
             from_linear=True,
             doses=tuple(float(value) for value in doses),
+            design_kind="known",
         )
 
 
@@ -576,8 +713,8 @@ def _numeric_level(level: Any) -> float:
             f"MSM.linear reads the treatment level {level!r} as a number, and it is not "
             "one. A working model linear in the arm treats it as a dose to interpolate "
             "between, which a label has no ordering for -- and the sort order a coding "
-            "would fall back on is not one anybody chose. Pass design= and code the arms "
-            "explicitly."
+            "would fall back on is not one anybody chose. Pass design= with "
+            "design_kind='known' and code the arms explicitly."
         ) from None
 
 

@@ -2034,9 +2034,9 @@ class LTMLE:
         """
         refuse_unsupported(refused, where="LTMLE.fit")
         if self.msm is not None:
-            # Checked again here, before any learner, because ``MSM`` checks its weight
-            # declaration only when it is declared, and a restored or modified model can
-            # carry one this version refuses.
+            # Checked again here, before any learner, because ``MSM`` checks its design and
+            # weight declarations only when it is declared, and a restored or modified
+            # model can carry one this version refuses.
             refuse_msm_functions(self.msm)
         prepared = self._prepare(
             data,

@@ -60,6 +60,7 @@ from tests.unit._declaration_support import (
     assert_every_witness_fails,
     assert_refused,
     assert_refused_before_any_call,
+    gateaux_eif,
     recomputations,
     restored,
     restored_states,
@@ -155,6 +156,7 @@ class TestTheDeclarationIsRequired:
                 terms=("(intercept)", "duration"),
                 weights=np.ones(10),
                 weights_kind="known",
+                design_kind="known",
             ),
             CapabilityError,
             *signatures,
@@ -180,7 +182,8 @@ class TestTheDeclarationIsRequired:
     def test_uniform_weights_need_no_declaration(self, kind: Any) -> None:
         """Uniform weights are known, so no declaration is needed for them."""
         assert linear(weights_kind=kind).weights is None
-        assert MSM(design=lambda a, w: np.ones((len(w), 1)), terms=("c",)).weights_kind is None
+        model = MSM(design=lambda a, w: np.ones((len(w), 1)), terms=("c",), design_kind="known")
+        assert model.weights_kind is None
 
     def test_the_named_refusal_is_a_capability_error(self) -> None:
         assert_refused(
@@ -189,7 +192,10 @@ class TestTheDeclarationIsRequired:
 
 
 class TestThePositionalOrderIsUnchanged:
-    """``weights_kind`` is the last field, so ``link`` stays the fourth positional argument."""
+    """The declarations are the last fields, so ``link`` stays the fourth positional argument.
+
+    ``weights_kind`` follows ``doses``, and ``design_kind`` (RM27) follows ``weights_kind``.
+    """
 
     def test_the_declaration_is_the_last_field(self) -> None:
         assert [field.name for field in fields(MSM)] == [
@@ -200,21 +206,33 @@ class TestThePositionalOrderIsUnchanged:
             "from_linear",
             "doses",
             "weights_kind",
+            "design_kind",
         ]
 
     def test_the_fourth_positional_argument_is_the_link(self) -> None:
-        model = MSM(duration_design, ("(intercept)", "duration"), None, "log")
+        model = MSM(duration_design, ("(intercept)", "duration"), None, "log", design_kind="known")
         assert model.link == "log"
         assert model.weights_kind is None
         declared = MSM(
-            duration_design, ("(intercept)", "duration"), FixedWeight(), "log", weights_kind="known"
+            duration_design,
+            ("(intercept)", "duration"),
+            FixedWeight(),
+            "log",
+            weights_kind="known",
+            design_kind="known",
         )
         assert declared.link == "log"
         assert declared.weights_kind == "known"
 
     def test_a_positional_weight_without_a_declaration_still_refuses(self) -> None:
         assert_refused(
-            lambda: MSM(duration_design, ("(intercept)", "duration"), FixedWeight(), "log"),
+            lambda: MSM(
+                duration_design,
+                ("(intercept)", "duration"),
+                FixedWeight(),
+                "log",
+                design_kind="known",
+            ),
             CapabilityError,
             UNDECLARED,
         )
@@ -284,6 +302,7 @@ def regimen_model() -> MSM:
         terms=("(intercept)", "duration"),
         weights=SpyWeight(),
         weights_kind="known",
+        design_kind="known",
     )
 
 
@@ -388,25 +407,30 @@ class TestALegacyModelLoads:
         )
 
 
-def counted_msm_fit() -> tuple[Any, Counter, Counter]:
-    """A fitted MSM whose design and weight count their calls, restored with no declaration.
+def counted_msm_fit(field: str = "weights_kind") -> tuple[Any, Counter, Counter]:
+    """A fitted MSM whose design and weight count their calls, restored without ``field``.
 
-    The counters are read off the restored result, because a pickle round trip copies them.
+    Both functions are declared known before the fit, so the restored model lacks only the
+    declaration ``field`` names.  ``tests/unit/test_msm_design_declaration.py`` drops
+    ``design_kind``.  The counters are read off the restored result, because a pickle round
+    trip copies them.
     """
     model = MSM(
         design=Counter(_MSMDesign()),
         terms=("intercept", "treatment", "baseline"),
         weights=Counter(_MSMWeight()),
         weights_kind="known",
+        design_kind="known",
     )
-    old = legacy_result(_estimate(_study(), MSMProjection(model)))
+    fitted = _estimate(_study(), MSMProjection(model))
+    old = legacy_result_of(fitted, field, lambda estimator: [estimator.msm])
     design, weights = old.estimator.msm.design, old.estimator.msm.weights
     design.calls = weights.calls = 0
     return old, design, weights
 
 
-def validate_replay(result: Any) -> Any:
-    alias = _alias(result)
+def validate_replay(result: Any, coefficient: str = "treatment") -> Any:
+    alias = _alias(result, coefficient=coefficient)
     return replay_module.validate_fixed_replay(result, alias, result.parameter_keys[alias])
 
 
@@ -573,23 +597,13 @@ class SampleShare:
         return np.full(len(frame), share)
 
 
-def beta_gateaux(weights: Any, point: int, *, step: float = 1e-30) -> np.ndarray:
-    """The Gateaux derivative of ``law.msm_beta(P, weights)`` at one support point.
-
-    The contamination path and the complex step of :func:`law.gateaux`.  When ``weights``
-    is :func:`arm_share`, ``h`` is recomputed from the perturbed law, so the derivative
-    carries the term through ``h`` that the fixed-weight derivative does not.
-    """
-    base = SHARE_PROBS.astype(complex)
-    mass = np.zeros_like(base)
-    mass[law.SUPPORT[point]] = 1.0
-    perturbed = (1.0 - 1j * step) * base + 1j * step * mass
-    return np.asarray(np.imag(law.msm_beta(perturbed, weights)) / step)
-
-
 def eif(weights: Any) -> np.ndarray:
-    """``(12, 3)``: the Gateaux derivative at every support point, for every term."""
-    return np.array([beta_gateaux(weights, point) for point in range(len(law.SUPPORT))])
+    """``(12, 3)``: the Gateaux derivative of ``law.msm_beta(P, weights)``, for every term.
+
+    When ``weights`` is :func:`arm_share`, ``h`` is recomputed from the perturbed law, so the
+    derivative carries the term through ``h`` that the fixed-weight derivative does not.
+    """
+    return np.asarray(gateaux_eif(lambda p: law.msm_beta(p, weights), SHARE_PROBS))
 
 
 #: The reported SE over the exact estimated-share SE for ``msm[W]`` must stay below this.
@@ -648,7 +662,7 @@ class TestAnEstimatedShareWeightUnderstatesTheVariance:
         """The two oracles differ by exactly ``dbeta/dpi * (1{A = 1} - pi)``.
 
         ``dbeta/dpi`` comes from a complex step in the share alone, a path independent
-        of the contamination path, so this checks that :func:`beta_gateaux` differentiates
+        of the contamination path, so this checks that :func:`eif` differentiates
         through ``h`` and by the right amount.
         """
         step = 1e-30

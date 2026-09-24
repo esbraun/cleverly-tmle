@@ -383,7 +383,9 @@ class TestAWorkingModelUnderTheSameTilt:
 
         from cleverly.msm import MSM
 
-        return MSM(design=build, terms=terms, weights=weight, weights_kind="known")
+        return MSM(
+            design=build, terms=terms, weights=weight, weights_kind="known", design_kind="known"
+        )
 
     #: Every regimen, because a projection is over all of them: a subset is a different
     #: design and so a different coefficient vector.
@@ -455,6 +457,7 @@ class TestAWorkingModelUnderTheSameTilt:
                 * (1.0 + 0.6 * np.asarray(frame["W"], dtype=float))
             ),
             weights_kind="known",
+            design_kind="known",
         )
         wrong = LTMLE(
             self.ALL,

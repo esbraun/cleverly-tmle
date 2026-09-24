@@ -690,6 +690,7 @@ def test_every_recursion_constructor_retains_super_learner_details(n_folds, msm)
             [np.ones(len(data)), np.full(len(data), label == "always")]
         ),
         terms=("intercept", "always"),
+        design_kind="known",
     )
     result = LTMLE(
         {"always": 1, "never": 0},

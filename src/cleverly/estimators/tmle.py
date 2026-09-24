@@ -1352,9 +1352,10 @@ class TMLE:
         The declared fold policy is checked first and without reading the data, because a
         fit can arrive here without having run ``__init__``: :meth:`refit` copies an
         estimator, and an estimator restored from a pickle written by an earlier version
-        carries whatever policy that version allowed.  The working model's projection-weight
-        declaration is checked next for the same reason: ``MSM`` checks it when it is
-        declared, and a restored or modified model can carry one this version refuses.
+        carries whatever policy that version allowed.  The working model's design and
+        projection-weight declarations are checked next for the same reason: ``MSM`` checks
+        them when it is declared, and a restored or modified model can carry one this
+        version refuses.
         Each ``Stochastic`` regime's density declaration follows, for the same reason and
         before any density is evaluated (roadmap row RM25).
 
@@ -2690,12 +2691,14 @@ class TMLE:
         is kept out of :meth:`retarget` so that the sensitivity analyses, which call
         that method on every perturbed input, keep their two-value signature.
 
-        It checks the MSM projection-weight declaration and then each ``Stochastic``
-        regime's density declaration first, as :meth:`fit` does. Every sweep that
-        recomputes an estimate comes through here, so a result restored from an artifact
-        written before ``MSM.weights_kind`` or ``Stochastic.density_kind`` existed refuses
-        each recomputation (roadmap rows RM13 and RM25). Loading re-checks nothing: that
-        result keeps the estimates it stored, and they answer as they were saved.
+        It checks the MSM design and projection-weight declarations and then each
+        ``Stochastic`` regime's density declaration first, as :meth:`fit` does. Every sweep
+        that recomputes an estimate comes through here, so a result restored from an
+        artifact written before ``MSM.weights_kind``, ``MSM.design_kind`` or
+        ``Stochastic.density_kind`` existed refuses each recomputation (roadmap rows RM13,
+        RM25 and RM27). The design that ``MSM.linear`` builds reads as known, so a result
+        that uses it still recomputes. Loading re-checks nothing: that result keeps the
+        estimates it stored, and they answer as they were saved.
         """
         if self.msm is not None:
             refuse_msm_functions(self.msm)

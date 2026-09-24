@@ -117,6 +117,7 @@ def _model(*, saturated: bool = False, labels: bool = False, link: str = "identi
             design=_MSMDesign(treated, True),
             terms=("intercept", "treatment"),
             link=link,
+            design_kind="known",
         )
     return MSM(
         design=_MSMDesign(treated),
@@ -124,6 +125,7 @@ def _model(*, saturated: bool = False, labels: bool = False, link: str = "identi
         weights=_MSMWeight(treated),
         weights_kind="known",
         link=link,
+        design_kind="known",
     )
 
 

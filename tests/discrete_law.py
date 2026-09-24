@@ -206,8 +206,8 @@ MSM_LINKS: dict[str, Any] = {
 MSM_NEWTON_STEPS = 40
 
 
-def msm_beta(probs: Any, weights: Any) -> Any:
-    r"""The identity-link projection :math:`\beta = M^{-1} b` of :data:`MSM_DESIGN`.
+def msm_beta(probs: Any, weights: Any, design: Any = None) -> Any:
+    r"""The identity-link projection :math:`\beta = M^{-1} b` of a working design.
 
     ``weights`` is ``h(a, W = w)`` as a ``(3, 2)`` array, or a function of the cell
     probabilities that returns one.  :func:`functional` passes the fixed
@@ -215,14 +215,22 @@ def msm_beta(probs: Any, weights: Any) -> Any:
     shares are, and a complex step through this then differentiates through ``h`` too:
     ``tests/unit/test_msm_projection_weights.py`` measures the term that adds.
 
+    ``design`` is :math:`\varphi(a, W = w)` as a ``(3, 2, p)`` array indexed
+    ``[w, a, term]``, or a function of the cell probabilities that returns one.  ``None``
+    means :data:`MSM_DESIGN`, which :func:`functional` uses.  A function makes
+    :math:`\varphi` a functional of :math:`P`, as a covariate centred at its mean is:
+    ``tests/unit/test_msm_design_declaration.py`` measures the term that adds.
+
     Every operation is arithmetic, so this stays analytic in the cell probabilities.
     """
     p = np.asarray(probs)
     p_w = p.sum(axis=(1, 2))  # P(W = w)
     q = p[:, :, 1] / p.sum(axis=2)  # E[Y | A = a, W = w]
     h = weights(p) if callable(weights) else weights
-    gram = np.einsum("wap,waq,wa,w->pq", MSM_DESIGN, MSM_DESIGN, h, p_w)
-    moment = np.einsum("wap,wa,wa,w->p", MSM_DESIGN, h, q, p_w)
+    phi = MSM_DESIGN if design is None else design
+    phi = phi(p) if callable(phi) else phi
+    gram = np.einsum("wap,waq,wa,w->pq", phi, phi, h, p_w)
+    moment = np.einsum("wap,wa,wa,w->p", phi, h, q, p_w)
     return np.linalg.solve(gram, moment)
 
 

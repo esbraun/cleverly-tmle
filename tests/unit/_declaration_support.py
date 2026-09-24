@@ -1,7 +1,8 @@
 """Shared scaffolding for the tests of a declared known function.
 
-``tests/unit/test_msm_projection_weights.py`` (RM13) and
-``tests/unit/test_stochastic_regime_densities.py`` (RM25) test the two users of
+``tests/unit/test_msm_projection_weights.py`` (RM13),
+``tests/unit/test_stochastic_regime_densities.py`` (RM25) and
+``tests/unit/test_msm_design_declaration.py`` (RM27) test the three users of
 :class:`cleverly._declarations.FunctionDeclaration`.  Each file declares its own builders
 and witnesses.  This module holds the parts that do not depend on which field is declared.
 """
@@ -18,6 +19,7 @@ import pytest
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError
 from cleverly.sensitivity.positivity import truncation_curve
+from tests import discrete_law as law
 from tests.unit._natural_course_support import NeverFit
 
 #: ``cleverly.estimators`` exports a function named ``tmle``, which shadows the module.
@@ -109,3 +111,22 @@ def se_ratio(curve: np.ndarray, exact: np.ndarray, cell_p: np.ndarray) -> float:
     ``n - 1``, which would move this by a factor of 1.0005.
     """
     return float(np.sqrt(np.mean(curve**2) / float(cell_p @ exact**2)))
+
+
+def gateaux_eif(functional: Callable[[Any], Any], probs: Any, *, step: float = 1e-30) -> Any:
+    """The Gateaux derivative of ``functional`` at every support point of the discrete law.
+
+    ``functional`` maps the ``(3, 2, 2)`` cell probabilities of :mod:`tests.discrete_law`
+    to a value or a vector, and ``probs`` is the law it is differentiated at.  This is the
+    contamination path and the complex step of :func:`tests.discrete_law.gateaux`, applied
+    to a functional that a test writes: a frozen weight, density, or design, or one that
+    moves with the law.  The first axis of the result follows ``law.SUPPORT``.
+    """
+    base = np.asarray(probs, dtype=float).astype(complex)
+    rows = []
+    for cell in law.SUPPORT:
+        mass = np.zeros_like(base)
+        mass[cell] = 1.0
+        perturbed = (1.0 - 1j * step) * base + 1j * step * mass
+        rows.append(np.imag(functional(perturbed)) / step)
+    return np.array(rows)

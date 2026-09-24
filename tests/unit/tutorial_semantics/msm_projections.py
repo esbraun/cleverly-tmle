@@ -119,6 +119,7 @@ def check(namespace: dict[str, Any]) -> None:
                 terms=terms,
                 weights=lambda arm, data: np.ones(len(data)),
                 weights_kind="known",
+                design_kind="known",
             )
         )
     ).estimate(method=method)
@@ -134,6 +135,7 @@ def check(namespace: dict[str, Any]) -> None:
                 terms=terms,
                 weights=lambda arm, data: np.full(len(data), fixed[arm]),
                 weights_kind="known",
+                design_kind="known",
             )
         )
     ).estimate(method=method)
@@ -157,6 +159,7 @@ def check(namespace: dict[str, Any]) -> None:
                 terms=terms,
                 weights=lambda arm, data: np.full(len(data), fixed[arm]),
                 weights_kind="known",
+                design_kind="known",
             )
         )
     ).estimate(method=misspecified_q)

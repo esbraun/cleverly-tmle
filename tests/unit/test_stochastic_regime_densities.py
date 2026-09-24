@@ -41,6 +41,7 @@ import pytest
 
 import cleverly._declarations as declarations_module
 import cleverly.interventions.base as base_module
+import tests.unit.test_msm_design_declaration as rm27_tests
 import tests.unit.test_msm_projection_weights as rm13_tests
 from cleverly import CausalStudy, PointTreatment, RegimeMean
 from cleverly.data import CausalData
@@ -63,6 +64,7 @@ from tests.unit._declaration_support import (
     assert_every_witness_fails,
     assert_refused,
     assert_refused_before_any_call,
+    gateaux_eif,
     recomputations,
     restored,
     restored_states,
@@ -422,20 +424,21 @@ class TestTheWitnessesHaveTeeth:
         assert replay_module.refuse_regime_densities is refuse_regime_densities
         assert base_module.refuse_regime_densities is refuse_regime_densities
 
-    def test_removing_the_shared_declaration_fails_both_of_its_users(
+    def test_removing_the_shared_declaration_fails_each_of_its_users(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """RM13 and RM25 refuse through one ``FunctionDeclaration.refuse``.
+        """RM13, RM25 and RM27 refuse through one ``FunctionDeclaration.refuse``.
 
         Each witness that the shared refusal decides must fail under the mutation.  The RM13
         unknown-value witness is not among them: ``refuse_msm_functions`` calls
-        ``check`` itself, so that witness still refuses.
+        ``check`` itself for the weight, so that witness still refuses.
         """
         monkeypatch.setattr(
             declarations_module.FunctionDeclaration, "refuse", lambda self, kind: None
         )
         weight_suite = rm13_tests.TestTheDeclarationIsRequired()
         density_suite = TestTheDeclarationIsRequired()
+        design_suite = rm27_tests.TestTheDeclarationIsRequired()
         assert_every_witness_fails(
             [
                 weight_suite.test_an_undeclared_callable_is_refused,
@@ -443,10 +446,14 @@ class TestTheWitnessesHaveTeeth:
                 density_suite.test_an_undeclared_density_is_refused,
                 density_suite.test_an_estimated_density_is_refused_by_its_missing_term,
                 lambda: density_suite.test_an_unknown_declaration_is_refused("Known"),
+                design_suite.test_an_undeclared_design_is_refused,
+                design_suite.test_an_estimated_design_is_refused_by_its_missing_term,
+                lambda: design_suite.test_an_unknown_declaration_is_refused("Known"),
             ]
         )
         assert linear(weights=FixedWeight()).weights_kind is None
         assert coin().density_kind is None
+        assert rm27_tests.written().design_kind is None
 
 
 # ------------------------------------------------------------------ the shared check
@@ -466,6 +473,11 @@ DECLARATION_USERS: dict[str, tuple[Callable[[Any], Any], str, str]] = {
         "weights_kind",
     ),
     "regime density": (lambda kind: coin(density_kind=kind), UNKNOWN, "density_kind"),
+    "msm design": (
+        lambda kind: rm27_tests.written(design_kind=kind),
+        rm27_tests.UNKNOWN,
+        "design_kind",
+    ),
 }
 
 #: Values that are not a string.  Before the check tested the type, the first built, the
@@ -560,13 +572,7 @@ def fixed_eif(star: np.ndarray, *, step: float = 1e-30) -> np.ndarray:
         q = p[:, :, 1] / p.sum(axis=2)
         return (p.sum(axis=(1, 2)) * (star * q).sum(axis=1)).sum()
 
-    out = []
-    for point in range(len(law.SUPPORT)):
-        base = TILT_PROBS.astype(complex)
-        mass = np.zeros_like(base)
-        mass[law.SUPPORT[point]] = 1.0
-        out.append(float(np.imag(psi((1 - 1j * step) * base + 1j * step * mass)) / step))
-    return np.array(out)
+    return np.asarray(gateaux_eif(psi, TILT_PROBS, step=step))
 
 
 def kennedy_term(delta: float) -> np.ndarray:

@@ -303,9 +303,10 @@ def evaluate_regimen_msm(
             "MSM.linear reads the label it is handed as a dose to interpolate between, "
             "which a treatment arm can be and a regimen cannot: a plan is a sequence of "
             "decisions, and no arithmetic on its name is a summary of it. Pass design= "
-            "and code the grid yourself -- design=lambda label, horizon, w: "
-            "np.column_stack([np.ones(len(w)), np.full(len(w), duration[label])]) -- so "
-            "that what the coefficient is per unit of is written down."
+            "with design_kind='known' and code the grid yourself -- design=lambda label, "
+            "horizon, w: np.column_stack([np.ones(len(w)), np.full(len(w), "
+            "duration[label])]) -- so that what the coefficient is per unit of is written "
+            "down."
         )
     _check_support(link_for(str(msm.link)), data)
     frame = data.baseline_frame()

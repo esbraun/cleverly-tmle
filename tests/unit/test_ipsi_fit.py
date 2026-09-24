@@ -117,6 +117,7 @@ class TestTheRefusals:
         model = MSM(
             design=lambda a, w: np.column_stack([np.ones(len(w)), np.full(len(w), float(a))]),
             terms=("(intercept)", "a"),
+            design_kind="known",
         )
         with pytest.raises(ValueError, match="cannot be combined"):
             TMLE(**FAST_KWARGS, incremental=TILTS, msm=model)

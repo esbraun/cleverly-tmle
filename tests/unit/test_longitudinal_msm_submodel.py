@@ -114,7 +114,7 @@ def calls_of(
 
     monkeypatch.setattr(longitudinal_msm, "solve_fluctuation", spy)
     model = longitudinal_msm.evaluate_regimen_msm(
-        MSM(design=design, terms=terms), data, plans, (data.n_times,)
+        MSM(design=design, terms=terms, design_kind="known"), data, plans, (data.n_times,)
     )
     longitudinal_msm.fit_regimens_msm(data, plans, mechanism, model, **extra["mechanism_kwargs"])
     return data, plans, mechanism, extra, seen
@@ -261,8 +261,9 @@ class TestTheLossWeightsMultiply:
             terms=("(intercept)", "duration"),
             weights=lambda label, horizon, w: np.full(len(w), 2.0),
             weights_kind="known",
+            design_kind="known",
         )
-        plain_msm = MSM(design=flat_design, terms=("(intercept)", "duration"))
+        plain_msm = MSM(design=flat_design, terms=("(intercept)", "duration"), design_kind="known")
         model = longitudinal_msm.evaluate_regimen_msm(plain_msm, data, plans, (data.n_times,))
         longitudinal_msm.fit_regimens_msm(
             data, plans, mechanism, model, **extra["mechanism_kwargs"]
@@ -319,7 +320,10 @@ class TestTheCrossFittedPassRetainsItsLearnerDiagnostics:
             folds=folds,
         )
         model = longitudinal_msm.evaluate_regimen_msm(
-            MSM(design=saturated_design, terms=LABELS), data, plans, (data.n_times,)
+            MSM(design=saturated_design, terms=LABELS, design_kind="known"),
+            data,
+            plans,
+            (data.n_times,),
         )
         fitted = longitudinal_msm.fit_regimens_msm(
             data,
