@@ -3076,12 +3076,13 @@ against the tolerance 1e-10, and it is bitwise equal to the witness curve. The s
 against the same tolerance. Each control keeps the `influence_curve` status and a finite `ci`.
 
 The row planned four witnesses. The table gives the state of each. All of them are in
-`tests/unit/test_msm_design_declaration.py`, which holds 88 tests at commit 5e055cc.
+`tests/unit/test_msm_design_declaration.py`, which holds 88 tests at commit 5e055cc and 100 at
+commit 97cc57e.
 
 | witness | state |
 | --- | --- |
-| 1. a pre-fit test pins the refusal and its message, and a spy learner shows that no nuisance fit ran | delivered. `TestTheDeclarationIsRequired` pins each refusal and its message. `TestTheFitRefusesARestoredModel` sets `design_kind` to `None` or `"estimated"` after construction. `fit`, `CausalStudy.estimate`, `refit`, and `LTMLE.fit` then refuse, `NeverFit.calls` is 0, and a spy design is never called. A control with `"known"` reaches the first learner. The review added a malformed model at each of the four entries, which raises `DataError` before any call (commit 9258d5a). `TestTheEvaluatorsCheckFirst` hands a restored model to `MSMSet.evaluate` and `evaluate_regimen_msm` (commit e360555) |
-| 2. a mutation that removes the refusal makes that test fail | delivered. The test files commit six mutations. Eighteen more ran by hand in the first pass, and eight more after the review. The text below gives them |
+| 1. a pre-fit test pins the refusal and its message, and a spy learner shows that no nuisance fit ran | delivered. `TestTheDeclarationIsRequired` pins each refusal and its message. `TestTheFitRefusesARestoredModel` sets `design_kind` to `None` or `"estimated"` after construction. `fit`, `CausalStudy.estimate`, `refit`, and `LTMLE.fit` then refuse, `NeverFit.calls` is 0, and a spy design is never called. A control with `"known"` reaches the first learner. The review added a malformed model at each of the four entries, which raises `DataError` before any call (commit 9258d5a). `TestTheEvaluatorsCheckFirst` hands a restored model to `MSMSet.evaluate` and `evaluate_regimen_msm` (commit e360555). `TestTheDeclarationRefusalComesFirst` shows that a restored model meets its own refusal before a refusal of the fit configuration (commit 97cc57e) |
+| 2. a mutation that removes the refusal makes that test fail | delivered. The test files commit six mutations, and commit 97cc57e added M7. Eighteen more ran by hand in the first pass, and eight more after the review. The text below gives them |
 | 3. the exact-law witness, with a bound fixed before its run, and `msm[a]` and `msm[W]` as negative controls | delivered. The intercept ratio reads 0.8927 against the bound of 0.95, and each control is within 2.0e-14 of 1 |
 | 4. a control shows that `MSM.linear`, and a design with a fixed centre, keep their intervals | delivered in `TestAKnownDesignKeepsItsInterval` |
 
@@ -3105,6 +3106,7 @@ each one fails.
 | M4. the replay `replace` drops `design_kind` | `test_a_replay_that_drops_the_declaration_refuses`, on an `MSM.linear` fit. The table of deviations below gives the reason |
 | M5. `FunctionDeclaration.refuse` becomes a no-op | the RM13, RM25, and RM27 witnesses, in `test_removing_the_shared_declaration_fails_each_of_its_users` of `tests/unit/test_stochastic_regime_densities.py`. Since commit 983b743, it draws its eight witnesses from `SHARED_REFUSALS`, and it runs each one as a control before the mutation |
 | M6. the oracle freezes the centre | `test_mutation_a_frozen_oracle_loses_the_witness`. The ratio reads 1.000000000000006 and fails the bound of 0.95 |
+| M7. the same in `cleverly.estimators.tmle` alone | `test_removing_the_fit_layer_check_alone_lets_the_later_refusal_answer`, once for each of three refusals of the fit configuration. The restored model then meets the refusal of the configuration. Commit 97cc57e |
 
 `test_every_site_calls_the_one_refusal` checks that `cleverly.estimators.tmle`,
 `cleverly.longitudinal.estimator`, and `cleverly.longitudinal.msm` hold the function that
@@ -3152,7 +3154,7 @@ blob at HEAD.
 
 | mutation | failures in the RM27, RM13, and RM25 files at commit 5e055cc | reading |
 | --- | --- | --- |
-| H2 | 0, 0, and 0 | the mutation survives. `MSMSet.evaluate` now refuses a point fit before its first learner, so no test separates the fit-layer call from the evaluator check. The call is still in `_resolve_estimands_for_data` |
+| H2 | 0, 0, and 0 | the mutation survives. `MSMSet.evaluate` now refuses a point fit before its first learner, so no test separates the fit-layer call from the evaluator check. The call is still in `_resolve_estimands_for_data`. Commit 97cc57e added its witness, and the text after the review fixes gives the new counts |
 | H3 | 2, 2, and 0 | unchanged. A sweep and a retarget reuse the stored arrays, so the call in `_retarget_detailed` is the only check on their path |
 | H4 | 4, 2, and 0 | two more than the first pass. The two added failures are the malformed models at the `LTMLE.fit` entry (commit 9258d5a) |
 | H5 | not run | it no longer applies, because commit e360555 removed the `_freeze_msm` check. Mutation e below deletes the check in `MSMSet.evaluate` instead |
@@ -3219,7 +3221,7 @@ and after the `msm_beta` extension. Commit 16b88e3 records the same hash after i
 #### RM27 review fixes
 
 The review of this delivery found five defects, F1 to F5. Three more commits then removed repeated
-test code. The table gives each commit.
+test code, and one more added a witness. The table gives each commit.
 
 | commit | what it changed |
 | --- | --- |
@@ -3231,6 +3233,7 @@ test code. The table gives each commit.
 | 16b88e3 | `gateaux_eif` moved from `tests/unit/_declaration_support.py` to `tests/discrete_law.py`, and `eif` and `weighted_eif` now call it. The oracle hash `03b16bf86c5b9478` and a broader hash of the law, `fe962fd144da740d`, did not change |
 | 983b743 | `tests/unit/_msm_declaration_support.py` holds the MSM builders of the RM13 and RM27 files. The three test files import support modules, and not one another. Each spy is a `Counter`. `CentredDesign` and `sample_centre` replace two fixed-centre classes. The RM13 file went from 55 to 52 tests, and the RM27 file from 87 to 88. Each of 32 exact-law arrays stayed equal |
 | 5e055cc | `dose_msm` in `tests/e2e/test_ltmle_msm.py` builds the dose working model at eight sites, and `_fit_continuous` passes its weight keywords explicitly. Each construction builds the same `MSM` |
+| 97cc57e | H2 survived at commit 5e055cc. `TestTheDeclarationRefusalComesFirst` in the RM27 file is now its witness, and mutation M7 is its control. The docstring of `_resolve_estimands_for_data` states the order of the refusals. The text below gives the probe |
 
 F1 closes the hole that the review found. Before commit a237257, a declaration that the user never
 wrote could reach a user design. F2 applies the same fix to the RM25 evaluators, because a restored
@@ -3255,10 +3258,45 @@ point fit before its first learner. So M2 removes the evaluator checks for `fit`
 `_resolve_estimands_for_data`. H3 and H4 show that the calls in `_retarget_detailed` and `LTMLE.fit`
 are still required.
 
+Commit 97cc57e resolved H2. A probe replaced the name in `cleverly.estimators.tmle` with a no-op in
+memory. It then ran each fit entry with and without the call. The table gives the result.
+
+| fit | with the call | without the call |
+| --- | --- | --- |
+| `fit`, `CausalStudy.estimate`, `refit`, and `tmle(Y, A, W)`. Also `fit` with `intermediate=`, `repeats=3`, or `n_bootstrap=5` | the declaration refusal | the same exception and message, from `MSMSet.evaluate` |
+| `fit` with `cv_evaluation=True` | the declaration refusal | the `cv_evaluation` refusal of an MSM, a `ValueError` |
+| a cross-fitted `fit` of a continuous outcome with `q_bounds=None` | the declaration refusal | the outcome-scale refusal, a `CapabilityError` |
+| a cross-fitted `fit` with `delta=` | the declaration refusal | the F21 missing-outcome refusal, a `CapabilityError` |
+
+The probe used three restored models: an undeclared design, an estimated design, and an undeclared
+weight. It also used four malformed models: `design_kind="Known"`, an array design,
+`weights_kind="Known"`, and `weights_kind="estimated"` with no weight. Every model gave the row
+above. No run called a learner, the design, or the weight.
+
+So no path runs a learner or a user function before `MSMSet.evaluate`. The call decides only which
+refusal answers. Each later refusal names a remedy, and no remedy lets an undeclared or estimated
+design fit. The call stays, because removing it would make the refusal depend on the configuration.
+Removing it would also have left each remaining check witnessed.
+`TestTheDeclarationRefusalComesFirst` pins the order, and a declared model under each
+configuration is its control.
+
+The RM25 call at the same site already had a witness. A fit evaluates its regimes after its
+learners, so that call is the only check before the first learner. The table gives each run at
+commit 97cc57e. Each run restored the file, and the restored file matched its blob at HEAD.
+
+| mutation | failures in the RM27, RM13, and RM25 files at commit 97cc57e | reading |
+| --- | --- | --- |
+| H2 | 6, 0, and 0 | the two restored states under the three configurations of `TestTheDeclarationRefusalComesFirst` |
+| H3 | 2, 2, and 0 | unchanged |
+| H4 | 4, 2, and 0 | unchanged |
+| R2. remove the `refuse_regime_densities` call in `_resolve_estimands_for_data` | 0, 0, and 8 | each RM25 fit entry for both restored states, the subclass that skips the declaration, and a legacy regime at the fit |
+| R3. remove the same call in `_retarget_detailed` | 0, 0, and 2 | `truncation_curve()` and `retarget()` on a legacy result |
+
 At commit 5e055cc, `tests/unit/test_msm_design_declaration.py` holds 88 tests,
 `tests/unit/test_msm_projection_weights.py` holds 52, and
 `tests/unit/test_stochastic_regime_densities.py` holds 86. The full fast suite gave 11223 passed
-and 87 skipped.
+and 87 skipped. At commit 97cc57e, the RM27 file holds 100 tests, and the full fast suite gave
+11235 passed and 87 skipped.
 
 ### RM28. Declared densities of user-written interventions
 

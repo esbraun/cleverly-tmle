@@ -207,10 +207,11 @@ design has the exact type that `MSM.linear` builds.
 
 The MSM and `Stochastic` objects refuse undeclared and estimated functions at construction. Their
 estimator paths check again before a fit or a result recomputation, because a restored object can
-carry an invalid declaration. The public evaluators `MSMSet.evaluate`, `evaluate_regimen_msm`,
-`RegimeSet.evaluate`, and `Stochastic.density` check before they run a user function. The
-simulated-confounding replay evaluates through them. Its replay model reads each MSM declaration
-from the source model, under the same rules as the fit.
+carry an invalid declaration. The `TMLE` fit checks before each refusal of the fit configuration,
+because no remedy that those refusals name lets an undeclared function fit. The public evaluators
+`MSMSet.evaluate`, `evaluate_regimen_msm`, `RegimeSet.evaluate`, and `Stochastic.density` check
+before they run a user function. The simulated-confounding replay evaluates through them. Its
+replay model reads each MSM declaration from the source model, under the same rules as the fit.
 
 `cleverly._declarations.FunctionDeclaration` shares the check and refusal texts. The declaration
 does not cover `Rule.rule`, `DynamicRegimen` rules, or custom `Intervention.density` methods.

@@ -143,7 +143,7 @@ projection weight. The table gives each place that checks both declarations.
 | checked by | when |
 | --- | --- |
 | the `MSM` class | when you declare the model |
-| the `TMLE` and `LTMLE` fits | before the first learner and before the first call to the design. A restored or copied model can carry a declaration that this version refuses |
+| the `TMLE` and `LTMLE` fits | before the first learner and before the first call to the design. A restored or copied model can carry a declaration that this version refuses. The `TMLE` fit also checks before each refusal of its configuration, for example `cv_evaluation=True`. So a restored model gets the declaration refusal first |
 | `TMLE.retarget()` | before it recomputes an estimate. Each sweep that calls it, such as `truncation_curve()`, meets this check |
 | `MSMSet.evaluate` and `evaluate_regimen_msm` | before they call the design or the weight. A direct call and the simulated-confounding replay both meet this check |
 
