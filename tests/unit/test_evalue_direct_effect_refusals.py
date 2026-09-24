@@ -374,6 +374,42 @@ class TestAControlledDirectEffectRefusesEveryBranch:
         assert derived_helper_refuses(replace(result))
 
 
+class TestARequestedParameterGetsItsOwnRefusal:
+    """The selector names the condition that makes each explicit request ineligible."""
+
+    def test_a_level_has_no_reference_arm(self, plain_fits: dict[str, Any]) -> None:
+        result = plain_fits["gaussian"]
+        with pytest.raises(_EValueRefusal) as caught:
+            evalue_module._select_evalue(result, "ey1")
+        assert caught.value.status is AssessmentStatus.NOT_APPLICABLE
+        assert str(caught.value) == (
+            "an E-value needs a two-arm contrast; target 'ey1' has no reference arm"
+        )
+
+    @pytest.mark.parametrize(
+        "key_changes,reason",
+        [
+            ({"axis": "shift"}, "an E-value needs an arm contrast, not the 'shift' axis"),
+            (
+                {"stratum": ("W", 1)},
+                "this package requires an unconditioned marginal arm contrast; this contrast "
+                "is conditional on a baseline stratum",
+            ),
+        ],
+    )
+    def test_an_axis_or_stratum_refusal_names_its_condition(
+        self, plain_fits: dict[str, Any], key_changes: dict[str, Any], reason: str
+    ) -> None:
+        result = plain_fits["ratio"]
+        keys = arm_parameter_keys(result)
+        keys["rr"] = replace(keys["rr"], **key_changes)
+        modified = replace(result, parameter_keys=keys)
+        row = evalue_row(modified, "rr")
+        assert row.status is AssessmentStatus.NOT_APPLICABLE
+        assert row.reason == reason
+        assert raised(lambda: evalue_module.evalue(modified, "rr")) == reason
+
+
 #: The requests whose branch reads a stored estimate. ``derived_rr`` is left out, because its
 #: helper refuses the fit by itself.
 BLOCKED = tuple(

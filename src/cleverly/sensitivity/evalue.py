@@ -375,10 +375,21 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
         raise _EValueRefusal(
             AssessmentStatus.UNAVAILABLE, f"estimand {source!r} has no structured parameter key"
         )
-    if key.axis != "arm" or key.reference is None or key.stratum is not None:
+    if key.axis != "arm":
         raise _EValueRefusal(
             AssessmentStatus.NOT_APPLICABLE,
-            f"an E-value needs an unconditioned two-arm contrast, not axis {key.axis!r}",
+            f"an E-value needs an arm contrast, not the {key.axis!r} axis",
+        )
+    if key.reference is None:
+        raise _EValueRefusal(
+            AssessmentStatus.NOT_APPLICABLE,
+            f"an E-value needs a two-arm contrast; target {key.estimand!r} has no reference arm",
+        )
+    if key.stratum is not None:
+        raise _EValueRefusal(
+            AssessmentStatus.NOT_APPLICABLE,
+            "this package requires an unconditioned marginal arm contrast; this contrast "
+            "is conditional on a baseline stratum",
         )
     # Fit-wide rather than branch-scoped, unlike the standardized rule below: the reported
     # and derived ratio branches read ``estimate.ci`` and the Gaussian branch reads the
