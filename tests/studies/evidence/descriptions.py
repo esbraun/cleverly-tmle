@@ -740,8 +740,7 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the SE-ratio interval must fall below the calibration band",
     ),
     ("interval_calibration", "inflated_se_control"): (
-        "the standard errors come from the curve of nu^2 without the conditioning-share term, "
-        "as before RM22",
+        "the reported standard errors come from a curve that is too wide on this law",
         "the SE-ratio interval must fall above the calibration band",
     ),
     ("interval_calibration", "noise_control"): (
@@ -969,6 +968,19 @@ class Undescribed(LookupError):
     """A committed result names a key this module does not describe."""
 
 
+#: A study-specific reading of a generic cell kind, keyed by family, arm prefix and kind.
+#: The generic entry in :data:`CELLS` says what the kind does; this says how one study built it.
+ARM_CELLS: dict[tuple[str, str, str], tuple[str, str]] = {
+    (family, arm, "inflated_se_control"): (
+        "the standard errors come from the curve of nu^2 without the conditioning-share term, "
+        "as before RM22",
+        "the SE-ratio interval must fall above the calibration band",
+    )
+    for family in ("interval_calibration",)
+    for arm in ("att_lower", "att_upper")
+}
+
+
 def implementation(key: str) -> str:
     """The reader-facing name of an implementation column value."""
     try:
@@ -1111,7 +1123,9 @@ def cell(
     if size is not None:
         base = size.group("cell")
     try:
-        tested, required = CELLS[family, base]
+        tested, required = (
+            ARM_CELLS.get((family, arm.group("arm"), base)) if arm else None
+        ) or CELLS[family, base]
     except KeyError:
         raise Undescribed(f"no description for cell {key!r} of {family!r}") from None
     if size is not None:

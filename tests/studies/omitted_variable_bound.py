@@ -19,7 +19,6 @@ red-cell route before any run.
 from __future__ import annotations
 
 import math
-import warnings
 from collections.abc import Mapping
 from typing import Any
 
@@ -151,23 +150,34 @@ def _unpenalized_logistic() -> LogisticRegression:
 
 
 def fit(frame: pd.DataFrame) -> Any:
-    """The declared in-sample TMLE with correctly specified GLMs."""
-    with warnings.catch_warnings():
-        # The in-sample fit warns that its nuisances saw the evaluation rows. That is the
-        # declared construction, and the warning changes no number.
-        warnings.simplefilter("ignore")
-        return (
-            TMLE(
-                outcome_learner=LinearRegression(),
-                treatment_learner=_unpenalized_logistic(),
-                cross_fit=False,
-                simultaneous=False,
-                estimands=FITTED,
-                random_state=0,
-            )
-            .fit(frame, outcome="Y", treatment="A")
-            .single()
+    """The declared in-sample TMLE with correctly specified GLMs.
+
+    No warning is suppressed.  The declared fit raises none on this law, so a warning that a
+    later package raises reaches the regeneration log instead of vanishing.
+    """
+    return (
+        TMLE(
+            outcome_learner=LinearRegression(),
+            treatment_learner=_unpenalized_logistic(),
+            cross_fit=False,
+            simultaneous=False,
+            estimands=FITTED,
+            random_state=0,
         )
+        .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
+
+
+#: How closely the rebuilt curve must reproduce the package's own curve and standard error.
+REBUILD_TOLERANCE = 1e-10
+
+
+def _bias_curve(elements: Any, psi_nu2: Any) -> Any:
+    """Theorem 4's curve of the maximal bias, from a curve of ``nu^2``."""
+    return (elements.sigma2 * psi_nu2 + elements.nu2 * np.asarray(elements.psi_sigma2)) / (
+        2.0 * elements.max_bias
+    )
 
 
 def bound_standard_errors(result: Any, name: str) -> dict[str, tuple[float, float]]:
@@ -188,20 +198,32 @@ def bound_standard_errors(result: Any, name: str) -> dict[str, tuple[float, floa
     assert elements.psi_nu2 is not None
     psi_nu2 = np.asarray(elements.psi_nu2, dtype=float)
     conditioning = ov.resolve_parameter(result, name).conditions_on
+    term = np.zeros_like(psi_nu2)
     if conditioning is not None:
         data = result.data
         arms = list(result.repeats[0].nuisance.arms)
         indicator = np.asarray(data.treatment == conditioning, dtype=float)
         share = float(data.arm_fractions[arms.index(conditioning)])
-        psi_nu2 = psi_nu2 - ov._conditioning_share_influence(
-            elements.nu2, indicator, share, data.weights
-        )
-    psi_bias = (elements.sigma2 * psi_nu2 + elements.nu2 * np.asarray(elements.psi_sigma2)) / (
-        2.0 * elements.max_bias
-    )
+        term = ov._conditioning_share_influence(elements.nu2, indicator, share, data.weights)
+    psi_nu2 = psi_nu2 - term
+    psi_bias = _bias_curve(elements, psi_nu2)
     curve = np.asarray(result[name].influence_curve, dtype=float)
     cluster = result.data.cluster
     strength = bounds.confounding_strength
+    # The control is this rebuild minus the term, so the rebuild with the term has to be the
+    # package's own curve and standard error.  A later package change that moved either one
+    # would otherwise change what the control measures without a word.  For the ATE the term
+    # is zero and the control is the package's curve outright.
+    rebuilt = _bias_curve(elements, psi_nu2 + term)
+    assert elements.psi_max_bias is not None
+    if not np.allclose(rebuilt, elements.psi_max_bias, rtol=0.0, atol=REBUILD_TOLERANCE):
+        raise RuntimeError(f"the rebuilt bias curve of {name!r} is not the package's")
+    if conditioning is None and not np.array_equal(psi_bias, elements.psi_max_bias):
+        raise RuntimeError(f"the control curve of {name!r} is not the package's curve")
+    for end, sign in (("lower", -1.0), ("upper", 1.0)):
+        rebuilt_se = float(np.sqrt(influence_variance(curve + sign * strength * rebuilt, cluster)))
+        if abs(rebuilt_se - reported[end][1]) > REBUILD_TOLERANCE * max(1.0, rebuilt_se):
+            raise RuntimeError(f"the rebuilt {end} standard error of {name!r} is not reported")
     without = {
         "lower": (
             bounds.lower,
