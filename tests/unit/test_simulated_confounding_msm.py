@@ -98,7 +98,8 @@ def _fit_continuous(
             MSM.linear(
                 modifiers=("W",),
                 interaction=False,
-                **({} if uniform else {"weights": _DoseWeight(), "weights_kind": "known"}),
+                weights=None if uniform else _DoseWeight(),
+                weights_kind=None if uniform else "known",
                 link=link,
                 doses=_DOSES,
             )
