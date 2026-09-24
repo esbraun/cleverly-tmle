@@ -314,10 +314,12 @@ target or an interval whose stated conditions are not met.
 | a binary-only target on a multi-arm fit | it would report a contrast of arms `0` and `1` out of five, under the name of a parameter about all of them. Targets declare `requires_binary_treatment` for this |
 | `MSM.linear` on non-numeric arm labels | a model linear in the arm reads it as a dose to interpolate between, and the fallback coding is the sort order. That is a dose scale nobody chose |
 
-Five of these share one mechanism, and it generalises past this package. **If an intervention's
-density is a functional of `P`, the influence function carries its pathwise derivative.** Omitting
-that term changes the variance. The direction depends on its covariance with the retained curve.
-The incremental and shift rows above give their own variance gaps. The rule row shares the
+The first three rows share one mechanism, and it generalises past this package. **If an
+intervention's density is a functional of `P`, the influence function carries its pathwise
+derivative.** Omitting that term changes the variance. The direction depends on its covariance
+with the retained curve. The MSM rows on a "stabilised" weighting and on a sample-statistic
+`design` apply the same argument to a working-model function. The incremental and shift rows above give their own variance
+gaps. The rule row shares the
 mechanism when a population quantity indexes the rule, as in the threshold witness.
 
 Two more share another. **A nuisance that sits inside the estimand is not a knob.** Truncating `g`

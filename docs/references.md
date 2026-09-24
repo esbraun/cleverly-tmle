@@ -521,8 +521,9 @@ previous reader had is not a citation; a page number is.
   *Journal of Statistical Software* 116(4), DOI 10.18637/jss.v116.i04. Sections 2 and 3 describe
   policy value scores and cross-fitted evaluation of learned policies. This is evidence for a
   distinct learned-policy contract, which the package does not implement.
-  [RM28](roadmap.md#rm28-declared-densities-of-user-written-interventions) requires `Rule` and
-  `DynamicRegimen` to declare `rule_kind="known"`, and it refuses a rule declared `"estimated"`.
+  [RM28](roadmap.md#rm28-declared-densities-of-user-written-interventions) requires `Rule`, and a
+  `DynamicRegimen` with a callable node, to declare `rule_kind="known"`. It refuses a rule
+  declared `"estimated"`.
 - Luedtke & van der Laan (2016), [*Statistical inference for the mean outcome under a possibly
   non-unique optimal treatment strategy*](https://doi.org/10.1214/15-AOS1384), *Annals of
   Statistics* 44(2):713–742, DOI 10.1214/15-AOS1384. The paper gives the pathwise
@@ -530,10 +531,12 @@ previous reader had is not a citation; a page number is.
   not always require a first-order rule-estimation term; non-unique optima can cause nonregularity.
   The package's generic `Rule` path does not implement this optimal-value analysis.
   [RM28](roadmap.md#rm28-declared-densities-of-user-written-interventions) requires the
-  `rule_kind="known"` declaration instead. Its threshold witness uses a continuous covariate. On a
-  covariate with finite support, a threshold at a sample statistic is locally constant, so the
-  omitted term is zero. The treatment effect in the witness law is 1 at every covariate value, so
-  its optimal rule is unique.
+  `rule_kind="known"` declaration instead. The rest of this entry gives the package's own
+  reasoning for its threshold witness, not a result of the paper. The witness uses a continuous
+  covariate. On a covariate with finite support, a threshold at a sample statistic is locally
+  constant, so the omitted term is zero. In both witness laws, the treatment effect at the rule's
+  node is 1 at every covariate value. So each optimal rule is unique, and neither law is an
+  exceptional law of the paper.
 - Haneuse & Rotnitzky (2013), *Estimation of the effect of interventions that modify the received
   treatment*, *Statistics in Medicine* 32(30):5260–5277, DOI
   [10.1002/sim.5907](https://doi.org/10.1002/sim.5907).

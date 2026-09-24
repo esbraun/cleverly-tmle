@@ -1859,16 +1859,36 @@ class LTMLE:
         ``rule_kind="known"``, as a mapping value or an item of a sequence.  A callable
         written inline in a mapping carries no declaration, and :meth:`fit` refuses it
         before any learner (roadmap row RM28).
-    reference:
+    reference : str or None
         Which regimen contrasts are taken against; the first declared by default.
         Part of the estimand rather than a display setting -- ``ate_regimen[a vs b]``
-        and ``ate_regimen[a vs c]`` are different parameters.
-    outcome_learner, pseudo_learner, treatment_learner, censoring_learner:
-        Learner specifications, as for :class:`~cleverly.TMLE`.  ``pseudo_learner``
-        fits the intermediate regressions, whose outcome is a ``[0, 1]``-valued
-        prediction rather than the outcome itself, and defaults to ``outcome_learner``'s
-        library read as a regression.
-    n_folds:
+        and ``ate_regimen[a vs c]`` are different parameters.  Refused with ``msm=``.
+    horizons : sequence of int or None
+        Which time points a **survival** fit reports the cumulative risk at.  ``None``
+        reports all of them, which is the curve.  Each horizon is its own backward pass
+        -- the pseudo-outcome carried back differs at every node, so nothing is shared
+        between them but the mechanism -- and the cost is therefore ``T(T+1)/2``
+        regressions per regimen rather than ``T``.  At two or three nodes that is not
+        worth a keyword; over a monthly panel it is the difference between a fit and an
+        afternoon, so name the horizons you will report.  Refused on a fit with one
+        end-of-study outcome, where the only horizon is the end of the study.
+    msm : MSM or None
+        A working model over the regimen and horizon cells, which reports coefficients
+        and no contrasts.  It requires ``n_folds=1``.
+    outcome_learner : object or None
+        Learner specification for the regression at the reported horizon, as for
+        :class:`~cleverly.TMLE`.
+    pseudo_learner : object or None
+        Learner specification for the intermediate regressions, whose outcome is a
+        ``[0, 1]``-valued prediction rather than the outcome itself.  It defaults to
+        ``outcome_learner``'s library read as a regression.
+    treatment_learner : object or None
+        Learner specification for the treatment mechanism at each node, as for
+        :class:`~cleverly.TMLE`.
+    censoring_learner : object or None
+        Learner specification for the censoring mechanism at each node, as for
+        :class:`~cleverly.TMLE`.
+    n_folds : int
         Outer cross-fitting folds; one split serves every node and every regimen, so a unit
         is out of fold in all of them at once.  Above one fold the fit follows the
         cross-fitted construction of Díaz, Williams, Hoffman and Schenck (2023, *JASA*
@@ -1886,36 +1906,51 @@ class LTMLE:
         A longitudinal ``msm=`` fit requires ``n_folds=1``.  Cross-fitted coefficient
         inference remains refused until a dedicated unsaturated projection property and
         repeated-sampling study establish it.
-    g_bounds:
+    learner_folds : int
+        The inner folds of the default :class:`~cleverly.learners.SuperLearner` that a
+        learner slot left at ``None`` builds.
+    g_bounds : float or tuple of float
         Fixed truncation applied to each cumulative treatment-and-censoring probability,
         after multiplying the raw node factors.  The default is the explicit pair
         ``(0.01, 1.0)``, R ``ltmle``'s heuristic convention.  It is not an automatic,
         sample-size-dependent, or follow-up-depth-dependent selection procedure.
-    alpha:
+    q_bounds : tuple of float or None
+        The bounds that map a continuous outcome onto the ``[0, 1]`` scale of the
+        recursion.  ``None`` widens the observed range by 10 % on each side.  Above one fold, a
+        continuous outcome must declare them, and a binary outcome refuses them.
+    alpha : float
         Predicted probabilities are bounded into ``[1 - alpha, alpha]`` before the logit
         is taken, as for :class:`~cleverly.TMLE`.
-    horizons:
-        Which time points a **survival** fit reports the cumulative risk at.  ``None``
-        reports all of them, which is the curve.  Each horizon is its own backward pass
-        -- the pseudo-outcome carried back differs at every node, so nothing is shared
-        between them but the mechanism -- and the cost is therefore ``T(T+1)/2``
-        regressions per regimen rather than ``T``.  At two or three nodes that is not
-        worth a keyword; over a monthly panel it is the difference between a fit and an
-        afternoon, so name the horizons you will report.  Refused on a fit with one
-        end-of-study outcome, where the only horizon is the end of the study.
-    alpha_sig:
+    alpha_sig : float
         Significance level for confidence intervals, as for :class:`~cleverly.TMLE`.
         The two ``alpha``\\ s mean what they mean there and not the other way round: this
         pair used to be spelled ``alpha`` / ``alpha_shrink`` here, which made
         ``LTMLE(alpha=0.9995)`` a silent 0.05 %-level interval.
-    simultaneous, n_multiplier, multiplier_kind:
-        Simultaneous confidence bands across the reported parameters, via the multiplier
-        bootstrap.  A fit with several regimens reports several correlated parameters,
-        which is what the bands are for; see :mod:`cleverly.inference.multiplier`.  A fit
-        whose inference status supplies no inference builds no band, and
-        :meth:`LongitudinalResult.summary` says so.
-    run_id:
+    simultaneous : bool
+        Whether to report simultaneous confidence bands across the reported parameters,
+        via the multiplier bootstrap.  A fit with several regimens reports several
+        correlated parameters, which is what the bands are for; see
+        :mod:`cleverly.inference.multiplier`.  A fit whose inference status supplies no
+        inference builds no band, and :meth:`LongitudinalResult.summary` says so.
+    n_multiplier : int
+        The number of multiplier draws behind each band.
+    multiplier_kind : {"rademacher", "mammen", "normal"}
+        The distribution of the multiplier draws.
+    max_iter : int
+        Maximum targeting iterations per node.
+    tol : float
+        Targeting tolerance per node.
+    random_state : int or None
+        The seed of the outer split.  A default learner, and a
+        :class:`~cleverly.learners.SuperLearner` with no seed of its own, inherit it.
+        ``None`` draws a fresh seed for the split.
+    run_id : str or None
         An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
+    n_jobs : int
+        Worker count for the parallel fan-out of the recursion.
+    **refused : Any
+        A point-treatment keyword.  Each one raises :class:`TypeError` with the reason
+        that a longitudinal fit does not support it.
     """
 
     def __init__(
@@ -2078,6 +2113,46 @@ class LTMLE:
         estimate takes the ``"few_cluster_plugin"`` status, as a point-treatment fit does.
         The point estimate stands.  The inference reference, section *Clusters*, gives
         the reason.  ``id=`` is taken in sample only.
+
+        Parameters
+        ----------
+        data : DataFrame or LongitudinalData
+            One wide frame, a row per unit and a column per node, or a container that
+            has already read the columns.  A container takes none of the column
+            keywords below.
+        outcome : str, sequence of str, mapping, or None
+            One column for an end-of-study outcome, one column per node for a survival
+            outcome, or a mapping of cause to one column per node for competing risks,
+            as for :meth:`LongitudinalData.from_frame`.
+        treatment : sequence of str or None
+            The treatment column of each node, in time order.  Its length declares ``T``.
+        baseline : sequence of str or None
+            The covariates measured before any treatment.
+        time_varying : sequence of sequence of str or None
+            One list of covariate columns per node, measured before that node's
+            treatment.  ``None`` means that there are none.
+        censoring : sequence of str or None
+            One column per node, ``1`` where the unit is still under observation after
+            that node.  ``None`` means that nobody was censored.
+        id : str or None
+            A cluster column, read as described above.
+        weights : str or None
+            A column of observation weights, read as described above.
+        weights_type : str
+            How to read ``weights``, as for :meth:`LongitudinalData.from_frame`.
+        weights_estimated : bool
+            Declare that the weights came out of a fitted model.  It changes no number.
+        family : {"auto", "binomial", "gaussian"}
+            The outcome family.  ``"auto"`` infers it from the outcome.
+        **refused : Any
+            A point-treatment keyword.  Each one raises :class:`TypeError` with the
+            reason that a longitudinal fit does not support it.
+
+        Returns
+        -------
+        LongitudinalResult
+            The regimen estimates, their contrasts or working-model coefficients, and
+            the fits behind them.
         """
         refuse_unsupported(refused, where="LTMLE.fit")
         if self.msm is not None:
