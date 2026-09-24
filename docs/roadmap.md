@@ -2627,6 +2627,30 @@ needs no row.
 The full fast suite gave 11556 passed and 87 skipped at 44f44998, and 11627 passed and 87
 skipped at commit 63d8862.
 
+#### RM21 review fixes
+
+Two reviews of this delivery found one defect in the source, C1, and three in the tests, C2 to C4.
+They also found six defects in the documentation, D1 to D6. The table gives each one, with the
+commit that fixed it.
+
+| finding | fix |
+| --- | --- |
+| C1. a combined report saved before RM21 still publishes its E-value | `_run_all` caches the report under `sensitivity.run_all`, and `_cached` serves a hit without a new gate. A controlled-direct-effect result that ran `run_all()` or `assess()` before RM21 kept a completed E-value row after `load`, and its capability row read `unavailable`. The generation of that key moves from 2 to 3, so the older entry is a cache miss. `test_a_battery_saved_before_rm21_does_not_publish_its_e_value` writes the stale report at generation 2, and a control reads it back at that generation. With the bump reverted, that test fails and the rest of its file and of `tests/unit/test_assessment_contract.py` passes. Commit 9c9f0ba |
+| C1, the sibling check | no other cache key serves an E-value. `validate` and `diagnostics.run_all` hold diagnostics only. The single `sensitivity.evalue` entry is safe, because `_invoke` selects before it reads the cache. `sensitivity.derived_risk_ratio` held nothing on such a fit, because `_risk_ratio_refusal` refused it before RM21. Commit 9c9f0ba |
+| C2. three copies of the probe law and of the edits that only `dataclasses.replace` makes | `tests/unit/_direct_effect_support.py` holds them once. The RM21 file, the intermediate fit of `tests/unit/test_omitted_variable_refusals.py`, and both intermediate edits of `tests/unit/test_simulated_confounding.py` use it. The four affected files passed 601 tests before and after. Commit 669663e |
+| C3. the facade message matched by containment | `assert_refused` compares it exactly. A default request raises `sensitivity 'evalue' is unavailable:` before the reason, and an explicit estimand raises the reason alone. Commit 669663e |
+| C4. `cv_evaluated` did not say that it refits nothing | its docstring says that the two requests on it witness the routing only. Commit 669663e |
+| D1. the Smith and VanderWeele (2019) row called an author manuscript the published article | the row links the DOI of the published article. Its page locators are published page numbers. Commit 7a2ff41 |
+| D2. the surface table of the delivery miscounted its sources | the sentence names two surfaces from the plan and one from the delivery. Commit 7a2ff41 |
+| D3. two RM16 paragraphs each claimed "the last two rows" | each paragraph names its rows. Commit 7a2ff41 |
+| D4. the comment on `_DIRECT_EFFECT_REFUSAL` sent the reader to RM21 for the sources | it names the source table in the E-value paths and F25. Commit 9c9f0ba |
+| D5. four texts said that every request reads `unavailable` | a continuous-treatment fit with an intermediate variable reads `not_applicable`, because that check runs first. The E-value row, the scope row, and the F25 grid row now name a discrete treatment, and the E-value paths state the order. `test_a_continuous_dose_with_an_intermediate_is_not_applicable` pins the status on a shift fit. The reason text stays, because it says that the package refuses every request, and `not_applicable` is a refusal too. Commits 9c9f0ba and 7a2ff41 |
+| D6. six smaller corrections | F25 names the *Biometrika* paper. The E-value paths give the title of each source that the search did not read, and say in the active voice which version of Ding and VanderWeele (2016) was read. The RM21 problem text points at the RM16 row, the suite line is wrapped, and the comment before the status refusal names the checks it follows. Commits 9c9f0ba and 7a2ff41 |
+
+At this record the RM21 file holds 71 tests. The full fast suite gave 11631 passed and 87
+skipped. The four new tests are the two RM21 tests above, and the two source scans of
+`tests/unit/test_documentation_links.py` on the new support file.
+
 ### RM22. Standard error of the omitted-variable bound
 
 `_elements_for` in `src/cleverly/sensitivity/omitted_variable.py` builds `psi_nu2` as the centred
