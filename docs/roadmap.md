@@ -867,6 +867,12 @@ The plan and the delivery of [RM21](#rm21-e-value-on-a-controlled-direct-effect-
 derived risk-ratio row and the E-value-reason row. Each test must read the message on the RM21
 probe fit. A control must keep each other reason of the same function.
 
+The PR 229 review resolved these two message rows. `_risk_ratio_refusal` now names the missing
+intermediate intervention level in cached retargeting. A binary controlled-direct-effect fit
+reports both `rr` and `or`, and the direct helper still refuses. `_select_evalue` now gives
+separate reasons for a non-arm axis, a level without a reference arm, and a baseline stratum.
+`test_evalue_direct_effect_refusals.py` checks the fitted ratio and each refusal reason.
+
 ### RM18. Red property cells after the fold, scale and law changes
 
 Sixteen registered studies moved to unstratified folds. Six of them also moved to a bounded
@@ -2438,9 +2444,9 @@ the [scope page](technical-reference/scope-and-refusals.md), the
 `_select_evalue` in `src/cleverly/sensitivity/evalue.py` returns the Gaussian-difference branch
 before any check for an intermediate variable. The reported-ratio branches return before that
 check too. The derived-ratio branch refuses the same fit in `_risk_ratio_refusal`
-(`src/cleverly/sensitivity/_derived.py`), because no controlled direct risk-ratio target is
-registered. [RM16](#rm16-summary-and-error-message-accuracy) records that this reason misstates
-the fit. The fixed-baseline branch refuses it as well.
+(`src/cleverly/sensitivity/_derived.py`). Its former reason claimed that no controlled direct
+risk-ratio target was registered. [RM16](#rm16-summary-and-error-message-accuracy) records why
+that reason misstated the fit. The fixed-baseline branch refuses it as well.
 
 | fit | request | result |
 | --- | --- | --- |
@@ -2450,18 +2456,18 @@ the fit. The fixed-baseline branch refuses it as well.
 | the same binary fit | `rr` | E-value 3.4858 from the reported ratio 2.0348 |
 | the same binary fit | `or` | E-value 2.6318 |
 
-Both Gaussian levels divide by one value, sd(Y) = 1.907. That is the standard deviation of the
-observed outcome. A controlled direct effect compares means under an intervention on the
-intermediate variable, so that value is not the scale of either counterfactual mean. The
-identification of the effect also assumes no unmeasured confounding of the intermediate variable
-and the outcome. The E-value of VanderWeele and Ding (2017) is defined for the confounding of one
-exposure-outcome relation. No source read for this roadmap extends it to this case.
+Both Gaussian levels divide by the observed outcome's sd(Y) = 1.907. That arithmetic does not
+supply a source-backed confounding bound for the controlled-direct-effect target. Identification
+also assumes no unmeasured confounding of the intermediate variable and the outcome. The ordinary
+E-value conversion does not by itself describe both sources of
+confounding for this fitted target. [F25](#f25-e-value-for-a-controlled-direct-effect) records
+the mapping needed before a supported branch can open.
 
 Apply these corrections:
 
-1. Search for a source that derives an E-value for a controlled direct effect. If one covers a
-   branch, record its locator and the outcome scale that it uses.
-2. Refuse each branch that no source covers, before any computation. Put the check in
+1. Search for a source-backed bound and a mapping to the fitted controlled direct effect.
+   A natural specialization can qualify. Record the locator, confounding model, and outcome scale.
+2. Refuse each branch without a verified mapping, before any computation. Put the check in
    `_select_evalue` ahead of the branch selection, so that the capability row reads `unavailable`.
    The reason names the missing result.
 
@@ -2474,7 +2480,7 @@ The witnesses must fail when a component is wrong:
 
 #### RM21 plan
 
-The source search found no result that covers any branch.
+The source search found no verified mapping that covers a branch of this fitted target.
 [F25](#f25-e-value-for-a-controlled-direct-effect) records what each read source covers. So the
 plan refuses every branch. The 2026-09-24 plan fixes the decisions in the table below. Line
 numbers are at 44f44998.
@@ -2540,8 +2546,9 @@ Five hand mutations then run one at a time, each on a copy with its sha256 recor
 
 #### RM21 delivery
 
-Both corrections shipped as commit f97076f planned them. The search found no source that covers a
-branch, so every branch refuses. Each row ends with the commit that shipped it.
+Both corrections shipped as commit f97076f planned them. The review found no verified mapping
+that covers a branch of this fitted target, so every branch refuses. Each row ends with the commit
+that shipped it.
 
 | part | what shipped |
 | --- | --- |
@@ -2564,8 +2571,8 @@ found.
 | surface | outcome |
 | --- | --- |
 | a multi-arm controlled-direct-effect fit, found by the plan | its default row read `deferred`, and a check after the default estimand would keep it so. The check runs before the estimand, so the row reads `unavailable`. `test_a_multi_arm_fit_does_not_defer` pins the default and each `ate[...]` alias. Commit 581bdc0 |
-| the text of `_risk_ratio_refusal`, found by the plan | not in this row. The text says that no controlled direct risk-ratio target is registered, and the binary fit reports `rr` at each level. Mutation M5 measured the real limit: a direct call without the rule raises `DataError`, because `retarget` receives no level. [RM16](#rm16-summary-and-error-message-accuracy) holds the row |
-| the reason for `ey1` on a fit without an intermediate variable, found by the delivery | not in this row. The reason names the arm axis, which the level has. RM16 holds the row |
+| the text of `_risk_ratio_refusal`, found by the plan | its former text said that no controlled direct risk-ratio target was registered, while the binary fit reported `rr` at each level. Mutation M5 measured the limit: a direct call without the rule raises `DataError`, because `retarget` receives no level. [RM16](#rm16-summary-and-error-message-accuracy) records its later correction |
+| the reason for `ey1` on a fit without an intermediate variable, found by the delivery | its former text named the arm axis, which the level has. RM16 records its later correction |
 
 The row named three witnesses. The table gives the state of each. They are in
 `tests/unit/test_evalue_direct_effect_refusals.py`, which held 69 tests at commit 581bdc0. The table `REQUESTS`
@@ -2647,9 +2654,18 @@ commit that fixed it.
 | D5. four texts said that every request reads `unavailable` | a continuous-treatment fit with an intermediate variable reads `not_applicable`, because that check runs first. The E-value row, the scope row, and the F25 grid row now name a discrete treatment, and the E-value paths state the order. `test_a_continuous_dose_with_an_intermediate_is_not_applicable` pins the status on a shift fit. The reason text stays, because it says that the package refuses every request, and `not_applicable` is a refusal too. Commits 9c9f0ba and 7a2ff41 |
 | D6. six smaller corrections | F25 names the *Biometrika* paper. The E-value paths give the title of each source that the search did not read, and say in the active voice which version of Ding and VanderWeele (2016) was read. The RM21 problem text points at the RM16 row, the suite line is wrapped, and the comment before the status refusal names the checks it follows. Commits 9c9f0ba and 7a2ff41 |
 
-At this record the RM21 file holds 71 tests. The full fast suite gave 11631 passed and 87
+At commit 7a2ff41 the RM21 file held 71 tests. The full fast suite gave 11631 passed and 87
 skipped. The four new tests are the two RM21 tests above, and the two source scans of
 `tests/unit/test_documentation_links.py` on the new support file.
+
+The PR 229 review corrected two further claims. The refusal now states the package's missing
+implemented bound for its fitted controlled direct effect and confounding model. It no longer
+infers that no such bound can exist from the two identification assumptions. The source table
+distinguishes a natural effect, a marker contrast within one vaccination arm, and the fitted
+population controlled direct effect at fixed $z$. The E-value summary now names the
+equal-strength threshold and the tradeoff between unequal strengths. For $RR=2$, strengths
+$3$ and $4$ give bounding factor $2$, although the equal-strength E-value is $3.414$.
+`test_sensitivity_units.py` checks this arithmetic and the summary text.
 
 ### RM22. Standard error of the omitted-variable bound
 
@@ -4658,16 +4674,26 @@ this reason. The generated-outcome refutation refuses the same composition for t
 A controlled direct effect is identified under two assumptions of no unmeasured confounding.
 Assumption 2 covers the treatment and the outcome. Assumption 3 covers the intermediate variable
 and the outcome (`src/cleverly/estimators/direct_effect.py`). The E-value of VanderWeele and Ding
-(2017) inverts a bound on the confounding of one exposure-outcome relation.
+(2017) inverts a risk-ratio bounding factor for a stated exposure contrast.
 
-The sources that RM21 read do not close this gap. VanderWeele (2010) gives bias formulas for a
-controlled direct effect, but no threshold and no inversion to an E-value. Smith and VanderWeele
-(2019) derive a mediational E-value for natural direct and indirect effects only. Ding and
-VanderWeele (2016, *Biometrika*) bound a natural direct effect only. The
-[E-value paths](technical-reference/validation-methods.md#e-value) give the locator of each source.
+The [E-value paths](technical-reference/validation-methods.md#e-value) record the sources read
+and their coverage. Ding and VanderWeele (2016, *Epidemiology*) allow a multivariate confounder
+and two levels of a general exposure. This does not itself map a composite $(A,Z)$ exposure onto
+the package's population contrast between $A$ arms at one fixed $Z=z$. The natural-effect
+results of Ding and VanderWeele (2016, *Biometrika*) and Smith and VanderWeele (2019) use
+different targets and confounding models. Gilbert, Fong, Kenny and Carone (2023) study a
+controlled effect, but their E-value compares marker interventions within a vaccination arm.
 
-Wait for a source that derives the bound and its inversion for a controlled direct effect. Record
-its locator and outcome scale, and open the branch that it covers.
+A source-backed specialization of an existing bound is eligible; no paper has to name this
+package's API. Before implementation, specify the fitted target, the target population, and the
+outcome scale.
+
+Map each allowed unmeasured confounder to its time in the treatment-intermediate-
+outcome sequence. Define the treatment-confounder and outcome-confounder strengths under the
+intervention on $Z$, including any conditioning on $Z$ or joint $(A,Z)$ assignment. Show that
+the observed-data contrast and its standardization match the source's bounding factor for this
+target. Then derive the inversion for the point estimate and the reported interval. Validate
+the mapping with a nonzero law and controls that fail for a wrong arm, level, or confounding path.
 
 ### F26. Confidence limits of the plug-in omitted-variable bound
 

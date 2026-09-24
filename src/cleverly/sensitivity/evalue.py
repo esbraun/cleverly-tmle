@@ -4,19 +4,21 @@ The E-value answers the same question as the omitted-variable bound but on the r
 ratio scale, and with a different parameterisation that has become the convention in
 epidemiology:
 
-    *the minimum strength of association, on the risk ratio scale, that an
-    unmeasured confounder would need with both the treatment and the outcome --
-    conditional on the measured covariates -- to fully explain away the observed
-    association.*
+    *the minimum strength, on the risk ratio scale, that each of two confounder
+    associations would need if both had equal strength: one with treatment and one
+    with outcome, conditional on the measured covariates, to explain away the
+    observed association.*
+
+Unequal associations can trade off: one can be below the E-value if the other is
+above it. The E-value alone does not establish whether such confounding is plausible.
 
 For an observed risk ratio :math:`RR \ge 1`,
 
 .. math:: E = RR + \sqrt{RR\,(RR - 1)}
 
 and for :math:`RR < 1` the same formula is applied to :math:`1/RR`.  An E-value of 1
-means no unmeasured confounding at all is needed -- the estimate is already
-compatible with the null.  A large E-value means only an implausibly strong
-confounder could account for the finding.
+means no unmeasured confounding is needed -- the estimate is already
+compatible with the null. A larger E-value raises the equal-strength threshold.
 
 The E-value for the *confidence limit* is usually the more important number: it says
 how strong a confounder would need to be to move the interval to include the null,
@@ -35,10 +37,10 @@ Conversions for other effect scales are approximations and are flagged as such:
   :func:`cleverly.sensitivity.omitted_variable_bounds` for a continuous outcome,
   which needs no such conversion.
 
-No conversion applies to a controlled direct effect. That effect is identified under no
-unmeasured confounding of the treatment and the outcome, and of the intermediate variable and
-the outcome, and no source read for this package derives an E-value for it.
-:func:`_select_evalue` therefore refuses every request on a fit with an intermediate variable.
+This package has no implemented E-value bound for its fitted controlled direct effect
+and confounding model. :func:`_select_evalue` refuses every request on a fit with an
+intermediate variable, because the ordinary conversion does not establish sensitivity
+to unmeasured confounding for that target.
 """
 
 from __future__ import annotations
@@ -84,22 +86,19 @@ _STANDARDISED_MISSING_REFUSAL = (
 #: sentence.
 _EVALUE_NEEDS_INFERENCE = "an E-value is built from the reported estimate and its interval. "
 
-#: Why every E-value branch stops on a fit with an intermediate variable.  A controlled direct
-#: effect is identified under two no-unmeasured-confounding assumptions, and the E-value
-#: inverts a bound for one exposure-outcome relation.  The E-value section of
-#: ``docs/technical-reference/validation-methods.md`` tabulates the sources read, and F25 in
-#: ``docs/roadmap.md`` holds the missing result.  Raised in :func:`_select_evalue` before the
+#: Why every E-value branch stops on a fit with an intermediate variable. This package
+#: has no implemented bound for its fitted controlled direct effect and confounding model.
+#: The E-value section of ``docs/technical-reference/validation-methods.md`` gives the
+#: support boundary, and F25 in ``docs/roadmap.md`` tracks the gap. Raised in
+#: :func:`_select_evalue` before the
 #: estimand is resolved, so the row reads ``unavailable`` on every such fit with a discrete
 #: treatment, a multi-arm fit included, and no branch computes.  A continuous-treatment fit
 #: meets the check before it and reads ``not_applicable``, so it is refused as well.
 _DIRECT_EFFECT_REFUSAL = (
-    "no source that this package has read derives an E-value for controlled direct "
-    "effects. The E-value of VanderWeele and Ding (2017) bounds the unmeasured "
-    "confounding of one exposure-outcome relation. A controlled direct effect also "
-    "assumes no unmeasured confounding of the intermediate variable and the outcome, "
-    "and the mediational E-value of Smith and VanderWeele (2019) covers natural direct "
-    "and indirect effects only. This package refuses every E-value request on a fit "
-    "with an intermediate variable; docs/roadmap.md F25 tracks this stop"
+    "this package has no implemented E-value bound for the fitted controlled direct "
+    "effect and its confounding model. Applying the ordinary E-value conversion does "
+    "not establish sensitivity to unmeasured treatment-outcome or intermediate-outcome "
+    "confounding for this target. docs/roadmap.md F25 tracks this support gap"
 )
 
 
@@ -167,10 +166,11 @@ class EValue:
         the risk-ratio parameter space. The report truncates it at zero, records the
         untruncated value in :attr:`truncated_bound`, and says so in :attr:`note`.
     point : float
-        Risk-ratio association an unmeasured confounder would need with both
-        treatment and outcome to explain the point estimate away.
+        Equal-strength threshold for the confounder's treatment and outcome
+        associations on the risk-ratio scale to explain the point estimate away.
+        Unequal association strengths can trade off.
     limit : float
-        The same association needed to move the confidence limit across the null.
+        The equal-strength threshold to move the confidence limit to the null.
     approximate : bool
         Whether reaching the risk-ratio scale needed an approximate conversion.
     note : str
@@ -210,14 +210,16 @@ class EValue:
             f"E-value, point estimate     : {self.point:.4f}",
             f"E-value, confidence limit   : {self.limit:.4f}",
             "",
-            f"An unmeasured confounder would need risk-ratio associations of at least "
-            f"{self.point:.2f} with both treatment and outcome, above and beyond the "
-            f"measured covariates, to explain away the point estimate; "
+            f"If its two risk-ratio associations had equal strength, an unmeasured "
+            f"confounder would need {self.point:.2f} with both treatment and outcome, "
+            f"beyond the measured covariates, to explain away the point estimate; "
             + (
-                f"{self.limit:.2f} to move the interval across the null."
+                f"{self.limit:.2f} to move the interval to the null."
                 if self.limit > 1.0
                 else "the interval already includes the null."
             ),
+            "Unequal strengths can trade off: one association may be below the E-value "
+            "if the other is above it.",
         ]
         if self.note:
             lines.extend(["", self.note])
@@ -375,10 +377,21 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
         raise _EValueRefusal(
             AssessmentStatus.UNAVAILABLE, f"estimand {source!r} has no structured parameter key"
         )
-    if key.axis != "arm" or key.reference is None or key.stratum is not None:
+    if key.axis != "arm":
         raise _EValueRefusal(
             AssessmentStatus.NOT_APPLICABLE,
-            f"an E-value needs an unconditioned two-arm contrast, not axis {key.axis!r}",
+            f"an E-value needs an arm contrast, not the {key.axis!r} axis",
+        )
+    if key.reference is None:
+        raise _EValueRefusal(
+            AssessmentStatus.NOT_APPLICABLE,
+            f"an E-value needs a two-arm contrast; target {key.estimand!r} has no reference arm",
+        )
+    if key.stratum is not None:
+        raise _EValueRefusal(
+            AssessmentStatus.NOT_APPLICABLE,
+            "this package requires an unconditioned marginal arm contrast; this contrast "
+            "is conditional on a baseline stratum",
         )
     # Fit-wide rather than branch-scoped, unlike the standardized rule below: the reported
     # and derived ratio branches read ``estimate.ci`` and the Gaussian branch reads the
@@ -490,8 +503,8 @@ def evalue(result: TMLEResult, estimand: str | None = None) -> EValue:
     ------
     CapabilityError
         If no branch covers the request. A fit with an intermediate variable estimates a
-        controlled direct effect, and every request on it refuses, because no source read
-        for this package derives an E-value for that target.
+        controlled direct effect, and every request on it refuses because this package
+        has no implemented E-value bound for its fitted target and confounding model.
     """
     return _evalue_from_selection(result, _select_evalue(result, estimand))
 
