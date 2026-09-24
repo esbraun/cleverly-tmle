@@ -125,9 +125,9 @@ class DynamicRegimen:
     :func:`refuse_regimen_rules` refuses ``None`` and ``"estimated"`` when the regimen is
     built, and ``LTMLE.fit`` refuses them again before any learner (roadmap row RM28).
 
-    ``` python
-    DynamicRegimen("treat once L2 rises", (0, lambda h: h["L2"] > 0), rule_kind="known")
-    ```
+    .. code-block:: python
+
+        DynamicRegimen("treat once L2 rises", (0, lambda h: h["L2"] > 0), rule_kind="known")
 
     Parameters
     ----------
@@ -148,6 +148,10 @@ class DynamicRegimen:
         :class:`~cleverly.exceptions.DataError`.  A regimen pickled before this field
         existed loads as ``None``.  It is the last field, so ``DynamicRegimen(label,
         plan)`` keeps its positional order.
+
+    Attributes
+    ----------
+    n_times : int
     """
 
     label: str
@@ -163,10 +167,22 @@ class DynamicRegimen:
 
     @property
     def n_times(self) -> int:
+        """The number of treatment nodes, one for each entry of ``plan``."""
         return len(self.plan)
 
     def is_rule(self, time: int) -> bool:
-        """Whether ``time``'s arm is decided by a rule rather than declared."""
+        """Whether ``time``'s arm is decided by a rule rather than declared.
+
+        Parameters
+        ----------
+        time : int
+            The treatment node, counted from one.
+
+        Returns
+        -------
+        bool
+            ``True`` when the entry of ``plan`` at ``time`` is callable.
+        """
         return callable(self.plan[time - 1])
 
     def assignment(self, data: LongitudinalData) -> Any:
@@ -193,6 +209,26 @@ class DynamicRegimen:
 
         It runs :func:`refuse_regimen_rules` before it calls any rule, because a restored
         or modified regimen can reach it directly with a declaration this version refuses.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The validated panel, which supplies each node's history frame and the rows
+            still in the study.
+
+        Returns
+        -------
+        ndarray
+            ``(n, T)`` object array of treatment labels, one column per node.  A row that
+            has left the study before a node holds ``None`` at that node.
+
+        Raises
+        ------
+        CapabilityError
+            If a node is callable and ``rule_kind`` is ``None`` or ``"estimated"``.
+        DataError
+            If ``rule_kind`` is not one of the three states, or a rule raises or returns
+            other than one arm per row.
         """
         refuse_regimen_rules(self)
         columns = []

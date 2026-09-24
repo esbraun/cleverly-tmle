@@ -89,6 +89,7 @@ categorized API tables.
    cleverly.interventions.Static
    cleverly.interventions.Rule
    cleverly.interventions.Stochastic
+   cleverly.longitudinal.DynamicRegimen
    cleverly.interventions.RegimeSet
    cleverly.interventions.Incremental
    cleverly.interventions.IPSISet

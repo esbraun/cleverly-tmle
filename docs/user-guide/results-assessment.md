@@ -875,6 +875,10 @@ Read `result.diagnostics.capabilities` before you run an operation on a restored
 row declares the replay it needs, and `available` is `False` when the artifact cannot supply it.
 The row says which slot is missing, so you learn the answer before the operation runs.
 
+A restored result can hold a function that is not declared `"known"`, such as a `Rule` saved by an
+earlier version. That result keeps its point estimates, and its `ci`, `pvalue` and `std_error` refuse
+under the [`undeclared_function_plugin` status](../technical-reference/inference.md#inference-status).
+
 The saved artifact carries the assessment cache. A result you derive with `dataclasses.replace`
 does not. The cache key records the operation and its arguments, and it records nothing about the
 result that answered them, so a derived result starts with an empty cache of its own.

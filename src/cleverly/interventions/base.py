@@ -267,9 +267,9 @@ class Rule:
     the backend the data arrived in, and returns the *level* -- the user's own label, not
     an internal code -- to assign to each row.
 
-    ``` python
-    Rule(lambda w: np.where(w["age"] > 65, 1, 0), name="treat the elderly", rule_kind="known")
-    ```
+    .. code-block:: python
+
+        Rule(lambda w: np.where(w["age"] > 65, 1, 0), name="treat the elderly", rule_kind="known")
 
     Every returned level is checked against the declared support before it becomes a
     density, so a rule with a typo or an off-by-one fails naming the levels that exist

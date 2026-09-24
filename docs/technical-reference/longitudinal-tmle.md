@@ -212,7 +212,7 @@ der Laan (2012) is the survival implementation reference.
 
 | option | what it does |
 | --- | --- |
-| `regimens=` | static plans, prespecified rowwise dynamic rules, or categorical arms. A plan is a sequence of arms, or one arm meaning that arm at every node. Sample-adaptive thresholds and learned rules need additional inference and are outside this contract |
+| `regimens=` | static plans, fixed rowwise dynamic rules, or categorical arms. A plan is a sequence of arms, or one arm meaning that arm at every node. A plan with a callable node must be a `DynamicRegimen` declared `rule_kind="known"`. `LTMLE.fit` refuses an undeclared or `"estimated"` rule, and a callable written inline in a mapping, before any learner. Sample-adaptive thresholds and learned rules need additional inference and are outside this contract. The [scope page](scope-and-refusals.md#wrong-by-construction) gives the threshold witness |
 | `reference=` | which regimen the contrasts are taken against. It is part of the estimand rather than a display setting |
 | `horizons=` | which time points a survival fit reports cumulative risk at. `None` reports the whole curve. Name the horizons you will report: the cost is $T(T+1)/2$ regressions per regimen rather than $T$ |
 | `msm=` | a working model over the regimen and horizon cells. It requires `n_folds=1`. See [MSM projections](msm-projections.md) |

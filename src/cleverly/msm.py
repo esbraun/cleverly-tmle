@@ -525,13 +525,13 @@ class MSM:
     per arm.  A written design declares that it is a fixed function with
     ``design_kind="known"``.
 
-    ``` python
-    MSM(
-        design=lambda a, w: np.column_stack([np.ones(len(w)), np.full(len(w), a)]),
-        terms=("(intercept)", "a"),
-        design_kind="known",
-    )
-    ```
+    .. code-block:: python
+
+        MSM(
+            design=lambda a, w: np.column_stack([np.ones(len(w)), np.full(len(w), a)]),
+            terms=("(intercept)", "a"),
+            design_kind="known",
+        )
 
     Reading the covariate frame rather than the whole dataset is the same restriction
     :class:`cleverly.interventions.Rule` works under and for the same reason: a working

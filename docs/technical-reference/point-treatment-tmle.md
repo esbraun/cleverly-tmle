@@ -430,10 +430,19 @@ $$
 
 Its efficient influence function has residual weight $g^*(A\mid W)/g_P(A\mid W)$ and a centered
 plug-in term. Deterministic static and dynamic rules are degenerate cases of $g^*$. Identification
-needs positivity only where the regime assigns mass. A prespecified rule does not depend on $P$,
-so its influence function carries no term for learning the rule. The fit does not verify that a
-`Rule` is prespecified; [RM28](../roadmap.md#rm28-declared-densities-of-user-written-interventions)
-tracks the declaration needed for learned rules.
+needs positivity only where the regime assigns mass. A fixed rule does not depend on $P$, so its
+influence function carries no term for learning the rule.
+
+`Rule` asks for this condition as a declaration: pass `rule_kind="known"`. The package refuses an
+undeclared rule, and a rule declared `"estimated"`, when the rule is built. `TMLE` refuses both
+again before any learner. For a threshold at a sample mean, the
+[scope page](scope-and-refusals.md#wrong-by-construction) gives the ratio of the reported to the
+exact standard error on one exact law.
+
+A user-written `Intervention` class declares `density_kind = "known"` as an attribute. `TMLE`
+refuses the class before any learner when that attribute is missing, `None`, or `"estimated"`.
+Code cannot inspect a closure, so a false `"known"` declaration on a rule or a class still fits.
+[RM28](../roadmap.md#rm28-declared-densities-of-user-written-interventions) records the decision.
 
 `Stochastic` asks for this condition as a declaration: pass `density_kind="known"`. The package
 refuses an undeclared density, and a density declared `"estimated"`, when the regime is built.

@@ -213,11 +213,29 @@ because no remedy that those refusals name lets an undeclared function fit. The 
 before they run a user function. The simulated-confounding replay evaluates through them. Its
 replay model reads each MSM declaration from the source model, under the same rules as the fit.
 
-`cleverly._declarations.FunctionDeclaration` shares the check and refusal texts. The declaration
-does not cover `Rule.rule`, `DynamicRegimen` rules, or custom `Intervention.density` methods.
-[RM28](roadmap.md#rm28-declared-densities-of-user-written-interventions) tracks those policy
-functions. *Reconsider when* the package adds supported inference for learned
-policies or population-law-dependent intervention functions.
+A treatment rule and the density of a user-written `Intervention` carry the same three-state
+declaration. The table gives where each one refuses `None` and `"estimated"`. Each refusal comes
+before any learner and before the function runs.
+
+| function | declaration | refused at | checked again by |
+| --- | --- | --- | --- |
+| `Rule.rule` | `rule_kind` | construction, and the `TMLE` fit | each retarget, `Rule.density`, and `RegimeSet.evaluate` |
+| the callable nodes of a `DynamicRegimen` | one `rule_kind` for the plan | construction, and `LTMLE.fit` on the raw `regimens=` | `DynamicRegimen.assignment` and `longitudinal_truncation_curve` |
+| `density` of a user-written `Intervention` | a `density_kind` attribute, `None` when absent | the `TMLE` fit | each retarget and `RegimeSet.evaluate` |
+
+A plan of labels alone needs no declaration. A callable written inline in `regimens=` carries none,
+so `LTMLE.fit` refuses it. `cleverly._declarations.FunctionDeclaration` shares the check and the
+refusal texts of every declaration. `Rule` and `DynamicRegimen` share one rule declaration. The
+simulated-confounding replay freezes each regime with the `density_kind` of its source, and never
+with a literal `"known"`.
+
+Loading a result raises no refusal. A restored `TMLE` or `LTMLE` result whose function this version
+refuses keeps its point estimates. It takes the `undeclared_function_plugin` status, so its `ci`,
+`pvalue` and `std_error` refuse. A restored `LTMLE` result keeps only the evaluated arrays of its
+MSM, so no status reads the MSM declaration there.
+[RM28](roadmap.md#rm28-declared-densities-of-user-written-interventions) records the rule.
+*Reconsider when* the package adds supported inference for learned policies or
+population-law-dependent intervention functions.
 
 A normalized method declaration either changes the selected engine request or fails before that
 engine is constructed. Shared configuration groups do not imply shared implementation: every
