@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import inspect
 import pickle
+import re
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -40,7 +41,12 @@ from cleverly.assessment import (
 from cleverly.datasets import make_binary_outcome, make_multi_arm
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.sensitivity._derived import _derived_risk_ratio
-from cleverly.sensitivity.evalue import _select_evalue, _standardising_sd, evalue_from_rr
+from cleverly.sensitivity.evalue import (
+    _DIRECT_EFFECT_REFUSAL,
+    _select_evalue,
+    _standardising_sd,
+    evalue_from_rr,
+)
 from cleverly.sensitivity.positivity import PositivityReport
 from cleverly.validation import RepeatSpreadRow
 from cleverly.validation.nuisance import SPREAD_SINGLE_DRAW
@@ -403,7 +409,6 @@ def test_a_route_without_an_interpreter_is_what_the_two_way_check_catches() -> N
     [
         ({"fitted_method": "collaborative_tmle"}, "collaborative_tmle"),
         ({"fitted_method": "drtmle"}, "drtmle"),
-        ({"intermediate_value": 0.0}, "controlled direct effects"),
     ],
 )
 def test_derived_ratio_preserves_method_and_estimand_refusal_boundaries(
@@ -1494,9 +1499,9 @@ def test_cached_evalue_refusals_store_data_without_exception_tracebacks(tmp_path
     restored = joblib.load(path)
     assert restored.capability("evalue") == capability
     for candidate in (facade, restored):
-        with pytest.raises(CapabilityError, match="controlled direct effects"):
+        with pytest.raises(CapabilityError, match=re.escape(_DIRECT_EFFECT_REFUSAL)):
             candidate.evalue()
-        with pytest.raises(CapabilityError, match="controlled direct effects"):
+        with pytest.raises(CapabilityError, match=re.escape(_DIRECT_EFFECT_REFUSAL)):
             candidate.evalue("ate")
         assert all(isinstance(value, tuple) for value in candidate._evalue_selections.values())
 

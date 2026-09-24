@@ -324,6 +324,19 @@ def test_every_roadmap_item_a_refusal_cites_exists() -> None:
     )
 
 
+def test_the_evalue_refusal_cites_a_roadmap_item_that_exists() -> None:
+    """The E-value on a controlled direct effect names the item that holds its missing result.
+
+    The source scan below reads each line of ``evalue.py``, and a citation split across two
+    string literals would pass it. This reads the text the caller receives.
+    """
+    from cleverly.sensitivity.evalue import _DIRECT_EFFECT_REFUSAL
+
+    cited = ROADMAP_CITATION.findall(_DIRECT_EFFECT_REFUSAL)
+    assert cited == ["F25"]
+    assert set(cited) <= set(ROADMAP_ITEMS)
+
+
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
 def test_every_roadmap_item_cited_in_source_exists(path: Path) -> None:
     """The same check one level out, for any prose citation in any module or test.

@@ -34,6 +34,11 @@ Conversions for other effect scales are approximations and are flagged as such:
   only a rough guide -- prefer
   :func:`cleverly.sensitivity.omitted_variable_bounds` for a continuous outcome,
   which needs no such conversion.
+
+No conversion applies to a controlled direct effect. That effect is identified under no
+unmeasured confounding of the treatment and the outcome, and of the intermediate variable and
+the outcome, and no source read for this package derives an E-value for it.
+:func:`_select_evalue` therefore refuses every request on a fit with an intermediate variable.
 """
 
 from __future__ import annotations
@@ -45,6 +50,7 @@ import numpy as np
 
 from .._inference_status import status_record
 from ..assessment import AssessmentStatus
+from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import CapabilityError
 from ._derived import _derived_risk_ratio, _risk_ratio_refusal
 from ._parameters import arm_parameter_keys
@@ -77,6 +83,21 @@ _STANDARDISED_MISSING_REFUSAL = (
 #: row that advertised ``available=True``.  The status's own reason follows it as a new
 #: sentence.
 _EVALUE_NEEDS_INFERENCE = "an E-value is built from the reported estimate and its interval. "
+
+#: Why every E-value branch stops on a fit with an intermediate variable.  A controlled direct
+#: effect is identified under two no-unmeasured-confounding assumptions, and the E-value
+#: inverts a bound for one exposure-outcome relation.  RM21 in ``docs/roadmap.md`` records the
+#: sources read.  Raised in :func:`_select_evalue` before the estimand is resolved, so the row
+#: reads ``unavailable`` on every such fit, a multi-arm fit included, and no branch computes.
+_DIRECT_EFFECT_REFUSAL = (
+    "no source that this package has read derives an E-value for controlled direct "
+    "effects. The E-value of VanderWeele and Ding (2017) bounds the unmeasured "
+    "confounding of one exposure-outcome relation. A controlled direct effect also "
+    "assumes no unmeasured confounding of the intermediate variable and the outcome, "
+    "and the mediational E-value of Smith and VanderWeele (2019) covers natural direct "
+    "and indirect effects only. This package refuses every E-value request on a fit "
+    "with an intermediate variable; docs/roadmap.md F25 tracks this stop"
+)
 
 
 def _evalue_inference_refusal(status: str) -> str:
@@ -336,6 +357,9 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
         raise _EValueRefusal(
             AssessmentStatus.NOT_APPLICABLE, "an E-value requires a discrete arm contrast"
         )
+    # Fit-wide and ahead of the estimand, so a level or a multi-arm default refuses here too.
+    if declares_intermediate(result):
+        raise _EValueRefusal(AssessmentStatus.UNAVAILABLE, _DIRECT_EFFECT_REFUSAL)
     keys = arm_parameter_keys(result)
     explicit = estimand is not None
     source = _default_estimand(result, keys) if estimand is None else estimand
@@ -392,8 +416,6 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
         return _EValueSelection(source, "derived_rr")
     if key.estimand == "or":
         return _EValueSelection(source, "reported_or")
-    if result.intermediate_value is not None:
-        raise _EValueRefusal(AssessmentStatus.UNAVAILABLE, refusal)
     baseline = _baseline_mean(result, source, keys)
     if baseline is None or not np.isfinite(result[baseline].psi) or result[baseline].psi <= 0:
         refusal += "; a finite positive reported reference-arm mean is also absent"
@@ -458,6 +480,13 @@ def evalue(result: TMLEResult, estimand: str | None = None) -> EValue:
     -------
     EValue
         The association needed to explain the estimate and the interval away.
+
+    Raises
+    ------
+    CapabilityError
+        If no branch covers the request. A fit with an intermediate variable estimates a
+        controlled direct effect, and every request on it refuses, because no source read
+        for this package derives an E-value for that target.
     """
     return _evalue_from_selection(result, _select_evalue(result, estimand))
 
