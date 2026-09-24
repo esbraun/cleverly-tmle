@@ -153,7 +153,7 @@ from ..learners.crossfit import (
 )
 from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearner, resolve_learner
-from ..msm import MSM, MSMSet, refuse_projection_weights
+from ..msm import MSM, MSMSet, refuse_msm_functions
 from ..provenance import data_fingerprint
 from ..provenance import record as provenance_record
 from ..targets import TargetContext, groups_for, parameter_stem, targets_for
@@ -1371,7 +1371,7 @@ class TMLE:
                 "refuses, which a restored result or a copied estimator can still carry"
             )
         if self.msm is not None:
-            refuse_projection_weights(self.msm)
+            refuse_msm_functions(self.msm)
         refuse_regime_densities(self.interventions)
         estimands = self._resolve_natural_course_contract(data)
         self._resolve_arm_indexed_missing_contract(data, estimands)
@@ -2698,7 +2698,7 @@ class TMLE:
         result keeps the estimates it stored, and they answer as they were saved.
         """
         if self.msm is not None:
-            refuse_projection_weights(self.msm)
+            refuse_msm_functions(self.msm)
         refuse_regime_densities(self.interventions)
         requested = tuple(estimands)
         level = self.alpha_sig if alpha_sig is None else alpha_sig

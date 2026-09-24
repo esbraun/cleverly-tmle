@@ -104,7 +104,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 from ..learners.crossfit import Folds, _fresh_seed, random_partition
 from ..learners.library import _validate_learner
 from ..learners.super_learner import resolve_learner
-from ..msm import MSM, refuse_projection_weights
+from ..msm import MSM, refuse_msm_functions
 from ..provenance import Provenance, fingerprint_array
 from ..provenance import build as provenance_build
 from ..targets.base import parameter_name
@@ -2037,7 +2037,7 @@ class LTMLE:
             # Checked again here, before any learner, because ``MSM`` checks its weight
             # declaration only when it is declared, and a restored or modified model can
             # carry one this version refuses.
-            refuse_projection_weights(self.msm)
+            refuse_msm_functions(self.msm)
         prepared = self._prepare(
             data,
             outcome=outcome,

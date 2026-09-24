@@ -46,7 +46,7 @@ from cleverly.msm import (
     _ESTIMATED_WEIGHTS,
     _UNDECLARED_WEIGHTS,
     MSM,
-    refuse_projection_weights,
+    refuse_msm_functions,
     refuse_unsupported,
 )
 from cleverly.sensitivity import _simulated_confounding_fixed as replay_module
@@ -428,7 +428,7 @@ class TestALegacyResultKeepsItsNumbersAndRefusesARecomputation:
         self, result: Any, entry: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         old = legacy_result(result)
-        monkeypatch.setattr(tmle_module, "refuse_projection_weights", lambda model: None)
+        monkeypatch.setattr(tmle_module, "refuse_msm_functions", lambda model: None)
         with pytest.raises(AssertionError):
             assert_refused(recomputations(old, RETARGETED)[entry], CapabilityError, UNDECLARED)
 
@@ -452,7 +452,7 @@ class TestTheWitnessesHaveTeeth:
     def test_removing_the_declaration_check_fails_every_declaration_witness(
         self, monkeypatch
     ) -> None:
-        monkeypatch.setattr(msm_module, "refuse_projection_weights", lambda model: None)
+        monkeypatch.setattr(msm_module, "refuse_msm_functions", lambda model: None)
         assert_every_witness_fails(declaration_witnesses())
 
     @pytest.mark.parametrize("name", list(RESTORED))
@@ -460,8 +460,8 @@ class TestTheWitnessesHaveTeeth:
         self, name: str, monkeypatch
     ) -> None:
         kind, fragments = RESTORED[name]
-        monkeypatch.setattr(tmle_module, "refuse_projection_weights", lambda model: None)
-        monkeypatch.setattr(ltmle_module, "refuse_projection_weights", lambda model: None)
+        monkeypatch.setattr(tmle_module, "refuse_msm_functions", lambda model: None)
+        monkeypatch.setattr(ltmle_module, "refuse_msm_functions", lambda model: None)
         with pytest.raises(AssertionError):
             assert_tmle_refuses(kind, *fragments)
         assert NeverFit.calls > 0, "the mutated TMLE fit refused before a learner"
@@ -471,8 +471,8 @@ class TestTheWitnessesHaveTeeth:
 
     def test_the_fit_layer_calls_the_shared_refusal(self) -> None:
         """One refusal, one text: the fit layer calls the function the declaration does."""
-        assert tmle_module.refuse_projection_weights is refuse_projection_weights
-        assert ltmle_module.refuse_projection_weights is refuse_projection_weights
+        assert tmle_module.refuse_msm_functions is refuse_msm_functions
+        assert ltmle_module.refuse_msm_functions is refuse_msm_functions
 
 
 # ------------------------------------------------------------------ the witness

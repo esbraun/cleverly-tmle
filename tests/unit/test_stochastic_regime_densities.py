@@ -428,7 +428,7 @@ class TestTheWitnessesHaveTeeth:
         """RM13 and RM25 refuse through one ``FunctionDeclaration.refuse``.
 
         Each witness that the shared refusal decides must fail under the mutation.  The RM13
-        unknown-value witness is not among them: ``refuse_projection_weights`` calls
+        unknown-value witness is not among them: ``refuse_msm_functions`` calls
         ``check`` itself, so that witness still refuses.
         """
         monkeypatch.setattr(

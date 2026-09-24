@@ -59,7 +59,7 @@ working model rather than arms.  There are :math:`p` score equations, one per te
 :attr:`cleverly.Target.parameter_axis` says why the axes partition rather than accumulate.
 
 **What is deliberately refused**, because of the derivation and not for want of effort --
-see :func:`refuse_unsupported` and :func:`refuse_projection_weights`:
+see :func:`refuse_unsupported` and :func:`refuse_msm_functions`:
 
 - **weights derived from the estimated mechanism** (the "stabilised" MSM).  Then
   :math:`h` is a functional of :math:`P` and the efficient influence function carries a
@@ -112,7 +112,7 @@ __all__ = [
     "ProjectionFit",
     "check_projection_rank",
     "link_for",
-    "refuse_projection_weights",
+    "refuse_msm_functions",
     "refuse_unsupported",
     "register_link",
     "solve_projection",
@@ -298,7 +298,7 @@ def refuse_unsupported(kind: str, detail: str = "") -> None:
 
 
 #: Why an estimated projection weight is refused.  Written once, and read by both
-#: ``_WEIGHTS_DECLARATION``, which :func:`refuse_projection_weights` runs at every site that
+#: ``_WEIGHTS_DECLARATION``, which :func:`refuse_msm_functions` runs at every site that
 #: checks a model, and :func:`refuse_unsupported`.  No source path calls
 #: ``refuse_unsupported("estimated_weights")``.  It is the public named refusal, and it shares
 #: this text so that the two cannot drift apart.
@@ -338,7 +338,7 @@ _WEIGHTS_DECLARATION = FunctionDeclaration(
 )
 
 
-def refuse_projection_weights(model: MSM) -> None:
+def refuse_msm_functions(model: MSM) -> None:
     """Raise unless ``model`` declares a projection weight this package can report on.
 
     A callable can close over any estimate, and nothing can inspect a closure, so the
@@ -453,7 +453,7 @@ class MSM:
         The declaration that ``weights`` is a known function.  A callable ``weights``
         needs ``"known"``: a fixed function of the arm and the covariates, chosen without
         reading the data.  ``None`` with a callable, and ``"estimated"``, are refused by
-        :func:`refuse_projection_weights`, because a weight computed from the sample makes
+        :func:`refuse_msm_functions`, because a weight computed from the sample makes
         ``h`` a functional of :math:`P` and the reported influence curve omits its
         pathwise derivative.  It is unrelated to
         :data:`cleverly.data.weighting.WeightKind`, which describes observation weights.
@@ -490,7 +490,7 @@ class MSM:
             raise DataError(f"working-model terms must be distinct; got {list(terms)}")
         if not callable(self.design):
             raise DataError("design= must be callable: (arm_label, covariate_frame) -> (n, p)")
-        refuse_projection_weights(self)
+        refuse_msm_functions(self)
         object.__setattr__(self, "terms", terms)
         doses = tuple(float(value) for value in self.doses)
         if doses and (len(doses) < 3 or np.any(np.diff(doses) <= 0.0)):
