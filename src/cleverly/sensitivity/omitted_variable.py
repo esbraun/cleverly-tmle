@@ -442,7 +442,7 @@ class SensitivityElements:
         Influence curve of ``nu2`` under the doubly robust estimator: the score of Lemma 3
         of Chernozhukov et al. (2026), plus the influence of the conditioning share for the
         ATT and the ATC.  ``None`` under the plug-in estimator, whose curve no derivation
-        gives (docs/roadmap.md F26).
+        in a source this package cites gives (docs/roadmap.md F26).
     psi_max_bias : ndarray or None
         Influence curve of ``max_bias``, as in Theorem 4 of the same paper, so the
         bias-adjusted bounds get confidence limits rather than being treated as known
@@ -678,7 +678,8 @@ def _elements_for(
     psi_nu2: FloatArray | None = None
     psi_max_bias: FloatArray | None = None
     # The plug-in keeps no curve: E_n[alpha_hat^2] moves at first order with the fitted
-    # mechanism and no derivation gives its influence function (docs/roadmap.md F26), so an
+    # mechanism and no derivation in a source this package cites gives its influence
+    # function (docs/roadmap.md F26), so an
     # array here would be a curve for a different estimator under this one's name.
     if method == "doubly_robust":
         psi_nu2 = (nu2_element - nu2) * weights
@@ -885,8 +886,9 @@ class SensitivityBounds:
     max_bias: float
     lower: float
     upper: float
-    #: ``None`` when no derivation gives the limits, so two identical plug-in bounds, and a
-    #: pickle round trip of one, compare equal.  A NaN here compared unequal to itself.
+    #: ``None`` when no derivation in a source this package cites gives the limits, so two
+    #: identical plug-in bounds, and a pickle round trip of one, compare equal.  A NaN here
+    #: compared unequal to itself.
     _ci_lower: float | None
     _ci_upper: float | None
     level: float
@@ -1029,9 +1031,9 @@ class SensitivityBounds:
         the three quantities read off the influence curve take the names
         :func:`~cleverly.inference.influence.spread_name` gives them:
         ``plugin_interval_lower``, ``plugin_interval_upper`` and
-        ``robustness_value_plugin_interval``.  When no derivation gives the limits'
-        standard error, the mapping carries ``nu2_estimator`` and omits those three keys
-        under every name.
+        ``robustness_value_plugin_interval``.  When no derivation in a source this package
+        cites gives the limits' standard error, the mapping carries ``nu2_estimator`` and
+        omits those three keys under every name.
 
         Returns
         -------
@@ -1175,8 +1177,8 @@ def omitted_variable_bounds(
         Adjusted bounds, their confidence limits, and the robustness values.  Under
         ``nu2_estimator="plugin"`` the bounds, ``max_bias`` and the point robustness value
         are reported, and the one-sided limits and the confidence-limit robustness value
-        refuse when read, because no derivation gives their standard error
-        (docs/roadmap.md F26).
+        refuse when read, because no derivation in a source this package cites gives their
+        standard error (docs/roadmap.md F26).
 
     Raises
     ------

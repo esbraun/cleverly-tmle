@@ -2937,15 +2937,16 @@ at commit cee8142.
 Three reviews read the RM22 delivery: the code and its derivation, the study and its framework,
 and the documents, notebooks and citations. None found a defect in a published number. All 14
 study verdicts recompute from the artifacts. The reviews found five defects in the study and its
-record, S1 to S5, four in the code and tests, C1 to C4, and eight in the documents, D1 to D8. The
-table gives each commit. "This record" is the commit that adds this table.
+record, S1 to S5, four in the code and tests, C1 to C4, and eight in the documents, D1 to D8. A
+verification of those fixes found four more, V1 to V4. The table gives each commit. "This record"
+is the commit that adds a row, bfe6488 for the reviews and its successor for V1 to V4.
 
 | commit | what it changed |
 | --- | --- |
-| 8a00b84, S1 | the shared driver passed `--replicates` to the primary phase only. Each property module fixes its own budget, so a smoke run ran the declared property study in full. `_arguments` now treats a run below the declared primary budget as a smoke run, and it skips the property study. `test_a_run_below_the_declared_budget_skips_the_property_study` pins the rule. The record of the RM22 smoke run is in the paragraph below the table |
-| this record, S2 | the working tree held CRLF copies of 18 files that this branch added or changed, although `.gitattributes` sets `eol=lf`. The study ran from two of them. Its manifest records `9f900e4b...` for `tests/studies/omitted_variable_bound_properties.py` and `335c61d3...` for `tests/studies/evidence/property_verdicts.py`. The committed LF blobs hash to `f5666660...` and `c8a60ed7...`. The content is identical and only the line endings differ. Every working file is now LF. The recorded hashes stay, because they are the bytes that ran. `method-benchmarking.md` gates no Python module hash and asks for a ledger row only for a module gap, so `provenance-revisions.md` needs no row |
+| 8a00b84, S1 | the shared driver passed `--replicates` to the primary phase only. Each property module fixes its own budget, so a smoke run ran the declared property study in full. `_arguments` now treats a run whose count differs from the declared primary budget, in either direction, as a smoke run, and it skips the property study. `test_a_run_at_another_budget_skips_the_property_study` pins the rule below, at and above the declared count. The record of the RM22 smoke run is in the paragraph below the table |
+| this record, S2 | the working tree held CRLF copies of 18 files that this branch added or changed, although `.gitattributes` sets `eol=lf`. The study ran from two of them. Its manifest records `9f900e4b...` for `tests/studies/omitted_variable_bound_properties.py` and `335c61d3...` for `tests/studies/evidence/property_verdicts.py`. The committed LF blobs hash to `f5666660...` and `c8a60ed7...`. The content is identical and only the line endings differ. Every working file is now LF. The recorded hashes stay, because they are the bytes that ran. The table "Study module edits after a run" in `tests/canonical/provenance-revisions.md` holds one row for each of the two files. Each row shows that the recorded hash is the sha256 of the committed LF blob written with CRLF line endings |
 | this record, S3 | the study page gains three limitations: the narrow pass of the `att_upper` control, the reason the ATC has no control, and the symmetric law. The grid row counts ten limits |
-| f0de42f, S4 | `bound_standard_errors` rebuilds the bias curve with the term added back. It raises unless the rebuild equals the package's `psi_max_bias` and gives each reported standard error within 1e-10. For the ATE the control curve must equal the package's curve outright. `fit()` suppresses no warning, because the declared fit raises none. Both edits are result-neutral: with warnings raised as errors, the first three primary and property replications refit to a difference of 0.0. The manifest keeps the recorded hashes |
+| f0de42f, S4 | `bound_standard_errors` rebuilds the bias curve with the term added back. It raises unless the rebuild equals the package's `psi_max_bias` and gives each reported standard error within 1e-10. For the ATE the control curve must equal the package's curve outright. `fit()` suppresses no warning, because the declared fit raises none. Both edits are result-neutral: with warnings raised as errors, the first five primary and five property replications refit to a maximum difference of 0.0. The manifest keeps the recorded hashes, and the table "Study module edits after a run" in `tests/canonical/provenance-revisions.md` records the edit with that evidence |
 | f0de42f, S5 | the generic kind `inflated_se_control` carried text about $\nu^2$ and the share term. Its `CELLS` entry is now generic. `descriptions.ARM_CELLS` holds this study's text for `att_lower` and `att_upper`, so the published page reads the same |
 | c54252f, C1 | M5 moves `conditions_on`, which also moves `_m_alpha` and the point $\nu^2$. M7 computes the term alone on the complement of the conditioning arm. It fails the twelve conditional cases by 21.38 to 120.2, and the sixteen unconditional cases pass. The M5 docstring says what M5 moves |
 | ee5a77f, C2 | the comment on `_PLUGIN_LIMITS_REFUSAL` claimed one text, and `summary()` and the robustness row wrote their own. `limit_refusal_reason` now builds the one text for the six accessors, `summary()` and the robustness row |
@@ -2958,6 +2959,10 @@ table gives each commit. "This record" is the commit that adds this table.
 | this record, D5 | the study page and the grid row say that `dml.sensemakr` divides the point estimate at `58ac44d`, not at `d5293ecb`. The references entry calls it "the implementation this package found with that term". The module docstring spells the DoubleML commit `b69f86ef`, as the other pages do |
 | ee5a77f, D6 | the point-treatment tutorial's refusal paragraph now follows the review paragraph and opens "Reading `ci_lower` refuses". Its 26-word sentence is two sentences |
 | ee5a77f, D7 | the plug-in refusal reads "no derivation in a source this package cites" and names `benchmark()` and `contour()`. The unrecorded refusal names `result.sensitivity.omitted_confounding()` too. Both tutorials print the plug-in text, so both were re-executed. `--check` reproduces every cell, and only the refusal line of each moved |
+| this record, V1 | a verification found that the S2 and S4 rows above named no ledger row, and the S2 row said that none was needed. The table "Study module edits after a run" asks for a row for each result-neutral edit to a study module after its run. It now holds three rows for `omitted-variable-bound-se`, with the full recorded and current hashes |
+| this record, V2 | the driver skips the property study when the count differs from the declared count in either direction. The comment, the S1 row and the test said "below". They now say "differs", and the test also runs the declared count and a count above it |
+| this record, V3 | the "35 to 40%" failure rate of the `att_upper` control did not reproduce. The paragraph below now states the method and both assumptions: about 34% if the true ratio is the cell's 1.0922, and about 20% if it is the mean 1.0954 of the two controls |
+| this record, V4 | five comments and docstrings in `omitted_variable.py`, `inference.md`, `scope-and-refusals.md` and the point-treatment tutorial kept the unqualified "No derivation gives". Each now reads "no derivation in a source this package cites". The tutorial edit is markdown, which the notebook stamp does not hash, so no notebook was re-executed |
 | this record, D8 | Theorem 5(2) "writes $m$ and the representer", which keeps "score" for Lemma 3. The F26 grid row and the plan name `contour()`, the public method. The study page says "moves no ratio by more than 0.001". Two long queue lines are reflowed, and the sensitivity-outputs sentence joins the paragraph on the groups that left |
 
 The RM22 smoke run showed the property verdicts before the study modules were committed. The
@@ -2974,18 +2979,28 @@ published manifests record the same module hashes, and their configurations diff
 primary replication count. The two runs wrote byte-identical property artifacts: `properties.csv`
 hashes to `f140e0c3...` and `property-replicates.csv.gz` to `585e6480...` in both.
 
-The `att_upper` control passed narrowly. Its lower edge is 1.0732 against the band edge of 1.07.
-Its Monte Carlo standard deviation is about 0.0078, so at another seed it would fail about 35 to
-40% of the time. The plan sized the budget on the 500-fit ratio of 1.118. That estimate's error did
-not cover the measured inflation of about 1.0955.
+The `att_upper` control passed narrowly. Its ratio is 1.0922, and its 99% interval runs from 1.0732
+to 1.1129 against the band edge of 1.07. The failure rate at another seed was estimated as
+follows.
+
+| step | value |
+| --- | --- |
+| Monte Carlo standard deviation of the ratio | 0.0077, the interval width over $2 z_{0.995}$ |
+| distance from the ratio to the lower edge | 0.0190, taken as fixed |
+| failure | a new ratio at or below $1.07 + 0.0190 = 1.0890$, so the lower edge falls at or below 1.07 |
+| failure rate, true ratio 1.0922, the cell's own estimate | about 34% |
+| failure rate, true ratio 1.0954, the mean of the two controls | about 20% |
+
+The plan sized the budget on the 500-fit ratio of 1.118. That estimate's error did not cover the
+measured inflation of about 1.0954.
 
 The verdict stands under the declared route. A future design would pair each control with its positive cell and read the ratio of their standard
 errors.
 
-At this record the new witness file holds 59 tests and commits eight mutations, M0 to M7. The
+At this record the new witness file holds 59 tests and commits eight mutations, M0 to M7. The driver test of V2 holds five cases. The
 refusal file holds 115 tests. The hand-mutation counts of the delivery record were measured at
 cee8142 and were not run again. The full fast suite gave 11784 passed and 96 skipped at commit
-f0de42f.
+f0de42f, and 11786 passed and 96 skipped with the V1 to V4 fixes.
 
 ### RM23. Capability rows that read available and then refuse
 

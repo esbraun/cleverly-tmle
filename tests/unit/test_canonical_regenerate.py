@@ -83,18 +83,21 @@ def _stub_primary(monkeypatch: pytest.MonkeyPatch, tmp_path: Any, record: Any) -
     ("argv", "skipped"),
     [
         ([], False),
+        (["--replicates", str(fold_evaluated_cvtmle.STUDY.replicates)], False),
         (["--replicates", "2"], True),
+        (["--replicates", str(fold_evaluated_cvtmle.STUDY.replicates + 1)], True),
         (["--replicates", "2", "--skip-properties"], True),
     ],
 )
-def test_a_run_below_the_declared_budget_skips_the_property_study(
+def test_a_run_at_another_budget_skips_the_property_study(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Any, argv: list[str], skipped: bool
 ) -> None:
-    """A smoke run cannot compute the declared property verdicts before their declaration.
+    """A run whose count differs from the declared count computes no property verdict.
 
     Each property module fixes its own budget, so a run with ``--replicates 2`` would
     otherwise run the full property study.  RM22's 200-replication smoke run did, and it
-    produced the published property verdicts before the study was committed.
+    produced the published property verdicts before the study was committed.  A count above
+    the declared one is not a publishing run either, so it skips the study too.
     """
     record = fold_evaluated_cvtmle.STUDY
     study = SimpleNamespace(STUDY=record, PRIMARY_REPLICATES=record.replicates, PRIMARY_N=record.n)

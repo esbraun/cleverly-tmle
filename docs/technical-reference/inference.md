@@ -122,7 +122,7 @@ rename a number on a non-inferential status.
 | `LongitudinalResult.incidence_total()` | `std_err` | `plugin_std_err` |
 
 Under `nu2_estimator="plugin"` an omitted-variable bound refuses its limits at every status, for a
-different reason. No derivation gives their standard error. `to_dict()` then omits the three limit
+different reason. No derivation in a source this package cites gives their standard error. `to_dict()` then omits the three limit
 keys and carries `nu2_estimator`, and `robustness_value()` omits `rva` under every name. The
 [standard error of the omitted-variable bound](validation-methods.md#standard-error-of-the-omitted-variable-bound) gives the rule.
 
