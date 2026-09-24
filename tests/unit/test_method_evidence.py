@@ -531,6 +531,8 @@ class TestPublishedVerdicts:
                 suffix = row.cell.rsplit("__", 1)[-1]
                 if suffix == "shrunken_se_control":
                     expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
+                elif suffix == "inflated_se_control":
+                    expected = row.se_ratio_ci_lower > study.margins.calibration_se_ratio[1]
                 elif suffix == "noise_control":
                     expected = (
                         row.efficiency_empirical_ci_lower > band[1]

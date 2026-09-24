@@ -173,6 +173,49 @@ def functional(probs: Any, estimand: str) -> Any:
     raise ValueError(f"unknown estimand {estimand!r}")
 
 
+def residual_variance(probs: Any) -> Any:
+    r"""``sigma^2 = E[(Y - Qbar(A, W))^2]``, which for a binary ``Y`` is ``E[Q (1 - Q)]``."""
+    p = np.asarray(probs)
+    q = p[:, :, 1] / p.sum(axis=2)
+    return (p.sum(axis=2) * q * (1.0 - q)).sum()
+
+
+def riesz_second_moment(probs: Any, estimand: str) -> Any:
+    r"""``nu^2 = E[alpha(A, W)^2]`` of one linear estimand, from its Riesz representer.
+
+    Names follow this module's arm indices, as :func:`functional` does.  With ``r`` the
+    reference arm, ``g_a = P(A = a | W)`` and ``P_a = P(A = a)``, the representers are
+
+    ``ey[a]``          ``1{A = a} / g_a``
+    ``ate[a vs r]``    ``1{A = a} / g_a - 1{A = r} / g_r``
+    ``att[a vs r]``    ``(1{A = a} - 1{A = r} g_a / g_r) / P_a``
+    ``atc[a vs r]``    ``(1{A = a} g_r / g_a - 1{A = r}) / P_r``
+
+    Squaring drops the cross terms, because the indicators are disjoint.  ``g`` and the
+    conditioning share are both read off ``probs``, so a Gateaux derivative of this function
+    includes the derivative through the share, and a tilted law moves both.
+    """
+    p = np.asarray(probs)
+    p_w = p.sum(axis=(1, 2))
+    p_wa = p.sum(axis=2)
+    g = p_wa / p_w[:, None]
+    stem, _, rest = estimand.partition("[")
+    if stem == "ey":
+        return (p_w / g[:, int(rest[:-1])]).sum()
+    arm, reference = (int(part) for part in rest[:-1].split(" vs "))
+    if stem == "ate":
+        return (p_w * (1.0 / g[:, arm] + 1.0 / g[:, reference])).sum()
+    if stem == "att":
+        return (p_w * g[:, arm] * (1.0 + g[:, arm] / g[:, reference])).sum() / (
+            p_wa[:, arm].sum() ** 2
+        )
+    if stem == "atc":
+        return (p_w * g[:, reference] * (1.0 + g[:, reference] / g[:, arm])).sum() / (
+            p_wa[:, reference].sum() ** 2
+        )
+    raise ValueError(f"no Riesz representer is written for {estimand!r}")
+
+
 def reported_name(estimand: str) -> str:
     """Translate an oracle name on *this module's* arm indices to the reported one.
 

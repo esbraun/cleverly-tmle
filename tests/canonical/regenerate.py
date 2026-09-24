@@ -189,6 +189,18 @@ def _arguments(study: ModuleType, here: Path, reference: Reference | None) -> ar
     arguments = parser.parse_args()
     if arguments.replicates < 2 or arguments.n < 50:
         parser.error("replicates must be >= 2 and n must be >= 50")
+    if arguments.replicates != study.PRIMARY_REPLICATES and not arguments.skip_properties:
+        # A run whose count differs from the declared primary budget, in either direction,
+        # is not a publishing run.  Each property module fixes its own budget, so the property
+        # phase would run the declared study in full and show its verdicts before the
+        # declaration is committed.  RM22's smoke run did exactly that.  Such a run writes
+        # schema-bearing placeholders instead.
+        print(
+            f"--replicates {arguments.replicates} is not the declared "
+            f"{study.PRIMARY_REPLICATES}, so the property study is skipped",
+            flush=True,
+        )
+        arguments.skip_properties = True
     if getattr(arguments, "reference_jobs", None) is not None and arguments.reference_jobs < 1:
         parser.error("--reference-jobs must be >= 1")
     return arguments

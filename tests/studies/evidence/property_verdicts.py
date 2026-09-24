@@ -780,6 +780,34 @@ def _recompute_interval_columns(rows: pd.DataFrame, critical: float) -> pd.DataF
     return rows
 
 
+#: The side of the calibration band that each standard-error control must leave.  A
+#: control's reported standard error is wrong in a known direction: ``shrunken_se_control``
+#: multiplies it by a factor below one, so its SE-ratio interval must fall below the band;
+#: ``inflated_se_control`` reads a curve that is known to be too wide, so its interval must
+#: rise above the band.  The two kinds differ only in this side, and
+#: :func:`se_ratio_leaves_band` is the one rule both read.
+SE_CONTROL_SIDES: dict[str, Literal["below", "above"]] = {
+    "shrunken_se_control": "below",
+    "inflated_se_control": "above",
+}
+
+
+def se_ratio_leaves_band(
+    ratio: Interval, band: tuple[float, float], side: Literal["below", "above"]
+) -> bool:
+    """Whether an SE-ratio interval lies wholly outside ``band`` on ``side``.
+
+    The rule of every standard-error control, and of a noise control that has no efficiency
+    band to read.  A control passes only when the whole interval clears the band, so a study
+    too small to resolve the direction cannot pass it.
+    """
+    if side == "below":
+        return bool(ratio.high < band[0])
+    if side == "above":
+        return bool(ratio.low > band[1])
+    raise ValueError(f"unknown side {side!r}; expected 'below' or 'above'")
+
+
 def calibration_verdicts(
     summary: pd.DataFrame,
     *,
@@ -795,6 +823,11 @@ def calibration_verdicts(
     than the positive arm's.  Written here rather than per study for the reason the arms are:
     the rules belong to the instrument, and only the band belongs to the study that can compute
     an exact bound at all.
+
+    A standard-error control of either direction reads :data:`SE_CONTROL_SIDES`.  A study
+    whose invalid arm reports too large a standard error, such as the omitted-variable bound
+    read without its share term, declares an ``inflated_se_control`` cell and computes that
+    arm's rows itself; :func:`calibration_controls` derives only the shrunken arm.
 
     ``efficiency_band`` is optional, because a study may use an exact bound only to size the
     noise arm without claiming that its estimator attains the bound.  Such a study publishes no
@@ -827,13 +860,15 @@ def calibration_verdicts(
                         *efficiency_band
                     )
                 )
-        elif kind == "shrunken_se_control":
-            passed = ratio.high < margins.calibration_se_ratio[0]
+        elif kind in SE_CONTROL_SIDES:
+            passed = se_ratio_leaves_band(
+                ratio, margins.calibration_se_ratio, SE_CONTROL_SIDES[kind]
+            )
         elif kind == "noise_control":
             passed = (
                 summary_interval(summary, index, "efficiency_empirical").low > efficiency_band[1]
                 if efficiency_band is not None
-                else ratio.high < margins.calibration_se_ratio[0]
+                else se_ratio_leaves_band(ratio, margins.calibration_se_ratio, "below")
             )
         else:
             raise ValueError(f"unknown calibration cell kind {kind!r}")

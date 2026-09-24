@@ -106,11 +106,24 @@ def _normalize(value: Any) -> Any:
 #: intermediate variable now refuses, and a battery cached on a controlled-direct-effect
 #: result before that change carries a completed E-value row. The single ``evalue`` entry
 #: needs no bump, because the facade selects the branch before it reads the cache.
+#:
+#: RM22 moved ``sensitivity.run_all`` to 4 and gave three single entries their first
+#: generation, 2. The curve of an ATT or ATC ``nu^2`` gained the conditioning-share term, so a
+#: cached bound, robustness value or set of elements holds the older limits and curve. A
+#: plug-in bound now refuses its limits, and a cached one would serve them. ``contour`` and
+#: ``benchmark`` read no curve, so their entries stay unversioned.
+#:
+#: A later boundary correction changes zero-variance elements and bounds, unreachable
+#: robustness values, and the report rows that describe them. Their four entries move
+#: again so a saved fit recomputes those values rather than serving old NaNs or 0.9999.
 _CACHE_GENERATIONS: dict[str, int] = {
     "diagnostics.support": 4,
     "diagnostics.nuisance_models": 2,
     "diagnostics.run_all": 10,
-    "sensitivity.run_all": 3,
+    "sensitivity.elements": 3,
+    "sensitivity.omitted_confounding": 3,
+    "sensitivity.robustness_value": 3,
+    "sensitivity.run_all": 5,
     "validate": 5,
 }
 

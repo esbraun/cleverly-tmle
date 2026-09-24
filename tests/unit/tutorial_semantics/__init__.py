@@ -42,6 +42,7 @@ __all__ = [
     "NOT_TUTORIALS",
     "PACKAGE",
     "STATIC_ONLY",
+    "assert_plugin_limits_refuse",
     "assert_protocol_recorded",
     "callback",
     "callback_module",
@@ -156,6 +157,44 @@ def assert_protocol_recorded(path: Path, cell_id: str, protocol: Any, *results: 
     for result in results:
         assert result.provenance.protocol_fingerprint == fingerprint
     return fingerprint
+
+
+def assert_plugin_limits_refuse(result: Any, bound: Any, namespace: Mapping[str, Any]) -> None:
+    """Assert that a tutorial's plug-in bound refused its limits, as RM22 decided.
+
+    The two tutorials that read the plug-in ``nu^2`` print the refusal of ``ci_lower`` into
+    ``limit_refusal`` and assert that ``robustness`` carries no ``rva``.  The bound itself
+    refuses the other limits too.  The nonzero witness is that the plug-in elements carry no
+    curve while their point ``nu^2`` is positive.
+
+    Parameters
+    ----------
+    result : Any
+        The fit the tutorial read the bound from.
+    bound : Any
+        The plug-in :class:`~cleverly.sensitivity.omitted_variable.SensitivityBounds`.
+    namespace : Mapping
+        The tutorial's namespace, holding ``limit_refusal`` and ``robustness``.
+    """
+    from cleverly import CapabilityError
+
+    refusal = namespace["limit_refusal"]
+    assert "F26" in refusal
+    assert "plug-in nu^2" in refusal
+    assert "nu2_estimator='plugin'" in refusal
+    assert "rva" not in namespace["robustness"]
+    assert namespace["robustness"]["nu2_estimator"] == "plugin"
+    assert bound.nu2_estimator == "plugin"
+    for accessor in ("ci_upper", "robustness_value_ci", "plugin_interval_lower"):
+        try:
+            getattr(bound, accessor)
+        except CapabilityError as error:
+            assert "F26" in str(error)
+        else:
+            raise AssertionError(f"the plug-in bound reported {accessor}")
+    elements = result.sensitivity.elements(estimand="ate", nu2_estimator="plugin")
+    assert elements.psi_nu2 is None and elements.psi_max_bias is None
+    assert elements.nu2 > 0.0
 
 
 def _notebook(path: Path) -> dict[str, Any]:

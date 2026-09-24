@@ -1,0 +1,89 @@
+{
+  "schema_version": 2,
+  "study": "omitted-variable bound standard error",
+  "slug": "omitted-variable-bound-se",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-omitted-variable-bound",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "8db70ff90a8b6ab88bb04bf0563c31c815875979",
+      "cleverly_worktree_clean": false,
+      "python": "3.11.13",
+      "numpy": "2.4.6",
+      "scipy": "1.17.1",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 10000,
+    "n": 1000,
+    "seed": 20262201,
+    "resampling_seed": 20262202,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "linear": [
+        "att_lower",
+        "att_upper",
+        "atc_lower",
+        "atc_upper",
+        "ate_lower",
+        "ate_upper"
+      ]
+    },
+    "law": "make_linear_ate(n=1000): W ~ N(0, I_4), g = expit(0.3 W1 - 0.2 W2 + 0.1 W3), Y = 1.5 A + linear(W) + N(0, 1)",
+    "fit": "in-sample TMLE, LinearRegression outcome, unpenalized main-effects LogisticRegression treatment, simultaneous=False, estimands ate, att and atc",
+    "nu2_estimator": "auto, which resolves to doubly_robust",
+    "strength": {
+      "cf_y": 0.5,
+      "cf_d": 0.3,
+      "rho": 1.0
+    },
+    "primary_row": "estimate = the bound; std_error = (lower - ci_lower) / z_0.95 for a lower bound and (ci_upper - upper) / z_0.95 for an upper bound; interval = estimate +/- 1.959964 std_error",
+    "control": "the same fits, with the standard error from the curve of nu^2 without the conditioning-share term, which is the curve before RM22",
+    "truth": "closed form: nu2 = 4 exp(0.07) for att and atc, 2 + 2 exp(0.07) for ate, sigma2 = 1, effect 1.5",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/omitted_variable_bound.py": "8184e8e1aba9445ba5943adb15840bb29de5649b7fab644f0d3a7f6f5c33d862",
+    "tests/studies/omitted_variable_bound_properties.py": "9f900e4bc9f86137810912b86d6d60c0a5d2d8ea5f643b1b49a5a8ceac04eb7b",
+    "tests/studies/evidence/properties.py": "276dabf582abae126f1ad00900e8eb3ab53eff8d50decab476e5d7c4d84d4296",
+    "tests/studies/evidence/property_verdicts.py": "335c61d3bed687eb74a4d2d3e37c8c5dea1d78f67bdf5cc84c8cdfb57ce35822",
+    "tests/studies/evidence/schema.py": "e278cf870eccda458f47e6d635c1e9e9b9a678e142d9aeee446d85148642b94d",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "7afa2a5cc229b3d70ab76708ff8400932e47f400098b5c2a6b84b97d2e5cc616",
+    "summary.csv": "fb3643b2402bb4408ae870ce6f9e6c95b0e0fc14b1c5a77e4185a425d691b1c2",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "8cb2b31450d30a9c9666d8ede4c09214f63822f97a5711092dbb71e94157294c",
+    "property-replicates.csv.gz": "585e648038896b3d43359ae69b344e24e0c1210ef99dfbdb24d13ef36e3e7005",
+    "properties.csv": "f140e0c3affbbef317ed0161dacf04239b491dc60c430a4c4e343a1f581643a4"
+  }
+}

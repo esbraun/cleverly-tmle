@@ -28,6 +28,8 @@ The instruments differ because the claims differ.
 
 from __future__ import annotations
 
+import copy
+import pickle
 import re
 from dataclasses import replace
 from typing import Any
@@ -37,6 +39,7 @@ import pytest
 from sklearn.linear_model import LinearRegression
 
 from cleverly import CausalStudy, NaturalCourseMean, PointTreatment
+from cleverly._inference_status import NON_INFERENTIAL
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import (
     make_binary_outcome,
@@ -52,8 +55,11 @@ from cleverly.interventions import Incremental, Shift
 from cleverly.msm import MSM
 from cleverly.sensitivity.omitted_variable import (
     _FIT_WIDE_BOUND_RULES,
+    _PLUGIN_LIMITS_REFUSAL,
+    _UNRECORDED_ESTIMATOR_REFUSAL,
     NU2_ESTIMATORS,
     OMITTED_VARIABLE_OPERATIONS,
+    SensitivityBounds,
     _elements_for,
     benchmark,
     contour_data,
@@ -75,7 +81,9 @@ from tests.conftest import (
     fast_tmle,
     linear_in_sample,
 )
+from tests.pickles import legacy_without
 from tests.unit._direct_effect_support import cde_frame, fit_cde
+from tests.unit._exact_sensitivity_support import binary_oracle_fit
 
 # --------------------------------------------------------------------------- the fits
 
@@ -815,7 +823,8 @@ class TestTheConditionalEffectScoreReadsTheObservedArm:
         odds = g_c / (1.0 - g_c)
         # alpha_0 is 1/s on the conditioning arm and -odds/s on the other; alpha_hat is
         # 1/s and -1/s. Squares and differences only, so the sign convention drops out.
-        truth = float(np.sum(_P_W * (g_c + (1.0 - g_c) * odds**2))) / share**2
+        # The truth is the law's own oracle, which the witness of the curve differentiates.
+        truth = float(law.riesz_second_moment(law.PROBS, estimand))
         error = float(np.sum(_P_W * (1.0 - g_c) * (odds - 1.0) ** 2)) / share**2
         return share, truth, error
 
@@ -870,3 +879,225 @@ class TestTheResponseRepresenterOmitsTheIndicator:
         unobserved = ~response_fit.data.observed
         assert unobserved.any()
         assert np.count_nonzero(blocked.riesz_representer[unobserved]) > 0
+
+
+# ------------------------------------------------------- the plug-in limits (RM22, F26)
+
+#: The six accessors that read the bound's curve, which refuse under the plug-in.
+LIMIT_ACCESSORS: tuple[str, ...] = (
+    "ci_lower",
+    "ci_upper",
+    "robustness_value_ci",
+    "plugin_interval_lower",
+    "plugin_interval_upper",
+    "robustness_value_plugin_interval",
+)
+
+#: The strength of the RM22 contract, at which each bound is read.
+STRONG = {"cf_y": 0.5, "cf_d": 0.3, "rho": 1.0}
+
+
+def _refusal_text(accessor: str, estimator: str, reason: str) -> str:
+    """The exact message a guarded accessor raises."""
+    return (
+        f"SensitivityBounds.{accessor} is not defined under nu2_estimator={estimator!r}: "
+        + reason
+        + "."
+    )
+
+
+def _assert_the_limits_refuse(bound: Any, estimator: str, reason: str) -> None:
+    for accessor in LIMIT_ACCESSORS:
+        with pytest.raises(CapabilityError) as refused:
+            getattr(bound, accessor)
+        assert str(refused.value) == _refusal_text(accessor, estimator, reason)
+
+
+class TestThePluginLimitsRefuse:
+    """No derivation gives the standard error of a bound built on the plug-in nu^2.
+
+    The plug-in keeps its point quantities: the bounds, ``max_bias`` and ``rv``.  The six
+    accessors that read the curve refuse with the F26 reason, the mapping and the summary
+    say so, and the elements carry no curve.  The doubly robust bound on the same fit
+    reports finite limits, which is what makes each refusal withhold a number.
+    """
+
+    @pytest.fixture(scope="class")
+    def exact_fit(self) -> Any:
+        return binary_oracle_fit()[0]
+
+    @pytest.mark.parametrize("estimand", ["ate", "att", "atc"])
+    def test_each_limit_accessor_refuses(self, exact_fit: Any, estimand: str) -> None:
+        bound = omitted_variable_bounds(exact_fit, estimand, nu2_estimator="plugin", **STRONG)
+        assert bound.nu2_estimator == "plugin"
+        _assert_the_limits_refuse(bound, "plugin", _PLUGIN_LIMITS_REFUSAL)
+
+    def test_a_fitted_mechanism_refuses_too(self, plain_fit: Any) -> None:
+        """The exact law's plug-in is exact; a learned mechanism is the case F26 is about."""
+        bound = omitted_variable_bounds(plain_fit, "ate", nu2_estimator="plugin")
+        _assert_the_limits_refuse(bound, "plugin", _PLUGIN_LIMITS_REFUSAL)
+
+    @pytest.mark.parametrize("estimand", ["ate", "att", "atc"])
+    def test_the_doubly_robust_bound_reports_finite_limits(
+        self, exact_fit: Any, estimand: str
+    ) -> None:
+        """The nonzero witness: the refusal withholds a number the other estimator gives."""
+        bound = omitted_variable_bounds(exact_fit, estimand, **STRONG)
+        assert bound.nu2_estimator == "doubly_robust"
+        assert np.isfinite(bound.ci_lower) and bound.ci_lower < bound.lower
+        assert np.isfinite(bound.ci_upper) and bound.ci_upper > bound.upper
+        assert 0.0 <= bound.robustness_value_ci <= bound.robustness_value
+        assert bound.plugin_interval_lower == bound.ci_lower
+
+    @pytest.mark.parametrize("estimand", ["ate", "att", "atc"])
+    def test_the_point_quantities_remain(self, exact_fit: Any, estimand: str) -> None:
+        """The plug-in bounds are the formula at the plug-in nu^2, written here by hand."""
+        elements = sensitivity_elements(exact_fit, estimand, nu2_estimator="plugin")
+        bound = omitted_variable_bounds(exact_fit, estimand, nu2_estimator="plugin", **STRONG)
+        strength = np.sqrt(STRONG["cf_y"] * STRONG["cf_d"] / (1.0 - STRONG["cf_d"]))
+        max_bias = np.sqrt(elements.sigma2 * elements.nu2)
+        psi = exact_fit.psi(estimand)
+        assert bound.max_bias == pytest.approx(max_bias, abs=1e-12)
+        assert bound.lower == pytest.approx(psi - strength * max_bias, abs=1e-12)
+        assert bound.upper == pytest.approx(psi + strength * max_bias, abs=1e-12)
+        at_rv = omitted_variable_bounds(
+            exact_fit,
+            estimand,
+            cf_y=bound.robustness_value,
+            cf_d=bound.robustness_value,
+            nu2_estimator="plugin",
+        )
+        assert min(abs(at_rv.lower), abs(at_rv.upper)) < 1e-4
+
+    def test_the_mapping_names_the_estimator_and_omits_the_limits(self, exact_fit: Any) -> None:
+        plugin = omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin").to_dict()
+        robust = omitted_variable_bounds(exact_fit, "att").to_dict()
+        assert plugin["nu2_estimator"] == "plugin"
+        assert not set(plugin) & set(LIMIT_ACCESSORS)
+        assert list(plugin) == [
+            "estimand",
+            "nu2_estimator",
+            "psi",
+            "cf_y",
+            "cf_d",
+            "rho",
+            "max_bias",
+            "bias",
+            "lower",
+            "upper",
+            "robustness_value",
+        ]
+        # The doubly robust mapping keeps its keys and their order.
+        assert list(robust) == [
+            "estimand",
+            "psi",
+            "cf_y",
+            "cf_d",
+            "rho",
+            "max_bias",
+            "bias",
+            "lower",
+            "upper",
+            "ci_lower",
+            "ci_upper",
+            "robustness_value",
+            "robustness_value_ci",
+        ]
+
+    def test_the_summary_says_why(self, exact_fit: Any) -> None:
+        plugin = omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin").summary()
+        robust = omitted_variable_bounds(exact_fit, "att").summary()
+        assert "F26" in plugin and "plug-in nu^2" in plugin
+        assert "one-sided CIs" not in plugin and "RVa  =" not in plugin
+        assert "robustness value RV   =" in plugin
+        assert "one-sided CIs" in robust and "RVa  =" in robust and "F26" not in robust
+
+    def test_the_robustness_value_reports_no_limit_value(self, exact_fit: Any) -> None:
+        plugin = robustness_value(exact_fit, "att", nu2_estimator="plugin")
+        robust = robustness_value(exact_fit, "att")
+        assert list(plugin) == ["nu2_estimator", "rv", "max_bias"]
+        assert plugin["nu2_estimator"] == "plugin"
+        assert not any("rva" in key for key in plugin)
+        assert list(robust) == ["rv", "rva", "max_bias"]
+        assert plugin["rv"] == pytest.approx(robust["rv"], abs=1e-6)
+
+    def test_identical_plugin_bounds_compare_equal(self, exact_fit: Any) -> None:
+        """A plug-in bound stores no limit, so it equals its twin and its pickle round trip.
+
+        It stored NaN before, and NaN compares unequal to itself, so the dataclass equality
+        failed for two identical bounds.
+        """
+        first = omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin", **STRONG)
+        second = omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin", **STRONG)
+        assert first._ci_lower is None and first._robustness_value_ci is None
+        assert first == second
+        assert pickle.loads(pickle.dumps(first)) == first
+
+    def test_the_summary_uses_the_refusal_text(self, exact_fit: Any) -> None:
+        """The summary line carries the accessors' own reason, not a second wording of it."""
+        plugin = omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin").summary()
+        assert plugin.endswith(f"under nu2_estimator='plugin': {_PLUGIN_LIMITS_REFUSAL}.")
+        legacy = legacy_without(omitted_variable_bounds(exact_fit, "att"), "nu2_estimator")
+        assert legacy.summary().endswith(
+            f"under nu2_estimator='unrecorded': {_UNRECORDED_ESTIMATOR_REFUSAL}."
+        )
+
+    def test_the_elements_carry_no_curve(self, exact_fit: Any) -> None:
+        plugin = sensitivity_elements(exact_fit, "att", nu2_estimator="plugin")
+        robust = sensitivity_elements(exact_fit, "att")
+        assert plugin.psi_nu2 is None and plugin.psi_max_bias is None
+        assert np.asarray(plugin.psi_sigma2).shape == (law.N,)
+        assert robust.psi_nu2 is not None and robust.psi_max_bias is not None
+
+    def test_the_status_refuses_first_and_the_estimator_second(self, exact_fit: Any) -> None:
+        """A non-inferential status answers the inferential names; F26 answers the others."""
+        bound = copy.copy(omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin"))
+        status = next(iter(NON_INFERENTIAL))
+        object.__setattr__(bound, "inference", status)
+        with pytest.raises(CapabilityError) as by_status:
+            _ = bound.ci_lower
+        assert "F26" not in str(by_status.value)
+        with pytest.raises(CapabilityError) as by_estimator:
+            _ = bound.plugin_interval_lower
+        assert str(by_estimator.value) == _refusal_text(
+            "plugin_interval_lower", "plugin", _PLUGIN_LIMITS_REFUSAL
+        )
+        assert bound.to_dict()["inference"] == status
+
+    def test_a_bound_saved_before_rm22_refuses_its_limits(self, exact_fit: Any) -> None:
+        """An older pickle may hold plug-in limits or ATT limits without the share term."""
+        current = omitted_variable_bounds(exact_fit, "att", **STRONG)
+        legacy = legacy_without(current, "nu2_estimator")
+        assert legacy.nu2_estimator == "unrecorded"
+        _assert_the_limits_refuse(legacy, "unrecorded", _UNRECORDED_ESTIMATOR_REFUSAL)
+        assert legacy.to_dict()["nu2_estimator"] == "unrecorded"
+        assert "saved before" in legacy.summary()
+        assert legacy.lower == current.lower
+        restored = pickle.loads(pickle.dumps(current))
+        assert restored.nu2_estimator == "doubly_robust"
+        assert restored.ci_lower == current.ci_lower
+
+    def test_a_guard_that_refuses_nothing_fails_the_witness(
+        self, exact_fit: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The mutation control: without the guard the F26 reason is lost.
+
+        A plug-in bound stores no limit, so an accessor with no guard still raises, but it
+        says only that nothing was stored. The witness requires the F26 reason, so it fails.
+        """
+        bound = omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin")
+        monkeypatch.setattr(
+            SensitivityBounds, "_limit_refusal", lambda self, operation, diagnostic=False: None
+        )
+        with pytest.raises(AssertionError):
+            _assert_the_limits_refuse(bound, "plugin", _PLUGIN_LIMITS_REFUSAL)
+
+    def test_the_assessment_row_names_the_stop(self, exact_fit: Any) -> None:
+        report = replace(exact_fit).sensitivity.run_all(
+            arguments={"robustness_value": {"estimand": "att", "nu2_estimator": "plugin"}}
+        )
+        item = report["robustness_value"]
+        assert item.status is AssessmentStatus.COMPLETED
+        assert "no confidence-limit value under nu2_estimator='plugin': " in item.detail
+        assert item.detail.endswith(_PLUGIN_LIMITS_REFUSAL + ".")
+        assert "F26" in item.detail

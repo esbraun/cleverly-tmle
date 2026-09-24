@@ -40,9 +40,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cleverly.estimators import TMLE
 from tests import discrete_law as law
-from tests.conftest import OracleOutcome, OracleTreatment
+from tests.unit._exact_sensitivity_support import binary_oracle_fit
 
 ESTIMANDS = ("ey1", "ey0", "ate", "att", "atc", "ey_obs", "par", "paf", "rr", "or")
 
@@ -55,16 +54,7 @@ def exact_fit():
     from the data, and out-of-fold prediction would only add fold bookkeeping to a fit
     whose answer is already determined.
     """
-    dgp = law.DiscreteLaw()
-    estimator = TMLE(
-        outcome_learner=OracleOutcome(dgp),
-        treatment_learner=OracleTreatment(dgp),
-        cross_fit=False,
-        estimands="all",
-        simultaneous=False,
-        random_state=0,
-    )
-    return estimator.fit(law.frame(), outcome="Y", treatment="A").single()
+    return binary_oracle_fit(estimands="all")[0]
 
 
 class TestTheSampleRealisesTheLaw:

@@ -16,6 +16,7 @@ from cleverly.datasets import navigation_protocol
 from cleverly.datasets.synthetic import nonlinear_bounded_dgp
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
+    assert_plugin_limits_refuse,
     assert_protocol_recorded,
     covers,
     stored_output,
@@ -166,8 +167,10 @@ def check(namespace: dict[str, Any]) -> None:
     assert (bounds.cf_y, bounds.cf_d, bounds.rho) == (benchmark.cf_y, benchmark.cf_d, 1.0)
     # "little of the remaining outcome variation and much of the remaining treatment variation".
     assert benchmark.cf_y < 0.2 < 0.4 < benchmark.cf_d
-    # "Both ranges contain zero", and each one-sided limit lies outside its bound.
+    # "The range contains zero."
     assert bounds.confounding_strength > at_rv.confounding_strength
     assert bounds.lower < 0.0 < bounds.psi < bounds.upper
-    assert bounds.ci_lower < bounds.lower
-    assert bounds.ci_upper > bounds.upper
+    # "The last call refuses": the plug-in bound reports no limit and no confidence-limit
+    # value, and the page prints the F26 reason. A mutation that restores the plug-in limits
+    # returns a number at the page's ``ci_lower`` instead, and the page raises.
+    assert_plugin_limits_refuse(result, bounds, namespace)

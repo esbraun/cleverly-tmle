@@ -9,7 +9,9 @@ import json
 import re
 import types
 import typing
+from typing import Any
 
+import numpy as np
 import pandas as pd
 import pytest
 import sklearn.linear_model
@@ -51,6 +53,7 @@ from cleverly.assessment import (
 from cleverly.datasets import make_linear_ate, make_longitudinal, make_multi_arm
 from cleverly.estimators import TMLE
 from cleverly.sensitivity import ConfounderStrengthGrid, PositivityReport, simulated_confounding
+from cleverly.sensitivity import omitted_variable as omitted_variable_module
 from cleverly.sensitivity._parameters import arm_parameters
 from cleverly.sensitivity._simulated_confounding_request import (
     _FIT_WIDE_RULES,
@@ -2614,3 +2617,64 @@ def test_natural_course_explicit_treatment_axis_is_refused_not_redirected(
     """
     with pytest.raises(CapabilityError, match="fits no treatment propensity"):
         natural_course_result.diagnostics.truncation_curve(bounds=(0.01, 0.05), mechanism=False)
+
+
+#: The combined sensitivity report's generation before RM22.  A fact about saved artifacts, so a
+#: literal rather than one below the current number, which would move with a missing bump.
+SENSITIVITY_RUN_ALL_BEFORE_RM22 = 3
+
+#: The single sensitivity entries RM22 versioned.  Before it, their keys carried no generation.
+VERSIONED_BY_RM22 = (
+    "sensitivity.elements",
+    "sensitivity.omitted_confounding",
+    "sensitivity.robustness_value",
+)
+
+
+def _as_before_rm22(patch: pytest.MonkeyPatch) -> None:
+    """Make the package compute and key its sensitivity reports as it did before RM22."""
+    patch.setattr(
+        omitted_variable_module,
+        "_conditioning_share_influence",
+        lambda nu2, indicator, share, weights: 0.0,
+    )
+    for operation in VERSIONED_BY_RM22:
+        patch.delitem(_CACHE_GENERATIONS, operation)
+    patch.setitem(_CACHE_GENERATIONS, "sensitivity.run_all", SENSITIVITY_RUN_ALL_BEFORE_RM22)
+
+
+def _lower_standard_error(bound: Any) -> float:
+    return float((bound.lower - bound.ci_lower) / 1.6448536269514722)
+
+
+def test_an_att_bound_saved_before_rm22_is_recomputed(att_result, monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """A saved result carries its cached bounds, and the generations retire them.
+
+    The stale reports are written as the version before RM22 wrote them: the ATT curve has no
+    share term, and the keys carry the generations of that version.  On this fit the
+    lower-bound standard error at the large strength reads 0.1325 without the term and
+    0.1206 with it.  The control reads the loaded result at the old generations, where each
+    stale report is still served.
+    """
+    result = dataclasses.replace(att_result)
+    strength = {"estimand": "att", "cf_y": 0.5, "cf_d": 0.3}
+    with monkeypatch.context() as before_rm22:
+        _as_before_rm22(before_rm22)
+        stale_bound = result.sensitivity.omitted_confounding(**strength)
+        stale_values = result.sensitivity.robustness_value(estimand="att")
+        stale_elements = result.sensitivity.elements(estimand="att")
+        stale_row = result.sensitivity.run_all()["robustness_value"]
+    assert _lower_standard_error(stale_bound) == pytest.approx(0.1325, abs=5e-5)
+    loaded = load(result.save(tmp_path / "saved-before-rm22.joblib"))
+
+    fresh_bound = loaded.sensitivity.omitted_confounding(**strength)
+    assert _lower_standard_error(fresh_bound) == pytest.approx(0.1206, abs=5e-5)
+    assert loaded.sensitivity.robustness_value(estimand="att")["rva"] > stale_values["rva"]
+    fresh_elements = loaded.sensitivity.elements(estimand="att")
+    assert np.std(fresh_elements.psi_nu2) < np.std(stale_elements.psi_nu2) - 5.0
+    assert loaded.sensitivity.run_all()["robustness_value"].detail != stale_row.detail
+
+    _as_before_rm22(monkeypatch)
+    assert loaded.sensitivity.omitted_confounding(**strength).ci_lower == stale_bound.ci_lower
+    assert loaded.sensitivity.robustness_value(estimand="att") == stale_values
+    assert loaded.sensitivity.run_all()["robustness_value"].detail == stale_row.detail

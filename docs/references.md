@@ -1406,7 +1406,34 @@ is the only empirical witness for it.
 - Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2026),
   [*Long Story Short: Omitted Variable Bias in Causal Machine
   Learning*](https://doi.org/10.1162/REST.a.1705), *The Review of Economics and Statistics*,
-  DOI 10.1162/REST.a.1705. The preprint is arXiv:2112.13398.
+  published online on 4 February 2026 with pages 1–45 and no volume or issue. DOI
+  10.1162/REST.a.1705. This package read the published online appendix and
+  arXiv:2112.13398v6 of 21 September 2026. The publisher's site refused access to the published
+  main text, so this package did not read it. The main-text locators follow v6. The published
+  appendix cites "C.7. Proof of Theorem 2" and "C.10. Proof of Lemma 3 and Theorem 4", which
+  match v6.
+- Saul & Hudgens (2020), [*The Calculus of M-Estimation in R with geex*](https://www.jstatsoft.org/article/view/v092i02),
+  *Journal of Statistical Software* 92(2), DOI 10.18637/jss.v092.i02. Its general stacked
+  estimating-equation method computes a sandwich variance for specified smooth equations. It
+  supplies a route for parametric plug-in inference, not a curve for arbitrary mechanism learners.
+- Bjelac, Chernozhukov, Klotz, Kueck & Schmitz (2026),
+  [*Automatic debiased machine learning and sensitivity analysis for sample selection models*](https://proceedings.mlr.press/v323/bjelac26a.html),
+  *Proceedings of Machine Learning Research* 323:353–392. The locators below follow
+  [arXiv:2601.08643v1](https://arxiv.org/abs/2601.08643). Theorem 1 and Section 3.3 extend Riesz bounds to sample selection.
+  Assumption 3 rules out unobserved confounding of treatment assignment. The result points to a
+  response-mechanism specialization; it does not cover the general refusal in this package.
+- The R package `dml.sensemakr` in the repository `carloscinelli/dml.sensemakr`,
+  [`R/short-parameters.R` at commit
+  `d5293ecb`](https://github.com/carloscinelli/dml.sensemakr/commit/d5293ecb48ee1ea5816b84a01b31b68f2f17fa6a),
+  function `ate.npm`.
+  From that commit its curve of $\nu^2$ carries the influence term of the estimated treatment
+  share. The reference section on the bound's standard error cites it as the implementation this
+  package found with that term. Of the two implementations this package surveyed, the other is
+  DoubleML. At its later commit `58ac44d` it also divides the point estimate of $\nu^2$.
+- DoubleML for Python, [`doubleml/irm/irm.py` at commit
+  `b69f86ef`](https://github.com/DoubleML/doubleml-for-py/blob/b69f86ef7bdb50d3f9e94fbaf40f18ce050f13d2/doubleml/irm/irm.py),
+  method `_sensitivity_element_est`. Its curve of $\nu^2$ omits the share term, and its ATTE score
+  writes $m(\alpha)$ as $D / (p^2 (1 - \hat m))$.
 - VanderWeele & Ding (2017), *Sensitivity analysis in observational research: introducing the
   E-value*.
 - VanderWeele (2010), [*Bias formulas for sensitivity analysis for direct and indirect

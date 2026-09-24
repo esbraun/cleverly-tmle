@@ -63,6 +63,13 @@ ARMS: dict[str, str] = {
     "tilt": "known stochastic tilt",
     "z0": "controlled direct effect at intermediate level zero",
     "z1": "controlled direct effect at intermediate level one",
+    # The six ends of the omitted-variable bounds, each a calibration label of its own.
+    "att_lower": "lower omitted-variable bound on the ATT",
+    "att_upper": "upper omitted-variable bound on the ATT",
+    "atc_lower": "lower omitted-variable bound on the ATC",
+    "atc_upper": "upper omitted-variable bound on the ATC",
+    "ate_lower": "lower omitted-variable bound on the ATE",
+    "ate_upper": "upper omitted-variable bound on the ATE",
     # The four laws of the stacked arm-indexed missing-outcome study, and each estimand's
     # calibration label.  L1 and L2 have two arms; L3 and L4 have three, with ``high`` as
     # the reference arm.  L1 and L3 have a binary outcome; L2 and L4 a bounded continuous one.
@@ -139,6 +146,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-fold-evaluated-cvtmle": "`cleverly` fold-evaluated CV-TMLE",
     "cleverly-fold-targeted-cvtmle": "`cleverly` fold-targeted CV-TMLE",
     "cleverly-repeated-cvtmle": "`cleverly` repeated stacked CV-TMLE",
+    "cleverly-omitted-variable-bound": "`cleverly` omitted-variable bound",
     "cleverly-mar-drtmle": "`cleverly` randomized missing-outcome DR-TMLE",
     "cleverly-mar-natural-course-tmle": "`cleverly` missing-outcome natural-course TMLE",
     "cleverly-stacked-mar-natural-course-cvtmle": (
@@ -188,6 +196,7 @@ IMPLEMENTATIONS: dict[str, str] = {
 
 SCENARIOS: dict[str, str] = {
     "binary": "binary-outcome law",
+    "linear": "linear Gaussian-outcome law with a constant effect, `make_linear_ate`",
     "binary_discrete": "binary-outcome law, discrete selector",
     "binary_greedy": "binary-outcome law, greedy selector",
     "binary_ordered": "binary-outcome law, ordered selector",
@@ -251,8 +260,14 @@ SCENARIOS: dict[str, str] = {
 
 ESTIMANDS: dict[str, str] = {
     "atc": "average effect on the untreated",
+    "atc_lower": "lower omitted-variable bound on the ATC, at cf_y 0.5, cf_d 0.3, rho 1",
+    "atc_upper": "upper omitted-variable bound on the ATC, at cf_y 0.5, cf_d 0.3, rho 1",
     "ate": "average treatment effect",
+    "ate_lower": "lower omitted-variable bound on the ATE, at cf_y 0.5, cf_d 0.3, rho 1",
+    "ate_upper": "upper omitted-variable bound on the ATE, at cf_y 0.5, cf_d 0.3, rho 1",
     "att": "average effect on the treated",
+    "att_lower": "lower omitted-variable bound on the ATT, at cf_y 0.5, cf_d 0.3, rho 1",
+    "att_upper": "upper omitted-variable bound on the ATT, at cf_y 0.5, cf_d 0.3, rho 1",
     "ey0": "counterfactual mean under no treatment",
     "ey1": "counterfactual mean under treatment",
     "ey_obs": "observed outcome mean under the natural course",
@@ -724,6 +739,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the reported standard errors are multiplied by a declared factor below one",
         "the SE-ratio interval must fall below the calibration band",
     ),
+    ("interval_calibration", "inflated_se_control"): (
+        "the reported standard errors come from a curve that is too wide on this law",
+        "the SE-ratio interval must fall above the calibration band",
+    ),
     ("interval_calibration", "noise_control"): (
         "one efficiency-bound unit of independent noise is added to each estimate",
         "the empirical efficiency ratio must rise above the band",
@@ -949,6 +968,19 @@ class Undescribed(LookupError):
     """A committed result names a key this module does not describe."""
 
 
+#: A study-specific reading of a generic cell kind, keyed by family, arm prefix and kind.
+#: The generic entry in :data:`CELLS` says what the kind does; this says how one study built it.
+ARM_CELLS: dict[tuple[str, str, str], tuple[str, str]] = {
+    (family, arm, "inflated_se_control"): (
+        "the standard errors come from the curve of nu^2 without the conditioning-share term, "
+        "as before RM22",
+        "the SE-ratio interval must fall above the calibration band",
+    )
+    for family in ("interval_calibration",)
+    for arm in ("att_lower", "att_upper")
+}
+
+
 def implementation(key: str) -> str:
     """The reader-facing name of an implementation column value."""
     try:
@@ -1091,7 +1123,9 @@ def cell(
     if size is not None:
         base = size.group("cell")
     try:
-        tested, required = CELLS[family, base]
+        tested, required = (
+            ARM_CELLS.get((family, arm.group("arm"), base)) if arm else None
+        ) or CELLS[family, base]
     except KeyError:
         raise Undescribed(f"no description for cell {key!r} of {family!r}") from None
     if size is not None:

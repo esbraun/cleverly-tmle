@@ -4,8 +4,9 @@ Positivity diagnostics tell you whether the data can support the estimate.  This
 module answers a different question: *how strong would an unmeasured confounder
 have to be to overturn the conclusion?*
 
-Following Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2026), the bias from
-omitting a confounder is bounded by a product of three interpretable pieces:
+Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2026) bound the bias from omitting a
+confounder by a product of three interpretable pieces.  Their Theorem 2 gives the bias of a
+linear functional, and Equation (14) in their Section 4 gives the bounds:
 
 .. math::
 
@@ -30,8 +31,21 @@ guess sensitivity parameters at all.  Second, :func:`benchmark` calibrates
 age" is a claim a reader can evaluate, where "cf_y = 0.03" is not.
 
 The parameterisation, including the definition of the benchmark gain statistics,
-matches DoubleML's ``sensitivity_analysis`` so numbers are comparable across the two
-libraries.
+follows DoubleML's ``sensitivity_analysis``, so a strength means the same thing in both
+libraries.  The confidence limits of an ATT or an ATC differ: this module adds the
+influence term of the conditioning share to the curve of ``nu^2``, and
+``DoubleMLIRM._sensitivity_element_est`` omits it (doubleml-for-py at ``b69f86ef``).  The
+estimates differ too, because DoubleML fits a cross-fitted AIPW score and this package a
+TMLE.
+
+Inference.  Each bound has one-sided limits, from Theorem 4 in Section 4 of Chernozhukov et
+al.  For the ATT and the ATC the curve of the doubly robust ``nu^2`` also carries
+``-2 nu^2 (1{A = c} - p) / p``, the influence of the estimated share ``p`` of the
+conditioning arm ``c``.  The paper gives this kind of term for the estimate only (Online
+Appendix A, "Statistical Inference", Equation (15)).  :func:`_conditioning_share_influence`
+holds this package's derivation.
+The plug-in estimator of ``nu^2`` has no derived curve, so its bounds publish no limits
+(docs/roadmap.md F26).
 
 Scope: the bound applies to the linear functionals this library estimates -- the
 counterfactual means, their contrasts against the reference arm, and the two conditional
@@ -44,8 +58,9 @@ representer.  Ratios are not linear functionals of the outcome regression, so us
 Scope of the refusals: :data:`_FIT_WIDE_BOUND_RULES` refuses the fits below, for four
 reasons.
 
-* A DR-TMLE fit and a collaborative TMLE fit break a premise.  The published ``nu^2``
-  estimate and its standard error assume a consistently estimated treatment mechanism.
+* A DR-TMLE fit and a collaborative TMLE fit break a premise.  The ``nu^2`` score of
+  Lemma 3 of Chernozhukov et al. and the standard error of their Theorem 4 assume a
+  consistently estimated treatment mechanism.
 * A fit with a response mechanism, a fit with an intermediate variable, and a fit indexed
   by a regime, a shift, or an MSM term are well posed.  Theorem 2 of Chernozhukov et al.
   covers each one as a linear functional of the outcome regression, and no implementation
@@ -174,6 +189,68 @@ _THEOREM_2_COVERS = (
     "so Theorem 2 of Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026) covers it, "
     "and the bound is well posed here."
 )
+
+#: Why the plug-in estimator of nu^2 publishes no confidence limit.  One text for the six
+#: guarded accessors of :class:`SensitivityBounds`, its summary line and the robustness row
+#: of the assessment, which all read it through :func:`limit_refusal_reason`.
+#: ``tests/unit/test_documentation_links.py`` checks that it cites F26.
+_PLUGIN_LIMITS_REFUSAL = (
+    "no derivation in a source this package cites gives the standard error of a bound built "
+    "on the plug-in nu^2. E_n[alpha_hat^2] squares the fitted Riesz representer, so it moves "
+    "at first order with the fitted treatment mechanism, and its curve alpha_hat^2 - nu^2 has "
+    "no term for that fit. Lemma 3 and Theorem 4 of Chernozhukov, Cinelli, Newey, Sharma and "
+    "Syrgkanis (2026) give the limits for the doubly robust estimator only. The bias-adjusted "
+    "bounds, rv, max_bias, benchmark() and contour() remain available. docs/roadmap.md F26 "
+    "tracks this stop"
+)
+
+#: Why a bound saved before RM22 publishes no confidence limit.  Such a pickle did not record
+#: its estimator, so its limits may be plug-in limits or ATT and ATC limits without the share
+#: term, and the package cannot tell which.
+_UNRECORDED_ESTIMATOR_REFUSAL = (
+    "this bound was saved before the package recorded the estimator of nu^2 that built it. "
+    "Its limits may come from the plug-in estimator, which has no derived standard error, or "
+    "from an ATT or ATC curve without the conditioning-share term that RM22 added. Call "
+    "omitted_variable_bounds() or result.sensitivity.omitted_confounding() on the fit again"
+)
+
+#: The estimators of nu^2 whose bounds refuse their limits, and why.  The doubly robust
+#: estimator is absent: its limits are the ones Theorem 4 derives.
+_ESTIMATOR_LIMIT_REFUSALS: dict[str, str] = {
+    "plugin": _PLUGIN_LIMITS_REFUSAL,
+    "unrecorded": _UNRECORDED_ESTIMATOR_REFUSAL,
+}
+
+_ZERO_BIAS_LIMITS_REFUSAL = (
+    "max_bias is zero: sqrt(sigma^2 nu^2) has no ordinary influence curve at "
+    "sigma^2 = 0, so the one-sided limits and confidence-limit robustness value "
+    "are not available"
+)
+
+_UNREACHABLE_RV = "no equal strength reaches the null"
+
+
+def limit_refusal_reason(nu2_estimator: str) -> str | None:
+    """Why a bound built by ``nu2_estimator`` publishes no limit, or ``None`` when it does.
+
+    The accessors of :class:`SensitivityBounds`, its summary and the robustness row of the
+    assessment each prefix their own subject to this one text, so the three cannot disagree.
+
+    Parameters
+    ----------
+    nu2_estimator : str
+        The resolved estimator a bound or a robustness report records.
+
+    Returns
+    -------
+    str or None
+        ``"nu2_estimator='plugin': <reason>."``, or ``None`` for the doubly robust estimator.
+    """
+    reason = _ESTIMATOR_LIMIT_REFUSALS.get(nu2_estimator)
+    if reason is None:
+        return None
+    return f"nu2_estimator={nu2_estimator!r}: {reason}."
+
 
 _RESPONSE_BOUND_REFUSAL = (
     "the omitted-variable bound is not implemented for a fit with a response mechanism. "
@@ -369,11 +446,15 @@ class SensitivityElements:
         if it explained *all* the residual variation on both sides.
     psi_sigma2 : ndarray
         Influence curve of ``sigma2``.
-    psi_nu2 : ndarray
-        Influence curve of ``nu2``.
-    psi_max_bias : ndarray
-        Influence curve of ``max_bias``, so the bias-adjusted bounds get confidence
-        intervals rather than being treated as known constants.
+    psi_nu2 : ndarray or None
+        Influence curve of ``nu2`` under the doubly robust estimator: the score of Lemma 3
+        of Chernozhukov et al. (2026), plus the influence of the conditioning share for the
+        ATT and the ATC.  ``None`` under the plug-in estimator, whose curve no derivation
+        in a source this package cites gives (docs/roadmap.md F26).
+    psi_max_bias : ndarray or None
+        Influence curve of ``max_bias``, as in Theorem 4 of the same paper, so the
+        bias-adjusted bounds get confidence limits rather than being treated as known
+        constants. ``None`` under the plug-in estimator or when ``max_bias`` is zero.
 
     riesz_representer : ndarray
         ``(n,)`` values of :math:`\\alpha(A, W)` for the targeted functional.
@@ -386,8 +467,8 @@ class SensitivityElements:
     nu2: float
     max_bias: float
     psi_sigma2: FloatArray
-    psi_nu2: FloatArray
-    psi_max_bias: FloatArray
+    psi_nu2: FloatArray | None
+    psi_max_bias: FloatArray | None
     riesz_representer: FloatArray
     nu2_estimator: str
 
@@ -416,7 +497,8 @@ def sensitivity_elements(
         sensitive to error in the estimated propensity than the plug-in
         :math:`E[\alpha^2]` (``"plugin"``).  Both are consistent; ``"auto"`` picks the
         doubly robust form wherever the functional's :math:`m(O, \alpha)` has a closed
-        form, which is all of :data:`LINEAR_ESTIMANDS`.
+        form, which is all of :data:`LINEAR_ESTIMANDS`.  Only the doubly robust form has
+        a derived influence curve, so only it gives the bounds confidence limits.
 
     Returns
     -------
@@ -600,10 +682,26 @@ def _elements_for(
     else:
         nu2_element = representer**2
         nu2 = float(np.average(nu2_element, weights=weights))
-    psi_nu2 = (nu2_element - nu2) * weights
-
     max_bias = float(np.sqrt(sigma2 * nu2))
-    psi_max_bias = (sigma2 * psi_nu2 + nu2 * psi_sigma2) / (2.0 * max_bias)
+    psi_nu2: FloatArray | None = None
+    psi_max_bias: FloatArray | None = None
+    # The plug-in keeps no curve: E_n[alpha_hat^2] moves at first order with the fitted
+    # mechanism and no derivation in a source this package cites gives its influence
+    # function (docs/roadmap.md F26), so an
+    # array here would be a curve for a different estimator under this one's name.
+    if method == "doubly_robust":
+        psi_nu2 = (nu2_element - nu2) * weights
+        if conditioning_indicator is not None:
+            # The estimate divides by the estimated share of the conditioning arm, so its
+            # curve carries that share's influence. See _conditioning_share_influence.
+            assert conditioning_share is not None
+            psi_nu2 = psi_nu2 + _conditioning_share_influence(
+                nu2, conditioning_indicator, conditioning_share, weights
+            )
+        # The square-root delta method requires a positive product. At sigma2=0 the
+        # point bound is still defined, but its ordinary influence curve is not.
+        if max_bias > 0.0:
+            psi_max_bias = (sigma2 * psi_nu2 + nu2 * psi_sigma2) / (2.0 * max_bias)
     return SensitivityElements(
         estimand=parameter.name,
         sigma2=sigma2,
@@ -656,9 +754,11 @@ def _m_alpha(
     The identity holds only when ``m`` is the functional's own score, with no fitted
     nuisance in it.  An ATT averages the contrast over the units that received the
     conditioning arm ``c``, so its score weights the contrast by the observed
-    :math:`1\{A = c\} / P(A = c)`.  That is Example 2 of the Online Appendix of
+    :math:`1\{A = c\} / P(A = c)`.  That is the ATT of Example 2 in Online Appendix A of
     Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026), with
-    :math:`\omega = D / P(D = 1)`, and the score of their Theorem 5(2).  DoubleML's
+    :math:`\ell(W_s) = D / P(D = 1)`.  Item (2) of their Theorem 5 writes this :math:`m`
+    and the representer.  That theorem establishes the bias formula; the score and the
+    limits are Lemma 3 and Theorem 4.  DoubleML's
     ``DoubleMLIRM._sensitivity_element_est`` writes the same score, expanded, as
     :math:`D / (p^2 (1 - \hat m))`.  A fitted :math:`\hat g_c(W) / P(A = c)` in that
     place has the right mean only at :math:`\hat g = g_0`.  Anywhere else the identity
@@ -703,6 +803,41 @@ def _m_alpha(
     return np.asarray((conditioning_indicator / conditioning_share) * difference, dtype=float)
 
 
+def _conditioning_share_influence(
+    nu2: float, indicator: FloatArray, share: float, weights: FloatArray
+) -> FloatArray:
+    r"""The influence of the estimated conditioning share on the doubly robust ``nu^2``.
+
+    For the ATT and the ATC, the representer and :math:`m(O, \alpha)` both divide by the
+    share :math:`p = P_w(A = c)` of the arm :math:`c` that the parameter conditions on.  So
+    the estimate is :math:`\hat F / \hat p^2`, where :math:`\hat F` is the weighted mean of
+    :math:`\hat p^2 (2 m(O, \hat\alpha) - \hat\alpha^2)`.  At a fixed :math:`p`, the Riesz
+    identity makes :math:`\hat F` insensitive at first order to the fitted mechanism, so its
+    curve is the score of Lemma 3 of Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis
+    (2026).  The weighted share :math:`\hat p` has the curve :math:`w (1\{A = c\} - p)`, and
+    the derivative of :math:`F / p^2` in :math:`p` is :math:`-2 \nu^2 / p`.  The delta method
+    therefore adds
+
+    .. math::
+
+        -2 \nu^2 w (1\{A = c\} - p) / p
+
+    to the curve.  With ``K`` arms each contrast has its own :math:`c` and :math:`p`.  Under
+    clustering the term enters the cluster sum of
+    :func:`~cleverly.inference.cluster.influence_variance` like every other row term.
+
+    The paper gives a term of this kind for the estimate only, in Online Appendix A,
+    "Statistical Inference", Equation (15), and the estimate's own curve here carries it.
+    It gives none for :math:`\nu^2`, so this is the package's derivation.  The R package
+    ``dml.sensemakr`` carries the same term since commit ``d5293ecb``, and DoubleML's
+    ``DoubleMLIRM._sensitivity_element_est`` omits it.  The weighted rows of the term sum
+    to zero, so no check of a mean or of a point can see it.
+    ``tests/unit/test_omitted_variable_standard_error.py`` compares the curve with its
+    Gateaux derivative row by row.
+    """
+    return np.asarray(-2.0 * nu2 * (indicator - share) / share * weights, dtype=float)
+
+
 @dataclass(frozen=True, init=False)
 class SensitivityBounds:
     """Bias-adjusted bounds under an assumed confounder strength.
@@ -729,22 +864,30 @@ class SensitivityBounds:
         Bias-adjusted upper bound on the estimate.
     ci_lower : float
         Lower one-sided confidence limit of the adjusted bound. It refuses at a
-        non-inferential status; :attr:`plugin_interval_lower` keeps the diagnostic.
+        non-inferential status, where :attr:`plugin_interval_lower` keeps the diagnostic.
+        It refuses under the plug-in estimator of ``nu^2``, which has no derived standard
+        error (docs/roadmap.md F26).
     ci_upper : float
         Upper one-sided confidence limit of the adjusted bound. It follows ``ci_lower``.
     level : float
         Coverage level of those limits.
-    robustness_value : float
-        Confounding strength that would move the point estimate to the null.
-    robustness_value_ci : float
+    robustness_value : float or None
+        Equal confounding strength that moves the point estimate to the null. ``None``
+        means no strength below one reaches it.
+    robustness_value_ci : float or None
         The same strength for the confidence limit. It refuses with ``ci_lower``;
-        :attr:`robustness_value_plugin_interval` keeps the diagnostic.
+        :attr:`robustness_value_plugin_interval` keeps the diagnostic. ``None`` means
+        the available limit does not reach the null at any equal strength below one.
     null_hypothesis : float
         The value the robustness values are measured against.
     inference : str, default="influence_curve"
         The inference status of the estimate the bound adjusts. One of
         :data:`~cleverly.inference.influence.InferenceStatus`, which the
         :doc:`inference reference </technical-reference/inference>` lists.
+    nu2_estimator : str, default="doubly_robust"
+        The resolved estimator of ``nu^2`` that built the bound. Under ``"plugin"`` the six
+        limit accessors refuse. A bound saved before this field existed reads
+        ``"unrecorded"`` and refuses them too.
     """
 
     estimand: str
@@ -756,16 +899,23 @@ class SensitivityBounds:
     max_bias: float
     lower: float
     upper: float
-    _ci_lower: float
-    _ci_upper: float
+    #: ``None`` when no derivation in a source this package cites gives the limits, so two
+    #: identical plug-in bounds, and a pickle round trip of one, compare equal.  A NaN here
+    #: compared unequal to itself.
+    _ci_lower: float | None
+    _ci_upper: float | None
     level: float
-    robustness_value: float
-    _robustness_value_ci: float
+    robustness_value: float | None
+    _robustness_value_ci: float | None
     null_hypothesis: float
     #: A plain default, so a bound pickled before the field existed loads as inferential,
     #: which every such bound was: RM11 refused the bound on the only fits that carried
     #: another status.
     inference: InferenceStatus = "influence_curve"
+    #: Not the same rule as ``inference``: a bound pickled before this field existed may be
+    #: a plug-in bound, or an ATT or ATC bound without the share term, so
+    #: :meth:`__setstate__` sets ``"unrecorded"`` rather than trusting this default.
+    nu2_estimator: str = "doubly_robust"
 
     def __init__(
         self,
@@ -778,13 +928,14 @@ class SensitivityBounds:
         max_bias: float,
         lower: float,
         upper: float,
-        ci_lower: float,
-        ci_upper: float,
+        ci_lower: float | None,
+        ci_upper: float | None,
         level: float,
-        robustness_value: float,
-        robustness_value_ci: float,
+        robustness_value: float | None,
+        robustness_value_ci: float | None,
         null_hypothesis: float,
         inference: InferenceStatus = "influence_curve",
+        nu2_estimator: str = "doubly_robust",
     ) -> None:
         # Preserve the public constructor while guarding its inferential values.
         for name, value in (
@@ -804,48 +955,90 @@ class SensitivityBounds:
             ("_robustness_value_ci", robustness_value_ci),
             ("null_hypothesis", null_hypothesis),
             ("inference", inference),
+            ("nu2_estimator", nu2_estimator),
         ):
             object.__setattr__(self, name, value)
 
     def __setstate__(self, state: dict[str, Any]) -> None:
-        """Move the public stored fields of an older pickle behind the guarded accessors."""
+        """Move the public stored fields of an older pickle behind the guarded accessors.
+
+        A pickle without ``nu2_estimator`` predates RM22, so its estimator reads
+        ``"unrecorded"`` and its limits refuse.
+        """
         restored = dict(state)
         for name in ("ci_lower", "ci_upper", "robustness_value_ci"):
             if name in restored:
                 restored[f"_{name}"] = restored.pop(name)
+        restored.setdefault("nu2_estimator", "unrecorded")
         self.__dict__.update(restored)
+
+    @property
+    def _limits_derived(self) -> bool:
+        """Whether a derivation gives the standard error of these limits."""
+        return self.nu2_estimator not in _ESTIMATOR_LIMIT_REFUSALS and self.max_bias > 0.0
+
+    def _limit_reason(self) -> str | None:
+        """The estimator or zero-bias reason for withholding limit inference."""
+        reason = limit_refusal_reason(self.nu2_estimator)
+        if reason is not None:
+            return reason
+        if self.max_bias == 0.0:
+            return _ZERO_BIAS_LIMITS_REFUSAL + "."
+        return None
+
+    def _limit_refusal(self, operation: str, *, diagnostic: bool = False) -> None:
+        """Refuse a limit accessor, in the one order every accessor uses.
+
+        The inference status comes first, because it is a property of the estimate the
+        bound adjusts.  A diagnostic accessor skips it, since it exists to report the
+        spread at a non-inferential status.  The estimator of ``nu^2`` comes second, and no
+        name escapes it, because a limit without a derived standard error is not a
+        diagnostic of anything.
+        """
+        if not diagnostic:
+            refuse_inference(self.inference, operation=operation)
+        reason = self._limit_reason()
+        if reason is not None:
+            raise CapabilityError(f"{operation} is not defined under {reason}")
+
+    def _guarded(self, name: str, stored: float | None, *, diagnostic: bool = False) -> float:
+        """One stored limit, after :meth:`_limit_refusal` has let it through."""
+        operation = f"SensitivityBounds.{name}"
+        self._limit_refusal(operation, diagnostic=diagnostic)
+        if stored is None:  # pragma: no cover - a derived bound always stores its limits
+            raise CapabilityError(f"{operation} was not stored on this bound")
+        return stored
 
     @property
     def ci_lower(self) -> float:
         """Lower confidence limit, when this bound supplies inference."""
-        refuse_inference(self.inference, operation="SensitivityBounds.ci_lower")
-        return self._ci_lower
+        return self._guarded("ci_lower", self._ci_lower)
 
     @property
     def ci_upper(self) -> float:
         """Upper confidence limit, when this bound supplies inference."""
-        refuse_inference(self.inference, operation="SensitivityBounds.ci_upper")
-        return self._ci_upper
+        return self._guarded("ci_upper", self._ci_upper)
 
     @property
-    def robustness_value_ci(self) -> float:
+    def robustness_value_ci(self) -> float | None:
         """Robustness value for a confidence limit, when inference is supplied."""
-        refuse_inference(self.inference, operation="SensitivityBounds.robustness_value_ci")
+        self._limit_refusal("SensitivityBounds.robustness_value_ci")
         return self._robustness_value_ci
 
     @property
     def plugin_interval_lower(self) -> float:
         """Lower plug-in limit, a diagnostic at a non-inferential status."""
-        return self._ci_lower
+        return self._guarded("plugin_interval_lower", self._ci_lower, diagnostic=True)
 
     @property
     def plugin_interval_upper(self) -> float:
         """Upper plug-in limit, a diagnostic at a non-inferential status."""
-        return self._ci_upper
+        return self._guarded("plugin_interval_upper", self._ci_upper, diagnostic=True)
 
     @property
-    def robustness_value_plugin_interval(self) -> float:
+    def robustness_value_plugin_interval(self) -> float | None:
         """Robustness value from the plug-in limit, a diagnostic when inference is absent."""
+        self._limit_refusal("SensitivityBounds.robustness_value_plugin_interval", diagnostic=True)
         return self._robustness_value_ci
 
     @property
@@ -860,7 +1053,9 @@ class SensitivityBounds:
         the three quantities read off the influence curve take the names
         :func:`~cleverly.inference.influence.spread_name` gives them:
         ``plugin_interval_lower``, ``plugin_interval_upper`` and
-        ``robustness_value_plugin_interval``.
+        ``robustness_value_plugin_interval``.  When no derivation in a source this package
+        cites gives the limits' standard error, the mapping carries ``nu2_estimator`` and
+        omits those three keys under every name.
 
         Returns
         -------
@@ -871,6 +1066,10 @@ class SensitivityBounds:
         row: dict[str, Any] = {"estimand": self.estimand}
         if not supplies_inference(status):
             row["inference"] = status
+        if not self._limits_derived:
+            row["nu2_estimator"] = self.nu2_estimator
+            if self.max_bias == 0.0 and self.nu2_estimator == "doubly_robust":
+                row["limit_refusal"] = _ZERO_BIAS_LIMITS_REFUSAL
         row |= {
             "psi": self.psi,
             "cf_y": self.cf_y,
@@ -880,11 +1079,15 @@ class SensitivityBounds:
             "bias": self.bias,
             "lower": self.lower,
             "upper": self.upper,
-            spread_name("ci_lower", status): self.plugin_interval_lower,
-            spread_name("ci_upper", status): self.plugin_interval_upper,
-            "robustness_value": self.robustness_value,
-            spread_name("robustness_value_ci", status): self.robustness_value_plugin_interval,
         }
+        if self._limits_derived:
+            row |= {
+                spread_name("ci_lower", status): self.plugin_interval_lower,
+                spread_name("ci_upper", status): self.plugin_interval_upper,
+            }
+        row["robustness_value"] = self.robustness_value
+        if self._limits_derived:
+            row[spread_name("robustness_value_ci", status)] = self.robustness_value_plugin_interval
         return row
 
     def summary(self) -> str:
@@ -900,27 +1103,52 @@ class SensitivityBounds:
             if (self.lower - self.null_hypothesis) * (self.upper - self.null_hypothesis) > 0
             else "the effect could be explained away"
         )
+        header = [
+            f"Omitted-variable sensitivity for {self.estimand!r}",
+            "-" * 44,
+            f"estimate {self.psi:.5g}; maximal bias sqrt(sigma^2 nu^2) = {self.max_bias:.5g}",
+            f"assumed confounding: cf_y = {self.cf_y:.3g}, cf_d = {self.cf_d:.3g}, "
+            f"rho = {self.rho:.3g}"
+            f" -> bias <= {self.bias:.5g}",
+        ]
+        if self.robustness_value is None:
+            rv_line = f"robustness value RV   = unavailable: {_UNREACHABLE_RV}."
+        else:
+            rv_line = (
+                f"robustness value RV   = {self.robustness_value:.4f}: a confounder explaining "
+                f"{self.robustness_value:.1%} of the residual variation in BOTH the outcome and "
+                f"treatment would move the estimate to {self.null_hypothesis:g}."
+            )
+        reason = self._limit_reason()
+        if reason is not None:
+            return "\n".join(
+                [
+                    *header,
+                    f"bias-adjusted bounds:  [{self.lower:.5g}, {self.upper:.5g}] ({conclusion})",
+                    "",
+                    rv_line,
+                    f"no one-sided limits or RVa under {reason}",
+                ]
+            )
         status = self.inference
         lower = self.plugin_interval_lower
         upper = self.plugin_interval_upper
         rv_interval = self.robustness_value_plugin_interval
+        rva_line = (
+            f"robustness value RVa  = unavailable: {_UNREACHABLE_RV}."
+            if rv_interval is None
+            else f"robustness value RVa  = {rv_interval:.4f}: the same, for the "
+            f"{self.level:.0%} {spread_name('confidence bound', status)}."
+        )
         return "\n".join(
             [
-                f"Omitted-variable sensitivity for {self.estimand!r}",
-                "-" * 44,
-                f"estimate {self.psi:.5g}; maximal bias sqrt(sigma^2 nu^2) = {self.max_bias:.5g}",
-                f"assumed confounding: cf_y = {self.cf_y:.3g}, cf_d = {self.cf_d:.3g}, "
-                f"rho = {self.rho:.3g}"
-                f" -> bias <= {self.bias:.5g}",
+                *header,
                 f"bias-adjusted bounds:  [{self.lower:.5g}, {self.upper:.5g}]",
                 f"with {self.level:.0%} {spread_name('one-sided CIs', status)}: "
                 f"[{lower:.5g}, {upper:.5g}] ({conclusion})",
                 "",
-                f"robustness value RV   = {self.robustness_value:.4f}: a confounder explaining "
-                f"{self.robustness_value:.1%} of the residual variation in BOTH the outcome and "
-                f"treatment would move the estimate to {self.null_hypothesis:g}.",
-                f"robustness value RVa  = {rv_interval:.4f}: the same, for the "
-                f"{self.level:.0%} {spread_name('confidence bound', status)}.",
+                rv_line,
+                rva_line,
             ]
         )
 
@@ -936,6 +1164,13 @@ def _confounding_strength(cf_y: float, cf_d: float, rho: float) -> float:
     if not 0.0 <= abs(rho) <= 1.0:
         raise ValueError(f"|rho| must lie in [0, 1]; got {rho}")
     return float(abs(rho) * np.sqrt(cf_y * cf_d / (1.0 - cf_d)))
+
+
+def _one_sided_quantile(level: float) -> float:
+    """Validate the one-sided coverage level before computing its normal quantile."""
+    if not 0.5 <= level < 1.0:
+        raise ValueError(f"level must lie in [0.5, 1); got {level}")
+    return float(stats.norm.ppf(level))
 
 
 def omitted_variable_bounds(
@@ -978,18 +1213,26 @@ def omitted_variable_bounds(
     Returns
     -------
     SensitivityBounds
-        Adjusted bounds, their confidence limits, and the robustness values.
+        Adjusted bounds, their confidence limits, and the robustness values. Under
+        ``nu2_estimator="plugin"`` the bounds, ``max_bias`` and the point robustness value
+        are reported, and the one-sided limits and the confidence-limit robustness value
+        refuse when read, because no derivation in a source this package cites gives their
+        standard error (docs/roadmap.md F26). A zero maximal bias also leaves the point
+        bounds available but refuses the limits, whose square-root derivative is undefined.
+        An unreachable robustness threshold is ``None``.
 
     Raises
     ------
     ValueError
         If ``nu2_estimator`` is not one of :data:`NU2_ESTIMATORS`, if ``cf_y`` or
-        ``cf_d`` lies outside ``[0, 1)``, or if ``|rho|`` exceeds one.
+        ``cf_d`` lies outside ``[0, 1)``, if ``|rho|`` exceeds one, or if ``level``
+        lies outside ``[0.5, 1)``.
     CapabilityError
         On every refusal :func:`sensitivity_elements` raises: a fit the rule table
         refuses, an estimand the bound does not cover, or a doubly robust estimate of
         ``nu^2`` that is not positive.
     """
+    quantile = _one_sided_quantile(level)
     elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
     estimate = result[estimand]
     strength = _confounding_strength(cf_y, cf_d, rho)
@@ -997,13 +1240,17 @@ def omitted_variable_bounds(
     lower = estimate.psi - strength * elements.max_bias
     upper = estimate.psi + strength * elements.max_bias
 
-    # One-sided confidence bounds on each end, accounting for uncertainty in the bias
-    # term itself as well as in the estimate.
-    quantile = float(stats.norm.ppf(level))
-    se_lower = _bound_std_error(estimate.influence_curve, -strength * elements.psi_max_bias, result)
-    se_upper = _bound_std_error(estimate.influence_curve, strength * elements.psi_max_bias, result)
-    ci_lower = lower - quantile * se_lower
-    ci_upper = upper + quantile * se_upper
+    # One-sided limits on each end, Theorem 4 in Section 4 of Chernozhukov et al. (2026).
+    # The curve adds the uncertainty of the bias term to that of the estimate. The plug-in
+    # has no curve, so its bound stores no limit and its accessors refuse.
+    ci_lower: float | None = None
+    ci_upper: float | None = None
+    if elements.psi_max_bias is not None:
+        psi_bias = elements.psi_max_bias
+        se_lower = _bound_std_error(estimate.influence_curve, -strength * psi_bias, result)
+        se_upper = _bound_std_error(estimate.influence_curve, strength * psi_bias, result)
+        ci_lower = lower - quantile * se_lower
+        ci_upper = upper + quantile * se_upper
 
     rv, rva = _robustness_values(result, elements, estimate.psi, rho, level, null_hypothesis)
     return SensitivityBounds(
@@ -1023,6 +1270,7 @@ def omitted_variable_bounds(
         robustness_value_ci=rva,
         null_hypothesis=null_hypothesis,
         inference=estimate.inference,
+        nu2_estimator=elements.nu2_estimator,
     )
 
 
@@ -1039,34 +1287,72 @@ def _robustness_values(
     rho: float,
     level: float,
     null_hypothesis: float,
-) -> tuple[float, float]:
-    """Solve for ``cf_y = cf_d = v`` at which a bound reaches the null."""
-    side = 1.0 if null_hypothesis > psi else -1.0
-    quantile = float(stats.norm.ppf(level))
+) -> tuple[float | None, float | None]:
+    """Solve for ``cf_y = cf_d = v`` at which a bound reaches the null.
 
-    def bound_at(value: float, *, with_ci: bool) -> float:
-        strength = _confounding_strength(value, value, rho)
+    The point value is ``None`` when no equal strength in ``[0, 1)`` reaches the null.
+    The limit value is also ``None`` when its influence curve is unavailable; callers
+    omit and refuse that accessor rather than interpreting it as an unreachable limit.
+    """
+    side = 1.0 if null_hypothesis > psi else -1.0
+    psi_bias = elements.psi_max_bias
+    alignment = abs(rho)
+    if not 0.0 <= alignment <= 1.0:
+        raise ValueError(f"|rho| must lie in [0, 1]; got {rho}")
+    quantile = _one_sided_quantile(level)
+
+    def equal_share(strength: float) -> float:
+        assert alignment > 0.0
+        if strength <= alignment:
+            ratio = strength / alignment
+            value = float(2.0 * ratio / (np.hypot(ratio, 2.0) + ratio))
+        else:
+            inverse_ratio = alignment / strength
+            value = float(2.0 / (1.0 + np.sqrt(1.0 + 4.0 * inverse_ratio**2)))
+        if strength > 0.0 and (not np.isfinite(value) or not 0.0 < value < 1.0):
+            raise CapabilityError(
+                "the equal-strength robustness threshold exists but is not representable "
+                "inside [0, 1) at floating-point precision"
+            )
+        return value
+
+    def limit_at(strength: float) -> float:
+        assert psi_bias is not None
         bias = strength * elements.max_bias
         edge = psi + side * bias
-        if not with_ci:
-            return edge
         se = _bound_std_error(
-            result[elements.estimand].influence_curve,
-            side * strength * elements.psi_max_bias,
-            result,
+            result[elements.estimand].influence_curve, side * strength * psi_bias, result
         )
         return edge + side * quantile * se
 
-    def objective(value: float, with_ci: bool) -> float:
-        return float((bound_at(value, with_ci=with_ci) - null_hypothesis) ** 2)
+    distance = abs(psi - null_hypothesis)
+    if distance == 0.0:
+        rv = 0.0
+    elif alignment == 0.0 or elements.max_bias == 0.0:
+        rv = None
+    else:
+        rv = equal_share(distance / elements.max_bias)
+    if psi_bias is None:
+        return rv, None
 
-    rv = float(
-        optimize.minimize_scalar(objective, bounds=(0.0, 0.9999), method="bounded", args=(False,)).x
-    )
-    rva = float(
-        optimize.minimize_scalar(objective, bounds=(0.0, 0.9999), method="bounded", args=(True,)).x
-    )
-    return rv, rva
+    # A baseline one-sided limit already on the null side needs no confounding.
+    # Squared-error minimisation misses this case and reports a small positive value.
+    def signed_gap(strength: float) -> float:
+        return side * (limit_at(strength) - null_hypothesis)
+
+    if signed_gap(0.0) >= 0.0:
+        return rv, 0.0
+    if alignment == 0.0:
+        return rv, None
+    high = max(1.0, distance / elements.max_bias)
+    if not np.isfinite(high):
+        raise CapabilityError("the confidence-limit robustness root exceeds finite precision")
+    while signed_gap(high) < 0.0:
+        if high > np.finfo(float).max / 2.0:
+            raise CapabilityError("the confidence-limit robustness root exceeds finite precision")
+        high *= 2.0
+    strength = float(optimize.brentq(signed_gap, 0.0, high))
+    return rv, equal_share(strength)
 
 
 @dataclass(frozen=True)
@@ -1291,7 +1577,9 @@ def robustness_value(
 
     Returns ``{"rv": ..., "rva": ...}``: the value of ``cf_y = cf_d`` at which the point
     estimate reaches ``null_hypothesis``, and the value at which its confidence bound
-    does.  This is the single most useful number in this module, because it requires no
+    does. ``None`` means no equal strength below one reaches the null. A confidence
+    limit that already crosses the null has ``rva = 0``. This is the single most useful
+    number in this module, because it requires no
     guess about how strong an unmeasured confounder might be -- it reports the
     threshold and lets the reader judge whether it is plausible.
 
@@ -1299,7 +1587,9 @@ def robustness_value(
     non-inferential status ``"rva"`` takes the name
     :func:`~cleverly.inference.influence.spread_name` gives it, ``"rv_plugin_interval"``,
     and the mapping opens with ``"inference"`` naming the status, as
-    :meth:`SensitivityBounds.to_dict` does.
+    :meth:`SensitivityBounds.to_dict` does.  Under ``nu2_estimator="plugin"`` no
+    derivation gives the confidence bound's standard error, so the mapping carries
+    ``"nu2_estimator"`` and no confidence-limit value under any name (docs/roadmap.md F26).
 
     Parameters
     ----------
@@ -1320,14 +1610,16 @@ def robustness_value(
     -------
     dict of str to Any
         The strength that moves the point estimate to the null, the one that moves the
-        confidence limit there, and ``max_bias``. At a non-inferential status, also the
-        status under ``"inference"``.
+        confidence limit there, and ``max_bias``. A threshold is ``None`` when unreachable.
+        At a non-inferential status, also the
+        status under ``"inference"``. Under the plug-in estimator, ``"nu2_estimator"``
+        in place of the confidence-limit value.
 
     Raises
     ------
     ValueError
         If ``nu2_estimator`` is not one of :data:`NU2_ESTIMATORS`, or if ``|rho|``
-        exceeds one.
+        exceeds one, or if ``level`` lies outside ``[0.5, 1)``.
     CapabilityError
         On every refusal :func:`sensitivity_elements` raises: a fit the rule table
         refuses, an estimand the bound does not cover, or a doubly robust estimate of
@@ -1338,6 +1630,15 @@ def robustness_value(
     rv, rva = _robustness_values(result, elements, estimate.psi, rho, level, null_hypothesis)
     status = estimate.inference
     values: dict[str, Any] = {} if supplies_inference(status) else {"inference": status}
+    if elements.psi_max_bias is None:
+        values |= {
+            "nu2_estimator": elements.nu2_estimator,
+            "rv": rv,
+            "max_bias": elements.max_bias,
+        }
+        if elements.max_bias == 0.0 and elements.nu2_estimator == "doubly_robust":
+            values["limit_refusal"] = _ZERO_BIAS_LIMITS_REFUSAL
+        return values
     values |= {"rv": rv, spread_name("rva", status): rva, "max_bias": elements.max_bias}
     return values
 

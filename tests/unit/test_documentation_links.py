@@ -337,6 +337,18 @@ def test_the_evalue_refusal_cites_a_roadmap_item_that_exists() -> None:
     assert set(cited) <= set(ROADMAP_ITEMS)
 
 
+def test_the_plugin_limit_refusal_cites_a_roadmap_item_that_exists() -> None:
+    """The plug-in bound's refused limits name the item that holds the missing derivation.
+
+    Read from the text the caller receives, for the reason the E-value test above gives.
+    """
+    from cleverly.sensitivity.omitted_variable import _PLUGIN_LIMITS_REFUSAL
+
+    cited = ROADMAP_CITATION.findall(_PLUGIN_LIMITS_REFUSAL)
+    assert cited == ["F26"]
+    assert set(cited) <= set(ROADMAP_ITEMS)
+
+
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
 def test_every_roadmap_item_cited_in_source_exists(path: Path) -> None:
     """The same check one level out, for any prose citation in any module or test.

@@ -47,37 +47,18 @@ from cleverly.exceptions import DataError, WeightingWarning
 from tests import discrete_law as law
 from tests import discrete_law_mar as mar
 from tests.conftest import OracleMissingness, OracleOutcome, OracleTreatment, fast_tmle
+from tests.unit._exact_sensitivity_support import binary_oracle_fit
 
 ESTIMANDS = ("ey1", "ey0", "ate", "att", "atc", "rr", "or")
 
 #: ``(label, weight function of (w, a, y))``.  See the module docstring.
-WEIGHT_FUNCTIONS = {
-    "baseline": lambda w, a, y: 1.0 + 0.6 * w,
-    "treatment_and_outcome": lambda w, a, y: 1.0 + 0.5 * a + 0.8 * y,
-}
-
-
-def _fit(label: str) -> tuple[object, np.ndarray]:
-    """A weighted, oracle-nuisance fit on the discrete law, plus its cell weights."""
-    cells = law.cell_weights(WEIGHT_FUNCTIONS[label])
-    tilted = law.DiscreteLaw(law.tilt(law.PROBS, cells))
-    frame = law.frame().assign(w=law.row_weights(cells))
-    estimator = TMLE(
-        outcome_learner=OracleOutcome(tilted),
-        treatment_learner=OracleTreatment(tilted),
-        cross_fit=False,
-        estimands="all",
-        simultaneous=False,
-        random_state=0,
-    )
-    return estimator.fit(
-        frame, outcome="Y", treatment="A", covariates=["W"], weights="w"
-    ).single(), cells
+WEIGHT_FUNCTIONS = law.WEIGHT_FUNCTIONS
 
 
 @pytest.fixture(scope="module", params=sorted(WEIGHT_FUNCTIONS))
 def weighted_fit(request):
-    return _fit(request.param)
+    """A weighted, oracle-nuisance fit on the discrete law, plus its cell weights."""
+    return binary_oracle_fit(request.param, estimands="all")
 
 
 class TestTheDerivationItself:

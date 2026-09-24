@@ -79,6 +79,33 @@ def _stub_primary(monkeypatch: pytest.MonkeyPatch, tmp_path: Any, record: Any) -
     )
 
 
+@pytest.mark.parametrize(
+    ("argv", "skipped"),
+    [
+        ([], False),
+        (["--replicates", str(fold_evaluated_cvtmle.STUDY.replicates)], False),
+        (["--replicates", "2"], True),
+        (["--replicates", str(fold_evaluated_cvtmle.STUDY.replicates + 1)], True),
+        (["--replicates", "2", "--skip-properties"], True),
+    ],
+)
+def test_a_run_at_another_budget_skips_the_property_study(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any, argv: list[str], skipped: bool
+) -> None:
+    """A run whose count differs from the declared count computes no property verdict.
+
+    Each property module fixes its own budget, so a run with ``--replicates 2`` would
+    otherwise run the full property study.  RM22's 200-replication smoke run did, and it
+    produced the published property verdicts before the study was committed.  A count above
+    the declared one is not a publishing run either, so it skips the study too.
+    """
+    record = fold_evaluated_cvtmle.STUDY
+    study = SimpleNamespace(STUDY=record, PRIMARY_REPLICATES=record.replicates, PRIMARY_N=record.n)
+    monkeypatch.setattr("sys.argv", ["regenerate", *argv])
+    arguments = regenerate._arguments(study, tmp_path, None)  # type: ignore[arg-type]
+    assert arguments.skip_properties is skipped
+
+
 @pytest.mark.parametrize("paired", [False, True])
 def test_primary_only_stops_before_properties_manifest_and_gates(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Any, paired: bool

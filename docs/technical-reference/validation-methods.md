@@ -665,7 +665,8 @@ movement, which is additive for a difference and logarithmic for a ratio.
 ### Omitted-variable bounds, robustness value, benchmark, and contours
 
 **How.** [`sensitivity/omitted_variable.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/sensitivity/omitted_variable.py)
-implements Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026). The bound is
+implements the bounds of Equation (14) in Section 4 of Chernozhukov, Cinelli, Newey, Sharma and
+Syrgkanis (2026). Their Theorem 2 gives the bias of a linear functional. The bound is
 
 $$
 |\text{bias}| \le |\rho| \sqrt{\frac{c_D^2}{1-c_D^2}}\; c_Y \sqrt{\sigma^2 \nu^2},
@@ -702,11 +703,13 @@ other rule, because one split would not lift it.
 `"doubly_robust"`. A value outside those three raises `ValueError` before any refusal. A
 `"doubly_robust"` estimate that is not positive raises `CapabilityError` and names the estimator.
 The package returns no plug-in value in its place, because the plug-in squares the same fitted
-representer.
+representer. The plug-in estimator reports no confidence limits. The
+[standard error of the omitted-variable bound](#standard-error-of-the-omitted-variable-bound) gives the reason.
 
 For the ATT and the ATC, the doubly robust score weights the contrast by $1\{A = c\} / P(A = c)$.
-Here $c$ is the arm the estimand conditions on. This weight is the observed arm indicator of
-Example 2 in the online appendix of the cited paper, not the fitted $\hat g_c$. Only the observed
+Here $c$ is the arm the estimand conditions on. This weight is the observed arm indicator of the
+ATT and the ATU in Example 2 of Online Appendix A of the cited paper, not the fitted $\hat g_c$.
+Item (2) of Theorem 5 there writes $m$ and the representer. Only the observed
 indicator keeps the Riesz identity above. `TestTheConditionalEffectScoreReadsTheObservedArm` in
 `tests/unit/test_omitted_variable_refusals.py` checks both conditional effects on an exact law.
 
@@ -716,6 +719,100 @@ against what that covariate was worth. `contour()` returns the grid a contour pl
 
 `benchmark()` is the only member of this group that refits. It reads the refusals above before it
 refits, so a refused fit pays for no second fit.
+
+### Standard error of the omitted-variable bound
+
+Each bound has a one-sided confidence limit on each end. Theorem 4 in Section 4 of Chernozhukov,
+Cinelli, Newey, Sharma and Syrgkanis (2026) gives them. The curve of a limit is the curve of the
+estimate plus or minus the strength times the curve of the maximal bias. The standard error is the
+square root of `influence_variance` of that curve, which sums the rows of each cluster on a
+clustered fit. The table gives each curve per row, with weights $w$ of mean one.
+
+Theorem 4 inherits Lemma 3's DML conditions. They include cross-fitting, the cited DML
+assumptions, and $o_P(n^{-1/4})$ $L^2$ rates for the outcome regression and representer. The
+maximal-bias scale $S = \sqrt{\sigma^2\nu^2}$ must be positive. An in-sample TMLE also needs
+conditions that control the empirical-process remainder. The registered study checks correct GLMs
+on its declared law; it does not establish coverage for arbitrary learners.
+
+The theorem's DML result uses independent rows. The cluster sum and fixed-weight calculations use
+the same row curve, but the registered study does not measure their coverage.
+
+When $\sigma^2=0$, the point bias bound is zero. The ordinary curve in the table divides by
+$S=0$, so the package keeps the point bounds and refuses their limits. A robustness threshold is
+`None` if no equal strength below one reaches the null. If the baseline confidence limit already
+includes the null, its robustness threshold is zero.
+
+| quantity | curve per row | source |
+| --- | --- | --- |
+| estimate | the estimate's own influence curve. For the ATT and the ATC it includes the share term of $\theta_s$ | Online Appendix A, "Statistical Inference", Equation (15) |
+| $\sigma^2$ | $w ((Y - \bar Q^*)^2 - \sigma^2)$ | Lemma 3 |
+| $\nu^2$, doubly robust | $w (2 m(O, \alpha) - \alpha^2 - \nu^2) - 2 \nu^2 w (1\{A = c\} - p) / p$ | Lemma 3 for the first term. The second term is this package's derivation |
+| maximal bias | $(\sigma^2 \psi_{\nu^2} + \nu^2 \psi_{\sigma^2}) / (2 \sqrt{\sigma^2 \nu^2})$ | Theorem 4 |
+
+The second term of the $\nu^2$ curve applies to the ATT and the ATC only. Here $c$ is the arm the
+parameter conditions on: the contrast arm for an ATT and the reference for an ATC. With more than
+two arms each contrast has its own $c$, and $p$ is the weighted share $P_w(A = c)$ of that arm.
+
+The representer and $m(O, \alpha)$ both divide by $p$, so the estimate is $\hat F / \hat p^2$. The
+Riesz identity makes $\hat F$ insensitive to the fitted mechanism at first order, so its curve is
+the Lemma 3 score. The curve of $\hat p$ is $w (1\{A = c\} - p)$, and the derivative of $F / p^2$ in $p$
+is $-2 \nu^2 / p$. The delta method gives the second term.
+
+The paper gives no such term for $\nu^2$. Equation (15) of Online Appendix A gives the term for the
+estimate $\theta_s$ only. The R package `dml.sensemakr` carries the same $\nu^2$ term since commit
+`d5293ecb`, and DoubleML omits it. The term sums to zero over the weighted rows, so a check of a
+mean or of a point estimate cannot see it.
+
+| witness | what it checks |
+| --- | --- |
+| `tests/unit/test_omitted_variable_standard_error.py` | on the two exact laws, weighted and unweighted, each curve of $\hat\nu^2$ equals the Gateaux derivative of $\nu^2$ row by row. The whole lower bound and its clustered standard error match the exact curve. Seven committed mutations fail it, and an unchanged control (M0) passes |
+| [omitted-variable bound standard error](method-evidence/omitted-variable-bound-standard-error.md) | the ratio of the reported standard error to the sampling spread of each bound, over 10,000 samples, and two controls that read the curve without the share term |
+
+Omitting the term does not always widen the limits. The table gives the lower-bound standard
+error on the two-arm exact law, with the curve before RM22 and with the exact curve.
+
+| parameter and sample | without the term | exact | effect of the omission |
+| --- | ---: | ---: | --- |
+| ATT, iid | 0.03882 | 0.03544 | wider |
+| ATT, 50 clusters of 20 rows | 0.02129 | 0.02303 | narrower |
+| ATC, 50 clusters of 20 rows | 0.02572 | 0.02413 | wider |
+
+The direction depends on the parameter and on the sampling design. This is one exact law, so the
+table shows that either direction occurs and not how often.
+
+`nu2_estimator="plugin"` reports no confidence limits. The plug-in $E_n[\hat\alpha^2]$ moves at
+first order with the fitted treatment mechanism, and its curve $\hat\alpha^2 - \nu^2$ has no term
+for that fit. The cited sources give no curve that covers every mechanism learner this API accepts.
+For a specified smooth, finite-dimensional mechanism model, stacked M-estimation can include its
+score and Jacobian. [F26](../roadmap.md#f26-confidence-limits-of-the-plug-in-omitted-variable-bound)
+records the implementation and validation that such a specialization would need.
+
+| under the plug-in | result |
+| --- | --- |
+| `lower`, `upper`, `max_bias`, `bias`, `robustness_value` | reported |
+| `benchmark()`, `contour()`, and `nu2` and `sigma2` of `elements()` | reported |
+| `ci_lower`, `ci_upper`, `robustness_value_ci`, and the three `plugin_interval_*` names | `CapabilityError`. The inference status is checked first |
+| `to_dict()` | carries `nu2_estimator` and omits the three limit keys |
+| `robustness_value()` | carries `nu2_estimator` and no `rva` under any name |
+| `psi_nu2` and `psi_max_bias` of `elements()` | `None` |
+
+A bound saved before this change does not record its estimator. It reads `nu2_estimator` as
+`"unrecorded"` and refuses the same accessors, because its limits may be plug-in limits or ATT
+limits without the share term. [F26](../roadmap.md#f26-confidence-limits-of-the-plug-in-omitted-variable-bound)
+holds the missing result.
+
+The table gives each source this section cites, and the version read.
+
+| source, and the version read | what it gives |
+| --- | --- |
+| Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026), arXiv 2112.13398v6 of 21 September 2026 | Theorem 2 in Section 3.2 gives the bias of a linear functional. Equation (14) in Section 4 gives the bounds. Lemma 3 gives the $\nu^2$ score, and Theorem 4 the curve of each bound and its one-sided limits |
+| the same paper, the published Online Appendix A, read through the Internet Archive | Example 2 gives the ATT and the ATU weights $\ell(W_s)$. Item (2) of Theorem 5 writes $m$ and the representer. "Statistical Inference", Equation (15), gives the share term of $\theta_s$ |
+| `dml.sensemakr`, `R/short-parameters.R`, commit `d5293ecb` | the same $\nu^2$ share term, in code, with no derivation cited |
+| DoubleML, `doubleml/irm/irm.py`, commit `b69f86ef` | `_sensitivity_element_est` builds the $\nu^2$ curve without the share term |
+
+The publisher's site refused access to the published main text, so this package did not read it.
+The main-text locators follow v6. The published appendix cites "C.7. Proof of Theorem 2" and
+"C.10. Proof of Lemma 3 and Theorem 4", which match the numbering of v6.
 
 ### Simulated common-cause stress surface
 
