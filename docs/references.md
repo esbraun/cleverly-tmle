@@ -519,11 +519,22 @@ previous reader had is not a citation; a page number is.
   distinction when interpreting its exact-law odds-tilt witness.
 - Nordland & Holst (2026), [*Policy Learning with the polle Package*](https://doi.org/10.18637/jss.v116.i04),
   *Journal of Statistical Software* 116(4), DOI 10.18637/jss.v116.i04. Sections 2 and 3 describe
-  policy value scores and cross-fitted evaluation of learned policies. This is evidence for a
-  distinct learned-policy contract, which the package does not implement.
+  policy value scores. Section 3.4 and Algorithm 4 specify fold-specific policy learning,
+  evaluation, a variance estimate, and a Wald interval for a learned policy's value. The paper
+  states regularity conditions, including a limiting policy. This supports
+  [RM30](roadmap.md#rm30-learned-policy-value-evaluation), a distinct method that the package does
+  not implement.
   [RM28](roadmap.md#rm28-declared-densities-of-user-written-interventions) requires `Rule`, and a
   `DynamicRegimen` with a callable node, to declare `rule_kind="known"`. It refuses a rule
   declared `"estimated"`.
+- van der Laan & Luedtke (2015), [*Targeted Learning of the Mean Outcome under an Optimal Dynamic
+  Treatment Rule*](https://doi.org/10.1515/jci-2013-0022), *Journal of Causal Inference* 3(1):61–95,
+  DOI 10.1515/jci-2013-0022. Section 6, Theorem 5, treats the value of a rule fitted on all rows,
+  subject to an empirical process condition. Section 7, Theorem 6, and Appendix B give CV-TMLE
+  for the average value of rules fitted on training folds. The paper states targeting, remainder,
+  and interval conditions for two treatment points. This is a published TMLE path for
+  [RM30](roadmap.md#rm30-learned-policy-value-evaluation), with a target distinct from the current
+  fixed-rule fit and from the value of one rule fitted on all rows.
 - Luedtke & van der Laan (2016), [*Statistical inference for the mean outcome under a possibly
   non-unique optimal treatment strategy*](https://doi.org/10.1214/15-AOS1384), *Annals of
   Statistics* 44(2):713–742, DOI 10.1214/15-AOS1384. The paper gives the pathwise
@@ -533,10 +544,11 @@ previous reader had is not a citation; a page number is.
   [RM28](roadmap.md#rm28-declared-densities-of-user-written-interventions) requires the
   `rule_kind="known"` declaration instead. The rest of this entry gives the package's own
   reasoning for its threshold witness, not a result of the paper. The witness uses a continuous
-  covariate. On a covariate with finite support, a threshold at a sample statistic is locally
-  constant, so the omitted term is zero. In both witness laws, the treatment effect at the rule's
-  node is 1 at every covariate value. So each optimal rule is unique, and neither law is an
-  exceptional law of the paper.
+  covariate. On finite support, a threshold between support points stays locally constant, so its
+  derivative is zero. A threshold at a support point can be discontinuous. In both witness laws,
+  the treatment effect at the rule's node is 1 at every covariate value. The optimal rule therefore
+  always treats. The witness rule uses a sample threshold. The paper's optimal-value result does
+  not supply the curve for this threshold rule.
 - Haneuse & Rotnitzky (2013), *Estimation of the effect of interventions that modify the received
   treatment*, *Statistics in Medicine* 32(30):5260–5277, DOI
   [10.1002/sim.5907](https://doi.org/10.1002/sim.5907).
@@ -597,6 +609,17 @@ previous reader had is not a citation; a page number is.
   record.
 - van der Laan & Rose (2011), *Targeted Learning: Causal Inference for Observational and
   Experimental Data*, Springer. Chapter 12 covers marginal structural model targets.
+
+The table records adjacent sources checked for the RM13, RM27, and RM28 function declarations.
+Each source supports its own estimator. None supplies inference for every function admitted by
+the public `Intervention`, `Rule`, `DynamicRegimen`, or `MSM` callables.
+
+| source | supported construction | limit for these declarations |
+| --- | --- | --- |
+| R Journal [CIMTx](https://journal.r-project.org/articles/RJ-2022-058/), TMLE subsection | multi-arm treatment effects, with `tmle` calls and bootstrap intervals | no learned rule, user-written intervention density, or learned MSM design |
+| R Journal [PSweight](https://journal.r-project.org/articles/RJ-2022-011/), Section 2.6 | a sandwich variance that includes fitted parametric propensity and outcome scores for weighted potential-outcome means | a different target and score. The article says its variance omits nuisance-estimation uncertainty when flexible models or external fits supply them |
+| [Martin, Santacatterina and Díaz (2024)](https://arxiv.org/html/2409.18782v1), Definition 1 | a longitudinal MSM projection with a user-given design transformation and projection distribution | no derivative for a design centred at the analysis sample's mean |
+| [Kennedy (2019)](https://arxiv.org/html/1704.00211v3), Section 3.3, and [de Aguas (2026)](https://arxiv.org/html/2511.11353) | influence functions for specified propensity-dependent intervention families | each family has its own derivative. Neither supplies one for an arbitrary user-written density |
 
 ## Grouped folds and clustered cross-fitting
 

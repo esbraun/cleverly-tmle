@@ -231,8 +231,12 @@ with a literal `"known"`.
 
 Loading a result raises no refusal. A restored `TMLE` or `LTMLE` result whose function this version
 refuses keeps its point estimates. It takes the `undeclared_function_plugin` status, so its `ci`,
-`pvalue` and `std_error` refuse. A restored `LTMLE` result keeps only the evaluated arrays of its
-MSM, so no status reads the MSM declaration there.
+`pvalue` and `std_error` refuse.
+
+A longitudinal MSM keeps evaluated arrays and a `functions_kind`
+marker. Its evaluator writes `"known"` only after the source design and weight declarations pass.
+An older saved projection without this marker takes the same status and refuses truncation replay.
+New results retain the marker through serialization.
 [RM28](roadmap.md#rm28-declared-densities-of-user-written-interventions) records the rule.
 *Reconsider when* the package adds supported inference for learned policies or
 population-law-dependent intervention functions.

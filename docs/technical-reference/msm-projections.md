@@ -173,8 +173,12 @@ The simulated-confounding replay reports each of these inputs as `CapabilityErro
 A result saved before a declaration existed loads with that declaration set to `None`. Loading
 raises nothing. Except under the rule below, a saved `TMLE` result keeps its point estimates and
 takes the `undeclared_function_plugin` status, so its `ci`, `pvalue` and `std_error` refuse.
-A restored `LTMLE` result keeps only the evaluated arrays of its MSM, so no status reads its MSM
-declaration.
+
+A longitudinal MSM stores evaluated arrays and evidence that its source declarations passed.
+A restored projection without that evidence takes the same status and refuses truncation replay.
+This includes older projections whose original functions were fixed, because their arrays cannot
+prove the declarations. Refit the original analysis with fixed functions declared known.
+Newly fitted projections keep their declaration evidence when saved and restored.
 
 Except under the rule below, every call that recomputes an estimate from a saved `TMLE` result
 refuses with the undeclared message. `retarget()` checks the declarations first, so each sweep

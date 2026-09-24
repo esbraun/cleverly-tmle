@@ -176,10 +176,11 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
         ),
         "undeclared_function_plugin": StatusRecord(
             reason=(
-                "A restored result whose regime rule, regime density, or, on a TMLE result, "
-                "MSM function is not declared 'known' reports no confidence interval, no "
+                "A restored result whose regime rule, regime density, or MSM function lacks "
+                "a known-function declaration reports no confidence interval, no "
                 "p-value and no standard error. Each new fit refuses such a function before "
-                "any learner. "
+                "any learner. A saved longitudinal MSM also needs retained evidence that its "
+                "source declarations passed. "
                 "The saved curve treats the function as fixed, and no code can check that a "
                 "saved closure was fixed. A function learned from the analysis sample "
                 "defines a data-adaptive target, and this API does not check the conditions "

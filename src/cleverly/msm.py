@@ -426,8 +426,9 @@ def refuse_msm_functions(model: MSM) -> None:
     nothing.  A restored ``TMLE`` result whose model this version refuses keeps its point
     estimates and takes the ``"undeclared_function_plugin"`` status, so its ``ci``,
     ``pvalue`` and ``std_error`` refuse (roadmap rows RM13, RM27 and RM28).  A
-    longitudinal result keeps only the evaluated arrays of its model, so no status reads
-    this declaration there.
+    longitudinal result keeps evaluated arrays and a marker that the source declarations
+    passed. An older saved projection without that marker takes the same non-inferential
+    status and refuses truncation replay.
 
     Parameters
     ----------

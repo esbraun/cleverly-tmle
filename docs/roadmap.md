@@ -12,10 +12,11 @@ published theory do not enter this sequence.
 ## Remediation
 
 This queue is the triage set that must be complete before a beta release. It holds shipped
-behavior that needs a correction or a recorded decision. That behavior includes wrong numbers,
+behavior that needs a correction or a recorded decision, and a published method needed to
+resolve a shipped refusal. That behavior includes wrong numbers,
 intervals that no claimed contract covers, capability rows that do not match their calls, and late
-refusals. New capability, and work that waits on published theory, stays in the main roadmap or in
-the future investigations grid. Deliver the rows in priority order, and complete every row before
+refusals. Other new capabilities and work that waits on published theory stay in the main roadmap
+or in the future investigations grid. Deliver the rows in priority order, and complete every row before
 main-roadmap priority 1.
 
 A new capability still needs its own contract and evidence, even in this queue.
@@ -85,12 +86,13 @@ rows that remain.
 | 0.42 | Summary and error-message accuracy | correct six display surfaces, three data error messages, and one refusal remedy, add a fingerprint-only protocol option, and decide what a bootstrap summary publishes on a non-inferential fit. The simultaneous-request policy is settled below | each surface omits, misstates, or repeats a fact that the fit records | [RM16](#rm16-summary-and-error-message-accuracy) |
 | 0.51 | Red property cells after the fold, scale and law changes | keep each red verdict under `reporting` with its interval, and admit inference only when F18 or F19 supplies the exact result. The [red-cell ledger](technical-reference/method-evidence/red-cells.md) delivers this. Then declare and run the five open RM18 follow-up designs, each declared before its run | registered studies publish red verdicts after the fold, scale and law changes and the pooled update. The ledger lists each one and the ask that owns it. Five RM18 follow-up designs are not declared and have not run | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
 | 0.52 | One-sided robustness bias increment in DR-TMLE | investigate the exploratory between-implementation increment on binary `treatment_correct`, under a design declared before it runs | the RM18 reading is `mixed` on that configuration. The unadjusted paired 99% interval of `cleverly` minus R `drtmle` runs 0.000068 to 0.001942, while the Bonferroni interval for that comparison covers zero. No implementation defect is established | [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) |
+| 0.61 | Learned-policy value evaluation | implement a typed learned-policy target with fold-local training and evaluation, using a published estimating and inference contract | fixed-rule paths refuse a rule learned from the analysis sample; published learned-policy methods give distinct targets and inference | [RM30](#rm30-learned-policy-value-evaluation) |
 
 The 2026-09-22 re-triage ranked the rows by the harm that each defect does to a user today. The
 table gives the tiers, from the most harmful. Inside a tier, a row with a wider reach comes first.
 A row that another row depends on comes before that row.
 
-| tier | defect | rows |
+| tier | reason | rows |
 | --- | --- | --- |
 | a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM21, RM22 |
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM23, RM14 |
@@ -98,6 +100,7 @@ A row that another row depends on comes before that row.
 | d | a diagnostic or a warning that misleads | RM15 |
 | e | a display or a message that misstates a fact that the fit records | RM16 |
 | f | an investigation or a declared design that moves no verdict | RM18, RM19 |
+| g | a published method needed to resolve a shipped refusal | RM30 |
 
 The order of the tiers follows the reason that put RM11 and RM12 first. Each of those rows
 published a number that no derivation covers. The table gives the reason for each place inside a
@@ -114,6 +117,7 @@ tier.
 | RM16 | each surface misstates or repeats a recorded fact, and no number changes |
 | RM18 | five open designs, which read 19 red rows in six studies. The ledger already publishes each of those verdicts |
 | RM19 | one configuration, which RM18 opened. Its Bonferroni interval covers zero, and it moves no verdict |
+| RM30 | a published learned-policy method can resolve the current refusal, but requires a distinct target, fold-local evaluation, and inference validation |
 
 No open row waits on another open row. RM13, RM20, RM25, RM26, RM27, RM28 and RM29 are
 delivered. The RM23 sweep fits only the kinds of fit that succeed, and the RM14 and RM24 requests
@@ -122,7 +126,7 @@ produce no fit.
 Main-roadmap X9 depends on RM22. Every remediation row comes before main-roadmap priority 1, so
 the queue meets that dependency.
 
-Use four delivery groups for these nine rows and the two investigations that RM18 waits on.
+Use five delivery groups for these ten rows and the two investigations that RM18 waits on.
 Keep each item's acceptance criteria separate inside its group.
 
 | delivery group | items | shared boundary |
@@ -131,6 +135,7 @@ Keep each item's acceptance criteria separate inside its group.
 | refusal surfaces | RM23, RM14 and RM24 | a refusal reaches the caller where its declaration says, before the work that it refuses |
 | diagnostic reports | RM15 and RM16 | one assessment and summary surface, with one documentation pass |
 | red property cells | RM18 and RM19, and the F18 and F19 derivations that RM18 waits on | the recorded rule that a red cell is reporting evidence, designs declared before their runs that move no verdict, and two exact derivations that would close the inferential gaps |
+| learned-policy evaluation | RM30 | a typed target and a published fold-local learning, evaluation, and inference contract with validation |
 
 Three groups left this table when their rows were delivered. The sensitivity refusals group held
 RM11 and the F5 refusal boundary, and the collaborative inference group held RM12 and the F18
@@ -157,9 +162,9 @@ row takes its priority with it, and the other rows keep theirs. RM20, RM13, RM25
 held 0.11 to 0.15, in that order. RM28 held 0.16, and RM29 held 0.17.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
-The queue holds nine rows, and none of them is delivered. Seven rows need their corrections:
+The queue holds ten rows, and none of them is delivered. Seven rows need their corrections:
 RM14 to RM16, and RM21 to RM24. RM18 has five follow-up designs that are not declared and have
-not run. RM19 has no declared design.
+not run. RM19 has no declared design. RM30 holds the published learned-policy implementation.
 
 The F18 and F19 derivations do not block priority 1, because an item with no published theory does
 not enter the sequence. Their cells stay red under `reporting` until F18 or F19 meets its
@@ -2565,17 +2570,24 @@ restored result whose rule is undeclared. A restored `Rule` result reads `availa
 faa0a5f measured these rows, and `assess(include_refits=True, include_retargets=True)` still
 returned a report.
 
+The later [RM28 review](#rm28-review-saved-longitudinal-msm-provenance-and-malformed-plans)
+closes the declaration cases in these probes. Point-result `replayability()` now checks the
+same function declarations as `retarget()` and `refit()`. An undeclared rule, regime density,
+or MSM function makes both replay slots false and the dependent capability rows unavailable.
+Longitudinal replayability checks saved rules and the evaluated MSM marker. Either refusal
+makes `refit_nuisances` false and the truncation row unavailable. The original three fit kinds
+in the first table and the restored cross-fitted fold-policy case remain in RM23.
+
 Apply these corrections:
 
 1. Resolve each of the three declined rows from the predicate that its call uses, as RM12 did for
-   `tipping_gamma(use_ci=True)`. Resolve the rows of the restored `Rule` and `LTMLE` results
-   that RM28 records in the same way.
+   `tipping_gamma(use_ci=True)`. The later RM28 review resolves the restored-function rows.
 2. Make the `random_common_cause` refit of an explicit ordering run, or declare the row
    `unavailable` with a reason. A refit that adds the noise column to the ordering changes the
    declared ordering, so the contract must state where the column goes.
 3. Derive the two `replayability()` slots from the checks that `retarget()` and `refit()` run.
-   Alternatively, state in the `Replayability` docstring that the slots describe stored
-   configuration only.
+   The later RM28 review does this for function declarations. The restored cross-fitted fold
+   policy in the table above still needs its own check.
 
 The witnesses must fail when a component is wrong:
 
@@ -2587,7 +2599,7 @@ The witnesses must fail when a component is wrong:
 - a test that restores each of the three results in the second table, and asserts that
   `replayability()` agrees with what `retarget()` and `refit()` do;
 - a test that restores the `Rule` and `LTMLE` results that RM28 records, and asserts that each
-  row they declare `available` runs.
+  replay-dependent row reads `unavailable` when its function declaration is missing.
 
 ### RM24. Refusals after the nuisance fit
 
@@ -3373,19 +3385,25 @@ It does not assess inference for the realized learned-density target.
 
 The source review resolves the policy question. `Intervention.density`, `Rule.rule`, and callable
 nodes of `DynamicRegimen` all admit functions learned from the analysis sample. A realized learned
-policy has a different target from a population-indexed policy. Nordland and Holst (2026)
-evaluate learned policies with cross-fitting; the current regime paths do not implement that
-contract. Luedtke and van der Laan (2016) show that the value of a population optimal rule can
-have a regular first-order curve away from exceptional laws, so RM25's missing-term statement
-cannot be copied to every learned rule. The [source audit](references.md#point-treatment-and-stochastic-interventions)
-records these results.
+policy has a different target from a population-indexed policy. Nordland and Holst (2026),
+Section 3.4 and Algorithm 4, give an estimator and interval for a learned policy's value. The
+CV-TMLE of van der Laan and Luedtke (2015), Section 7 and Appendix B, targets the average
+value of rules learned on training folds. The current regime paths implement neither contract;
+[RM30](#rm30-learned-policy-value-evaluation) records the published follow-up.
+
+Luedtke and van der Laan (2016) show that the value of a
+population optimal rule can have a regular first-order curve away from exceptional laws. That
+result does not cover the sample-threshold rule below, which is not optimal on its witness law.
+RM25's missing-term statement therefore cannot be copied to every learned rule. The
+[source audit](references.md#point-treatment-and-stochastic-interventions) records these results.
 
 The decision is to require a known-function declaration for all three surfaces. A function
 trained independently of the analysis sample may be declared fixed for an evaluation conditional
 on that training. A function learned from the analysis sample is refused by these generic paths
-until a separate learned-policy estimand and inference method exists. This is a conservative API
-decision, not a claim that every learned rule's fixed-rule influence curve is mathematically
-wrong. The declaration remains user-supplied because code cannot inspect a closure.
+until the package implements a separate learned-policy estimand and inference method. This is a
+conservative API decision. It does not claim that every learned rule's fixed-rule influence curve
+is mathematically wrong. The declaration remains user-supplied because code cannot inspect a
+closure.
 
 Apply these corrections in RM28:
 
@@ -3423,7 +3441,7 @@ one, unless the row says otherwise.
 | no constructor check | `as_interventions` and `TMLE.__init__` check no declaration. So the RM25 mutation of the fit-layer check still finds a fit witness that fails |
 | carry | `_resolve_one` keeps `rule_kind` when it rebuilds a `DynamicRegimen`. The replay builds each `_FrozenRegime` with the `density_kind` of its source, and never with the literal `"known"` |
 | inline syntax | a callable written inline in a `regimens=` mapping carries no declaration, and the fit refuses it. The message asks for `DynamicRegimen(label, plan, rule_kind='known')`. A mapping still takes static plans and declared `DynamicRegimen` values. No estimator keyword declares a rule |
-| restored results | a new non-inferential status, `undeclared_function_plugin`, is third in the precedence. A restored `TMLE` or `LTMLE` result takes it when a rule, a user-written class, a `Stochastic` density, or a written MSM function is not declared `"known"`. The delivery gives the MSM case to a restored `TMLE` result only |
+| restored results | a new non-inferential status, `undeclared_function_plugin`, is third in the precedence. A restored `TMLE` or `LTMLE` result takes it when a rule, a user-written class, a `Stochastic` density, or a written MSM function is not declared `"known"`. The first delivery gave the MSM case to a restored `TMLE` result only. The [later review](#rm28-review-saved-longitudinal-msm-provenance-and-malformed-plans) closes that gap |
 | what the status keeps | the point estimates stand, and `ci`, `pvalue` and `std_error` refuse. The plug-in standard error remains a diagnostic. This reverses the RM13, RM25 and RM27 decisions that a restored interval answers as saved |
 | remedy for a user-written tilt | the estimated text sends the user to `TMLE(incremental=...)` for the population odds tilt of the mechanism |
 | a false declaration | not detected. A rule computed from the sample and declared `"known"` fits. The witness below measures what the false statement costs |
@@ -3436,14 +3454,16 @@ The plan probed six more surfaces on 40b8e643. The table gives the decision for 
 | a bare callable in `interventions=` | `as_interventions` wraps it as `Static` with the name `"always <function ...>"`. The fit then raises `DataError`, because the function is not a level of `A` | in this row. `as_interventions` refuses it with a message that names `Rule(rule, name, rule_kind='known')` |
 | a restored `Rule` result | a module-level rule survives a pickle round trip. The result keeps its three intervals under `influence_curve`, and `truncation_curve` recomputes | in this row. The result takes the new status, and each recomputation refuses |
 | an inline rule in `LTMLE` | a `regimens=` mapping with a lambda fits under `influence_curve`. A module-level rule survives a pickle round trip, keeps its intervals, and recomputes `longitudinal_truncation_curve` | in this row. The fit refuses the inline rule, and a restored result takes the new status |
-| capability rows of a restored result | on a restored `Rule` result, the `truncation_curve` and `refute` rows read available. On a restored `LTMLE` result, the `truncation_curve` row reads available | not in this row. After RM28 these rows read available, and then the call refuses. [RM23](#rm23-capability-rows-that-read-available-and-then-refuse) records it |
+| capability rows of a restored result | on a restored `Rule` result, the `truncation_curve` and `refute` rows read available. On a restored `LTMLE` result, the `truncation_curve` row reads available | not in the first delivery. The calls then refused. [RM23](#rm23-capability-rows-that-read-available-and-then-refuse) records that finding, and the [later review](#rm28-review-saved-longitudinal-msm-provenance-and-malformed-plans) corrects these declaration-specific rows |
 | `CTMLE` | `CTMLE` runs its own estimand checks before the inherited declaration check (`src/cleverly/estimators/ctmle.py:1186`). A regime fit meets a C-TMLE refusal first, as under RM25 | not in this row. Every C-TMLE status is already non-inferential, so `CTMLE._inference_status` does not change |
 | `dataclasses.replace` | `replace` copies every field that the call does not name | not in this row. `replace` keeps the declaration, and the reference records the limit |
 
 The plan declares three exact-law witnesses here, before their tests land. The threshold law
-avoids the exceptional laws of Luedtke and van der Laan (2016). A covariate with finite support
-makes a threshold at a sample statistic locally constant, and then the omitted term is zero. So
-the threshold law uses a continuous covariate.
+uses a continuous covariate, which gives the policy value a nonzero derivative through its
+threshold. On finite support, a threshold between support points stays locally constant and its
+derivative is zero. A threshold at a support point can instead be discontinuous. The witness
+rule is not optimal, so the optimal-rule result of Luedtke and van der Laan (2016) does not
+establish its curve.
 
 | part | the point threshold witness | the regimen threshold witness |
 | --- | --- | --- |
@@ -3539,10 +3559,10 @@ found.
 | a bare callable in `interventions=` | refused with `DataError`. The message names `Rule(rule, name, rule_kind='known')`. Commit 7c74997 |
 | a restored `Rule` result | it takes `undeclared_function_plugin`. `truncation_curve()`, `retarget()` and `refit()` refuse. Commits 7c74997 and ed8e73e |
 | an inline rule in `LTMLE` | the fit refuses it. A restored result with an undeclared node takes the status, and `longitudinal_truncation_curve` refuses. Commits 7f87570 and ed8e73e |
-| capability rows of a restored result | not in this row. The rows read `available`, and the call then refuses. [RM23](#rm23-capability-rows-that-read-available-and-then-refuse) records it |
+| capability rows of a restored result | not in the first delivery. The rows read `available`, and the call then refused. [RM23](#rm23-capability-rows-that-read-available-and-then-refuse) records the finding. The later review corrects the declaration-specific rows |
 | `CTMLE` | not in this row. `CTMLE._check_estimands` refuses every regime estimand first, so no C-TMLE regime result exists |
 | `dataclasses.replace` | not in this row. `replace` keeps the declaration, and the reference records the limit |
-| the MSM of a restored `LTMLE` result, found by the delivery | not in this row. A `LongitudinalResult` keeps only the evaluated arrays of its MSM, so no status can read the MSM declaration. The status table and the `msm.py` docstring state the limit. Commit ed8e73e |
+| the MSM of a restored `LTMLE` result, found by the first delivery | the result kept only the evaluated arrays of its MSM, so the status could not read the source declaration. Commit ed8e73e recorded that limit. The [later review](#rm28-review-saved-longitudinal-msm-provenance-and-malformed-plans) adds a marker at evaluation and treats an old result with no marker conservatively |
 | `variable_importance`, found by the delivery | it asked for the status of a live template before any refusal ran. So a live undeclared estimator met the restored-result reason. It now runs the declaration refusals first, and `test_a_live_configuration_meets_the_declaration_refusal` pins that. Commit ed8e73e |
 
 The tests measured each witness on the delivered code. A 2026-09-24 probe on commit faa0a5f
@@ -3648,7 +3668,7 @@ The delivery departed from the plan in six places. The table gives each one.
 | H6 fails one test only | `resolve_regimens` rebuilds each regimen, and `DynamicRegimen.__post_init__` refuses it before any learner. So the `LTMLE.fit` check decides only that the declaration refusal comes before `_prepare`. The missing-column order witness pins it, and R4 alone is its control |
 | a restored `Rule` at the replay refit meets the text of a user-written class | the replay refit sees a `_FrozenRegime`, which the generic branch checks. Only a mutation that removes the evaluator check opens this path. `test_removing_the_evaluator_check_still_refuses_through_the_carry` pins the text |
 | the point order witnesses use two later refusals, not three as in RM27 | a declared regime fit with `cv_evaluation=True` reaches its first learner. So no refusal follows the declaration check on that path |
-| the MSM of a restored `LTMLE` result | the plan gave the status to a written MSM function on every restored result. A `LongitudinalResult` keeps no `MSM` object, so the status covers the `TMLE` MSM alone |
+| the MSM of a restored `LTMLE` result | the first delivery gave the status to a written MSM function on every restored result. A `LongitudinalResult` kept no `MSM` object, so the status covered the `TMLE` MSM alone. The later review records the persisted marker needed to cover the longitudinal result |
 | `variable_importance` | the plan did not name it. It read the status before any refusal ran, so commit ed8e73e made it run the declaration refusals first |
 
 This delivery regenerated no study. Each check returns `None` on a declared function, and the call
@@ -3701,7 +3721,7 @@ adds this table.
 | this record, D2 and D3 | two locators pointed at the wrong line. `base.py:701` at 40b8e643 is a blank line, and the `isinstance` check is at `:722`. The quoted `tmle.py` docstring is at `:1522-1523` at commit 75e86be |
 | this record, D4 and D5 | the RM20 record now says that `PRECEDENCE` pins `NON_INFERENTIAL` to the order. It adds that order 3 can meet orders 5 to 7 on a restored result, and that it takes precedence |
 | this record, D6 | two RM13 and RM25 rows said in the present tense that a legacy result answers as saved. They now say "Before RM28" and "At RM27" |
-| 29b7658 and this record, D7 | the references page said that RM28 requires every `DynamicRegimen` to declare its rule. A plan of labels alone is exempt. It also said that the effect is 1 in the witness law, which holds at the rule's node in both laws. It now marks the witness reasoning as the package's own. The plan above says that the law "avoids", not "follows", the exceptional laws |
+| 29b7658 and this record, D7 | the references page said that RM28 requires every `DynamicRegimen` to declare its rule. A plan of labels alone is exempt. It also said that the effect is 1 in the witness law, which holds at the rule's node in both laws. It now marks the witness reasoning as the package's own. The plan above distinguishes the threshold witness from the optimal-rule result |
 | 29b7658, D8 | the [scope page](technical-reference/scope-and-refusals.md#wrong-by-construction) said "Five of these share one mechanism" without naming them. It now names the first three rows, and the two MSM rows that apply the same argument to a working-model function. The shift row in fifth place does not share the mechanism |
 | this record, D9 | the RM20 record said that the status table lists "the five statuses". It now says "each status" |
 | 29b7658, D10 | the [longitudinal reference](technical-reference/longitudinal-tmle.md#variations) gains two refusal rows, a callable node that is not declared `"known"` and an inline callable. The iterator and single-entry refusals are `DataError` statements about the input, so a paragraph gives them, not the table of kinds. A sentence gives the restored-result status. "Fixed", the word of the docstrings, replaces "prespecified" |
@@ -3720,8 +3740,8 @@ file. Each run used the rule, regimen and RM25 files, and each restored file mat
 | S4. `Static.density_kind` reads `"known"` for any subclass. H4 above ran the same mutation and failed 1 test | `src/cleverly/interventions/base.py` | 5 in the rule file |
 | T4. the unclustered plug-in variance uses `ddof=0` | `src/cleverly/inference/cluster.py` | 4, two in each of the rule and regimen files |
 
-The review left two plan shapes that no fix changed. Each one behaved the same at a0e93bb6 and at
-commit 75e86be.
+The first review left two plan shapes that no fix changed. Each one behaved the same at a0e93bb6
+and at commit 75e86be. The later review below addresses both.
 
 | plan | behavior | row |
 | --- | --- | --- |
@@ -3730,6 +3750,39 @@ commit 75e86be.
 
 At commit 75e86be the rule file holds 162 tests and the regimen file 109. The full fast suite gave
 11551 passed and 87 skipped at commit 75e86be.
+
+(rm28-review-saved-longitudinal-msm-provenance-and-malformed-plans)=
+
+#### RM28 review: saved longitudinal MSM provenance and malformed plans
+
+The first delivery withheld inference on a restored point-treatment MSM when its source
+functions lacked declarations. A longitudinal result stored evaluated MSM arrays, without the
+source `MSM` object or a declaration marker. Loading therefore treated an old longitudinal MSM
+interval as inferential even when the source design or projection weight was unknown.
+
+The review assigns `functions_kind="known"` to a `RegimenMSM` only after
+`evaluate_regimen_msm` accepts both source function declarations. An older saved projection has
+`functions_kind=None` through the plain class default. That absence cannot establish that the
+source functions were fixed. The restored result keeps its point estimates and evaluated arrays,
+but takes `undeclared_function_plugin`; its interval, p-value, and standard error refuse. A
+truncation replay also refuses before it uses the saved MSM arrays. Refit from the original
+declared `MSM` to recover inference.
+
+The marker records the evaluation check, not a proof that a user's `"known"` declaration was
+truthful.
+
+The review also makes capability metadata follow the same declaration guards as recomputation.
+On a restored point result, a missing rule, density, or MSM declaration makes
+`retarget_cached_nuisances` and `refit_nuisances` false. On a restored longitudinal result, an
+undeclared regimen rule or MSM marker makes `refit_nuisances` false. The dependent assessment
+rows read `unavailable` with a declaration reason before a replay starts. A result whose
+functions passed their declarations retains its replay capability. [RM23](#rm23-capability-rows-that-read-available-and-then-refuse)
+still holds the other row mismatches and the saved fold-policy case.
+
+The review also assigns `DataError` before any learner to a zero-dimensional array or a mapping
+used as one regimen plan. The message for an array asks for one node per treatment time. The
+message for a mapping asks for a sequence or `DynamicRegimen`. The two probes above show the
+first-delivery behavior that these checks replace.
 
 ### RM29. Saved cross-fitted clustered longitudinal results
 
@@ -3791,6 +3844,43 @@ status. The new source audit read Nugent et al. (2024) on partial-cluster trials
 Those sources do not derive the cluster-robust variance of this targeted sequential recursion under
 grouped folds. [References](references.md#grouped-folds-and-clustered-cross-fitting) gives their
 scope and links.
+
+### RM30. Learned-policy value evaluation
+
+The current fixed-rule paths refuse a `Rule` or `DynamicRegimen` learned from the analysis
+sample. Add a typed learned-policy estimand and result whose target states which fitted policy's
+value is evaluated. Do not reinterpret a learned function as a declared fixed rule.
+
+Van der Laan and Luedtke (2015), Section 7, Theorem 6, and Appendix B, give a CV-TMLE for the
+average value of rules learned on training folds. The paper derives its targeting equation,
+expansion, and interval conditions for two treatment points. Its Section 6 separately treats
+the value of one rule learned on the full sample, under stronger empirical process conditions.
+Nordland and Holst (2026), Section 3.4 and Algorithm 4, give a cross-fitted, doubly robust
+estimator and interval for a learned policy's value with finite stages and discrete actions.
+Both methods train each evaluation fold's policy on other rows.
+
+Use the JCI CV-TMLE as the first supported method. Target the average value of training-fold
+learned rules, not the value of one rule fitted on all rows. Match its fold-local policy training,
+nuisance fitting, targeting, influence variance, and interval to that target. State the bounded
+outcome, positivity, score convergence, nuisance-convergence, and remainder assumptions that
+apply. Specify whether its limiting-rule conditions hold for the supported learner class.
+
+The JSS score and Wald interval are a separate possible extension, not a substitute for the JCI
+targeting step. Neither source licenses an arbitrary population-dependent intervention density.
+
+Acceptance requires a typed public target, fold-local learner and evaluator contracts, saved
+policy and nuisance provenance, an influence-variance check, and nonzero exact-law witnesses.
+Mutation controls must detect using evaluation rows for policy training, dropping a targeting or
+influence-score term, and changing the variance. Register a
+repeated-sampling coverage study under the published conditions, including a limiting-rule
+setting, before publishing an interval. Document the target, assumptions, refusals, public
+result, and persistence round trip; keep unsupported learned-function routes refused.
+
+A population optimal value requires its own contract under Luedtke and van der Laan (2016).
+The [RM28](#rm28-declared-densities-of-user-written-interventions) refusals remain in force until
+this method and its validation are delivered. The JSS result gives no pathwise derivative for an
+arbitrary user-written odds tilt. The [source audit](references.md#point-treatment-and-stochastic-interventions)
+records the published boundaries.
 
 ### P1. EP learner
 
