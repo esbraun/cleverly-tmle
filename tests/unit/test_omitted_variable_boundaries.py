@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import replace
 from typing import Any
 
@@ -73,6 +74,26 @@ def test_zero_alignment_cannot_reach_an_outside_null(exact_fit: Any) -> None:
         "robustness_value"
     ]
     assert assessment.detail.count("unavailable: no equal strength reaches the null") == 2
+
+
+@pytest.mark.parametrize("rho", [1e-9, 1e-320])
+def test_an_unrepresentable_near_one_threshold_refuses_without_nan(
+    exact_fit: Any, rho: float
+) -> None:
+    # The algebra has a root below one, but binary64 rounds that share to one.
+    # The old ratio overflowed at 1e-320 and the prior inversion returned NaN.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        for operation in (robustness_value, omitted_variable_bounds):
+            with pytest.raises(CapabilityError, match="exists but is not representable"):
+                operation(exact_fit, rho=rho)
+
+
+def test_a_small_representable_alignment_keeps_a_root_below_one(exact_fit: Any) -> None:
+    rho = 1e-5
+    report = robustness_value(exact_fit, rho=rho)
+    assert report["rv"] is not None and 0.0 < report["rv"] < 1.0
+    assert report["rva"] is not None and 0.0 < report["rva"] < 1.0
 
 
 def test_a_baseline_limit_crossing_the_null_has_zero_rva(exact_fit: Any) -> None:

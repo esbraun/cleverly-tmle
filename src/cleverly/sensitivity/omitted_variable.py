@@ -1166,6 +1166,13 @@ def _confounding_strength(cf_y: float, cf_d: float, rho: float) -> float:
     return float(abs(rho) * np.sqrt(cf_y * cf_d / (1.0 - cf_d)))
 
 
+def _one_sided_quantile(level: float) -> float:
+    """Validate the one-sided coverage level before computing its normal quantile."""
+    if not 0.5 <= level < 1.0:
+        raise ValueError(f"level must lie in [0.5, 1); got {level}")
+    return float(stats.norm.ppf(level))
+
+
 def omitted_variable_bounds(
     result: TMLEResult,
     estimand: str = "ate",
@@ -1225,6 +1232,7 @@ def omitted_variable_bounds(
         refuses, an estimand the bound does not cover, or a doubly robust estimate of
         ``nu^2`` that is not positive.
     """
+    quantile = _one_sided_quantile(level)
     elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
     estimate = result[estimand]
     strength = _confounding_strength(cf_y, cf_d, rho)
@@ -1238,7 +1246,6 @@ def omitted_variable_bounds(
     ci_lower: float | None = None
     ci_upper: float | None = None
     if elements.psi_max_bias is not None:
-        quantile = float(stats.norm.ppf(level))
         psi_bias = elements.psi_max_bias
         se_lower = _bound_std_error(estimate.influence_curve, -strength * psi_bias, result)
         se_upper = _bound_std_error(estimate.influence_curve, strength * psi_bias, result)
@@ -1288,18 +1295,26 @@ def _robustness_values(
     omit and refuse that accessor rather than interpreting it as an unreachable limit.
     """
     side = 1.0 if null_hypothesis > psi else -1.0
-    quantile = float(stats.norm.ppf(level))
     psi_bias = elements.psi_max_bias
     alignment = abs(rho)
     if not 0.0 <= alignment <= 1.0:
         raise ValueError(f"|rho| must lie in [0, 1]; got {rho}")
-    if not 0.5 <= level < 1.0:
-        raise ValueError(f"level must lie in [0.5, 1); got {level}")
+    quantile = _one_sided_quantile(level)
 
     def equal_share(strength: float) -> float:
         assert alignment > 0.0
-        ratio = strength / alignment
-        return float(2.0 * ratio / (np.hypot(ratio, 2.0) + ratio))
+        if strength <= alignment:
+            ratio = strength / alignment
+            value = float(2.0 * ratio / (np.hypot(ratio, 2.0) + ratio))
+        else:
+            inverse_ratio = alignment / strength
+            value = float(2.0 / (1.0 + np.sqrt(1.0 + 4.0 * inverse_ratio**2)))
+        if strength > 0.0 and (not np.isfinite(value) or not 0.0 < value < 1.0):
+            raise CapabilityError(
+                "the equal-strength robustness threshold exists but is not representable "
+                "inside [0, 1) at floating-point precision"
+            )
+        return value
 
     def limit_at(strength: float) -> float:
         assert psi_bias is not None
