@@ -56,8 +56,10 @@ from tests.unit._confounding_support import Counter, validate_replay
 from tests.unit._declaration_support import (
     PATHWISE,
     assert_every_witness_fails,
+    assert_keeps_its_interval,
     assert_refused,
     assert_refused_before_any_call,
+    assert_stored_interval_is_a_diagnostic,
     cell_p,
     oracle_fit,
     recomputations,
@@ -379,11 +381,13 @@ class TestALegacyModelLoads:
 RETARGETED = ("msm",)
 
 
-class TestALegacyResultKeepsItsNumbersAndRefusesARecomputation:
-    """RM13: a restored result holds what it computed and computes nothing new.
+class TestALegacyResultKeepsItsPointEstimatesAndRefusesARecomputation:
+    """RM13: a restored result keeps its point estimates and computes nothing new.
 
-    Loading checks nothing, so the stored estimates answer as they were saved. Every sweep
-    recomputes through ``_retarget_detailed``, which checks the declaration as the fit does.
+    Loading raises nothing.  A callable weight restored without its declaration gives the
+    result the ``"undeclared_function_plugin"`` status of RM28, so the stored interval
+    becomes a diagnostic.  Every sweep recomputes through ``_retarget_detailed``, which
+    checks the declaration as the fit does.
     """
 
     @pytest.fixture(scope="class")
@@ -391,11 +395,15 @@ class TestALegacyResultKeepsItsNumbersAndRefusesARecomputation:
         """A fit whose model declares its callable weight known: the valid pre-load state."""
         return in_sample_fit(linear(weights=FixedWeight(), weights_kind="known"))
 
-    def test_the_stored_interval_answers_unchanged(self, result: Any) -> None:
+    def test_the_stored_interval_becomes_a_diagnostic(self, result: Any) -> None:
+        assert_stored_interval_is_a_diagnostic(result, legacy_result(result))
+
+    def test_a_legacy_uniform_weight_result_keeps_its_interval(self) -> None:
+        """The over-refusal control: uniform weights are known, so no status applies."""
+        result = in_sample_fit(linear())
         old = legacy_result(result)
-        for name, estimate in result.estimates.items():
-            assert old[name].ci == estimate.ci
-            assert old[name].psi == estimate.psi
+        assert old.estimator.msm.weights is None
+        assert_keeps_its_interval(result, old)
 
     @pytest.mark.parametrize("entry", ["truncation_curve", "retarget"])
     def test_every_recomputation_refuses(self, result: Any, entry: str) -> None:

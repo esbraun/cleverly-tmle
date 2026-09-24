@@ -23,6 +23,8 @@ things:
 * the declaration refusal comes before a refusal of the fit configuration;
 * a rule pickled before the field existed loads undeclared, and a result restored with such a
   rule refuses every recomputation;
+* a result restored with an undeclared rule or class keeps its point estimates and takes the
+  ``"undeclared_function_plugin"`` status, and a declared one keeps its interval;
 * the simulated-confounding replay refuses a restored rule before it runs, and each frozen
   regime carries the declaration of its source;
 * a deliberate mutation that removes a check makes those witnesses fail;
@@ -47,9 +49,10 @@ import pandas as pd
 import pytest
 
 import cleverly.interventions.base as base_module
-from cleverly import RegimeMean
+from cleverly import RegimeMean, variable_importance
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE
+from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import (
     Intervention,
@@ -74,9 +77,12 @@ from tests.pickles import legacy_without
 from tests.unit._confounding_support import Counter, forbid_draw_and_refit, validate_replay
 from tests.unit._declaration_support import (
     PATHWISE,
+    UNDECLARED_STATUS,
     assert_every_witness_fails,
+    assert_keeps_its_interval,
     assert_refused,
     assert_refused_before_any_call,
+    assert_stored_interval_is_a_diagnostic,
     oracle_fit,
     point_entries,
     recomputations,
@@ -86,6 +92,7 @@ from tests.unit._declaration_support import (
     tmle_module,
 )
 from tests.unit._declaration_support import legacy_result as legacy_result_of
+from tests.unit._inference_status_support import assert_withholds
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 from tests.unit._policy_declaration_support import (
     CENTRE,
@@ -595,6 +602,94 @@ class TestALegacyRuleResultRefusesARecomputation:
         recomputations(rule_result, RETARGETED)[entry]()
 
 
+# ------------------------------------------------------------------ a restored result's status
+
+
+def user_classes(result: Any) -> list[Any]:
+    return [item for item in result.estimator.interventions if isinstance(item, KnownUserTilt)]
+
+
+def legacy_class_result(result: Any) -> Any:
+    """``result`` as an artifact written before its class declared ``density_kind``."""
+    return legacy_result_of(result, "density_kind", user_classes)
+
+
+@pytest.fixture(scope="module")
+def banded_rule_result() -> Any:
+    """The fit of :func:`rule_result` with simultaneous bands, which a restore must drop."""
+    regimes = (Static(0, name="never"), threshold_rule(rule_kind="known"))
+    estimator = TMLE(interventions=regimes, **linear_in_sample(simultaneous=True))
+    return estimator.fit(law.frame(), outcome="Y", treatment="A").single()
+
+
+@pytest.fixture(scope="module")
+def user_class_result() -> Any:
+    """A user-written class declared known, fitted on the exact tilt law."""
+    return oracle_fit(TILT_COUNTS, interventions=(KnownUserTilt(density_kind="known"),))
+
+
+def clustered_rule_fit() -> Any:
+    """The fit of :func:`rule_result` with 10 clusters, which takes ``"few_cluster_plugin"``."""
+    regimes = (Static(0, name="never"), threshold_rule(rule_kind="known"))
+    frame = law.frame()
+    frame = frame.assign(cluster=np.arange(len(frame)) * 10 // len(frame))
+    estimator = TMLE(interventions=regimes, **linear_in_sample())
+    return estimator.fit(frame, outcome="Y", treatment="A", id="cluster").single()
+
+
+class TestARestoredUndeclaredResultWithholdsInference:
+    """RM28: a restored result with an undeclared function keeps its point estimates only.
+
+    Loading raises nothing.  The status hook of the restored estimator runs the declaration
+    refusals of a fit, and a refusal gives the result the ``"undeclared_function_plugin"``
+    status.  The stored interval becomes a diagnostic, and ``summary()`` prints the reason.
+    """
+
+    def test_a_restored_rule_result_withholds_inference(self, banded_rule_result: Any) -> None:
+        assert banded_rule_result.simultaneous is not None
+        old = legacy_result(banded_rule_result)
+        assert_stored_interval_is_a_diagnostic(banded_rule_result, old)
+
+    def test_a_restored_user_class_result_withholds_inference(self, user_class_result: Any) -> None:
+        old = legacy_class_result(user_class_result)
+        assert_stored_interval_is_a_diagnostic(user_class_result, old)
+
+    @pytest.mark.parametrize("kind", ["estimated", "Known"])
+    def test_a_modified_declaration_withholds_inference(self, rule_result: Any, kind: str) -> None:
+        """A refused declaration, and a value outside the three states, which is a ``DataError``."""
+        copy = loads(dumps(rule_result))
+        restored(rules(copy)[0], "rule_kind", kind)
+        assert_stored_interval_is_a_diagnostic(rule_result, loads(dumps(copy)))
+
+    def test_the_undeclared_status_precedes_the_cluster_status(self) -> None:
+        """The precedence on a fit: the status comes before ``"few_cluster_plugin"``."""
+        result = clustered_rule_fit()
+        assert result.inference_status == "few_cluster_plugin"
+        old = legacy_result(result)
+        assert_withholds(old, UNDECLARED_STATUS)
+
+    def test_a_restored_declared_result_keeps_its_interval(
+        self, banded_rule_result: Any, user_class_result: Any
+    ) -> None:
+        """The control: a declared rule and a declared class load under their interval."""
+        for result in (banded_rule_result, user_class_result):
+            assert_keeps_its_interval(result, loads(dumps(result)))
+        assert loads(dumps(banded_rule_result)).simultaneous is not None
+
+    def test_a_live_configuration_meets_the_declaration_refusal(self) -> None:
+        """``variable_importance`` asks the status before its first fit.  It refuses an
+        undeclared class by the declaration, as the fit does, and not by the status."""
+        estimator = TMLE(estimands="ate", interventions=(BareTilt(),), **never_fit_learners())
+        assert_refused(
+            lambda: variable_importance(
+                law.frame(), outcome="Y", candidates=["A"], covariates=["W"], estimator=estimator
+            ),
+            CapabilityError,
+            UNDECLARED_CLASS,
+        )
+        assert NeverFit.calls == 0
+
+
 # ------------------------------------------------------------------ the replay
 
 
@@ -792,6 +887,27 @@ class TestTheWitnessesHaveTeeth:
         """One refusal, one text: the fit layer calls the check that the evaluators call."""
         assert tmle_module.refuse_regime_densities is refuse_regime_densities
         assert tmle_module.as_interventions is as_interventions
+
+    def test_a_status_that_ignores_the_declarations_fails_the_restored_witnesses(
+        self,
+        banded_rule_result: Any,
+        user_class_result: Any,
+        rule_result: Any,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Mutation R8: the status predicate returns ``"influence_curve"``."""
+        monkeypatch.setattr(TMLE, "_declared_function_status", lambda self: "influence_curve")
+        suite = TestARestoredUndeclaredResultWithholdsInference()
+        assert_every_witness_fails(
+            [
+                lambda: suite.test_a_restored_rule_result_withholds_inference(banded_rule_result),
+                lambda: suite.test_a_restored_user_class_result_withholds_inference(
+                    user_class_result
+                ),
+                lambda: suite.test_a_modified_declaration_withholds_inference(rule_result, "Known"),
+                suite.test_the_undeclared_status_precedes_the_cluster_status,
+            ]
+        )
 
 
 # ------------------------------------------------------------------ the threshold witness

@@ -75,6 +75,7 @@ from tests.unit._declaration_support import (
     assert_every_witness_fails,
     assert_refused,
     assert_refused_before_any_call,
+    assert_stored_interval_is_a_diagnostic,
     oracle_fit,
     point_entries,
     recomputations,
@@ -333,10 +334,12 @@ def legacy_result(result: Any) -> Any:
 RETARGETED = ("ey_regime", "ate_regime")
 
 
-class TestALegacyResultKeepsItsNumbersAndRefusesARecomputation:
-    """RM25: a restored result holds what it computed and computes nothing new.
+class TestALegacyResultKeepsItsPointEstimatesAndRefusesARecomputation:
+    """RM25: a restored result keeps its point estimates and computes nothing new.
 
-    Loading checks nothing, so the stored estimates answer as they were saved.  Every sweep
+    Loading raises nothing.  A density restored without its declaration gives the result
+    the ``"undeclared_function_plugin"`` status of RM28, so the stored interval becomes a
+    diagnostic.  Every sweep
     recomputes through ``_retarget_detailed``, and a refit through
     ``_resolve_estimands_for_data``, and both check the declaration as the fit does.
     """
@@ -347,12 +350,9 @@ class TestALegacyResultKeepsItsNumbersAndRefusesARecomputation:
         estimator = TMLE(interventions=regimes, **linear_in_sample())
         return estimator.fit(law.frame(), outcome="Y", treatment="A").single()
 
-    def test_the_stored_interval_answers_unchanged(self, result: Any) -> None:
-        old = legacy_result(result)
+    def test_the_stored_interval_becomes_a_diagnostic(self, result: Any) -> None:
         assert "ey_regime[coin]" in result.estimates
-        for name, estimate in result.estimates.items():
-            assert old[name].ci == estimate.ci
-            assert old[name].psi == estimate.psi
+        assert_stored_interval_is_a_diagnostic(result, legacy_result(result))
 
     @pytest.mark.parametrize("entry", ["truncation_curve", "retarget", "refit"])
     def test_every_recomputation_refuses(self, result: Any, entry: str) -> None:

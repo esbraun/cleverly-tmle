@@ -21,6 +21,8 @@ No code can inspect a closure, so the status of the rule is the declaration
 * the declaration refusal comes before a refusal of the data or the fit configuration;
 * a regimen pickled before the field existed loads undeclared, and a result restored with
   such a regimen refuses its truncation curve before the replay;
+* such a result keeps its point estimates and takes the ``"undeclared_function_plugin"``
+  status, and a declared or static one keeps its interval;
 * a deliberate mutation that removes a check makes those witnesses fail;
 * on an exact two-node law, the regimen :math:`(1, d)` with a threshold at the sample mean,
   declared ``"known"``, gets the fixed-rule curve, which understates the standard error of
@@ -58,18 +60,23 @@ from cleverly.longitudinal import (
 )
 from cleverly.longitudinal.estimator import longitudinal_truncation_curve
 from cleverly.longitudinal.regimen import refuse_regimen_rules
+from tests.discrete_law_longitudinal import CellMeans
 from tests.pickles import legacy_without
 from tests.unit._confounding_support import Counter
 from tests.unit._declaration_support import (
     PATHWISE,
+    UNDECLARED_STATUS,
     assert_every_witness_fails,
+    assert_keeps_its_interval,
     assert_refused,
     assert_refused_before_any_call,
+    assert_stored_interval_is_a_diagnostic,
     panel,
     restored,
     restored_states,
 )
 from tests.unit._declaration_support import legacy_result as legacy_result_of
+from tests.unit._inference_status_support import assert_withholds
 from tests.unit._natural_course_support import NeverFit
 from tests.unit._policy_declaration_support import (
     CENTRE,
@@ -472,6 +479,91 @@ class TestALegacyLongitudinalResultRefusesARecomputation:
         assert list(curve["estimand"]) == ["ey_regimen[thr]"]
 
 
+# ------------------------------------------------------------------ a restored result's status
+
+
+def status_fit(regimen: DynamicRegimen, frame: Any = None, **keywords: Any) -> Any:
+    """A static regimen and ``regimen`` on the two-node law, with simultaneous bands."""
+    estimator = LTMLE(
+        [Regimen("never", (0, 0)), regimen],
+        reference="never",
+        n_folds=1,
+        simultaneous=True,
+        random_state=0,
+        **cell_mean_learners(),
+    )
+    data = threshold_frame(2) if frame is None else frame
+    return estimator.fit(data, **THRESHOLD_COLUMNS, **keywords)
+
+
+def cell_mean_learners() -> dict[str, Any]:
+    return {
+        "outcome_learner": CellMeans(),
+        "pseudo_learner": CellMeans(),
+        "treatment_learner": CellMeans(),
+        "censoring_learner": CellMeans(),
+    }
+
+
+@pytest.fixture(scope="module")
+def banded_regimen_result() -> Any:
+    """A declared regimen beside a static one: the bands and the contrast must follow."""
+    return status_fit(threshold_regimen(FixedThreshold(), rule_kind="known"))
+
+
+class TestARestoredUndeclaredResultWithholdsInference:
+    """RM28: a restored ``LTMLE`` result with an undeclared node keeps its point estimates only.
+
+    Loading raises nothing.  ``LongitudinalResult.__setstate__`` runs the regimen check of
+    a fit on the resolved regimens, and a refusal gives every estimate of the result the
+    ``"undeclared_function_plugin"`` status, the static regimen's too.  The stored interval
+    becomes a diagnostic, and ``summary()`` prints the reason.
+    """
+
+    def test_a_restored_regimen_result_withholds_inference(
+        self, banded_regimen_result: Any
+    ) -> None:
+        assert banded_regimen_result.simultaneous is not None
+        assert "ey_regimen[never]" in banded_regimen_result.estimates
+        old = legacy_result(banded_regimen_result)
+        assert_stored_interval_is_a_diagnostic(banded_regimen_result, old)
+
+    @pytest.mark.parametrize("kind", ["estimated", "Known"])
+    def test_a_modified_declaration_withholds_inference(
+        self, banded_regimen_result: Any, kind: str
+    ) -> None:
+        """A refused declaration, and a value outside the three states, which is a ``DataError``."""
+        copy = loads(dumps(banded_regimen_result))
+        restored(rule_regimens(copy)[0], "rule_kind", kind)
+        assert_stored_interval_is_a_diagnostic(banded_regimen_result, loads(dumps(copy)))
+
+    def test_the_undeclared_status_precedes_the_cluster_status(self) -> None:
+        """The precedence on a fit: the status comes before ``"few_cluster_plugin"``."""
+        frame = threshold_frame(2)
+        frame = frame.assign(cluster=np.arange(len(frame)) % 10)
+        regimen = threshold_regimen(FixedThreshold(), rule_kind="known")
+        result = status_fit(regimen, frame, id="cluster")
+        assert result.inference_status == "few_cluster_plugin"
+        assert_withholds(legacy_result(result), UNDECLARED_STATUS)
+
+    def test_a_restored_declared_or_static_result_keeps_its_interval(
+        self, banded_regimen_result: Any
+    ) -> None:
+        """The controls: a declared regimen, and static plans that hold no rule."""
+        restored_result = loads(dumps(banded_regimen_result))
+        assert_keeps_its_interval(banded_regimen_result, restored_result)
+        assert restored_result.simultaneous is not None
+        static = LTMLE(
+            {"always": 1, "never": 0},
+            reference="never",
+            n_folds=1,
+            simultaneous=True,
+            random_state=0,
+            **cell_mean_learners(),
+        ).fit(threshold_frame(2), **THRESHOLD_COLUMNS)
+        assert_keeps_its_interval(static, loads(dumps(static)))
+
+
 # ------------------------------------------------------------------ the threshold witness
 
 
@@ -720,3 +812,23 @@ class TestTheWitnessesHaveTeeth:
         regimen shares the declaration of ``Rule``."""
         assert ltmle_module.refuse_regimen_rules is refuse_regimen_rules
         assert regimen_module._RULE_DECLARATION is base_module._RULE_DECLARATION
+
+    def test_a_status_that_ignores_the_regimens_fails_the_restored_witnesses(
+        self, banded_regimen_result: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation R8: the status predicate returns ``"influence_curve"``."""
+        monkeypatch.setattr(
+            ltmle_module, "_declared_regimen_status", lambda regimens: "influence_curve"
+        )
+        suite = TestARestoredUndeclaredResultWithholdsInference()
+        assert_every_witness_fails(
+            [
+                lambda: suite.test_a_restored_regimen_result_withholds_inference(
+                    banded_regimen_result
+                ),
+                lambda: suite.test_a_modified_declaration_withholds_inference(
+                    banded_regimen_result, "Known"
+                ),
+                suite.test_the_undeclared_status_precedes_the_cluster_status,
+            ]
+        )

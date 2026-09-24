@@ -72,11 +72,12 @@ from sklearn.base import clone
 from .._inference_status import (
     NO_SIMULTANEOUS_BANDS,
     InferenceStatus,
+    precedent_status,
     status_record,
     supplies_inference,
 )
 from .._typing import BoolArray, CumulativeGBounds, FloatArray, Learner
-from ..exceptions import CapabilityError, LongitudinalError, PositivityWarning
+from ..exceptions import CapabilityError, DataError, LongitudinalError, PositivityWarning
 from ..inference.cluster import (
     cluster_inference_status,
     influence_covariance,
@@ -1422,12 +1423,13 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         return f"LongitudinalResult({', '.join(self.estimates)})"
 
     def __setstate__(self, state: dict[str, Any]) -> None:
-        """Restore a result, and re-apply the inference status its data determines.
+        """Restore a result, and re-apply the inference status its data and regimens determine.
 
         A fit saved before :attr:`~cleverly.ParameterEstimate.inference` reached the
-        longitudinal path loads its estimates under the status they were saved with, and
-        would publish an interval this version refuses. The prepared data and the folds
-        are in the artifact, so the status is recomputed from them. A fit whose data
+        longitudinal path, or before this version refused its configuration, loads its
+        estimates under the status they were saved with, and would publish an interval
+        this version refuses. The prepared data, the folds and the resolved regimens are
+        in the artifact, so the status is recomputed from them. A fit whose status
         supplies inference, or whose estimates already carry the status, loads as it was
         saved.
 
@@ -1443,18 +1445,22 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         """Re-apply the fit's inference status to estimates saved without it.
 
         The stamp is written in ``_estimates`` and ``_msm_estimates``, so a live fit never
-        needs this. It reads the prepared data and the folds, as the fit did, so the
-        artifact holds everything it needs. A re-stamped artifact also drops what was
-        derived under the old status: the simultaneous bands, a joint confidence statement
-        that the fit now refuses, and the saved assessment answers, which may have read an
-        interval. The re-stamp also keeps the truncation-curve replay, which stamps its
-        estimates from the same data and folds, equal to the restored fit.
+        needs this. It reads the prepared data, the folds and the resolved regimens, as the
+        fit did, so the artifact holds everything it needs. A regimen restored from before
+        its ``rule_kind`` existed reads ``None``, so a result with a callable node takes
+        ``"undeclared_function_plugin"`` (roadmap row RM28). A re-stamped artifact also
+        drops what was derived under the old status: the simultaneous bands, a joint
+        confidence statement that the fit now refuses, and the saved assessment answers,
+        which may have read an interval. The re-stamp also keeps the truncation-curve
+        replay, which stamps its estimates from the same data, folds and regimens, equal
+        to the restored fit.
         """
         data = self.__dict__.get("data")
         folds = self.__dict__.get("folds")
         if data is None or folds is None:
             return
-        status = _inference_status(data, folds)
+        regimens = getattr(self.__dict__.get("config"), "regimens", ())
+        status = _inference_status(data, folds, regimens)
         if supplies_inference(status):
             return
         estimates = self.__dict__.get("estimates") or {}
@@ -1616,15 +1622,18 @@ class _Reported:
     contributors: dict[str, tuple[RegimenFit, ...]]
 
 
-def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
+def _inference_status(data: LongitudinalData, folds: Folds, regimens: Any) -> InferenceStatus:
     """The one inference status of every estimate a longitudinal fit reports.
 
-    A saved cross-fitted clustered result takes its own status at every cluster count and
-    size. New fits of that design are refused before this function runs. Otherwise RM20's
+    :func:`_declared_regimen_status` gives ``"undeclared_function_plugin"`` to a restored
+    result with a callable node whose regimen is not declared known. A saved cross-fitted
+    clustered result takes its own status at every cluster count and size. New fits of
+    either kind are refused before this function runs. Otherwise RM20's
     cluster rule applies to the prepared cluster labels and, on a weighted fit, to the
     unit weights. It reads nothing fitted. ``LongitudinalData`` carries no baseline
     strata, so the count is the number of clusters with positive weight mass in the whole
     fit, and :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` is the threshold.
+    :func:`~cleverly._inference_status.precedent_status` resolves the statuses that apply.
 
     ``LTMLE._refuse_cross_fitted_design`` refuses ``id=`` above one fold before this runs,
     so a live fit can take ``"few_cluster_plugin"`` only. The fold count is still read
@@ -1640,20 +1649,54 @@ def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
         The prepared data of the fit.
     folds : Folds
         The outer fold assignment of the fit.
+    regimens : Any
+        The regimens of the fit: the ``regimens=`` argument, or the resolved regimens of a
+        result.
 
     Returns
     -------
     str
         One of :data:`~cleverly.inference.influence.InferenceStatus`.
-        ``"influence_curve"`` on an unclustered fit.
+        ``"influence_curve"`` on an unclustered fit whose rules are declared known.
     """
-    if data.cluster is not None and folds.n_folds > 1:
-        return "cross_fitted_longitudinal_plugin"
-    return cluster_inference_status(
-        data.cluster,
-        cross_fit=folds.n_folds > 1,
-        weights=data.weights if data.is_weighted else None,
+    cluster: InferenceStatus = (
+        "cross_fitted_longitudinal_plugin"
+        if data.cluster is not None and folds.n_folds > 1
+        else cluster_inference_status(
+            data.cluster,
+            cross_fit=folds.n_folds > 1,
+            weights=data.weights if data.is_weighted else None,
+        )
     )
+    return precedent_status([_declared_regimen_status(regimens), cluster])
+
+
+def _declared_regimen_status(regimens: Any) -> InferenceStatus:
+    """Whether every callable node of ``regimens`` is declared known, as a status.
+
+    The longitudinal status predicate of roadmap row RM28. It runs
+    :func:`~cleverly.longitudinal.regimen.refuse_regimen_rules`, which ``LTMLE.fit`` runs
+    before any learner, and it reports a refusal as a status. So only a restored or
+    modified result reaches ``"undeclared_function_plugin"``.
+
+    Parameters
+    ----------
+    regimens : Any
+        The regimens of the fit: the ``regimens=`` argument, or the resolved regimens of a
+        result.
+
+    Returns
+    -------
+    str
+        ``"undeclared_function_plugin"`` when the refusal raises
+        :class:`~cleverly.exceptions.CapabilityError` or
+        :class:`~cleverly.exceptions.DataError`, and ``"influence_curve"`` otherwise.
+    """
+    try:
+        refuse_regimen_rules(regimens)
+    except (CapabilityError, DataError):
+        return "undeclared_function_plugin"
+    return "influence_curve"
 
 
 def _estimates(
@@ -2198,7 +2241,7 @@ class LTMLE:
                 None if model is None else fingerprint_array(model.design, model.weights)
             ),
         )
-        status = _inference_status(prepared, folds)
+        status = _inference_status(prepared, folds, regimens)
         with phase("influence_curve"):
             reported = (
                 _estimates(
@@ -2596,7 +2639,7 @@ def _refit_bound(
     )
     # The status the fit stamped, recomputed from the same data and folds, so the replay at
     # the fitted bound equals the fit in every field ``_fitted_replay_matches`` compares.
-    status = _inference_status(result.data, result.folds)
+    status = _inference_status(result.data, result.folds, result.config.regimens)
     if result.msm is None:
         reference = next(
             plan.regimen for plan in recipe.plans if plan.label == result.config.reference

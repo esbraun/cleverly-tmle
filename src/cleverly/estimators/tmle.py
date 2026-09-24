@@ -92,7 +92,7 @@ from typing import Any, cast, get_args
 
 import numpy as np
 
-from .._inference_status import InferenceStatus, supplies_inference
+from .._inference_status import InferenceStatus, precedent_status, supplies_inference
 from .._typing import (
     BoolArray,
     EstimandName,
@@ -570,18 +570,72 @@ class TMLE:
         -------
         str
             One of :data:`~cleverly.inference.influence.InferenceStatus`. The ordinary
-            estimator returns what
-            :func:`~cleverly.inference.cluster.cluster_inference_status` gives the cluster
-            labels: ``"influence_curve"`` on an unclustered fit, and a clustered status
-            on a cross-fitted fit at unequal cluster sizes, in rows or in weight mass,
-            or on a fit with few clusters in total or in one baseline stratum.
+            estimator resolves two statuses. :meth:`_declared_function_status` gives
+            ``"undeclared_function_plugin"`` to a restored estimator with a function that
+            is not declared known.
+            :func:`~cleverly.inference.cluster.cluster_inference_status` reads the cluster
+            labels. It gives ``"influence_curve"`` on an unclustered fit, and a clustered
+            status on a cross-fitted fit at unequal cluster sizes, in rows or in weight
+            mass, or on a fit with few clusters in total or in one baseline stratum.
         """
-        return cluster_inference_status(
-            data.cluster,
-            cross_fit=self.cross_fit,
-            strata=data.strata,
-            weights=data.weights if data.is_weighted else None,
+        return precedent_status(
+            [
+                self._declared_function_status(),
+                cluster_inference_status(
+                    data.cluster,
+                    cross_fit=self.cross_fit,
+                    strata=data.strata,
+                    weights=data.weights if data.is_weighted else None,
+                ),
+            ]
         )
+
+    def _declared_function_status(self) -> InferenceStatus:
+        """Whether every function of the configuration is declared known, as a status.
+
+        The status predicate of roadmap row RM28. It runs
+        :meth:`_refuse_undeclared_functions`, which every fit runs before any learner, and
+        it reports a refusal as a status. A live fit refuses such a function in
+        ``_resolve_estimands_for_data`` and ``_retarget_detailed`` before it stamps, and
+        :func:`cleverly.variable_importance` refuses it before it asks the status. So only
+        a restored or modified estimator reaches ``"undeclared_function_plugin"``, and
+        ``TMLEResult.__setstate__`` then re-stamps its saved estimates.
+
+        Returns
+        -------
+        str
+            ``"undeclared_function_plugin"`` when either refusal raises
+            :class:`~cleverly.exceptions.CapabilityError` or
+            :class:`~cleverly.exceptions.DataError`, and ``"influence_curve"`` otherwise.
+        """
+        try:
+            self._refuse_undeclared_functions()
+        except (CapabilityError, DataError):
+            return "undeclared_function_plugin"
+        return "influence_curve"
+
+    def _refuse_undeclared_functions(self) -> None:
+        """Raise unless every function of the configuration is declared known.
+
+        :func:`~cleverly.msm.refuse_msm_functions` on the working model, then
+        :func:`~cleverly.interventions.base.refuse_regime_densities` on the regimes. Each
+        call site states why it runs this: ``_resolve_estimands_for_data`` before any
+        learner, ``_retarget_detailed`` before every recomputation,
+        :meth:`_declared_function_status` on a restored estimator, and
+        :func:`cleverly.variable_importance` before its first fit. The attributes are read
+        with a default, because an estimator pickled before a field existed has none.
+
+        Raises
+        ------
+        DataError
+            If a function is not callable, or a declaration is not one of the three states.
+        CapabilityError
+            If a declaration is ``None`` or ``"estimated"``.
+        """
+        msm = getattr(self, "msm", None)
+        if msm is not None:
+            refuse_msm_functions(msm)
+        refuse_regime_densities(getattr(self, "interventions", ()))
 
     def __init__(
         self,
@@ -1354,8 +1408,9 @@ class TMLE:
         estimator, and an estimator restored from a pickle written by an earlier version
         carries whatever policy that version allowed.  It then runs
         :func:`~cleverly.msm.refuse_msm_functions` and
-        :func:`~cleverly.interventions.base.refuse_regime_densities` for the same reason: a
-        restored or modified model or regime can carry a declaration this version refuses.
+        :func:`~cleverly.interventions.base.refuse_regime_densities`, through
+        :meth:`_refuse_undeclared_functions`, for the same reason: a restored or modified
+        model or regime can carry a declaration this version refuses.
         The regime check covers a ``Stochastic`` density, a ``Rule``, and a user-written
         ``Intervention``, which ``TMLE.__init__`` admits without a check.
         Those functions state what each one refuses.  They run before every refusal of the
@@ -1376,9 +1431,7 @@ class TMLE:
                 f"{reason}. This fit was configured under a fold policy this version "
                 "refuses, which a restored result or a copied estimator can still carry"
             )
-        if self.msm is not None:
-            refuse_msm_functions(self.msm)
-        refuse_regime_densities(self.interventions)
+        self._refuse_undeclared_functions()
         estimands = self._resolve_natural_course_contract(data)
         self._resolve_arm_indexed_missing_contract(data, estimands)
         self._refuse_cross_fitted_missing_off_contract(data, estimands)
@@ -2697,17 +2750,16 @@ class TMLE:
         that method on every perturbed input, keep their two-value signature.
 
         It runs :func:`~cleverly.msm.refuse_msm_functions` and
-        :func:`~cleverly.interventions.base.refuse_regime_densities` first, as :meth:`fit`
-        does.  Every sweep that recomputes an estimate comes through here, so a
-        recomputation from a restored result refuses when those functions refuse its model
-        or its regimes: a ``Stochastic`` density, a ``Rule``, or a user-written
-        ``Intervention``.  They state which declarations they refuse.  Loading re-checks
-        nothing: a restored result keeps the estimates it stored, and they answer as they
-        were saved.
+        :func:`~cleverly.interventions.base.refuse_regime_densities` first, through
+        :meth:`_refuse_undeclared_functions`, as :meth:`fit` does.  Every sweep that
+        recomputes an estimate comes through here, so a recomputation from a restored
+        result refuses when those functions refuse its model or its regimes: a
+        ``Stochastic`` density, a ``Rule``, or a user-written ``Intervention``.  They state
+        which declarations they refuse.  Loading raises nothing: a restored result whose
+        declaration this version refuses keeps its point estimates and takes the
+        ``"undeclared_function_plugin"`` status, from :meth:`_declared_function_status`.
         """
-        if self.msm is not None:
-            refuse_msm_functions(self.msm)
-        refuse_regime_densities(self.interventions)
+        self._refuse_undeclared_functions()
         requested = tuple(estimands)
         level = self.alpha_sig if alpha_sig is None else alpha_sig
         regimes = nuisance.regimes

@@ -609,8 +609,9 @@ def refuse_regime_densities(interventions: Iterable[object]) -> None:
     before any regime function is evaluated, so a direct call and the simulated-confounding
     replay refuse before that function runs.  A regime restored from an older pickle, or
     changed with ``object.__setattr__``, can carry a declaration this version refuses.
-    Loading runs no check, so a restored result keeps the estimates it stored, and they
-    answer as saved (roadmap row RM25).
+    Loading raises nothing.  A restored result whose declaration this version refuses keeps
+    its point estimates and takes the ``"undeclared_function_plugin"`` status, so its
+    ``ci``, ``pvalue`` and ``std_error`` refuse (roadmap rows RM25 and RM28).
 
     Parameters
     ----------

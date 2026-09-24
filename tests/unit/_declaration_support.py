@@ -5,11 +5,11 @@
 ``tests/unit/test_msm_design_declaration.py`` (RM27) test the three users of
 :class:`cleverly._declarations.FunctionDeclaration`.  This module holds the parts that do
 not depend on which field is declared: the refusal checks, the restored states, a legacy
-point or longitudinal result, the fit entries, the two-node :func:`panel`, and the
-exact-law oracle fit.  ``tests/unit/_msm_declaration_support.py`` holds the MSM builders
-that the RM13 and RM27 files share, and ``tests/unit/_tilt_law_support.py`` holds the exact
-tilt law of the RM25 witness.  The test files import these support modules and not each
-other.
+point or longitudinal result and the checks of its status (RM28), the fit entries, the
+two-node :func:`panel`, and the exact-law oracle fit.  ``tests/unit/_msm_declaration_support.py``
+holds the MSM builders that the RM13 and RM27 files share, and
+``tests/unit/_tilt_law_support.py`` holds the exact tilt law of the RM25 witness.  The test
+files import these support modules and not each other.
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ from cleverly.exceptions import CapabilityError
 from cleverly.sensitivity.positivity import truncation_curve
 from tests import discrete_law as law
 from tests.conftest import OracleOutcome, OracleTreatment
+from tests.unit._inference_status_support import assert_withholds
 from tests.unit._natural_course_support import NeverFit
 
 #: ``cleverly.estimators`` exports a function named ``tmle``, which shadows the module.
@@ -37,6 +38,9 @@ tmle_module = importlib.import_module("cleverly.estimators.tmle")
 
 #: A fragment of every refusal of ``"estimated"``: the term the reported curve omits.
 PATHWISE = "pathwise derivative"
+
+#: The status of a result restored with a function this version refuses (RM28).
+UNDECLARED_STATUS = "undeclared_function_plugin"
 
 
 def assert_refused(build: Callable[[], Any], error: type[Exception], *fragments: str) -> None:
@@ -109,6 +113,33 @@ def legacy_result(result: Any, field: str, select: Callable[[Any], list[Any]]) -
     assert items, f"the result carries no object with {field}"
     assert all(getattr(item, field) is None for item in items)
     return old
+
+
+def assert_stored_interval_is_a_diagnostic(result: Any, old: Any) -> None:
+    """``old``, ``result`` restored without its declaration, withholds inference (RM28).
+
+    Every point estimate is unchanged.  Every estimate takes
+    :data:`UNDECLARED_STATUS`, and ``ci``, ``pvalue`` and ``std_error`` refuse with its
+    reason, which ``summary()`` prints.  The stored interval and standard error remain as
+    ``plugin_interval`` and ``plugin_std_error``, and the simultaneous bands are dropped.
+    The first line is the nonzero witness: the declared result reported an interval.
+    """
+    assert result.inference_status == "influence_curve"
+    assert_withholds(old, UNDECLARED_STATUS)
+    assert old.estimates.keys() == result.estimates.keys()
+    for name, estimate in result.estimates.items():
+        assert old.estimates[name].psi == estimate.psi
+        assert old.estimates[name].plugin_interval == estimate.ci
+        assert old.estimates[name].plugin_std_error == estimate.std_error
+    assert old.simultaneous is None
+
+
+def assert_keeps_its_interval(result: Any, old: Any) -> None:
+    """``old``, ``result`` restored, keeps ``"influence_curve"`` and every stored interval."""
+    assert old.inference_status == "influence_curve"
+    for name, estimate in result.estimates.items():
+        assert old.estimates[name].psi == estimate.psi
+        assert old.estimates[name].ci == estimate.ci
 
 
 def recomputations(result: Any, estimands: tuple[str, ...]) -> dict[str, Callable[[], Any]]:

@@ -422,9 +422,12 @@ def refuse_msm_functions(model: MSM) -> None:
     result restored with such a model refuses every recomputation.
     :meth:`MSMSet.evaluate` and :func:`cleverly.longitudinal.msm.evaluate_regimen_msm`
     run it before they call the design or the weight, so a direct call and the
-    simulated-confounding replay refuse before any user function runs.  Loading runs no
-    check, so a restored result keeps the estimates it stored, and they answer as saved
-    (roadmap rows RM13 and RM27).
+    simulated-confounding replay refuse before any user function runs.  Loading raises
+    nothing.  A restored ``TMLE`` result whose model this version refuses keeps its point
+    estimates and takes the ``"undeclared_function_plugin"`` status, so its ``ci``,
+    ``pvalue`` and ``std_error`` refuse (roadmap rows RM13, RM27 and RM28).  A
+    longitudinal result keeps only the evaluated arrays of its model, so no status reads
+    this declaration there.
 
     Parameters
     ----------
