@@ -221,6 +221,14 @@ _ESTIMATOR_LIMIT_REFUSALS: dict[str, str] = {
     "unrecorded": _UNRECORDED_ESTIMATOR_REFUSAL,
 }
 
+_ZERO_BIAS_LIMITS_REFUSAL = (
+    "max_bias is zero: sqrt(sigma^2 nu^2) has no ordinary influence curve at "
+    "sigma^2 = 0, so the one-sided limits and confidence-limit robustness value "
+    "are not available"
+)
+
+_UNREACHABLE_RV = "no equal strength reaches the null"
+
 
 def limit_refusal_reason(nu2_estimator: str) -> str | None:
     """Why a bound built by ``nu2_estimator`` publishes no limit, or ``None`` when it does.
@@ -446,7 +454,7 @@ class SensitivityElements:
     psi_max_bias : ndarray or None
         Influence curve of ``max_bias``, as in Theorem 4 of the same paper, so the
         bias-adjusted bounds get confidence limits rather than being treated as known
-        constants.  ``None`` under the plug-in estimator.
+        constants. ``None`` under the plug-in estimator or when ``max_bias`` is zero.
 
     riesz_representer : ndarray
         ``(n,)`` values of :math:`\\alpha(A, W)` for the targeted functional.
@@ -690,7 +698,10 @@ def _elements_for(
             psi_nu2 = psi_nu2 + _conditioning_share_influence(
                 nu2, conditioning_indicator, conditioning_share, weights
             )
-        psi_max_bias = (sigma2 * psi_nu2 + nu2 * psi_sigma2) / (2.0 * max_bias)
+        # The square-root delta method requires a positive product. At sigma2=0 the
+        # point bound is still defined, but its ordinary influence curve is not.
+        if max_bias > 0.0:
+            psi_max_bias = (sigma2 * psi_nu2 + nu2 * psi_sigma2) / (2.0 * max_bias)
     return SensitivityElements(
         estimand=parameter.name,
         sigma2=sigma2,
@@ -860,11 +871,13 @@ class SensitivityBounds:
         Upper one-sided confidence limit of the adjusted bound. It follows ``ci_lower``.
     level : float
         Coverage level of those limits.
-    robustness_value : float
-        Confounding strength that would move the point estimate to the null.
-    robustness_value_ci : float
+    robustness_value : float or None
+        Equal confounding strength that moves the point estimate to the null. ``None``
+        means no strength below one reaches it.
+    robustness_value_ci : float or None
         The same strength for the confidence limit. It refuses with ``ci_lower``;
-        :attr:`robustness_value_plugin_interval` keeps the diagnostic.
+        :attr:`robustness_value_plugin_interval` keeps the diagnostic. ``None`` means
+        the available limit does not reach the null at any equal strength below one.
     null_hypothesis : float
         The value the robustness values are measured against.
     inference : str, default="influence_curve"
@@ -892,7 +905,7 @@ class SensitivityBounds:
     _ci_lower: float | None
     _ci_upper: float | None
     level: float
-    robustness_value: float
+    robustness_value: float | None
     _robustness_value_ci: float | None
     null_hypothesis: float
     #: A plain default, so a bound pickled before the field existed loads as inferential,
@@ -918,7 +931,7 @@ class SensitivityBounds:
         ci_lower: float | None,
         ci_upper: float | None,
         level: float,
-        robustness_value: float,
+        robustness_value: float | None,
         robustness_value_ci: float | None,
         null_hypothesis: float,
         inference: InferenceStatus = "influence_curve",
@@ -962,7 +975,16 @@ class SensitivityBounds:
     @property
     def _limits_derived(self) -> bool:
         """Whether a derivation gives the standard error of these limits."""
-        return self.nu2_estimator not in _ESTIMATOR_LIMIT_REFUSALS
+        return self.nu2_estimator not in _ESTIMATOR_LIMIT_REFUSALS and self.max_bias > 0.0
+
+    def _limit_reason(self) -> str | None:
+        """The estimator or zero-bias reason for withholding limit inference."""
+        reason = limit_refusal_reason(self.nu2_estimator)
+        if reason is not None:
+            return reason
+        if self.max_bias == 0.0:
+            return _ZERO_BIAS_LIMITS_REFUSAL + "."
+        return None
 
     def _limit_refusal(self, operation: str, *, diagnostic: bool = False) -> None:
         """Refuse a limit accessor, in the one order every accessor uses.
@@ -975,7 +997,7 @@ class SensitivityBounds:
         """
         if not diagnostic:
             refuse_inference(self.inference, operation=operation)
-        reason = limit_refusal_reason(self.nu2_estimator)
+        reason = self._limit_reason()
         if reason is not None:
             raise CapabilityError(f"{operation} is not defined under {reason}")
 
@@ -998,9 +1020,10 @@ class SensitivityBounds:
         return self._guarded("ci_upper", self._ci_upper)
 
     @property
-    def robustness_value_ci(self) -> float:
+    def robustness_value_ci(self) -> float | None:
         """Robustness value for a confidence limit, when inference is supplied."""
-        return self._guarded("robustness_value_ci", self._robustness_value_ci)
+        self._limit_refusal("SensitivityBounds.robustness_value_ci")
+        return self._robustness_value_ci
 
     @property
     def plugin_interval_lower(self) -> float:
@@ -1013,11 +1036,10 @@ class SensitivityBounds:
         return self._guarded("plugin_interval_upper", self._ci_upper, diagnostic=True)
 
     @property
-    def robustness_value_plugin_interval(self) -> float:
+    def robustness_value_plugin_interval(self) -> float | None:
         """Robustness value from the plug-in limit, a diagnostic when inference is absent."""
-        return self._guarded(
-            "robustness_value_plugin_interval", self._robustness_value_ci, diagnostic=True
-        )
+        self._limit_refusal("SensitivityBounds.robustness_value_plugin_interval", diagnostic=True)
+        return self._robustness_value_ci
 
     @property
     def bias(self) -> float:
@@ -1046,6 +1068,8 @@ class SensitivityBounds:
             row["inference"] = status
         if not self._limits_derived:
             row["nu2_estimator"] = self.nu2_estimator
+            if self.max_bias == 0.0 and self.nu2_estimator == "doubly_robust":
+                row["limit_refusal"] = _ZERO_BIAS_LIMITS_REFUSAL
         row |= {
             "psi": self.psi,
             "cf_y": self.cf_y,
@@ -1087,12 +1111,15 @@ class SensitivityBounds:
             f"rho = {self.rho:.3g}"
             f" -> bias <= {self.bias:.5g}",
         ]
-        rv_line = (
-            f"robustness value RV   = {self.robustness_value:.4f}: a confounder explaining "
-            f"{self.robustness_value:.1%} of the residual variation in BOTH the outcome and "
-            f"treatment would move the estimate to {self.null_hypothesis:g}."
-        )
-        reason = limit_refusal_reason(self.nu2_estimator)
+        if self.robustness_value is None:
+            rv_line = f"robustness value RV   = unavailable: {_UNREACHABLE_RV}."
+        else:
+            rv_line = (
+                f"robustness value RV   = {self.robustness_value:.4f}: a confounder explaining "
+                f"{self.robustness_value:.1%} of the residual variation in BOTH the outcome and "
+                f"treatment would move the estimate to {self.null_hypothesis:g}."
+            )
+        reason = self._limit_reason()
         if reason is not None:
             return "\n".join(
                 [
@@ -1107,6 +1134,12 @@ class SensitivityBounds:
         lower = self.plugin_interval_lower
         upper = self.plugin_interval_upper
         rv_interval = self.robustness_value_plugin_interval
+        rva_line = (
+            f"robustness value RVa  = unavailable: {_UNREACHABLE_RV}."
+            if rv_interval is None
+            else f"robustness value RVa  = {rv_interval:.4f}: the same, for the "
+            f"{self.level:.0%} {spread_name('confidence bound', status)}."
+        )
         return "\n".join(
             [
                 *header,
@@ -1115,8 +1148,7 @@ class SensitivityBounds:
                 f"[{lower:.5g}, {upper:.5g}] ({conclusion})",
                 "",
                 rv_line,
-                f"robustness value RVa  = {rv_interval:.4f}: the same, for the "
-                f"{self.level:.0%} {spread_name('confidence bound', status)}.",
+                rva_line,
             ]
         )
 
@@ -1174,17 +1206,20 @@ def omitted_variable_bounds(
     Returns
     -------
     SensitivityBounds
-        Adjusted bounds, their confidence limits, and the robustness values.  Under
+        Adjusted bounds, their confidence limits, and the robustness values. Under
         ``nu2_estimator="plugin"`` the bounds, ``max_bias`` and the point robustness value
         are reported, and the one-sided limits and the confidence-limit robustness value
         refuse when read, because no derivation in a source this package cites gives their
-        standard error (docs/roadmap.md F26).
+        standard error (docs/roadmap.md F26). A zero maximal bias also leaves the point
+        bounds available but refuses the limits, whose square-root derivative is undefined.
+        An unreachable robustness threshold is ``None``.
 
     Raises
     ------
     ValueError
         If ``nu2_estimator`` is not one of :data:`NU2_ESTIMATORS`, if ``cf_y`` or
-        ``cf_d`` lies outside ``[0, 1)``, or if ``|rho|`` exceeds one.
+        ``cf_d`` lies outside ``[0, 1)``, if ``|rho|`` exceeds one, or if ``level``
+        lies outside ``[0.5, 1)``.
     CapabilityError
         On every refusal :func:`sensitivity_elements` raises: a fit the rule table
         refuses, an estimand the bound does not cover, or a doubly robust estimate of
@@ -1245,40 +1280,64 @@ def _robustness_values(
     rho: float,
     level: float,
     null_hypothesis: float,
-) -> tuple[float, float | None]:
+) -> tuple[float | None, float | None]:
     """Solve for ``cf_y = cf_d = v`` at which a bound reaches the null.
 
-    The second value is ``None`` when the elements carry no curve, which is the plug-in
-    estimator: no limit exists to solve for.
+    The point value is ``None`` when no equal strength in ``[0, 1)`` reaches the null.
+    The limit value is also ``None`` when its influence curve is unavailable; callers
+    omit and refuse that accessor rather than interpreting it as an unreachable limit.
     """
     side = 1.0 if null_hypothesis > psi else -1.0
     quantile = float(stats.norm.ppf(level))
     psi_bias = elements.psi_max_bias
+    alignment = abs(rho)
+    if not 0.0 <= alignment <= 1.0:
+        raise ValueError(f"|rho| must lie in [0, 1]; got {rho}")
+    if not 0.5 <= level < 1.0:
+        raise ValueError(f"level must lie in [0.5, 1); got {level}")
 
-    def bound_at(value: float, *, with_ci: bool) -> float:
-        strength = _confounding_strength(value, value, rho)
+    def equal_share(strength: float) -> float:
+        assert alignment > 0.0
+        ratio = strength / alignment
+        return float(2.0 * ratio / (np.hypot(ratio, 2.0) + ratio))
+
+    def limit_at(strength: float) -> float:
+        assert psi_bias is not None
         bias = strength * elements.max_bias
         edge = psi + side * bias
-        if not with_ci:
-            return edge
-        assert psi_bias is not None
         se = _bound_std_error(
             result[elements.estimand].influence_curve, side * strength * psi_bias, result
         )
         return edge + side * quantile * se
 
-    def objective(value: float, with_ci: bool) -> float:
-        return float((bound_at(value, with_ci=with_ci) - null_hypothesis) ** 2)
-
-    rv = float(
-        optimize.minimize_scalar(objective, bounds=(0.0, 0.9999), method="bounded", args=(False,)).x
-    )
+    distance = abs(psi - null_hypothesis)
+    if distance == 0.0:
+        rv = 0.0
+    elif alignment == 0.0 or elements.max_bias == 0.0:
+        rv = None
+    else:
+        rv = equal_share(distance / elements.max_bias)
     if psi_bias is None:
         return rv, None
-    rva = float(
-        optimize.minimize_scalar(objective, bounds=(0.0, 0.9999), method="bounded", args=(True,)).x
-    )
-    return rv, rva
+
+    # A baseline one-sided limit already on the null side needs no confounding.
+    # Squared-error minimisation misses this case and reports a small positive value.
+    def signed_gap(strength: float) -> float:
+        return side * (limit_at(strength) - null_hypothesis)
+
+    if signed_gap(0.0) >= 0.0:
+        return rv, 0.0
+    if alignment == 0.0:
+        return rv, None
+    high = max(1.0, distance / elements.max_bias)
+    if not np.isfinite(high):
+        raise CapabilityError("the confidence-limit robustness root exceeds finite precision")
+    while signed_gap(high) < 0.0:
+        if high > np.finfo(float).max / 2.0:
+            raise CapabilityError("the confidence-limit robustness root exceeds finite precision")
+        high *= 2.0
+    strength = float(optimize.brentq(signed_gap, 0.0, high))
+    return rv, equal_share(strength)
 
 
 @dataclass(frozen=True)
@@ -1503,7 +1562,9 @@ def robustness_value(
 
     Returns ``{"rv": ..., "rva": ...}``: the value of ``cf_y = cf_d`` at which the point
     estimate reaches ``null_hypothesis``, and the value at which its confidence bound
-    does.  This is the single most useful number in this module, because it requires no
+    does. ``None`` means no equal strength below one reaches the null. A confidence
+    limit that already crosses the null has ``rva = 0``. This is the single most useful
+    number in this module, because it requires no
     guess about how strong an unmeasured confounder might be -- it reports the
     threshold and lets the reader judge whether it is plausible.
 
@@ -1534,7 +1595,8 @@ def robustness_value(
     -------
     dict of str to Any
         The strength that moves the point estimate to the null, the one that moves the
-        confidence limit there, and ``max_bias``. At a non-inferential status, also the
+        confidence limit there, and ``max_bias``. A threshold is ``None`` when unreachable.
+        At a non-inferential status, also the
         status under ``"inference"``. Under the plug-in estimator, ``"nu2_estimator"``
         in place of the confidence-limit value.
 
@@ -1542,7 +1604,7 @@ def robustness_value(
     ------
     ValueError
         If ``nu2_estimator`` is not one of :data:`NU2_ESTIMATORS`, or if ``|rho|``
-        exceeds one.
+        exceeds one, or if ``level`` lies outside ``[0.5, 1)``.
     CapabilityError
         On every refusal :func:`sensitivity_elements` raises: a fit the rule table
         refuses, an estimand the bound does not cover, or a doubly robust estimate of
@@ -1559,6 +1621,8 @@ def robustness_value(
             "rv": rv,
             "max_bias": elements.max_bias,
         }
+        if elements.max_bias == 0.0 and elements.nu2_estimator == "doubly_robust":
+            values["limit_refusal"] = _ZERO_BIAS_LIMITS_REFUSAL
         return values
     values |= {"rv": rv, spread_name("rva", status): rva, "max_bias": elements.max_bias}
     return values

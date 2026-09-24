@@ -2864,25 +2864,38 @@ def _robustness_item(
     # ``robustness_value`` keys its limit value through ``spread_name`` and names a
     # non-inferential status in the report itself, so a saved report reads the same name
     # and prints the same noun with no fit at hand.
-    status = report.get("inference", "influence_curve")
-    if "nu2_estimator" in report:
-        # A report names its estimator only when no confidence-limit value exists under any
-        # name, so the row gives the bound's own reason rather than reading an absent key.
-        # Imported here because the sensitivity module imports this one.
-        from .sensitivity.omitted_variable import limit_refusal_reason
+    # Imported here because the sensitivity module imports this one.
+    from .sensitivity.omitted_variable import _UNREACHABLE_RV, limit_refusal_reason
 
+    status = report.get("inference", "influence_curve")
+    point = (
+        f"point robustness value unavailable: {_UNREACHABLE_RV}"
+        if report["rv"] is None
+        else f"point robustness value {report['rv']:.4g}"
+    )
+    if "limit_refusal" in report:
         return AssessmentItem(
             "robustness_value",
             AssessmentStatus.COMPLETED,
-            f"point robustness value {report['rv']:.4g}; no confidence-limit value under "
+            f"{point}; no confidence-limit value: {report['limit_refusal']}",
+        )
+    if "nu2_estimator" in report:
+        # A report names its estimator only when no confidence-limit value exists under any
+        # name, so the row gives the bound's own reason rather than reading an absent key.
+        return AssessmentItem(
+            "robustness_value",
+            AssessmentStatus.COMPLETED,
+            f"{point}; no confidence-limit value under "
             f"{limit_refusal_reason(report['nu2_estimator'])}",
         )
+    limit_value = report[spread_name("rva", status)]
+    limit_detail = (
+        f"unavailable: {_UNREACHABLE_RV}" if limit_value is None else f"{limit_value:.4g}"
+    )
     return AssessmentItem(
         "robustness_value",
         AssessmentStatus.COMPLETED,
-        f"point robustness value {report['rv']:.4g}; "
-        f"{spread_name('confidence-limit value', status)} "
-        f"{report[spread_name('rva', status)]:.4g}",
+        f"{point}; {spread_name('confidence-limit value', status)} {limit_detail}",
     )
 
 

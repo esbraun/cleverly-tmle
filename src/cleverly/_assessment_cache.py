@@ -112,14 +112,18 @@ def _normalize(value: Any) -> Any:
 #: cached bound, robustness value or set of elements holds the older limits and curve. A
 #: plug-in bound now refuses its limits, and a cached one would serve them. ``contour`` and
 #: ``benchmark`` read no curve, so their entries stay unversioned.
+#:
+#: A later boundary correction changes zero-variance elements and bounds, unreachable
+#: robustness values, and the report rows that describe them. Their four entries move
+#: again so a saved fit recomputes those values rather than serving old NaNs or 0.9999.
 _CACHE_GENERATIONS: dict[str, int] = {
     "diagnostics.support": 4,
     "diagnostics.nuisance_models": 2,
     "diagnostics.run_all": 10,
-    "sensitivity.elements": 2,
-    "sensitivity.omitted_confounding": 2,
-    "sensitivity.robustness_value": 2,
-    "sensitivity.run_all": 4,
+    "sensitivity.elements": 3,
+    "sensitivity.omitted_confounding": 3,
+    "sensitivity.robustness_value": 3,
+    "sensitivity.run_all": 5,
     "validate": 5,
 }
 
