@@ -4,19 +4,21 @@ The E-value answers the same question as the omitted-variable bound but on the r
 ratio scale, and with a different parameterisation that has become the convention in
 epidemiology:
 
-    *the minimum strength of association, on the risk ratio scale, that an
-    unmeasured confounder would need with both the treatment and the outcome --
-    conditional on the measured covariates -- to fully explain away the observed
-    association.*
+    *the minimum strength, on the risk ratio scale, that each of two confounder
+    associations would need if both had equal strength: one with treatment and one
+    with outcome, conditional on the measured covariates, to explain away the
+    observed association.*
+
+Unequal associations can trade off: one can be below the E-value if the other is
+above it. The E-value alone does not establish whether such confounding is plausible.
 
 For an observed risk ratio :math:`RR \ge 1`,
 
 .. math:: E = RR + \sqrt{RR\,(RR - 1)}
 
 and for :math:`RR < 1` the same formula is applied to :math:`1/RR`.  An E-value of 1
-means no unmeasured confounding at all is needed -- the estimate is already
-compatible with the null.  A large E-value means only an implausibly strong
-confounder could account for the finding.
+means no unmeasured confounding is needed -- the estimate is already
+compatible with the null. A larger E-value raises the equal-strength threshold.
 
 The E-value for the *confidence limit* is usually the more important number: it says
 how strong a confounder would need to be to move the interval to include the null,
@@ -167,10 +169,11 @@ class EValue:
         the risk-ratio parameter space. The report truncates it at zero, records the
         untruncated value in :attr:`truncated_bound`, and says so in :attr:`note`.
     point : float
-        Risk-ratio association an unmeasured confounder would need with both
-        treatment and outcome to explain the point estimate away.
+        Equal-strength threshold for the confounder's treatment and outcome
+        associations on the risk-ratio scale to explain the point estimate away.
+        Unequal association strengths can trade off.
     limit : float
-        The same association needed to move the confidence limit across the null.
+        The equal-strength threshold to move the confidence limit to the null.
     approximate : bool
         Whether reaching the risk-ratio scale needed an approximate conversion.
     note : str
@@ -210,14 +213,16 @@ class EValue:
             f"E-value, point estimate     : {self.point:.4f}",
             f"E-value, confidence limit   : {self.limit:.4f}",
             "",
-            f"An unmeasured confounder would need risk-ratio associations of at least "
-            f"{self.point:.2f} with both treatment and outcome, above and beyond the "
-            f"measured covariates, to explain away the point estimate; "
+            f"If its two risk-ratio associations had equal strength, an unmeasured "
+            f"confounder would need {self.point:.2f} with both treatment and outcome, "
+            f"beyond the measured covariates, to explain away the point estimate; "
             + (
-                f"{self.limit:.2f} to move the interval across the null."
+                f"{self.limit:.2f} to move the interval to the null."
                 if self.limit > 1.0
                 else "the interval already includes the null."
             ),
+            "Unequal strengths can trade off: one association may be below the E-value "
+            "if the other is above it.",
         ]
         if self.note:
             lines.extend(["", self.note])
