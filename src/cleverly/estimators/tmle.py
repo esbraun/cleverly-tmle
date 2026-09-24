@@ -1356,7 +1356,11 @@ class TMLE:
         :func:`~cleverly.msm.refuse_msm_functions` and
         :func:`~cleverly.interventions.base.refuse_regime_densities` for the same reason: a
         restored or modified model or regime can carry a declaration this version refuses.
-        Those functions state what each one refuses.
+        Those functions state what each one refuses.  They run before every refusal of the
+        fit configuration, here and in :meth:`_fit_single`, because each of those names a
+        remedy that cannot make an undeclared function fit.  :meth:`MSMSet.evaluate
+        <cleverly.msm.MSMSet.evaluate>` checks the model again, but a fit reaches it only
+        after those refusals.
 
         The natural-course contract runs next, because it resolves the target list the
         arm-indexed missing-outcome contract then reads.  The refusal of every other

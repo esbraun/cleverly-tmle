@@ -19,6 +19,7 @@ defect.  This module pins these things:
   shorthand pickled before the field existed still reads as known;
 * every fit entry refuses a restored or modified model before any learner or design call,
   and so do ``MSMSet.evaluate`` and ``evaluate_regimen_msm`` called directly;
+* a restored model meets its declaration refusal before a refusal of the fit configuration;
 * a result restored with an undeclared written design keeps its stored estimates, and every
   recomputation from it refuses, while a restored ``MSM.linear`` result still recomputes;
 * the simulated-confounding replay refuses a result restored without either MSM
@@ -47,6 +48,7 @@ import cleverly.longitudinal.estimator as ltmle_module
 import cleverly.longitudinal.msm as regimen_msm_module
 import cleverly.msm as msm_module
 from cleverly import MSMProjection
+from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.msm import (
     _ESTIMATED_DESIGN,
@@ -300,6 +302,82 @@ class TestTheFitRefusesARestoredModel:
         with pytest.raises(AssertionError, match="before any learner is fitted"):
             fit(model)
         assert NeverFit.calls == 1
+
+
+def cross_fitted(model: MSM, frame: Any, **settings: Any) -> Any:
+    """A cross-fitted ``TMLE.fit`` of ``model`` on ``frame``, with ``NeverFit`` learners.
+
+    ``settings`` holds the ``TMLE`` keywords, and ``delta`` goes to the fit.
+    """
+    delta = settings.pop("delta", None)
+    estimator = TMLE(
+        msm=model, cross_fit=True, n_folds=2, simultaneous=False, **never_fit_learners(), **settings
+    )
+    return estimator.fit(frame, outcome="Y", treatment="A", delta=delta)
+
+
+def continuous_outcome() -> Any:
+    """The default law with the outcome ``Y + W / 2``, which reads as continuous."""
+    frame = law.frame()
+    return frame.assign(Y=frame["Y"] + 0.5 * frame["W"])
+
+
+def missing_outcome() -> Any:
+    """The default law with every seventh outcome missing, and ``D`` its indicator."""
+    frame = law.frame()
+    observed = np.arange(len(frame)) % 7 != 0
+    return frame.assign(D=observed.astype(float), Y=frame["Y"].where(observed))
+
+
+#: Three fits that a later refusal stops before ``MSMSet.evaluate`` runs, as the fit, the
+#: class of that refusal, and a fragment of its message.  ``_resolve_estimands_for_data``
+#: raises the scale and missing-outcome refusals after its model check, and ``_fit_single``
+#: raises the ``cv_evaluation`` refusal after that method returns.
+LATER_REFUSALS: dict[str, tuple[Callable[[MSM], Any], type[Exception], str]] = {
+    "cv_evaluation": (
+        lambda model: cross_fitted(model, law.frame(), cv_evaluation=True),
+        ValueError,
+        "cv_evaluation=True does not yet support ['msm']",
+    ),
+    "unbounded scale": (
+        lambda model: cross_fitted(model, continuous_outcome()),
+        CapabilityError,
+        "needs a declared q_bounds",
+    ),
+    "missing outcomes": (
+        lambda model: cross_fitted(model, missing_outcome(), delta="D"),
+        CapabilityError,
+        "no audited result covers MSM targets under cross-fitting",
+    ),
+}
+
+
+class TestTheDeclarationRefusalComesFirst:
+    """A restored model meets its own refusal, whatever else its fit configuration breaks.
+
+    ``_resolve_estimands_for_data`` checks the model before any refusal of the fit
+    configuration.  Each of those refusals names a remedy, and no remedy lets an undeclared
+    or estimated design fit.  Each fit that no such refusal stops reaches
+    ``MSMSet.evaluate``, which runs the same check before the first learner.  So these
+    tests are the witness of the model check in ``_resolve_estimands_for_data``.
+    """
+
+    @pytest.mark.parametrize("refusal", list(LATER_REFUSALS))
+    def test_a_declared_model_meets_the_later_refusal(self, refusal: str) -> None:
+        """The control: each configuration is refused when the declaration is intact."""
+        fit, error, fragment = LATER_REFUSALS[refusal]
+        model = point_model()
+        assert_refused_before_any_call(
+            lambda: fit(model), model.design, "design", fragment, error=error
+        )
+
+    @pytest.mark.parametrize("refusal", list(LATER_REFUSALS))
+    @pytest.mark.parametrize("name", list(RESTORED))
+    def test_a_restored_model_meets_the_declaration_refusal(self, refusal: str, name: str) -> None:
+        kind, fragments = RESTORED[name]
+        fit, _, _ = LATER_REFUSALS[refusal]
+        model = restored(point_model(), "design_kind", kind)
+        assert_refused_before_any_call(lambda: fit(model), model.design, "design", *fragments)
 
 
 #: Each public evaluator that runs the design, with a builder of a model it accepts.
@@ -576,6 +654,22 @@ class TestTheWitnessesHaveTeeth:
             monkeypatch.setattr(tmle_module, "refuse_msm_functions", lambda model: None)
         with pytest.raises(AssertionError):
             assert_refused(recomputations(old, RETARGETED)[entry], CapabilityError, UNDECLARED)
+
+    @pytest.mark.parametrize("refusal", list(LATER_REFUSALS))
+    def test_removing_the_fit_layer_check_alone_lets_the_later_refusal_answer(
+        self, refusal: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation M7: the fit layer stops checking, and the evaluator checks stay.
+
+        No learner and no design runs either way, so only the refusal that answers shows
+        the mutation.  The restored model meets the refusal of the configuration.
+        """
+        fit, error, fragment = LATER_REFUSALS[refusal]
+        monkeypatch.setattr(tmle_module, "refuse_msm_functions", lambda model: None)
+        model = restored(point_model(), "design_kind", None)
+        assert_refused_before_any_call(
+            lambda: fit(model), model.design, "design", fragment, error=error
+        )
 
     def test_every_site_calls_the_one_refusal(self) -> None:
         """One refusal, one text: the fit layer, the evaluators and the replay share one check.
