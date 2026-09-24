@@ -46,14 +46,20 @@ def assert_refused(build: Callable[[], Any], error: type[Exception], *fragments:
 
 
 def assert_refused_before_any_call(
-    build: Callable[[], Any], spy: type, function: str, *fragments: str
+    build: Callable[[], Any],
+    spy: type,
+    function: str,
+    *fragments: str,
+    error: type[Exception] = CapabilityError,
 ) -> None:
     """``build()`` refuses before any learner fit and before any call of the spy ``function``.
 
     ``spy`` is the class whose class-level ``calls`` counts the calls of the declared
     function.  The caller resets it.  :func:`never_fit_learners` resets ``NeverFit``.
+    ``error`` is the class of the refusal: a declaration that is refused raises
+    ``CapabilityError``, and a value that is not a declaration raises ``DataError``.
     """
-    assert_refused(build, CapabilityError, *fragments)
+    assert_refused(build, error, *fragments)
     assert NeverFit.calls == 0, f"{NeverFit.calls} learner fit(s) ran before the refusal"
     assert spy.calls == 0, f"the {function} was evaluated before the refusal"
 

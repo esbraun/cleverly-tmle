@@ -283,6 +283,13 @@ ENTRIES: dict[str, tuple[Callable[[], MSM], Callable[[MSM], Any]]] = {
 #: What a restored model can carry, and the refusal each one meets.
 RESTORED = restored_states(UNDECLARED, ESTIMATED)
 
+#: What a restored model can carry that is not a declaration, as the field, its value, and
+#: the fragments of the ``DataError`` it meets.
+MALFORMED: dict[str, tuple[str, Any, tuple[str, ...]]] = {
+    "unknown": ("design_kind", "Known", (UNKNOWN,)),
+    "not callable": ("design", np.ones((3, 2)), SIGNATURES),
+}
+
 
 def assert_entry_refuses(entry: str, kind: Any, *fragments: str) -> None:
     build, fit = ENTRIES[entry]
@@ -298,6 +305,19 @@ class TestTheFitRefusesARestoredModel:
     ) -> None:
         kind, fragments = RESTORED[name]
         assert_entry_refuses(entry, kind, *fragments)
+
+    @pytest.mark.parametrize("entry", list(ENTRIES))
+    @pytest.mark.parametrize("name", list(MALFORMED))
+    def test_every_entry_refuses_a_malformed_model_before_any_call(
+        self, entry: str, name: str
+    ) -> None:
+        """An unknown declaration and a design that is not callable are data errors."""
+        field, value, fragments = MALFORMED[name]
+        build, fit = ENTRIES[entry]
+        model = restored(build(), field, value)
+        assert_refused_before_any_call(
+            lambda: fit(model), SpyDesign, "design", *fragments, error=DataError
+        )
 
     @pytest.mark.parametrize("entry", list(ENTRIES))
     def test_a_known_declaration_reaches_the_first_learner(self, entry: str) -> None:
