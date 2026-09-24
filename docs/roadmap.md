@@ -231,6 +231,7 @@ the missing result. Package code and a related estimator do not remove the stop.
 | Longitudinal simulated-confounding replay | a time-indexed latent law for treatments, censoring, histories, outcomes, and contrasts | point-treatment results only | [F13](#f13-longitudinal-simulated-confounding-replay) |
 | Controlled-direct-effect simulated-confounding replay | an ordered treatment, intermediate, observation, and outcome law with a contrast contract | fits without an intermediate only | [F15](#f15-controlled-direct-effect-simulated-confounding-replay) |
 | Simulated confounding on a declared outcome scale | a latent perturbation law for an outcome confined to a known support, and the reading of its strength | additive perturbation of an unbounded outcome only, so a fit that declares `q_bounds` refuses the outcome axis | [F23](#f23-simulated-confounding-on-a-declared-outcome-scale) |
+| Controlled-direct-effect E-value | a bound on the bias of a controlled direct effect from unmeasured confounding, of the treatment and the outcome or of the intermediate variable and the outcome, and its inversion to an E-value on a stated outcome scale | every E-value request on a fit with an intermediate variable reports `unavailable` | [F25](#f25-e-value-for-a-controlled-direct-effect) |
 | Stochastic categorical policies at a longitudinal node | longitudinal identification, influence function, remainder, and interval conditions for a distribution-valued policy | deterministic categorical regimens only | [F1](#f1-stochastic-categorical-policies-at-a-longitudinal-node) |
 | Targeted bootstrap inference | a construction that defines what is fixed, resampled, refitted, and retargeted, plus the sampling law of the interval | existing bootstrap inference is not this procedure | [F2](#f2-targeted-bootstrap-inference) |
 | Longitudinal sensitivity-bound estimation | sample estimation of the bound functionals, a specialized algorithm, and sampling inference | no sensitivity bound on a longitudinal fit | [F16](#f16-longitudinal-sensitivity-bound-estimation) |
@@ -2465,6 +2466,72 @@ The witnesses must fail when a component is wrong:
   fail;
 - a control shows that a fit without an intermediate variable keeps each branch.
 
+#### RM21 plan
+
+The source search found no result that covers any branch.
+[F25](#f25-e-value-for-a-controlled-direct-effect) records what each read source covers. So the
+plan refuses every branch. The 2026-09-24 plan fixes the decisions in the table below. Line
+numbers are at 44f44998.
+
+| part | decision |
+| --- | --- |
+| predicate | a new `declares_intermediate(result)` in `src/cleverly/estimators/direct_effect.py` reads `data.has_intermediate or intermediate_value is not None`. A package fit sets both or neither, because `clever_covariate_inputs` raises `DataError` otherwise. `dataclasses.replace` can set one alone. The E-value, the omitted-variable bound, the simulated-confounding replay, and `_risk_ratio_refusal` call this one predicate |
+| placement | `_select_evalue` runs the check after the longitudinal and continuous-treatment checks, and before `arm_parameter_keys`. Like those two checks, it is fit-wide. A check after the default estimand would leave a multi-arm controlled-direct-effect fit `deferred` |
+| status and reason | `unavailable`, with the constant `_DIRECT_EFFECT_REFUSAL`. The reason names the missing result and ends "docs/roadmap.md F25 tracks this stop", as the simulated-confounding stops do |
+| cost | on such a fit, an explicit `ey1` or an alias that the fit did not report reads `unavailable` with this reason. On a fit without an intermediate variable, the same request reads `not_applicable` or "was not requested". A continuous-dose fit with an intermediate variable stays `not_applicable`, because the continuous check runs first |
+| dead branch | the `intermediate_value` check before the fixed-baseline branch (`evalue.py:395-396`) becomes unreachable. The plan deletes it |
+| derived helper | `_risk_ratio_refusal` keeps its text, because a direct call of `_derived_risk_ratio` still needs it |
+
+The plan measured each branch on `make_cde(n=400, seed=3)`, fitted in sample by
+`fast_tmle(**IN_SAMPLE)` of `tests/conftest.py` with the covariates W1 to W3. The binary law splits
+Y at its median. The table gives the result at 44f44998.
+
+| fit | request | branch | E-value |
+| --- | --- | --- | --- |
+| Gaussian, $z = 0$ | default, `ate`, `att`, `atc` | `gaussian_difference` | 2.6947, 2.6947, 2.8060, 2.5774 |
+| Gaussian, $z = 1$ | default, `ate`, `att`, `atc` | `gaussian_difference` | 3.3650, 3.3650, 3.3351, 3.4013 |
+| binary with `rr`, `or` and `ate`, $z = 0$ | default and `rr`, then `or` | `reported_rr`, then `reported_or` | 3.7159, then 2.7570 |
+| binary with `rr`, `or` and `ate`, $z = 1$ | `rr`, then `or` | `reported_rr`, then `reported_or` | 2.6570, then 3.9461 |
+| binary with `rr`, `or` and `ate`, both levels | `ate` | refused by `_risk_ratio_refusal` | none |
+| binary with `or` and `ate` only, $z = 0$ | default | `reported_or` | 2.7570 |
+| the same fit, read as CV-evaluated | `ate` | refused with the CV text, through `evalue.py:395-396` | none |
+
+The last two rows add a leak that the row did not name. A default request meets the odds-ratio
+fallback at `evalue.py:393-394`, which returns before the intermediate check. Both Gaussian levels
+divide by one observed value, sd(Y) = 1.942.
+
+The same fits without `intermediate=` reach all five branches. The Gaussian fit reads
+`gaussian_difference`. The binary fit with `rr` reads `reported_rr` and `reported_or`, and its
+`ate` reads `derived_rr`. The binary fit without `rr` reads `derived_rr` by default. Read as
+CV-evaluated, its default reads `reported_or` and its `ate` reads `fixed_baseline_ate`.
+
+The new file `tests/unit/test_evalue_direct_effect_refusals.py` drives every witness from one
+table of eleven requests. Each row names its law, its edit, its estimand, and the branch that the
+fit without an intermediate variable takes.
+
+| witness | test |
+| --- | --- |
+| 1. each branch refuses | each request, at both levels, reads an `unavailable` row with the RM21 reason. The free function and the facade raise it. A multi-arm fit, `ey1`, the assessment battery, and a `CausalStudy` fit refuse too |
+| 2. the check moved below the Gaussian branch fails the test | the mutation tests rebuild `_select_evalue` from its own source with the check moved, and assert the exact set of requests that leak |
+| 3. a fit without an intermediate variable keeps each branch | each request on that fit keeps its branch, and the rows reach all five branches |
+| nonzero witness | each blocked branch computes a finite E-value above 1 on the same fit, so the refusal withholds a number |
+
+The mutation tests commit six mutations. The plan predicts each set. The delivery measures it.
+
+| mutation | predicted requests that leak |
+| --- | --- |
+| M0. the rebuilt function, unchanged | none. The control also keeps each branch |
+| M1. the check below the Gaussian branch | the four Gaussian requests, the three ratio requests except `ate`, `ey1`, and the multi-arm default |
+| M2. the check at its place before RM21, above the fixed-baseline branch | the M1 set, and the two odds-ratio defaults |
+| M3. the check beside the status refusal | `ey1` and the multi-arm default |
+| M4. the predicate in `evalue.py` returns `False` | every request |
+| M5. the predicate in `_derived.py` returns `False` | none. The direct test of `_derived_risk_ratio` fails |
+
+Five hand mutations then run one at a time, each on a copy with its sha256 recorded. H1 inlines
+`intermediate_value is not None`. H2 reads `data.has_intermediate` alone. H3 reports
+`not_applicable`. H4 restores `evalue.py` at 44f44998. H5 removes the rule from
+`_risk_ratio_refusal`.
+
 ### RM22. Standard error of the omitted-variable bound
 
 `_elements_for` in `src/cleverly/sensitivity/omitted_variable.py` builds `psi_nu2` as the centred
@@ -4176,6 +4243,22 @@ The treatment axis is unaffected, and the surface records the failure of each re
 than abandoning the run. `docs/examples/interventions.ipynb` shows two refused cells and states
 this reason. The generated-outcome refutation refuses the same composition for the same reason, in
 `_validate_generated_eligibility` (`src/cleverly/validation/refute.py`).
+
+### F25. E-value for a controlled direct effect
+
+A controlled direct effect is identified under two assumptions of no unmeasured confounding.
+Assumption 2 covers the treatment and the outcome. Assumption 3 covers the intermediate variable
+and the outcome (`src/cleverly/estimators/direct_effect.py`). The E-value of VanderWeele and Ding
+(2017) inverts a bound on the confounding of one exposure-outcome relation.
+
+The sources that RM21 read do not close this gap. VanderWeele (2010) gives bias formulas for a
+controlled direct effect, but no threshold and no inversion to an E-value. Smith and VanderWeele
+(2019) derive a mediational E-value for natural direct and indirect effects only. Ding and
+VanderWeele (2016) bound a natural direct effect only. The
+[E-value paths](technical-reference/validation-methods.md#e-value) give the locator of each source.
+
+Wait for a source that derives the bound and its inversion for a controlled direct effect. Record
+its locator and outcome scale, and open the branch that it covers.
 
 ## Longitudinal contracts
 
