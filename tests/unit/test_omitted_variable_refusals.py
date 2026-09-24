@@ -40,7 +40,6 @@ from cleverly import CausalStudy, NaturalCourseMean, PointTreatment
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import (
     make_binary_outcome,
-    make_cde,
     make_instrument,
     make_linear_ate,
     make_missing_outcome,
@@ -76,6 +75,7 @@ from tests.conftest import (
     fast_tmle,
     linear_in_sample,
 )
+from tests.unit._direct_effect_support import cde_frame, fit_cde
 
 # --------------------------------------------------------------------------- the fits
 
@@ -177,10 +177,7 @@ def response_fit() -> Any:
 @pytest.fixture(scope="module")
 def intermediate_fit() -> Any:
     """The controlled direct effect at ``Z = 0``, which the bound does not implement."""
-    frame, _ = make_cde(n=400, seed=3)
-    return fast_tmle(**IN_SAMPLE, estimands=("ate",)).fit(
-        frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"], intermediate="Z"
-    )[0.0]
+    return fit_cde(cde_frame(), ("ate",))[0.0]
 
 
 @pytest.fixture(scope="module")

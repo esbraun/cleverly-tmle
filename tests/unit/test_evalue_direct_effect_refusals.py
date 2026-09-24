@@ -39,7 +39,7 @@ import pytest
 
 from cleverly import CausalStudy, ControlledDirectEffect, PointTreatment
 from cleverly.assessment import AssessmentStatus
-from cleverly.datasets import make_cde, make_multi_arm
+from cleverly.datasets import make_multi_arm
 from cleverly.estimators import direct_effect
 from cleverly.estimators.direct_effect import LEVELS, declares_intermediate
 from cleverly.exceptions import CapabilityError, DataError, PositivityWarning
@@ -51,7 +51,16 @@ from cleverly.sensitivity.evalue import (
     _EValueRefusal,
     _EValueSelection,
 )
-from tests.conftest import FAST_KWARGS, IN_SAMPLE, fast_tmle
+from tests.conftest import FAST_KWARGS, IN_SAMPLE
+from tests.unit._direct_effect_support import (
+    COVARIATES,
+    binary_cde_frame,
+    cde_frame,
+    column_only,
+    fit_cde,
+    fit_without_intermediate,
+    level_only,
+)
 
 pytestmark = pytest.mark.xdist_group("evalue_direct_effect")
 
@@ -60,31 +69,16 @@ pytestmark = pytest.mark.xdist_group("evalue_direct_effect")
 evalue_module = importlib.import_module("cleverly.sensitivity.evalue")
 derived_module = importlib.import_module("cleverly.sensitivity._derived")
 
-COVARIATES = ["W1", "W2", "W3"]
-
 #: The text of the older rule in ``_risk_ratio_refusal``, which a direct call still meets.
 DERIVED_TEXT = "no controlled direct risk-ratio target is registered"
-
-
-def gaussian_frame() -> Any:
-    """The RM21 probe law, at the size of the fast tier."""
-    frame, _ = make_cde(n=400, seed=3)
-    return frame
-
-
-def binary_frame() -> Any:
-    """The same law with the outcome split at its median."""
-    frame = gaussian_frame()
-    frame["Y"] = (frame["Y"] > frame["Y"].median()).astype(int)
-    return frame
 
 
 #: Each law: its frame and the estimands its fit reports. ``odds`` reports no ``rr``, so its
 #: default request meets the derivation, or the odds-ratio fallback when that refuses.
 LAWS: dict[str, tuple[Callable[[], Any], tuple[str, ...]]] = {
-    "gaussian": (gaussian_frame, ("ate", "att", "atc", "ey1", "ey0")),
-    "ratio": (binary_frame, ("ate", "rr", "or", "ey1", "ey0")),
-    "odds": (binary_frame, ("ate", "or", "ey1", "ey0")),
+    "gaussian": (cde_frame, ("ate", "att", "atc", "ey1", "ey0")),
+    "ratio": (binary_cde_frame, ("ate", "rr", "or", "ey1", "ey0")),
+    "odds": (binary_cde_frame, ("ate", "or", "ey1", "ey0")),
 }
 
 
@@ -94,7 +88,13 @@ def as_fitted(result: Any) -> Any:
 
 
 def cv_evaluated(result: Any) -> Any:
-    """The fit read as CV-evaluated, so the exact retarget refuses and the fallbacks answer."""
+    """The fit read as CV-evaluated, so the exact retarget refuses and the fallbacks answer.
+
+    The edit changes the configuration and refits nothing. The nuisances and estimates stay
+    those of the in-sample fit, so the result is a routing witness only. The two requests that
+    use it reach ``reported_or`` and ``fixed_baseline_ate`` by the same selection as a real
+    CV-evaluated fit, and their E-values describe the in-sample estimates.
+    """
     return replace(result, config=replace(result.config, cv_evaluation=True))
 
 
@@ -136,20 +136,13 @@ def ids(case: Request) -> str:
 @pytest.fixture(scope="module")
 def cde_fits() -> dict[str, Any]:
     """Each law fitted with ``intermediate="Z"``, keyed by law and then by level."""
-    fits = {
-        law: fast_tmle(**IN_SAMPLE, estimands=estimands).fit(
-            frame(), outcome="Y", treatment="A", covariates=COVARIATES, intermediate="Z"
-        )
-        for law, (frame, estimands) in LAWS.items()
-    }
+    fits = {law: fit_cde(frame(), estimands) for law, (frame, estimands) in LAWS.items()}
     frame, _ = make_multi_arm(n=400, seed=3)
     frame["Z"] = np.random.default_rng(0).integers(0, 2, len(frame))
     with warnings.catch_warnings():
         # Three arms at n = 400 truncate some propensities. The refusal reads no mechanism.
         warnings.simplefilter("ignore", PositivityWarning)
-        fits["multi"] = fast_tmle(**IN_SAMPLE).fit(
-            frame, outcome="Y", treatment="A", covariates=COVARIATES, intermediate="Z"
-        )
+        fits["multi"] = fit_cde(frame)
     return fits
 
 
@@ -157,9 +150,7 @@ def cde_fits() -> dict[str, Any]:
 def plain_fits() -> dict[str, Any]:
     """Each law fitted without the intermediate variable."""
     return {
-        law: fast_tmle(**IN_SAMPLE, estimands=estimands)
-        .fit(frame(), outcome="Y", treatment="A", covariates=COVARIATES)
-        .single()
+        law: fit_without_intermediate(frame(), estimands)
         for law, (frame, estimands) in LAWS.items()
     }
 
@@ -185,6 +176,17 @@ def evalue_row(result: Any, estimand: str | None) -> Any:
     return facade._capability_for_arguments("evalue", {"estimand": estimand})
 
 
+def facade_refusal(row: Any, estimand: str | None) -> str:
+    """The message the facade raises for a refused row.
+
+    A default request meets ``_require``, which prefixes the kind, the operation and the
+    status. An explicit estimand skips ``_require`` and raises the selection's reason alone.
+    """
+    if estimand is not None:
+        return str(row.reason)
+    return f"sensitivity {row.operation!r} is {row.status.value}: {row.reason}"
+
+
 def assert_refused(result: Any, estimand: str | None) -> None:
     """The row, the free function, and the facade each refuse with the RM21 reason.
 
@@ -200,7 +202,7 @@ def assert_refused(result: Any, estimand: str | None) -> None:
     )
     facade = replace(result).sensitivity
     call = facade.evalue if estimand is None else partial(facade.evalue, estimand)
-    assert _DIRECT_EFFECT_REFUSAL in (raised(call) or "")
+    assert raised(call) == facade_refusal(row, estimand)
 
 
 def assert_keeps(result: Any, estimand: str | None, branch: str) -> None:
@@ -213,17 +215,6 @@ def assert_keeps(result: Any, estimand: str | None, branch: str) -> None:
     report = evalue_module.evalue(replace(result), estimand)
     assert np.isfinite(report.point)
     assert report.point > 1.0
-
-
-def level_only(result: Any) -> Any:
-    """A level with no intermediate column, which only ``dataclasses.replace`` builds."""
-    return replace(result, intermediate_value=0.0)
-
-
-def column_only(result: Any) -> Any:
-    """An intermediate column with no level, which only ``dataclasses.replace`` builds."""
-    column = np.zeros(result.data.n)
-    return replace(result, data=replace(result.data, intermediate=column, intermediate_name="Z"))
 
 
 def derived_helper_refuses(result: Any) -> bool:
@@ -311,7 +302,7 @@ class TestAControlledDirectEffectRefusesEveryBranch:
         design = PointTreatment(
             outcome="Y", treatment="A", adjustment=tuple(COVARIATES), intermediate="Z"
         )
-        result = CausalStudy(gaussian_frame(), design=design).estimate(
+        result = CausalStudy(cde_frame(), design=design).estimate(
             ControlledDirectEffect(intermediate=0.0), **FAST_KWARGS, **IN_SAMPLE
         )
         assert declares_intermediate(result)
