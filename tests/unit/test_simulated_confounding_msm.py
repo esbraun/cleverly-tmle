@@ -47,7 +47,13 @@ def _fit_continuous(
     strata: bool = False,
     backend: str = "pandas",
     binary: bool = False,
+    uniform: bool = False,
 ) -> Any:
+    """A continuous ``MSM.linear`` fit, weighted by ``_DoseWeight`` unless ``uniform``.
+
+    A uniform fit leaves ``weights`` and ``weights_kind`` unset, so only the replay can
+    declare its frozen weight.  The declaration modules replay it.
+    """
     rng = np.random.default_rng(81)
     n = 180
     w = rng.normal(size=n)
@@ -92,8 +98,7 @@ def _fit_continuous(
             MSM.linear(
                 modifiers=("W",),
                 interaction=False,
-                weights=_DoseWeight(),
-                weights_kind="known",
+                **({} if uniform else {"weights": _DoseWeight(), "weights_kind": "known"}),
                 link=link,
                 doses=_DOSES,
             )

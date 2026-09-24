@@ -73,11 +73,14 @@ from tests.unit._declaration_support import (
 from tests.unit._declaration_support import legacy_result as legacy_result_of
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 from tests.unit.test_msm_projection_weights import (
+    DOSE_SLOPE,
     counted_msm_fit,
+    dose_surface,
     duration_design,
     linear,
     ltmle_fit,
     tmle_fit,
+    uniform_dose_fit,
     validate_replay,
 )
 from tests.unit.test_simulated_confounding_policies import (
@@ -405,6 +408,18 @@ class TestTheReplayChecksAndCarriesTheDeclaration:
         assert all(cell.failure is None for cell in surface.cells)
         assert surface == expected
         assert validate_replay(old, SLOPE).msm.design_kind == "known"
+
+    def test_a_legacy_shorthand_dose_fit_replays(self) -> None:
+        """The continuous twin: the frozen dose functions replace ``_LinearDesign`` too.
+
+        The continuous replay builds its model with its own ``replace`` call, so the
+        discrete witness above does not cover it.
+        """
+        result = uniform_dose_fit()
+        old = legacy_result(result)
+        assert "design_kind" not in vars(old.estimator.msm)
+        assert dose_surface(old) == dose_surface(result)
+        assert validate_replay(old, DOSE_SLOPE).msm.design_kind == "known"
 
     def test_a_replay_that_drops_the_declaration_refuses(
         self, monkeypatch: pytest.MonkeyPatch

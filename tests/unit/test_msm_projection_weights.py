@@ -69,6 +69,8 @@ from tests.unit._declaration_support import (
 )
 from tests.unit._declaration_support import legacy_result as legacy_result_of
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
+from tests.unit.test_simulated_confounding_msm import _GRID as DOSE_GRID
+from tests.unit.test_simulated_confounding_msm import _fit_continuous
 from tests.unit.test_simulated_confounding_policies import (
     _GRID,
     _alias,
@@ -388,6 +390,18 @@ class TestALegacyModelLoads:
         replay = replay_module.validate_fixed_replay(old, alias, old.parameter_keys[alias])
         assert replay.msm.weights_kind == "known"
 
+    def test_a_uniform_weight_dose_fit_replays(self) -> None:
+        """The continuous twin: ``_freeze_msm`` declares the frozen dose weight known.
+
+        The model declares no weight, so only the replay can supply ``"known"``.  Every
+        other continuous replay declares its weight, which ``replace`` copies on its own.
+        """
+        result = uniform_dose_fit()
+        assert result.estimator.msm.weights is None
+        assert result.estimator.msm.weights_kind is None
+        dose_surface(result)
+        assert validate_replay(result, DOSE_SLOPE).msm.weights_kind == "known"
+
     def test_a_replay_that_drops_the_declaration_refuses(self, monkeypatch) -> None:
         """The deliberate-mutation control for the replay: drop what ``_freeze_msm`` passes."""
         result = _fit_msm(saturated=True)
@@ -432,6 +446,28 @@ def counted_msm_fit(field: str = "weights_kind") -> tuple[Any, Counter, Counter]
 def validate_replay(result: Any, coefficient: str = "treatment") -> Any:
     alias = _alias(result, coefficient=coefficient)
     return replay_module.validate_fixed_replay(result, alias, result.parameter_keys[alias])
+
+
+#: The dose slope: the coefficient of a continuous fit that the replay targets.
+DOSE_SLOPE = "a"
+
+
+def uniform_dose_fit() -> Any:
+    """A continuous ``MSM.linear`` fit with uniform weights, cached across both modules.
+
+    ``_freeze_msm`` builds a continuous replay with its own ``replace`` call.  Only an
+    undeclared weight or a legacy design makes that call supply a declaration, so
+    ``tests/unit/test_msm_design_declaration.py`` replays this fit too.
+    """
+    return _fit_continuous(uniform=True)
+
+
+def dose_surface(result: Any) -> Any:
+    """The simulated-confounding surface of the dose slope, with every cell replayed."""
+    alias = _alias(result, coefficient=DOSE_SLOPE)
+    surface = simulated_confounding(result, estimand=alias, grid=DOSE_GRID, random_state=31)
+    assert all(cell.failure is None for cell in surface.cells)
+    return surface
 
 
 class TestTheReplayChecksBeforeItEvaluates:
