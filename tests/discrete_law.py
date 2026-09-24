@@ -25,6 +25,7 @@ the unmodified nuisances.
 from __future__ import annotations
 
 import itertools
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -453,9 +454,31 @@ def gateaux(estimand: str, point: int, *, probs: Any = None, step: float = 1e-30
     return float(np.imag(functional(perturbed, estimand)) / step)
 
 
+def gateaux_eif(
+    functional: Callable[[Any], Any], probs: Any = None, *, step: float = 1e-30
+) -> np.ndarray:
+    """The Gateaux derivative of ``functional`` at every support point, in support order.
+
+    ``functional`` maps the ``(3, 2, 2)`` cell probabilities to a value or a vector, and
+    ``probs``, which defaults to :data:`PROBS`, is the law it is differentiated at.  This
+    is the contamination path and the complex step of :func:`gateaux`, applied to any
+    analytic functional: an estimand of :func:`functional`, a tilted estimand, or one a
+    test writes, such as a projection whose weight or design is frozen or moves with the
+    law.  The first axis of the result follows :data:`SUPPORT`.
+    """
+    base = (PROBS if probs is None else np.asarray(probs, dtype=float)).astype(complex)
+    rows = []
+    for cell in SUPPORT:
+        mass = np.zeros_like(base)
+        mass[cell] = 1.0
+        perturbed = (1.0 - 1j * step) * base + 1j * step * mass
+        rows.append(np.imag(functional(perturbed)) / step)
+    return np.array(rows)
+
+
 def eif(estimand: str, *, probs: Any = None) -> np.ndarray:
     """The EIF of ``estimand`` evaluated at every support point, in support order."""
-    return np.array([gateaux(estimand, point, probs=probs) for point in range(len(SUPPORT))])
+    return gateaux_eif(lambda p: functional(p, estimand), probs)
 
 
 #: ``P(A = 1 | W = w)`` and ``E[Y | A = a, W = w]`` as the *realised sample* has them.
@@ -554,5 +577,8 @@ def weighted_gateaux(estimand: str, point: int, weights: Any, *, step: float = 1
 
 
 def weighted_eif(estimand: str, weights: Any) -> np.ndarray:
-    """The EIF of ``Psi(P_w)`` at every support point, in support order."""
-    return np.array([weighted_gateaux(estimand, point, weights) for point in range(len(SUPPORT))])
+    """The EIF of ``Psi(P_w)`` at every support point, in support order.
+
+    The contamination is of :math:`P`, as in :func:`weighted_gateaux`.
+    """
+    return gateaux_eif(lambda p: weighted_functional(p, estimand, weights))
