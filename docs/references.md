@@ -1313,7 +1313,10 @@ is the only empirical witness for it.
   arXiv:2409.18782v1. Definition 1 fixes a user-given transformation and projection distribution.
   Section 1 says available MSM model-selection methods lack general post-selection inference.
   Its estimator and projection measure differ from those in `cleverly`; it does not validate a
-  design estimated on the analysis sample.
+  design estimated on the analysis sample. A [Biometrika successor](https://doi.org/10.1093/biomet/asag026)
+  appeared in 2026 under the title *Nonparametric efficient estimation of marginal structural
+  models with continuous time-varying treatments*. The locators above refer to arXiv v1; the
+  accessible journal abstract does not state a result for a design learned from the analysis sample.
 - Orellana, Rotnitzky & Robins (2010), *Dynamic regime marginal structural mean models for
   estimation of optimal dynamic treatment regimes*.
 - Hernán & Robins, [*Causal Inference: What If*](https://miguelhernan.org/whatifbook), Chapman &

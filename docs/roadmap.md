@@ -2955,7 +2955,7 @@ reported influence curve omits that pathwise derivative.
 
 The published MSM derivations cover a user-supplied working design.
 [Petersen et al. (2014)](https://doi.org/10.1515/jci-2013-0007), Section 3, derive the pooled
-longitudinal TMLE for that target. [Martin, Santacatterina and Díaz (2024)](https://arxiv.org/html/2409.18782v1),
+longitudinal TMLE for that target. [Martin, Santacatterina and Díaz (2024, arXiv v1)](https://arxiv.org/html/2409.18782v1),
 Definition 1, also use a user-given transformation. Their Section 1 says MSM model selection lacks
 general post-selection inference.
 
