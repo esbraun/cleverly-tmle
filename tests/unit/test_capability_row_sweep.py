@@ -39,8 +39,11 @@ def test_every_row_a_request_resolves_available_answers_it(kind: str) -> None:
     result = KINDS[kind].build()
     arguments = sweep_arguments(result)
     assert problems(result, arguments) == []
-    # The nonzero witness: the rows this kind must run did run.
-    assert KINDS[kind].must_run <= ran(result, arguments)
+    # The nonzero witness: the rows this kind must run did run, and no row it must
+    # not run answered.
+    answered = ran(result, arguments)
+    assert KINDS[kind].must_run <= answered
+    assert not KINDS[kind].must_not_run & answered
     if result.assessment_family == "point":
         # A fit passed the refit preflight, and a restored kind is one it refuses.
         assert replayability(result).refit_nuisances is KINDS[kind].refits

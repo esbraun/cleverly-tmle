@@ -2394,8 +2394,8 @@ missing-outcome contract. The docstring of `TMLE._resolve_arm_indexed_missing_co
 | 8 | `unequal_cluster_plugin` | the cross-fitted interval lacks validation at unequal cluster sizes or masses |
 | 9 | `few_cluster_plugin` | no read source supports the reference distribution |
 
-RM20 shipped orders 1, 2, 4, 8 and 9. [RM29](#rm29-saved-cross-fitted-clustered-longitudinal-results)
-added order 5, and [RM28](#rm28-declared-densities-of-user-written-interventions) added order 3.
+RM20 shipped orders 1, 2, 4, 8 and 9.
+[RM29](#rm29-saved-cross-fitted-clustered-longitudinal-results) added order 5, and [RM28](#rm28-declared-densities-of-user-written-interventions) added order 3.
 [RM31](#rm31-inference-status-of-a-saved-stratified-cross-fitted-result) added order 6, and
 [RM33](#rm33-inference-status-of-a-saved-unbounded-scale-cross-fitted-result) added order 7.
 `PRECEDENCE` in `tests/unit/test_inference_status_registry.py` pins `NON_INFERENTIAL` to this
@@ -2407,7 +2407,8 @@ TMLE and DR-TMLE, the two clustered statuses meet each other. C-TMLE refuses `id
 setting.
 
 On a restored result, order 3 can meet each clustered status, the saved split and the saved
-scale, orders 5 to 9, and it takes precedence. `test_the_undeclared_status_precedes_the_cluster_status`, in
+scale, orders 5 to 9, and it takes precedence.
+`test_the_undeclared_status_precedes_the_cluster_status`, in
 `tests/unit/test_rule_and_intervention_declarations.py` and
 `tests/unit/test_regimen_rule_declarations.py`, restores a real few-cluster fit and reads order 3.
 Order 3 cannot meet order 4, because `DRTMLE` refuses `interventions=` and `msm=`.
@@ -2422,8 +2423,9 @@ restores a stratified fit of 39 clusters and reads order 6. A restored `LTMLE` s
 On a restored result, order 7 can meet orders 3, 4, 6, 8 and 9. It cannot meet order 5, which only
 `LTMLE` takes, because the `LTMLE` path has no scale rule. Orders 3, 4 and 6 take precedence over
 it, and it takes precedence over the cluster statuses, orders 8 and 9.
-`test_a_saved_stratified_split_comes_first` and `test_the_status_comes_before_a_cluster_status`, in
-`tests/unit/test_saved_scale_status.py`, read order 6 and order 7 on restored fits.
+`test_a_saved_stratified_split_comes_first`, `test_an_undeclared_function_comes_first` and
+`test_the_status_comes_before_a_cluster_status`, in `tests/unit/test_saved_scale_status.py`, read
+orders 6, 3 and 7 on restored fits.
 
 Each status reads the estimator configuration and the prepared data alone. No status
 reads a fitted quantity, so the applicable status can be determined from the prepared data and
@@ -5100,13 +5102,22 @@ shipped.
 | status | `"undeclared_scale_plugin"` in `src/cleverly/_inference_status.py`, after `"stratified_fold_plugin"`. Its record names RM33, and its column label is `undeclared-scale plug-in se` |
 | rule | `TMLE._outcome_scale_refusal` in `src/cleverly/estimators/tmle.py` holds the predicate and the sentence. `_refuse_unbounded_cross_fitted_scale` raises the sentence. `TMLE._saved_scale_status` reads it as a status, and `TMLE._inference_status` resolves it seventh through `precedent_status`. `DRTMLE` reaches it through `super()` |
 | variable importance | `variable_importance` raises `_refuse_unbounded_cross_fitted_scale` on each candidate's prepared data before it asks the status. The sentence names the remedy `Targeting(q_bounds=(lower, upper))` |
-| tests | `tests/unit/test_saved_scale_status.py` holds 20 tests: the witnesses, the fold-level reports, the replay slots, two precedence witnesses, the controls, four monkeypatched mutations, and two variable-importance tests. `tests/unit/test_inference_status_registry.py` pins the new precedence. `tests/unit/_capability_sweep_support.py` shares the dose fit and its bounds with `tests/unit/test_saved_fold_policy_status.py` |
+| tests | `tests/unit/test_saved_scale_status.py` holds 21 tests: the witnesses, the fold-level reports, the replay slots, three precedence witnesses, the controls, four monkeypatched mutations, and two variable-importance tests. `tests/unit/test_inference_status_registry.py` pins the new precedence. `tests/unit/_capability_sweep_support.py` shares the dose fit and its bounds with both test files. It also holds the copied ATE fit and the 0.1.1 shape that the new file and the sweep use. The sweep kind `restored_unbounded_scale_ate` must answer the plug-in bound rows and must not answer the `evalue` row. `restored_stratified` and `restored_v011` must not answer it either |
 | reference | the inference, scope, CV-TMLE, longitudinal, assessment, and invariant pages |
 
 The witness loads the patched probe fit, restored with `"treatment"` and no `split_plan`. The
 legacy copy reads `ey_shift[+0.5]` 3.798198 with `ci` (3.3419, 4.2545). The restored result reads
 `undeclared_scale_plugin`, and `plugin_interval` keeps (3.3419, 4.2545). `ci`, `pvalue`, and
 `std_error` raise `CapabilityError` with the status reason.
+
+A 2026-09-25 probe loaded the v0.1.1 artifacts of the RM31 delivery at the implementation commit,
+by `pickle`.
+
+| artifact | result |
+| --- | --- |
+| cross-fitted continuous-dose `TMLE` | `undeclared_scale_plugin`. `ey_shift[+0.5]` keeps 3.798198, and `plugin_interval` keeps (3.3419, 4.2545). `ci` raises `CapabilityError` with the status reason. The refit raises the fold-policy sentence, as before |
+| default cross-fitted `TMLE` | `stratified_fold_plugin`, as before. RM31 comes first |
+| cross-fitted `LTMLE` | `stratified_fold_plugin`, as before |
 
 Five hand mutations checked the source with a hash-verified backup, and each backup was restored.
 
@@ -5130,7 +5141,7 @@ notes.
 
 | surface | change |
 | --- | --- |
-| a cross-fitted `TMLE` or `DRTMLE` result of a continuous outcome saved with `q_bounds=None` | loads under `"undeclared_scale_plugin"`. `ci`, `pvalue`, and `std_error` raise `CapabilityError`. The frame, the summary, the assessment note, and the E-value row follow the status |
+| a cross-fitted continuous-dose `TMLE` result of a continuous outcome saved with `q_bounds=None`, or a copied `TMLE` or `DRTMLE` estimator on that scale | loads under `"undeclared_scale_plugin"`. A saved cross-fitted discrete-treatment result reads `"stratified_fold_plugin"` first (RM31). `ci`, `pvalue`, and `std_error` raise `CapabilityError`. The frame, the summary, the assessment note, and the E-value row follow the status |
 | `InferenceStatus` | gains the member `"undeclared_scale_plugin"` |
 | `variable_importance` with a cross-fitted estimator of a continuous outcome and `q_bounds=None` | raises the outcome-scale refusal, which names the remedy, before any learner |
 

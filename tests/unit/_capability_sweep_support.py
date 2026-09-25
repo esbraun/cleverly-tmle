@@ -409,15 +409,20 @@ def ctmle_stratified() -> Any:
     return reconfigured(result, stratify_folds="treatment")
 
 
-def unbounded_scale_ate() -> Any:
-    """A cross-fitted binary-treatment ATE fit with declared bounds, restored without them.
+def unbounded_scale_ate(engine: type[TMLE] = TMLE, **settings: Any) -> Any:
+    """A cross-fitted binary-treatment fit with declared bounds, restored without them.
 
     No release saved this shape, because it cross-fitted a discrete treatment under
-    ``"none"``. A copied estimator can carry it. It reports ``ate``, so the replay slots
-    read it with that estimand.
+    ``"none"``. A copied estimator can carry it. ``engine`` is :class:`TMLE` or
+    :class:`DRTMLE`, and ``settings`` extend its linear learners. The fit reports ``ate``
+    among its estimands, so the replay slots read it with that estimand.
     """
     frame = _linear_frame()
-    estimator = TMLE(**linear_in_sample(cross_fit=True, n_folds=2, q_bounds=outcome_bounds(frame)))
+    bounds = outcome_bounds(frame)
+    if engine is DRTMLE:
+        estimator: TMLE = DRTMLE(**linear_drtmle(n_folds=2, q_bounds=bounds, **settings))
+    else:
+        estimator = TMLE(**linear_in_sample(cross_fit=True, n_folds=2, q_bounds=bounds, **settings))
     return reconfigured(estimator.fit(frame, outcome="Y", treatment="A").single(), q_bounds=None)
 
 
@@ -455,13 +460,22 @@ def restored_stratified() -> Any:
     return reconfigured(cross_fitted(), stratify_folds="treatment")
 
 
+def v011_artifact(result: Any) -> Any:
+    """``result`` in the shape of a 0.1.1 artifact: its default policy, and no ``split_plan``.
+
+    Release 0.1.1 wrote ``stratify_folds="treatment"`` on every estimator, and it wrote no
+    ``split_plan``. :func:`as_saved_by_v011` drops the plan alone.
+    """
+    return as_saved_by_v011(reconfigured(result, stratify_folds="treatment"))
+
+
 def restored_v011() -> Any:
     """The shape of the real 0.1.1 artifact: two stratified folds and no ``split_plan``.
 
     Release 0.1.1 accepted ``stratify_folds="treatment"`` and wrote no ``split_plan``, so
     this result needs the class default to be read at all, and then its refit is refused.
     """
-    return as_saved_by_v011(restored_stratified())
+    return v011_artifact(cross_fitted())
 
 
 # ----------------------------------------------------------------------- longitudinal
@@ -517,11 +531,16 @@ class Kind:
     refits : bool
         Whether ``refit()`` runs on the result's own data, so ``refit_nuisances`` reads
         true. Every fit in this version refits, and a restored kind is one it refuses.
+    must_not_run : frozenset of str
+        Rows whose operation must not answer. A restored kind whose status supplies no
+        inference names the E-value row here, so the sweep sees a status rule that stops
+        applying. ``must_run`` alone would pass when an extra row answers.
     """
 
     fit: Callable[[], Any]
     must_run: frozenset[str]
     refits: bool = True
+    must_not_run: frozenset[str] = frozenset()
 
     def build(self) -> Any:
         """A fresh copy of this kind's result, which shares the fit and nothing it reported.
@@ -535,8 +554,15 @@ class Kind:
         return dataclasses.replace(_fitted(self.fit))
 
 
-def _kind(fit: Callable[[], Any], *must_run: str, refits: bool = True) -> Kind:
-    return Kind(fit, frozenset(must_run), refits)
+def _kind(
+    fit: Callable[[], Any], *must_run: str, refits: bool = True, must_not_run: tuple[str, ...] = ()
+) -> Kind:
+    return Kind(fit, frozenset(must_run), refits, frozenset(must_not_run))
+
+
+#: The row a restored kind with a non-inferential status must not answer: the E-value
+#: reads the interval that the status withholds.
+_NO_INTERVAL = ("evalue",)
 
 
 #: The rows that read a fit's own nuisances and scores.
@@ -588,11 +614,32 @@ KINDS: dict[str, Kind] = {
     "natural_course_study": _kind(fit_natural_course_study, *_LIVE),
     # A saved stratified split reports no interval (RM31), so the E-value row does not answer.
     "restored_stratified": _kind(
-        restored_stratified, *_READ, "truncation_curve", *_PLUGIN_BOUND, refits=False
+        restored_stratified,
+        *_READ,
+        "truncation_curve",
+        *_PLUGIN_BOUND,
+        refits=False,
+        must_not_run=_NO_INTERVAL,
     ),
-    "restored_v011": _kind(restored_v011, *_READ, "truncation_curve", *_PLUGIN_BOUND, refits=False),
+    "restored_v011": _kind(
+        restored_v011,
+        *_READ,
+        "truncation_curve",
+        *_PLUGIN_BOUND,
+        refits=False,
+        must_not_run=_NO_INTERVAL,
+    ),
     # A saved undeclared scale reports no interval (RM33), and a shift fit answers no bound row.
     "restored_unbounded_scale": _kind(unbounded_scale, *_READ, "truncation_curve", refits=False),
+    # The same status on an ATE fit, whose plug-in bound rows answer and whose E-value does not.
+    "restored_unbounded_scale_ate": _kind(
+        unbounded_scale_ate,
+        *_READ,
+        "truncation_curve",
+        *_PLUGIN_BOUND,
+        refits=False,
+        must_not_run=_NO_INTERVAL,
+    ),
     "restored_ctmle_clustered": _kind(
         restored_ctmle_clustered, *_READ, "truncation_curve", refits=False
     ),
@@ -899,6 +946,7 @@ MUTATIONS: dict[str, Mutation] = {
                 "restored_stratified",
                 "restored_v011",
                 "restored_unbounded_scale",
+                "restored_unbounded_scale_ate",
                 "restored_ctmle_clustered",
             }
         ),

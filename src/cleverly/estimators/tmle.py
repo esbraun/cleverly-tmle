@@ -93,7 +93,12 @@ from typing import Any, cast, get_args
 import numpy as np
 
 from .._declarations import declaration_status
-from .._inference_status import InferenceStatus, precedent_status, supplies_inference
+from .._inference_status import (
+    HELD_OUT_SCALE,
+    InferenceStatus,
+    precedent_status,
+    supplies_inference,
+)
 from .._typing import (
     BoolArray,
     EstimandName,
@@ -289,6 +294,15 @@ _ARM_INDEXED_CONTRACT = (
 #: can run. One fold balances nothing, so the fold policy is not part of the remedy.
 _IN_SAMPLE_ARM_INDEXED_REMEDY = (
     "fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))"
+)
+
+#: The audit and the remedy that both outcome-scale refusals end with. A refusal names the
+#: remedy, and the status reason of a saved result does not, so the status shares only
+#: :data:`~cleverly._inference_status.HELD_OUT_SCALE`.
+_SCALE_AUDIT = "(docs/technical-reference/cv-tmle.md, fold and outcome-scale rules)"
+_SCALE_REMEDY = (
+    "(Targeting(q_bounds=(lower, upper))). Without a known finite support, "
+    + _IN_SAMPLE_ARM_INDEXED_REMEDY
 )
 
 #: The first clause of the refusal of every other cross-fitted missing-outcome target.
@@ -1703,12 +1717,10 @@ class TMLE:
         return (
             f"a cross-fitted fit of a continuous outcome ({data.outcome_name}, "
             f"family={data.family!r}) needs a declared q_bounds. With q_bounds=None the "
-            "outcome scale is taken from every observed outcome, held-out rows included, "
+            f"outcome scale is taken {HELD_OUT_SCALE}, "
             "so each fold's nuisance is fitted on a scale the rows it predicts helped set, "
-            "and no shipped result covers that scale "
-            "(docs/technical-reference/cv-tmle.md, fold and outcome-scale rules). Declare the "
-            "known outcome support (Targeting(q_bounds=(lower, upper))). Without a known "
-            f"finite support, {_IN_SAMPLE_ARM_INDEXED_REMEDY}"
+            f"and no shipped result covers that scale {_SCALE_AUDIT}. Declare the "
+            f"known outcome support {_SCALE_REMEDY}"
         )
 
     def _refuse_unbounded_cross_fitted_scale(self, data: CausalData) -> None:
@@ -1803,12 +1815,9 @@ class TMLE:
             )
         if data.family != "binomial" and self.q_bounds is None:
             refuse(
-                "a continuous outcome with q_bounds=None takes its scale from every observed "
-                "outcome, held-out rows included, and no reviewed result covers that scale "
-                "(docs/technical-reference/cv-tmle.md, fold and outcome-scale "
-                "rules). Declare q_bounds equal to the known outcome support "
-                "(Targeting(q_bounds=(lower, upper))). Without a known finite support, "
-                f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}"
+                f"a continuous outcome with q_bounds=None takes its scale {HELD_OUT_SCALE}, "
+                f"and no reviewed result covers that scale {_SCALE_AUDIT}. Declare q_bounds "
+                f"equal to the known outcome support {_SCALE_REMEDY}"
             )
         if self.split_plan is not None:
             refuse(

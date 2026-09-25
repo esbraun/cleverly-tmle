@@ -30,16 +30,18 @@ from cleverly.datasets import make_clustered, make_linear_ate
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError
 from cleverly.inference.cluster import cluster_inference_status
+from cleverly.interventions import Rule, Static
 from cleverly.targets.base import parameter_stem
-from tests.conftest import linear_drtmle, linear_in_sample
+from tests.conftest import linear_in_sample
 from tests.unit._capability_sweep_support import (
-    as_saved_by_v011,
     dose_frame,
     fit_shift,
     outcome_bounds,
     reconfigured,
+    unbounded_scale_ate,
+    v011_artifact,
 )
-from tests.unit._declaration_support import assert_replay_agrees
+from tests.unit._declaration_support import assert_replay_agrees, legacy_result
 from tests.unit._inference_status_support import (
     ROUTES,
     assert_assessment_note,
@@ -53,6 +55,7 @@ from tests.unit._inference_status_support import (
     restore,
 )
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
+from tests.unit._policy_declaration_support import FixedThreshold
 
 pytestmark = pytest.mark.xdist_group("saved_scale_status")
 
@@ -77,51 +80,51 @@ def the_old_entry_rule() -> Iterator[None]:
         yield
 
 
-def saved_by_v011(result: Any) -> Any:
-    """``result`` as release 0.1.1 saved it: the default policy, and no ``split_plan``."""
-    return as_saved_by_v011(reconfigured(result, stratify_folds="treatment"))
-
-
-def copied_ate(engine: type[TMLE], **settings: Any) -> Any:
-    """A cross-fitted ATE fit with a declared scale, restored with ``q_bounds=None``.
-
-    The copied-estimator shape: a discrete treatment under ``"none"``, which no release
-    saved. ``make_linear_ate(400, 2)`` has a continuous outcome.
-    """
-    frame, _ = make_linear_ate(n=400, seed=2)
-    bounds = outcome_bounds(frame)
-    if engine is DRTMLE:
-        estimator: TMLE = DRTMLE(**linear_drtmle(n_folds=2, q_bounds=bounds, **settings))
-    else:
-        estimator = TMLE(**linear_in_sample(cross_fit=True, n_folds=2, q_bounds=bounds, **settings))
-    result = estimator.fit(frame, outcome="Y", treatment="A").single()
-    return reconfigured(result, q_bounds=None)
-
-
 @pytest.fixture(scope="module")
 def saved_dose() -> Any:
     """The roadmap probe: a cross-fitted dose of a continuous outcome with ``q_bounds=None``."""
     with the_old_entry_rule():
         result = fit_shift(cross_fit=True, n_folds=2)
-    return saved_by_v011(result)
+    return v011_artifact(result)
 
 
 @pytest.fixture(scope="module")
 def copied_drtmle() -> Any:
     """A copied ``DRTMLE`` estimator, which reaches the rule through ``super()``."""
-    return copied_ate(DRTMLE, estimands=("ate",))
+    return unbounded_scale_ate(DRTMLE, estimands=("ate",))
 
 
 @pytest.fixture(scope="module")
 def fold_evaluated() -> Any:
     """A copied ``TMLE`` ATE fit with ``cv_evaluation=True``, which adds two fold reports."""
-    return copied_ate(TMLE, estimands=("ate",), cv_evaluation=True)
+    return unbounded_scale_ate(TMLE, estimands=("ate",), cv_evaluation=True)
 
 
 @pytest.fixture(scope="module")
 def saved_discrete() -> Any:
     """A cross-fitted discrete-treatment fit on the undeclared scale, as release 0.1.1 saved it."""
-    return reconfigured(copied_ate(TMLE, estimands=("ate",)), stratify_folds="treatment")
+    return reconfigured(unbounded_scale_ate(TMLE, estimands=("ate",)), stratify_folds="treatment")
+
+
+@pytest.fixture(scope="module")
+def undeclared_rule() -> Any:
+    """A copied rule fit on the undeclared scale, restored as an artifact without ``rule_kind``.
+
+    The rule reads ``W1`` of ``make_linear_ate(400, 2)``, whose outcome is continuous. An
+    artifact written before RM28 has no ``rule_kind``, so it takes the RM28 status.
+    """
+    frame, _ = make_linear_ate(n=400, seed=2)
+    regimes = (Static(0, name="never"), Rule(FixedThreshold(column="W1"), "thr", rule_kind="known"))
+    estimator = TMLE(
+        interventions=regimes,
+        **linear_in_sample(cross_fit=True, n_folds=2, q_bounds=outcome_bounds(frame)),
+    )
+    result = reconfigured(estimator.fit(frame, outcome="Y", treatment="A").single(), q_bounds=None)
+    return legacy_result(
+        result,
+        "rule_kind",
+        lambda old: [item for item in old.estimator.interventions if isinstance(item, Rule)],
+    )
 
 
 @pytest.fixture(scope="module")
@@ -141,7 +144,7 @@ def few_clustered() -> Any:
 def declared() -> Any:
     """The probe dose with a declared ``q_bounds``, a fit that this version runs."""
     frame = dose_frame()
-    return saved_by_v011(
+    return v011_artifact(
         fit_shift(frame, cross_fit=True, n_folds=2, q_bounds=outcome_bounds(frame))
     )
 
@@ -149,7 +152,7 @@ def declared() -> Any:
 @pytest.fixture(scope="module")
 def in_sample_dose() -> Any:
     """The probe dose fitted in sample, with ``q_bounds=None``. It draws no split."""
-    return saved_by_v011(fit_shift())
+    return v011_artifact(fit_shift())
 
 
 @pytest.fixture(scope="module")
@@ -157,7 +160,7 @@ def binary_dose() -> Any:
     """The probe dose of a binary outcome, cross-fitted with ``q_bounds=None``."""
     frame = dose_frame()
     frame = frame.assign(Y=(frame["Y"] > frame["Y"].median()).astype(int))
-    result = saved_by_v011(fit_shift(frame, cross_fit=True, n_folds=2))
+    result = v011_artifact(fit_shift(frame, cross_fit=True, n_folds=2))
     assert result.data.family == "binomial"
     return result
 
@@ -211,13 +214,18 @@ class TestASavedUndeclaredScaleResult:
 
 
 class TestThePrecedence:
-    """RM33 is order 7: after the saved stratified split, before the cluster statuses."""
+    """RM33 is order 7: after the declaration and the saved split, before the clusters."""
 
     def test_a_saved_stratified_split_comes_first(self, saved_discrete: Any) -> None:
         # The nonzero witness: the same estimator meets the scale rule on its own.
         assert saved_discrete.estimator._saved_scale_status(saved_discrete.data) == STATUS
         restored = assert_restamped(saved_discrete, "stratified_fold_plugin", "pickle")
         assert_withholds(restored, "stratified_fold_plugin")
+
+    def test_an_undeclared_function_comes_first(self, undeclared_rule: Any) -> None:
+        # The nonzero witness: the same estimator meets the scale rule on its own.
+        assert undeclared_rule.estimator._saved_scale_status(undeclared_rule.data) == STATUS
+        assert_withholds(undeclared_rule, "undeclared_function_plugin")
 
     @pytest.mark.parametrize("route", ROUTES)
     def test_the_status_comes_before_a_cluster_status(self, few_clustered: Any, route: str) -> None:

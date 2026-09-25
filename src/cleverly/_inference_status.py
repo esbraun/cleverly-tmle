@@ -20,6 +20,7 @@ from typing import Final, Literal, cast
 
 __all__ = [
     "FEW_CLUSTER_THRESHOLD",
+    "HELD_OUT_SCALE",
     "NON_INFERENTIAL",
     "NO_SIMULTANEOUS_BANDS",
     "InferenceStatus",
@@ -59,6 +60,11 @@ InferenceStatus = Literal[
 # interval below this count; roadmap row RM20 records the decision and F22 the reopen route.
 #: The cluster count below which a clustered fit reports no interval (RM20).
 FEW_CLUSTER_THRESHOLD: Final[int] = 40
+
+#: Where ``q_bounds=None`` takes the scale of a continuous outcome from. The status
+#: reason of ``"undeclared_scale_plugin"`` and both outcome-scale refusals of
+#: :class:`~cleverly.TMLE` say it, so the three name one fact in one wording.
+HELD_OUT_SCALE: Final[str] = "from every observed outcome, held-out rows included"
 
 #: The line a result summary prints when a fit that supplies no inference builds no
 #: simultaneous band. ``TMLEResult.summary`` and ``LongitudinalResult.summary`` both
@@ -286,8 +292,8 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             reason=(
                 "A saved cross-fitted fit of a continuous outcome with q_bounds=None "
                 "reports no confidence interval, no p-value and no standard error. "
-                "Releases 0.1.0 and 0.1.1 took that outcome scale from every observed "
-                "outcome, held-out rows included, and new fits refuse it. No shipped "
+                f"Releases 0.1.0 and 0.1.1 took that outcome scale {HELD_OUT_SCALE}, "
+                "and new fits refuse it. No shipped "
                 "result covers an outcome scale that the held-out rows set. The saved "
                 "point estimate stands. The plug-in standard error of the reported curve "
                 "remains as a diagnostic under plugin_std_error and plugin_interval. RM33 "
