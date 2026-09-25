@@ -83,9 +83,9 @@ RM31 is delivered, and its detail section records what shipped.
 fit with missing outcomes, which raises `ValueError`. Three more findings extend RM16.
 
 The plan for RM31 found one more saved-result surface.
-[RM33](#rm33-inference-status-of-a-saved-unbounded-scale-cross-fitted-result) holds a
+[RM33](#rm33-inference-status-of-a-saved-unbounded-scale-cross-fitted-result) held a
 cross-fitted continuous-dose result that release 0.1.0 or 0.1.1 saved on an outcome scale that its
-held-out rows set.
+held-out rows set. RM33 is delivered, and its detail section records what shipped.
 
 The review of the RM31 delivery found a saved-result surface that no restamp can reach.
 [RM34](#rm34-inference-status-of-a-saved-estimate-outside-its-result) holds a
@@ -94,7 +94,6 @@ rows that remain.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.02 | Inference status of a saved unbounded-scale cross-fitted result | decide the status that a saved result takes when this version refuses the outcome scale that produced its interval, as RM31 did for the fold policy | a cross-fitted continuous-dose result of a continuous outcome that release 0.1.0 or 0.1.1 saved with its default `q_bounds=None` loads under `influence_curve`, and its interval stands. Its split read no treatment, so RM31 does not reach it | [RM33](#rm33-inference-status-of-a-saved-unbounded-scale-cross-fitted-result) |
 | 0.03 | Inference status of a saved estimate outside its result | decide the status that an estimate takes when it loads without the result that re-stamps it | a `ParameterEstimate` that release 0.1.0 or 0.1.1 pickled apart from its result has no `inference` field, and it loads under `influence_curve` with its interval. The result re-stamps its own estimates only | [RM34](#rm34-inference-status-of-a-saved-estimate-outside-its-result) |
 | 0.32 | Intervention refusals at identification | refuse mixed intervention kinds in `CausalStudy.identify`, and name the typed estimands in each message. Refuse a zero-dimensional regimen plan by name | a mixed request passes identification and then fails at estimation, once with an `AttributeError` | [RM14](#rm14-intervention-refusals-at-identification) |
 | 0.33 | Continuous-dose MSM fit with missing outcomes | refuse the composition by name before any learner, as `CapabilityError` | an in-sample continuous-dose MSM fit with `delta=` raises `ValueError` from the nuisance fit, after two learner fits | [RM32](#rm32-continuous-dose-msm-fit-with-missing-outcomes) |
@@ -111,7 +110,7 @@ A row that another row depends on comes before that row.
 
 | tier | reason | rows |
 | --- | --- | --- |
-| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM33, RM34. RM20, RM13, RM21, RM22 and RM31 held it earlier, and all five are delivered |
+| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM34. RM20, RM13, RM21, RM22, RM31 and RM33 held it earlier, and all six are delivered |
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM14, RM32. RM23 held it earlier, and it is delivered |
 | c | a correct refusal that arrives late or as the wrong type | RM24 |
 | d | a diagnostic or a warning that misleads | RM15 |
@@ -125,8 +124,7 @@ tier.
 
 | row | reason for its place |
 | --- | --- |
-| RM33 | a cross-fitted continuous-dose result of a continuous outcome publishes an interval that no shipped result covers. Those releases stratified every other cross-fitted split, so RM33 reaches fewer results than RM31 did |
-| RM34 | an estimate that a caller saved apart from its result publishes an interval that no shipped result covers. Only a caller who pickles an estimate alone meets it, so it comes after RM33 |
+| RM34 | an estimate that a caller saved apart from its result publishes an interval that no shipped result covers. Only a caller who pickles an estimate alone meets it, so it came after RM33 |
 | RM14 | one mixed request raises an `AttributeError`. It also has a late refusal of tier c, so it takes the higher tier |
 | RM32 | one composition raises a `ValueError` that is not a refusal, after two learner fits. RM14 reaches every mixed intervention request, so RM14 comes first |
 | RM24 | four refusals arrive after 2 to 20 learner fits, and three of them have the wrong type |
@@ -136,18 +134,18 @@ tier.
 | RM19 | one configuration, which RM18 opened. Its Bonferroni interval covers zero, and it moves no verdict |
 | RM30 | a published learned-policy method can resolve the current refusal, but requires a distinct target, fold-local evaluation, and inference validation |
 
-No open row waits on another open row. RM13, RM20 to RM23, RM25 to RM29, and RM31 are
-delivered. The RM14, RM24 and RM32 requests produce no fit, and RM33 and RM34 read an artifact
-that an earlier release saved.
+No open row waits on another open row. RM13, RM20 to RM23, RM25 to RM29, RM31 and RM33 are
+delivered. The RM14, RM24 and RM32 requests produce no fit, and RM34 reads an artifact that an
+earlier release saved.
 
 Main-roadmap X9 depended on RM22, which checked the locators X9 cites. RM22 is delivered.
 
-Use five delivery groups for these ten rows and the two investigations that RM18 waits on.
+Use five delivery groups for these nine rows and the two investigations that RM18 waits on.
 Keep each item's acceptance criteria separate inside its group.
 
 | delivery group | items | shared boundary |
 | --- | --- | --- |
-| saved-result inference | RM33 and RM34 | the status that a saved artifact takes when this version refuses the configuration that produced its interval, or cannot read that configuration |
+| saved-result inference | RM34 | the status that a saved artifact takes when this version refuses the configuration that produced its interval, or cannot read that configuration |
 | refusal surfaces | RM14, RM32 and RM24 | a refusal reaches the caller where its declaration says, before the work that it refuses |
 | diagnostic reports | RM15 and RM16 | one assessment and summary surface, with one documentation pass |
 | red property cells | RM18 and RM19, and the F18 and F19 derivations that RM18 waits on | the recorded rule that a red cell is reporting evidence, designs declared before their runs that move no verdict, and two exact derivations that would close the inferential gaps |
@@ -179,7 +177,7 @@ Priorities give the current delivery order. This project reassigns them when it 
 queue. The RM IDs and their anchors never change, so a commit names a row by its ID. A delivered
 row takes its priority with it, and the other rows keep theirs. RM20, RM13, RM25, RM26 and RM27
 held 0.11 to 0.15, in that order. RM28 held 0.16, RM29 held 0.17, RM21 held 0.21, RM22 held
-0.22, RM23 held 0.31, and RM31 held 0.01.
+0.22, RM23 held 0.31, RM31 held 0.01, and RM33 held 0.02.
 
 The delivery of RM23 added the saved-result inference group, and RM31 was its only row. The group
 is in tier a, so it comes before every other group. Its first decimal digit is 0. The digits 1
@@ -188,14 +186,14 @@ them.
 
 The plan for RM31 placed the tier-a row RM33 in the same group at 0.02, after RM31. RM31 is
 delivered. The review of the RM31 delivery placed the tier-a row RM34 in the same group at
-0.03, after RM33.
+0.03, after RM33. RM33 is delivered, and RM34 is now the only row of the group.
 
 The delivery of RM23 also re-triaged the refusal-surfaces group, which is the mechanism that
 the rule above names. It placed the tier-b row RM32 at 0.33 and moved RM24 from 0.33 to 0.34, so
 that RM32 comes before RM24.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
-The queue holds ten rows. Seven rows need their corrections: RM14 to RM16, RM24, and RM32 to
+The queue holds nine rows. Six rows need their corrections: RM14 to RM16, RM24, RM32 and
 RM34.
 RM18 has five follow-up designs that are not declared and have not run. RM19 has no declared design. RM30 holds the published learned-policy implementation.
 
@@ -2392,12 +2390,14 @@ missing-outcome contract. The docstring of `TMLE._resolve_arm_indexed_missing_co
 | 4 | `estimated_weight_plugin` | the same premise as order 1 |
 | 5 | `cross_fitted_longitudinal_plugin` | no read source covers the cluster-robust variance of the sequential recursion under grouped folds |
 | 6 | `stratified_fold_plugin` | no shipped result covers a saved split that read the treatment |
-| 7 | `unequal_cluster_plugin` | the cross-fitted interval lacks validation at unequal cluster sizes or masses |
-| 8 | `few_cluster_plugin` | no read source supports the reference distribution |
+| 7 | `undeclared_scale_plugin` | no shipped result covers an outcome scale that the held-out rows set |
+| 8 | `unequal_cluster_plugin` | the cross-fitted interval lacks validation at unequal cluster sizes or masses |
+| 9 | `few_cluster_plugin` | no read source supports the reference distribution |
 
-RM20 shipped orders 1, 2, 4, 7 and 8. [RM29](#rm29-saved-cross-fitted-clustered-longitudinal-results)
+RM20 shipped orders 1, 2, 4, 8 and 9. [RM29](#rm29-saved-cross-fitted-clustered-longitudinal-results)
 added order 5, and [RM28](#rm28-declared-densities-of-user-written-interventions) added order 3.
-[RM31](#rm31-inference-status-of-a-saved-stratified-cross-fitted-result) added order 6.
+[RM31](#rm31-inference-status-of-a-saved-stratified-cross-fitted-result) added order 6, and
+[RM33](#rm33-inference-status-of-a-saved-unbounded-scale-cross-fitted-result) added order 7.
 `PRECEDENCE` in `tests/unit/test_inference_status_registry.py` pins `NON_INFERENTIAL` to this
 order.
 
@@ -2406,17 +2406,24 @@ meets each clustered status. On
 TMLE and DR-TMLE, the two clustered statuses meet each other. C-TMLE refuses `id=` at every
 setting.
 
-On a restored result, order 3 can meet each clustered status and the saved split, orders 5 to 8,
-and it takes precedence. `test_the_undeclared_status_precedes_the_cluster_status`, in
+On a restored result, order 3 can meet each clustered status, the saved split and the saved
+scale, orders 5 to 9, and it takes precedence. `test_the_undeclared_status_precedes_the_cluster_status`, in
 `tests/unit/test_rule_and_intervention_declarations.py` and
 `tests/unit/test_regimen_rule_declarations.py`, restores a real few-cluster fit and reads order 3.
 Order 3 cannot meet order 4, because `DRTMLE` refuses `interventions=` and `msm=`.
 
-On a restored result, order 6 can meet orders 3, 4, 5, 7 and 8. Orders 3, 4 and 5 take
-precedence over it, and it takes precedence over the cluster statuses, orders 7 and 8.
+On a restored result, order 6 can meet orders 3, 4, 5, 7, 8 and 9. Orders 3, 4 and 5 take
+precedence over it, and it takes precedence over the saved scale and the cluster statuses, orders
+7 to 9.
 `test_the_status_comes_before_a_cluster_status`, in `tests/unit/test_saved_fold_policy_status.py`,
 restores a stratified fit of 39 clusters and reads order 6. A restored `LTMLE` split with
 `id=` meets order 5, which comes first.
+
+On a restored result, order 7 can meet orders 3, 4, 6, 8 and 9. It cannot meet order 5, which only
+`LTMLE` takes, because the `LTMLE` path has no scale rule. Orders 3, 4 and 6 take precedence over
+it, and it takes precedence over the cluster statuses, orders 8 and 9.
+`test_a_saved_stratified_split_comes_first` and `test_the_status_comes_before_a_cluster_status`, in
+`tests/unit/test_saved_scale_status.py`, read order 6 and order 7 on restored fits.
 
 Each status reads the estimator configuration and the prepared data alone. No status
 reads a fitted quantity, so the applicable status can be determined from the prepared data and
@@ -4906,7 +4913,8 @@ The new file `tests/unit/test_saved_fold_policy_status.py` holds the checks in t
 | sweep | the kinds `restored_stratified` and `restored_v011` stop answering the `evalue` row, which needs inference. Their other rows still answer |
 
 The plan found one surface that this decision does not reach.
-[RM33](#rm33-inference-status-of-a-saved-unbounded-scale-cross-fitted-result) holds it.
+[RM33](#rm33-inference-status-of-a-saved-unbounded-scale-cross-fitted-result) held it, and it
+is delivered.
 
 #### RM31 delivery
 
@@ -4931,7 +4939,7 @@ implementation commit. The review added a fourth v0.1.1 artifact, a variable-imp
 | --- | --- |
 | default cross-fitted `TMLE`, by `pickle` and by `cleverly.load` | `stratified_fold_plugin`. `ate` keeps 0.219215, and `plugin_interval` keeps (0.1581, 0.2804). `ci`, `pvalue`, and `std_error` raise `CapabilityError` with the status reason. `replayability()` is unchanged, and `truncation_curve()` runs |
 | cross-fitted `LTMLE`, by `pickle` | `stratified_fold_plugin`. `ate_regimen[always vs never]` keeps 0.485831. The bands are dropped. `summary()` prints the status paragraph and no 95% CI table |
-| cross-fitted continuous-dose `TMLE` | `influence_curve`, with `ci` (3.3419, 4.2545). RM33 holds it |
+| cross-fitted continuous-dose `TMLE` | `influence_curve`, with `ci` (3.3419, 4.2545). RM33 held it, and it is delivered |
 | a `variable_importance` run of the discrete law, with candidate `A`, by `pickle` | release 0.1.1 published `p_value_adjusted` 2.12e-12 with its default policy. At the review fixes, the fit and the entry read `stratified_fold_plugin`, and `psi` keeps 0.219215. `adjusted_pvalue` reads `None`, and `to_frame()` emits `inference` and the diagnostic columns with no p-value |
 
 Two hand mutations checked the source with a hash-verified backup, and each backup was restored.
@@ -5080,7 +5088,51 @@ The new file `tests/unit/test_saved_scale_status.py` holds the checks in the tab
 | precedence | a saved discrete-treatment fit reads `"stratified_fold_plugin"`. A fit of 39 clusters reads the new status over `"few_cluster_plugin"` |
 | mutations | skipping the decision fails the witness. A predicate without the cross-fitting condition fails the in-sample control. One without the family condition fails the binary-outcome control. One without the declaration condition fails the declared-scale control |
 | controls | a result with a declared `q_bounds`, an in-sample result, and a binary-outcome result keep their intervals |
-| sweep | the kind `restored_unbounded_scale` becomes the dose, and it stops answering the `evalue` row. The replay kind `unbounded scale` keeps its binary-treatment ATE fit |
+| sweep | the kind `restored_unbounded_scale` becomes the dose. A shift fit answers no bound row, so the kind no longer lists one. The replay kind `unbounded scale` keeps its binary-treatment ATE fit |
+
+#### RM33 delivery
+
+The implementation commit shipped the plan without a change of decision. The table gives what it
+shipped.
+
+| part | what shipped |
+| --- | --- |
+| status | `"undeclared_scale_plugin"` in `src/cleverly/_inference_status.py`, after `"stratified_fold_plugin"`. Its record names RM33, and its column label is `undeclared-scale plug-in se` |
+| rule | `TMLE._outcome_scale_refusal` in `src/cleverly/estimators/tmle.py` holds the predicate and the sentence. `_refuse_unbounded_cross_fitted_scale` raises the sentence. `TMLE._saved_scale_status` reads it as a status, and `TMLE._inference_status` resolves it seventh through `precedent_status`. `DRTMLE` reaches it through `super()` |
+| variable importance | `variable_importance` raises `_refuse_unbounded_cross_fitted_scale` on each candidate's prepared data before it asks the status. The sentence names the remedy `Targeting(q_bounds=(lower, upper))` |
+| tests | `tests/unit/test_saved_scale_status.py` holds 20 tests: the witnesses, the fold-level reports, the replay slots, two precedence witnesses, the controls, four monkeypatched mutations, and two variable-importance tests. `tests/unit/test_inference_status_registry.py` pins the new precedence. `tests/unit/_capability_sweep_support.py` shares the dose fit and its bounds with `tests/unit/test_saved_fold_policy_status.py` |
+| reference | the inference, scope, CV-TMLE, longitudinal, assessment, and invariant pages |
+
+The witness loads the patched probe fit, restored with `"treatment"` and no `split_plan`. The
+legacy copy reads `ey_shift[+0.5]` 3.798198 with `ci` (3.3419, 4.2545). The restored result reads
+`undeclared_scale_plugin`, and `plugin_interval` keeps (3.3419, 4.2545). `ci`, `pvalue`, and
+`std_error` raise `CapabilityError` with the status reason.
+
+Five hand mutations checked the source with a hash-verified backup, and each backup was restored.
+
+| mutation | what fails |
+| --- | --- |
+| `_saved_scale_status` removed from `TMLE._inference_status` | 13 tests, among them both routes of the witness, the copied `DRTMLE` estimator, the fold-level reports, and the cluster precedence |
+| the cross-fitting condition dropped from `_outcome_scale_refusal` | the in-sample control. Its live fit now meets the refusal |
+| the family condition dropped | the binary-outcome control. Its live fit now meets the refusal |
+| the declaration condition dropped | the declared-scale control and every fixture with a declared scale. Their live fits now meet the refusal |
+| the scale check removed from `variable_importance` | the variable-importance test, which then reads the status reason with no remedy |
+
+The three predicate mutations also move the fit-time refusal, because the two share one predicate.
+The monkeypatched mutations in the test file move the status alone, and each fails its control.
+
+No registered study moves. No live fit reaches the status, because `_resolve_estimands_for_data`
+refuses the scale first. No study overrides that method or the refusal, and no study restores a
+result.
+
+The repository keeps no changelog. The pull request states these direct changes for the release
+notes.
+
+| surface | change |
+| --- | --- |
+| a cross-fitted `TMLE` or `DRTMLE` result of a continuous outcome saved with `q_bounds=None` | loads under `"undeclared_scale_plugin"`. `ci`, `pvalue`, and `std_error` raise `CapabilityError`. The frame, the summary, the assessment note, and the E-value row follow the status |
+| `InferenceStatus` | gains the member `"undeclared_scale_plugin"` |
+| `variable_importance` with a cross-fitted estimator of a continuous outcome and `q_bounds=None` | raises the outcome-scale refusal, which names the remedy, before any learner |
 
 ### RM34. Inference status of a saved estimate outside its result
 

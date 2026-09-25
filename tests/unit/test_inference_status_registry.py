@@ -35,11 +35,13 @@ ROADMAP = ROOT / "docs" / "roadmap.md"
 
 #: The precedence order, written out. A fit that meets more than one status takes the
 #: first one here. The order is the one the roadmap's RM20 precedence table gives, with
-#: the orders that RM28, RM29 and RM31 added to it. RM28 puts its status third: every fit
-#: runs the declaration refusals before any refusal of the data or the design, and the two
-#: collaborative statuses never meet it. RM31 puts the saved stratified split sixth, after
-#: the saved grouped design of RM29: both are designs that this version refuses, and each
-#: comes before a cluster status of a design that it runs.
+#: the orders that RM28, RM29, RM31 and RM33 added to it. RM28 puts its status third: every
+#: fit runs the declaration refusals before any refusal of the data or the design, and the
+#: two collaborative statuses never meet it. RM31 puts the saved stratified split sixth,
+#: after the saved grouped design of RM29: both are designs that this version refuses, and
+#: each comes before a cluster status of a design that it runs. RM33 puts the saved
+#: undeclared scale seventh, after RM31, because a fit refuses the fold policy before the
+#: outcome scale, and before the cluster statuses for the same reason as RM31.
 PRECEDENCE = (
     "working_mechanism_plugin",
     "generated_design_plugin",
@@ -47,6 +49,7 @@ PRECEDENCE = (
     "estimated_weight_plugin",
     "cross_fitted_longitudinal_plugin",
     "stratified_fold_plugin",
+    "undeclared_scale_plugin",
     "unequal_cluster_plugin",
     "few_cluster_plugin",
 )

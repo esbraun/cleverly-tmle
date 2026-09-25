@@ -41,6 +41,7 @@ InferenceStatus = Literal[
     "estimated_weight_plugin",
     "cross_fitted_longitudinal_plugin",
     "stratified_fold_plugin",
+    "undeclared_scale_plugin",
     "unequal_cluster_plugin",
     "few_cluster_plugin",
 ]
@@ -280,6 +281,33 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             diagnostic_noun="stratified-fold plug-in diagnostic",
             reopened_by="RM31",
+        ),
+        "undeclared_scale_plugin": StatusRecord(
+            reason=(
+                "A saved cross-fitted fit of a continuous outcome with q_bounds=None "
+                "reports no confidence interval, no p-value and no standard error. "
+                "Releases 0.1.0 and 0.1.1 took that outcome scale from every observed "
+                "outcome, held-out rows included, and new fits refuse it. No shipped "
+                "result covers an outcome scale that the held-out rows set. The saved "
+                "point estimate stands. The plug-in standard error of the reported curve "
+                "remains as a diagnostic under plugin_std_error and plugin_interval. RM33 "
+                "in docs/roadmap.md records the rule. A new cross-fitted fit that declares "
+                "q_bounds, or an in-sample fit, reports an interval only when its other "
+                "inference conditions permit one."
+            ),
+            assessment_note=(
+                "the reported curve is an undeclared-scale diagnostic: no confidence "
+                "interval or p-value is available for this saved fit, RM33 in the roadmap "
+                "records the rule; a new fit that declares q_bounds, or fits in sample, "
+                "reports an interval only when its other inference conditions permit one"
+            ),
+            summary_label="undeclared-scale plug-in se",
+            bootstrap_note=(
+                "a diagnostic; no result validates bootstrap coverage for a saved "
+                "cross-fitted fit whose outcome scale the held-out rows set"
+            ),
+            diagnostic_noun="undeclared-scale plug-in diagnostic",
+            reopened_by="RM33",
         ),
         "unequal_cluster_plugin": StatusRecord(
             reason=(

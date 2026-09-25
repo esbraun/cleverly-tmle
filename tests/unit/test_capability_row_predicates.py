@@ -98,7 +98,7 @@ from tests.unit._capability_sweep_support import (
     reconfigured,
     restored_ctmle_clustered,
     restored_stratified,
-    unbounded_scale,
+    unbounded_scale_ate,
     without_provenance,
 )
 from tests.unit._confounding_support import confounding_study
@@ -1965,7 +1965,7 @@ REPLAY_KINDS: dict[str, tuple[Callable[[], Any], bool]] = {
     "plan without provenance": (without_provenance, False),
     "ctmle greedy stratified": (ctmle_stratified, False),
     "ctmle oat clustered": (restored_ctmle_clustered, False),
-    "unbounded scale": (unbounded_scale, False),
+    "unbounded scale": (unbounded_scale_ate, False),
     "v0.1.1 cross-fitted": (lambda: as_saved_by_v011(cross_fitted()), True),
     "v0.1.1 in sample": (lambda: as_saved_by_v011(discrete_fit()), True),
     "declared cross-fitted": (lambda: loads(dumps(cross_fitted())), True),

@@ -85,6 +85,8 @@ An older saved cross-fitted clustered `LTMLE` result also reports no interval af
 Its `"cross_fitted_longitudinal_plugin"` status names the design that current fits refuse. A
 cross-fitted result that release 0.1.0 or 0.1.1 saved under its default stratified folds reports
 none either. Its `"stratified_fold_plugin"` status names the fold policy that current fits refuse.
+A saved cross-fitted result of a continuous outcome with `q_bounds=None` reports none too. Its
+`"undeclared_scale_plugin"` status names the outcome scale that current fits refuse.
 
 Read `point.plugin_std_error` and `point.plugin_interval` on such a fit. Each is a diagnostic of
 the reported curve, and neither is a confidence statement.
@@ -922,7 +924,10 @@ gives what such a result keeps.
 A new fit under a supported configuration restores the refits. A cross-fitted result of a
 discrete treatment under a stratified fold policy also withholds `ci`, `pvalue` and `std_error`.
 It takes `"stratified_fold_plugin"` when it loads
-([RM31](../roadmap.md#rm31-inference-status-of-a-saved-stratified-cross-fitted-result)). The 0.1.0
+([RM31](../roadmap.md#rm31-inference-status-of-a-saved-stratified-cross-fitted-result)). A
+cross-fitted result of a continuous outcome with `q_bounds=None` withholds them too. It takes
+`"undeclared_scale_plugin"` when it loads
+([RM33](../roadmap.md#rm33-inference-status-of-a-saved-unbounded-scale-cross-fitted-result)). The 0.1.0
 and 0.1.1 releases saved no `split_plan` attribute. `TMLE` reads a missing attribute as `None`,
 which is what those releases meant.
 

@@ -26,18 +26,24 @@ import pytest
 from cleverly import variable_importance
 from cleverly._inference_status import NO_SIMULTANEOUS_BANDS
 from cleverly.assessment import POINT_REPLAY_REFIT_CONFIGURATION, replayability
-from cleverly.datasets import make_clustered, make_longitudinal, make_shift_dose
+from cleverly.datasets import make_clustered, make_longitudinal
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError
 from cleverly.inference.cluster import cluster_inference_status
-from cleverly.interventions import Shift
 from cleverly.learners import crossfit
 from cleverly.longitudinal import LTMLE
 from cleverly.variable_importance import VariableImportanceEntry, VariableImportanceResult
 from tests import discrete_law
 from tests.conftest import linear_drtmle, linear_in_sample
 from tests.studies.ltmle_crossfit_properties import FirstNodeStratifiedLTMLE
-from tests.unit._capability_sweep_support import as_saved_by_v011, ctmle_stratified, reconfigured
+from tests.unit._capability_sweep_support import (
+    as_saved_by_v011,
+    ctmle_stratified,
+    dose_frame,
+    fit_shift,
+    outcome_bounds,
+    reconfigured,
+)
 from tests.unit._declaration_support import assert_replay_agrees
 from tests.unit._inference_status_support import (
     DIAGNOSTIC_COLUMNS,
@@ -131,14 +137,11 @@ def dose() -> Any:
     """A cross-fitted continuous-dose fit, restored with the policy that release 0.1.1 wrote.
 
     Release 0.1.1 drew no strata for a dose, so the split read no treatment. The scale is
-    declared, so the fit is one that this version runs. RM33 holds the undeclared scale.
+    declared, so the fit is one that this version runs. With ``q_bounds=None`` the same
+    result takes the RM33 status, which ``tests/unit/test_saved_scale_status.py`` checks.
     """
-    frame, _ = make_shift_dose(n=300, seed=0)
-    bounds = (float(frame["Y"].min()) - 1.0, float(frame["Y"].max()) + 1.0)
-    estimator = TMLE(
-        **linear_in_sample(shifts=[Shift(0.5, cap=5.0)], cross_fit=True, n_folds=2, q_bounds=bounds)
-    )
-    result = estimator.fit(frame, outcome="Y", treatment="A").single()
+    frame = dose_frame()
+    result = fit_shift(frame, cross_fit=True, n_folds=2, q_bounds=outcome_bounds(frame))
     return reconfigured(result, stratify_folds="treatment")
 
 

@@ -105,11 +105,25 @@ def fit_missing() -> Any:
     )
 
 
-def fit_shift() -> Any:
-    """A capped shift of the continuous dose of ``make_shift_dose(300, 0)``."""
+def dose_frame() -> Any:
+    """The continuous-dose law of ``make_shift_dose(300, 0)``."""
     frame, _ = make_shift_dose(n=300, seed=0)
+    return frame
+
+
+def outcome_bounds(frame: Any) -> tuple[float, float]:
+    """A declared outcome support one unit wider than the observed range of ``frame``."""
+    return (float(frame["Y"].min()) - 1.0, float(frame["Y"].max()) + 1.0)
+
+
+def fit_shift(frame: Any = None, **overrides: Any) -> Any:
+    """A capped shift of the continuous dose, in sample unless ``overrides`` say otherwise.
+
+    ``frame`` defaults to :func:`dose_frame`.
+    """
+    frame = dose_frame() if frame is None else frame
     return (
-        TMLE(**linear_in_sample(shifts=[Shift(0.5, cap=5.0)]))
+        TMLE(**linear_in_sample(shifts=[Shift(0.5, cap=5.0)], **overrides))
         .fit(frame, outcome="Y", treatment="A")
         .single()
     )
@@ -395,12 +409,27 @@ def ctmle_stratified() -> Any:
     return reconfigured(result, stratify_folds="treatment")
 
 
-def unbounded_scale() -> Any:
-    """A cross-fitted continuous outcome with declared bounds, restored without them."""
+def unbounded_scale_ate() -> Any:
+    """A cross-fitted binary-treatment ATE fit with declared bounds, restored without them.
+
+    No release saved this shape, because it cross-fitted a discrete treatment under
+    ``"none"``. A copied estimator can carry it. It reports ``ate``, so the replay slots
+    read it with that estimand.
+    """
     frame = _linear_frame()
-    bounds = (float(frame["Y"].min()) - 1.0, float(frame["Y"].max()) + 1.0)
-    estimator = TMLE(**linear_in_sample(cross_fit=True, n_folds=2, q_bounds=bounds))
+    estimator = TMLE(**linear_in_sample(cross_fit=True, n_folds=2, q_bounds=outcome_bounds(frame)))
     return reconfigured(estimator.fit(frame, outcome="Y", treatment="A").single(), q_bounds=None)
+
+
+def unbounded_scale() -> Any:
+    """A cross-fitted continuous-dose fit with declared bounds, restored without them.
+
+    The shape of the RM33 artifact on its outcome scale. It keeps ``stratify_folds="none"``,
+    so its refit meets the scale refusal. ``restored_stratified`` holds the fold policy.
+    """
+    frame = dose_frame()
+    result = fit_shift(frame, cross_fit=True, n_folds=2, q_bounds=outcome_bounds(frame))
+    return reconfigured(result, q_bounds=None)
 
 
 def restored_ctmle_clustered() -> Any:
@@ -562,9 +591,8 @@ KINDS: dict[str, Kind] = {
         restored_stratified, *_READ, "truncation_curve", *_PLUGIN_BOUND, refits=False
     ),
     "restored_v011": _kind(restored_v011, *_READ, "truncation_curve", *_PLUGIN_BOUND, refits=False),
-    "restored_unbounded_scale": _kind(
-        unbounded_scale, *_READ, "truncation_curve", *_BOUND, refits=False
-    ),
+    # A saved undeclared scale reports no interval (RM33), and a shift fit answers no bound row.
+    "restored_unbounded_scale": _kind(unbounded_scale, *_READ, "truncation_curve", refits=False),
     "restored_ctmle_clustered": _kind(
         restored_ctmle_clustered, *_READ, "truncation_curve", refits=False
     ),

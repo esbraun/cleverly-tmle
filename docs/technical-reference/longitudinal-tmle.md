@@ -327,6 +327,13 @@ result with more than one fold whose `Folds.origin` is `None` now loads under
 interval or band
 ([RM31](../roadmap.md#rm31-inference-status-of-a-saved-stratified-cross-fitted-result)).
 
+The longitudinal path has no rule for a saved outcome scale. A cross-fitted continuous result that
+release 0.1.0 or 0.1.1 saved with `q_bounds=None` has a split with no origin, so it loads under
+`"stratified_fold_plugin"` already. A current result cannot have that scale, because the fit
+refuses it. A current result whose estimator is set to `q_bounds=None` after the fit keeps its
+interval, and no release saved such a result
+([RM33](../roadmap.md#rm33-inference-status-of-a-saved-unbounded-scale-cross-fitted-result)).
+
 A restored result whose regimen has a callable node not declared `"known"` loads under
 `"undeclared_function_plugin"`, keeps its point estimates, and reports no interval or band
 ([RM28](../roadmap.md#rm28-declared-densities-of-user-written-interventions)).
