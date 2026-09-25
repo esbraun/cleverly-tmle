@@ -5046,6 +5046,42 @@ The witness saves a cross-fitted continuous-dose result of a continuous outcome 
 skips the decision must fail. A result with a declared `q_bounds`, an in-sample result, and a
 binary outcome keep their intervals.
 
+#### RM33 plan
+
+The 2026-09-25 plan fixes the decisions in the table below. Its reads ran at dea3297e.
+
+A probe fitted the RM33 request at dea3297e with `TMLE._refuse_unbounded_cross_fitted_scale`
+patched to do nothing. That patch restores the entry rule of release 0.1.1 for one fit.
+
+| step | result |
+| --- | --- |
+| the patched fit | the family `gaussian`, `q_bounds=None`, and `stratify_by=()`. `ey_shift[+0.5]` reads 3.798198, with `ci` (3.3419, 4.2545). These are the numbers of the v0.1.1 probe above |
+| a copy with `stratify_folds="treatment"` and no `split_plan`, pickled and loaded | `influence_curve`, and `ci` is unchanged |
+| `replayability()` | `retarget_cached_nuisances` true, `refit_nuisances` false, and the code `point_replay_refit_configuration` |
+
+| question | decision | evidence |
+| --- | --- | --- |
+| status | a dedicated non-inferential status, `"undeclared_scale_plugin"`, as RM29 and RM31 chose. The point estimates stand, and `plugin_std_error` and `plugin_interval` keep the diagnostic. `ci`, `pvalue`, and `std_error` refuse. Its record names RM33 | the probe above. The name follows `undeclared_function_plugin`, because the missing thing is a declaration. The scale is bounded by the sample extremes, so "unbounded" would misname it |
+| predicate | one predicate for the fit-time refusal and the load-time status. `TMLE._outcome_scale_refusal(data)` returns the sentence or `None`. `_refuse_unbounded_cross_fitted_scale` raises it, as `_refuse_fold_policy` raises `_fold_policy_refusal`. `TMLE._saved_scale_status(data)` gives the status when the sentence is not `None` | the refusal reads `cross_fit`, `data.family` and `q_bounds` alone. A result that release 0.1.1 saved carries all three. A mutation of the predicate moves both consumers |
+| one rule with RM31 | no. RM31 reads the split that the fit applied, `crossfit_plan(data).stratify_by`. A dose carries `"treatment"` from release 0.1.1 and applied no strata. RM33 reads the scale that the fit applied | `test_a_cross_fitted_continuous_dose_result` in `tests/unit/test_saved_fold_policy_status.py` keeps that dose inferential under RM31 |
+| precedence | order 7, after `"stratified_fold_plugin"` and before `"unequal_cluster_plugin"`. A saved discrete-treatment fit of a continuous outcome meets both, and it reads RM31 | the fit-time refusals run in the same order: the fold policy first, the scale last. A refused saved configuration comes before a cluster status of a design that this version runs, as RM29 and RM31 placed theirs |
+| treatment kind | the rule does not read it. A copied estimator of a discrete treatment under `"none"` with `q_bounds=None` takes the status too | the refusal does not read it |
+| engines | `TMLE`, and `DRTMLE` through `super()`. `CTMLE` does not change | `CTMLE._inference_status` withholds inference at every strategy, and it does not call `TMLE._inference_status` |
+| `LTMLE` | no rule | releases 0.1.0 and 0.1.1 stratified every cross-fitted `LTMLE` split, and those folds record no `Folds.origin`. So every such saved result reads `"stratified_fold_plugin"` already. A current copied cross-fitted continuous `LTMLE` result with `q_bounds=None` keeps its interval, but no release saved one, and a live fit refuses it in `LTMLE._refuse_cross_fitted_design` |
+| `variable_importance` | it calls `_refuse_unbounded_cross_fitted_scale` on each candidate's prepared data before it asks the status, as it calls `_refuse_fold_policy` for RM31. The refusal names the remedy before any learner. A run with `delta=` on a continuous outcome now meets the scale sentence before the arm-indexed sentence of its fit | the status reason alone names no remedy |
+| studies | none moves, and none is regenerated | no live fit reaches the status, because `_resolve_estimands_for_data` refuses the scale first. No study overrides that method or the refusal, and no study restores a result. Every cross-fitted continuous study fit declares `q_bounds` |
+
+The new file `tests/unit/test_saved_scale_status.py` holds the checks in the table below.
+
+| check | what it asserts |
+| --- | --- |
+| witness | the probe fit, restored with `"treatment"` and no `split_plan`, loads under the status by both routes. It withholds all three accessors, and it keeps its point estimate and plug-in interval. A copied `DRTMLE` estimator of a discrete treatment takes the status, and its E-value row reads unavailable. The fold-level reports of a `cv_evaluation=True` fit take it too |
+| replay | `refit_nuisances` stays false, and a retarget stamps the status |
+| precedence | a saved discrete-treatment fit reads `"stratified_fold_plugin"`. A fit of 39 clusters reads the new status over `"few_cluster_plugin"` |
+| mutations | skipping the decision fails the witness. A predicate without the cross-fitting condition fails the in-sample control. One without the family condition fails the binary-outcome control. One without the declaration condition fails the declared-scale control |
+| controls | a result with a declared `q_bounds`, an in-sample result, and a binary-outcome result keep their intervals |
+| sweep | the kind `restored_unbounded_scale` becomes the dose, and it stops answering the `evalue` row. The replay kind `unbounded scale` keeps its binary-treatment ATE fit |
+
 ### RM34. Inference status of a saved estimate outside its result
 
 `TMLEResult.__setstate__` and `LongitudinalResult.__setstate__` re-stamp the estimates that the
