@@ -79,12 +79,17 @@ The delivery of RM23 found two more surfaces.
 [RM31](#rm31-inference-status-of-a-saved-stratified-cross-fitted-result) holds the inference
 status of a cross-fitted result that release 0.1.0 or 0.1.1 saved under a stratified fold policy.
 [RM32](#rm32-continuous-dose-msm-fit-with-missing-outcomes) holds an in-sample continuous-dose MSM
-fit with missing outcomes, which raises `ValueError`. Three more findings extend RM16. The table
-below lists the rows that remain.
+fit with missing outcomes, which raises `ValueError`. Three more findings extend RM16.
+
+The plan for RM31 found one more saved-result surface.
+[RM33](#rm33-inference-status-of-a-saved-unbounded-scale-cross-fitted-result) holds a
+cross-fitted continuous-dose result that release 0.1.0 or 0.1.1 saved on an outcome scale that its
+held-out rows set. The table below lists the rows that remain.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
 | 0.01 | Inference status of a saved stratified cross-fitted result | decide the status that a saved result takes when this version refuses the fold policy that produced its interval, as RM29 did for a saved clustered `LTMLE` result | a cross-fitted result that release 0.1.0 or 0.1.1 saved under its default `stratify_folds="treatment"` loads under `influence_curve`, and its interval stands. A refit of the same result refuses that split, because no shipped result covers it | [RM31](#rm31-inference-status-of-a-saved-stratified-cross-fitted-result) |
+| 0.02 | Inference status of a saved unbounded-scale cross-fitted result | decide the status that a saved result takes when this version refuses the outcome scale that produced its interval, as RM31 does for the fold policy | a cross-fitted continuous-dose result of a continuous outcome that release 0.1.0 or 0.1.1 saved with its default `q_bounds=None` loads under `influence_curve`, and its interval stands. Its split read no treatment, so RM31 does not reach it | [RM33](#rm33-inference-status-of-a-saved-unbounded-scale-cross-fitted-result) |
 | 0.32 | Intervention refusals at identification | refuse mixed intervention kinds in `CausalStudy.identify`, and name the typed estimands in each message. Refuse a zero-dimensional regimen plan by name | a mixed request passes identification and then fails at estimation, once with an `AttributeError` | [RM14](#rm14-intervention-refusals-at-identification) |
 | 0.33 | Continuous-dose MSM fit with missing outcomes | refuse the composition by name before any learner, as `CapabilityError` | an in-sample continuous-dose MSM fit with `delta=` raises `ValueError` from the nuisance fit, after two learner fits | [RM32](#rm32-continuous-dose-msm-fit-with-missing-outcomes) |
 | 0.34 | Refusals after the nuisance fit | raise each refusal as `CapabilityError` before any learner call | four well-posed requests refuse after 2 to 20 learner fits. Three of them raise `NotImplementedError` or `ValueError`. A `refute` request without its negative-control outcome raises `ValueError` after its earlier tests refit | [RM24](#rm24-refusals-after-the-nuisance-fit) |
@@ -100,7 +105,7 @@ A row that another row depends on comes before that row.
 
 | tier | reason | rows |
 | --- | --- | --- |
-| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM31. RM20, RM13, RM21 and RM22 held it earlier, and all four are delivered |
+| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM31, RM33. RM20, RM13, RM21 and RM22 held it earlier, and all four are delivered |
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM14, RM32. RM23 held it earlier, and it is delivered |
 | c | a correct refusal that arrives late or as the wrong type | RM24 |
 | d | a diagnostic or a warning that misleads | RM15 |
@@ -115,6 +120,7 @@ tier.
 | row | reason for its place |
 | --- | --- |
 | RM31 | each cross-fitted result that release 0.1.0 or 0.1.1 saved with its default fold policy publishes an interval that no shipped result covers |
+| RM33 | a cross-fitted continuous-dose result of a continuous outcome publishes an interval that no shipped result covers. Those releases stratified every other cross-fitted split, so RM33 reaches fewer results than RM31 and comes second |
 | RM14 | one mixed request raises an `AttributeError`. It also has a late refusal of tier c, so it takes the higher tier |
 | RM32 | one composition raises a `ValueError` that is not a refusal, after two learner fits. RM14 reaches every mixed intervention request, so RM14 comes first |
 | RM24 | four refusals arrive after 2 to 20 learner fits, and three of them have the wrong type |
@@ -125,16 +131,17 @@ tier.
 | RM30 | a published learned-policy method can resolve the current refusal, but requires a distinct target, fold-local evaluation, and inference validation |
 
 No open row waits on another open row. RM13, RM20 to RM23, and RM25 to RM29 are delivered. The
-RM14, RM24 and RM32 requests produce no fit, and RM31 reads a result that an earlier release saved.
+RM14, RM24 and RM32 requests produce no fit, and RM31 and RM33 read a result that an earlier
+release saved.
 
 Main-roadmap X9 depended on RM22, which checked the locators X9 cites. RM22 is delivered.
 
-Use five delivery groups for these nine rows and the two investigations that RM18 waits on.
+Use five delivery groups for these ten rows and the two investigations that RM18 waits on.
 Keep each item's acceptance criteria separate inside its group.
 
 | delivery group | items | shared boundary |
 | --- | --- | --- |
-| saved-result inference | RM31 | the status that a saved result takes when this version refuses the configuration that produced its interval |
+| saved-result inference | RM31 and RM33 | the status that a saved result takes when this version refuses the configuration that produced its interval |
 | refusal surfaces | RM14, RM32 and RM24 | a refusal reaches the caller where its declaration says, before the work that it refuses |
 | diagnostic reports | RM15 and RM16 | one assessment and summary surface, with one documentation pass |
 | red property cells | RM18 and RM19, and the F18 and F19 derivations that RM18 waits on | the recorded rule that a red cell is reporting evidence, designs declared before their runs that move no verdict, and two exact derivations that would close the inferential gaps |
@@ -168,17 +175,18 @@ row takes its priority with it, and the other rows keep theirs. RM20, RM13, RM25
 held 0.11 to 0.15, in that order. RM28 held 0.16, RM29 held 0.17, RM21 held 0.21, RM22 held
 0.22, and RM23 held 0.31.
 
-The delivery of RM23 added the saved-result inference group, and RM31 is its only row. RM31 is in
+The delivery of RM23 added the saved-result inference group, and RM31 was its only row. RM31 is in
 tier a, so its group comes before every other group. Its first decimal digit is 0. The digits 1
 and 2 named groups that left this table with their rows, and those rows took their priorities with
-them.
+them. The plan for RM31 placed the tier-a row RM33 in the same group at 0.02, after RM31.
 
 The same delivery re-triaged the refusal-surfaces group, which is the mechanism that the rule above
 names. It placed the tier-b row RM32 at 0.33 and moved RM24 from 0.33 to 0.34, so that RM32 comes
 before RM24.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
-The queue holds nine rows. Six rows need their corrections: RM14 to RM16, RM24, RM31 and RM32.
+The queue holds ten rows. Seven rows need their corrections: RM14 to RM16, RM24, and RM31 to
+RM33.
 RM18 has five follow-up designs that are not declared and have not run. RM19 has no declared design. RM30 holds the published learned-policy implementation.
 
 The F18 and F19 derivations do not block priority 1, because an item with no published theory does
@@ -4840,6 +4848,46 @@ default and save no `split_plan`, so one witness covers a result that either rel
 A mutation that skips the decision must fail. An unstratified cross-fitted result and an in-sample
 result that carries the same policy keep their intervals, because the in-sample fit draws no split.
 
+#### RM31 plan
+
+The 2026-09-25 plan fixes the decisions in the table below. Its reads ran at de976111.
+
+A probe built the RM23 artifact again with the source of tag v0.1.1 and loaded it at de976111.
+It read `influence_curve`, with `ate` 0.219215 and `ci` (0.1581, 0.2804), as the RM23 table
+records.
+
+The same probe saved a cross-fitted `LTMLE` result. It fitted `make_longitudinal(n=400,
+seed=0)` with the RM29 learners, `n_folds=5` and `random_state=0`, and without `id=`. That result
+also loaded under `influence_curve`. Its `ate_regimen[always vs never]` read 0.485831, with `ci`
+(0.3176, 0.6541), and it kept its simultaneous bands. Its folds carry no `origin`.
+
+| question | decision | evidence |
+| --- | --- | --- |
+| status | a dedicated non-inferential status, `"stratified_fold_plugin"`, as RM29 chose. The point estimates stand, and `plugin_std_error` and `plugin_interval` keep the diagnostic. `ci`, `pvalue`, and `std_error` refuse. Its record names RM31 | the probes above |
+| precedence | after `"cross_fitted_longitudinal_plugin"`, and before `"unequal_cluster_plugin"`. The collaborative, declaration, and estimated-weight statuses stay first | a saved design that this version refuses comes before a cluster status of a design that it runs, as RM29 placed its status |
+| point-treatment rule | `TMLE._saved_fold_policy_status(data)` gives the status when `crossfit_plan(data).stratify_by` is not empty. `TMLE._inference_status` passes it to `precedent_status`, and `DRTMLE` reaches it through `super()` | `crossfit_plan` records strata only under cross-fitting, for a discrete treatment, and under a policy other than `"none"`. Every live fit refuses that configuration before it stamps a status, so no live fit changes |
+| `"treatment+outcome"` | the same status | the same `stratify_by` rule |
+| in-sample result | keeps its interval | `crossfit_plan` records no strata when `cross_fit` is false, because the fit draws no split |
+| continuous dose | keeps its interval | `_fold_strata` returned `None` for a dose at v0.1.1, so the split read no treatment. `crossfit_plan` records no strata for it. RM33 holds the outcome scale of such a result |
+| `CTMLE` | no change | `CTMLE._inference_status` withholds inference at every strategy, and it does not call `TMLE._inference_status` |
+| study seams | no change | `FoldPolicyTMLE` and the multi-arm `FoldPolicyMixin` keep `stratify_folds="none"`, and they replace `_folds` or `_fold_strata`. The rule reads neither method, so no registered study moves |
+| `LTMLE` rule | a restored result with more than one fold and no `Folds.origin` takes the same status | releases 0.1.0 and 0.1.1 stratified the outer folds on the first treatment node (`src/cleverly/longitudinal/estimator.py:1627-1640` at v0.1.1). Commit c887785c added `Folds.origin`, which only `random_partition` writes. It is an ancestor of 5f32c149, which removed the strata. So a split with no origin came from a stratified draw |
+| where the `LTMLE` rule runs | only in `LongitudinalResult._restamp_inference_status`, through the module function `_saved_split_status(folds)`. `_refit_bound` resolves its status with `result.inference_status`, so the truncation replay equals the restored fit | a live `LTMLE.fit` draws through `random_partition`. The seam `FirstNodeStratifiedLTMLE` in `tests/studies/ltmle_crossfit_properties.py` draws folds with no origin, and its live fits must not change |
+
+The new file `tests/unit/test_saved_fold_policy_status.py` holds the checks in the table below.
+
+| check | what it asserts |
+| --- | --- |
+| point witness | the file fits with `fold_strata_refusal` patched to return `None`, in the test only. It covers both policies, `TMLE` and `DRTMLE`, and both restore routes. A legacy copy loads under the status, and it withholds all three accessors. The fold-level reports of a `cv_evaluation=True` fit take the status too. The shape that release 0.1.1 saved, with no `split_plan`, loads the same way |
+| replay | `refit_nuisances` stays false with `point_replay_refit_configuration`, and `retarget_cached_nuisances` stays true. A retarget stamps the status |
+| longitudinal witness | a `FirstNodeStratifiedLTMLE` result loads under the status by both routes. It drops its bands, and its truncation replay runs |
+| mutations | skipping the decision fails each witness. A rule keyed on `"treatment"` alone fails the `"treatment+outcome"` witness. A rule without the cross-fitting condition fails the in-sample control. An `LTMLE` rule without the fold-count condition fails the one-fold control. A replay that drops the restored status is refused |
+| controls | an unstratified cross-fitted result, an in-sample result with the policy, and a continuous-dose result keep their intervals. A `CTMLE` result keeps its collaborative status. A current cross-fitted `LTMLE` result, which records an origin, and a one-fold result keep their intervals. A restored clustered result with a stratified split takes `"cross_fitted_longitudinal_plugin"`, which comes first |
+| sweep | the kinds `restored_stratified` and `restored_v011` stop answering the `evalue` row, which needs inference. Their other rows still answer |
+
+The plan found one surface that this decision does not reach.
+[RM33](#rm33-inference-status-of-a-saved-unbounded-scale-cross-fitted-result) holds it.
+
 ### RM32. Continuous-dose MSM fit with missing outcomes
 
 An in-sample `TMLE` fit of a continuous-dose MSM with `delta=` raises a `ValueError` that is not a
@@ -4867,6 +4915,41 @@ the MSM fit too.
 
 The witness fits the probe request with spy learners. It asserts the named refusal and zero learner
 fits. A control keeps the in-sample shift fit with `delta=` running.
+
+### RM33. Inference status of a saved unbounded-scale cross-fitted result
+
+Releases 0.1.0 and 0.1.1 set `q_bounds=None` by default (`src/cleverly/estimators/tmle.py:382`
+at v0.1.1). A continuous outcome then took its scale from every observed outcome, held-out rows
+included. Commit 5f32c149 refused that scale under cross-fitting, because no shipped result covers
+it. The [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules)
+give the audit.
+
+[RM31](#rm31-inference-status-of-a-saved-stratified-cross-fitted-result) withholds the interval of
+a saved result whose split read the treatment. Those releases offered only the two stratified
+policies (`src/cleverly/_typing.py:50` at v0.1.1). So RM31 reaches each saved cross-fitted result
+of a discrete treatment on this scale. A continuous dose drew an unstratified split, because
+`_fold_strata` returned `None` for a dose. RM31 therefore leaves the interval of such a result.
+
+A 2026-09-25 probe fitted `make_shift_dose(n=300, seed=0)` with the source of tag v0.1.1. The fit
+used `shifts=[Shift(0.5, cap=5.0)]`, `LinearRegression` for the outcome,
+`LogisticRegression(max_iter=1000)` for the treatment, `cross_fit=True`, `n_folds=2` and
+`random_state=0`. It was pickled, and then loaded at de976111.
+
+| probe | result |
+| --- | --- |
+| v0.1.1 | the fit records `q_bounds=None`, the family `gaussian`, and `stratify_by=()` |
+| load | `inference_status` reads `influence_curve`. `ey_shift[+0.5]` reads 3.798198, with `ci` (3.3419, 4.2545) |
+| `estimator.refit(result.data)` | `CapabilityError` from the saved fold policy `"treatment"`, which the fit carried and never applied |
+
+Decide the status that a saved result takes when this version refuses the outcome scale that
+produced its interval. RM29 and RM31 made that decision for a refused design and a refused fold
+policy. The kind `restored_unbounded_scale` in `tests/unit/_capability_sweep_support.py` builds the
+same configuration from a current fit.
+
+The witness saves a cross-fitted continuous-dose result of a continuous outcome with
+`q_bounds=None`, and loads it. It asserts the status and each withheld accessor. A mutation that
+skips the decision must fail. A result with a declared `q_bounds`, an in-sample result, and a
+binary outcome keep their intervals.
 
 ### P1. EP learner
 
