@@ -1463,7 +1463,13 @@ class _CapabilityFacade:
         return tuple(self._capability_map.values())
 
     @cached_property
-    def _capability_map(self) -> dict[str, AssessmentCapability]:
+    def _gated_map(self) -> dict[str, AssessmentCapability]:
+        """Every declared row after the method gate and the replay gate, before any request.
+
+        The two gates that no argument can lift.  :meth:`_request_gated` resolves a request
+        on top of this map, so a row that an argument can lift is never stored lifted or
+        refused: the replay gate still sees it, and each request resolves it afresh.
+        """
         method = _method(self._result)
         replay = replayability(self._result)
         return {
@@ -1471,14 +1477,65 @@ class _CapabilityFacade:
             for item in self._declared
         }
 
+    @cached_property
+    def _capability_map(self) -> dict[str, AssessmentCapability]:
+        """Every row resolved for the bare request, which supplies no argument."""
+        return {
+            operation: self._request_gated(row, {}) for operation, row in self._gated_map.items()
+        }
+
+    def _gated(self, operation: str) -> AssessmentCapability:
+        """One row of :attr:`_gated_map`, refused by name when the facade declares none."""
+        try:
+            return self._gated_map[operation]
+        except KeyError:
+            raise KeyError(f"unknown {self._kind} {operation!r}") from None
+
+    def _request_gated(
+        self, capability: AssessmentCapability, arguments: Mapping[str, Any]
+    ) -> AssessmentCapability:
+        """Resolve a row for the arguments of one request.
+
+        A row whose call refuses some argument values and not others is resolved here, from
+        the predicate that the call raises from.  The bare request, a combined report's
+        request and a direct call each pass their own arguments, so each reads the answer
+        the call gives.  The base facade has no such row and returns the row unchanged.
+
+        Parameters
+        ----------
+        capability : AssessmentCapability
+            The row after the method gate and the replay gate.
+        arguments : mapping of str to Any
+            Arguments the caller supplied for this operation.
+
+        Returns
+        -------
+        AssessmentCapability
+            The row this request reads.
+        """
+        return capability
+
     def capability(self, operation: str) -> AssessmentCapability:
         try:
             return self._capability_map[operation]
         except KeyError:
             raise KeyError(f"unknown {self._kind} {operation!r}") from None
 
-    def _require(self, operation: str) -> AssessmentCapability:
-        item = self.capability(operation)
+    def _require(
+        self, operation: str, arguments: Mapping[str, Any] | None = None
+    ) -> AssessmentCapability:
+        """Refuse a direct call by the row its request resolves to.
+
+        ``arguments=None`` reads the bare row, which is what an operation whose row no
+        argument changes needs.  A call whose row an argument can lift or refuse passes its
+        own arguments, so a request the bare row defers still runs once the caller names
+        the argument.  The estimand gate is not applied: a direct call resolves its own
+        estimand default and raises its own refusal.
+        """
+        if arguments is None:
+            item = self.capability(operation)
+        else:
+            item = self._request_gated(self._gated(operation), arguments)
         if not item.available:
             # ``reason`` first, and ``interpretation`` only as a fallback: the record knows
             # why *this* operation is refused, and re-deriving one from the result family
@@ -1574,8 +1631,14 @@ class _CapabilityFacade:
     def _capability_for_arguments(
         self, operation: str, arguments: Mapping[str, Any]
     ) -> AssessmentCapability:
-        """Resolve request-specific availability and cost before aggregate execution."""
-        return self._estimand_gated(self.capability(operation), arguments)
+        """Resolve request-specific availability and cost before aggregate execution.
+
+        The estimand gate runs first, so a request that names no estimand defers on the
+        estimand before any other argument is read.
+        """
+        return self._request_gated(
+            self._estimand_gated(self._gated(operation), arguments), arguments
+        )
 
     def _skipped(
         self,
@@ -2011,6 +2074,68 @@ class DiagnosticsFacade(_CapabilityFacade):
     def _declared(self) -> tuple[AssessmentCapability, ...]:
         return assessment_capabilities(self._result)
 
+    def _request_gated(
+        self, capability: AssessmentCapability, arguments: Mapping[str, Any]
+    ) -> AssessmentCapability:
+        """Resolve the one diagnostic row whose call refuses some argument values.
+
+        Parameters
+        ----------
+        capability : AssessmentCapability
+            The row after the method gate and the replay gate.
+        arguments : mapping of str to Any
+            Arguments the caller supplied for this operation.
+
+        Returns
+        -------
+        AssessmentCapability
+            The row this request reads.
+        """
+        if capability.operation == "truncation_curve":
+            return self._truncation_gated(capability, arguments)
+        return capability
+
+    def _truncation_gated(
+        self, capability: AssessmentCapability, arguments: Mapping[str, Any]
+    ) -> AssessmentCapability:
+        """Resolve the point-treatment ``truncation_curve`` row from the call's predicate.
+
+        :func:`~cleverly.sensitivity.positivity.truncation_refusal` is what the call raises
+        from.  The request supplies ``mechanism`` or omits it, and the row follows one rule.
+
+        * An omitted argument whose default runs leaves the row unchanged.
+        * An omitted argument whose default is refused, where the other axis runs, defers
+          the row on ``mechanism`` with the call's sentence.  An incremental fit with
+          missing outcomes is that case.
+        * An omitted argument where neither axis runs reads ``unavailable`` with the
+          sentence of the default.  An incremental fit with complete outcomes is that case.
+        * A supplied value the call refuses reads ``unavailable`` with the call's sentence.
+
+        A row that the method or replay gate already refused, and a longitudinal row, are
+        returned as they are.  The longitudinal curve has its own two refusals.
+        """
+        if not capability.available or capability.result_family != "point":
+            return capability
+        from .sensitivity.positivity import truncation_refusal
+
+        requested = arguments.get("mechanism")
+        reason = truncation_refusal(self._result, requested)
+        if reason is None:
+            return capability
+        if requested is None and any(
+            truncation_refusal(self._result, axis) is None for axis in (True, False)
+        ):
+            return replace(
+                capability,
+                available=False,
+                status=AssessmentStatus.DEFERRED,
+                reason=reason,
+                requires_arguments=(*capability.requires_arguments, "mechanism"),
+            )
+        return replace(
+            capability, available=False, status=AssessmentStatus.UNAVAILABLE, reason=reason
+        )
+
     def _estimand_candidates(self, operation: str) -> tuple[str, ...]:
         """The reported aliases ``refute`` may be asked to choose between.
 
@@ -2306,6 +2431,9 @@ class DiagnosticsFacade(_CapabilityFacade):
             ``NaturalCourseMean`` fit, which estimates no treatment law, and treatment
             for every other fit. Passing ``False`` explicitly on a natural-course fit
             names an axis that fit does not have, and is refused rather than redirected.
+            An incremental fit refuses the treatment axis, because its estimand contains
+            the propensity. Its row defers on ``mechanism`` when the fit also estimated an
+            observation mechanism, and reads ``unavailable`` when it did not.
 
         Returns
         -------
@@ -2318,22 +2446,19 @@ class DiagnosticsFacade(_CapabilityFacade):
         Raises
         ------
         CapabilityError
-            If the requested curve changes the estimand or cannot be replayed. A
+            If the requested curve changes the estimand, names an axis the fit does not
+            have, or cannot be replayed. The sentence is the one
+            :func:`~cleverly.sensitivity.positivity.truncation_refusal` returns. A
             longitudinal result also refuses an omitted ``bounds`` grid and
             ``mechanism=True``, which are the two requests its contract above has no answer
             to.
         """
-        self._require("truncation_curve")
+        # The row this request resolves to, not the bare row. It carries every
+        # point-treatment refusal of the axis, read from the predicate the module call
+        # raises from, and it is checked before the cache, so an unanswerable request is
+        # refused whether or not the cache already holds a curve.
+        self._require("truncation_curve", {"mechanism": mechanism})
         longitudinal = _family(self._result) == "longitudinal"
-        # Resolve the default before any refusal reads it, so that every check below
-        # sees the axis the curve will actually vary. An explicit ``False`` survives
-        # untouched and reaches ``truncation_curve``'s own refusal, which names the
-        # missing treatment mechanism; silently redirecting it would answer a question
-        # the caller did not ask.
-        if mechanism is None:
-            mechanism = not longitudinal and is_natural_course_fit(self._result)
-        # Every refusal is raised here rather than inside ``compute`` below, so that an
-        # unanswerable request is refused whether or not the cache already holds a row.
         if longitudinal and bounds is None:
             raise CapabilityError(
                 "a longitudinal truncation curve requires an explicit bounds grid"
@@ -2343,21 +2468,13 @@ class DiagnosticsFacade(_CapabilityFacade):
                 "a longitudinal fit has one cumulative treatment-and-censoring bound; "
                 "mechanism=True is a point-treatment option"
             )
-        if not longitudinal and self._result.nuisance.incremental is not None and not mechanism:
-            raise CapabilityError(
-                "the propensity g is *inside* the estimand for an incremental intervention, "
-                "so a propensity-bound curve would compare different parameters; use "
-                "diagnostics.support(), or pass mechanism=True when a separate observation "
-                "mechanism was fitted"
-            )
-        # Raised here for the reason stated above, rather than left to the module-level
-        # call inside ``compute``: that one would refuse only on a cache miss.
-        if not longitudinal and not mechanism and not self._result.nuisance.fits_treatment:
-            raise CapabilityError(
-                "NaturalCourseMean with missing outcomes fits no treatment propensity, so "
-                "there is no g(W) bound to sweep. Pass mechanism=True to sweep the bound on "
-                "P(Delta = 1 | A, W), which is the only mechanism this fit truncates."
-            )
+        if not longitudinal:
+            from .sensitivity.positivity import truncation_axis
+
+            # Resolved for the cache key, so the omitted argument and the axis it resolves
+            # to share one entry. An explicit value is kept, and the row above has already
+            # refused one this fit cannot sweep.
+            mechanism = truncation_axis(self._result, mechanism)
         # The longitudinal call takes no ``None``, and the refusal above is eager, so the
         # empty fallback here is unreachable on that path.
         grid: Sequence[CumulativeGBounds] = () if bounds is None else bounds

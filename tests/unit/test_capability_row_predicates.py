@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from cleverly.assessment import AssessmentStatus, SensitivityFacade
+from cleverly.assessment import AssessmentStatus, DiagnosticsFacade, SensitivityFacade
 from cleverly.exceptions import CapabilityError
 from cleverly.sensitivity import missingness as missingness_module
 from cleverly.sensitivity import omitted_variable as omitted_variable_module
@@ -34,6 +34,12 @@ from cleverly.sensitivity.omitted_variable import (
     _RESPONSE_BOUND_REFUSAL,
     _RESPONSE_TILT_POINTER,
     fit_wide_bound_refusal,
+)
+from cleverly.sensitivity.positivity import (
+    _TRUNCATION_RULES,
+    truncation_axis,
+    truncation_curve,
+    truncation_refusal,
 )
 from cleverly.targets.population_intervention import NATURAL_COURSE_TILT_REFUSAL
 from tests.unit._capability_sweep_support import KINDS
@@ -237,3 +243,170 @@ class TestEachTiltMutationRestoresADisagreement:
         problems = tilt_disagreements(tilt_fits["regime+missing"])
         assert len(problems) == 2
         assert all("the row quotes" in problem for problem in problems)
+
+
+# ----------------------------------------------------------------------- the truncation
+
+PASSED = AssessmentStatus.PASSED
+DEFERRED = AssessmentStatus.DEFERRED
+UNAVAILABLE = AssessmentStatus.UNAVAILABLE
+
+#: The requests a truncation row resolves: the bare one, and each explicit axis.
+TRUNCATION_REQUESTS: tuple[dict[str, Any], ...] = ({}, {"mechanism": True}, {"mechanism": False})
+
+#: What each kind's row reads for each request in :data:`TRUNCATION_REQUESTS`, in order.
+#: ``missing`` admits every request, which is the nonzero witness for the mutations below.
+TRUNCATION_STATUS_OF: dict[str, tuple[AssessmentStatus, ...]] = {
+    "ordinary": (PASSED, UNAVAILABLE, PASSED),
+    "missing": (PASSED, PASSED, PASSED),
+    "incremental": (UNAVAILABLE, UNAVAILABLE, UNAVAILABLE),
+    "incremental+missing": (DEFERRED, PASSED, UNAVAILABLE),
+    "natural_course": (PASSED, PASSED, UNAVAILABLE),
+}
+
+
+@pytest.fixture(scope="module")
+def truncation_fits() -> dict[str, Any]:
+    """One fresh fit of each kind in :data:`TRUNCATION_STATUS_OF`, shared by this section."""
+    return {kind: KINDS[kind]() for kind in TRUNCATION_STATUS_OF}
+
+
+def _module_curve(result: Any, arguments: dict[str, Any]) -> Any:
+    """The module call on one bound, which is enough to reach every refusal."""
+    return truncation_curve(result, [0.05], **arguments)
+
+
+def truncation_disagreements(result: Any) -> list[str]:
+    """Every request whose truncation row and module call disagree.
+
+    A fresh facade resolves each row, so a monkeypatched seam takes effect even when the
+    result already memoized its own facade. An empty list is agreement.
+    """
+    facade = DiagnosticsFacade(result)
+    problems = []
+    for arguments in TRUNCATION_REQUESTS:
+        row = facade._capability_for_arguments("truncation_curve", arguments)
+        raised = _raised(lambda fitted, request=arguments: _module_curve(fitted, request), result)
+        if row.available and raised is not None:
+            problems.append(f"{arguments}: the row reads available and the call raised {raised}")
+        if not row.available and raised != row.reason:
+            problems.append(f"{arguments}: the row quotes {row.reason!r}, the call {raised!r}")
+    return problems
+
+
+class TestTheTruncationRowResolvesEachRequest:
+    """The row and the call both read :func:`truncation_refusal`, one request at a time."""
+
+    def test_the_rule_table_is_ordered(self) -> None:
+        assert [name for name, _ in _TRUNCATION_RULES] == [
+            "observation_axis",
+            "incremental",
+            "natural_course",
+        ]
+
+    @pytest.mark.parametrize("kind", list(TRUNCATION_STATUS_OF))
+    def test_each_request_reads_the_status_the_table_names(
+        self, truncation_fits: dict[str, Any], kind: str
+    ) -> None:
+        facade = truncation_fits[kind].diagnostics
+        statuses = tuple(
+            facade._capability_for_arguments("truncation_curve", arguments).status
+            for arguments in TRUNCATION_REQUESTS
+        )
+        assert statuses == TRUNCATION_STATUS_OF[kind]
+        # The bare request is what ``capability()`` reports.
+        assert facade.capability("truncation_curve").status is statuses[0]
+
+    def test_the_module_call_refuses_the_incremental_default(
+        self, truncation_fits: dict[str, Any]
+    ) -> None:
+        """RM23 measured a flat curve at 2.96262 here, because ``g`` is inside the estimand."""
+        result = truncation_fits["incremental"]
+        row = result.diagnostics.capability("truncation_curve")
+        with pytest.raises(CapabilityError) as error:
+            truncation_curve(result)
+        assert str(error.value) == row.reason == truncation_refusal(result)
+        assert "*inside* the estimand" in str(error.value)
+
+    def test_an_incremental_fit_with_missing_outcomes_defers_on_the_axis(
+        self, truncation_fits: dict[str, Any]
+    ) -> None:
+        result = truncation_fits["incremental+missing"]
+        bare = result.diagnostics.capability("truncation_curve")
+        assert bare.status is AssessmentStatus.DEFERRED
+        assert bare.requires_arguments == ("mechanism",)
+        assert bare.reason == truncation_refusal(result)
+        # Naming the axis the row asks for runs the curve, directly and in a report.
+        curve = result.diagnostics.truncation_curve([0.01, 0.05], mechanism=True)
+        assert len(curve["bound"]) == 2 * len(result.estimates)
+        report = result.diagnostics.run_all(
+            include_retargets=True, arguments={"truncation_curve": {"mechanism": True}}
+        )
+        assert report["truncation_curve"].status is AssessmentStatus.COMPLETED
+        # The bare report names the argument rather than declining the call.
+        skipped = result.diagnostics.run_all(include_retargets=True)["truncation_curve"]
+        assert skipped.status is AssessmentStatus.DEFERRED
+        assert "declined this request" not in skipped.detail
+        # The refused axis reads unavailable, with the call's own sentence.
+        refused = result.diagnostics._capability_for_arguments(
+            "truncation_curve", {"mechanism": False}
+        )
+        assert refused.status is AssessmentStatus.UNAVAILABLE
+        assert refused.reason == truncation_refusal(result, False) == bare.reason
+        with pytest.raises(CapabilityError, match=r"is unavailable: the propensity g"):
+            result.diagnostics.truncation_curve(mechanism=False)
+
+    def test_an_ordinary_fit_refuses_the_observation_axis_it_lacks(
+        self, truncation_fits: dict[str, Any]
+    ) -> None:
+        result = truncation_fits["ordinary"]
+        row = result.diagnostics._capability_for_arguments("truncation_curve", {"mechanism": True})
+        assert row.status is AssessmentStatus.UNAVAILABLE
+        assert row.reason == truncation_refusal(result, True)
+        assert row.reason is not None
+        assert row.reason.startswith("mechanism=True needs a fit with missing outcomes")
+        with pytest.raises(CapabilityError, match=r"is unavailable: mechanism=True needs"):
+            result.diagnostics.truncation_curve(mechanism=True)
+        # The nonzero witness: the default axis of the same fit runs.
+        assert result.diagnostics.capability("truncation_curve").available
+        assert len(result.diagnostics.truncation_curve([0.05])["bound"]) == len(result.estimates)
+
+    def test_a_natural_course_fit_sweeps_its_only_axis_by_default(
+        self, truncation_fits: dict[str, Any]
+    ) -> None:
+        result = truncation_fits["natural_course"]
+        assert truncation_axis(result, None) is True
+        assert result.diagnostics.capability("truncation_curve").available
+        curve = result.diagnostics.truncation_curve([0.05])
+        assert len(curve["bound"]) == 1
+        with pytest.raises(CapabilityError, match=r"is unavailable: NaturalCourseMean"):
+            result.diagnostics.truncation_curve(mechanism=False)
+
+
+class TestEachTruncationMutationRestoresADisagreement:
+    """The agreement check sees a row that stops reading the predicate."""
+
+    @pytest.mark.parametrize("kind", list(TRUNCATION_STATUS_OF))
+    def test_m0_every_kind_agrees_unmutated(
+        self, truncation_fits: dict[str, Any], kind: str
+    ) -> None:
+        assert truncation_disagreements(truncation_fits[kind]) == []
+
+    @pytest.mark.parametrize("kind", ["incremental", "incremental+missing"])
+    def test_a_row_that_ignores_the_predicate_disagrees_on_the_bare_request(
+        self, truncation_fits: dict[str, Any], kind: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The row as it was: available on either axis, so a report ran the refused default."""
+        monkeypatch.setattr(
+            DiagnosticsFacade, "_truncation_gated", lambda self, capability, arguments: capability
+        )
+        problems = truncation_disagreements(truncation_fits[kind])
+        assert any(problem.startswith("{}: the row reads available") for problem in problems)
+
+    def test_the_same_mutation_leaves_a_fit_that_admits_every_axis_alone(
+        self, truncation_fits: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            DiagnosticsFacade, "_truncation_gated", lambda self, capability, arguments: capability
+        )
+        assert truncation_disagreements(truncation_fits["missing"]) == []
