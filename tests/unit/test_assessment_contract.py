@@ -26,11 +26,9 @@ from cleverly import (
     CausalStudy,
     ExplicitAdjustmentProvider,
     IdentificationProvider,
-    LongitudinalTreatment,
     NaturalCourseMean,
     PointTreatment,
     PositivityWarning,
-    RegimeMean,
     ValidationReport,
     load,
 )
@@ -50,7 +48,7 @@ from cleverly.assessment import (
     LongitudinalDiagnostics,
     _defaults_to_ambiguous_estimand,
 )
-from cleverly.datasets import make_linear_ate, make_longitudinal, make_multi_arm
+from cleverly.datasets import make_linear_ate, make_multi_arm
 from cleverly.estimators import TMLE
 from cleverly.sensitivity import ConfounderStrengthGrid, PositivityReport, simulated_confounding
 from cleverly.sensitivity import omitted_variable as omitted_variable_module
@@ -245,29 +243,9 @@ def overfit_propensity_result():  # type: ignore[no-untyped-def]
 
 
 @pytest.fixture(scope="module")
-def longitudinal_result():  # type: ignore[no-untyped-def]
-    frame, _ = make_longitudinal(n=400, seed=12)
-    study = CausalStudy(
-        frame,
-        design=LongitudinalTreatment(
-            outcome="Y",
-            treatment=["A1", "A2"],
-            baseline=["W1", "W2"],
-            time_varying=[[], ["L2"]],
-            censoring=["C1", "C2"],
-        ),
-    )
-    return study.identify(RegimeMean({"always": 1, "never": 0})).estimate(
-        outcome_learner=sklearn.linear_model.LinearRegression(),
-        pseudo_learner=sklearn.linear_model.LinearRegression(),
-        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
-        censoring_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
-        n_folds=3,
-        learner_folds=2,
-        random_state=5,
-        simultaneous=False,
-        **IN_SAMPLE,
-    )
+def longitudinal_result() -> Any:
+    """The in-sample two-node regime fit, the sweep's ``ltmle`` kind."""
+    return KINDS["ltmle"].build()
 
 
 @pytest.fixture(scope="module")

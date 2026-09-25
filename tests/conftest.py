@@ -233,6 +233,24 @@ def linear_ctmle(strategy: CTMLEStrategy, **overrides: Any) -> CTMLE:
     return CTMLE(strategy=strategy, **linear_in_sample(**overrides))
 
 
+def linear_drtmle(**overrides: Any) -> dict[str, Any]:
+    """Explicit linear learners for every ``DRTMLE`` nuisance, with no simultaneous bands.
+
+    The fit cross-fits, which is the ``DRTMLE`` default, so a caller names ``n_folds``.
+    Each call builds fresh learners.
+    """
+    return {
+        "outcome_learner": LinearRegression(),
+        "treatment_learner": LogisticRegression(max_iter=1000),
+        "reduced_outcome_learner": LinearRegression(),
+        "reduced_treatment_learner": LogisticRegression(max_iter=1000),
+        "learner_folds": 2,
+        "random_state": 0,
+        "simultaneous": False,
+        **overrides,
+    }
+
+
 #: One configuration per selector path, for a claim that must hold on all three.  Three
 #: selection folds keep each search in the fast tier.  The ordered path ranks by a
 #: logistic preorder, so a test can pass any covariate set without an explicit ``ordering``.

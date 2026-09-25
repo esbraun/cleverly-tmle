@@ -6,9 +6,9 @@ nobody had asked the row about. :data:`KINDS` names one builder per kind, so eve
 that asks a row about a kind asks it about the same fit.
 
 Each builder fits in sample with the explicit linear learners of
-:func:`tests.conftest.linear_in_sample`, unless its docstring says otherwise. Each call
-returns a fresh result, so no test reads a facade or a cached report that another test
-filled.
+:func:`tests.conftest.linear_in_sample`, unless its docstring says otherwise.
+:meth:`Kind.build` fits each kind once per process and returns a fresh copy of the
+result, so no test reads a facade or a cached report that another test filled.
 
 :func:`problems` is the sweep's instrument, and :data:`MUTATIONS` holds the monkeypatched
 defects it must see. Each mutation restores one pre-RM23 answer at the seam its fix added.
@@ -56,6 +56,7 @@ from tests.conftest import (
     IN_SAMPLE,
     SELECTOR_CONFIGS,
     linear_ctmle,
+    linear_drtmle,
     linear_in_sample,
     mean_one_weights,
 )
@@ -303,36 +304,28 @@ def fit_ctmle_ordered() -> Any:
     return ctmle_ordered().fit(frame, outcome="Y", treatment="A").single()
 
 
-def drtmle_settings() -> dict[str, Any]:
-    """Cross-fitted DR-TMLE with explicit linear learners, as the companion tests fit it."""
-    return {
-        "outcome_learner": LinearRegression(),
-        "treatment_learner": LogisticRegression(max_iter=1000),
-        "reduced_outcome_learner": LinearRegression(),
-        "reduced_treatment_learner": LogisticRegression(max_iter=1000),
-        "n_folds": 3,
-        "learner_folds": 2,
-        "random_state": 0,
-        "simultaneous": False,
-        "estimands": ("ate",),
-    }
+def drtmle_companion_frame() -> Any:
+    """The ``evaluation=`` companion of :func:`fit_drtmle`, an independent draw of its law."""
+    frame, _ = make_binary_outcome(n=80, seed=12)
+    return frame
 
 
-def fit_drtmle(*, companion: bool = False) -> Any:
-    """A DR-TMLE fit of a binary outcome, with an ``evaluation=`` companion when asked.
+def fit_drtmle(evaluation: Any = None) -> Any:
+    """A two-fold DR-TMLE fit of a binary outcome, ``make_binary_outcome(160, 11)``.
 
-    The outcome is binary, so the cross-fitted fit needs no declared ``q_bounds``. The
-    companion is an independent draw of the same law.
+    The outcome is binary, so the cross-fitted fit needs no declared ``q_bounds``.
+    ``evaluation`` is the companion the estimator declares, or ``None``. Two folds of 160
+    rows keep each refit of the sweep cheap, and every row answers as it does at three
+    folds of 240.
     """
-    frame, _ = make_binary_outcome(n=240, seed=11)
-    evaluation = make_binary_outcome(n=120, seed=12)[0] if companion else None
-    estimator = DRTMLE(**drtmle_settings(), evaluation=evaluation)
+    frame, _ = make_binary_outcome(n=160, seed=11)
+    estimator = DRTMLE(**linear_drtmle(n_folds=2, estimands=("ate",)), evaluation=evaluation)
     return estimator.fit(frame, outcome="Y", treatment="A").single()
 
 
 def fit_drtmle_companion() -> Any:
-    """:func:`fit_drtmle` with an ``evaluation=`` companion."""
-    return fit_drtmle(companion=True)
+    """:func:`fit_drtmle` with the frame of :func:`drtmle_companion_frame` as its companion."""
+    return fit_drtmle(drtmle_companion_frame())
 
 
 def fit_policy_means() -> Any:
@@ -447,7 +440,7 @@ def restored_v011() -> Any:
 
 
 def fit_ltmle() -> Any:
-    """The in-sample two-node regime fit of ``tests/unit/test_assessment_contract.py``."""
+    """The in-sample two-node regime fit of ``make_longitudinal(400, 12)``."""
     frame, _ = make_longitudinal(n=400, seed=12)
     study = CausalStudy(
         frame,
@@ -535,14 +528,20 @@ def assert_replay_rows_refused(result: Any) -> None:
 # ------------------------------------------------------------------------- the kinds
 
 
+@functools.cache
+def _fitted(fit: Callable[[], Any]) -> Any:
+    """``fit()``, run once per process. Only :meth:`Kind.build` reads it, and it copies."""
+    return fit()
+
+
 @dataclass(frozen=True)
 class Kind:
     """One kind of fit the sweep asks every row about.
 
     Parameters
     ----------
-    build : callable
-        Returns a fresh result of this kind.
+    fit : callable
+        Fits a result of this kind. :meth:`build` calls it once per process.
     must_run : frozenset of str
         Rows whose operation must answer in the sweep's report. This is the nonzero
         witness: a row refused by mistake passes the no-decline check and fails here.
@@ -552,13 +551,24 @@ class Kind:
         true. Every fit in this version refits, and a restored kind is one it refuses.
     """
 
-    build: Callable[[], Any]
+    fit: Callable[[], Any]
     must_run: frozenset[str]
     refits: bool = True
 
+    def build(self) -> Any:
+        """A fresh copy of this kind's result, which shares the fit and nothing it reported.
 
-def _kind(build: Callable[[], Any], *must_run: str, refits: bool = True) -> Kind:
-    return Kind(build, frozenset(must_run), refits)
+        :func:`dataclasses.replace` gives the copy an empty ``assessment_cache`` and no
+        memoized facade, so no report or row computed on another copy can answer for it.
+        The estimator, the data and the nuisances are shared, and no call the tests make
+        writes to them. The fit runs on the first call, so a test that builds before it
+        applies a mutation fits without the mutation.
+        """
+        return dataclasses.replace(_fitted(self.fit))
+
+
+def _kind(fit: Callable[[], Any], *must_run: str, refits: bool = True) -> Kind:
+    return Kind(fit, frozenset(must_run), refits)
 
 
 #: The rows that read a fit's own nuisances and scores.

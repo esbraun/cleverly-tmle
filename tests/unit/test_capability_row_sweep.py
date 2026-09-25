@@ -16,7 +16,6 @@ matches its signature.
 
 from __future__ import annotations
 
-import dataclasses
 import re
 from typing import Any
 
@@ -45,6 +44,17 @@ def test_every_row_a_request_resolves_available_answers_it(kind: str) -> None:
     if result.assessment_family == "point":
         # A fit passed the refit preflight, and a restored kind is one it refuses.
         assert replayability(result).refit_nuisances is KINDS[kind].refits
+
+
+def test_each_build_is_a_fresh_copy_of_one_fit() -> None:
+    """The tests share each kind's fit, and never a report or a facade another one filled."""
+    first, second = KINDS["ordinary"].build(), KINDS["ordinary"].build()
+    assert first is not second
+    assert first.estimator is second.estimator and first.data is second.data
+    first.diagnostics.run_all()
+    assert first.assessment_cache
+    assert second.assessment_cache == {}
+    assert "diagnostics" not in vars(second)
 
 
 class _Recorder:
@@ -82,12 +92,11 @@ class TestEachMutationRestoresAMismatch:
         self, name: str, kind: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         mutation = MUTATIONS[name]
-        # Built before the mutation, because M7 removes what a restored build reads.
-        fitted = KINDS[kind].build()
+        # Built before the mutation, because M7 removes what a restored build reads. The
+        # copy has an empty report cache and no memoized facade, so no answer computed
+        # before the mutation can hide it.
+        result = KINDS[kind].build()
         mutation.apply(monkeypatch)
-        # A fresh copy has an empty report cache and no memoized facade, so no answer
-        # computed before the mutation can hide it.
-        result = dataclasses.replace(fitted)
         found = sweep(result)
         if kind in mutation.fails_on:
             # The failure is the mutated component's, and not a stale seam's.

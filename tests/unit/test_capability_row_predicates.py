@@ -33,6 +33,7 @@ from cleverly.assessment import (
     SensitivityFacade,
     replayability,
 )
+from cleverly.data import CausalData
 from cleverly.datasets import make_binary_outcome, make_linear_ate
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators.serialize import dumps, loads
@@ -92,6 +93,7 @@ from tests.unit._capability_sweep_support import (
     ctmle_ordered,
     ctmle_stratified,
     discrete_fit,
+    drtmle_companion_frame,
     fit_drtmle,
     replay_disagreements,
     restored,
@@ -1231,7 +1233,7 @@ def confounding_fits() -> dict[str, Any]:
     return {
         "categorical": dataclasses.replace(_estimate(confounding_study(), ATE())),
         "constant": _fit_with_a_support_constant_covariate(),
-        "natural_course": _fit_attributable("ey_obs", family="gaussian", strata=False),
+        "natural_course": KINDS["natural_course_study"].build(),
         "policy_means": KINDS["policy_means"].build(),
     }
 
@@ -1625,10 +1627,30 @@ class TestAnAddedCovariateGoesAfterTheDeclaredOrdering:
             )
 
 
+#: The name the ``random_common_cause`` refit gives its noise covariate.
+NOISE = "_noise_0"
+
+
+def _noise(n: int) -> Any:
+    """A standard normal column. A constant one would be dropped as a covariate."""
+    return np.random.default_rng(1).standard_normal(n)
+
+
 @pytest.fixture(scope="module")
-def drtmle_pair() -> tuple[Any, Any]:
-    """The DR-TMLE fit with an ``evaluation=`` companion, and the same fit without one."""
-    return KINDS["drtmle_companion"].build(), fit_drtmle(companion=False)
+def drtmle_fits() -> dict[str, Any]:
+    """The DR-TMLE fit under each kind of companion, and the same fit without one.
+
+    ``frame`` is the sweep's companion frame. ``prepared`` is the same rows as a
+    :class:`~cleverly.data.CausalData`, which names the fit's covariates alone. ``extended``
+    is the frame with a column for the covariate the refit adds, so it follows the refit.
+    """
+    frame = drtmle_companion_frame()
+    return {
+        "frame": KINDS["drtmle_companion"].build(),
+        "prepared": fit_drtmle(CausalData.from_frame(frame, outcome="Y", treatment="A")),
+        "extended": fit_drtmle(frame.assign(**{NOISE: _noise(len(frame))})),
+        "plain": KINDS["drtmle"].build(),
+    }
 
 
 def _noise_refit_values(result: Any) -> tuple[float, ...]:
@@ -1637,32 +1659,58 @@ def _noise_refit_values(result: Any) -> tuple[float, ...]:
     return report["random_common_cause"].values
 
 
+def _noisy(result: Any) -> Any:
+    """The data of ``result`` with the covariate the ``random_common_cause`` refit adds."""
+    return result.data.with_extra_covariate(_noise(result.data.n), NOISE)
+
+
 class TestARefitDropsACompanionThatLacksACovariate:
     """``DRTMLE._configured_for_refit`` refits without a companion that cannot follow."""
 
+    @pytest.mark.parametrize("companion", ["frame", "prepared", "extended"])
     def test_the_refute_draws_equal_the_fit_without_a_companion(
-        self, drtmle_pair: tuple[Any, Any]
+        self, drtmle_fits: dict[str, Any], companion: str
     ) -> None:
-        paired, plain = drtmle_pair
+        paired = drtmle_fits[companion]
         evaluation = paired.estimator.evaluation
         values = _noise_refit_values(paired)
         # Bit for bit: the companion enters no fit, fold or score.
-        assert values == _noise_refit_values(plain)
+        assert values == _noise_refit_values(drtmle_fits["plain"])
         # The nonzero witness: the refit moved the estimate, so the equality has content.
         assert values[0] != paired["ate"].psi
         # The fit keeps its own companion.
         assert paired.estimator.evaluation is evaluation
 
-    def test_an_estimator_that_keeps_its_companion_is_refused(
-        self, drtmle_pair: tuple[Any, Any], monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("companion", ["frame", "prepared"])
+    def test_a_companion_without_the_added_covariate_is_dropped(
+        self, drtmle_fits: dict[str, Any], companion: str
     ) -> None:
-        """M5: without the hook the companion lacks ``_noise_0``."""
+        estimator = drtmle_fits[companion].estimator
+        configured = estimator._configured_for_refit(_noisy(drtmle_fits[companion]))
+        assert configured is not estimator
+        assert configured.evaluation is None
+        # The companion still follows a refit on the fit's own covariates.
+        assert estimator._configured_for_refit(drtmle_fits[companion].data) is estimator
+
+    def test_a_frame_that_holds_the_added_covariate_is_kept(
+        self, drtmle_fits: dict[str, Any]
+    ) -> None:
+        estimator = drtmle_fits["extended"].estimator
+        assert estimator._configured_for_refit(_noisy(drtmle_fits["extended"])) is estimator
+
+    def test_an_estimator_that_keeps_its_companion_is_refused(
+        self, drtmle_fits: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """M5: without the hook neither the frame nor the prepared companion holds the noise."""
         MUTATIONS["M5"].apply(monkeypatch)
-        paired, plain = drtmle_pair
-        with pytest.raises(DataError, match="_noise_0"):
-            _noise_refit_values(paired)
-        # The same mutation leaves the fit without a companion running.
-        assert _noise_refit_values(plain)
+        with pytest.raises(DataError, match=NOISE):
+            _noise_refit_values(drtmle_fits["frame"])
+        with pytest.raises(ValueError, match=r"the companion carries covariates .* the fit"):
+            _noise_refit_values(drtmle_fits["prepared"])
+        # The same mutation leaves the fit without a companion running, and the companion
+        # that holds the column too.
+        assert _noise_refit_values(drtmle_fits["plain"])
+        assert _noise_refit_values(drtmle_fits["extended"])
 
 
 # ---------------------------------------------------------------------- the replay slots
