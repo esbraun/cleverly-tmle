@@ -116,14 +116,25 @@ def _normalize(value: Any) -> Any:
 #: A later boundary correction changes zero-variance elements and bounds, unreachable
 #: robustness values, and the report rows that describe them. Their four entries move
 #: again so a saved fit recomputes those values rather than serving old NaNs or 0.9999.
+#:
+#: RM23 moved ``diagnostics.run_all`` to 11 and ``sensitivity.run_all`` to 6. Each row now
+#: reads the predicate its call raises from, so a battery cached before RM23 can carry a
+#: row that says "the operation declined this request". The truncation row of an
+#: incremental fit, the refute row of a fit given ``split_plan=`` or of the natural-course
+#: mean, and both tilt rows of a shift, incremental, regime, MSM or ratio-only fit with
+#: missing outcomes are such rows. A restored result whose refit this version refuses now
+#: reads its refit rows unavailable. No single entry moves. Each call checks the row of its
+#: request before it reads the cache, so an entry for a request that now refuses is never
+#: served, and a request that still runs computes what it computed before. ``validate``
+#: reads no row that RM23 changed.
 _CACHE_GENERATIONS: dict[str, int] = {
     "diagnostics.support": 4,
     "diagnostics.nuisance_models": 2,
-    "diagnostics.run_all": 10,
+    "diagnostics.run_all": 11,
     "sensitivity.elements": 3,
     "sensitivity.omitted_confounding": 3,
     "sensitivity.robustness_value": 3,
-    "sensitivity.run_all": 5,
+    "sensitivity.run_all": 6,
     "validate": 5,
 }
 

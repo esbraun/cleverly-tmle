@@ -61,11 +61,14 @@ from cleverly.sensitivity._simulated_confounding_request import (
     _MULTI_ARM_REFUSAL,
     _fit_wide_refusal,
 )
-from cleverly.sensitivity.positivity import positivity_report
+from cleverly.sensitivity.missingness import fit_wide_tilt_refusal
+from cleverly.sensitivity.positivity import positivity_report, truncation_refusal
 from cleverly.targets.population_intervention import NATURAL_COURSE_SUPPORT_REFUSAL
 from cleverly.validation.nuisance import nuisance_diagnostics
+from cleverly.validation.refute import DEFAULT_TESTS, refute_refusal
 from tests import discrete_law_mar
 from tests.conftest import IN_SAMPLE, OracleMissingness, OracleOutcome, OracleTreatment
+from tests.unit._capability_sweep_support import DECLINED, KINDS, MUTATIONS
 from tests.unit._confounding_support import forbid_draw_and_refit
 
 
@@ -2683,3 +2686,99 @@ def test_an_att_bound_saved_before_rm22_is_recomputed(att_result, monkeypatch, t
     assert loaded.sensitivity.omitted_confounding(**strength).ci_lower == stale_bound.ci_lower
     assert loaded.sensitivity.robustness_value(estimand="att") == stale_values
     assert loaded.sensitivity.run_all()["robustness_value"].detail == stale_row.detail
+
+
+#: The combined reports' generations before RM23.  Facts about saved artifacts, so literals
+#: rather than one below the current numbers, which would move with a missing bump.
+DIAGNOSTICS_RUN_ALL_BEFORE_RM23 = 10
+SENSITIVITY_RUN_ALL_BEFORE_RM23 = 5
+
+
+def _keyed_before_rm23(patch: pytest.MonkeyPatch) -> None:
+    """Key the two combined reports as the version before RM23 keyed them."""
+    patch.setitem(_CACHE_GENERATIONS, "diagnostics.run_all", DIAGNOSTICS_RUN_ALL_BEFORE_RM23)
+    patch.setitem(_CACHE_GENERATIONS, "sensitivity.run_all", SENSITIVITY_RUN_ALL_BEFORE_RM23)
+
+
+def _as_before_rm23(patch: pytest.MonkeyPatch) -> None:
+    """Make the package compute and key its combined reports as it did before RM23.
+
+    M1 to M3 of the sweep restore the tilt, truncation and refute rows that ignored the
+    predicate their calls raise from.
+    """
+    for name in ("M1", "M2", "M3"):
+        MUTATIONS[name].apply(patch)
+    _keyed_before_rm23(patch)
+
+
+def _assert_recomputed_after_loading(
+    result: Any,
+    facade: str,
+    operation: str,
+    run_all: dict[str, Any],
+    status: AssessmentStatus,
+    reason: Any,
+    patch: pytest.MonkeyPatch,
+    path: Any,
+) -> None:
+    """A row cached before RM23 is recomputed once the result is saved and loaded.
+
+    The stale report is written as the version before RM23 wrote it, and it declines the
+    request. The loaded result must answer with ``status`` and the sentence ``reason``
+    returns for it. The control keys the loaded result as before RM23, without the rows
+    that wrote the stale report, and the stale row is served again. So a reverted
+    generation fails the fresh assertion, because the key it reads holds the stale row.
+    """
+    with patch.context() as before_rm23:
+        _as_before_rm23(before_rm23)
+        stale = getattr(result, facade).run_all(**run_all)[operation]
+    assert stale.status is AssessmentStatus.UNAVAILABLE
+    assert DECLINED in stale.detail
+    loaded = load(result.save(path))
+
+    fresh = getattr(loaded, facade).run_all(**run_all)[operation]
+    assert fresh.status is status
+    assert fresh.detail == reason(loaded)
+
+    _keyed_before_rm23(patch)
+    assert getattr(loaded, facade).run_all(**run_all)[operation].detail == stale.detail
+
+
+def test_a_tilt_row_cached_before_rm23_is_recomputed(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    _assert_recomputed_after_loading(
+        KINDS["shift+missing"].build(),
+        "sensitivity",
+        "missingness",
+        {"include_retargets": True},
+        AssessmentStatus.UNAVAILABLE,
+        fit_wide_tilt_refusal,
+        monkeypatch,
+        tmp_path / "tilt-before-rm23.joblib",
+    )
+
+
+def test_a_truncation_row_cached_before_rm23_is_recomputed(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    _assert_recomputed_after_loading(
+        KINDS["incremental"].build(),
+        "diagnostics",
+        "truncation_curve",
+        {"include_retargets": True},
+        AssessmentStatus.UNAVAILABLE,
+        truncation_refusal,
+        monkeypatch,
+        tmp_path / "truncation-before-rm23.joblib",
+    )
+
+
+def test_a_refute_row_cached_before_rm23_is_recomputed(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """The refute row shares the diagnostic report, and it now defers on ``tests``."""
+    _assert_recomputed_after_loading(
+        KINDS["split_plan"].build(),
+        "diagnostics",
+        "refute",
+        {"include_refits": True},
+        AssessmentStatus.DEFERRED,
+        lambda loaded: refute_refusal(loaded, estimand="ate", tests=DEFAULT_TESTS),
+        monkeypatch,
+        tmp_path / "refute-before-rm23.joblib",
+    )
