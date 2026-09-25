@@ -3255,8 +3255,8 @@ executed again, because its incremental truncation row changes.
 
 The four parts shipped as commit e7c7b29f planned them. The sweep then found three more rows that
 read available while the call refused, and three more commits fixed them. Each row of the table
-ends with the commit that shipped it. The review fixes changed four parts after the delivery, and
-each of those rows names the fix.
+ends with the commit that shipped it. The [review fixes](#rm23-review-fixes) changed four parts
+after the delivery, and each of those rows names the fix.
 
 | part | what shipped |
 | --- | --- |
@@ -3390,6 +3390,99 @@ No full fast-suite count is recorded at 0cd452b4. The first full count on this b
 passed and 96 skipped, at commit ebb1774e. The full fast suite gave 12355 passed and 96 skipped at
 commit 3a9e429a, and the same count with this record.
 
+(rm23-review-fixes)=
+
+#### RM23 review fixes
+
+Four reviews read the RM23 delivery at commit 2458b4e1: the source, the tests, the design for
+duplication and simplicity, and the documents. The source review found five defects, S1 to S5.
+The test review found five defects, T1 to T5, and six smaller findings, T-N1 to T-N5 and T-N7. The
+design review found sixteen findings, Y1 to Y9 and YA to YG. The document review found two errors,
+D-E1 and D-E2, nine imprecise statements, D-I1 to D-I9, one style group, D-style, and one finding
+to decline, D-decline.
+
+No finding moves a computed value, and no study is regenerated. The table gives the commit of each
+finding. "This record" is the commit that adds this section.
+
+| commit | what it changed |
+| --- | --- |
+| c5b140df, S1 | the refit slot read the base fold policy and four data contracts alone, so it missed a subclass refusal before a learner. A real C-TMLE artifact that release 0.1.1 fitted in sample on `make_clustered(400, 10, 7)` read `refit_nuisances` true, its refit raised `CapabilityError`, and `assess` published a declined `refute` item. `_refit_configuration_refusal` now runs `_configured_for_refit(data)._resolve_estimands_for_data(data)`, the chain that `refit()` runs. The sweep gains the kind `restored_ctmle_clustered`, M6 fails on it, and the replay table gains "ctmle oat clustered". The paragraph below the table records one departure |
+| c5b140df, YB | the staticmethod `_restored_policy_refusal` is `_fold_policy_refusal(self)`, which returns the whole sentence or `None`. The fit and the slot share it |
+| 7fb3c3c0, S2 | `refute()` raised seven refusals before a refit that the row did not read. On a direct fit, the row read available for `tests=("dummy_outcome",)`, and `run_all` published a declined item. `_REQUEST_RULES` now holds eleven rules in the order of the call, and the two eligibility rules call the existing validators. A test pins one request for each new rule. The nonzero witness runs the generated-outcome and measurement-error tests on a study fit |
+| 7fb3c3c0, S3 | the facade read the `refute` row before the function checked the test names, and `benchmark_refusal` read an unknown covariate as a dropped one. `_validated_tests` and `_benchmark_names` now run first on both paths, and each predicate returns `None` where they raise. Tests pin the order on the facade, the row, and the function |
+| 7fb3c3c0, S4 | `_skipped` gave `{}` to every unavailable item. An item that the request refuses now carries the request with the signature defaults bound, and no generic next step. A row that the fit refuses still carries nothing |
+| 7fb3c3c0, Y3 | the refit check in `DiagnosticsFacade.refute` is gone, because the replay gate of the row refuses first |
+| b4083729, S5 | the public `capability()` omitted the estimand gate. `_capability_map` now applies the estimand gate and then the request gate, as `_capability_for_arguments` does. `_require` reads `_request_gated(_gated(op), arguments)`, so no direct call that names an estimand starts to refuse. The commit body gives the evidence for this choice |
+| b4083729, Y1 | the two `_request_gated` overrides are one base method. It looks up the gate that the class table `_request_gates` names, so the monkeypatch seams still work |
+| b4083729, Y2 | the `tipping_gamma` override of `_capability_for_arguments` and `_tipping_interval_row` are `_tipping_interval_gated`, a gate of the same table |
+| b4083729, Y7 | `_refute_gated` resolves an omitted estimand through `_argument_default`, as the simulated-confounding gate does, and not through a literal `"ate"` |
+| b4083729, YC | `_gated` and `capability` share `_lookup` and its `KeyError` sentence |
+| b4083729 and adc1516d, Y8 | four source comments state present facts, and five test docstrings lose the `RM23:` prefix. Commit 3358a4c0 removed the probe date from the `KINDS` comment |
+| 3358a4c0, T1 | a mutation passed on any problem of a named kind, so the `TypeError` of a stale seam read as detection. Each `Mutation` now carries a `signature`, a regular expression that one problem of each named kind must match |
+| 3358a4c0, T2 | `must_run` of each kind is the snapshot of the rows that it answered in a measured run. A row that starts to refuse by mistake then fails its kind |
+| 3358a4c0, T-N2 | the M0 wrapper forwards keyword arguments |
+| 3358a4c0, T-N3 | `test_each_mutation_names_its_kinds_and_patches_a_seam` asserts that each mutation after M0 names kinds and a signature. A recording stand-in asserts that it patches only `SEAMS` or the `split_plan` class default |
+| 3358a4c0, T-N4 | `Kind.live` is `Kind.refits`, because it says whether `refit()` runs |
+| 3358a4c0, Y5 | the predicate tests import `DECLINED_TILT_KINDS`, where they kept a second copy |
+| 3358a4c0, Y9 | a docstring line of about 170 characters is rewrapped |
+| 42533a85, T3 | the DR-TMLE kinds fit two folds of 160 rows, with an 80-row companion. `Kind.build` fits each kind once per process and returns a copy from `dataclasses.replace`. The sweep and predicate modules took 195.5 s summed and 52.2 s wall at `-n 4` for 585 tests. They now take 84.3 s and 24.0 s for 601 tests. Every row reads what it read, and the companion witness holds bit for bit |
+| 42533a85, T4 | the companion tests reach the two branches of `DRTMLE._configured_for_refit` that no test reached: a prepared `CausalData` companion, and a frame companion that holds the added column |
+| 42533a85, T-N5 | partly fixed. `tests/conftest.py` holds `linear_drtmle`, which `test_drtmle_companion.py` and the sweep share. The `longitudinal_result` fixture is the `ltmle` kind of the sweep. Two duplicates stay. The ratio-only fit of the bound section has another seed and purpose. The `_msm_declaration_support` import predates the branch |
+| 42533a85, Y6 and T-N1 | the natural-course confounding fit is a copy from `KINDS["natural_course_study"].build()`, not the object that the process caches |
+| adc1516d, T5 | `assert_replay_rows_refused` asserts the replay code that the rows quote. `assert_replay_rows_available` is its mirror for a declared control |
+| adc1516d, T-N7 | a test pins that `tipping_gamma()` on each refused tilt kind refuses before it checks `search=` |
+| adc1516d, Y4 | the six agreement pairs in `test_capability_row_predicates.py` share `_disagreement`, and the spied calls share `_spied_raised`. Each message is unchanged |
+| adc1516d, YD | the three replay helpers moved to `tests/unit/_declaration_support.py`. The helper `restored` of the sweep is `reconfigured`, so its name differs from `_declaration_support.restored` |
+| adc1516d, YE | the three cached-before-RM23 tests are one parametrized test with annotated fixtures |
+| 209396df, YG | `docs/architecture-invariants.md` names `KINDS` and `MUTATIONS`, and it gives no count that can drift |
+| 209396df, D-E1 | the delivery cited hand mutations that the plan does not name. A table now defines H1 to H5, with the file and what failed, and the text says "The delivery ran" |
+| 209396df, D-E2 | the pointer departure names H5 |
+| 209396df, D-I1 | the queue records that the RM23 delivery re-triaged the refusal-surfaces group, and it says "first decimal digit" |
+| 209396df, D-I2 | RM31 names release 0.1.0 or 0.1.1. Tag v0.1.0 sets the same default at `tmle.py:371` and `:377`, and it has no `split_plan`, so one witness covers both |
+| 209396df, D-I3 | the tier-e reason states the extension that holds the three RM16 rows from RM23, and the RM16 cells say so |
+| 209396df, D-I4 | the RM28 review text says that RM23 held and delivered the mismatches, and that RM31 holds the saved inference status |
+| 209396df, D-I5 | the user guide names the guarded DR-TMLE fit as the exception to the cached-nuisance retargets that run |
+| 209396df, D-I6 | the `benchmark` order table starts with the unknown name, and it gains the unreported-estimand step. The `nu2_estimator` sentence says which checks come first. The docstring was already true after S3 |
+| 209396df, D-I7 | the release-notes table gains the six direct changes of the review, and the changes of S1 to S5 and Y7 |
+| 209396df, D-I8 | the user guide gains a table of the four argument deferrals |
+| 209396df, D-I9 | witness 3 cites `TestAnAddedCovariateGoesAfterTheDeclaredOrdering`. Witness 4 cites the regime and MSM slot tests |
+| 209396df, D-style | two long lines are rewrapped. The RM32 sentence says in-sample, and the second RM16 sentence says "Three more findings". The invariant on `_configured_for_refit` has one idea for each sentence. The malformed list of the simulated-confounding call names a continuous fit that names no policy parameter. Five rendered docstrings write `truncation_refusal`, `fit_wide_tilt_refusal`, and `benchmark_refusal` as literals, because no API page renders them |
+| 209396df, trailing documents | the refute rule table has eleven rules, and the invariants say that a request-refused row records its arguments. The scope page and the user guide name a subclass design check as a refused refit configuration. The delivery record gives 30 kinds, 330 mutation pairs, and thirteen replay results |
+| none, YA | declined. A generic first-refusal helper over the rule tables reads no better than each loop, and it weakens the typing of each rule |
+| none, YF | declined. Each predicate section builds its own fits on purpose, so one section cannot change the input of another |
+| none, D-decline | declined. The loose `name:` form in the `CTMLE` and `DRTMLE` class docstrings predates the branch, and no API page renders those classes with numpydoc |
+
+S1 departs from its decision in one place. The decision named `CapabilityError` and `DataError` as
+the refusals that the slot reads. The slot also reads a plain `ValueError` and a
+`NotImplementedError`. `CTMLE._check_estimands` refuses `att` with a plain `ValueError`, and
+`DRTMLE._check_drtmle` raises `NotImplementedError`, before any learner. With the narrow catch,
+`test_the_eligible_alias_set_drops_what_the_replay_guard_would_refuse` raised `ValueError` from
+`capability()` on a copied estimator.
+
+The chain fits nothing, so the wider catch reads no learner error as a refusal. Any other exception
+propagates. No result that a release saved meets a subclass design check first. The commit body of
+c5b140df gives the reason for each estimator. [RM24](#rm24-refusals-after-the-nuisance-fit) now
+records the plain types, and it narrows the catch when it moves those refusals to
+`CapabilityError`.
+
+The source fixes found one more late check. A 2026-09-25 probe on the `ordinary` kind of the sweep
+at commit adc1516d called `refute(tests=("placebo", "negative_control_outcome"), n_replicates=3)`
+without `negative_control_outcome=`. The call raised `ValueError` after three placebo refits. The
+`refute` row read `passed` for that request, and `assess(include_refits=True)` raised the same error
+after the same refits.
+
+RM24 holds this check. The error is correct and arrives after work, which is tier c. It is not tier
+b, because S3 makes a malformed argument stop a combined report, as it stops a direct call. The fix
+checks the missing array in `_validated_tests`, before any refusal or refit.
+
+`scripts/execute_notebook.py --check` reproduces every cell of nine notebooks at commit adc1516d.
+`twins-causal-inference` differs in the three cells that RM22 recorded, from the Python version of
+the stored run. So no notebook was executed again.
+
+The source and test commits give 12370, 12404, 12407, 12417, 12423, and 12428 passed, with 96
+skipped each. The full fast suite gave 12428 passed and 96 skipped at 209396df, and the same
+count with this record.
+
 ### RM24. Refusals after the nuisance fit
 
 The [Definition of done](#definition-of-done) asks for a pre-fit test for every well-posed
@@ -3419,7 +3512,7 @@ The fold preflight runs earlier, so a sample with no respondent in a training co
 | `respondents_in_one_fold()` from `tests/unit/test_fold_policy_rules.py`, `DRTMLE(cross_fit=True, n_folds=6, random_state=1146, q_bounds=(0, 1))`, at `guard=("Q", "g")` and at `guard=()` | `DataError` "cross-fitted DR-TMLE cannot fit its nuisances because repeat 0, fold 2's training complement contains no row with an observed outcome". The composition is refused at every sample, so the data error names a problem that no other sample would fix |
 | `binary_missing_frame()` from `tests/unit/test_cross_fitted_missing_off_contract.py`, `DRTMLE(cross_fit=True, n_folds=5, random_state=0)` with `NeverFit` learners | `guard=()` raises `NotImplementedError` "the published missing-outcome DR-TMLE theorem uses Donsker conditions and does not establish its cross-validated extension". `guard=("Q", "g")` raises the randomized-trial `NotImplementedError` first. `NeverFit.calls` is 0 in both |
 
-The RM23 review found two more consumers of this row. The table gives both.
+The [RM23 review](#rm23-review-fixes) found two more consumers of this row. The table gives both.
 
 | finding | measured | what this row must do |
 | --- | --- | --- |
