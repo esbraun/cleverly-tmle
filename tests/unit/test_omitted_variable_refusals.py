@@ -245,6 +245,17 @@ def natural_course_fit() -> Any:
     )
 
 
+@pytest.fixture(scope="module")
+def ratio_only_fit() -> Any:
+    """An arm-indexed fit that reports ratios alone, so the bound has no parameter here."""
+    frame, _ = make_binary_outcome(n=400, seed=92)
+    return (
+        fast_tmle(**IN_SAMPLE, estimands=("rr", "or"))
+        .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
+
+
 #: The refused fits, with the covariate :func:`benchmark` would have dropped.  The
 #: covariate is carried beside the fit because ``benchmark`` is the one entry point that
 #: takes an argument the fit's own columns decide.  Every one is a real fit of its kind,
@@ -258,6 +269,7 @@ REFUSED_FITS: tuple[tuple[str, str], ...] = (
     ("ipsi_fit", "W1"),
     ("shift_fit", "W1"),
     ("msm_fit", "W1"),
+    ("ratio_only_fit", "W1"),
     ("repeated_fit", "W1"),
 )
 
@@ -454,6 +466,7 @@ class TestTheRuleTableIsOrderedAndEveryRuleIsReachable:
             "response_mechanism",
             "intermediate",
             "parameter_axis",
+            "bound_parameters",
             "repeats",
         ]
 
@@ -502,6 +515,7 @@ class TestTheRuleTableIsOrderedAndEveryRuleIsReachable:
             ("response_mechanism", "response_fit", {}),
             ("intermediate", "intermediate_fit", {}),
             ("parameter_axis", "plain_fit", {"parameter_axis": "regime"}),
+            ("bound_parameters", "ratio_only_fit", {}),
             ("repeats", "repeated_fit", {}),
         ],
     )
@@ -529,15 +543,6 @@ class TestAnArmIndexedFitWithNoLinearParameter:
     counterfactuals are not arms does not have" a Riesz representer, which is a statement
     about a different fit.
     """
-
-    @pytest.fixture(scope="class")
-    def ratio_only_fit(self) -> Any:
-        frame, _ = make_binary_outcome(n=400, seed=92)
-        return (
-            fast_tmle(**IN_SAMPLE, estimands=("rr", "or"))
-            .fit(frame, outcome="Y", treatment="A")
-            .single()
-        )
 
     def test_it_is_refused_as_arm_indexed_and_reporting_no_linear_estimand(
         self, ratio_only_fit: Any

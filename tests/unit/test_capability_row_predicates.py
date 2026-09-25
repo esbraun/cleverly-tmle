@@ -31,7 +31,8 @@ from cleverly.assessment import (
     SensitivityFacade,
     replayability,
 )
-from cleverly.estimators import CTMLE
+from cleverly.datasets import make_binary_outcome
+from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
@@ -46,11 +47,19 @@ from cleverly.sensitivity.missingness import (
     tipping_gamma,
 )
 from cleverly.sensitivity.omitted_variable import (
+    _EVALUE_POINTER,
+    _FIT_WIDE_BOUND_RULES,
     _RESPONSE_BOUND_REFUSAL,
     _RESPONSE_TILT_POINTER,
+    OMITTED_VARIABLE_OPERATIONS,
     benchmark,
     benchmark_refusal,
+    contour_data,
     fit_wide_bound_refusal,
+    omitted_variable_bounds,
+    resolve_parameter,
+    robustness_value,
+    sensitivity_elements,
 )
 from cleverly.sensitivity.positivity import (
     _TRUNCATION_RULES,
@@ -60,6 +69,7 @@ from cleverly.sensitivity.positivity import (
 )
 from cleverly.targets.population_intervention import NATURAL_COURSE_TILT_REFUSAL
 from cleverly.validation.refute import _REQUEST_RULES, DEFAULT_TESTS, refute, refute_refusal
+from tests.conftest import linear_in_sample
 from tests.unit._capability_sweep_support import (
     DECLINED,
     INSTRUMENT_ORDERING,
@@ -978,6 +988,151 @@ class TestTheSimulatedConfoundingMutationRestoresADisagreement:
         assert len(problems) == len(refused)
         for request, problem in zip(refused, problems, strict=True):
             assert problem.startswith(f"{request}: the row reads available and the call raised")
+
+
+# ------------------------------------------------------------ the omitted-variable bound
+
+#: The entry point of each omitted-variable row, called as a user calls it, at the
+#: signature default ``estimand="ate"``. ``benchmark`` drops the first covariate.
+BOUND_CALLS: dict[str, Callable[[Any], Any]] = {
+    "omitted_confounding": omitted_variable_bounds,
+    "robustness_value": robustness_value,
+    "elements": sensitivity_elements,
+    "benchmark": lambda result: benchmark(
+        result, list(result.data.covariate_names[:1]), random_state=0
+    ),
+    "contour": lambda result: contour_data(result, grid_size=3),
+}
+
+#: Each arm-indexed fit that reports no mean and no linear contrast, and whether its
+#: refusal carries the E-value pointer. The complete-outcome natural-course mean is the
+#: sweep kind that found the defect. The attributable risk and fraction keep their strata.
+#: The ratio-only fit is the one whose reported parameters the E-value answers for.
+EMPTY_BOUND_FITS: dict[str, bool] = {
+    "natural_course_study": False,
+    "par": False,
+    "paf": False,
+    "ratio_only": True,
+}
+
+
+@pytest.fixture(scope="module")
+def bound_fits() -> dict[str, Any]:
+    """One fresh fit of each kind in :data:`EMPTY_BOUND_FITS`, and the ordinary fit."""
+    frame, _ = make_binary_outcome(n=400, seed=17)
+    ratio_only = TMLE(**linear_in_sample(estimands=("rr", "or")))
+    return {
+        "natural_course_study": KINDS["natural_course_study"].build(),
+        "par": dataclasses.replace(_fit_attributable("par")),
+        "paf": dataclasses.replace(_fit_attributable("paf")),
+        "ratio_only": ratio_only.fit(frame, outcome="Y", treatment="A").single(),
+        "ordinary": KINDS["ordinary"].build(),
+    }
+
+
+def bound_disagreements(result: Any) -> list[str]:
+    """Every omitted-variable row of ``result`` that disagrees with its module call.
+
+    A fresh facade reads the rows, so a monkeypatched rule table takes effect. An empty
+    list is agreement.
+    """
+    facade = SensitivityFacade(result)
+    problems = []
+    for operation, call in BOUND_CALLS.items():
+        row = facade.capability(operation)
+        raised = _raised(call, result)
+        if row.available and raised is not None:
+            problems.append(f"{operation}: the row reads available and the call raised {raised}")
+        if not row.available and raised != row.reason:
+            problems.append(f"{operation}: the row quotes {row.reason!r}, the call {raised!r}")
+    return problems
+
+
+class TestTheBoundRowsReadTheCallsTable:
+    """The five rows and the five entry points answer from :func:`fit_wide_bound_refusal`."""
+
+    def test_the_calls_cover_every_row(self) -> None:
+        assert set(BOUND_CALLS) == set(OMITTED_VARIABLE_OPERATIONS)
+
+    @pytest.mark.parametrize("kind", list(EMPTY_BOUND_FITS))
+    def test_a_fit_with_no_parameter_to_bound_reads_unavailable(
+        self, bound_fits: dict[str, Any], kind: str
+    ) -> None:
+        """Every row quotes the sentence that every call raises."""
+        result = bound_fits[kind]
+        assert result.config.parameter_axis == "arm"
+        assert not result.data.has_missing_outcome
+        reason = fit_wide_bound_refusal(result)
+        assert reason is not None
+        assert reason == dict(_FIT_WIDE_BOUND_RULES)["bound_parameters"](result)
+        assert f"it reported {sorted(result.estimates)}" in reason
+        assert reason.endswith(_EVALUE_POINTER) is EMPTY_BOUND_FITS[kind]
+        for operation, call in BOUND_CALLS.items():
+            row = result.sensitivity.capability(operation)
+            assert row.status is AssessmentStatus.UNAVAILABLE, operation
+            assert row.reason == reason, operation
+            with pytest.raises(CapabilityError) as error:
+                call(result)
+            assert type(error.value) is CapabilityError
+            assert str(error.value) == reason, operation
+
+    @pytest.mark.parametrize("kind", list(EMPTY_BOUND_FITS))
+    def test_resolving_a_parameter_directly_raises_the_same_sentence(
+        self, bound_fits: dict[str, Any], kind: str
+    ) -> None:
+        """``resolve_parameter`` reads the rule itself, so no second sentence exists."""
+        result = bound_fits[kind]
+        with pytest.raises(CapabilityError) as error:
+            resolve_parameter(result, "ate")
+        assert str(error.value) == fit_wide_bound_refusal(result)
+
+    def test_the_facade_and_a_combined_report_name_the_refusal(
+        self, bound_fits: dict[str, Any]
+    ) -> None:
+        """Before this rule, the report published five declined rows on this fit."""
+        result = dataclasses.replace(bound_fits["natural_course_study"])
+        reason = fit_wide_bound_refusal(result)
+        with pytest.raises(CapabilityError) as error:
+            result.sensitivity.omitted_confounding()
+        assert str(error.value) == f"sensitivity 'omitted_confounding' is unavailable: {reason}"
+        covariates = list(result.data.covariate_names[:1])
+        report = result.sensitivity.run_all(
+            include_refits=True, arguments={"benchmark": {"covariates": covariates}}
+        )
+        for operation in OMITTED_VARIABLE_OPERATIONS:
+            assert report[operation].status is AssessmentStatus.UNAVAILABLE, operation
+            assert report[operation].detail == reason, operation
+
+    def test_an_ordinary_fit_still_answers_every_row(self, bound_fits: dict[str, Any]) -> None:
+        """The nonzero witness: the rule admits a fit that reports a linear contrast."""
+        result = bound_fits["ordinary"]
+        assert dict(_FIT_WIDE_BOUND_RULES)["bound_parameters"](result) is None
+        assert fit_wide_bound_refusal(result) is None
+        for operation, call in BOUND_CALLS.items():
+            assert result.sensitivity.capability(operation).available, operation
+            assert call(result) is not None, operation
+
+
+class TestTheBoundMutationRestoresADisagreement:
+    """The agreement check sees a rule table that no longer refuses these fits."""
+
+    @pytest.mark.parametrize("kind", [*EMPTY_BOUND_FITS, "ordinary"])
+    def test_m0_every_kind_agrees_unmutated(self, bound_fits: dict[str, Any], kind: str) -> None:
+        assert bound_disagreements(bound_fits[kind]) == []
+
+    @pytest.mark.parametrize("kind", [*EMPTY_BOUND_FITS, "ordinary"])
+    def test_a_table_without_the_rule_disagrees(
+        self, bound_fits: dict[str, Any], kind: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """M10: every row reads available, and every call still refuses."""
+        MUTATIONS["M10"].apply(monkeypatch)
+        problems = bound_disagreements(bound_fits[kind])
+        if kind == "ordinary":
+            assert problems == []
+            return
+        assert [problem.split(":", 1)[0] for problem in problems] == list(BOUND_CALLS)
+        for problem in problems:
+            assert "the row reads available and the call raised" in problem
 
 
 # ------------------------------------------------------------ the covariate a refit adds

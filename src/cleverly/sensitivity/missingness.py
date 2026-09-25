@@ -74,7 +74,7 @@ from ..targets.population_intervention import (
     is_natural_course_fit,
 )
 from ..utils.bounds import expit, logit
-from ._parameters import ArmParameter, arm_parameters, stratum_refusal
+from ._parameters import ArmParameter, reported_arm_parameters, stratum_refusal
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..data import CausalData
@@ -175,14 +175,13 @@ def _refuse_untiltable_parameters(result: Any) -> str | None:
     """Refuse a fit that reports no parameter the tilt can re-mix.
 
     The tilt re-mixes the arm-indexed means and their linear contrasts, which
-    :func:`~cleverly.sensitivity._parameters.arm_parameters` names.  A regime, an MSM,
-    or a ratio-only fit reports none of them, and before this rule its row read
+    :func:`~cleverly.sensitivity._parameters.reported_arm_parameters` names.  A regime,
+    an MSM, or a ratio-only fit reports none of them, and before this rule its row read
     available while every call refused with "no tiltable estimands requested".  A fit
     that reports at least one keeps the rule silent, and the default sweep skips the
     rest as it always has.
     """
-    tiltable = arm_parameters(result)
-    if any(name in result.estimates for name in tiltable):
+    if reported_arm_parameters(result):
         return None
     return (
         "missingness_tilt re-mixes the arm-indexed means and their linear contrasts, "
@@ -303,11 +302,7 @@ def missingness_tilt(
     # Which parameters the tilt can re-mix: the arm-indexed linear ones, named for their
     # arms on a fit with more than two. Ratios are excluded by being absent from that
     # map rather than by a second filter here.
-    tiltable = {
-        name: parameter
-        for name, parameter in arm_parameters(result).items()
-        if name in result.estimates
-    }
+    tiltable = reported_arm_parameters(result)
     requested = tuple(estimands if estimands is not None else result.estimates)
     if estimands is not None:
         # Only an explicit request is refused. The default sweep skips whatever it cannot

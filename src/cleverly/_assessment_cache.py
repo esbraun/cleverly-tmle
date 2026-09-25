@@ -127,12 +127,14 @@ def _normalize(value: Any) -> Any:
 #: reads unavailable, where it asked for ``covariates=``. The ``simulated_confounding`` row
 #: reads unavailable for a request that names a categorical or constant benchmark
 #: covariate, a natural-course mean or a zero-delta policy mean, and so does the bare row
-#: of a natural-course fit. No single entry moves. Each call checks the row of its request
-#: before it reads the cache, so an entry for a request that now refuses is never served,
-#: and a request that still runs computes what it computed before. A benchmark that names
-#: every covariate raised ``DataError`` before RM23, and each refused
-#: ``simulated_confounding`` request raised ``CapabilityError``, so no entry exists for
-#: either. ``validate`` reads no row that RM23 changed.
+#: of a natural-course fit. The five omitted-variable rows of an arm-indexed fit that
+#: reports no mean and no linear contrast now read unavailable. No single entry moves.
+#: Each call checks the row of its request before it reads the cache, so an entry for a
+#: request that now refuses is never served, and a request that still runs computes what
+#: it computed before. A benchmark that names every covariate raised ``DataError`` before
+#: RM23, and each refused ``simulated_confounding`` request and each omitted-variable call
+#: on such a fit raised ``CapabilityError``, so no entry exists for any of them.
+#: ``validate`` reads no row that RM23 changed.
 _CACHE_GENERATIONS: dict[str, int] = {
     "diagnostics.support": 4,
     "diagnostics.nuisance_models": 2,

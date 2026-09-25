@@ -16,6 +16,7 @@ defects it must see. Each mutation restores one pre-RM23 answer at the seam its 
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -48,6 +49,7 @@ from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Incremental, Shift
 from cleverly.msm import MSM
+from cleverly.sensitivity import omitted_variable
 from tests import discrete_law, discrete_law_mar, regimes
 from tests.conftest import (
     IN_SAMPLE,
@@ -61,6 +63,7 @@ from tests.unit._direct_effect_support import COVARIATES as CDE_COVARIATES
 from tests.unit._direct_effect_support import cde_frame
 from tests.unit._simulated_confounding_support import _GRID
 from tests.unit.test_simulated_confounding import _fit_continuous
+from tests.unit.test_simulated_confounding_attributable import _fit_attributable
 
 #: What the combined report writes when an operation it ran raised ``CapabilityError``
 #: under a row that said the operation was available.
@@ -332,13 +335,25 @@ def fit_drtmle_companion() -> Any:
 def fit_policy_means() -> Any:
     """A study fit of two policy means of a continuous dose, one of them zero-delta.
 
-    Every other live kind is fitted by an estimator directly and records no
-    identification, so ``simulated_confounding`` refuses it for the whole fit. A study
-    records the identification, so this kind's ``simulated_confounding`` row resolves each
-    request. The first reported mean is the zero-delta one, which the call refuses, so the
+    A kind fitted by an estimator directly records no identification, so
+    ``simulated_confounding`` refuses it for the whole fit. A study records the
+    identification, so this kind's ``simulated_confounding`` row resolves each request. The first reported mean is the zero-delta one, which the call refuses, so the
     estimand the sweep supplies is a refused value.
     """
     return _fit_continuous(means=True)
+
+
+def fit_natural_course_study() -> Any:
+    """A study fit of the complete-outcome natural-course mean, which reports ``ey_obs`` alone.
+
+    The fit is arm-indexed, and it reports no arm-indexed mean and no linear contrast, so the
+    ``bound_parameters`` rule is the first omitted-variable rule that refuses it. The
+    ``natural_course`` kind has missing outcomes, so the response rule refuses it first.
+    Given the estimand, its ``refute`` row defers on ``tests=`` as that kind's does. The bare
+    ``simulated_confounding`` row reads unavailable, because no reported name runs. The
+    builder is cached, so each call returns a copy with an empty report cache.
+    """
+    return dataclasses.replace(_fit_attributable("ey_obs", family="gaussian", strata=False))
 
 
 # ------------------------------------------------------------------- restored results
@@ -528,7 +543,7 @@ _POINT = ("refute", "truncation_curve")
 _TILT = ("missingness", "tipping_gamma")
 
 #: One kind of fit per name. The first 16 are the kinds of the 2026-09-22 RM23 probe. The
-#: next seven are the siblings the plan's probes found, then one study fit, three restored
+#: next seven are the siblings the plan's probes found, then two study fits, three restored
 #: results whose refit this version refuses, and one longitudinal fit.
 KINDS: dict[str, Kind] = {
     "ordinary": _kind(fit_ordinary, *_POINT),
@@ -555,6 +570,7 @@ KINDS: dict[str, Kind] = {
     "split_plan": _kind(fit_split_plan, *_POINT),
     "drtmle_companion": _kind(fit_drtmle_companion, *_POINT),
     "policy_means": _kind(fit_policy_means, *_POINT),
+    "natural_course_study": _kind(fit_natural_course_study, *_POINT),
     "restored_stratified": _kind(restored_stratified, "truncation_curve", live=False),
     "restored_v011": _kind(restored_v011, "truncation_curve", live=False),
     "restored_unbounded_scale": _kind(unbounded_scale, "truncation_curve", live=False),
@@ -709,13 +725,15 @@ def _pre_rm23_tilt_rule(self: SensitivityFacade) -> tuple[str, str] | None:
     return rule if rule is not None and rule[0] in _PRE_RM23_TILT_RULES else None
 
 
-#: Each seam an RM23 fix added, as its owner and attribute name.
-_SEAMS: tuple[tuple[type, str], ...] = (
+#: Each seam an RM23 fix added, as its owner and attribute name. Every seam is a function
+#: but the omitted-variable rule table, which the rows and the calls read at call time.
+_SEAMS: tuple[tuple[Any, str], ...] = (
     (SensitivityFacade, "_tilt_rule"),
     (DiagnosticsFacade, "_truncation_gated"),
     (DiagnosticsFacade, "_refute_gated"),
     (SensitivityFacade, "_benchmark_gated"),
     (SensitivityFacade, "_simulated_confounding_gated"),
+    (omitted_variable, "_FIT_WIDE_BOUND_RULES"),
     (CTMLE, "_configured_for_refit"),
     (DRTMLE, "_configured_for_refit"),
     (TMLE, "_refit_configuration_refusal"),
@@ -723,11 +741,34 @@ _SEAMS: tuple[tuple[type, str], ...] = (
 
 
 def _passthrough(patch: pytest.MonkeyPatch) -> None:
-    """Replace every seam with a wrapper that returns what the seam returns."""
+    """Replace every seam with a wrapper that returns what the seam returns.
+
+    The rule table is replaced by an equal copy, so a reader that holds the original
+    object and a reader of the module attribute see the same rules.
+    """
     for owner, name in _SEAMS:
         original = vars(owner)[name]
-        patch.setattr(owner, name, functools.wraps(original)(lambda *a, _f=original: _f(*a)))
+        if callable(original):
+            wrapper = functools.wraps(original)(lambda *a, _f=original: _f(*a))
+            patch.setattr(owner, name, wrapper)
+        else:
+            patch.setattr(owner, name, tuple(original))
     patch.setattr(TMLE, "split_plan", None)
+
+
+def _without_bound_parameters(patch: pytest.MonkeyPatch) -> None:
+    """The omitted-variable rule table as it was, without its ``bound_parameters`` rule.
+
+    The rows and the entry points read the one table, so both lose the rule.
+    :func:`~cleverly.sensitivity.omitted_variable.resolve_parameter` still refuses the fit,
+    and the call raises what the row no longer declares.
+    """
+    rules = tuple(
+        (name, rule)
+        for name, rule in omitted_variable._FIT_WIDE_BOUND_RULES
+        if name != "bound_parameters"
+    )
+    patch.setattr(omitted_variable, "_FIT_WIDE_BOUND_RULES", rules)
 
 
 def _identity_gate(self: Any, capability: Any, arguments: Any) -> Any:
@@ -762,9 +803,9 @@ _TILT_KINDS = frozenset(
     {"shift+missing", "incremental+missing", "regime+missing", "msm+missing", "rr+missing"}
 )
 
-#: M0 to M7 of the RM23 plan, M8 for the benchmark row the sweep found, and M9 for the
-#: simulated-confounding row. M0 wraps every seam and changes nothing, so a failure there is
-#: the wrapping and not a defect.
+#: M0 to M7 of the RM23 plan, M8 for the benchmark row the sweep found, M9 for the
+#: simulated-confounding row, and M10 for the five omitted-variable rows. M0 wraps every
+#: seam and changes nothing, so a failure there is the wrapping and not a defect.
 MUTATIONS: dict[str, Mutation] = {
     "M0": Mutation("every seam wrapped and unchanged", _passthrough, frozenset()),
     "M1": Mutation(
@@ -780,7 +821,7 @@ MUTATIONS: dict[str, Mutation] = {
     "M3": Mutation(
         "the refute row ignores the predicate",
         lambda patch: patch.setattr(DiagnosticsFacade, "_refute_gated", _identity_gate),
-        frozenset({"split_plan", "natural_course"}),
+        frozenset({"split_plan", "natural_course", "natural_course_study"}),
     ),
     "M4": Mutation(
         "CTMLE ignores a covariate the refit adds",
@@ -812,6 +853,11 @@ MUTATIONS: dict[str, Mutation] = {
         lambda patch: patch.setattr(
             SensitivityFacade, "_simulated_confounding_gated", _identity_gate
         ),
-        frozenset({"policy_means"}),
+        frozenset({"policy_means", "natural_course_study"}),
+    ),
+    "M10": Mutation(
+        "the omitted-variable rows ignore a fit that reports no parameter to bound",
+        _without_bound_parameters,
+        frozenset({"natural_course_study"}),
     ),
 }

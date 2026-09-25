@@ -55,7 +55,7 @@ per contrast, because :math:`\nu^2` is the second moment of *that contrast's* Ri
 representer.  Ratios are not linear functionals of the outcome regression, so use
 :mod:`cleverly.sensitivity.evalue` for those.
 
-Scope of the refusals: :data:`_FIT_WIDE_BOUND_RULES` refuses the fits below, for four
+Scope of the refusals: :data:`_FIT_WIDE_BOUND_RULES` refuses the fits below, for five
 reasons.
 
 * A DR-TMLE fit and a collaborative TMLE fit break a premise.  The ``nu^2`` score of
@@ -69,6 +69,9 @@ reasons.
   mechanism.
 * A longitudinal fit has no registered derivation, and a median-combined repeated fit has
   no influence function for the median bound.
+* An arm-indexed fit that reports no counterfactual mean and no linear contrast has no
+  parameter to bound.  A ratio-only fit, a population attributable risk or fraction, and
+  a complete-outcome natural-course mean are such fits.
 
 Every entry point in this module reaches those rules through :func:`sensitivity_elements`,
 and :class:`~cleverly.assessment.SensitivityFacade` declares the same reason on the
@@ -96,7 +99,7 @@ from ..targets import parameter_stem
 from ..utils.bounds import g_bounds_for
 from ..utils.random import resolve_assessment_seed
 from ..utils.text import format_table
-from ._parameters import ArmParameter, arm_parameters, stratum_refusal
+from ._parameters import ArmParameter, reported_arm_parameters, stratum_refusal
 from .missingness import fit_wide_tilt_refusal
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -120,6 +123,12 @@ __all__ = [
 #: representer of its own.  :func:`~cleverly.sensitivity._parameters.arm_parameters` is
 #: what turns a fit's arms into the names these stems produce.
 LINEAR_ESTIMANDS: frozenset[str] = frozenset({"ate", "ey", "ey1", "ey0", "att", "atc"})
+
+#: The two ratio scales an E-value answers for, and the pointer a refusal appends when a
+#: request or a fit names one.  Offered for anything else, such as an attributable
+#: fraction, the pointer sends the reader from one refusal to a second one.
+_EVALUE_STEMS: frozenset[str] = frozenset({"rr", "or"})
+_EVALUE_POINTER = " For a risk ratio or odds ratio use sensitivity.evalue()."
 
 #: Accepted values of ``nu2_estimator``, in one place so the five docstrings that list
 #: them and the refusal that rejects the rest cannot drift apart.
@@ -379,6 +388,30 @@ def _refuse_non_arm_axis(result: Any) -> str | None:
     )
 
 
+def _refuse_unbounded_parameters(result: Any) -> str | None:
+    """Refuse an arm-indexed fit that reports no parameter the bound applies to.
+
+    The predicate is :func:`~cleverly.sensitivity._parameters.reported_arm_parameters`,
+    which :func:`resolve_parameter` reads for the same fit, so no request can lift this
+    rule.  A ratio-only fit, a population attributable risk or fraction, and a
+    complete-outcome natural-course mean each report none.  Before this rule their five
+    rows read available, and every call refused.  The rule follows ``parameter_axis``,
+    because its sentence describes an arm-indexed fit.  The E-value pointer is appended
+    only on a fit that reports a risk ratio or an odds ratio, the two scales the E-value
+    answers for.
+    """
+    if reported_arm_parameters(result):
+        return None
+    ratio = any(parameter_stem(name) in _EVALUE_STEMS for name in result.estimates)
+    return (
+        "the omitted-variable bound applies to the arm-indexed linear estimands "
+        f"{sorted(LINEAR_ESTIMANDS)}, and this arm-indexed fit reported none of them: "
+        f"it reported {sorted(result.estimates)}. One bound is the second moment of "
+        "one contrast's own Riesz representer, so ask the fit for a counterfactual "
+        "mean or a contrast of arms." + (_EVALUE_POINTER if ratio else "")
+    )
+
+
 def _refuse_repeats(result: Any) -> str | None:
     """Refuse a median-combined repeated fit.
 
@@ -395,9 +428,10 @@ def _refuse_repeats(result: Any) -> str | None:
 #: order the five entry points and the capability rows both use.  The table is ordered and
 #: each rule assumes its predecessors returned ``None``: ``longitudinal`` establishes that
 #: the result carries a point-treatment ``data`` and ``config`` at all, which every rule
-#: after it reads.  ``repeats`` is last because it is the only rule a refit with one split
-#: lifts.  The names are the introspection contract; a test reads them to pin the order
-#: without respelling a message.
+#: after it reads.  ``bound_parameters`` follows ``parameter_axis``, because its sentence
+#: names an arm-indexed fit.  ``repeats`` is last because it is the only rule a refit with
+#: one split lifts.  The names are the introspection contract; a test reads them to pin the
+#: order without respelling a message.
 _FIT_WIDE_BOUND_RULES: tuple[tuple[str, Callable[[Any], str | None]], ...] = (
     ("longitudinal", _refuse_longitudinal),
     ("drtmle", _refuse_guarded_mechanism),
@@ -405,6 +439,7 @@ _FIT_WIDE_BOUND_RULES: tuple[tuple[str, Callable[[Any], str | None]], ...] = (
     ("response_mechanism", _refuse_response_mechanism),
     ("intermediate", _refuse_intermediate),
     ("parameter_axis", _refuse_non_arm_axis),
+    ("bound_parameters", _refuse_unbounded_parameters),
     ("repeats", _refuse_repeats),
 )
 
@@ -545,11 +580,11 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
     ``ate`` on a two-armed fit and ``ate[medium vs low]`` on a wider one, each with its
     own Riesz representer.  It reads the request alone.  The caller has already passed
     the fit through :func:`fit_wide_bound_refusal`, whose ``parameter_axis`` rule makes
-    the fit arm-indexed, since no estimand name can change that verdict.  The order of
-    the checks below matters.  A name this bound could never apply to is refused first,
-    so that asking for a risk ratio is not reported as a missing estimand; the
-    arm-indexed coverage message comes last, where it describes an arm-indexed fit and
-    nothing else.
+    the fit arm-indexed and whose ``bound_parameters`` rule makes it report at least one
+    parameter the bound applies to, since no estimand name can change either verdict.
+    The order of the checks below matters.  A name this bound could never apply to is
+    refused first, so that asking for a risk ratio is not reported as a missing
+    estimand; the coverage message comes last.
 
     Parameters
     ----------
@@ -568,18 +603,13 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
         # The pointer is for the two ratio scales an E-value is defined on. Offered for
         # anything else -- an attributable fraction, say -- it sends the reader from one
         # refusal to a second one.
-        pointer = (
-            " For a risk ratio or odds ratio use sensitivity.evalue()."
-            if stem in {"rr", "or"}
-            else ""
-        )
+        pointer = _EVALUE_POINTER if stem in _EVALUE_STEMS else ""
         raise CapabilityError(
             f"the omitted-variable bound applies to {sorted(LINEAR_ESTIMANDS)}, not "
             f"{estimand!r}: the bound is on the bias of a linear functional of the "
             f"outcome regression, and {estimand!r} is not one." + pointer
         )
-    known = arm_parameters(result)
-    available = {name: parameter for name, parameter in known.items() if name in result.estimates}
+    available = reported_arm_parameters(result)
     if estimand in available:
         return available[estimand]
     # Before the coverage message: this one *was* reported, so "not requested" would be
@@ -587,18 +617,11 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
     conditional = stratum_refusal(result, estimand, "the omitted-variable bound")
     if conditional is not None:
         raise CapabilityError(conditional)
-    if not available:
-        # Reached only on an arm-indexed fit, which the fit-wide axis rule has already
-        # established. A fit reporting only ``par``, ``paf``, ``rr``, ``or`` or ``ey_obs``
-        # is indexed by arms and reports no linear contrast, so a sentence about
-        # counterfactuals that are not arms would contradict itself.
-        raise CapabilityError(
-            "the omitted-variable bound applies to the arm-indexed linear estimands "
-            f"{sorted(LINEAR_ESTIMANDS)}, and this arm-indexed fit reported none of them: "
-            f"it reported {sorted(result.estimates)}. One bound is the second moment of "
-            "one contrast's own Riesz representer, so ask the fit for a counterfactual "
-            "mean or a contrast of arms."
-        )
+    empty = _refuse_unbounded_parameters(result)
+    if empty is not None:
+        # Every entry point hears this sentence from the fit-wide table before it gets
+        # here. A caller that resolves a parameter directly hears the same sentence.
+        raise CapabilityError(empty)
     raise CapabilityError(
         f"estimand {estimand!r} was not requested in this fit. The bound is available for "
         f"{sorted(available)} -- one per contrast, since nu^2 is the second moment of "
