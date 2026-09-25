@@ -189,10 +189,12 @@ records the evidence.
 A cross-fitted fit makes two choices before it fits a nuisance. It chooses how to split the rows.
 For a continuous outcome it also chooses the scale the outcome regression works on.
 
-A source audit on 2026-09-18 read the shipped estimators against the published results. The audit
-found no reviewed result for a split that reads the treatment or the outcome. It found no reviewed
-result for a scale taken from the observed sample. This section holds the audit record, and it
-states the rules the package ships because of it.
+A source audit begun on 2026-09-18 compared the shipped estimators with published results. Rafi
+(2023) and Lu et al. (2025) give results with treatment-stratified folds under randomized designs.
+Neither result establishes inference with treatment- or outcome-stratified folds for the shipped
+observational TMLE/LTMLE fits. The audit found no reviewed result for a scale taken from the
+observed sample.
+This section records the sources and states the rules the package ships because of them.
 
 The audit establishes no bias and no invalid coverage. It records what the sources do not cover.
 
@@ -206,7 +208,8 @@ locators in the *verdict* column refer to the audit commit `4811661`.
 | Zheng and van der Laan (2011), Working Paper 273 | Theorem 1, page 7, and Theorem 2, pages 14-15: "Bn is uniformly distributed over a finite support" | no stratification wording, and no split that depends on treatment or outcome values |
 | Levy (2018) | Section 1, page 2: a "random split of 1, .., n" | no stratification wording |
 | Chernozhukov et al. (2018), arXiv:1608.00060v7 | Definitions 3.1 and 3.2, pages 23-24: "Take a K-fold random partition" with folds of size $N/K$ | no stratification wording. A result for DML scores, and not for TMLE |
-| Rafi (2023), arXiv:2305.08340v1 | Assumption 4.2, page 20: the folds of each treatment-by-stratum cell "depend only on" an independent uniform draw and the cell size | does not cover the package. It treats a cross-fitted AIPW estimator under covariate-adaptive randomization, with target proportions set by design, and with covariate strata rather than outcome strata |
+| Rafi (2023), arXiv:2305.08340v1 | Assumption 4.2, page 20, splits each treatment-by-covariate-stratum cell; Theorem 4.1, page 21, uses those folds | covers cross-fitted AIPW under covariate-adaptive randomization, with target proportions set by design. It does not establish the shipped observational TMLE/LTMLE fits or outcome-stratified folds |
+| Lu, Shi, Liu and Ding (2025), arXiv:2508.15664v1 | Section 3.1, Examples 5-6 and Propositions 2-3; Section 5.4, Proposition 8 | splits observed treatment groups into two folds under complete randomization, and treatment-by-stratum cells under stratified randomization. Proposition 8 gives a design-based variance result for the adjusted finite-population ATE. It does not establish the shipped observational TMLE/LTMLE fits, outcome-stratified folds, or ordinary EIF variance |
 | Gruber and van der Laan (2010), Working Paper 265 | Section 3, PDF page 9; Section 4, PDF pages 13-14 | data-derived bounds as a practice, with no derivation and no cross-fitting split |
 | Gruber and van der Laan (2012) | Section 3.2, page 16 | warns about observed-range bounds under missing outcomes. No cross-fitting split |
 | Smith et al. (2025) | Sections 2.1 and 6 | describes sample-range scaling. It studies binary outcomes only, and it calls for continuous-outcome research |
@@ -215,8 +218,12 @@ locators in the *verdict* column refer to the audit commit `4811661`.
 | Benkeser, Cai and van der Laan (2020) | Section 3.1 and Appendix D | uses random near-balanced folds for variance estimation, and sketches CV-C-TMLE. Neither passage covers the shipped nested selection split, which the package draws inside each selection fold's training rows |
 | Díaz, Williams, Hoffman and Schenck (2023) | Section 5.2, journal pages 852 and 853, and Theorem 3, page 853 | defines a random near-balanced row partition for a longitudinal TMLE, and one pooled all-row fluctuation per node after untargeted fold regressions. The shipped cross-fitted longitudinal fit follows both. The authors' `lmtp` 1.5.4 fits a training-fold fluctuation instead |
 
-Every source draws its partition from outside the data. No source in the table stratifies a
-partition on the treatment or the outcome. [References](../references.md) gives each entry in full.
+Rafi (2023) splits treatment-by-covariate-stratum cells for randomized AIPW. Lu et al. (2025) split
+observed treatment groups under complete randomization and treatment-by-stratum cells under
+stratified randomization. Lu et al. use design-based variance, not the package's ordinary EIF
+variance. No reviewed result covers treatment- or outcome-stratified folds for the shipped
+observational TMLE/LTMLE fits.
+[References](../references.md) gives each entry in full.
 
 ### What the probes measured
 
@@ -248,7 +255,7 @@ wrong in the same direction.
 | point-treatment and DR-TMLE outer folds | `random_partition` draws them from the row count, the cluster labels and a seed. The draw reads no treatment, outcome or covariate | `random_partition`, reached through `make_folds` from `TMLE._folds` |
 | declared fold strata | `"none"` is the default, and it is the only policy a fit draws a split under. `"treatment"` and `"treatment+outcome"` are refused whenever the fit draws a split | `fold_strata_refusal`, called by `CrossFitting`, `TMLEMethod`, and the engine, and again at fit time by `TMLE._cross_fit_policy_reason` |
 | selector-based C-TMLE selection and nested folds | the same unstratified draw, from the repeat's own seed. The strata refusal applies at every `cross_fit` setting, because these strategies draw the folds without cross-fitting. OAT draws none of them | `CTMLE._selection_partition`, `CTMLE._nested_partition`, `CollaborativeTMLEMethod` |
-| longitudinal folds | `random_partition` draws them. There are no first-node treatment strata | `LTMLE._folds` |
+| longitudinal folds | `random_partition` draws them, and `Folds.origin` records the draw. There are no first-node treatment strata. A restored result with more than one fold and no origin takes `"stratified_fold_plugin"` | `LTMLE._folds`, `_saved_split_status` |
 | Super Learner inner folds | retained, and stratified on the learner's classification target inside the outer training rows | `SuperLearner` |
 | outcome scale under cross-fitting | a declared `q_bounds`. A cross-fitted continuous outcome with `q_bounds=None` is refused before nuisance fitting | `TMLE._refuse_unbounded_cross_fitted_scale`, `LTMLE._refuse_cross_fitted_design` |
 | `q_bounds` itself | the caller's known support, declared in advance. The package checks only that the interval holds the observed outcomes. No package or study code derives it from a realized sample | `cleverly.utils.bounds` |
@@ -271,7 +278,7 @@ Each row gives the shipped remedy in the message's own words.
 | --- | --- | --- |
 | `stratify_by="treatment"` or `"treatment+outcome"` with cross-fitting | `MethodConfigurationError` from `CrossFitting` and `TMLEMethod`, `ValueError` from the engine | "Set stratify_folds='none' (CrossFitting(stratify_by='none')), which is the default. Otherwise fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False)), which draws no split for a policy to apply to." |
 | the same policy on selector-based C-TMLE, at any `cross_fit` setting | `MethodConfigurationError`, or `ValueError` from the engine | the same first sentence, then "A collaborative fit draws those folds whether or not cross_fit is set, so cross_fit=False does not make this policy available." |
-| a restored result or a copied estimator carrying a refused policy | `CapabilityError`, a subclass of `ValueError`, before any learner of a fit or a refit. A restored result reads `refit_nuisances` false, with the code `point_replay_refit_configuration` | the reason above, then "This fit was configured under a fold policy this version refuses, which a restored result or a copied estimator can still carry" |
+| a restored result or a copied estimator carrying a refused policy | `CapabilityError`, a subclass of `ValueError`, before any learner of a fit or a refit. A restored result reads `refit_nuisances` false, with the code `point_replay_refit_configuration`. A restored cross-fitted result of a discrete treatment under the policy also takes `"stratified_fold_plugin"`, so `ci`, `pvalue`, and `std_error` refuse ([RM31](../roadmap.md#rm31-inference-status-of-a-saved-stratified-cross-fitted-result)) | the reason above, then "This fit was configured under a fold policy this version refuses, which a restored result or a copied estimator can still carry" |
 | cross-fitting with fewer than two folds | `MethodConfigurationError`, or `ValueError` from the engine | "Set n_folds to at least 2, or fit in sample with CrossFitting(enabled=False)" |
 | a cross-fitted continuous outcome with `q_bounds=None` | `CapabilityError` | "Declare the known outcome support (Targeting(q_bounds=(lower, upper))). Without a known finite support, fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))" |
 | a cross-fitted shift, incremental, regime, MSM, or controlled-direct-effect fit with `delta=` | `CapabilityError` before the first learner | "To estimate them, fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))". The message names the target family and F21, which holds the missing result. See [F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants) |

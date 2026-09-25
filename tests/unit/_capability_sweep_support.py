@@ -518,8 +518,11 @@ _POINT = ("refute", "truncation_curve")
 _LIVE = (*_READ, *_POINT)
 #: The tilt rows, which a binary-treatment fit with missing outcomes answers.
 _TILT = ("missingness", "tipping_gamma")
+#: The bound rows that read the fit alone and answer without an interval. A fit that
+#: reports no inference answers these rows and not the E-value, which needs its interval.
+_PLUGIN_BOUND = ("contour", "elements", "omitted_confounding", "robustness_value")
 #: The bound rows that read the fit alone. ``benchmark`` refits, so it is listed apart.
-_BOUND = ("contour", "elements", "evalue", "omitted_confounding", "robustness_value")
+_BOUND = (*_PLUGIN_BOUND, "evalue")
 #: Every row of an arm-indexed ATE fit with complete outcomes and two or more covariates.
 _ARM = (*_LIVE, *_BOUND, "benchmark")
 
@@ -554,10 +557,11 @@ KINDS: dict[str, Kind] = {
     "drtmle_companion": _kind(fit_drtmle_companion, *_LIVE, "corrections"),
     "policy_means": _kind(fit_policy_means, *_LIVE),
     "natural_course_study": _kind(fit_natural_course_study, *_LIVE),
+    # A saved stratified split reports no interval (RM31), so the E-value row does not answer.
     "restored_stratified": _kind(
-        restored_stratified, *_READ, "truncation_curve", *_BOUND, refits=False
+        restored_stratified, *_READ, "truncation_curve", *_PLUGIN_BOUND, refits=False
     ),
-    "restored_v011": _kind(restored_v011, *_READ, "truncation_curve", *_BOUND, refits=False),
+    "restored_v011": _kind(restored_v011, *_READ, "truncation_curve", *_PLUGIN_BOUND, refits=False),
     "restored_unbounded_scale": _kind(
         unbounded_scale, *_READ, "truncation_curve", *_BOUND, refits=False
     ),

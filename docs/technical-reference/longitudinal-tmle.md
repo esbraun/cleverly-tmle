@@ -319,9 +319,17 @@ The refusals that are statements about the *question* rather than about coverage
 Releases 0.1.0 and 0.1.1 could save a cross-fitted fit with `id=`. Such a result now loads under
 `"cross_fitted_longitudinal_plugin"` at every cluster count and size. It retains point estimates
 and plug-in diagnostics. It reports no interval or band. [RM29](../roadmap.md#rm29-saved-cross-fitted-clustered-longitudinal-results)
-records the correction. A restored result whose regimen has a callable node not declared `"known"`
-loads under `"undeclared_function_plugin"`, keeps its point estimates, and reports no interval or
-band ([RM28](../roadmap.md#rm28-declared-densities-of-user-written-interventions)).
+records the correction.
+
+Those releases also stratified every cross-fitted split on the first treatment node. A restored
+result with more than one fold whose `Folds.origin` is `None` now loads under
+`"stratified_fold_plugin"`. It retains point estimates and plug-in diagnostics, and it reports no
+interval or band
+([RM31](../roadmap.md#rm31-inference-status-of-a-saved-stratified-cross-fitted-result)).
+
+A restored result whose regimen has a callable node not declared `"known"` loads under
+`"undeclared_function_plugin"`, keeps its point estimates, and reports no interval or band
+([RM28](../roadmap.md#rm28-declared-densities-of-user-written-interventions)).
 
 Two plan shapes raise `DataError` before any learner. Each one is a statement about the input, so
 the table of kinds above does not list it.

@@ -233,6 +233,16 @@ previous reader had is not a citation; a page number is.
   draws its folds for. The
   [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules)
   record this gap.
+- Lu, Shi, Liu and Ding (2025), [*Conditional cross-fitting for unbiased machine-learning-assisted
+  covariate adjustment in randomized experiments*](https://arxiv.org/html/2508.15664v1),
+  arXiv:2508.15664v1. Read first-hand. Section 3.1, Examples 5 and 6, splits observed treatment
+  groups into two folds under complete randomization and each treatment-by-stratum cell under
+  stratified randomization. Propositions 2 and 3 establish the conditional treatment-assignment
+  law for those splits. Section 5.4, Proposition 8, gives a design-based variance result for the
+  adjusted finite-population ATE under stratified randomization. The paper does not derive the
+  shipped observational TMLE/LTMLE, outcome-stratified folds, or the package's ordinary EIF
+  variance. The [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules)
+  record this boundary.
 - Bannick, Shao, Liu, Du, Yi & Ye (2025), [*A general form of covariate adjustment in clinical
   trials under covariate-adaptive randomization*](https://doi.org/10.1093/biomet/asaf029),
   *Biometrika* 112(3), asaf029, DOI 10.1093/biomet/asaf029. This entry records the abstract only.

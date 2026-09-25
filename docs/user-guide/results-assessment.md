@@ -82,7 +82,9 @@ or weight masses. The property `result.inference_status` gives the status of the
 `point.supplies_inference` gives it for one estimate.
 
 An older saved cross-fitted clustered `LTMLE` result also reports no interval after it loads.
-Its `"cross_fitted_longitudinal_plugin"` status names the design that current fits refuse.
+Its `"cross_fitted_longitudinal_plugin"` status names the design that current fits refuse. A
+cross-fitted result that release 0.1.0 or 0.1.1 saved under its default stratified folds reports
+none either. Its `"stratified_fold_plugin"` status names the fold policy that current fits refuse.
 
 Read `point.plugin_std_error` and `point.plugin_interval` on such a fit. Each is a diagnostic of
 the reported curve, and neither is a confidence statement.
@@ -917,9 +919,12 @@ gives what such a result keeps.
 | refits, such as `refute()` and `simulated_confounding()` | `unavailable`. `replayability.refit_nuisances` is `False`, with the code `point_replay_refit_configuration` |
 | `estimator.refit()` | raises `CapabilityError` before any learner |
 
-A new fit under a supported configuration restores the refits. The 0.1.0 and 0.1.1 releases saved
-no `split_plan` attribute. `TMLE` reads a missing attribute as `None`, which is what those releases
-meant.
+A new fit under a supported configuration restores the refits. A cross-fitted result of a
+discrete treatment under a stratified fold policy also withholds `ci`, `pvalue` and `std_error`.
+It takes `"stratified_fold_plugin"` when it loads
+([RM31](../roadmap.md#rm31-inference-status-of-a-saved-stratified-cross-fitted-result)). The 0.1.0
+and 0.1.1 releases saved no `split_plan` attribute. `TMLE` reads a missing attribute as `None`,
+which is what those releases meant.
 
 The saved artifact carries the assessment cache. A result you derive with `dataclasses.replace`
 does not. The cache key records the operation and its arguments, and it records nothing about the

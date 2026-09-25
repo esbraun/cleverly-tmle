@@ -40,6 +40,7 @@ InferenceStatus = Literal[
     "undeclared_function_plugin",
     "estimated_weight_plugin",
     "cross_fitted_longitudinal_plugin",
+    "stratified_fold_plugin",
     "unequal_cluster_plugin",
     "few_cluster_plugin",
 ]
@@ -252,6 +253,33 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             diagnostic_noun="grouped-longitudinal plug-in diagnostic",
             reopened_by="F22",
+        ),
+        "stratified_fold_plugin": StatusRecord(
+            reason=(
+                "A saved cross-fitted fit whose outer folds were stratified on the "
+                "treatment, or on the treatment and the outcome, reports no confidence "
+                "interval, no p-value and no standard error. Releases 0.1.0 and 0.1.1 drew "
+                "that split by default, and new fits refuse it. No shipped result covers a "
+                "partition read off the data that the fit then conditions on. The saved "
+                "point estimate stands. The plug-in standard error of the reported curve "
+                "remains as a diagnostic under plugin_std_error and plugin_interval. RM31 "
+                "in docs/roadmap.md records the rule. A new cross-fitted fit draws "
+                "unstratified folds by default. It reports an interval only when its "
+                "other inference conditions permit one."
+            ),
+            assessment_note=(
+                "the reported curve is a stratified-fold diagnostic: no confidence interval "
+                "or p-value is available for this saved fit, RM31 in the roadmap records "
+                "the rule; a new cross-fitted fit defaults to unstratified folds and "
+                "reports an interval only when its other inference conditions permit one"
+            ),
+            summary_label="stratified-fold plug-in se",
+            bootstrap_note=(
+                "a diagnostic; no result validates bootstrap coverage for a saved fit "
+                "with stratified outer folds"
+            ),
+            diagnostic_noun="stratified-fold plug-in diagnostic",
+            reopened_by="RM31",
         ),
         "unequal_cluster_plugin": StatusRecord(
             reason=(
