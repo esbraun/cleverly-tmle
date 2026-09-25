@@ -15,7 +15,6 @@ its surface passes.
 
 from __future__ import annotations
 
-import importlib
 import warnings
 from collections.abc import Callable
 from dataclasses import replace
@@ -52,28 +51,20 @@ from tests.unit._inference_status_support import (
     assert_withholds,
     at_or_below,
     legacy_copy,
+    longitudinal_estimator,
     restore,
 )
+from tests.unit._inference_status_support import LONGITUDINAL_N as N
+from tests.unit._inference_status_support import LONGITUDINAL_NODES as NODES
+from tests.unit._inference_status_support import cluster_labels as labels
+from tests.unit._inference_status_support import longitudinal_learners as learners
 from tests.unit.test_longitudinal_msm import DOSE
 from tests.unit.test_sequential_design import COLUMNS, multivalue_panel
 
 pytestmark = pytest.mark.xdist_group("longitudinal_cluster_status")
 
-#: The estimator module, whose ``_inference_status`` and ``cluster_inference_status`` the
-#: mutations patch. The package re-exports a function named ``ltmle``, so the module is
-#: imported by its path.
-longitudinal_estimator = importlib.import_module("cleverly.longitudinal.estimator")
-
 FEW = "few_cluster_plugin"
-N = 400
 
-#: The node declaration of the survival, competing-risk and MSM laws.
-NODES: dict[str, Any] = {
-    "treatment": ["A1", "A2"],
-    "baseline": ["W1", "W2"],
-    "time_varying": [[], ["L2"]],
-    "censoring": ["C1", "C2"],
-}
 COMPETING: dict[str, Any] = {
     "outcome": {"relapse": ["R1", "R2"], "death": ["D1", "D2"]},
     **NODES,
@@ -82,24 +73,6 @@ SURVIVAL: dict[str, Any] = {"outcome": ["Y1", "Y2"], **NODES}
 
 #: The kinds of fit whose report adds a curve over the horizons.
 CURVES = ("survival", "competing risks")
-
-
-def labels(n: int, k: int) -> np.ndarray:
-    """``k`` clusters of consecutive rows, as equal in size as ``n`` allows."""
-    return np.arange(n) * k // n
-
-
-def learners(**overrides: Any) -> dict[str, Any]:
-    """Fresh linear learners, one in-sample fold, and no bands unless a test asks."""
-    return {
-        "outcome_learner": LinearRegression(),
-        "pseudo_learner": LinearRegression(),
-        "treatment_learner": LogisticRegression(max_iter=1000),
-        "n_folds": 1,
-        "random_state": 0,
-        "simultaneous": False,
-        **overrides,
-    }
 
 
 def fit_end_of_study(k: int | None, *, weights: Any = None, **settings: Any) -> Any:

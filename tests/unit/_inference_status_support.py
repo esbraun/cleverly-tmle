@@ -9,11 +9,14 @@ here, so a later status inherits the same checks.
 The fold-level report checks and the stamp mutation that must fail them live here too,
 because the forced-status test and the clustered surfaces both fit ``cv_evaluation=True``.
 The boundary mutant of the shared cluster rule lives here, because the point-treatment and
-the longitudinal cluster tests both patch it into their estimator module.
+the longitudinal cluster tests both patch it into their estimator module. The longitudinal
+law, its learners and its cluster labels live here too, because the longitudinal cluster
+test and the saved fold-policy test both fit them.
 """
 
 from __future__ import annotations
 
+import importlib
 import pickle
 import re
 from dataclasses import replace
@@ -21,6 +24,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import variable_importance
 from cleverly._inference_status import FEW_CLUSTER_THRESHOLD, NON_INFERENTIAL
@@ -35,6 +39,41 @@ from tests.unit._natural_course_support import NeverFit
 
 #: The two ways an artifact is restored: the package's own serializer and a bare pickle.
 ROUTES = ("serialize", "pickle")
+
+#: The longitudinal estimator module, whose functions the longitudinal mutations patch.
+#: The package re-exports a function named ``ltmle``, so the module is imported by its path.
+longitudinal_estimator = importlib.import_module("cleverly.longitudinal.estimator")
+
+#: The rows of every longitudinal law the status tests draw.
+LONGITUDINAL_N = 400
+
+#: The node declaration of :func:`~cleverly.datasets.make_longitudinal` and of the
+#: survival, competing-risk and MSM laws.
+LONGITUDINAL_NODES: dict[str, Any] = {
+    "treatment": ["A1", "A2"],
+    "baseline": ["W1", "W2"],
+    "time_varying": [[], ["L2"]],
+    "censoring": ["C1", "C2"],
+}
+
+
+def cluster_labels(n: int, k: int) -> np.ndarray:
+    """``k`` clusters of consecutive rows, as equal in size as ``n`` allows."""
+    return np.arange(n) * k // n
+
+
+def longitudinal_learners(**overrides: Any) -> dict[str, Any]:
+    """Fresh linear learners, one in-sample fold, and no bands unless a test asks."""
+    return {
+        "outcome_learner": LinearRegression(),
+        "pseudo_learner": LinearRegression(),
+        "treatment_learner": LogisticRegression(max_iter=1000),
+        "n_folds": 1,
+        "random_state": 0,
+        "simultaneous": False,
+        **overrides,
+    }
+
 
 #: The columns a frame publishes only when the package supplies inference.
 INFERENTIAL_COLUMNS = frozenset({"std_err", "ci_lower", "ci_upper", "p_value"})

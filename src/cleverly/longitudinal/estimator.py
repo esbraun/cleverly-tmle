@@ -1710,11 +1710,13 @@ def _saved_split_status(folds: Folds) -> InferenceStatus:
     The longitudinal status predicate of roadmap row RM31. Releases 0.1.0 and 0.1.1
     stratified the outer split on the first treatment node, and no shipped result covers
     a partition read off the data that the fit then conditions on. Commit c887785c added
-    :attr:`~cleverly.learners.Folds.origin`, which only
-    :func:`~cleverly.learners.random_partition` writes, before commit 5f32c149 removed the
-    strata. So a split of more than one fold with no origin came from a stratified draw.
-    ``LTMLE._folds`` draws through ``random_partition``, so a live fit always records an
-    origin. The study seam that draws the retired split records none, and only
+    :attr:`~cleverly.learners.Folds.origin` before commit 5f32c149 removed the strata.
+    :func:`~cleverly.learners.random_partition` writes an origin, and
+    :meth:`~cleverly.learners.SplitPlan.to_folds` copies one from a plan that records it.
+    No stratified draw writes one, and ``LTMLE`` takes no split plan. So a split of more
+    than one fold with no origin came from a stratified draw. ``LTMLE._folds`` draws
+    through ``random_partition``, so a live fit always records an origin. The study seam
+    that draws the retired split records none, and only
     ``LongitudinalResult._restamp_inference_status`` reads this rule, so its live fits
     keep their interval.
 

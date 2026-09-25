@@ -919,11 +919,12 @@ gives what such a result keeps.
 | refits, such as `refute()` and `simulated_confounding()` | `unavailable`. `replayability.refit_nuisances` is `False`, with the code `point_replay_refit_configuration` |
 | `estimator.refit()` | raises `CapabilityError` before any learner |
 
-A new fit under a supported configuration restores the refits. A cross-fitted result under a
-stratified fold policy also withholds `ci`, `pvalue` and `std_error`, because it takes
-`"stratified_fold_plugin"` when it loads ([RM31](../roadmap.md#rm31-inference-status-of-a-saved-stratified-cross-fitted-result)). The 0.1.0 and 0.1.1 releases saved
-no `split_plan` attribute. `TMLE` reads a missing attribute as `None`, which is what those releases
-meant.
+A new fit under a supported configuration restores the refits. A cross-fitted result of a
+discrete treatment under a stratified fold policy also withholds `ci`, `pvalue` and `std_error`.
+It takes `"stratified_fold_plugin"` when it loads
+([RM31](../roadmap.md#rm31-inference-status-of-a-saved-stratified-cross-fitted-result)). The 0.1.0
+and 0.1.1 releases saved no `split_plan` attribute. `TMLE` reads a missing attribute as `None`,
+which is what those releases meant.
 
 The saved artifact carries the assessment cache. A result you derive with `dataclasses.replace`
 does not. The cache key records the operation and its arguments, and it records nothing about the
