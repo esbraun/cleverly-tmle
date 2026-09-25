@@ -90,9 +90,11 @@ from tests.unit._capability_sweep_support import (
 )
 from tests.unit._confounding_support import confounding_study
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
-from tests.unit._simulated_confounding_support import _estimate
-from tests.unit.test_simulated_confounding import _fit_with_a_support_constant_covariate
-from tests.unit.test_simulated_confounding_attributable import _fit_attributable
+from tests.unit._simulated_confounding_support import (
+    _estimate,
+    _fit_attributable,
+    _fit_with_a_support_constant_covariate,
+)
 
 # ----------------------------------------------------------------------------- the tilt
 

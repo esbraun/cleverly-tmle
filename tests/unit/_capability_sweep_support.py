@@ -61,9 +61,11 @@ from tests.conftest import (
 from tests.unit._declaration_support import legacy_result
 from tests.unit._direct_effect_support import COVARIATES as CDE_COVARIATES
 from tests.unit._direct_effect_support import cde_frame
-from tests.unit._simulated_confounding_support import _GRID
-from tests.unit.test_simulated_confounding import _fit_continuous
-from tests.unit.test_simulated_confounding_attributable import _fit_attributable
+from tests.unit._simulated_confounding_support import (
+    _GRID,
+    _fit_attributable,
+    _fit_shift_policies,
+)
 
 #: What the combined report writes when an operation it ran raised ``CapabilityError``
 #: under a row that said the operation was available.
@@ -340,7 +342,7 @@ def fit_policy_means() -> Any:
     identification, so this kind's ``simulated_confounding`` row resolves each request. The first reported mean is the zero-delta one, which the call refuses, so the
     estimand the sweep supplies is a refused value.
     """
-    return _fit_continuous(means=True)
+    return _fit_shift_policies(means=True)
 
 
 def fit_natural_course_study() -> Any:
