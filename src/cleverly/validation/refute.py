@@ -877,32 +877,133 @@ _CHILD_SEED_TAGS = {"dummy_outcome": 1, "simulated_outcome": 2}
 _ADDITIVE_MEAN_CONTRASTS = {"ate", "att", "atc"}
 
 
-def _refuse_missing_estimator(
-    result: TMLEResult, estimand: str, requested: tuple[str, ...]
-) -> str | None:
+def _validated_tests(tests: Sequence[str], n_replicates: int | None) -> tuple[str, ...]:
+    """Refuse a malformed ``tests`` or ``n_replicates`` argument of :func:`refute`.
+
+    A malformed argument is reported before any refusal, so a caller who misspelled a test
+    name hears that before a refusal that the corrected name might not meet.  :func:`refute`
+    and the ``refute`` method of :class:`~cleverly.assessment.DiagnosticsFacade` each call
+    this first, and :func:`refute_refusal` returns ``None`` where it raises.
+
+    Parameters
+    ----------
+    tests : sequence of str
+        The requested test names.
+    n_replicates : int or None
+        Replicates per randomized test.
+
+    Returns
+    -------
+    tuple of str
+        The requested test names.
+
+    Raises
+    ------
+    ValueError
+        If a test name is unknown, or ``n_replicates`` is not a positive integer.
+    """
+    requested = tuple(tests)
+    unknown = [name for name in requested if name not in _KNOWN_TESTS]
+    if unknown:
+        raise ValueError(
+            f"unknown refutation test {unknown[0]!r}; choose from {list(_KNOWN_TESTS)}"
+        )
+    if n_replicates is not None and (
+        isinstance(n_replicates, bool)
+        or not isinstance(n_replicates, (int, np.integer))
+        or n_replicates < 1
+    ):
+        raise ValueError("n_replicates must be positive and an integer")
+    return requested
+
+
+@dataclass(frozen=True)
+class _RefuteRequest:
+    """The arguments of one :func:`refute` request that a rule of the table reads.
+
+    Parameters
+    ----------
+    estimand : str
+        The alias the tests would refit.
+    tests : tuple of str
+        The requested test names, already validated.
+    n_replicates : int or None
+        Replicates per randomized test.
+    dummy_outcome : GaussianIndependentOutcome or None
+        The independent process declaration, or ``None`` for the default.
+    simulated_outcome : GaussianAdjustmentOutcome or None
+        The adjustment-dependent process declaration, or ``None`` for the default.
+    outcome_rule : EmpiricalInclusionRule
+        The rule applied to generated-outcome refits.
+    bootstrap_measurement_error : BootstrapMeasurementError or None
+        The measurement-error declaration.
+    measurement_error_rule : EmpiricalInclusionRule
+        The rule applied to measurement-error refits.
+    """
+
+    estimand: str
+    tests: tuple[str, ...]
+    n_replicates: int | None = None
+    dummy_outcome: Any = None
+    simulated_outcome: Any = None
+    outcome_rule: Any = field(default_factory=EmpiricalInclusionRule)
+    bootstrap_measurement_error: Any = None
+    measurement_error_rule: Any = field(default_factory=EmpiricalInclusionRule)
+
+    @property
+    def generated(self) -> tuple[str, ...]:
+        """The requested generated-outcome tests, in request order."""
+        return tuple(name for name in self.tests if name in _GENERATED_TESTS)
+
+    @property
+    def draws(self) -> int:
+        """The draw budget of a generated-outcome or measurement-error test."""
+        return DEFAULT_OUTCOME_REPLICATES if self.n_replicates is None else self.n_replicates
+
+    def process(self, name: str) -> Any:
+        """The outcome process a generated-outcome test draws from.
+
+        Parameters
+        ----------
+        name : str
+            ``"dummy_outcome"`` or ``"simulated_outcome"``.
+
+        Returns
+        -------
+        GaussianIndependentOutcome or GaussianAdjustmentOutcome
+            The declared process, or the default one when the request declares none.
+        """
+        if name == "dummy_outcome":
+            return (
+                GaussianIndependentOutcome() if self.dummy_outcome is None else self.dummy_outcome
+            )
+        return (
+            GaussianAdjustmentOutcome()
+            if self.simulated_outcome is None
+            else self.simulated_outcome
+        )
+
+
+def _refuse_missing_estimator(result: TMLEResult, request: _RefuteRequest) -> str | None:
     """Refuse a result that no longer holds the estimator every test refits."""
     if result.estimator is not None:
         return None
     return "refute needs the fitted estimator that produced the result"
 
 
-def _refuse_unreported_estimand(
-    result: TMLEResult, estimand: str, requested: tuple[str, ...]
-) -> str | None:
+def _refuse_unreported_estimand(result: TMLEResult, request: _RefuteRequest) -> str | None:
     """Refuse an estimand the fit did not report, which no refit can compare against."""
-    if estimand in result.estimates:
+    if request.estimand in result.estimates:
         return None
-    return f"estimand {estimand!r} was not requested in this fit"
+    return f"estimand {request.estimand!r} was not requested in this fit"
 
 
-def _refuse_placebo_level(
-    result: TMLEResult, estimand: str, requested: tuple[str, ...]
-) -> str | None:
+def _refuse_placebo_level(result: TMLEResult, request: _RefuteRequest) -> str | None:
     """Refuse ``placebo`` on the natural-course mean, an outcome level with no null value."""
     keys = getattr(result, "parameter_keys", {})
-    key = keys.get(estimand) if keys else None
-    target = getattr(key, "estimand", estimand)
-    if target != "ey_obs" or "placebo" not in requested:
+    key = keys.get(request.estimand) if keys else None
+    target = getattr(key, "estimand", request.estimand)
+    if target != "ey_obs" or "placebo" not in request.tests:
         return None
     return (
         "the placebo refutation permutes treatment and expects a null effect, but "
@@ -912,9 +1013,7 @@ def _refuse_placebo_level(
     )
 
 
-def _refuse_row_set_under_plan(
-    result: TMLEResult, estimand: str, requested: tuple[str, ...]
-) -> str | None:
+def _refuse_row_set_under_plan(result: TMLEResult, request: _RefuteRequest) -> str | None:
     """Refuse a test that refits on another row set when the fit was given a split plan.
 
     A fit that was given a :class:`~cleverly.SplitPlan` cannot refit on a different row
@@ -935,7 +1034,7 @@ def _refuse_row_set_under_plan(
     supplied_plan = getattr(result.estimator, "split_plan", None)
     if supplied_plan is None:
         return None
-    resampled = [name for name in requested if name in _ROW_SET_TESTS]
+    resampled = [name for name in request.tests if name in _ROW_SET_TESTS]
     if not resampled:
         return None
     return (
@@ -949,26 +1048,153 @@ def _refuse_row_set_under_plan(
     )
 
 
-#: Every refusal of a :func:`refute` request that the result, the estimand and the test
-#: names decide, in the one order the call and the ``refute`` capability row both use.
+def _refuse_generated_rule(result: TMLEResult, request: _RefuteRequest) -> str | None:
+    """Refuse a generated-outcome test under a rule other than the registered one."""
+    if not request.generated or type(request.outcome_rule) is EmpiricalInclusionRule:
+        return None
+    return (
+        "generated-outcome refutations require the exact registered "
+        "EmpiricalInclusionRule declaration"
+    )
+
+
+def _refuse_generated_eligibility(result: TMLEResult, request: _RefuteRequest) -> str | None:
+    """Refuse a generated-outcome test whose fit, estimand or process has no derivation.
+
+    The sentence is the one ``_validate_generated_eligibility`` raises.  This rule calls
+    that check rather than copying it, and :func:`refute` calls it again to read the
+    contrast direction it returns.
+    """
+    for name in request.generated:
+        try:
+            _validate_generated_eligibility(result, request.estimand, request.process(name), name)
+        except CapabilityError as error:
+            return str(error)
+    return None
+
+
+def _refuse_measurement_declaration(result: TMLEResult, request: _RefuteRequest) -> str | None:
+    """Refuse ``bootstrap_measurement_error`` without the registered declaration."""
+    if "bootstrap_measurement_error" not in request.tests:
+        return None
+    if type(request.bootstrap_measurement_error) is BootstrapMeasurementError:
+        return None
+    return (
+        "bootstrap_measurement_error requires the exact registered "
+        "BootstrapMeasurementError declaration"
+    )
+
+
+def _refuse_measurement_rule(result: TMLEResult, request: _RefuteRequest) -> str | None:
+    """Refuse ``bootstrap_measurement_error`` under a rule other than the registered one."""
+    if "bootstrap_measurement_error" not in request.tests:
+        return None
+    if type(request.measurement_error_rule) is EmpiricalInclusionRule:
+        return None
+    return (
+        "bootstrap_measurement_error requires the exact registered "
+        "EmpiricalInclusionRule declaration"
+    )
+
+
+def _refuse_measurement_eligibility(result: TMLEResult, request: _RefuteRequest) -> str | None:
+    """Refuse a measurement-error declaration that this fit's data cannot carry.
+
+    The sentence is the one ``_validate_measurement_error_eligibility`` raises, and this
+    rule calls that check rather than copying it.
+    """
+    if "bootstrap_measurement_error" not in request.tests:
+        return None
+    try:
+        _validate_measurement_error_eligibility(
+            result, request.bootstrap_measurement_error, request.draws
+        )
+    except CapabilityError as error:
+        return str(error)
+    return None
+
+
+def _refuse_measurement_budget(result: TMLEResult, request: _RefuteRequest) -> str | None:
+    """Refuse a measurement-error draw budget below its rule's floor."""
+    if "bootstrap_measurement_error" not in request.tests:
+        return None
+    floor = request.measurement_error_rule.minimum_draws
+    if request.draws >= floor:
+        return None
+    return (
+        f"bootstrap_measurement_error was asked for {request.draws} draw(s) "
+        f"under a rule that requires {floor}; raise "
+        "n_replicates or declare a rule with a smaller minimum_draws"
+    )
+
+
+def _refuse_generated_budget(result: TMLEResult, request: _RefuteRequest) -> str | None:
+    """Refuse a generated-outcome draw budget below its rule's floor.
+
+    A budget below the rule's own floor can only end in "too few draws", and the caller
+    can see that before any refit is paid for.
+    """
+    floor = request.outcome_rule.minimum_draws
+    if not request.generated or request.draws >= floor:
+        return None
+    return (
+        f"a generated-outcome refutation was asked for {request.draws} draw(s) under a rule "
+        f"that requires {floor}; raise n_replicates to at least "
+        f"{floor}, or declare a rule with a smaller minimum_draws"
+    )
+
+
+#: Every refusal of a :func:`refute` request that its arguments and the result decide
+#: before any refit, in the one order the call and the ``refute`` capability row both use.
 #: Each rule assumes its predecessors returned ``None``.  The names are the introspection
 #: contract, so a test pins the order without respelling a message.
-_REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, str, tuple[str, ...]], str | None]], ...] = (
+_REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, _RefuteRequest], str | None]], ...] = (
     ("estimator", _refuse_missing_estimator),
     ("estimand", _refuse_unreported_estimand),
     ("placebo_level", _refuse_placebo_level),
     ("row_set_under_plan", _refuse_row_set_under_plan),
+    ("generated_rule", _refuse_generated_rule),
+    ("generated_eligibility", _refuse_generated_eligibility),
+    ("measurement_declaration", _refuse_measurement_declaration),
+    ("measurement_rule", _refuse_measurement_rule),
+    ("measurement_eligibility", _refuse_measurement_eligibility),
+    ("measurement_budget", _refuse_measurement_budget),
+    ("generated_budget", _refuse_generated_budget),
 )
 
 
-def refute_refusal(result: TMLEResult, *, estimand: str, tests: Sequence[str]) -> str | None:
+def _first_refusal(result: TMLEResult, request: _RefuteRequest) -> str | None:
+    """The sentence of the first rule of :data:`_REQUEST_RULES` that refuses ``request``."""
+    for _name, rule in _REQUEST_RULES:
+        reason = rule(result, request)
+        if reason is not None:
+            return reason
+    return None
+
+
+def refute_refusal(
+    result: TMLEResult,
+    *,
+    estimand: str,
+    tests: Sequence[str],
+    n_replicates: int | None = None,
+    dummy_outcome: GaussianIndependentOutcome | None = None,
+    simulated_outcome: GaussianAdjustmentOutcome | None = None,
+    outcome_rule: EmpiricalInclusionRule = EmpiricalInclusionRule(),
+    bootstrap_measurement_error: BootstrapMeasurementError | None = None,
+    measurement_error_rule: EmpiricalInclusionRule = EmpiricalInclusionRule(),
+) -> str | None:
     """Return the refusal a :func:`refute` request meets before any refit.
 
     :func:`refute` raises the sentence this function returns, and the ``refute`` capability
     row of :class:`~cleverly.assessment.DiagnosticsFacade` quotes it for the same request.
     The row defers on ``tests`` when the default tests are refused and a smaller set runs,
     so a combined report names the argument instead of calling a refutation the call
-    refuses.
+    refuses.  The keyword arguments are those of :func:`refute` that decide a refusal.
+
+    A malformed argument is not a refusal.  An unknown test name and an ``n_replicates``
+    that is not a positive integer each raise ``ValueError`` from the call, before any
+    refusal.  This function returns ``None`` for them, and the call reports them itself.
 
     Parameters
     ----------
@@ -977,20 +1203,41 @@ def refute_refusal(result: TMLEResult, *, estimand: str, tests: Sequence[str]) -
     estimand : str
         The alias the tests would refit.
     tests : sequence of str
-        The requested test names.  Unknown names are not checked here: :func:`refute`
-        refuses them first, as a malformed argument.
+        The requested test names.
+    n_replicates : int or None
+        Replicates per randomized test.
+    dummy_outcome : GaussianIndependentOutcome or None
+        Independent Gaussian process declaration.
+    simulated_outcome : GaussianAdjustmentOutcome or None
+        Adjustment-dependent additive process declaration.
+    outcome_rule : EmpiricalInclusionRule
+        Rule applied to generated-outcome refits.
+    bootstrap_measurement_error : BootstrapMeasurementError or None
+        Measurement-error declaration.
+    measurement_error_rule : EmpiricalInclusionRule
+        Rule applied to measurement-error refits.
 
     Returns
     -------
     str or None
-        Exact refusal reason, or ``None`` when no rule refuses the request.
+        Exact refusal reason, or ``None`` when no rule refuses the request or an argument
+        is malformed.
     """
-    requested = tuple(tests)
-    for _name, rule in _REQUEST_RULES:
-        reason = rule(result, estimand, requested)
-        if reason is not None:
-            return reason
-    return None
+    try:
+        requested = _validated_tests(tests, n_replicates)
+    except ValueError:
+        return None
+    request = _RefuteRequest(
+        estimand,
+        requested,
+        n_replicates,
+        dummy_outcome,
+        simulated_outcome,
+        outcome_rule,
+        bootstrap_measurement_error,
+        measurement_error_rule,
+    )
+    return _first_refusal(result, request)
 
 
 def _generated_child_seeds(root_seed: int, name: str, count: int) -> tuple[int, ...]:
@@ -1616,11 +1863,12 @@ def refute(
         for an effect, and an outcome level need not approach zero. ``subset`` and
         ``random_common_cause`` keep their usual stability interpretations there. A fit
         given ``split_plan=`` refuses ``subset`` and ``bootstrap_measurement_error``
-        before any refit. :func:`refute_refusal` holds these refusals, and the ``refute``
-        capability row defers on ``tests`` when the default tests meet one and a smaller
-        set runs. ``random_common_cause`` adds a column of independent noise. A
-        :class:`~cleverly.CTMLE` with an explicit ``ordering=`` places that column after
-        the declared ordering, and a :class:`~cleverly.DRTMLE` refits without an
+        before any refit. ``refute_refusal`` holds these refusals, and every refusal of a
+        generated-outcome or measurement-error request. The ``refute`` capability row
+        reads it for the same request, and defers on ``tests`` when the default tests meet
+        one and a smaller set runs. ``random_common_cause`` adds a column of independent
+        noise. A :class:`~cleverly.CTMLE` with an explicit ``ordering=`` places that column
+        after the declared ordering, and a :class:`~cleverly.DRTMLE` refits without an
         ``evaluation=`` companion that lacks it.
     n_replicates : int or None
         Replicates per randomized test. ``None`` uses five for each established
@@ -1654,84 +1902,43 @@ def refute(
     -------
     RefutationResult
         One record per test run, with what it expected and what it saw.
+
+    Raises
+    ------
+    ValueError
+        If a test name is unknown or ``n_replicates`` is not a positive integer, which is
+        checked before any refusal. Also if ``negative_control_outcome`` is requested
+        without an outcome, which is checked when that test runs.
+    CapabilityError
+        If ``refute_refusal`` refuses the request. Each such refusal precedes every refit.
     """
-    # The malformed arguments first, and the refusals of a well-formed request after them:
-    # a caller who misspelled a test name hears that before a refusal that the corrected
-    # name might not meet.
-    requested = tuple(tests)
-    unknown = [name for name in requested if name not in _KNOWN_TESTS]
-    if unknown:
-        raise ValueError(
-            f"unknown refutation test {unknown[0]!r}; choose from {list(_KNOWN_TESTS)}"
-        )
-    if n_replicates is not None and (
-        isinstance(n_replicates, bool)
-        or not isinstance(n_replicates, (int, np.integer))
-        or n_replicates < 1
-    ):
-        raise ValueError("n_replicates must be positive and an integer")
-    # Before any refit, like the validations below it. The ``refute`` capability row reads
-    # the same predicate, so a row that reads available is a request this line admits.
-    reason = refute_refusal(result, estimand=estimand, tests=requested)
+    # The malformed arguments first, and the refusals of a well-formed request after them.
+    # Every refusal is decided before any refit, so a mixed call does not pay for placebo
+    # fits and only then discover that its outcome process has no effect derivation. The
+    # ``refute`` capability row reads the same table, so a row that reads available is a
+    # request this line admits.
+    request = _RefuteRequest(
+        estimand,
+        _validated_tests(tests, n_replicates),
+        n_replicates,
+        dummy_outcome,
+        simulated_outcome,
+        outcome_rule,
+        bootstrap_measurement_error,
+        measurement_error_rule,
+    )
+    reason = _first_refusal(result, request)
     if reason is not None:
         raise CapabilityError(reason)
+    requested = request.tests
     estimator = result.estimator
-
-    processes: dict[str, GaussianIndependentOutcome | GaussianAdjustmentOutcome] = {
-        "dummy_outcome": (GaussianIndependentOutcome() if dummy_outcome is None else dummy_outcome),
-        "simulated_outcome": (
-            GaussianAdjustmentOutcome() if simulated_outcome is None else simulated_outcome
-        ),
+    processes = {name: request.process(name) for name in _GENERATED_TESTS}
+    # The table admitted each generated test, so this reads the contrast direction and
+    # refuses nothing.
+    contrasts = {
+        name: _validate_generated_eligibility(result, estimand, processes[name], name)
+        for name in request.generated
     }
-    # Validate every generated operation before any requested operation can refit. A mixed
-    # call must not pay for placebo fits and only then discover that its outcome process has
-    # no effect derivation.
-    generated_requested = any(name in _GENERATED_TESTS for name in requested)
-    if generated_requested and type(outcome_rule) is not EmpiricalInclusionRule:
-        raise CapabilityError(
-            "generated-outcome refutations require the exact registered "
-            "EmpiricalInclusionRule declaration"
-        )
-    contrasts: dict[str, tuple[float, float]] = {}
-    for name in requested:
-        if name in _GENERATED_TESTS:
-            contrasts[name] = _validate_generated_eligibility(
-                result, estimand, processes[name], name
-            )
-    measurement_requested = "bootstrap_measurement_error" in requested
-    if measurement_requested:
-        if type(bootstrap_measurement_error) is not BootstrapMeasurementError:
-            raise CapabilityError(
-                "bootstrap_measurement_error requires the exact registered "
-                "BootstrapMeasurementError declaration"
-            )
-        if type(measurement_error_rule) is not EmpiricalInclusionRule:
-            raise CapabilityError(
-                "bootstrap_measurement_error requires the exact registered "
-                "EmpiricalInclusionRule declaration"
-            )
-        measurement_budget = (
-            n_replicates if n_replicates is not None else DEFAULT_OUTCOME_REPLICATES
-        )
-        _validate_measurement_error_eligibility(
-            result, bootstrap_measurement_error, measurement_budget
-        )
-        if measurement_budget < measurement_error_rule.minimum_draws:
-            raise CapabilityError(
-                f"bootstrap_measurement_error was asked for {measurement_budget} draw(s) "
-                f"under a rule that requires {measurement_error_rule.minimum_draws}; raise "
-                "n_replicates or declare a rule with a smaller minimum_draws"
-            )
-    if generated_requested:
-        # A draw budget below the rule's own floor can only end in "too few draws", and the
-        # caller can see that before any refit is paid for.
-        budget = n_replicates if n_replicates is not None else DEFAULT_OUTCOME_REPLICATES
-        if budget < outcome_rule.minimum_draws:
-            raise CapabilityError(
-                f"a generated-outcome refutation was asked for {budget} draw(s) under a rule "
-                f"that requires {outcome_rule.minimum_draws}; raise n_replicates to at least "
-                f"{outcome_rule.minimum_draws}, or declare a rule with a smaller minimum_draws"
-            )
 
     original = result[estimand].psi
     # A tolerance scale for the refutation comparisons below, not a coverage claim, so

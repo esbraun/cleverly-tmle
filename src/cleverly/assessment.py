@@ -634,13 +634,14 @@ class AssessmentItem:
     arguments : mapping of str to Any
         The invocation this row describes, and empty when there is none. A row whose
         operation ran, and a row whose operation refused after it was invoked, carry the
-        effective arguments, which include the signature defaults and the resolved seed.
-        A deferred row carries the request as supplied, plus the combined run's seed when
-        the operation accepts one. It binds no signature default, because the default is
-        what such a row refuses: an ambiguous ``estimand="ate"`` recorded as effective
-        would name an argument the operation declines. A row this fit refuses outright
-        carries nothing, because no request was considered and none can make it run.
-        Excluded from equality because argument values can contain arrays.
+        effective arguments, which include the signature defaults and the resolved seed. A
+        row that its request refuses before any invocation carries its request with the
+        signature defaults bound. A deferred row carries the request as supplied, plus the
+        combined run's seed when the operation accepts one. It binds no signature default,
+        because the default is what such a row refuses: an ambiguous ``estimand="ate"``
+        recorded as effective would name an argument the operation declines. A row this fit
+        refuses outright carries nothing, because no request was considered and none can
+        make it run. Excluded from equality because argument values can contain arrays.
     """
 
     name: str
@@ -1734,8 +1735,13 @@ class _CapabilityFacade:
         the third dropped them, so a combined report published two omissions that named the
         caller's request and one that did not.
 
-        The availability branch is the deliberate exception, and the only one. A row
-        refused fit-wide describes no invocation, so it carries no arguments to replay.
+        The availability branch tells two refusals apart by the gated row, which no argument
+        changes.  A row refused fit-wide equals its gated row and describes no invocation,
+        so it carries no arguments to replay.  A row that this request refuses, such as
+        ``truncation_curve(mechanism=False)`` on an incremental fit, differs from its gated
+        row.  It carries the invocation the request describes, with the signature defaults
+        bound, as an item whose call refused after it was invoked does.  Its sentence names
+        the refused value, so it needs no next step of its own.
 
         Parameters
         ----------
@@ -1754,7 +1760,6 @@ class _CapabilityFacade:
             The omission to report, or ``None`` when the operation may run.
         """
         item: AssessmentItem | None
-        fit_wide = False
         missing = tuple(name for name in capability.requires_arguments if name not in arguments)
         if capability.status is AssessmentStatus.DEFERRED and capability.requires_arguments:
             # A deferred row is refused by this request, not by the fit: the operation runs
@@ -1771,22 +1776,32 @@ class _CapabilityFacade:
                 reason=capability.reason,
             )
         elif not capability.available:
-            # The one branch that describes no invocation. This row is refused fit-wide,
-            # before any request was considered: the operation did not run, and no
-            # argument makes it run. Stamping the caller's request onto it, seed included,
-            # would report "no longitudinal benchmarking derivation is registered" beside
-            # a ``random_state`` that nothing ever drew from. The asymmetry with the three
-            # branches below is the point: each of those answers a request the caller
-            # made, and carries it.
-            fit_wide = True
             item = _item_from_capability(capability)
+            if capability == self._gated(capability.operation):
+                # Refused fit-wide, before any request was considered: the operation did
+                # not run, and no argument makes it run. Stamping the caller's request onto
+                # it, seed included, would report "no longitudinal benchmarking derivation
+                # is registered" beside a ``random_state`` that nothing ever drew from.
+                return item
+            return replace(
+                item, arguments=self._invocation_arguments(capability.operation, arguments)
+            )
         elif missing:
             item = _missing_argument_item(capability, self._attribute, missing)
         else:
             item = _cost_refusal(capability, self._attribute, include_refits, include_retargets)
-        if item is None or fit_wide:
+        if item is None:
             return item
         return replace(item, arguments=dict(arguments))
+
+    def _invocation_arguments(self, operation: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
+        """The invocation a request describes, with the signature defaults bound.
+
+        A partial binding, because a request that a row refuses need not name every
+        required argument: the bare ``benchmark`` request of a fit with one covariate names
+        none.
+        """
+        return _bound_arguments(self._bind_arguments(operation, arguments, partial=True))
 
     def _run_all(
         self,
@@ -2212,7 +2227,9 @@ class DiagnosticsFacade(_CapabilityFacade):
 
         The row resolves for the estimand the call would refit.  A request that names no
         estimand on a fit that reports no bare ``"ate"`` is returned as it is: the estimand
-        gate defers it, and the call refuses the bare default by name.
+        gate defers it, and the call refuses the bare default by name.  The other arguments
+        that decide a refusal, such as ``n_replicates`` and the generated-outcome and
+        measurement-error declarations, are read from the request as it stands.
         """
         if not capability.available:
             return capability
@@ -2223,9 +2240,16 @@ class DiagnosticsFacade(_CapabilityFacade):
             estimand = "ate"
         from .validation.refute import DEFAULT_TESTS, refute_refusal
 
+        read = inspect.signature(refute_refusal).parameters
+        declared = {
+            name: value
+            for name, value in arguments.items()
+            if name in read and name not in ("estimand", "tests")
+        }
+
         def refusal(tests: Sequence[str] | None) -> str | None:
             chosen = DEFAULT_TESTS if tests is None else tests
-            return refute_refusal(self._result, estimand=estimand, tests=chosen)
+            return refute_refusal(self._result, estimand=estimand, tests=chosen, **declared)
 
         return _argument_resolved(
             capability,
@@ -2613,6 +2637,12 @@ class DiagnosticsFacade(_CapabilityFacade):
 
         Raises
         ------
+        TypeError
+            If an argument is not one :func:`cleverly.validation.refute` takes.
+        ValueError
+            If a test name is unknown or ``n_replicates`` is not a positive integer. These
+            malformed arguments are checked before any refusal, as the function checks
+            them.
         CapabilityError
             If the fitted estimator cannot be reconstructed, or the row this request
             resolves to is refused. A fit given ``split_plan=`` refuses ``subset``, and
@@ -2620,15 +2650,17 @@ class DiagnosticsFacade(_CapabilityFacade):
             A call that omits ``tests`` raises the deferral with the refused test's
             sentence, and a call that names ``tests`` without that test runs.
         """
+        from .validation.refute import _validated_tests
+
+        # The malformed arguments first, through the check the function runs first, so the
+        # facade and the function report a misspelled test before any refusal.
+        bound = self._bind_arguments("refute", kwargs, partial=False)
+        bound.apply_defaults()
+        _validated_tests(bound.arguments["tests"], bound.arguments["n_replicates"])
         # The row this request resolves to, not the bare row, so a request that names
-        # ``tests`` runs where the bare row defers on it.
+        # ``tests`` runs where the bare row defers on it. Its replay gate refuses a result
+        # whose estimator cannot refit.
         self._require("refute", kwargs)
-        if not replayability(self._result).refit_nuisances:
-            missing = replayability(self._result).unreconstructible
-            raise CapabilityError(
-                "refutation requires nuisance refits, but this estimator cannot be "
-                f"reconstructed; unavailable slots: {list(missing)}"
-            )
         return self._invoke("refute", (), kwargs)
 
     def run_all(
@@ -4123,7 +4155,21 @@ class SensitivityFacade(_CapabilityFacade):
         See Also
         --------
         cleverly.sensitivity.benchmark : The same benchmark as a free function.
+
+        Notes
+        -----
+        A name the fit does not adjust for raises ``DataError`` before any refusal, as the
+        free function raises it.
         """
+        from .sensitivity.omitted_variable import _benchmark_names
+
+        # The malformed argument first, through the check the function runs first, so the
+        # facade and the function report an unknown name before any refusal. A
+        # longitudinal fit has no covariate list to check a name against, and its row
+        # refuses every request.
+        bound = self._bind_arguments("benchmark", kwargs, partial=True, args=args)
+        if _family(self._result) == "point" and "covariates" in bound.arguments:
+            _benchmark_names(self._result, bound.arguments["covariates"])
         return self._dispatch("benchmark", args, kwargs)
 
     def contour(self, *args: Any, **kwargs: Any) -> Any:

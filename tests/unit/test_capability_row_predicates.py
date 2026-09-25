@@ -16,14 +16,16 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import importlib
 from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 import pytest
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly import ATE
+from cleverly import ATE, CausalStudy, PointTreatment
 from cleverly.assessment import (
     POINT_REPLAY_REFIT_CONFIGURATION,
     AssessmentStatus,
@@ -31,7 +33,7 @@ from cleverly.assessment import (
     SensitivityFacade,
     replayability,
 )
-from cleverly.datasets import make_binary_outcome
+from cleverly.datasets import make_binary_outcome, make_linear_ate
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError
@@ -68,7 +70,15 @@ from cleverly.sensitivity.positivity import (
     truncation_refusal,
 )
 from cleverly.targets.population_intervention import NATURAL_COURSE_TILT_REFUSAL
-from cleverly.validation.refute import _REQUEST_RULES, DEFAULT_TESTS, refute, refute_refusal
+from cleverly.validation.refute import (
+    _REQUEST_RULES,
+    DEFAULT_TESTS,
+    BootstrapMeasurementError,
+    EmpiricalInclusionRule,
+    _RefuteRequest,
+    refute,
+    refute_refusal,
+)
 from tests.conftest import linear_in_sample
 from tests.unit._capability_sweep_support import (
     DECLINED,
@@ -544,6 +554,13 @@ class TestTheRefuteRowResolvesEachRequest:
             "estimand",
             "placebo_level",
             "row_set_under_plan",
+            "generated_rule",
+            "generated_eligibility",
+            "measurement_declaration",
+            "measurement_rule",
+            "measurement_eligibility",
+            "measurement_budget",
+            "generated_budget",
         ]
 
     @pytest.mark.parametrize("kind", DEFERRED_REFUTE_KINDS)
@@ -611,6 +628,47 @@ class TestTheRefuteRowResolvesEachRequest:
             refute(refute_fits["split_plan"], estimand="not_reported", tests=("bogus",))
         assert not isinstance(error.value, CapabilityError)
 
+    @pytest.mark.parametrize(
+        ("request_", "message"),
+        [
+            ({"tests": ("typo", "subset")}, "unknown refutation test 'typo'"),
+            ({"tests": ("subset",), "n_replicates": 0}, "n_replicates must be positive"),
+        ],
+    )
+    def test_the_facade_reports_a_malformed_argument_before_the_row(
+        self, refute_fits: dict[str, Any], request_: dict[str, Any], message: str
+    ) -> None:
+        """The facade, the row and the function agree on the order: malformed first.
+
+        Each request names ``subset``, which this fit refuses. The facade used to read the
+        row first and raise that refusal, while the function raised ``ValueError``.
+        """
+        result = refute_fits["split_plan"]
+        request = {"estimand": "ate", **request_}
+        # The predicate leaves a malformed request to the call, so the row does not refuse.
+        assert refute_refusal(result, **request) is None
+        assert result.diagnostics._capability_for_arguments("refute", request).available
+        for call in (
+            lambda: refute(result, **request),
+            lambda: result.diagnostics.refute(**request),
+        ):
+            with pytest.raises(ValueError, match=message) as error:
+                call()
+            assert not isinstance(error.value, CapabilityError)
+        # The nonzero witness: the well-formed request still meets the refusal.
+        with pytest.raises(CapabilityError, match="refit on rows this fit did not run"):
+            result.diagnostics.refute(estimand="ate", tests=("subset",))
+
+    def test_a_malformed_argument_precedes_the_replay_gate(self) -> None:
+        """A restored result whose refit is refused still hears the malformed argument."""
+        result = restored_stratified()
+        assert not result.diagnostics.capability("refute").available
+        with pytest.raises(ValueError, match="unknown refutation test 'typo'") as error:
+            result.diagnostics.refute(tests=("typo",))
+        assert not isinstance(error.value, CapabilityError)
+        with pytest.raises(CapabilityError, match="refitting the nuisance models is unavailable"):
+            result.diagnostics.refute(tests=("placebo",))
+
 
 class TestEachRefuteMutationRestoresADisagreement:
     """The agreement check sees a row that stops reading the predicate."""
@@ -633,6 +691,228 @@ class TestEachRefuteMutationRestoresADisagreement:
     ) -> None:
         MUTATIONS["M3"].apply(monkeypatch)
         assert refute_disagreements(refute_fits["ordinary"], "ordinary") == []
+
+
+# --------------------------------------------- the refute refusals before any refit
+
+#: The module, which ``cleverly.validation`` shadows with the function of the same name.
+refute_module = importlib.import_module("cleverly.validation.refute")
+
+#: A four-draw rule. The rule refuses ``minimum_draws * alpha < 2``, so four draws need
+#: ``alpha=0.5``.
+FOUR_DRAWS = EmpiricalInclusionRule(alpha=0.5, minimum_draws=4)
+MEASURED = BootstrapMeasurementError(variables=("W1",))
+
+
+class _UnregisteredRule(EmpiricalInclusionRule):
+    """An inclusion rule of another type, which the refute rules refuse by type."""
+
+
+#: Each rule the call raised before any refit while the row did not read it, as the fit
+#: and the request it refuses first. ``binary`` is a direct fit, which records no
+#: identification, and ``study`` is a study fit, which records it.
+PRE_REFIT_REQUESTS: dict[str, tuple[str, dict[str, Any]]] = {
+    "generated_rule": (
+        "study",
+        {
+            "tests": ("dummy_outcome",),
+            "n_replicates": 4,
+            "outcome_rule": _UnregisteredRule(alpha=0.5, minimum_draws=4),
+        },
+    ),
+    "generated_eligibility": (
+        "binary",
+        {"tests": ("dummy_outcome",), "n_replicates": 4, "outcome_rule": FOUR_DRAWS},
+    ),
+    "measurement_declaration": (
+        "study",
+        {
+            "tests": ("bootstrap_measurement_error",),
+            "n_replicates": 4,
+            "measurement_error_rule": FOUR_DRAWS,
+        },
+    ),
+    "measurement_rule": (
+        "study",
+        {
+            "tests": ("bootstrap_measurement_error",),
+            "n_replicates": 4,
+            "bootstrap_measurement_error": MEASURED,
+            "measurement_error_rule": _UnregisteredRule(alpha=0.5, minimum_draws=4),
+        },
+    ),
+    "measurement_eligibility": (
+        "study",
+        {
+            "tests": ("bootstrap_measurement_error",),
+            "n_replicates": 4,
+            "bootstrap_measurement_error": BootstrapMeasurementError(
+                variables=("W1",), resampling="cluster"
+            ),
+            "measurement_error_rule": FOUR_DRAWS,
+        },
+    ),
+    "measurement_budget": (
+        "study",
+        {
+            "tests": ("bootstrap_measurement_error",),
+            "n_replicates": 1,
+            "bootstrap_measurement_error": MEASURED,
+        },
+    ),
+    "generated_budget": ("study", {"tests": ("dummy_outcome",), "n_replicates": 1}),
+}
+
+#: A request of each test that the call admits on the study fit: the nonzero witness.
+PRE_REFIT_RUNS: dict[str, dict[str, Any]] = {
+    "dummy_outcome": {"tests": ("dummy_outcome",), "n_replicates": 4, "outcome_rule": FOUR_DRAWS},
+    "simulated_outcome": {
+        "tests": ("simulated_outcome",),
+        "n_replicates": 4,
+        "outcome_rule": FOUR_DRAWS,
+    },
+    "bootstrap_measurement_error": {
+        "tests": ("bootstrap_measurement_error",),
+        "n_replicates": 4,
+        "bootstrap_measurement_error": MEASURED,
+        "measurement_error_rule": FOUR_DRAWS,
+    },
+}
+
+
+@pytest.fixture(scope="module")
+def pre_refit_fits() -> dict[str, Any]:
+    """An in-sample study fit of the ATE with a Gaussian outcome, and the binary kind."""
+    frame, _ = make_linear_ate(n=200, seed=0)
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")),
+    )
+    fitted = study.identify(ATE()).estimate(
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        cross_fit=False,
+        simultaneous=False,
+        random_state=0,
+    )
+    return {"study": fitted, "binary": KINDS["binary"].build()}
+
+
+def _first_rule(result: Any, request: dict[str, Any]) -> str | None:
+    """The name of the first rule of the table that refuses ``request``."""
+    arguments = _RefuteRequest(estimand="ate", **{**request, "tests": tuple(request["tests"])})
+    return next(
+        (name for name, rule in _REQUEST_RULES if rule(result, arguments) is not None), None
+    )
+
+
+def pre_refit_disagreements(result: Any, request: dict[str, Any]) -> list[str]:
+    """Whether the ``refute`` row and the module call disagree on one request.
+
+    The call runs on a spied copy, so a request it admits stops at the first learner fit.
+    A fresh facade resolves the row, so a monkeypatched predicate takes effect.
+    """
+    row = DiagnosticsFacade(result)._capability_for_arguments(
+        "refute", {"estimand": "ate", **request}
+    )
+    spied = _spied(result)
+    try:
+        refute(spied, estimand="ate", random_state=0, **request)
+    except CapabilityError as error:
+        raised: str | None = str(error)
+    except AssertionError as error:
+        assert "before any learner is fitted" in str(error)
+        raised = None
+    else:
+        # The generated and measurement tests retain a failed refit, so the spy shows up
+        # as a count rather than as a raised error.
+        assert NeverFit.calls > 0
+        raised = None
+    if row.available and raised is not None:
+        return [f"the row reads available and the call raised {raised}"]
+    if not row.available and raised != row.reason:
+        return [f"the row quotes {row.reason!r}, the call {raised!r}"]
+    return []
+
+
+class TestTheRefuteRowReadsEveryRefusalBeforeARefit:
+    """Every refusal ``refute`` raises before a refit is a rule the row reads."""
+
+    @pytest.mark.parametrize("rule", list(PRE_REFIT_REQUESTS))
+    def test_each_request_meets_the_rule_the_table_names(
+        self, pre_refit_fits: dict[str, Any], rule: str
+    ) -> None:
+        kind, request = PRE_REFIT_REQUESTS[rule]
+        assert _first_rule(pre_refit_fits[kind], request) == rule
+
+    @pytest.mark.parametrize("rule", list(PRE_REFIT_REQUESTS))
+    def test_the_row_and_every_entry_point_quote_the_refusal(
+        self, pre_refit_fits: dict[str, Any], rule: str
+    ) -> None:
+        """Before the row read these rules, a combined report declined each request."""
+        kind, request = PRE_REFIT_REQUESTS[rule]
+        result = pre_refit_fits[kind]
+        request = {"estimand": "ate", **request}
+        reason = refute_refusal(result, **request)
+        assert reason is not None
+        row = result.diagnostics._capability_for_arguments("refute", request)
+        assert row.status is AssessmentStatus.UNAVAILABLE
+        assert row.reason == reason
+        with pytest.raises(CapabilityError) as error:
+            refute(_spied(result), **request)
+        assert str(error.value) == reason
+        assert NeverFit.calls == 0
+        with pytest.raises(CapabilityError) as error:
+            result.diagnostics.refute(**request)
+        assert str(error.value) == f"diagnostic 'refute' is unavailable: {reason}"
+        report = result.diagnostics.run_all(
+            include_refits=True, arguments={"refute": request}, random_state=0
+        )
+        assert report["refute"].status is AssessmentStatus.UNAVAILABLE
+        assert report["refute"].detail == reason
+
+    @pytest.mark.parametrize("rule", list(PRE_REFIT_REQUESTS))
+    def test_m0_each_request_agrees_unmutated(
+        self, pre_refit_fits: dict[str, Any], rule: str
+    ) -> None:
+        kind, request = PRE_REFIT_REQUESTS[rule]
+        assert pre_refit_disagreements(pre_refit_fits[kind], request) == []
+
+    @pytest.mark.parametrize("test", list(PRE_REFIT_RUNS))
+    def test_a_request_the_call_admits_runs(
+        self, pre_refit_fits: dict[str, Any], test: str
+    ) -> None:
+        """The nonzero witness: each test runs on a fit that records its identification."""
+        result = pre_refit_fits["study"]
+        request = {"estimand": "ate", **PRE_REFIT_RUNS[test]}
+        assert result.diagnostics._capability_for_arguments("refute", request).available
+        assert pre_refit_disagreements(result, PRE_REFIT_RUNS[test]) == []
+        report = result.diagnostics.refute(random_state=0, **request)
+        assert [record.name for record in report.tests] == [test]
+
+    def test_a_row_that_reads_the_old_four_rules_disagrees(
+        self, pre_refit_fits: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The row as it was: the call raised each of these rules and the row read none.
+
+        The call reads the table directly, so replacing the predicate the row reads leaves
+        the call as it is.
+        """
+        old_rules = _REQUEST_RULES[:4]
+
+        def four_rules(result: Any, *, estimand: str, tests: Any, **_: Any) -> str | None:
+            request = _RefuteRequest(estimand=estimand, tests=tuple(tests))
+            return next(
+                (reason for _, rule in old_rules if (reason := rule(result, request))), None
+            )
+
+        monkeypatch.setattr(refute_module, "refute_refusal", four_rules)
+        for rule, (kind, request) in PRE_REFIT_REQUESTS.items():
+            problems = pre_refit_disagreements(pre_refit_fits[kind], request)
+            assert problems and problems[0].startswith("the row reads available"), rule
+        # The same mutation leaves a request the call admits agreeing.
+        run = PRE_REFIT_RUNS["dummy_outcome"]
+        assert pre_refit_disagreements(pre_refit_fits["study"], run) == []
 
 
 # ------------------------------------------------------------------------ the benchmark
@@ -755,6 +1035,41 @@ class TestTheBenchmarkRowResolvesEachRequest:
             benchmark(benchmark_fits["split_plan"], ["W", "nope"])
         assert not isinstance(error.value, CapabilityError)
 
+    @pytest.mark.parametrize("kind", BENCHMARK_KINDS)
+    def test_the_row_leaves_an_unknown_covariate_to_the_call(
+        self, benchmark_fits: dict[str, Any], kind: str
+    ) -> None:
+        """Beside every covariate, an unknown name is malformed before it is refused.
+
+        The row used to read ``unavailable`` with "cannot drop every covariate", while the
+        function raised ``DataError``. On the one-covariate fit, the facade read its bare
+        row first and raised that refusal too.
+        """
+        result = benchmark_fits[kind]
+        request = [*result.data.covariate_names, "typo"]
+        assert benchmark_refusal(result, request) is None
+        row = result.sensitivity._capability_for_arguments("benchmark", {"covariates": request})
+        assert row.available and row.reason is None
+        for call in (
+            lambda: benchmark(result, request, random_state=0),
+            lambda: result.sensitivity.benchmark(request, random_state=0),
+            lambda: result.sensitivity.benchmark(covariates=request, random_state=0),
+        ):
+            with pytest.raises(DataError, match=r"unknown covariates \['typo'\]") as error:
+                call()
+            assert not isinstance(error.value, CapabilityError)
+
+    def test_an_unknown_covariate_precedes_the_missing_estimator(
+        self, benchmark_fits: dict[str, Any]
+    ) -> None:
+        """The function checks the malformed name before the estimator it would refit."""
+        result = dataclasses.replace(benchmark_fits["ordinary"], estimator=None)
+        with pytest.raises(DataError, match=r"unknown covariates \['typo'\]"):
+            benchmark(result, ["typo"])
+        # The nonzero witness: a known name meets the refusal.
+        with pytest.raises(CapabilityError, match="needs the fitted estimator"):
+            benchmark(result, ["W1"])
+
 
 class TestTheBenchmarkMutationRestoresADisagreement:
     """The agreement check sees a row that stops reading the predicate."""
@@ -777,6 +1092,56 @@ class TestTheBenchmarkMutationRestoresADisagreement:
         # Only the one-covariate fit has a bare row that no single covariate runs.
         bare = any(problem.startswith("the bare row") for problem in problems)
         assert bare is (kind == "split_plan")
+
+
+class TestARowItsRequestRefusesCarriesTheRequest:
+    """A combined report keeps the invocation of a row that its request refuses.
+
+    Such a row reads available before the request, so the report attaches the request
+    with its signature defaults bound, as it does for a call that refused after it was
+    invoked. A row refused for the whole fit describes no invocation and carries none.
+    Before this rule both kinds carried ``{}``.
+    """
+
+    def test_a_refused_axis_carries_the_request(self, truncation_fits: dict[str, Any]) -> None:
+        result = truncation_fits["incremental+missing"]
+        report = result.diagnostics.run_all(
+            include_retargets=True, arguments={"truncation_curve": {"mechanism": False}}
+        )
+        item = report["truncation_curve"]
+        assert item.status is AssessmentStatus.UNAVAILABLE
+        assert item.detail == truncation_refusal(result, False)
+        assert item.arguments == {"bounds": None, "estimands": None, "mechanism": False}
+
+    def test_a_refused_covariate_set_carries_the_request(
+        self, benchmark_fits: dict[str, Any]
+    ) -> None:
+        result = benchmark_fits["ordinary"]
+        every = list(result.data.covariate_names)
+        report = result.sensitivity.run_all(
+            include_refits=True, arguments={"benchmark": {"covariates": every}}, random_state=0
+        )
+        item = report["benchmark"]
+        assert item.status is AssessmentStatus.UNAVAILABLE
+        assert item.detail == benchmark_refusal(result, every)
+        assert item.arguments == {
+            "covariates": every,
+            "estimand": "ate",
+            "nu2_estimator": "auto",
+            "random_state": 0,
+        }
+
+    def test_a_row_refused_for_the_whole_fit_carries_nothing(
+        self, truncation_fits: dict[str, Any]
+    ) -> None:
+        """The control: the tilt rows of a complete-outcome fit are refused fit-wide."""
+        result = truncation_fits["ordinary"]
+        report = result.sensitivity.run_all(
+            include_retargets=True, arguments={"missingness": {"gamma": (0.5,)}}
+        )
+        item = report["missingness"]
+        assert item.status is AssessmentStatus.NOT_APPLICABLE
+        assert item.arguments == {}
 
 
 # ------------------------------------------------------------ the simulated confounding

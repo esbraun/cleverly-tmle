@@ -120,8 +120,9 @@ def _normalize(value: Any) -> Any:
 #: RM23 moved ``diagnostics.run_all`` to 11 and ``sensitivity.run_all`` to 6. Each row now
 #: reads the predicate its call raises from, so a battery cached before RM23 can carry a
 #: row that says "the operation declined this request". The truncation row of an
-#: incremental fit, the refute row of a fit given ``split_plan=`` or of the natural-course
-#: mean, and both tilt rows of a shift, incremental, regime, MSM or ratio-only fit with
+#: incremental fit, the refute row of a fit given ``split_plan=``, of the natural-course
+#: mean, or of a generated-outcome or measurement-error request the call refuses before any
+#: refit, and both tilt rows of a shift, incremental, regime, MSM or ratio-only fit with
 #: missing outcomes are such rows. A restored result whose refit this version refuses now
 #: reads its refit rows unavailable. The ``benchmark`` row of a fit with one covariate now
 #: reads unavailable, where it asked for ``covariates=``. The ``simulated_confounding`` row

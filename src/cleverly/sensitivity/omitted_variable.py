@@ -1492,9 +1492,39 @@ class BenchmarkResult:
         return self.summary()
 
 
-def _benchmark_names(covariates: Any) -> tuple[str, ...]:
-    """The covariate names a ``covariates=`` value requests, one bare name included."""
-    return tuple([covariates] if isinstance(covariates, str) else covariates)
+def _benchmark_names(result: TMLEResult, covariates: Any) -> tuple[str, ...]:
+    """The covariate names a ``covariates=`` value requests, one bare name included.
+
+    A name the fit does not adjust for is a malformed argument, and it is reported before
+    any refusal.  :func:`benchmark` and the ``benchmark`` method of
+    :class:`~cleverly.assessment.SensitivityFacade` each call this first, and
+    :func:`benchmark_refusal` returns ``None`` where it raises.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        The fitted result whose covariates the names must be.
+    covariates : str or sequence of str
+        The requested covariate names.
+
+    Returns
+    -------
+    tuple of str
+        The requested names, in request order.
+
+    Raises
+    ------
+    DataError
+        If a name is not a covariate of the fit.
+    """
+    names = tuple([covariates] if isinstance(covariates, str) else covariates)
+    unknown = sorted(set(names).difference(result.data.covariate_names))
+    if unknown:
+        raise DataError(
+            f"unknown covariates {unknown}; this fit adjusts for "
+            f"{list(result.data.covariate_names)}"
+        )
+    return names
 
 
 def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> str | None:
@@ -1513,16 +1543,20 @@ def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> str | None:
         A fitted point-treatment result.
     covariates : str, sequence of str, or None
         The requested covariate names.  ``None`` stands for the omitted argument, which
-        no value can lift on a fit with one covariate.  Unknown names are not checked
-        here: :func:`benchmark` refuses them first, as a malformed argument.
+        no value can lift on a fit with one covariate.
 
     Returns
     -------
     str or None
-        Exact refusal reason, or ``None`` when the covariates leave one to adjust for.
+        Exact refusal reason, or ``None`` when the covariates leave one to adjust for or
+        name one the fit does not adjust for.  :func:`benchmark` reports an unknown name
+        itself, as a malformed argument, before any refusal.
     """
     fitted = tuple(result.data.covariate_names)
-    dropped = set(fitted[:1] if covariates is None else _benchmark_names(covariates))
+    try:
+        dropped = set(fitted[:1] if covariates is None else _benchmark_names(result, covariates))
+    except DataError:
+        return None
     if any(name not in dropped for name in fitted):
         return None
     return (
@@ -1584,16 +1618,10 @@ def benchmark(
         the refusal of :func:`benchmark_refusal`.  The full fit and the covariates are
         checked before the refit runs.
     """
+    names = _benchmark_names(result, covariates)
     estimator = result.estimator
     if estimator is None:
         raise CapabilityError("benchmark needs the fitted estimator that produced the result")
-    names = _benchmark_names(covariates)
-    unknown = sorted(set(names).difference(result.data.covariate_names))
-    if unknown:
-        raise DataError(
-            f"unknown covariates {unknown}; this fit adjusts for "
-            f"{list(result.data.covariate_names)}"
-        )
 
     # The short model is a refit, so it carries the same reproducibility question a
     # refutation does: an estimator with no ``random_state`` redraws its folds every time,
