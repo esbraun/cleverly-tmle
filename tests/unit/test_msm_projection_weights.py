@@ -42,6 +42,7 @@ import numpy as np
 import pytest
 
 import cleverly.msm as msm_module
+from cleverly.assessment import replayability
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.msm import (
     _ESTIMATED_WEIGHTS,
@@ -59,6 +60,7 @@ from tests.unit._declaration_support import (
     assert_keeps_its_interval,
     assert_refused,
     assert_refused_before_any_call,
+    assert_replay_agrees,
     assert_stored_interval_is_a_diagnostic,
     cell_p,
     oracle_fit,
@@ -396,7 +398,16 @@ class TestALegacyResultKeepsItsPointEstimatesAndRefusesARecomputation:
         return in_sample_fit(linear(weights=FixedWeight(), weights_kind="known"))
 
     def test_the_stored_interval_becomes_a_diagnostic(self, result: Any) -> None:
-        assert_stored_interval_is_a_diagnostic(result, legacy_result(result))
+        old = legacy_result(result)
+        assert_stored_interval_is_a_diagnostic(result, old)
+        assert not replayability(old).retarget_cached_nuisances
+        assert not replayability(old).refit_nuisances
+        assert replayability(result).refit_nuisances
+
+    def test_each_replay_slot_agrees_with_its_call(self, result: Any) -> None:
+        """Both slots of the legacy result read false, and both calls refuse."""
+        assert_replay_agrees(legacy_result(result), RETARGETED)
+        assert_replay_agrees(result, RETARGETED)
 
     def test_a_legacy_uniform_weight_result_keeps_its_interval(self) -> None:
         """The over-refusal control: uniform weights are known, so no status applies."""

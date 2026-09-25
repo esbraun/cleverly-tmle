@@ -9,6 +9,8 @@ import json
 import re
 import types
 import typing
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -26,11 +28,9 @@ from cleverly import (
     CausalStudy,
     ExplicitAdjustmentProvider,
     IdentificationProvider,
-    LongitudinalTreatment,
     NaturalCourseMean,
     PointTreatment,
     PositivityWarning,
-    RegimeMean,
     ValidationReport,
     load,
 )
@@ -50,7 +50,7 @@ from cleverly.assessment import (
     LongitudinalDiagnostics,
     _defaults_to_ambiguous_estimand,
 )
-from cleverly.datasets import make_linear_ate, make_longitudinal, make_multi_arm
+from cleverly.datasets import make_linear_ate, make_multi_arm
 from cleverly.estimators import TMLE
 from cleverly.sensitivity import ConfounderStrengthGrid, PositivityReport, simulated_confounding
 from cleverly.sensitivity import omitted_variable as omitted_variable_module
@@ -61,11 +61,14 @@ from cleverly.sensitivity._simulated_confounding_request import (
     _MULTI_ARM_REFUSAL,
     _fit_wide_refusal,
 )
-from cleverly.sensitivity.positivity import positivity_report
+from cleverly.sensitivity.missingness import fit_wide_tilt_refusal
+from cleverly.sensitivity.positivity import positivity_report, truncation_refusal
 from cleverly.targets.population_intervention import NATURAL_COURSE_SUPPORT_REFUSAL
 from cleverly.validation.nuisance import nuisance_diagnostics
+from cleverly.validation.refute import DEFAULT_TESTS, refute_refusal
 from tests import discrete_law_mar
 from tests.conftest import IN_SAMPLE, OracleMissingness, OracleOutcome, OracleTreatment
+from tests.unit._capability_sweep_support import DECLINED, KINDS, MUTATIONS
 from tests.unit._confounding_support import forbid_draw_and_refit
 
 
@@ -242,29 +245,9 @@ def overfit_propensity_result():  # type: ignore[no-untyped-def]
 
 
 @pytest.fixture(scope="module")
-def longitudinal_result():  # type: ignore[no-untyped-def]
-    frame, _ = make_longitudinal(n=400, seed=12)
-    study = CausalStudy(
-        frame,
-        design=LongitudinalTreatment(
-            outcome="Y",
-            treatment=["A1", "A2"],
-            baseline=["W1", "W2"],
-            time_varying=[[], ["L2"]],
-            censoring=["C1", "C2"],
-        ),
-    )
-    return study.identify(RegimeMean({"always": 1, "never": 0})).estimate(
-        outcome_learner=sklearn.linear_model.LinearRegression(),
-        pseudo_learner=sklearn.linear_model.LinearRegression(),
-        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
-        censoring_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
-        n_folds=3,
-        learner_folds=2,
-        random_state=5,
-        simultaneous=False,
-        **IN_SAMPLE,
-    )
+def longitudinal_result() -> Any:
+    """The in-sample two-node regime fit, the sweep's ``ltmle`` kind."""
+    return KINDS["ltmle"].build()
 
 
 @pytest.fixture(scope="module")
@@ -741,7 +724,12 @@ def test_an_estimand_the_caller_named_and_the_fit_never_reported_stays_unavailab
     ]
 
     assert item.status is AssessmentStatus.UNAVAILABLE
-    assert "declined this request" in item.detail
+    if operation == "refute":
+        # The refute row reads the predicate the call raises from, so the row refuses the
+        # name before the call, in the call's own sentence (RM23).
+        assert item.detail == "estimand 'ate[nope vs low]' was not requested in this fit"
+    else:
+        assert "declined this request" in item.detail
     multi_arm_result.assessment_cache.clear()
 
 
@@ -811,10 +799,14 @@ def test_one_predicate_answers_the_row_and_the_substitution(multi_arm_result) ->
     assert facade._capability_for_arguments("omitted_confounding", {}).status is (
         AssessmentStatus.DEFERRED
     )
+    # The public row is the bare request's row, so it defers too.
+    assert facade.capability("omitted_confounding") == facade._capability_for_arguments(
+        "omitted_confounding", {}
+    )
     # Named, so the row is the declared one again and the operation runs.
     chosen = candidates[0]
     resolved = facade._capability_for_arguments("omitted_confounding", {"estimand": chosen})
-    assert resolved == facade.capability("omitted_confounding")
+    assert resolved == facade._gated("omitted_confounding")
     assert resolved.available and resolved.requires_arguments == ()
 
 
@@ -2678,3 +2670,97 @@ def test_an_att_bound_saved_before_rm22_is_recomputed(att_result, monkeypatch, t
     assert loaded.sensitivity.omitted_confounding(**strength).ci_lower == stale_bound.ci_lower
     assert loaded.sensitivity.robustness_value(estimand="att") == stale_values
     assert loaded.sensitivity.run_all()["robustness_value"].detail == stale_row.detail
+
+
+#: The combined reports' generations before RM23.  Facts about saved artifacts, so literals
+#: rather than one below the current numbers, which would move with a missing bump.
+DIAGNOSTICS_RUN_ALL_BEFORE_RM23 = 10
+SENSITIVITY_RUN_ALL_BEFORE_RM23 = 5
+
+
+def _keyed_before_rm23(patch: pytest.MonkeyPatch) -> None:
+    """Key the two combined reports as the version before RM23 keyed them."""
+    patch.setitem(_CACHE_GENERATIONS, "diagnostics.run_all", DIAGNOSTICS_RUN_ALL_BEFORE_RM23)
+    patch.setitem(_CACHE_GENERATIONS, "sensitivity.run_all", SENSITIVITY_RUN_ALL_BEFORE_RM23)
+
+
+def _as_before_rm23(patch: pytest.MonkeyPatch) -> None:
+    """Make the package compute and key its combined reports as it did before RM23.
+
+    M1 to M3 of the sweep restore the tilt, truncation and refute rows that ignored the
+    predicate their calls raise from.
+    """
+    for name in ("M1", "M2", "M3"):
+        MUTATIONS[name].apply(patch)
+    _keyed_before_rm23(patch)
+
+
+#: Each row a report cached before RM23 declined: the kind, the facade, the operation, the
+#: ``run_all`` arguments, the status the loaded result must read, and its sentence.
+CACHED_BEFORE_RM23 = [
+    pytest.param(
+        "shift+missing",
+        "sensitivity",
+        "missingness",
+        {"include_retargets": True},
+        AssessmentStatus.UNAVAILABLE,
+        fit_wide_tilt_refusal,
+        id="tilt",
+    ),
+    pytest.param(
+        "incremental",
+        "diagnostics",
+        "truncation_curve",
+        {"include_retargets": True},
+        AssessmentStatus.UNAVAILABLE,
+        truncation_refusal,
+        id="truncation",
+    ),
+    # The refute row shares the diagnostic report, and it now defers on ``tests``.
+    pytest.param(
+        "split_plan",
+        "diagnostics",
+        "refute",
+        {"include_refits": True},
+        AssessmentStatus.DEFERRED,
+        lambda loaded: refute_refusal(loaded, estimand="ate", tests=DEFAULT_TESTS),
+        id="refute",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("kind", "facade", "operation", "run_all", "status", "reason"), CACHED_BEFORE_RM23
+)
+def test_a_row_cached_before_rm23_is_recomputed(
+    kind: str,
+    facade: str,
+    operation: str,
+    run_all: dict[str, Any],
+    status: AssessmentStatus,
+    reason: Callable[[Any], str | None],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A row cached before RM23 is recomputed once the result is saved and loaded.
+
+    The stale report is written as the version before RM23 wrote it, and it declines the
+    request. The loaded result must answer with ``status`` and the sentence ``reason``
+    returns for it. The control keys the loaded result as before RM23, without the rows
+    that wrote the stale report, and the stale row is served again. So a reverted
+    generation fails the fresh assertion, because the key it reads holds the stale row.
+    """
+    result = KINDS[kind].build()
+    with monkeypatch.context() as before_rm23:
+        _as_before_rm23(before_rm23)
+        stale = getattr(result, facade).run_all(**run_all)[operation]
+    assert stale.status is AssessmentStatus.UNAVAILABLE
+    assert DECLINED in stale.detail
+    loaded = load(result.save(tmp_path / f"{operation}-before-rm23.joblib"))
+
+    fresh = getattr(loaded, facade).run_all(**run_all)[operation]
+    assert fresh.status is status
+    assert fresh.detail == reason(loaded)
+
+    _keyed_before_rm23(monkeypatch)
+    assert getattr(loaded, facade).run_all(**run_all)[operation].detail == stale.detail

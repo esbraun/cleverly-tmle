@@ -41,26 +41,16 @@ from typing import Any
 
 import numpy as np
 import pytest
-import sklearn.linear_model
 
 from cleverly.datasets import make_binary_outcome, make_weak_overlap
 from cleverly.estimators import DRTMLE
+from tests.conftest import linear_drtmle
 
 #: Small, cross-fitted, and ``glm`` throughout: every claim here is an exact identity, so
 #: the sample size only has to be enough for three folds to be fittable.
 N = 240
 FOLDS = 3
-SETTINGS: dict[str, Any] = {
-    "outcome_learner": sklearn.linear_model.LinearRegression(),
-    "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
-    "reduced_outcome_learner": sklearn.linear_model.LinearRegression(),
-    "reduced_treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
-    "n_folds": FOLDS,
-    "learner_folds": 2,
-    "random_state": 0,
-    "simultaneous": False,
-    "estimands": ("ate", "ey1", "ey0"),
-}
+SETTINGS: dict[str, Any] = linear_drtmle(n_folds=FOLDS, estimands=("ate", "ey1", "ey0"))
 
 #: The window the identity below is asserted in, with ``rtol=0`` beside it everywhere.
 #:

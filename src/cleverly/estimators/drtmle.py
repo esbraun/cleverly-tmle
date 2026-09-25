@@ -139,6 +139,7 @@ from ..learners.crossfit import Folds
 from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import OutcomeScaler
+from ..utils.frames import as_frame
 from ._nuisance import NuisanceEstimates, Propensity, fit_inner_designs
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .ctmle import CTMLE
@@ -333,6 +334,11 @@ class DRTMLE(TMLE):
         :attr:`~cleverly.estimators._nuisance.NuisanceEstimates.companion` and, once the
         alternation has moved it, on :attr:`ReducedFit.evaluation`.  Refused with
         ``repeats=``, ``targeting="one_step"`` and ``target_weights=True``, each by name.
+
+        A refit whose data holds a covariate the companion lacks, such as the
+        ``random_common_cause`` refutation, runs without the companion.  The companion is
+        inert, so the refit reports the estimate it would report with one.  This fit keeps
+        its own ``evaluation``.
     reduced_outcome_learner, reduced_treatment_learner:
         Learners for the reduced-dimension regressions, defaulting to the specifications the
         primary nuisances use.  Two rather than one because the tasks differ:
@@ -883,6 +889,43 @@ class DRTMLE(TMLE):
             strata=None,
             treatment_kind="discrete",
         )
+
+    def _configured_for_refit(self, data: CausalData) -> DRTMLE:
+        """The estimator a refit on ``data`` runs, without a companion that cannot follow.
+
+        The companion is prepared with the covariates of the data it accompanies, so a
+        refit that adds a covariate, such as the ``random_common_cause`` refutation, needs
+        a column the companion does not hold.  The companion enters no fit, no fold and no
+        score, so a refit without it reports the same estimate bit for bit.  The copy
+        therefore drops it, and this fit keeps its own.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data the refit fits.
+
+        Returns
+        -------
+        DRTMLE
+            This estimator when it declares no companion or its companion follows ``data``,
+            and otherwise a copy with ``evaluation=None``.  A prepared
+            :class:`~cleverly.data.CausalData` companion follows when it names exactly the
+            covariates of ``data``.  A frame companion follows when it holds a column for
+            each of them, because the frame is prepared with the refit's covariates.
+        """
+        companion = self.evaluation
+        if companion is None:
+            return self
+        if isinstance(companion, CausalData):
+            follows = tuple(companion.covariate_names) == tuple(data.covariate_names)
+        else:
+            columns = set(as_frame(companion).columns)
+            follows = all(name in columns for name in data.covariate_names)
+        if follows:
+            return self
+        configured = copy(self)
+        configured.evaluation = None
+        return configured
 
     def _fit_reduced(
         self,

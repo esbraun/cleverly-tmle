@@ -38,6 +38,7 @@ diagnostic can be.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -1251,6 +1252,117 @@ def _reported_beta(result: TMLEResult, group: str) -> Any:
     return None if projection is None else projection.beta
 
 
+def truncation_axis(result: TMLEResult, mechanism: bool | None) -> bool:
+    """Resolve the axis a truncation curve sweeps.
+
+    ``None`` resolves to the only axis the fit has when it has one: the observation
+    mechanism on a fit that estimates no treatment law, which is the missing-outcome
+    natural-course mean, and ``g(W)`` on every other fit.  It asks the nuisances rather
+    than the estimand name, because a module-level caller can hold a result that an
+    estimand-name test would not recognise.  An explicit value is kept, so a caller who
+    names an axis the fit does not have hears a refusal rather than a redirection.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fitted point-treatment result.
+    mechanism : bool or None
+        The ``mechanism=`` argument as the caller passed it.
+
+    Returns
+    -------
+    bool
+        ``True`` to sweep the observation or intermediate mechanism, ``False`` to sweep
+        ``g(W)``.
+    """
+    if mechanism is None:
+        return not result.nuisance.fits_treatment
+    return bool(mechanism)
+
+
+def _refuse_observation_axis(result: TMLEResult, axis: bool) -> str | None:
+    """Refuse the mechanism axis on a fit with no mechanism in its clever covariate."""
+    fitted = result.nuisance.missingness is not None or result.nuisance.intermediate is not None
+    if not axis or fitted:
+        return None
+    return (
+        "mechanism=True needs a fit with missing outcomes or an intermediate "
+        "variable; without one there is no mechanism in the clever covariate to "
+        "truncate. Pass delta=<column> or intermediate=<column> to fit()."
+    )
+
+
+def _refuse_incremental(result: TMLEResult, axis: bool) -> str | None:
+    """Refuse the propensity axis of an incremental fit, whose estimand contains ``g``."""
+    if axis or result.nuisance.incremental is None:
+        return None
+    return (
+        "the propensity g is *inside* the estimand for an incremental intervention, "
+        "so a propensity-bound curve would compare different parameters; use "
+        "diagnostics.support(), or pass mechanism=True when a separate observation "
+        "mechanism was fitted"
+    )
+
+
+def _refuse_natural_course(result: TMLEResult, axis: bool) -> str | None:
+    """Refuse the propensity axis of a fit that estimates no treatment mechanism.
+
+    Refused here rather than left to ``Propensity.truncate``, which would raise a bare
+    ``ValueError`` naming an internal staging invariant, and only after the whole grid had
+    been retargeted once.  The sentence names the axis the fit does have.  It does not
+    reuse the support report's sentence, which sends the reader to ``nuisance_models()``
+    instead, because this caller can have the curve by changing one argument.
+    """
+    if axis or result.nuisance.fits_treatment:
+        return None
+    return (
+        "NaturalCourseMean with missing outcomes fits no treatment propensity, so "
+        "there is no g(W) bound to sweep. Pass mechanism=True to sweep the bound on "
+        "P(Delta = 1 | A, W), which is the only mechanism this fit truncates."
+    )
+
+
+#: Every refusal of a point-treatment truncation curve that the requested axis decides, in
+#: the one order the module call and the capability row both use.  Each rule reads the
+#: resolved axis from :func:`truncation_axis`.  The names are the introspection contract,
+#: so a test pins the order without respelling a message.
+_TRUNCATION_RULES: tuple[tuple[str, Callable[[TMLEResult, bool], str | None]], ...] = (
+    ("observation_axis", _refuse_observation_axis),
+    ("incremental", _refuse_incremental),
+    ("natural_course", _refuse_natural_course),
+)
+
+
+def truncation_refusal(result: TMLEResult, mechanism: bool | None = None) -> str | None:
+    """Return the refusal a point-treatment truncation curve meets on one axis.
+
+    :func:`truncation_curve` raises the sentence this function returns, and the
+    ``truncation_curve`` capability row of :class:`~cleverly.assessment.DiagnosticsFacade`
+    quotes it for the same request.  The row defers on ``mechanism`` when the default
+    axis is refused and the other one runs, so a combined report names the argument
+    instead of calling a curve the call refuses.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fitted point-treatment result.
+    mechanism : bool or None
+        The ``mechanism=`` argument as the caller passed it.  ``None`` is resolved by
+        :func:`truncation_axis`.
+
+    Returns
+    -------
+    str or None
+        Exact refusal reason, or ``None`` when the requested axis can be swept.
+    """
+    axis = truncation_axis(result, mechanism)
+    for _name, rule in _TRUNCATION_RULES:
+        reason = rule(result, axis)
+        if reason is not None:
+            return reason
+    return None
+
+
 def truncation_curve(
     result: TMLEResult,
     bounds: Any = None,
@@ -1310,6 +1422,9 @@ def truncation_curve(
         clever covariate exactly as the propensity does, so it has a truncation curve
         for exactly the same reason -- and it is the one that goes unexamined, because
         it has no familiar name.  Requires a fit with ``delta=`` or ``intermediate=``.
+        An incremental fit refuses the ``g(W)`` axis, including the default, because its
+        estimand contains ``g``.  ``truncation_refusal`` states every refusal, and
+        the capability row reads it too.
 
         Note what the curve does and does not show.  Truncating a mechanism cannot move
         the *estimand*: the plug-in is an average of targeted predictions and contains
@@ -1327,14 +1442,13 @@ def truncation_curve(
         raise CapabilityError(
             "truncation_curve needs the fitted estimator that produced the result"
         )
-    # Resolved so that one operation does not have two defaults depending on which of
-    # its two public spellings the caller reached for.  The facade asks the *result*
-    # whether it is a natural-course fit; this asks the nuisances whether a treatment
-    # mechanism exists, because a module-level caller can hold a result the facade's
-    # estimand-name test would not recognise.  The two agree wherever both can run: a
-    # finished result carries an unfitted propensity only on this target.
-    if mechanism is None:
-        mechanism = not result.nuisance.fits_treatment
+    # One predicate for the call and for the capability row, as ``tipping_gamma``'s
+    # ``use_ci=True`` has.  The facade reads the same function to resolve its row, so a
+    # request the row calls available is a request this line admits.
+    refusal = truncation_refusal(result, mechanism)
+    if refusal is not None:
+        raise CapabilityError(refusal)
+    mechanism = truncation_axis(result, mechanism)
 
     # Every reported alias against the target that answers it, in report order. The
     # selection below reads it, and so does the row loop, so the registry is asked once.
@@ -1342,25 +1456,6 @@ def truncation_curve(
     reported = (
         tuple(result.estimates) if estimands is None else _select(estimands, reported_targets)
     )
-    if mechanism and result.nuisance.missingness is None and result.nuisance.intermediate is None:
-        raise CapabilityError(
-            "mechanism=True needs a fit with missing outcomes or an intermediate "
-            "variable; without one there is no mechanism in the clever covariate to "
-            "truncate. Pass delta=<column> or intermediate=<column> to fit()."
-        )
-    # Refused here rather than left to `Propensity.truncate`, which would raise a bare
-    # `ValueError` naming an internal staging invariant -- and only after the whole grid
-    # had been retargeted once.  The caller's mistake is naming an axis this fit does
-    # not have, so the message names the axis it does.  It is written here rather than
-    # reusing the support report's sentence: that one sends the reader to
-    # `nuisance_models()` *instead*, which is the wrong next step for a caller who can
-    # have this very curve by changing one argument.
-    if not mechanism and not result.nuisance.fits_treatment:
-        raise CapabilityError(
-            "NaturalCourseMean with missing outcomes fits no treatment propensity, so "
-            "there is no g(W) bound to sweep. Pass mechanism=True to sweep the bound on "
-            "P(Delta = 1 | A, W), which is the only mechanism this fit truncates."
-        )
 
     def pair_for(lower: float) -> tuple[float, float]:
         """One lower bound as the pair the sweep evaluates, in the documented shorthand."""

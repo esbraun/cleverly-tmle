@@ -53,7 +53,7 @@ import cleverly.interventions.base as base_module
 import cleverly.longitudinal.estimator as ltmle_module
 from cleverly import RegimeMean, variable_importance
 from cleverly._declarations import declaration_status
-from cleverly.assessment import replayability
+from cleverly.assessment import POINT_REPLAY_DECLARATION, replayability
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE, tmle
 from cleverly.estimators.serialize import dumps, loads
@@ -87,6 +87,9 @@ from tests.unit._declaration_support import (
     assert_keeps_its_interval,
     assert_refused,
     assert_refused_before_any_call,
+    assert_replay_agrees,
+    assert_replay_rows_available,
+    assert_replay_rows_refused,
     assert_stored_interval_is_a_diagnostic,
     oracle_fit,
     point_entries,
@@ -772,6 +775,12 @@ class TestARestoredUndeclaredResultWithholdsInference:
         assert not capability.available
         assert "known-function declaration" in capability.reason
 
+    def test_a_restored_rule_result_refuses_every_replay_row(self, banded_rule_result: Any) -> None:
+        """Each slot agrees with its call, and a combined report still runs."""
+        old = legacy_result(banded_rule_result)
+        assert_replay_agrees(old, RETARGETED)
+        assert_replay_rows_refused(old, POINT_REPLAY_DECLARATION)
+
     def test_a_restored_study_result_withholds_inference(self, study_rule_result: Any) -> None:
         """A ``CausalStudy`` result restores through the same status hook as a fit."""
         old = legacy_result(study_rule_result)
@@ -806,6 +815,8 @@ class TestARestoredUndeclaredResultWithholdsInference:
             assert_keeps_its_interval(result, restored_result)
             assert replayability(restored_result).retarget_cached_nuisances
             assert replayability(restored_result).refit_nuisances
+            assert_replay_agrees(restored_result, RETARGETED)
+            assert_replay_rows_available(restored_result)
         assert loads(dumps(banded_rule_result)).simultaneous is not None
 
     def test_a_live_configuration_meets_the_declaration_refusal(self) -> None:

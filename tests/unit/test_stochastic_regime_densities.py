@@ -76,6 +76,7 @@ from tests.unit._declaration_support import (
     assert_every_witness_fails,
     assert_refused,
     assert_refused_before_any_call,
+    assert_replay_agrees,
     assert_stored_interval_is_a_diagnostic,
     oracle_fit,
     point_entries,
@@ -359,6 +360,11 @@ class TestALegacyResultKeepsItsPointEstimatesAndRefusesARecomputation:
         assert not replayability(old).refit_nuisances
         assert not old.diagnostics.capability("truncation_curve").available
         assert replayability(result).refit_nuisances
+
+    def test_each_replay_slot_agrees_with_its_call(self, result: Any) -> None:
+        """Both slots of the legacy result read false, and both calls refuse."""
+        assert_replay_agrees(legacy_result(result), RETARGETED)
+        assert_replay_agrees(result, RETARGETED)
 
     @pytest.mark.parametrize("entry", ["truncation_curve", "retarget", "refit"])
     def test_every_recomputation_refuses(self, result: Any, entry: str) -> None:

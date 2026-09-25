@@ -61,7 +61,10 @@ from cleverly.longitudinal import (
     resolve_plans,
     resolve_regimens,
 )
-from cleverly.longitudinal.estimator import longitudinal_truncation_curve
+from cleverly.longitudinal.estimator import (
+    LONGITUDINAL_REPLAY_REGIMEN_DECLARATION,
+    longitudinal_truncation_curve,
+)
 from cleverly.longitudinal.regimen import refuse_regimen_rules
 from tests.pickles import legacy_without
 from tests.unit._confounding_support import Counter
@@ -73,6 +76,8 @@ from tests.unit._declaration_support import (
     assert_keeps_its_interval,
     assert_refused,
     assert_refused_before_any_call,
+    assert_replay_rows_available,
+    assert_replay_rows_refused,
     assert_stored_interval_is_a_diagnostic,
     never_fit_longitudinal_learners,
     panel,
@@ -580,6 +585,12 @@ class TestALegacyLongitudinalResultRefusesARecomputation:
             "saved regimen rule lacks",
         )
 
+    def test_every_replay_row_refuses_and_a_combined_report_runs(self, regimen_result: Any) -> None:
+        """A longitudinal result has no point retarget, so the rows carry the check."""
+        assert_replay_rows_refused(
+            legacy_result(regimen_result), LONGITUDINAL_REPLAY_REGIMEN_DECLARATION
+        )
+
     def test_a_modified_declaration_refuses(self, regimen_result: Any) -> None:
         copy = loads(dumps(regimen_result))
         restored(copy.config.regimens[0], "rule_kind", "estimated")
@@ -592,6 +603,7 @@ class TestALegacyLongitudinalResultRefusesARecomputation:
         restored = loads(dumps(regimen_result))
         assert replayability(restored).refit_nuisances
         assert restored.diagnostics.capability("truncation_curve").available
+        assert_replay_rows_available(restored)
         curve = longitudinal_truncation_curve(restored, BOUNDS)
         assert list(curve["estimand"]) == ["ey_regimen[thr]"]
 

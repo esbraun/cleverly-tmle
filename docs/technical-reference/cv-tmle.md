@@ -271,7 +271,7 @@ Each row gives the shipped remedy in the message's own words.
 | --- | --- | --- |
 | `stratify_by="treatment"` or `"treatment+outcome"` with cross-fitting | `MethodConfigurationError` from `CrossFitting` and `TMLEMethod`, `ValueError` from the engine | "Set stratify_folds='none' (CrossFitting(stratify_by='none')), which is the default. Otherwise fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False)), which draws no split for a policy to apply to." |
 | the same policy on selector-based C-TMLE, at any `cross_fit` setting | `MethodConfigurationError`, or `ValueError` from the engine | the same first sentence, then "A collaborative fit draws those folds whether or not cross_fit is set, so cross_fit=False does not make this policy available." |
-| a restored result or a copied estimator carrying a refused policy | `ValueError` at fit time | the reason above, then "This fit was configured under a fold policy this version refuses, which a restored result or a copied estimator can still carry" |
+| a restored result or a copied estimator carrying a refused policy | `CapabilityError`, a subclass of `ValueError`, before any learner of a fit or a refit. A restored result reads `refit_nuisances` false, with the code `point_replay_refit_configuration` | the reason above, then "This fit was configured under a fold policy this version refuses, which a restored result or a copied estimator can still carry" |
 | cross-fitting with fewer than two folds | `MethodConfigurationError`, or `ValueError` from the engine | "Set n_folds to at least 2, or fit in sample with CrossFitting(enabled=False)" |
 | a cross-fitted continuous outcome with `q_bounds=None` | `CapabilityError` | "Declare the known outcome support (Targeting(q_bounds=(lower, upper))). Without a known finite support, fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))" |
 | a cross-fitted shift, incremental, regime, MSM, or controlled-direct-effect fit with `delta=` | `CapabilityError` before the first learner | "To estimate them, fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))". The message names the target family and F21, which holds the missing result. See [F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants) |
@@ -501,9 +501,10 @@ the rows it was realized on.
 
 `refute()` raises `CapabilityError` for the two refused operations before it refits anything.
 The refusal reads the requested operation rather than the row count. A bootstrap draw holds the
-declared number of rows, so a count check cannot see it. A battery run under
-`assess_result(..., include_refits=True)` reports the refusal as an `unavailable` row and runs the
-rest of the battery.
+declared number of rows, so a count check cannot see it. The default tests include `subset`, so
+the `refute` capability row reads `deferred` on `tests`, with the refusal's sentence. A battery run
+under `assess_result(..., include_refits=True)` reports that `deferred` row and runs the rest of the
+battery. A request whose `tests=` names neither refused operation runs.
 
 A result from `cross_fit=False` still records a one-fold plan. Passing that plan back through
 `split_plan=` is refused. `random_partition` draws two folds at least, so a one-fold plan records

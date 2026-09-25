@@ -116,14 +116,34 @@ def _normalize(value: Any) -> Any:
 #: A later boundary correction changes zero-variance elements and bounds, unreachable
 #: robustness values, and the report rows that describe them. Their four entries move
 #: again so a saved fit recomputes those values rather than serving old NaNs or 0.9999.
+#:
+#: RM23 moved ``diagnostics.run_all`` to 11 and ``sensitivity.run_all`` to 6. Each row now
+#: reads the predicate its call raises from, so a battery cached before RM23 can carry a
+#: row that says "the operation declined this request". The truncation row of an
+#: incremental fit, the refute row of a fit given ``split_plan=``, of the natural-course
+#: mean, or of a generated-outcome or measurement-error request the call refuses before any
+#: refit, and both tilt rows of a shift, incremental, regime, MSM or ratio-only fit with
+#: missing outcomes are such rows. A restored result whose refit this version refuses now
+#: reads its refit rows unavailable. The ``benchmark`` row of a fit with one covariate now
+#: reads unavailable, where it asked for ``covariates=``. The ``simulated_confounding`` row
+#: reads unavailable for a request that names a categorical or constant benchmark
+#: covariate, a natural-course mean or a zero-delta policy mean, and so does the bare row
+#: of a natural-course fit. The five omitted-variable rows of an arm-indexed fit that
+#: reports no mean and no linear contrast now read unavailable. No single entry moves.
+#: Each call checks the row of its request before it reads the cache, so an entry for a
+#: request that now refuses is never served, and a request that still runs computes what
+#: it computed before. A benchmark that names every covariate raised ``DataError`` before
+#: RM23, and each refused ``simulated_confounding`` request and each omitted-variable call
+#: on such a fit raised ``CapabilityError``, so no entry exists for any of them.
+#: ``validate`` reads no row that RM23 changed.
 _CACHE_GENERATIONS: dict[str, int] = {
     "diagnostics.support": 4,
     "diagnostics.nuisance_models": 2,
-    "diagnostics.run_all": 10,
+    "diagnostics.run_all": 11,
     "sensitivity.elements": 3,
     "sensitivity.omitted_confounding": 3,
     "sensitivity.robustness_value": 3,
-    "sensitivity.run_all": 5,
+    "sensitivity.run_all": 6,
     "validate": 5,
 }
 

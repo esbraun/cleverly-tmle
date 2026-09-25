@@ -55,7 +55,7 @@ per contrast, because :math:`\nu^2` is the second moment of *that contrast's* Ri
 representer.  Ratios are not linear functionals of the outcome regression, so use
 :mod:`cleverly.sensitivity.evalue` for those.
 
-Scope of the refusals: :data:`_FIT_WIDE_BOUND_RULES` refuses the fits below, for four
+Scope of the refusals: :data:`_FIT_WIDE_BOUND_RULES` refuses the fits below, for five
 reasons.
 
 * A DR-TMLE fit and a collaborative TMLE fit break a premise.  The ``nu^2`` score of
@@ -69,6 +69,9 @@ reasons.
   mechanism.
 * A longitudinal fit has no registered derivation, and a median-combined repeated fit has
   no influence function for the median bound.
+* An arm-indexed fit that reports no counterfactual mean and no linear contrast has no
+  parameter to bound.  A ratio-only fit, a population attributable risk or fraction, and
+  a complete-outcome natural-course mean are such fits.
 
 Every entry point in this module reaches those rules through :func:`sensitivity_elements`,
 and :class:`~cleverly.assessment.SensitivityFacade` declares the same reason on the
@@ -89,15 +92,15 @@ from .._typing import FloatArray
 from ..assessment import SENSITIVITY_ROUTES
 from ..estimators.direct_effect import declares_intermediate
 from ..estimators.targeting import build_submodel
-from ..exceptions import CapabilityError, refuse_inference, repeats_refusal
+from ..exceptions import CapabilityError, DataError, refuse_inference, repeats_refusal
 from ..inference.cluster import influence_variance
 from ..inference.influence import spread_name
 from ..targets import parameter_stem
-from ..targets.population_intervention import is_natural_course_fit
 from ..utils.bounds import g_bounds_for
 from ..utils.random import resolve_assessment_seed
 from ..utils.text import format_table
-from ._parameters import ArmParameter, arm_parameters, stratum_refusal
+from ._parameters import ArmParameter, reported_arm_parameters, stratum_refusal
+from .missingness import fit_wide_tilt_refusal
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators._nuisance import RepeatFit
@@ -120,6 +123,12 @@ __all__ = [
 #: representer of its own.  :func:`~cleverly.sensitivity._parameters.arm_parameters` is
 #: what turns a fit's arms into the names these stems produce.
 LINEAR_ESTIMANDS: frozenset[str] = frozenset({"ate", "ey", "ey1", "ey0", "att", "atc"})
+
+#: The two ratio scales an E-value answers for, and the pointer a refusal appends when a
+#: request or a fit names one.  Offered for anything else, such as an attributable
+#: fraction, the pointer sends the reader from one refusal to a second one.
+_EVALUE_STEMS: frozenset[str] = frozenset({"rr", "or"})
+_EVALUE_POINTER = " For a risk ratio or odds ratio use sensitivity.evalue()."
 
 #: Accepted values of ``nu2_estimator``, in one place so the five docstrings that list
 #: them and the refusal that rejects the rest cannot drift apart.
@@ -279,9 +288,10 @@ _REPEATS_REASON = (
 )
 
 #: Appended to the response refusal on a fit that can still run the tilt.  A
-#: natural-course fit cannot: both tilt rows are unavailable there
-#: (:data:`~cleverly.targets.population_intervention.NATURAL_COURSE_TILT_REFUSAL`), so
-#: the pointer would send the reader to a second refusal.
+#: natural-course, shift, incremental, regime, MSM, or ratio-only fit cannot: both tilt
+#: rows are unavailable there
+#: (:func:`~cleverly.sensitivity.missingness.fit_wide_tilt_refusal`), so the pointer would
+#: send the reader to a second refusal.
 _RESPONSE_TILT_POINTER = (
     " The missingness tilt remains the sensitivity analysis for response: call "
     "sensitivity.missingness() or sensitivity.tipping_gamma()."
@@ -318,19 +328,23 @@ def _refuse_response_mechanism(result: Any) -> str | None:
     """Refuse a fit whose outcome is unobserved on some rows.
 
     The predicate is the data flag ``has_missing_outcome``, which the missingness-tilt
-    rows read too, so a fit this rule refuses is the fit those rows offer the tilt on.
+    table reads too, so every fit those rows offer the tilt on is a fit this rule refuses.
     It reads the data rather than a fitted missingness nuisance on one repeat, because a
     response mechanism is a property of the identified functional and survives a
     replacement of the stored nuisances.  The sibling surface
     :mod:`~cleverly.sensitivity._simulated_confounding_request` reads the same flag for
     the same boundary.  ``result.data`` has no default here, so a result without
     point-treatment data raises ``AttributeError`` rather than reporting no mechanism.
+
+    The sentence points at the tilt only when
+    :func:`~cleverly.sensitivity.missingness.fit_wide_tilt_refusal` admits the fit, which
+    is the predicate both tilt rows read.  Any narrower test, such as a natural-course
+    check alone, would send a shift or a regime fit to a tilt that refuses.
     """
     if not result.data.has_missing_outcome:
         return None
-    if is_natural_course_fit(result):
-        return _RESPONSE_BOUND_REFUSAL
-    return _RESPONSE_BOUND_REFUSAL + _RESPONSE_TILT_POINTER
+    pointer = _RESPONSE_TILT_POINTER if fit_wide_tilt_refusal(result) is None else ""
+    return _RESPONSE_BOUND_REFUSAL + pointer
 
 
 def _refuse_intermediate(result: Any) -> str | None:
@@ -374,6 +388,30 @@ def _refuse_non_arm_axis(result: Any) -> str | None:
     )
 
 
+def _refuse_unbounded_parameters(result: Any) -> str | None:
+    """Refuse an arm-indexed fit that reports no parameter the bound applies to.
+
+    The predicate is :func:`~cleverly.sensitivity._parameters.reported_arm_parameters`,
+    which :func:`resolve_parameter` reads for the same fit, so no request can lift this
+    rule.  A ratio-only fit, a population attributable risk or fraction, and a
+    complete-outcome natural-course mean each report none, so every call on such a fit
+    refuses, and the five rows read this rule.  The rule follows ``parameter_axis``,
+    because its sentence describes an arm-indexed fit.  The E-value pointer is appended
+    only on a fit that reports a risk ratio or an odds ratio, the two scales the E-value
+    answers for.
+    """
+    if reported_arm_parameters(result):
+        return None
+    ratio = any(parameter_stem(name) in _EVALUE_STEMS for name in result.estimates)
+    return (
+        "the omitted-variable bound applies to the arm-indexed linear estimands "
+        f"{sorted(LINEAR_ESTIMANDS)}, and this arm-indexed fit reported none of them: "
+        f"it reported {sorted(result.estimates)}. One bound is the second moment of "
+        "one contrast's own Riesz representer, so ask the fit for a counterfactual "
+        "mean or a contrast of arms." + (_EVALUE_POINTER if ratio else "")
+    )
+
+
 def _refuse_repeats(result: Any) -> str | None:
     """Refuse a median-combined repeated fit.
 
@@ -390,9 +428,10 @@ def _refuse_repeats(result: Any) -> str | None:
 #: order the five entry points and the capability rows both use.  The table is ordered and
 #: each rule assumes its predecessors returned ``None``: ``longitudinal`` establishes that
 #: the result carries a point-treatment ``data`` and ``config`` at all, which every rule
-#: after it reads.  ``repeats`` is last because it is the only rule a refit with one split
-#: lifts.  The names are the introspection contract; a test reads them to pin the order
-#: without respelling a message.
+#: after it reads.  ``bound_parameters`` follows ``parameter_axis``, because its sentence
+#: names an arm-indexed fit.  ``repeats`` is last because it is the only rule a refit with
+#: one split lifts.  The names are the introspection contract; a test reads them to pin the
+#: order without respelling a message.
 _FIT_WIDE_BOUND_RULES: tuple[tuple[str, Callable[[Any], str | None]], ...] = (
     ("longitudinal", _refuse_longitudinal),
     ("drtmle", _refuse_guarded_mechanism),
@@ -400,6 +439,7 @@ _FIT_WIDE_BOUND_RULES: tuple[tuple[str, Callable[[Any], str | None]], ...] = (
     ("response_mechanism", _refuse_response_mechanism),
     ("intermediate", _refuse_intermediate),
     ("parameter_axis", _refuse_non_arm_axis),
+    ("bound_parameters", _refuse_unbounded_parameters),
     ("repeats", _refuse_repeats),
 )
 
@@ -540,11 +580,11 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
     ``ate`` on a two-armed fit and ``ate[medium vs low]`` on a wider one, each with its
     own Riesz representer.  It reads the request alone.  The caller has already passed
     the fit through :func:`fit_wide_bound_refusal`, whose ``parameter_axis`` rule makes
-    the fit arm-indexed, since no estimand name can change that verdict.  The order of
-    the checks below matters.  A name this bound could never apply to is refused first,
-    so that asking for a risk ratio is not reported as a missing estimand; the
-    arm-indexed coverage message comes last, where it describes an arm-indexed fit and
-    nothing else.
+    the fit arm-indexed and whose ``bound_parameters`` rule makes it report at least one
+    parameter the bound applies to, since no estimand name can change either verdict.
+    The order of the checks below matters.  A name this bound could never apply to is
+    refused first, so that asking for a risk ratio is not reported as a missing
+    estimand; the coverage message comes last.
 
     Parameters
     ----------
@@ -563,18 +603,13 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
         # The pointer is for the two ratio scales an E-value is defined on. Offered for
         # anything else -- an attributable fraction, say -- it sends the reader from one
         # refusal to a second one.
-        pointer = (
-            " For a risk ratio or odds ratio use sensitivity.evalue()."
-            if stem in {"rr", "or"}
-            else ""
-        )
+        pointer = _EVALUE_POINTER if stem in _EVALUE_STEMS else ""
         raise CapabilityError(
             f"the omitted-variable bound applies to {sorted(LINEAR_ESTIMANDS)}, not "
             f"{estimand!r}: the bound is on the bias of a linear functional of the "
             f"outcome regression, and {estimand!r} is not one." + pointer
         )
-    known = arm_parameters(result)
-    available = {name: parameter for name, parameter in known.items() if name in result.estimates}
+    available = reported_arm_parameters(result)
     if estimand in available:
         return available[estimand]
     # Before the coverage message: this one *was* reported, so "not requested" would be
@@ -582,18 +617,11 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
     conditional = stratum_refusal(result, estimand, "the omitted-variable bound")
     if conditional is not None:
         raise CapabilityError(conditional)
-    if not available:
-        # Reached only on an arm-indexed fit, which the fit-wide axis rule has already
-        # established. A fit reporting only ``par``, ``paf``, ``rr``, ``or`` or ``ey_obs``
-        # is indexed by arms and reports no linear contrast, so a sentence about
-        # counterfactuals that are not arms would contradict itself.
-        raise CapabilityError(
-            "the omitted-variable bound applies to the arm-indexed linear estimands "
-            f"{sorted(LINEAR_ESTIMANDS)}, and this arm-indexed fit reported none of them: "
-            f"it reported {sorted(result.estimates)}. One bound is the second moment of "
-            "one contrast's own Riesz representer, so ask the fit for a counterfactual "
-            "mean or a contrast of arms."
-        )
+    empty = _refuse_unbounded_parameters(result)
+    if empty is not None:
+        # Every entry point hears this sentence from the fit-wide table before it gets
+        # here. A caller that resolves a parameter directly hears the same sentence.
+        raise CapabilityError(empty)
     raise CapabilityError(
         f"estimand {estimand!r} was not requested in this fit. The bound is available for "
         f"{sorted(available)} -- one per contrast, since nu^2 is the second moment of "
@@ -1464,6 +1492,81 @@ class BenchmarkResult:
         return self.summary()
 
 
+def _benchmark_names(result: TMLEResult, covariates: Any) -> tuple[str, ...]:
+    """The covariate names a ``covariates=`` value requests, one bare name included.
+
+    A name the fit does not adjust for is a malformed argument, and it is reported before
+    any refusal.  :func:`benchmark` and the ``benchmark`` method of
+    :class:`~cleverly.assessment.SensitivityFacade` each call this first, and
+    :func:`benchmark_refusal` returns ``None`` where it raises.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        The fitted result whose covariates the names must be.
+    covariates : str or sequence of str
+        The requested covariate names.
+
+    Returns
+    -------
+    tuple of str
+        The requested names, in request order.
+
+    Raises
+    ------
+    DataError
+        If a name is not a covariate of the fit.
+    """
+    names = tuple([covariates] if isinstance(covariates, str) else covariates)
+    unknown = sorted(set(names).difference(result.data.covariate_names))
+    if unknown:
+        raise DataError(
+            f"unknown covariates {unknown}; this fit adjusts for "
+            f"{list(result.data.covariate_names)}"
+        )
+    return names
+
+
+def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> str | None:
+    """Return the refusal a :func:`benchmark` request meets for its ``covariates``.
+
+    :func:`benchmark` raises the sentence this function returns, and the ``benchmark``
+    capability row of :class:`~cleverly.assessment.SensitivityFacade` quotes it for the
+    same request.  The short model is a refit without the named covariates.  A request
+    that names every covariate of the fit leaves the refit nothing to adjust for, and
+    this package fits no TMLE without a covariate, so the request is refused.  The
+    unadjusted comparison is well posed, and no estimator here computes it.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fitted point-treatment result.
+    covariates : str, sequence of str, or None
+        The requested covariate names.  ``None`` stands for the omitted argument, which
+        no value can lift on a fit with one covariate.
+
+    Returns
+    -------
+    str or None
+        Exact refusal reason, or ``None`` when the covariates leave one to adjust for or
+        name one the fit does not adjust for.  :func:`benchmark` reports an unknown name
+        itself, as a malformed argument, before any refusal.
+    """
+    fitted = tuple(result.data.covariate_names)
+    try:
+        dropped = set(fitted[:1] if covariates is None else _benchmark_names(result, covariates))
+    except DataError:
+        return None
+    if any(name not in dropped for name in fitted):
+        return None
+    return (
+        f"benchmark cannot drop every covariate of this fit, {list(fitted)}. The short "
+        "model would adjust for nothing, and a fit needs at least one covariate. Name a "
+        "proper subset of the covariates, which exists only when the fit adjusts for two "
+        "or more"
+    )
+
+
 def benchmark(
     result: TMLEResult,
     covariates: Any,
@@ -1504,17 +1607,21 @@ def benchmark(
 
     Raises
     ------
+    DataError
+        If ``covariates`` names a covariate the fit does not adjust for.  The argument
+        is checked before any refusal.
     ValueError
         If ``nu2_estimator`` is not one of :data:`NU2_ESTIMATORS`.
     CapabilityError
-        If the result carries no fitted estimator, or on every refusal
-        :func:`sensitivity_elements` raises for the full fit or the short refit.  The
-        full fit is checked before the refit runs.
+        If the result carries no fitted estimator, on every refusal
+        :func:`sensitivity_elements` raises for the full fit or the short refit, and on
+        the refusal of ``benchmark_refusal``.  The full fit and the covariates are
+        checked before the refit runs.
     """
+    names = _benchmark_names(result, covariates)
     estimator = result.estimator
     if estimator is None:
         raise CapabilityError("benchmark needs the fitted estimator that produced the result")
-    names = tuple([covariates] if isinstance(covariates, str) else covariates)
 
     # The short model is a refit, so it carries the same reproducibility question a
     # refutation does: an estimator with no ``random_state`` redraws its folds every time,
@@ -1523,6 +1630,9 @@ def benchmark(
     seed = resolve_assessment_seed(result, random_state)
 
     long_elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
+    refusal = benchmark_refusal(result, names)
+    if refusal is not None:
+        raise CapabilityError(refusal)
     short_data = result.data.without_covariates(names)
     short_result = estimator.refit(
         short_data, intermediate_value=result.intermediate_value, random_state=seed

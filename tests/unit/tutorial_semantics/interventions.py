@@ -193,6 +193,14 @@ def check(namespace: dict[str, Any]) -> None:
         "modified treatment policy": "completed",
         "incremental intervention": "warning",
     }
+    # "The incremental fit also refuses truncation_curve": the propensity is inside its
+    # estimand, and the fit has no observation mechanism for the other axis. The other two
+    # fits defer the curve only for its cost.
+    assert status.loc["diagnostics.truncation_curve"].to_dict() == {
+        "known regime": "deferred",
+        "modified treatment policy": "deferred",
+        "incremental intervention": "unavailable",
+    }
     assert set(status.loc["sensitivity.robustness_value"]) == {"unavailable"}
     assert set(status.loc["sensitivity.simulated_confounding"]) == {"deferred"}
 

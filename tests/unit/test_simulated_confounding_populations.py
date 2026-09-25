@@ -818,8 +818,14 @@ def test_the_eligible_alias_set_drops_what_the_replay_guard_would_refuse() -> No
 def test_the_facade_refuses_a_conditional_alias_it_never_advertised(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The facade still reaches the guard, and the guard names the estimator boundary."""
-    result = replace(_fit_population("att", strata=False), estimator=CTMLE(strategy="greedy"))
+    """The facade still reaches the guard, and the guard names the estimator boundary.
+
+    The stand-in's refit has to pass its preflight, or the replay gate refuses the row
+    before the guard. So it fits in sample, because this continuous outcome declares no
+    ``q_bounds``, and it requests ``ate``, because ``CTMLE`` refuses ``att``.
+    """
+    stand_in = CTMLE(strategy="greedy", cross_fit=False, estimands=("ate",))
+    result = replace(_fit_population("att", strata=False), estimator=stand_in)
     _forbid_draw_and_refit(monkeypatch, result.estimator)
     assert _eligible_binary_parameter_names(result) == ()
     with pytest.raises(CapabilityError, match="ATT and ATC under exact ordinary TMLE"):

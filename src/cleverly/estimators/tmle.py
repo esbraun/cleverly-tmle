@@ -551,6 +551,10 @@ class TMLE:
 
     _assessment_method = "tmle"
 
+    # An estimator pickled by 0.1.0 or 0.1.1 has no instance attribute, and None is what
+    # those releases meant: they drew every fold from the data.
+    split_plan: SplitPlan | None = None
+
     def _inference_status(self, data: CausalData) -> InferenceStatus:
         """Whether this estimator's estimates on ``data`` carry inference or a diagnostic.
 
@@ -950,11 +954,9 @@ class TMLE:
             return TMLEResultSet({None: self._fit_single(prepared, intermediate_value=None)})
 
         # The intermediate path otherwise fits shared nuisances before `_fit_single`.
-        # Resolve this boundary here as well, so every unsupported intermediate
-        # composition fails before any learner is fitted. The ordinary path resolves in
-        # `_fit_single`, after its axis-specific structural checks have named their own
-        # refusals.
-        estimands = self._resolve_estimands_for_data(prepared)
+        # Run the full preflight here as well, so every unsupported intermediate
+        # composition fails before the shared nuisance learners are fitted.
+        estimands = self._preflight_fit_configuration(prepared)
 
         # The controlled direct effect at z = 0 and at z = 1 are different parameters,
         # so they get one result each -- but they are estimated from *identical*
@@ -1043,7 +1045,7 @@ class TMLE:
         it was realised on, and the copy is what makes that local too.  The binding exists
         to catch a plan reused on other rows, where a label silently points at another
         unit.  Every refit in this package is the same rows with a column replaced,
-        perturbed or dropped -- which is the exact condition
+        perturbed, dropped or added -- which is the exact condition
         :meth:`~cleverly.SplitPlan.validate` names as safe to reuse labels under -- so
         holding the fingerprint here would refuse the placebo and negative-control
         refutations for a change that moves no row.  What a refit cannot do is change the
@@ -1051,17 +1053,57 @@ class TMLE:
         :func:`~cleverly.validation.refute` refuses the subsampling test up front.
         :meth:`~cleverly.SplitPlan.unbound` keeps the plan's generator record, so the
         refit accepts the plan and draws its labels again to check them.
+
+        The refit first asks :meth:`_configured_for_refit` which estimator fits ``data``.
+        This estimator answers itself.  A :class:`~cleverly.CTMLE` with an explicit
+        ``ordering=`` places an added covariate after the declared ordering, and a
+        :class:`~cleverly.DRTMLE` drops an ``evaluation=`` companion that lacks a covariate
+        of ``data``.  Either answer is a copy, so this instance is not modified.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data to fit, usually ``result.data`` with one column changed.
+        intermediate_value : float or None
+            The value of the intermediate variable the controlled direct effect fixes.
+        random_state : int or None
+            Seed of the refit.  ``None`` keeps this estimator's own.
+
+        Returns
+        -------
+        TMLEResult
+            The result of the whole fit on ``data``.
         """
-        estimator = self
-        plan = self.split_plan
+        estimator = self._configured_for_refit(data)
+        plan = estimator.split_plan
         if plan is not None and plan.source_fingerprint is not None:
-            estimator = copy.copy(self)
+            if estimator is self:
+                estimator = copy.copy(self)
             estimator.split_plan = plan.unbound()
-        if random_state is not None and random_state != self.random_state:
+        if random_state is not None and random_state != estimator.random_state:
             if estimator is self:
                 estimator = copy.copy(self)
             estimator.random_state = random_state
         return estimator._fit_single(data, intermediate_value=intermediate_value)
+
+    def _configured_for_refit(self, data: CausalData) -> TMLE:
+        """The estimator a refit on ``data`` runs, which is this one.
+
+        A subclass whose configuration names the covariates of the data it was fitted on
+        overrides this, so that a refit that adds a covariate still has a configuration
+        that covers it.  An override returns a copy and never modifies this instance.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data the refit fits.
+
+        Returns
+        -------
+        TMLE
+            This estimator.
+        """
+        return self
 
     def _prepare(
         self,
@@ -1133,30 +1175,13 @@ class TMLE:
             ),
         )
 
-    def _fit_single(
-        self,
-        data: CausalData,
-        *,
-        intermediate_value: float | None,
-        shared: (
-            tuple[OutcomeScaler, tuple[tuple[Folds, NuisanceEstimates, int], ...]] | None
-        ) = None,
-    ) -> TMLEResult:
-        """Fit for one value of the intermediate (or for no intermediate at all).
+    def _preflight_fit_configuration(self, data: CausalData) -> tuple[str, ...]:
+        """Resolve targets and run every configuration guard before fitting learners.
 
-        ``shared`` supplies nuisance fits already computed for every level of the
-        intermediate; only the targeting step then runs per level.
-
-        With ``repeats=R`` the whole construction below -- split, nuisances, targeting --
-        runs ``R`` times and the reports are combined by their median. The loop sits here, around
-        :meth:`_nuisances` rather than inside it, which is what makes it free for the
-        variants: :class:`~cleverly.CTMLE` overrides that method alone, so its propensity
-        selection is repeated per draw without ``estimators/ctmle.py`` knowing repeats
-        exist. Bootstrap inference repeats the same complete procedure. A simultaneous band
-        is refused, because its multiplier draws would use the retained central-draw curve
-        rather than the split-adjusted median estimator. The refusal needs two or more
-        estimates, which is what a band needs. A repeated fit that reports one estimate
-        builds no band, so it is allowed.
+        Both fit and replayability use this path, including subclass estimand checks.
+        The returned targets include any exclusions for ``estimands="all"``.
+        Scaler, propensity-bound, and reference checks need no generated folds and run
+        here too. The validation of realised folds stays in :meth:`_repeat_draws`.
         """
         self._check_shifts(data)
         self._check_incremental(data)
@@ -1233,6 +1258,41 @@ class TMLE:
                     "report (cv_evaluation=False) remains supported; request linear "
                     "levels/contrasts or ATT/ATC for fold-wise evaluation."
                 )
+
+        # These checks also run in `_scaler` and `_config` before any nuisance learner.
+        # Read the same methods here so copied settings reach the replay slot.
+        self._scaler(data)
+        resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=False)
+        resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=True)
+        self._reference_arm(data)
+        return estimands
+
+    def _fit_single(
+        self,
+        data: CausalData,
+        *,
+        intermediate_value: float | None,
+        shared: (
+            tuple[OutcomeScaler, tuple[tuple[Folds, NuisanceEstimates, int], ...]] | None
+        ) = None,
+    ) -> TMLEResult:
+        """Fit for one value of the intermediate (or for no intermediate at all).
+
+        ``shared`` supplies nuisance fits already computed for every level of the
+        intermediate; only the targeting step then runs per level.
+
+        With ``repeats=R`` the whole construction below -- split, nuisances, targeting --
+        runs ``R`` times and the reports are combined by their median. The loop sits here, around
+        :meth:`_nuisances` rather than inside it, which is what makes it free for the
+        variants: :class:`~cleverly.CTMLE` overrides that method alone, so its propensity
+        selection is repeated per draw without ``estimators/ctmle.py`` knowing repeats
+        exist. Bootstrap inference repeats the same complete procedure. A simultaneous band
+        is refused, because its multiplier draws would use the retained central-draw curve
+        rather than the split-adjusted median estimator. The refusal needs two or more
+        estimates, which is what a band needs. A repeated fit that reports one estimate
+        builds no band, so it is allowed.
+        """
+        estimands = self._preflight_fit_configuration(data)
 
         extra: dict[str, Any] = {}
         if shared is not None:
@@ -1399,9 +1459,9 @@ class TMLE:
         return OutcomeScaler.from_outcome(observed, self.q_bounds)
 
     def _resolve_estimands_for_data(self, data: CausalData) -> tuple[str, ...]:
-        """Resolve targets and enforce every refusal that precedes fitting.
+        """Resolve targets and enforce the initial data and declaration refusals.
 
-        The declared fold policy is checked first and without reading the data, because a
+        This method first checks the declared fold policy without reading the data, because a
         fit can arrive here without having run ``__init__``: :meth:`refit` copies an
         estimator, and an estimator restored from a pickle written by an earlier version
         carries whatever policy that version allowed.  It then runs
@@ -1411,9 +1471,8 @@ class TMLE:
         model or regime can carry a declaration this version refuses.
         The regime check covers a ``Stochastic`` density, a ``Rule``, and a user-written
         ``Intervention``, which ``TMLE.__init__`` admits without a check.
-        Those functions state what each one refuses.  They run before every refusal of the
-        fit configuration, here and in :meth:`_fit_single`, because each of those names a
-        remedy that cannot make an undeclared function fit.  :meth:`MSMSet.evaluate
+        Those functions state what each one refuses.  The declaration check runs before
+        the data contracts in this method. :meth:`MSMSet.evaluate
         <cleverly.msm.MSMSet.evaluate>` checks the model again, but a fit reaches it only
         after those refusals.
 
@@ -1422,19 +1481,78 @@ class TMLE:
         cross-fitted missing-outcome target follows them.  All three name a narrower
         surface than the outcome-scale rule below, so each keeps its own sentence and the
         general rule catches what is left.
+
+        A subclass extends this method with the refusals of its own design, such as the
+        collaborative refusal of clustered data, and calls it last.  Every refusal here and
+        in an override reads only the configuration and ``data``, and none fits a learner.
+        :meth:`_refit_configuration_refusal` runs the enclosing
+        :meth:`_preflight_fit_configuration`, including this override chain and its later
+        guards, to answer whether a refit runs.
         """
-        reason = self._cross_fit_policy_reason()
+        reason = self._fold_policy_refusal()
         if reason is not None:
-            raise ValueError(
-                f"{reason}. This fit was configured under a fold policy this version "
-                "refuses, which a restored result or a copied estimator can still carry"
-            )
+            raise CapabilityError(reason)
         self._refuse_undeclared_functions()
         estimands = self._resolve_natural_course_contract(data)
         self._resolve_arm_indexed_missing_contract(data, estimands)
         self._refuse_cross_fitted_missing_off_contract(data, estimands)
         self._refuse_unbounded_cross_fitted_scale(data)
         return estimands
+
+    def _fold_policy_refusal(self) -> str | None:
+        """The sentence a fit under a fold policy this version refuses raises, or ``None``.
+
+        Returns
+        -------
+        str or None
+            What :meth:`_cross_fit_policy_reason` returns, then the sentence that names a
+            restored or copied estimator, or ``None`` when the policy runs.
+        """
+        reason = self._cross_fit_policy_reason()
+        if reason is None:
+            return None
+        return (
+            f"{reason}. This fit was configured under a fold policy this version "
+            "refuses, which a restored result or a copied estimator can still carry"
+        )
+
+    def _refit_configuration_refusal(self, data: CausalData) -> str | None:
+        """Why a refit of this configuration on ``data`` is refused before any learner.
+
+        The ``refit_nuisances`` slot of :func:`~cleverly.assessment.replayability` reads
+        this, so the slot agrees with :meth:`refit`.  It runs the chain that :meth:`refit`
+        runs before any learner: :meth:`_configured_for_refit`, and then
+        :meth:`_preflight_fit_configuration`, which also calls
+        :meth:`_resolve_estimands_for_data` with every subclass override.  One chain
+        serves both, so a refusal that a subclass adds reaches the slot without a second
+        list.  The declaration check in that chain has its own replay code, and
+        :func:`~cleverly.assessment.replayability` asks it first.
+
+        The chain reads the configuration and ``data`` and fits nothing, so each
+        ``ValueError`` or ``NotImplementedError`` it raises is a refusal.
+        :class:`~cleverly.exceptions.CapabilityError` and
+        :class:`~cleverly.exceptions.DataError` are both ``ValueError``, and a subclass
+        design check raises a plain ``ValueError`` or ``NotImplementedError``.  A result
+        that release 0.1.1 saved passed each design check when it was fitted, or meets the
+        fold-policy refusal first.  A copied estimator can meet one, such as a
+        :class:`~cleverly.CTMLE` put on a fit that reports ``att``.  Any other exception is
+        a defect and propagates.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data the refit would fit, which is the result's own data.
+
+        Returns
+        -------
+        str or None
+            The sentence the refit raises, or ``None`` when no check refuses.
+        """
+        try:
+            self._configured_for_refit(data)._preflight_fit_configuration(data)
+        except (ValueError, NotImplementedError) as error:
+            return str(error)
+        return None
 
     def _refuse_cross_fitted_missing_off_contract(
         self, data: CausalData, estimands: tuple[str, ...]

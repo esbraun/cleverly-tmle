@@ -11,9 +11,8 @@ The tests, and what a failure means:
 ``placebo``
     Replace treatment with a random permutation of itself, destroying any real
     effect while preserving its marginal distribution.  The estimate should be
-    indistinguishable from zero.  A non-null placebo estimate means the pipeline is
-    manufacturing an effect -- leakage between folds, or an estimand that is not
-    what it claims.
+    indistinguishable from the parameter's no-effect value. A non-null placebo
+    estimate can mean leakage between folds or a misdefined estimand.
 
 ``random_common_cause``
     Add an irrelevant random covariate.  The estimate should barely move; the
@@ -584,6 +583,13 @@ class RefutationTest:
         hold the plug-in diagnostic
         :attr:`~cleverly.ParameterEstimate.plugin_std_error`, and :meth:`to_frame`
         publishes that column as ``plugin_std_error``.
+    mean_kind : str
+        ``"geometric"`` for a ratio placebo or noise refutation tested on the log
+        scale. Other tests use the arithmetic mean. The underlying ``values`` remain
+        on the reported scale.
+    spread_kind : str
+        ``"log"`` for ratio subset scatter tested on the log scale. Other reports use
+        reported-scale scatter. The underlying ``values`` remain on the reported scale.
     """
 
     name: str
@@ -604,31 +610,40 @@ class RefutationTest:
     requested_draws: int | None = None
     resampling: str | None = None
     inference: InferenceStatus = "influence_curve"
+    mean_kind: Literal["arithmetic", "geometric"] = "arithmetic"
+    spread_kind: Literal["reported", "log"] = "reported"
 
     @property
     def mean(self) -> float:
-        """Return the mean estimate across this test's replicates.
+        """Return the displayed mean of refitted estimates.
 
         Returns
         -------
         float
-            Mean over the finite replicates, and ``nan`` when none are finite. A
-            replicate that failed to converge is dropped rather than propagated.
+            Arithmetic mean by default, or geometric mean for a ratio placebo or noise
+            refutation.
+            ``nan`` when no replicate is finite. Failed replicates are dropped.
         """
         finite = np.asarray([v for v in self.values if np.isfinite(v)])
-        return float(finite.mean()) if finite.size else float("nan")
+        if not finite.size:
+            return float("nan")
+        if self.mean_kind == "geometric":
+            return float(np.exp(np.mean(np.log(finite))))
+        return float(finite.mean())
 
     @property
     def spread(self) -> float:
-        """Return how far this test's replicates spread around their mean.
+        """Return how far this test's replicates spread on the verdict scale.
 
         Returns
         -------
         float
-            Sample standard deviation over the finite replicates, and ``nan`` when
-            fewer than two are finite.
+            Sample standard deviation over the finite replicates, on the log scale
+            for a ratio subset test. Returns ``nan`` with fewer than two values.
         """
         finite = np.asarray([v for v in self.values if np.isfinite(v)])
+        if self.spread_kind == "log":
+            finite = np.log(finite)
         return float(finite.std(ddof=1)) if finite.size > 1 else float("nan")
 
     @property
@@ -875,6 +890,431 @@ _GENERATED_TESTS = ("dummy_outcome", "simulated_outcome")
 _ROW_SET_TESTS = ("subset", "bootstrap_measurement_error")
 _CHILD_SEED_TAGS = {"dummy_outcome": 1, "simulated_outcome": 2}
 _ADDITIVE_MEAN_CONTRASTS = {"ate", "att", "atc"}
+
+
+def _validated_tests(
+    tests: Sequence[str], n_replicates: int | None, negative_control_outcome: Any = None
+) -> tuple[str, ...]:
+    """Refuse malformed arguments of :func:`refute` before any refit.
+
+    A malformed argument is reported before any refusal, so a caller who misspelled a test
+    name hears that before a refusal that the corrected name might not meet.  :func:`refute`
+    and the ``refute`` method of :class:`~cleverly.assessment.DiagnosticsFacade` each call
+    this first, and :func:`refute_refusal` returns ``None`` where it raises.
+
+    Parameters
+    ----------
+    tests : sequence of str
+        The requested test names.
+    n_replicates : int or None
+        Replicates per randomized test.
+    negative_control_outcome : Any
+        The outcome required by the negative-control test.
+
+    Returns
+    -------
+    tuple of str
+        The requested test names.
+
+    Raises
+    ------
+    ValueError
+        If a test name is unknown, ``n_replicates`` is not a positive integer, or the
+        negative-control test has no outcome.
+    """
+    requested = tuple(tests)
+    unknown = [name for name in requested if name not in _KNOWN_TESTS]
+    if unknown:
+        raise ValueError(
+            f"unknown refutation test {unknown[0]!r}; choose from {list(_KNOWN_TESTS)}"
+        )
+    if n_replicates is not None and (
+        isinstance(n_replicates, bool)
+        or not isinstance(n_replicates, (int, np.integer))
+        or n_replicates < 1
+    ):
+        raise ValueError("n_replicates must be positive and an integer")
+    if "negative_control_outcome" in requested and negative_control_outcome is None:
+        raise ValueError(
+            "the negative_control_outcome test needs an outcome array that treatment "
+            "cannot affect; pass negative_control_outcome=<array>"
+        )
+    return requested
+
+
+@dataclass(frozen=True)
+class _RefuteRequest:
+    """The arguments of one :func:`refute` request that a rule of the table reads.
+
+    Parameters
+    ----------
+    estimand : str
+        The alias the tests would refit.
+    tests : tuple of str
+        The requested test names, already validated.
+    n_replicates : int or None
+        Replicates per randomized test.
+    dummy_outcome : GaussianIndependentOutcome or None
+        The independent process declaration, or ``None`` for the default.
+    simulated_outcome : GaussianAdjustmentOutcome or None
+        The adjustment-dependent process declaration, or ``None`` for the default.
+    outcome_rule : EmpiricalInclusionRule
+        The rule applied to generated-outcome refits.
+    bootstrap_measurement_error : BootstrapMeasurementError or None
+        The measurement-error declaration.
+    measurement_error_rule : EmpiricalInclusionRule
+        The rule applied to measurement-error refits.
+    """
+
+    estimand: str
+    tests: tuple[str, ...]
+    n_replicates: int | None = None
+    dummy_outcome: Any = None
+    simulated_outcome: Any = None
+    outcome_rule: Any = field(default_factory=EmpiricalInclusionRule)
+    bootstrap_measurement_error: Any = None
+    measurement_error_rule: Any = field(default_factory=EmpiricalInclusionRule)
+
+    @property
+    def generated(self) -> tuple[str, ...]:
+        """The requested generated-outcome tests, in request order."""
+        return tuple(name for name in self.tests if name in _GENERATED_TESTS)
+
+    @property
+    def draws(self) -> int:
+        """The draw budget of a generated-outcome or measurement-error test."""
+        return DEFAULT_OUTCOME_REPLICATES if self.n_replicates is None else self.n_replicates
+
+    def process(self, name: str) -> Any:
+        """The outcome process a generated-outcome test draws from.
+
+        Parameters
+        ----------
+        name : str
+            ``"dummy_outcome"`` or ``"simulated_outcome"``.
+
+        Returns
+        -------
+        GaussianIndependentOutcome or GaussianAdjustmentOutcome
+            The declared process, or the default one when the request declares none.
+        """
+        if name == "dummy_outcome":
+            return (
+                GaussianIndependentOutcome() if self.dummy_outcome is None else self.dummy_outcome
+            )
+        return (
+            GaussianAdjustmentOutcome()
+            if self.simulated_outcome is None
+            else self.simulated_outcome
+        )
+
+
+def _refuse_missing_estimator(result: TMLEResult, request: _RefuteRequest) -> str | None:
+    """Refuse a result that no longer holds the estimator every test refits."""
+    if result.estimator is not None:
+        return None
+    return "refute needs the fitted estimator that produced the result"
+
+
+def _refuse_unreported_estimand(result: TMLEResult, request: _RefuteRequest) -> str | None:
+    """Refuse an estimand the fit did not report, which no refit can compare against."""
+    if request.estimand in result.estimates:
+        return None
+    return f"estimand {request.estimand!r} was not requested in this fit"
+
+
+def _target_declaration(result: TMLEResult, estimand: str) -> Any:
+    """Read the registered target through a key or the reported alias convention."""
+    from ..targets import TARGETS
+    from ..targets.base import parameter_stem
+
+    keys = getattr(result, "parameter_keys", {})
+    key = keys.get(estimand) if keys else None
+    target = getattr(key, "estimand", parameter_stem(estimand))
+    return TARGETS.get(target)
+
+
+def _no_effect_null(result: TMLEResult, estimand: str) -> float | None:
+    """Return the reported-scale no-effect value of a registered parameter, if defined."""
+    declaration = _target_declaration(result, estimand)
+    if declaration is None:
+        return None
+    if declaration.parameter_axis == "msm":
+        return None
+    if declaration.scale == "ratio":
+        return 1.0
+    if declaration.scale == "difference" or declaration.name == "paf":
+        return 0.0
+    return None
+
+
+def _no_effect_difference(value: float, null: float) -> float:
+    """Return the signed difference on the estimate's inference scale."""
+    if null == 1.0:
+        return float(np.log(value))
+    return value - null
+
+
+def _stability_value(value: float, is_ratio: bool) -> float:
+    """Return a refit value on the scale of its plug-in standard error."""
+    return float(np.log(value)) if is_ratio else value
+
+
+def _standardized_distance(distance: float, std_error: float) -> float:
+    """Express a null distance in standard-error units, including zero spread."""
+    if std_error == 0.0:
+        return 0.0 if distance == 0.0 else float("inf")
+    return distance / std_error
+
+
+def _refuse_no_effect_null(result: TMLEResult, request: _RefuteRequest) -> str | None:
+    """Refuse null-effect tests on parameters with no fixed reported-scale null."""
+    chosen = [name for name in request.tests if name in ("placebo", "negative_control_outcome")]
+    if not chosen or _no_effect_null(result, request.estimand) is not None:
+        return None
+    keys = getattr(result, "parameter_keys", {})
+    key = keys.get(request.estimand) if keys else None
+    from ..targets.base import parameter_stem
+
+    target = getattr(key, "estimand", parameter_stem(request.estimand))
+    label = "NaturalCourseMean" if target == "ey_obs" else repr(request.estimand)
+    prefix = "the placebo refutation and " if target == "ey_obs" and "placebo" in chosen else ""
+    return (
+        f"{prefix}refutation test(s) {chosen} require a fixed no-effect value on the reported "
+        f"scale, but {label} has none. An outcome level or policy mean need not approach "
+        "zero, and an arbitrary MSM coefficient has no universal null. Drop these "
+        "tests from tests=; stability tests keep their usual interpretation."
+    )
+
+
+def _refuse_row_set_under_plan(result: TMLEResult, request: _RefuteRequest) -> str | None:
+    """Refuse a test that refits on another row set when the fit was given a split plan.
+
+    A fit that was given a :class:`~cleverly.SplitPlan` cannot refit on a different row
+    set: the plan holds one fold label per row of the original data, and there is no rule
+    here for which labels a resampled row inherits.  Left to the refit, ``subset`` gives the
+    caller a row-count ``DataError`` naming a "split plan" they did not mention in this
+    call, after paying for the tests that ran first, and ``bootstrap_measurement_error``
+    gives no error at all: its draw keeps the row count, so the labels land on resampled
+    units and the refutation silently reports a split the fit never ran.
+
+    ``getattr`` because ``TMLEResult.estimator`` is annotated ``Any`` and :func:`refute`
+    reads it as a refit *seam*: anything with the ``refit`` signature serves, and
+    ``_validate_generated_eligibility`` reads ``getattr(estimator, "family", "auto")`` off
+    the same object for the same reason.  The stand-ins in
+    ``tests/unit/test_generated_outcome_refutation.py`` and
+    ``tests/unit/test_bootstrap_measurement_error.py`` hold no plan.
+    """
+    supplied_plan = getattr(result.estimator, "split_plan", None)
+    if supplied_plan is None:
+        return None
+    resampled = [name for name in request.tests if name in _ROW_SET_TESTS]
+    if not resampled:
+        return None
+    return (
+        f"refutation test(s) {resampled} refit on rows this fit did not run, and "
+        f"this fit declared split_plan={supplied_plan!r}. A supplied plan labels "
+        "the rows it was realised on, by position, so it cannot label a refit that "
+        "drops rows or draws them with replacement, and dropping the plan for those "
+        "refits would refute a different split from the one the fit ran. Drop "
+        f"{resampled} from tests=, or refit the result without split_plan= to refute "
+        "a fit whose folds are drawn from the data each time"
+    )
+
+
+def _refuse_generated_rule(result: TMLEResult, request: _RefuteRequest) -> str | None:
+    """Refuse a generated-outcome test under a rule other than the registered one."""
+    if not request.generated or type(request.outcome_rule) is EmpiricalInclusionRule:
+        return None
+    return (
+        "generated-outcome refutations require the exact registered "
+        "EmpiricalInclusionRule declaration"
+    )
+
+
+def _refuse_generated_eligibility(result: TMLEResult, request: _RefuteRequest) -> str | None:
+    """Refuse a generated-outcome test whose fit, estimand or process has no derivation.
+
+    The sentence is the one ``_validate_generated_eligibility`` raises.  This rule calls
+    that check rather than copying it, and :func:`refute` calls it again to read the
+    contrast direction it returns.
+    """
+    for name in request.generated:
+        try:
+            _validate_generated_eligibility(result, request.estimand, request.process(name), name)
+        except CapabilityError as error:
+            return str(error)
+    return None
+
+
+def _refuse_measurement_declaration(result: TMLEResult, request: _RefuteRequest) -> str | None:
+    """Refuse ``bootstrap_measurement_error`` without the registered declaration."""
+    if "bootstrap_measurement_error" not in request.tests:
+        return None
+    if type(request.bootstrap_measurement_error) is BootstrapMeasurementError:
+        return None
+    return (
+        "bootstrap_measurement_error requires the exact registered "
+        "BootstrapMeasurementError declaration"
+    )
+
+
+def _refuse_measurement_rule(result: TMLEResult, request: _RefuteRequest) -> str | None:
+    """Refuse ``bootstrap_measurement_error`` under a rule other than the registered one."""
+    if "bootstrap_measurement_error" not in request.tests:
+        return None
+    if type(request.measurement_error_rule) is EmpiricalInclusionRule:
+        return None
+    return (
+        "bootstrap_measurement_error requires the exact registered "
+        "EmpiricalInclusionRule declaration"
+    )
+
+
+def _refuse_measurement_eligibility(result: TMLEResult, request: _RefuteRequest) -> str | None:
+    """Refuse a measurement-error declaration that this fit's data cannot carry.
+
+    The sentence is the one ``_validate_measurement_error_eligibility`` raises, and this
+    rule calls that check rather than copying it.
+    """
+    if "bootstrap_measurement_error" not in request.tests:
+        return None
+    try:
+        _validate_measurement_error_eligibility(
+            result, request.bootstrap_measurement_error, request.draws
+        )
+    except CapabilityError as error:
+        return str(error)
+    return None
+
+
+def _refuse_measurement_budget(result: TMLEResult, request: _RefuteRequest) -> str | None:
+    """Refuse a measurement-error draw budget below its rule's floor."""
+    if "bootstrap_measurement_error" not in request.tests:
+        return None
+    floor = request.measurement_error_rule.minimum_draws
+    if request.draws >= floor:
+        return None
+    return (
+        f"bootstrap_measurement_error was asked for {request.draws} draw(s) "
+        f"under a rule that requires {floor}; raise "
+        "n_replicates or declare a rule with a smaller minimum_draws"
+    )
+
+
+def _refuse_generated_budget(result: TMLEResult, request: _RefuteRequest) -> str | None:
+    """Refuse a generated-outcome draw budget below its rule's floor.
+
+    A budget below the rule's own floor can only end in "too few draws", and the caller
+    can see that before any refit is paid for.
+    """
+    floor = request.outcome_rule.minimum_draws
+    if not request.generated or request.draws >= floor:
+        return None
+    return (
+        f"a generated-outcome refutation was asked for {request.draws} draw(s) under a rule "
+        f"that requires {floor}; raise n_replicates to at least "
+        f"{floor}, or declare a rule with a smaller minimum_draws"
+    )
+
+
+#: Every refusal of a :func:`refute` request that its arguments and the result decide
+#: before any refit, in the one order the call and the ``refute`` capability row both use.
+#: Each rule assumes its predecessors returned ``None``.  The names are the introspection
+#: contract, so a test pins the order without respelling a message.
+_REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, _RefuteRequest], str | None]], ...] = (
+    ("estimator", _refuse_missing_estimator),
+    ("estimand", _refuse_unreported_estimand),
+    ("no_effect_null", _refuse_no_effect_null),
+    ("row_set_under_plan", _refuse_row_set_under_plan),
+    ("generated_rule", _refuse_generated_rule),
+    ("generated_eligibility", _refuse_generated_eligibility),
+    ("measurement_declaration", _refuse_measurement_declaration),
+    ("measurement_rule", _refuse_measurement_rule),
+    ("measurement_eligibility", _refuse_measurement_eligibility),
+    ("measurement_budget", _refuse_measurement_budget),
+    ("generated_budget", _refuse_generated_budget),
+)
+
+
+def _first_refusal(result: TMLEResult, request: _RefuteRequest) -> str | None:
+    """The sentence of the first rule of :data:`_REQUEST_RULES` that refuses ``request``."""
+    for _name, rule in _REQUEST_RULES:
+        reason = rule(result, request)
+        if reason is not None:
+            return reason
+    return None
+
+
+def refute_refusal(
+    result: TMLEResult,
+    *,
+    estimand: str,
+    tests: Sequence[str],
+    n_replicates: int | None = None,
+    negative_control_outcome: Any = None,
+    dummy_outcome: GaussianIndependentOutcome | None = None,
+    simulated_outcome: GaussianAdjustmentOutcome | None = None,
+    outcome_rule: EmpiricalInclusionRule = EmpiricalInclusionRule(),
+    bootstrap_measurement_error: BootstrapMeasurementError | None = None,
+    measurement_error_rule: EmpiricalInclusionRule = EmpiricalInclusionRule(),
+) -> str | None:
+    """Return the refusal a :func:`refute` request meets before any refit.
+
+    :func:`refute` raises the sentence this function returns, and the ``refute`` capability
+    row of :class:`~cleverly.assessment.DiagnosticsFacade` quotes it for the same request.
+    The row defers on ``tests`` when the default tests are refused and a smaller set runs,
+    so a combined report names the argument instead of calling a refutation the call
+    refuses.  The keyword arguments are those of :func:`refute` that decide a refusal.
+
+    A malformed argument is not a refusal. An unknown test name, an invalid
+    ``n_replicates``, or a missing negative-control outcome raises ``ValueError`` from
+    the call before any refusal. This function returns ``None`` for those requests.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fitted point-treatment result.
+    estimand : str
+        The alias the tests would refit.
+    tests : sequence of str
+        The requested test names.
+    n_replicates : int or None
+        Replicates per randomized test.
+    negative_control_outcome : Any
+        The outcome required by the negative-control test.
+    dummy_outcome : GaussianIndependentOutcome or None
+        Independent Gaussian process declaration.
+    simulated_outcome : GaussianAdjustmentOutcome or None
+        Adjustment-dependent additive process declaration.
+    outcome_rule : EmpiricalInclusionRule
+        Rule applied to generated-outcome refits.
+    bootstrap_measurement_error : BootstrapMeasurementError or None
+        Measurement-error declaration.
+    measurement_error_rule : EmpiricalInclusionRule
+        Rule applied to measurement-error refits.
+
+    Returns
+    -------
+    str or None
+        Exact refusal reason, or ``None`` when no rule refuses the request or an argument
+        is malformed.
+    """
+    try:
+        requested = _validated_tests(tests, n_replicates, negative_control_outcome)
+    except ValueError:
+        return None
+    request = _RefuteRequest(
+        estimand,
+        requested,
+        n_replicates,
+        dummy_outcome,
+        simulated_outcome,
+        outcome_rule,
+        bootstrap_measurement_error,
+        measurement_error_rule,
+    )
+    return _first_refusal(result, request)
 
 
 def _generated_child_seeds(root_seed: int, name: str, count: int) -> tuple[int, ...]:
@@ -1495,10 +1935,18 @@ def refute(
     estimand : str
         Alias the tests are run for.
     tests : sequence of str
-        Which refutations to run. ``NaturalCourseMean`` refuses ``placebo`` before any
-        refit: that test permutes treatment and reads movement toward zero as evidence
-        for an effect, and an outcome level need not approach zero. ``subset`` and
-        ``random_common_cause`` keep their usual stability interpretations there.
+        Which refutations to run. Parameters without a fixed reported-scale no-effect
+        value refuse ``placebo`` and ``negative_control_outcome`` before any refit.
+        Differences use zero; risk and odds ratios use one. ``subset`` and
+        ``random_common_cause`` keep their stability interpretations. A fit
+        given ``split_plan=`` refuses ``subset`` and ``bootstrap_measurement_error``
+        before any refit. ``refute_refusal`` holds these refusals, and every refusal of a
+        generated-outcome or measurement-error request. The ``refute`` capability row
+        reads it for the same request, and defers on ``tests`` when the default tests meet
+        one and a smaller set runs. ``random_common_cause`` adds a column of independent
+        noise. A :class:`~cleverly.CTMLE` with an explicit ``ordering=`` places that column
+        after the declared ordering, and a :class:`~cleverly.DRTMLE` refits without an
+        ``evaluation=`` companion that lacks it.
     n_replicates : int or None
         Replicates per randomized test. ``None`` uses five for each established
         perturbation, and 100 for each generated-outcome test and for
@@ -1531,120 +1979,48 @@ def refute(
     -------
     RefutationResult
         One record per test run, with what it expected and what it saw.
-    """
-    estimator = result.estimator
-    if estimator is None:
-        raise CapabilityError("refute needs the fitted estimator that produced the result")
-    if estimand not in result.estimates:
-        raise CapabilityError(f"estimand {estimand!r} was not requested in this fit")
-    requested = tuple(tests)
-    unknown = [name for name in requested if name not in _KNOWN_TESTS]
-    if unknown:
-        raise ValueError(
-            f"unknown refutation test {unknown[0]!r}; choose from {list(_KNOWN_TESTS)}"
-        )
-    keys = getattr(result, "parameter_keys", {})
-    key = keys.get(estimand) if keys else None
-    target = getattr(key, "estimand", estimand)
-    if target == "ey_obs" and "placebo" in requested:
-        raise CapabilityError(
-            "the placebo refutation permutes treatment and expects a null effect, but "
-            "NaturalCourseMean is an outcome level and need not approach zero. Drop "
-            "'placebo' from tests=; random_common_cause and subset retain their usual "
-            "stability interpretations."
-        )
-    if n_replicates is not None and (
-        isinstance(n_replicates, bool)
-        or not isinstance(n_replicates, (int, np.integer))
-        or n_replicates < 1
-    ):
-        raise ValueError("n_replicates must be positive and an integer")
-    # Before any refit, like the two validations below it. A fit that was given a
-    # SplitPlan cannot refit on a different row set: the plan holds one fold label per
-    # row of the original data, and there is no rule here for which labels a resampled
-    # row inherits. Left to the refit, ``subset`` gives the caller a row-count DataError
-    # naming a "split plan" they did not mention in this call, after paying for the tests
-    # that ran first, and ``bootstrap_measurement_error`` gives no error at all: its draw
-    # keeps the row count, so the labels land on resampled units and the refutation
-    # silently reports a split the fit never ran.
-    # ``getattr`` because ``TMLEResult.estimator`` is annotated ``Any`` and this function
-    # reads it as a refit *seam*: anything with the ``refit`` signature above serves, and
-    # ``_validate_generated_eligibility`` reads ``getattr(estimator, "family", "auto")``
-    # off the same object for the same reason. The stand-ins in
-    # ``tests/unit/test_generated_outcome_refutation.py`` and
-    # ``tests/unit/test_bootstrap_measurement_error.py`` hold no plan, and 85 tests reach
-    # this line through them.
-    supplied_plan = getattr(estimator, "split_plan", None)
-    if supplied_plan is not None:
-        resampled = [name for name in requested if name in _ROW_SET_TESTS]
-        if resampled:
-            raise CapabilityError(
-                f"refutation test(s) {resampled} refit on rows this fit did not run, and "
-                f"this fit declared split_plan={supplied_plan!r}. A supplied plan labels "
-                "the rows it was realised on, by position, so it cannot label a refit that "
-                "drops rows or draws them with replacement, and dropping the plan for those "
-                "refits would refute a different split from the one the fit ran. Drop "
-                f"{resampled} from tests=, or refit the result without split_plan= to refute "
-                "a fit whose folds are drawn from the data each time"
-            )
 
-    processes: dict[str, GaussianIndependentOutcome | GaussianAdjustmentOutcome] = {
-        "dummy_outcome": (GaussianIndependentOutcome() if dummy_outcome is None else dummy_outcome),
-        "simulated_outcome": (
-            GaussianAdjustmentOutcome() if simulated_outcome is None else simulated_outcome
-        ),
+    Raises
+    ------
+    ValueError
+        If a test name is unknown, ``n_replicates`` is not a positive integer, or the
+        negative-control test has no outcome. These checks precede every refusal and refit.
+    CapabilityError
+        If ``refute_refusal`` refuses the request. Each such refusal precedes every refit.
+    """
+    # The malformed arguments first, and the refusals of a well-formed request after them.
+    # Every refusal is decided before any refit, so a mixed call does not pay for placebo
+    # fits and only then discover that its outcome process has no effect derivation. The
+    # ``refute`` capability row reads the same table, so a row that reads available is a
+    # request this line admits.
+    request = _RefuteRequest(
+        estimand,
+        _validated_tests(tests, n_replicates, negative_control_outcome),
+        n_replicates,
+        dummy_outcome,
+        simulated_outcome,
+        outcome_rule,
+        bootstrap_measurement_error,
+        measurement_error_rule,
+    )
+    reason = _first_refusal(result, request)
+    if reason is not None:
+        raise CapabilityError(reason)
+    requested = request.tests
+    estimator = result.estimator
+    processes = {name: request.process(name) for name in _GENERATED_TESTS}
+    # The table admitted each generated test, so this reads the contrast direction and
+    # refuses nothing.
+    contrasts = {
+        name: _validate_generated_eligibility(result, estimand, processes[name], name)
+        for name in request.generated
     }
-    # Validate every generated operation before any requested operation can refit. A mixed
-    # call must not pay for placebo fits and only then discover that its outcome process has
-    # no effect derivation.
-    generated_requested = any(name in _GENERATED_TESTS for name in requested)
-    if generated_requested and type(outcome_rule) is not EmpiricalInclusionRule:
-        raise CapabilityError(
-            "generated-outcome refutations require the exact registered "
-            "EmpiricalInclusionRule declaration"
-        )
-    contrasts: dict[str, tuple[float, float]] = {}
-    for name in requested:
-        if name in _GENERATED_TESTS:
-            contrasts[name] = _validate_generated_eligibility(
-                result, estimand, processes[name], name
-            )
-    measurement_requested = "bootstrap_measurement_error" in requested
-    if measurement_requested:
-        if type(bootstrap_measurement_error) is not BootstrapMeasurementError:
-            raise CapabilityError(
-                "bootstrap_measurement_error requires the exact registered "
-                "BootstrapMeasurementError declaration"
-            )
-        if type(measurement_error_rule) is not EmpiricalInclusionRule:
-            raise CapabilityError(
-                "bootstrap_measurement_error requires the exact registered "
-                "EmpiricalInclusionRule declaration"
-            )
-        measurement_budget = (
-            n_replicates if n_replicates is not None else DEFAULT_OUTCOME_REPLICATES
-        )
-        _validate_measurement_error_eligibility(
-            result, bootstrap_measurement_error, measurement_budget
-        )
-        if measurement_budget < measurement_error_rule.minimum_draws:
-            raise CapabilityError(
-                f"bootstrap_measurement_error was asked for {measurement_budget} draw(s) "
-                f"under a rule that requires {measurement_error_rule.minimum_draws}; raise "
-                "n_replicates or declare a rule with a smaller minimum_draws"
-            )
-    if generated_requested:
-        # A draw budget below the rule's own floor can only end in "too few draws", and the
-        # caller can see that before any refit is paid for.
-        budget = n_replicates if n_replicates is not None else DEFAULT_OUTCOME_REPLICATES
-        if budget < outcome_rule.minimum_draws:
-            raise CapabilityError(
-                f"a generated-outcome refutation was asked for {budget} draw(s) under a rule "
-                f"that requires {outcome_rule.minimum_draws}; raise n_replicates to at least "
-                f"{outcome_rule.minimum_draws}, or declare a rule with a smaller minimum_draws"
-            )
 
     original = result[estimand].psi
+    no_effect_null = _no_effect_null(result, estimand)
+    estimate_scale = getattr(result[estimand], "scale", None)
+    declaration = _target_declaration(result, estimand)
+    is_ratio = (estimate_scale or getattr(declaration, "scale", None)) == "ratio"
     # A tolerance scale for the refutation comparisons below, not a coverage claim, so
     # the plug-in accessor answers on a selector-path collaborative fit too.
     std_error = result[estimand].plugin_std_error
@@ -1686,6 +2062,7 @@ def refute(
             )
         )
         if name == "placebo":
+            assert no_effect_null is not None
             values = tuple(
                 refit(data.with_treatment(rng.permutation(data.treatment)))
                 for _ in range(replicate_count)
@@ -1693,21 +2070,27 @@ def refute(
             # Permuting treatment removes the effect, so each replicate is a draw from a
             # null distribution whose spread is about the original standard error.
             threshold = tolerance * std_error / np.sqrt(max(1, replicate_count))
-            mean = float(np.mean(values))
-            passed = bool(abs(mean) <= max(threshold, tolerance * std_error / 2))
+            mean_kind: Literal["arithmetic", "geometric"] = (
+                "geometric" if is_ratio else "arithmetic"
+            )
+            mean = float(np.exp(np.mean(np.log(values)))) if is_ratio else float(np.mean(values))
+            distance = abs(_no_effect_difference(mean, no_effect_null))
+            passed = bool(distance <= max(threshold, tolerance * std_error / 2))
             outcomes.append(
                 RefutationTest(
                     name=name,
                     estimand=estimand,
                     original=original,
                     values=values,
-                    expectation="~ 0",
+                    expectation=f"~ {no_effect_null:g}",
                     passed=passed,
                     detail=(
-                        f"mean placebo estimate {mean:+.5g} is more than {tolerance:g} {unit} "
-                        "from zero, which suggests the pipeline is producing an effect "
-                        "where none exists (fold leakage, or a misdefined estimand)"
+                        f"{mean_kind} mean placebo estimate {mean:+.5g} is "
+                        f"{_standardized_distance(distance, std_error):.1f} {unit} "
+                        f"from {no_effect_null:g}. A large gap can indicate fold leakage "
+                        "or a misdefined estimand"
                     ),
+                    mean_kind=mean_kind,
                 )
             )
 
@@ -1716,7 +2099,8 @@ def refute(
                 refit(data.with_extra_covariate(rng.normal(size=data.n), f"_noise_{index}"))
                 for index in range(replicate_count)
             )
-            shift = float(np.mean(values)) - original
+            shift = float(np.mean([_stability_value(value, is_ratio) for value in values]))
+            shift -= _stability_value(original, is_ratio)
             passed = bool(abs(shift) <= tolerance * std_error)
             outcomes.append(
                 RefutationTest(
@@ -1728,9 +2112,11 @@ def refute(
                     passed=passed,
                     detail=(
                         f"adding an irrelevant covariate moved the estimate by {shift:+.5g} "
-                        f"({abs(shift) / std_error:.1f} {unit}); the nuisance models are "
-                        "unstable at this sample size"
+                        f"{'on the log scale ' if is_ratio else ''}"
+                        f"({_standardized_distance(abs(shift), std_error):.1f} {unit}); "
+                        "a large shift can indicate unstable nuisance models"
                     ),
+                    mean_kind="geometric" if is_ratio else "arithmetic",
                 )
             )
 
@@ -1741,7 +2127,8 @@ def refute(
                 for _ in range(replicate_count)
             )
             expected = std_error * np.sqrt(1.0 / subset_fraction - 1.0 + 1.0)
-            spread = float(np.std(values, ddof=1)) if len(values) > 1 else 0.0
+            scaled_values = [_stability_value(value, is_ratio) for value in values]
+            spread = float(np.std(scaled_values, ddof=1)) if len(values) > 1 else 0.0
             passed = bool(spread <= tolerance * expected)
             outcomes.append(
                 RefutationTest(
@@ -1749,22 +2136,24 @@ def refute(
                     estimand=estimand,
                     original=original,
                     values=values,
-                    expectation=f"scatter <~ {tolerance * expected:.4g}",
+                    expectation=(
+                        f"log-scale scatter <~ {tolerance * expected:.4g}"
+                        if is_ratio
+                        else f"scatter <~ {tolerance * expected:.4g}"
+                    ),
                     passed=passed,
                     detail=(
-                        f"subsample estimates scatter by {spread:.5g}, far more than the "
-                        f"{expected:.5g} expected from sampling alone; a few influential "
-                        "observations are driving the estimate"
+                        f"subsample estimates scatter by {spread:.5g} "
+                        f"{'on the log scale ' if is_ratio else ''}against {expected:.5g} "
+                        "expected from sampling alone. A large spread can indicate "
+                        "influential observations"
                     ),
+                    spread_kind="log" if is_ratio else "reported",
                 )
             )
 
         elif name == "negative_control_outcome":
-            if negative_control_outcome is None:
-                raise ValueError(
-                    "the negative_control_outcome test needs an outcome array that treatment "
-                    "cannot affect; pass negative_control_outcome=<array>"
-                )
+            assert no_effect_null is not None
             replacement = data.with_outcome(
                 negative_control_outcome, name="negative_control_outcome"
             )
@@ -1775,20 +2164,22 @@ def refute(
             )
             value = refitted[estimand].psi
             control_se = refitted[estimand].plugin_std_error
-            passed = bool(abs(value) <= tolerance * control_se)
+            distance = abs(_no_effect_difference(value, no_effect_null))
+            passed = bool(distance <= tolerance * control_se)
             outcomes.append(
                 RefutationTest(
                     name=name,
                     estimand=estimand,
                     original=original,
                     values=(value,),
-                    expectation="~ 0",
+                    expectation=f"~ {no_effect_null:g}",
                     passed=passed,
                     detail=(
-                        f"the negative-control outcome shows an effect of {value:+.5g} "
-                        f"({abs(value) / control_se:.1f} {unit}). Under a valid, "
-                        "comparable control design, this flags residual bias. It can also "
-                        "indicate that the negative-control assumptions fail"
+                        f"the negative-control outcome shows an estimate of {value:+.5g} "
+                        f"({_standardized_distance(distance, control_se):.1f} {unit} "
+                        f"from the no-effect value {no_effect_null:g}). Under a valid, "
+                        "comparable control design, a large gap can flag residual bias. "
+                        "It can also indicate that the negative-control assumptions fail"
                     ),
                 )
             )

@@ -30,6 +30,7 @@ __all__ = [
     "arm_parameter_keys",
     "arm_parameters",
     "conditional_stratum",
+    "reported_arm_parameters",
     "stratum_refusal",
 ]
 
@@ -218,6 +219,21 @@ def arm_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
     return out
 
 
+def reported_arm_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
+    """The parameters of :func:`arm_parameters` that this fit reported, by name.
+
+    The one eligibility rule of the omitted-variable bound and the MNAR tilt.  Each
+    refuses a fit for which this mapping is empty, both in its fit-wide rule table and in
+    the call, so a row and a call cannot disagree about which fit has nothing to assess.
+    A natural-course, attributable, ratio-only, regime, shift, or MSM fit reports none.
+    """
+    return {
+        name: parameter
+        for name, parameter in arm_parameters(result).items()
+        if name in result.estimates
+    }
+
+
 def arm_parameter_keys(result: TMLEResult) -> dict[str, Any]:
     """Resolve reported arm identities forward, respecting explicit metadata."""
     if result.parameter_keys:
@@ -229,8 +245,7 @@ def arm_parameter_keys(result: TMLEResult) -> dict[str, Any]:
     data = result.data
     keys = {
         name: parameter.key(data.arm_label)
-        for name, parameter in arm_parameters(result).items()
-        if name in result.estimates
+        for name, parameter in reported_arm_parameters(result).items()
     }
     reference = result.config.reference_arm
     for arm in data.arm_codes:

@@ -301,6 +301,17 @@ request. A sensitivity analysis needs no argument when the fit reports exactly o
 parameter, because it supplies that name for you. `refute()` supplies no name, so its row defers
 for one eligible parameter as well.
 
+Four rows can also defer on another argument. The row defers when the call refuses the default
+value and another value runs. It reads `unavailable` when no value runs. The row quotes the
+sentence that the call raises.
+
+| operation | argument | the row defers when |
+| --- | --- | --- |
+| `refute()` | `tests` | the fit refuses one default test and admits another, such as `subset` on a fit given `split_plan=` |
+| `truncation_curve()` | `mechanism` | the fit refuses the default axis and admits the other, such as the treatment axis of an incremental fit with missing outcomes |
+| `benchmark()` | `covariates` | always, because the call needs the argument. A fit with one covariate reads `unavailable`, because the call cannot drop every covariate |
+| `simulated_confounding()` | `estimand` | the call refuses the default estimand, and another estimand that the fit reports runs |
+
 An expected refusal after invocation becomes `unavailable`. An estimand you name that the fit never
 reported is such a refusal. The aggregate run then continues with other accepted diagnostics.
 Direct calls still raise the precise refusal. `not_applicable` and `unavailable` also appear in
@@ -308,12 +319,16 @@ Direct calls still raise the precise refusal. `not_applicable` and `unavailable`
 
 Known omissions carry the capability's reason. Examples include an E-value without a supported
 contrast and a missingness analysis without missing outcomes. Such a row records no arguments,
-because the fit refuses it before the report considers your request.
+because the fit refuses it before the report considers your request. A row that your request
+refuses is different. It records your arguments with the signature defaults filled in, and its
+reason names the refused value. An example is `truncation_curve` with `mechanism=False` on an
+incremental fit with missing outcomes.
 
 An operation can also refuse after invocation, such as omitted-confounding sensitivity when the
 doubly robust $\nu^2$ is not positive. That row becomes an `unavailable` omission, retains its
 invocation arguments, and names the direct call. Other accepted diagnostics still run. Structural
-errors, such as invalid argument names, still stop the report.
+errors still stop the report. Examples are an invalid argument name, an unknown `refute` test,
+and an unknown `benchmark` covariate. A direct call raises the same error.
 
 A combined report runs summaries and cheap retargets by default. The two costlier classes are
 named separately because they are disjoint. `refute()` and `benchmark()` refit nuisance models.
@@ -493,10 +508,19 @@ methods are explicit: `omitted_confounding()`, `robustness_value()`, `elements()
 `contour()`, `evalue()`, `missingness()`, `tipping_gamma()`, and `simulated_confounding()`. A
 simulated surface needs an explicit strength grid, so `run_all()` never starts it.
 
-For a missing-outcome `NaturalCourseMean()` result, the arm-specific `missingness()` tilt and
-`tipping_gamma()` search are unavailable. Those procedures perturb arm-indexed outcome regressions
-and parameters; the natural-course target needs its own sensitivity parameter. The combined
-assessment reports the same unavailable capability instead of substituting an armwise analysis.
+The `missingness()` tilt and the `tipping_gamma()` search perturb the arm-indexed means and their
+linear contrasts. The table gives each missing-outcome fit where both are unavailable.
+
+| fit | reason |
+| --- | --- |
+| `NaturalCourseMean()` | the natural-course target needs its own sensitivity parameter |
+| a shift fit | whether the tilted parameter is still the shift parameter has not been derived |
+| an incremental fit | its targeting also solves a score in the treatment mechanism, and no derivation covers the tilt of that fixed point |
+| a regime, MSM, or ratio-only fit | the fit reports no arm-indexed mean and no linear contrast |
+
+Both capability rows read `unavailable` before any call, with the sentence that the call raises. A
+fit with no missing outcome reads `not_applicable`. The combined assessment reports the same row
+instead of substituting an armwise analysis.
 
 ```python
 from cleverly.sensitivity import ConfounderStrengthGrid
@@ -880,6 +904,22 @@ earlier version. That result keeps its point estimates, and its `ci`, `pvalue` a
 under the [`undeclared_function_plugin` status](../technical-reference/inference.md#inference-status).
 Older longitudinal MSM results also lack saved declaration evidence. Their point estimates remain
 available, but inference and truncation replay require a new fit with fixed functions declared known.
+
+A restored result can also carry an estimator configuration that this version refuses before a
+refit. A stratified fold policy, a cross-fitted continuous outcome with `q_bounds=None`, and a
+C-TMLE fit on clustered data are examples. The `refit_nuisances` slot runs every check that
+`refit()` runs before a learner, so a design refusal of an estimator subclass counts too. The table
+gives what such a result keeps.
+
+| operation | on such a result |
+| --- | --- |
+| point estimates and cached-nuisance retargets, such as `truncation_curve()` | run. `replayability.retarget_cached_nuisances` is `True`. A guarded DR-TMLE fit is the exception: its `truncation_curve` row needs `refit_nuisances`, so it reads `unavailable` |
+| refits, such as `refute()` and `simulated_confounding()` | `unavailable`. `replayability.refit_nuisances` is `False`, with the code `point_replay_refit_configuration` |
+| `estimator.refit()` | raises `CapabilityError` before any learner |
+
+A new fit under a supported configuration restores the refits. The 0.1.0 and 0.1.1 releases saved
+no `split_plan` attribute. `TMLE` reads a missing attribute as `None`, which is what those releases
+meant.
 
 The saved artifact carries the assessment cache. A result you derive with `dataclasses.replace`
 does not. The cache key records the operation and its arguments, and it records nothing about the

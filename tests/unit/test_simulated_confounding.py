@@ -24,8 +24,6 @@ from cleverly import (
     CausalStudy,
     CounterfactualMean,
     DRTMLEMethod,
-    ModifiedTreatmentPolicy,
-    ModifiedTreatmentPolicyEffect,
     OddsRatio,
     PointTreatment,
     RiskRatio,
@@ -35,7 +33,6 @@ from cleverly.datasets import (
     make_binary_outcome,
     make_linear_ate,
     make_missing_outcome,
-    make_shift_dose,
 )
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.estimators.ctmle import _LOSS_EPS, _Selector
@@ -99,6 +96,11 @@ from tests.unit._direct_effect_support import (
     column_only,
     level_only,
     with_intermediate_column,
+)
+from tests.unit._simulated_confounding_support import (
+    _TWO_POLICIES,
+    _fit_shift_policies,
+    _fit_with_a_support_constant_covariate,
 )
 
 
@@ -347,83 +349,32 @@ def att_result() -> Any:
     return _fit_att()
 
 
-_TWO_POLICIES = (
-    Shift(0.0, cap=3.0, name="natural course"),
-    Shift(0.5, cap=3.0, name="up half"),
-)
 _THREE_POLICIES = (*_TWO_POLICIES, Shift(1.0, cap=3.0, name="up one"))
-
-
-def _fit_continuous(
-    *,
-    family: str = "gaussian",
-    seed: int = 7,
-    policies: tuple[Shift, ...] = _TWO_POLICIES,
-    means: bool = False,
-    repeats: int = 1,
-    weight_scale: float | None = None,
-) -> Any:
-    frame, _ = make_shift_dose(n=120, seed=seed)
-    if family == "binomial":
-        frame["Y"] = (frame["Y"] > frame["Y"].median()).astype(float)
-        outcome_learner: Any = LogisticRegression(max_iter=1000)
-    else:
-        outcome_learner = LinearRegression()
-    weight_name = None
-    if weight_scale is not None:
-        weight_name = "weight"
-        frame[weight_name] = weight_scale * mean_one_weights(len(frame))
-    study = CausalStudy(
-        frame,
-        design=PointTreatment(
-            outcome="Y",
-            treatment="A",
-            adjustment=("W1", "W2", "W3"),
-            treatment_kind="continuous",
-            weights=weight_name,
-        ),
-    )
-    estimand: Any = (
-        ModifiedTreatmentPolicy(shifts=policies)
-        if means
-        else ModifiedTreatmentPolicyEffect(shifts=policies)
-    )
-    return study.identify(estimand).estimate(
-        method="tmle",
-        outcome_learner=outcome_learner,
-        treatment_learner=LogisticRegression(max_iter=1000),
-        n_folds=2,
-        learner_folds=2,
-        random_state=seed,
-        repeats=repeats,
-        simultaneous=False,
-        **(IN_SAMPLE if family != "binomial" else {}),
-    )
 
 
 @pytest.fixture(scope="module")
 def continuous_gaussian_result() -> Any:
-    return _fit_continuous()
+    return _fit_shift_policies()
 
 
 @pytest.fixture(scope="module")
 def continuous_binomial_result() -> Any:
-    return _fit_continuous(family="binomial")
+    return _fit_shift_policies(family="binomial")
 
 
 @pytest.fixture(scope="module")
 def three_policy_result() -> Any:
-    return _fit_continuous(policies=_THREE_POLICIES)
+    return _fit_shift_policies(policies=_THREE_POLICIES)
 
 
 @pytest.fixture(scope="module")
 def continuous_means_result() -> Any:
-    return _fit_continuous(means=True)
+    return _fit_shift_policies(means=True)
 
 
 @pytest.fixture(scope="module")
 def continuous_binomial_means_result() -> Any:
-    return _fit_continuous(family="binomial", means=True)
+    return _fit_shift_policies(family="binomial", means=True)
 
 
 def _shift_alias(result: Any) -> str:
@@ -660,7 +611,7 @@ def test_binary_ratio_repeat_surface_equals_the_estimator_log_median() -> None:
 def test_continuous_policy_repeat_surface_equals_the_estimator_median() -> None:
     # repeats > 1 needs cross-fitting, and a cross-fitted continuous outcome needs a
     # declared q_bounds (the fold and outcome-scale rules); the binary law is exempt.
-    result = _fit_continuous(family="binomial", repeats=3)
+    result = _fit_shift_policies(family="binomial", repeats=3)
     alias = _shift_alias(result)
     grid = ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0,))
     surface = simulated_confounding(result, estimand=alias, grid=grid, random_state=31)
@@ -959,8 +910,8 @@ def test_fixed_weights_run_every_supported_ordinary_tmle_parameter_surface() -> 
         (_fit_ratio(target="rr", weight_scale=1.0), ("rr",)),
         (_fit_ratio(target="or", weight_scale=1.0), ("or",)),
     ]
-    continuous_contrast = _fit_continuous(weight_scale=1.0)
-    continuous_mean = _fit_continuous(weight_scale=1.0, means=True)
+    continuous_contrast = _fit_shift_policies(weight_scale=1.0)
+    continuous_mean = _fit_shift_policies(weight_scale=1.0, means=True)
     cases.extend(
         [
             (continuous_contrast, (_shift_alias(continuous_contrast),)),
@@ -2129,7 +2080,7 @@ def test_fixed_weight_binary_calibration_uses_weighted_fit_scaling_and_fraction(
 
 
 def test_fixed_weight_continuous_calibration_uses_weighted_correlation_and_scales() -> None:
-    result = _fit_continuous(weight_scale=1.0)
+    result = _fit_shift_policies(weight_scale=1.0)
     surface = simulated_confounding(
         result,
         estimand=_shift_alias(result),
@@ -2399,43 +2350,6 @@ def test_the_public_result_protocol_declares_a_family_and_no_data() -> None:
     assert "assessment_family" in CausalResult.__annotations__
     assert "data" not in CausalResult.__annotations__
     assert not hasattr(CausalResult, "data")
-
-
-def _fit_with_a_support_constant_covariate(*, seed: int = 7) -> Any:
-    """Fit weighted data whose ``W4`` varies on zero-weight rows alone.
-
-    ``check_weights`` allows a zero weight, so such a row carries no mass. ``W4`` is
-    therefore degenerate under the weighted law and calibrates nothing.
-    """
-    frame, _ = make_linear_ate(n=120, seed=seed)
-    weights = mean_one_weights(len(frame))
-    unsupported = np.zeros(len(frame), dtype=bool)
-    unsupported[::20] = True
-    weights[unsupported] = 0.0
-    frame["weight"] = weights
-    # The supported value is not a binary fraction, so the weighted mean of the column
-    # carries a rounding residual and its weighted standard deviation is not exactly zero.
-    degenerate = np.full(len(frame), 3.14)
-    degenerate[unsupported] = 1.0 + np.arange(int(unsupported.sum()))
-    frame["W4"] = degenerate
-    study = CausalStudy(
-        frame,
-        design=PointTreatment(
-            outcome="Y",
-            treatment="A",
-            adjustment=("W1", "W2", "W3", "W4"),
-            weights="weight",
-        ),
-    )
-    return study.identify(ATE()).estimate(
-        outcome_learner=LinearRegression(),
-        treatment_learner=LogisticRegression(max_iter=1000),
-        n_folds=2,
-        learner_folds=2,
-        random_state=seed,
-        simultaneous=False,
-        **IN_SAMPLE,
-    )
 
 
 def test_a_covariate_constant_on_the_positive_weight_support_is_refused(

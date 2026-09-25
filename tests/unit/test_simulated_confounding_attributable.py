@@ -4,24 +4,14 @@ from __future__ import annotations
 
 from copy import copy
 from dataclasses import replace
-from functools import cache
-from statistics import NormalDist
 from typing import Any
 
 import numpy as np
-import pandas as pd
 import pytest
-from sklearn.dummy import DummyRegressor
-from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import (
     AssessmentStatus,
-    CausalStudy,
-    DRTMLEMethod,
     NaturalCourseMean,
-    PointTreatment,
-    PopulationAttributableFraction,
-    PopulationAttributableRisk,
 )
 from cleverly.estimators import CTMLE, DRTMLE
 from cleverly.estimators.serialize import dumps, loads
@@ -31,13 +21,8 @@ from cleverly.sensitivity._simulated_confounding_request import (
     _BINARY_PARAMETER_TARGETS,
     _eligible_binary_parameter_names,
 )
-from cleverly.sensitivity.simulated_confounding import _latent_child_seed
 from cleverly.targets import TARGETS
 from cleverly.targets.base import parameter_name, stratum_alias
-from tests.unit._confounding_support import (
-    _STRATEGY_OVERRIDES,
-    _strategy_method,
-)
 from tests.unit._confounding_support import (
     alias_for as _alias,
 )
@@ -50,102 +35,7 @@ from tests.unit._confounding_support import (
 from tests.unit._confounding_support import (
     replacement as _replacement,
 )
-
-#: Outcome-grid strength the zero-cell witness perturbs at.  ``_fit_attributable`` thresholds
-#: its latent draw at the matching quantile, so the perturbation drives every outcome to zero.
-#: One name, so the fixture and the grid cannot drift apart.
-_ZERO_CELL_STRENGTH = 0.3
-
-
-@cache
-def _fit_attributable(
-    target: str = "par",
-    family: str = "binomial",
-    *,
-    method: str = "tmle",
-    reference: Any = 0,
-    strata: bool = True,
-    repeats: int = 1,
-    backend: str = "pandas",
-    zero_cell: bool = False,
-) -> Any:
-    rng = np.random.default_rng(412)
-    n = 180
-    w = rng.normal(size=n)
-    v = np.where(np.arange(n) % 3 == 0, "small", "large")
-    a = rng.binomial(1, 1 / (1 + np.exp(-0.6 * w)))
-    if zero_cell:
-        # Set Y to one on exactly the units ``_flip_mask`` selects at ``_ZERO_CELL_STRENGTH``,
-        # from the latent vector the surface draws at ``random_state=31``.  The perturbed
-        # outcome is then identically zero.  Y is built here rather than after a discarded
-        # ``rng.binomial`` draw; no statement below reads ``rng``, so the other paths keep
-        # their draw sequence.
-        latent = np.random.default_rng(_latent_child_seed(31)).normal(size=n)
-        y = (latent >= NormalDist().inv_cdf(1 - _ZERO_CELL_STRENGTH)).astype(int)
-    elif family == "binomial":
-        y = rng.binomial(1, 1 / (1 + np.exp(0.6 - 1.7 * a - 0.4 * w)))
-    else:
-        y = 0.4 + (1.2 + 0.8 * w) * a + 0.6 * w + rng.normal(scale=0.3, size=n)
-    if isinstance(reference, str):
-        a = np.where(a == 1, "active", "control")
-    frame = pd.DataFrame({"W": w, "V": v, "A": a, "Y": y})
-    frame["weight"] = np.where(v == "small", 3.1, 0.7) * np.where(w > 0, 1.8, 0.6)
-    if backend == "polars":
-        import polars as pl
-
-        frame = pl.from_pandas(frame)
-    targets = {
-        "par": PopulationAttributableRisk(reference=reference),
-        "paf": PopulationAttributableFraction(reference=reference),
-        "ey_obs": NaturalCourseMean(),
-    }
-    configured: Any = method
-    if method == "drtmle":
-        configured = DRTMLEMethod(
-            reduced_outcome_learner=LinearRegression(),
-            reduced_treatment_learner=LogisticRegression(max_iter=1000),
-        )
-    if method in _STRATEGY_OVERRIDES:
-        configured = _strategy_method(method, selection_estimand=target)
-    return (
-        CausalStudy(
-            frame,
-            design=PointTreatment(
-                outcome="Y",
-                treatment="A",
-                adjustment=("W", "V"),
-                strata=("V",) if strata else (),
-                weights="weight",
-                treatment_kind="discrete",
-            ),
-        )
-        .identify(targets[target])
-        .estimate(
-            method=configured,
-            outcome_learner=DummyRegressor()
-            if zero_cell
-            else LogisticRegression(max_iter=1000)
-            if family == "binomial"
-            else LinearRegression(),
-            treatment_learner=LogisticRegression(max_iter=1000),
-            n_folds=2,
-            learner_folds=2,
-            random_state=12,
-            repeats=repeats,
-            simultaneous=False,
-            # This suite is about simulated confounding, not cross-fitting. A
-            # cross-fitted continuous outcome now needs a declared q_bounds, which is
-            # beside the point here, so the gaussian branch fits in sample. The
-            # zero-cell fixture is fit in sample for the same reason as the surface's
-            # own degenerate refit below: a fold whose training complement gets an
-            # all-zero perturbed outcome has no observed-outcome-1 row to fit on, and
-            # that is the *later*, cross-fit-specific refusal this test is not about --
-            # the one it is about is PAF's own "observed risk is zero" refusal, which
-            # an in-sample fit still reaches. Binary, non-zero-cell fits keep
-            # cross-fitting: this file's other pinned numbers are measured under it.
-            cross_fit=family != "gaussian" and not zero_cell,
-        )
-    )
+from tests.unit._simulated_confounding_support import _ZERO_CELL_STRENGTH, _fit_attributable
 
 
 @pytest.mark.parametrize(
