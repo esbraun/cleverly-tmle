@@ -121,7 +121,7 @@ rename a number on a non-inferential status.
 | `robustness_value(...)` | `rva` | `rv_plugin_interval`, and an `inference` key |
 | `LongitudinalResult.curve()` | `std_err`, `ci_lower`, `ci_upper` | `plugin_std_err`, `plugin_interval_lower`, `plugin_interval_upper`, and an `inference` column |
 | `LongitudinalResult.incidence_total()` | `std_err` | `plugin_std_err` |
-| `VariableImportanceResult.to_frame()`, on a restored result only | `std_err`, `ci_lower`, `ci_upper`, `p_value`, `p_value_adjusted` | `plugin_std_err`, `plugin_interval_lower`, `plugin_interval_upper`, and an `inference` column. `adjusted_pvalue` refuses |
+| `VariableImportanceResult.to_frame()`, on a restored result only | `std_err`, `ci_lower`, `ci_upper`, `p_value`, `p_value_adjusted` | `plugin_std_err`, `plugin_interval_lower`, `plugin_interval_upper`, and an `inference` column. `adjusted_pvalue` reads `None` |
 
 Under `nu2_estimator="plugin"` an omitted-variable bound refuses its limits at every status, for a
 different reason. No derivation in a source this package cites gives their standard error. `to_dict()` then omits the three limit

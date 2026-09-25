@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
 from copy import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -19,8 +19,8 @@ from ._inference_status import supplies_inference
 from .data.causal_data import CausalData
 from .estimators.base import TMLEResult
 from .estimators.tmle import TMLE
-from .exceptions import CapabilityError, DataError, refuse_inference
-from .inference.influence import ParameterEstimate, spread_name
+from .exceptions import DataError, refuse_inference
+from .inference.influence import ParameterEstimate
 from .inference.results import reported_status
 from .targets import parameter_stem
 from .utils.frames import as_frame, backend_of, emit_frame, is_dataframe
@@ -28,7 +28,7 @@ from .utils.frames import as_frame, backend_of, emit_frame, is_dataframe
 __all__ = ["VariableImportanceEntry", "VariableImportanceResult", "variable_importance"]
 
 
-@dataclass(frozen=True, init=False)
+@dataclass(frozen=True)
 class VariableImportanceEntry:
     """One candidate exposure's target estimate and declared adjustment set.
 
@@ -42,79 +42,43 @@ class VariableImportanceEntry:
         Covariates adjusted for, as declared.
     estimate : ParameterEstimate
         The estimate and its influence curve.
-    adjusted_pvalue : float
-        Its p-value after the multiplicity adjustment. It refuses with
-        :class:`~cleverly.exceptions.CapabilityError` when ``estimate`` supplies no
-        inference, as the estimate's own ``pvalue`` does.
+    adjusted_pvalue : float or None
+        Its p-value after the multiplicity adjustment. ``None`` on a restored entry whose
+        estimate supplies no inference, as :class:`VariableImportanceResult` withholds it
+        when it loads. A live run never builds such an entry, because
+        :func:`variable_importance` refuses the estimator before its first fit.
     """
 
     candidate: str
     parameter: str
     adjustment_set: tuple[str, ...]
     estimate: ParameterEstimate
-    #: Stored behind :attr:`adjusted_pvalue`, which refuses it on a restored entry whose
-    #: estimate supplies no inference.
-    _adjusted_pvalue: float
-
-    def __init__(
-        self,
-        candidate: str,
-        parameter: str,
-        adjustment_set: tuple[str, ...],
-        estimate: ParameterEstimate,
-        adjusted_pvalue: float,
-    ) -> None:
-        # Preserve the public constructor while guarding the inferential value.
-        for name, value in (
-            ("candidate", candidate),
-            ("parameter", parameter),
-            ("adjustment_set", adjustment_set),
-            ("estimate", estimate),
-            ("_adjusted_pvalue", adjusted_pvalue),
-        ):
-            object.__setattr__(self, name, value)
-
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        """Move the public stored field of an older pickle behind the guarded accessor.
-
-        Parameters
-        ----------
-        state : dict of str to Any
-            The pickled instance state.
-        """
-        restored = dict(state)
-        if "adjusted_pvalue" in restored:
-            restored["_adjusted_pvalue"] = restored.pop("adjusted_pvalue")
-        self.__dict__.update(restored)
-
-    @property
-    def adjusted_pvalue(self) -> float:
-        """Its p-value after the multiplicity adjustment.
-
-        Raises
-        ------
-        CapabilityError
-            When ``estimate`` supplies no inference. A live run never builds such an
-            entry, because :func:`variable_importance` refuses the estimator first. A
-            restored entry can hold one, when its fit loads under a status that this
-            version gives it.
-        """
-        refuse_inference(self.estimate.inference, operation=".adjusted_pvalue")
-        return self._adjusted_pvalue
+    adjusted_pvalue: float | None
 
     def _restamped(self, fit: TMLEResult | None) -> VariableImportanceEntry:
         """This entry with the estimate of its restored fit, when that fit re-stamped it.
 
         ``TMLEResult.__setstate__`` re-stamps the estimates of the fit alone, so an entry
         saved beside its fit keeps the status it was saved with. The fit's estimate of the
-        same name carries the new status and the same numbers.
+        same name carries the new status and the same numbers. When that status supplies
+        no inference, the adjusted p-value is withheld as ``None``.
+
+        Parameters
+        ----------
+        fit : TMLEResult or None
+            The restored fit of this entry's candidate, or ``None`` when the result holds
+            none.
+
+        Returns
+        -------
+        VariableImportanceEntry
+            This entry, or a copy that carries the fit's estimate.
         """
         stamped = None if fit is None else fit.estimates.get(self.parameter)
         if stamped is None or stamped.inference == self.estimate.inference:
             return self
-        return VariableImportanceEntry(
-            self.candidate, self.parameter, self.adjustment_set, stamped, self._adjusted_pvalue
-        )
+        adjusted = self.adjusted_pvalue if stamped.supplies_inference else None
+        return replace(self, estimate=stamped, adjusted_pvalue=adjusted)
 
 
 @dataclass(frozen=True)
@@ -167,18 +131,20 @@ class VariableImportanceResult:
         return iter(self.entries)
 
     def to_frame(self) -> Any:
-        """One row per candidate/parameter, sorted by adjusted p-value.
+        """One row per candidate/parameter, in the order of the entries.
 
-        An ordinary result emits ``std_err``, ``ci_lower``, ``ci_upper``, ``p_value`` and
-        ``p_value_adjusted``. A restored result whose entries supply no inference emits an
-        ``inference`` column and the three spread columns under their diagnostic names,
-        as ``TMLEResult.to_frame`` does. It emits neither p-value column. Every fit of one
-        run shares one estimator and one set of rows, so the entries share one status.
+        A live run sorts its entries by adjusted p-value, and a restored result keeps the
+        saved order. An ordinary result emits ``std_err``, ``ci_lower``, ``ci_upper``,
+        ``p_value`` and ``p_value_adjusted``. A restored result whose entries supply no
+        inference emits an ``inference`` column and the three spread columns under their
+        diagnostic names, as ``TMLEResult.to_frame`` does. It emits neither p-value column.
+        Every fit of one run shares one estimator and one set of rows, so the entries share
+        one status.
 
         Returns
         -------
         dataframe
-            One row per candidate and parameter, sorted by adjusted p-value.
+            One row per candidate and parameter, in the order of the entries.
 
         Raises
         ------
@@ -190,9 +156,6 @@ class VariableImportanceResult:
         )
         inferential = supplies_inference(status)
         spreads = [entry.estimate.spread_columns() for entry in self.entries]
-        columns = [spread_name(name, status) for name in ("std_err", "ci_lower", "ci_upper")]
-        if inferential:
-            columns.append("p_value")
         payload: dict[str, Any] = {
             "candidate": [entry.candidate for entry in self.entries],
             "parameter": [entry.parameter for entry in self.entries],
@@ -200,7 +163,8 @@ class VariableImportanceResult:
         }
         if not inferential:
             payload["inference"] = [status] * len(self.entries)
-        payload.update({name: [spread[name] for spread in spreads] for name in columns})
+        names = list(spreads[0]) if spreads else []
+        payload.update({name: [spread[name] for spread in spreads] for name in names})
         if inferential:
             payload["p_value_adjusted"] = [entry.adjusted_pvalue for entry in self.entries]
         payload["adjustment_set"] = [", ".join(entry.adjustment_set) for entry in self.entries]
@@ -308,9 +272,7 @@ def variable_importance(
     # The fold-policy refusal of every fit comes first, as it does in ``fit``.  Asked below,
     # the status hook would report a restored stratified split as the status of a saved
     # result (roadmap row RM31), and its reason does not name the remedy.
-    policy = template._fold_policy_refusal()
-    if policy is not None:
-        raise CapabilityError(policy)
+    template._refuse_fold_policy()
     # The declaration refusals of every fit come next, as they do in ``fit``.  Asked
     # below, the status hook would report an undeclared function as the status of a
     # restored result (roadmap row RM28), and its reason does not name the remedy.
@@ -370,11 +332,11 @@ def variable_importance(
         raw.extend((candidate, estimate.name, adjustment_set, estimate) for estimate in estimates)
 
     adjusted = _bh_adjust([item[3].pvalue for item in raw])
+    ranked = sorted(zip(raw, adjusted, strict=True), key=lambda item: float(item[1]))
     entries = [
         VariableImportanceEntry(candidate, parameter, adjustment, estimate, float(pvalue))
-        for (candidate, parameter, adjustment, estimate), pvalue in zip(raw, adjusted, strict=True)
+        for (candidate, parameter, adjustment, estimate), pvalue in ranked
     ]
-    entries.sort(key=lambda entry: entry.adjusted_pvalue)
     return VariableImportanceResult(
         tuple(entries),
         fits,

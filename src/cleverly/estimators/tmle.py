@@ -1523,9 +1523,7 @@ class TMLE:
         :meth:`_preflight_fit_configuration`, including this override chain and its later
         guards, to answer whether a refit runs.
         """
-        reason = self._fold_policy_refusal()
-        if reason is not None:
-            raise CapabilityError(reason)
+        self._refuse_fold_policy()
         self._refuse_undeclared_functions()
         estimands = self._resolve_natural_course_contract(data)
         self._resolve_arm_indexed_missing_contract(data, estimands)
@@ -1549,6 +1547,22 @@ class TMLE:
             f"{reason}. This fit was configured under a fold policy this version "
             "refuses, which a restored result or a copied estimator can still carry"
         )
+
+    def _refuse_fold_policy(self) -> None:
+        """Raise the sentence of :meth:`_fold_policy_refusal`, when the policy is refused.
+
+        Two call sites run it first: ``_resolve_estimands_for_data``, before any learner of
+        a fit or a refit, and :func:`cleverly.variable_importance`, before it asks the
+        status of a restored or copied estimator (roadmap row RM31).
+
+        Raises
+        ------
+        CapabilityError
+            If this version refuses the declared fold policy.
+        """
+        reason = self._fold_policy_refusal()
+        if reason is not None:
+            raise CapabilityError(reason)
 
     def _refit_configuration_refusal(self, data: CausalData) -> str | None:
         """Why a refit of this configuration on ``data`` is refused before any learner.

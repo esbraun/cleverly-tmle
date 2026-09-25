@@ -18,7 +18,7 @@ fail the check that its witness or control passes.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import asdict, replace
 from typing import Any
 
 import pytest
@@ -33,7 +33,7 @@ from cleverly.inference.cluster import cluster_inference_status
 from cleverly.interventions import Shift
 from cleverly.learners import crossfit
 from cleverly.longitudinal import LTMLE
-from cleverly.variable_importance import VariableImportanceResult
+from cleverly.variable_importance import VariableImportanceEntry, VariableImportanceResult
 from tests import discrete_law
 from tests.conftest import linear_drtmle, linear_in_sample
 from tests.studies.ltmle_crossfit_properties import FirstNodeStratifiedLTMLE
@@ -279,15 +279,23 @@ def saved_importance() -> Any:
         return run_variable_importance(estimator)
 
 
-def assert_importance_withholds(restored: Any) -> None:
-    """Every entry of ``restored`` carries the status of its re-stamped fit."""
+def assert_importance_withholds(restored: Any, saved: float) -> None:
+    """Every entry of ``restored`` carries the status of its re-stamped fit.
+
+    ``saved`` is the adjusted p-value the run published. No surface of the restored result
+    may print it: not the entry, its ``repr``, its ``asdict``, nor the result's ``repr``.
+    """
     assert restored.fits["A"].inference_status == STATUS
     for entry in restored:
         assert entry.estimate.inference == STATUS
+        assert entry.adjusted_pvalue is None
         with pytest.raises(CapabilityError) as raised:
-            _ = entry.adjusted_pvalue
+            _ = entry.estimate.pvalue
         assert_refused_by(STATUS, raised)
         assert entry.estimate.plugin_std_error > 0
+        assert asdict(entry)["adjusted_pvalue"] is None
+        assert repr(saved) not in repr(entry)
+    assert repr(saved) not in repr(restored)
     columns = set(restored.to_frame().columns)
     assert not (INFERENTIAL_COLUMNS | {"p_value_adjusted"}) & columns
     assert columns >= DIAGNOSTIC_COLUMNS
@@ -301,18 +309,45 @@ class TestASavedVariableImportanceResult:
         # The nonzero witness: the saved run publishes both p-values.
         (entry,) = saved_importance.entries
         assert entry.estimate.inference == "influence_curve"
-        assert 0.0 <= entry.adjusted_pvalue <= 1.0
+        saved = entry.adjusted_pvalue
+        assert saved is not None and 0.0 < saved <= 1.0
+        assert repr(saved) in repr(entry)
         assert {"p_value", "p_value_adjusted"} <= set(saved_importance.to_frame().columns)
         restored = restore(saved_importance, "pickle")
-        assert_importance_withholds(restored)
+        assert_importance_withholds(restored, saved)
         assert restored.entries[0].estimate.psi == entry.estimate.psi
+
+    def test_replace_round_trips_a_live_and_a_restored_entry(self, saved_importance: Any) -> None:
+        """``dataclasses.replace`` rebuilds an entry field for field, as it did before RM31."""
+        restored = restore(saved_importance, "pickle")
+        for entry in (*saved_importance.entries, *restored.entries):
+            assert replace(entry) == entry
+        (live,) = saved_importance.entries
+        assert replace(live, candidate="B").candidate == "B"
 
     def test_skipping_the_entry_restamp_fails_the_witness(
         self, saved_importance: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delattr(VariableImportanceResult, "__setstate__")
+        (entry,) = saved_importance.entries
+        assert entry.adjusted_pvalue is not None
         with pytest.raises(AssertionError):
-            assert_importance_withholds(restore(saved_importance, "pickle"))
+            assert_importance_withholds(restore(saved_importance, "pickle"), entry.adjusted_pvalue)
+
+    def test_keeping_the_saved_value_fails_the_witness(
+        self, saved_importance: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The mutation that re-stamps the estimate and keeps the adjusted p-value."""
+
+        def keeps_the_value(self: Any, fit: Any) -> Any:
+            stamped = fit.estimates[self.parameter]
+            return replace(self, estimate=stamped)
+
+        monkeypatch.setattr(VariableImportanceEntry, "_restamped", keeps_the_value)
+        (entry,) = saved_importance.entries
+        assert entry.adjusted_pvalue is not None
+        with pytest.raises(AssertionError):
+            assert_importance_withholds(restore(saved_importance, "pickle"), entry.adjusted_pvalue)
 
     def test_a_run_under_the_policy_meets_the_fold_policy_refusal(self) -> None:
         """The refusal names the remedy, and it arrives before any learner."""
