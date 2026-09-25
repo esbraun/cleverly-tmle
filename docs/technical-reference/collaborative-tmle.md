@@ -91,7 +91,7 @@ Theory: van der Laan and Gruber (2010), Gruber and van der Laan (2010), and Ju e
 | `strategy="ordered"` | both scalable preorders from Ju et al. (2019). `preorder="logistic"` uses one-variable targeting loss and is the default. `preorder="partial_correlation"` conditions the residual-covariate correlation on one-hot treatment indicators rather than on numeric arm codes. Marginal correlation with the outcome is not a published preorder and is not used |
 | `strategy="discrete"` | selection among explicitly supplied candidate covariate sets |
 | `strategy="oat"` | the outcome-adaptive categorical mechanism of the archived `ctmle3`, fitted on the matrix of arm-specific outcome predictions. It has no candidate path and no parameter-specific selector |
-| `candidates=`, `ordering=` | supply the candidate sets or the preorder explicitly |
+| `candidates=`, `ordering=` | supply the candidate sets or the preorder explicitly. A refit that adds a covariate, such as the `random_common_cause` refutation, places it after the declared ordering. Independent noise has no prior relevance, so it ranks last |
 | `selection_folds=` | folds for the stopping-index cross-validation. Default 5. The draw is unstratified, and it reads the row count and the seed |
 | `selection_inner_folds=` | the explicit cost control. Default 2, so a selection path uses three fits per nuisance or candidate rather than silently borrowing the outer nuisance fold count. This draw is unstratified as well |
 | `loss=`, `penalty=` | the selection loss, and whether the variance-plus-squared-mean penalty is applied |

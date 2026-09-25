@@ -346,8 +346,9 @@ run. A missing method, derivation, replay artifact, or supported requested varia
 An invoked operation that raises a capability refusal is also unavailable.
 
 The deferral gate reads the capability status, not the supplied argument names. An argument that is
-present with a refused value defers the same operation as an absent argument. The E-value defers on
-`estimand=None`, which is its public default.
+present with the value `None` defers the same operation as an absent argument. The E-value defers on
+`estimand=None`, which is its public default. On the four rows of the request rule below, a value
+that the call refuses reads `unavailable`.
 
 An ambiguous default estimand is a deferral on both facades. Several operations default to
 `estimand="ate"` and answer for one parameter. A fit that reports several eligible parameters and
@@ -364,10 +365,40 @@ guess between two contrasts while the row beside it still advertised the analysi
 combined report then invoked the operation and published the refusal as `unavailable`, under a next
 step that named no argument.
 
+A row whose call refuses some values of one argument resolves each request from the predicate that
+the call raises from. The facade's `_gated_map` holds each row after the method and replay gates,
+before any request. Its `_request_gated` then resolves one request on top of that map. The bare
+row, a combined report, and a direct call each resolve their own arguments.
+
+| request | row |
+| --- | --- |
+| the argument is omitted, and the default runs | unchanged |
+| the argument is omitted, the default is refused, and another value runs | `deferred` on that argument, with the call's sentence |
+| the argument is omitted, and no value runs | `unavailable`, with the default's sentence |
+| the argument has a value that the call refuses | `unavailable`, with the call's sentence |
+
+The helper `_argument_resolved` applies this rule to four rows: `truncation_curve` on `mechanism`,
+`refute` on `tests`, `benchmark` on `covariates`, and `simulated_confounding` on `estimand`. The
+`tipping_gamma` row set the precedent for `use_ci=True`. A fit-wide refusal stays in one ordered
+table, which the row and every entry point read.
+
+The sweep in `tests/unit/test_capability_row_sweep.py` asks every row of 29 kinds of fit. Each row
+that a request resolves as available must run, and no row may decline or stay deferred. Ten
+committed mutations, M1 to M10, each make the sweep fail on the kinds they name, and on no other
+kind. An unchanged control, M0, passes.
+
 Availability is authoritative before execution. Each capability row names the `Replayability` field
 it needs in `requires_replay`, and the shared base applies that gate to every row. A facade may not
 patch one row by name. `refute` read its slot only while running, and so reported `available=True`
 on a result that carries no estimator.
+
+A replay slot reads the checks that its call runs before any learner. The slot `refit_nuisances`
+reads `TMLE._refit_configuration_refusal`, which runs the fold-policy check and the four data contracts
+of `_resolve_estimands_for_data` without a fit. A result saved under a configuration that this
+version refuses therefore keeps `retarget_cached_nuisances` and loses `refit_nuisances`, with the
+code `point_replay_refit_configuration`. A refit that adds a covariate asks the estimator for its
+configuration through `_configured_for_refit`. An override of that hook returns a copy, so a refit
+never changes the fitted estimator.
 
 Repeated-sampling studies retain one structured `ReplicationRecord` per estimand and a
 `ReplicationFailure` with replicate index, seed, exception type, and message for every failed

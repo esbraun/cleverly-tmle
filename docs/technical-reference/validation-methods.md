@@ -214,6 +214,21 @@ second-order remainder.
 **retargets** cached nuisances through `TMLE.retarget`. Ordinary, collaborative, and unguarded
 doubly-robust fits refit no nuisance model, so their curves are retarget operations.
 
+`mechanism=None` sweeps the observation mechanism on a fit that estimates no treatment law, and
+`g(W)` on every other fit. `truncation_refusal` in `sensitivity/positivity.py` then applies three
+rules in order. The module call raises its sentence, and the capability row quotes it for the same
+request.
+
+| order | rule | refuses |
+| --- | --- | --- |
+| 1 | `observation_axis` | `mechanism=True` on a fit with no missingness and no intermediate mechanism |
+| 2 | `incremental` | the treatment axis of an incremental fit, because $g$ is inside its estimand |
+| 3 | `natural_course` | the treatment axis of a fit that estimates no treatment mechanism |
+
+An incremental fit with missing outcomes reads `deferred` on `mechanism`, because
+`mechanism=True` runs. `TestTheTruncationRowResolvesEachRequest` in
+`tests/unit/test_capability_row_predicates.py` checks each request on five kinds of fit.
+
 The returned frame records both ends of every evaluated pair. Scalar treatment-mechanism values
 remain symmetric shorthand for `[bound, 1 - bound]`; observation- and intermediate-mechanism
 values use `[bound, 1]`. It also records each parameter's own fitted pair and estimate, plus the
@@ -694,6 +709,7 @@ matching capability row therefore carry one reason.
 | a longitudinal fit | any registered longitudinal derivation. See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) |
 | a `regime`, `shift`, or `msm` parameter axis | an implementation. Each of these parameters is a linear functional of the outcome regression and has a Riesz representer, so the bound is well posed here |
 | an `ipsi` parameter axis | a bound that covers it. An incremental intervention tilts the treatment mechanism, so the mechanism is part of the estimand rather than a nuisance |
+| an arm-indexed fit that reports no counterfactual mean and no linear contrast, such as a ratio-only, PAR, PAF, or complete-outcome `ey_obs` fit | a parameter to bound. One bound is the second moment of one contrast's own Riesz representer. On a fit that reports `rr` or `or`, the sentence names `sensitivity.evalue()` |
 | a median-combined fit from `repeats=` | an influence function for the median bound. A coordinatewise median of per-draw influence terms is not one. Fit one split for this analysis |
 
 The table rule for `repeats=` runs last. A repeated fit that another rule also refuses reports that
@@ -719,6 +735,21 @@ against what that covariate was worth. `contour()` returns the grid a contour pl
 
 `benchmark()` is the only member of this group that refits. It reads the refusals above before it
 refits, so a refused fit pays for no second fit.
+
+`benchmark()` checks a request in this order, before the refit.
+
+| order | request | what happens |
+| --- | --- | --- |
+| 1 | a result that holds no estimator | `CapabilityError` |
+| 2 | a covariate name that the fit does not adjust for | `DataError` |
+| 3 | a `nu2_estimator` outside the three accepted values | `ValueError` |
+| 4 | a fit that the table above refuses | `CapabilityError` with that table's sentence |
+| 5 | every covariate of the fit | `CapabilityError` from `benchmark_refusal`. The short model would adjust for nothing, and no estimator here fits without a covariate |
+
+The `benchmark` capability row reads the same predicate for each request. On a fit with one
+covariate, the bare row reads `unavailable`, because no value runs. On a wider fit, the bare row
+keeps its `covariates` argument. `TestTheBenchmarkRowResolvesEachRequest` in
+`tests/unit/test_capability_row_predicates.py` checks both fits.
 
 ### Standard error of the omitted-variable bound
 
@@ -1346,6 +1377,23 @@ guard in these cases. `_replay_refusal` keeps that guard as defence in depth.
 The surface also refuses a constant benchmark covariate. That check reads the requested covariate
 rather than the fitted result, so it sits outside the fit-wide table.
 
+`simulated_confounding_refusal` returns the refusal of one request before any draw. It reads the
+fit-wide table and then the parameter and calibration checks that the call runs. The capability
+row reads it for each request, with the request's `benchmark_covariates` held fixed.
+
+| request | row |
+| --- | --- |
+| a refused parameter, such as `ey_obs` or a zero-delta policy mean | `unavailable`, with the call's sentence |
+| a categorical or a constant benchmark covariate | `unavailable`, with the call's sentence |
+| no `estimand` on a natural-course fit | `unavailable`, because no reported parameter runs |
+| a malformed argument | unchanged. The call raises `ValueError` or `TypeError` |
+
+A malformed argument is a duplicate, non-string, or unknown covariate name, an unknown estimand, or
+a grid strength out of range. The call reports a malformed name before any parameter or
+calibration refusal.
+`TestTheSimulatedConfoundingRowResolvesEachRequest` in
+`tests/unit/test_capability_row_predicates.py` checks four study fits.
+
 `test_fit_wide_refusals_have_one_order_and_match_assessment` checks the shared order and exact
 capability reasons. `test_real_mar_fit_refuses_before_calibration_draw_or_refit` uses a fitted
 ordinary MAR estimator. `test_randomized_missing_outcome_fit_refuses_simulated_confounding_before_work`
@@ -1507,6 +1555,24 @@ name every arm. `tipping_gamma()` inverts the tilt for the value at which the co
 
 This is a retarget operation and not a refit.
 
+`fit_wide_tilt_refusal` holds every refusal that no argument lifts. `missingness_tilt()` and
+`tipping_gamma()` raise its sentence first, and both capability rows quote it. The table is
+ordered, and each rule assumes that the rules above it passed.
+
+| order | rule | refuses | row status |
+| --- | --- | --- | --- |
+| 1 | `longitudinal` | a longitudinal result | `unavailable` |
+| 2 | `natural_course` | a missing-outcome `NaturalCourseMean` fit | `unavailable` |
+| 3 | `missing_outcome` | a fit with no missing outcome | `not_applicable` |
+| 4 | `continuous` | a continuous dose | `unavailable` |
+| 5 | `incremental` | an incremental fit | `unavailable` |
+| 6 | `tiltable_parameters` | a fit that reports no arm-indexed mean and no linear contrast, such as a regime, MSM, or ratio-only fit | `unavailable` |
+
+The omitted-variable bound refuses a fit with a response mechanism. Its sentence points at the tilt
+only when this table admits the fit. `TestTheTiltRowsReadTheCallsPredicate` and
+`TestTheBoundPointsAtTheTiltOnlyWhereItRuns` in `tests/unit/test_capability_row_predicates.py`
+check the rows and the pointer.
+
 The curve is a point-estimate sweep, so a selector-based C-TMLE fit receives all of it. Only the
 three spread columns read an interval that those paths refuse. Such a fit therefore receives
 `plugin_std_err`, `plugin_interval_lower`, and `plugin_interval_upper` in place of `std_err`,
@@ -1553,6 +1619,38 @@ A refuter refits the nuisance models once for each replication. The three defaul
 five replications each, so `refute()` costs about 15 fits. Empirical refuters use 100 draws by
 default because their rule reads a distribution. `run_all(include_refits=True)` runs `refute()`.
 
+`random_common_cause` adds one column of independent noise, and the refit must accept that column.
+
+| estimator | what the refit runs |
+| --- | --- |
+| `TMLE` | the estimator |
+| `CTMLE` with an explicit `ordering=` | a copy whose ordering is the declared ordering, then each added covariate |
+| `DRTMLE` with an `evaluation=` companion that lacks the added column | a copy without the companion |
+
+An explicit ordering ranks covariates by their prior relevance. Independent noise has none, so the
+noise goes last. `CausalData.with_extra_covariate` also appends the column last. The companion
+enters no fit, fold, or score, so the refit reports the same estimate without it.
+`tests/unit/test_drtmle_companion.py` checks that bit for bit. Neither copy changes the fitted
+estimator. `TestAnAddedCovariateGoesAfterTheDeclaredOrdering` and
+`TestARefitDropsACompanionThatLacksACovariate` in `tests/unit/test_capability_row_predicates.py`
+check both cases.
+
+`refute_refusal` in `validation/refute.py` holds every refusal of a request before any refit.
+`refute()` first checks its argument values. An unknown test name and an invalid `n_replicates`
+raise `ValueError`. It then raises the first refusal of this table as `CapabilityError`.
+
+| order | rule | refuses |
+| --- | --- | --- |
+| 1 | `estimator` | a result with no estimator |
+| 2 | `estimand` | an estimand that the fit did not report |
+| 3 | `placebo_level` | `placebo` on `NaturalCourseMean` |
+| 4 | `row_set_under_plan` | `subset` or `bootstrap_measurement_error` on a fit given `split_plan=` |
+
+The `refute` capability row reads the same table for each request. An omitted `tests` means the
+default tests. When the default tests meet a refusal and a single default test runs, the row reads
+`deferred` on `tests`, with the call's sentence. A request that names only tests that run lifts the
+deferral. `TestTheRefuteRowResolvesEachRequest` in the same file checks both fits below.
+
 A refutation also runs on a selector-path collaborative fit. The `placebo`, `random_common_cause`,
 `subset`, and `negative_control_outcome` rules scale their tolerance by a standard error. Each rule
 reads that scale through `plugin_std_error`, so the tolerance makes no coverage claim. On a fit
@@ -1567,14 +1665,18 @@ replacement. So `refute()` raises `CapabilityError` for `subset` and for
 
 A `bootstrap_measurement_error` draw holds the declared number of rows, so only the request
 identifies it. The `placebo` and `random_common_cause` operations still run, because each one
-replaces a column and leaves every row in its position. A `run_all(include_refits=True)` battery
-records the refusal as an `unavailable` row and continues to the rest of the battery. See
+replaces a column and leaves every row in its position. The default tests include `subset`, so the
+`refute` row reads `deferred` on `tests`. A `run_all(include_refits=True)` battery records that
+row as `deferred`, with the refusal's sentence, and continues to the rest of the battery. A request
+with `tests=("placebo", "random_common_cause")` runs. See
 [reusable outer split plans](cv-tmle.md#reusable-outer-split-plans) for the table.
 
 `NaturalCourseMean` refuses the `placebo` operation before it refits anything. The operation
 permutes treatment and reads movement toward zero as evidence for an effect claim. This estimand
 is an outcome level, so it need not approach zero and that reading does not apply. The `subset`
 and `random_common_cause` operations keep their usual stability interpretations for this target.
+The default tests include `placebo`. So a request for `estimand="ey_obs"` reads `deferred` on
+`tests` in the same way, and `tests=("random_common_cause", "subset")` runs.
 
 `refute()` draws its randomization from the seed of the fit, unless the caller passes
 `random_state`. A fit that carries a seed gives the same refutation on every call. A fit that

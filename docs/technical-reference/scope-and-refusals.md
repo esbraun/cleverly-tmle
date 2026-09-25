@@ -46,7 +46,7 @@ rather than implying the request was ill-posed.
 | cross-fitted arm-indexed means and contrasts with missing outcomes outside the stacked CV-TMLE contract | [missing-outcome arm-indexed contract](#missing-outcome-arm-indexed-contract) lists every refusal. [Stacked CV-TMLE for arm-indexed targets](point-treatment-tmle.md#stacked-cv-tmle-for-arm-indexed-targets) defines the estimator |
 | a cross-fitted shift, incremental, regime, MSM, or controlled-direct-effect fit with missing outcomes (`delta=`) | [the refusals a caller can meet](cv-tmle.md#the-refusals-a-caller-can-meet). No audit read a source for these fits. The fit raises `CapabilityError` before any learner is fitted. The in-sample fit with `delta=` remains available. [F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants) reopens it |
 | `DRTMLE` with observational missing outcomes, cross-fitted missing outcomes at every `guard` including `guard=()`, missing treatment, `intermediate=`, fold-wise targeting, `treatment_probabilities=` under `n_bootstrap=`, composition with `CTMLE`, or `reduction="bivariate"` composed with `delta=` | [method presets](../user-guide/methods-learners.md#method-presets), and the [DR-TMLE refusals](dr-tmle/supported-estimands.md#refused-by-name) |
-| the MNAR tilt on a `shifts=` fit | [modified treatment policies](../user-guide/estimands.md#modified-treatment-policies) |
+| the MNAR tilt, `missingness_tilt()` and `tipping_gamma()`, on a shift, incremental, regime, MSM, or ratio-only fit with missing outcomes | [missingness tilt and tipping gamma](validation-methods.md#missingness-tilt-and-tipping-gamma). The tilt re-mixes the arm-indexed means and their linear contrasts. No derivation here covers the tilt of these parameters. Both entry points raise the sentence of `fit_wide_tilt_refusal`. Both capability rows read `unavailable` with that sentence before any call. `TestTheTiltRowsReadTheCallsPredicate` in `tests/unit/test_capability_row_predicates.py` checks each kind |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [incremental interventions](../user-guide/estimands.md#incremental-propensity-score-interventions) |
 | the targeted bootstrap and sample sensitivity-bound estimation for `LTMLE` | [longitudinal diagnostics](../user-guide/longitudinal.md#diagnostics). See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) for the contracts Tan (2025) leaves open |
 | longitudinal `msm=` with `n_folds > 1` | [MSM projections](msm-projections.md#the-longitudinal-projection). It needs an unsaturated projection property and a repeated-sampling study for coefficient inference |
@@ -62,7 +62,7 @@ rather than implying the request was ill-posed.
 | a cross-fitted continuous outcome with `q_bounds=None`, for `TMLE`, `DRTMLE`, `CTMLE`, and `LTMLE` above one fold | [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules). The sample outcome range would take the scale from held-out rows |
 | `CTMLE` with `id=`, at every `cross_fit` setting | [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules). No clustered result covers the outcome-adaptive mechanism. Selector-based fits also lack a result for grouped selection and nested folds or candidate-selection variance |
 | `LTMLE` with `id=` above one fold | [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules). The cluster-robust variance of the targeted sequential recursion under a grouped draw is not established |
-| the `subset` and `bootstrap_measurement_error` refutations on a fit that declared `split_plan=` | [reusable outer split plans](cv-tmle.md#reusable-outer-split-plans). Each one refits on rows the fit never ran, and no rule here says which fold labels those rows inherit. `refute()` raises `CapabilityError` before it refits anything |
+| the `subset` and `bootstrap_measurement_error` refutations on a fit that declared `split_plan=` | [reusable outer split plans](cv-tmle.md#reusable-outer-split-plans). Each one refits on rows the fit never ran, and no rule here says which fold labels those rows inherit. `refute()` raises `CapabilityError` before it refits anything. The `refute` capability row reads `deferred` on `tests`, with the same sentence. A request whose `tests=` names neither operation runs |
 | replicate weights (BRR, jackknife) | [observation weights](../user-guide/data-design.md#observation-weights-are-not-estimand-weights). These are a set of designs rather than one weight vector, so the shape they want is a refit per replicate outside the estimator |
 | omitted-variable sensitivity after `repeats=` | [validation and sensitivity methods](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours). The median bound needs an influence function; a coordinatewise median of per-draw influence terms is not one. The five omitted-variable capability rows declare this refusal as `unavailable` before any call, and `test_the_five_declared_rows_carry_that_same_reason` checks them |
 | omitted-variable sensitivity on a `DRTMLE` or `CTMLE` fit | [validation and sensitivity methods](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours). Neither estimator assumes a consistent treatment mechanism, and no derivation gives $\nu^2$ or the bound's standard error without that assumption |
@@ -70,6 +70,8 @@ rather than implying the request was ill-posed.
 | omitted-variable sensitivity on a fit with an intermediate variable | [validation and sensitivity methods](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours). The bound is well posed, and the implementation is missing. The representer carries the intermediate weight, so the treatment strength $c_D$ would also measure the intermediate mechanism |
 | omitted-variable sensitivity on a `regime`, `shift`, or `msm` parameter axis | [validation and sensitivity methods](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours). Each parameter has a Riesz representer, so the bound is well posed. Only the implementation is missing |
 | omitted-variable sensitivity on an `ipsi` parameter axis | [validation and sensitivity methods](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours). An incremental intervention tilts the mechanism, so the mechanism is part of the estimand rather than a nuisance |
+| omitted-variable sensitivity on an arm-indexed fit that reports no counterfactual mean and no linear contrast. A ratio-only fit, a PAR or PAF fit, and a complete-outcome `ey_obs` fit are such fits | [validation and sensitivity methods](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours). One bound is the second moment of one contrast's Riesz representer, and the fit reports no such contrast. The five capability rows read `unavailable` with the sentence that each call raises. On a fit that reports `rr` or `or`, the sentence names `sensitivity.evalue()`. `TestTheBoundRowsReadTheCallsTable` in `tests/unit/test_capability_row_predicates.py` checks four such fits |
+| `benchmark()` with every covariate of the fit named | [validation and sensitivity methods](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours). The short model would adjust for nothing, and no estimator here fits without a covariate. `benchmark()` raises `CapabilityError` before the refit. On a fit with one covariate, the `benchmark` capability row reads `unavailable`, because no value of `covariates` runs. On a wider fit, a request that names every covariate reads `unavailable`. An unknown name raises `DataError` before this refusal |
 | omitted-variable sensitivity when the doubly robust estimate of $\nu^2$ is not positive | [validation and sensitivity methods](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours). This row reads the data, not the fit class. The other omitted-variable rows refuse a whole class of fit before any computation, and their capability rows report `unavailable`. This one leaves the capability row `available`, and the call raises `CapabilityError` only when the fitted representer gives a nonpositive second moment. An ordinary TMLE script that received a bound before can therefore raise now, because the package substitutes no plug-in value for the refused one |
 | the one-sided limits and the confidence-limit robustness value under `nu2_estimator="plugin"` | [validation and sensitivity methods](validation-methods.md#standard-error-of-the-omitted-variable-bound). No derivation in a source this package cites gives the standard error of a bound built on the plug-in $\nu^2$, which moves at first order with the fitted treatment mechanism. The bounds, `rv`, `max_bias`, `benchmark()` and `contour()` remain. A bound saved before this refusal refuses its limits too, because it did not record its estimator. [F26](../roadmap.md#f26-confidence-limits-of-the-plug-in-omitted-variable-bound) reopens it |
 | omitted-variable limits when $\sigma^2=0$ | [the bound's standard error](validation-methods.md#standard-error-of-the-omitted-variable-bound) needs a positive maximal-bias scale. The point bounds remain, but the limit accessors refuse. An unreachable point robustness threshold is `None` |
@@ -228,7 +230,9 @@ through `TMLEMethod`, with zero learner calls.
 
 The list once held a stratified fold policy and a fold count below two. The declaration check
 refuses both, so neither step can run. A restored result or a copied estimator can still carry the
-old policy, and the fit then raises `ValueError` from the declaration check's own reason.
+old policy. The fit then raises `CapabilityError`, a subclass of `ValueError`, with the declaration
+check's own reason. A restored result under that policy reads its `refit_nuisances` replay slot
+false, with the code `point_replay_refit_configuration`.
 
 A refusal that has an in-sample alternative names it as `CrossFitting(enabled=False)`. The engine
 form is `cross_fit=False`. An in-sample fit that draws no split keeps whatever fold policy the
@@ -272,6 +276,18 @@ raises a stable `CapabilityError` from that invocation; it is not known when the
 built. Missing `bounds` or the refit opt-in makes a combined report `deferred`, because the caller
 can supply either request.
 
+A point-treatment result has two codes of its own. `replayability()` reads each one without a
+fit, and every row that needs the false slot reads `unavailable`.
+
+| omission code | replay boundary | slots |
+| --- | --- | --- |
+| `point_replay_function_declaration` | a saved regime or MSM function lacks an accepted known-function declaration | both slots read false |
+| `point_replay_refit_configuration` | this version refuses the saved estimator configuration before a refit. A stratified fold policy and a cross-fitted continuous outcome with `q_bounds=None` are such configurations | `refit_nuisances` reads false. `retarget_cached_nuisances` stays true, because the cached nuisances still retarget |
+
+The second code reads the checks that `refit()` runs before its first learner. These are the fold
+policy and four data contracts. `TestTheRefitSlotReadsTheRefitPreflight` in
+`tests/unit/test_capability_row_predicates.py` checks each slot against the call it describes.
+
 ### A different question
 
 These are well-posed parameters, but the selected estimator does not target them. No setting turns
@@ -303,7 +319,7 @@ target or an interval whose stated conditions are not met.
 | a missingness or intermediate mechanism read at the observed dose rather than the assigned one | the fluctuation updates `Qbar` as a function of the dose, so `Qbar*(d(A,W),W)` is the update evaluated where the policy sends the unit. Silent wherever the mechanism does not depend on the dose, and invisible to a Gateaux check on an exact law |
 | a "stabilised" MSM weighting `h` by the estimated mechanism | the same argument once more. `h` becomes a functional of `P`, and a term goes missing from the influence curve. `MSM` refuses `weights_kind="estimated"` and a `weights=` callable with no declaration. [MSM projections](msm-projections.md#variations) gives the declaration |
 | an MSM `design` that reads a sample statistic, such as a covariate centred at its sample mean | for the population-law target centred at $E_P[W]$, the projection depends on $P$ through the design. Its reported curve omits that derivative. On one exact law, the reported intercept standard error is 0.893 of the exact one (`tests/unit/test_msm_design_declaration.py`). An interval conditional on the centre learned from the same rows also needs separate validation. `MSM` refuses `design_kind="estimated"` and an undeclared callable. A design built by `MSM.linear` needs no declaration. Code cannot detect a false `"known"` declaration. [MSM projections](msm-projections.md#variations) gives the declaration, and [RM27](../roadmap.md#rm27-declared-msm-design-functions) records the witness |
-| `g_bounds=` or `truncation_curve()` on an `incremental=` fit | `g` is *inside* the estimand, so truncating it moves the parameter rather than regularising a denominator. The result is a number for a parameter nobody declared |
+| `g_bounds=` or `truncation_curve()` on an `incremental=` fit | `g` is *inside* the estimand, so truncating it moves the parameter rather than regularising a denominator. The result is a number for a parameter nobody declared. `truncation_curve()` refuses the treatment axis with `CapabilityError`, and the omitted `mechanism` selects that axis. The module call and the facade call raise the same sentence. The capability row reads `unavailable`. On a fit with missing outcomes it reads `deferred` on `mechanism`, because `mechanism=True` runs |
 | a `cap=` fitted from the data on a shift | the estimand becomes data-dependent. The interval conditions on an estimated boundary, and every bootstrap replicate targets a slightly different policy |
 | `CTMLE` on an `incremental=` fit | each candidate `ghat` defines a different estimand, so the cross-validated search selects between *estimands* rather than between estimators |
 | splitting a cluster across folds to buy more of them | the out-of-fold predictions stop being independent of the rows they are used on, and the standard error shrinks in exactly the direction `id=` was passed to prevent |
@@ -348,6 +364,12 @@ The surface accepts fixed probability weights under ordinary TMLE, under binary 
 collaborative TMLE, and under binary complete-outcome DR-TMLE. Read
 [the surface's own refusal table](validation-methods.md#simulated-common-cause-stress-surface) for
 every composition it refuses and the `kind` of each one.
+
+The `simulated_confounding` capability row resolves each request by the predicate that the call
+raises from. A request for a refused parameter reads `unavailable` with the call's sentence. The
+natural-course mean and a zero-delta policy mean are such parameters. A categorical or a constant
+benchmark covariate reads `unavailable` in the same way. The bare row of a natural-course fit reads
+`unavailable`, because no reported parameter runs.
 
 ## Where a multi-valued treatment is supported
 
