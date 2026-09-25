@@ -340,7 +340,8 @@ def fit_policy_means() -> Any:
 
     A kind fitted by an estimator directly records no identification, so
     ``simulated_confounding`` refuses it for the whole fit. A study records the
-    identification, so this kind's ``simulated_confounding`` row resolves each request. The first reported mean is the zero-delta one, which the call refuses, so the
+    identification, so this kind's ``simulated_confounding`` row resolves each request.
+    The first reported mean is the zero-delta one, which the call refuses, so the
     estimand the sweep supplies is a refused value.
     """
     return _fit_shift_policies(means=True)
@@ -545,57 +546,76 @@ class Kind:
     must_run : frozenset of str
         Rows whose operation must answer in the sweep's report. This is the nonzero
         witness: a row refused by mistake passes the no-decline check and fails here.
-    live : bool
-        Whether the result comes from a fit in this version rather than a restored
-        artifact. Every live point result keeps ``refit_nuisances``.
+        Each kind names every row it answered when the snapshot was measured.
+    refits : bool
+        Whether ``refit()`` runs on the result's own data, so ``refit_nuisances`` reads
+        true. Every fit in this version refits, and a restored kind is one it refuses.
     """
 
     build: Callable[[], Any]
     must_run: frozenset[str]
-    live: bool = True
+    refits: bool = True
 
 
-def _kind(build: Callable[[], Any], *must_run: str, live: bool = True) -> Kind:
-    return Kind(build, frozenset(must_run), live)
+def _kind(build: Callable[[], Any], *must_run: str, refits: bool = True) -> Kind:
+    return Kind(build, frozenset(must_run), refits)
 
 
-#: The two RM23 rows every live point fit that admits the default axis answers.
+#: The rows that read a fit's own nuisances and scores.
+_READ = ("nuisance_models", "score_equations", "support")
+#: The two point rows that run a new computation: a refit and a truncation sweep.
 _POINT = ("refute", "truncation_curve")
+#: Every point row of a fit that admits the default truncation axis.
+_LIVE = (*_READ, *_POINT)
+#: The tilt rows, which a binary-treatment fit with missing outcomes answers.
 _TILT = ("missingness", "tipping_gamma")
+#: The bound rows that read the fit alone. ``benchmark`` refits, so it is listed apart.
+_BOUND = ("contour", "elements", "evalue", "omitted_confounding", "robustness_value")
+#: Every row of an arm-indexed ATE fit with complete outcomes and two or more covariates.
+_ARM = (*_LIVE, *_BOUND, "benchmark")
 
 #: One kind of fit per name: live point fits, two study fits, restored results whose refit
-#: this version refuses, and one longitudinal fit.
+#: this version refuses, and one longitudinal fit. Each kind's rows are the snapshot of the
+#: rows it answered, so a row that starts to refuse by mistake fails its kind.
 KINDS: dict[str, Kind] = {
-    "ordinary": _kind(fit_ordinary, *_POINT),
-    "binary": _kind(fit_binary, *_POINT),
-    "missing": _kind(fit_missing, *_POINT, *_TILT),
-    "shift": _kind(fit_shift, *_POINT),
-    "cde": _kind(fit_cde, *_POINT),
-    "multi_arm": _kind(fit_multi_arm, *_POINT),
-    "ctmle_oat": _kind(fit_ctmle_oat, *_POINT),
-    "msm": _kind(fit_msm, *_POINT),
-    "regime": _kind(fit_regime, *_POINT),
-    "weighted": _kind(fit_weighted, *_POINT),
-    "stratified": _kind(fit_stratified, *_POINT),
-    "clustered": _kind(fit_clustered, *_POINT),
-    "drtmle": _kind(fit_drtmle, *_POINT),
-    "ctmle_ordered": _kind(fit_ctmle_ordered, *_POINT),
-    "shift+missing": _kind(fit_shift_missing, *_POINT),
-    "incremental": _kind(fit_incremental, "refute"),
-    "incremental+missing": _kind(fit_incremental_missing, *_POINT),
-    "regime+missing": _kind(fit_regime_missing, *_POINT),
-    "msm+missing": _kind(fit_msm_missing, *_POINT),
-    "rr+missing": _kind(fit_rr_missing, *_POINT),
-    "natural_course": _kind(fit_natural_course, *_POINT),
-    "split_plan": _kind(fit_split_plan, *_POINT),
-    "drtmle_companion": _kind(fit_drtmle_companion, *_POINT),
-    "policy_means": _kind(fit_policy_means, *_POINT),
-    "natural_course_study": _kind(fit_natural_course_study, *_POINT),
-    "restored_stratified": _kind(restored_stratified, "truncation_curve", live=False),
-    "restored_v011": _kind(restored_v011, "truncation_curve", live=False),
-    "restored_unbounded_scale": _kind(unbounded_scale, "truncation_curve", live=False),
-    "restored_ctmle_clustered": _kind(restored_ctmle_clustered, "truncation_curve", live=False),
-    "ltmle": _kind(fit_ltmle, "truncation_curve"),
+    "ordinary": _kind(fit_ordinary, *_ARM),
+    "binary": _kind(fit_binary, *_ARM),
+    "missing": _kind(fit_missing, *_LIVE, *_TILT),
+    "shift": _kind(fit_shift, *_LIVE),
+    "cde": _kind(fit_cde, *_LIVE),
+    "multi_arm": _kind(fit_multi_arm, *_ARM),
+    "ctmle_oat": _kind(fit_ctmle_oat, *_LIVE),
+    "msm": _kind(fit_msm, *_LIVE),
+    "regime": _kind(fit_regime, *_LIVE),
+    "weighted": _kind(fit_weighted, *_ARM),
+    "stratified": _kind(fit_stratified, *_ARM),
+    "clustered": _kind(fit_clustered, *_ARM),
+    "drtmle": _kind(fit_drtmle, *_LIVE, "corrections"),
+    "ctmle_ordered": _kind(fit_ctmle_ordered, *_LIVE),
+    "shift+missing": _kind(fit_shift_missing, *_LIVE),
+    "incremental": _kind(fit_incremental, *_READ, "refute"),
+    "incremental+missing": _kind(fit_incremental_missing, *_LIVE),
+    "regime+missing": _kind(fit_regime_missing, *_LIVE),
+    "msm+missing": _kind(fit_msm_missing, *_LIVE),
+    "rr+missing": _kind(fit_rr_missing, *_LIVE, "evalue"),
+    # No treatment mechanism is fitted, so no support row answers.
+    "natural_course": _kind(fit_natural_course, "nuisance_models", "score_equations", *_POINT),
+    # One covariate, which benchmark cannot drop.
+    "split_plan": _kind(fit_split_plan, *_LIVE, *_BOUND),
+    "drtmle_companion": _kind(fit_drtmle_companion, *_LIVE, "corrections"),
+    "policy_means": _kind(fit_policy_means, *_LIVE),
+    "natural_course_study": _kind(fit_natural_course_study, *_LIVE),
+    "restored_stratified": _kind(
+        restored_stratified, *_READ, "truncation_curve", *_BOUND, refits=False
+    ),
+    "restored_v011": _kind(restored_v011, *_READ, "truncation_curve", *_BOUND, refits=False),
+    "restored_unbounded_scale": _kind(
+        unbounded_scale, *_READ, "truncation_curve", *_BOUND, refits=False
+    ),
+    "restored_ctmle_clustered": _kind(
+        restored_ctmle_clustered, *_READ, "truncation_curve", refits=False
+    ),
+    "ltmle": _kind(fit_ltmle, *_READ, "truncation_curve"),
 }
 
 
@@ -748,7 +768,7 @@ def _pre_rm23_tilt_rule(self: SensitivityFacade) -> tuple[str, str] | None:
 
 #: Each seam an RM23 fix added, as its owner and attribute name. Every seam is a function
 #: but the omitted-variable rule table, which the rows and the calls read at call time.
-_SEAMS: tuple[tuple[Any, str], ...] = (
+SEAMS: tuple[tuple[Any, str], ...] = (
     (SensitivityFacade, "_tilt_rule"),
     (DiagnosticsFacade, "_truncation_gated"),
     (DiagnosticsFacade, "_refute_gated"),
@@ -760,6 +780,9 @@ _SEAMS: tuple[tuple[Any, str], ...] = (
     (TMLE, "_refit_configuration_refusal"),
 )
 
+#: The class default that lets a result saved by release 0.1.1 be read. M7 removes it.
+SPLIT_PLAN_DEFAULT = (TMLE, "split_plan")
+
 
 def _passthrough(patch: pytest.MonkeyPatch) -> None:
     """Replace every seam with a wrapper that returns what the seam returns.
@@ -767,14 +790,14 @@ def _passthrough(patch: pytest.MonkeyPatch) -> None:
     The rule table is replaced by an equal copy, so a reader that holds the original
     object and a reader of the module attribute see the same rules.
     """
-    for owner, name in _SEAMS:
+    for owner, name in SEAMS:
         original = vars(owner)[name]
         if callable(original):
-            wrapper = functools.wraps(original)(lambda *a, _f=original: _f(*a))
+            wrapper = functools.wraps(original)(lambda *a, _f=original, **k: _f(*a, **k))
             patch.setattr(owner, name, wrapper)
         else:
             patch.setattr(owner, name, tuple(original))
-    patch.setattr(TMLE, "split_plan", None)
+    patch.setattr(*SPLIT_PLAN_DEFAULT, None)
 
 
 def _without_bound_parameters(patch: pytest.MonkeyPatch) -> None:
@@ -813,46 +836,61 @@ class Mutation:
     fails_on : frozenset of str
         The kinds whose :func:`sweep` must report a problem under the mutation. Every
         other kind must report none.
+    signature : str
+        A regular expression that one problem of each kind in ``fails_on`` must match.
+        It names the row and the refusal the mutated component lets through, so an
+        unrelated failure, such as a ``TypeError`` from a stale seam, does not count as
+        detection. M0 detects nothing, so its signature is empty.
     """
 
     describe: str
     apply: Callable[[pytest.MonkeyPatch], None]
     fails_on: frozenset[str]
+    signature: str
 
 
-_TILT_KINDS = frozenset(
-    {"shift+missing", "incremental+missing", "regime+missing", "msm+missing", "rr+missing"}
-)
+#: The kinds whose tilt rows read ``available`` before RM23 while both tilt calls refused.
+DECLINED_TILT_KINDS = ("shift+missing", "incremental+missing", "regime+missing")
+DECLINED_TILT_KINDS += ("msm+missing", "rr+missing")
+
+#: What the sweep reports for a row that reads available while its call refuses.
+_RAISED = "{} reads available, and its call raised "
 
 #: M0 to M7 of the RM23 plan, M8 for the benchmark row the sweep found, M9 for the
 #: simulated-confounding row, and M10 for the five omitted-variable rows. M0 wraps every
 #: seam and changes nothing, so a failure there is the wrapping and not a defect.
 MUTATIONS: dict[str, Mutation] = {
-    "M0": Mutation("every seam wrapped and unchanged", _passthrough, frozenset()),
+    "M0": Mutation("every seam wrapped and unchanged", _passthrough, frozenset(), ""),
     "M1": Mutation(
         "the tilt rows ignore every rule the rows did not read before RM23",
         lambda patch: patch.setattr(SensitivityFacade, "_tilt_rule", _pre_rm23_tilt_rule),
-        _TILT_KINDS,
+        frozenset(DECLINED_TILT_KINDS),
+        _RAISED.format("missingness") + "missingness_tilt ",
     ),
     "M2": Mutation(
         "the truncation row ignores the predicate",
         lambda patch: patch.setattr(DiagnosticsFacade, "_truncation_gated", _identity_gate),
         frozenset({"incremental", "incremental+missing"}),
+        _RAISED.format("truncation_curve") + r"the propensity g is \*inside\* the estimand",
     ),
     "M3": Mutation(
         "the refute row ignores the predicate",
         lambda patch: patch.setattr(DiagnosticsFacade, "_refute_gated", _identity_gate),
         frozenset({"split_plan", "natural_course", "natural_course_study"}),
+        # The row-set rule under a supplied plan, and the placebo rule of an outcome level.
+        _RAISED.format("refute") + r"(refutation test\(s\) \['subset'\]|the placebo refutation)",
     ),
     "M4": Mutation(
         "CTMLE ignores a covariate the refit adds",
         lambda patch: patch.setattr(CTMLE, "_configured_for_refit", _unconfigured),
         frozenset({"ctmle_ordered"}),
+        r"ValueError: ordering must cover every covariate; missing \['_noise_0'\]",
     ),
     "M5": Mutation(
         "DRTMLE keeps a companion that lacks a refit covariate",
         lambda patch: patch.setattr(DRTMLE, "_configured_for_refit", _unconfigured),
         frozenset({"drtmle_companion"}),
+        r"DataError: covariate columns not found: \['_noise_0'\]",
     ),
     "M6": Mutation(
         "the refit slot ignores the refit preflight",
@@ -865,16 +903,22 @@ MUTATIONS: dict[str, Mutation] = {
                 "restored_ctmle_clustered",
             }
         ),
+        # The fold policy, the outcome scale, and the collaborative clustered refusal.
+        _RAISED.format("refute")
+        + "(stratify_folds='treatment' balances|a cross-fitted fit of a continuous outcome"
+        + "|C-TMLE has no clustered result)",
     ),
     "M7": Mutation(
         "no class default for split_plan",
-        lambda patch: patch.delattr(TMLE, "split_plan"),
+        lambda patch: patch.delattr(*SPLIT_PLAN_DEFAULT),
         frozenset({"restored_v011"}),
+        "reading the rows raised AttributeError: 'TMLE' object has no attribute 'split_plan'",
     ),
     "M8": Mutation(
         "the benchmark row ignores the predicate",
         lambda patch: patch.setattr(SensitivityFacade, "_benchmark_gated", _identity_gate),
         frozenset({"split_plan"}),
+        _RAISED.format("benchmark") + "benchmark cannot drop every covariate",
     ),
     "M9": Mutation(
         "the simulated-confounding row ignores the predicate",
@@ -882,10 +926,12 @@ MUTATIONS: dict[str, Mutation] = {
             SensitivityFacade, "_simulated_confounding_gated", _identity_gate
         ),
         frozenset({"policy_means", "natural_course_study"}),
+        _RAISED.format("simulated_confounding") + "(continuous )?simulated_confounding refuses",
     ),
     "M10": Mutation(
         "the omitted-variable rows ignore a fit that reports no parameter to bound",
         _without_bound_parameters,
         frozenset({"natural_course_study"}),
+        _RAISED.format("omitted_confounding") + "the omitted-variable bound applies",
     ),
 }

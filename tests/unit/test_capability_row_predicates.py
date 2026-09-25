@@ -82,6 +82,7 @@ from cleverly.validation.refute import (
 from tests.conftest import linear_in_sample
 from tests.unit._capability_sweep_support import (
     DECLINED,
+    DECLINED_TILT_KINDS,
     INSTRUMENT_ORDERING,
     KINDS,
     MUTATIONS,
@@ -122,10 +123,6 @@ TILT_RULE_OF: dict[str, str | None] = {
     "natural_course": "natural_course",
     "ordinary": "missing_outcome",
 }
-
-#: The kinds whose tilt rows read ``available`` before RM23 and whose calls refused.
-DECLINED_TILT_KINDS = ("shift+missing", "incremental+missing", "regime+missing")
-DECLINED_TILT_KINDS += ("msm+missing", "rr+missing")
 
 TILT_CALLS = {"missingness": missingness_tilt, "tipping_gamma": tipping_gamma}
 
