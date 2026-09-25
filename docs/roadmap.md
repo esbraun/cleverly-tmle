@@ -77,19 +77,19 @@ The review of the RM26 delivery found a saved-result surface.
 
 The delivery of RM23 found two more surfaces.
 [RM31](#rm31-inference-status-of-a-saved-stratified-cross-fitted-result) holds the inference
-status of a cross-fitted result that release 0.1.1 saved under a stratified fold policy.
-[RM32](#rm32-continuous-dose-msm-fit-with-missing-outcomes) holds a continuous-dose MSM fit with
-missing outcomes, which raises `ValueError`. Three smaller findings extend RM16. The table below
-lists the rows that remain.
+status of a cross-fitted result that release 0.1.0 or 0.1.1 saved under a stratified fold policy.
+[RM32](#rm32-continuous-dose-msm-fit-with-missing-outcomes) holds an in-sample continuous-dose MSM
+fit with missing outcomes, which raises `ValueError`. Three more findings extend RM16. The table
+below lists the rows that remain.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.01 | Inference status of a saved stratified cross-fitted result | decide the status that a saved result takes when this version refuses the fold policy that produced its interval, as RM29 did for a saved clustered `LTMLE` result | a cross-fitted result that release 0.1.1 saved under its default `stratify_folds="treatment"` loads under `influence_curve`, and its interval stands. A refit of the same result refuses that split, because no shipped result covers it | [RM31](#rm31-inference-status-of-a-saved-stratified-cross-fitted-result) |
+| 0.01 | Inference status of a saved stratified cross-fitted result | decide the status that a saved result takes when this version refuses the fold policy that produced its interval, as RM29 did for a saved clustered `LTMLE` result | a cross-fitted result that release 0.1.0 or 0.1.1 saved under its default `stratify_folds="treatment"` loads under `influence_curve`, and its interval stands. A refit of the same result refuses that split, because no shipped result covers it | [RM31](#rm31-inference-status-of-a-saved-stratified-cross-fitted-result) |
 | 0.32 | Intervention refusals at identification | refuse mixed intervention kinds in `CausalStudy.identify`, and name the typed estimands in each message. Refuse a zero-dimensional regimen plan by name | a mixed request passes identification and then fails at estimation, once with an `AttributeError` | [RM14](#rm14-intervention-refusals-at-identification) |
 | 0.33 | Continuous-dose MSM fit with missing outcomes | refuse the composition by name before any learner, as `CapabilityError` | an in-sample continuous-dose MSM fit with `delta=` raises `ValueError` from the nuisance fit, after two learner fits | [RM32](#rm32-continuous-dose-msm-fit-with-missing-outcomes) |
-| 0.34 | Refusals after the nuisance fit | raise each refusal as `CapabilityError` before any learner call | four well-posed requests refuse after 2 to 20 learner fits. Three of them raise `NotImplementedError` or `ValueError` | [RM24](#rm24-refusals-after-the-nuisance-fit) |
+| 0.34 | Refusals after the nuisance fit | raise each refusal as `CapabilityError` before any learner call | four well-posed requests refuse after 2 to 20 learner fits. Three of them raise `NotImplementedError` or `ValueError`. A `refute` request without its negative-control outcome raises `ValueError` after its earlier tests refit | [RM24](#rm24-refusals-after-the-nuisance-fit) |
 | 0.41 | Calibration-slope warning rule | replace the fixed band with a rule that a registered calibration study supports | the band flagged 14 of 40 fits of a correctly specified weak-signal propensity model | [RM15](#rm15-calibration-slope-warning-rule) |
-| 0.42 | Summary and error-message accuracy | correct six display surfaces, three data error messages, one refusal remedy, and two refusal reasons, add a fingerprint-only protocol option, and decide what a bootstrap summary publishes on a non-inferential fit. The simultaneous-request policy is settled below. Correct two `benchmark` argument checks, and make one truncation row agree with its call | each surface omits, misstates, or repeats a fact that the fit records | [RM16](#rm16-summary-and-error-message-accuracy) |
+| 0.42 | Summary and error-message accuracy | correct six display surfaces, three data error messages, one refusal remedy, and two refusal reasons, add a fingerprint-only protocol option, and decide what a bootstrap summary publishes on a non-inferential fit. The simultaneous-request policy is settled below. Correct two `benchmark` argument checks, and make one truncation row agree with its call | each surface omits, misstates, or repeats a fact that the fit records. Three more surfaces misstate what a call accepts or needs | [RM16](#rm16-summary-and-error-message-accuracy) |
 | 0.51 | Red property cells after the fold, scale and law changes | keep each red verdict under `reporting` with its interval, and admit inference only when F18 or F19 supplies the exact result. The [red-cell ledger](technical-reference/method-evidence/red-cells.md) delivers this. Then declare and run the five open RM18 follow-up designs, each declared before its run | registered studies publish red verdicts after the fold, scale and law changes and the pooled update. The ledger lists each one and the ask that owns it. Five RM18 follow-up designs are not declared and have not run | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
 | 0.52 | One-sided robustness bias increment in DR-TMLE | investigate the exploratory between-implementation increment on binary `treatment_correct`, under a design declared before it runs | the RM18 reading is `mixed` on that configuration. The unadjusted paired 99% interval of `cleverly` minus R `drtmle` runs 0.000068 to 0.001942, while the Bonferroni interval for that comparison covers zero. No implementation defect is established | [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) |
 | 0.61 | Learned-policy value evaluation | implement a typed learned-policy target with fold-local training and evaluation, using a published estimating and inference contract | fixed-rule paths refuse a rule learned from the analysis sample; published learned-policy methods give distinct targets and inference | [RM30](#rm30-learned-policy-value-evaluation) |
@@ -104,7 +104,7 @@ A row that another row depends on comes before that row.
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM14, RM32. RM23 held it earlier, and it is delivered |
 | c | a correct refusal that arrives late or as the wrong type | RM24 |
 | d | a diagnostic or a warning that misleads | RM15 |
-| e | a display or a message that misstates a fact that the fit records | RM16 |
+| e | a display or a message that misstates a fact that the fit records. By extension, an argument check or a capability row that misstates what a call accepts or needs, when no number moves and nothing raises that is not a refusal | RM16 |
 | f | an investigation or a declared design that moves no verdict | RM18, RM19 |
 | g | a published method needed to resolve a shipped refusal | RM30 |
 
@@ -114,12 +114,12 @@ tier.
 
 | row | reason for its place |
 | --- | --- |
-| RM31 | each cross-fitted result that release 0.1.1 saved with its default fold policy publishes an interval that no shipped result covers |
+| RM31 | each cross-fitted result that release 0.1.0 or 0.1.1 saved with its default fold policy publishes an interval that no shipped result covers |
 | RM14 | one mixed request raises an `AttributeError`. It also has a late refusal of tier c, so it takes the higher tier |
 | RM32 | one composition raises a `ValueError` that is not a refusal, after two learner fits. RM14 reaches every mixed intervention request, so RM14 comes first |
 | RM24 | four refusals arrive after 2 to 20 learner fits, and three of them have the wrong type |
 | RM15 | the warning flagged 14 of 40 fits of a correct model |
-| RM16 | each surface misstates or repeats a recorded fact, and no number changes |
+| RM16 | each surface misstates or repeats a recorded fact, or misstates what a call accepts or needs, and no number changes |
 | RM18 | five open designs, which read 19 red rows in six studies. The ledger already publishes each of those verdicts |
 | RM19 | one configuration, which RM18 opened. Its Bonferroni interval covers zero, and it moves no verdict |
 | RM30 | a published learned-policy method can resolve the current refusal, but requires a distinct target, fold-local evaluation, and inference validation |
@@ -169,9 +169,13 @@ held 0.11 to 0.15, in that order. RM28 held 0.16, RM29 held 0.17, RM21 held 0.21
 0.22, and RM23 held 0.31.
 
 The delivery of RM23 added the saved-result inference group, and RM31 is its only row. RM31 is in
-tier a, so its group comes before every other group. Its first digit is 0. The digits 1 and 2
-named groups that left this table with their rows, and those rows took their priorities with them.
-The same delivery moved RM24 from 0.33 to 0.34, so that the tier-b row RM32 comes before it.
+tier a, so its group comes before every other group. Its first decimal digit is 0. The digits 1
+and 2 named groups that left this table with their rows, and those rows took their priorities with
+them.
+
+The same delivery re-triaged the refusal-surfaces group, which is the mechanism that the rule above
+names. It placed the tier-b row RM32 at 0.33 and moved RM24 from 0.33 to 0.34, so that RM32 comes
+before RM24.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
 The queue holds nine rows. Six rows need their corrections: RM14 to RM16, RM24, RM31 and RM32.
@@ -890,8 +894,9 @@ separate reasons for a non-arm axis, a level without a reference arm, and a base
 `test_evalue_direct_effect_refusals.py` checks the fitted ratio and each refusal reason.
 
 The delivery of [RM23](#rm23-capability-rows-that-read-available-and-then-refuse) found the two
-`benchmark` rows and the guarded truncation row. None of them moves a fitted number, so they join
-this row rather than a row of a higher tier. Each test must fit the probe kind of the RM23 sweep.
+`benchmark` rows and the guarded truncation row. None of them moves a fitted number or raises an
+exception that is not a refusal. Each one misstates what a call accepts or needs, so tier e holds
+them by the extension that its reason states. Each test must fit the probe kind of the RM23 sweep.
 The control for the benchmark rows is a proper subset of the covariates, which runs. The truncation
 test must compare the row with the module call on the restored result.
 
@@ -3250,16 +3255,17 @@ executed again, because its incremental truncation row changes.
 
 The four parts shipped as commit e7c7b29f planned them. The sweep then found three more rows that
 read available while the call refused, and three more commits fixed them. Each row of the table
-ends with the commit that shipped it.
+ends with the commit that shipped it. The review fixes changed four parts after the delivery, and
+each of those rows names the fix.
 
 | part | what shipped |
 | --- | --- |
 | tilt | `_FIT_WIDE_TILT_RULES` in `src/cleverly/sensitivity/missingness.py` holds the six rules of the plan, and `fit_wide_tilt_refusal` returns the first reason. `missingness_tilt` and `tipping_gamma` raise it first. Both rows read the rule through `SensitivityFacade._tilt_rule`. The bound's response refusal points at the tilt only when the table admits the fit. Commit 8d375184 |
 | truncation | `truncation_axis` and `truncation_refusal` in `src/cleverly/sensitivity/positivity.py`, with three ordered rules. The module call now refuses the default axis of an incremental fit, where it returned a flat curve. `_CapabilityFacade` keeps the method and replay gates in `_gated_map`, `_request_gated` resolves one request, and `_require` takes the arguments of a direct call. `docs/examples/interventions.ipynb` was executed again. Commit ebb1774e |
-| refute and the added covariate | `refute_refusal` in `src/cleverly/validation/refute.py`, with four ordered rules. `_argument_resolved` in `src/cleverly/assessment.py` holds the request rule for every row that an argument lifts. `TMLE.refit` asks `_configured_for_refit(data)` for the estimator it fits. An explicit `CTMLE` ordering places an added covariate last, and `DRTMLE` drops a companion that lacks a refit covariate, as the plan decided. Commit 025cf14b |
-| replay | the class default `TMLE.split_plan = None`. The fold refusal is a `CapabilityError` with the same text. `_refit_configuration_refusal` reads the fold policy and the four data contracts without a fit. `replayability()` then reports `point_replay_refit_configuration` and keeps `retarget_cached_nuisances`. Commit 461f07b0 |
-| sweep | `tests/unit/_capability_sweep_support.py` and `tests/unit/test_capability_row_sweep.py`, with 27 kinds of fit and the mutations M0 to M7. Commit 49ccf48e |
-| cached reports | `diagnostics.run_all` moves from generation 10 to 11, and `sensitivity.run_all` from 5 to 6. Three tests in `tests/unit/test_assessment_contract.py` write a stale tilt, truncation, and refute row at the old generations. Commit 836c5247 |
+| refute and the added covariate | `refute_refusal` in `src/cleverly/validation/refute.py`, with the four ordered rules of the plan. Review fix S2 moved seven more refusals of the call into the table, which now holds eleven rules. `_argument_resolved` in `src/cleverly/assessment.py` holds the request rule for every row that an argument lifts. `TMLE.refit` asks `_configured_for_refit(data)` for the estimator it fits. An explicit `CTMLE` ordering places an added covariate last, and `DRTMLE` drops a companion that lacks a refit covariate, as the plan decided. Commit 025cf14b |
+| replay | the class default `TMLE.split_plan = None`. The fold refusal is a `CapabilityError` with the same text. `_refit_configuration_refusal` read the fold policy and the four data contracts without a fit. Review fix S1 made it run the whole chain that `refit()` runs before a learner, with every subclass override. `replayability()` then reports `point_replay_refit_configuration` and keeps `retarget_cached_nuisances`. Commit 461f07b0 |
+| sweep | `tests/unit/_capability_sweep_support.py` and `tests/unit/test_capability_row_sweep.py`, with 27 kinds of fit and the mutations M0 to M7. Commit 49ccf48e. The later rows below and review fix S1 bring the sweep to 30 kinds |
+| cached reports | `diagnostics.run_all` moves from generation 10 to 11, and `sensitivity.run_all` from 5 to 6. Three tests in `tests/unit/test_assessment_contract.py` write a stale tilt, truncation, and refute row at the old generations. Commit 836c5247. Review fix YE made them one test with three cases |
 | benchmark | `benchmark_refusal` in `src/cleverly/sensitivity/omitted_variable.py`. A request that names every covariate raises `CapabilityError`, where the refit raised `DataError`. The row resolves `covariates`, so the bare row of a one-covariate fit reads `unavailable`. M8. Commit 73976a3a |
 | simulated confounding | `simulated_confounding_refusal` in `src/cleverly/sensitivity/_simulated_confounding_request.py`. The row resolves `estimand`, with the request's `benchmark_covariates` held fixed. The sweep gains the kind `policy_means`. M9. Commit d9606a62 |
 | bound parameters | `reported_arm_parameters` in `src/cleverly/sensitivity/_parameters.py` is the one eligibility rule of the bound and the tilt. The new rule `bound_parameters` makes the five omitted-variable rows of a fit that reports no arm-indexed mean and no linear contrast read `unavailable`. The sweep gains the kind `natural_course_study`. M10. Commit b60fd036 |
@@ -3273,31 +3279,44 @@ an unreported estimand on the refute row quotes the call's sentence. In
 continuous outcome without `q_bounds` now fits in sample, because the replay gate refuses its refit.
 
 The repository keeps no changelog. The pull request states these direct changes for the release
-notes.
+notes. A row that names a review fix changed after the delivery.
 
 | surface | change |
 | --- | --- |
 | `sensitivity.truncation_curve` on an incremental fit | raises `CapabilityError` for the default axis, where it returned a flat curve |
 | a restored or copied estimator under a refused fold policy | raises `CapabilityError`, a subclass of `ValueError`, with the same text |
-| `refute()` | checks an unknown test name and `n_replicates` before the estimator, estimand, placebo, and split-plan refusals |
-| `benchmark()` | a request that names every covariate raises `CapabilityError`, not `DataError`. An unknown name raises `DataError` before the bound's refusal |
+| `refute()` | checks an unknown test name and `n_replicates` before every refusal. `diagnostics.refute()` checks them before its capability row too (S3) |
+| `benchmark()` | a request that names every covariate raises `CapabilityError`, not `DataError`. An unknown name raises `DataError` before every refusal. On a result that holds no estimator, it raised `CapabilityError` before (S3) |
 | `simulated_confounding()` | a malformed covariate name raises `ValueError` or `TypeError` before a parameter or calibration refusal |
 | the omitted-variable refusal on a fit that reports `rr` or `or` and no linear parameter | ends with the pointer to `sensitivity.evalue()` |
 | `tipping_gamma()` on a refused fit | refuses before it checks `search=` |
+| `refute(tests=("random_common_cause",))` on a `CTMLE` fit with an explicit `ordering=` | runs, with the noise column last in the ordering. It raised `ValueError` before, and `assess(include_refits=True)` returned no report |
+| a `DRTMLE` refit whose `evaluation=` companion lacks a covariate that the refit adds | drops the companion and reports the same estimate. It raised `DataError` before |
+| `missingness_tilt` and `tipping_gamma` on a fit with no missing outcome | the sentence starts with "the identified functional has no observation mechanism: " |
+| `missingness_tilt` and `tipping_gamma` on a regime, an MSM, or a ratio-only fit with missing outcomes | raise `CapabilityError` with the new sentence "missingness_tilt re-mixes the arm-indexed means and their linear contrasts, ...". They raised "no tiltable estimands requested" before |
+| the omitted-variable response refusal on a shift, incremental, regime, MSM, or ratio-only fit with missing outcomes | drops the pointer to `sensitivity.missingness()` and `sensitivity.tipping_gamma()`, because the tilt refuses those fits |
+| `replayability()` | reports the new code `point_replay_refit_configuration` when this version refuses the saved configuration before a refit. `refit_nuisances` then reads false, and `retarget_cached_nuisances` keeps its value |
+| a C-TMLE result that release 0.1.1 fitted on clustered data and saved | `refit_nuisances` reads false, with `point_replay_refit_configuration`. The `refute`, `benchmark`, and `simulated_confounding` rows read `unavailable` (S1) |
+| a `refute` request that a generated-outcome or measurement-error rule refuses | the row reads `unavailable` with the call's sentence. A combined report published "the operation declined this request" before (S2) |
+| a combined report whose `arguments=` name an unknown test or covariate | raises the malformed error, as a direct call does. It reported an `unavailable` item before (S3) |
+| an `unavailable` item that the request refuses, and not the fit | carries the request's arguments with the signature defaults bound, and no next step. It carried `{}` before (S4) |
+| `capability()` and `capabilities` | read `deferred` on `estimand` for `refute` on a point fit that reports no bare `ate`. The five omitted-variable rows and `tipping_gamma` read the same when two or more eligible parameters remain (S5) |
+| `diagnostics.refute()` with no estimand on a fit that reports no bare `ate` | raises "diagnostic 'refute' is unavailable: estimand 'ate' was not requested in this fit". The function raised the sentence without the prefix (Y7) |
 
 The RM23 contract named five witnesses. The table gives the state of each.
 
 | witness | state |
 | --- | --- |
-| 1. a sweep asserts that every row declared available runs, on a list that includes the three kinds above | delivered. `test_every_row_a_request_resolves_available_answers_it` fits 29 kinds and fills each deferred argument. It reports a raising `assess`, a declined item, an item still deferred, and a row that reads available while its call raises `CapabilityError`. Each kind also names the rows that must run, and each live point kind keeps `refit_nuisances` |
+| 1. a sweep asserts that every row declared available runs, on a list that includes the three kinds above | delivered. `test_every_row_a_request_resolves_available_answers_it` fits 30 kinds and fills each deferred argument. It reports a raising `assess`, a declined item, an item still deferred, and a row that reads available while its call raises `CapabilityError`. Each kind also names the rows that must run, which review fix T2 made the snapshot of the rows it answers. Each kind that refits keeps `refit_nuisances` |
 | 2. a mutation that restores an unconditional row fails the sweep on that kind | delivered. The mutation table below gives each kind |
-| 3. the ordered fit completes `assess(include_refits=True)` | delivered by `test_a_combined_report_runs_the_refutation` in `tests/unit/test_capability_row_predicates.py`. The refit path ends with `(*ordering, "_noise_0")`, and the refute value equals a manual fit that declares that ordering |
-| 4. each restored result of the second table agrees with `retarget()` and `refit()` | delivered by `TestTheRefitSlotReadsTheRefitPreflight` on twelve restored results. A restored stratified refit raises exactly `CapabilityError` |
-| 5. restored `Rule` and `LTMLE` results read each replay row `unavailable` | delivered by `test_a_restored_rule_result_refuses_every_replay_row` and `test_every_replay_row_refuses_and_a_combined_report_runs`. The stochastic-regime and MSM-weight tests check the slot agreement too |
+| 3. the ordered fit completes `assess(include_refits=True)` | delivered by `TestAnAddedCovariateGoesAfterTheDeclaredOrdering` in `tests/unit/test_capability_row_predicates.py`, whose `test_a_combined_report_runs_the_refutation` runs the report. The refit path ends with `(*ordering, "_noise_0")`, and the refute value equals a manual fit that declares that ordering |
+| 4. each restored result of the second table agrees with `retarget()` and `refit()` | delivered. `test_each_replay_slot_agrees_with_its_call` in `tests/unit/test_stochastic_regime_densities.py` and in `tests/unit/test_msm_projection_weights.py` checks the regime and MSM results. `TestTheRefitSlotReadsTheRefitPreflight` checks the fold policy on thirteen restored results. A restored stratified refit raises exactly `CapabilityError` |
+| 5. restored `Rule` and `LTMLE` results read each replay row `unavailable` | delivered by `test_a_restored_rule_result_refuses_every_replay_row` and `test_every_replay_row_refuses_and_a_combined_report_runs`. Each asserts the replay code that the rows quote |
 
 `MUTATIONS` in `tests/unit/_capability_sweep_support.py` holds eleven mutations.
-`test_the_sweep_fails_on_exactly_the_named_kinds` checks each of the 319 pairs of a mutation and a
-kind. The sweep must fail on each named kind and pass on every other kind.
+`test_the_sweep_fails_on_exactly_the_named_kinds` checks each of the 330 pairs of a mutation and a
+kind. The sweep must fail on each named kind and pass on every other kind. Each mutation after M0
+carries a signature, and one problem of each named kind must match it.
 
 | mutation | plan | the sweep fails on |
 | --- | --- | --- |
@@ -3307,26 +3326,28 @@ kind. The sweep must fail on each named kind and pass on every other kind.
 | M3. the refute row ignores the predicate | the split-plan and natural-course kinds | `split_plan`, `natural_course`, `natural_course_study` |
 | M4. `CTMLE` ignores an added covariate | the ordered kind | `ctmle_ordered` |
 | M5. `DRTMLE` keeps a companion that lacks a refit covariate | the companion kind | `drtmle_companion` |
-| M6. the refit slot ignores the preflight | three restored kinds | `restored_stratified`, `restored_v011`, `restored_unbounded_scale` |
+| M6. the refit slot ignores the preflight | three restored kinds | `restored_stratified`, `restored_v011`, `restored_unbounded_scale`, `restored_ctmle_clustered` |
 | M7. no class default for `split_plan` | the 0.1.1 kind | `restored_v011` |
 | M8. the benchmark row ignores the predicate | not planned | `split_plan` |
 | M9. the simulated-confounding row ignores the predicate | not planned | `policy_means`, `natural_course_study` |
 | M10. the omitted-variable table without `bound_parameters` | not planned | `natural_course_study` |
 
-The plan named five hand mutations. Commit 836c5247 ran H2, and its three cache tests failed with
-the generations set back to 10 and 5. H3 and H5 are committed monkeypatch tests:
-`test_a_mutation_that_ranks_the_noise_first_is_detected` and
-`test_an_unconditional_pointer_disagrees`.
+The delivery ran five hand mutations, H1 to H5, beside the sweep. The committed plan names none of
+them. The table gives each one.
 
-H1 and H4 ran at commit 3a9e429a, one at a time. Each run copied the source file to a backup with its sha256 and applied one mutation. It ran 903 tests
-in `test_capability_row_predicates.py`, `test_capability_row_sweep.py`,
-`test_assessment_contract.py`, `test_fold_policy_rules.py`, and `test_arm_indexed_stacked_mar.py`.
-Each run then restored the file, the restored file matched its hash, and `git status` was clean.
-
-| mutation | file | failures |
+| mutation | file | what failed |
 | --- | --- | --- |
-| H1. the `incremental` truncation rule never refuses | `positivity.py` | 9: six in the predicate file, the truncation cache test, and the two M2 pairs of the sweep, because M2 then restores no mismatch |
-| H4. the fold refusal raised as `ValueError`, with `_refit_configuration_refusal` returning `None` | `tmle.py` | 56: 24 in the predicate file, the three restored kinds of the unmutated sweep, and 29 mutation pairs of those kinds |
+| H1. the `incremental` truncation rule never refuses | `src/cleverly/sensitivity/positivity.py` | 9 tests: six in the predicate file, the truncation cache test, and the two M2 pairs of the sweep, because M2 then restores no mismatch |
+| H2. the cache generations set back to 10 and 5 | `src/cleverly/_assessment_cache.py` | the three cache tests of commit 836c5247, which wrote a stale tilt, truncation, and refute row |
+| H3. the noise column placed first in the refit ordering | `CTMLE._configured_for_refit`, patched in the test | the committed test `test_a_mutation_that_ranks_the_noise_first_is_detected` |
+| H4. the fold refusal raised as `ValueError`, with `_refit_configuration_refusal` returning `None` | `src/cleverly/estimators/tmle.py` | 56 tests: 24 in the predicate file, the three restored kinds of the unmutated sweep, and 29 mutation pairs of those kinds |
+| H5. the bound's pointer to the tilt printed on every response fit | `fit_wide_tilt_refusal` in `omitted_variable.py`, patched in the test | the committed test `test_an_unconditional_pointer_disagrees` |
+
+H1 and H4 ran at commit 3a9e429a, one at a time. Each run copied the source file to a backup with
+its sha256 and applied one mutation. It ran 903 tests in `test_capability_row_predicates.py`,
+`test_capability_row_sweep.py`, `test_assessment_contract.py`, `test_fold_policy_rules.py`, and
+`test_arm_indexed_stacked_mar.py`. Each run then restored the file, the restored file matched its
+hash, and `git status` was clean.
 
 The delivery departed from the plan in these places.
 
@@ -3338,7 +3359,7 @@ The delivery departed from the plan in these places.
 | the simulated-confounding row resolves each request, with M9 | on a study fit that adjusts for an encoded category, a combined report published "the operation declined this request" for a categorical benchmark covariate. Every planned kind fitted an estimator directly, so the row read `unavailable` for the whole fit, and the sweep could not reach a request |
 | the omitted-variable table gains `bound_parameters`, with M10 | the `natural_course_study` kind published five declined items. A probe found the same five on a ratio-only, a PAR or PAF, and a complete-outcome `ey_obs` fit |
 | the benchmark and simulated-confounding calls check a malformed argument before a refusal | this follows `test_an_unknown_name_is_reported_before_any_refusal`. A typo beside every covariate would otherwise hear the new refusal |
-| the plan's pointer mutation is a predicate test, not the sweep's M8 | the sweep's M8 is the benchmark gate |
+| the pointer mutation is the predicate test of H5, not a mutation of the sweep | the sweep's M8 is the benchmark gate |
 | the replay witness restores twelve results, not eleven | the list adds an unstratified 0.1.1-shaped cross-fitted control, whose refit runs |
 | the sweep calls `refute` with `n_replicates=1` and a refitting curve with one bound | a guarded DR-TMLE fit refits at each bound and at each refutation. The two DR-TMLE kinds take about 4 s each |
 | four test builders moved to a support module | two helpers imported private builders from test modules, which runs the top-level code of each module |
@@ -3398,6 +3419,13 @@ The fold preflight runs earlier, so a sample with no respondent in a training co
 | `respondents_in_one_fold()` from `tests/unit/test_fold_policy_rules.py`, `DRTMLE(cross_fit=True, n_folds=6, random_state=1146, q_bounds=(0, 1))`, at `guard=("Q", "g")` and at `guard=()` | `DataError` "cross-fitted DR-TMLE cannot fit its nuisances because repeat 0, fold 2's training complement contains no row with an observed outcome". The composition is refused at every sample, so the data error names a problem that no other sample would fix |
 | `binary_missing_frame()` from `tests/unit/test_cross_fitted_missing_off_contract.py`, `DRTMLE(cross_fit=True, n_folds=5, random_state=0)` with `NeverFit` learners | `guard=()` raises `NotImplementedError` "the published missing-outcome DR-TMLE theorem uses Donsker conditions and does not establish its cross-validated extension". `guard=("Q", "g")` raises the randomized-trial `NotImplementedError` first. `NeverFit.calls` is 0 in both |
 
+The RM23 review found two more consumers of this row. The table gives both.
+
+| finding | measured | what this row must do |
+| --- | --- | --- |
+| the refit replay slot reads a plain `ValueError` or `NotImplementedError` as a refusal | `TMLE._refit_configuration_refusal` runs the chain that `refit()` runs before a learner. `CTMLE._check_estimands` refuses `att` with a plain `ValueError`, and `DRTMLE._check_drtmle` raises `NotImplementedError`. Both run in that chain, before any learner | when this row moves those refusals to `CapabilityError`, narrow the catch of the slot to `CapabilityError` and `DataError` |
+| `refute()` checks `negative_control_outcome=` only when that test runs | on the `ordinary` kind of the RM23 sweep at commit adc1516d, `tests=("placebo", "negative_control_outcome")` with `n_replicates=3` and no outcome array raises `ValueError` after three placebo refits. The `refute` row reads `passed` for that request, and `assess(include_refits=True)` raises the same error after the same refits | check the missing array in `_validated_tests`, before any refusal and any refit, as the other malformed arguments are checked |
+
 [X8](#x8-stratified-incremental-and-msm-targeting) holds the stratified targeting construction,
 and [F6](#f6-mnar-and-incremental-intermediate-compositions) holds the incremental-intermediate
 composition. This row changes only when each refusal reaches the caller, and its type.
@@ -3410,6 +3438,7 @@ Apply these corrections:
 2. Keep each message, and its pointer to X8, F6, or F20.
 3. Search the other `NotImplementedError` and `ValueError` refusals in `src/cleverly/estimators/`
    for the same order. List each refusal that this row moves.
+4. Apply the two corrections of the RM23 review table above.
 
 The witnesses must fail when a component is wrong:
 
@@ -4544,8 +4573,11 @@ On a restored point result, a missing rule, density, or MSM declaration makes
 `retarget_cached_nuisances` and `refit_nuisances` false. On a restored longitudinal result, an
 undeclared regimen rule or MSM marker makes `refit_nuisances` false. The dependent assessment
 rows read `unavailable` with a declaration reason before a replay starts. A result whose
-functions passed their declarations retains its replay capability. [RM23](#rm23-capability-rows-that-read-available-and-then-refuse)
-still holds the other row mismatches and the saved fold-policy case.
+functions passed their declarations retains its replay capability.
+
+[RM23](#rm23-capability-rows-that-read-available-and-then-refuse) held the other row mismatches
+and the saved fold-policy case, and it delivered them. RM31 holds the inference status of a result
+saved under that fold policy.
 
 The review also assigns `DataError` before any learner to a zero-dimensional array or a mapping
 used as one regimen plan. The message for an array asks for one node per treatment time. The
@@ -4652,10 +4684,14 @@ records the published boundaries.
 
 ### RM31. Inference status of a saved stratified cross-fitted result
 
-Release 0.1.1 cross-fitted under `stratify_folds="treatment"` by default. This version refuses that
-policy, because no shipped result covers a partition read off the data that the fit then conditions
-on. The [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules)
-give the audit. A result that 0.1.1 saved under that policy still reports its interval.
+Releases 0.1.0 and 0.1.1 cross-fitted under `stratify_folds="treatment"` by default. Tag v0.1.0
+sets `cross_fit=True` and `stratify_folds="treatment"` in `TMLE.__init__`
+(`src/cleverly/estimators/tmle.py:371` and `:377`), and it has no `split_plan`. This version
+refuses that policy, because no shipped result covers a partition read off the data that the fit
+then conditions on. The
+[fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules) give
+the audit. A result that release 0.1.0 or 0.1.1 saved under that policy still reports its
+interval.
 
 The RM23 plan built the artifact with the source of tag v0.1.1: `TMLE` with `LinearRegression`,
 `LogisticRegression(max_iter=1000)`, `cross_fit=True`, `n_folds=2` and `random_state=0`, on
@@ -4675,9 +4711,11 @@ keeps the point estimates and withholds `ci`, `pvalue`, and `std_error`. The dec
 cover `"treatment+outcome"`.
 
 The witness saves a stratified cross-fitted result with the old entry rule restored in the test
-only, and loads it. It asserts the status and each withheld accessor. A mutation that skips the
-decision must fail. An unstratified cross-fitted result and an in-sample result that carries the
-same policy keep their intervals, because the in-sample fit draws no split.
+only, and loads it. It asserts the status and each withheld accessor. Both releases share the
+default and save no `split_plan`, so one witness covers a result that either release saved.
+
+A mutation that skips the decision must fail. An unstratified cross-fitted result and an in-sample
+result that carries the same policy keep their intervals, because the in-sample fit draws no split.
 
 ### RM32. Continuous-dose MSM fit with missing outcomes
 

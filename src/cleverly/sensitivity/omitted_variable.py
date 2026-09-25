@@ -1615,7 +1615,7 @@ def benchmark(
     CapabilityError
         If the result carries no fitted estimator, on every refusal
         :func:`sensitivity_elements` raises for the full fit or the short refit, and on
-        the refusal of :func:`benchmark_refusal`.  The full fit and the covariates are
+        the refusal of ``benchmark_refusal``.  The full fit and the covariates are
         checked before the refit runs.
     """
     names = _benchmark_names(result, covariates)

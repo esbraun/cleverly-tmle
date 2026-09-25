@@ -282,7 +282,7 @@ fit, and every row that needs the false slot reads `unavailable`.
 | omission code | replay boundary | slots |
 | --- | --- | --- |
 | `point_replay_function_declaration` | a saved regime or MSM function lacks an accepted known-function declaration | both slots read false |
-| `point_replay_refit_configuration` | this version refuses the saved estimator configuration before a refit. A stratified fold policy and a cross-fitted continuous outcome with `q_bounds=None` are such configurations | `refit_nuisances` reads false. `retarget_cached_nuisances` stays true, because the cached nuisances still retarget |
+| `point_replay_refit_configuration` | this version refuses the saved estimator configuration before a refit. The slot runs every check that `refit()` runs before a learner, including the design checks of an estimator subclass. A stratified fold policy, a cross-fitted continuous outcome with `q_bounds=None`, and a C-TMLE fit on clustered data are such configurations | `refit_nuisances` reads false. `retarget_cached_nuisances` stays true, because the cached nuisances still retarget |
 
 The second code reads the checks that `refit()` runs before its first learner. These are the fold
 policy and four data contracts. `TestTheRefitSlotReadsTheRefitPreflight` in

@@ -716,7 +716,8 @@ The table rule for `repeats=` runs last. A repeated fit that another rule also r
 other rule, because one split would not lift it.
 
 `nu2_estimator=` accepts `"auto"`, `"doubly_robust"`, and `"plugin"`. `"auto"` resolves to
-`"doubly_robust"`. A value outside those three raises `ValueError` before any refusal. A
+`"doubly_robust"`. A value outside those three raises `ValueError` before the table above refuses a
+fit. `benchmark()` checks two things before it, as the order below states. A
 `"doubly_robust"` estimate that is not positive raises `CapabilityError` and names the estimator.
 The package returns no plug-in value in its place, because the plug-in squares the same fitted
 representer. The plug-in estimator reports no confidence limits. The
@@ -736,15 +737,18 @@ against what that covariate was worth. `contour()` returns the grid a contour pl
 `benchmark()` is the only member of this group that refits. It reads the refusals above before it
 refits, so a refused fit pays for no second fit.
 
-`benchmark()` checks a request in this order, before the refit.
+`benchmark()` checks a request in this order, before the refit. The function and
+`result.sensitivity.benchmark()` both call `_benchmark_names` first, so a malformed name comes
+before every refusal.
 
 | order | request | what happens |
 | --- | --- | --- |
-| 1 | a result that holds no estimator | `CapabilityError` |
-| 2 | a covariate name that the fit does not adjust for | `DataError` |
+| 1 | a covariate name that the fit does not adjust for | `DataError` |
+| 2 | a result that holds no estimator | `CapabilityError` |
 | 3 | a `nu2_estimator` outside the three accepted values | `ValueError` |
 | 4 | a fit that the table above refuses | `CapabilityError` with that table's sentence |
-| 5 | every covariate of the fit | `CapabilityError` from `benchmark_refusal`. The short model would adjust for nothing, and no estimator here fits without a covariate |
+| 5 | an estimand that the bound does not cover, or that the fit did not report | `CapabilityError` from `resolve_parameter` |
+| 6 | every covariate of the fit | `CapabilityError` from `benchmark_refusal`. The short model would adjust for nothing, and no estimator here fits without a covariate |
 
 The `benchmark` capability row reads the same predicate for each request. On a fit with one
 covariate, the bare row reads `unavailable`, because no value runs. On a wider fit, the bare row
@@ -1389,8 +1393,8 @@ row reads it for each request, with the request's `benchmark_covariates` held fi
 | a malformed argument | unchanged. The call raises `ValueError` or `TypeError` |
 
 A malformed argument is a duplicate, non-string, or unknown covariate name, an unknown estimand, or
-a grid strength out of range. The call reports a malformed name before any parameter or
-calibration refusal.
+a grid strength out of range. A request on a continuous fit that names no policy parameter is
+malformed too. The call reports a malformed name before any parameter or calibration refusal.
 `TestTheSimulatedConfoundingRowResolvesEachRequest` in
 `tests/unit/test_capability_row_predicates.py` checks four study fits.
 
@@ -1636,8 +1640,10 @@ estimator. `TestAnAddedCovariateGoesAfterTheDeclaredOrdering` and
 check both cases.
 
 `refute_refusal` in `validation/refute.py` holds every refusal of a request before any refit.
-`refute()` first checks its argument values. An unknown test name and an invalid `n_replicates`
-raise `ValueError`. It then raises the first refusal of this table as `CapabilityError`.
+`refute()` first checks its argument values with `_validated_tests`. An unknown test name and an
+invalid `n_replicates` raise `ValueError`. `result.diagnostics.refute()` runs the same check before
+it reads its capability row. The call then raises the first refusal of this table as
+`CapabilityError`.
 
 | order | rule | refuses |
 | --- | --- | --- |
@@ -1645,6 +1651,18 @@ raise `ValueError`. It then raises the first refusal of this table as `Capabilit
 | 2 | `estimand` | an estimand that the fit did not report |
 | 3 | `placebo_level` | `placebo` on `NaturalCourseMean` |
 | 4 | `row_set_under_plan` | `subset` or `bootstrap_measurement_error` on a fit given `split_plan=` |
+| 5 | `generated_rule` | a generated-outcome test under a rule that is not exactly `EmpiricalInclusionRule` |
+| 6 | `generated_eligibility` | a generated-outcome test whose fit, estimand, or process has no derivation, such as a direct fit that records no identification |
+| 7 | `measurement_declaration` | `bootstrap_measurement_error` without exactly a `BootstrapMeasurementError` declaration |
+| 8 | `measurement_rule` | `bootstrap_measurement_error` under a rule that is not exactly `EmpiricalInclusionRule` |
+| 9 | `measurement_eligibility` | a measurement-error declaration that the data of the fit cannot carry |
+| 10 | `measurement_budget` | a `bootstrap_measurement_error` draw count below the floor of its rule |
+| 11 | `generated_budget` | a generated-outcome draw count below the floor of its rule |
+
+Rules 6 and 9 call the validators that the tests run, so the table copies no check. One check
+stays outside the table. A `negative_control_outcome` request without an outcome array raises
+`ValueError` when that test runs, after the earlier tests refit.
+[RM24](../roadmap.md#rm24-refusals-after-the-nuisance-fit) holds it.
 
 The `refute` capability row reads the same table for each request. An omitted `tests` means the
 default tests. When the default tests meet a refusal and a single default test runs, the row reads

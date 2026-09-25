@@ -252,7 +252,7 @@ def missingness_tilt(
     ``gamma`` throughout unless ``arm_gamma=`` says otherwise.  Only defined for a fit
     that supplied ``delta``; without missing outcomes there is nothing to tilt.
 
-    Refuses first by :func:`fit_wide_tilt_refusal`, which the capability rows read too.  It
+    Refuses first by ``fit_wide_tilt_refusal``, which the capability rows read too.  It
     refuses a longitudinal result, a missing-outcome ``NaturalCourseMean`` fit, a fit with
     no missing outcome, a continuous dose, an incremental fit, and a fit that reports no
     arm-indexed mean or linear contrast, such as a regime, an MSM, or a ratio-only fit.
@@ -493,7 +493,7 @@ def tipping_gamma(
     conclusion, which is what makes one scalar still meaningful when the arms are tilted
     by different amounts.
 
-    Refuses first by :func:`fit_wide_tilt_refusal`, the table :func:`missingness_tilt`
+    Refuses first by ``fit_wide_tilt_refusal``, the table :func:`missingness_tilt`
     reads, because it searches over that same tilt.  The capability row quotes the same
     sentence.
 

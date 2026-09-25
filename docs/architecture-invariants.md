@@ -341,6 +341,10 @@ request the caller can replay. A non-deterministic operation replays only with t
 would have used. A row this fit refuses outright records no arguments, and that is the one
 exception. It describes no invocation, so a seed on it names a draw that nothing ever took.
 
+A row that the request refuses differs from the row that the fit alone gives. It records the
+request's arguments with the signature defaults bound. It carries no next step, because its
+sentence names the refused value.
+
 A missing required argument or cost opt-in is `deferred`, because the caller can make the operation
 run. A missing method, derivation, replay artifact, or supported requested variant is `unavailable`.
 An invoked operation that raises a capability refusal is also unavailable.
@@ -386,10 +390,11 @@ The helper `_argument_resolved` applies this rule to four rows: `truncation_curv
 other request unchanged. A fit-wide refusal stays in one ordered table, which the row and every
 entry point read.
 
-The sweep in `tests/unit/test_capability_row_sweep.py` asks every row of 29 kinds of fit. Each row
-that a request resolves as available must run, and no row may decline or stay deferred. Ten
-committed mutations, M1 to M10, each make the sweep fail on the kinds they name, and on no other
-kind. An unchanged control, M0, passes.
+The sweep in `tests/unit/test_capability_row_sweep.py` asks every row of each kind of fit in
+`KINDS`. Each row that a request resolves as available must run, and no row may decline or stay
+deferred. Each committed mutation in `MUTATIONS` makes the sweep fail on the kinds that it names,
+and on no other kind. On each named kind, one problem matches the signature of the mutation. An
+unchanged control, M0, passes.
 
 Availability is authoritative before execution. Each capability row names the `Replayability` field
 it needs in `requires_replay`, and the shared base applies that gate to every row. A facade may not
@@ -398,11 +403,15 @@ on a result that carries no estimator.
 
 A replay slot reads the checks that its call runs before any learner. The slot `refit_nuisances`
 reads `TMLE._refit_configuration_refusal`. That method runs `_configured_for_refit` and then
-`_resolve_estimands_for_data` with every subclass override, without a fit. A result saved under a
-configuration that this version refuses therefore keeps `retarget_cached_nuisances` and loses
-`refit_nuisances`, with the code `point_replay_refit_configuration`. A refit that adds a covariate
-asks the estimator for its configuration through `_configured_for_refit`. An override of that hook
-returns a copy, so a refit never changes the fitted estimator.
+`_resolve_estimands_for_data` with every subclass override, without a fit. The chain fits
+nothing, so the method reads each `ValueError` and `NotImplementedError` of the chain as a
+refusal. A subclass design check can raise a plain `ValueError`, as `CTMLE` does for `att`.
+[RM24](roadmap.md#rm24-refusals-after-the-nuisance-fit) records that type.
+
+A result saved under a configuration that this version refuses keeps `retarget_cached_nuisances`
+and loses `refit_nuisances`, with the code `point_replay_refit_configuration`. Every refit asks
+`_configured_for_refit` for the estimator that it fits, and an override adapts it for an added
+covariate. The override returns a copy, so a refit never changes the fitted estimator.
 
 Repeated-sampling studies retain one structured `ReplicationRecord` per estimand and a
 `ReplicationFailure` with replicate index, seed, exception type, and message for every failed

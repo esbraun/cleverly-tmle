@@ -1423,7 +1423,7 @@ def truncation_curve(
         for exactly the same reason -- and it is the one that goes unexamined, because
         it has no familiar name.  Requires a fit with ``delta=`` or ``intermediate=``.
         An incremental fit refuses the ``g(W)`` axis, including the default, because its
-        estimand contains ``g``.  :func:`truncation_refusal` states every refusal, and
+        estimand contains ``g``.  ``truncation_refusal`` states every refusal, and
         the capability row reads it too.
 
         Note what the curve does and does not show.  Truncating a mechanism cannot move

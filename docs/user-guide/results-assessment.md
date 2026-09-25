@@ -301,6 +301,17 @@ request. A sensitivity analysis needs no argument when the fit reports exactly o
 parameter, because it supplies that name for you. `refute()` supplies no name, so its row defers
 for one eligible parameter as well.
 
+Four rows can also defer on another argument. The row defers when the call refuses the default
+value and another value runs. It reads `unavailable` when no value runs. The row quotes the
+sentence that the call raises.
+
+| operation | argument | the row defers when |
+| --- | --- | --- |
+| `refute()` | `tests` | the fit refuses one default test and admits another, such as `subset` on a fit given `split_plan=` |
+| `truncation_curve()` | `mechanism` | the fit refuses the default axis and admits the other, such as the treatment axis of an incremental fit with missing outcomes |
+| `benchmark()` | `covariates` | always, because the call needs the argument. A fit with one covariate reads `unavailable`, because the call cannot drop every covariate |
+| `simulated_confounding()` | `estimand` | the call refuses the default estimand, and another estimand that the fit reports runs |
+
 An expected refusal after invocation becomes `unavailable`. An estimand you name that the fit never
 reported is such a refusal. The aggregate run then continues with other accepted diagnostics.
 Direct calls still raise the precise refusal. `not_applicable` and `unavailable` also appear in
@@ -308,12 +319,16 @@ Direct calls still raise the precise refusal. `not_applicable` and `unavailable`
 
 Known omissions carry the capability's reason. Examples include an E-value without a supported
 contrast and a missingness analysis without missing outcomes. Such a row records no arguments,
-because the fit refuses it before the report considers your request.
+because the fit refuses it before the report considers your request. A row that your request
+refuses is different. It records your arguments with the signature defaults filled in, and its
+reason names the refused value. An example is `truncation_curve` with `mechanism=False` on an
+incremental fit with missing outcomes.
 
 An operation can also refuse after invocation, such as omitted-confounding sensitivity when the
 doubly robust $\nu^2$ is not positive. That row becomes an `unavailable` omission, retains its
 invocation arguments, and names the direct call. Other accepted diagnostics still run. Structural
-errors, such as invalid argument names, still stop the report.
+errors still stop the report. Examples are an invalid argument name, an unknown `refute` test,
+and an unknown `benchmark` covariate. A direct call raises the same error.
 
 A combined report runs summaries and cheap retargets by default. The two costlier classes are
 named separately because they are disjoint. `refute()` and `benchmark()` refit nuisance models.
@@ -891,12 +906,14 @@ Older longitudinal MSM results also lack saved declaration evidence. Their point
 available, but inference and truncation replay require a new fit with fixed functions declared known.
 
 A restored result can also carry an estimator configuration that this version refuses before a
-refit. A stratified fold policy and a cross-fitted continuous outcome with `q_bounds=None` are
-examples. The table gives what such a result keeps.
+refit. A stratified fold policy, a cross-fitted continuous outcome with `q_bounds=None`, and a
+C-TMLE fit on clustered data are examples. The `refit_nuisances` slot runs every check that
+`refit()` runs before a learner, so a design refusal of an estimator subclass counts too. The table
+gives what such a result keeps.
 
 | operation | on such a result |
 | --- | --- |
-| point estimates and cached-nuisance retargets, such as `truncation_curve()` | run. `replayability.retarget_cached_nuisances` is `True` |
+| point estimates and cached-nuisance retargets, such as `truncation_curve()` | run. `replayability.retarget_cached_nuisances` is `True`. A guarded DR-TMLE fit is the exception: its `truncation_curve` row needs `refit_nuisances`, so it reads `unavailable` |
 | refits, such as `refute()` and `simulated_confounding()` | `unavailable`. `replayability.refit_nuisances` is `False`, with the code `point_replay_refit_configuration` |
 | `estimator.refit()` | raises `CapabilityError` before any learner |
 

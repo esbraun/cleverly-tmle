@@ -2598,7 +2598,7 @@ class DiagnosticsFacade(_CapabilityFacade):
         CapabilityError
             If the requested curve changes the estimand, names an axis the fit does not
             have, or cannot be replayed. The sentence is the one
-            :func:`~cleverly.sensitivity.positivity.truncation_refusal` returns. A
+            ``cleverly.sensitivity.positivity.truncation_refusal`` returns. A
             longitudinal result also refuses an omitted ``bounds`` grid and
             ``mechanism=True``, which are the two requests its contract above has no answer
             to.
