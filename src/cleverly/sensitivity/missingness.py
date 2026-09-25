@@ -60,7 +60,7 @@ say which of the two an interval crossing came from.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -101,9 +101,144 @@ DEFAULT_GAMMA_GRID: tuple[float, ...] = (
 )
 
 
-def _refuse_natural_course(result: TMLEResult) -> None:
-    if is_natural_course_fit(result):
-        raise CapabilityError(NATURAL_COURSE_TILT_REFUSAL)
+def _refuse_longitudinal(result: Any) -> str | None:
+    """Refuse any assessment family but ``point``.
+
+    First in the table, and not by taste: :class:`~cleverly.longitudinal.LongitudinalData`
+    declares no ``has_missing_outcome``, so a later rule would raise ``AttributeError`` on
+    a longitudinal result instead of refusing it.  The sentence is byte-identical to the
+    one the capability rows published before this table existed, because two example
+    notebooks print it.
+    """
+    if getattr(result, "assessment_family", None) != "point":
+        return "no longitudinal missingness-tilt adapter is implemented"
+    return None
+
+
+def _refuse_natural_course(result: Any) -> str | None:
+    """Refuse the missing-outcome natural-course mean, which is not indexed by arm."""
+    return NATURAL_COURSE_TILT_REFUSAL if is_natural_course_fit(result) else None
+
+
+def _refuse_complete_outcome(result: Any) -> str | None:
+    """Refuse a fit with no missing outcome, which has no observation mechanism to tilt.
+
+    The one rule whose row reads ``not_applicable`` rather than ``unavailable``: the
+    question has no subject on this fit, whereas every other rule names a derivation the
+    package does not have.  It reads the data flag that the omitted-variable bound's
+    response rule reads, so the fit the bound sends to the tilt is a fit this rule admits.
+    """
+    if result.data.has_missing_outcome:
+        return None
+    return (
+        "the identified functional has no observation mechanism: missingness_tilt requires "
+        "a fit with missing outcomes. Pass delta=<column> to fit() so the missingness "
+        "mechanism is estimated."
+    )
+
+
+def _refuse_continuous(result: Any) -> str | None:
+    """Refuse a continuous dose, whose plug-in reads ``Qbar`` at a policy's dose."""
+    if not result.data.is_continuous_treatment:
+        return None
+    return (
+        "missingness_tilt is written for the arm-indexed estimands; this fit declared "
+        "a continuous dose with shifts= and reports ey_shift/ate_shift. The tilt "
+        "re-mixes the targeted Qbar at each arm under a moved missingness mechanism, "
+        "and a shift's plug-in is Qbar at the dose the policy assigns rather than at "
+        "an arm -- so the tilt would have to move pi at that dose too, and whether "
+        "the tilted parameter is still the shift parameter under a non-ignorable "
+        "mechanism has not been derived here. Use "
+        "truncation_curve(mechanism=True) for sensitivity to the missingness bound, "
+        "or diagnostics.support() for the overlap question."
+    )
+
+
+def _refuse_incremental(result: Any) -> str | None:
+    """Refuse an incremental fit, whose targeting also solves a score in ``g``."""
+    if result.nuisance.incremental is None:
+        return None
+    return (
+        "missingness_tilt is written for the arm-indexed estimands; this fit declared "
+        "incremental interventions and reports ey_ipsi/ate_ipsi. The tilt reweights a "
+        "targeted Qbar under a moved missingness mechanism, and on this axis the "
+        "targeting is two alternating score equations rather than one -- the second "
+        "lives in the tangent space of g, which the tilt does not move but which the "
+        "alternation re-solves against a Qbar that has. Whether the tilted parameter "
+        "is that alternation's fixed point has not been derived, so reporting a curve "
+        "would be guessing. Use diagnostics.support() for the overlap question, or "
+        "truncation_curve(mechanism=True) for sensitivity to the missingness bound."
+    )
+
+
+def _refuse_untiltable_parameters(result: Any) -> str | None:
+    """Refuse a fit that reports no parameter the tilt can re-mix.
+
+    The tilt re-mixes the arm-indexed means and their linear contrasts, which
+    :func:`~cleverly.sensitivity._parameters.arm_parameters` names.  A regime, an MSM,
+    or a ratio-only fit reports none of them, and before this rule its row read
+    available while every call refused with "no tiltable estimands requested".  A fit
+    that reports at least one keeps the rule silent, and the default sweep skips the
+    rest as it always has.
+    """
+    tiltable = arm_parameters(result)
+    if any(name in result.estimates for name in tiltable):
+        return None
+    return (
+        "missingness_tilt re-mixes the arm-indexed means and their linear contrasts, "
+        f"and this fit reports none of them: {sorted(result.estimates)}. A ratio, a "
+        "regime mean, and an MSM coefficient have no derived tilt."
+    )
+
+
+#: Every missingness-tilt refusal that no argument of the call can lift, in the one order
+#: the two entry points and the two capability rows use.  The table is ordered, and each
+#: rule assumes its predecessors returned ``None``: ``longitudinal`` establishes that the
+#: result carries point-treatment ``data``, which every later rule reads, and
+#: ``missing_outcome`` establishes the observation mechanism that the arm-indexed rules
+#: after it would tilt.  The names are the introspection contract: the capability row
+#: reads the name to choose its status, and a test pins the order without respelling a
+#: message.
+_FIT_WIDE_TILT_RULES: tuple[tuple[str, Callable[[Any], str | None]], ...] = (
+    ("longitudinal", _refuse_longitudinal),
+    ("natural_course", _refuse_natural_course),
+    ("missing_outcome", _refuse_complete_outcome),
+    ("continuous", _refuse_continuous),
+    ("incremental", _refuse_incremental),
+    ("tiltable_parameters", _refuse_untiltable_parameters),
+)
+
+
+def _fit_wide_tilt_rule(result: Any) -> tuple[str, str] | None:
+    """The first rule of :data:`_FIT_WIDE_TILT_RULES` that refuses, with its reason."""
+    for name, rule in _FIT_WIDE_TILT_RULES:
+        reason = rule(result)
+        if reason is not None:
+            return name, reason
+    return None
+
+
+def fit_wide_tilt_refusal(result: Any) -> str | None:
+    """Return the first missingness-tilt refusal that applies to the whole fit.
+
+    Every boundary in :data:`_FIT_WIDE_TILT_RULES` is reachable from capability reporting
+    and from execution, and no argument of the call can change its verdict.  One helper
+    answers both callers, so a fit the tilt refuses is never advertised as available.
+    Request-specific checks, a conditional stratum named in ``estimands=`` and an
+    explicit request with no tiltable name, stay in :func:`missingness_tilt`.
+
+    Parameters
+    ----------
+    result : Any
+        Fitted result inspected by this module or by its assessment facade.
+
+    Returns
+    -------
+    str or None
+        Exact refusal reason, or ``None`` when no fit-wide boundary applies.
+    """
+    rule = _fit_wide_tilt_rule(result)
+    return None if rule is None else rule[1]
 
 
 def missingness_tilt(
@@ -120,9 +255,12 @@ def missingness_tilt(
     ``gamma`` throughout unless ``arm_gamma=`` says otherwise.  Only defined for a fit
     that supplied ``delta``; without missing outcomes there is nothing to tilt.
 
-    Refuses a missing-outcome ``NaturalCourseMean`` fit.  The tilt above is arm-specific,
-    and that target is not indexed by arm, so it needs a natural-course sensitivity
-    parameter that is not implemented.
+    Refuses first by :func:`fit_wide_tilt_refusal`, which the capability rows read too.  It
+    refuses a longitudinal result, a missing-outcome ``NaturalCourseMean`` fit, a fit with
+    no missing outcome, a continuous dose, an incremental fit, and a fit that reports no
+    arm-indexed mean or linear contrast, such as a regime, an MSM, or a ratio-only fit.
+    The natural-course target is not indexed by arm, so it needs a natural-course
+    sensitivity parameter that is not implemented.
 
     A fit whose inference status supplies no inference, such as a selector-path
     ``CTMLE`` fit, receives ``plugin_std_err``,
@@ -155,37 +293,10 @@ def missingness_tilt(
         One row per ``(gamma, estimand)``, with one ``gamma[<level>]`` column per
         arm giving the tilt that arm received.
     """
-    _refuse_natural_course(result)
+    refusal = fit_wide_tilt_refusal(result)
+    if refusal is not None:
+        raise CapabilityError(refusal)
     data = result.data
-    if not data.has_missing_outcome:
-        raise CapabilityError(
-            "missingness_tilt requires a fit with missing outcomes. Pass delta=<column> to "
-            "fit() so the missingness mechanism is estimated."
-        )
-    if data.is_continuous_treatment:
-        raise CapabilityError(
-            "missingness_tilt is written for the arm-indexed estimands; this fit declared "
-            "a continuous dose with shifts= and reports ey_shift/ate_shift. The tilt "
-            "re-mixes the targeted Qbar at each arm under a moved missingness mechanism, "
-            "and a shift's plug-in is Qbar at the dose the policy assigns rather than at "
-            "an arm -- so the tilt would have to move pi at that dose too, and whether "
-            "the tilted parameter is still the shift parameter under a non-ignorable "
-            "mechanism has not been derived here. Use "
-            "truncation_curve(mechanism=True) for sensitivity to the missingness bound, "
-            "or diagnostics.support() for the overlap question."
-        )
-    if result.nuisance.incremental is not None:
-        raise CapabilityError(
-            "missingness_tilt is written for the arm-indexed estimands; this fit declared "
-            "incremental interventions and reports ey_ipsi/ate_ipsi. The tilt reweights a "
-            "targeted Qbar under a moved missingness mechanism, and on this axis the "
-            "targeting is two alternating score equations rather than one -- the second "
-            "lives in the tangent space of g, which the tilt does not move but which the "
-            "alternation re-solves against a Qbar that has. Whether the tilted parameter "
-            "is that alternation's fixed point has not been derived, so reporting a curve "
-            "would be guessing. Use diagnostics.support() for the overlap question, or "
-            "truncation_curve(mechanism=True) for sensitivity to the missingness bound."
-        )
     if result.nuisance.missingness is None:  # pragma: no cover - guarded above
         raise CapabilityError("missingness_tilt requires a fitted missingness mechanism")
 
@@ -389,8 +500,9 @@ def tipping_gamma(
     conclusion, which is what makes one scalar still meaningful when the arms are tilted
     by different amounts.
 
-    Refuses a missing-outcome ``NaturalCourseMean`` fit, for the reason
-    :func:`missingness_tilt` gives: it searches over that same arm-specific tilt.
+    Refuses first by :func:`fit_wide_tilt_refusal`, the table :func:`missingness_tilt`
+    reads, because it searches over that same tilt.  The capability row quotes the same
+    sentence.
 
     Refuses ``use_ci=True`` on a fit whose inference status supplies no inference, such
     as a selector-path ``CTMLE`` fit. Such a fit supplies no confidence limit for the
@@ -422,7 +534,9 @@ def tipping_gamma(
         The nearest detected tilt at which the conclusion crosses its null, or ``None``
         when the search detects no crossing.
     """
-    _refuse_natural_course(result)
+    refusal = fit_wide_tilt_refusal(result)
+    if refusal is not None:
+        raise CapabilityError(refusal)
     import narwhals as nw
     from scipy import optimize
 

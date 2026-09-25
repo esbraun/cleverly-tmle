@@ -93,11 +93,11 @@ from ..exceptions import CapabilityError, refuse_inference, repeats_refusal
 from ..inference.cluster import influence_variance
 from ..inference.influence import spread_name
 from ..targets import parameter_stem
-from ..targets.population_intervention import is_natural_course_fit
 from ..utils.bounds import g_bounds_for
 from ..utils.random import resolve_assessment_seed
 from ..utils.text import format_table
 from ._parameters import ArmParameter, arm_parameters, stratum_refusal
+from .missingness import fit_wide_tilt_refusal
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators._nuisance import RepeatFit
@@ -279,9 +279,10 @@ _REPEATS_REASON = (
 )
 
 #: Appended to the response refusal on a fit that can still run the tilt.  A
-#: natural-course fit cannot: both tilt rows are unavailable there
-#: (:data:`~cleverly.targets.population_intervention.NATURAL_COURSE_TILT_REFUSAL`), so
-#: the pointer would send the reader to a second refusal.
+#: natural-course, shift, incremental, regime, MSM, or ratio-only fit cannot: both tilt
+#: rows are unavailable there
+#: (:func:`~cleverly.sensitivity.missingness.fit_wide_tilt_refusal`), so the pointer would
+#: send the reader to a second refusal.
 _RESPONSE_TILT_POINTER = (
     " The missingness tilt remains the sensitivity analysis for response: call "
     "sensitivity.missingness() or sensitivity.tipping_gamma()."
@@ -318,19 +319,23 @@ def _refuse_response_mechanism(result: Any) -> str | None:
     """Refuse a fit whose outcome is unobserved on some rows.
 
     The predicate is the data flag ``has_missing_outcome``, which the missingness-tilt
-    rows read too, so a fit this rule refuses is the fit those rows offer the tilt on.
+    table reads too, so every fit those rows offer the tilt on is a fit this rule refuses.
     It reads the data rather than a fitted missingness nuisance on one repeat, because a
     response mechanism is a property of the identified functional and survives a
     replacement of the stored nuisances.  The sibling surface
     :mod:`~cleverly.sensitivity._simulated_confounding_request` reads the same flag for
     the same boundary.  ``result.data`` has no default here, so a result without
     point-treatment data raises ``AttributeError`` rather than reporting no mechanism.
+
+    The sentence points at the tilt only when
+    :func:`~cleverly.sensitivity.missingness.fit_wide_tilt_refusal` admits the fit, which
+    is the predicate both tilt rows read.  Any other test, such as the natural-course
+    check this rule once made alone, sends a shift or a regime fit to a tilt that refuses.
     """
     if not result.data.has_missing_outcome:
         return None
-    if is_natural_course_fit(result):
-        return _RESPONSE_BOUND_REFUSAL
-    return _RESPONSE_BOUND_REFUSAL + _RESPONSE_TILT_POINTER
+    pointer = _RESPONSE_TILT_POINTER if fit_wide_tilt_refusal(result) is None else ""
+    return _RESPONSE_BOUND_REFUSAL + pointer
 
 
 def _refuse_intermediate(result: Any) -> str | None:

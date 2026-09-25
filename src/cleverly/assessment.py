@@ -35,7 +35,6 @@ from .exceptions import CapabilityError, DataError, inference_refusal
 from .inference.influence import spread_name
 from .targets.population_intervention import (
     NATURAL_COURSE_SUPPORT_REFUSAL,
-    NATURAL_COURSE_TILT_REFUSAL,
     is_natural_course_fit,
 )
 from .utils.frames import emit_frame
@@ -3404,14 +3403,26 @@ class SensitivityFacade(_CapabilityFacade):
     #: defer the row.
     _substitutes_estimand = True
 
+    def _tilt_rule(self) -> tuple[str, str] | None:
+        """The first fit-wide tilt rule that refuses this result, with its reason.
+
+        One seam over :func:`~cleverly.sensitivity.missingness._fit_wide_tilt_rule`, which
+        ``missingness_tilt`` and ``tipping_gamma`` raise from.  Both tilt rows read it, so
+        a test that replaces it proves that the rows follow the predicate rather than a
+        flag of their own.
+        """
+        from .sensitivity.missingness import _fit_wide_tilt_rule
+
+        return _fit_wide_tilt_rule(self._result)
+
     @cached_property
     def _declared(self) -> tuple[AssessmentCapability, ...]:
         family = _family(self._result)
         longitudinal = family == "longitudinal"
-        # The data flag the bound's response rule reads too, so the fit the bound
-        # refuses for its response mechanism is the fit offered the tilt.
-        missing = False if longitudinal else bool(self._result.data.has_missing_outcome)
-        natural_course = missing and is_natural_course_fit(self._result)
+        # The two tilt rows read the table both tilt entry points raise from.  Its
+        # ``missing_outcome`` rule reads the data flag the bound's response rule reads, so
+        # every fit offered the tilt is a fit the bound refuses for its response mechanism.
+        tilt_rule = self._tilt_rule()
         # ``simulated_confounding`` refuses the bare ``ate`` default on a continuous fit.
         # A binary arm, fixed-regime, incremental, or MSM fit can use the facade's sole-
         # parameter substitution. Several eligible aliases require an explicit choice.
@@ -3476,11 +3487,19 @@ class SensitivityFacade(_CapabilityFacade):
         def tilt(operation: str, *, interpretation: str) -> AssessmentCapability:
             """The two MNAR analyses, which share every field but their interpretation.
 
-            Three cases, not two.  A point fit that *has* a missingness mechanism can run
-            the tilt; one that has none is answering a question about a functional with no
-            observation mechanism in it, which is ``not_applicable``; and a longitudinal
-            fit is refused because no adapter has been derived, which is ``unavailable``.
+            Three cases, not two.  A fit the tilt table admits can run the tilt.  A fit
+            with no missing outcome is answering a question about a functional with no
+            observation mechanism in it, which is ``not_applicable``.  Every other rule
+            names a derivation the package does not have, which is ``unavailable``.  The
+            reason is the sentence the call raises, so the row cannot advertise a fit the
+            call then refuses.
             """
+            if tilt_rule is None:
+                status = AssessmentStatus.PASSED
+            elif tilt_rule[0] == "missing_outcome":
+                status = AssessmentStatus.NOT_APPLICABLE
+            else:
+                status = AssessmentStatus.UNAVAILABLE
             return _capability(
                 operation,
                 family,
@@ -3488,23 +3507,9 @@ class SensitivityFacade(_CapabilityFacade):
                 execution="retarget",
                 cost="moderate",
                 interpretation=interpretation,
-                available=missing and not natural_course,
-                status=(
-                    AssessmentStatus.PASSED
-                    if missing and not natural_course
-                    else AssessmentStatus.UNAVAILABLE
-                    if longitudinal or natural_course
-                    else AssessmentStatus.NOT_APPLICABLE
-                ),
-                reason=(
-                    None
-                    if missing and not natural_course
-                    else NATURAL_COURSE_TILT_REFUSAL
-                    if natural_course
-                    else "no longitudinal missingness-tilt adapter is implemented"
-                    if longitudinal
-                    else "the identified functional has no observation mechanism"
-                ),
+                available=tilt_rule is None,
+                status=status,
+                reason=None if tilt_rule is None else tilt_rule[1],
             )
 
         return (
