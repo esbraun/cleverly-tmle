@@ -4948,8 +4948,9 @@ raised `TypeError`, because the field and the constructor argument had different
 property under the field's own name would make `repr()`, equality, `hash()`, `asdict()` and
 `replace()` raise on a withheld entry, as a 2026-09-25 probe of that shape showed. So the entry keeps
 the field shape of release 0.1.1, and it withholds the value as `None`. `SensitivityBounds` has
-the same `replace()` defect since commit ee5a77fc. Its limits refuse through documented accessors,
-so this delivery leaves it as it is.
+the same `replace()` defect since commit bcf1a486 of the RM20 review. `git tag --contains` names no
+tag for that commit, so no release has the defect. This delivery leaves it as it is, and a separate
+pull request fixes it.
 
 A split plan saved without a generator record also carries folds with no origin. The point-treatment
 rule does not read folds, and `LTMLE` takes no split plan, so neither rule reads such a plan. Such
