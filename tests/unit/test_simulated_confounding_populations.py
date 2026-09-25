@@ -820,11 +820,11 @@ def test_the_facade_refuses_a_conditional_alias_it_never_advertised(
 ) -> None:
     """The facade still reaches the guard, and the guard names the estimator boundary.
 
-    The stand-in fits in sample. A default ``CTMLE`` cross-fits, and this continuous
-    outcome declares no ``q_bounds``, so its refit is refused and, since RM23, the
-    replay gate refuses the row before the guard.
+    The stand-in's refit has to pass its preflight, or the replay gate refuses the row
+    before the guard. So it fits in sample, because this continuous outcome declares no
+    ``q_bounds``, and it requests ``ate``, because ``CTMLE`` refuses ``att``.
     """
-    stand_in = CTMLE(strategy="greedy", cross_fit=False)
+    stand_in = CTMLE(strategy="greedy", cross_fit=False, estimands=("ate",))
     result = replace(_fit_population("att", strata=False), estimator=stand_in)
     _forbid_draw_and_refit(monkeypatch, result.estimator)
     assert _eligible_binary_parameter_names(result) == ()

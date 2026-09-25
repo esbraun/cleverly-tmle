@@ -33,6 +33,7 @@ from cleverly.assessment import (
     SensitivityFacade,
     replayability,
 )
+from cleverly.data import CausalData
 from cleverly.datasets import (
     make_binary_outcome,
     make_clustered,
@@ -409,6 +410,24 @@ def unbounded_scale() -> Any:
     return restored(estimator.fit(frame, outcome="Y", treatment="A").single(), q_bounds=None)
 
 
+def restored_ctmle_clustered() -> Any:
+    """An in-sample outcome-adaptive collaborative fit of clustered data, saved and loaded.
+
+    Release 0.1.1 fitted C-TMLE on clustered data, and this version refuses that design in
+    the collaborative override of the refit preflight alone. The outcome-adaptive strategy
+    meets no fold-policy refusal first. The fit adjusts for ``W1`` and ``W2``, and the
+    restored result carries the same rows with ``cluster`` as their id, as the data of such
+    a saved result does.
+    """
+    frame, _ = make_clustered(n=400, cluster_size=10, seed=7)
+    estimator = linear_ctmle("oat", estimands=("ate",))
+    fitted = estimator.fit(frame, outcome="Y", treatment="A", covariates=("W1", "W2")).single()
+    clustered = CausalData.from_frame(
+        frame, outcome="Y", treatment="A", covariates=("W1", "W2"), id="cluster"
+    )
+    return loads(dumps(dataclasses.replace(fitted, data=clustered)))
+
+
 def restored_stratified() -> Any:
     """The two-fold cross-fitted fit restored under ``stratify_folds="treatment"``."""
     return restored(cross_fitted(), stratify_folds="treatment")
@@ -544,9 +563,8 @@ def _kind(build: Callable[[], Any], *must_run: str, live: bool = True) -> Kind:
 _POINT = ("refute", "truncation_curve")
 _TILT = ("missingness", "tipping_gamma")
 
-#: One kind of fit per name. The first 16 are the kinds of the 2026-09-22 RM23 probe. The
-#: next seven are the siblings the plan's probes found, then two study fits, three restored
-#: results whose refit this version refuses, and one longitudinal fit.
+#: One kind of fit per name: live point fits, two study fits, restored results whose refit
+#: this version refuses, and one longitudinal fit.
 KINDS: dict[str, Kind] = {
     "ordinary": _kind(fit_ordinary, *_POINT),
     "binary": _kind(fit_binary, *_POINT),
@@ -576,6 +594,7 @@ KINDS: dict[str, Kind] = {
     "restored_stratified": _kind(restored_stratified, "truncation_curve", live=False),
     "restored_v011": _kind(restored_v011, "truncation_curve", live=False),
     "restored_unbounded_scale": _kind(unbounded_scale, "truncation_curve", live=False),
+    "restored_ctmle_clustered": _kind(restored_ctmle_clustered, "truncation_curve", live=False),
     "ltmle": _kind(fit_ltmle, "truncation_curve"),
 }
 
@@ -838,7 +857,14 @@ MUTATIONS: dict[str, Mutation] = {
     "M6": Mutation(
         "the refit slot ignores the refit preflight",
         lambda patch: patch.setattr(TMLE, "_refit_configuration_refusal", lambda self, data: None),
-        frozenset({"restored_stratified", "restored_v011", "restored_unbounded_scale"}),
+        frozenset(
+            {
+                "restored_stratified",
+                "restored_v011",
+                "restored_unbounded_scale",
+                "restored_ctmle_clustered",
+            }
+        ),
     ),
     "M7": Mutation(
         "no class default for split_plan",

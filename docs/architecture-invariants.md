@@ -393,12 +393,12 @@ patch one row by name. `refute` read its slot only while running, and so reporte
 on a result that carries no estimator.
 
 A replay slot reads the checks that its call runs before any learner. The slot `refit_nuisances`
-reads `TMLE._refit_configuration_refusal`, which runs the fold-policy check and the four data contracts
-of `_resolve_estimands_for_data` without a fit. A result saved under a configuration that this
-version refuses therefore keeps `retarget_cached_nuisances` and loses `refit_nuisances`, with the
-code `point_replay_refit_configuration`. A refit that adds a covariate asks the estimator for its
-configuration through `_configured_for_refit`. An override of that hook returns a copy, so a refit
-never changes the fitted estimator.
+reads `TMLE._refit_configuration_refusal`. That method runs `_configured_for_refit` and then
+`_resolve_estimands_for_data` with every subclass override, without a fit. A result saved under a
+configuration that this version refuses therefore keeps `retarget_cached_nuisances` and loses
+`refit_nuisances`, with the code `point_replay_refit_configuration`. A refit that adds a covariate
+asks the estimator for its configuration through `_configured_for_refit`. An override of that hook
+returns a copy, so a refit never changes the fitted estimator.
 
 Repeated-sampling studies retain one structured `ReplicationRecord` per estimand and a
 `ReplicationFailure` with replicate index, seed, exception type, and message for every failed

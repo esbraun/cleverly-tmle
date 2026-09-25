@@ -1467,68 +1467,59 @@ class TMLE:
         surface than the outcome-scale rule below, so each keeps its own sentence and the
         general rule catches what is left.
 
-        The fold policy and the data contracts are what :meth:`_refit_configuration_refusal`
-        reads, so the ``refit_nuisances`` replay slot of a restored result reads false
-        exactly when a refit meets one of these refusals.
+        A subclass extends this method with the refusals of its own design, such as the
+        collaborative refusal of clustered data, and calls it last.  Every refusal here and
+        in an override reads only the configuration and ``data``, and none fits a learner,
+        so :meth:`_refit_configuration_refusal` runs this whole chain to answer whether a
+        refit runs.
         """
-        reason = self._cross_fit_policy_reason()
+        reason = self._fold_policy_refusal()
         if reason is not None:
-            raise CapabilityError(self._restored_policy_refusal(reason))
+            raise CapabilityError(reason)
         self._refuse_undeclared_functions()
-        return self._resolve_data_contracts(data)
-
-    @staticmethod
-    def _restored_policy_refusal(reason: str) -> str:
-        """The sentence a fit under a fold policy this version refuses raises.
-
-        Parameters
-        ----------
-        reason : str
-            What :meth:`_cross_fit_policy_reason` returned.
-
-        Returns
-        -------
-        str
-            The reason, then the sentence that names a restored or copied estimator.
-        """
-        return (
-            f"{reason}. This fit was configured under a fold policy this version "
-            "refuses, which a restored result or a copied estimator can still carry"
-        )
-
-    def _resolve_data_contracts(self, data: CausalData) -> tuple[str, ...]:
-        """Resolve targets and run the four contracts of the configuration on ``data``.
-
-        Each contract raises :class:`~cleverly.exceptions.CapabilityError` and nothing
-        else, and each reads only this configuration and ``data``.  So a result that an
-        earlier version saved can meet one here, and
-        :meth:`_refit_configuration_refusal` reads it without fitting.
-
-        Parameters
-        ----------
-        data : CausalData
-            The prepared data a fit or a refit would fit.
-
-        Returns
-        -------
-        tuple of str
-            The resolved target names.
-        """
         estimands = self._resolve_natural_course_contract(data)
         self._resolve_arm_indexed_missing_contract(data, estimands)
         self._refuse_cross_fitted_missing_off_contract(data, estimands)
         self._refuse_unbounded_cross_fitted_scale(data)
         return estimands
 
+    def _fold_policy_refusal(self) -> str | None:
+        """The sentence a fit under a fold policy this version refuses raises, or ``None``.
+
+        Returns
+        -------
+        str or None
+            What :meth:`_cross_fit_policy_reason` returns, then the sentence that names a
+            restored or copied estimator, or ``None`` when the policy runs.
+        """
+        reason = self._cross_fit_policy_reason()
+        if reason is None:
+            return None
+        return (
+            f"{reason}. This fit was configured under a fold policy this version "
+            "refuses, which a restored result or a copied estimator can still carry"
+        )
+
     def _refit_configuration_refusal(self, data: CausalData) -> str | None:
         """Why a refit of this configuration on ``data`` is refused before any learner.
 
         The ``refit_nuisances`` slot of :func:`~cleverly.assessment.replayability` reads
-        this, so the slot agrees with :meth:`refit`.  It reads the fold policy and the
-        data contracts that :meth:`_resolve_estimands_for_data` enforces.  The declaration
-        check that runs between them has its own replay code, and
-        :func:`~cleverly.assessment.replayability` asks it first.  A subclass refusal of
-        its own design is not read here.
+        this, so the slot agrees with :meth:`refit`.  It runs the chain that :meth:`refit`
+        runs before any learner: :meth:`_configured_for_refit`, and then
+        :meth:`_resolve_estimands_for_data` with every subclass override.  One chain
+        serves both, so a refusal that a subclass adds reaches the slot without a second
+        list.  The declaration check in that chain has its own replay code, and
+        :func:`~cleverly.assessment.replayability` asks it first.
+
+        The chain reads the configuration and ``data`` and fits nothing, so each
+        ``ValueError`` or ``NotImplementedError`` it raises is a refusal.
+        :class:`~cleverly.exceptions.CapabilityError` and
+        :class:`~cleverly.exceptions.DataError` are both ``ValueError``, and a subclass
+        design check raises a plain ``ValueError`` or ``NotImplementedError``.  A result
+        that release 0.1.1 saved passed each design check when it was fitted, or meets the
+        fold-policy refusal first.  A copied estimator can meet one, such as a
+        :class:`~cleverly.CTMLE` put on a fit that reports ``att``.  Any other exception is
+        a defect and propagates.
 
         Parameters
         ----------
@@ -1538,14 +1529,11 @@ class TMLE:
         Returns
         -------
         str or None
-            The sentence the refit raises, or ``None`` when neither check refuses.
+            The sentence the refit raises, or ``None`` when no check refuses.
         """
-        reason = self._cross_fit_policy_reason()
-        if reason is not None:
-            return self._restored_policy_refusal(reason)
         try:
-            self._resolve_data_contracts(data)
-        except CapabilityError as error:
+            self._configured_for_refit(data)._resolve_estimands_for_data(data)
+        except (ValueError, NotImplementedError) as error:
             return str(error)
         return None
 
