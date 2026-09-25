@@ -3877,7 +3877,9 @@ class SensitivityFacade(_CapabilityFacade):
     ) -> AssessmentCapability:
         """Resolve the sensitivity rows whose calls refuse some argument values.
 
-        ``benchmark`` resolves ``covariates``.  Every other sensitivity row is returned
+        ``benchmark`` resolves ``covariates``, and ``simulated_confounding`` resolves
+        ``estimand``.  A row that a fit-wide refusal or a gate already refused is returned
+        as it is, because no argument lifts it.  Every other sensitivity row is returned
         unchanged.
 
         Parameters
@@ -3892,8 +3894,12 @@ class SensitivityFacade(_CapabilityFacade):
         AssessmentCapability
             The row this request reads.
         """
+        if not capability.available:
+            return capability
         if capability.operation == "benchmark":
             return self._benchmark_gated(capability, arguments)
+        if capability.operation == "simulated_confounding":
+            return self._simulated_confounding_gated(capability, arguments)
         return capability
 
     def _benchmark_gated(
@@ -3906,11 +3912,8 @@ class SensitivityFacade(_CapabilityFacade):
         ``covariates``.  A fit with one covariate reads ``unavailable``, because the refit
         cannot drop the only covariate and no other value exists.  On a fit with two or
         more, the bare row keeps its declared ``covariates`` argument, and a request that
-        names every covariate reads ``unavailable``.  A row that a fit-wide refusal or a
-        gate already refused is returned as it is.
+        names every covariate reads ``unavailable``.
         """
-        if not capability.available:
-            return capability
         from .sensitivity.omitted_variable import benchmark_refusal
 
         return _argument_resolved(
@@ -3919,6 +3922,40 @@ class SensitivityFacade(_CapabilityFacade):
             arguments.get("covariates"),
             lambda covariates: benchmark_refusal(self._result, covariates),
             tuple((name,) for name in self._result.data.covariate_names),
+        )
+
+    def _simulated_confounding_gated(
+        self, capability: AssessmentCapability, arguments: Mapping[str, Any]
+    ) -> AssessmentCapability:
+        """Resolve the ``simulated_confounding`` row from the call's predicate.
+
+        :func:`~cleverly.sensitivity._simulated_confounding_request.simulated_confounding_refusal`
+        is what the call raises from, and :func:`_argument_resolved` applies the request
+        rule to ``estimand``.  The request's ``benchmark_covariates`` stay fixed, so a
+        request that names a categorical or a constant covariate reads ``unavailable``
+        with the call's sentence.  So does a request for a natural-course mean or a
+        zero-delta policy mean.  An omitted estimand is the one the call reports: the sole
+        eligible parameter this facade fills in, or the signature default ``"ate"``.  The
+        bare row of a natural-course fit therefore reads ``unavailable``, because no
+        reported parameter runs.
+        """
+        from .sensitivity._simulated_confounding_request import simulated_confounding_refusal
+
+        covariates = arguments.get("benchmark_covariates", ())
+
+        def refusal(estimand: str | None) -> str | None:
+            if estimand is None:
+                bound = self._bind_arguments(capability.operation, {}, partial=True)
+                bound.apply_defaults()
+                estimand = bound.arguments["estimand"]
+            return simulated_confounding_refusal(self._result, estimand, covariates)
+
+        return _argument_resolved(
+            capability,
+            "estimand",
+            arguments.get("estimand"),
+            refusal,
+            tuple(self._result.estimates),
         )
 
     def _tipping_interval_row(self, capability: AssessmentCapability) -> AssessmentCapability:

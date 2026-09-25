@@ -60,6 +60,7 @@ from tests.unit._declaration_support import legacy_result
 from tests.unit._direct_effect_support import COVARIATES as CDE_COVARIATES
 from tests.unit._direct_effect_support import cde_frame
 from tests.unit._simulated_confounding_support import _GRID
+from tests.unit.test_simulated_confounding import _fit_continuous
 
 #: What the combined report writes when an operation it ran raised ``CapabilityError``
 #: under a row that said the operation was available.
@@ -328,6 +329,18 @@ def fit_drtmle_companion() -> Any:
     return fit_drtmle(companion=True)
 
 
+def fit_policy_means() -> Any:
+    """A study fit of two policy means of a continuous dose, one of them zero-delta.
+
+    Every other live kind is fitted by an estimator directly and records no
+    identification, so ``simulated_confounding`` refuses it for the whole fit. A study
+    records the identification, so this kind's ``simulated_confounding`` row resolves each
+    request. The first reported mean is the zero-delta one, which the call refuses, so the
+    estimand the sweep supplies is a refused value.
+    """
+    return _fit_continuous(means=True)
+
+
 # ------------------------------------------------------------------- restored results
 
 
@@ -515,8 +528,8 @@ _POINT = ("refute", "truncation_curve")
 _TILT = ("missingness", "tipping_gamma")
 
 #: One kind of fit per name. The first 16 are the kinds of the 2026-09-22 RM23 probe. The
-#: next seven are the siblings the plan's probes found, then three restored results whose
-#: refit this version refuses, and one longitudinal fit.
+#: next seven are the siblings the plan's probes found, then one study fit, three restored
+#: results whose refit this version refuses, and one longitudinal fit.
 KINDS: dict[str, Kind] = {
     "ordinary": _kind(fit_ordinary, *_POINT),
     "binary": _kind(fit_binary, *_POINT),
@@ -541,6 +554,7 @@ KINDS: dict[str, Kind] = {
     "natural_course": _kind(fit_natural_course, *_POINT),
     "split_plan": _kind(fit_split_plan, *_POINT),
     "drtmle_companion": _kind(fit_drtmle_companion, *_POINT),
+    "policy_means": _kind(fit_policy_means, *_POINT),
     "restored_stratified": _kind(restored_stratified, "truncation_curve", live=False),
     "restored_v011": _kind(restored_v011, "truncation_curve", live=False),
     "restored_unbounded_scale": _kind(unbounded_scale, "truncation_curve", live=False),
@@ -701,6 +715,7 @@ _SEAMS: tuple[tuple[type, str], ...] = (
     (DiagnosticsFacade, "_truncation_gated"),
     (DiagnosticsFacade, "_refute_gated"),
     (SensitivityFacade, "_benchmark_gated"),
+    (SensitivityFacade, "_simulated_confounding_gated"),
     (CTMLE, "_configured_for_refit"),
     (DRTMLE, "_configured_for_refit"),
     (TMLE, "_refit_configuration_refusal"),
@@ -747,8 +762,9 @@ _TILT_KINDS = frozenset(
     {"shift+missing", "incremental+missing", "regime+missing", "msm+missing", "rr+missing"}
 )
 
-#: M0 to M7 of the RM23 plan, and M8 for the benchmark row the sweep found. M0 wraps every
-#: seam and changes nothing, so a failure there is the wrapping and not a defect.
+#: M0 to M7 of the RM23 plan, M8 for the benchmark row the sweep found, and M9 for the
+#: simulated-confounding row. M0 wraps every seam and changes nothing, so a failure there is
+#: the wrapping and not a defect.
 MUTATIONS: dict[str, Mutation] = {
     "M0": Mutation("every seam wrapped and unchanged", _passthrough, frozenset()),
     "M1": Mutation(
@@ -790,5 +806,12 @@ MUTATIONS: dict[str, Mutation] = {
         "the benchmark row ignores the predicate",
         lambda patch: patch.setattr(SensitivityFacade, "_benchmark_gated", _identity_gate),
         frozenset({"split_plan"}),
+    ),
+    "M9": Mutation(
+        "the simulated-confounding row ignores the predicate",
+        lambda patch: patch.setattr(
+            SensitivityFacade, "_simulated_confounding_gated", _identity_gate
+        ),
+        frozenset({"policy_means"}),
     ),
 }

@@ -23,6 +23,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from cleverly import ATE
 from cleverly.assessment import (
     POINT_REPLAY_REFIT_CONFIGURATION,
     AssessmentStatus,
@@ -33,8 +34,10 @@ from cleverly.assessment import (
 from cleverly.estimators import CTMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError
+from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from cleverly.sensitivity import missingness as missingness_module
 from cleverly.sensitivity import omitted_variable as omitted_variable_module
+from cleverly.sensitivity._simulated_confounding_request import simulated_confounding_refusal
 from cleverly.sensitivity.missingness import (
     _FIT_WIDE_TILT_RULES,
     _fit_wide_tilt_rule,
@@ -58,6 +61,7 @@ from cleverly.sensitivity.positivity import (
 from cleverly.targets.population_intervention import NATURAL_COURSE_TILT_REFUSAL
 from cleverly.validation.refute import _REQUEST_RULES, DEFAULT_TESTS, refute, refute_refusal
 from tests.unit._capability_sweep_support import (
+    DECLINED,
     INSTRUMENT_ORDERING,
     KINDS,
     MUTATIONS,
@@ -74,7 +78,11 @@ from tests.unit._capability_sweep_support import (
     unbounded_scale,
     without_provenance,
 )
+from tests.unit._confounding_support import confounding_study
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
+from tests.unit._simulated_confounding_support import _estimate
+from tests.unit.test_simulated_confounding import _fit_with_a_support_constant_covariate
+from tests.unit.test_simulated_confounding_attributable import _fit_attributable
 
 # ----------------------------------------------------------------------------- the tilt
 
@@ -756,6 +764,220 @@ class TestTheBenchmarkMutationRestoresADisagreement:
         # Only the one-covariate fit has a bare row that no single covariate runs.
         bare = any(problem.startswith("the bare row") for problem in problems)
         assert bare is (kind == "split_plan")
+
+
+# ------------------------------------------------------------ the simulated confounding
+
+#: The zero-strength anchor alone. The call calibrates and reads the anchor, and it refits
+#: no cell, so a request that runs costs no learner fit.
+ANCHOR = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
+
+#: Each study fit, and its requests with whether the call runs them. A study fit records
+#: its identification, which every estimator-fitted kind of the sweep lacks, so these are
+#: fits whose row no fit-wide rule refuses. ``categorical`` adjusts for ``W`` and the
+#: encoded category ``V``. ``constant`` adjusts for ``W4``, which is constant where the
+#: weights are positive. ``natural_course`` reports the complete-outcome ``ey_obs`` alone.
+#: ``policy_means`` reports a zero-delta and a nonzero policy mean. Each request that runs
+#: is the nonzero witness of its fit, and ``natural_course`` has none.
+CONFOUNDING_REQUESTS: dict[str, tuple[tuple[dict[str, Any], bool], ...]] = {
+    "categorical": (
+        ({"benchmark_covariates": ("V",)}, False),
+        ({"benchmark_covariates": ("V__small",)}, False),
+        ({"benchmark_covariates": ("W",)}, True),
+    ),
+    "constant": (
+        ({"benchmark_covariates": ("W4",)}, False),
+        ({"benchmark_covariates": ("W1",)}, True),
+    ),
+    "natural_course": (({}, False), ({"estimand": "ey_obs"}, False)),
+    "policy_means": (
+        ({"estimand": "ey_shift[natural course]"}, False),
+        ({"estimand": "ey_shift[up half]"}, True),
+    ),
+}
+
+#: The fit and the covariate of each refused calibration.
+REFUSED_COVARIATES = (("categorical", "V"), ("categorical", "V__small"), ("constant", "W4"))
+
+
+@pytest.fixture(scope="module")
+def confounding_fits() -> dict[str, Any]:
+    """One fresh fit of each kind in :data:`CONFOUNDING_REQUESTS`, shared by this section."""
+    return {
+        "categorical": dataclasses.replace(_estimate(confounding_study(), ATE())),
+        "constant": _fit_with_a_support_constant_covariate(),
+        "natural_course": _fit_attributable("ey_obs", family="gaussian", strata=False),
+        "policy_means": KINDS["policy_means"].build(),
+    }
+
+
+def _confounding_raised(result: Any, request: dict[str, Any]) -> str | None:
+    """The sentence ``simulated_confounding`` refuses with at the anchor, or ``None``."""
+    try:
+        simulated_confounding(result, grid=ANCHOR, random_state=0, **request)
+    except CapabilityError as error:
+        return str(error)
+    return None
+
+
+def confounding_disagreements(result: Any, kind: str) -> list[str]:
+    """Every request of ``kind`` whose ``simulated_confounding`` row and call disagree.
+
+    A fresh facade resolves each row, so a monkeypatched seam takes effect. An empty list
+    is agreement.
+    """
+    facade = SensitivityFacade(result)
+    problems = []
+    for request, _ in CONFOUNDING_REQUESTS[kind]:
+        arguments = {"grid": ANCHOR, **request}
+        row = facade._capability_for_arguments("simulated_confounding", arguments)
+        raised = _confounding_raised(result, request)
+        if row.available and raised is not None:
+            problems.append(f"{request}: the row reads available and the call raised {raised}")
+        if not row.available and raised != row.reason:
+            problems.append(f"{request}: the row quotes {row.reason!r}, the call {raised!r}")
+    return problems
+
+
+class TestTheSimulatedConfoundingRowResolvesEachRequest:
+    """The row and the call both read :func:`simulated_confounding_refusal`."""
+
+    @pytest.mark.parametrize("kind", list(CONFOUNDING_REQUESTS))
+    def test_each_request_runs_as_the_table_says(
+        self, confounding_fits: dict[str, Any], kind: str
+    ) -> None:
+        result = confounding_fits[kind]
+        for request, runs in CONFOUNDING_REQUESTS[kind]:
+            assert (_confounding_raised(result, request) is None) is runs, request
+
+    @pytest.mark.parametrize(("kind", "name"), REFUSED_COVARIATES)
+    def test_a_refused_covariate_reads_unavailable(
+        self, confounding_fits: dict[str, Any], kind: str, name: str
+    ) -> None:
+        """The request reads the call's sentence, and the bare row stays available."""
+        result = confounding_fits[kind]
+        request = {"benchmark_covariates": (name,)}
+        row = result.sensitivity._capability_for_arguments(
+            "simulated_confounding", {"grid": ANCHOR, **request}
+        )
+        assert row.status is AssessmentStatus.UNAVAILABLE
+        assert row.reason == simulated_confounding_refusal(result, "ate", (name,))
+        assert row.reason is not None and f"{kind} covariate {name!r}" in row.reason
+        with pytest.raises(CapabilityError) as error:
+            simulated_confounding(result, grid=ANCHOR, **request)
+        assert type(error.value) is CapabilityError
+        assert str(error.value) == row.reason
+        assert result.sensitivity.capability("simulated_confounding").available
+        with pytest.raises(CapabilityError) as error:
+            result.sensitivity.simulated_confounding(grid=ANCHOR, **request)
+        assert str(error.value) == row.reason
+
+    @pytest.mark.parametrize(("kind", "name"), REFUSED_COVARIATES)
+    def test_a_combined_report_names_the_refusal(
+        self, confounding_fits: dict[str, Any], kind: str, name: str
+    ) -> None:
+        """Before this row read the predicate, the report published a declined row here."""
+        result = dataclasses.replace(confounding_fits[kind])
+        report = result.assess(
+            include_refits=True,
+            arguments={
+                "refute": {"n_replicates": 1},
+                "simulated_confounding": {"grid": ANCHOR, "benchmark_covariates": (name,)},
+            },
+            random_state=0,
+        )
+        item = report.sensitivity["simulated_confounding"]
+        assert item.status is AssessmentStatus.UNAVAILABLE
+        assert item.detail == simulated_confounding_refusal(result, "ate", (name,))
+        assert DECLINED not in item.detail
+
+    @pytest.mark.parametrize(("kind", "name"), [("categorical", "W"), ("constant", "W1")])
+    def test_a_covariate_that_calibrates_runs(
+        self, confounding_fits: dict[str, Any], kind: str, name: str
+    ) -> None:
+        """The nonzero witness: a numeric covariate beside the refused one calibrates."""
+        result = confounding_fits[kind]
+        request = {"benchmark_covariates": (name,)}
+        assert result.sensitivity._capability_for_arguments(
+            "simulated_confounding", {"grid": ANCHOR, **request}
+        ).available
+        surface = simulated_confounding(result, grid=ANCHOR, random_state=0, **request)
+        assert {row.covariate for row in surface.calibrations} == {name}
+
+    def test_a_malformed_name_is_reported_before_the_refusal(
+        self, confounding_fits: dict[str, Any]
+    ) -> None:
+        """A duplicate, non-string or unknown name is not a refusal, and it comes first."""
+        result = confounding_fits["categorical"]
+        malformed: tuple[tuple[tuple[Any, ...], type[Exception], str], ...] = (
+            (("V", "V"), ValueError, "contains duplicates"),
+            (("V", 1), TypeError, "only column names"),
+            (("V", "nope"), ValueError, "'nope' is unavailable"),
+        )
+        for covariates, error_type, message in malformed:
+            with pytest.raises(error_type, match=message) as error:
+                simulated_confounding(result, grid=ANCHOR, benchmark_covariates=covariates)
+            assert not isinstance(error.value, CapabilityError)
+            assert simulated_confounding_refusal(result, "ate", covariates) is None
+
+    def test_the_bare_natural_course_row_reads_unavailable(
+        self, confounding_fits: dict[str, Any]
+    ) -> None:
+        """No reported parameter runs, so the bare row quotes the default's sentence."""
+        result = dataclasses.replace(confounding_fits["natural_course"])
+        row = result.sensitivity.capability("simulated_confounding")
+        assert row.status is AssessmentStatus.UNAVAILABLE
+        assert row.reason == simulated_confounding_refusal(result, "ate")
+        assert row.reason == simulated_confounding_refusal(result, "ey_obs")
+        assert row.reason is not None and "refuses NaturalCourseMean" in row.reason
+        with pytest.raises(CapabilityError) as error:
+            result.sensitivity.simulated_confounding(grid=ANCHOR)
+        assert (
+            str(error.value) == f"sensitivity 'simulated_confounding' is unavailable: {row.reason}"
+        )
+        report = result.sensitivity.run_all(
+            include_refits=True, arguments={"simulated_confounding": {"grid": ANCHOR}}
+        )
+        assert report["simulated_confounding"].status is AssessmentStatus.UNAVAILABLE
+        assert report["simulated_confounding"].detail == row.reason
+
+    def test_a_zero_delta_policy_mean_reads_unavailable(
+        self, confounding_fits: dict[str, Any]
+    ) -> None:
+        """The bare row keeps its declared arguments, and the nonzero mean runs."""
+        result = confounding_fits["policy_means"]
+        bare = result.sensitivity.capability("simulated_confounding")
+        assert bare.available
+        assert bare.requires_arguments == ("grid", "estimand")
+        zero = {"grid": ANCHOR, "estimand": "ey_shift[natural course]"}
+        row = result.sensitivity._capability_for_arguments("simulated_confounding", zero)
+        assert row.status is AssessmentStatus.UNAVAILABLE
+        assert row.reason == simulated_confounding_refusal(result, zero["estimand"])
+        assert row.reason is not None and "zero-delta policy" in row.reason
+        up = {"grid": ANCHOR, "estimand": "ey_shift[up half]"}
+        assert result.sensitivity._capability_for_arguments("simulated_confounding", up).available
+
+
+class TestTheSimulatedConfoundingMutationRestoresADisagreement:
+    """The agreement check sees a row that stops reading the predicate."""
+
+    @pytest.mark.parametrize("kind", list(CONFOUNDING_REQUESTS))
+    def test_m0_every_kind_agrees_unmutated(
+        self, confounding_fits: dict[str, Any], kind: str
+    ) -> None:
+        assert confounding_disagreements(confounding_fits[kind], kind) == []
+
+    @pytest.mark.parametrize("kind", list(CONFOUNDING_REQUESTS))
+    def test_a_row_that_ignores_the_predicate_disagrees(
+        self, confounding_fits: dict[str, Any], kind: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """M9: the row as it was, available for every request the fit-wide rules admit."""
+        MUTATIONS["M9"].apply(monkeypatch)
+        problems = confounding_disagreements(confounding_fits[kind], kind)
+        refused = [request for request, runs in CONFOUNDING_REQUESTS[kind] if not runs]
+        assert len(problems) == len(refused)
+        for request, problem in zip(refused, problems, strict=True):
+            assert problem.startswith(f"{request}: the row reads available and the call raised")
 
 
 # ------------------------------------------------------------ the covariate a refit adds

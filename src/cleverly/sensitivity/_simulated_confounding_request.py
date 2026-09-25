@@ -393,7 +393,8 @@ def _fit_wide_refusal(result: Any) -> str | None:
     from execution, and neither the requested parameter nor the strength grid can change
     its verdict. One helper answers both callers, so a fit the surface refuses can never
     be advertised as available. Parameter-specific and grid-specific checks stay in
-    :func:`_validate_request`.
+    :func:`_validate_request`, and :func:`simulated_confounding_refusal` answers for the
+    parameter-specific ones.
 
     Parameters
     ----------
@@ -824,36 +825,176 @@ def _zero_delta_policy_means(result: Any) -> frozenset[str]:
     )
 
 
+def _categorical_names(data: Any) -> frozenset[str]:
+    """Every encoded categorical column, and every indicator column its encoding generated."""
+    return frozenset(
+        name for encoding in data.encodings for name in (encoding.column, *encoding.generated)
+    )
+
+
+def _calibration_names(data: Any, benchmark_covariates: Any) -> tuple[str, ...]:
+    """Read ``benchmark_covariates`` as column names, and refuse a malformed value.
+
+    A duplicate, a name that is not a string, and a name that is neither a covariate nor a
+    categorical column are malformed arguments.  Each one raises ``ValueError`` or
+    ``TypeError`` before any refusal.  A categorical column is a well-formed name, and
+    :func:`_calibration_refusal` refuses it.
+
+    Parameters
+    ----------
+    data : CausalData
+        The analysis data of the fit.
+    benchmark_covariates : str or sequence of str
+        The requested calibration covariates.
+
+    Returns
+    -------
+    tuple of str
+        The requested names, in the order of the request.
+    """
+    names = tuple(
+        [benchmark_covariates] if isinstance(benchmark_covariates, str) else benchmark_covariates
+    )
+    if len(set(names)) != len(names):
+        raise ValueError("benchmark_covariates contains duplicates")
+    categorical = _categorical_names(data)
+    for name in names:
+        if not isinstance(name, str):
+            raise TypeError("benchmark_covariates must contain only column names")
+        if name not in categorical and name not in data.covariate_names:
+            raise ValueError(
+                f"benchmark covariate {name!r} is unavailable; numeric adjustment columns are "
+                f"{[column for column in data.covariate_names if column not in categorical]}"
+            )
+    return names
+
+
+def _calibration_refusal(data: Any, names: tuple[str, ...]) -> str | None:
+    """Return the refusal of the first requested covariate that cannot calibrate.
+
+    Parameters
+    ----------
+    data : CausalData
+        The analysis data of the fit.
+    names : tuple of str
+        Well-formed names from :func:`_calibration_names`.
+
+    Returns
+    -------
+    str or None
+        Exact refusal reason for a categorical or a constant covariate, or ``None`` when
+        every named covariate can calibrate.
+    """
+    # Deferred because ``simulated_confounding`` imports this module at its own module
+    # scope.  The weighted-statistics block stays beside the perturbation law that shares it.
+    from .simulated_confounding import _is_constant_under_weights
+
+    categorical = _categorical_names(data)
+    for name in names:
+        if name in categorical:
+            return (
+                f"simulated_confounding cannot calibrate categorical covariate {name!r}; "
+                "zeroing one encoded column does not define a logical-covariate benchmark"
+            )
+        column = data.covariates[:, data.covariate_names.index(name)]
+        if _is_constant_under_weights(column, data.weights):
+            return f"simulated_confounding cannot calibrate constant covariate {name!r}"
+    return None
+
+
+def simulated_confounding_refusal(
+    result: Any, estimand: str = "ate", benchmark_covariates: Any = ()
+) -> str | None:
+    """Return the refusal a ``simulated_confounding`` request meets before any draw.
+
+    :func:`~cleverly.sensitivity.simulated_confounding` raises the sentence this function
+    returns, and the ``simulated_confounding`` capability row of
+    :class:`~cleverly.assessment.SensitivityFacade` quotes it for the same request.  The
+    function reads the fit-wide rules, then :func:`_validated_parameter`, which is the
+    check the call runs.  The strength grid cannot change a refusal, so the function does
+    not read it.
+
+    A malformed argument is not a refusal.  An unknown estimand, a continuous fit that
+    names no policy parameter, and a duplicate, non-string or unknown covariate name each
+    raise ``ValueError`` or ``TypeError`` from the call.  This function returns ``None``
+    for them, and the call reports them itself.
+
+    Parameters
+    ----------
+    result : Any
+        The fitted result the call would perturb.
+    estimand : str
+        The parameter alias the call would report.
+    benchmark_covariates : str or sequence of str
+        The requested calibration covariates.
+
+    Returns
+    -------
+    str or None
+        Exact refusal reason, or ``None`` when the call reaches its calibration and its
+        draw, or refuses the request as a malformed argument.
+    """
+    refusal = _fit_wide_refusal(result)
+    if refusal is not None:
+        return refusal
+    try:
+        _validated_parameter(result, estimand, benchmark_covariates)
+    except CapabilityError as error:
+        return str(error)
+    except (TypeError, ValueError):
+        return None
+    return None
+
+
 def _validate_request(
     result: Any,
     estimand: str,
     grid: ConfounderStrengthGrid,
     benchmark_covariates: Any,
 ) -> _ValidatedRequest:
-    """Validate the complete supported boundary before a refit or random draw."""
-    from ..study import NaturalCourseMean, ParameterKey
+    """Validate the complete supported boundary before a refit or random draw.
 
-    # Deferred because ``simulated_confounding`` imports this module at its own module
-    # scope.  The weighted-statistics block stays beside the perturbation law that shares it.
-    from .simulated_confounding import _is_constant_under_weights
-
+    The fit-wide rules come first, then the two grid ranges, then
+    :func:`_validated_parameter`.  :func:`simulated_confounding_refusal` reads the first
+    and the last of the three.
+    """
     # Every fit-wide boundary lives in one ordered table, which the capability row reads
     # through the same helper.  An unsupported fit is unsupported whatever grid the caller
     # passes, so these refusals precede the two grid-range checks below.
     fit_wide_refusal = _fit_wide_refusal(result)
     if fit_wide_refusal is not None:
         raise CapabilityError(fit_wide_refusal)
+    data = result.data
+    # The ``multi_arm`` rule already refused every treatment that is neither continuous nor
+    # binary, so a treatment that is not continuous is binary here.
+    if not data.is_continuous_treatment and any(
+        value < 0.0 or value > 0.5 for value in grid.treatment
+    ):
+        raise ValueError("binary treatment strengths must be between 0 and 0.5")
+    if data.family == "binomial" and any(value < 0.0 or value > 0.5 for value in grid.outcome):
+        raise ValueError("binomial outcome strengths must be between 0 and 0.5")
+    return _validated_parameter(result, estimand, benchmark_covariates)
+
+
+def _validated_parameter(
+    result: Any, estimand: str, benchmark_covariates: Any
+) -> _ValidatedRequest:
+    """Check the requested parameter and covariates of a fit that the fit-wide rules admit.
+
+    The malformed covariate names come first, then the parameter, then the calibration
+    refusal.  A refusal raises ``CapabilityError``, which
+    :func:`simulated_confounding_refusal` returns as its sentence.
+    """
+    from ..study import NaturalCourseMean, ParameterKey
+
     estimator = result.estimator
     data = result.data
+    names = _calibration_names(data, benchmark_covariates)
     # The ``multi_arm`` rule already refused every treatment that is neither continuous nor
     # binary, so exactly one of the two families holds here.
     treatment_family: Literal["binary", "continuous"] = (
         "continuous" if data.is_continuous_treatment else "binary"
     )
-    if treatment_family == "binary" and any(value < 0.0 or value > 0.5 for value in grid.treatment):
-        raise ValueError("binary treatment strengths must be between 0 and 0.5")
-    if data.family == "binomial" and any(value < 0.0 or value > 0.5 for value in grid.outcome):
-        raise ValueError("binomial outcome strengths must be between 0 and 0.5")
     identified = result.identified_effect
     functional = identified.functional
     key = result.parameter_keys.get(estimand)
@@ -938,32 +1079,9 @@ def _validate_request(
             )
         _validate_continuous_policy_state(result, estimand, key, identified, functional, estimator)
 
-    names = tuple(
-        [benchmark_covariates] if isinstance(benchmark_covariates, str) else benchmark_covariates
-    )
-    if len(set(names)) != len(names):
-        raise ValueError("benchmark_covariates contains duplicates")
-    categorical = {
-        name for encoding in data.encodings for name in (encoding.column, *encoding.generated)
-    }
-    for name in names:
-        if not isinstance(name, str):
-            raise TypeError("benchmark_covariates must contain only column names")
-        if name in categorical:
-            raise CapabilityError(
-                f"simulated_confounding cannot calibrate categorical covariate {name!r}; "
-                "zeroing one encoded column does not define a logical-covariate benchmark"
-            )
-        if name not in data.covariate_names:
-            raise ValueError(
-                f"benchmark covariate {name!r} is unavailable; numeric adjustment columns are "
-                f"{[name for name in data.covariate_names if name not in categorical]}"
-            )
-        column = data.covariates[:, data.covariate_names.index(name)]
-        if _is_constant_under_weights(column, data.weights):
-            raise CapabilityError(
-                f"simulated_confounding cannot calibrate constant covariate {name!r}"
-            )
+    calibration_refusal = _calibration_refusal(data, names)
+    if calibration_refusal is not None:
+        raise CapabilityError(calibration_refusal)
     movement_scale: Literal["estimate_difference", "log_ratio"] = (
         "log_ratio" if key.estimand in _RATIO_TARGETS else "estimate_difference"
     )
