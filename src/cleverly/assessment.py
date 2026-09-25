@@ -1977,7 +1977,13 @@ class _CapabilityFacade:
                 )
             if "random_state" in kwargs and not capability.accepts_random_state:
                 raise TypeError(f"{operation!r} does not accept random_state")
-            self._bind_arguments(operation, kwargs, partial=True, resolve=capability.available)
+            bound = self._bind_arguments(
+                operation, kwargs, partial=True, resolve=capability.available
+            )
+            if operation == "refute":
+                _validate_refute_arguments(bound)
+            elif operation == "benchmark":
+                _validate_benchmark_arguments(self._result, bound)
             validated[operation] = kwargs
         return validated
 
@@ -2088,6 +2094,26 @@ def _bound_arguments(bound: inspect.BoundArguments, report: Any = None) -> dict[
         if resolved is not None:
             effective["random_state"] = resolved
     return effective
+
+
+def _validate_refute_arguments(bound: inspect.BoundArguments) -> None:
+    """Check a bound refutation request before a facade starts any operation."""
+    from .validation.refute import _validated_tests
+
+    bound.apply_defaults()
+    _validated_tests(
+        bound.arguments["tests"],
+        bound.arguments["n_replicates"],
+        bound.arguments["negative_control_outcome"],
+    )
+
+
+def _validate_benchmark_arguments(result: Any, bound: inspect.BoundArguments) -> None:
+    """Check benchmark names before a combined report can skip or refit an operation."""
+    if _family(result) == "point" and "covariates" in bound.arguments:
+        from .sensitivity.omitted_variable import _benchmark_names
+
+        _benchmark_names(result, bound.arguments["covariates"])
 
 
 def _missing_argument_item(
@@ -2667,9 +2693,8 @@ class DiagnosticsFacade(_CapabilityFacade):
         TypeError
             If an argument is not one :func:`cleverly.validation.refute` takes.
         ValueError
-            If a test name is unknown or ``n_replicates`` is not a positive integer. These
-            malformed arguments are checked before any refusal, as the function checks
-            them.
+            If a test name is unknown, ``n_replicates`` is invalid, or the requested
+            negative-control test has no outcome. These checks precede every refusal.
         CapabilityError
             If the fitted estimator cannot be reconstructed, or the row this request
             resolves to is refused. A fit given ``split_plan=`` refuses ``subset``, and
@@ -2677,13 +2702,10 @@ class DiagnosticsFacade(_CapabilityFacade):
             A call that omits ``tests`` raises the deferral with the refused test's
             sentence, and a call that names ``tests`` without that test runs.
         """
-        from .validation.refute import _validated_tests
-
         # The malformed arguments first, through the check the function runs first, so the
         # facade and the function report a misspelled test before any refusal.
         bound = self._bind_arguments("refute", kwargs, partial=False)
-        bound.apply_defaults()
-        _validated_tests(bound.arguments["tests"], bound.arguments["n_replicates"])
+        _validate_refute_arguments(bound)
         # The row this request resolves to, not the bare row, so a request that names
         # ``tests`` runs where the bare row defers on it. Its replay gate refuses a result
         # whose estimator cannot refit.
@@ -4166,15 +4188,12 @@ class SensitivityFacade(_CapabilityFacade):
         A name the fit does not adjust for raises ``DataError`` before any refusal, as the
         free function raises it.
         """
-        from .sensitivity.omitted_variable import _benchmark_names
-
         # The malformed argument first, through the check the function runs first, so the
         # facade and the function report an unknown name before any refusal. A
         # longitudinal fit has no covariate list to check a name against, and its row
         # refuses every request.
         bound = self._bind_arguments("benchmark", kwargs, partial=True, args=args)
-        if _family(self._result) == "point" and "covariates" in bound.arguments:
-            _benchmark_names(self._result, bound.arguments["covariates"])
+        _validate_benchmark_arguments(self._result, bound)
         return self._dispatch("benchmark", args, kwargs)
 
     def contour(self, *args: Any, **kwargs: Any) -> Any:

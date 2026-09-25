@@ -3159,10 +3159,27 @@ uses now.
 | --- | --- | --- |
 | 1 | `estimator` | a result with no estimator |
 | 2 | `estimand` | an estimand that the fit did not report |
-| 3 | `placebo_level` | `placebo` on `NaturalCourseMean` |
+| 3 | `no_effect_null` | `placebo` or `negative_control_outcome` on a parameter with no fixed no-effect value |
 | 4 | `row_set_under_plan` | `subset` or `bootstrap_measurement_error` on a fit with `split_plan=` |
 
 The truncation and refute rows resolve each request by one rule.
+
+The refute rule reads the registered target through the reported parameter key. Additive
+contrasts and the attributable fraction use zero. Risk and odds ratios use one on their reported
+scale. Outcome and policy means and arbitrary MSM coefficients have no fixed no-effect value.
+The two no-effect operations refuse those parameters before any refit.
+
+The stability operations remain available when their other request rules admit them. Ratio placebo
+and stability verdicts use log ratios with log-scale standard errors. A ratio placebo or noise
+test reports its tested geometric mean; the refit values stay on their reported scale. A direct fit with no
+parameter keys resolves `ate[low vs high]` through the registered `ate` stem.
+
+The ratio subset reports its tested log-scale scatter, while its refit values stay on their
+reported scale.
+
+The broader no-effect rule changes mutation M3's expected detection set. It now detects twelve
+fit kinds: the three previously named kinds and nine more outcome, policy, or MSM kinds. The
+signature still requires the refute row to read available while the call raises its refusal.
 
 | request | row |
 | --- | --- |
@@ -3193,9 +3210,17 @@ bit for bit. So a refit without it reports the same estimate.
 An estimator that release 0.1.1 saved has no `split_plan` attribute. A class default of `None` on
 `TMLE` restores it, because that release drew its folds from the data.
 
-The refit slot reads the fold policy and four data contracts. These are the checks that
-`_resolve_estimands_for_data` runs before a learner. A refused configuration keeps
+The refit slot runs `_configured_for_refit(data)._preflight_fit_configuration(data)`.
+That preflight reads the fold policy, the data contracts, every subclass estimand check,
+and the guards that `_fit_single` runs before a learner. It also checks the outcome scaler,
+propensity bounds, and reference arm. A refused configuration keeps
 `retarget_cached_nuisances` true. It reports the code `point_replay_refit_configuration`.
+
+The `fit_rr_missing()` probe copies the estimator with `cv_evaluation=True`. Both the slot
+and `refit()` then read the same `ValueError` for `['rr']`, before any nuisance learner runs.
+`tests/unit/test_refit_configuration_preflight.py` pins the refusal and a subclass override.
+The same file checks copied `q_bounds=(0, 1)`, invalid `g_bounds`, and an unknown reference arm.
+The preflight draws no folds; `_repeat_draws` checks realised fold support before a learner.
 
 ##### Probes
 
@@ -3263,7 +3288,7 @@ after the delivery, and each of those rows names the fix.
 | tilt | `_FIT_WIDE_TILT_RULES` in `src/cleverly/sensitivity/missingness.py` holds the six rules of the plan, and `fit_wide_tilt_refusal` returns the first reason. `missingness_tilt` and `tipping_gamma` raise it first. Both rows read the rule through `SensitivityFacade._tilt_rule`. The bound's response refusal points at the tilt only when the table admits the fit. Commit 8d375184 |
 | truncation | `truncation_axis` and `truncation_refusal` in `src/cleverly/sensitivity/positivity.py`, with three ordered rules. The module call now refuses the default axis of an incremental fit, where it returned a flat curve. `_CapabilityFacade` keeps the method and replay gates in `_gated_map`, `_request_gated` resolves one request, and `_require` takes the arguments of a direct call. `docs/examples/interventions.ipynb` was executed again. Commit ebb1774e |
 | refute and the added covariate | `refute_refusal` in `src/cleverly/validation/refute.py`, with the four ordered rules of the plan. Review fix S2 moved seven more refusals of the call into the table, which now holds eleven rules. `_argument_resolved` in `src/cleverly/assessment.py` holds the request rule for every row that an argument lifts. `TMLE.refit` asks `_configured_for_refit(data)` for the estimator it fits. An explicit `CTMLE` ordering places an added covariate last, and `DRTMLE` drops a companion that lacks a refit covariate, as the plan decided. Commit 025cf14b |
-| replay | the class default `TMLE.split_plan = None`. The fold refusal is a `CapabilityError` with the same text. `_refit_configuration_refusal` read the fold policy and the four data contracts without a fit. Review fix S1 made it run the whole chain that `refit()` runs before a learner, with every subclass override. `replayability()` then reports `point_replay_refit_configuration` and keeps `retarget_cached_nuisances`. Commit 461f07b0 |
+| replay | the class default `TMLE.split_plan = None`. The fold refusal is a `CapabilityError` with the same text. `_refit_configuration_refusal` first read the fold policy and four data contracts without a fit. Review fix S1 added every subclass override. The shared `_preflight_fit_configuration` now adds the guards in `_fit_single` before any learner runs. `replayability()` reports `point_replay_refit_configuration` and keeps `retarget_cached_nuisances`. Commit 461f07b0 |
 | sweep | `tests/unit/_capability_sweep_support.py` and `tests/unit/test_capability_row_sweep.py`, with 27 kinds of fit and the mutations M0 to M7. Commit 49ccf48e. The later rows below and review fix S1 bring the sweep to 30 kinds |
 | cached reports | `diagnostics.run_all` moves from generation 10 to 11, and `sensitivity.run_all` from 5 to 6. Three tests in `tests/unit/test_assessment_contract.py` write a stale tilt, truncation, and refute row at the old generations. Commit 836c5247. Review fix YE made them one test with three cases |
 | benchmark | `benchmark_refusal` in `src/cleverly/sensitivity/omitted_variable.py`. A request that names every covariate raises `CapabilityError`, where the refit raised `DataError`. The row resolves `covariates`, so the bare row of a one-covariate fit reads `unavailable`. M8. Commit 73976a3a |
@@ -3486,26 +3511,30 @@ count with this record.
 ### RM24. Refusals after the nuisance fit
 
 The [Definition of done](#definition-of-done) asks for a pre-fit test for every well-posed
-composition that is still refused. The refusals below run after learner fits. Only the last one
-raises `CapabilityError`. A 2026-09-22 probe counted the `fit` calls of spy learners in the first
-three rows. The delivery of RM20 found the fourth row.
+composition that is still refused. The table records the original late-refusal probes.
+Only the last one raised `CapabilityError` then. A 2026-09-22 probe counted the `fit` calls
+of spy learners in the first three rows. The delivery of RM20 found the fourth row.
 
-| request | where it raises | learner fits before the raise | exception |
+| request | where it raised at the probe | learner fits before the raise | exception |
 | --- | --- | ---: | --- |
 | `TMLE(incremental=...)` with `strata=`, `make_linear_ate(n=400, seed=2)` | the strata guard in `_retarget_detailed`, `src/cleverly/estimators/tmle.py:2736` | 2 | `NotImplementedError` |
 | `DRTMLE` with `strata=`, the same law | the same guard, for the `mean` group | 8 | `NotImplementedError` |
 | `TMLE(incremental=...)` with `intermediate=`, `make_cde(n=400, seed=3)` | `_check_incremental`, `tmle.py:2148`. `fit` fits the shared nuisances first | 3 | `ValueError` |
 | `TMLE(estimands=["par"])` with `intermediate=` and `delta=`, on `binary_cde_frame()` from `tests/unit/test_cross_fitted_missing_off_contract.py`, with `LogisticRegression` in every learner role and `random_state=0` | the F20 refusal in `_fit_single`. On the intermediate path, `fit` calls `_prepare_shared` first, and that call fits the shared nuisances | 4 in sample. 20 cross-fitted at `n_folds=5` | `CapabilityError` |
 
-The fourth row contradicts the comment in `TMLE.fit`, which says that "every unsupported
-intermediate composition fails before any learner is fitted". The population-intervention
-refusals run in `_fit_single`, and `_resolve_estimands_for_data` does not raise them.
-`test_par_beside_an_intermediate_keeps_its_f20_refusal` pins the message and fits real learners.
+At the probe revision, the fourth row contradicted the comment in `TMLE.fit` about refusing
+unsupported intermediate compositions before a learner. The shared
+`_preflight_fit_configuration` now runs before `_prepare_shared`, so the third and fourth
+requests refuse before any nuisance learner. The first two stratified requests still reach
+targeting after their learner fits. `test_par_beside_an_intermediate_keeps_its_f20_refusal`
+pins the fourth refusal's F20 message.
 
-A second finding concerns the order of two refusals. `DRTMLE(cross_fit=True)` with `delta=`
-refuses with `NotImplementedError` in `_check_drtmle`, which runs at the start of the nuisance fit.
-The fold preflight runs earlier, so a sample with no respondent in a training complement gets a
-`DataError` instead. No learner is fitted in either case. The table gives the probes.
+A second historical finding concerns the order of two refusals. At the probe revision,
+`DRTMLE(cross_fit=True)` with `delta=` reached `_check_drtmle` at the start of the nuisance fit.
+The fold preflight ran earlier, so a sample with no respondent in a training complement got a
+`DataError` instead. The shared configuration preflight now runs `_check_drtmle` before drawing
+folds, so that composition raises `NotImplementedError` first. No learner runs in either order.
+The table records the original probes.
 
 | probe | result |
 | --- | --- |
@@ -3514,14 +3543,15 @@ The fold preflight runs earlier, so a sample with no respondent in a training co
 
 The [RM23 review](#rm23-review-fixes) found two more consumers of this row. The table gives both.
 
-| finding | measured | what this row must do |
+| finding | measured | action and status |
 | --- | --- | --- |
-| the refit replay slot reads a plain `ValueError` or `NotImplementedError` as a refusal | `TMLE._refit_configuration_refusal` runs the chain that `refit()` runs before a learner. `CTMLE._check_estimands` refuses `att` with a plain `ValueError`, and `DRTMLE._check_drtmle` raises `NotImplementedError`. Both run in that chain, before any learner | when this row moves those refusals to `CapabilityError`, narrow the catch of the slot to `CapabilityError` and `DataError` |
-| `refute()` checks `negative_control_outcome=` only when that test runs | on the `ordinary` kind of the RM23 sweep at commit adc1516d, `tests=("placebo", "negative_control_outcome")` with `n_replicates=3` and no outcome array raises `ValueError` after three placebo refits. The `refute` row reads `passed` for that request, and `assess(include_refits=True)` raises the same error after the same refits | check the missing array in `_validated_tests`, before any refusal and any refit, as the other malformed arguments are checked |
+| the refit replay slot reads a plain `ValueError` or `NotImplementedError` as a refusal | `TMLE._refit_configuration_refusal` runs the chain that `refit()` runs before a learner. `CTMLE._check_estimands` refuses `att` with a plain `ValueError`, and `DRTMLE._check_drtmle` raises `NotImplementedError`. Both run in that chain, before any learner | **Pending.** Move those refusals to `CapabilityError`, then narrow the catch of the slot to `CapabilityError` and `DataError` |
+| `refute()` checks `negative_control_outcome=` only when that test runs | on the `ordinary` kind of the RM23 sweep at commit adc1516d, `tests=("placebo", "negative_control_outcome")` with `n_replicates=3` and no outcome array raises `ValueError` after three placebo refits. The `refute` row reads `passed` for that request, and `assess(include_refits=True)` raises the same error after the same refits | **Resolved.** `_validated_tests` checks the missing array before any refusal or refit. The module call, facade, `run_all()`, and `assess()` use that check |
 
 [X8](#x8-stratified-incremental-and-msm-targeting) holds the stratified targeting construction,
 and [F6](#f6-mnar-and-incremental-intermediate-compositions) holds the incremental-intermediate
-composition. This row changes only when each refusal reaches the caller, and its type.
+composition. The stratified requests still need earlier refusals. The incremental-intermediate
+request still needs its `CapabilityError` type; its timing is already corrected.
 
 Apply these corrections:
 

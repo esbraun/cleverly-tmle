@@ -1611,10 +1611,10 @@ and the paragraph below states its boundary.
 
 | refuter | what it does | what must happen | what it tests |
 | --- | --- | --- | --- |
-| `placebo` | permutes the treatment column and refits | the estimate goes to zero | the pipeline, not the data |
+| `placebo` | permutes the treatment column and refits | an additive contrast approaches zero; a risk or odds ratio approaches one | the pipeline, not the data |
 | `random_common_cause` | adds an irrelevant covariate and refits | the estimate does not move | the adjustment set is not sensitive to noise |
 | `subset` | refits on random subsamples | the scatter is about one standard error | the reported standard error is the right size |
-| `negative_control_outcome` | refits on an outcome the treatment cannot affect | the estimate goes to zero | the design, under the control assumptions the paragraph below states |
+| `negative_control_outcome` | refits on an outcome the treatment cannot affect | an additive contrast approaches zero; a risk or odds ratio approaches one | the design, under the control assumptions the paragraph below states |
 | `dummy_outcome` | draws independent Gaussian noise and refits | the empirical draws include zero | outcome replacement and the full estimator pipeline |
 | `simulated_outcome` | draws `f(W) + effect * A + epsilon` and refits | the empirical draws include the declared effect | adjustment and treatment terms in the full pipeline |
 | `bootstrap_measurement_error` | bootstraps, perturbs declared adjustment variables, and refits | the empirical draws include the original estimate | stability under the declared measurement error |
@@ -1649,7 +1649,7 @@ it reads its capability row. The call then raises the first refusal of this tabl
 | --- | --- | --- |
 | 1 | `estimator` | a result with no estimator |
 | 2 | `estimand` | an estimand that the fit did not report |
-| 3 | `placebo_level` | `placebo` on `NaturalCourseMean` |
+| 3 | `no_effect_null` | `placebo` or `negative_control_outcome` on an outcome or policy mean, an MSM coefficient, or a target with no registered null |
 | 4 | `row_set_under_plan` | `subset` or `bootstrap_measurement_error` on a fit given `split_plan=` |
 | 5 | `generated_rule` | a generated-outcome test under a rule that is not exactly `EmpiricalInclusionRule` |
 | 6 | `generated_eligibility` | a generated-outcome test whose fit, estimand, or process has no derivation, such as a direct fit that records no identification |
@@ -1659,10 +1659,9 @@ it reads its capability row. The call then raises the first refusal of this tabl
 | 10 | `measurement_budget` | a `bootstrap_measurement_error` draw count below the floor of its rule |
 | 11 | `generated_budget` | a generated-outcome draw count below the floor of its rule |
 
-Rules 6 and 9 call the validators that the tests run, so the table copies no check. One check
-stays outside the table. A `negative_control_outcome` request without an outcome array raises
-`ValueError` when that test runs, after the earlier tests refit.
-[RM24](../roadmap.md#rm24-refusals-after-the-nuisance-fit) holds it.
+Rules 6 and 9 call the validators that the tests run, so the table copies no check. The argument
+check also requires an outcome array for `negative_control_outcome`. It raises `ValueError` before
+any refit when that array is absent.
 
 The `refute` capability row reads the same table for each request. An omitted `tests` means the
 default tests. When the default tests meet a refusal and a single default test runs, the row reads
@@ -1689,12 +1688,23 @@ row as `deferred`, with the refusal's sentence, and continues to the rest of the
 with `tests=("placebo", "random_common_cause")` runs. See
 [reusable outer split plans](cv-tmle.md#reusable-outer-split-plans) for the table.
 
-`NaturalCourseMean` refuses the `placebo` operation before it refits anything. The operation
-permutes treatment and reads movement toward zero as evidence for an effect claim. This estimand
-is an outcome level, so it need not approach zero and that reading does not apply. The `subset`
-and `random_common_cause` operations keep their usual stability interpretations for this target.
-The default tests include `placebo`. So a request for `estimand="ey_obs"` reads `deferred` on
-`tests` in the same way, and `tests=("random_common_cause", "subset")` runs.
+The two no-effect operations read the registered target through the reported parameter key.
+Differences and the attributable fraction use zero. Risk ratios and odds ratios use one on their
+reported scale. Outcome and policy means have no fixed no-effect value. An arbitrary MSM
+coefficient has none either.
+
+Both operations refuse these parameters before any refit. The `subset` and
+`random_common_cause` operations keep their stability interpretations. All ratio verdicts use
+log ratios because their standard errors use the log scale. Reports keep the refit ratios on their
+reported scale.
+
+A ratio placebo or noise test reports the geometric mean that its log-scale verdict tests.
+Its `values` remain the individual reported ratios. A ratio subset reports log-scale scatter in
+`refuted_sd` and its expectation. Its `values` also remain reported ratios.
+
+The default tests include `placebo`, so `estimand="ey_obs"` defers on `tests`. A request with
+`tests=("random_common_cause", "subset")` runs. `TestReportedScaleNoEffectNull` checks the
+reported null, refusal, and capability row.
 
 `refute()` draws its randomization from the seed of the fit, unless the caller passes
 `random_state`. A fit that carries a seed gives the same refutation on every call. A fit that

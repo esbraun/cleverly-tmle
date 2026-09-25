@@ -573,7 +573,7 @@ class TestTheRefuteRowResolvesEachRequest:
         assert [name for name, _ in _REQUEST_RULES] == [
             "estimator",
             "estimand",
-            "placebo_level",
+            "no_effect_null",
             "row_set_under_plan",
             "generated_rule",
             "generated_eligibility",
@@ -654,6 +654,10 @@ class TestTheRefuteRowResolvesEachRequest:
         [
             ({"tests": ("typo", "subset")}, "unknown refutation test 'typo'"),
             ({"tests": ("subset",), "n_replicates": 0}, "n_replicates must be positive"),
+            (
+                {"tests": ("placebo", "negative_control_outcome")},
+                "the negative_control_outcome test needs an outcome array",
+            ),
         ],
     )
     def test_the_facade_reports_a_malformed_argument_before_the_row(
@@ -690,6 +694,38 @@ class TestTheRefuteRowResolvesEachRequest:
         with pytest.raises(CapabilityError, match="refitting the nuisance models is unavailable"):
             result.diagnostics.refute(tests=("placebo",))
 
+    @pytest.mark.parametrize("surface", ("module", "facade", "run_all", "assess"))
+    def test_missing_negative_control_outcome_precedes_every_refit(
+        self, refute_fits: dict[str, Any], surface: str
+    ) -> None:
+        result = _spied(refute_fits["ordinary"])
+        request = {"tests": ("placebo", "negative_control_outcome"), "n_replicates": 1}
+        calls = {
+            "module": lambda: refute(result, **request),
+            "facade": lambda: result.diagnostics.refute(**request),
+            "run_all": lambda: result.diagnostics.run_all(
+                include_refits=True, arguments={"refute": request}
+            ),
+            "assess": lambda: result.assess(include_refits=True, arguments={"refute": request}),
+        }
+        with pytest.raises(ValueError, match="the negative_control_outcome test needs"):
+            calls[surface]()
+        assert NeverFit.calls == 0
+        assert refute_refusal(result, estimand="ate", **request) is None
+
+    def test_supplied_negative_control_outcome_reaches_a_refit(
+        self, refute_fits: dict[str, Any]
+    ) -> None:
+        result = _spied(refute_fits["ordinary"])
+        with pytest.raises(AssertionError, match="before any learner is fitted"):
+            refute(
+                result,
+                tests=("placebo", "negative_control_outcome"),
+                negative_control_outcome=np.zeros(result.data.n),
+                n_replicates=1,
+            )
+        assert NeverFit.calls > 0
+
 
 class TestEachRefuteMutationRestoresADisagreement:
     """The agreement check sees a row that stops reading the predicate."""
@@ -712,6 +748,205 @@ class TestEachRefuteMutationRestoresADisagreement:
     ) -> None:
         MUTATIONS["M3"].apply(monkeypatch)
         assert refute_disagreements(refute_fits["ordinary"], "ordinary") == []
+
+
+class TestReportedScaleNoEffectNull:
+    """The request gate and both null-effect verdicts use the parameter target."""
+
+    @pytest.mark.parametrize("estimand", ("rr", "or"))
+    @pytest.mark.parametrize("test", ("placebo", "negative_control_outcome"))
+    def test_ratios_compare_with_one(
+        self,
+        bound_fits: dict[str, Any],
+        estimand: str,
+        test: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from cleverly.study import ParameterKey
+
+        fitted = bound_fits["ratio_only"]
+        alias = f"reported_{estimand}"
+        result = dataclasses.replace(
+            fitted,
+            estimates={alias: fitted[estimand]},
+            parameter_keys={alias: ParameterKey(alias, estimand)},
+        )
+        request: dict[str, Any] = {"estimand": alias, "tests": (test,), "n_replicates": 1}
+        if test == "negative_control_outcome":
+            request["negative_control_outcome"] = np.zeros(result.data.n)
+        tolerance = 0.8 / result[alias].plugin_std_error
+        assert result.parameter_keys[alias].estimand == estimand
+        assert result.diagnostics._capability_for_arguments("refute", request).available
+        assert refute_refusal(result, **request) is None
+
+        class RatioRefit:
+            def refit(self, *_: Any, **__: Any) -> dict[str, Any]:
+                return {alias: SimpleNamespace(psi=2.0, plugin_std_error=0.8 / tolerance)}
+
+        controlled = dataclasses.replace(result, estimator=RatioRefit())
+        report = refute(controlled, random_state=0, tolerance=tolerance, **request)[test]
+        assert report.expectation == "~ 1"
+        assert report.passed
+        # A raw-scale comparison sees a distance of one and wrongly fails.
+        refute_module = importlib.import_module("cleverly.validation.refute")
+        monkeypatch.setattr(
+            refute_module, "_no_effect_difference", lambda value, null: value - null
+        )
+        assert not refute(controlled, random_state=0, tolerance=tolerance, **request)[test].passed
+
+    @pytest.mark.parametrize("kind, estimand", (("par", "par"), ("paf", "paf")))
+    def test_attributable_parameters_keep_zero(
+        self, bound_fits: dict[str, Any], kind: str, estimand: str
+    ) -> None:
+        result = bound_fits[kind]
+        assert refute_refusal(result, estimand=estimand, tests=("placebo",)) is None
+        assert result.diagnostics._capability_for_arguments(
+            "refute", {"estimand": estimand, "tests": ("placebo",)}
+        ).available
+
+    def test_direct_multi_arm_alias_uses_its_stem(self, ambiguous_fits: dict[str, Any]) -> None:
+        result = ambiguous_fits["multi_arm"]
+        alias = "ate[low vs high]"
+        assert result.parameter_keys == {}
+        assert alias in result.estimates
+        request = {"estimand": alias, "tests": ("placebo",), "n_replicates": 1}
+        assert refute_refusal(result, **request) is None
+        assert result.diagnostics._capability_for_arguments("refute", request).available
+        report = result.diagnostics.refute(random_state=0, **request)
+        assert report["placebo"].estimand == alias
+        assert report["placebo"].expectation == "~ 0"
+
+    def test_ratio_placebo_reports_the_mean_it_tests(self, bound_fits: dict[str, Any]) -> None:
+        result = bound_fits["ratio_only"]
+
+        class RatioRefit:
+            calls = 0
+
+            def refit(self, *_: Any, **__: Any) -> dict[str, Any]:
+                value = (1.0, 4.0)[self.calls % 2]
+                self.calls += 1
+                return {"rr": SimpleNamespace(psi=value)}
+
+        controlled = dataclasses.replace(result, estimator=RatioRefit())
+        report = refute(
+            controlled, estimand="rr", tests=("placebo",), n_replicates=2, random_state=0
+        )
+        placebo = report["placebo"]
+        assert placebo.values == (1.0, 4.0)
+        assert placebo.mean == 2.0
+        assert "geometric mean placebo estimate +2" in placebo.detail
+        assert float(report.to_frame()["refuted_mean"].iloc[0]) == 2.0
+
+    def test_ratio_noise_reports_the_mean_it_tests(self, bound_fits: dict[str, Any]) -> None:
+        result = bound_fits["ratio_only"]
+        original = result["rr"].psi
+
+        class RatioRefit:
+            calls = 0
+
+            def refit(self, *_: Any, **__: Any) -> dict[str, Any]:
+                value = (original / 2, original * 2)[self.calls % 2]
+                self.calls += 1
+                return {"rr": SimpleNamespace(psi=value)}
+
+        controlled = dataclasses.replace(result, estimator=RatioRefit())
+        report = refute(
+            controlled,
+            estimand="rr",
+            tests=("random_common_cause",),
+            n_replicates=2,
+            random_state=0,
+        )
+        noise = report["random_common_cause"]
+        assert noise.passed
+        assert noise.mean == pytest.approx(original)
+        assert float(report.to_frame()["refuted_mean"].iloc[0]) == pytest.approx(original)
+
+    @pytest.mark.parametrize("test", ("random_common_cause", "subset"))
+    def test_ratio_stability_uses_log_scale(
+        self, bound_fits: dict[str, Any], test: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result = bound_fits["ratio_only"]
+        original = result["rr"].psi
+        if test == "random_common_cause":
+            values = (original * 1.2,)
+            threshold = (abs(np.log(1.2)) + abs(original * 0.2)) / 2
+        else:
+            values = (1.0, 2.0)
+            threshold = (np.std(np.log(values), ddof=1) + np.std(values, ddof=1)) / 2
+
+        class RatioRefit:
+            calls = 0
+
+            def refit(self, *_: Any, **__: Any) -> dict[str, Any]:
+                value = values[self.calls % len(values)]
+                self.calls += 1
+                return {"rr": SimpleNamespace(psi=value)}
+
+        controlled = dataclasses.replace(result, estimator=RatioRefit())
+        tolerance = float(threshold / result["rr"].plugin_std_error)
+        if test == "subset":
+            tolerance *= np.sqrt(0.7)
+        request = {"estimand": "rr", "tests": (test,), "n_replicates": len(values)}
+        report = refute(controlled, tolerance=tolerance, random_state=0, **request)[test]
+        assert report.values == values
+        assert report.passed
+        if test == "subset":
+            assert report.spread == pytest.approx(np.std(np.log(values), ddof=1))
+            assert report.expectation.startswith("log-scale scatter")
+        refute_module = importlib.import_module("cleverly.validation.refute")
+        monkeypatch.setattr(refute_module, "_stability_value", lambda value, _: value)
+        assert not refute(controlled, tolerance=tolerance, random_state=0, **request)[test].passed
+
+    @pytest.mark.parametrize(
+        "target, axis",
+        (
+            ("ate", "arm"),
+            ("ate_regime", "regime"),
+            ("ate_ipsi", "ipsi"),
+            ("ate_shift", "shift"),
+        ),
+    )
+    def test_additive_targets_keep_zero_through_structured_keys(
+        self, refute_fits: dict[str, Any], target: str, axis: str
+    ) -> None:
+        from cleverly.study import ParameterKey
+        from cleverly.validation.refute import _no_effect_null
+
+        fitted = refute_fits["ordinary"]
+        alias = f"reported_{target}"
+        result = dataclasses.replace(
+            fitted,
+            estimates={alias: fitted["ate"]},
+            parameter_keys={alias: ParameterKey(alias, target, axis)},
+        )
+        assert _no_effect_null(result, alias) == 0.0
+        assert refute_refusal(result, estimand=alias, tests=("placebo",)) is None
+
+    @pytest.mark.parametrize("estimand", ("ey1", "ey0", "ey_obs", "ey_shift", "msm"))
+    @pytest.mark.parametrize("test", ("placebo", "negative_control_outcome"))
+    def test_levels_and_coefficients_refuse_before_refit(
+        self, refute_fits: dict[str, Any], estimand: str, test: str
+    ) -> None:
+        result = refute_fits["ordinary"]
+        from cleverly.study import ParameterKey
+
+        alias = "msm[a]" if estimand == "msm" else estimand
+        keyed = dataclasses.replace(
+            result,
+            estimates={alias: result["ate"]},
+            parameter_keys={alias: ParameterKey(alias, estimand)},
+        )
+        request: dict[str, Any] = {"estimand": alias, "tests": (test,)}
+        if test == "negative_control_outcome":
+            request["negative_control_outcome"] = np.zeros(result.data.n)
+        reason = refute_refusal(keyed, **request)
+        assert reason is not None and "fixed no-effect value" in reason
+        row = keyed.diagnostics._capability_for_arguments("refute", request)
+        assert not row.available and row.reason == reason
+        with pytest.raises(CapabilityError, match="fixed no-effect value"):
+            refute(_spied(keyed), **request)
+        assert NeverFit.calls == 0
 
 
 # ------------------------------------------------------------------ the bare request
@@ -1115,6 +1350,21 @@ class TestTheBenchmarkRowResolvesEachRequest:
         # The nonzero witness: a known name meets the refusal.
         with pytest.raises(CapabilityError, match="needs the fitted estimator"):
             benchmark(result, ["W1"])
+
+    @pytest.mark.parametrize("kind", BENCHMARK_KINDS)
+    @pytest.mark.parametrize("surface", ("run_all", "assess"))
+    def test_a_combined_report_checks_unknown_covariates_before_any_operation(
+        self, benchmark_fits: dict[str, Any], kind: str, surface: str
+    ) -> None:
+        result = _spied(benchmark_fits[kind])
+        request = {"benchmark": {"covariates": ["typo"]}}
+        calls = {
+            "run_all": lambda: result.sensitivity.run_all(include_refits=True, arguments=request),
+            "assess": lambda: result.assess(include_refits=True, arguments=request),
+        }
+        with pytest.raises(DataError, match=r"unknown covariates \['typo'\]"):
+            calls[surface]()
+        assert NeverFit.calls == 0
 
 
 class TestTheBenchmarkMutationRestoresADisagreement:

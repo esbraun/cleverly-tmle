@@ -825,9 +825,27 @@ MUTATIONS: dict[str, Mutation] = {
     "M3": Mutation(
         "the refute row ignores the predicate",
         lambda patch: patch.setattr(DiagnosticsFacade, "_refute_gated", _identity_gate),
-        frozenset({"split_plan", "natural_course", "natural_course_study"}),
-        # The row-set rule under a supplied plan, and the placebo rule of an outcome level.
-        _RAISED.format("refute") + r"(refutation test\(s\) \['subset'\]|the placebo refutation)",
+        frozenset(
+            {
+                "split_plan",
+                "natural_course",
+                "natural_course_study",
+                "shift",
+                "msm",
+                "regime",
+                "shift+missing",
+                "regime+missing",
+                "msm+missing",
+                "incremental",
+                "policy_means",
+                "incremental+missing",
+            }
+        ),
+        # A supplied plan loses the row-set rule. Means and MSM coefficients lose
+        # the fixed-null rule, including its natural-course placebo sentence.
+        _RAISED.format("refute")
+        + r"(refutation test\(s\) \['subset'\]|the placebo refutation|"
+        + r"refutation test\(s\) \['placebo'\] require a fixed no-effect value)",
     ),
     "M4": Mutation(
         "CTMLE ignores a covariate the refit adds",
