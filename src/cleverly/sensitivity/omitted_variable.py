@@ -80,9 +80,10 @@ matching capability rows, so a fit the bound refuses is never advertised as avai
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ParamSpec
 
 import numpy as np
 from scipy import optimize, stats
@@ -866,6 +867,35 @@ def _conditioning_share_influence(
     return np.asarray(-2.0 * nu2 * (indicator - share) / share * weights, dtype=float)
 
 
+_P = ParamSpec("_P")
+
+#: The constructor arguments whose values the bound stores under a private field name.
+_STORED_LIMITS: tuple[str, ...] = ("ci_lower", "ci_upper", "robustness_value_ci")
+
+
+def _accepts_stored_limit_names(init: Callable[_P, None]) -> Callable[_P, None]:
+    """Let the constructor take the private field names, so that ``replace()`` works.
+
+    ``dataclasses.replace()`` and ``copy.replace()`` pass every field under its stored
+    name, and :class:`SensitivityBounds` stores its three limits as ``_ci_lower``,
+    ``_ci_upper`` and ``_robustness_value_ci`` so that the public names can refuse.  The
+    wrapper renames those keywords to the public arguments, and a public argument passed
+    beside its stored name wins, as in ``replace(bound, ci_lower=x)``.  ``functools.wraps``
+    keeps the public signature for :func:`inspect.signature`, and the wrapped constructor
+    raises its own ``TypeError`` on an unknown or a missing argument.
+    """
+
+    @functools.wraps(init)
+    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> None:
+        for name in _STORED_LIMITS:
+            if f"_{name}" in kwargs:
+                stored = kwargs.pop(f"_{name}")
+                kwargs.setdefault(name, stored)
+        init(*args, **kwargs)
+
+    return wrapper
+
+
 @dataclass(frozen=True, init=False)
 class SensitivityBounds:
     """Bias-adjusted bounds under an assumed confounder strength.
@@ -945,6 +975,7 @@ class SensitivityBounds:
     #: :meth:`__setstate__` sets ``"unrecorded"`` rather than trusting this default.
     nu2_estimator: str = "doubly_robust"
 
+    @_accepts_stored_limit_names
     def __init__(
         self,
         estimand: str,
