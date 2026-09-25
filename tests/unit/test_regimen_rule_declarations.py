@@ -64,6 +64,7 @@ from cleverly.longitudinal import (
 from cleverly.longitudinal.estimator import longitudinal_truncation_curve
 from cleverly.longitudinal.regimen import refuse_regimen_rules
 from tests.pickles import legacy_without
+from tests.unit._capability_sweep_support import assert_replay_rows_refused
 from tests.unit._confounding_support import Counter
 from tests.unit._declaration_support import (
     PANEL_COLUMNS,
@@ -579,6 +580,10 @@ class TestALegacyLongitudinalResultRefusesARecomputation:
             CapabilityError,
             "saved regimen rule lacks",
         )
+
+    def test_every_replay_row_refuses_and_a_combined_report_runs(self, regimen_result: Any) -> None:
+        """RM23: a longitudinal result has no point retarget, so the rows carry the check."""
+        assert_replay_rows_refused(legacy_result(regimen_result))
 
     def test_a_modified_declaration_refuses(self, regimen_result: Any) -> None:
         copy = loads(dumps(regimen_result))

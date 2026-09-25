@@ -79,6 +79,7 @@ from cleverly.validation.refute import refute
 from tests import discrete_law as law
 from tests.conftest import linear_in_sample
 from tests.pickles import legacy_without
+from tests.unit._capability_sweep_support import assert_replay_agrees, assert_replay_rows_refused
 from tests.unit._confounding_support import Counter, forbid_draw_and_refit, validate_replay
 from tests.unit._declaration_support import (
     PATHWISE,
@@ -772,6 +773,12 @@ class TestARestoredUndeclaredResultWithholdsInference:
         assert not capability.available
         assert "known-function declaration" in capability.reason
 
+    def test_a_restored_rule_result_refuses_every_replay_row(self, banded_rule_result: Any) -> None:
+        """RM23: each slot agrees with its call, and a combined report still runs."""
+        old = legacy_result(banded_rule_result)
+        assert_replay_agrees(old, RETARGETED)
+        assert_replay_rows_refused(old)
+
     def test_a_restored_study_result_withholds_inference(self, study_rule_result: Any) -> None:
         """A ``CausalStudy`` result restores through the same status hook as a fit."""
         old = legacy_result(study_rule_result)
@@ -806,6 +813,7 @@ class TestARestoredUndeclaredResultWithholdsInference:
             assert_keeps_its_interval(result, restored_result)
             assert replayability(restored_result).retarget_cached_nuisances
             assert replayability(restored_result).refit_nuisances
+            assert_replay_agrees(restored_result, RETARGETED)
         assert loads(dumps(banded_rule_result)).simultaneous is not None
 
     def test_a_live_configuration_meets_the_declaration_refusal(self) -> None:

@@ -16,14 +16,24 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 import pytest
 
-from cleverly.assessment import AssessmentStatus, DiagnosticsFacade, SensitivityFacade
-from cleverly.estimators import CTMLE, DRTMLE
+from cleverly import SplitPlan
+from cleverly.assessment import (
+    POINT_REPLAY_REFIT_CONFIGURATION,
+    AssessmentStatus,
+    DiagnosticsFacade,
+    SensitivityFacade,
+    replayability,
+)
+from cleverly.datasets import make_linear_ate
+from cleverly.estimators import CTMLE, DRTMLE, TMLE
+from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.sensitivity import missingness as missingness_module
 from cleverly.sensitivity import omitted_variable as omitted_variable_module
@@ -47,12 +57,17 @@ from cleverly.sensitivity.positivity import (
 )
 from cleverly.targets.population_intervention import NATURAL_COURSE_TILT_REFUSAL
 from cleverly.validation.refute import _REQUEST_RULES, DEFAULT_TESTS, refute, refute_refusal
+from tests import discrete_law
+from tests.conftest import SELECTOR_CONFIGS, linear_ctmle, linear_in_sample
 from tests.unit._capability_sweep_support import (
     INSTRUMENT_ORDERING,
     KINDS,
+    assert_replay_agrees,
     ctmle_ordered,
     fit_drtmle,
+    replay_disagreements,
 )
+from tests.unit._declaration_support import legacy_result
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
 # ----------------------------------------------------------------------------- the tilt
@@ -714,3 +729,158 @@ class TestARefitDropsACompanionThatLacksACovariate:
             _noise_refit_values(paired)
         # The same mutation leaves the fit without a companion running.
         assert _noise_refit_values(plain)
+
+
+# ---------------------------------------------------------------------- the replay slots
+
+
+def _discrete_fit(**overrides: Any) -> Any:
+    """A fit of the discrete law with the linear learners, in sample unless overridden."""
+    estimator = TMLE(**linear_in_sample(**overrides))
+    return estimator.fit(discrete_law.frame(), outcome="Y", treatment="A").single()
+
+
+def _cross_fitted() -> Any:
+    """A cross-fitted fit of the discrete law in two folds."""
+    return _discrete_fit(cross_fit=True, n_folds=2)
+
+
+def _restored(result: Any, **configuration: Any) -> Any:
+    """``result`` saved, given ``configuration`` on its estimator, and loaded.
+
+    ``__init__`` refuses each configuration used below. Only a result that an earlier
+    version saved, or a copied estimator, can carry one.
+    """
+    old = loads(dumps(result))
+    vars(old.estimator).update(configuration)
+    return loads(dumps(old))
+
+
+def _without_provenance() -> Any:
+    """A supplied-plan fit restored with a plan that records no generator."""
+    result = KINDS["split_plan"]()
+    return _restored(result, split_plan=SplitPlan(result.estimator.split_plan.assignments))
+
+
+def _ctmle_stratified() -> Any:
+    """An in-sample greedy collaborative fit restored with a stratified fold policy."""
+    estimator = linear_ctmle("greedy", **SELECTOR_CONFIGS["greedy"], estimands=("ate",))
+    result = estimator.fit(discrete_law.frame(), outcome="Y", treatment="A").single()
+    return _restored(result, stratify_folds="treatment")
+
+
+def _unbounded_scale() -> Any:
+    """A cross-fitted continuous outcome with declared bounds, restored without them."""
+    frame, _ = make_linear_ate(n=400, seed=2)
+    bounds = (float(frame["Y"].min()) - 1.0, float(frame["Y"].max()) + 1.0)
+    estimator = TMLE(**linear_in_sample(cross_fit=True, n_folds=2, q_bounds=bounds))
+    return _restored(estimator.fit(frame, outcome="Y", treatment="A").single(), q_bounds=None)
+
+
+def _as_saved_by_v011(result: Any) -> Any:
+    """``result`` as release 0.1.1 saved it: its estimator holds no ``split_plan``."""
+    return legacy_result(result, "split_plan", lambda restored: [restored.estimator])
+
+
+#: Each restored result, and whether its refit runs. A refused refit is the RM23 defect:
+#: before RM23 each of these read ``refit_nuisances`` true and its refit raised.
+REPLAY_KINDS: dict[str, tuple[Callable[[], Any], bool]] = {
+    "stratify=treatment": (lambda: _restored(_cross_fitted(), stratify_folds="treatment"), False),
+    "stratify=treatment+outcome": (
+        lambda: _restored(_cross_fitted(), stratify_folds="treatment+outcome"),
+        False,
+    ),
+    "n_folds=1": (lambda: _restored(_cross_fitted(), n_folds=1), False),
+    "repeats=0": (lambda: _restored(_cross_fitted(), repeats=0), False),
+    "repeats=2 in sample": (lambda: _restored(_discrete_fit(), repeats=2), False),
+    "plan without provenance": (_without_provenance, False),
+    "ctmle greedy stratified": (_ctmle_stratified, False),
+    "unbounded scale": (_unbounded_scale, False),
+    "v0.1.1 cross-fitted": (lambda: _as_saved_by_v011(_cross_fitted()), True),
+    "v0.1.1 in sample": (lambda: _as_saved_by_v011(_discrete_fit()), True),
+    "declared cross-fitted": (lambda: loads(dumps(_cross_fitted())), True),
+    "declared in sample": (lambda: loads(dumps(_discrete_fit())), True),
+}
+
+#: The restored kinds whose refit this version refuses.
+REFUSED_REPLAY_KINDS = [kind for kind, (_, runs) in REPLAY_KINDS.items() if not runs]
+
+
+@pytest.fixture(scope="module")
+def replay_results() -> dict[str, Any]:
+    """One restored result of each kind in :data:`REPLAY_KINDS`."""
+    return {kind: build() for kind, (build, _) in REPLAY_KINDS.items()}
+
+
+class TestTheRefitSlotReadsTheRefitPreflight:
+    """``refit_nuisances`` reads false exactly when ``refit()`` meets a preflight refusal."""
+
+    @pytest.mark.parametrize("kind", list(REPLAY_KINDS))
+    def test_each_slot_agrees_with_its_call(
+        self, replay_results: dict[str, Any], kind: str
+    ) -> None:
+        result = replay_results[kind]
+        assert_replay_agrees(result, ("ate",))
+        replay = replayability(result)
+        # The nonzero witness: the cached nuisances retarget, and the refit slot is the
+        # one the table expects, so agreement is not two refusals or two passes alone.
+        assert replay.retarget_cached_nuisances
+        assert replay.refit_nuisances is REPLAY_KINDS[kind][1]
+        if not replay.refit_nuisances:
+            assert replay.unreconstructible == (POINT_REPLAY_REFIT_CONFIGURATION,)
+
+    @pytest.mark.parametrize("kind", REFUSED_REPLAY_KINDS)
+    def test_a_combined_report_names_the_refused_refit(
+        self, replay_results: dict[str, Any], kind: str
+    ) -> None:
+        """Before RM23 the collaborative kind raised ``ValueError`` from ``assess``."""
+        result = replay_results[kind]
+        report = result.assess(
+            include_refits=True,
+            include_retargets=True,
+            arguments={"refute": {"n_replicates": 1}},
+            random_state=0,
+        )
+        item = report.diagnostics["refute"]
+        assert item.status is AssessmentStatus.UNAVAILABLE
+        assert "refitting the nuisance models is unavailable" in item.detail
+        assert POINT_REPLAY_REFIT_CONFIGURATION in item.detail
+
+    def test_a_restored_stratified_refit_raises_the_slot_sentence(
+        self, replay_results: dict[str, Any]
+    ) -> None:
+        result = replay_results["stratify=treatment"]
+        with pytest.raises(CapabilityError) as raised:
+            result.estimator.refit(result.data)
+        assert type(raised.value) is CapabilityError
+        assert str(raised.value) == result.estimator._refit_configuration_refusal(result.data)
+
+
+class TestEachReplayMutationRestoresADisagreement:
+    """The agreement check sees a slot that ignores the preflight or a lost default."""
+
+    @pytest.mark.parametrize("kind", REFUSED_REPLAY_KINDS)
+    def test_a_slot_that_ignores_the_preflight_disagrees(
+        self, replay_results: dict[str, Any], kind: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """M6: the slot as it was, true while the refit raised."""
+        monkeypatch.setattr(TMLE, "_refit_configuration_refusal", lambda self, data: None)
+        problems = replay_disagreements(replay_results[kind], ("ate",))
+        assert len(problems) == 1
+        assert problems[0].startswith("refit_nuisances reads True, and the call gave Capab")
+
+    def test_the_same_mutation_leaves_a_declared_result_agreeing(
+        self, replay_results: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(TMLE, "_refit_configuration_refusal", lambda self, data: None)
+        assert replay_disagreements(replay_results["declared cross-fitted"], ("ate",)) == []
+
+    def test_without_the_class_default_a_v011_result_raises(
+        self, replay_results: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """M7: release 0.1.1 wrote no ``split_plan``, and only the class default supplies it."""
+        monkeypatch.delattr(TMLE, "split_plan")
+        with pytest.raises(AttributeError, match="split_plan"):
+            replay_disagreements(replay_results["v0.1.1 cross-fitted"], ("ate",))
+        # The control: a result that holds its own attribute needs no default.
+        assert replay_disagreements(replay_results["declared cross-fitted"], ("ate",)) == []

@@ -19,6 +19,7 @@ from typing import Any
 import numpy as np
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+from cleverly.assessment import AssessmentStatus, replayability
 from cleverly.datasets import (
     make_binary_outcome,
     make_instrument,
@@ -27,6 +28,7 @@ from cleverly.datasets import (
     make_missing_outcome_binary,
 )
 from cleverly.estimators import DRTMLE, TMLE
+from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Incremental, Shift
 from cleverly.msm import MSM
 from tests import discrete_law, discrete_law_mar, regimes
@@ -196,6 +198,63 @@ def fit_drtmle(*, companion: bool = False) -> Any:
 def fit_drtmle_companion() -> Any:
     """:func:`fit_drtmle` with an ``evaluation=`` companion."""
     return fit_drtmle(companion=True)
+
+
+def replay_disagreements(result: Any, estimands: tuple[str, ...]) -> list[str]:
+    """Every point replay slot of ``result`` that disagrees with the call it stands for.
+
+    ``retarget_cached_nuisances`` stands for ``estimator.retarget`` on the cached
+    nuisances, and ``refit_nuisances`` for ``estimator.refit`` on the result's own data.
+    A :class:`~cleverly.exceptions.CapabilityError` or
+    :class:`~cleverly.exceptions.DataError` is a refusal. Any other exception is a defect,
+    so it propagates. An empty list is agreement.
+    """
+    replay = replayability(result)
+    estimator = result.estimator
+    calls: dict[str, Callable[[], Any]] = {
+        "retarget_cached_nuisances": lambda: estimator.retarget(
+            result.data, result.nuisance, estimands=estimands
+        ),
+        "refit_nuisances": lambda: estimator.refit(
+            result.data, intermediate_value=result.intermediate_value
+        ),
+    }
+    problems = []
+    for slot, call in calls.items():
+        try:
+            call()
+        except (CapabilityError, DataError) as error:
+            refused: str | None = f"{type(error).__name__}: {error}"
+        else:
+            refused = None
+        if getattr(replay, slot) != (refused is None):
+            problems.append(f"{slot} reads {getattr(replay, slot)}, and the call gave {refused}")
+    return problems
+
+
+def assert_replay_agrees(result: Any, estimands: tuple[str, ...]) -> None:
+    """Each point replay slot of ``result`` reads true exactly when its call runs."""
+    assert replay_disagreements(result, estimands) == []
+
+
+def assert_replay_rows_refused(result: Any) -> None:
+    """Every row that needs a replay slot reads unavailable, and a combined report runs.
+
+    For a restored result whose replay slots read false. The list of rows is not empty,
+    and the ``refute`` row reads unavailable too. A longitudinal ``refute`` row declares
+    no replay slot, because it is unavailable for every longitudinal result.
+    """
+    rows = [
+        row
+        for facade in (result.diagnostics, result.sensitivity)
+        for row in facade.capabilities
+        if row.requires_replay is not None
+    ]
+    assert rows
+    assert [row.operation for row in rows if row.available] == []
+    assert not result.diagnostics.capability("refute").available
+    report = result.assess(include_refits=True, include_retargets=True, random_state=0)
+    assert report.diagnostics["refute"].status is AssessmentStatus.UNAVAILABLE
 
 
 #: One builder per kind of fit, by the name the RM23 plan gives it.

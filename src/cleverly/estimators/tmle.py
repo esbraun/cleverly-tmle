@@ -551,6 +551,10 @@ class TMLE:
 
     _assessment_method = "tmle"
 
+    # An estimator pickled by 0.1.0 or 0.1.1 has no instance attribute, and None is what
+    # those releases meant: they drew every fold from the data.
+    split_plan: SplitPlan | None = None
+
     def _inference_status(self, data: CausalData) -> InferenceStatus:
         """Whether this estimator's estimates on ``data`` carry inference or a diagnostic.
 
@@ -1462,19 +1466,88 @@ class TMLE:
         cross-fitted missing-outcome target follows them.  All three name a narrower
         surface than the outcome-scale rule below, so each keeps its own sentence and the
         general rule catches what is left.
+
+        The fold policy and the data contracts are what :meth:`_refit_configuration_refusal`
+        reads, so the ``refit_nuisances`` replay slot of a restored result reads false
+        exactly when a refit meets one of these refusals.
         """
         reason = self._cross_fit_policy_reason()
         if reason is not None:
-            raise ValueError(
-                f"{reason}. This fit was configured under a fold policy this version "
-                "refuses, which a restored result or a copied estimator can still carry"
-            )
+            raise CapabilityError(self._restored_policy_refusal(reason))
         self._refuse_undeclared_functions()
+        return self._resolve_data_contracts(data)
+
+    @staticmethod
+    def _restored_policy_refusal(reason: str) -> str:
+        """The sentence a fit under a fold policy this version refuses raises.
+
+        Parameters
+        ----------
+        reason : str
+            What :meth:`_cross_fit_policy_reason` returned.
+
+        Returns
+        -------
+        str
+            The reason, then the sentence that names a restored or copied estimator.
+        """
+        return (
+            f"{reason}. This fit was configured under a fold policy this version "
+            "refuses, which a restored result or a copied estimator can still carry"
+        )
+
+    def _resolve_data_contracts(self, data: CausalData) -> tuple[str, ...]:
+        """Resolve targets and run the four contracts of the configuration on ``data``.
+
+        Each contract raises :class:`~cleverly.exceptions.CapabilityError` and nothing
+        else, and each reads only this configuration and ``data``.  So a result that an
+        earlier version saved can meet one here, and
+        :meth:`_refit_configuration_refusal` reads it without fitting.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data a fit or a refit would fit.
+
+        Returns
+        -------
+        tuple of str
+            The resolved target names.
+        """
         estimands = self._resolve_natural_course_contract(data)
         self._resolve_arm_indexed_missing_contract(data, estimands)
         self._refuse_cross_fitted_missing_off_contract(data, estimands)
         self._refuse_unbounded_cross_fitted_scale(data)
         return estimands
+
+    def _refit_configuration_refusal(self, data: CausalData) -> str | None:
+        """Why a refit of this configuration on ``data`` is refused before any learner.
+
+        The ``refit_nuisances`` slot of :func:`~cleverly.assessment.replayability` reads
+        this, so the slot agrees with :meth:`refit`.  It reads the fold policy and the
+        data contracts that :meth:`_resolve_estimands_for_data` enforces.  The declaration
+        check that runs between them has its own replay code, and
+        :func:`~cleverly.assessment.replayability` asks it first.  A subclass refusal of
+        its own design is not read here.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data the refit would fit, which is the result's own data.
+
+        Returns
+        -------
+        str or None
+            The sentence the refit raises, or ``None`` when neither check refuses.
+        """
+        reason = self._cross_fit_policy_reason()
+        if reason is not None:
+            return self._restored_policy_refusal(reason)
+        try:
+            self._resolve_data_contracts(data)
+        except CapabilityError as error:
+            return str(error)
+        return None
 
     def _refuse_cross_fitted_missing_off_contract(
         self, data: CausalData, estimands: tuple[str, ...]

@@ -28,6 +28,7 @@ from ._assessment_cache import (
     _pack_cached,
     _unpack_cached,
 )
+from ._declarations import declaration_status
 from ._inference_status import precedent_status, status_record, supplies_inference
 from ._typing import CumulativeGBounds
 from .data.weighting import REPORTED_DRAW, format_score_load
@@ -1173,11 +1174,15 @@ def replayability(result: Any) -> Replayability:
     if estimator is None:
         return Replayability(True, False, False, False, False, ("estimator configuration",))
     refuse_functions = getattr(estimator, "_refuse_undeclared_functions", None)
-    if callable(refuse_functions):
-        try:
-            refuse_functions()
-        except (CapabilityError, DataError):
-            return Replayability(True, False, False, False, False, (POINT_REPLAY_DECLARATION,))
+    if callable(refuse_functions) and declaration_status(refuse_functions) != "influence_curve":
+        return Replayability(True, False, False, False, False, (POINT_REPLAY_DECLARATION,))
+    # The checks a refit runs before any learner, read without fitting. A result saved
+    # under a configuration this version refuses keeps its cached nuisances, so it still
+    # retargets, and only the refit slot reads false.
+    refit_refusal = getattr(estimator, "_refit_configuration_refusal", None)
+    data = getattr(result, "data", None)
+    if callable(refit_refusal) and data is not None and refit_refusal(data) is not None:
+        return Replayability(True, True, False, False, False, (POINT_REPLAY_REFIT_CONFIGURATION,))
     return Replayability(True, True, False, True, False)
 
 
@@ -1240,6 +1245,7 @@ def _method_gated(item: AssessmentCapability, method: str) -> AssessmentCapabili
 #: there sends a reader to look for a field that nothing dropped.
 _REPLAY_ARTIFACT_MISSING = "this stored result no longer carries the components it needs"
 POINT_REPLAY_DECLARATION = "point_replay_function_declaration"
+POINT_REPLAY_REFIT_CONFIGURATION = "point_replay_refit_configuration"
 
 
 def _replay_omission_causes() -> dict[str, str]:
@@ -1261,6 +1267,12 @@ def _replay_omission_causes() -> dict[str, str]:
         POINT_REPLAY_DECLARATION: (
             "a saved regime or MSM function lacks an accepted known-function declaration; "
             "refit with the original functions declared known to restore recomputation"
+        ),
+        POINT_REPLAY_REFIT_CONFIGURATION: (
+            "this version refuses the saved estimator configuration before a refit, such as "
+            "a stratified fold policy or an undeclared scale for a cross-fitted continuous "
+            "outcome; the cached nuisances still retarget, and a new fit under a supported "
+            "configuration restores refits"
         ),
         LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED: (
             "a retained learner template declares no random_state, so a clone of it cannot "
