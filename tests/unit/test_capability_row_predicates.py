@@ -45,6 +45,8 @@ from cleverly.sensitivity.missingness import (
 from cleverly.sensitivity.omitted_variable import (
     _RESPONSE_BOUND_REFUSAL,
     _RESPONSE_TILT_POINTER,
+    benchmark,
+    benchmark_refusal,
     fit_wide_bound_refusal,
 )
 from cleverly.sensitivity.positivity import (
@@ -610,6 +612,150 @@ class TestEachRefuteMutationRestoresADisagreement:
     ) -> None:
         MUTATIONS["M3"].apply(monkeypatch)
         assert refute_disagreements(refute_fits["ordinary"], "ordinary") == []
+
+
+# ------------------------------------------------------------------------ the benchmark
+
+#: The fit with the one covariate ``W``, which the sweep found, and a fit with four.
+BENCHMARK_KINDS = ("split_plan", "ordinary")
+
+
+@pytest.fixture(scope="module")
+def benchmark_fits() -> dict[str, Any]:
+    """One fresh fit of each kind in :data:`BENCHMARK_KINDS`, shared by this section."""
+    return {kind: KINDS[kind].build() for kind in BENCHMARK_KINDS}
+
+
+def _benchmark_raised(result: Any, covariates: list[str]) -> str | None:
+    """The sentence ``benchmark`` refuses with, or ``None`` when it reaches a learner fit."""
+    try:
+        benchmark(_spied(result), covariates, random_state=0)
+    except CapabilityError as error:
+        return str(error)
+    except AssertionError as error:
+        assert "before any learner is fitted" in str(error)
+        return None
+    raise AssertionError("the spied benchmark neither refused nor reached a learner fit")
+
+
+def benchmark_disagreements(result: Any) -> list[str]:
+    """Every request whose ``benchmark`` row and module call disagree.
+
+    The bare request names no covariates, so no call stands for it alone. Its row reads
+    available exactly when some single covariate runs. The first covariate and every
+    covariate are then each one request. A fresh facade resolves each row, so a
+    monkeypatched seam takes effect. An empty list is agreement.
+    """
+    facade = SensitivityFacade(result)
+    names = list(result.data.covariate_names)
+    problems = []
+    bare = facade._capability_for_arguments("benchmark", {})
+    singles = {name: _benchmark_raised(result, [name]) for name in names}
+    if bare.available != any(raised is None for raised in singles.values()):
+        problems.append(f"the bare row reads available={bare.available}, the calls {singles}")
+    for covariates in (names[:1], names):
+        row = facade._capability_for_arguments("benchmark", {"covariates": covariates})
+        raised = _benchmark_raised(result, covariates)
+        if row.available and raised is not None:
+            problems.append(f"{covariates}: the row reads available and the call raised {raised}")
+        if not row.available and raised != row.reason:
+            problems.append(f"{covariates}: the row quotes {row.reason!r}, the call {raised!r}")
+    return problems
+
+
+class TestTheBenchmarkRowResolvesEachRequest:
+    """The row and the call both read :func:`benchmark_refusal`, one request at a time."""
+
+    def test_a_fit_with_one_covariate_reads_unavailable(
+        self, benchmark_fits: dict[str, Any]
+    ) -> None:
+        """No value runs, because the refit cannot drop the only covariate."""
+        result = benchmark_fits["split_plan"]
+        row = result.sensitivity.capability("benchmark")
+        assert row.status is AssessmentStatus.UNAVAILABLE
+        assert row.reason == benchmark_refusal(result, ["W"])
+        assert row.reason is not None and "['W']" in row.reason
+        with pytest.raises(CapabilityError) as error:
+            benchmark(result, ["W"])
+        assert type(error.value) is CapabilityError
+        assert str(error.value) == row.reason
+        with pytest.raises(CapabilityError) as error:
+            result.sensitivity.benchmark(["W"])
+        assert str(error.value) == f"sensitivity 'benchmark' is unavailable: {row.reason}"
+
+    def test_a_combined_report_names_the_refusal(self, benchmark_fits: dict[str, Any]) -> None:
+        """Before this row read the predicate, ``assess`` raised ``DataError`` here."""
+        result = benchmark_fits["split_plan"]
+        report = result.assess(
+            include_refits=True,
+            arguments={"benchmark": {"covariates": ["W"]}},
+            random_state=0,
+        )
+        item = report.sensitivity["benchmark"]
+        assert item.status is AssessmentStatus.UNAVAILABLE
+        assert item.detail == result.sensitivity.capability("benchmark").reason
+
+    def test_a_fit_with_more_covariates_keeps_the_declared_argument(
+        self, benchmark_fits: dict[str, Any]
+    ) -> None:
+        result = benchmark_fits["ordinary"]
+        row = result.sensitivity.capability("benchmark")
+        assert row.available
+        assert row.requires_arguments == ("covariates",)
+        report = result.sensitivity.run_all(include_refits=True)
+        assert report["benchmark"].status is AssessmentStatus.DEFERRED
+
+    def test_naming_every_covariate_reads_unavailable(self, benchmark_fits: dict[str, Any]) -> None:
+        result = benchmark_fits["ordinary"]
+        every = list(result.data.covariate_names)
+        row = result.sensitivity._capability_for_arguments("benchmark", {"covariates": every})
+        assert row.status is AssessmentStatus.UNAVAILABLE
+        assert row.reason == benchmark_refusal(result, every)
+        with pytest.raises(CapabilityError) as error:
+            result.sensitivity.benchmark(every, random_state=0)
+        assert str(error.value) == row.reason
+        report = result.sensitivity.run_all(
+            include_refits=True, arguments={"benchmark": {"covariates": every}}, random_state=0
+        )
+        assert report["benchmark"].status is AssessmentStatus.UNAVAILABLE
+        assert report["benchmark"].detail == row.reason
+        # The nonzero witness: one covariate fewer runs.
+        kept = every[1:]
+        assert result.sensitivity._capability_for_arguments(
+            "benchmark", {"covariates": kept}
+        ).available
+        assert benchmark(result, kept, random_state=0).covariates == tuple(kept)
+
+    def test_an_unknown_covariate_is_reported_before_any_refusal(
+        self, benchmark_fits: dict[str, Any]
+    ) -> None:
+        """The malformed argument first, as the omitted-variable calls report it."""
+        with pytest.raises(DataError, match=r"unknown covariates \['nope'\]") as error:
+            benchmark(benchmark_fits["split_plan"], ["W", "nope"])
+        assert not isinstance(error.value, CapabilityError)
+
+
+class TestTheBenchmarkMutationRestoresADisagreement:
+    """The agreement check sees a row that stops reading the predicate."""
+
+    @pytest.mark.parametrize("kind", BENCHMARK_KINDS)
+    def test_m0_every_kind_agrees_unmutated(
+        self, benchmark_fits: dict[str, Any], kind: str
+    ) -> None:
+        assert benchmark_disagreements(benchmark_fits[kind]) == []
+
+    @pytest.mark.parametrize("kind", BENCHMARK_KINDS)
+    def test_a_row_that_ignores_the_predicate_disagrees(
+        self, benchmark_fits: dict[str, Any], kind: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """M8: the row as it was, available for every covariate the request names."""
+        MUTATIONS["M8"].apply(monkeypatch)
+        problems = benchmark_disagreements(benchmark_fits[kind])
+        every = list(benchmark_fits[kind].data.covariate_names)
+        assert any(problem.startswith(f"{every}: the row reads available") for problem in problems)
+        # Only the one-covariate fit has a bare row that no single covariate runs.
+        bare = any(problem.startswith("the bare row") for problem in problems)
+        assert bare is (kind == "split_plan")
 
 
 # ------------------------------------------------------------ the covariate a refit adds

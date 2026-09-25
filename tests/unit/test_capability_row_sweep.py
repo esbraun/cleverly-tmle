@@ -23,7 +23,6 @@ from cleverly.assessment import replayability
 from tests.unit._capability_sweep_support import (
     KINDS,
     MUTATIONS,
-    OPEN,
     problems,
     ran,
     sweep,
@@ -35,7 +34,7 @@ from tests.unit._capability_sweep_support import (
 def test_every_row_a_request_resolves_available_answers_it(kind: str) -> None:
     result = KINDS[kind].build()
     arguments = sweep_arguments(result)
-    assert problems(result, arguments) == list(OPEN.get(kind, ()))
+    assert problems(result, arguments) == []
     # The nonzero witness: the rows this kind must run did run.
     assert KINDS[kind].must_run <= ran(result, arguments)
     if result.assessment_family == "point":
@@ -64,6 +63,6 @@ class TestEachMutationRestoresAMismatch:
         result = dataclasses.replace(fitted)
         found = sweep(result)
         if kind in mutation.fails_on:
-            assert found != list(OPEN.get(kind, ())), mutation.describe
+            assert found, mutation.describe
         else:
-            assert found == list(OPEN.get(kind, ())), mutation.describe
+            assert found == [], mutation.describe

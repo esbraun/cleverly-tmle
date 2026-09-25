@@ -3872,6 +3872,55 @@ class SensitivityFacade(_CapabilityFacade):
             return self._tipping_interval_row(capability)
         return capability
 
+    def _request_gated(
+        self, capability: AssessmentCapability, arguments: Mapping[str, Any]
+    ) -> AssessmentCapability:
+        """Resolve the sensitivity rows whose calls refuse some argument values.
+
+        ``benchmark`` resolves ``covariates``.  Every other sensitivity row is returned
+        unchanged.
+
+        Parameters
+        ----------
+        capability : AssessmentCapability
+            The row after the method gate and the replay gate.
+        arguments : mapping of str to Any
+            Arguments the caller supplied for this operation.
+
+        Returns
+        -------
+        AssessmentCapability
+            The row this request reads.
+        """
+        if capability.operation == "benchmark":
+            return self._benchmark_gated(capability, arguments)
+        return capability
+
+    def _benchmark_gated(
+        self, capability: AssessmentCapability, arguments: Mapping[str, Any]
+    ) -> AssessmentCapability:
+        """Resolve the ``benchmark`` row from the call's predicate.
+
+        :func:`~cleverly.sensitivity.omitted_variable.benchmark_refusal` is what the call
+        raises from, and :func:`_argument_resolved` applies the request rule to
+        ``covariates``.  A fit with one covariate reads ``unavailable``, because the refit
+        cannot drop the only covariate and no other value exists.  On a fit with two or
+        more, the bare row keeps its declared ``covariates`` argument, and a request that
+        names every covariate reads ``unavailable``.  A row that a fit-wide refusal or a
+        gate already refused is returned as it is.
+        """
+        if not capability.available:
+            return capability
+        from .sensitivity.omitted_variable import benchmark_refusal
+
+        return _argument_resolved(
+            capability,
+            "covariates",
+            arguments.get("covariates"),
+            lambda covariates: benchmark_refusal(self._result, covariates),
+            tuple((name,) for name in self._result.data.covariate_names),
+        )
+
     def _tipping_interval_row(self, capability: AssessmentCapability) -> AssessmentCapability:
         """The ``tipping_gamma`` row for a ``use_ci=True`` request.
 

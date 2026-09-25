@@ -547,45 +547,15 @@ KINDS: dict[str, Kind] = {
     "ltmle": _kind(fit_ltmle, "truncation_curve"),
 }
 
-#: The mismatches the sweep found outside RM23, which stay open, by kind. Each is the
-#: exact line :func:`problems` reports, so the sweep fails when one is fixed, and the
-#: entry is removed then.
-#:
-#: ``split_plan`` fits the discrete law, which has the one covariate ``W``. Its
-#: ``benchmark`` row reads available and asks for ``covariates=``, but no value runs: the
-#: call refits without the named covariates and raises ``DataError("cannot drop every
-#: covariate")``. By the request rule of :func:`cleverly.assessment._argument_resolved`,
-#: a row whose omitted argument has no value that runs reads ``unavailable``. The sweep
-#: leaves the argument out, so the row stays deferred.
-OPEN: dict[str, tuple[str, ...]] = {
-    "split_plan": (
-        "benchmark is still deferred: needs an explicit covariates argument, which a "
-        "combined report has no basis to choose",
-    ),
-}
-
 
 # ------------------------------------------------------------------------- the sweep
 
 
-def _benchmark_covariates(result: Any) -> list[str] | None:
-    """The first covariate, or ``None`` on a fit that has no other one to keep.
-
-    ``benchmark`` refits without the named covariates, and a refit needs one left, so no
-    ``covariates=`` value runs on a fit with a single covariate. See :data:`OPEN`.
-    """
-    names = list(result.data.covariate_names)
-    return names[:1] if len(names) > 1 else None
-
-
 def _fillers(result: Any) -> dict[str, Callable[[], Any]]:
-    """The value the sweep supplies for each argument a row can defer on.
-
-    ``None`` means that no value runs, so the sweep leaves the argument out.
-    """
+    """The value the sweep supplies for each argument a row can defer on."""
     return {
         "estimand": lambda: next(iter(result.estimates)),
-        "covariates": lambda: _benchmark_covariates(result),
+        "covariates": lambda: list(result.data.covariate_names[:1]),
         "grid": lambda: _GRID,
         "bounds": lambda: (0.05,),
         "mechanism": lambda: True,
@@ -614,9 +584,8 @@ def fill_deferred(result: Any, arguments: dict[str, dict[str, Any]]) -> bool:
             if not (row.available or row.status is AssessmentStatus.DEFERRED):
                 continue
             for name in row.requires_arguments:
-                value = None if name in request else fillers[name]()
-                if value is not None:
-                    request = {**request, name: value}
+                if name not in request:
+                    request = {**request, name: fillers[name]()}
                     filled = True
             if request:
                 arguments[declared.operation] = request
@@ -731,6 +700,7 @@ _SEAMS: tuple[tuple[type, str], ...] = (
     (SensitivityFacade, "_tilt_rule"),
     (DiagnosticsFacade, "_truncation_gated"),
     (DiagnosticsFacade, "_refute_gated"),
+    (SensitivityFacade, "_benchmark_gated"),
     (CTMLE, "_configured_for_refit"),
     (DRTMLE, "_configured_for_refit"),
     (TMLE, "_refit_configuration_refusal"),
@@ -764,8 +734,8 @@ class Mutation:
     apply : callable
         Applies the mutation to a ``pytest.MonkeyPatch``.
     fails_on : frozenset of str
-        The kinds whose :func:`sweep` must report other problems than their :data:`OPEN`
-        entry under the mutation. Every other kind must report exactly that entry.
+        The kinds whose :func:`sweep` must report a problem under the mutation. Every
+        other kind must report none.
     """
 
     describe: str
@@ -777,8 +747,8 @@ _TILT_KINDS = frozenset(
     {"shift+missing", "incremental+missing", "regime+missing", "msm+missing", "rr+missing"}
 )
 
-#: M0 to M7 of the RM23 plan. M0 wraps every seam and changes nothing, so a failure there
-#: is the wrapping and not a defect.
+#: M0 to M7 of the RM23 plan, and M8 for the benchmark row the sweep found. M0 wraps every
+#: seam and changes nothing, so a failure there is the wrapping and not a defect.
 MUTATIONS: dict[str, Mutation] = {
     "M0": Mutation("every seam wrapped and unchanged", _passthrough, frozenset()),
     "M1": Mutation(
@@ -815,5 +785,10 @@ MUTATIONS: dict[str, Mutation] = {
         "no class default for split_plan",
         lambda patch: patch.delattr(TMLE, "split_plan"),
         frozenset({"restored_v011"}),
+    ),
+    "M8": Mutation(
+        "the benchmark row ignores the predicate",
+        lambda patch: patch.setattr(SensitivityFacade, "_benchmark_gated", _identity_gate),
+        frozenset({"split_plan"}),
     ),
 }

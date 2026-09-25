@@ -89,7 +89,7 @@ from .._typing import FloatArray
 from ..assessment import SENSITIVITY_ROUTES
 from ..estimators.direct_effect import declares_intermediate
 from ..estimators.targeting import build_submodel
-from ..exceptions import CapabilityError, refuse_inference, repeats_refusal
+from ..exceptions import CapabilityError, DataError, refuse_inference, repeats_refusal
 from ..inference.cluster import influence_variance
 from ..inference.influence import spread_name
 from ..targets import parameter_stem
@@ -1469,6 +1469,47 @@ class BenchmarkResult:
         return self.summary()
 
 
+def _benchmark_names(covariates: Any) -> tuple[str, ...]:
+    """The covariate names a ``covariates=`` value requests, one bare name included."""
+    return tuple([covariates] if isinstance(covariates, str) else covariates)
+
+
+def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> str | None:
+    """Return the refusal a :func:`benchmark` request meets for its ``covariates``.
+
+    :func:`benchmark` raises the sentence this function returns, and the ``benchmark``
+    capability row of :class:`~cleverly.assessment.SensitivityFacade` quotes it for the
+    same request.  The short model is a refit without the named covariates.  A request
+    that names every covariate of the fit leaves the refit nothing to adjust for, and
+    this package fits no TMLE without a covariate, so the request is refused.  The
+    unadjusted comparison is well posed, and no estimator here computes it.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fitted point-treatment result.
+    covariates : str, sequence of str, or None
+        The requested covariate names.  ``None`` stands for the omitted argument, which
+        no value can lift on a fit with one covariate.  Unknown names are not checked
+        here: :func:`benchmark` refuses them first, as a malformed argument.
+
+    Returns
+    -------
+    str or None
+        Exact refusal reason, or ``None`` when the covariates leave one to adjust for.
+    """
+    fitted = tuple(result.data.covariate_names)
+    dropped = set(fitted[:1] if covariates is None else _benchmark_names(covariates))
+    if any(name not in dropped for name in fitted):
+        return None
+    return (
+        f"benchmark cannot drop every covariate of this fit, {list(fitted)}. The short "
+        "model would adjust for nothing, and a fit needs at least one covariate. Name a "
+        "proper subset of the covariates, which exists only when the fit adjusts for two "
+        "or more"
+    )
+
+
 def benchmark(
     result: TMLEResult,
     covariates: Any,
@@ -1509,17 +1550,27 @@ def benchmark(
 
     Raises
     ------
+    DataError
+        If ``covariates`` names a covariate the fit does not adjust for.  The argument
+        is checked before any refusal.
     ValueError
         If ``nu2_estimator`` is not one of :data:`NU2_ESTIMATORS`.
     CapabilityError
-        If the result carries no fitted estimator, or on every refusal
-        :func:`sensitivity_elements` raises for the full fit or the short refit.  The
-        full fit is checked before the refit runs.
+        If the result carries no fitted estimator, on every refusal
+        :func:`sensitivity_elements` raises for the full fit or the short refit, and on
+        the refusal of :func:`benchmark_refusal`.  The full fit and the covariates are
+        checked before the refit runs.
     """
     estimator = result.estimator
     if estimator is None:
         raise CapabilityError("benchmark needs the fitted estimator that produced the result")
-    names = tuple([covariates] if isinstance(covariates, str) else covariates)
+    names = _benchmark_names(covariates)
+    unknown = sorted(set(names).difference(result.data.covariate_names))
+    if unknown:
+        raise DataError(
+            f"unknown covariates {unknown}; this fit adjusts for "
+            f"{list(result.data.covariate_names)}"
+        )
 
     # The short model is a refit, so it carries the same reproducibility question a
     # refutation does: an estimator with no ``random_state`` redraws its folds every time,
@@ -1528,6 +1579,9 @@ def benchmark(
     seed = resolve_assessment_seed(result, random_state)
 
     long_elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
+    refusal = benchmark_refusal(result, names)
+    if refusal is not None:
+        raise CapabilityError(refusal)
     short_data = result.data.without_covariates(names)
     short_result = estimator.refit(
         short_data, intermediate_value=result.intermediate_value, random_state=seed
