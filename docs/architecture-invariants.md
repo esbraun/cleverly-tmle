@@ -367,8 +367,11 @@ step that named no argument.
 
 A row whose call refuses some values of one argument resolves each request from the predicate that
 the call raises from. The facade's `_gated_map` holds each row after the method and replay gates,
-before any request. Its `_request_gated` then resolves one request on top of that map. The bare
-row, a combined report, and a direct call each resolve their own arguments.
+before any request. Its `_request_gated` then resolves one request on top of that map, through the
+gate method that the class table `_request_gates` names for the operation. The bare row, a combined
+report, and a direct call each resolve their own arguments. The bare row and a combined report
+apply the estimand gate first. A direct call does not, because it raises its own refusal of the
+default estimand.
 
 | request | row |
 | --- | --- |
@@ -379,8 +382,9 @@ row, a combined report, and a direct call each resolve their own arguments.
 
 The helper `_argument_resolved` applies this rule to four rows: `truncation_curve` on `mechanism`,
 `refute` on `tests`, `benchmark` on `covariates`, and `simulated_confounding` on `estimand`. The
-`tipping_gamma` row set the precedent for `use_ci=True`. A fit-wide refusal stays in one ordered
-table, which the row and every entry point read.
+`tipping_gamma` gate refuses `use_ci=True` on a fit that supplies no inference, and it leaves every
+other request unchanged. A fit-wide refusal stays in one ordered table, which the row and every
+entry point read.
 
 The sweep in `tests/unit/test_capability_row_sweep.py` asks every row of 29 kinds of fit. Each row
 that a request resolves as available must run, and no row may decline or stay deferred. Ten

@@ -106,9 +106,8 @@ def _refuse_longitudinal(result: Any) -> str | None:
 
     First in the table, and not by taste: :class:`~cleverly.longitudinal.LongitudinalData`
     declares no ``has_missing_outcome``, so a later rule would raise ``AttributeError`` on
-    a longitudinal result instead of refusing it.  The sentence is byte-identical to the
-    one the capability rows published before this table existed, because two example
-    notebooks print it.
+    a longitudinal result instead of refusing it.  Two example notebooks print the
+    sentence, so keep it stable.
     """
     if getattr(result, "assessment_family", None) != "point":
         return "no longitudinal missingness-tilt adapter is implemented"
@@ -176,10 +175,9 @@ def _refuse_untiltable_parameters(result: Any) -> str | None:
 
     The tilt re-mixes the arm-indexed means and their linear contrasts, which
     :func:`~cleverly.sensitivity._parameters.reported_arm_parameters` names.  A regime,
-    an MSM, or a ratio-only fit reports none of them, and before this rule its row read
-    available while every call refused with "no tiltable estimands requested".  A fit
-    that reports at least one keeps the rule silent, and the default sweep skips the
-    rest as it always has.
+    an MSM, or a ratio-only fit reports none of them, so every call would refuse with "no
+    tiltable estimands requested", and the rule refuses the fit first.  A fit that
+    reports at least one keeps the rule silent, and the default sweep skips the rest.
     """
     if reported_arm_parameters(result):
         return None

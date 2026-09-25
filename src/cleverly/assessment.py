@@ -15,7 +15,7 @@ from dataclasses import dataclass, field, replace
 from enum import Enum, StrEnum
 from functools import cached_property
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 import numpy as np
 
@@ -1553,17 +1553,29 @@ class _CapabilityFacade:
 
     @cached_property
     def _capability_map(self) -> dict[str, AssessmentCapability]:
-        """Every row resolved for the bare request, which supplies no argument."""
-        return {
-            operation: self._request_gated(row, {}) for operation, row in self._gated_map.items()
-        }
+        """Every row resolved for the bare request, which supplies no argument.
+
+        The estimand gate and the request gate both apply, as they do to any request.
+        """
+        return {operation: self._resolved(row, {}) for operation, row in self._gated_map.items()}
+
+    def _lookup(
+        self, rows: Mapping[str, AssessmentCapability], operation: str
+    ) -> AssessmentCapability:
+        """One row of ``rows``, refused by name when the facade declares none."""
+        try:
+            return rows[operation]
+        except KeyError:
+            raise KeyError(f"unknown {self._kind} {operation!r}") from None
 
     def _gated(self, operation: str) -> AssessmentCapability:
         """One row of :attr:`_gated_map`, refused by name when the facade declares none."""
-        try:
-            return self._gated_map[operation]
-        except KeyError:
-            raise KeyError(f"unknown {self._kind} {operation!r}") from None
+        return self._lookup(self._gated_map, operation)
+
+    #: The request gate of each operation whose call refuses some argument values and not
+    #: others, as the name of the method that resolves it.  The method is looked up by name
+    #: at each request, so a test that replaces it on the class replaces the gate.
+    _request_gates: ClassVar[Mapping[str, str]] = {}
 
     def _request_gated(
         self, capability: AssessmentCapability, arguments: Mapping[str, Any]
@@ -1571,9 +1583,11 @@ class _CapabilityFacade:
         """Resolve a row for the arguments of one request.
 
         A row whose call refuses some argument values and not others is resolved here, from
-        the predicate that the call raises from.  The bare request, a combined report's
-        request and a direct call each pass their own arguments, so each reads the answer
-        the call gives.  The base facade has no such row and returns the row unchanged.
+        the predicate that the call raises from, by the method that :attr:`_request_gates`
+        names for the operation.  The bare request, a combined report's request and a
+        direct call each pass their own arguments, so each reads the answer the call gives.
+        A row with no gate is returned unchanged.  So is a row that a gate no argument
+        lifts has already refused.
 
         Parameters
         ----------
@@ -1587,29 +1601,71 @@ class _CapabilityFacade:
         AssessmentCapability
             The row this request reads.
         """
-        return capability
+        gate = self._request_gates.get(capability.operation)
+        if gate is None or not capability.available:
+            return capability
+        resolved: AssessmentCapability = getattr(self, gate)(capability, arguments)
+        return resolved
+
+    def _resolved(
+        self, capability: AssessmentCapability, arguments: Mapping[str, Any]
+    ) -> AssessmentCapability:
+        """The estimand gate and then the request gate, applied to one gated row.
+
+        The estimand gate runs first, so a request that names no estimand defers on the
+        estimand before any other argument is read.
+        """
+        return self._request_gated(self._estimand_gated(capability, arguments), arguments)
 
     def capability(self, operation: str) -> AssessmentCapability:
-        try:
-            return self._capability_map[operation]
-        except KeyError:
-            raise KeyError(f"unknown {self._kind} {operation!r}") from None
+        """Return the row of one operation, resolved for a request that supplies no argument.
+
+        The row passes the method gate, the replay gate, the estimand gate and the request
+        gate.  So an operation whose ``estimand`` default this fit leaves ambiguous reads
+        ``deferred`` on ``estimand``, and a call that names no estimand refuses.  A direct
+        call that names one resolves its own request and does not read this row.
+
+        Parameters
+        ----------
+        operation : str
+            A declared operation of this facade.
+
+        Returns
+        -------
+        AssessmentCapability
+            The row of the bare request.
+
+        Raises
+        ------
+        KeyError
+            If this facade declares no such operation.
+        """
+        return self._lookup(self._capability_map, operation)
+
+    def _argument_default(self, operation: str, argument: str) -> Any:
+        """The value a call of ``operation`` that omits ``argument`` runs with.
+
+        Read from the routed signature, after the substitution this facade makes, so a
+        request gate resolves an omitted argument exactly as the call does.
+        """
+        bound = self._bind_arguments(operation, {}, partial=True)
+        bound.apply_defaults()
+        return bound.arguments[argument]
 
     def _require(
         self, operation: str, arguments: Mapping[str, Any] | None = None
     ) -> AssessmentCapability:
         """Refuse a direct call by the row its request resolves to.
 
-        ``arguments=None`` reads the bare row, which is what an operation whose row no
-        argument changes needs.  A call whose row an argument can lift or refuse passes its
-        own arguments, so a request the bare row defers still runs once the caller names
-        the argument.  The estimand gate is not applied: a direct call resolves its own
-        estimand default and raises its own refusal.
+        A call whose row an argument can lift or refuse passes its own arguments, so a
+        request the bare row defers still runs once the caller names the argument.
+        ``arguments=None`` stands for a call that supplies none, which is what an
+        operation whose row no argument changes needs.  The estimand gate is not applied:
+        a direct call resolves its own estimand default and raises its own refusal, which
+        names the estimands the fit reports.  So a call that names an estimand is never
+        refused by the deferral that :meth:`capability` reports for the bare request.
         """
-        if arguments is None:
-            item = self.capability(operation)
-        else:
-            item = self._request_gated(self._gated(operation), arguments)
+        item = self._request_gated(self._gated(operation), arguments or {})
         if not item.available:
             # ``reason`` first, and ``interpretation`` only as a fallback: the record knows
             # why *this* operation is refused, and re-deriving one from the result family
@@ -1705,14 +1761,8 @@ class _CapabilityFacade:
     def _capability_for_arguments(
         self, operation: str, arguments: Mapping[str, Any]
     ) -> AssessmentCapability:
-        """Resolve request-specific availability and cost before aggregate execution.
-
-        The estimand gate runs first, so a request that names no estimand defers on the
-        estimand before any other argument is read.
-        """
-        return self._request_gated(
-            self._estimand_gated(self._gated(operation), arguments), arguments
-        )
+        """Resolve request-specific availability and cost before aggregate execution."""
+        return self._resolved(self._gated(operation), arguments)
 
     def _skipped(
         self,
@@ -2162,31 +2212,11 @@ class DiagnosticsFacade(_CapabilityFacade):
     def _declared(self) -> tuple[AssessmentCapability, ...]:
         return assessment_capabilities(self._result)
 
-    def _request_gated(
-        self, capability: AssessmentCapability, arguments: Mapping[str, Any]
-    ) -> AssessmentCapability:
-        """Resolve the diagnostic rows whose calls refuse some argument values.
-
-        ``truncation_curve`` resolves ``mechanism`` and ``refute`` resolves ``tests``.
-        Every other diagnostic row is returned unchanged.
-
-        Parameters
-        ----------
-        capability : AssessmentCapability
-            The row after the method gate and the replay gate.
-        arguments : mapping of str to Any
-            Arguments the caller supplied for this operation.
-
-        Returns
-        -------
-        AssessmentCapability
-            The row this request reads.
-        """
-        if capability.operation == "truncation_curve":
-            return self._truncation_gated(capability, arguments)
-        if capability.operation == "refute":
-            return self._refute_gated(capability, arguments)
-        return capability
+    #: ``truncation_curve`` resolves ``mechanism`` and ``refute`` resolves ``tests``.
+    _request_gates: ClassVar[Mapping[str, str]] = {
+        "truncation_curve": "_truncation_gated",
+        "refute": "_refute_gated",
+    }
 
     def _truncation_gated(
         self, capability: AssessmentCapability, arguments: Mapping[str, Any]
@@ -2199,10 +2229,10 @@ class DiagnosticsFacade(_CapabilityFacade):
         default axis is refused and ``mechanism=True`` runs.  An incremental fit with
         complete outcomes reads ``unavailable``, because neither axis runs.
 
-        A row that the method or replay gate already refused, and a longitudinal row, are
-        returned as they are.  The longitudinal curve has its own two refusals.
+        A longitudinal row is returned as it is.  The longitudinal curve has its own two
+        refusals.
         """
-        if not capability.available or capability.result_family != "point":
+        if capability.result_family != "point":
             return capability
         from .sensitivity.positivity import truncation_refusal
 
@@ -2225,21 +2255,18 @@ class DiagnosticsFacade(_CapabilityFacade):
         ``tests``, because the default tests include ``subset`` and ``placebo`` still
         runs.  So does the natural-course mean, which refuses ``placebo``.
 
-        The row resolves for the estimand the call would refit.  A request that names no
-        estimand on a fit that reports no bare ``"ate"`` is returned as it is: the estimand
-        gate defers it, and the call refuses the bare default by name.  The other arguments
-        that decide a refusal, such as ``n_replicates`` and the generated-outcome and
-        measurement-error declarations, are read from the request as it stands.
+        The row resolves for the estimand the call would refit, which is the signature
+        default when the request names none.  The estimand gate runs before this one and
+        defers a request that leaves the estimand ambiguous, so only a direct call reads
+        the refusal of an unreported default here, in the call's own sentence.  The other
+        arguments that decide a refusal, such as ``n_replicates`` and the generated-outcome
+        and measurement-error declarations, are read from the request as it stands.
         """
-        if not capability.available:
-            return capability
-        estimand = arguments.get("estimand")
-        if estimand is None:
-            if "ate" not in self._result.estimates:
-                return capability
-            estimand = "ate"
         from .validation.refute import DEFAULT_TESTS, refute_refusal
 
+        estimand = arguments.get("estimand")
+        if estimand is None:
+            estimand = self._argument_default(capability.operation, "estimand")
         read = inspect.signature(refute_refusal).parameters
         declared = {
             name: value
@@ -3899,40 +3926,15 @@ class SensitivityFacade(_CapabilityFacade):
             # The E-value selects for itself from a ``None`` sentinel rather than through
             # ``SENSITIVITY_ROUTES``, so its row is rebuilt for the requested estimand.
             return self._evalue_row(arguments.get("estimand"))
-        capability = super()._capability_for_arguments(operation, arguments)
-        if operation == "tipping_gamma" and arguments.get("use_ci") and capability.available:
-            return self._tipping_interval_row(capability)
-        return capability
+        return super()._capability_for_arguments(operation, arguments)
 
-    def _request_gated(
-        self, capability: AssessmentCapability, arguments: Mapping[str, Any]
-    ) -> AssessmentCapability:
-        """Resolve the sensitivity rows whose calls refuse some argument values.
-
-        ``benchmark`` resolves ``covariates``, and ``simulated_confounding`` resolves
-        ``estimand``.  A row that a fit-wide refusal or a gate already refused is returned
-        as it is, because no argument lifts it.  Every other sensitivity row is returned
-        unchanged.
-
-        Parameters
-        ----------
-        capability : AssessmentCapability
-            The row after the method gate and the replay gate.
-        arguments : mapping of str to Any
-            Arguments the caller supplied for this operation.
-
-        Returns
-        -------
-        AssessmentCapability
-            The row this request reads.
-        """
-        if not capability.available:
-            return capability
-        if capability.operation == "benchmark":
-            return self._benchmark_gated(capability, arguments)
-        if capability.operation == "simulated_confounding":
-            return self._simulated_confounding_gated(capability, arguments)
-        return capability
+    #: ``benchmark`` resolves ``covariates``, ``simulated_confounding`` resolves
+    #: ``estimand``, and ``tipping_gamma`` resolves ``use_ci``.
+    _request_gates: ClassVar[Mapping[str, str]] = {
+        "benchmark": "_benchmark_gated",
+        "simulated_confounding": "_simulated_confounding_gated",
+        "tipping_gamma": "_tipping_interval_gated",
+    }
 
     def _benchmark_gated(
         self, capability: AssessmentCapability, arguments: Mapping[str, Any]
@@ -3977,9 +3979,7 @@ class SensitivityFacade(_CapabilityFacade):
 
         def refusal(estimand: str | None) -> str | None:
             if estimand is None:
-                bound = self._bind_arguments(capability.operation, {}, partial=True)
-                bound.apply_defaults()
-                estimand = bound.arguments["estimand"]
+                estimand = self._argument_default(capability.operation, "estimand")
             return simulated_confounding_refusal(self._result, estimand, covariates)
 
         return _argument_resolved(
@@ -3990,15 +3990,20 @@ class SensitivityFacade(_CapabilityFacade):
             tuple(self._result.estimates),
         )
 
-    def _tipping_interval_row(self, capability: AssessmentCapability) -> AssessmentCapability:
-        """The ``tipping_gamma`` row for a ``use_ci=True`` request.
+    def _tipping_interval_gated(
+        self, capability: AssessmentCapability, arguments: Mapping[str, Any]
+    ) -> AssessmentCapability:
+        """Resolve the ``tipping_gamma`` row for a ``use_ci=True`` request.
 
         The interval search reads a confidence limit, and a fit that supplies no inference
         has none, so :func:`~cleverly.sensitivity.tipping_gamma` refuses it. The row says
         so before the call, in the sentence the call raises. The default point search
-        stays available, which is why the bare row does not change. Fit-wide, because one
-        fit's estimates carry one inference status.
+        stays available, which is why a request without ``use_ci`` reads the row unchanged.
+        The answer holds for the whole fit, because one fit's estimates carry one
+        inference status.
         """
+        if not arguments.get("use_ci"):
+            return capability
         from .sensitivity.missingness import _TIPPING_INTERVAL_OPERATION
 
         status = precedent_status(

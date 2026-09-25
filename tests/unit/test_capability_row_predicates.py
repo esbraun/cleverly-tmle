@@ -693,6 +693,56 @@ class TestEachRefuteMutationRestoresADisagreement:
         assert refute_disagreements(refute_fits["ordinary"], "ordinary") == []
 
 
+# ------------------------------------------------------------------ the bare request
+
+
+@pytest.fixture(scope="module")
+def ambiguous_fits() -> dict[str, Any]:
+    """Two fits that report no bare ``ate``: one alias, and three."""
+    return {kind: KINDS[kind].build() for kind in ("natural_course", "multi_arm")}
+
+
+class TestThePublicRowIsTheBareRequestsRow:
+    """``capability()`` reads the estimand gate, as the bare request does.
+
+    Before, the public row read ``passed`` on these fits, while the bare request deferred
+    on ``estimand`` and the bare call refused the default ``ate``.
+    """
+
+    @pytest.mark.parametrize("kind", ["natural_course", "multi_arm"])
+    def test_the_bare_refute_row_defers_on_the_estimand(
+        self, ambiguous_fits: dict[str, Any], kind: str
+    ) -> None:
+        result = ambiguous_fits[kind]
+        row = result.diagnostics.capability("refute")
+        assert row.status is AssessmentStatus.DEFERRED
+        assert row.requires_arguments == ("estimand",)
+        assert row == result.diagnostics._capability_for_arguments("refute", {})
+        assert row in result.diagnostics.capabilities
+        # The bare call refuses, in the call's sentence, through the same predicate.
+        reason = refute_refusal(result, estimand="ate", tests=DEFAULT_TESTS)
+        assert reason == "estimand 'ate' was not requested in this fit"
+        with pytest.raises(CapabilityError) as error:
+            result.diagnostics.refute(n_replicates=1)
+        assert str(error.value) == f"diagnostic 'refute' is unavailable: {reason}"
+
+    def test_a_call_that_names_an_estimand_is_not_refused(
+        self, ambiguous_fits: dict[str, Any]
+    ) -> None:
+        """The nonzero witness: a direct call applies no estimand gate, so it runs."""
+        result = ambiguous_fits["multi_arm"]
+        chosen = next(iter(result.estimates))
+        assert result.sensitivity.capability("omitted_confounding").status is (
+            AssessmentStatus.DEFERRED
+        )
+        bounds = result.sensitivity.omitted_confounding(estimand=chosen, cf_y=0.05, cf_d=0.05)
+        assert bounds.lower < result[chosen].psi < bounds.upper
+        report = result.diagnostics.refute(
+            estimand=chosen, tests=("random_common_cause",), n_replicates=1, random_state=0
+        )
+        assert [test.name for test in report.tests] == ["random_common_cause"]
+
+
 # --------------------------------------------- the refute refusals before any refit
 
 #: The module, which ``cleverly.validation`` shadows with the function of the same name.

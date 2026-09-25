@@ -338,8 +338,8 @@ def _refuse_response_mechanism(result: Any) -> str | None:
 
     The sentence points at the tilt only when
     :func:`~cleverly.sensitivity.missingness.fit_wide_tilt_refusal` admits the fit, which
-    is the predicate both tilt rows read.  Any other test, such as the natural-course
-    check this rule once made alone, sends a shift or a regime fit to a tilt that refuses.
+    is the predicate both tilt rows read.  Any narrower test, such as a natural-course
+    check alone, would send a shift or a regime fit to a tilt that refuses.
     """
     if not result.data.has_missing_outcome:
         return None
@@ -394,8 +394,8 @@ def _refuse_unbounded_parameters(result: Any) -> str | None:
     The predicate is :func:`~cleverly.sensitivity._parameters.reported_arm_parameters`,
     which :func:`resolve_parameter` reads for the same fit, so no request can lift this
     rule.  A ratio-only fit, a population attributable risk or fraction, and a
-    complete-outcome natural-course mean each report none.  Before this rule their five
-    rows read available, and every call refused.  The rule follows ``parameter_axis``,
+    complete-outcome natural-course mean each report none, so every call on such a fit
+    refuses, and the five rows read this rule.  The rule follows ``parameter_axis``,
     because its sentence describes an arm-indexed fit.  The E-value pointer is appended
     only on a fit that reports a risk ratio or an odds ratio, the two scales the E-value
     answers for.

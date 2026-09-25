@@ -819,10 +819,14 @@ def test_one_predicate_answers_the_row_and_the_substitution(multi_arm_result) ->
     assert facade._capability_for_arguments("omitted_confounding", {}).status is (
         AssessmentStatus.DEFERRED
     )
+    # The public row is the bare request's row, so it defers too.
+    assert facade.capability("omitted_confounding") == facade._capability_for_arguments(
+        "omitted_confounding", {}
+    )
     # Named, so the row is the declared one again and the operation runs.
     chosen = candidates[0]
     resolved = facade._capability_for_arguments("omitted_confounding", {"estimand": chosen})
-    assert resolved == facade.capability("omitted_confounding")
+    assert resolved == facade._gated("omitted_confounding")
     assert resolved.available and resolved.requires_arguments == ()
 
 
