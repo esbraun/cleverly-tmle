@@ -5,7 +5,8 @@
 ``tests/unit/test_msm_design_declaration.py`` (RM27) test the three users of
 :class:`cleverly._declarations.FunctionDeclaration`.  This module holds the parts that do
 not depend on which field is declared: the refusal checks, the restored states, a legacy
-point or longitudinal result and the checks of its status (RM28), the fit entries, the
+point or longitudinal result and the checks of its status (RM28), the checks that its
+replay slots and rows agree with the calls they stand for (RM23), the fit entries, the
 two-node :func:`panel` with its columns and ``NeverFit`` learners, and the exact-law oracle
 fit.  ``tests/unit/_msm_declaration_support.py``
 holds the MSM builders that the RM13 and RM27 files share, and
@@ -24,10 +25,11 @@ import pandas as pd
 import pytest
 
 from cleverly import CausalStudy, PointTreatment
+from cleverly.assessment import AssessmentStatus, replayability
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import CapabilityError
+from cleverly.exceptions import CapabilityError, DataError
 from cleverly.sensitivity.positivity import truncation_curve
 from tests import discrete_law as law
 from tests.conftest import OracleOutcome, OracleTreatment
@@ -141,6 +143,96 @@ def assert_keeps_its_interval(result: Any, old: Any) -> None:
     for name, estimate in result.estimates.items():
         assert old.estimates[name].psi == estimate.psi
         assert old.estimates[name].ci == estimate.ci
+
+
+# ------------------------------------------------------------------------ the replay slots
+
+#: What a row refused by its replay slot appends to its sentence, before the codes.
+_REPLAY_CODES = "reported codes: "
+
+
+def replay_disagreements(result: Any, estimands: tuple[str, ...]) -> list[str]:
+    """Every point replay slot of ``result`` that disagrees with the call it stands for.
+
+    ``retarget_cached_nuisances`` stands for ``estimator.retarget`` on the cached
+    nuisances, and ``refit_nuisances`` for ``estimator.refit`` on the result's own data.
+    A :class:`~cleverly.exceptions.CapabilityError` or
+    :class:`~cleverly.exceptions.DataError` is a refusal. Any other exception is a defect,
+    so it propagates. An empty list is agreement.
+    """
+    replay = replayability(result)
+    estimator = result.estimator
+    calls: dict[str, Callable[[], Any]] = {
+        "retarget_cached_nuisances": lambda: estimator.retarget(
+            result.data, result.nuisance, estimands=estimands
+        ),
+        "refit_nuisances": lambda: estimator.refit(
+            result.data, intermediate_value=result.intermediate_value
+        ),
+    }
+    problems = []
+    for slot, call in calls.items():
+        try:
+            call()
+        except (CapabilityError, DataError) as error:
+            refused: str | None = f"{type(error).__name__}: {error}"
+        else:
+            refused = None
+        if getattr(replay, slot) != (refused is None):
+            problems.append(f"{slot} reads {getattr(replay, slot)}, and the call gave {refused}")
+    return problems
+
+
+def assert_replay_agrees(result: Any, estimands: tuple[str, ...]) -> None:
+    """Each point replay slot of ``result`` reads true exactly when its call runs."""
+    assert replay_disagreements(result, estimands) == []
+
+
+def replay_rows(result: Any) -> list[Any]:
+    """Every capability row of ``result`` that declares a replay slot."""
+    return [
+        row
+        for facade in (result.diagnostics, result.sensitivity)
+        for row in facade.capabilities
+        if row.requires_replay is not None
+    ]
+
+
+def assert_replay_rows_refused(result: Any, code: str) -> None:
+    """Every replay row reads unavailable, the replay code refuses one, and a report runs.
+
+    For a restored result whose replay slots read false, and ``code`` is the omission code
+    that ``replayability`` reports for it. A row that a rule of its own refuses keeps that
+    sentence, so the code need not name every row. The ``refute`` row reads unavailable
+    too. A longitudinal ``refute`` row declares no replay slot, because it is unavailable
+    for every longitudinal result.
+    """
+    assert code in replayability(result).unreconstructible
+    rows = replay_rows(result)
+    assert rows
+    assert [row.operation for row in rows if row.available] == []
+    named = [row.operation for row in rows if f"{_REPLAY_CODES}[{code!r}]" in (row.reason or "")]
+    assert named, [row.reason for row in rows]
+    assert not result.diagnostics.capability("refute").available
+    report = result.assess(include_refits=True, include_retargets=True, random_state=0)
+    assert report.diagnostics["refute"].status is AssessmentStatus.UNAVAILABLE
+
+
+def assert_replay_rows_available(result: Any) -> None:
+    """No replay row of ``result`` is refused by its slot, and one of them answers.
+
+    The mirror of :func:`assert_replay_rows_refused`, for a declared restored result.
+    Every slot a row declares reads true, and no row quotes a replay code. A row can still
+    be refused by a rule of its own, so the check is that one row reads available or
+    deferred.
+    """
+    replay = replayability(result)
+    assert replay.unreconstructible == ()
+    rows = replay_rows(result)
+    assert rows
+    assert all(getattr(replay, row.requires_replay) for row in rows)
+    assert [row.operation for row in rows if _REPLAY_CODES in (row.reason or "")] == []
+    assert any(row.available or row.status is AssessmentStatus.DEFERRED for row in rows)
 
 
 def recomputations(result: Any, estimands: tuple[str, ...]) -> dict[str, Callable[[], Any]]:

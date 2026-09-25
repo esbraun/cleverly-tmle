@@ -9,6 +9,8 @@ import json
 import re
 import types
 import typing
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -2693,15 +2695,52 @@ def _as_before_rm23(patch: pytest.MonkeyPatch) -> None:
     _keyed_before_rm23(patch)
 
 
-def _assert_recomputed_after_loading(
-    result: Any,
+#: Each row a report cached before RM23 declined: the kind, the facade, the operation, the
+#: ``run_all`` arguments, the status the loaded result must read, and its sentence.
+CACHED_BEFORE_RM23 = [
+    pytest.param(
+        "shift+missing",
+        "sensitivity",
+        "missingness",
+        {"include_retargets": True},
+        AssessmentStatus.UNAVAILABLE,
+        fit_wide_tilt_refusal,
+        id="tilt",
+    ),
+    pytest.param(
+        "incremental",
+        "diagnostics",
+        "truncation_curve",
+        {"include_retargets": True},
+        AssessmentStatus.UNAVAILABLE,
+        truncation_refusal,
+        id="truncation",
+    ),
+    # The refute row shares the diagnostic report, and it now defers on ``tests``.
+    pytest.param(
+        "split_plan",
+        "diagnostics",
+        "refute",
+        {"include_refits": True},
+        AssessmentStatus.DEFERRED,
+        lambda loaded: refute_refusal(loaded, estimand="ate", tests=DEFAULT_TESTS),
+        id="refute",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("kind", "facade", "operation", "run_all", "status", "reason"), CACHED_BEFORE_RM23
+)
+def test_a_row_cached_before_rm23_is_recomputed(
+    kind: str,
     facade: str,
     operation: str,
     run_all: dict[str, Any],
     status: AssessmentStatus,
-    reason: Any,
-    patch: pytest.MonkeyPatch,
-    path: Any,
+    reason: Callable[[Any], str | None],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """A row cached before RM23 is recomputed once the result is saved and loaded.
 
@@ -2711,56 +2750,17 @@ def _assert_recomputed_after_loading(
     that wrote the stale report, and the stale row is served again. So a reverted
     generation fails the fresh assertion, because the key it reads holds the stale row.
     """
-    with patch.context() as before_rm23:
+    result = KINDS[kind].build()
+    with monkeypatch.context() as before_rm23:
         _as_before_rm23(before_rm23)
         stale = getattr(result, facade).run_all(**run_all)[operation]
     assert stale.status is AssessmentStatus.UNAVAILABLE
     assert DECLINED in stale.detail
-    loaded = load(result.save(path))
+    loaded = load(result.save(tmp_path / f"{operation}-before-rm23.joblib"))
 
     fresh = getattr(loaded, facade).run_all(**run_all)[operation]
     assert fresh.status is status
     assert fresh.detail == reason(loaded)
 
-    _keyed_before_rm23(patch)
+    _keyed_before_rm23(monkeypatch)
     assert getattr(loaded, facade).run_all(**run_all)[operation].detail == stale.detail
-
-
-def test_a_tilt_row_cached_before_rm23_is_recomputed(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
-    _assert_recomputed_after_loading(
-        KINDS["shift+missing"].build(),
-        "sensitivity",
-        "missingness",
-        {"include_retargets": True},
-        AssessmentStatus.UNAVAILABLE,
-        fit_wide_tilt_refusal,
-        monkeypatch,
-        tmp_path / "tilt-before-rm23.joblib",
-    )
-
-
-def test_a_truncation_row_cached_before_rm23_is_recomputed(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
-    _assert_recomputed_after_loading(
-        KINDS["incremental"].build(),
-        "diagnostics",
-        "truncation_curve",
-        {"include_retargets": True},
-        AssessmentStatus.UNAVAILABLE,
-        truncation_refusal,
-        monkeypatch,
-        tmp_path / "truncation-before-rm23.joblib",
-    )
-
-
-def test_a_refute_row_cached_before_rm23_is_recomputed(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
-    """The refute row shares the diagnostic report, and it now defers on ``tests``."""
-    _assert_recomputed_after_loading(
-        KINDS["split_plan"].build(),
-        "diagnostics",
-        "refute",
-        {"include_refits": True},
-        AssessmentStatus.DEFERRED,
-        lambda loaded: refute_refusal(loaded, estimand="ate", tests=DEFAULT_TESTS),
-        monkeypatch,
-        tmp_path / "refute-before-rm23.joblib",
-    )

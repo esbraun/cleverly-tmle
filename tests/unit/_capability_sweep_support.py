@@ -31,7 +31,6 @@ from cleverly.assessment import (
     AssessmentStatus,
     DiagnosticsFacade,
     SensitivityFacade,
-    replayability,
 )
 from cleverly.data import CausalData
 from cleverly.datasets import (
@@ -47,7 +46,7 @@ from cleverly.datasets import (
 )
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import CapabilityError, DataError
+from cleverly.exceptions import CapabilityError
 from cleverly.interventions import Incremental, Shift
 from cleverly.msm import MSM
 from cleverly.sensitivity import omitted_variable
@@ -367,7 +366,7 @@ def cross_fitted() -> Any:
     return discrete_fit(cross_fit=True, n_folds=2)
 
 
-def restored(result: Any, **configuration: Any) -> Any:
+def reconfigured(result: Any, **configuration: Any) -> Any:
     """``result`` saved, given ``configuration`` on its estimator, and loaded.
 
     ``__init__`` refuses each configuration the tests use. Only a result that an earlier
@@ -386,14 +385,14 @@ def as_saved_by_v011(result: Any) -> Any:
 def without_provenance() -> Any:
     """A supplied-plan fit restored with a plan that records no generator."""
     result = fit_split_plan()
-    return restored(result, split_plan=SplitPlan(result.estimator.split_plan.assignments))
+    return reconfigured(result, split_plan=SplitPlan(result.estimator.split_plan.assignments))
 
 
 def ctmle_stratified() -> Any:
     """An in-sample greedy collaborative fit restored with a stratified fold policy."""
     estimator = linear_ctmle("greedy", **SELECTOR_CONFIGS["greedy"], estimands=("ate",))
     result = estimator.fit(discrete_law.frame(), outcome="Y", treatment="A").single()
-    return restored(result, stratify_folds="treatment")
+    return reconfigured(result, stratify_folds="treatment")
 
 
 def unbounded_scale() -> Any:
@@ -401,7 +400,7 @@ def unbounded_scale() -> Any:
     frame = _linear_frame()
     bounds = (float(frame["Y"].min()) - 1.0, float(frame["Y"].max()) + 1.0)
     estimator = TMLE(**linear_in_sample(cross_fit=True, n_folds=2, q_bounds=bounds))
-    return restored(estimator.fit(frame, outcome="Y", treatment="A").single(), q_bounds=None)
+    return reconfigured(estimator.fit(frame, outcome="Y", treatment="A").single(), q_bounds=None)
 
 
 def restored_ctmle_clustered() -> Any:
@@ -424,7 +423,7 @@ def restored_ctmle_clustered() -> Any:
 
 def restored_stratified() -> Any:
     """The two-fold cross-fitted fit restored under ``stratify_folds="treatment"``."""
-    return restored(cross_fitted(), stratify_folds="treatment")
+    return reconfigured(cross_fitted(), stratify_folds="treatment")
 
 
 def restored_v011() -> Any:
@@ -463,66 +462,6 @@ def fit_ltmle() -> Any:
         simultaneous=False,
         **IN_SAMPLE,
     )
-
-
-# ---------------------------------------------------------------------- replay slots
-
-
-def replay_disagreements(result: Any, estimands: tuple[str, ...]) -> list[str]:
-    """Every point replay slot of ``result`` that disagrees with the call it stands for.
-
-    ``retarget_cached_nuisances`` stands for ``estimator.retarget`` on the cached
-    nuisances, and ``refit_nuisances`` for ``estimator.refit`` on the result's own data.
-    A :class:`~cleverly.exceptions.CapabilityError` or
-    :class:`~cleverly.exceptions.DataError` is a refusal. Any other exception is a defect,
-    so it propagates. An empty list is agreement.
-    """
-    replay = replayability(result)
-    estimator = result.estimator
-    calls: dict[str, Callable[[], Any]] = {
-        "retarget_cached_nuisances": lambda: estimator.retarget(
-            result.data, result.nuisance, estimands=estimands
-        ),
-        "refit_nuisances": lambda: estimator.refit(
-            result.data, intermediate_value=result.intermediate_value
-        ),
-    }
-    problems = []
-    for slot, call in calls.items():
-        try:
-            call()
-        except (CapabilityError, DataError) as error:
-            refused: str | None = f"{type(error).__name__}: {error}"
-        else:
-            refused = None
-        if getattr(replay, slot) != (refused is None):
-            problems.append(f"{slot} reads {getattr(replay, slot)}, and the call gave {refused}")
-    return problems
-
-
-def assert_replay_agrees(result: Any, estimands: tuple[str, ...]) -> None:
-    """Each point replay slot of ``result`` reads true exactly when its call runs."""
-    assert replay_disagreements(result, estimands) == []
-
-
-def assert_replay_rows_refused(result: Any) -> None:
-    """Every row that needs a replay slot reads unavailable, and a combined report runs.
-
-    For a restored result whose replay slots read false. The list of rows is not empty,
-    and the ``refute`` row reads unavailable too. A longitudinal ``refute`` row declares
-    no replay slot, because it is unavailable for every longitudinal result.
-    """
-    rows = [
-        row
-        for facade in (result.diagnostics, result.sensitivity)
-        for row in facade.capabilities
-        if row.requires_replay is not None
-    ]
-    assert rows
-    assert [row.operation for row in rows if row.available] == []
-    assert not result.diagnostics.capability("refute").available
-    report = result.assess(include_refits=True, include_retargets=True, random_state=0)
-    assert report.diagnostics["refute"].status is AssessmentStatus.UNAVAILABLE
 
 
 # ------------------------------------------------------------------------- the kinds

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import functools
 import importlib
 from collections.abc import Callable
 from types import SimpleNamespace
@@ -88,21 +89,20 @@ from tests.unit._capability_sweep_support import (
     KINDS,
     MUTATIONS,
     as_saved_by_v011,
-    assert_replay_agrees,
     cross_fitted,
     ctmle_ordered,
     ctmle_stratified,
     discrete_fit,
     drtmle_companion_frame,
     fit_drtmle,
-    replay_disagreements,
-    restored,
+    reconfigured,
     restored_ctmle_clustered,
     restored_stratified,
     unbounded_scale,
     without_provenance,
 )
 from tests.unit._confounding_support import confounding_study
+from tests.unit._declaration_support import assert_replay_agrees, replay_disagreements
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 from tests.unit._simulated_confounding_support import (
     _estimate,
@@ -135,13 +135,27 @@ def tilt_fits() -> dict[str, Any]:
     return {kind: KINDS[kind].build() for kind in TILT_RULE_OF}
 
 
-def _raised(call: Any, result: Any) -> str | None:
-    """The sentence ``call(result)`` refuses with, or ``None`` when it runs."""
+def _raised(call: Callable[[], Any]) -> str | None:
+    """The sentence ``call()`` refuses with, or ``None`` when it runs."""
     try:
-        call(result)
+        call()
     except CapabilityError as error:
         return str(error)
     return None
+
+
+def _disagreement(label: object, row: Any, raised: str | None) -> list[str]:
+    """How ``row`` disagrees with a call that refused with ``raised``, or ``[]``.
+
+    ``raised`` is ``None`` when the call ran. ``label`` names the request in the message,
+    and ``None`` names none.
+    """
+    prefix = "" if label is None else f"{label}: "
+    if row.available and raised is not None:
+        return [f"{prefix}the row reads available and the call raised {raised}"]
+    if not row.available and raised != row.reason:
+        return [f"{prefix}the row quotes {row.reason!r}, the call {raised!r}"]
+    return []
 
 
 def tilt_disagreements(result: Any) -> list[str]:
@@ -153,12 +167,8 @@ def tilt_disagreements(result: Any) -> list[str]:
     facade = SensitivityFacade(result)
     problems = []
     for operation, call in TILT_CALLS.items():
-        row = facade.capability(operation)
-        raised = _raised(call, result)
-        if row.available and raised is not None:
-            problems.append(f"{operation}: the row reads available and the call raised {raised}")
-        if not row.available and raised != row.reason:
-            problems.append(f"{operation}: the row quotes {row.reason!r}, the call {raised!r}")
+        raised = _raised(functools.partial(call, result))
+        problems += _disagreement(operation, facade.capability(operation), raised)
     bound = fit_wide_bound_refusal(result) or ""
     points = bound.endswith(_RESPONSE_TILT_POINTER)
     if points and not facade.capability("missingness").available:
@@ -201,7 +211,7 @@ class TestTheTiltRowsReadTheCallsPredicate:
     ) -> None:
         result = tilt_fits[kind]
         row = result.sensitivity.capability(operation)
-        raised = _raised(TILT_CALLS[operation], result)
+        raised = _raised(functools.partial(TILT_CALLS[operation], result))
         rule = TILT_RULE_OF[kind]
         if rule is None:
             # The nonzero witness: a fit the table admits runs both calls.
@@ -229,6 +239,20 @@ class TestTheTiltRowsReadTheCallsPredicate:
             with pytest.raises(CapabilityError) as error:
                 getattr(result.sensitivity, operation)()
             assert str(error.value) == f"sensitivity {operation!r} is unavailable: {reason}"
+
+    @pytest.mark.parametrize("kind", DECLINED_TILT_KINDS)
+    def test_tipping_gamma_refuses_before_it_checks_search(
+        self, tilt_fits: dict[str, Any], kind: str
+    ) -> None:
+        """A refused fit hears its refusal, and not the ``search=`` it could never use."""
+        result = tilt_fits[kind]
+        with pytest.raises(CapabilityError) as error:
+            tipping_gamma(result, search=(1.0, 2.0))
+        assert str(error.value) == fit_wide_tilt_refusal(result)
+        # The nonzero witness: the fit the table admits checks the same search.
+        with pytest.raises(ValueError, match="search must be a finite") as malformed:
+            tipping_gamma(tilt_fits["missing"], search=(1.0, 2.0))
+        assert not isinstance(malformed.value, CapabilityError)
 
     def test_a_combined_report_declines_no_tilt_row(self, tilt_fits: dict[str, Any]) -> None:
         """What RM23 saw: ``run_all`` ran the row, and the call declined it."""
@@ -333,26 +357,19 @@ def truncation_fits() -> dict[str, Any]:
     return {kind: KINDS[kind].build() for kind in TRUNCATION_STATUS_OF}
 
 
-def _module_curve(result: Any, arguments: dict[str, Any]) -> Any:
-    """The module call on one bound, which is enough to reach every refusal."""
-    return truncation_curve(result, [0.05], **arguments)
-
-
 def truncation_disagreements(result: Any) -> list[str]:
     """Every request whose truncation row and module call disagree.
 
-    A fresh facade resolves each row, so a monkeypatched seam takes effect even when the
-    result already memoized its own facade. An empty list is agreement.
+    The module call sweeps one bound, which is enough to reach every refusal. A fresh
+    facade resolves each row, so a monkeypatched seam takes effect even when the result
+    already memoized its own facade. An empty list is agreement.
     """
     facade = DiagnosticsFacade(result)
     problems = []
     for arguments in TRUNCATION_REQUESTS:
         row = facade._capability_for_arguments("truncation_curve", arguments)
-        raised = _raised(lambda fitted, request=arguments: _module_curve(fitted, request), result)
-        if row.available and raised is not None:
-            problems.append(f"{arguments}: the row reads available and the call raised {raised}")
-        if not row.available and raised != row.reason:
-            problems.append(f"{arguments}: the row quotes {row.reason!r}, the call {raised!r}")
+        raised = _raised(functools.partial(truncation_curve, result, [0.05], **arguments))
+        problems += _disagreement(arguments, row, raised)
     return problems
 
 
@@ -504,16 +521,22 @@ def _spied(result: Any) -> Any:
     return dataclasses.replace(result, estimator=estimator)
 
 
-def _refute_raised(result: Any, arguments: dict[str, Any]) -> str | None:
-    """The sentence ``refute`` refuses with, or ``None`` when it reaches a learner fit."""
+def _spied_raised(call: Callable[[], Any]) -> str | None:
+    """The sentence ``call()`` refuses with, or ``None`` when it reaches a learner fit.
+
+    ``call`` builds its :func:`_spied` copy itself, which resets ``NeverFit.calls``. The
+    generated and measurement tests retain a failed refit rather than raise, so a call
+    that returns must show the spy in the count.
+    """
     try:
-        refute(_spied(result), n_replicates=1, **arguments)
+        call()
     except CapabilityError as error:
         return str(error)
     except AssertionError as error:
         assert "before any learner is fitted" in str(error)
         return None
-    raise AssertionError("the spied refute neither refused nor reached a learner fit")
+    assert NeverFit.calls > 0, "the spied call neither refused nor reached a learner fit"
+    return None
 
 
 def refute_requests(kind: str) -> tuple[dict[str, Any], ...]:
@@ -536,11 +559,10 @@ def refute_disagreements(result: Any, kind: str) -> list[str]:
     problems = []
     for arguments in refute_requests(kind):
         row = facade._capability_for_arguments("refute", arguments)
-        raised = _refute_raised(result, arguments)
-        if row.available and raised is not None:
-            problems.append(f"{arguments}: the row reads available and the call raised {raised}")
-        if not row.available and raised != row.reason:
-            problems.append(f"{arguments}: the row quotes {row.reason!r}, the call {raised!r}")
+        raised = _spied_raised(
+            lambda request=arguments: refute(_spied(result), n_replicates=1, **request)
+        )
+        problems += _disagreement(arguments, row, raised)
     return problems
 
 
@@ -864,24 +886,10 @@ def pre_refit_disagreements(result: Any, request: dict[str, Any]) -> list[str]:
     row = DiagnosticsFacade(result)._capability_for_arguments(
         "refute", {"estimand": "ate", **request}
     )
-    spied = _spied(result)
-    try:
-        refute(spied, estimand="ate", random_state=0, **request)
-    except CapabilityError as error:
-        raised: str | None = str(error)
-    except AssertionError as error:
-        assert "before any learner is fitted" in str(error)
-        raised = None
-    else:
-        # The generated and measurement tests retain a failed refit, so the spy shows up
-        # as a count rather than as a raised error.
-        assert NeverFit.calls > 0
-        raised = None
-    if row.available and raised is not None:
-        return [f"the row reads available and the call raised {raised}"]
-    if not row.available and raised != row.reason:
-        return [f"the row quotes {row.reason!r}, the call {raised!r}"]
-    return []
+    raised = _spied_raised(
+        lambda: refute(_spied(result), estimand="ate", random_state=0, **request)
+    )
+    return _disagreement(None, row, raised)
 
 
 class TestTheRefuteRowReadsEveryRefusalBeforeARefit:
@@ -978,14 +986,7 @@ def benchmark_fits() -> dict[str, Any]:
 
 def _benchmark_raised(result: Any, covariates: list[str]) -> str | None:
     """The sentence ``benchmark`` refuses with, or ``None`` when it reaches a learner fit."""
-    try:
-        benchmark(_spied(result), covariates, random_state=0)
-    except CapabilityError as error:
-        return str(error)
-    except AssertionError as error:
-        assert "before any learner is fitted" in str(error)
-        return None
-    raise AssertionError("the spied benchmark neither refused nor reached a learner fit")
+    return _spied_raised(lambda: benchmark(_spied(result), covariates, random_state=0))
 
 
 def benchmark_disagreements(result: Any) -> list[str]:
@@ -1005,11 +1006,7 @@ def benchmark_disagreements(result: Any) -> list[str]:
         problems.append(f"the bare row reads available={bare.available}, the calls {singles}")
     for covariates in (names[:1], names):
         row = facade._capability_for_arguments("benchmark", {"covariates": covariates})
-        raised = _benchmark_raised(result, covariates)
-        if row.available and raised is not None:
-            problems.append(f"{covariates}: the row reads available and the call raised {raised}")
-        if not row.available and raised != row.reason:
-            problems.append(f"{covariates}: the row quotes {row.reason!r}, the call {raised!r}")
+        problems += _disagreement(covariates, row, _benchmark_raised(result, covariates))
     return problems
 
 
@@ -1238,13 +1235,9 @@ def confounding_fits() -> dict[str, Any]:
     }
 
 
-def _confounding_raised(result: Any, request: dict[str, Any]) -> str | None:
-    """The sentence ``simulated_confounding`` refuses with at the anchor, or ``None``."""
-    try:
-        simulated_confounding(result, grid=ANCHOR, random_state=0, **request)
-    except CapabilityError as error:
-        return str(error)
-    return None
+def _at_anchor(result: Any, request: dict[str, Any]) -> Callable[[], Any]:
+    """The ``simulated_confounding`` call of ``request`` at the anchor alone."""
+    return functools.partial(simulated_confounding, result, grid=ANCHOR, random_state=0, **request)
 
 
 def confounding_disagreements(result: Any, kind: str) -> list[str]:
@@ -1258,11 +1251,7 @@ def confounding_disagreements(result: Any, kind: str) -> list[str]:
     for request, _ in CONFOUNDING_REQUESTS[kind]:
         arguments = {"grid": ANCHOR, **request}
         row = facade._capability_for_arguments("simulated_confounding", arguments)
-        raised = _confounding_raised(result, request)
-        if row.available and raised is not None:
-            problems.append(f"{request}: the row reads available and the call raised {raised}")
-        if not row.available and raised != row.reason:
-            problems.append(f"{request}: the row quotes {row.reason!r}, the call {raised!r}")
+        problems += _disagreement(request, row, _raised(_at_anchor(result, request)))
     return problems
 
 
@@ -1275,7 +1264,7 @@ class TestTheSimulatedConfoundingRowResolvesEachRequest:
     ) -> None:
         result = confounding_fits[kind]
         for request, runs in CONFOUNDING_REQUESTS[kind]:
-            assert (_confounding_raised(result, request) is None) is runs, request
+            assert (_raised(_at_anchor(result, request)) is None) is runs, request
 
     @pytest.mark.parametrize(("kind", "name"), REFUSED_COVARIATES)
     def test_a_refused_covariate_reads_unavailable(
@@ -1456,12 +1445,8 @@ def bound_disagreements(result: Any) -> list[str]:
     facade = SensitivityFacade(result)
     problems = []
     for operation, call in BOUND_CALLS.items():
-        row = facade.capability(operation)
-        raised = _raised(call, result)
-        if row.available and raised is not None:
-            problems.append(f"{operation}: the row reads available and the call raised {raised}")
-        if not row.available and raised != row.reason:
-            problems.append(f"{operation}: the row quotes {row.reason!r}, the call {raised!r}")
+        raised = _raised(functools.partial(call, result))
+        problems += _disagreement(operation, facade.capability(operation), raised)
     return problems
 
 
@@ -1721,12 +1706,12 @@ class TestARefitDropsACompanionThatLacksACovariate:
 REPLAY_KINDS: dict[str, tuple[Callable[[], Any], bool]] = {
     "stratify=treatment": (restored_stratified, False),
     "stratify=treatment+outcome": (
-        lambda: restored(cross_fitted(), stratify_folds="treatment+outcome"),
+        lambda: reconfigured(cross_fitted(), stratify_folds="treatment+outcome"),
         False,
     ),
-    "n_folds=1": (lambda: restored(cross_fitted(), n_folds=1), False),
-    "repeats=0": (lambda: restored(cross_fitted(), repeats=0), False),
-    "repeats=2 in sample": (lambda: restored(discrete_fit(), repeats=2), False),
+    "n_folds=1": (lambda: reconfigured(cross_fitted(), n_folds=1), False),
+    "repeats=0": (lambda: reconfigured(cross_fitted(), repeats=0), False),
+    "repeats=2 in sample": (lambda: reconfigured(discrete_fit(), repeats=2), False),
     "plan without provenance": (without_provenance, False),
     "ctmle greedy stratified": (ctmle_stratified, False),
     "ctmle oat clustered": (restored_ctmle_clustered, False),

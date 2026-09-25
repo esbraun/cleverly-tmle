@@ -1552,7 +1552,7 @@ class TestARefutationThatChangesTheRowSetIsRefusedUpFront:
     def test_the_battery_reports_the_refusal_and_keeps_running(self, supplied: Any) -> None:
         """The default tests include ``subset`` and ``placebo`` runs, so the row defers.
 
-        RM23: the row reads the predicate the call raises from, so the battery asks for
+        The row reads the predicate the call raises from, so the battery asks for
         ``tests`` with the refusal's sentence rather than running the refused default.
         """
         battery = supplied.assess(include_refits=True)

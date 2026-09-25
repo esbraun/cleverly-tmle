@@ -70,13 +70,13 @@ from cleverly.sensitivity import simulated_confounding
 from tests import discrete_law as law
 from tests.conftest import linear_in_sample
 from tests.pickles import legacy_without
-from tests.unit._capability_sweep_support import assert_replay_agrees
 from tests.unit._confounding_support import Counter, forbid_draw_and_refit, validate_replay
 from tests.unit._declaration_support import (
     PATHWISE,
     assert_every_witness_fails,
     assert_refused,
     assert_refused_before_any_call,
+    assert_replay_agrees,
     assert_stored_interval_is_a_diagnostic,
     oracle_fit,
     point_entries,
@@ -362,7 +362,7 @@ class TestALegacyResultKeepsItsPointEstimatesAndRefusesARecomputation:
         assert replayability(result).refit_nuisances
 
     def test_each_replay_slot_agrees_with_its_call(self, result: Any) -> None:
-        """RM23: both slots of the legacy result read false, and both calls refuse."""
+        """Both slots of the legacy result read false, and both calls refuse."""
         assert_replay_agrees(legacy_result(result), RETARGETED)
         assert_replay_agrees(result, RETARGETED)
 
