@@ -189,10 +189,12 @@ records the evidence.
 A cross-fitted fit makes two choices before it fits a nuisance. It chooses how to split the rows.
 For a continuous outcome it also chooses the scale the outcome regression works on.
 
-A source audit on 2026-09-18 read the shipped estimators against the published results. The audit
-found no reviewed result for a split that reads the treatment or the outcome. It found no reviewed
-result for a scale taken from the observed sample. This section holds the audit record, and it
-states the rules the package ships because of it.
+A source audit begun on 2026-09-18 compared the shipped estimators with published results. Rafi
+(2023) and Lu et al. (2025) give results with treatment-stratified folds under randomized designs.
+Neither result establishes inference with treatment- or outcome-stratified folds for the shipped
+observational TMLE/LTMLE fits. The audit found no reviewed result for a scale taken from the
+observed sample.
+This section records the sources and states the rules the package ships because of them.
 
 The audit establishes no bias and no invalid coverage. It records what the sources do not cover.
 
@@ -206,7 +208,8 @@ locators in the *verdict* column refer to the audit commit `4811661`.
 | Zheng and van der Laan (2011), Working Paper 273 | Theorem 1, page 7, and Theorem 2, pages 14-15: "Bn is uniformly distributed over a finite support" | no stratification wording, and no split that depends on treatment or outcome values |
 | Levy (2018) | Section 1, page 2: a "random split of 1, .., n" | no stratification wording |
 | Chernozhukov et al. (2018), arXiv:1608.00060v7 | Definitions 3.1 and 3.2, pages 23-24: "Take a K-fold random partition" with folds of size $N/K$ | no stratification wording. A result for DML scores, and not for TMLE |
-| Rafi (2023), arXiv:2305.08340v1 | Assumption 4.2, page 20: the folds of each treatment-by-stratum cell "depend only on" an independent uniform draw and the cell size | does not cover the package. It treats a cross-fitted AIPW estimator under covariate-adaptive randomization, with target proportions set by design, and with covariate strata rather than outcome strata |
+| Rafi (2023), arXiv:2305.08340v1 | Assumption 4.2, page 20, splits each treatment-by-covariate-stratum cell; Theorem 4.1, page 21, uses those folds | covers cross-fitted AIPW under covariate-adaptive randomization, with target proportions set by design. It does not establish the shipped observational TMLE/LTMLE fits or outcome-stratified folds |
+| Lu, Shi, Liu and Ding (2025), arXiv:2508.15664v1 | Section 3.1, Examples 5-6 and Propositions 2-3; Section 5.4, Proposition 8 | splits observed treatment groups into two folds under complete randomization, and treatment-by-stratum cells under stratified randomization. Proposition 8 gives a design-based variance result for the adjusted finite-population ATE. It does not establish the shipped observational TMLE/LTMLE fits, outcome-stratified folds, or ordinary EIF variance |
 | Gruber and van der Laan (2010), Working Paper 265 | Section 3, PDF page 9; Section 4, PDF pages 13-14 | data-derived bounds as a practice, with no derivation and no cross-fitting split |
 | Gruber and van der Laan (2012) | Section 3.2, page 16 | warns about observed-range bounds under missing outcomes. No cross-fitting split |
 | Smith et al. (2025) | Sections 2.1 and 6 | describes sample-range scaling. It studies binary outcomes only, and it calls for continuous-outcome research |
@@ -215,8 +218,12 @@ locators in the *verdict* column refer to the audit commit `4811661`.
 | Benkeser, Cai and van der Laan (2020) | Section 3.1 and Appendix D | uses random near-balanced folds for variance estimation, and sketches CV-C-TMLE. Neither passage covers the shipped nested selection split, which the package draws inside each selection fold's training rows |
 | Díaz, Williams, Hoffman and Schenck (2023) | Section 5.2, journal pages 852 and 853, and Theorem 3, page 853 | defines a random near-balanced row partition for a longitudinal TMLE, and one pooled all-row fluctuation per node after untargeted fold regressions. The shipped cross-fitted longitudinal fit follows both. The authors' `lmtp` 1.5.4 fits a training-fold fluctuation instead |
 
-Every source draws its partition from outside the data. No source in the table stratifies a
-partition on the treatment or the outcome. [References](../references.md) gives each entry in full.
+Rafi (2023) splits treatment-by-covariate-stratum cells for randomized AIPW. Lu et al. (2025) split
+observed treatment groups under complete randomization and treatment-by-stratum cells under
+stratified randomization. Lu et al. use design-based variance, not the package's ordinary EIF
+variance. No reviewed result covers treatment- or outcome-stratified folds for the shipped
+observational TMLE/LTMLE fits.
+[References](../references.md) gives each entry in full.
 
 ### What the probes measured
 

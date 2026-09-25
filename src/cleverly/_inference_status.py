@@ -263,18 +263,20 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "partition read off the data that the fit then conditions on. The saved "
                 "point estimate stands. The plug-in standard error of the reported curve "
                 "remains as a diagnostic under plugin_std_error and plugin_interval. RM31 "
-                "in docs/roadmap.md records the rule. A new fit draws unstratified folds "
-                "by default, and it reports an interval."
+                "in docs/roadmap.md records the rule. A new cross-fitted fit draws "
+                "unstratified folds by default. It reports an interval only when its "
+                "other inference conditions permit one."
             ),
             assessment_note=(
                 "the reported curve is a stratified-fold diagnostic: no confidence interval "
                 "or p-value is available for this saved fit, RM31 in the roadmap records "
-                "the rule, and a new fit with unstratified folds reports an interval"
+                "the rule; a new cross-fitted fit defaults to unstratified folds and "
+                "reports an interval only when its other inference conditions permit one"
             ),
             summary_label="stratified-fold plug-in se",
             bootstrap_note=(
-                "a diagnostic; no result validates the bootstrap coverage of a fit whose "
-                "outer folds were stratified on the treatment"
+                "a diagnostic; no result validates bootstrap coverage for a saved fit "
+                "with stratified outer folds"
             ),
             diagnostic_noun="stratified-fold plug-in diagnostic",
             reopened_by="RM31",
