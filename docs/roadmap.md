@@ -3093,6 +3093,137 @@ The witnesses must fail when a component is wrong:
 - a test that restores the `Rule` and `LTMLE` results that RM28 records, and asserts that each
   replay-dependent row reads `unavailable` when its function declaration is missing.
 
+#### RM23 plan
+
+The 2026-09-24 plan fixes the decisions in the tables below. Its probes ran at 0cd452b4.
+
+A capability row and its call read one predicate, as RM12 did for `tipping_gamma(use_ci=True)`.
+The call raises the sentence that the predicate returns. The row quotes the same sentence.
+
+| part | predicate | call | row |
+| --- | --- | --- | --- |
+| tilt | `fit_wide_tilt_refusal` in `sensitivity/missingness.py` | `missingness_tilt` and `tipping_gamma` raise from it first | both tilt rows take its reason for the whole fit |
+| truncation | `truncation_refusal` in `sensitivity/positivity.py` | the module `truncation_curve` and the facade raise from it | the row resolves for each request |
+| refute | `refute_refusal` in `validation/refute.py` | `refute()` raises from it before any refit | the row resolves for each request |
+| replay | `TMLE._refit_configuration_refusal` | `refit()` raises from the same checks, as `CapabilityError` | `refit_nuisances` reads false |
+
+The tilt table is ordered. Each rule assumes that its predecessors returned `None`.
+
+| order | rule | refuses | status |
+| --- | --- | --- | --- |
+| 1 | `longitudinal` | a longitudinal result. The reason stays byte-identical, because two notebooks print it | `unavailable` |
+| 2 | `natural_course` | a missing-outcome `NaturalCourseMean` fit | `unavailable` |
+| 3 | `missing_outcome` | a fit with no missing outcome | `not_applicable` |
+| 4 | `continuous` | a continuous dose, with the current sentence | `unavailable` |
+| 5 | `incremental` | an incremental fit, with the current sentence | `unavailable` |
+| 6 | `tiltable_parameters` | a fit that reports no arm-indexed mean or linear contrast | `unavailable` |
+
+The response refusal of the omitted-variable bound points at the tilt only when this table returns
+`None`. The default truncation axis is `not result.nuisance.fits_treatment`, which the module
+uses now.
+
+| order | truncation rule | refuses |
+| --- | --- | --- |
+| 1 | `observation_axis` | `mechanism=True` on a fit with no missingness and no intermediate mechanism |
+| 2 | `incremental` | the treatment axis of an incremental fit |
+| 3 | `natural_course` | the treatment axis of a fit that fits no treatment mechanism |
+
+| order | refute rule | refuses |
+| --- | --- | --- |
+| 1 | `estimator` | a result with no estimator |
+| 2 | `estimand` | an estimand that the fit did not report |
+| 3 | `placebo_level` | `placebo` on `NaturalCourseMean` |
+| 4 | `row_set_under_plan` | `subset` or `bootstrap_measurement_error` on a fit with `split_plan=` |
+
+The truncation and refute rows resolve each request by one rule.
+
+| request | row |
+| --- | --- |
+| the argument is omitted, and the default runs | unchanged |
+| the argument is omitted, the default is refused, and another value runs | `deferred`, naming the argument, with the call's sentence |
+| the argument is omitted, and no value runs | `unavailable`, with the sentence of the default |
+| the argument has a refused value | `unavailable`, with the call's sentence |
+
+`_CapabilityFacade` keeps the method and replay gates in `_gated_map`. `_request_gated` then
+resolves one request. `capability()` resolves the bare request, and `_require` takes the request
+of a direct call.
+
+`TMLE.refit` asks `_configured_for_refit(data)` before it fits.
+
+| estimator | what the refit runs |
+| --- | --- |
+| `TMLE` | the estimator |
+| `CTMLE` with an explicit `ordering=` | the declared ordering, then each added covariate |
+| `DRTMLE` with `evaluation=` | the estimator without its companion, when the companion lacks a refit covariate |
+
+An explicit ordering ranks covariates by their prior relevance. A column drawn as independent
+noise has none, so it goes last. `with_extra_covariate` appends it last. A five-draw probe left
+the selection at `('W1',)`, and the mean moved by 0.0006 against a standard error of 0.098.
+
+The companion enters no fit, fold, or score. `tests/unit/test_drtmle_companion.py` checks that
+bit for bit. So a refit without it reports the same estimate.
+
+An estimator that release 0.1.1 saved has no `split_plan` attribute. A class default of `None` on
+`TMLE` restores it, because that release drew its folds from the data.
+
+The refit slot reads the fold policy and four data contracts. These are the checks that
+`_resolve_estimands_for_data` runs before a learner. A refused configuration keeps
+`retarget_cached_nuisances` true. It reports the code `point_replay_refit_configuration`.
+
+##### Probes
+
+A 2026-09-24 probe filled each deferred argument and ran
+`assess(include_refits=True, include_retargets=True)`. The table gives each fit that declines.
+
+| fit | what the call does at 0cd452b4 |
+| --- | --- |
+| shift with missing outcomes | `missingness` and `tipping_gamma` decline |
+| incremental, `make_linear_ate(n=400, seed=2)` | `truncation_curve` declines. The module call returns a flat curve at 2.96262 |
+| incremental with missing outcomes | the three rows decline. `mechanism=True` runs |
+| a regime, an MSM, or a ratio-only fit with missing outcomes | both tilt rows decline |
+| a cross-fitted fit with a supplied `split_plan` | `refute` declines on `subset` |
+| `NaturalCourseMean` with `estimand="ey_obs"` | `refute` declines on `placebo` |
+| ordered `CTMLE` with an explicit ordering | `assess` raises `ValueError` |
+| `DRTMLE` with `evaluation=` | `assess` raises `DataError` |
+
+The other 13 kinds of fit decline no row. A second probe restored each result below through
+`dumps` and `loads`.
+
+| restored result | `replayability()` | `refit()` |
+| --- | --- | --- |
+| cross-fitted, `stratify_folds="treatment"` or `"treatment+outcome"` | both slots true | `ValueError` |
+| `n_folds=1`, `repeats=0`, or `repeats=2` in sample | both slots true | `ValueError` |
+| collaborative in sample, `stratify_folds="treatment"` | both slots true | `ValueError`. `assess` raises |
+| the 0.1.1 cross-fitted artifact | both slots true | `AttributeError` on `split_plan` |
+| cross-fitted continuous outcome, `q_bounds=None` | both slots true | `CapabilityError` |
+
+##### Witnesses
+
+| witness | assertion |
+| --- | --- |
+| sweep | 27 kinds of fit each answer every row that a request resolves as available. No row declines, and none stays deferred |
+| nonzero | each kind runs the rows that it lists, and each live fit keeps `refit_nuisances` |
+| tilt, truncation, refute | each module call raises the row's sentence exactly |
+| ordering | the refit path ends with the declared ordering and then `_noise_0` |
+| companion | refute gives the same draws with and without a companion |
+| replay | each slot equals whether `retarget()` or `refit()` runs, for eleven restored results |
+| cache | a report cached at the old generation is recomputed |
+
+| mutation | the sweep then fails on |
+| --- | --- |
+| M0. every hook wrapped and unchanged | nothing |
+| M1. the tilt rows ignore the predicate | five tilt kinds |
+| M2. the truncation row ignores the predicate | two incremental kinds |
+| M3. the refute row ignores the predicate | the split-plan and natural-course kinds |
+| M4. `CTMLE` ignores added covariates | the ordered kind |
+| M5. `DRTMLE` keeps its companion | the companion kind |
+| M6. the refit slot ignores the preflight | three restored kinds |
+| M7. no `split_plan` class default | the 0.1.1 kind |
+
+`diagnostics.run_all` moves from generation 10 to 11, and `sensitivity.run_all` moves from 5 to 6.
+No study calls these paths, so none is regenerated. `docs/examples/interventions.ipynb` is
+executed again, because its incremental truncation row changes.
+
 ### RM24. Refusals after the nuisance fit
 
 The [Definition of done](#definition-of-done) asks for a pre-fit test for every well-posed
