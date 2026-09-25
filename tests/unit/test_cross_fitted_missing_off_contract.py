@@ -255,9 +255,9 @@ class TestTheNeighbouringRefusalsKeepTheirOwnSentences:
         """Beside an intermediate, only the F20 guard keeps this sentence.
 
         Without that guard the fit would name F21 and offer the in-sample remedy, which
-        is false for ``par``: it is refused at every setting. On the intermediate path the
-        F20 refusal runs after the shared nuisances, in sample and cross-fitted alike, so
-        this control fits real learners.
+        is false for ``par``: it is refused at every setting. The preflight now raises
+        F20 before the intermediate path fits its shared nuisances. This control supplies
+        real learners, but the refusal does not reach them.
         """
         cde = COMPOSITIONS["cde"]
         with pytest.raises(CapabilityError) as raised:
