@@ -29,6 +29,7 @@ The instruments differ because the claims differ.
 from __future__ import annotations
 
 import copy
+import inspect
 import pickle
 import re
 from dataclasses import replace
@@ -1106,3 +1107,110 @@ class TestThePluginLimitsRefuse:
         assert "no confidence-limit value under nu2_estimator='plugin': " in item.detail
         assert item.detail.endswith(_PLUGIN_LIMITS_REFUSAL + ".")
         assert "F26" in item.detail
+
+
+# ------------------------------------------------- replace() on a stored limit (RM20 review)
+
+#: The constructor's parameters, in order, as commit bcf1a486 left them.
+PUBLIC_PARAMETERS: tuple[str, ...] = (
+    "estimand",
+    "psi",
+    "cf_y",
+    "cf_d",
+    "rho",
+    "confounding_strength",
+    "max_bias",
+    "lower",
+    "upper",
+    "ci_lower",
+    "ci_upper",
+    "level",
+    "robustness_value",
+    "robustness_value_ci",
+    "null_hypothesis",
+    "inference",
+    "nu2_estimator",
+)
+
+
+class TestReplaceKeepsTheStoredLimits:
+    """``dataclasses.replace()`` rebuilds a bound whose limits live under private names.
+
+    Commit bcf1a486 moved the three limits to ``_ci_lower``, ``_ci_upper`` and
+    ``_robustness_value_ci`` behind refusing accessors, and ``replace()`` passes every field
+    under its stored name, so it raised ``TypeError`` on every bound.  Each bound kind below
+    stores a different limit shape: finite limits, ``None`` limits, and finite limits behind
+    a non-inferential status.
+    """
+
+    @pytest.fixture(scope="class")
+    def exact_fit(self) -> Any:
+        return binary_oracle_fit()[0]
+
+    @pytest.fixture(scope="class")
+    def bounds(self, exact_fit: Any) -> dict[str, SensitivityBounds]:
+        derived = omitted_variable_bounds(exact_fit, "att", **STRONG)
+        withheld = copy.copy(derived)
+        object.__setattr__(withheld, "inference", next(iter(NON_INFERENTIAL)))
+        return {
+            "derived": derived,
+            "plugin": omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin", **STRONG),
+            "non_inferential": withheld,
+        }
+
+    @pytest.mark.parametrize("kind", ["derived", "plugin", "non_inferential"])
+    def test_a_bare_replace_returns_an_equal_bound(
+        self, bounds: dict[str, SensitivityBounds], kind: str
+    ) -> None:
+        bound = bounds[kind]
+        copied = replace(bound)
+        assert copied == bound
+        assert copied._ci_lower == bound._ci_lower
+        assert copied._robustness_value_ci == bound._robustness_value_ci
+
+    @pytest.mark.skipif(not hasattr(copy, "replace"), reason="copy.replace is new in 3.13")
+    @pytest.mark.parametrize("kind", ["derived", "plugin", "non_inferential"])
+    def test_copy_replace_returns_an_equal_bound(
+        self, bounds: dict[str, SensitivityBounds], kind: str
+    ) -> None:
+        assert copy.replace(bounds[kind]) == bounds[kind]
+
+    def test_a_replaced_field_takes_its_new_value(
+        self, bounds: dict[str, SensitivityBounds]
+    ) -> None:
+        bound = bounds["derived"]
+        moved = replace(bound, psi=bound.psi + 1.0)
+        assert moved.psi == bound.psi + 1.0
+        assert moved != bound
+        assert moved.ci_lower == bound.ci_lower
+
+    def test_a_public_limit_wins_over_its_stored_value(
+        self, bounds: dict[str, SensitivityBounds]
+    ) -> None:
+        """``replace()`` passes the stored ``_ci_lower`` beside the caller's ``ci_lower``."""
+        bound = bounds["derived"]
+        moved = replace(bound, ci_lower=bound.ci_lower - 1.0, robustness_value_ci=0.0)
+        assert moved.ci_lower == bound.ci_lower - 1.0
+        assert moved.robustness_value_ci == 0.0
+        assert moved.ci_upper == bound.ci_upper
+
+    def test_an_unknown_keyword_still_raises(self, bounds: dict[str, SensitivityBounds]) -> None:
+        with pytest.raises(TypeError, match="unexpected keyword argument 'bogus'"):
+            replace(bounds["derived"], bogus=1.0)
+
+    def test_the_public_signature_is_unchanged(self) -> None:
+        parameters = inspect.signature(SensitivityBounds).parameters
+        assert tuple(parameters) == PUBLIC_PARAMETERS
+        required = [name for name, p in parameters.items() if p.default is p.empty]
+        assert required == list(PUBLIC_PARAMETERS[:-2])
+
+    @pytest.mark.parametrize(
+        ("kind", "accessor"),
+        [("plugin", name) for name in LIMIT_ACCESSORS]
+        + [("non_inferential", name) for name in LIMIT_ACCESSORS[:3]],
+    )
+    def test_the_accessors_still_refuse_after_a_replace(
+        self, bounds: dict[str, SensitivityBounds], kind: str, accessor: str
+    ) -> None:
+        with pytest.raises(CapabilityError):
+            getattr(replace(bounds[kind]), accessor)
