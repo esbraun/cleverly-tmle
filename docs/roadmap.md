@@ -31,7 +31,8 @@ verdict stays red under a `reporting` policy, so no verdict is hidden and no mar
 
 The detail section of a delivered row keeps a short record of what shipped. Commit `dea3297e`
 holds the full plan, probe and review record of each row that was delivered before RM33. Read it
-with `git show dea3297e:docs/roadmap.md`. The table below lists the rows that remain.
+with `git show dea3297e:docs/roadmap.md`. Commit `cf914b61` holds the full RM33 record. Read it
+with `git show cf914b61:docs/roadmap.md`. The table below lists the rows that remain.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
@@ -1248,7 +1249,8 @@ give the audit. A continuous dose drew an unstratified split, so
 [RM31](#rm31-inference-status-of-a-saved-stratified-cross-fitted-result) left the interval of such a
 result.
 
-The RM33 pull request delivered this row. The table gives what shipped.
+The RM33 pull request delivered this row. The table gives what shipped. Commit `cf914b61` holds
+the full RM33 plan and delivery record. Read it with `git show cf914b61:docs/roadmap.md`.
 
 | part | what shipped |
 | --- | --- |
