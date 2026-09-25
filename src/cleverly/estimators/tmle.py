@@ -575,9 +575,11 @@ class TMLE:
         -------
         str
             One of :data:`~cleverly.inference.influence.InferenceStatus`. The ordinary
-            estimator resolves two statuses. :meth:`_declared_function_status` gives
+            estimator resolves three statuses. :meth:`_declared_function_status` gives
             ``"undeclared_function_plugin"`` to a restored estimator with a function that
-            is not declared known.
+            is not declared known. :meth:`_saved_fold_policy_status` gives
+            ``"stratified_fold_plugin"`` to a restored estimator whose outer folds read
+            the treatment.
             :func:`~cleverly.inference.cluster.cluster_inference_status` reads the cluster
             labels. It gives ``"influence_curve"`` on an unclustered fit, and a clustered
             status on a cross-fitted fit at unequal cluster sizes, in rows or in weight
@@ -586,6 +588,7 @@ class TMLE:
         return precedent_status(
             [
                 self._declared_function_status(),
+                self._saved_fold_policy_status(data),
                 cluster_inference_status(
                     data.cluster,
                     cross_fit=self.cross_fit,
@@ -594,6 +597,37 @@ class TMLE:
                 ),
             ]
         )
+
+    def _saved_fold_policy_status(self, data: CausalData) -> InferenceStatus:
+        """Whether the outer folds of this estimator read the treatment, as a status.
+
+        The status predicate of roadmap row RM31. Releases 0.1.0 and 0.1.1 stratified
+        every cross-fitted split of a discrete treatment by default, and no shipped result
+        covers a partition read off the data that the fit then conditions on.
+        :meth:`crossfit_plan` records those strata in ``stratify_by``: only under
+        cross-fitting, only for a discrete treatment, and only under a policy other than
+        ``"none"``. So an in-sample fit and a continuous dose, whose split read no
+        treatment, keep their interval. A live fit refuses such a policy in
+        ``_resolve_estimands_for_data`` before it stamps a status, so only a restored or
+        copied estimator reaches ``"stratified_fold_plugin"``, and
+        ``TMLEResult.__setstate__`` then re-stamps its saved estimates. The study seams
+        that draw a stratified split replace :meth:`_folds` or :meth:`_fold_strata` and
+        keep ``stratify_folds="none"``, so this reads neither.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data. :meth:`crossfit_plan` reads its treatment kind.
+
+        Returns
+        -------
+        str
+            ``"stratified_fold_plugin"`` when the plan records strata, and
+            ``"influence_curve"`` otherwise.
+        """
+        if self.crossfit_plan(data).stratify_by:
+            return "stratified_fold_plugin"
+        return "influence_curve"
 
     def _declared_function_status(self) -> InferenceStatus:
         """Whether every function of the configuration is declared known, as a status.
@@ -3176,7 +3210,9 @@ class TMLE:
         this version runs, because :meth:`_cross_fit_policy_reason` refuses the two
         balancing policies wherever a split is drawn.  The field stays because a result
         restored from an earlier version carries the policy that version allowed, and
-        :class:`~cleverly.learners.crossfit.CrossFitPlan` reads it back.  ``scheme`` names
+        :class:`~cleverly.learners.crossfit.CrossFitPlan` reads it back.
+        :meth:`_saved_fold_policy_status` reads it to withhold the interval of such a
+        result (roadmap row RM31).  ``scheme`` names
         only the splits this version draws for the same reason: ``"stratified"`` and
         ``"stratified-grouped"`` needed a nonempty ``stratify_by``, so no fit could record
         them, and they were deleted.

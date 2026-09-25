@@ -1463,16 +1463,24 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         ``"undeclared_function_plugin"`` (roadmap row RM28). A re-stamped artifact also
         drops what was derived under the old status: the simultaneous bands, a joint
         confidence statement that the fit now refuses, and the saved assessment answers,
-        which may have read an interval. The re-stamp also keeps the truncation-curve
-        replay, which stamps its estimates from the same data, folds and regimens, equal
-        to the restored fit.
+        which may have read an interval. A saved split of more than one fold with no
+        recorded origin takes ``"stratified_fold_plugin"`` through
+        :func:`_saved_split_status` (roadmap row RM31). Only the re-stamp reads that
+        rule, so a live fit keeps the status that :func:`_inference_status` gives it. The
+        truncation-curve replay resolves its status with the restored one, so it stays
+        equal to the restored fit.
         """
         data = self.__dict__.get("data")
         folds = self.__dict__.get("folds")
         if data is None or folds is None:
             return
         regimens = getattr(self.__dict__.get("config"), "regimens", ())
-        status = _inference_status(data, folds, regimens, self.__dict__.get("msm"))
+        status = precedent_status(
+            [
+                _inference_status(data, folds, regimens, self.__dict__.get("msm")),
+                _saved_split_status(folds),
+            ]
+        )
         if supplies_inference(status):
             return
         estimates = self.__dict__.get("estimates") or {}
@@ -1694,6 +1702,36 @@ def _inference_status(
             cluster,
         ]
     )
+
+
+def _saved_split_status(folds: Folds) -> InferenceStatus:
+    """Whether a restored split read the first treatment node, as a status.
+
+    The longitudinal status predicate of roadmap row RM31. Releases 0.1.0 and 0.1.1
+    stratified the outer split on the first treatment node, and no shipped result covers
+    a partition read off the data that the fit then conditions on. Commit c887785c added
+    :attr:`~cleverly.learners.Folds.origin`, which only
+    :func:`~cleverly.learners.random_partition` writes, before commit 5f32c149 removed the
+    strata. So a split of more than one fold with no origin came from a stratified draw.
+    ``LTMLE._folds`` draws through ``random_partition``, so a live fit always records an
+    origin. The study seam that draws the retired split records none, and only
+    ``LongitudinalResult._restamp_inference_status`` reads this rule, so its live fits
+    keep their interval.
+
+    Parameters
+    ----------
+    folds : Folds
+        The outer fold assignment of the restored result.
+
+    Returns
+    -------
+    str
+        ``"stratified_fold_plugin"`` for a split of more than one fold with no origin,
+        and ``"influence_curve"`` otherwise.
+    """
+    if folds.n_folds > 1 and getattr(folds, "origin", None) is None:
+        return "stratified_fold_plugin"
+    return "influence_curve"
 
 
 def _declared_regimen_status(regimens: Any) -> InferenceStatus:
@@ -2738,7 +2776,14 @@ def _refit_bound(
     )
     # The status the fit stamped, recomputed from the same data and folds, so the replay at
     # the fitted bound equals the fit in every field ``_fitted_replay_matches`` compares.
-    status = _inference_status(result.data, result.folds, result.config.regimens, result.msm)
+    # The restored status joins it, because the re-stamp of a saved stratified split
+    # (RM31) reads a rule that a live fit does not.
+    status = precedent_status(
+        [
+            _inference_status(result.data, result.folds, result.config.regimens, result.msm),
+            result.inference_status,
+        ]
+    )
     if result.msm is None:
         reference = next(
             plan.regimen for plan in recipe.plans if plan.label == result.config.reference

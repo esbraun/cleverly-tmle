@@ -124,10 +124,10 @@ alone would make `truncation_curve()` refuse.
 | path | status it sets |
 | --- | --- |
 | `smooth_contrast` and `median_estimates` | the status of their inputs. Each raises `ValueError` on a mix |
-| `TMLEResult.__setstate__` | the hook's status on the saved data, when the saved estimates or fold-level reports declare another status |
+| `TMLEResult.__setstate__` | the hook's status on the saved data, when the saved estimates or fold-level reports declare another status. A saved estimator whose `crossfit_plan` records strata takes `stratified_fold_plugin`, which no live fit reaches |
 | `variable_importance` | none. It asks the hook on each candidate's prepared data, and it refuses before the first fit |
-| a longitudinal estimator | `cluster_inference_status` on the prepared cluster labels and weights. The fit and the truncation-curve replay pass it through `_estimates` and `_msm_estimates` to each `make_estimate` call |
-| `LongitudinalResult.__setstate__` | the status of the saved data and folds, when that status supplies no inference and the saved estimates declare another. A cross-fitted clustered artifact takes `cross_fitted_longitudinal_plugin` at every count and size. It drops the saved bands and assessment answers |
+| a longitudinal estimator | `cluster_inference_status` on the prepared cluster labels and weights. The fit and the truncation-curve replay pass it through `_estimates` and `_msm_estimates` to each `make_estimate` call. The replay resolves it with `result.inference_status` through `precedent_status`, so a re-stamped artifact replays under its restored status |
+| `LongitudinalResult.__setstate__` | the status of the saved data and folds, when that status supplies no inference and the saved estimates declare another. A cross-fitted clustered artifact takes `cross_fitted_longitudinal_plugin` at every count and size. A split of more than one fold with no `Folds.origin` takes `stratified_fold_plugin` through `_saved_split_status`, which only this path reads. It drops the saved bands and assessment answers |
 
 One fit has one status. When more than one non-inferential status applies, the fit takes the
 first one in `NON_INFERENTIAL` (`src/cleverly/_inference_status.py`). An override that finds more
