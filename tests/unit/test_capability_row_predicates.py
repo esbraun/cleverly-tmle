@@ -14,13 +14,17 @@ the defect it exists for.
 
 from __future__ import annotations
 
+import copy
+import dataclasses
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pytest
 
 from cleverly.assessment import AssessmentStatus, DiagnosticsFacade, SensitivityFacade
-from cleverly.exceptions import CapabilityError
+from cleverly.estimators import CTMLE, DRTMLE
+from cleverly.exceptions import CapabilityError, DataError
 from cleverly.sensitivity import missingness as missingness_module
 from cleverly.sensitivity import omitted_variable as omitted_variable_module
 from cleverly.sensitivity.missingness import (
@@ -42,7 +46,14 @@ from cleverly.sensitivity.positivity import (
     truncation_refusal,
 )
 from cleverly.targets.population_intervention import NATURAL_COURSE_TILT_REFUSAL
-from tests.unit._capability_sweep_support import KINDS
+from cleverly.validation.refute import _REQUEST_RULES, DEFAULT_TESTS, refute, refute_refusal
+from tests.unit._capability_sweep_support import (
+    INSTRUMENT_ORDERING,
+    KINDS,
+    ctmle_ordered,
+    fit_drtmle,
+)
+from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
 # ----------------------------------------------------------------------------- the tilt
 
@@ -410,3 +421,296 @@ class TestEachTruncationMutationRestoresADisagreement:
             DiagnosticsFacade, "_truncation_gated", lambda self, capability, arguments: capability
         )
         assert truncation_disagreements(truncation_fits["missing"]) == []
+
+
+# --------------------------------------------------------------------------- the refute
+
+#: The estimand each refute kind names, and a ``tests=`` value that runs on it. Each value
+#: leaves out the one default test the kind refuses. ``ordinary`` refuses none, which is
+#: the nonzero witness for the mutation below.
+REFUTE_REQUEST_OF: dict[str, tuple[str, tuple[str, ...]]] = {
+    "split_plan": ("ate", ("placebo", "random_common_cause")),
+    "natural_course": ("ey_obs", ("random_common_cause", "subset")),
+    "ordinary": ("ate", ("placebo", "random_common_cause")),
+}
+
+#: The kinds whose ``refute`` row read ``available`` before RM23 while the call refused
+#: its default tests.
+DEFERRED_REFUTE_KINDS = ("split_plan", "natural_course")
+
+
+@pytest.fixture(scope="module")
+def refute_fits() -> dict[str, Any]:
+    """One fresh fit of each kind in :data:`REFUTE_REQUEST_OF`, shared by this section."""
+    return {kind: KINDS[kind]() for kind in REFUTE_REQUEST_OF}
+
+
+def _spied(result: Any) -> Any:
+    """A copy of ``result`` whose estimator fails at its first learner fit.
+
+    The call's own preflight is what the row must agree with, and a refit is what that
+    preflight precedes. So the copy reaches a :class:`NeverFit` learner exactly when the
+    call admits the request, and no test here pays for a refit to find that out.
+    """
+    estimator = copy.copy(result.estimator)
+    vars(estimator).update(never_fit_learners())
+    return dataclasses.replace(result, estimator=estimator)
+
+
+def _refute_raised(result: Any, arguments: dict[str, Any]) -> str | None:
+    """The sentence ``refute`` refuses with, or ``None`` when it reaches a learner fit."""
+    try:
+        refute(_spied(result), n_replicates=1, **arguments)
+    except CapabilityError as error:
+        return str(error)
+    except AssertionError as error:
+        assert "before any learner is fitted" in str(error)
+        return None
+    raise AssertionError("the spied refute neither refused nor reached a learner fit")
+
+
+def refute_requests(kind: str) -> tuple[dict[str, Any], ...]:
+    """The bare request, a request that names tests that run, and the default tests."""
+    estimand, runs = REFUTE_REQUEST_OF[kind]
+    return (
+        {"estimand": estimand},
+        {"estimand": estimand, "tests": runs},
+        {"estimand": estimand, "tests": DEFAULT_TESTS},
+    )
+
+
+def refute_disagreements(result: Any, kind: str) -> list[str]:
+    """Every request whose ``refute`` row and module call disagree.
+
+    A fresh facade resolves each row, so a monkeypatched seam takes effect even when the
+    result already memoized its own facade. An empty list is agreement.
+    """
+    facade = DiagnosticsFacade(result)
+    problems = []
+    for arguments in refute_requests(kind):
+        row = facade._capability_for_arguments("refute", arguments)
+        raised = _refute_raised(result, arguments)
+        if row.available and raised is not None:
+            problems.append(f"{arguments}: the row reads available and the call raised {raised}")
+        if not row.available and raised != row.reason:
+            problems.append(f"{arguments}: the row quotes {row.reason!r}, the call {raised!r}")
+    return problems
+
+
+class TestTheRefuteRowResolvesEachRequest:
+    """The row and the call both read :func:`refute_refusal`, one request at a time."""
+
+    def test_the_rule_table_is_ordered(self) -> None:
+        assert [name for name, _ in _REQUEST_RULES] == [
+            "estimator",
+            "estimand",
+            "placebo_level",
+            "row_set_under_plan",
+        ]
+
+    @pytest.mark.parametrize("kind", DEFERRED_REFUTE_KINDS)
+    def test_the_bare_request_defers_on_tests(self, refute_fits: dict[str, Any], kind: str) -> None:
+        result = refute_fits[kind]
+        bare, _, _ = refute_requests(kind)
+        row = result.diagnostics._capability_for_arguments("refute", bare)
+        assert row.status is AssessmentStatus.DEFERRED
+        assert row.requires_arguments == ("tests",)
+        assert row.reason == refute_refusal(result, estimand=bare["estimand"], tests=DEFAULT_TESTS)
+        with pytest.raises(CapabilityError) as error:
+            result.diagnostics.refute(**bare)
+        assert str(error.value) == f"diagnostic 'refute' is deferred: {row.reason}"
+        # A combined report names the argument rather than declining the call.
+        report = result.diagnostics.run_all(include_refits=True, arguments={"refute": bare})
+        assert report["refute"].status is AssessmentStatus.DEFERRED
+        assert "declined this request" not in report["refute"].detail
+
+    @pytest.mark.parametrize("kind", DEFERRED_REFUTE_KINDS)
+    def test_naming_tests_that_run_lifts_the_deferral(
+        self, refute_fits: dict[str, Any], kind: str
+    ) -> None:
+        result = refute_fits[kind]
+        _, runs, _ = refute_requests(kind)
+        request = {**runs, "n_replicates": 1}
+        assert result.diagnostics._capability_for_arguments("refute", request).available
+        report = result.diagnostics.run_all(
+            include_refits=True, arguments={"refute": request}, random_state=0
+        )
+        item = report["refute"]
+        assert item.report is not None, item.detail
+        assert [test.name for test in item.report.tests] == list(runs["tests"])
+
+    @pytest.mark.parametrize("kind", DEFERRED_REFUTE_KINDS)
+    def test_the_default_tests_named_read_unavailable(
+        self, refute_fits: dict[str, Any], kind: str
+    ) -> None:
+        result = refute_fits[kind]
+        _, _, defaults = refute_requests(kind)
+        row = result.diagnostics._capability_for_arguments("refute", defaults)
+        assert row.status is AssessmentStatus.UNAVAILABLE
+        with pytest.raises(CapabilityError) as error:
+            refute(result, **defaults)
+        assert str(error.value) == row.reason
+
+    @pytest.mark.parametrize("kind", DEFERRED_REFUTE_KINDS)
+    def test_the_call_refuses_before_any_learner_fit(
+        self, refute_fits: dict[str, Any], kind: str
+    ) -> None:
+        result = _spied(refute_fits[kind])
+        _, runs, defaults = refute_requests(kind)
+        with pytest.raises(CapabilityError):
+            refute(result, **defaults)
+        assert NeverFit.calls == 0
+        # The nonzero witness: the spy is live, so a request the call admits reaches it.
+        with pytest.raises(AssertionError, match="before any learner is fitted"):
+            refute(result, n_replicates=1, **runs)
+        assert NeverFit.calls > 0
+
+    def test_an_unknown_test_name_is_reported_before_any_refusal(
+        self, refute_fits: dict[str, Any]
+    ) -> None:
+        """The malformed argument first, as the omitted-variable calls report it."""
+        with pytest.raises(ValueError, match="unknown refutation test 'bogus'") as error:
+            refute(refute_fits["split_plan"], estimand="not_reported", tests=("bogus",))
+        assert not isinstance(error.value, CapabilityError)
+
+
+class TestEachRefuteMutationRestoresADisagreement:
+    """The agreement check sees a row that stops reading the predicate."""
+
+    @pytest.mark.parametrize("kind", list(REFUTE_REQUEST_OF))
+    def test_m0_every_kind_agrees_unmutated(self, refute_fits: dict[str, Any], kind: str) -> None:
+        assert refute_disagreements(refute_fits[kind], kind) == []
+
+    @pytest.mark.parametrize("kind", DEFERRED_REFUTE_KINDS)
+    def test_a_row_that_ignores_the_predicate_disagrees_on_the_bare_request(
+        self, refute_fits: dict[str, Any], kind: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The row as it was: available, so a report ran the refused default tests."""
+        monkeypatch.setattr(
+            DiagnosticsFacade, "_refute_gated", lambda self, capability, arguments: capability
+        )
+        problems = refute_disagreements(refute_fits[kind], kind)
+        assert any("the row reads available" in problem for problem in problems)
+
+    def test_the_same_mutation_leaves_a_fit_that_admits_every_test_alone(
+        self, refute_fits: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            DiagnosticsFacade, "_refute_gated", lambda self, capability, arguments: capability
+        )
+        assert refute_disagreements(refute_fits["ordinary"], "ordinary") == []
+
+
+# ------------------------------------------------------------ the covariate a refit adds
+
+
+@pytest.fixture(scope="module")
+def ordered_fit() -> Any:
+    """The ordered collaborative fit with the explicit ordering :data:`INSTRUMENT_ORDERING`."""
+    return KINDS["ctmle_ordered"]()
+
+
+def _prepend_added(self: CTMLE, data: Any) -> CTMLE:
+    """The mutation: an added covariate ranked first rather than last."""
+    added = tuple(name for name in data.covariate_names if name not in self.ordering)
+    configured = copy.copy(self)
+    configured.ordering = (*added, *self.ordering)
+    return configured
+
+
+def ordering_problems(result: Any) -> list[str]:
+    """Every way the ``random_common_cause`` refit breaks the ordering contract.
+
+    The contract is that the refit ranks the declared ordering first and the added noise
+    column last, and leaves the estimator's own ordering alone. The refute value is
+    checked against an independent fit that declares that order, on the same noise draw.
+    """
+    report = refute(result, tests=("random_common_cause",), n_replicates=1, random_state=0)
+    seed = report.random_state
+    noise = np.random.default_rng(seed).normal(size=result.data.n)
+    noisy = result.data.with_extra_covariate(noise, "_noise_0")
+    expected = (*INSTRUMENT_ORDERING, "_noise_0")
+    problems = []
+    path = result.estimator.refit(noisy, random_state=seed).extra["ctmle"].path
+    if path[-1] != expected:
+        problems.append(f"the refit path ends with {path[-1]}")
+    manual = ctmle_ordered(expected).refit(noisy, random_state=seed)["ate"].psi
+    if report["random_common_cause"].values != (manual,):
+        problems.append("the refute value is not the fit that orders the noise last")
+    if tuple(result.estimator.ordering) != INSTRUMENT_ORDERING:
+        problems.append(f"the estimator's ordering became {result.estimator.ordering}")
+    return problems
+
+
+class TestAnAddedCovariateGoesAfterTheDeclaredOrdering:
+    """``CTMLE._configured_for_refit`` places a covariate a refit adds after the ordering."""
+
+    def test_the_refit_orders_the_noise_last(self, ordered_fit: Any) -> None:
+        assert ordering_problems(ordered_fit) == []
+
+    def test_a_combined_report_runs_the_refutation(self, ordered_fit: Any) -> None:
+        """RM23 saw ``assess(include_refits=True)`` raise ``ValueError`` on this fit."""
+        report = dataclasses.replace(ordered_fit).assess(
+            include_refits=True, arguments={"refute": {"n_replicates": 1}}, random_state=0
+        )
+        item = report.diagnostics["refute"]
+        assert item.report is not None, item.detail
+        assert "random_common_cause" in [test.name for test in item.report.tests]
+
+    def test_a_mutation_that_ranks_the_noise_first_is_detected(
+        self, ordered_fit: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(CTMLE, "_configured_for_refit", _prepend_added)
+        problems = ordering_problems(ordered_fit)
+        assert problems[0] == f"the refit path ends with {('_noise_0', *INSTRUMENT_ORDERING)}"
+        assert "the refute value is not the fit that orders the noise last" in problems
+
+    def test_an_estimator_that_ignores_the_added_covariate_is_refused(
+        self, ordered_fit: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """M4: without the hook the refit meets the ordering's coverage refusal."""
+        monkeypatch.setattr(CTMLE, "_configured_for_refit", lambda self, data: self)
+        with pytest.raises(ValueError, match="ordering must cover every covariate"):
+            dataclasses.replace(ordered_fit).assess(
+                include_refits=True, arguments={"refute": {"n_replicates": 1}}, random_state=0
+            )
+
+
+@pytest.fixture(scope="module")
+def drtmle_pair() -> tuple[Any, Any]:
+    """The DR-TMLE fit with an ``evaluation=`` companion, and the same fit without one."""
+    return KINDS["drtmle_companion"](), fit_drtmle(companion=False)
+
+
+def _noise_refit_values(result: Any) -> tuple[float, ...]:
+    """The single ``random_common_cause`` value of ``result``, at seed 0."""
+    report = refute(result, tests=("random_common_cause",), n_replicates=1, random_state=0)
+    return report["random_common_cause"].values
+
+
+class TestARefitDropsACompanionThatLacksACovariate:
+    """``DRTMLE._configured_for_refit`` refits without a companion that cannot follow."""
+
+    def test_the_refute_draws_equal_the_fit_without_a_companion(
+        self, drtmle_pair: tuple[Any, Any]
+    ) -> None:
+        paired, plain = drtmle_pair
+        evaluation = paired.estimator.evaluation
+        values = _noise_refit_values(paired)
+        # Bit for bit: the companion enters no fit, fold or score.
+        assert values == _noise_refit_values(plain)
+        # The nonzero witness: the refit moved the estimate, so the equality has content.
+        assert values[0] != paired["ate"].psi
+        # The fit keeps its own companion.
+        assert paired.estimator.evaluation is evaluation
+
+    def test_an_estimator_that_keeps_its_companion_is_refused(
+        self, drtmle_pair: tuple[Any, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """M5: without the hook the companion lacks ``_noise_0``."""
+        monkeypatch.setattr(DRTMLE, "_configured_for_refit", lambda self, data: self)
+        paired, plain = drtmle_pair
+        with pytest.raises(DataError, match="_noise_0"):
+            _noise_refit_values(paired)
+        # The same mutation leaves the fit without a companion running.
+        assert _noise_refit_values(plain)

@@ -55,7 +55,8 @@ Three ways of building the sequence are available, mirroring the entry points of
     it ranks one-variable propensity models by the empirical loss of the Qbar each
     targets.  ``preorder="partial_correlation"`` implements Algorithm 3, ranking the
     absolute partial correlation of ``Y - Qbar0(A,W)`` and each covariate conditional
-    on treatment.  Pass ``ordering=`` to supply a fixed order instead.
+    on treatment.  Pass ``ordering=`` to supply a fixed order instead.  A refit that adds
+    a covariate, such as ``random_common_cause``, places it after the declared ordering.
 
 ``strategy="discrete"``
     Cross-validated selection among an explicit list of candidate covariate sets --
@@ -268,6 +269,7 @@ comparison against a plain fit.
 
 from __future__ import annotations
 
+import copy
 import inspect
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
@@ -585,7 +587,8 @@ class CTMLE(TMLE):
         consistency-when-only-``g``-is-right; see the module docstring.
     ordering:
         Explicit covariate order for ``strategy="ordered"``.  When omitted, ``preorder``
-        determines the published data-adaptive ordering.
+        determines the published data-adaptive ordering.  A refit that adds a covariate,
+        such as ``random_common_cause``, places it after the declared ordering.
     preorder:
         ``"logistic"`` (default) or ``"partial_correlation"`` for Algorithms 2 and 3
         of Ju et al. (2019).  Ignored when an explicit ``ordering=`` is supplied.
@@ -1146,6 +1149,39 @@ class CTMLE(TMLE):
             return super()._retarget_detailed(data, nuisance, **kwargs)
         working = replace(nuisance, outcome=initial, targeting_outcome=None)
         return super()._retarget_detailed(data, working, **kwargs)
+
+    def _configured_for_refit(self, data: CausalData) -> CTMLE:
+        """The estimator a refit on ``data`` runs, with an added covariate ordered last.
+
+        An explicit ``ordering=`` must cover every covariate, so a refit that adds one,
+        such as the ``random_common_cause`` refutation, would otherwise be refused.  The
+        declared ordering ranks covariates by their prior relevance.  An added column of
+        independent noise has none, so the copy places each added covariate after the
+        declared ordering, in the order ``data`` holds them.
+        :meth:`~cleverly.data.CausalData.with_extra_covariate` appends the column last in
+        the same way.  A refit that drops a covariate keeps the refusal of an ordering
+        that names an unknown covariate.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data the refit fits.
+
+        Returns
+        -------
+        CTMLE
+            This estimator when it has no explicit ordering or its ordering covers every
+            covariate of ``data``, and otherwise a copy with the extended ordering.
+        """
+        if self.ordering is None:
+            return self
+        declared = tuple(self.ordering)
+        added = tuple(name for name in data.covariate_names if name not in declared)
+        if not added:
+            return self
+        configured = copy.copy(self)
+        configured.ordering = (*declared, *added)
+        return configured
 
     def _resolve_estimands_for_data(self, data: CausalData) -> tuple[str, ...]:
         """Resolve targets, and refuse the designs a collaborative search has no result for.

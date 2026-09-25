@@ -877,6 +877,122 @@ _CHILD_SEED_TAGS = {"dummy_outcome": 1, "simulated_outcome": 2}
 _ADDITIVE_MEAN_CONTRASTS = {"ate", "att", "atc"}
 
 
+def _refuse_missing_estimator(
+    result: TMLEResult, estimand: str, requested: tuple[str, ...]
+) -> str | None:
+    """Refuse a result that no longer holds the estimator every test refits."""
+    if result.estimator is not None:
+        return None
+    return "refute needs the fitted estimator that produced the result"
+
+
+def _refuse_unreported_estimand(
+    result: TMLEResult, estimand: str, requested: tuple[str, ...]
+) -> str | None:
+    """Refuse an estimand the fit did not report, which no refit can compare against."""
+    if estimand in result.estimates:
+        return None
+    return f"estimand {estimand!r} was not requested in this fit"
+
+
+def _refuse_placebo_level(
+    result: TMLEResult, estimand: str, requested: tuple[str, ...]
+) -> str | None:
+    """Refuse ``placebo`` on the natural-course mean, an outcome level with no null value."""
+    keys = getattr(result, "parameter_keys", {})
+    key = keys.get(estimand) if keys else None
+    target = getattr(key, "estimand", estimand)
+    if target != "ey_obs" or "placebo" not in requested:
+        return None
+    return (
+        "the placebo refutation permutes treatment and expects a null effect, but "
+        "NaturalCourseMean is an outcome level and need not approach zero. Drop "
+        "'placebo' from tests=; random_common_cause and subset retain their usual "
+        "stability interpretations."
+    )
+
+
+def _refuse_row_set_under_plan(
+    result: TMLEResult, estimand: str, requested: tuple[str, ...]
+) -> str | None:
+    """Refuse a test that refits on another row set when the fit was given a split plan.
+
+    A fit that was given a :class:`~cleverly.SplitPlan` cannot refit on a different row
+    set: the plan holds one fold label per row of the original data, and there is no rule
+    here for which labels a resampled row inherits.  Left to the refit, ``subset`` gives the
+    caller a row-count ``DataError`` naming a "split plan" they did not mention in this
+    call, after paying for the tests that ran first, and ``bootstrap_measurement_error``
+    gives no error at all: its draw keeps the row count, so the labels land on resampled
+    units and the refutation silently reports a split the fit never ran.
+
+    ``getattr`` because ``TMLEResult.estimator`` is annotated ``Any`` and :func:`refute`
+    reads it as a refit *seam*: anything with the ``refit`` signature serves, and
+    ``_validate_generated_eligibility`` reads ``getattr(estimator, "family", "auto")`` off
+    the same object for the same reason.  The stand-ins in
+    ``tests/unit/test_generated_outcome_refutation.py`` and
+    ``tests/unit/test_bootstrap_measurement_error.py`` hold no plan.
+    """
+    supplied_plan = getattr(result.estimator, "split_plan", None)
+    if supplied_plan is None:
+        return None
+    resampled = [name for name in requested if name in _ROW_SET_TESTS]
+    if not resampled:
+        return None
+    return (
+        f"refutation test(s) {resampled} refit on rows this fit did not run, and "
+        f"this fit declared split_plan={supplied_plan!r}. A supplied plan labels "
+        "the rows it was realised on, by position, so it cannot label a refit that "
+        "drops rows or draws them with replacement, and dropping the plan for those "
+        "refits would refute a different split from the one the fit ran. Drop "
+        f"{resampled} from tests=, or refit the result without split_plan= to refute "
+        "a fit whose folds are drawn from the data each time"
+    )
+
+
+#: Every refusal of a :func:`refute` request that the result, the estimand and the test
+#: names decide, in the one order the call and the ``refute`` capability row both use.
+#: Each rule assumes its predecessors returned ``None``.  The names are the introspection
+#: contract, so a test pins the order without respelling a message.
+_REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, str, tuple[str, ...]], str | None]], ...] = (
+    ("estimator", _refuse_missing_estimator),
+    ("estimand", _refuse_unreported_estimand),
+    ("placebo_level", _refuse_placebo_level),
+    ("row_set_under_plan", _refuse_row_set_under_plan),
+)
+
+
+def refute_refusal(result: TMLEResult, *, estimand: str, tests: Sequence[str]) -> str | None:
+    """Return the refusal a :func:`refute` request meets before any refit.
+
+    :func:`refute` raises the sentence this function returns, and the ``refute`` capability
+    row of :class:`~cleverly.assessment.DiagnosticsFacade` quotes it for the same request.
+    The row defers on ``tests`` when the default tests are refused and a smaller set runs,
+    so a combined report names the argument instead of calling a refutation the call
+    refuses.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fitted point-treatment result.
+    estimand : str
+        The alias the tests would refit.
+    tests : sequence of str
+        The requested test names.  Unknown names are not checked here: :func:`refute`
+        refuses them first, as a malformed argument.
+
+    Returns
+    -------
+    str or None
+        Exact refusal reason, or ``None`` when no rule refuses the request.
+    """
+    requested = tuple(tests)
+    for _name, rule in _REQUEST_RULES:
+        reason = rule(result, estimand, requested)
+        if reason is not None:
+            return reason
+    return None
+
+
 def _generated_child_seeds(root_seed: int, name: str, count: int) -> tuple[int, ...]:
     sequence = np.random.SeedSequence([root_seed, _CHILD_SEED_TAGS[name]])
     return tuple(int(child.generate_state(1)[0]) for child in sequence.spawn(count))
@@ -1498,7 +1614,14 @@ def refute(
         Which refutations to run. ``NaturalCourseMean`` refuses ``placebo`` before any
         refit: that test permutes treatment and reads movement toward zero as evidence
         for an effect, and an outcome level need not approach zero. ``subset`` and
-        ``random_common_cause`` keep their usual stability interpretations there.
+        ``random_common_cause`` keep their usual stability interpretations there. A fit
+        given ``split_plan=`` refuses ``subset`` and ``bootstrap_measurement_error``
+        before any refit. :func:`refute_refusal` holds these refusals, and the ``refute``
+        capability row defers on ``tests`` when the default tests meet one and a smaller
+        set runs. ``random_common_cause`` adds a column of independent noise. A
+        :class:`~cleverly.CTMLE` with an explicit ``ordering=`` places that column after
+        the declared ordering, and a :class:`~cleverly.DRTMLE` refits without an
+        ``evaluation=`` companion that lacks it.
     n_replicates : int or None
         Replicates per randomized test. ``None`` uses five for each established
         perturbation, and 100 for each generated-outcome test and for
@@ -1532,26 +1655,14 @@ def refute(
     RefutationResult
         One record per test run, with what it expected and what it saw.
     """
-    estimator = result.estimator
-    if estimator is None:
-        raise CapabilityError("refute needs the fitted estimator that produced the result")
-    if estimand not in result.estimates:
-        raise CapabilityError(f"estimand {estimand!r} was not requested in this fit")
+    # The malformed arguments first, and the refusals of a well-formed request after them:
+    # a caller who misspelled a test name hears that before a refusal that the corrected
+    # name might not meet.
     requested = tuple(tests)
     unknown = [name for name in requested if name not in _KNOWN_TESTS]
     if unknown:
         raise ValueError(
             f"unknown refutation test {unknown[0]!r}; choose from {list(_KNOWN_TESTS)}"
-        )
-    keys = getattr(result, "parameter_keys", {})
-    key = keys.get(estimand) if keys else None
-    target = getattr(key, "estimand", estimand)
-    if target == "ey_obs" and "placebo" in requested:
-        raise CapabilityError(
-            "the placebo refutation permutes treatment and expects a null effect, but "
-            "NaturalCourseMean is an outcome level and need not approach zero. Drop "
-            "'placebo' from tests=; random_common_cause and subset retain their usual "
-            "stability interpretations."
         )
     if n_replicates is not None and (
         isinstance(n_replicates, bool)
@@ -1559,34 +1670,12 @@ def refute(
         or n_replicates < 1
     ):
         raise ValueError("n_replicates must be positive and an integer")
-    # Before any refit, like the two validations below it. A fit that was given a
-    # SplitPlan cannot refit on a different row set: the plan holds one fold label per
-    # row of the original data, and there is no rule here for which labels a resampled
-    # row inherits. Left to the refit, ``subset`` gives the caller a row-count DataError
-    # naming a "split plan" they did not mention in this call, after paying for the tests
-    # that ran first, and ``bootstrap_measurement_error`` gives no error at all: its draw
-    # keeps the row count, so the labels land on resampled units and the refutation
-    # silently reports a split the fit never ran.
-    # ``getattr`` because ``TMLEResult.estimator`` is annotated ``Any`` and this function
-    # reads it as a refit *seam*: anything with the ``refit`` signature above serves, and
-    # ``_validate_generated_eligibility`` reads ``getattr(estimator, "family", "auto")``
-    # off the same object for the same reason. The stand-ins in
-    # ``tests/unit/test_generated_outcome_refutation.py`` and
-    # ``tests/unit/test_bootstrap_measurement_error.py`` hold no plan, and 85 tests reach
-    # this line through them.
-    supplied_plan = getattr(estimator, "split_plan", None)
-    if supplied_plan is not None:
-        resampled = [name for name in requested if name in _ROW_SET_TESTS]
-        if resampled:
-            raise CapabilityError(
-                f"refutation test(s) {resampled} refit on rows this fit did not run, and "
-                f"this fit declared split_plan={supplied_plan!r}. A supplied plan labels "
-                "the rows it was realised on, by position, so it cannot label a refit that "
-                "drops rows or draws them with replacement, and dropping the plan for those "
-                "refits would refute a different split from the one the fit ran. Drop "
-                f"{resampled} from tests=, or refit the result without split_plan= to refute "
-                "a fit whose folds are drawn from the data each time"
-            )
+    # Before any refit, like the validations below it. The ``refute`` capability row reads
+    # the same predicate, so a row that reads available is a request this line admits.
+    reason = refute_refusal(result, estimand=estimand, tests=requested)
+    if reason is not None:
+        raise CapabilityError(reason)
+    estimator = result.estimator
 
     processes: dict[str, GaussianIndependentOutcome | GaussianAdjustmentOutcome] = {
         "dummy_outcome": (GaussianIndependentOutcome() if dummy_outcome is None else dummy_outcome),

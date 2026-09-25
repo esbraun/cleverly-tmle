@@ -1043,7 +1043,7 @@ class TMLE:
         it was realised on, and the copy is what makes that local too.  The binding exists
         to catch a plan reused on other rows, where a label silently points at another
         unit.  Every refit in this package is the same rows with a column replaced,
-        perturbed or dropped -- which is the exact condition
+        perturbed, dropped or added -- which is the exact condition
         :meth:`~cleverly.SplitPlan.validate` names as safe to reuse labels under -- so
         holding the fingerprint here would refuse the placebo and negative-control
         refutations for a change that moves no row.  What a refit cannot do is change the
@@ -1051,17 +1051,57 @@ class TMLE:
         :func:`~cleverly.validation.refute` refuses the subsampling test up front.
         :meth:`~cleverly.SplitPlan.unbound` keeps the plan's generator record, so the
         refit accepts the plan and draws its labels again to check them.
+
+        The refit first asks :meth:`_configured_for_refit` which estimator fits ``data``.
+        This estimator answers itself.  A :class:`~cleverly.CTMLE` with an explicit
+        ``ordering=`` places an added covariate after the declared ordering, and a
+        :class:`~cleverly.DRTMLE` drops an ``evaluation=`` companion that lacks a covariate
+        of ``data``.  Either answer is a copy, so this instance is not modified.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data to fit, usually ``result.data`` with one column changed.
+        intermediate_value : float or None
+            The value of the intermediate variable the controlled direct effect fixes.
+        random_state : int or None
+            Seed of the refit.  ``None`` keeps this estimator's own.
+
+        Returns
+        -------
+        TMLEResult
+            The result of the whole fit on ``data``.
         """
-        estimator = self
-        plan = self.split_plan
+        estimator = self._configured_for_refit(data)
+        plan = estimator.split_plan
         if plan is not None and plan.source_fingerprint is not None:
-            estimator = copy.copy(self)
+            if estimator is self:
+                estimator = copy.copy(self)
             estimator.split_plan = plan.unbound()
-        if random_state is not None and random_state != self.random_state:
+        if random_state is not None and random_state != estimator.random_state:
             if estimator is self:
                 estimator = copy.copy(self)
             estimator.random_state = random_state
         return estimator._fit_single(data, intermediate_value=intermediate_value)
+
+    def _configured_for_refit(self, data: CausalData) -> TMLE:
+        """The estimator a refit on ``data`` runs, which is this one.
+
+        A subclass whose configuration names the covariates of the data it was fitted on
+        overrides this, so that a refit that adds a covariate still has a configuration
+        that covers it.  An override returns a copy and never modifies this instance.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data the refit fits.
+
+        Returns
+        -------
+        TMLE
+            This estimator.
+        """
+        return self
 
     def _prepare(
         self,

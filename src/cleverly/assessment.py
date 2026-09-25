@@ -1307,6 +1307,67 @@ def _replay_gated(item: AssessmentCapability, replay: Replayability) -> Assessme
     )
 
 
+def _argument_resolved(
+    capability: AssessmentCapability,
+    argument: str,
+    requested: Any,
+    refusal: Callable[[Any], str | None],
+    alternatives: Sequence[Any],
+) -> AssessmentCapability:
+    """Resolve a row whose call refuses some values of one argument and not others.
+
+    ``refusal`` is the predicate the call raises from, read at one value of ``argument``,
+    and ``None`` stands for the omitted argument.  The row follows one rule, which RM12 set
+    for ``tipping_gamma(use_ci=True)``.
+
+    ======================================================= ===================================
+    request                                                 row
+    ======================================================= ===================================
+    the argument is omitted, and the default runs           unchanged
+    the argument is omitted, the default is refused, and    ``deferred`` on ``argument``, with
+    a value in ``alternatives`` runs                        the call's sentence
+    the argument is omitted, and no value runs              ``unavailable``, with the
+                                                            default's sentence
+    the argument has a value the call refuses               ``unavailable``, with the call's
+                                                            sentence
+    ======================================================= ===================================
+
+    A deferral lifts once the caller names the argument, because each request resolves
+    the row afresh.
+
+    Parameters
+    ----------
+    capability : AssessmentCapability
+        The row after every gate no argument can lift.
+    argument : str
+        The name of the argument the rule resolves.
+    requested : Any
+        The value the request supplies, or ``None`` when it omits the argument.
+    refusal : callable
+        The call's predicate at one value of ``argument``: the exact refusal sentence, or
+        ``None`` when that value runs.
+    alternatives : sequence
+        The values that could lift a deferral of the omitted argument.
+
+    Returns
+    -------
+    AssessmentCapability
+        The row this request reads.
+    """
+    reason = refusal(requested)
+    if reason is None:
+        return capability
+    if requested is None and any(refusal(value) is None for value in alternatives):
+        return replace(
+            capability,
+            available=False,
+            status=AssessmentStatus.DEFERRED,
+            reason=reason,
+            requires_arguments=(*capability.requires_arguments, argument),
+        )
+    return replace(capability, available=False, status=AssessmentStatus.UNAVAILABLE, reason=reason)
+
+
 #: The estimand default that a fit reporting no bare ``"ate"`` leaves ambiguous.
 _AMBIGUOUS_ESTIMAND = "ate"
 
@@ -2077,7 +2138,10 @@ class DiagnosticsFacade(_CapabilityFacade):
     def _request_gated(
         self, capability: AssessmentCapability, arguments: Mapping[str, Any]
     ) -> AssessmentCapability:
-        """Resolve the one diagnostic row whose call refuses some argument values.
+        """Resolve the diagnostic rows whose calls refuse some argument values.
+
+        ``truncation_curve`` resolves ``mechanism`` and ``refute`` resolves ``tests``.
+        Every other diagnostic row is returned unchanged.
 
         Parameters
         ----------
@@ -2093,6 +2157,8 @@ class DiagnosticsFacade(_CapabilityFacade):
         """
         if capability.operation == "truncation_curve":
             return self._truncation_gated(capability, arguments)
+        if capability.operation == "refute":
+            return self._refute_gated(capability, arguments)
         return capability
 
     def _truncation_gated(
@@ -2101,15 +2167,10 @@ class DiagnosticsFacade(_CapabilityFacade):
         """Resolve the point-treatment ``truncation_curve`` row from the call's predicate.
 
         :func:`~cleverly.sensitivity.positivity.truncation_refusal` is what the call raises
-        from.  The request supplies ``mechanism`` or omits it, and the row follows one rule.
-
-        * An omitted argument whose default runs leaves the row unchanged.
-        * An omitted argument whose default is refused, where the other axis runs, defers
-          the row on ``mechanism`` with the call's sentence.  An incremental fit with
-          missing outcomes is that case.
-        * An omitted argument where neither axis runs reads ``unavailable`` with the
-          sentence of the default.  An incremental fit with complete outcomes is that case.
-        * A supplied value the call refuses reads ``unavailable`` with the call's sentence.
+        from, and :func:`_argument_resolved` applies the request rule to ``mechanism``.
+        An incremental fit with missing outcomes defers on ``mechanism``, because the
+        default axis is refused and ``mechanism=True`` runs.  An incremental fit with
+        complete outcomes reads ``unavailable``, because neither axis runs.
 
         A row that the method or replay gate already refused, and a longitudinal row, are
         returned as they are.  The longitudinal curve has its own two refusals.
@@ -2118,22 +2179,48 @@ class DiagnosticsFacade(_CapabilityFacade):
             return capability
         from .sensitivity.positivity import truncation_refusal
 
-        requested = arguments.get("mechanism")
-        reason = truncation_refusal(self._result, requested)
-        if reason is None:
+        return _argument_resolved(
+            capability,
+            "mechanism",
+            arguments.get("mechanism"),
+            lambda axis: truncation_refusal(self._result, axis),
+            (True, False),
+        )
+
+    def _refute_gated(
+        self, capability: AssessmentCapability, arguments: Mapping[str, Any]
+    ) -> AssessmentCapability:
+        """Resolve the ``refute`` row from the call's predicate.
+
+        :func:`~cleverly.validation.refute.refute_refusal` is what the call raises from, and
+        :func:`_argument_resolved` applies the request rule to ``tests``.  An omitted
+        ``tests`` means the default tests.  A fit given ``split_plan=`` defers on
+        ``tests``, because the default tests include ``subset`` and ``placebo`` still
+        runs.  So does the natural-course mean, which refuses ``placebo``.
+
+        The row resolves for the estimand the call would refit.  A request that names no
+        estimand on a fit that reports no bare ``"ate"`` is returned as it is: the estimand
+        gate defers it, and the call refuses the bare default by name.
+        """
+        if not capability.available:
             return capability
-        if requested is None and any(
-            truncation_refusal(self._result, axis) is None for axis in (True, False)
-        ):
-            return replace(
-                capability,
-                available=False,
-                status=AssessmentStatus.DEFERRED,
-                reason=reason,
-                requires_arguments=(*capability.requires_arguments, "mechanism"),
-            )
-        return replace(
-            capability, available=False, status=AssessmentStatus.UNAVAILABLE, reason=reason
+        estimand = arguments.get("estimand")
+        if estimand is None:
+            if "ate" not in self._result.estimates:
+                return capability
+            estimand = "ate"
+        from .validation.refute import DEFAULT_TESTS, refute_refusal
+
+        def refusal(tests: Sequence[str] | None) -> str | None:
+            chosen = DEFAULT_TESTS if tests is None else tests
+            return refute_refusal(self._result, estimand=estimand, tests=chosen)
+
+        return _argument_resolved(
+            capability,
+            "tests",
+            arguments.get("tests"),
+            refusal,
+            tuple((name,) for name in DEFAULT_TESTS),
         )
 
     def _estimand_candidates(self, operation: str) -> tuple[str, ...]:
@@ -2515,9 +2602,15 @@ class DiagnosticsFacade(_CapabilityFacade):
         Raises
         ------
         CapabilityError
-            If the fitted estimator cannot be reconstructed.
+            If the fitted estimator cannot be reconstructed, or the row this request
+            resolves to is refused. A fit given ``split_plan=`` refuses ``subset``, and
+            the natural-course mean refuses ``placebo``, so each row defers on ``tests``.
+            A call that omits ``tests`` raises the deferral with the refused test's
+            sentence, and a call that names ``tests`` without that test runs.
         """
-        self._require("refute")
+        # The row this request resolves to, not the bare row, so a request that names
+        # ``tests`` runs where the bare row defers on it.
+        self._require("refute", kwargs)
         if not replayability(self._result).refit_nuisances:
             missing = replayability(self._result).unreconstructible
             raise CapabilityError(

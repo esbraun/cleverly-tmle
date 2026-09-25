@@ -17,13 +17,20 @@ from collections.abc import Callable
 from typing import Any
 
 import numpy as np
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly.datasets import make_linear_ate, make_missing_outcome, make_missing_outcome_binary
-from cleverly.estimators import TMLE
+from cleverly.datasets import (
+    make_binary_outcome,
+    make_instrument,
+    make_linear_ate,
+    make_missing_outcome,
+    make_missing_outcome_binary,
+)
+from cleverly.estimators import DRTMLE, TMLE
 from cleverly.interventions import Incremental, Shift
 from cleverly.msm import MSM
-from tests import discrete_law_mar, regimes
-from tests.conftest import linear_in_sample
+from tests import discrete_law, discrete_law_mar, regimes
+from tests.conftest import SELECTOR_CONFIGS, linear_ctmle, linear_in_sample
 
 
 def _missing_frame() -> Any:
@@ -126,6 +133,71 @@ def fit_natural_course() -> Any:
     )
 
 
+def fit_split_plan() -> Any:
+    """A cross-fitted fit on the discrete law, given the split plan of a first fit.
+
+    Two folds and a binary outcome, so no outcome support has to be declared. The plan
+    labels the rows it was realised on, so ``refute`` refuses ``subset`` here.
+    """
+    frame = discrete_law.frame()
+    folds = {"cross_fit": True, "n_folds": 2}
+    first = TMLE(**linear_in_sample(**folds)).fit(frame, outcome="Y", treatment="A").single()
+    supplied = TMLE(**linear_in_sample(**folds, split_plan=first.split_plan))
+    return supplied.fit(frame, outcome="Y", treatment="A").single()
+
+
+#: The covariate order :func:`fit_ctmle_ordered` declares, as ``make_instrument`` names it.
+INSTRUMENT_ORDERING = ("W1", "W2", "W3")
+
+
+def ctmle_ordered(ordering: tuple[str, ...] = INSTRUMENT_ORDERING) -> Any:
+    """The ordered collaborative estimator of :func:`fit_ctmle_ordered`, at ``ordering``."""
+    return linear_ctmle(
+        "ordered",
+        ordering=ordering,
+        selection_folds=SELECTOR_CONFIGS["ordered"]["selection_folds"],
+        estimands=("ate",),
+    )
+
+
+def fit_ctmle_ordered() -> Any:
+    """An ordered collaborative fit with an explicit ordering, on ``make_instrument(500, 44)``."""
+    frame, _ = make_instrument(n=500, seed=44)
+    return ctmle_ordered().fit(frame, outcome="Y", treatment="A").single()
+
+
+def drtmle_settings() -> dict[str, Any]:
+    """Cross-fitted DR-TMLE with explicit linear learners, as the companion tests fit it."""
+    return {
+        "outcome_learner": LinearRegression(),
+        "treatment_learner": LogisticRegression(max_iter=1000),
+        "reduced_outcome_learner": LinearRegression(),
+        "reduced_treatment_learner": LogisticRegression(max_iter=1000),
+        "n_folds": 3,
+        "learner_folds": 2,
+        "random_state": 0,
+        "simultaneous": False,
+        "estimands": ("ate",),
+    }
+
+
+def fit_drtmle(*, companion: bool = False) -> Any:
+    """A DR-TMLE fit of a binary outcome, with an ``evaluation=`` companion when asked.
+
+    The outcome is binary, so the cross-fitted fit needs no declared ``q_bounds``. The
+    companion is an independent draw of the same law.
+    """
+    frame, _ = make_binary_outcome(n=240, seed=11)
+    evaluation = make_binary_outcome(n=120, seed=12)[0] if companion else None
+    estimator = DRTMLE(**drtmle_settings(), evaluation=evaluation)
+    return estimator.fit(frame, outcome="Y", treatment="A").single()
+
+
+def fit_drtmle_companion() -> Any:
+    """:func:`fit_drtmle` with an ``evaluation=`` companion."""
+    return fit_drtmle(companion=True)
+
+
 #: One builder per kind of fit, by the name the RM23 plan gives it.
 KINDS: dict[str, Callable[[], Any]] = {
     "ordinary": fit_ordinary,
@@ -137,4 +209,7 @@ KINDS: dict[str, Callable[[], Any]] = {
     "msm+missing": fit_msm_missing,
     "rr+missing": fit_rr_missing,
     "natural_course": fit_natural_course,
+    "split_plan": fit_split_plan,
+    "ctmle_ordered": fit_ctmle_ordered,
+    "drtmle_companion": fit_drtmle_companion,
 }
