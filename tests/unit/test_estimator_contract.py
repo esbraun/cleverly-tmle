@@ -162,6 +162,7 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "VariableImportanceEntry",
         "VariableImportanceResult",
         "ValidationReport",
+        "VersionMismatchWarning",
         "WeightingWarning",
         "__version__",
         "load",
@@ -525,7 +526,7 @@ POLARS_EMITTERS: dict[str, list[Any]] = {
     ],
     "LongitudinalResult": [
         lambda r: r.to_frame(),
-        lambda r: r.diagnostics.stagewise().to_frame(),
+        lambda r: r.diagnostics.support().to_frame(),
         lambda r: r.diagnostics.score_equations().to_frame(),
         lambda r: r.diagnostics.nuisance_models().to_frame(),
         lambda r: r.validate().to_frame(),

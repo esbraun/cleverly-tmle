@@ -9,6 +9,7 @@ import inspect
 import io
 import math
 import pkgutil
+import warnings
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,7 @@ from cleverly import (
     PointTreatment,
     RegimeContrast,
     RiskRatio,
+    VersionMismatchWarning,
     load,
 )
 from cleverly.datasets import (
@@ -631,18 +633,121 @@ def test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment(
     assert _capability_refusal(restored, "omitted_confounding") == refusal
 
 
-def test_legacy_npz_is_refused_with_a_migration_message(tmp_path: Path) -> None:
-    path = tmp_path / "legacy.npz"
-    np.savez_compressed(path, __manifest__=np.array([1], dtype=np.uint8))
-    with pytest.raises(ValueError, match=r"legacy cleverly \.npz"):
-        load(path)
+# ------------------------------------------------------------ the saved version
 
 
-def test_legacy_npz_bytes_are_refused() -> None:
+class _PayloadError(Exception):
+    """What the payload below raises as it is unpickled."""
+
+
+def _refuse_to_unpickle() -> None:
+    raise _PayloadError("a class in this payload changed")
+
+
+class _Unloadable:
+    """Pickles as a call that raises, as a payload whose classes changed can."""
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        return (_refuse_to_unpickle, ())
+
+
+def _envelope(blob: bytes) -> dict[str, Any]:
+    """The outer mapping of an artifact that :func:`dumps` wrote."""
+    outer = joblib.load(io.BytesIO(blob))
+    assert isinstance(outer, dict)
+    return outer
+
+
+def _dumped(value: Any) -> bytes:
     buffer = io.BytesIO()
-    np.savez_compressed(buffer, __manifest__=np.array([1], dtype=np.uint8))
-    with pytest.raises(ValueError, match=r"legacy cleverly \.npz"):
-        loads(buffer.getvalue())
+    joblib.dump(value, buffer, compress=3)
+    return buffer.getvalue()
+
+
+def _load(route: str, blob: bytes, tmp_path: Path) -> Any:
+    """``blob`` loaded through the public file loader or the bytes loader."""
+    if route == "bytes":
+        return loads(blob)
+    path = tmp_path / "artifact.joblib"
+    path.write_bytes(blob)
+    return load(path)
+
+
+def _assert_same_estimates(restored: Any, original: Any) -> None:
+    assert restored.estimates.keys() == original.estimates.keys()
+    for name, estimate in original.estimates.items():
+        assert restored[name].psi == estimate.psi
+        assert restored[name].inference == estimate.inference
+    assert restored.inference_status == original.inference_status
+
+
+ROUTES = ["file", "bytes"]
+
+
+def test_an_artifact_records_the_version_that_wrote_it(point_result, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    outer = _envelope(dumps(point_result))
+    assert outer["format"] == "cleverly.result"
+    assert outer["cleverly_version"] == cleverly.__version__
+    path = point_result.save(tmp_path / "result.joblib")
+    assert joblib.load(path)["cleverly_version"] == cleverly.__version__
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_the_same_version_loads_without_a_warning(point_result, tmp_path: Path, route: str) -> None:  # type: ignore[no-untyped-def]
+    """The control for the witness below: a matching version warns nothing."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        restored = _load(route, dumps(point_result), tmp_path)
+    _assert_same_estimates(restored, point_result)
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_another_version_warns_and_loads_as_saved(point_result, tmp_path: Path, route: str) -> None:  # type: ignore[no-untyped-def]
+    """A different recorded version warns, names both versions, and migrates nothing."""
+    outer = _envelope(dumps(point_result))
+    outer["cleverly_version"] = "0.0.0"
+    with pytest.warns(VersionMismatchWarning, match="saved by cleverly 0.0.0") as record:
+        restored = _load(route, _dumped(outer), tmp_path)
+    message = str(record[0].message)
+    assert f"this is cleverly {cleverly.__version__}" in message
+    assert "no migration" in message
+    assert record[0].filename == __file__
+    _assert_same_estimates(restored, point_result)
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_a_bare_artifact_warns_that_it_recorded_no_version(
+    point_result, tmp_path: Path, route: str
+) -> None:  # type: ignore[no-untyped-def]
+    """A result dumped without the envelope, as releases before it wrote one, still loads."""
+    with pytest.warns(VersionMismatchWarning, match="recorded no version") as record:
+        restored = _load(route, _dumped(point_result), tmp_path)
+    assert record[0].filename == __file__
+    _assert_same_estimates(restored, point_result)
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_a_payload_that_fails_to_load_names_both_versions(
+    point_result, tmp_path: Path, route: str
+) -> None:  # type: ignore[no-untyped-def]
+    outer = _envelope(dumps(point_result))
+    outer["cleverly_version"] = "0.0.0"
+    outer["payload"] = _dumped(_Unloadable())
+    with pytest.warns(VersionMismatchWarning), pytest.raises(_PayloadError) as raised:
+        _load(route, _dumped(outer), tmp_path)
+    assert f"saved by cleverly 0.0.0; this is cleverly {cleverly.__version__}" in (
+        raised.value.__notes__
+    )
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_an_envelope_that_holds_no_result_is_refused(
+    point_result, tmp_path: Path, route: str
+) -> None:  # type: ignore[no-untyped-def]
+    outer = _envelope(dumps(point_result))
+    outer["payload"] = _dumped({"not": "a result"})
+    with pytest.raises(TypeError, match="fitted causal result"):
+        _load(route, _dumped(outer), tmp_path)
 
 
 def test_non_result_objects_are_refused(tmp_path: Path) -> None:
@@ -767,18 +872,12 @@ def test_every_memo_owner_either_drops_its_memos_or_reaches_no_artifact() -> Non
         if path in _UNREACHABLE_MEMO_OWNERS:
             continue
         names = _memo_names(owner)
-        poisoned = dict.fromkeys(names, "a verdict from a version that is not this one")
+        warmed = dict.fromkeys(names, "a verdict the artifact must not carry")
 
         written = owner.__new__(owner)
-        written.__dict__.update(poisoned)
+        written.__dict__.update(warmed)
         assert not set(names) & set(written.__getstate__()), (
             f"{path} writes a memo into every artifact it is saved in"
-        )
-
-        read = owner.__new__(owner)
-        read.__setstate__(poisoned)  # type: ignore[attr-defined]
-        assert not set(names) & set(read.__dict__), (
-            f"{path} restores whatever memo an older artifact already carries"
         )
 
 
@@ -806,17 +905,11 @@ def test_no_saved_result_carries_a_value_it_derived(point_result) -> None:  # ty
     assert _memos_in_graph(loads(dumps(point_result))) == []
 
 
-def test_a_loaded_result_recomputes_the_score_verdict_an_artifact_carried(point_result) -> None:  # type: ignore[no-untyped-def]
-    """A stale verdict inside the file is the migration case, and it is not diagnosable.
+def test_a_loaded_result_recomputes_the_score_verdict(point_result) -> None:  # type: ignore[no-untyped-def]
+    """The verdict memo stays out of the artifact, and the loaded result computes it again.
 
-    Nothing invalidates a memo. There is no generation counter to compare, because a memo
-    records no question, so whatever the artifact carries is restored and reported. A
-    ``ScoreCheck`` saved at one tolerance answers at that tolerance for ever, and an
-    object of the wrong type surfaces as an ``AttributeError`` from ``summary()`` rather
-    than as anything a reader can act on.
-
-    A same-version round trip pins the write side. The revived states below pin the read
-    side, and need no committed binary artifact.
+    A same-version round trip pins the write side: ``__getstate__`` drops the memo, so the
+    loaded result reaches its verdict from the stored records.
     """
     fresh = point_result.score_verdict
     assert fresh.tolerance == pytest.approx(DEFAULT_TOLERANCE)
@@ -830,25 +923,6 @@ def test_a_loaded_result_recomputes_the_score_verdict_an_artifact_carried(point_
     assert "score_verdict" not in restored.__dict__
     assert restored.score_verdict.tolerance == pytest.approx(DEFAULT_TOLERANCE)
     assert restored.score_verdict.rows == fresh.rows
-
-    # A verdict this version does not reach, at a tolerance no caller asked for.
-    stale = dict(state)
-    stale["score_verdict"] = dataclasses.replace(
-        fresh, tolerance=1e-12, corrected=not fresh.corrected
-    )
-    revived = type(point_result).__new__(type(point_result))
-    revived.__setstate__(stale)
-    assert "score_verdict" not in revived.__dict__
-    assert revived.score_verdict.tolerance == pytest.approx(DEFAULT_TOLERANCE)
-    assert revived.score_verdict.corrected == fresh.corrected
-
-    # Not merely stale: an artifact restores whatever it holds, of whatever type.
-    poisoned = dict(state)
-    poisoned["score_verdict"] = "a verdict from a version that is not this one"
-    healed = type(point_result).__new__(type(point_result))
-    healed.__setstate__(poisoned)
-    assert healed.score_verdict.passed == fresh.passed
-    assert healed.summary() == point_result.summary()
 
 
 def test_a_loaded_result_rebuilds_the_facades_it_was_saved_with(point_result) -> None:  # type: ignore[no-untyped-def]

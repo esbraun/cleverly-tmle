@@ -49,6 +49,7 @@ from .exceptions import (
     MethodConfigurationError,
     NotFittedError,
     PositivityWarning,
+    VersionMismatchWarning,
     WeightingWarning,
 )
 from .inference import ParameterEstimate
@@ -160,6 +161,7 @@ __all__ = [
     "ValidationReport",
     "VariableImportanceEntry",
     "VariableImportanceResult",
+    "VersionMismatchWarning",
     "WeightingWarning",
     "__version__",
     "load",
