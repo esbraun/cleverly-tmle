@@ -61,6 +61,8 @@ def _write(result: Any, destination: IO[bytes]) -> None:
         joblib.dump(header, stream)
         try:
             joblib.dump(result, stream)
+        except OSError:
+            raise
         except Exception as error:
             raise TypeError(
                 "the fitted result is not joblib-serializable; nuisance estimators and custom "

@@ -25,6 +25,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.preprocessing import FunctionTransformer
 
 import cleverly
+import cleverly.estimators.serialize as serialization
 from cleverly import (
     ATE,
     CapabilityError,
@@ -867,6 +868,27 @@ def test_a_failed_save_keeps_the_earlier_artifact(point_result, tmp_path: Path) 
     broken.estimator.outcome_learner = FunctionTransformer(lambda values: values)
     with pytest.raises(TypeError, match="not joblib-serializable"):
         broken.save(path)
+    assert path.read_bytes() == saved
+    assert [entry.name for entry in tmp_path.iterdir()] == ["result.joblib"]
+
+
+def test_a_failed_destination_write_preserves_the_os_error_and_earlier_artifact(
+    point_result, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:  # type: ignore[no-untyped-def]
+    path = point_result.save(tmp_path / "result.joblib")
+    saved = path.read_bytes()
+    original_dump = serialization.joblib.dump
+
+    def fail_during_payload(value: Any, stream: Any) -> Any:
+        if value is point_result:
+            stream.write(b"partial payload")
+            raise OSError("destination is full")
+        return original_dump(value, stream)
+
+    monkeypatch.setattr(serialization.joblib, "dump", fail_during_payload)
+    with pytest.raises(OSError, match="destination is full") as raised:
+        point_result.save(path)
+    assert raised.value.__cause__ is None
     assert path.read_bytes() == saved
     assert [entry.name for entry in tmp_path.iterdir()] == ["result.joblib"]
 
