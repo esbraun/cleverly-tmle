@@ -41,7 +41,6 @@ delivered row that this roadmap still describes. Read a record with, for example
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.34 | Refusals after the nuisance fit | raise each composition refusal as `CapabilityError` before any learner call, at the estimator and at `CausalStudy.identify`, and narrow the catch of the refit replay slot to `ValueError` | stratified incremental and nonlinear-MSM requests refuse with `NotImplementedError` after 2 learner fits, and a stratified `DRTMLE` request after 8. `DRTMLE` with `targeting="one_step"` and `reduced_crossfit="nested"` refuses after 42. Other composition refusals raise `ValueError` or `NotImplementedError` | [RM24](#rm24-refusals-after-the-nuisance-fit) |
 | 0.41 | Calibration-slope warning rule | replace the fixed band with a rule that a registered calibration study supports | the band flagged 14 of 40 fits of a correctly specified weak-signal propensity model | [RM15](#rm15-calibration-slope-warning-rule) |
 | 0.42 | Summary and error-message accuracy | correct six display surfaces, two data error messages and one refusal remedy, add a fingerprint-only protocol option, and decide what a bootstrap summary publishes on a non-inferential fit. The simultaneous-request policy is settled below. Correct two `benchmark` argument checks, and make one truncation row agree with its call | each surface omits, misstates, or repeats a fact that the fit records. Three more surfaces misstate what a call accepts or needs | [RM16](#rm16-summary-and-error-message-accuracy) |
 | 0.51 | Red property cells after the fold, scale and law changes | keep each red verdict under `reporting` with its interval, and admit inference only when F18 or F19 supplies the exact result. The [red-cell ledger](technical-reference/method-evidence/red-cells.md) delivers this. Then declare and run the five open RM18 follow-up designs, each declared before its run | registered studies publish red verdicts after the fold, scale and law changes and the pooled update. The ledger lists each one and the ask that owns it. Five RM18 follow-up designs are not declared and have not run | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
@@ -56,7 +55,7 @@ depends on comes before that row.
 | --- | --- | --- |
 | a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | no open row |
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | no open row |
-| c | a correct refusal that arrives late or as the wrong type | RM24 |
+| c | a correct refusal that arrives late or as the wrong type | no open row |
 | d | a diagnostic or a warning that misleads | RM15 |
 | e | a display or a message that misstates a fact that the fit records. By extension, an argument check or a capability row that misstates what a call accepts or needs, when no number moves and nothing raises that is not a refusal | RM16 |
 | f | an investigation or a declared design that moves no verdict | RM18, RM19 |
@@ -66,21 +65,19 @@ The table gives the reason for each place inside a tier.
 
 | row | reason for its place |
 | --- | --- |
-| RM24 | four refusals arrive after 2, 8 or 42 learner fits, and the refusals of the row have the wrong type |
 | RM15 | the warning flagged 14 of 40 fits of a correct model |
 | RM16 | each surface misstates or repeats a recorded fact, or misstates what a call accepts or needs, and no number changes |
 | RM18 | five open designs, which read 19 red rows in six studies. The ledger already publishes each of those verdicts |
 | RM19 | one configuration, which RM18 opened. Its Bonferroni interval covers zero, and it moves no verdict |
 | RM30 | a published learned-policy method can resolve the current refusal, but requires a distinct target, fold-local evaluation, and inference validation |
 
-No open row waits on another open row. The RM24 requests produce no fit.
+No open row waits on another open row.
 
-Use four delivery groups for these six rows and the two investigations that RM18 waits on.
+Use three delivery groups for these five rows and the two investigations that RM18 waits on.
 Keep each item's acceptance criteria separate inside its group.
 
 | delivery group | items | shared boundary |
 | --- | --- | --- |
-| refusal surfaces | RM24 | a refusal reaches the caller where its declaration says, before the work that it refuses |
 | diagnostic reports | RM15 and RM16 | one assessment and summary surface, with one documentation pass |
 | red property cells | RM18 and RM19, and the F18 and F19 derivations that RM18 waits on | the recorded rule that a red cell is reporting evidence, designs declared before their runs that move no verdict, and two exact derivations that would close the inferential gaps |
 | learned-policy evaluation | RM30 | a typed target and a published fold-local learning, evaluation, and inference contract with validation |
@@ -95,7 +92,7 @@ queue. The RM IDs and their anchors never change, so a commit names a row by its
 row takes its priority with it, and the other rows keep theirs.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
-The queue holds six rows. Three rows need their corrections: RM15, RM16 and RM24.
+The queue holds five rows. Two rows need their corrections: RM15 and RM16.
 RM18 has five follow-up designs that are not declared and have not run. RM19 has no
 declared design. RM30 holds the published learned-policy implementation.
 
@@ -946,113 +943,27 @@ and RM32.
 
 ### RM24. Refusals after the nuisance fit
 
-The [Definition of done](#definition-of-done) asks for a pre-fit test for every well-posed
-composition that is still refused. A 2026-09-26 probe at commit 67a995cc counted the `fit` calls of
-counting learners before each raise. The estimator sources at 87900238 are the same.
+Stratified requests were refused only in the targeting loop. An incremental fit or a log- or
+logit-link MSM fit with `strata=` raised `NotImplementedError` after two learner fits. A `DRTMLE`
+fit with `strata=` at a non-empty `guard` raised after eight. `DRTMLE` with
+`targeting="one_step"` and `reduced_crossfit="nested"` raised after 42. `CausalStudy.identify`
+admitted the stratified incremental and MSM estimands. Other composition refusals raised
+`ValueError` or `NotImplementedError` before any learner, and the refit replay slot read both as
+refusals.
 
-The probe fitted `make_linear_ate(n=400, seed=2)` with a baseline stratum `S = (W1 > 0)` and
-`strata=["S"]`. The covariates were `W1` to `W4` and `S`. The fits used `cross_fit=False`,
-`simultaneous=False`, `random_state=0`, `LinearRegression` for the outcome, and
-`LogisticRegression(max_iter=1000)` for the other learners. The probe passed no reduced learner to
-`DRTMLE`. Each reduced regression then used the outcome or the treatment learner, so the count
-includes it.
+Pull request NNN delivered this row. The table gives what shipped. Commit `e4bb35c3` holds the
+probe table and the corrections. Read it with `git show e4bb35c3:docs/roadmap.md`.
 
-| request | exception | where it raises | learner fits |
-| --- | --- | --- | ---: |
-| `TMLE(incremental=[Incremental(2.0)])` | `NotImplementedError` for the `'ipsi'` group | the strata guard in `TMLE._retarget_detailed` | 2 |
-| the same with `cross_fit=True`, `n_folds=2` and `q_bounds=(-30, 30)` | the same | the same | 4 |
-| `TMLE(msm=MSM.linear(link="log"))`, with the outcome `exp(Y / 10)` | `NotImplementedError` for the `'msm'` group | the same | 2 |
-| `TMLE(msm=MSM.linear(link="logit"))`, with a binary outcome | the same | the same | 2 |
-| `DRTMLE(estimands=("ate",))` at `guard=("Q", "g")`, `("Q",)` or `("g",)` | `NotImplementedError` for the `'mean'` group | the same | 8 |
-| `DRTMLE(guard=(), estimands=("ate",))` | none. It reports `ate`, `ate[S=1]` and `ate[S=0]` | none | 2 |
-| `DRTMLE()`, whose default `estimands="all"` includes `att` and `atc` | `NotImplementedError` for `att` and `atc` | `DRTMLE._check_drtmle` | 0 |
-| a continuous-dose MSM with `strata=` | `NotImplementedError` | `TMLE._preflight_fit_configuration` | 0 |
-| `cv_evaluation=True` with `strata=` | `NotImplementedError` | the same | 0 |
-
-The probe found one more late refusal, without `strata=`. It fitted
-`DRTMLE(targeting="one_step", reduced_crossfit="nested", cross_fit=True, n_folds=3)` with
-`estimands=("ate",)` and `q_bounds=(-30, 30)`.
-
-| `guard` | exception | where it raises | learner fits |
-| --- | --- | --- | ---: |
-| `("Q", "g")` or `("Q",)` | `NotImplementedError` "targeting='one_step' and reduced_crossfit='nested' are not combined" | `solve_submodel` in `src/cleverly/estimators/targeting.py` | 42 |
-| `()` | none. It reports `ate` | none | 6 |
-
-The other rows of the original probe already refuse before any learner.
-
-| request | exception | where it raises | learner fits |
-| --- | --- | --- | ---: |
-| `TMLE(incremental=...)` with `intermediate="Z"`, on `make_cde(n=400, seed=3)` | `ValueError` "incremental= and intermediate= are not combined" | `TMLE._check_incremental`, in `_preflight_fit_configuration` | 0 |
-| `TMLE(estimands=["par"])` with `intermediate=` and `delta=`, on `binary_cde_frame()` from `tests/unit/test_cross_fitted_missing_off_contract.py`, in sample and at `n_folds=5` | `CapabilityError`, the F20 refusal | `_preflight_fit_configuration` | 0 |
-
-`test_par_beside_an_intermediate_keeps_its_f20_refusal` pins the F20 refusal. No test pins the
-incremental-intermediate refusal. The strata messages and the incremental-intermediate message
-cite no roadmap item.
-
-The study path has the same gaps. The table gives each request on a `PointTreatment` with
-`strata=("S",)`.
-
-| request | result |
+| part | what shipped |
 | --- | --- |
-| `identify(IncrementalEffect(...))` | identifies. `estimate(..., cross_fit=False)` fits a learner first |
-| `identify(MSMProjection(MSM.linear(link="log")))` | identifies |
-| `identify(MSMProjection(MSM.linear(doses=...)))` on a continuous design | identifies. `estimate` meets the continuous-MSM refusal before any learner |
-| `estimate(ATE(), method="drtmle")` | fits a learner first. `available_methods()` reports `drtmle` available, and that is true for `DRTMLEMethod(guard=())` |
-| `IncrementalEffect` on a design with `intermediate=` | `identify` raises `CapabilityError`. The design must identify `ControlledDirectEffect`, and that estimand takes an arm contrast only |
+| stratified targeting | `refuse_stratified_targeting` in `src/cleverly/estimators/tmle.py` runs in `_resolve_estimands_for_data`, in `DRTMLE._check_drtmle` and in `_identify_point` in `src/cleverly/study.py`. It raises `CapabilityError` before any learner and cites [X8](#x8-stratified-incremental-and-msm-targeting). The `DRTMLE` message names `guard=()`, which is the ordinary TMLE. The targeting-loop guard stays as a backstop |
+| identification | `CausalStudy.identify` refuses `IncrementalMean`, `IncrementalEffect`, and an `MSMProjection` with a link other than the identity or with a continuous dose, on a design with `strata=`. `estimate` refuses the `DRTMLE` case before any learner |
+| one-step nested | `DRTMLE._check_drtmle` refuses it at a non-empty `guard`, before any learner, on a copied estimator as well. The `solve_submodel` guard stays as a backstop |
+| types | every composition refusal in `src/cleverly/estimators/` that runs before any learner raises `CapabilityError`. The backstops in `build_submodel`, `_check_companion` and `_solve_missing_outcome_reduction`, which no fit reaches, keep their types. The incremental-intermediate refusal cites [F6](#f6-mnar-and-incremental-intermediate-compositions) |
+| replay slot | `_refit_configuration_refusal` reads each `ValueError` of the chain as a refusal. Any other exception propagates |
 
-The refit replay slot runs the chain that `refit()` runs before any learner.
-`TMLE._refit_configuration_refusal` catches `ValueError` and `NotImplementedError`, and reads each
-one as a refusal. `DRTMLE._check_drtmle` raises `NotImplementedError` in that chain.
-`CTMLE._check_estimands` and `TMLE._check_incremental` raise a plain `ValueError` there. The
-chain also raises a `ValueError` for a malformed setting that a copied estimator can carry, such as
-`q_bounds` on a binary outcome or a `g_bounds` pair. `test_replay_reads_scaler_and_config_guards_before_any_learner`
-requires the slot to read those two as refusals. The RM23 action "narrow the catch of the slot to
-`CapabilityError` and `DataError`" would break that test.
-
-The row text before this probe was stale in three places. It gave line numbers that have moved.
-It said that the incremental-intermediate request fits the shared nuisances first, and it now fits
-none. It said that the DR-TMLE request used "the same law", and the default estimand list meets
-the `att` refusal first.
-
-[F6](#f6-mnar-and-incremental-intermediate-compositions) said that the
-incremental-intermediate refusal runs after the shared nuisance fit.
-[X8](#x8-stratified-incremental-and-msm-targeting) said that the refusal taxonomy records each
-stratified row as not written yet, and the taxonomy records none of them. Both items now give the
-probe result.
-
-Apply these corrections:
-
-1. Raise each refusal as `CapabilityError` before any learner call. Decide it from the estimator
-   configuration and the data declaration alone, before a preflight that reads the sample. This
-   covers the strata guard for the `'ipsi'` group, for a non-identity-link or continuous-dose MSM,
-   and for a `DRTMLE` fit at a non-empty `guard`. It also covers `targeting="one_step"` with
-   `reduced_crossfit="nested"` at a non-empty `guard`, in `DRTMLE._check_drtmle`, so that a copied
-   estimator meets it too.
-2. Keep each message. Add the X8 pointer to the strata messages and the F6 pointer to the
-   incremental-intermediate message. The `DRTMLE` strata message names `guard=()`, which is the
-   ordinary TMLE, and not an arm, regime or shift target, which `DRTMLE` refuses.
-3. Raise every other composition refusal in `src/cleverly/estimators/` as `CapabilityError`, with
-   its message kept. These refusals already run before any learner. They include the `CTMLE`
-   refusals of `att`, `incremental=`, `intermediate=`, a continuous dose and `cv_evaluation=True`,
-   and each `NotImplementedError` of `DRTMLE`. A check of a malformed or inapplicable value keeps
-   `ValueError`.
-4. Narrow the catch of the replay slot to `ValueError`. `CapabilityError` and `DataError` are
-   `ValueError`. Any other exception, `NotImplementedError` included, is a defect and propagates.
-5. Refuse at `CausalStudy.identify` an incremental estimand, a non-identity-link `MSMProjection`
-   and a continuous-dose `MSMProjection` on a design with `strata=`, with the same message. The
-   `DRTMLE` case depends on the method, so `estimate` refuses it before any learner.
-
-Keep each targeting-loop guard as a backstop, with the same message and type, because
-`retarget()` runs no preflight.
-
-The witnesses must fail when a component is wrong:
-
-- for each request, a spy-learner test asserts that no learner call ran, and pins the message;
-- a mutation that removes the estimator check lets a learner fit, and a mutation that removes the
-  identification check moves the study refusal to `estimate`;
-- the refit replay slot reads the stratified `DRTMLE` refusal on a copied estimator;
-- a control shows that stratified arm, regime and shift targets, an identity-link MSM, and a
-  `DRTMLE` fit at `guard=()` still fit.
+`tests/unit/test_refusals_before_the_nuisance_fit.py` holds the witnesses and five mutation
+controls.
 
 ### RM25. Declared stochastic regime densities
 
@@ -2062,8 +1973,8 @@ simultaneous inference if it is claimed.
 An MNAR tilt for continuous-dose shifts and intermediate variables with incremental interventions
 wait for identification and influence-function results covering those exact compositions.
 
-The incremental-intermediate refusal raises `ValueError` before any learner.
-[RM24](#rm24-refusals-after-the-nuisance-fit) makes it a `CapabilityError`. The tilt on a
+The incremental-intermediate refusal raises `CapabilityError` before any learner
+([RM24](#rm24-refusals-after-the-nuisance-fit)). The tilt on a
 shift fit read available in its capability row and then declined.
 [RM23](#rm23-capability-rows-that-read-available-and-then-refuse) corrected that row. Both tilt
 rows of a shift fit now read `unavailable` with the sentence that the call raises.
@@ -2123,22 +2034,18 @@ different feature.
 
 Ordinary TMLE refuses stratified incremental targets and stratified nonlinear or continuous MSMs.
 DR-TMLE refuses a baseline stratum at a non-empty `guard`, because its reduced regressions add a
-second targeting equation for the `mean` group. The continuous-MSM refusal raises
-`NotImplementedError` before any learner. The other refusals raise it in the targeting loop, after
-the nuisance fit. A post-fit surface cannot repair these upstream estimator limits.
+second targeting equation for the `mean` group. Each refusal raises `CapabilityError` before any
+learner, and `CausalStudy.identify` refuses the incremental and MSM compositions
+([RM24](#rm24-refusals-after-the-nuisance-fit)). A post-fit surface cannot repair these upstream
+estimator limits.
 
 This item is unwritten work rather than a hard stop. Each parameter is well posed, and the package
-already fluctuates baseline strata for arm, regime, and shift targets. The
-[not written yet](technical-reference/scope-and-refusals.md#not-written-yet) list of the refusal
-taxonomy has no row for these refusals. [RM24](#rm24-refusals-after-the-nuisance-fit) adds one.
+already fluctuates baseline strata for arm, regime, and shift targets. The refusal taxonomy
+records these refusals as [not written yet](technical-reference/scope-and-refusals.md#not-written-yet).
 
 Match the stratum-indexed targeting construction to a published derivation before implementation.
 Continuous MSMs also need dose-indexed strata semantics. Add the targeting equations and their
 validation evidence next. Complete simulated-confounding replay receives its own audit last.
-
-The ordinary TMLE and DR-TMLE refusals run after 2 and 8 learner fits on the probes that
-[RM24](#rm24-refusals-after-the-nuisance-fit) records. RM24 moves them before any learner call.
-This item holds the targeting construction.
 
 ### X9. Omitted-variable bounds on the other linear functionals
 

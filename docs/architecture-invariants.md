@@ -410,9 +410,9 @@ A replay slot reads the checks that its call runs before any learner. The slot `
 reads `TMLE._refit_configuration_refusal`. That method runs `_configured_for_refit` and then
 `_preflight_fit_configuration`, which includes `_resolve_estimands_for_data` with every subclass
 override and the remaining configuration guards. The chain fits nothing, so the method reads
-each `ValueError` and `NotImplementedError` of the chain as a refusal. A subclass design check
-can raise a plain `ValueError`, as `CTMLE` does for `att`.
-[RM24](roadmap.md#rm24-refusals-after-the-nuisance-fit) records that type.
+each `ValueError` of the chain as a refusal. `CapabilityError` and `DataError` are `ValueError`,
+and so is a malformed setting that a copied estimator can carry. Any other exception is a defect
+and propagates.
 
 A result whose estimator holds a configuration that `refit()` refuses keeps
 `retarget_cached_nuisances` and loses `refit_nuisances`, with the code

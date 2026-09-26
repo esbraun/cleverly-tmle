@@ -135,6 +135,7 @@ import numpy as np
 
 from .._inference_status import InferenceStatus, precedent_status
 from ..data.causal_data import CausalData
+from ..exceptions import CapabilityError
 from ..learners.crossfit import Folds
 from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearnerDiagnostics
@@ -153,8 +154,13 @@ from .reduced import (
     fit_reduced,
     refuse_unsupported,
 )
-from .targeting import DEFAULT_MAX_OUTER, ReductionOrder, ReductionSpec
-from .tmle import TMLE
+from .targeting import (
+    DEFAULT_MAX_OUTER,
+    ONE_STEP_NESTED_REFUSAL,
+    ReductionOrder,
+    ReductionSpec,
+)
+from .tmle import TMLE, refuse_stratified_targeting
 
 __all__ = ["DRTMLE", "ReducedFit"]
 
@@ -393,6 +399,13 @@ class DRTMLE(TMLE):
     * ``targeting_scheme="fold"`` -- each fold would need its own reduced regressions and
       alternation; and ``cv_evaluation=True`` -- the common-update construction would need
       the corrected parameter and curve derived under fold-wise evaluation;
+    * baseline strata (``strata=``) at a non-empty ``guard``.  The reduced regressions add a
+      second targeting equation for the ``mean`` group, and the package fluctuates baseline
+      strata in one pooled outcome step only (X8 in ``docs/roadmap.md``).  ``guard=()`` is
+      the ordinary TMLE and accepts ``strata=``;
+    * ``targeting="one_step"`` with ``reduced_crossfit="nested"`` at a non-empty ``guard``,
+      on cost rather than on derivation: the nested designs would move by each of the
+      one-step walk's adaptive steps;
     * combining with :class:`~cleverly.CTMLE`.  A reduced regression conditions on
       :math:`\\hat g` *as a covariate*, and C-TMLE's :math:`\\hat g` is deliberately not an
       estimate of :math:`g_0`; and C-TMLE scores its path by the loss of the targeted
@@ -596,7 +609,7 @@ class DRTMLE(TMLE):
             # Each refused because the companion would come back describing a fit nobody
             # ran, and none of the three would raise on its own.
             if self.repeats > 1:
-                raise ValueError(
+                raise CapabilityError(
                     "evaluation= and repeats= are not combined. Each draw of the split "
                     "targets its own alternation, so there would be one companion per draw "
                     "and no single state for P_0 D-hat to be the mean of -- and "
@@ -604,7 +617,7 @@ class DRTMLE(TMLE):
                     "separately, or drop repeats=."
                 )
             if self.targeting == "one_step":
-                raise NotImplementedError(
+                raise CapabilityError(
                     "evaluation= and targeting='one_step' are not combined, on cost rather "
                     "than on derivation -- the same refusal reduced_crossfit='nested' takes. "
                     "The companion is moved by the same steps the fitted arrays take, and "
@@ -612,7 +625,7 @@ class DRTMLE(TMLE):
                     "Use targeting='iterative', which is the default."
                 )
             if self.target_weights:
-                raise NotImplementedError(
+                raise CapabilityError(
                     "evaluation= and target_weights=True are not combined. The weighted form "
                     "of the submodel divides the covariate by the *fitting* sample's weights, "
                     "and a companion row has none of them -- so the companion would travel "
@@ -620,7 +633,7 @@ class DRTMLE(TMLE):
                     "that fit's."
                 )
         if self.targeting_scheme == "fold" or self.cv_evaluation:
-            raise NotImplementedError(
+            raise CapabilityError(
                 "DRTMLE supports the canonical cvFolds mapping only: cross-fitted primary "
                 "and reduced regressions followed by one pooled alternation and report. "
                 "targeting_scheme='fold' would "
@@ -631,7 +644,7 @@ class DRTMLE(TMLE):
             )
         for keyword in ("interventions", "shifts", "incremental", "msm"):
             if getattr(self, keyword, None):
-                raise NotImplementedError(
+                raise CapabilityError(
                     f"DRTMLE and {keyword}= are not combined. The reduced-dimension "
                     "regressions are derived for counterfactual means under static treatment "
                     f"treatment; {keyword}= is a different score equation, and no theorem "
@@ -991,9 +1004,9 @@ class DRTMLE(TMLE):
         return estimands
 
     def _check_drtmle(self, data: CausalData) -> None:
-        """The refusals that need the data, each naming what the derivation would need."""
+        """The refusals that run before any learner of a fit or a refit, each by name."""
         if isinstance(self, CTMLE):
-            raise NotImplementedError(
+            raise CapabilityError(
                 "DRTMLE and CTMLE are not combined, and the reason is a derivation rather "
                 "than plumbing. A reduced-dimension regression conditions on g-hat *as a "
                 "covariate*, and C-TMLE's g-hat is deliberately not an estimate of g_0 -- "
@@ -1002,18 +1015,26 @@ class DRTMLE(TMLE):
                 "targeted Qbar, so the criterion choosing g-hat presupposes that Qbar is "
                 "informative, which is precisely the case this variant insures against."
             )
+        # Asked here rather than in the constructor, so that an estimator whose
+        # ``targeting`` or ``reduced_crossfit`` changes after construction meets it before
+        # any learner.  Nested inner designs exist only at a non-empty ``guard``.
+        if self.guard and self.targeting == "one_step" and self.reduced_crossfit == "nested":
+            raise CapabilityError(ONE_STEP_NESTED_REFUSAL)
         if data.is_continuous_treatment:
             refuse_unsupported("continuous")
         if data.has_intermediate:
-            raise NotImplementedError(
+            raise CapabilityError(
                 "DRTMLE and intermediate= are not combined. Equations (9) and (10) are stated "
                 "without a controlled intermediate; its mechanism factor would sit inside "
                 "the reduced regressions' own definitions, not merely in the clever "
                 "covariate, and no theorem read here says what it is. "
                 "Fit a plain TMLE, which is derived there."
             )
+        # Before the missing-outcome refusals, so that a cross-fitted stratified fit is not
+        # sent to cross_fit=False, which this refusal also meets.
+        refuse_stratified_targeting(data, reduced=bool(self.guard))
         if self.guard and self.reduction == "bivariate" and data.has_missing_outcome:
-            raise NotImplementedError(
+            raise CapabilityError(
                 "reduction='bivariate' is the complete-outcome construction. The "
                 "randomized missing-outcome theorem uses its own five reductions; use "
                 "reduction='univariate' (the setting is replaced by that construction)."
@@ -1027,14 +1048,14 @@ class DRTMLE(TMLE):
         # row-aligned array cannot be reindexed to, silently.
         if self._treatment_probabilities is not None:
             if not data.has_missing_outcome:
-                raise ValueError(
+                raise CapabilityError(
                     "treatment_probabilities= is currently only used with delta=. It "
                     "replaces the treatment learner outright, and nothing read here "
                     "states a complete-data construction that reads a known design "
                     "mechanism differently from a fitted one."
                 )
             if self.n_bootstrap:
-                raise NotImplementedError(
+                raise CapabilityError(
                     "treatment_probabilities= and n_bootstrap= are not combined. The array "
                     "is row-aligned to the data as passed, and a replicate refits on "
                     "resampled rows it cannot be reindexed to from here -- an n-out-of-n "
@@ -1044,20 +1065,20 @@ class DRTMLE(TMLE):
                 )
         if data.has_missing_outcome and self.guard:
             if data.n_arms != 2:
-                raise NotImplementedError(
+                raise CapabilityError(
                     "missing-outcome DRTMLE currently supports a binary randomized treatment; "
                     "the per-arm multi-level assembly has not been certified against the "
                     "published missing-data theorem"
                 )
             if not self.randomized and self._treatment_probabilities is None:
-                raise NotImplementedError(
+                raise CapabilityError(
                     "DRTMLE with delta= is supported only for a randomized trial. Pass "
                     "randomized=True to estimate the treatment mechanism for chance-imbalance "
                     "adjustment, or pass treatment_probabilities= to fit(). Observational "
                     "treatment remains unsupported by the published theorem."
                 )
             if set(self.guard) != {"Q", "g"}:
-                raise NotImplementedError(
+                raise CapabilityError(
                     "missing-outcome DRTMLE requires guard=('Q', 'g'): Díaz & van der "
                     "Laan's algorithm jointly targets the treatment, observation and "
                     "outcome correction blocks, and no partial-guard theorem is claimed"
@@ -1068,31 +1089,31 @@ class DRTMLE(TMLE):
         # guarded checks above keep their order, so a guarded fit meets the same first
         # refusal as before.
         if data.has_missing_outcome and self.cross_fit:
-            raise NotImplementedError(
+            raise CapabilityError(
                 "the published missing-outcome DR-TMLE theorem uses Donsker conditions and "
                 "does not establish its cross-validated extension; pass cross_fit=False "
                 "(CrossFitting(enabled=False) on DRTMLEMethod)"
             )
         if data.has_missing_outcome and self.guard:
             if data.is_weighted:
-                raise NotImplementedError(
+                raise CapabilityError(
                     "missing-outcome DRTMLE is not certified for a weight-tilted target law; "
                     "drop weights= or fit a plain TMLE"
                 )
             if self.repeats != 1:
-                raise NotImplementedError(
+                raise CapabilityError(
                     "repeats= is a cross-fitting construction and is not supported by the "
                     "published missing-outcome theorem"
                 )
             if self.evaluation is not None or self.reduced_crossfit != "pooled":
-                raise NotImplementedError(
+                raise CapabilityError(
                     "missing-outcome DRTMLE supports the published pooled construction only; "
                     "evaluation= and nested reduced cross-fitting are not certified"
                 )
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms)
         outside = [name for name in estimands if name not in MEAN_GROUP_ESTIMANDS]
         if outside:
-            raise NotImplementedError(
+            raise CapabilityError(
                 f"DRTMLE does not support estimand(s) {outside}: the reduced-dimension "
                 "regressions are derived for the counterfactual means, and the ATT and ATC "
                 "clever covariates are a propensity odds conditioning on a random event -- "

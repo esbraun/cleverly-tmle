@@ -675,7 +675,7 @@ class CTMLE(TMLE):
         **kwargs: Any,
     ) -> None:
         if kwargs.get("cv_evaluation", False):
-            raise ValueError(
+            raise CapabilityError(
                 "CTMLE does not support cv_evaluation=True: canonical CV-TMLE selection "
                 "requires a separate fold-specific collaborative derivation."
             )
@@ -730,12 +730,12 @@ class CTMLE(TMLE):
                 f"got {self.ctmle_estimand!r}"
             )
         if self.cv_evaluation:
-            raise ValueError(
+            raise CapabilityError(
                 "CTMLE does not support cv_evaluation=True: canonical CV-TMLE selection "
                 "requires a separate fold-specific collaborative derivation."
             )
         if self.targeting_scheme != "pooled":
-            raise ValueError(
+            raise CapabilityError(
                 "CTMLE implements the published pooled collaborative estimator only; "
                 "targeting_scheme='fold' composes it with a different CV-TMLE estimator "
                 "that has not been derived. Use targeting_scheme='pooled'."
@@ -1171,7 +1171,7 @@ class CTMLE(TMLE):
             # estimand names and an incremental fit reports none of them. It would
             # otherwise refuse the tilt for having the wrong estimand list rather than
             # for the reason the tilt is refused.
-            raise ValueError(
+            raise CapabilityError(
                 "CTMLE and incremental= are not combined. C-TMLE cross-validates the "
                 "*choice* of g against a loss for the targeted Qbar, and under an "
                 "incremental intervention each candidate g defines a different "
@@ -1200,13 +1200,13 @@ class CTMLE(TMLE):
 
     def _check_estimands(self, data: CausalData) -> None:
         if data.is_continuous_treatment:
-            raise ValueError(
+            raise CapabilityError(
                 "CTMLE strategies require a discrete treatment. strategy='oat' fits a "
                 "categorical mechanism on one Qbar prediction per arm, and a continuous "
                 "dose has no finite arm vector."
             )
         if data.has_intermediate:
-            raise ValueError(
+            raise CapabilityError(
                 "CTMLE does not compose either collaborative strategy with an intermediate "
                 "outcome. "
                 "Fit each controlled direct effect with TMLE instead."
@@ -1214,7 +1214,7 @@ class CTMLE(TMLE):
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms)
         conditional = [name for name in estimands if name not in MEAN_GROUP_ESTIMANDS]
         if conditional:
-            raise ValueError(
+            raise CapabilityError(
                 f"CTMLE does not support estimand(s) {conditional}: the ATT and ATC clever "
                 "covariates condition on a random event, so a single collaboratively "
                 "selected treatment model cannot serve them alongside the ATE. Request them "
@@ -1230,7 +1230,7 @@ class CTMLE(TMLE):
         if data.is_binary_treatment:
             supported.update(("ey1", "ey0"))
         if is_selector_strategy(self.strategy) and self.ctmle_estimand not in supported:
-            raise ValueError(
+            raise CapabilityError(
                 f"ctmle_estimand={self.ctmle_estimand!r} has no selector criterion; choose "
                 f"from {sorted(supported)}. ey_obs, par and paf involve the observed law "
                 "and require a separate collaborative derivation."

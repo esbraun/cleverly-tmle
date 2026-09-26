@@ -278,7 +278,9 @@ def test_each_engine_refusal_row_fires_before_any_learner(row: Row, estimands: A
         # estimator refusal (``CTMLE._resolve_estimands_for_data`` calls
         # ``_check_estimands`` before its superclass's contract check), so a conditional
         # estimand meets that refusal first rather than the contract's.
-        with pytest.raises(ValueError, match=r"CTMLE does not support estimand\(s\)") as caught:
+        with pytest.raises(
+            CapabilityError, match=r"CTMLE does not support estimand\(s\)"
+        ) as caught:
             _engine_fit(row, estimands=estimands, stratify="none")
         assert "clever covariates condition on a random event" in str(caught.value)
         assert NeverFit.calls == 0

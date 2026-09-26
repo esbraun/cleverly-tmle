@@ -46,7 +46,8 @@ rather than implying the request was ill-posed.
 | cross-fitted arm-indexed means and contrasts with missing outcomes outside the stacked CV-TMLE contract | [missing-outcome arm-indexed contract](#missing-outcome-arm-indexed-contract) lists every refusal. [Stacked CV-TMLE for arm-indexed targets](point-treatment-tmle.md#stacked-cv-tmle-for-arm-indexed-targets) defines the estimator |
 | a cross-fitted shift, incremental, regime, MSM, or controlled-direct-effect fit with missing outcomes (`delta=`) | [the refusals a caller can meet](cv-tmle.md#the-refusals-a-caller-can-meet). No audit read a source for these fits. The fit raises `CapabilityError` before any learner is fitted. The in-sample fit with `delta=` remains available, except for a continuous-dose MSM, which the next row refuses. [F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants) reopens it |
 | a continuous-dose MSM with missing outcomes (`delta=`, or `PointTreatment(missingness=...)`) or with `intermediate=`, in sample or cross-fitted | [MSM projections](msm-projections.md#variations). The clever covariate that the package builds divides by the treatment density at each grid dose. In that construction, this composition also needs the response or intermediate mechanism at each grid dose, and the package does not write it. `TMLE` raises `CapabilityError` before any learner. `CausalStudy.identify` raises it for `MSMProjection` with a missing outcome. `tests/unit/test_continuous_msm_mechanism_refusals.py` checks both. [X10](../roadmap.md#x10-continuous-dose-msm-with-a-second-mechanism) reopens it |
-| `DRTMLE` with observational missing outcomes, cross-fitted missing outcomes at every `guard` including `guard=()`, missing treatment, `intermediate=`, fold-wise targeting, `treatment_probabilities=` under `n_bootstrap=`, composition with `CTMLE`, or `reduction="bivariate"` composed with `delta=` | [method presets](../user-guide/methods-learners.md#method-presets), and the [DR-TMLE refusals](dr-tmle/supported-estimands.md#refused-by-name) |
+| `DRTMLE` with observational missing outcomes, cross-fitted missing outcomes at every `guard` including `guard=()`, missing treatment, `intermediate=`, fold-wise targeting, `treatment_probabilities=` under `n_bootstrap=`, composition with `CTMLE`, `reduction="bivariate"` composed with `delta=`, or `targeting="one_step"` with `reduced_crossfit="nested"` at a non-empty `guard` | [method presets](../user-guide/methods-learners.md#method-presets), and the [DR-TMLE refusals](dr-tmle/supported-estimands.md#refused-by-name) |
+| baseline strata (`strata=`) with an incremental target, an MSM with a link other than the identity, a continuous-dose MSM, or a `DRTMLE` fit at a non-empty `guard` | [weights, strata, and clusters](point-treatment-tmle.md#weights-strata-and-clusters). The targeting of each has a second equation, or a dose index, and the package fluctuates baseline strata in one pooled outcome step only. `TMLE` and `DRTMLE` raise `CapabilityError` before any learner. `CausalStudy.identify` raises it for `IncrementalMean`, `IncrementalEffect` and those `MSMProjection` requests. `tests/unit/test_refusals_before_the_nuisance_fit.py` checks both. A `DRTMLE` fit at `guard=()` is the ordinary TMLE and fits strata. [X8](../roadmap.md#x8-stratified-incremental-and-msm-targeting) reopens it |
 | the MNAR tilt, `missingness_tilt()` and `tipping_gamma()`, on a shift, incremental, regime, MSM, or ratio-only fit with missing outcomes | [missingness tilt and tipping gamma](validation-methods.md#missingness-tilt-and-tipping-gamma). The tilt re-mixes the arm-indexed means and their linear contrasts. No derivation here covers the tilt of these parameters. Both entry points raise the sentence of `fit_wide_tilt_refusal`. Both capability rows read `unavailable` with that sentence before any call. `TestTheTiltRowsReadTheCallsPredicate` in `tests/unit/test_capability_row_predicates.py` checks each kind |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [incremental interventions](../user-guide/estimands.md#incremental-propensity-score-interventions) |
 | the targeted bootstrap and sample sensitivity-bound estimation for `LTMLE` | [longitudinal diagnostics](../user-guide/longitudinal.md#diagnostics). See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) for the contracts Tan (2025) leaves open |
@@ -193,17 +194,17 @@ defines the estimator, its preflight, and its evidence.
 | inference | pointwise influence-curve Wald intervals and the simultaneous band | `n_bootstrap > 0` |
 | content | at least the minimum in the [preflight table](point-treatment-tmle.md#stacked-cv-tmle-for-arm-indexed-targets) | a sample or a training complement below that minimum. A sample below its minimum is refused with a remedy that does not repartition, because no partition can succeed |
 
-Three checks enforce the contract. Each check runs at a different time and raises a different
-error.
+Three checks enforce the contract. The table gives the error of each check and the time at which it
+runs.
 
 | check | error | when it runs |
 | --- | --- | --- |
 | a composition outside the contract | `CapabilityError` | when the fit starts, before fold generation and before any learner is fitted |
-| `DRTMLE` with `delta=` and `cross_fit=True` | `NotImplementedError` | when the fit starts, before any learner is fitted |
+| `DRTMLE` with `delta=` and `cross_fit=True` | `CapabilityError` | when the fit starts, before any learner is fitted |
 | minimum content | `DataError` | after fold generation, before any learner is fitted |
 
-A `DRTMLE` fit with missing outcomes and `cross_fit=True` raises the `NotImplementedError` in the
-table at every `guard`, including `guard=()`, and under every fold policy.
+A `DRTMLE` fit with missing outcomes and `cross_fit=True` raises the second `CapabilityError` in
+the table at every `guard`, including `guard=()`, and under every fold policy.
 `tests/unit/test_drtmle_missing.py` checks the `guard=()` case with zero learner calls.
 
 The composition check runs its steps in a fixed order. A fit that breaks several rules receives

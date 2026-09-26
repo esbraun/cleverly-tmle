@@ -65,6 +65,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
+from ..exceptions import CapabilityError
 from ..fluctuation.iterative import InitialFit
 from ..learners._fitting import Task, predict_mean
 from ..learners.crossfit import _POST_DRAW_REMEDY
@@ -147,7 +148,7 @@ def refuse_unsupported(kind: str, detail: str = "") -> None:
     Kept here rather than at the caller for reductions whose derivation does not exist.
     """
     if kind == "continuous":
-        raise NotImplementedError(
+        raise CapabilityError(
             "the reduced-dimension regressions read a per-arm mechanism g(a | W), and a "
             "continuous dose has no arms to index by: the mechanism is a conditional "
             "density and the reduction would have to condition on it rather than on a "

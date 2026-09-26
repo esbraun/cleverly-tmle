@@ -31,7 +31,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, FluctuationKind, IntArray, TargetingMethod
 from ..data.causal_data import CausalData
-from ..exceptions import DataError
+from ..exceptions import CapabilityError, DataError
 from ..fluctuation._score import quasi_loglik, relative_score, score_columns, score_scale
 from ..fluctuation.iterative import (
     CarryItem,
@@ -66,6 +66,7 @@ from .reduced import MissingOutcomeReducedSet, ReducedFamily, ReducedSet
 
 __all__ = [
     "DEFAULT_MAX_OUTER",
+    "ONE_STEP_NESTED_REFUSAL",
     "ObservationMechanismFluctuation",
     "ProjectionFluctuation",
     "ReductionExit",
@@ -82,6 +83,17 @@ __all__ = [
     "solve_with_projection",
     "solve_with_reduction",
 ]
+
+#: The refusal of ``targeting="one_step"`` beside ``reduced_crossfit="nested"``.
+#: ``DRTMLE._check_drtmle`` raises it before any learner, and :func:`solve_submodel`
+#: raises it again as the backstop of a direct ``carry``.
+ONE_STEP_NESTED_REFUSAL = (
+    "targeting='one_step' and reduced_crossfit='nested' are not combined. The "
+    "nested construction moves its fold-free designs by the same steps the "
+    "fitted arrays take, and the one-step walk takes up to 20,000 of them with "
+    "an adaptive length -- so this is a cost decision rather than a derivation. "
+    "Use targeting='iterative', which is the default."
+)
 
 #: A round that leaves the mechanism score above this share of the previous round's has
 #: reached the fixed point of the alternation; further rounds move nothing.
@@ -399,17 +411,12 @@ def solve_submodel(
     least-favorable submodel in up to twenty thousand adaptive steps, so carrying an array
     through it is a different order of cost from carrying one through twenty Newton steps,
     and the one caller that passes ``carry`` is a reference construction rather than a
-    production path.
+    production path.  ``DRTMLE._check_drtmle`` refuses the nested composition before any
+    learner, so for that composition this raise is a backstop.
     """
     if spec.targeting == "one_step":
         if carry:
-            raise NotImplementedError(
-                "targeting='one_step' and reduced_crossfit='nested' are not combined. The "
-                "nested construction moves its fold-free designs by the same steps the "
-                "fitted arrays take, and the one-step walk takes up to 20,000 of them with "
-                "an adaptive length -- so this is a cost decision rather than a derivation. "
-                "Use targeting='iterative', which is the default."
-            )
+            raise CapabilityError(ONE_STEP_NESTED_REFUSAL)
         return solve_one_step(
             scaled,
             initial,

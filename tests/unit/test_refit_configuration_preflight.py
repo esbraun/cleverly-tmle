@@ -89,3 +89,24 @@ def test_preflight_keeps_subclass_estimand_override(
     assert not replayability(result).refit_nuisances
     with pytest.raises(ValueError, match="subclass preflight refusal"):
         estimator.refit(result.data)
+
+
+def test_an_implementation_error_in_the_chain_propagates(
+    rr_result: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The chain fits nothing, so only a ``ValueError`` of it is a refusal (RM24).
+
+    A ``NotImplementedError`` is a defect in the chain, so it propagates rather than read
+    as a refusal in the replay slot.
+    """
+
+    class DefectiveTMLE(TMLE):
+        def _resolve_estimands_for_data(self, data: CausalData) -> tuple[str, ...]:
+            raise NotImplementedError("a defect in the chain")
+
+    estimator = copy.copy(rr_result.estimator)
+    estimator.__class__ = DefectiveTMLE
+    monkeypatch.setattr(estimator, "_nuisances", _never_fit)
+
+    with pytest.raises(NotImplementedError, match="a defect in the chain"):
+        estimator._refit_configuration_refusal(rr_result.data)

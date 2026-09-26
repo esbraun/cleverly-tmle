@@ -186,9 +186,7 @@ def test_continuous_msm_strata_refuse_before_nuisance_fitting(
     link: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(TMLE, "_scaler", lambda *_: pytest.fail("fit reached nuisance preparation"))
-    with pytest.raises(
-        NotImplementedError, match="continuous MSMs do not yet support baseline strata"
-    ):
+    with pytest.raises(CapabilityError, match="continuous MSMs do not yet support baseline strata"):
         _fit_continuous(link, strata=True)
 
 

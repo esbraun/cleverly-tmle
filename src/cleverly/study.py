@@ -12,6 +12,7 @@ from ._typing import Family
 from .data import CausalData
 from .data.validate import RANDOMIZED_INTERCEPT
 from .estimators import CTMLE, DRTMLE, TMLE, TMLEResult
+from .estimators.tmle import refuse_stratified_targeting
 from .exceptions import CapabilityError, CleverlyError, DataError, MethodConfigurationError
 from .inference.multiplier import SimultaneousBands, simultaneous_bands
 from .interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet
@@ -2188,6 +2189,13 @@ class ExplicitAdjustmentProvider:
             refuse_continuous_msm_mechanisms(
                 data, subject="MSMProjection", missingness="PointTreatment(missingness=...)"
             )
+        # The estimand and the design decide these, so they refuse here.  A stratified
+        # DR-TMLE fit depends on the method, and the estimator refuses it before any learner.
+        refuse_stratified_targeting(
+            data,
+            incremental=isinstance(actual, (IncrementalMean, IncrementalEffect)),
+            msm=actual.model if isinstance(actual, MSMProjection) else None,
+        )
 
         functional = _point_functional(design, data, estimand)
         return IdentifiedEffect(

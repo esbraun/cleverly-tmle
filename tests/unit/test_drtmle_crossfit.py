@@ -77,6 +77,7 @@ from cleverly.estimators._nuisance import (
     fit_inner_designs,
 )
 from cleverly.estimators.reduced import ReducedSet, fit_reduced
+from cleverly.exceptions import CapabilityError
 from cleverly.inference import cross_validated_variance
 from cleverly.learners import Folds, make_folds
 from tests import discrete_law as law
@@ -888,7 +889,7 @@ class TestTheRefusalsAndTheDefault:
 
     def test_the_one_step_walk_is_refused_by_name(self) -> None:
         """A cost decision rather than a derivation, and it says so."""
-        with pytest.raises(NotImplementedError, match="one_step"):
+        with pytest.raises(CapabilityError, match="one_step"):
             _fit(reduced_crossfit="nested", targeting="one_step")
 
 

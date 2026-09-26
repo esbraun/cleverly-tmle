@@ -433,7 +433,9 @@ def _replay_refusal(estimator: Any, estimand: str, stratum: tuple[Any, ...] | No
     ``att`` and ``atc`` a second time; ``par`` and ``paf`` are *inside* that set, so this
     filter does not stop them, and their result instead carries no identification metadata,
     which :func:`_validate_request` refuses earlier than this function. Stratified
-    reduced-regression targeting is rejected when ``TMLE`` fits. This function is the
+    reduced-regression targeting is rejected before ``DRTMLE`` fits any learner. A
+    ``guard=()`` fit has no reduced regressions and fits strata, and this function still
+    refuses a requested stratum on it. This function is the
     defence in depth of the surface, and it keys on the **requested** stratum rather than
     on whether the data carry strata.
 
