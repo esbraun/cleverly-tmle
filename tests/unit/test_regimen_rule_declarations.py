@@ -73,10 +73,10 @@ from tests.unit._declaration_support import (
     assert_refused_before_any_call,
     assert_replay_rows_available,
     assert_replay_rows_refused,
+    modified,
+    modified_states,
     never_fit_longitudinal_learners,
     panel,
-    restored,
-    restored_states,
     undeclared_copy,
 )
 from tests.unit._natural_course_support import NeverFit
@@ -113,8 +113,8 @@ INLINE = "A callable written inline in regimens= carries no declaration"
 #: ``LongitudinalTreatment`` design, and ``ltmle``.  Each one fits ``panel()``.
 ENTRIES = longitudinal_entries()
 
-#: What a restored regimen can carry, and the refusal each one meets.
-RESTORED = restored_states(UNDECLARED, ESTIMATED)
+#: What a modified regimen can carry, and the refusal each one meets.
+MODIFIED = modified_states(UNDECLARED, ESTIMATED)
 
 
 def panel_rule() -> Counter:
@@ -288,7 +288,7 @@ class TestAPlanIsReadOnce:
         np.testing.assert_array_equal(regimen.assignment(panel_data())[:, 0], 1)
         assert rule.calls == 1
         # The check reads the stored nodes, so a lost declaration still refuses the rule.
-        restored(regimen, "rule_kind", None)
+        modified(regimen, "rule_kind", None)
         assert_refused(lambda: regimen.assignment(panel_data()), CapabilityError, UNDECLARED)
         assert rule.calls == 1
 
@@ -359,20 +359,20 @@ class TestAPlanIsReadOnce:
 # ------------------------------------------------------------------ the fit layer
 
 
-class TestTheFitRefusesARestoredRegimen:
+class TestTheFitRefusesAModifiedRegimen:
     @pytest.mark.parametrize("entry", list(ENTRIES))
-    @pytest.mark.parametrize("name", list(RESTORED))
+    @pytest.mark.parametrize("name", list(MODIFIED))
     def test_every_entry_refuses_before_any_learner_or_rule_call(
         self, entry: str, name: str
     ) -> None:
-        kind, fragments = RESTORED[name]
-        regimen = restored(spy_regimen(), "rule_kind", kind)
+        kind, fragments = MODIFIED[name]
+        regimen = modified(spy_regimen(), "rule_kind", kind)
         assert_refused_before_any_call(
             lambda: ENTRIES[entry](with_reference(regimen)), rule_of(regimen), "rule", *fragments
         )
 
     def test_an_unknown_declaration_is_refused_before_any_call(self) -> None:
-        regimen = restored(spy_regimen(), "rule_kind", "Known")
+        regimen = modified(spy_regimen(), "rule_kind", "Known")
         assert_refused_before_any_call(
             lambda: ENTRIES["fit"](with_reference(regimen)),
             rule_of(regimen),
@@ -459,7 +459,7 @@ class TestTheDeclarationRefusalComesFirst:
         Only the declaration's ``CapabilityError`` carries the undeclared text.
         """
         fit, _, _, _ = LATER_REFUSALS[refusal]
-        regimen = restored(spy_regimen(), "rule_kind", None)
+        regimen = modified(spy_regimen(), "rule_kind", None)
         assert_refused_before_any_call(
             lambda: fit(with_reference(regimen)),
             rule_of(regimen),
@@ -478,13 +478,13 @@ EVALUATORS: dict[str, Callable[[DynamicRegimen], Any]] = {
 
 
 class TestTheEvaluatorsCheckFirst:
-    """A restored regimen handed straight to an evaluator refuses before its rule runs."""
+    """A modified regimen handed straight to an evaluator refuses before its rule runs."""
 
     @pytest.mark.parametrize("evaluator", list(EVALUATORS))
-    @pytest.mark.parametrize("name", list(RESTORED))
-    def test_a_restored_regimen_refuses_before_it_runs(self, evaluator: str, name: str) -> None:
-        kind, fragments = RESTORED[name]
-        regimen = restored(spy_regimen(), "rule_kind", kind)
+    @pytest.mark.parametrize("name", list(MODIFIED))
+    def test_a_modified_regimen_refuses_before_it_runs(self, evaluator: str, name: str) -> None:
+        kind, fragments = MODIFIED[name]
+        regimen = modified(spy_regimen(), "rule_kind", kind)
         assert_refused(lambda: EVALUATORS[evaluator](regimen), CapabilityError, *fragments)
         assert rule_of(regimen).calls == 0, "the rule was evaluated before the refusal"
 
@@ -501,7 +501,7 @@ class TestTheEvaluatorsCheckFirst:
 
 def undeclared_regimen(regimen: DynamicRegimen) -> DynamicRegimen:
     """``regimen`` with its declaration removed after construction."""
-    return restored(regimen, "rule_kind", None)
+    return modified(regimen, "rule_kind", None)
 
 
 class TestARegimenThatLosesItsDeclaration:
@@ -584,7 +584,7 @@ class TestAnUndeclaredLongitudinalResultRefusesARecomputation:
 
     def test_a_modified_declaration_refuses(self, regimen_result: Any) -> None:
         copy = loads(dumps(regimen_result))
-        restored(copy.config.regimens[0], "rule_kind", "estimated")
+        modified(copy.config.regimens[0], "rule_kind", "estimated")
         assert_refused(
             lambda: longitudinal_truncation_curve(copy, BOUNDS), CapabilityError, ESTIMATED
         )
@@ -696,7 +696,7 @@ class TestASampleThresholdNodeMisstatesTheVariance:
         assert_refused(
             lambda: threshold_regimen(learned, rule_kind="estimated"), CapabilityError, ESTIMATED
         )
-        regimen = restored(
+        regimen = modified(
             threshold_regimen(Counter(learned), rule_kind="known"), "rule_kind", "estimated"
         )
         estimator = LTMLE([regimen], n_folds=1, **never_fit_longitudinal_learners())
@@ -747,10 +747,10 @@ def evaluator_witnesses() -> list[Callable[[], None]]:
     return [
         *(
             lambda evaluator=evaluator, name=name: (
-                suite.test_a_restored_regimen_refuses_before_it_runs(evaluator, name)
+                suite.test_a_modified_regimen_refuses_before_it_runs(evaluator, name)
             )
             for evaluator in EVALUATORS
-            for name in RESTORED
+            for name in MODIFIED
         ),
         *(
             lambda shape=shape: inline.test_resolve_regimens_refuses_an_inline_rule(shape)
@@ -780,9 +780,9 @@ def drop_the_resolve_carry(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def fit_witness(entry: str, name: str) -> None:
-    """One fit witness: a restored regimen, or an inline rule, through one entry."""
-    suite = TestTheFitRefusesARestoredRegimen()
-    if name in RESTORED:
+    """One fit witness: a modified regimen, or an inline rule, through one entry."""
+    suite = TestTheFitRefusesAModifiedRegimen()
+    if name in MODIFIED:
         suite.test_every_entry_refuses_before_any_learner_or_rule_call(entry, name)
     else:
         TestInlineCallablesAreRefused().test_every_entry_refuses_before_any_learner_or_rule_call(
@@ -806,7 +806,7 @@ class TestTheWitnessesHaveTeeth:
         """Mutation R4: ``_prepare`` refuses the missing column before the regimens resolve.
 
         The unknown reference and the clustered cross-fit are refused after
-        ``resolve_regimens``, which rebuilds the restored regimen and refuses it, so R4
+        ``resolve_regimens``, which rebuilds the modified regimen and refuses it, so R4
         alone leaves those two witnesses passing.
         """
         remove_the_fit_check(monkeypatch)
@@ -843,7 +843,7 @@ class TestTheWitnessesHaveTeeth:
         )
 
     @pytest.mark.parametrize("entry", list(ENTRIES))
-    @pytest.mark.parametrize("name", [*RESTORED, INLINE_SHAPES[0]])
+    @pytest.mark.parametrize("name", [*MODIFIED, INLINE_SHAPES[0]])
     def test_removing_both_checks_fails_the_fit_witnesses(
         self, entry: str, name: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -860,7 +860,7 @@ class TestTheWitnessesHaveTeeth:
     ) -> None:
         """Mutation R4 alone: ``resolve_regimens`` rebuilds the regimen, which refuses."""
         remove_the_fit_check(monkeypatch)
-        for name in [*RESTORED, INLINE_SHAPES[0]]:
+        for name in [*MODIFIED, INLINE_SHAPES[0]]:
             fit_witness(entry, name)
 
     def test_dropping_the_resolve_carry_fails_the_declared_mapping_witness(

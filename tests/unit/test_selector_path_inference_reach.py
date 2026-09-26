@@ -232,7 +232,7 @@ class TestTippingGammaSearchesThePointEstimateOnly:
 class TestARestoredSelectorFitStillRefuses:
     """``inference`` is a field with a class-level default, so its survival is pinned.
 
-    A restored result that lost the field would read ``"influence_curve"``, publish a
+    A round trip that lost the field would read ``"influence_curve"``, publish a
     confidence interval for the selected working mechanism, and look exactly like a fit
     the package supports.
     """

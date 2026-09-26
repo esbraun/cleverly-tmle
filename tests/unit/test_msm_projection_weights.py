@@ -12,7 +12,7 @@ the weight is a declaration: ``MSM(weights_kind=...)``.  RM13 in ``docs/roadmap.
 the defect.  This module pins seven things:
 
 * the declaration is required, and ``"estimated"`` is refused, with their messages;
-* the fit refuses a restored or modified model before any learner or weight call;
+* the fit refuses a modified model before any learner or weight call;
 * ``MSMSet.evaluate`` and ``evaluate_regimen_msm``, called directly, refuse such a model
   before the weight runs;
 * a uniform-weight fit replays;
@@ -60,10 +60,10 @@ from tests.unit._declaration_support import (
     assert_refused_before_any_call,
     assert_replay_agrees,
     cell_p,
+    modified,
+    modified_states,
     oracle_fit,
     recomputations,
-    restored,
-    restored_states,
     se_ratio,
     tmle_module,
 )
@@ -248,30 +248,30 @@ def regimen_model() -> MSM:
 
 
 def assert_tmle_refuses(kind: Any, *fragments: str) -> None:
-    model = restored(point_model(), "weights_kind", kind)
+    model = modified(point_model(), "weights_kind", kind)
     assert_refused_before_any_call(
         lambda: tmle_fit(model, never_fit_learners()), model.weights, "weight", *fragments
     )
 
 
 def assert_ltmle_refuses(kind: Any, *fragments: str) -> None:
-    model = restored(regimen_model(), "weights_kind", kind)
+    model = modified(regimen_model(), "weights_kind", kind)
     assert_refused_before_any_call(lambda: ltmle_fit(model), model.weights, "weight", *fragments)
 
 
-#: What a restored model can carry, and the refusal each one meets.
-RESTORED = restored_states(UNDECLARED, ESTIMATED)
+#: What a modified model can carry, and the refusal each one meets.
+MODIFIED = modified_states(UNDECLARED, ESTIMATED)
 
 
-class TestTheFitRefusesARestoredUndeclaredModel:
-    @pytest.mark.parametrize("name", list(RESTORED))
+class TestTheFitRefusesAModifiedUndeclaredModel:
+    @pytest.mark.parametrize("name", list(MODIFIED))
     def test_tmle_refuses_before_any_learner_or_weight_call(self, name: str) -> None:
-        kind, fragments = RESTORED[name]
+        kind, fragments = MODIFIED[name]
         assert_tmle_refuses(kind, *fragments)
 
-    @pytest.mark.parametrize("name", list(RESTORED))
+    @pytest.mark.parametrize("name", list(MODIFIED))
     def test_ltmle_refuses_before_any_learner_or_weight_call(self, name: str) -> None:
-        kind, fragments = RESTORED[name]
+        kind, fragments = MODIFIED[name]
         assert_ltmle_refuses(kind, *fragments)
 
     def test_a_known_declaration_reaches_the_first_learner(self) -> None:
@@ -295,16 +295,16 @@ EVALUATORS: dict[str, tuple[Callable[[], MSM], Callable[[MSM], Any]]] = {
 
 
 class TestTheEvaluatorsCheckFirst:
-    """A restored model handed straight to an evaluator refuses before its weight runs."""
+    """A modified model handed straight to an evaluator refuses before its weight runs."""
 
     @pytest.mark.parametrize("evaluator", list(EVALUATORS))
-    @pytest.mark.parametrize("name", list(RESTORED))
-    def test_a_restored_model_refuses_before_the_weight_runs(
+    @pytest.mark.parametrize("name", list(MODIFIED))
+    def test_a_modified_model_refuses_before_the_weight_runs(
         self, evaluator: str, name: str
     ) -> None:
-        kind, fragments = RESTORED[name]
+        kind, fragments = MODIFIED[name]
         build, evaluate = EVALUATORS[evaluator]
-        model = restored(build(), "weights_kind", kind)
+        model = modified(build(), "weights_kind", kind)
         assert_refused(lambda: evaluate(model), CapabilityError, *fragments)
         assert model.weights.calls == 0, "the weight was evaluated before the refusal"
 
@@ -425,11 +425,11 @@ class TestTheWitnessesHaveTeeth:
         monkeypatch.setattr(msm_module, "refuse_msm_functions", lambda model: None)
         assert_every_witness_fails(declaration_witnesses())
 
-    @pytest.mark.parametrize("name", list(RESTORED))
+    @pytest.mark.parametrize("name", list(MODIFIED))
     def test_removing_the_fit_layer_check_fails_the_fit_witnesses(
         self, name: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        kind, fragments = RESTORED[name]
+        kind, fragments = MODIFIED[name]
         remove_every_fit_check(monkeypatch)
         with pytest.raises(AssertionError):
             assert_tmle_refuses(kind, *fragments)

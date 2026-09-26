@@ -85,13 +85,13 @@ def assert_every_witness_fails(witnesses: Iterable[Callable[[], None]]) -> None:
             witness()
 
 
-def restored(item: Any, field: str, kind: Any) -> Any:
+def modified(item: Any, field: str, kind: Any) -> Any:
     """``item`` with its declaration changed after construction, as a caller can leave it."""
     object.__setattr__(item, field, kind)
     return item
 
 
-def restored_states(undeclared: str, estimated: str) -> dict[str, tuple[Any, tuple[str, ...]]]:
+def modified_states(undeclared: str, estimated: str) -> dict[str, tuple[Any, tuple[str, ...]]]:
     """What a modified object can carry, and the fragments of the refusal each one meets."""
     return {"undeclared": (None, (undeclared,)), "estimated": ("estimated", (estimated, PATHWISE))}
 

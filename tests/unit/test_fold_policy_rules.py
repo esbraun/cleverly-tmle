@@ -192,11 +192,11 @@ class TestAPolicyThisVersionRefusesNeverReachesALearner:
         with pytest.raises(ValueError, match="Set n_folds to at least 2"):
             TMLE(cross_fit=True, n_folds=1)
 
-    def test_a_restored_estimator_is_refused_before_its_first_learner(self) -> None:
-        """R9. An estimator that skipped ``__init__`` is caught at the fit instead.
+    def test_a_modified_estimator_is_refused_before_its_first_learner(self) -> None:
+        """R9. An estimator modified after ``__init__`` is caught at the fit instead.
 
-        ``refit`` copies an estimator and a pickle restores one without running the
-        constructor, so a saved fit can arrive carrying a policy this version refuses.
+        ``refit`` copies an estimator without running the constructor, and a caller can
+        reassign an attribute, so a fit can arrive carrying a policy this version refuses.
         The counter is what says the refusal precedes the nuisances rather than following
         them.
         """
@@ -1286,8 +1286,8 @@ def test_no_fit_reaches_the_strata_decision_under_a_balancing_policy(
 
     This is what lets the two ``"treatment+outcome"`` refusals that stood inside that
     method be deleted rather than kept for a caller who cannot reach them. The policy is
-    smuggled onto a constructed estimator as well as declared, because a restored result
-    and a copied estimator arrive that way. An in-sample fit accepts the declaration and
+    smuggled onto a constructed estimator as well as declared, because a copied or
+    modified estimator arrives that way. An in-sample fit accepts the declaration and
     reaches no split: the fit trains on every row.
     """
     seen: list[str] = []

@@ -74,11 +74,11 @@ from tests.unit._declaration_support import (
     assert_refused,
     assert_refused_before_any_call,
     assert_replay_agrees,
+    modified,
+    modified_states,
     oracle_fit,
     point_entries,
     recomputations,
-    restored,
-    restored_states,
     se_ratio,
     tmle_module,
     undeclared_copy,
@@ -211,14 +211,14 @@ def spy_coin() -> Stochastic:
     return coin(Counter(FixedDensity()), density_kind="known")
 
 
-#: Every fit entry that can reach a restored regime: ``TMLE.fit``, ``CausalStudy.estimate``,
+#: Every fit entry that can reach a modified regime: ``TMLE.fit``, ``CausalStudy.estimate``,
 #: and ``TMLE.refit``.
 ENTRIES = point_entries(
     lambda regime: {"interventions": (regime,)}, lambda regime: RegimeMean((regime,))
 )
 
-#: What a restored regime can carry, and the refusal each one meets.
-RESTORED = restored_states(UNDECLARED, ESTIMATED)
+#: What a modified regime can carry, and the refusal each one meets.
+MODIFIED = modified_states(UNDECLARED, ESTIMATED)
 
 
 def assert_entry_refuses(entry: str, regime: Any, *fragments: str) -> None:
@@ -230,14 +230,14 @@ def assert_entry_refuses(entry: str, regime: Any, *fragments: str) -> None:
     )
 
 
-class TestTheFitRefusesARestoredRegime:
+class TestTheFitRefusesAModifiedRegime:
     @pytest.mark.parametrize("entry", list(ENTRIES))
-    @pytest.mark.parametrize("name", list(RESTORED))
+    @pytest.mark.parametrize("name", list(MODIFIED))
     def test_every_entry_refuses_before_any_learner_or_density_call(
         self, entry: str, name: str
     ) -> None:
-        kind, fragments = RESTORED[name]
-        assert_entry_refuses(entry, restored(spy_coin(), "density_kind", kind), *fragments)
+        kind, fragments = MODIFIED[name]
+        assert_entry_refuses(entry, modified(spy_coin(), "density_kind", kind), *fragments)
 
     def test_a_subclass_that_skips_the_declaration_refuses_at_the_fit(self) -> None:
         """The fit selects regimes with ``isinstance``, so a subclass cannot opt out."""
@@ -268,22 +268,22 @@ EVALUATORS: dict[str, Callable[[Stochastic], Any]] = {
 
 
 class TestTheEvaluatorsCheckFirst:
-    """A restored regime handed straight to an evaluator refuses before its density runs."""
+    """A modified regime handed straight to an evaluator refuses before its density runs."""
 
     @pytest.mark.parametrize("evaluator", list(EVALUATORS))
-    @pytest.mark.parametrize("name", list(RESTORED))
-    def test_a_restored_regime_refuses_before_its_density_runs(
+    @pytest.mark.parametrize("name", list(MODIFIED))
+    def test_a_modified_regime_refuses_before_its_density_runs(
         self, evaluator: str, name: str
     ) -> None:
-        kind, fragments = RESTORED[name]
-        regime = restored(spy_coin(), "density_kind", kind)
+        kind, fragments = MODIFIED[name]
+        regime = modified(spy_coin(), "density_kind", kind)
         assert_refused(lambda: EVALUATORS[evaluator](regime), CapabilityError, *fragments)
         assert regime.density_fn.calls == 0, "the density was evaluated before the refusal"
 
     def test_the_set_checks_every_regime_before_the_first_density(self) -> None:
-        """A declared regime listed first does not run before a restored one refuses."""
+        """A declared regime listed first does not run before a modified one refuses."""
         first = Stochastic(Counter(FixedDensity()), "first", density_kind="known")
-        regime = restored(spy_coin(), "density_kind", None)
+        regime = modified(spy_coin(), "density_kind", None)
         assert_refused(
             lambda: RegimeSet.evaluate((first, regime), causal_data()), CapabilityError, UNDECLARED
         )
@@ -303,7 +303,7 @@ class TestTheEvaluatorsCheckFirst:
 
 def undeclared_regime(regime: Stochastic) -> Stochastic:
     """``regime`` with its declaration removed after construction."""
-    return restored(regime, "density_kind", None)
+    return modified(regime, "density_kind", None)
 
 
 class TestARegimeThatLosesItsDeclaration:
@@ -459,14 +459,14 @@ class TestTheWitnessesHaveTeeth:
         assert_every_witness_fails(declaration_witnesses())
 
     @pytest.mark.parametrize("entry", list(ENTRIES))
-    @pytest.mark.parametrize("name", list(RESTORED))
+    @pytest.mark.parametrize("name", list(MODIFIED))
     def test_removing_the_fit_layer_check_fails_the_fit_witnesses(
         self, entry: str, name: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        kind, fragments = RESTORED[name]
+        kind, fragments = MODIFIED[name]
         monkeypatch.setattr(tmle_module, "refuse_regime_densities", lambda interventions: None)
         with pytest.raises(AssertionError):
-            assert_entry_refuses(entry, restored(spy_coin(), "density_kind", kind), *fragments)
+            assert_entry_refuses(entry, modified(spy_coin(), "density_kind", kind), *fragments)
         assert NeverFit.calls > 0, "the mutated fit refused before a learner"
 
     def test_every_site_calls_the_one_refusal(self) -> None:

@@ -1571,7 +1571,7 @@ def test_capabilities_never_claims_a_row_that_replayability_forbids(point_result
 
     ``truncation_curve``, ``benchmark`` and ``simulated_confounding`` each read their own
     replay slot in their own facade. ``refute`` read the same slot only when it ran, so a
-    restored result reported ``refute`` available and then raised. This check derives the
+    result without an estimator reported ``refute`` available and then raised. This check derives the
     requirement from the row rather than naming the operations.
     """
     detached = dataclasses.replace(point_result, estimator=None)

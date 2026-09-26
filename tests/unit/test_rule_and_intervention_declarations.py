@@ -86,11 +86,11 @@ from tests.unit._declaration_support import (
     assert_replay_agrees,
     assert_replay_rows_available,
     assert_replay_rows_refused,
+    modified,
+    modified_states,
     oracle_fit,
     point_entries,
     recomputations,
-    restored,
-    restored_states,
     se_ratio,
     tmle_module,
     undeclared_copy,
@@ -236,7 +236,7 @@ class TestTheProtocolCarriesTheDeclaration:
     def test_a_rule_reads_its_field(self) -> None:
         rule = threshold_rule(rule_kind="known")
         assert rule.density_kind == "known"
-        assert restored(rule, "rule_kind", "estimated").density_kind == "estimated"
+        assert modified(rule, "rule_kind", "estimated").density_kind == "estimated"
 
     def test_every_declared_regime_satisfies_the_protocol(self) -> None:
         """The runtime check needs ``density_kind``, so a class without it fails the check."""
@@ -290,7 +290,7 @@ class TestAUserWrittenInterventionIsAdmitted:
         assert [item.level for item in items] == [1, "high", 0.5]  # type: ignore[attr-defined]
 
     def test_an_object_without_a_density_method_is_refused_by_the_check(self) -> None:
-        """A restored estimator can hold anything, so the check reads the method first."""
+        """A modified estimator can hold anything, so the check reads the method first."""
         assert_refused(lambda: refuse_regime_densities((object(),)), DataError, NO_DENSITY)
 
 
@@ -324,9 +324,9 @@ ENTRIES = {
     "tmle": one_call,
 }
 
-#: What a restored object can carry, and the refusal each one meets.
-RESTORED_RULE = restored_states(UNDECLARED_RULE, ESTIMATED_RULE)
-RESTORED_CLASS = restored_states(UNDECLARED_CLASS, ESTIMATED_CLASS)
+#: What a modified object can carry, and the refusal each one meets.
+MODIFIED_RULE = modified_states(UNDECLARED_RULE, ESTIMATED_RULE)
+MODIFIED_CLASS = modified_states(UNDECLARED_CLASS, ESTIMATED_CLASS)
 
 
 def spy_of(item: Any) -> Any:
@@ -346,14 +346,14 @@ def undeclared_classes() -> dict[str, tuple[Any, tuple[str, ...]]]:
         "no attribute": (BareTilt(), (UNDECLARED_CLASS, "density_kind attribute of 'known'")),
         **{
             name: (DataTilt(density_kind=kind), fragments)
-            for name, (kind, fragments) in RESTORED_CLASS.items()
+            for name, (kind, fragments) in MODIFIED_CLASS.items()
         },
     }
 
 
 class TestTheFitRefusesAnUndeclaredIntervention:
     @pytest.mark.parametrize("entry", list(ENTRIES))
-    @pytest.mark.parametrize("name", ["no attribute", *RESTORED_CLASS])
+    @pytest.mark.parametrize("name", ["no attribute", *MODIFIED_CLASS])
     def test_every_entry_refuses_before_any_learner_or_density_call(
         self, entry: str, name: str
     ) -> None:
@@ -361,7 +361,7 @@ class TestTheFitRefusesAnUndeclaredIntervention:
         assert_entry_refuses(entry, item, *fragments)
 
     def test_the_estimated_refusal_names_the_incremental_axis(self) -> None:
-        _, fragments = RESTORED_CLASS["estimated"]
+        _, fragments = MODIFIED_CLASS["estimated"]
         assert_entry_refuses(
             "fit", DataTilt(density_kind="estimated"), *fragments, "TMLE(incremental=...)"
         )
@@ -418,14 +418,14 @@ class TestTheFitRefusesAStaticSubclass:
         assert CountedStatic.calls == 0, "a density ran before the first learner"
 
 
-class TestTheFitRefusesARestoredRule:
+class TestTheFitRefusesAModifiedRule:
     @pytest.mark.parametrize("entry", list(ENTRIES))
-    @pytest.mark.parametrize("name", list(RESTORED_RULE))
+    @pytest.mark.parametrize("name", list(MODIFIED_RULE))
     def test_every_entry_refuses_before_any_learner_or_rule_call(
         self, entry: str, name: str
     ) -> None:
-        kind, fragments = RESTORED_RULE[name]
-        assert_entry_refuses(entry, restored(spy_rule(), "rule_kind", kind), *fragments)
+        kind, fragments = MODIFIED_RULE[name]
+        assert_entry_refuses(entry, modified(spy_rule(), "rule_kind", kind), *fragments)
 
     def test_a_malformed_rule_is_refused_before_any_call(self) -> None:
         """A rule that is not callable, and an unknown declaration, are data errors."""
@@ -435,7 +435,7 @@ class TestTheFitRefusesARestoredRule:
         ]:
             rule = spy_rule()
             spy = rule.rule
-            restored(rule, field, value)
+            modified(rule, field, value)
             assert_refused_before_any_call(
                 lambda rule=rule: ENTRIES["fit"](rule, never_fit_learners()),
                 spy,
@@ -502,9 +502,9 @@ LATER_REFUSALS: dict[str, tuple[Callable[[Any], Any], type[Exception], str]] = {
     ),
 }
 
-#: Each declared object, and the same object restored undeclared with its refusal.
-DECLARED_AND_RESTORED: dict[str, tuple[Callable[[], Any], Callable[[], Any], str]] = {
-    "rule": (spy_rule, lambda: restored(spy_rule(), "rule_kind", None), UNDECLARED_RULE),
+#: Each declared object, and the same object modified to be undeclared with its refusal.
+DECLARED_AND_MODIFIED: dict[str, tuple[Callable[[], Any], Callable[[], Any], str]] = {
+    "rule": (spy_rule, lambda: modified(spy_rule(), "rule_kind", None), UNDECLARED_RULE),
     "class": (lambda: DataTilt(density_kind="known"), DataTilt, UNDECLARED_CLASS),
 }
 
@@ -519,22 +519,22 @@ class TestTheDeclarationRefusalComesFirst:
     """
 
     @pytest.mark.parametrize("refusal", list(LATER_REFUSALS))
-    @pytest.mark.parametrize("kind", list(DECLARED_AND_RESTORED))
+    @pytest.mark.parametrize("kind", list(DECLARED_AND_MODIFIED))
     def test_a_declared_object_meets_the_later_refusal(self, refusal: str, kind: str) -> None:
         """The control: each configuration is refused when the declaration is intact."""
         fit, error, fragment = LATER_REFUSALS[refusal]
-        item = DECLARED_AND_RESTORED[kind][0]()
+        item = DECLARED_AND_MODIFIED[kind][0]()
         assert_refused_before_any_call(
             lambda: fit(item), spy_of(item), "regime", fragment, error=error
         )
 
     @pytest.mark.parametrize("refusal", list(LATER_REFUSALS))
-    @pytest.mark.parametrize("kind", list(DECLARED_AND_RESTORED))
+    @pytest.mark.parametrize("kind", list(DECLARED_AND_MODIFIED))
     def test_an_undeclared_object_meets_the_declaration_refusal(
         self, refusal: str, kind: str
     ) -> None:
         fit, _, _ = LATER_REFUSALS[refusal]
-        _, build, undeclared = DECLARED_AND_RESTORED[kind]
+        _, build, undeclared = DECLARED_AND_MODIFIED[kind]
         item = build()
         assert_refused_before_any_call(lambda: fit(item), spy_of(item), "regime", undeclared)
 
@@ -550,14 +550,14 @@ class TestTheEvaluatorsCheckFirst:
     """An undeclared object handed straight to an evaluator refuses before its function runs."""
 
     @pytest.mark.parametrize("evaluator", list(EVALUATORS))
-    @pytest.mark.parametrize("name", list(RESTORED_RULE))
-    def test_a_restored_rule_refuses_before_it_runs(self, evaluator: str, name: str) -> None:
-        kind, fragments = RESTORED_RULE[name]
-        rule = restored(spy_rule(), "rule_kind", kind)
+    @pytest.mark.parametrize("name", list(MODIFIED_RULE))
+    def test_a_modified_rule_refuses_before_it_runs(self, evaluator: str, name: str) -> None:
+        kind, fragments = MODIFIED_RULE[name]
+        rule = modified(spy_rule(), "rule_kind", kind)
         assert_refused(lambda: EVALUATORS[evaluator](rule), CapabilityError, *fragments)
         assert rule.rule.calls == 0, "the rule was evaluated before the refusal"
 
-    @pytest.mark.parametrize("name", ["no attribute", *RESTORED_CLASS])
+    @pytest.mark.parametrize("name", ["no attribute", *MODIFIED_CLASS])
     def test_an_undeclared_class_refuses_before_its_density_runs(self, name: str) -> None:
         item, fragments = undeclared_classes()[name]
         evaluate = EVALUATORS["RegimeSet.evaluate"]
@@ -594,7 +594,7 @@ class TestTheEvaluatorsCheckFirst:
 
 def undeclared_rule(rule: Rule) -> Rule:
     """``rule`` with its declaration removed after construction."""
-    return restored(rule, "rule_kind", None)
+    return modified(rule, "rule_kind", None)
 
 
 class TestARuleThatLosesItsDeclaration:
@@ -774,7 +774,7 @@ class TestAnUndeclaredResultReadsNoReplay:
     def test_a_modified_declaration_reads_no_replay(self, rule_result: Any, kind: str) -> None:
         """A refused declaration, and a value outside the three states, which is a ``DataError``."""
         copy = loads(dumps(rule_result))
-        restored(rules(copy)[0], "rule_kind", kind)
+        modified(rules(copy)[0], "rule_kind", kind)
         assert_no_replay(copy)
         assert_replay_agrees(copy, RETARGETED)
 
@@ -931,14 +931,14 @@ def evaluator_witnesses() -> list[Callable[[], None]]:
     return [
         *(
             lambda evaluator=evaluator, name=name: (
-                suite.test_a_restored_rule_refuses_before_it_runs(evaluator, name)
+                suite.test_a_modified_rule_refuses_before_it_runs(evaluator, name)
             )
             for evaluator in EVALUATORS
-            for name in RESTORED_RULE
+            for name in MODIFIED_RULE
         ),
         *(
             lambda name=name: suite.test_an_undeclared_class_refuses_before_its_density_runs(name)
-            for name in ["no attribute", *RESTORED_CLASS]
+            for name in ["no attribute", *MODIFIED_CLASS]
         ),
         suite.test_the_set_checks_every_regime_before_the_first_function,
     ]
@@ -965,14 +965,14 @@ class TestTheWitnessesHaveTeeth:
         assert_every_witness_fails(evaluator_witnesses())
 
     @pytest.mark.parametrize("entry", list(ENTRIES))
-    @pytest.mark.parametrize("name", ["rule", "no attribute", *RESTORED_CLASS])
+    @pytest.mark.parametrize("name", ["rule", "no attribute", *MODIFIED_CLASS])
     def test_removing_the_fit_layer_check_fails_the_fit_witnesses(
         self, entry: str, name: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Mutation R2: the regimes are evaluated after the learners, so a learner runs."""
         monkeypatch.setattr(tmle_module, "refuse_regime_densities", lambda interventions: None)
         if name == "rule":
-            item, fragments = restored(spy_rule(), "rule_kind", None), (UNDECLARED_RULE,)
+            item, fragments = modified(spy_rule(), "rule_kind", None), (UNDECLARED_RULE,)
         else:
             item, fragments = undeclared_classes()[name]
         with pytest.raises(AssertionError):
@@ -993,7 +993,7 @@ class TestTheWitnessesHaveTeeth:
             assert_refused(recomputations(old, RETARGETED)[entry], CapabilityError, UNDECLARED_RULE)
 
     @pytest.mark.parametrize("refusal", list(LATER_REFUSALS))
-    @pytest.mark.parametrize("kind", list(DECLARED_AND_RESTORED))
+    @pytest.mark.parametrize("kind", list(DECLARED_AND_MODIFIED))
     def test_removing_the_fit_layer_check_alone_lets_the_later_refusal_answer(
         self, refusal: str, kind: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1147,7 +1147,7 @@ class TestASampleThresholdRuleMisstatesTheVariance:
         assert_refused(
             lambda: threshold_rule(learned, rule_kind="estimated"), CapabilityError, ESTIMATED_RULE
         )
-        rule = restored(
+        rule = modified(
             threshold_rule(Counter(learned), rule_kind="known"), "rule_kind", "estimated"
         )
         estimator = TMLE(

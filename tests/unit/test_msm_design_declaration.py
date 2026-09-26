@@ -68,10 +68,10 @@ from tests.unit._declaration_support import (
     assert_refused,
     assert_refused_before_any_call,
     cell_p,
+    modified,
+    modified_states,
     oracle_fit,
     recomputations,
-    restored,
-    restored_states,
     se_ratio,
     tmle_module,
 )
@@ -194,7 +194,7 @@ class TestTheExactTypeRuleReadsTheShorthand:
         assert known.design_kind == "known"
 
     def test_a_written_design_that_loses_its_declaration_refuses(self) -> None:
-        old = restored(written(design_kind="known"), "design_kind", None)
+        old = modified(written(design_kind="known"), "design_kind", None)
         assert old.design_kind is None
         assert_refused(lambda: replace(old), CapabilityError, UNDECLARED)
         assert replace(old, design_kind="known").design_kind == "known"
@@ -236,17 +236,17 @@ def without_learners(fit: Callable[[MSM, dict[str, Any]], Any]) -> Callable[[MSM
     return lambda model: fit(model, never_fit_learners())
 
 
-#: Every fit entry that can reach a restored model: its model builder and the fit.  Each
+#: Every fit entry that can reach a modified model: its model builder and the fit.  Each
 #: fit resets ``NeverFit``.
 ENTRIES: dict[str, tuple[Callable[[], MSM], Callable[[MSM], Any]]] = {
     **{name: (point_model, without_learners(fit)) for name, fit in MSM_ENTRIES.items()},
     "ltmle": (regimen_model, ltmle_fit),
 }
 
-#: What a restored model can carry, and the refusal each one meets.
-RESTORED = restored_states(UNDECLARED, ESTIMATED)
+#: What a modified model can carry, and the refusal each one meets.
+MODIFIED = modified_states(UNDECLARED, ESTIMATED)
 
-#: What a restored model can carry that is not a declaration, as the field, its value, and
+#: What a modified model can carry that is not a declaration, as the field, its value, and
 #: the fragments of the ``DataError`` it meets.
 MALFORMED: dict[str, tuple[str, Any, tuple[str, ...]]] = {
     "unknown": ("design_kind", "Known", (DESIGN_UNKNOWN,)),
@@ -256,17 +256,17 @@ MALFORMED: dict[str, tuple[str, Any, tuple[str, ...]]] = {
 
 def assert_entry_refuses(entry: str, kind: Any, *fragments: str) -> None:
     build, fit = ENTRIES[entry]
-    model = restored(build(), "design_kind", kind)
+    model = modified(build(), "design_kind", kind)
     assert_refused_before_any_call(lambda: fit(model), model.design, "design", *fragments)
 
 
-class TestTheFitRefusesARestoredModel:
+class TestTheFitRefusesAModifiedModel:
     @pytest.mark.parametrize("entry", list(ENTRIES))
-    @pytest.mark.parametrize("name", list(RESTORED))
+    @pytest.mark.parametrize("name", list(MODIFIED))
     def test_every_entry_refuses_before_any_learner_or_design_call(
         self, entry: str, name: str
     ) -> None:
-        kind, fragments = RESTORED[name]
+        kind, fragments = MODIFIED[name]
         assert_entry_refuses(entry, kind, *fragments)
 
     @pytest.mark.parametrize("entry", list(ENTRIES))
@@ -279,7 +279,7 @@ class TestTheFitRefusesARestoredModel:
         build, fit = ENTRIES[entry]
         model = build()
         spy = model.design
-        restored(model, field, value)
+        modified(model, field, value)
         assert_refused_before_any_call(
             lambda: fit(model), spy, "design", *fragments, error=DataError
         )
@@ -343,7 +343,7 @@ LATER_REFUSALS: dict[str, tuple[Callable[[MSM], Any], type[Exception], str]] = {
 
 
 class TestTheDeclarationRefusalComesFirst:
-    """A restored model meets its own refusal, whatever else its fit configuration breaks.
+    """A modified model meets its own refusal, whatever else its fit configuration breaks.
 
     ``_resolve_estimands_for_data`` checks the model before any refusal of the fit
     configuration.  Each of those refusals names a remedy, and no remedy lets an undeclared
@@ -362,11 +362,11 @@ class TestTheDeclarationRefusalComesFirst:
         )
 
     @pytest.mark.parametrize("refusal", list(LATER_REFUSALS))
-    @pytest.mark.parametrize("name", list(RESTORED))
-    def test_a_restored_model_meets_the_declaration_refusal(self, refusal: str, name: str) -> None:
-        kind, fragments = RESTORED[name]
+    @pytest.mark.parametrize("name", list(MODIFIED))
+    def test_a_modified_model_meets_the_declaration_refusal(self, refusal: str, name: str) -> None:
+        kind, fragments = MODIFIED[name]
         fit, _, _ = LATER_REFUSALS[refusal]
-        model = restored(point_model(), "design_kind", kind)
+        model = modified(point_model(), "design_kind", kind)
         assert_refused_before_any_call(lambda: fit(model), model.design, "design", *fragments)
 
 
@@ -378,16 +378,16 @@ EVALUATORS: dict[str, tuple[Callable[[], MSM], Callable[[MSM], Any]]] = {
 
 
 class TestTheEvaluatorsCheckFirst:
-    """A restored model handed straight to an evaluator refuses before its design runs."""
+    """A modified model handed straight to an evaluator refuses before its design runs."""
 
     @pytest.mark.parametrize("evaluator", list(EVALUATORS))
-    @pytest.mark.parametrize("name", list(RESTORED))
-    def test_a_restored_model_refuses_before_the_design_runs(
+    @pytest.mark.parametrize("name", list(MODIFIED))
+    def test_a_modified_model_refuses_before_the_design_runs(
         self, evaluator: str, name: str
     ) -> None:
-        kind, fragments = RESTORED[name]
+        kind, fragments = MODIFIED[name]
         build, evaluate = EVALUATORS[evaluator]
-        model = restored(build(), "design_kind", kind)
+        model = modified(build(), "design_kind", kind)
         assert_refused(lambda: evaluate(model), CapabilityError, *fragments)
         assert model.design.calls == 0, "the design was evaluated before the refusal"
 
@@ -606,12 +606,12 @@ class TestTheWitnessesHaveTeeth:
         assert_every_witness_fails(declaration_witnesses())
 
     @pytest.mark.parametrize("entry", list(ENTRIES))
-    @pytest.mark.parametrize("name", list(RESTORED))
+    @pytest.mark.parametrize("name", list(MODIFIED))
     def test_removing_the_fit_layer_check_fails_the_fit_witnesses(
         self, entry: str, name: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Mutation M2, at the fit, which removes the evaluator checks too."""
-        kind, fragments = RESTORED[name]
+        kind, fragments = MODIFIED[name]
         remove_every_fit_check(monkeypatch)
         with pytest.raises(AssertionError):
             assert_entry_refuses(entry, kind, *fragments)
@@ -642,11 +642,11 @@ class TestTheWitnessesHaveTeeth:
         """Mutation M7: the fit layer stops checking, and the evaluator checks stay.
 
         No learner and no design runs either way, so only the refusal that answers shows
-        the mutation.  The restored model meets the refusal of the configuration.
+        the mutation.  The modified model meets the refusal of the configuration.
         """
         fit, error, fragment = LATER_REFUSALS[refusal]
         monkeypatch.setattr(tmle_module, "refuse_msm_functions", lambda model: None)
-        model = restored(point_model(), "design_kind", None)
+        model = modified(point_model(), "design_kind", None)
         assert_refused_before_any_call(
             lambda: fit(model), model.design, "design", fragment, error=error
         )
@@ -785,7 +785,7 @@ class TestAnEstimatedCentreMisstatesTheVariance:
         """The honest declaration of the sample centre meets the refusal, before any fit."""
         centre = sample_centre(law.frame(CENTRE_COUNTS)["W"])
         assert_refused(lambda: written(centre, design_kind="estimated"), CapabilityError, ESTIMATED)
-        model = restored(written(centre, design_kind="known"), "design_kind", "estimated")
+        model = modified(written(centre, design_kind="known"), "design_kind", "estimated")
         assert_refused(lambda: tmle_fit(model, never_fit_learners()), CapabilityError, ESTIMATED)
         assert NeverFit.calls == 0
 
