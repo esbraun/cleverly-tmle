@@ -329,7 +329,7 @@ _EMPTY_GUARD_REMEDY = (
 )
 
 
-def stratified_alternation_refusal(group: str) -> CapabilityError:
+def _stratified_alternation_refusal(group: str) -> CapabilityError:
     """The refusal of baseline strata beside a group whose targeting alternates.
 
     Parameters
@@ -400,11 +400,11 @@ def refuse_stratified_targeting(
             "Fit the marginal MSM projection. docs/roadmap.md X8 tracks it."
         )
     if incremental:
-        raise stratified_alternation_refusal("ipsi")
+        raise _stratified_alternation_refusal("ipsi")
     if msm is not None and msm.link != "identity":
-        raise stratified_alternation_refusal("msm")
+        raise _stratified_alternation_refusal("msm")
     if reduced:
-        raise stratified_alternation_refusal("mean")
+        raise _stratified_alternation_refusal("mean")
 
 
 def _independent_units(data: CausalData) -> tuple[IntArray, str]:
@@ -1615,7 +1615,7 @@ class TMLE:
         :class:`~cleverly.exceptions.CapabilityError` and
         :class:`~cleverly.exceptions.DataError`, which are both ``ValueError``, and a
         malformed setting that a copied estimator can carry, such as ``q_bounds`` on a
-        binary outcome or a ``g_bounds`` pair.  Any other exception, a
+        binary outcome or a malformed ``g_bounds`` pair.  Any other exception, a
         ``NotImplementedError`` included, is a defect and propagates.
 
         Parameters
@@ -3027,7 +3027,7 @@ class TMLE:
                 or needs_reduction(nuisance, group)
                 or needs_projection(nuisance, group)
             ):
-                raise stratified_alternation_refusal(group)
+                raise _stratified_alternation_refusal(group)
             if needs_mechanism(group):
                 submodel, fluctuation, targeted = solve_with_mechanism(
                     data,

@@ -156,6 +156,7 @@ from .reduced import (
 )
 from .targeting import (
     DEFAULT_MAX_OUTER,
+    ONE_STEP_CARRY_COST,
     ONE_STEP_NESTED_REFUSAL,
     ReductionOrder,
     ReductionSpec,
@@ -620,8 +621,7 @@ class DRTMLE(TMLE):
                 raise CapabilityError(
                     "evaluation= and targeting='one_step' are not combined, on cost rather "
                     "than on derivation -- the same refusal reduced_crossfit='nested' takes. "
-                    "The companion is moved by the same steps the fitted arrays take, and "
-                    "the one-step walk takes up to 20,000 of them with an adaptive length. "
+                    f"The companion is moved {ONE_STEP_CARRY_COST}. "
                     "Use targeting='iterative', which is the default."
                 )
             if self.target_weights:
@@ -1096,11 +1096,6 @@ class DRTMLE(TMLE):
                 raise CapabilityError(
                     "missing-outcome DRTMLE is not certified for a weight-tilted target law; "
                     "drop weights= or fit a plain TMLE"
-                )
-            if self.repeats != 1:
-                raise CapabilityError(
-                    "repeats= is a cross-fitting construction and is not supported by the "
-                    "published missing-outcome theorem"
                 )
             if self.evaluation is not None or self.reduced_crossfit != "pooled":
                 raise CapabilityError(

@@ -66,6 +66,7 @@ from .reduced import MissingOutcomeReducedSet, ReducedFamily, ReducedSet
 
 __all__ = [
     "DEFAULT_MAX_OUTER",
+    "ONE_STEP_CARRY_COST",
     "ONE_STEP_NESTED_REFUSAL",
     "ObservationMechanismFluctuation",
     "ProjectionFluctuation",
@@ -84,14 +85,20 @@ __all__ = [
     "solve_with_reduction",
 ]
 
+#: Why ``targeting="one_step"`` refuses to carry further arrays through its steps.  The
+#: nested refusal below and the ``evaluation=`` refusal of ``DRTMLE`` both state it.
+ONE_STEP_CARRY_COST = (
+    "by the same steps the fitted arrays take, and the one-step walk takes up to 20,000 "
+    "of them with an adaptive length"
+)
+
 #: The refusal of ``targeting="one_step"`` beside ``reduced_crossfit="nested"``.
 #: ``DRTMLE._check_drtmle`` raises it before any learner, and :func:`solve_submodel`
 #: raises it again as the backstop of a direct ``carry``.
 ONE_STEP_NESTED_REFUSAL = (
     "targeting='one_step' and reduced_crossfit='nested' are not combined. The "
-    "nested construction moves its fold-free designs by the same steps the "
-    "fitted arrays take, and the one-step walk takes up to 20,000 of them with "
-    "an adaptive length -- so this is a cost decision rather than a derivation. "
+    f"nested construction moves its fold-free designs {ONE_STEP_CARRY_COST} "
+    "-- so this is a cost decision rather than a derivation. "
     "Use targeting='iterative', which is the default."
 )
 

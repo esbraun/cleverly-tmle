@@ -729,11 +729,6 @@ class CTMLE(TMLE):
                 f"ctmle_estimand must be one of {sorted(MEAN_GROUP_ESTIMANDS)}; "
                 f"got {self.ctmle_estimand!r}"
             )
-        if self.cv_evaluation:
-            raise CapabilityError(
-                "CTMLE does not support cv_evaluation=True: canonical CV-TMLE selection "
-                "requires a separate fold-specific collaborative derivation."
-            )
         if self.targeting_scheme != "pooled":
             raise CapabilityError(
                 "CTMLE implements the published pooled collaborative estimator only; "
