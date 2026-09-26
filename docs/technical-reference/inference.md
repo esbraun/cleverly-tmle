@@ -82,7 +82,7 @@ Every other status is a non-inferential status.
 
 | status | declared by | `std_error`, `ci`, and `pvalue` | `summary()` column | reopened by |
 | --- | --- | --- | --- | --- |
-| `"influence_curve"` | every estimate except the ones below. This is the default | return the values on this page | `std_err` | not applicable |
+| `"influence_curve"` | every estimate except the ones below. This is the constructor default | return the values on this page | `std_err` | not applicable |
 | `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, or `"discrete"`. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `working-mechanism se` | [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
 | `"generated_design_plugin"` | every `CTMLE` fit with `strategy="oat"`, including a fit with `delta=` and a fit that requests one arm mean. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `generated-design se` | [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | `"undeclared_function_plugin"` | a restored `TMLE` result whose `Rule`, user-written `Intervention`, `Stochastic` density, or written MSM design or weight is not declared `"known"`. A restored `LTMLE` result takes it when a callable regimen node is undeclared or its MSM lacks evidence of known source functions. New fits refuse such a function. A new fit with each function declared `"known"` reports an interval. [RM28](../roadmap.md#rm28-declared-densities-of-user-written-interventions) gives the load rule | raise `CapabilityError` with the reason of the status | `undeclared-function se` | [RM28](../roadmap.md#rm28-declared-densities-of-user-written-interventions) |
@@ -92,6 +92,7 @@ Every other status is a non-inferential status.
 | `"undeclared_scale_plugin"` | a saved cross-fitted continuous-dose `TMLE` result of a continuous outcome with `q_bounds=None`, and a copied `TMLE` or `DRTMLE` estimator on that scale. Releases 0.1.0 and 0.1.1 took that outcome scale from every observed outcome, held-out rows included, and new fits refuse it. Those releases stratified every saved cross-fitted discrete-treatment result, so such a result takes `"stratified_fold_plugin"` first. Release 0.1.1 `DRTMLE` refused a continuous treatment, so no saved `DRTMLE` result reaches this status. A declared `q_bounds`, an in-sample result, and a binary outcome keep `"influence_curve"` under this rule. [RM33](../roadmap.md#rm33-inference-status-of-a-saved-undeclared-scale-cross-fitted-result) gives the load rule | raise `CapabilityError` with the reason of the status | `undeclared-scale plug-in se` | [RM33](../roadmap.md#rm33-inference-status-of-a-saved-undeclared-scale-cross-fitted-result) |
 | `"unequal_cluster_plugin"` | a cross-fitted `TMLE` or `DRTMLE` fit with `id=` whose clusters differ in row count or weight mass, overall or in one reported baseline stratum. This includes `cv_evaluation=True`. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `cluster-robust plug-in se` | [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
 | `"few_cluster_plugin"` | a `TMLE`, `DRTMLE`, or `LTMLE` fit with `id=` and fewer than 40 clusters with positive weight mass in the fit or one reported baseline stratum. `LTMLE` takes `id=` in sample only. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
+| `"unrecorded_status_plugin"` | a saved `ParameterEstimate` whose state has no `inference` key. The estimate inside a `VariableImportanceEntry` or a `CVTargeting` takes it the same way. Releases 0.1.0 and 0.1.1 wrote no such key. Such an estimate holds no estimator, data, or folds, so the load rule cannot read its configuration. A `TMLEResult` or `LongitudinalResult` that holds the estimate gives it the status of its own configuration. [RM34](../roadmap.md#rm34-inference-status-of-a-saved-estimate-outside-its-result) gives the load rule | raise `CapabilityError` with the reason of the status | `unrecorded-status plug-in se` | [RM34](../roadmap.md#rm34-inference-status-of-a-saved-estimate-outside-its-result) |
 
 At every status, `plugin_std_error` and `plugin_interval` return the plug-in spread of the
 reported curve. On `"influence_curve"` they return the numbers of `std_error` and `ci` under names
@@ -131,13 +132,16 @@ keys and carries `nu2_estimator`, and `robustness_value()` omits `rva` under eve
 
 `CVTargeting.inference` reads the status from the two fold-level reports. The fit stamps those
 reports where it stamps its own estimates. `SensitivityBounds.inference` carries the status of the
-estimate that the bound adjusts. The file `tests/unit/test_inference_status_reach.py` forces each
-non-inferential status on a clustered point-treatment fit and checks its reports in this section.
-The file `tests/unit/test_longitudinal_cluster_status.py` checks the `LongitudinalResult` reports on
-a fit with 39 clusters. The file `tests/unit/test_saved_fold_policy_status.py` loads a saved
-stratified result of each path and checks its reports. The file
-`tests/unit/test_saved_scale_status.py` loads a saved result on an undeclared outcome scale and
-checks its reports.
+estimate that the bound adjusts.
+
+The file `tests/unit/test_inference_status_reach.py` forces each non-inferential status on a
+clustered point-treatment fit and checks its reports in this section. The file
+`tests/unit/test_longitudinal_cluster_status.py` checks the `LongitudinalResult` reports on a fit
+with 39 clusters. The file `tests/unit/test_saved_fold_policy_status.py` loads a saved stratified
+result of each path and checks its reports. The file `tests/unit/test_saved_scale_status.py` loads
+a saved result on an undeclared outcome scale and checks its reports. The file
+`tests/unit/test_saved_bare_estimate_status.py` loads an estimate, an entry, a fold-level report,
+and whole results that record no status.
 
 A contrast inherits the status of its inputs, so a contrast of two diagnostic estimates refuses
 `ci` as its inputs do. A simultaneous band refuses every non-inferential status with

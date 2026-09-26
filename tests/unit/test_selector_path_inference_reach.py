@@ -55,6 +55,7 @@ from cleverly.sensitivity import missingness_tilt, tipping_gamma
 from cleverly.validation import CoverageStudy, refute
 from cleverly.validation.score import score_check
 from tests.conftest import SELECTOR_CONFIGS, linear_ctmle, linear_in_sample
+from tests.unit._inference_status_support import SAVED_ANSWERS, SAVED_BANDS, legacy_copy
 
 #: The selector-path record, read where every raise and report reads it.
 WORKING_MECHANISM = NON_INFERENTIAL["working_mechanism_plugin"]
@@ -271,15 +272,13 @@ def _legacy(result: Any) -> Any:
     """A copy of ``result`` shaped as an artifact written before ``inference`` existed.
 
     Each estimate loses the field from its instance state, so it reads the class-level
-    default. The result also carries the two things such an artifact could hold that the
-    re-stamp has to drop: a band object and a saved assessment answer.
+    default until it is saved. The result also carries the two things such an artifact
+    could hold that the re-stamp has to drop: a band object and a saved assessment answer.
     """
-    legacy = pickle.loads(pickle.dumps(result))
+    legacy = legacy_copy(result, recorded=False)
     for estimate in legacy.estimates.values():
-        estimate.__dict__.pop("inference")
+        assert "inference" not in estimate.__dict__
         assert estimate.inference == "influence_curve"
-    legacy.__dict__["simultaneous"] = "bands built before the refusal"
-    legacy.__dict__["assessment_cache"] = {"sensitivity.evalue": "an answer read off .ci"}
     return legacy
 
 
@@ -319,8 +318,8 @@ class TestALegacySelectorArtifactIsReStamped:
         """The control: a fit whose estimator supplies inference is not touched."""
         restored = loads(dumps(_legacy(ordinary_fit)))
         assert restored.inference_status == "influence_curve"
-        assert restored.simultaneous == "bands built before the refusal"
-        assert restored.assessment_cache == {"sensitivity.evalue": "an answer read off .ci"}
+        assert restored.simultaneous == SAVED_BANDS
+        assert restored.assessment_cache == SAVED_ANSWERS
         assert restored["ate"].ci == ordinary_fit["ate"].ci
 
 

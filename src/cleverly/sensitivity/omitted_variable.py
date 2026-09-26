@@ -966,9 +966,11 @@ class SensitivityBounds:
     robustness_value: float | None
     _robustness_value_ci: float | None
     null_hypothesis: float
-    #: A plain default, so a bound pickled before the field existed loads as inferential,
-    #: which every such bound was: RM11 refused the bound on the only fits that carried
-    #: another status.
+    #: A plain default, so a bound pickled before the field existed reads
+    #: ``"influence_curve"``. That label is not checked on such a bound: a release 0.1.x
+    #: bound of a stratified cross-fitted fit adjusts an estimate that RM31 withholds. No
+    #: such bound publishes a limit, because it also predates ``nu2_estimator``, and
+    #: :meth:`__setstate__` then reads ``"unrecorded"``, whose limits refuse (RM22).
     inference: InferenceStatus = "influence_curve"
     #: Not the same rule as ``inference``: a bound pickled before this field existed may be
     #: a plug-in bound, or an ATT or ATC bound without the share term, so
