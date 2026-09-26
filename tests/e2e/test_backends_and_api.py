@@ -142,17 +142,17 @@ class TestBackendParity:
                 from_polars[estimand].influence_curve,
             )
 
-    def test_the_per_group_leverage_table_is_identical(self, paired_fits) -> None:
+    def test_the_per_group_score_load_table_is_identical(self, paired_fits) -> None:
         """The load rows too, and by equality rather than by tolerance.
 
-        ``group_leverage`` rebuilds each group's clever covariate from the data, the
-        nuisance estimates and the config, so it reads the ingested arrays directly. A
-        backend that reordered or recast one row would move a Kish sum, and nothing in the
-        estimate comparisons above would show it.
+        ``group_score_load`` reads the exact absolute score weights that each fitted
+        fluctuation retains, and the fit computed them from the ingested arrays. A backend
+        that reordered or recast one row would move a Kish sum, and nothing in the estimate
+        comparisons above would show it.
         """
         from_pandas, from_polars, _ = paired_fits
-        pandas_table = from_pandas.diagnostics.support().group_leverage
-        polars_table = from_polars.diagnostics.support().group_leverage
+        pandas_table = from_pandas.diagnostics.support().group_score_load
+        polars_table = from_polars.diagnostics.support().group_score_load
 
         assert set(pandas_table) == {"mean", "att", "atc"}
         assert pandas_table == polars_table

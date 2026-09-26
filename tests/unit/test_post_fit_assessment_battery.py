@@ -2058,10 +2058,10 @@ def test_the_support_row_does_not_pool_group_concentration_with_mechanism_ess() 
         0.0,
         0.9,
         clever_covariate_max={"mean": 1.0, "att": 4.0},
-        group_leverage=groups,
+        group_score_load=groups,
         mechanisms={"P(Delta=1|A,W)": _MECHANISM},
     )
-    without = replace(pooled, group_leverage={})
+    without = replace(pooled, group_score_load={})
     fact = "minimum effective-sample-size ratio"
 
     detail = INTERPRETERS["support"](pooled, None).detail
@@ -2078,8 +2078,8 @@ def test_a_low_group_ratio_is_reported_beside_the_arm_share_and_never_graded() -
     still carry the arm sentence word for word, because the two are different weightings
     and the reader needs both.
     """
-    ample = _positivity(0.0, 0.9, group_leverage={"mean": _load(0.99)})
-    threadbare = _positivity(0.0, 0.9, group_leverage={"mean": _load(0.04)})
+    ample = _positivity(0.0, 0.9, group_score_load={"mean": _load(0.99)})
+    threadbare = _positivity(0.0, 0.9, group_score_load={"mean": _load(0.04)})
 
     assert ample.severity == threadbare.severity == "adequate"
     assert INTERPRETERS["support"](threadbare, None).status is AssessmentStatus.COMPLETED
@@ -2101,7 +2101,7 @@ def test_the_group_table_renders_when_a_row_is_not_finite() -> None:
     """
     empty = _load(float("nan"), equation="empty")
     report = _positivity(
-        0.0, 0.9, clever_covariate_max={"mean": float("nan")}, group_leverage={"mean": empty}
+        0.0, 0.9, clever_covariate_max={"mean": float("nan")}, group_score_load={"mean": empty}
     )
     summary = report.summary()
     header = next(line for line in summary.splitlines() if line.startswith("group "))
@@ -2120,7 +2120,7 @@ def test_a_report_built_without_the_group_table_still_lists_the_maxima() -> None
     """
     report = _positivity(0.0, 0.9, clever_covariate_max={"mean": 1.0, "att": 4.0})
 
-    assert report.group_leverage == {}
+    assert report.group_score_load == {}
     assert "max |clever covariate| (mean): 1" in report.summary()
     assert "max |clever covariate| (att): 4" in report.summary()
     assert "Kish-equivalent rows" not in report.summary()

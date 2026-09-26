@@ -1022,7 +1022,7 @@ class TestTheSensitivityLayerFollowsTheDraws:
         A target-group score-load row records no draw count of its own, deliberately: the
         count belongs to the whole fit and a second copy on every row is a second place for
         it to disagree with the first. The row's own count was read anyway, and a
-        ``GroupLeverageRow`` has none, so every repeated arm-level fit printed a total of
+        ``GroupScoreLoadRow`` has none, so every repeated arm-level fit printed a total of
         one draw beside a summary that printed three.
 
         A fit with one draw prints ``of 01`` either way, which is why the pair is here.

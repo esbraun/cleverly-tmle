@@ -218,13 +218,13 @@ divides by instead. `composed_excluded` carries the same list for a caller that 
 Read that note before you read the absence of a row. An absent row and a healthy denominator look
 the same, and the note is what separates them.
 
-The `group_leverage` table reads each fitted score equation separately. For row $i$ and equation
+The `group_score_load` table reads each fitted score equation separately. For row $i$ and equation
 $j$, $w_i H_{ij}$ multiplies the targeted residual. The table summarizes its magnitude, not the
 residual contribution. The group row selects the equation with the smallest Kish load ratio among
 score-mask rows. Its `equation` field identifies that equation.
 
 ```python
-mean_load = support.group_leverage["mean"]
+mean_load = support.group_score_load["mean"]
 print("equation:", mean_load["equation"])
 print("Kish load ratio among targeted rows:", mean_load["targeted_ratio"])
 print("top 5% load share:", mean_load["top_5pct"])

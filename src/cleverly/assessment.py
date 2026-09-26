@@ -2771,7 +2771,7 @@ def _support_metrics(report: Any) -> tuple[float | None, float | None]:
         # the action of an estimand-specific propensity bound and belongs in the maximum.
         # Their targeted ratio is concentration of absolute score load, not arm/mechanism
         # effective sample size, so it is deliberately excluded from the pooled minimum.
-        for values in getattr(report, "group_leverage", {}).values():
+        for values in getattr(report, "group_score_load", {}).values():
             if "clipped_fraction" in values:
                 clipped = float(values["clipped_fraction"])
                 if np.isfinite(clipped):
@@ -2811,7 +2811,7 @@ def _group_load_fact(report: Any) -> str | None:
     group_draw = (REPORTED_DRAW, int(getattr(report, "n_repeats", 1)))
     rows: list[tuple[str, str, Any, tuple[int, int] | None]] = [
         ("group", group, values, group_draw)
-        for group, values in getattr(report, "group_leverage", {}).items()
+        for group, values in getattr(report, "group_score_load", {}).items()
         if np.isfinite(float(values.get("targeted_ratio", np.nan)))
     ]
     # An intervention row records its own draw, so it is read from the row.

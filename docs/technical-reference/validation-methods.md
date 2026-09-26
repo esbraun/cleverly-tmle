@@ -67,8 +67,7 @@ denominator for each group. The list is empty when every targeted group forms th
 also empty when no fitted factor stands beside `g`.
 
 The fit retains exact absolute score weights for every reported group and equation.
-`group_leverage` reads that fitted artifact. Despite its name, it reports load concentration and
-not statistical leverage.
+`group_score_load` reads that fitted artifact.
 
 For score equation $j$, $w_i H_{ij}$ is row $i$'s multiplier on the targeted residual. The report
 summarizes its magnitude, $|w_i H_{ij}|$, for each equation separately. It does not include the
@@ -82,7 +81,7 @@ The report does not rebuild a clever covariate from nuisance predictions. Each r
 retained residual-multiplier load with the bound used by that fitted group. The `att` and `atc`
 groups record `g_bounds_conditional`. The `mean` and `msm` groups record `g_bounds`. An ordinary
 fit also records the bound's clipping count. If targeting changed the treatment mechanism and its
-exact clipping mask was not retained, the count is unavailable and `group_leverage_omissions`
+exact clipping mask was not retained, the count is unavailable and `group_score_load_omissions`
 records why.
 
 The public `diagnostics.support()` route provides group rows as follows.
@@ -114,8 +113,8 @@ an equivalent row-level absolute load, so the report does not claim to summarize
 The combined support row reports the most concentrated intervention equation separately. It does
 not add that ratio to the mechanism effective-sample-size minimum or use it to assign status.
 
-An older fitted artifact might not retain exact absolute score weights. The report does not
-reconstruct an approximation. `group_leverage_omissions` names each omitted generic group and its
+A fluctuation built by hand might not retain exact absolute score weights. The report does not
+reconstruct an approximation. `group_score_load_omissions` names each omitted generic group and its
 reason. Each intervention row uses `score_load_omission` for the same purpose.
 
 The reason strings are machine-readable, so they are part of the API. Both paths accept an artifact

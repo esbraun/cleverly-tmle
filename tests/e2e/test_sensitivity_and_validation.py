@@ -267,7 +267,7 @@ class TestThePerGroupCovariateLeverageIsReported:
     inverse arm probability: it divides by ``P(A = a)`` and reweights the reference arm by
     the propensity odds.  ``clever_covariate_max`` is keyed by group but reports a single
     number, unweighted and over every row.  So a conditional-arm fit had no load measure
-    at all, and ``group_leverage`` is the row that supplies one.
+    at all, and ``group_score_load`` is the row that supplies one.
 
     Every check below rebuilds the covariate from the formula in
     :func:`~cleverly.fluctuation.submodel.mean_submodel` and
@@ -400,7 +400,7 @@ class TestThePerGroupCovariateLeverageIsReported:
         """Every row value comes from the most concentrated stored score column."""
         report = loaded_fit.diagnostics.support()
         load, selected = self._selected_artifact(loaded_fit, "mean")
-        row = report.group_leverage["mean"]
+        row = report.group_score_load["mean"]
 
         assert row["equation"] == loaded_fit.fluctuations["mean"].names[selected]
         assert row["n_targeted"] == float(load.size)
@@ -417,7 +417,7 @@ class TestThePerGroupCovariateLeverageIsReported:
         """The diagnostic consumes fitted score rows instead of rebuilding a submodel."""
         report = loaded_fit.diagnostics.support()
         load, selected = self._selected_artifact(loaded_fit, "att")
-        row = report.group_leverage["att"]
+        row = report.group_score_load["att"]
 
         assert row["equation"] == loaded_fit.fluctuations["att"].names[selected]
         assert row["n_targeted"] == float(load.size)
@@ -445,7 +445,7 @@ class TestThePerGroupCovariateLeverageIsReported:
             ("att", np.abs(covariate)),
         ):
             unweighted = values[contributing]
-            row = report.group_leverage[group]
+            row = report.group_score_load[group]
             # Measured: the mean row moves by 51 units of effective sample size and the
             # att row by 51 as well, on 309 targeted rows.
             assert abs(_kish(unweighted) - row["effective"]) > 20.0
@@ -464,7 +464,7 @@ class TestThePerGroupCovariateLeverageIsReported:
         g = loaded_fit.nuisance.propensity.bounded(loaded_fit.config.g_bounds)
         at_arm = np.where(treated, g[:, 1], g[:, 0])
         arm_weight = loaded_fit.data.weights[contributing] * (1.0 / at_arm)[contributing]
-        row = report.group_leverage["mean"]
+        row = report.group_score_load["mean"]
 
         # Measured: 265 effective rows against the 200 the mechanism-bearing covariate
         # leaves, and a top-5% share of 0.104 against 0.168.
@@ -476,7 +476,7 @@ class TestThePerGroupCovariateLeverageIsReported:
         """ATT reports the bound and clipped units that its fitted score actually used."""
         result = thin_overlap_fit
         assert result.config.g_bounds != result.config.g_bounds_conditional
-        row = result.diagnostics.support().group_leverage["att"]
+        row = result.diagnostics.support().group_score_load["att"]
         conditional = result.nuisance.propensity.truncate(result.config.g_bounds_conditional).units
         marginal = result.nuisance.propensity.truncate(result.config.g_bounds).units
 
@@ -506,7 +506,7 @@ class TestThePerGroupCovariateLeverageIsReported:
         assert loaded_fit.config.reference_arm == 0.0
         flipped = self._att_covariate(loaded_fit, reference=1.0)
         load = loaded_fit.data.weights[contributing] * np.abs(flipped)[contributing]
-        row = report.group_leverage["att"]
+        row = report.group_score_load["att"]
 
         # Measured: 246 effective rows against 144, and a top-5% share of 0.130 against
         # 0.215. The wrong reference reports a comfortable row for a strained fit.
@@ -535,7 +535,7 @@ class TestThePerGroupCovariateLeverageIsReported:
         report = result.diagnostics.support()
         contributing, _, _ = self._pieces(result)
         weights = result.data.weights[contributing]
-        row = report.group_leverage["att"]
+        row = report.group_score_load["att"]
 
         assert result.config.reference_arm == 1.0
         at_fit = weights * np.abs(self._att_covariate(result, reference=1.0))[contributing]
@@ -558,7 +558,7 @@ class TestThePerGroupCovariateLeverageIsReported:
         for group in ("mean", "att"):
             artifact = loaded_fit.fluctuations[group].absolute_score_weights
             assert artifact is not None
-            row = report.group_leverage[group]
+            row = report.group_score_load[group]
             assert row["n_targeted"] == float(artifact.shape[0]) == float(contributing.sum())
             assert row["n_total"] == float(loaded_fit.data.n)
             assert row["n_targeted"] < row["n_total"]
@@ -575,7 +575,7 @@ class TestThePerGroupCovariateLeverageIsReported:
         """
         report = loaded_fit.diagnostics.support()
         narrowest_arm = min(ess["ratio"] for ess in report.effective_sample_size.values())
-        conditional = report.group_leverage["att"]["targeted_ratio"]
+        conditional = report.group_score_load["att"]["targeted_ratio"]
 
         assert report.truncated["fraction"] == 0.0
         assert narrowest_arm > 0.70
@@ -585,7 +585,7 @@ class TestThePerGroupCovariateLeverageIsReported:
     def test_group_concentration_is_not_equated_with_mechanism_ess(self, loaded_fit) -> None:
         """A selected score equation and a pooled denominator have different units."""
         report = loaded_fit.diagnostics.support()
-        group_ratio = report.group_leverage["mean"]["targeted_ratio"]
+        group_ratio = report.group_score_load["mean"]["targeted_ratio"]
         mechanism_ratio = report.mechanisms["P(A=a,Delta=1|W)"]["ess_ratio"]
         assert group_ratio != pytest.approx(mechanism_ratio, abs=1e-6)
         assert report.composed_excluded == ("att",)
@@ -606,8 +606,8 @@ class TestThePerGroupCovariateLeverageIsReported:
         ):
             report = result.diagnostics.support()
             assert set(result.fluctuations) == groups
-            assert report.group_leverage.keys() == report.clever_covariate_max.keys()
-            assert report.group_leverage.keys() == result.fluctuations.keys()
+            assert report.group_score_load.keys() == report.clever_covariate_max.keys()
+            assert report.group_score_load.keys() == result.fluctuations.keys()
 
     def test_the_table_renders_beside_the_maxima_it_keeps(self, loaded_fit) -> None:
         """The table names equations, denominators, exact bounds, and descriptive units."""
@@ -620,7 +620,7 @@ class TestThePerGroupCovariateLeverageIsReported:
         assert header.index("Kish-equivalent rows") < header.index("max |w h|")
         assert "g bound" in header and "clipped" in header
         assert "residual-multiplier concentration, not residual contributions" in summary
-        for group, load in report.group_leverage.items():
+        for group, load in report.group_score_load.items():
             row = next(line for line in lines if line.startswith(f"{group} "))
             assert str(load["equation"]) in row
             assert f"{load['max_load']:.4g}" in row
@@ -643,7 +643,7 @@ class TestThePerGroupCovariateLeverageIsReported:
         report = loaded_fit.diagnostics.support()
         verdict = report.verdict()
         group, narrow = min(
-            report.group_leverage.items(), key=lambda item: item[1]["targeted_ratio"]
+            report.group_score_load.items(), key=lambda item: item[1]["targeted_ratio"]
         )
         narrowest_arm = min(ess["ratio"] for ess in report.effective_sample_size.values())
 
@@ -668,8 +668,8 @@ class TestThePerGroupCovariateLeverageIsReported:
         assert report.mechanisms == {}
         assert report.composed_excluded == ()
         assert report.severity == "adequate"
-        assert set(report.group_leverage) == {"mean", "att"}
-        for group, load in report.group_leverage.items():
+        assert set(report.group_score_load) == {"mean", "att"}
+        for group, load in report.group_score_load.items():
             assert np.isfinite(load["targeted_ratio"])
             selected = good_overlap.fluctuations[group].names.index(str(load["equation"]))
             artifact = good_overlap.fluctuations[group].absolute_score_weights
@@ -679,24 +679,24 @@ class TestThePerGroupCovariateLeverageIsReported:
     def test_the_table_survives_a_save_and_a_load(self, loaded_fit, tmp_path) -> None:
         """The report is recomputed from the restored result, so the rebuild has to travel.
 
-        ``_covariate_leverage`` reads the data, the nuisance estimates and the config
-        rather than the estimator, which is what lets a reloaded fit answer at all. Exact
-        equality, because a restored fit that rebuilt the covariate from anything else
-        would land nearby rather than on the number.
+        ``group_score_load`` reads the exact absolute score weights that each fitted
+        fluctuation retains, and the artifact carries them. Exact equality, because a
+        restored fit that rebuilt the load from anything else would land nearby rather
+        than on the number.
         """
         import cleverly
 
         path = tmp_path / "loaded-fit.joblib"
         loaded_fit.save(path)
         restored = cleverly.load(path)
-        assert restored.diagnostics.support().group_leverage == (
-            loaded_fit.diagnostics.support().group_leverage
+        assert restored.diagnostics.support().group_score_load == (
+            loaded_fit.diagnostics.support().group_score_load
         )
 
     def test_the_combined_report_retains_the_same_table(self, loaded_fit) -> None:
         """``assess()`` retains the report it interpreted, rather than a summary of it."""
         report = loaded_fit.diagnostics.support()
-        assert loaded_fit.assess().report("support").group_leverage == report.group_leverage
+        assert loaded_fit.assess().report("support").group_score_load == report.group_score_load
 
 
 class TestTruncationCurve:

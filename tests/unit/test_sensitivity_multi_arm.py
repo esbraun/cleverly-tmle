@@ -419,7 +419,7 @@ class TestTheOverlapReportOnAWeightedFit:
         from the arm rows above.
         """
         report = weighted_exact_fit.diagnostics.support()
-        leverage = report.group_leverage
+        leverage = report.group_score_load
 
         assert leverage.keys() == report.clever_covariate_max.keys()
         assert leverage.keys() == weighted_exact_fit.fluctuations.keys()

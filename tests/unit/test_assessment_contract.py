@@ -1160,8 +1160,8 @@ def test_cached_assessments_replay_after_persistence(
     assert restored.diagnostics.run_all() == diagnostics
 
 
-def test_positivity_report_preserves_its_pre_leverage_positional_slots() -> None:
-    """Appending diagnostics must not reinterpret the former repeat and backend slots."""
+def test_positivity_report_positional_slots_hold_the_repeats_and_the_backend() -> None:
+    """Positional construction fills the repeat and backend slots, and no group table."""
     report = PositivityReport(
         {},
         {},
@@ -1181,7 +1181,7 @@ def test_positivity_report_preserves_its_pre_leverage_positional_slots() -> None
 
     assert report.n_repeats == 3
     assert report.backend == "pandas"
-    assert report.group_leverage == {}
+    assert report.group_score_load == {}
 
 
 def test_a_cached_frame_replays_in_the_callers_backend(point_result, tmp_path) -> None:  # type: ignore[no-untyped-def]
