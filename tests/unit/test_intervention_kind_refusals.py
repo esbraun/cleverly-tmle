@@ -43,9 +43,15 @@ from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Incremental, Rule, Shift, Static, Stochastic
 from cleverly.interventions import base as base_module
+from cleverly.interventions.base import _NOT_A_REGIME
 from tests import discrete_law as law
-from tests.unit._declaration_support import assert_every_witness_fails, assert_refused, tmle_module
-from tests.unit._natural_course_support import NeverFit, never_fit_learners
+from tests.unit._declaration_support import (
+    assert_every_witness_fails,
+    assert_refused,
+    assert_refused_before_any_call,
+    tmle_module,
+)
+from tests.unit._natural_course_support import never_fit_learners
 
 F17 = "docs/roadmap.md F17"
 REGIME = "RegimeMean and RegimeContrast"
@@ -89,8 +95,8 @@ class Request:
     holder : str
         The field that the message names.
     route : tuple of str
-        Fragments that every guard writes: the typed estimands and F17 for a mixed kind,
-        and the sequence form for a malformed set.
+        Fragments that every guard writes: the item position, the typed estimands and F17
+        for a mixed kind, and the sequence form for a malformed set.
     fits_before_rm14 : int
         The learner fits that commit 0cdab190 ran before its error.  A spy can fail only
         when it is positive.
@@ -110,7 +116,7 @@ MIXED = {
         RegimeContrast(regimens=(Static(1), Incremental(2.0))),
         CapabilityError,
         "RegimeContrast.regimens",
-        (INCREMENTAL, "functional of P", F17),
+        ("item 2", INCREMENTAL, "functional of P", F17),
         0,
     ),
     "shift in a regimen set": Request(
@@ -118,7 +124,7 @@ MIXED = {
         RegimeMean(regimens=(Static(1), Shift(0.5, cap=None))),
         CapabilityError,
         "RegimeMean.regimens",
-        (SHIFT, "d(A, W)", "covariates alone", F17),
+        ("item 2", SHIFT, "d(A, W)", "covariates alone", F17),
         0,
     ),
     "regime in an incremental set": Request(
@@ -126,7 +132,7 @@ MIXED = {
         IncrementalEffect((Incremental(1.0), Static(1))),
         CapabilityError,
         "IncrementalEffect.interventions",
-        (REGIME, F17),
+        ("item 2", REGIME, F17),
         1,
     ),
     "regime alone in an incremental set": Request(
@@ -134,7 +140,7 @@ MIXED = {
         IncrementalMean((Static(1),)),
         CapabilityError,
         "IncrementalMean.interventions",
-        (REGIME, F17),
+        ("item 1", REGIME, F17),
         1,
     ),
     "shift in an incremental set": Request(
@@ -142,7 +148,7 @@ MIXED = {
         IncrementalEffect((Incremental(1.0, name="one"), Shift(0.5, cap=None, name="s"))),
         CapabilityError,
         "IncrementalEffect.interventions",
-        (SHIFT, F17),
+        ("item 2", SHIFT, F17),
         2,
     ),
     "level in an incremental set": Request(
@@ -150,7 +156,7 @@ MIXED = {
         IncrementalMean((Incremental(1.0), 2.0)),
         CapabilityError,
         "IncrementalMean.interventions",
-        (BARE, "Write it as an object, such as Incremental(2.0)"),
+        ("item 2", BARE, "Write it as an object, such as Incremental(2.0)"),
         0,
     ),
     "incremental in a shift set": Request(
@@ -158,7 +164,7 @@ MIXED = {
         ModifiedTreatmentPolicy(shifts=(Shift(0.5, cap=None, name="s"), Incremental(2.0))),
         CapabilityError,
         "ModifiedTreatmentPolicy.shifts",
-        (INCREMENTAL, F17),
+        ("item 2", INCREMENTAL, F17),
         1,
     ),
     "regime in a shift set": Request(
@@ -166,7 +172,7 @@ MIXED = {
         ModifiedTreatmentPolicyEffect(shifts=(Shift(0.5, cap=None, name="s"), Static(1))),
         CapabilityError,
         "ModifiedTreatmentPolicyEffect.shifts",
-        (REGIME, F17),
+        ("item 2", REGIME, F17),
         1,
     ),
 }
@@ -254,15 +260,15 @@ def spy_witness(name: str) -> None:
     """The refusal precedes every learner.  It checks ``route`` and not ``holder``, so the
     constructor guard satisfies it when the identification check is gone."""
     row = REQUESTS[name]
-    assert_refused(lambda: estimate_with_spies(row), row.error, *row.route)
-    assert NeverFit.calls == 0, f"{NeverFit.calls} learner fit(s) ran before the refusal"
+    assert_refused_before_any_call(
+        lambda: estimate_with_spies(row), None, "", *row.route, error=row.error
+    )
 
 
 class TestAMixedRequestIsRefusedAtIdentify:
     @pytest.mark.parametrize("name", list(MIXED))
     def test_identify_refuses_the_item_by_its_typed_estimand(self, name: str) -> None:
         identify_witness(name)
-        assert_refused(lambda: identify(MIXED[name]), CapabilityError, "item ")
 
     @pytest.mark.parametrize("name", list(MALFORMED))
     def test_identify_refuses_a_set_that_is_not_a_sequence(self, name: str) -> None:
@@ -283,6 +289,15 @@ class TestAMixedRequestIsRefusedAtIdentify:
     @pytest.mark.parametrize("name", SPIED)
     def test_no_learner_fits_before_the_refusal(self, name: str) -> None:
         spy_witness(name)
+
+    @pytest.mark.parametrize(
+        "name", [name for name, row in MIXED.items() if not row.holder.endswith(".regimens")]
+    )
+    def test_only_a_set_of_regimes_says_why_an_item_is_not_a_regime(self, name: str) -> None:
+        with pytest.raises(CapabilityError) as raised:
+            identify(MIXED[name])
+        for why in _NOT_A_REGIME.values():
+            assert why.strip() not in str(raised.value)
 
     def test_no_message_calls_an_intervention_something_else(self) -> None:
         for row in MIXED.values():

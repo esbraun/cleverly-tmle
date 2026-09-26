@@ -69,13 +69,14 @@ def assert_refused_before_any_call(
 
     ``spy`` is the declared function, a :class:`tests.unit._confounding_support.Counter`
     whose ``calls`` starts at 0.  Pass the object the fit receives: a pickle round trip
-    copies a counter.  :func:`never_fit_learners` resets ``NeverFit``.  ``error`` is the
+    copies a counter.  Pass ``None`` when the request declares no function, and the check
+    covers the learners alone.  :func:`never_fit_learners` resets ``NeverFit``.  ``error`` is the
     class of the refusal: a declaration that is refused raises ``CapabilityError``, and a
     value that is not a declaration raises ``DataError``.
     """
     assert_refused(build, error, *fragments)
     assert NeverFit.calls == 0, f"{NeverFit.calls} learner fit(s) ran before the refusal"
-    assert spy.calls == 0, f"the {function} was evaluated before the refusal"
+    assert spy is None or spy.calls == 0, f"the {function} was evaluated before the refusal"
 
 
 def assert_every_witness_fails(witnesses: Iterable[Callable[[], None]]) -> None:
