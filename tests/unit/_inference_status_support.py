@@ -271,12 +271,15 @@ def at_or_below(cluster: Any, *, cross_fit: bool, **settings: Any) -> str:
     return "few_cluster_plugin" if status == "influence_curve" and at_threshold else status
 
 
-def legacy_copy(result: Any) -> Any:
+def legacy_copy(result: Any, *, recorded: bool = True) -> Any:
     """A copy saved as an ordinary fit: every estimate and any fold report inferential.
 
-    The post-RM12, pre-RM20 shape. Its estimates carry ``inference="influence_curve"``
-    explicitly, and it holds a simultaneous band and an assessment answer that a status
-    fit would not have.
+    With ``recorded=True``, the post-RM12, pre-RM20 shape: each estimate carries
+    ``inference="influence_curve"`` in its state. With ``recorded=False``, the shape of
+    releases 0.1.0 and 0.1.1: no estimate state holds an ``inference`` key, so the copy
+    reads the class default until it is saved, and each estimate loads under
+    ``"unrecorded_status_plugin"`` (roadmap row RM34). Either copy holds a simultaneous
+    band and an assessment answer that a status fit would not have.
     """
     legacy = pickle.loads(pickle.dumps(result))
     reports = [legacy.estimates]
@@ -286,7 +289,11 @@ def legacy_copy(result: Any) -> Any:
         reports.extend([detail.pooled, detail.canonical])
     for report in reports:
         for estimate in report.values():
-            estimate.__dict__["inference"] = "influence_curve"
+            if recorded:
+                estimate.__dict__["inference"] = "influence_curve"
+            else:
+                # Two reports can hold one estimate object, so the key can already be gone.
+                estimate.__dict__.pop("inference", None)
     legacy.__dict__["simultaneous"] = "bands built before the status"
     legacy.__dict__["assessment_cache"] = {"sensitivity.evalue": "an answer read off .ci"}
     return legacy
@@ -300,21 +307,27 @@ def restore(artifact: Any, route: str) -> Any:
 
 
 def assert_restamped(result: Any, status: str, route: str) -> Any:
-    """A legacy copy of ``result`` loads under ``status``, with its diagnostic unchanged.
+    """Both legacy copies of ``result`` load under ``status``, with the diagnostic unchanged.
 
-    Returns the restored result, so a caller can check the reports it adds.
+    The copy that records ``"influence_curve"`` loads first, then the copy without the
+    key, which is the shape of releases 0.1.0 and 0.1.1. So each status witness also
+    loads the released shape.
+
+    Returns the restored copy without the key, so a caller can check the reports it adds.
     """
-    legacy = legacy_copy(result)
-    # The nonzero witness: the copy really is the inferential shape before it loads.
-    assert legacy.inference_status == "influence_curve"
-    restored = restore(legacy, route)
-    assert restored.inference_status == status
-    for name, estimate in restored.estimates.items():
-        with pytest.raises(CapabilityError) as raised:
-            _ = estimate.ci
-        assert_refused_by(status, raised)
-        assert estimate.plugin_std_error == result.estimates[name].plugin_std_error
-        assert estimate.plugin_interval == result.estimates[name].plugin_interval
-    assert restored.simultaneous is None
-    assert restored.assessment_cache == {}
+    restored = None
+    for recorded in (True, False):
+        legacy = legacy_copy(result, recorded=recorded)
+        # The nonzero witness: the copy really is the inferential shape before it loads.
+        assert legacy.inference_status == "influence_curve"
+        restored = restore(legacy, route)
+        assert restored.inference_status == status
+        for name, estimate in restored.estimates.items():
+            with pytest.raises(CapabilityError) as raised:
+                _ = estimate.ci
+            assert_refused_by(status, raised)
+            assert estimate.plugin_std_error == result.estimates[name].plugin_std_error
+            assert estimate.plugin_interval == result.estimates[name].plugin_interval
+        assert restored.simultaneous is None
+        assert restored.assessment_cache == {}
     return restored

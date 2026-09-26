@@ -87,6 +87,7 @@ from ..inference.cluster import (
 from ..inference.influence import (
     ParameterEstimate,
     Scale,
+    carries_status,
     make_estimate,
     spread_name,
     stamp_inference,
@@ -1440,9 +1441,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         estimates under the status they were saved with, and would publish an interval
         this version refuses. The prepared data, folds, resolved regimens, and evaluated
         MSM declaration are in the artifact, so the status is recomputed from them. A
-        legacy MSM with no retained declaration loses inference. A fit whose status
-        supplies inference, or whose estimates already carry the status, loads as it was
-        saved.
+        legacy MSM with no retained declaration loses inference. An estimate saved by
+        release 0.1.0 or 0.1.1 loads under ``"unrecorded_status_plugin"``, and the
+        re-stamp gives it the status of this fit. A fit whose estimates already carry a
+        recorded status loads as it was saved when its status supplies inference, or when
+        that status is its own.
 
         Parameters
         ----------
@@ -1460,11 +1463,16 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         fit did, so the artifact holds everything it needs. A regimen restored from before
         its ``rule_kind`` existed reads ``None``. An MSM restored from before
         ``functions_kind`` existed does too. Either result takes
-        ``"undeclared_function_plugin"`` (roadmap row RM28). A re-stamped artifact also
-        drops what was derived under the old status: the simultaneous bands, a joint
-        confidence statement that the fit now refuses, and the saved assessment answers,
-        which may have read an interval. A saved split of more than one fold with no
-        recorded origin takes ``"stratified_fold_plugin"`` through
+        ``"undeclared_function_plugin"`` (roadmap row RM28). The re-stamp runs in both
+        directions: pickle builds each estimate before this result, so an estimate saved
+        without a status arrives under ``"unrecorded_status_plugin"`` and takes
+        ``"influence_curve"`` here when the fit supplies inference (roadmap row RM34).
+        :func:`~cleverly.inference.influence.carries_status` decides the early return. A
+        re-stamp to a non-inferential status also drops what was derived under the old
+        status: the simultaneous bands, a joint confidence statement that the fit now
+        refuses, and the saved assessment answers, which may have read an interval. A
+        re-stamp to ``"influence_curve"`` keeps both. A saved split of more than one fold
+        with no recorded origin takes ``"stratified_fold_plugin"`` through
         :func:`_saved_split_status` (roadmap row RM31). Only the re-stamp reads that
         rule, so a live fit keeps the status that :func:`_inference_status` gives it. The
         truncation-curve replay resolves its status with the restored one, so it stays
@@ -1481,14 +1489,13 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 _saved_split_status(folds),
             ]
         )
-        if supplies_inference(status):
-            return
         estimates = self.__dict__.get("estimates") or {}
-        if all(estimate.inference == status for estimate in estimates.values()):
+        if carries_status([estimates], status):
             return
         self.__dict__["estimates"] = stamp_inference(estimates, status)
-        self.__dict__["simultaneous"] = None
-        self.__dict__["assessment_cache"] = {}
+        if not supplies_inference(status):
+            self.__dict__["simultaneous"] = None
+            self.__dict__["assessment_cache"] = {}
 
     @staticmethod
     def _max_truncated(fit: RegimenFit) -> tuple[float, int]:

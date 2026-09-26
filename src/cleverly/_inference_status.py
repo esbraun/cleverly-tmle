@@ -23,6 +23,7 @@ __all__ = [
     "HELD_OUT_SCALE",
     "NON_INFERENTIAL",
     "NO_SIMULTANEOUS_BANDS",
+    "UNRECORDED_STATUS",
     "InferenceStatus",
     "StatusRecord",
     "precedent_status",
@@ -45,6 +46,7 @@ InferenceStatus = Literal[
     "undeclared_scale_plugin",
     "unequal_cluster_plugin",
     "few_cluster_plugin",
+    "unrecorded_status_plugin",
 ]
 
 # A clustered fit with fewer clusters than this, in total or in one reported baseline
@@ -65,6 +67,12 @@ FEW_CLUSTER_THRESHOLD: Final[int] = 40
 #: reason of ``"undeclared_scale_plugin"`` and both outcome-scale refusals of
 #: :class:`~cleverly.TMLE` say it, so the three name one fact in one wording.
 HELD_OUT_SCALE: Final[str] = "from every observed outcome, held-out rows included"
+
+#: The status of an estimate whose saved state records none (roadmap row RM34). Releases
+#: 0.1.0 and 0.1.1 wrote no ``inference`` field, so ``ParameterEstimate.__setstate__``
+#: gives it to such an estimate, and ``stamp_inference`` returns it to
+#: ``"influence_curve"`` when the result that holds the estimate supplies inference.
+UNRECORDED_STATUS: Final = "unrecorded_status_plugin"
 
 #: The line a result summary prints when a fit that supplies no inference builds no
 #: simultaneous band. ``TMLEResult.summary`` and ``LongitudinalResult.summary`` both
@@ -374,6 +382,33 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             diagnostic_noun="few-cluster plug-in diagnostic",
             reopened_by="F22",
+        ),
+        UNRECORDED_STATUS: StatusRecord(
+            reason=(
+                "A saved estimate that records no inference status reports no confidence "
+                "interval, no p-value and no standard error. Releases 0.1.0 and 0.1.1 wrote "
+                "no status on an estimate. An estimate saved apart from its result holds no "
+                "estimator, data or folds, so this version cannot read the configuration "
+                "that produced it. Those releases drew stratified folds by default, and "
+                "this version withholds the interval of such a cross-fitted fit. The saved "
+                "point estimate stands. The plug-in standard error of the reported curve "
+                "remains as a diagnostic under plugin_std_error and plugin_interval. RM34 "
+                "in docs/roadmap.md records the rule. Load the whole saved result, which "
+                "reads its configuration again, or fit the analysis again."
+            ),
+            assessment_note=(
+                "the reported curve is an unrecorded-status diagnostic: no confidence "
+                "interval or p-value is available for this saved estimate, RM34 in the "
+                "roadmap records the rule; load the whole saved result, or fit the "
+                "analysis again"
+            ),
+            summary_label="unrecorded-status plug-in se",
+            bootstrap_note=(
+                "a diagnostic; the saved estimate records no configuration, so no result "
+                "validates its bootstrap coverage"
+            ),
+            diagnostic_noun="unrecorded-status plug-in diagnostic",
+            reopened_by="RM34",
         ),
     }
 )

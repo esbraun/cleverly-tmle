@@ -39,6 +39,7 @@ from ..inference.cluster import (
 from ..inference.influence import (
     ParameterEstimate,
     Scale,
+    carries_status,
     spread_name,
     stamp_inference,
 )
@@ -406,8 +407,9 @@ class CVTargeting:
         Returns
         -------
         CVTargeting
-            A copy whose :attr:`pooled` and :attr:`canonical` estimates declare
-            ``status``, with every number unchanged.
+            A copy whose :attr:`pooled` and :attr:`canonical` estimates are stamped by
+            :func:`~cleverly.inference.influence.stamp_inference`, with every number
+            unchanged.
         """
         return replace(
             self,
@@ -1155,9 +1157,11 @@ class TMLEResult:
         its configuration a non-inferential status, loads its estimates with the status
         they were saved under, and would publish an interval this version refuses. The
         estimator that produced the estimates and the data it read are in the artifact, so
-        the status is recomputed from them and re-applied here. Only such an artifact
-        changes: a fit whose estimator supplies inference, or whose estimates already
-        carry its status, loads as it was saved.
+        the status is recomputed from them and re-applied here. An estimate saved by
+        release 0.1.0 or 0.1.1 loads under ``"unrecorded_status_plugin"``, and the
+        re-stamp gives it the status of this configuration. A fit whose estimates already
+        carry a recorded status loads as it was saved when its estimator supplies
+        inference, or when that status is the estimator's.
 
         Parameters
         ----------
@@ -1175,31 +1179,35 @@ class TMLEResult:
         the artifact holds everything it needs. The fit's estimates and both fold-level
         reports are re-stamped together, with
         :func:`~cleverly.inference.influence.stamp_inference` and
-        :meth:`CVTargeting.stamped`. A re-stamped artifact also
-        drops what was derived under the old status: the simultaneous bands, a joint
-        confidence statement that the fit now refuses, and the saved assessment answers,
-        which may have read an interval.
+        :meth:`CVTargeting.stamped`. The re-stamp runs in both directions: pickle builds
+        each estimate before this result, so an estimate saved without a status arrives
+        under ``"unrecorded_status_plugin"`` and takes ``"influence_curve"`` here when the
+        estimator supplies inference (roadmap row RM34).
+        :func:`~cleverly.inference.influence.carries_status` decides the early return. A
+        re-stamp to a non-inferential status also drops what was derived under the old
+        status: the simultaneous bands, a joint confidence statement that the fit now
+        refuses, and the saved assessment answers, which may have read an interval. A
+        re-stamp to ``"influence_curve"`` keeps both.
         """
         hook = getattr(self.estimator, "_inference_status", None)
         data = self.__dict__.get("data")
         if hook is None or data is None:
             return
         status = hook(data)
-        if supplies_inference(status):
-            return
         estimates = self.__dict__.get("estimates") or {}
         extra = self.__dict__.get("extra") or {}
         detail = extra.get("cv_tmle")
         reports = [estimates]
         if isinstance(detail, CVTargeting):
             reports.extend([detail.pooled, detail.canonical])
-        if all(estimate.inference == status for report in reports for estimate in report.values()):
+        if carries_status(reports, status):
             return
         self.__dict__["estimates"] = stamp_inference(estimates, status)
         if isinstance(detail, CVTargeting):
             self.__dict__["extra"] = {**extra, "cv_tmle": detail.stamped(status)}
-        self.__dict__["simultaneous"] = None
-        self.__dict__["assessment_cache"] = {}
+        if not supplies_inference(status):
+            self.__dict__["simultaneous"] = None
+            self.__dict__["assessment_cache"] = {}
 
     # ---------------------------------------------------------------- output
 
