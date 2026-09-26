@@ -309,6 +309,11 @@ def variable_importance(
             intermediate=None,
             treatment_kind="discrete",
         )
+        # The outcome-scale refusal of every fit comes before the status, as the fold
+        # policy does.  Asked below, the status hook would report an undeclared scale as the
+        # status of a saved result (roadmap row RM33), and its reason does not name the
+        # remedy.
+        template._refuse_unbounded_cross_fitted_scale(candidate_data)
         refuse_inference(
             template._inference_status(candidate_data), operation="variable_importance()"
         )

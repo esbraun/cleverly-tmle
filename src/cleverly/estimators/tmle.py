@@ -93,7 +93,12 @@ from typing import Any, cast, get_args
 import numpy as np
 
 from .._declarations import declaration_status
-from .._inference_status import InferenceStatus, precedent_status, supplies_inference
+from .._inference_status import (
+    HELD_OUT_SCALE,
+    InferenceStatus,
+    precedent_status,
+    supplies_inference,
+)
 from .._typing import (
     BoolArray,
     EstimandName,
@@ -289,6 +294,15 @@ _ARM_INDEXED_CONTRACT = (
 #: can run. One fold balances nothing, so the fold policy is not part of the remedy.
 _IN_SAMPLE_ARM_INDEXED_REMEDY = (
     "fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))"
+)
+
+#: The audit and the remedy that both outcome-scale refusals end with. A refusal names the
+#: remedy, and the status reason of a saved result does not, so the status shares only
+#: :data:`~cleverly._inference_status.HELD_OUT_SCALE`.
+_SCALE_AUDIT = "(docs/technical-reference/cv-tmle.md, fold and outcome-scale rules)"
+_SCALE_REMEDY = (
+    "(Targeting(q_bounds=(lower, upper))). Without a known finite support, "
+    + _IN_SAMPLE_ARM_INDEXED_REMEDY
 )
 
 #: The first clause of the refusal of every other cross-fitted missing-outcome target.
@@ -575,11 +589,13 @@ class TMLE:
         -------
         str
             One of :data:`~cleverly.inference.influence.InferenceStatus`. The ordinary
-            estimator resolves three statuses. :meth:`_declared_function_status` gives
+            estimator resolves four statuses. :meth:`_declared_function_status` gives
             ``"undeclared_function_plugin"`` to a restored estimator with a function that
             is not declared known. :meth:`_saved_fold_policy_status` gives
             ``"stratified_fold_plugin"`` to a restored estimator whose outer folds read
-            the treatment.
+            the treatment. :meth:`_saved_scale_status` gives
+            ``"undeclared_scale_plugin"`` to a restored cross-fitted estimator of a
+            continuous outcome with no declared ``q_bounds``.
             :func:`~cleverly.inference.cluster.cluster_inference_status` reads the cluster
             labels. It gives ``"influence_curve"`` on an unclustered fit, and a clustered
             status on a cross-fitted fit at unequal cluster sizes, in rows or in weight
@@ -589,6 +605,7 @@ class TMLE:
             [
                 self._declared_function_status(),
                 self._saved_fold_policy_status(data),
+                self._saved_scale_status(data),
                 cluster_inference_status(
                     data.cluster,
                     cross_fit=self.cross_fit,
@@ -607,7 +624,9 @@ class TMLE:
         :meth:`crossfit_plan` records those strata in ``stratify_by``: only under
         cross-fitting, only for a discrete treatment, and only under a policy other than
         ``"none"``. So an in-sample fit and a continuous dose, whose split read no
-        treatment, keep their interval. A live fit refuses such a policy in
+        treatment, keep their interval under this rule. A continuous dose of a continuous
+        outcome saved with ``q_bounds=None`` takes :meth:`_saved_scale_status` instead
+        (roadmap row RM33). A live fit refuses such a policy in
         ``_resolve_estimands_for_data`` before it stamps a status, so only a restored or
         copied estimator reaches ``"stratified_fold_plugin"``, and
         ``TMLEResult.__setstate__`` then re-stamps its saved estimates. The study seams
@@ -627,6 +646,36 @@ class TMLE:
         """
         if self.crossfit_plan(data).stratify_by:
             return "stratified_fold_plugin"
+        return "influence_curve"
+
+    def _saved_scale_status(self, data: CausalData) -> InferenceStatus:
+        """Whether this estimator fits on an outcome scale that its held-out rows set.
+
+        The status predicate of roadmap row RM33. Releases 0.1.0 and 0.1.1 took the scale
+        of a continuous outcome from every observed outcome when ``q_bounds`` was
+        ``None``, their default, and no shipped result covers a cross-fitted fit on that
+        scale. The predicate is :meth:`_outcome_scale_refusal`, which the fit-time
+        refusal raises, so the two cannot disagree. It reads ``cross_fit``,
+        ``data.family`` and ``q_bounds``, and not the treatment kind. RM31 reaches a saved
+        discrete treatment first, so a saved continuous dose is the result that this
+        rule alone reaches. A live fit refuses this scale in
+        ``_resolve_estimands_for_data`` before it stamps a status, so only a restored or
+        copied estimator reaches ``"undeclared_scale_plugin"``, and
+        ``TMLEResult.__setstate__`` then re-stamps its saved estimates.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data. :meth:`_outcome_scale_refusal` reads its outcome family.
+
+        Returns
+        -------
+        str
+            ``"undeclared_scale_plugin"`` when this version refuses the outcome scale, and
+            ``"influence_curve"`` otherwise.
+        """
+        if self._outcome_scale_refusal(data) is not None:
+            return "undeclared_scale_plugin"
         return "influence_curve"
 
     def _declared_function_status(self) -> InferenceStatus:
@@ -1640,8 +1689,8 @@ class TMLE:
             + _IN_SAMPLE_ARM_INDEXED_REMEDY
         )
 
-    def _refuse_unbounded_cross_fitted_scale(self, data: CausalData) -> None:
-        """Refuse a cross-fitted continuous outcome whose scale the held-out rows set.
+    def _outcome_scale_refusal(self, data: CausalData) -> str | None:
+        """The sentence a cross-fitted fit on an undeclared outcome scale raises, or ``None``.
 
         :meth:`_scaler` maps a continuous outcome onto ``[0, 1]`` before ``Qbar`` is
         fitted, and with ``q_bounds=None`` it takes the endpoints from the observed
@@ -1649,19 +1698,51 @@ class TMLE:
         rows it predicts helped choose, so the split no longer separates what a fold saw
         from what it is scored on.  Declaring the support is the remedy that keeps the
         separation, and fitting in sample is the one that needs no support.
+        :meth:`_refuse_unbounded_cross_fitted_scale` raises the sentence, and
+        :meth:`_saved_scale_status` reads it as a status (roadmap row RM33).
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data. Its outcome family and outcome name are read.
+
+        Returns
+        -------
+        str or None
+            The refusal, or ``None`` when the fit is in sample, the outcome is binary, or
+            ``q_bounds`` is declared.
         """
         if not self.cross_fit or data.family == "binomial" or self.q_bounds is not None:
-            return
-        raise CapabilityError(
+            return None
+        return (
             f"a cross-fitted fit of a continuous outcome ({data.outcome_name}, "
             f"family={data.family!r}) needs a declared q_bounds. With q_bounds=None the "
-            "outcome scale is taken from every observed outcome, held-out rows included, "
+            f"outcome scale is taken {HELD_OUT_SCALE}, "
             "so each fold's nuisance is fitted on a scale the rows it predicts helped set, "
-            "and no shipped result covers that scale "
-            "(docs/technical-reference/cv-tmle.md, fold and outcome-scale rules). Declare the "
-            "known outcome support (Targeting(q_bounds=(lower, upper))). Without a known "
-            f"finite support, {_IN_SAMPLE_ARM_INDEXED_REMEDY}"
+            f"and no shipped result covers that scale {_SCALE_AUDIT}. Declare the "
+            f"known outcome support {_SCALE_REMEDY}"
         )
+
+    def _refuse_unbounded_cross_fitted_scale(self, data: CausalData) -> None:
+        """Raise the sentence of :meth:`_outcome_scale_refusal`, when the scale is refused.
+
+        Two call sites run it: ``_resolve_estimands_for_data``, before any learner of a fit
+        or a refit, and :func:`cleverly.variable_importance`, on each candidate's prepared
+        data before it asks the status (roadmap row RM33).
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+
+        Raises
+        ------
+        CapabilityError
+            If this version refuses the outcome scale of a cross-fitted fit on ``data``.
+        """
+        reason = self._outcome_scale_refusal(data)
+        if reason is not None:
+            raise CapabilityError(reason)
 
     def _on_arm_indexed_stacked_surface(self, data: CausalData, estimands: tuple[str, ...]) -> bool:
         """Whether the arm-indexed stacked MAR contract governs this ordinary TMLE fit.
@@ -1734,12 +1815,9 @@ class TMLE:
             )
         if data.family != "binomial" and self.q_bounds is None:
             refuse(
-                "a continuous outcome with q_bounds=None takes its scale from every observed "
-                "outcome, held-out rows included, and no reviewed result covers that scale "
-                "(docs/technical-reference/cv-tmle.md, fold and outcome-scale "
-                "rules). Declare q_bounds equal to the known outcome support "
-                "(Targeting(q_bounds=(lower, upper))). Without a known finite support, "
-                f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}"
+                f"a continuous outcome with q_bounds=None takes its scale {HELD_OUT_SCALE}, "
+                f"and no reviewed result covers that scale {_SCALE_AUDIT}. Declare q_bounds "
+                f"equal to the known outcome support {_SCALE_REMEDY}"
             )
         if self.split_plan is not None:
             refuse(
