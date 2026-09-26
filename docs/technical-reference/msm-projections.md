@@ -45,6 +45,10 @@ so the score equation is one per coefficient rather than one per arm. The counte
 the arms. What changed is the summary. A **saturated** working model, with one indicator per arm,
 reproduces the per-arm report exactly, at the point estimate and at the influence curve.
 
+On a continuous dose, a trapezoid sum over the declared grid `doses=` replaces the sum over arms.
+The clever covariate then divides by the conditional treatment density at the observed dose and
+at each grid dose. `build_submodel` in `src/cleverly/estimators/targeting.py` builds it.
+
 Theory: Neugebauer and van der Laan (2007), Rosenblum and van der Laan (2010), and chapter 12 of
 van der Laan and Rose (2011). Petersen et al. (2014) gives the longitudinal construction. See the
 [reference list](../references.md#longitudinal-survival-and-marginal-structural-models).
@@ -157,6 +161,7 @@ Each refusal raises `CapabilityError`. The
 | a `weights=` callable with no `weights_kind` | wrong by construction | the package cannot tell a fixed weight from a weight computed from the sample. The message asks for `weights_kind="known"` |
 | `weights_kind="estimated"`, a "stabilised" MSM | wrong by construction | the weight is a functional of $P$, so the influence curve needs a further term for the pathwise derivative through the estimated mechanism. The reported curve does not have it. This is the same argument that gives an incremental intervention its own axis |
 | an array in place of a `weights=` callable | wrong by construction | an array is one evaluation of the weight, and nothing shows that the sample did not set it |
+| a continuous dose with missing outcomes (`delta=`, or `PointTreatment(missingness=...)`) or with `intermediate=`, in sample or cross-fitted | [not written yet](scope-and-refusals.md#not-written-yet) | the continuous-dose covariate that the package builds must then also divide by the response or intermediate mechanism at each grid dose. The package does not predict either mechanism at a grid dose. `TMLE` refuses before any learner, and `CausalStudy.identify` refuses `MSMProjection` with a missing outcome. `tests/unit/test_continuous_msm_mechanism_refusals.py` checks both. [X10](../roadmap.md#x10-continuous-dose-msm-with-a-second-mechanism) tracks the construction |
 
 A malformed input raises `DataError`. The table gives the four cases.
 

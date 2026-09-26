@@ -411,7 +411,7 @@ def refuse_continuous_msm_mechanisms(data: CausalData, *, subject: str, missingn
     Parameters
     ----------
     data : CausalData
-        The data of the fit.  A discrete treatment returns at once.
+        The data of the fit.  The check returns at once for a discrete treatment.
     subject : str
         What the message names as refused, such as ``"An MSM (msm=)"``.
     missingness : str
