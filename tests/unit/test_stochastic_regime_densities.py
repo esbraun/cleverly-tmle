@@ -162,7 +162,7 @@ class TestTheDeclarationIsRequired:
             "population-law target",
             "data-adaptive target",
             "TMLE(incremental=",
-            "IncrementalMean or IncrementalEffect",
+            "IncrementalMean and IncrementalEffect",
         )
 
     @pytest.mark.parametrize("kind", ["Known", "probability", True, 1])

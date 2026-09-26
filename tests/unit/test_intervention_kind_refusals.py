@@ -48,9 +48,11 @@ from tests.unit._declaration_support import assert_every_witness_fails, assert_r
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
 F17 = "docs/roadmap.md F17"
-REGIME = "RegimeMean or RegimeContrast"
-SHIFT = "ModifiedTreatmentPolicy or ModifiedTreatmentPolicyEffect"
-INCREMENTAL = "IncrementalMean or IncrementalEffect"
+REGIME = "RegimeMean and RegimeContrast"
+SHIFT = "ModifiedTreatmentPolicy and ModifiedTreatmentPolicyEffect"
+INCREMENTAL = "IncrementalMean and IncrementalEffect"
+#: The remedy for a bare value in a shift or incremental set.
+BARE = "is a bare value"
 
 
 def binary() -> CausalStudy:
@@ -148,7 +150,7 @@ MIXED = {
         IncrementalMean((Incremental(1.0), 2.0)),
         CapabilityError,
         "IncrementalMean.interventions",
-        ("Incremental(2.0)", REGIME, F17),
+        (BARE, "Write it as an object, such as Incremental(2.0)"),
         0,
     ),
     "incremental in a shift set": Request(
@@ -319,6 +321,11 @@ class TestTheEstimatorKeepsASecondGuard:
                 (Shift(0.5, cap=None), Incremental(2.0)),
                 ("shifts=", "item 2", INCREMENTAL, F17),
             ),
+            (
+                "shifts",
+                (0.5,),
+                ("shifts=", "item 1", BARE, "Shift(0.5, cap=None)"),
+            ),
         ],
         ids=[
             "incremental in interventions",
@@ -326,6 +333,7 @@ class TestTheEstimatorKeepsASecondGuard:
             "regime in incremental",
             "shift in incremental",
             "incremental in shifts",
+            "bare number in shifts",
         ],
     )
     def test_the_constructor_refuses_a_mixed_keyword(

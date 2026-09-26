@@ -56,7 +56,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
-from typing import Any, Literal, Protocol, cast, runtime_checkable
+from typing import Any, Literal, NamedTuple, Protocol, cast, runtime_checkable
 
 import numpy as np
 
@@ -437,26 +437,38 @@ def check_regime_density(
 
 InterventionKind = Literal["regime", "shift", "incremental"]
 
-#: For each kind: what a set of that kind accepts, what one item of it is, the typed
-#: estimands that declare it, and the ``TMLE`` keyword that takes it.
-_KIND_TEXT: dict[InterventionKind, tuple[str, str, str, str]] = {
-    "regime": (
+
+class _KindText(NamedTuple):
+    """The words that a refusal of one intervention kind uses."""
+
+    accepts: str  # what a set of the kind accepts
+    example: str  # one item of the kind, as a user writes it
+    item: str  # what one item of the kind is
+    estimands: str  # the typed estimands that hold the kind in a CausalStudy
+    keyword: str  # the TMLE keyword that takes the kind on the estimator
+
+
+_KIND_TEXT: dict[InterventionKind, _KindText] = {
+    "regime": _KindText(
         "treatment levels and regimes",
+        "Static(1)",
         "a treatment level or a regime, which assigns a distribution over the arms from the "
         "covariates",
-        "RegimeMean or RegimeContrast",
+        "RegimeMean and RegimeContrast",
         "TMLE(interventions=...)",
     ),
-    "shift": (
-        "only Shift objects, such as Shift(0.5, cap=None)",
+    "shift": _KindText(
+        "Shift objects",
+        "Shift(0.5, cap=None)",
         "a modified treatment policy, which moves the dose that a unit received",
-        "ModifiedTreatmentPolicy or ModifiedTreatmentPolicyEffect",
+        "ModifiedTreatmentPolicy and ModifiedTreatmentPolicyEffect",
         "TMLE(shifts=...)",
     ),
-    "incremental": (
-        "only Incremental objects, such as Incremental(2.0)",
+    "incremental": _KindText(
+        "Incremental objects",
+        "Incremental(2.0)",
         "an incremental propensity-score intervention, which multiplies the odds of treatment",
-        "IncrementalMean or IncrementalEffect",
+        "IncrementalMean and IncrementalEffect",
         "TMLE(incremental=...)",
     ),
 }
@@ -495,23 +507,15 @@ def refuse_mixed_interventions(
 ) -> None:
     """Raise at the first item of ``items`` that is not of ``kind``.
 
-    One fit estimates one intervention kind, and each kind has its own typed estimands and
-    its own ``TMLE`` keyword.  The table gives them.
-
-    =================  ==============================================  ===================
-    kind               typed estimands                                 ``TMLE`` keyword
-    =================  ==============================================  ===================
-    ``"regime"``       ``RegimeMean``, ``RegimeContrast``              ``interventions=``
-    ``"shift"``        ``ModifiedTreatmentPolicy``,                    ``shifts=``
-                       ``ModifiedTreatmentPolicyEffect``
-    ``"incremental"``  ``IncrementalMean``, ``IncrementalEffect``      ``incremental=``
-    =================  ==============================================  ===================
-
-    The message names the holder, the position and the item, the typed estimands and the
-    keyword for the kind of the item, and F17 for a joint request.  In a set of regimes it
-    also says why the item is not a regime.  ``CausalStudy.identify`` runs this on the set
-    of each typed estimand, :func:`as_interventions` on ``interventions=``, and the
-    ``TMLE`` constructor on ``shifts=`` and ``incremental=`` (roadmap row RM14).
+    One fit estimates one intervention kind.  ``_KIND_TEXT`` gives, for each kind, what a
+    set accepts, the typed estimands that hold it, and the ``TMLE`` keyword that takes it.
+    The message names the holder, the position and the item.  For an item of another kind
+    it names that kind's typed estimands and keyword, and F17 for a joint request.  In a set
+    of regimes it also says why the item is not a regime.  A bare value in a shift or
+    incremental set is not a regime the user meant, so its message shows the object to
+    write instead.  ``CausalStudy.identify`` runs this on the set of each typed estimand,
+    :func:`as_interventions` on ``interventions=``, and the ``TMLE`` constructor on
+    ``shifts=`` and ``incremental=`` (roadmap row RM14).
 
     Parameters
     ----------
@@ -528,17 +532,23 @@ def refuse_mixed_interventions(
     CapabilityError
         If an item is of another kind.
     """
+    text = _KIND_TEXT[kind]
     for position, item in enumerate(items, start=1):
         found = _intervention_kind(item)
         if found == kind:
             continue
-        _, what, estimands, keyword = _KIND_TEXT[found]
+        if found == "regime" and not callable(getattr(item, "density", None)):
+            raise CapabilityError(
+                f"{holder} accepts {text.accepts}, and item {position}, {item!r}, is a bare "
+                f"value. Write it as an object, such as {text.example}."
+            )
+        other = _KIND_TEXT[found]
         why = _NOT_A_REGIME.get(found, "") if kind == "regime" else ""
         raise CapabilityError(
-            f"{holder} accepts {_KIND_TEXT[kind][0]}, and item {position}, {item!r}, is "
-            f"{what}. Declare it with {estimands} in a CausalStudy, or pass it to {keyword} "
-            f"on the estimator.{why} One fit estimates one intervention kind, and "
-            "docs/roadmap.md F17 tracks a joint request."
+            f"{holder} accepts {text.accepts}, such as {text.example}, and item {position}, "
+            f"{item!r}, is {other.item}. {other.estimands} hold that kind in a CausalStudy, "
+            f"and {other.keyword} takes it on the estimator.{why} One fit estimates one "
+            "intervention kind, and docs/roadmap.md F17 tracks a joint request."
         )
 
 
@@ -552,10 +562,11 @@ _ESTIMATED_DENSITY = (
     "API does not check. "
     "docs/technical-reference/scope-and-refusals.md (Wrong by construction) records the "
     "refusal, and RM25 in docs/roadmap.md records the reason. For the population odds tilt "
-    "of the treatment mechanism, declare cleverly.interventions.Incremental with "
-    f"{_KIND_TEXT['incremental'][2]} in a CausalStudy, or pass it to TMLE(incremental=...). "
-    "Its curve carries that term. Otherwise pass density_fn= as a fixed function of the "
-    "covariates with density_kind='known'."
+    "of the treatment mechanism, declare cleverly.interventions.Incremental. "
+    f"{_KIND_TEXT['incremental'].estimands} hold it in a CausalStudy, and "
+    f"{_KIND_TEXT['incremental'].keyword} takes it on the estimator. Its curve carries that "
+    "term. Otherwise pass density_fn= as a fixed function of the covariates with "
+    "density_kind='known'."
 )
 
 _UNDECLARED_DENSITY = (
@@ -636,9 +647,10 @@ _ESTIMATED_INTERVENTION = (
     "not check. docs/technical-reference/scope-and-refusals.md (Wrong by construction) "
     "records the refusal, and RM28 in docs/roadmap.md records the reason. For the "
     "population odds tilt of the treatment mechanism, declare "
-    f"cleverly.interventions.Incremental with {_KIND_TEXT['incremental'][2]} in a "
-    "CausalStudy, or pass it to TMLE(incremental=...). Otherwise make density(data) a "
-    "fixed function of the covariates and set density_kind = 'known'."
+    f"cleverly.interventions.Incremental. {_KIND_TEXT['incremental'].estimands} hold it in "
+    f"a CausalStudy, and {_KIND_TEXT['incremental'].keyword} takes it on the estimator. "
+    "Otherwise make density(data) a fixed function of the covariates and set "
+    "density_kind = 'known'."
 )
 
 #: The density declaration of a user-written :class:`Intervention`: the attribute

@@ -367,7 +367,7 @@ class TestTheFitRefusesAnUndeclaredIntervention:
             "fit",
             DataTilt(density_kind="estimated"),
             *fragments,
-            "IncrementalMean or IncrementalEffect",
+            "IncrementalMean and IncrementalEffect",
             "TMLE(incremental=...)",
         )
 
