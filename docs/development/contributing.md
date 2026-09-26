@@ -111,10 +111,10 @@ Regenerate every registered study that evaluates a result-determining implementa
 
 ## Write documentation
 
-The root `README.md` and every reader-facing document under `docs/` align with Issue 9 of
-ASD-STE100 Simplified Technical English. `CLAUDE.md` states the rules in full. The short form is
-one idea per sentence, the active voice, the present tense, a named actor, and a table wherever the
-content is parallel.
+The root `README.md` and reader-facing documents under `docs/` align with Issue 9 of
+ASD-STE100 Simplified Technical English. `CLAUDE.md` states the rules and their limits in full.
+Use one idea per sentence, the active voice, the present tense, and a named actor.
+Use a table wherever the content is parallel.
 
 `docs/README.md` is the source map. It states which document holds which record. It also states the
 examples contract: a new method entry needs a new tutorial, and the two link to each other in both
@@ -123,13 +123,17 @@ directions.
 Follow these steps when you change a document.
 
 1. Rewrite the text your change touches. Do not sweep unrelated pages.
-2. Run `python -m tests.prose` and read every finding it reports.
-3. Fix the sentence, or run `python -m tests.prose --update` and write `accepted: <reason>` in the
-   last column of `tests/prose-report.md`.
+2. Run `python -m tests.prose` and read every finding it reports. Use `--path <file>` for a report
+   on one file.
+3. Fix each sentence where the change improves its meaning or clarity.
+4. After edits, run `python -m tests.prose --update` to refresh the whole ledger. Do not combine
+   `--update` with `--path`.
+5. For each retained finding, record `accepted: <reason>` in the last column of
+   `tests/prose-report.md`. Keep an existing reason if it still applies.
 
-The fast tier fails on a finding that carries no recorded judgment. It never fails on the prose
-itself. A mechanical edit that satisfies a rule and breaks a sentence is the failure the report
-exists to prevent, so the reason you record is the point of the exercise.
+The fast tier rejects findings without an accepted reason and stale ledger rows. Refresh the
+ledger even when you fix every finding. A mechanical edit that breaks a sentence defeats the
+report's purpose. Keep the sentence whole and record why you accept the finding.
 
 ## Write docstrings
 
