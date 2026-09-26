@@ -142,7 +142,7 @@ from ..inference.influence import (
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as_interventions
-from ..interventions.base import refuse_regime_densities
+from ..interventions.base import refuse_mixed_interventions, refuse_regime_densities
 from ..interventions.incremental import refuse_multi_arm_tilt
 from ..learners._fitting import Task, infer_task
 from ..learners.crossfit import (
@@ -691,6 +691,8 @@ class TMLE:
         self.interventions = as_interventions(interventions)
         self.shifts = tuple(shifts or ())
         self.incremental = tuple(incremental or ())
+        refuse_mixed_interventions(self.shifts, kind="shift", holder="shifts=")
+        refuse_mixed_interventions(self.incremental, kind="incremental", holder="incremental=")
         self.msm = msm
         self.density_bins = density_bins
         self.reference = reference

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
@@ -15,6 +15,7 @@ from .estimators import CTMLE, DRTMLE, TMLE, TMLEResult
 from .exceptions import CapabilityError, CleverlyError, DataError, MethodConfigurationError
 from .inference.multiplier import SimultaneousBands, simultaneous_bands
 from .interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet
+from .interventions.base import InterventionKind, refuse_mixed_interventions
 from .longitudinal import LTMLE, LongitudinalData, LongitudinalResult
 from .methods import (
     CollaborativeTMLEMethod,
@@ -1951,6 +1952,17 @@ def _point_identification(
     )
 
 
+def _declared_interventions(actual: Any) -> tuple[str, InterventionKind] | None:
+    """The field that holds a typed estimand's interventions, and their kind."""
+    if isinstance(actual, (RegimeMean, RegimeContrast)):
+        return "regimens", "regime"
+    if isinstance(actual, (ModifiedTreatmentPolicy, ModifiedTreatmentPolicyEffect)):
+        return "shifts", "shift"
+    if isinstance(actual, (IncrementalMean, IncrementalEffect)):
+        return "interventions", "incremental"
+    return None
+
+
 def _point_functional(
     design: PointTreatment,
     data: CausalData,
@@ -1961,16 +1973,9 @@ def _point_functional(
     registered = TARGETS.get(target)
     if registered is None:
         raise CapabilityError(f"{type(estimand).__name__} is not an evidenced point estimand")
-    interventions: tuple[Any, ...] = ()
-    msm = None
-    if isinstance(actual, (RegimeMean, RegimeContrast)):
-        interventions = tuple(actual.regimens)
-    elif isinstance(actual, (ModifiedTreatmentPolicy, ModifiedTreatmentPolicyEffect)):
-        interventions = tuple(actual.shifts)
-    elif isinstance(actual, (IncrementalMean, IncrementalEffect)):
-        interventions = tuple(actual.interventions)
-    elif isinstance(actual, MSMProjection):
-        msm = actual.model
+    declared = _declared_interventions(actual)
+    interventions: tuple[Any, ...] = () if declared is None else tuple(getattr(actual, declared[0]))
+    msm = actual.model if isinstance(actual, MSMProjection) else None
     return BackdoorMeanContrast(
         outcome=design.outcome,
         treatment=design.treatment,
@@ -2086,6 +2091,21 @@ class ExplicitAdjustmentProvider:
             )
         if target not in TARGETS:
             raise CapabilityError(f"{type(estimand).__name__} is not an evidenced point estimand")
+        # The kinds of the items are a property of the estimand, so they are checked before
+        # the design.  Not in ``_point_functional``: the provenance matcher calls that inside
+        # a ``try`` that reads a refusal as a mismatch (roadmap row RM14).
+        declared = _declared_interventions(actual)
+        if declared is not None:
+            field_name, kind = declared
+            items = getattr(actual, field_name)
+            holder = f"{type(actual).__name__}.{field_name}"
+            if isinstance(items, (str, bytes, Mapping)) or not isinstance(items, Iterable):
+                raise DataError(
+                    f"{holder} must be a sequence, such as a tuple, and it received "
+                    f"{items!r}. Write one item as a one-item tuple. A point-treatment design "
+                    "reads no mapping key, so give an item its name with name="
+                )
+            refuse_mixed_interventions(items, kind=kind, holder=holder)
         # Keyed on the outcome being missing, not on the declaration.  The engine guard
         # this fronts -- ``TargetContext.observed_mean`` -- keys on the observation mask,
         # so a design that declares a response indicator which is identically one has no
@@ -2283,7 +2303,11 @@ class CausalStudy:
         Raises
         ------
         CapabilityError
-            If the estimand type or its composition with the design is unsupported.
+            If the estimand type or its composition with the design is unsupported, or if
+            a typed estimand holds an intervention of another kind.
+        DataError
+            If the estimand names a value that the data lack, or if the set of a point
+            estimand is a mapping, a string, or a single item.
 
         See Also
         --------

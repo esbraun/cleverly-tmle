@@ -364,7 +364,11 @@ class TestTheFitRefusesAnUndeclaredIntervention:
     def test_the_estimated_refusal_names_the_incremental_axis(self) -> None:
         _, fragments = MODIFIED_CLASS["estimated"]
         assert_entry_refuses(
-            "fit", DataTilt(density_kind="estimated"), *fragments, "TMLE(incremental=...)"
+            "fit",
+            DataTilt(density_kind="estimated"),
+            *fragments,
+            "IncrementalMean or IncrementalEffect",
+            "TMLE(incremental=...)",
         )
 
     def test_an_unknown_declaration_is_refused_before_any_call(self) -> None:
