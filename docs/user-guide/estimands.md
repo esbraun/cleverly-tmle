@@ -137,10 +137,11 @@ omits the derivative of that dependence. A realized learned density is a differe
 inference needs conditions this API does not check. For the population odds tilt of the treatment
 mechanism, use an [incremental intervention](#incremental-propensity-score-interventions).
 
-Each typed estimand holds one intervention kind. `CausalStudy.identify` raises `CapabilityError`
-when a set holds another kind, such as an `Incremental` in `RegimeContrast`. The message names the
-typed estimand for that item. `identify` raises `DataError` when the set is a mapping, a string,
-or a single item. Write one item as a one-item tuple.
+On a point-treatment design, each typed estimand holds one intervention kind.
+`CausalStudy.identify` raises `CapabilityError` when a set holds another kind, such as an
+`Incremental` in `RegimeContrast`. The message names the typed estimands for that item.
+`identify` raises `DataError` when the set is a mapping, an iterator, a string, or a single item.
+Write one item as a one-item tuple.
 [F17](../roadmap.md#f17-joint-point-treatment-parameter-axes) tracks a fit with two kinds.
 
 ## Modified treatment policies

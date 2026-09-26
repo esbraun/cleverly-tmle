@@ -945,7 +945,9 @@ class RegimeMean:
     Parameters
     ----------
     regimens : Any
-        Point-treatment interventions or longitudinal regimens.
+        Point-treatment interventions or longitudinal regimens.  On a point-treatment
+        design, a sequence of treatment levels and regimes, such as ``(0, Static(1))``.
+        ``CausalStudy.identify`` refuses a ``Shift`` or an ``Incremental`` here.
     reference : str or None
         Regimen label used as the reference for related contrasts.
     horizons : sequence of int or None
@@ -966,7 +968,9 @@ class RegimeContrast:
     Parameters
     ----------
     regimens : Any
-        Point-treatment interventions or longitudinal regimens.
+        Point-treatment interventions or longitudinal regimens.  On a point-treatment
+        design, a sequence of treatment levels and regimes, such as ``(0, Static(1))``.
+        ``CausalStudy.identify`` refuses a ``Shift`` or an ``Incremental`` here.
     reference : str or None
         Reference regimen label. ``None`` uses the first regimen.
     horizons : sequence of int or None

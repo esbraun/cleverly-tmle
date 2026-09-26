@@ -34,10 +34,10 @@ one, by the `id` in the "What this row asks for" table of RM18.
 `tests/unit/test_red_cell_ledger.py` checks the ledger against the committed results. Each red
 verdict stays red under a `reporting` policy, so no verdict is hidden and no margin moved.
 
-The detail section of a delivered row keeps a short record of what shipped. Commit `dea3297e`
-holds the full plan, probe and review record of each delivered row that this roadmap still
-describes. Read it with `git show dea3297e:docs/roadmap.md`. The table below lists the rows that
-remain.
+The detail section of a delivered row keeps a short record of what shipped. Commit `dea3297e`,
+or the commit that its detail section names, holds the full plan, probe and review record of each
+delivered row that this roadmap still describes. Read a record with, for example,
+`git show dea3297e:docs/roadmap.md`. The table below lists the rows that remain.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
@@ -348,15 +348,15 @@ them after one learner fit. A `Shift` in `IncrementalEffect` raised nothing, and
 shift as an odds multiplier. Each refusal named a `TMLE` keyword, and the top level does
 not export `TMLE`.
 
-Pull request #NNN delivered this row. The table gives what shipped. Commit `b876ec3f` holds the
+Pull request NNN delivered this row. The table gives what shipped. Commit `b876ec3f` holds the
 probe table and the corrections. Read it with `git show b876ec3f:docs/roadmap.md`.
 
 | part | what shipped |
 | --- | --- |
 | identification | `_identify_point` in `src/cleverly/study.py` runs `refuse_mixed_interventions` on the set of each regime, shift and incremental estimand. An item of another kind raises `CapabilityError` before any learner |
 | point sets | `_identify_point` refuses a mapping, an iterator, a string or a single item as a point set with `DataError`, before it reads the set. The message names the tuple form |
-| messages | each refusal names the field, the item, and the typed estimands for its kind. It cites [F17](#f17-joint-point-treatment-parameter-axes) for a joint request. The two refusals of an estimated density also name `IncrementalMean` and `IncrementalEffect` |
-| estimator guard | `as_interventions` and the `TMLE` constructor run the same check on `interventions=`, `shifts=` and `incremental=` |
+| messages | each refusal names the field and the item. For an item of another kind it names the typed estimands of that kind and cites [F17](#f17-joint-point-treatment-parameter-axes). For a bare value in a shift or incremental set it names the object to write. The two refusals of an estimated density also name `IncrementalMean` and `IncrementalEffect` |
+| estimator guard | `as_interventions` and the `TMLE` constructor run the same check on `interventions=`, `shifts=` and `incremental=`. The constructor refuses two intervention keywords together, or one of them with `msm=`, with `CapabilityError` |
 | zero-dimensional plan | commit `b64d334d` refused it with `DataError`. The message now names the sequence form and `DynamicRegimen` |
 
 `tests/unit/test_intervention_kind_refusals.py` holds the witnesses and two mutation controls.
@@ -418,7 +418,6 @@ The witnesses must fail when a component is wrong:
 | `DRTMLE` class docstring | describes an open centring defect on a quarter of splits, and names the test class `TestTheReportedCurveIsNotAlwaysCentred` | no test class has that name. `TestTheReportedCurveIsCentredWhereTheBoundBinds` in `tests/unit/test_drtmle_fit.py` records the fix, which solves the score at the truncated tilt. The docstring of `TestEachDrawSolvesItsOwnEquations` names the old class too | describe the fixed state, and name the present class in both docstrings |
 | bootstrap summary on a non-inferential fit | `estimate.bootstrap.ci` answers, and `to_dict` emits `bootstrap_std_err`, under inferential names on a fit whose status supplies no inference | `BootstrapSummary` in `src/cleverly/inference/influence.py` is a plain dataclass, and `ParameterEstimate.to_dict` writes `bootstrap_std_err` whatever the status. `to_dict` already renames the percentile limits to `bootstrap_range_lower` and `bootstrap_range_upper`. RM12 kept the `bootstrap_std_err` name on purpose, and the [collaborative reference](technical-reference/collaborative-tmle.md) says so | decide what the bootstrap publishes on such a fit, and record the decision in the collaborative reference and in [inference status](technical-reference/inference.md#inference-status). A refusal at `.bootstrap.ci` would break the `ci=` keyword of the `BootstrapSummary` constructor and every reader of that field |
 | continuous-treatment `DataError` | the error for a continuous treatment with no `shifts=` and no `msm=` offers `Shift(0.0, cap=None)` as "the natural course". A cross-fitted fit with `delta=` then meets the F21 refusal of a shift target, whose remedy is the in-sample fit | `TMLE._check_shifts` in `src/cleverly/estimators/tmle.py`. The review probe of the F21 refusal (commit 45f072b) fitted `make_missing_outcome_binary(n=400, seed=4)` with a continuous dose and `Shift(0.0, cap=None)`, cross-fitted with `delta=`. It refused before any learner. Its in-sample fit reports `ey_shift[natural course]` 0.51256 | on a cross-fitted fit with `delta=`, name the in-sample fit beside the natural course, so that the suggested request does not meet a refusal |
-| longitudinal plan written as a mapping | `{"x": {"t1": 1, "t2": d}}` resolved to `Regimen('x', t1/t2)`, with the dictionary keys as arms. The fit then raised `DataError`: "regimen 'x' assigns 't1' at time 1". The message named a label that the user did not mean as an arm, and nothing checked or called `d` | `_plan_nodes` in `src/cleverly/longitudinal/regimen.py` read any iterable that is not an iterator as a tuple of its items. The review of RM28 probed the plan at a0e93bb6 and at commit 75e86be, with the same result | delivered: commit `b64d334d` refuses a mapping plan with `DataError` before any learner. The message names the tuple form and `DynamicRegimen` |
 | `benchmark(covariates=[])` | runs a refit that drops nothing. The report reads "implied cf_y = 0.0000, cf_d = 0.0000" and "the estimate moved by +0" | `benchmark_refusal` in `src/cleverly/sensitivity/omitted_variable.py` returns `None` for an empty request, because a covariate remains. A 2026-09-24 probe on the RM23 sweep's `ordinary` kind, `make_linear_ate(n=400, seed=2)` in sample, returned that report | refuse an empty `covariates` as a malformed argument, before the refit |
 | `benchmark` covariate names on a fit with an encoded categorical covariate | accepts the indicator column `V__low`, and rejects the logical name `V` with `DataError`: "unknown covariates ['V']; this fit adjusts for ['W1', 'W2', 'W3', 'W4', 'V__low']". The fit adjusts for `V` | the same probe on the sweep's `stratified` kind, which adds a two-level `V` as a stratum and a covariate. `simulated_confounding` refuses an encoded column by name, because zeroing one encoded column does not define a logical-covariate benchmark | accept the logical name and drop its whole encoded block, or refuse an indicator column by name as `simulated_confounding` does. Name the logical column in the message |
 | `truncation_curve` row of a guarded DR-TMLE result whose estimator holds a refused configuration | reads `unavailable`, and `diagnostics.truncation_curve()` refuses, although the module call `truncation_curve(result, [0.05])` runs and returns a curve | a 2026-09-26 probe gave the RM23 sweep's `drtmle` kind `stratify_folds="treatment"` through `reconfigured` in `tests/unit/_capability_sweep_support.py`. `refit_nuisances` reads false with `point_replay_refit_configuration`. `assessment_capabilities` makes the guarded row require `refit_nuisances`. The curve refits the reduced regressions inside `retarget`, and does not call `refit()` | decide which replay slot the guarded curve needs, and make the row, the facade call and the module call agree |
@@ -443,6 +442,10 @@ The simultaneous row needs no change. `LTMLE` skips its default band below 40 cl
 does under each non-inferential status. The result summary names the omission for both estimators.
 Tier e holds the two `benchmark` rows and the truncation row by the extension that its reason
 states.
+
+Commit `b64d334d` delivered a refusal that this row held. `_plan_nodes` in
+`src/cleverly/longitudinal/regimen.py` refuses a longitudinal plan written as a mapping with
+`DataError` before any learner. The message names the tuple form and `DynamicRegimen`.
 
 Pull request 229 corrected two refusal reasons that this row held. `_risk_ratio_refusal` names the
 missing intermediate intervention level, and `_select_evalue` gives a separate reason for each

@@ -26,8 +26,8 @@ what lets a single clever covariate
 cover the three, and collapse to :math:`\mathbb 1\{A = a\}/g_a(W)` exactly when the
 regime is :class:`Static`.
 
-**What is deliberately not here.**  Both are about the *influence function*, not about
-effort -- and both are implemented, elsewhere, under keywords of their own:
+**Two kinds that are not regimes.**  Both differ in the *influence function*, and each is
+implemented in its own module, under typed estimands and a ``TMLE`` keyword of its own:
 
 - An **incremental propensity-score intervention** tilts the population mechanism,
   :math:`g^\star_\delta(1 \mid W) = \delta g_1 / (\delta g_1 + 1 - g_1)`.  Its
@@ -49,7 +49,7 @@ effort -- and both are implemented, elsewhere, under keywords of their own:
   and ``ModifiedTreatmentPolicyEffect``, and ``TMLE(shifts=)``.
 
 :func:`refuse_mixed_interventions` refuses either one in a set of regimes, and names the
-typed estimands that take it (roadmap row RM14).
+typed estimands that hold it (roadmap row RM14).
 """
 
 from __future__ import annotations
@@ -963,7 +963,7 @@ def as_interventions(value: Any) -> tuple[Intervention, ...]:
 
     A :class:`~cleverly.interventions.Shift` or
     :class:`~cleverly.interventions.Incremental` is neither a level nor a regime, so
-    :func:`refuse_mixed_interventions` refuses it before any item is read.  Both are
+    :func:`refuse_mixed_interventions` refuses it before any item becomes a regime.  Both are
     implemented, under typed estimands and keywords of their own, and the ``Static``
     fallthrough would wrap the object as though it were a treatment *level* -- giving a
     regime named ``"always Shift(delta=0.5, ...)"`` and an error much further downstream,
