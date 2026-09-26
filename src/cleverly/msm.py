@@ -390,12 +390,17 @@ _DESIGN_DECLARATION = FunctionDeclaration(
 def refuse_continuous_msm_mechanisms(data: CausalData, *, subject: str, missingness: str) -> None:
     """Raise when a continuous-dose MSM fit carries a second mechanism its covariate lacks.
 
-    The clever covariate of a continuous-dose MSM divides by the treatment density at the
-    observed dose and at each dose of the integration grid.  A missing outcome needs the
-    response mechanism at each of those doses, and an intermediate variable needs the
-    intermediate mechanism there.  No targeting step or evidence for either is written, so
-    the fit refuses at every ``cross_fit`` setting (RM32; X10 in ``docs/roadmap.md`` tracks
-    the construction).  The rule keys on ``data.has_missing_outcome``, not on the
+    The clever covariate that this package builds for a continuous-dose MSM
+    (``build_submodel`` in :mod:`cleverly.estimators.targeting`) divides by the treatment
+    density at the observed dose and at each dose of the integration grid, and the
+    fluctuation updates the outcome regression at each grid dose with it.  In that
+    construction a missing outcome needs the response mechanism at each of those doses, and
+    an intermediate variable needs the intermediate mechanism there.  The need belongs to
+    the construction, not to the parameter: a weighted fluctuation, with regression weights
+    :math:`\\Delta / (g \\pi)` and covariate :math:`\\varphi(a)`, needs the second mechanism
+    at the observed dose only.  No targeting step or evidence for either route is written,
+    so the fit refuses at every ``cross_fit`` setting (RM32; X10 in ``docs/roadmap.md``
+    tracks the construction).  The rule keys on ``data.has_missing_outcome``, not on the
     declaration, as the missing-outcome check of ``CausalStudy.identify`` does: a declared
     indicator with every outcome observed keeps its fit.
 
@@ -437,10 +442,11 @@ def refuse_continuous_msm_mechanisms(data: CausalData, *, subject: str, missingn
         return
     raise CapabilityError(
         f"{subject} on a continuous dose does not yet support {' and '.join(declared)}, "
-        "in sample or cross-fitted. Its clever covariate divides by the treatment density "
-        "at the observed dose and at each dose of the integration grid. This composition "
-        f"must also divide by {' and '.join(mechanisms)} at each of those doses, and no "
-        "targeting step or evidence for it is written here. "
+        "in sample or cross-fitted. The clever covariate that this package builds divides "
+        "by the treatment density at the observed dose and at each dose of the integration "
+        "grid. In that construction the covariate must also divide by "
+        f"{' and '.join(mechanisms)} at each of those doses. No targeting step or evidence "
+        "for this composition is written here. "
         "docs/roadmap.md X10 tracks it."
     )
 

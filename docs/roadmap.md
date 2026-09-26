@@ -2124,10 +2124,17 @@ because its functional depends on the treatment mechanism.
 ### X10. Continuous-dose MSM with a second mechanism
 
 [RM32](#rm32-continuous-dose-msm-fit-with-missing-outcomes) refuses a continuous-dose MSM fit with a
-missing outcome or an intermediate variable, in sample and cross-fitted. The clever covariate
-divides by the treatment density at the observed dose and at each dose of the integration grid.
-With a second mechanism, it must also divide by the response or the intermediate mechanism at each
-of those doses. The package does not predict either mechanism at a grid dose.
+missing outcome or an intermediate variable, in sample and cross-fitted. The clever covariate that
+the package builds divides by the treatment density at the observed dose and at each dose of the
+integration grid. `build_submodel` in `src/cleverly/estimators/targeting.py` builds it. In that
+construction, a second mechanism must also divide the covariate at each of those doses. The package
+does not predict either mechanism at a grid dose. `_mechanism_designs` and `_mechanism_columns` in
+`src/cleverly/estimators/_nuisance.py` predict a mechanism at each arm, or at the observed and
+shifted doses, and they have no branch for the grid.
+
+The need for the grid doses belongs to that construction, not to the parameter. A weighted
+fluctuation takes the regression weights $\Delta / (g \pi)$ at the observed dose and the covariate
+$\varphi(a)$. It needs the second mechanism at the observed dose only. It is the candidate design.
 
 This item is unwritten work rather than a hard stop. The parameter is well posed. Neugebauer and
 van der Laan (2007) define the MSM parameter as a projection of the dose-response curve onto a
