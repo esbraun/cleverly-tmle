@@ -615,8 +615,8 @@ class TMLEResult:
     bootstrap: BootstrapResult | None = None
     intermediate_value: float | None = None
     extra: dict[str, Any] = field(default_factory=dict)
-    #: Present for fits made through ``CausalStudy``. Legacy estimator calls leave it
-    #: absent while the clean-break migration is in progress.
+    #: Fits made through ``CausalStudy`` record this effect. Direct estimator calls
+    #: leave it unset.
     identified_effect: Any = None
     #: The normalized typed method configuration used by ``IdentifiedEffect.estimate``.
     method: Any = None

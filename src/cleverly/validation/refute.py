@@ -92,10 +92,10 @@ __all__ = [
 #: control outcome only the analyst can supply.
 DEFAULT_TESTS: tuple[str, ...] = ("placebo", "random_common_cause", "subset")
 
-#: Generated outcomes need an empirical distribution rather than the small smoke-test
-#: budget used by the older perturbations.
+#: Generated outcomes and measurement-error refits need an empirical distribution.
+#: The other perturbation tests use five refits by default.
 DEFAULT_OUTCOME_REPLICATES = 100
-_DEFAULT_LEGACY_REPLICATES = 5
+_DEFAULT_PERTURBATION_REPLICATES = 5
 
 
 @dataclass(frozen=True)
@@ -1422,7 +1422,7 @@ def _validate_generated_eligibility(
     if identified is None:
         raise CapabilityError(
             f"{name} needs identification metadata for a backdoor additive mean contrast; "
-            "this legacy fit records none"
+            "this result records none"
         )
     functional = identified.functional
     if type(functional) is not BackdoorMeanContrast:
@@ -2052,7 +2052,7 @@ def refute(
             else (
                 DEFAULT_OUTCOME_REPLICATES
                 if name in _GENERATED_TESTS or name == "bootstrap_measurement_error"
-                else _DEFAULT_LEGACY_REPLICATES
+                else _DEFAULT_PERTURBATION_REPLICATES
             )
         )
         if name == "placebo":

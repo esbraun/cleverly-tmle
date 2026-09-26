@@ -322,11 +322,11 @@ def _refuse_undeclared_weights(result: Any) -> str | None:
 
 
 def _refuse_identification(result: Any) -> str | None:
-    """Refuse a legacy fit that records no identification metadata."""
+    """Refuse a fit that records no identification metadata."""
     if result.identified_effect is None:
         return (
             "simulated_confounding needs identification metadata for a backdoor parameter; "
-            "this legacy fit records none"
+            "this result records none"
         )
     return None
 

@@ -666,8 +666,8 @@ class TestRuleVerdict:
             "successful refits reported inconsistent outcome families ['binomial', 'gaussian']"
         )
 
-    def test_the_default_budget_is_the_empirical_one_not_the_legacy_one(self) -> None:
-        # The default rule needs 40 successful draws. The legacy five-replicate budget
+    def test_the_default_budget_satisfies_the_empirical_rule(self) -> None:
+        # The default rule needs 40 successful draws. The five-replicate perturbation budget
         # could never satisfy it, so falling back to it would turn every unspecified
         # measurement request into a "too few draws" failure.
         result = _result(_data())

@@ -1585,9 +1585,9 @@ def _select(estimands: Any, reported_targets: dict[str, str]) -> tuple[str, ...]
 
 
 def _target_name(result: TMLEResult, name: str) -> str:
-    """Registered target for one reported alias, with a legacy-result fallback."""
-    # The mapping is a dataclass field and always exists, but a raw estimator result
-    # leaves it empty. The stem is that path's answer, and it is the only one available.
+    """Return a reported alias's target, using its stem when no key was recorded."""
+    # A direct estimator result can leave the mapping empty. Its alias stem is then
+    # the only available target name.
     keys = result.parameter_keys
     key = keys.get(name) if keys else None
     return key.estimand if key is not None else parameter_stem(name)

@@ -1319,7 +1319,7 @@ below gives all twelve in contract order.
 | `weight_kind` | a weight kind other than `probability` |
 | `weight_provenance` | a `weights_name` and a `WeightSpec` name that disagree |
 | `undeclared_weights` | nonconstant observation weights with no declared weight column |
-| `identification` | a legacy fit that records no identification metadata |
+| `identification` | a fit that records no identification metadata |
 | `functional` | an identified functional other than a backdoor mean contrast |
 | `provider` | backdoor provenance from anything but a registered explicit adjustment set |
 
@@ -1781,7 +1781,7 @@ check every condition in the table before the operation refits anything. Each ro
 | an inclusion rule of any other type | the exact registered `EmpiricalInclusionRule` declaration |
 | a process declaration of any other type | the exact registered `GaussianIndependentOutcome` or `GaussianAdjustmentOutcome` |
 | a process whose family is not `"gaussian"` | the Gaussian family, which is the one with an implemented effect derivation |
-| a legacy fit that carries no identification metadata | identification metadata on the result |
+| a fit that carries no identification metadata | identification metadata on the result |
 | a functional that is not `BackdoorMeanContrast` | a backdoor-identified additive mean contrast |
 | a provider that is not `ExplicitAdjustmentProvider` | registered backdoor provider provenance |
 | an original outcome family that is not `"gaussian"` | an original family equal to the process family, so a binomial fit is refused |
