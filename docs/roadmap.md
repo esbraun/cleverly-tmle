@@ -41,7 +41,7 @@ delivered row that this roadmap still describes. Read a record with, for example
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.41 | Calibration-slope warning rule | replace the fixed band with a rule that a registered calibration study supports | the band flagged 14 of 40 fits of a correctly specified weak-signal propensity model | [RM15](#rm15-calibration-slope-warning-rule) |
+| 0.41 | Calibration-slope warning rule | replace the fixed band with an interval rule on a fold-intercept slope, which a registered calibration study declared before its run supports | the band flags 10 to 28 of 40 fits of a correctly specified weak-signal propensity model, 27% of fits of the true propensity, and every mean-only fit of a randomized law | [RM15](#rm15-calibration-slope-warning-rule) |
 | 0.42 | Summary and error-message accuracy | correct six display surfaces, two data error messages and one refusal remedy, add a fingerprint-only protocol option, and decide what a bootstrap summary publishes on a non-inferential fit. The simultaneous-request policy is settled below. Correct two `benchmark` argument checks, and make one truncation row agree with its call | each surface omits, misstates, or repeats a fact that the fit records. Three more surfaces misstate what a call accepts or needs | [RM16](#rm16-summary-and-error-message-accuracy) |
 | 0.51 | Red property cells after the fold, scale and law changes | keep each red verdict under `reporting` with its interval, and admit inference only when F18 or F19 supplies the exact result. The [red-cell ledger](technical-reference/method-evidence/red-cells.md) delivers this. Then declare and run the five open RM18 follow-up designs, each declared before its run | registered studies publish red verdicts after the fold, scale and law changes and the pooled update. The ledger lists each one and the ask that owns it. Five RM18 follow-up designs are not declared and have not run | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
 | 0.52 | One-sided robustness bias increment in DR-TMLE | investigate the exploratory between-implementation increment on binary `treatment_correct`, under a design declared before it runs | the RM18 reading is `mixed` on that configuration. The unadjusted paired 99% interval of `cleverly` minus R `drtmle` runs 0.000068 to 0.001942, while the Bonferroni interval for that comparison covers zero. No implementation defect is established | [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) |
@@ -65,7 +65,7 @@ The table gives the reason for each place inside a tier.
 
 | row | reason for its place |
 | --- | --- |
-| RM15 | the warning flagged 14 of 40 fits of a correct model |
+| RM15 | the warning flags fits of a correct model and of the true propensity |
 | RM16 | each surface misstates or repeats a recorded fact, or misstates what a call accepts or needs, and no number changes |
 | RM18 | five open designs, which read 19 red rows in six studies. The ledger already publishes each of those verdicts |
 | RM19 | one configuration, which RM18 opened. Its Bonferroni interval covers zero, and it moves no verdict |
@@ -362,7 +362,7 @@ probe table and the corrections. Read it with `git show b876ec3f:docs/roadmap.md
 
 `NuisanceDiagnostics.findings` warns when a calibration slope falls outside [0.7, 1.4]. The finding
 says that the model "biases the weights" (`src/cleverly/validation/nuisance.py:571-575`). The
-assessment turns any finding into a `nuisance_models` warning (`src/cleverly/assessment.py:2653-2658`).
+assessment turns any finding into a `nuisance_models` warning (`src/cleverly/assessment.py:2926-2930`).
 
 The band ignores the spread of the true probabilities. With a weak signal, noise in the out-of-fold
 coefficients spreads the predictions more than the truth does. A correct model then gives a slope
@@ -373,10 +373,10 @@ below 1. The finding also asserts an effect on the weights that the rule does no
 | point treatment, $n = 2000$, $\operatorname{logit} g_0 = 0.15 W_1$, correct logistic learner, three folds | 40 seeds | mean slope 0.647, median slope 0.738, mean AUC 0.537. The rule flagged 14 fits |
 | longitudinal censoring at node 2, `make_longitudinal(n=8000)`, correct logistic model, a separate three-fold split | 60 seeds | out-of-fold slope mean 0.767, standard deviation 0.114 |
 
-The longitudinal nuisance report applies no band (`assessment.py:2594-2604`), so the second row
-raises no warning. Its `calibration_slope` column also holds two statistics under one name. Binary
-rows use a logistic recalibration slope, and pseudo-outcome rows use a linear regression slope
-(`nuisance.py:824` and `:859`).
+The longitudinal nuisance report applies no band, so the second row raises no warning. Its
+`calibration_slope` column also holds two statistics under one name. Binary rows use a logistic
+recalibration slope, and pseudo-outcome rows use a linear regression slope (`nuisance.py:824` and
+`:859`).
 
 A user who sees the warning respecifies a correct model. The warning does not say how to tell weak
 signal from miscalibration.
@@ -396,6 +396,162 @@ The witnesses must fail when a component is wrong:
 - a unit test on the correct weak-signal law pins the outcome of the registered rule;
 - a mutation back to the fixed band makes that test fail;
 - a miscalibrated law shows that the rule still warns.
+
+#### RM15 plan
+
+The 2026-09-26 plan fixes the decisions below. Line numbers are at `6a91532a`. The plan probes are
+read-only and run outside the repository. They are a pilot for the form of the rule, not its
+evidence. No constant of the rule comes from a probe draw.
+
+The table gives the verified behavior of the band.
+
+| item | behavior |
+| --- | --- |
+| models | the band reads every report that carries `calibration_slope` and is not a C-TMLE working mechanism. That is `propensity`, `propensity[<arm>]`, `missingness`, `intermediate` and `outcome` |
+| logistic slope | `_calibration_slope` (`nuisance.py:906-912`) regresses the label on $\operatorname{logit} \hat p$ with one pooled intercept. It discards the `converged` flag and reports no standard error |
+| linear slope | `_continuous_report` (`nuisance.py:839-871`) puts a linear regression slope under the name `calibration_slope`, and the band reads it |
+| evaluation | the report does not record whether its predictions are out of fold. The band reads an in-sample slope too |
+| longitudinal | the report has no findings, so it applies no band |
+
+The figure of 14 of 40 fits came from probes outside the repository (commit `3edb3ec9`). The
+record does not state the number of covariates. The plan did not reproduce the figure exactly. It
+did reproduce the defect. A probe fitted $\operatorname{logit} g_0 = 0.15 W_1$ with
+$W \sim N(0, I_p)$, $n = 2000$, three folds, and an unpenalized main-effects logistic model over
+all $p$ covariates, at 40 seeds for each $p$.
+
+| $p$ | mean slope | median slope | mean AUC | band flags of 40 |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 0.784 | 0.801 | 0.539 | 10 |
+| 2 | 0.568 | 0.621 | 0.529 | 23 |
+| 3 | 0.567 | 0.611 | 0.534 | 26 |
+| 4 | 0.433 | 0.531 | 0.526 | 28 |
+
+The recorded mean of 0.647 and median of 0.738 lie between $p = 1$ and $p = 2$. A second probe ran
+400 fits for each row of the next table, at $n = 2000$ and three folds, with a known outcome
+regression.
+
+| treatment learner and law | band flag rate | reading |
+| --- | ---: | --- |
+| the true $g_0$, $\operatorname{logit} g_0 = 0.15 W_1$ | 0.272 | the band warns on the true propensity |
+| a mean-only learner on a randomized law | 1.000 | the pooled out-of-fold slope of a prediction that is constant in each fold is $-(V - 1) = -2$ at three folds |
+| a main-effects logistic model over four covariates on a randomized law | 0.988 | a randomized trial with an adjusted propensity warns in almost every fit |
+| `GradientBoostingClassifier()` defaults, $\operatorname{logit} g_0 = W_1 - 0.5 W_2$, 40 fits | 0.000 | the mean slope of 0.78 lies inside the band. A Wald interval excludes 1 in 40 of 40 fits |
+
+##### Corrected premise
+
+The row assumes that a warning on a correct model is false. The plan corrects that premise in
+three points.
+
+1. **The slope measures spread, not specification.** Let $\eta^*$ be the limit of a logistic model
+   with an intercept and main effects. The score equations give
+   $E[(A - \operatorname{expit} \eta^*)(1, \eta^*)] = 0$, because $\eta^*$ is linear in $(1, W)$.
+   That is the recalibration score at intercept 0 and slope 1. So the population slope of any such
+   limit is 1, whether the model is correct or not.
+
+   [Riley et al. (2021)](https://doi.org/10.1002/sim.9025), Section 2.1.2, state the in-sample
+   case. A probe fitted a main-effects model to a law with a $0.8 (W_1^2 - 1)$ term. The
+   conditional population slope of its fitted fold models was 1.007.
+2. **A correct model with a weak signal has an out-of-fold slope below 1.** Noise in the fitted
+   coefficients spreads the out-of-fold logits more than the truth does. Riley et al. (2021),
+   Section 2.1.2, read a slope below 1 on new data as overfitting. A probe computed the conditional
+   population slope of the fitted fold models on an independent draw of 50,000 rows. It was 0.98
+   for one weak covariate, 0.67 for four, 0.42 for ten, and 1.00 for four strong covariates.
+
+   The over-dispersion at four and ten weak covariates is real. It is small in the weights. On the
+   weak and randomized pilot laws, the median largest inverse weight of a fitted model is 2.3 to
+   3.0, against 2.0 to 2.6 for the true propensity.
+3. **One pooled intercept adds an artefact.** Cross-fitting makes the level of each fold's
+   predictions move against that fold's labels. With one intercept, that movement drives the
+   slope, which is how a constant prediction reads $-2$. One intercept for each validation fold
+   removes it. Each fold is then a fixed rule on independent rows, which is the setting of Cox
+   (1958).
+
+[Stevens and Poppe (2020)](https://doi.org/10.1016/j.jclinepi.2019.09.016), Section 3, read the
+slope as a measure of spread that goes with discrimination. [Van Calster et al.
+(2019)](https://doi.org/10.1186/s12916-019-1466-7), section "How to assess calibration?", give the
+same reading. No read source gives a fixed band or a rule for cross-fitted nuisance predictions. The
+rule below is therefore a design decision built from published parts.
+
+##### Design
+
+| part | decision |
+| --- | --- |
+| statistic | a weighted logistic regression of the label on one indicator for each validation fold and on $\operatorname{logit} \hat p$, with no other intercept. The last coefficient is `calibration_slope`. An in-sample fit has one fold, which gives the pooled recalibration of Cox (1958) |
+| standard error | the sandwich. With $B = X^\top \operatorname{diag}(w \mu (1 - \mu)) X$ and the score $s_i = w_i (y_i - \mu_i) x_i$, the curve is $n (B^{-1} s_i)_{\text{slope}}$. `calibration_slope_se` is the square root of `influence_variance` of that curve with the fit's cluster codes |
+| unavailable | the slope and its standard error are `nan`, and `NuisanceModelReport.calibration_omission` names the cause: predictions constant within every fold, a Newton fit that did not converge, a singular information matrix, or a standard error that is not finite |
+| eligible models | every probability report that is not a C-TMLE working mechanism, with a finite slope and standard error. No model is eligible when `NuisanceDiagnostics.evaluation` is `"in_sample"` |
+| level | $K$ is the number of eligible models. The interval is the slope plus or minus $z_{1 - 0.05 / (2K)}$ standard errors. That is a Bonferroni split of 0.05 over the report |
+| finding | the interval lies above 0 and excludes 1. An upper limit below 1 reads "more extreme", and a lower limit above 1 reads "more moderate" |
+| no finding | the interval contains 1, contains 0, or lies below 0. An interval that reaches 0 shows no detectable association between the predictions and the label, so the slope has no calibration reading |
+| message | the model, the direction, the slope, the interval at its level, and the AUC. The `propensity`, `propensity[<arm>]` and `missingness` findings add the largest inverse weight, which is the largest $1 / \hat p$ of the observed label over the rows whose weight uses it. The message names the weak-signal cause and asks for a review. It does not say that the weights are biased |
+| names | `regression_slope` replaces `calibration_slope` on every conditional-mean report, point and longitudinal. New: `calibration_slope_se`, `largest_inverse_weight`, `calibration_omission`, and `NuisanceDiagnostics.evaluation` |
+| summary | the table gains the columns `cal_se` and `reg_slope`. One line states the basis of the slope and the rule, and one line names each omission |
+| longitudinal | the binary rows use the same statistic with the fit's folds and cluster codes. The report keeps no rule |
+| studies | no registered study reads a slope, a finding or the assessment. No study is regenerated. One new study is declared below |
+
+`tests/unit/test_calibration_slope_rule.py` holds the witnesses.
+
+| witness | assertion |
+| --- | --- |
+| W1 | the statistic and its standard error on weighted data with three folds equal an independent numpy fit to 1e-10 |
+| W2, W3 | nonzero witnesses: unit weights move the slope, and shared cluster effects move the standard error |
+| W4 | a fold-constant prediction gives no slope, where a pooled intercept gives $-2$ |
+| W5 | the correct weak-signal law, at a seed where the band fires, gives no finding |
+| W6 | a doubled logit and a halved logit each give a finding in their own direction |
+| W7, W8, W9 | the gate at 0, the truth table of the rule, and the Bonferroni divisor |
+| W10 to W13 | the in-sample gate, the message, the rename, and the summary lines |
+
+The delivery then runs hand mutations, one at a time, from a backup with a sha256 hash. H1 restores
+the band, H2 the pooled intercept, H3 drops the weights, H4 the clusters, H5 the Bonferroni
+divisor, H6 the in-sample gate, H7 the gate at 0, and H8 swaps the two directions.
+
+##### Calibration study
+
+A registered study reads the rule. The declaration below is fixed before any run.
+
+| field | value |
+| --- | --- |
+| name, slug | `calibration-slope warning`, `calibration-slope-warning` |
+| modules | `tests/studies/calibration_slope_warning.py` and `tests/studies/calibration_slope_warning_properties.py` |
+| fit | `TMLE(n_folds=3, simultaneous=False, estimands=("ate",), random_state=<sample seed>)` at $n = 2000$. The outcome is $Y \sim \operatorname{Bernoulli}(\operatorname{expit}(0.5 A + 0.5 W_1 - 0.25))$. The outcome learner returns that known regression, so the outcome report is calibrated and $K = 2$ in every fit. $W \sim N(0, I_4)$ unless a law states otherwise. The runner asserts that each known learner reproduces the law on the observed rows to 1e-12 |
+| primary scenarios | `calibrated_weak`, $\operatorname{logit} g_0 = 0.15 W_1$, and `calibrated_strong`, $\operatorname{logit} g_0 = W_1 - 0.5 W_2$. The treatment learner returns the known $g_0$ |
+| primary estimand | `propensity_calibration_slope`, truth 1. The estimate is `calibration_slope`, the standard error is `calibration_slope_se`, and the interval is the estimate plus or minus 1.959964 standard errors |
+| primary verdicts | the shared bias, coverage-floor and SE-sanity verdicts, unchanged |
+| family `warning_rate` | new. Each row has truth 1 and the primary estimate and standard error. `covered` means that the rule's interval covers 1, and `rejected` means that the report has a calibration-slope finding |
+| positive cells | `calibrated_weak__rule` and `calibrated_strong__rule`, with the known $g_0$. `correct_weak__rule`: one covariate $W_1$, $\operatorname{logit} g_0 = 0.15 W_1$, and an unpenalized logistic model on $W_1$. `correct_nested_weak__rule`: the same $g_0$ with four covariates, and the model on $W_1$ to $W_4$. `randomized__rule`: $g_0 = 1/2$, and the model on $W_1$ to $W_4$ |
+| controls | `<law>__fixed_band` for `calibrated_weak`, `correct_weak`, `correct_nested_weak` and `randomized`, on the same fits. `rejected` means that the pooled one-intercept slope of the propensity or the outcome lies outside [0.7, 1.4]. The runner computes that slope as the package did before RM15. `calibrated_strong` has no control, because the pilot put the band's rate there at 0.000 |
+| family `power` | the shared rule. `overconfident_moderate__rule`: $\operatorname{logit} g_0 = 0.4 W_1 - 0.2 W_2$, and an unpenalized logistic model on $W_1, W_2$ whose logit is doubled, for a limit slope of 1/2. `underconfident_strong__rule`: $\operatorname{logit} g_0 = W_1 - 0.5 W_2$, and the same model with its logit halved, for a limit slope of 2. The truth column holds the limit slope, and no verdict reads it |
+| verdicts | a `warning_rate` positive cell passes when `rejection_ci_upper` $\le \alpha + $ `type_i_margin` $= 0.10$. A control passes when `rejection_ci_lower` $> 0.10$. A `power` cell passes when `rejection_ci_lower` $\ge 0.80$. Each interval is the exact 99% interval |
+| replicates, n | 10,000 primary replications for each scenario, and 10,000 for each property law, at $n = 2000$. A control reads the fits of its positive cell |
+| seeds | 20261501 for the samples and 20261502 for resampling. A property sample uses `stream_seed(STUDY, "property_sample", <family>, <law>, replicate)` |
+| margins | `Margins()` unchanged |
+| reference | none. No maintained implementation computes this rule. `equivalence.csv` is the empty schema-valid artifact |
+| publication policy | `reporting` |
+| smoke run | 200 primary replications to a scratch directory, discarded. The driver skips the property phase at that count |
+
+The pilot predicts every verdict green. With 400 fits for each cell and $K = 2$, it measured the
+rule's rate at 0.012 for `calibrated_weak`, 0.022 for `calibrated_strong`, 0.000 for `correct_weak`,
+0.018 for `correct_nested_weak` and 0.000 for `randomized`. It measured the band's rate on the
+propensity alone at 0.27, 0.39, 0.74 and 0.99 on the four control laws. The pilot fitted the two
+power laws with the tempered model over four covariates, not two. It detected every fit of each. It
+put the primary SE ratio near 0.98 for the weak law and 1.00 for the strong law.
+
+The red-cell route is fixed now. A red verdict stays red at this budget and these margins. No run
+repeats at a larger budget, and no margin moves. If a `warning_rate` positive cell or a `power`
+cell is red, the delivery ships the statistic, the interval and the summary lines, and it removes
+the slope finding. It then adds an ask to the "What this row asks for" table of RM18, names it in
+the ledger, and records the failed witness in this section. A red control or a red primary verdict
+takes the same record and does not by itself stop the rule.
+
+The study declares these limits.
+
+- It has no weights and no clusters.
+- It has a binary treatment only, and no missingness or intermediate model.
+- It uses three folds and one $n$.
+- Its learners are known or unpenalized logistic models.
+- It covers point treatment only.
+- It detects miscalibration only at moderate and strong signal, and only for a scaled logit.
+- It fits nothing in sample, and it has no comparator.
 
 ### RM16. Summary and error-message accuracy
 
