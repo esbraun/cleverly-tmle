@@ -1118,7 +1118,7 @@ raised after two learner fits. `CausalStudy.estimate` raised the same error, and
 `intermediate=` failed at the same place. The cross-fitted fit met the F21 refusal, whose remedy
 was the in-sample fit.
 
-Pull request NNN delivered this row. The table gives what shipped. Commit `e6111a2b` holds the
+Pull request 240 delivered this row. The table gives what shipped. Commit `e6111a2b` holds the
 probe table and the corrections. Read it with `git show e6111a2b:docs/roadmap.md`.
 
 | part | what shipped |
