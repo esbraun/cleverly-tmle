@@ -12,7 +12,8 @@ these things:
 
 * each stratified request refuses with ``CapabilityError`` before any learner and cites X8, and
   the ``DRTMLE`` message names ``guard=()`` rather than an arm, regime or shift target;
-* a cross-fitted stratified ``DRTMLE`` fit with ``delta=`` is not sent to ``cross_fit=False``;
+* a stratified ``DRTMLE`` request that ``guard=()`` does not repair, with ``att`` or with a
+  cross-fitted ``delta=``, meets that refusal first, so no remedy names a refused request;
 * ``CausalStudy.identify`` refuses the stratified incremental and MSM estimands, and
   ``estimate`` fits no learner, for those estimands and for ``DRTMLE``;
 * the refit replay slot reads the stratified ``DRTMLE`` refusal on a copied estimator, and
@@ -179,29 +180,44 @@ def drtmle_witness() -> None:
     assert "arm/regime/shift" not in str(raised.value)
 
 
-def ordering_witness() -> None:
-    """A cross-fitted stratified fit with ``delta=`` meets the strata refusal first.
+def _stratified_trial() -> pd.DataFrame:
+    return _binary_trial(100).assign(S=lambda f: (f["W1"] > 0).astype(int))
 
-    The missing-outcome refusal of a cross-fitted ``DRTMLE`` fit sends the caller to
-    ``cross_fit=False``, and that fit is refused too.
-    """
-    frame = _binary_trial(100).assign(S=lambda f: (f["W1"] > 0).astype(int))
-    settings = drtmle_spies(cross_fit=True, n_folds=5)
 
-    def build() -> Any:
-        return DRTMLE(randomized=True, estimands=("ate",), **settings).fit(
-            frame,
+#: A stratified ``DRTMLE`` request that ``guard=()`` does not repair, and its refusal.
+GUARD_INDEPENDENT: dict[str, tuple[Callable[[], Any], str]] = {
+    "att": (
+        lambda: fit(
+            DRTMLE(estimands=("ate", "att"), **drtmle_spies()), strata_frame(), treatment="A"
+        ),
+        "DRTMLE does not support estimand(s) ['att']",
+    ),
+    "cross-fitted delta=": (
+        lambda: DRTMLE(
+            randomized=True, estimands=("ate",), **drtmle_spies(cross_fit=True, n_folds=5)
+        ).fit(
+            _stratified_trial(),
             outcome="Y",
             treatment="A",
             covariates=["W1", "W2", "S"],
             delta="Delta",
             strata=["S"],
-        )
+        ),
+        "does not establish its cross-validated extension",
+    ),
+}
 
-    assert_refused_before_any_call(build, None, "", MEAN, X8)
+
+def guard_independent_witness(name: str) -> None:
+    """The refusal that also holds at ``guard=()`` comes before the strata refusal.
+
+    The strata refusal names ``guard=()`` as the remedy, and this request is refused there too.
+    """
+    build, fragment = GUARD_INDEPENDENT[name]
+    assert_refused_before_any_call(build, None, "", fragment)
     with pytest.raises(CapabilityError) as raised:
         build()
-    assert "cross_fit=False" not in str(raised.value)
+    assert "guard=()" not in str(raised.value)
 
 
 IDENTIFY_ROWS: dict[str, tuple[Callable[[], CausalStudy], Any, str]] = {
@@ -283,8 +299,9 @@ class TestAStratifiedRequestRefusesBeforeAnyLearner:
     def test_the_drtmle_fit_names_x8_and_the_empty_guard(self) -> None:
         drtmle_witness()
 
-    def test_a_cross_fitted_drtmle_fit_is_not_sent_in_sample(self) -> None:
-        ordering_witness()
+    @pytest.mark.parametrize("name", list(GUARD_INDEPENDENT))
+    def test_a_refusal_that_guard_repairs_comes_last(self, name: str) -> None:
+        guard_independent_witness(name)
 
 
 class TestTheStudyRefusesAtIdentify:
@@ -601,7 +618,6 @@ class TestTheWitnessesHaveTeeth:
         assert_every_witness_fails(
             [
                 drtmle_witness,
-                ordering_witness,
                 lambda: estimate_witness("DR-TMLE"),
                 lambda: refit_slot_witness(unguarded_result, monkeypatch),
             ]

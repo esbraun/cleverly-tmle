@@ -1030,9 +1030,6 @@ class DRTMLE(TMLE):
                 "covariate, and no theorem read here says what it is. "
                 "Fit a plain TMLE, which is derived there."
             )
-        # Before the missing-outcome refusals, so that a cross-fitted stratified fit is not
-        # sent to cross_fit=False, which this refusal also meets.
-        refuse_stratified_targeting(data, reduced=bool(self.guard))
         if self.guard and self.reduction == "bivariate" and data.has_missing_outcome:
             raise CapabilityError(
                 "reduction='bivariate' is the complete-outcome construction. The "
@@ -1120,3 +1117,7 @@ class DRTMLE(TMLE):
                 "a different score equation with its own reductions to derive. Request them "
                 f"from a plain TMLE, or set estimands={sorted(MEAN_GROUP_ESTIMANDS)!r}."
             )
+        # Last.  Its remedy is ``guard=()``, so each refusal of this method that also holds
+        # at ``guard=()``, such as the estimand check and the cross-fitted missing-outcome
+        # check, comes first.  Otherwise the remedy would name a request that is refused too.
+        refuse_stratified_targeting(data, reduced=bool(self.guard))
