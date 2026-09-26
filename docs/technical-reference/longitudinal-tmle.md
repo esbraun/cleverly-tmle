@@ -141,8 +141,6 @@ Before evaluating the requested grid, replay at the fitted pair must reproduce e
 estimate, regimen fit, and MSM fit exactly. This preflight also runs when the grid omits that pair.
 A mismatch makes the operation unavailable instead of reporting a different fitted procedure.
 
-The direct `stagewise()` method remains a compatibility alias.
-
 ### Survival and competing risks
 
 [Time-to-event outcomes](../examples/longitudinal-survival.ipynb) works this section applied.
@@ -315,29 +313,6 @@ The refusals that are statements about the *question* rather than about coverage
 | the targeted bootstrap and longitudinal sensitivity-bound estimation | not written yet | the bootstrap needs a resampling and replay contract. Sensitivity-bound estimation needs a sample estimator and sampling theory for its bound functionals |
 | `id=` above one fold | not written yet | a grouped draw keeps each cluster whole, and the cluster-robust variance of the targeted sequential recursion under one is not established. The package permits the in-sample clustered fit. Below 40 clusters with positive weight mass it takes `"few_cluster_plugin"` and reports no interval ([clusters](inference.md#clusters)) |
 | a continuous outcome with `q_bounds=None` above one fold | not written yet | with `q_bounds=None` the scale comes from every observed outcome, held-out rows included, and no shipped result covers that scale |
-
-Releases 0.1.0 and 0.1.1 could save a cross-fitted fit with `id=`. Such a result now loads under
-`"cross_fitted_longitudinal_plugin"` at every cluster count and size. It retains point estimates
-and plug-in diagnostics. It reports no interval or band. [RM29](../roadmap.md#rm29-saved-cross-fitted-clustered-longitudinal-results)
-records the correction.
-
-Those releases also stratified every cross-fitted split on the first treatment node. A restored
-result with more than one fold whose `Folds.origin` is `None` gets `"stratified_fold_plugin"`
-under the saved-fold rule. An earlier status can take precedence, including
-`"undeclared_function_plugin"` and `"cross_fitted_longitudinal_plugin"`. The result retains point
-estimates and plug-in diagnostics, and it reports no interval or band
-([RM31](../roadmap.md#rm31-inference-status-of-a-saved-stratified-cross-fitted-result)).
-
-The longitudinal path has no rule for a saved outcome scale. A cross-fitted continuous result that
-release 0.1.0 or 0.1.1 saved with `q_bounds=None` has a split with no origin. Its saved-fold rule
-gives `"stratified_fold_plugin"`, subject to earlier statuses. A current result cannot have that
-scale, because the fit refuses it. A current result whose estimator is set to `q_bounds=None` after
-the fit keeps its interval, and no release saved such a result
-([RM33](../roadmap.md#rm33-inference-status-of-a-saved-undeclared-scale-cross-fitted-result)).
-
-A restored result whose regimen has a callable node not declared `"known"` loads under
-`"undeclared_function_plugin"`, keeps its point estimates, and reports no interval or band
-([RM28](../roadmap.md#rm28-declared-densities-of-user-written-interventions)).
 
 Two plan shapes raise `DataError` before any learner. Each one is a statement about the input, so
 the table of kinds above does not list it.

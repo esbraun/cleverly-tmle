@@ -67,8 +67,8 @@ denominator for each group. The list is empty when every targeted group forms th
 also empty when no fitted factor stands beside `g`.
 
 The fit retains exact absolute score weights for every reported group and equation.
-`group_leverage` reads that fitted artifact. The attribute name is retained for compatibility.
-Interpret its values as load concentration, not statistical leverage.
+`group_leverage` reads that fitted artifact. Despite its name, it reports load concentration and
+not statistical leverage.
 
 For score equation $j$, $w_i H_{ij}$ is row $i$'s multiplier on the targeted residual. The report
 summarizes its magnitude, $|w_i H_{ij}|$, for each equation separately. It does not include the
@@ -96,8 +96,7 @@ The public `diagnostics.support()` route provides group rows as follows.
 | longitudinal | `LongitudinalDiagnostics` from `support()` | no. A longitudinal fluctuation retains no absolute score weights |
 
 The longitudinal row is a disclosed limitation and not an oversight. A longitudinal result returns
-per-node leverage through `diagnostics.support()`. The direct `stagewise()` call remains a
-compatibility alias for the same payload. A combined run retains only the `support` row.
+per-node leverage through `diagnostics.support()`.
 
 The route reaches neither `positivity_report` nor an intervention report. A longitudinal
 fluctuation also retains no `absolute_score_weights`. No fitted artifact therefore exists for a
@@ -131,7 +130,6 @@ declares. A given condition therefore produces the same text whichever report ho
 | `SCORE_LOAD_NOT_FINITE` | a load is negative, infinite, or `nan` |
 | `SCORE_LOAD_EMPTY_MASK` | the fitted score mask selected no rows |
 | `SCORE_LOAD_MASK_TOO_LARGE` | the mask holds more rows than the fitted data |
-| `SCORE_LOAD_PREDATES` | the report unpickled from before the score-load fields existed |
 
 The table order is the guard order. A caller can be in the first two states at once, because
 `check_support`, `check_shift_support`, and `check_incremental_support` all default to no artifact
@@ -377,27 +375,25 @@ The treatment and censoring predictions come from the fitted observed-law pass. 
 refit those learners or reconstruct observed histories from regimen predictions. Each row uses
 `evaluation` to label its loss as `out_of_fold` or `in_sample`.
 
-`loss_name` is `log_loss`, `brier`, or `mse`. `loss` holds that role-specific value, while
-`reported_loss` preserves the MSE from an older regression row. The nested `model` is a
-`NuisanceModelReport`. It retains calibration and learner-library details.
+`loss_name` is `log_loss`, `brier`, or `mse`. `loss` holds that role-specific value. The nested
+`model` is a `NuisanceModelReport`. It retains calibration and learner-library details.
 
-The `mse` field stays the legacy column, and it answers about node regressions alone. An outcome
-row or a pseudo-outcome row reports its square loss there. A treatment row or a censoring row
-reports `nan`, because a mechanism fit has no square loss.
+The `mse` field answers about node regressions alone. An outcome row or a pseudo-outcome row
+reports its square loss there. A treatment row or a censoring row reports `nan`, because a
+mechanism fit has no square loss. On a weighted fit, the `mse` value averages under the
+observation weights.
 
-Two further changes affect a weighted fit. The `mse` value now averages under the observation
-weights, where an older release averaged without them. The frame also admits an empty value in
-`regimen`, `cause`, and `horizon`, because a mechanism row carries no regimen identity. That row
-stores `None`, which a dataframe renders as `None` or as `NaN` by column type.
+The frame admits an empty value in `regimen`, `cause`, and `horizon`, because a mechanism row
+carries no regimen identity. That row stores `None`, which a dataframe renders as `None` or as
+`NaN` by column type.
 
 For a categorical treatment, `log_loss` is the observed-class multinomial negative log likelihood.
 The nested report uses `kind="multinomial probability"` and retains no binary calibration table.
 Armwise calibration requires a separate report design because no treatment arm is privileged.
 
-`LongitudinalNuisanceDiagnostics.omissions` holds typed `LongitudinalNuisanceOmission` records.
-Each record names `role`, `time`, and `reason`. An older artifact uses
-`LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING` when it lacks an observed-law mechanism prediction. A
-complete-data design uses `LONGITUDINAL_CENSORING_NOT_FITTED` because it made no censoring fit.
+`LongitudinalNuisanceDiagnostics.omissions` holds typed `LongitudinalNuisanceOmission` records. Each
+record names `role`, `time`, and `reason`. A complete-data design uses
+`LONGITUDINAL_CENSORING_NOT_FITTED` because it made no censoring fit.
 
 `to_frame()` starts with the row identity, evaluation, loss, model name, and model kind. It then
 adds the union of metrics that the nested model reports.
@@ -831,9 +827,7 @@ records the implementation and validation that such a specialization would need.
 | `robustness_value()` | carries `nu2_estimator` and no `rva` under any name |
 | `psi_nu2` and `psi_max_bias` of `elements()` | `None` |
 
-A bound saved before this change does not record its estimator. It reads `nu2_estimator` as
-`"unrecorded"` and refuses the same accessors, because its limits may be plug-in limits or ATT
-limits without the share term. [F26](../roadmap.md#f26-confidence-limits-of-the-plug-in-omitted-variable-bound)
+[F26](../roadmap.md#f26-confidence-limits-of-the-plug-in-omitted-variable-bound)
 holds the missing result.
 
 The table gives each source this section cites, and the version read.
@@ -1318,7 +1312,7 @@ below gives all twelve in contract order.
 | rule | refuses |
 | --- | --- |
 | `result_type` | an artifact that is not exactly a point-treatment `TMLEResult` |
-| `missing_estimator` | a restored or legacy result that stores no replay estimator |
+| `missing_estimator` | a result that stores no replay estimator |
 | `repeat_provenance` | a stored draw count, a `config.crossfit.repeats`, and a replay estimator `repeats` that disagree |
 | `binary_estimator` | a binary fit made by an estimator other than `TMLE`, `CTMLE`, or `DRTMLE` |
 | `continuous_estimator` | a continuous fit made by anything but exact ordinary `TMLE` |
@@ -1717,7 +1711,7 @@ estimator, so a refutation never changes the fit it examines.
 
 Each empirical draw derives a child seed from the recorded root seed. The perturbation and its
 full refit use that child seed. `report.draws_frame(name)` reports every child seed, estimate,
-standard error, family, and failure. `GeneratedOutcomeRecord` remains an alias for the shared
+standard error, family, and failure. The report stores each draw as an
 `EmpiricalRefitRecord`.
 
 `EmpiricalInclusionRule` uses a two-sided empirical rank and inclusive half-ties. It passes only

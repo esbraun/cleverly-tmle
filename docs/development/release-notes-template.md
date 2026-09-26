@@ -19,7 +19,7 @@ Use these rules during review.
 | report facts | State what changed and the condition under which it matters. |
 | use specific subjects | Name an estimator, method, function, or package extra. |
 | keep one outcome per bullet | Split unrelated outcomes, even when one pull request contains both. |
-| identify required action | Put migration work in `Upgrade notes`, before the change list. |
+| identify required action | Put each action a user must take in `Upgrade notes`, before the change list. |
 | preserve scientific limits | State the estimand and conditions for a new statistical claim. |
 | omit process detail | Exclude refactors, test rewrites, and review history unless they alter shipped behavior. |
 | remove filler | Do not use claims such as “powerful”, “effortless”, “robust”, or “exciting”. |
@@ -41,6 +41,8 @@ Delete every comment and empty section before publication.
 
 <!-- Keep this section only when a user must act. Put the required action first. -->
 
+- Results saved by an earlier release load with a `VersionMismatchWarning`, and the load does not
+  migrate them. Fit each analysis again with this release.
 - Replace `old_call()` with `new_call()`. `old_call()` now ... ([#PR](PR-URL))
 
 ## Added
@@ -55,10 +57,6 @@ Delete every comment and empty section before publication.
 
 - `public_name`: Corrects [behavior] when [condition]. Earlier versions [effect]. ([#PR](PR-URL))
 
-## Deprecated
-
-- `public_name`: Deprecates [API]. Use [replacement] before removal in [version]. ([#PR](PR-URL))
-
 ## Packaging and compatibility
 
 - Supports [version or platform] and requires [dependency constraint]. ([#PR](PR-URL))
@@ -70,9 +68,8 @@ Delete every comment and empty section before publication.
 **Full diff:** [`vPREVIOUS...v0.1.N`](COMPARE-URL)
 ```
 
-Use `Removed` after the alpha series when a published deprecation reaches its stated removal
-version. During the alpha series, describe an incompatible change in `Upgrade notes` even when no
-deprecation preceded it.
+During the alpha series, `cleverly` deprecates nothing. A release removes or renames an API, and
+`Upgrade notes` names the replacement.
 
 ## Prepare the notes
 

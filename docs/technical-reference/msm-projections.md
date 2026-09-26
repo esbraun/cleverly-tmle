@@ -143,7 +143,7 @@ projection weight. The table gives each place that checks both declarations.
 | checked by | when |
 | --- | --- |
 | the `MSM` class | when you declare the model |
-| the `TMLE` and `LTMLE` fits | before the first learner and before the first call to the design. A restored or copied model can carry a declaration that this version refuses. The `TMLE` fit also checks before each refusal of its configuration, for example `cv_evaluation=True`. So a restored model gets the declaration refusal first |
+| the `TMLE` and `LTMLE` fits | before the first learner and before the first call to the design. A copied or modified model can carry a declaration that the fit refuses. The `TMLE` fit also checks before each refusal of its configuration, for example `cv_evaluation=True`. So a modified model gets the declaration refusal first |
 | `TMLE.retarget()` | before it recomputes an estimate. Each sweep that calls it, such as `truncation_curve()`, meets this check |
 | `MSMSet.evaluate` and `evaluate_regimen_msm` | before they call the design or the weight. A direct call and the simulated-confounding replay both meet this check |
 
@@ -170,37 +170,31 @@ A malformed input raises `DataError`. The table gives the four cases.
 The simulated-confounding replay reports each of these inputs as `CapabilityError`. Its function
 `validate_fixed_replay` converts each `DataError` that its checks raise into a `CapabilityError`.
 
-A result saved before a declaration existed loads with that declaration set to `None`. Loading
-raises nothing. Except under the rule below, a saved `TMLE` result keeps its point estimates and
-takes the `undeclared_function_plugin` status, so its `ci`, `pvalue` and `std_error` refuse.
+A longitudinal MSM stores evaluated arrays and evidence that its source declarations passed. A
+projection built by hand has no such evidence, and it refuses truncation replay. The evidence
+survives a save and a load.
 
-A longitudinal MSM stores evaluated arrays and evidence that its source declarations passed.
-A restored projection without that evidence takes the same status and refuses truncation replay.
-This includes older projections whose original functions were fixed, because their arrays cannot
-prove the declarations. Refit the original analysis with fixed functions declared known.
-Newly fitted projections keep their declaration evidence when saved and restored.
-
-Except under the rule below, every call that recomputes an estimate from a saved `TMLE` result
-refuses with the undeclared message. `retarget()` checks the declarations first, so each sweep
-that calls it refuses, for example `truncation_curve()`. `refute()` refits through `fit()`, which
-checks them too. The simulated-confounding replay refuses in `MSMSet.evaluate`, before the design
-or the weight runs.
+Except under the rule below, every call that recomputes an estimate from a `TMLE` result with an
+undeclared function refuses with the undeclared message. `retarget()` checks the declarations first,
+so each sweep that calls it refuses, for example `truncation_curve()`. `refute()` refits through
+`fit()`, which checks them too. The simulated-confounding replay refuses in `MSMSet.evaluate`,
+before the design or the weight runs.
 
 One rule reads a design with no declaration as known. `MSM.linear` leaves `design_kind` as `None`.
 When the design has the exact type that `MSM.linear` builds, the model reads as
 `design_kind="known"`. Its result still recomputes when its weight is uniform or declared
 `"known"`. That design is a fixed function of the arm and the named covariates.
 
-A saved result with any other undeclared design refuses every recomputation. The `from_linear` flag
+A result with any other undeclared design refuses every recomputation. The `from_linear` flag
 is not a declaration, because a user can set it on any design. A subclass of the `MSM.linear` design
 type is not a declaration either.
 
 | test file | what it pins |
 | --- | --- |
 | `tests/unit/test_msm_projection_weights.py` | for the weight: the stored interval, the refusals, the evaluator checks, a declared control, and a mutation that removes the check |
-| `tests/unit/test_msm_design_declaration.py` | for the design: the same five items, the exact-type rule, a malformed model at each fit entry, the replay refusal before any call to the design or the weight, and a saved `MSM.linear` result that still recomputes |
+| `tests/unit/test_msm_design_declaration.py` | for the design: the same five items, the exact-type rule, a malformed model at each fit entry, the replay refusal before any call to the design or the weight, and an `MSM.linear` result that still recomputes |
 
-A saved `LTMLE` MSM result holds the evaluated design and weight arrays, not the `MSM` object. Its
+An `LTMLE` MSM result holds the evaluated design and weight arrays, not the `MSM` object. Its
 `truncation_curve()` reuses those arrays, runs no user function, and reports point estimates only.
 It therefore needs no declaration check. `tests/unit/test_longitudinal_truncation_refit.py` pins the
 columns of an `LTMLE` truncation curve, and it replays an MSM result from the stored arrays.

@@ -124,13 +124,8 @@ alone would make `truncation_curve()` refuse.
 | path | status it sets |
 | --- | --- |
 | `smooth_contrast` and `median_estimates` | the status of their inputs. Each raises `ValueError` on a mix |
-| `ParameterEstimate._PICKLE_BACKFILL` | `unrecorded_status_plugin`, when the saved state has no `inference` key. The restore of `_DefaultingUnpickle` in `cleverly.utils.records` reads it. Releases 0.1.0 and 0.1.1 wrote no such key. The dataclass `__init__` writes every field, so a current estimate loads as it was saved. The class default `influence_curve` applies to a constructor call only |
-| `TMLEResult.__setstate__` | the hook's status on the saved data, through `restamp_restored` in `cleverly.inference.influence`. The re-stamp returns early when `carries_status` finds that every saved estimate and fold-level report declares that status, and that the status is not `unrecorded_status_plugin`. Pickle builds each estimate before its result, so the re-stamp runs in both directions. Under `influence_curve`, `stamp_inference` returns `unrecorded_status_plugin` to `influence_curve` and keeps every recorded status. The same stamp reaches each `ParameterEstimate` that the assessment cache holds at its top level, which is the derived risk ratio of the E-value. The result drops its saved bands and assessment answers on a non-inferential status only. A saved estimator whose `crossfit_plan` records strata takes `stratified_fold_plugin`, which no live fit reaches. A saved cross-fitted estimator of a continuous outcome with `q_bounds=None` takes `undeclared_scale_plugin` through `_saved_scale_status`. That status and the fit-time refusal read one predicate, `_outcome_scale_refusal`, so no live fit reaches it either |
 | `variable_importance` | none. It raises the fold-policy refusal first. On each candidate's prepared data it raises the outcome-scale refusal, then asks the hook. It refuses before the first fit. A cross-fitted run of a continuous outcome with no `q_bounds` meets the scale refusal first in two cases. With `delta=`, its fit would raise the arm-indexed refusal first. With a `CTMLE` template, the hook would give its collaborative status |
-| `VariableImportanceEntry.__setstate__` | none. It reads the status of its estimate, and when that status supplies no inference, `adjusted_pvalue` reads `None`. An entry that release 0.1.0 or 0.1.1 saved apart from its result reads `None` for that reason |
-| `VariableImportanceResult.__setstate__` | the status of each re-stamped fit, on the entry of that fit. An entry holds its own estimate, so without this step it keeps the status it was saved with. When every re-stamped entry supplies inference, `_readjusted` computes each withheld adjusted p-value again with `_bh_adjust`. That adjustment reads the p-values alone, so it gives back the saved numbers |
-| a longitudinal estimator | `cluster_inference_status` on the prepared cluster labels and weights. The fit and the truncation-curve replay pass it through `_estimates` and `_msm_estimates` to each `make_estimate` call. The replay resolves it with `result.inference_status` through `precedent_status`, so a re-stamped artifact replays under its restored status. The trade-off: the replay echoes the stamp of the fit, so it cannot find a stamp that is stricter than the rules give. The alternative, `_saved_split_status` in the replay, would refuse the replay of a live `FirstNodeStratifiedLTMLE` fit, which keeps `influence_curve` |
-| `LongitudinalResult.__setstate__` | the status of the saved data and folds, through the same `restamp_restored`. A cross-fitted clustered artifact takes `cross_fitted_longitudinal_plugin` at every count and size. A split of more than one fold with no `Folds.origin` takes `stratified_fold_plugin` through `_saved_split_status`, which only this path reads. It drops the saved bands and assessment answers on a non-inferential status only |
+| a longitudinal estimator | `cluster_inference_status` on the prepared cluster labels and weights. The fit and the truncation-curve replay pass it through `_estimates` and `_msm_estimates` to each `make_estimate` call. The replay computes the status again from the data and folds of the result, so the replay at the fitted bound equals the fit in every field that `_fitted_replay_matches` compares |
 
 One fit has one status. When more than one non-inferential status applies, the fit takes the
 first one in `NON_INFERENTIAL` (`src/cleverly/_inference_status.py`). An override that finds more
@@ -176,8 +171,8 @@ labels alone, and every layer that accepts a plan refuses one with no record.
 An outer split reads the row count, the cluster labels and a seed, and it reads no treatment,
 outcome or covariate value. No fit draws a partition that balances the data it then conditions on.
 The declaration layer refuses a balancing policy before any split exists, and the fit layer refuses
-it again, because a restored result or a copied estimator can carry a policy this version does not
-draw under. A selector-based collaborative fit draws selection folds without cross-fitting, so the
+it again, because a copied or modified estimator can carry a policy that the package does not draw
+under. A selector-based collaborative fit draws selection folds without cross-fitting, so the
 refusal reaches it at every setting. Outcome-adaptive C-TMLE draws no selection folds, so its
 in-sample fit accepts an unused policy. *Reconsider when* a reviewed result covers a partition read off the analysed
 data for a shipped estimator.
@@ -209,12 +204,13 @@ builds is known by construction. An MSM with no design declaration reads as `"kn
 design has the exact type that `MSM.linear` builds.
 
 The MSM and `Stochastic` objects refuse undeclared and estimated functions at construction. Their
-estimator paths check again before a fit or a result recomputation, because a restored object can
-carry an invalid declaration. The `TMLE` fit checks before each refusal of the fit configuration,
-because no remedy that those refusals name lets an undeclared function fit. The public evaluators
-`MSMSet.evaluate`, `evaluate_regimen_msm`, `RegimeSet.evaluate`, and `Stochastic.density` check
-before they run a user function. The simulated-confounding replay evaluates through them. Its
-replay model reads each MSM declaration from the source model, under the same rules as the fit.
+estimator paths check again before a fit or a result recomputation, because a copied or modified
+object can carry an invalid declaration. The `TMLE` fit checks before each refusal of the fit
+configuration, because no remedy that those refusals name lets an undeclared function fit. The
+public evaluators `MSMSet.evaluate`, `evaluate_regimen_msm`, `RegimeSet.evaluate`, and
+`Stochastic.density` check before they run a user function. The simulated-confounding replay
+evaluates through them. Its replay model reads each MSM declaration from the source model, under the
+same rules as the fit.
 
 A treatment rule and the density of a user-written `Intervention` carry the same three-state
 declaration. The table gives where each one refuses `None` and `"estimated"`. Each refusal comes
@@ -232,14 +228,9 @@ refusal texts of every declaration. `Rule` and `DynamicRegimen` share one rule d
 simulated-confounding replay freezes each regime with the `density_kind` of its source, and never
 with a literal `"known"`.
 
-Loading a result raises no refusal. A restored `TMLE` or `LTMLE` result whose function this version
-refuses keeps its point estimates. It takes the `undeclared_function_plugin` status, so its `ci`,
-`pvalue` and `std_error` refuse.
-
-A longitudinal MSM keeps evaluated arrays and a `functions_kind`
-marker. Its evaluator writes `"known"` only after the source design and weight declarations pass.
-An older saved projection without this marker takes the same status and refuses truncation replay.
-New results retain the marker through serialization.
+A longitudinal MSM keeps evaluated arrays and a `functions_kind` marker. Its evaluator writes
+`"known"` only after the source design and weight declarations pass. A projection built by hand
+has no marker, and it refuses truncation replay.
 [RM28](roadmap.md#rm28-declared-densities-of-user-written-interventions) records the rule.
 *Reconsider when* the package adds supported inference for learned policies or
 population-law-dependent intervention functions.
@@ -259,13 +250,18 @@ Loading therefore has pickle's arbitrary-code-execution risk and is restricted t
 artifacts in compatible dependency environments. *Reconsider when* a safe, estimator-agnostic
 format can represent arbitrary third-party sklearn-compatible models without weakening replay.
 
+A saved artifact is read by the version that wrote it. `result.save()` records
+`cleverly.__version__`. On a different version, `cleverly.load()` warns with
+`VersionMismatchWarning` and loads the artifact as saved. It runs no migration, backfill, or
+re-stamp. `cleverly._saved_version` holds the rule, and `tests/unit/test_serialization.py` checks
+it. *Reconsider when* the project leaves alpha.
+
 A saved object round-trips the records it holds, and never a value it derived from them. Both
 `TMLEResult` and each assessment facade drop every memoized value before joblib writes the artifact.
-The shared filter reads the `cached_property` descriptors on the owning class, and it runs on both
-sides of the pickle. A stored memo outlives the code that derived it, so the artifact reports a
-conclusion this version does not reach. No cache generation invalidates a memo, because a memo
-records no question. *Reconsider when* a derived value costs more to recompute than a load may
-spend, and needs a stored generation instead.
+The shared filter `without_memos` reads the `cached_property` descriptors on the owning class, and
+each `__getstate__` applies it. A stored memo records a conclusion and not the question that
+produced it, so no reader can check the memo after a load. *Reconsider when* a derived value costs
+more to recompute than a load may spend.
 
 Scalar result algebra is composed once in `inference.results`: sole-estimate selection, ordered
 name validation, influence-curve extraction, joint covariance, and smooth delta-method contrasts.
@@ -300,9 +296,7 @@ ambiguous default by keyword. A facade may not fill in an estimand a fit leaves 
 substitution is for the case where exactly one reported parameter fits, and otherwise the analysis
 refuses by name.
 
-`run_all` sorts each included capability row into one of three execution classes. A direct alias
-can remain explicit while its canonical row alone enters the combined report. Longitudinal
-`stagewise` is such an alias for `support`.
+`run_all` sorts each included capability row into one of three execution classes.
 
 A `summarize` row reads stored state and always runs. A `refit` row refits nuisances and runs only
 under `include_refits`. A `retarget` row retargets cached nuisances and runs under

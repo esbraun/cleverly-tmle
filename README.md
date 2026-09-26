@@ -22,7 +22,8 @@ polars, Arrow-backed pandas, and `pyarrow.Table` inputs through
 
 > [!WARNING]
 > `cleverly` is alpha software, and releases use `0.1.N` versions. Pin a version for reproducible
-> work. Unsupported combinations fail before nuisance fitting instead of returning an
+> work. A result that one release saves loads in another release with a warning, and the load does
+> not migrate it. Unsupported combinations fail before nuisance fitting instead of returning an
 > approximation to another causal question.
 
 ## Install

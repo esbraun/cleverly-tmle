@@ -81,13 +81,6 @@ with positive weight mass. A cross-fitted clustered fit also refuses them at une
 or weight masses. The property `result.inference_status` gives the status of the fit, and
 `point.supplies_inference` gives it for one estimate.
 
-An older saved cross-fitted clustered `LTMLE` result also reports no interval after it loads.
-Its `"cross_fitted_longitudinal_plugin"` status names the design that current fits refuse. A
-cross-fitted result that release 0.1.0 or 0.1.1 saved under its default stratified folds reports
-none either. Its `"stratified_fold_plugin"` status names the fold policy that current fits refuse.
-A saved cross-fitted continuous-dose result of a continuous outcome with `q_bounds=None` reports
-none too. Its `"undeclared_scale_plugin"` status names the outcome scale that current fits refuse.
-
 Read `point.plugin_std_error` and `point.plugin_interval` on such a fit. Each is a diagnostic of
 the reported curve, and neither is a confidence statement.
 [Inference status](../technical-reference/inference.md#inference-status) lists each status, the
@@ -151,17 +144,14 @@ field holds the named value.
 
 Treatment and censoring rows report weighted negative log likelihood. An outcome row reports
 weighted Brier loss for a binary target, or mean squared error otherwise. A pseudo-outcome row
-reports weighted mean squared error. `reported_loss` preserves the MSE from an older regression
-row.
+reports weighted mean squared error.
 
-The legacy `mse` field answers about node regressions alone. A treatment row and a censoring row
-report `nan` there. On a weighted fit the value now averages under the observation weights, where
-an older release averaged without them.
+The `mse` field answers about node regressions alone. A treatment row and a censoring row report
+`nan` there. On a weighted fit the value averages under the observation weights.
 
 The nested `model` retains calibration and Super Learner details when the learner supplies them.
 `nuisance.omissions` retains typed reasons for unavailable mechanism rows. A complete-data fit records
-`LONGITUDINAL_CENSORING_NOT_FITTED`. An older artifact without observed-law predictions records
-`LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING`.
+`LONGITUDINAL_CENSORING_NOT_FITTED`.
 
 A categorical treatment row uses `kind="multinomial probability"` and an empty calibration table.
 The report does not convert top-class confidence into binary calibration for a privileged arm.
@@ -252,9 +242,7 @@ policy row carries the matching fitted equation in `score_load`. Read its `equat
 `targeted_ratio`, and `top_5pct` entries together. A longitudinal fit returns per-node support
 diagnostics and carries no load row of either kind.
 
-For a longitudinal fit, `support()` is the aggregate report name. The direct `stagewise()` method
-is a compatibility alias for the same report. `run_all()` retains only `support`, so it does not
-duplicate the payload under `stagewise`.
+For a longitudinal fit, `support()` is the aggregate report name.
 
 The policy row keeps the intervention ratio and support measures separate from `score_load`.
 Unequal observation weights or a further mechanism can make the two concentrations differ. An
@@ -266,8 +254,9 @@ loads describe draw 01. Every printed draw on a policy row is rendered from thos
 summary and the combined `support` row cannot disagree about the total. The loads do not describe
 the coordinatewise median-combined estimate.
 
-An older result can lack exact score weights. The report keeps every existing policy field, sets
-`score_load` to `None`, and records the reason in `score_load_omission`. Do not replace an
+A report can lack exact score weights, for example when the fit recorded no score equation for
+the target. The report then keeps every existing policy field, sets `score_load` to `None`, and
+records the reason in `score_load_omission`. Do not replace an
 intervention-specific report with the generic positivity function.
 
 Read the group row for the fitted clever covariate. Read the product row for a composed mechanism
@@ -899,17 +888,11 @@ assert type(restored.method) is type(result.method)
 assert type(restored.method.models.outcome_learner) is type(result.method.models.outcome_learner)
 ```
 
-Read `result.diagnostics.capabilities` before you run an operation on a restored artifact. Each
+Read `result.diagnostics.capabilities` before you run an operation on a loaded artifact. Each
 row declares the replay it needs, and `available` is `False` when the artifact cannot supply it.
 The row says which slot is missing, so you learn the answer before the operation runs.
 
-A restored result can hold a function that is not declared `"known"`, such as a `Rule` saved by an
-earlier version. That result keeps its point estimates, and its `ci`, `pvalue` and `std_error` refuse
-under the [`undeclared_function_plugin` status](../technical-reference/inference.md#inference-status).
-Older longitudinal MSM results also lack saved declaration evidence. Their point estimates remain
-available, but inference and truncation replay require a new fit with fixed functions declared known.
-
-A restored result can also carry an estimator configuration that this version refuses before a
+A result can hold a copied or modified estimator whose configuration the package refuses before a
 refit. A stratified fold policy, a cross-fitted continuous outcome with `q_bounds=None`, and a
 C-TMLE fit on clustered data are examples. The `refit_nuisances` slot runs every check that
 `refit()` runs before a learner, so a design refusal of an estimator subclass counts too. The table
@@ -921,21 +904,7 @@ gives what such a result keeps.
 | refits, such as `refute()` and `simulated_confounding()` | `unavailable`. `replayability.refit_nuisances` is `False`, with the code `point_replay_refit_configuration` |
 | `estimator.refit()` | raises `CapabilityError` before any learner |
 
-A new fit under a supported configuration restores the refits. The 0.1.0 and 0.1.1 releases
-saved no `split_plan` attribute. `TMLE` reads a missing attribute as `None`, which is what those
-releases meant.
-
-A cross-fitted result of a discrete treatment under a stratified fold policy also withholds `ci`,
-`pvalue` and `std_error`. It takes `"stratified_fold_plugin"` when it loads
-([RM31](../roadmap.md#rm31-inference-status-of-a-saved-stratified-cross-fitted-result)). A
-cross-fitted continuous-dose result of a continuous outcome with `q_bounds=None` withholds them
-too. It takes `"undeclared_scale_plugin"` when it loads
-([RM33](../roadmap.md#rm33-inference-status-of-a-saved-undeclared-scale-cross-fitted-result)).
-
-Load the whole saved result rather than a `ParameterEstimate` that release 0.1.0 or 0.1.1 saved
-apart from it. Those releases recorded no status on an estimate, so such an estimate loads under
-`"unrecorded_status_plugin"` and refuses `ci`, `pvalue` and `std_error` ([RM34](../roadmap.md#rm34-inference-status-of-a-saved-estimate-outside-its-result)).
-The whole result reads its configuration and gives each estimate the status of that configuration.
+A new fit under a supported configuration restores the refits.
 
 The saved artifact carries the assessment cache. A result you derive with `dataclasses.replace`
 does not. The cache key records the operation and its arguments, and it records nothing about the
@@ -944,5 +913,9 @@ result that answered them, so a derived result starts with an empty cache of its
 The joblib artifact contains the complete result graph, including nuisance estimator templates,
 so successfully restored results retain refit-based assessment. Joblib uses pickle internally:
 loading can execute arbitrary code, so load only trusted artifacts in an environment with
-compatible cleverly, sklearn, Python, and third-party estimator versions. Legacy `.npz` results
-must be loaded with the cleverly version that created them.
+compatible sklearn, Python, and third-party estimator versions.
+
+`result.save()` records the `cleverly` version that wrote the artifact. When another version saved
+it, `cleverly.load()` warns with `VersionMismatchWarning` and loads the artifact as saved. The load
+runs no migration. The statuses, reports, and cached assessments of such an artifact can differ
+from what this version computes, so fit the analysis again with this version.
