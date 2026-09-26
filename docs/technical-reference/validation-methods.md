@@ -1346,7 +1346,7 @@ surface refuses. The
 | a clustered fit | waiting on published theory | no source chooses a row-level, cluster-level, or mixed latent cause. See [F9](../roadmap.md#f9-clustered-simulated-confounding-stress-surface) |
 | identification other than a backdoor mean contrast with explicit adjustment | not written yet | the surface reads registered explicit-adjustment provenance |
 | ATT or ATC under C-TMLE or DR-TMLE | not written yet | `CTMLE` and `DRTMLE` refuse these functionals when they estimate, so no such fitted result exists |
-| a requested baseline stratum under DR-TMLE | not written yet | a DR-TMLE fit at a non-empty `guard` refuses `strata=` before any learner. A `guard=()` fit is the ordinary TMLE and fits strata, and the surface still refuses a requested stratum on every `DRTMLE` result. The guard keys on the requested stratum, not on `data.has_strata`. See [X8](../roadmap.md#x8-stratified-incremental-and-msm-targeting) |
+| a requested baseline stratum under DR-TMLE | not written yet | a DR-TMLE fit at a non-empty `guard` refuses `strata=` before any learner. A `guard=()` fit is the ordinary TMLE and fits strata. The surface still refuses a requested stratum on every `DRTMLE` result, because its DR-TMLE contract covers marginal targets only. The guard keys on the requested stratum, not on `data.has_strata`. See [X8](../roadmap.md#x8-stratified-incremental-and-msm-targeting) |
 | baseline strata with an incremental target or nonlinear or continuous MSM | not written yet | ordinary TMLE lacks stratified alternating equations or continuous-dose targeting for these groups. See [X8](../roadmap.md#x8-stratified-incremental-and-msm-targeting) |
 | a custom MSM link | not written yet | only built-in identity, log, and logit links have a replay audit |
 | a custom intervention type | not written yet | only exact `Static`, `Rule`, `Stochastic`, and `Incremental` declarations have an audited baseline-input contract |
@@ -1361,7 +1361,13 @@ surface refuses. The
 Some rows above record an upstream limit rather than a surface limit. The identified effect's
 method catalog refuses unsupported variant targets at `estimate()`, before it builds an estimator.
 `DRTMLE` itself refuses a baseline stratum at a non-empty `guard` before any learner. No fitted
-result reaches the surface guard in these cases. `_replay_refusal` keeps that guard as defence in depth.
+result reaches the surface guard in these cases, and `_replay_refusal` keeps that guard as defence
+in depth.
+
+A `DRTMLE` fit at `guard=()` is the exception. It fits strata, so a request for one of its
+stratum-specific aliases reaches `_replay_refusal`. The stratum guard is the only refusal of that
+request. The surface covers marginal DR-TMLE targets only, and the message tells the caller to fit
+the ordinary TMLE, which `guard=()` is.
 
 | composition | layer that refuses | when | message |
 | --- | --- | --- | --- |

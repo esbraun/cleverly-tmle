@@ -18,6 +18,8 @@ these things:
   ``estimate`` fits no learner, for those estimands and for ``DRTMLE``;
 * the refit replay slot reads the stratified ``DRTMLE`` refusal on a copied estimator, and
   ``refit`` raises the same sentence before any learner;
+* ``simulated_confounding`` refuses a stratum of a ``guard=()`` result, which fits strata, with
+  the reason that holds for it: the surface covers marginal DR-TMLE targets only;
 * the one-step nested composition refuses before any learner, on a copied estimator as well;
 * each other moved refusal is a ``CapabilityError``, and the incremental-intermediate refusal
   cites F6;
@@ -46,6 +48,7 @@ import cleverly.study as study_module
 from cleverly import (
     ATE,
     CausalStudy,
+    DRTMLEMethod,
     IncrementalEffect,
     IncrementalMean,
     MSMProjection,
@@ -58,6 +61,7 @@ from cleverly.estimators.reduced import refuse_unsupported
 from cleverly.exceptions import CapabilityError
 from cleverly.interventions import Incremental, Shift, Static
 from cleverly.msm import MSM
+from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from tests.conftest import linear_in_sample
 from tests.unit._declaration_support import (
     assert_every_witness_fails,
@@ -319,6 +323,31 @@ class TestTheRefitSlotReadsTheStratifiedRefusal:
         self, unguarded_result: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         refit_slot_witness(unguarded_result, monkeypatch)
+
+
+class TestTheSurfaceRefusesAStratumOfAnUnguardedFit:
+    def test_the_reason_is_the_marginal_contract(self) -> None:
+        """The surface guard is the only refusal of this request, so its reason must hold.
+
+        The fit has no reduced regressions, so the reason is not stratified reduced-regression
+        targeting.  The marginal alias of the same result replays.
+        """
+        result = study().estimate(
+            ATE(),
+            DRTMLEMethod(guard=()),
+            cross_fit=False,
+            simultaneous=False,
+            outcome_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(max_iter=1000),
+        )
+        grid = ConfounderStrengthGrid(treatment=(0.0, 0.3), outcome=(0.0, 0.02))
+        with pytest.raises(CapabilityError) as raised:
+            simulated_confounding(result, estimand="ate[S=1]", grid=grid, random_state=3)
+        message = str(raised.value)
+        assert "covers marginal arm means, ATE and ratios only" in message
+        assert "fit it with TMLE" in message
+        assert "reduced-regression" not in message
+        simulated_confounding(result, estimand="ate", grid=grid, random_state=3)
 
 
 class TestTheOneStepNestedComposition:

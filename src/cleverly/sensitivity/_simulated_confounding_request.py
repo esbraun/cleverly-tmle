@@ -422,8 +422,8 @@ def _replay_refusal(estimator: Any, estimand: str, stratum: tuple[Any, ...] | No
     alias that the guard then refused, and the refusal named strata the request never
     asked for.
 
-    These compositions are refused upstream already, so the branches defend stored
-    provenance. Two layers do that refusing, and which one fires first depends on how the
+    Most of these compositions are refused upstream already, so those branches defend
+    stored provenance. Two layers do that refusing, and which one fires first depends on how the
     caller reached the estimator. On the study API,
     :meth:`~cleverly.study.IdentifiedEffect.available_methods` offers
     ``collaborative_tmle`` and ``drtmle`` for one allowlist of targets, and ``att``,
@@ -433,11 +433,12 @@ def _replay_refusal(estimator: Any, estimand: str, stratum: tuple[Any, ...] | No
     ``att`` and ``atc`` a second time; ``par`` and ``paf`` are *inside* that set, so this
     filter does not stop them, and their result instead carries no identification metadata,
     which :func:`_validate_request` refuses earlier than this function. Stratified
-    reduced-regression targeting is rejected before ``DRTMLE`` fits any learner. A
-    ``guard=()`` fit has no reduced regressions and fits strata, and this function still
-    refuses a requested stratum on it. This function is the
-    defence in depth of the surface, and it keys on the **requested** stratum rather than
-    on whether the data carry strata.
+    reduced-regression targeting is rejected before ``DRTMLE`` fits any learner, so at a
+    non-empty ``guard`` the stratum branch defends stored provenance too. A ``guard=()``
+    fit has no reduced regressions and fits strata. Its stratified result reaches this
+    function, and the stratum branch is the only refusal of that request: the surface's
+    DR-TMLE contract covers marginal targets only. The branch keys on the **requested**
+    stratum rather than on whether the data carry strata.
 
     Parameters
     ----------
@@ -482,9 +483,16 @@ def _replay_refusal(estimator: Any, estimand: str, stratum: tuple[Any, ...] | No
             "no reduced-dimension correction for these observed-law contrasts"
         )
     if stratum is not None and type(estimator) is DRTMLE:
+        if estimator.guard:
+            return (
+                "simulated_confounding cannot replay a requested baseline stratum under "
+                "DR-TMLE; stratified reduced-regression targeting is unsupported"
+            )
         return (
             "simulated_confounding cannot replay a requested baseline stratum under "
-            "DR-TMLE; stratified reduced-regression targeting is unsupported"
+            "DR-TMLE; its DR-TMLE contract covers marginal arm means, ATE and ratios only. "
+            "A guard=() fit is the ordinary TMLE, so fit it with TMLE to replay a baseline "
+            "stratum"
         )
     return None
 
