@@ -556,12 +556,11 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
         for row in rows
     )
     if _method(result) == "drtmle" and getattr(result, "solved_corrections", False):
-        # A guarded DR-TMLE truncation curve is not a retarget.  `truncation_curve` calls
-        # `estimator.retarget` once per bound, that reaches `_solve_reduction`, and
-        # `DRTMLE._reduction` hands the alternation a closure that refits the reduced
-        # regressions.  The ordinary closure refits them at the *fitted* reduced bounds;
-        # only the missing-outcome construction receives the swept ones, because they
-        # define two of its regression targets.  Either way a bound costs a refit.
+        # A guarded DR-TMLE truncation curve retargets cached primary nuisances and
+        # refits reduced regressions inside that step. It does not call the outer
+        # estimator.refit(), whose configuration preflight controls refit_nuisances.
+        # The ordinary reduction uses its fitted bounds; missing-outcome reductions
+        # receive the swept bounds because those define two regression targets.
         #
         # Declared here rather than as a second registry row because a family may declare
         # each operation once, and the cost is a fact about the fitted result rather than
@@ -572,7 +571,7 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
                 row,
                 execution="refit",
                 cost="expensive",
-                requires_replay="refit_nuisances",
+                requires_replay="retarget_cached_nuisances",
             )
             if row.operation == "truncation_curve" and row.available
             else row
@@ -1100,7 +1099,8 @@ class Replayability:
     summarize_existing_artifacts : bool
         Whether stored diagnostics can be summarized.
     retarget_cached_nuisances : bool
-        Whether targeting can run again without fitting nuisance models.
+        Whether targeting can run again from cached primary nuisances. A guarded DR-TMLE
+        curve can refit reduced regressions inside that step.
     evaluate_stored_representer : bool
         Whether the stored representer can evaluate another parameter.
     refit_nuisances : bool
