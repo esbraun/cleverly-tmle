@@ -130,8 +130,8 @@ class TestSavedWorkingModelDeclarations:
         assert not replayability(undeclared).refit_nuisances
         capability = undeclared.diagnostics.capability("truncation_curve")
         assert not capability.available
-        assert "saved MSM projection lacks proof" in capability.reason
-        with pytest.raises(CapabilityError, match="saved MSM projection lacks proof"):
+        assert "stored MSM projection lacks proof" in capability.reason
+        with pytest.raises(CapabilityError, match="stored MSM projection lacks proof"):
             undeclared.diagnostics.truncation_curve([0.2])
 
 

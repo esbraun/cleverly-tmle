@@ -569,11 +569,11 @@ class TestAnUndeclaredLongitudinalResultRefusesARecomputation:
         assert not replayability(old).refit_nuisances
         capability = old.diagnostics.capability("truncation_curve")
         assert not capability.available
-        assert "saved regimen rule lacks" in capability.reason
+        assert "stored regimen rule lacks" in capability.reason
         assert_refused(
             lambda: old.diagnostics.truncation_curve(BOUNDS),
             CapabilityError,
-            "saved regimen rule lacks",
+            "stored regimen rule lacks",
         )
 
     def test_every_replay_row_refuses_and_a_combined_report_runs(self, regimen_result: Any) -> None:

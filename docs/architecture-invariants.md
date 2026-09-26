@@ -410,8 +410,9 @@ each `ValueError` and `NotImplementedError` of the chain as a refusal. A subclas
 can raise a plain `ValueError`, as `CTMLE` does for `att`.
 [RM24](roadmap.md#rm24-refusals-after-the-nuisance-fit) records that type.
 
-A result saved under a configuration that this version refuses keeps `retarget_cached_nuisances`
-and loses `refit_nuisances`, with the code `point_replay_refit_configuration`. Every refit asks
+A result whose estimator holds a configuration that `refit()` refuses keeps
+`retarget_cached_nuisances` and loses `refit_nuisances`, with the code
+`point_replay_refit_configuration`. Every refit asks
 `_configured_for_refit` for the estimator that it fits, and an override adapts it for an added
 covariate. The override returns a copy, so a refit never changes the fitted estimator.
 

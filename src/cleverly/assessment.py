@@ -1151,7 +1151,7 @@ def replayability(result: Any) -> Replayability:
     if callable(refuse_functions) and not declarations_pass(refuse_functions):
         return Replayability(True, False, False, False, False, (POINT_REPLAY_DECLARATION,))
     # The checks a refit runs before any learner, read without fitting. A result whose
-    # estimator was modified to a configuration this version refuses keeps its cached
+    # estimator was modified to a configuration that refit() refuses keeps its cached
     # nuisances, so it still retargets, and only the refit slot reads false.
     refit_refusal = getattr(estimator, "_refit_configuration_refusal", None)
     data = getattr(result, "data", None)
@@ -1239,14 +1239,14 @@ def _replay_omission_causes() -> dict[str, str]:
 
     return {
         POINT_REPLAY_DECLARATION: (
-            "a saved regime or MSM function lacks an accepted known-function declaration; "
+            "a stored regime or MSM function lacks an accepted known-function declaration; "
             "refit with the original functions declared known to restore recomputation"
         ),
         POINT_REPLAY_REFIT_CONFIGURATION: (
-            "this version refuses the saved estimator configuration before a refit, such as "
-            "a stratified fold policy or an undeclared scale for a cross-fitted continuous "
-            "outcome; the cached nuisances still retarget, and a new fit under a supported "
-            "configuration restores refits"
+            "this result's estimator holds a configuration that refit() refuses before a "
+            "learner, such as a stratified fold policy or an undeclared scale for a "
+            "cross-fitted continuous outcome; the cached nuisances still retarget, and a new "
+            "fit under a supported configuration restores refits"
         ),
         LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED: (
             "a retained learner template declares no random_state, so a clone of it cannot "
@@ -1257,11 +1257,11 @@ def _replay_omission_causes() -> dict[str, str]:
             "integer seed, so a clone of it cannot repeat this fit's draws"
         ),
         LONGITUDINAL_REPLAY_REGIMEN_DECLARATION: (
-            "a saved regimen rule lacks an accepted known-function declaration; refit the "
+            "a stored regimen rule lacks an accepted known-function declaration; refit the "
             "original regimen with rule_kind='known' to restore replay"
         ),
         LONGITUDINAL_REPLAY_MSM_DECLARATION: (
-            "a saved MSM projection lacks proof that its design and weights were declared "
+            "a stored MSM projection lacks proof that its design and weights were declared "
             "known; refit the original MSM with known functions to restore replay"
         ),
     }
