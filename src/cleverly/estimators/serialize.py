@@ -4,11 +4,15 @@ The stored object includes the fitted result, its cached arrays, method configur
 and the unfitted nuisance-estimator templates retained by the estimator. Consequently a
 loaded result has the same refit capabilities as the object that was saved.
 
-An artifact is an envelope that records :data:`cleverly.__version__` beside the pickled
-result. A load by a different version emits
-:class:`~cleverly.exceptions.VersionMismatchWarning` and then loads the result as saved,
-with no migration. Only :func:`save` and :func:`load`, and :func:`dumps` and :func:`loads`,
-record and compare the version. A direct pickle or joblib dump of a result gets no check.
+An artifact is one gzip stream at compression level 3 that holds two joblib pickles in
+sequence. The first is a small header that records :data:`cleverly.__version__`. The
+second is the result. Both pickles stream through the compressor, so an artifact never
+holds a second uncompressed copy of the result in memory. :func:`load` reads the header
+first. On a different version it emits
+:class:`~cleverly.exceptions.VersionMismatchWarning` before it unpickles the result, and
+then it loads the result as saved, with no migration. Only :func:`save` and :func:`load`,
+and :func:`dumps` and :func:`loads`, record and compare the version. A direct pickle or
+joblib dump of a result gets no check.
 
 Joblib uses pickle internally. Loading a file can execute arbitrary code and is safe only
 for artifacts from a trusted source produced in a compatible Python environment.
@@ -16,6 +20,8 @@ for artifacts from a trusted source produced in a compatible Python environment.
 
 from __future__ import annotations
 
+import contextlib
+import gzip
 import io
 from pathlib import Path
 from typing import IO, Any
@@ -29,6 +35,7 @@ __all__ = ["dumps", "load", "loads", "save"]
 
 _COMPRESSION = 3
 _FORMAT = "cleverly.result"
+_GZIP_MAGIC = b"\x1f\x8b"
 
 
 def _check_result(result: Any) -> None:
@@ -39,34 +46,63 @@ def _check_result(result: Any) -> None:
         raise TypeError(f"save expects a fitted causal result; got {type(result).__name__}")
 
 
-def _write(result: Any, destination: Path | IO[bytes]) -> None:
-    _check_result(result)
-    payload = io.BytesIO()
-    try:
-        joblib.dump(result, payload)
-    except Exception as error:
-        raise TypeError(
-            "the fitted result is not joblib-serializable; nuisance estimators and custom "
-            "callables must be importable and pickle-compatible"
-        ) from error
-    envelope = {"format": _FORMAT, "cleverly_version": __version__, "payload": payload.getvalue()}
-    joblib.dump(envelope, destination, compress=_COMPRESSION)
+def _write(result: Any, destination: IO[bytes]) -> None:
+    """Stream the version header and then ``result`` into one gzip stream."""
+    header = {"format": _FORMAT, "cleverly_version": __version__}
+    # ``filename=""`` and ``mtime=0`` keep the path and the clock out of the gzip header,
+    # so one result always writes the same bytes.
+    with gzip.GzipFile(
+        filename="", mode="wb", fileobj=destination, compresslevel=_COMPRESSION, mtime=0
+    ) as stream:
+        joblib.dump(header, stream)
+        try:
+            joblib.dump(result, stream)
+        except Exception as error:
+            raise TypeError(
+                "the fitted result is not joblib-serializable; nuisance estimators and custom "
+                "callables must be importable and pickle-compatible"
+            ) from error
 
 
-def _read(source: Path | IO[bytes]) -> Any:
-    outer = joblib.load(source)
-    if not (isinstance(outer, dict) and outer.get("format") == _FORMAT):
-        # An artifact written before the envelope existed holds the result bare.
-        _check_result(outer)
-        warn_on_version_mismatch(None, stacklevel=4)
-        return outer
-    saved = outer.get("cleverly_version")
-    warn_on_version_mismatch(saved, stacklevel=4)
-    try:
-        result = joblib.load(io.BytesIO(outer["payload"]))
-    except Exception as error:
-        error.add_note(f"saved by cleverly {saved}; this is cleverly {__version__}")
-        raise
+def _is_header(value: Any) -> bool:
+    return isinstance(value, dict) and value.get("format") == _FORMAT
+
+
+def _read(source: IO[bytes]) -> Any:
+    """Read the header, warn on a version mismatch, and only then unpickle the result.
+
+    ``stacklevel=4`` skips :func:`warn_on_version_mismatch`, this function, and
+    :func:`load` or :func:`loads`, so the warning names the caller's load call.
+    """
+    compressed = source.read(len(_GZIP_MAGIC)) == _GZIP_MAGIC
+    source.seek(0)
+    with contextlib.ExitStack() as stack:
+        # joblib reads a gzip stream one pickle at a time, so the header load leaves the
+        # stream at the start of the result. Any other file is a bare joblib dump, and
+        # joblib opens its own decompressor for it.
+        stream: Any = (
+            stack.enter_context(gzip.GzipFile(mode="rb", fileobj=source)) if compressed else source
+        )
+        try:
+            first = joblib.load(stream)
+        except Exception as error:
+            error.add_note(
+                "this artifact records no cleverly version. It can predate version recording, "
+                f"or be a direct joblib or pickle dump. This is cleverly {__version__}"
+            )
+            raise
+        if not (compressed and _is_header(first)):
+            # A bare artifact holds the result with no header.
+            _check_result(first)
+            warn_on_version_mismatch(None, stacklevel=4)
+            return first
+        saved = first.get("cleverly_version")
+        warn_on_version_mismatch(saved, stacklevel=4)
+        try:
+            result = joblib.load(stream)
+        except Exception as error:
+            error.add_note(f"saved by cleverly {saved}; this is cleverly {__version__}")
+            raise
     _check_result(result)
     return result
 
@@ -93,8 +129,10 @@ def save(result: Any, path: str | Path) -> Path:
     TypeError
         When ``result`` is not a fitted causal result, or when joblib cannot serialize it.
     """
+    _check_result(result)
     destination = Path(path)
-    _write(result, destination)
+    with destination.open("wb") as handle:
+        _write(result, handle)
     return destination
 
 
@@ -120,7 +158,8 @@ def load(path: str | Path) -> Any:
         When a different cleverly version wrote the file, or when the file records no
         version. The result then loads as saved, with no migration.
     """
-    return _read(Path(path))
+    with Path(path).open("rb") as handle:
+        return _read(handle)
 
 
 def dumps(result: Any) -> bytes:
@@ -141,8 +180,10 @@ def dumps(result: Any) -> bytes:
     TypeError
         When ``result`` is not a fitted causal result, or when joblib cannot serialize it.
     """
+    _check_result(result)
     buffer = io.BytesIO()
     _write(result, buffer)
+    # In CPython ``getvalue`` returns the buffer's own bytes object, not a copy of it.
     return buffer.getvalue()
 
 

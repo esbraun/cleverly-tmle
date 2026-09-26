@@ -250,11 +250,15 @@ Loading therefore has pickle's arbitrary-code-execution risk and is restricted t
 artifacts in compatible dependency environments. *Reconsider when* a safe, estimator-agnostic
 format can represent arbitrary third-party sklearn-compatible models without weakening replay.
 
-A saved artifact is read by the version that wrote it. `result.save()` records
-`cleverly.__version__`. On a different version, `cleverly.load()` warns with
-`VersionMismatchWarning` and loads the artifact as saved. It runs no migration, backfill, or
-re-stamp. `cleverly._saved_version` holds the rule, and `tests/unit/test_serialization.py` checks
-it. *Reconsider when* the project leaves alpha.
+Only the version that wrote a saved artifact supports it. `result.save()` writes one gzip stream
+that holds a header pickle and then the result pickle. The header records `cleverly.__version__`.
+On a different version, `cleverly.load()` reads the header and warns with `VersionMismatchWarning`
+before it unpickles the result. It then loads the artifact as saved, and it runs no migration,
+backfill, or re-stamp.
+
+Development snapshots between two releases share one version string, so the check does not see a
+change between them. `cleverly._saved_version` holds the rule, and
+`tests/unit/test_serialization.py` checks it. *Reconsider when* the project leaves alpha.
 
 A saved object round-trips the records it holds, and never a value it derived from them. Both
 `TMLEResult` and each assessment facade drop every memoized value before joblib writes the artifact.

@@ -38,7 +38,12 @@ def warn_on_version_mismatch(
     """
     if saved == __version__:
         return
-    by = f"cleverly {saved}" if saved else "an earlier cleverly release that recorded no version"
+    by = (
+        f"cleverly {saved}"
+        if saved
+        else "a writer that recorded no version (an earlier release, or a direct joblib or "
+        "pickle dump)"
+    )
     warnings.warn(
         f"this {what} was saved by {by}, and this is cleverly {__version__}. Alpha releases "
         "keep no compatibility for saved objects, so cleverly loads it as saved, with no "

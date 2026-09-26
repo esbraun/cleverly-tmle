@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import gzip
 import importlib
 import inspect
 import io
 import math
 import pkgutil
 import warnings
+import zlib
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -651,14 +653,27 @@ class _Unloadable:
         return (_refuse_to_unpickle, ())
 
 
-def _envelope(blob: bytes) -> dict[str, Any]:
-    """The outer mapping of an artifact that :func:`dumps` wrote."""
-    outer = joblib.load(io.BytesIO(blob))
-    assert isinstance(outer, dict)
-    return outer
+def _header(blob: bytes) -> dict[str, Any]:
+    """The header of an artifact that :func:`dumps` wrote.
+
+    joblib reads the first pickle of the gzip stream, and the header is that pickle.
+    """
+    header = joblib.load(io.BytesIO(blob))
+    assert isinstance(header, dict)
+    return header
+
+
+def _artifact(header: dict[str, Any], payload: Any) -> bytes:
+    """An artifact in the format :func:`dumps` writes, with ``header`` and ``payload``."""
+    buffer = io.BytesIO()
+    with gzip.GzipFile(filename="", mode="wb", fileobj=buffer, compresslevel=3, mtime=0) as stream:
+        joblib.dump(header, stream)
+        joblib.dump(payload, stream)
+    return buffer.getvalue()
 
 
 def _dumped(value: Any) -> bytes:
+    """``value`` dumped bare by joblib, as a caller outside :func:`dumps` can write it."""
     buffer = io.BytesIO()
     joblib.dump(value, buffer, compress=3)
     return buffer.getvalue()
@@ -685,11 +700,11 @@ ROUTES = ["file", "bytes"]
 
 
 def test_an_artifact_records_the_version_that_wrote_it(point_result, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
-    outer = _envelope(dumps(point_result))
-    assert outer["format"] == "cleverly.result"
-    assert outer["cleverly_version"] == cleverly.__version__
+    blob = dumps(point_result)
+    assert blob == _artifact(_header(blob), point_result)
+    assert _header(blob) == {"format": "cleverly.result", "cleverly_version": cleverly.__version__}
     path = point_result.save(tmp_path / "result.joblib")
-    assert joblib.load(path)["cleverly_version"] == cleverly.__version__
+    assert path.read_bytes() == blob
 
 
 @pytest.mark.parametrize("route", ROUTES)
@@ -704,10 +719,9 @@ def test_the_same_version_loads_without_a_warning(point_result, tmp_path: Path, 
 @pytest.mark.parametrize("route", ROUTES)
 def test_another_version_warns_and_loads_as_saved(point_result, tmp_path: Path, route: str) -> None:  # type: ignore[no-untyped-def]
     """A different recorded version warns, names both versions, and migrates nothing."""
-    outer = _envelope(dumps(point_result))
-    outer["cleverly_version"] = "0.0.0"
+    header = {**_header(dumps(point_result)), "cleverly_version": "0.0.0"}
     with pytest.warns(VersionMismatchWarning, match="saved by cleverly 0.0.0") as record:
-        restored = _load(route, _dumped(outer), tmp_path)
+        restored = _load(route, _artifact(header, point_result), tmp_path)
     message = str(record[0].message)
     assert f"this is cleverly {cleverly.__version__}" in message
     assert "no migration" in message
@@ -719,8 +733,9 @@ def test_another_version_warns_and_loads_as_saved(point_result, tmp_path: Path, 
 def test_a_bare_artifact_warns_that_it_recorded_no_version(
     point_result, tmp_path: Path, route: str
 ) -> None:  # type: ignore[no-untyped-def]
-    """A result dumped without the envelope, as releases before it wrote one, still loads."""
-    with pytest.warns(VersionMismatchWarning, match="recorded no version") as record:
+    """A result dumped with no header, as a direct joblib dump writes it, still loads."""
+    written_by = r"a writer that recorded no version \(an earlier release, or a direct joblib"
+    with pytest.warns(VersionMismatchWarning, match=written_by) as record:
         restored = _load(route, _dumped(point_result), tmp_path)
     assert record[0].filename == __file__
     _assert_same_estimates(restored, point_result)
@@ -730,24 +745,42 @@ def test_a_bare_artifact_warns_that_it_recorded_no_version(
 def test_a_payload_that_fails_to_load_names_both_versions(
     point_result, tmp_path: Path, route: str
 ) -> None:  # type: ignore[no-untyped-def]
-    outer = _envelope(dumps(point_result))
-    outer["cleverly_version"] = "0.0.0"
-    outer["payload"] = _dumped(_Unloadable())
+    """The warning comes from the header, so it precedes the failed unpickle of the result."""
+    header = {**_header(dumps(point_result)), "cleverly_version": "0.0.0"}
     with pytest.warns(VersionMismatchWarning), pytest.raises(_PayloadError) as raised:
-        _load(route, _dumped(outer), tmp_path)
+        _load(route, _artifact(header, _Unloadable()), tmp_path)
     assert f"saved by cleverly 0.0.0; this is cleverly {cleverly.__version__}" in (
         raised.value.__notes__
     )
 
 
+#: A pickle whose one object is a class the package does not define, as a bare artifact
+#: whose result class moved or was removed holds.
+_MISSING_CLASS = b"ccleverly.estimators.base\nNoSuchResult\n."
+
+
+@pytest.mark.parametrize("compressed", [True, False], ids=["zlib", "uncompressed"])
 @pytest.mark.parametrize("route", ROUTES)
-def test_an_envelope_that_holds_no_result_is_refused(
+def test_a_bare_artifact_that_fails_to_load_says_it_records_no_version(
+    tmp_path: Path, route: str, compressed: bool
+) -> None:
+    """A bare artifact has no header to warn from, so the failure carries the note."""
+    blob = zlib.compress(_MISSING_CLASS, 3) if compressed else _MISSING_CLASS
+    with pytest.raises(AttributeError, match="NoSuchResult") as raised:
+        _load(route, blob, tmp_path)
+    (note,) = raised.value.__notes__
+    assert note.startswith("this artifact records no cleverly version.")
+    assert "direct joblib or pickle dump" in note
+    assert note.endswith(f"This is cleverly {cleverly.__version__}")
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_an_artifact_that_holds_no_result_is_refused(
     point_result, tmp_path: Path, route: str
 ) -> None:  # type: ignore[no-untyped-def]
-    outer = _envelope(dumps(point_result))
-    outer["payload"] = _dumped({"not": "a result"})
+    header = _header(dumps(point_result))
     with pytest.raises(TypeError, match="fitted causal result"):
-        _load(route, _dumped(outer), tmp_path)
+        _load(route, _artifact(header, {"not": "a result"}), tmp_path)
 
 
 def test_non_result_objects_are_refused(tmp_path: Path) -> None:

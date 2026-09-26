@@ -918,4 +918,6 @@ compatible sklearn, Python, and third-party estimator versions.
 `result.save()` records the `cleverly` version that wrote the artifact. When another version saved
 it, `cleverly.load()` warns with `VersionMismatchWarning` and loads the artifact as saved. The load
 runs no migration. The statuses, reports, and cached assessments of such an artifact can differ
-from what this version computes, so fit the analysis again with this version.
+from what this version computes, so fit the analysis again with this version. Development
+snapshots between two releases share one version string, so the check does not see a change
+between them.
