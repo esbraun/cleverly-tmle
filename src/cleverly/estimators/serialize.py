@@ -191,18 +191,18 @@ def load(path: str | Path) -> Any:
     TMLEResult or LongitudinalResult
         The stored result, with the artifacts the file carried.
 
-    Warns
-    -----
-    VersionMismatchWarning
-        When a different cleverly version wrote the file, or when the file records no
-        version. The result then loads as saved, with no migration.
-
     Raises
     ------
     TypeError
         When the file holds no fitted causal result.
     ValueError
         When the file holds data after the result.
+
+    Warns
+    -----
+    VersionMismatchWarning
+        When a different cleverly version wrote the file, or when the file records no
+        version. The result then loads as saved, with no migration.
     """
     with Path(path).open("rb") as handle:
         return _read(handle, operation="load")
@@ -246,17 +246,17 @@ def loads(blob: bytes) -> Any:
     TMLEResult or LongitudinalResult
         The stored result.
 
-    Warns
-    -----
-    VersionMismatchWarning
-        When a different cleverly version wrote the bytes, or when they record no version.
-        The result then loads as saved, with no migration.
-
     Raises
     ------
     TypeError
         When the bytes hold no fitted causal result.
     ValueError
         When the bytes hold data after the result.
+
+    Warns
+    -----
+    VersionMismatchWarning
+        When a different cleverly version wrote the bytes, or when they record no version.
+        The result then loads as saved, with no migration.
     """
     return _read(io.BytesIO(blob), operation="loads")
