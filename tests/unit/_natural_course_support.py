@@ -6,6 +6,7 @@ from typing import Any, ClassVar
 
 import numpy as np
 from sklearn.base import BaseEstimator
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.estimators import TMLE
 from tests import discrete_law_mar as law
@@ -27,6 +28,33 @@ class NeverFit(BaseEstimator):
 
     def predict_proba(self, X: Any) -> Any:  # pragma: no cover - fit must fail first
         raise AssertionError("a refusal or preflight must run before any prediction")
+
+
+class Counting:
+    """How many fits :class:`CountingLinear` and :class:`CountingLogistic` ran.
+
+    A refusal that fires before any nuisance is fitted and a refusal that fires after two of
+    them raise the same exception, and only the count separates them.  ``calls`` is
+    class-level, so it counts the fits of every clone a fit makes.  Set it to 0 before a case.
+    """
+
+    calls: ClassVar[int] = 0
+
+
+class CountingLinear(LinearRegression):
+    """A linear regression that adds each fit to :attr:`Counting.calls`."""
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> CountingLinear:
+        Counting.calls += 1
+        return super().fit(X, y, sample_weight=sample_weight)
+
+
+class CountingLogistic(LogisticRegression):
+    """A logistic regression that adds each fit to :attr:`Counting.calls`."""
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> CountingLogistic:
+        Counting.calls += 1
+        return super().fit(X, y, sample_weight=sample_weight)
 
 
 def never_fit_learners() -> dict[str, NeverFit]:

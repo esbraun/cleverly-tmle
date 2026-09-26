@@ -2,30 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import numpy as np
-from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.linear_model import LinearRegression
 
 from cleverly.datasets import make_longitudinal
 from cleverly.exceptions import LongitudinalError
 from cleverly.learners import random_partition
 from cleverly.longitudinal import LTMLE
-
-_FIT_CALLS: list[int] = []
-
-
-class CountingLogistic(LogisticRegression):
-    """Record every fit, including fits on sklearn clones."""
-
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> Any:
-        _FIT_CALLS.append(len(y))
-        return super().fit(X, y, sample_weight=sample_weight)
+from tests.unit._natural_course_support import Counting, CountingLogistic
 
 
 def test_terminal_outcome_shortfall_precedes_mechanism_fits() -> None:
     """Two events stranded in one fold leave no event in its training complement."""
-    _FIT_CALLS.clear()
+    Counting.calls = 0
     frame, _ = make_longitudinal(n=400, seed=0)
     assignment = random_partition(len(frame), 3, seed=0).assignment
     followers = (
@@ -61,4 +50,4 @@ def test_terminal_outcome_shortfall_precedes_mechanism_fits() -> None:
             time_varying=[[], ["L2"]],
             outcome="Y",
         )
-    assert not _FIT_CALLS, f"{len(_FIT_CALLS)} learner fit(s) ran before the refusal"
+    assert Counting.calls == 0, f"{Counting.calls} learner fit(s) ran before the refusal"

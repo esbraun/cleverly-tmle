@@ -55,42 +55,15 @@ from tests.unit._capability_sweep_support import (
     outcome_bounds,
     reconfigured,
 )
-from tests.unit._natural_course_support import NeverFit, never_fit_learners
+from tests.unit._natural_course_support import (
+    Counting,
+    CountingLinear,
+    CountingLogistic,
+    NeverFit,
+    never_fit_learners,
+)
 
 BOUNDED_COVARIATES = ["W1", "W2", "W3"]
-
-
-#: Every nuisance fit the counting learners below have run, since the last reset. A module
-#: global rather than a constructor argument because scikit-learn's ``clone`` deep-copies
-#: every parameter, so a list handed to ``__init__`` reaches each fold as a fresh copy and
-#: counts nothing.
-_FIT_COUNTER: list[str] = []
-
-
-def reset_counter() -> None:
-    """Forget every recorded fit, so a case counts only its own."""
-    _FIT_COUNTER.clear()
-
-
-class CountingLogistic(LogisticRegression):
-    """A logistic regression that records every fit, so "no learner ran" is checkable.
-
-    A refusal that fires before any nuisance is fitted and a refusal that fires after two
-    of them produce the same exception, and only the counter separates them. That matters
-    here because the whole claim of a preflight is *when* it refuses.
-    """
-
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> Any:
-        _FIT_COUNTER.append("treatment")
-        return super().fit(X, y, sample_weight=sample_weight)
-
-
-class CountingLinear(LinearRegression):
-    """The regression counterpart of :class:`CountingLogistic`."""
-
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> Any:
-        _FIT_COUNTER.append("outcome")
-        return super().fit(X, y, sample_weight=sample_weight)
 
 
 def bounded_fit(**overrides: Any) -> TMLE:
@@ -200,7 +173,7 @@ class TestAPolicyThisVersionRefusesNeverReachesALearner:
         The counter is what says the refusal precedes the nuisances rather than following
         them.
         """
-        reset_counter()
+        Counting.calls = 0
         estimator = bounded_fit(
             outcome_learner=CountingLinear(),
             treatment_learner=CountingLogistic(max_iter=1000),
@@ -209,7 +182,7 @@ class TestAPolicyThisVersionRefusesNeverReachesALearner:
         frame, _ = make_nonlinear_bounded(n=200, seed=3)
         with pytest.raises(ValueError, match="fold policy this version refuses"):
             estimator.fit(frame, outcome="Y", treatment="A", covariates=BOUNDED_COVARIATES)
-        assert _FIT_COUNTER == [], f"{len(_FIT_COUNTER)} learner fit(s) ran before the refusal"
+        assert Counting.calls == 0, f"{Counting.calls} learner fit(s) ran before the refusal"
 
     def test_removing_the_refusal_lets_the_stratified_fit_run(
         self, monkeypatch: pytest.MonkeyPatch
@@ -223,7 +196,7 @@ class TestAPolicyThisVersionRefusesNeverReachesALearner:
         import cleverly.learners.crossfit as policy
 
         monkeypatch.setattr(policy, "fold_strata_refusal", lambda *a, **k: None)
-        reset_counter()
+        Counting.calls = 0
         estimator = bounded_fit(
             outcome_learner=CountingLinear(),
             treatment_learner=CountingLogistic(max_iter=1000),
@@ -231,7 +204,7 @@ class TestAPolicyThisVersionRefusesNeverReachesALearner:
         estimator.stratify_folds = "treatment"
         frame, _ = make_nonlinear_bounded(n=200, seed=3)
         estimator.fit(frame, outcome="Y", treatment="A", covariates=BOUNDED_COVARIATES)
-        assert _FIT_COUNTER, "the suppressed refusal did not let a single learner run"
+        assert Counting.calls > 0, "the suppressed refusal did not let a single learner run"
 
     def test_one_fold_under_cross_fitting_would_be_named_a_cross_fitted_estimator(self) -> None:
         """Why ``n_folds=1`` with ``cross_fit=True`` is refused rather than accepted.
@@ -292,7 +265,7 @@ class TestAStrandedArmIsRefusedBeforeAnyLearner:
 
     def test_the_fit_is_refused_with_no_learner_fitted(self) -> None:
         frame, seed = self.stranded_frame()
-        reset_counter()
+        Counting.calls = 0
         estimator = bounded_fit(
             outcome_learner=CountingLinear(),
             treatment_learner=CountingLogistic(max_iter=1000),
@@ -301,7 +274,7 @@ class TestAStrandedArmIsRefusedBeforeAnyLearner:
         )
         with pytest.raises(DataError, match="training complement contains no row in arm"):
             estimator.fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
-        assert _FIT_COUNTER == [], f"{len(_FIT_COUNTER)} learner fit(s) ran before the refusal"
+        assert Counting.calls == 0, f"{Counting.calls} learner fit(s) ran before the refusal"
 
     def test_the_refusal_names_no_redraw(self) -> None:
         """I2. A refusal raised after the draw may not send the reader back to redraw it.
@@ -324,7 +297,7 @@ class TestAStrandedArmIsRefusedBeforeAnyLearner:
         """The control. Without the check the same draw reaches the nuisance fits."""
         monkeypatch.setattr(TMLE, "_preflight_training_support", lambda *a, **k: None)
         frame, seed = self.stranded_frame()
-        reset_counter()
+        Counting.calls = 0
         estimator = bounded_fit(
             outcome_learner=CountingLinear(),
             treatment_learner=CountingLogistic(max_iter=1000),
@@ -333,7 +306,7 @@ class TestAStrandedArmIsRefusedBeforeAnyLearner:
         )
         with pytest.raises(Exception):  # noqa: B017 - any downstream failure will do
             estimator.fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
-        assert _FIT_COUNTER, "the disabled preflight still fitted no learner"
+        assert Counting.calls > 0, "the disabled preflight still fitted no learner"
 
 
 # ------------------------------------------------------- W-cluster: the unit is a cluster
@@ -689,7 +662,7 @@ class TestTheCollaborativeRefusals:
             collaborative(strategy="oat", cross_fit=True, stratify_folds=policy)
 
     def test_clusters_are_refused_before_a_learner_runs(self) -> None:
-        reset_counter()
+        Counting.calls = 0
         frame = clustered_frame(n_clusters=20, size=5)
         estimator = collaborative(
             outcome_learner=CountingLinear(),
@@ -697,7 +670,7 @@ class TestTheCollaborativeRefusals:
         )
         with pytest.raises(CapabilityError, match="C-TMLE has no clustered result"):
             estimator.fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"], id="cid")
-        assert _FIT_COUNTER == [], f"{len(_FIT_COUNTER)} learner fit(s) ran before the refusal"
+        assert Counting.calls == 0, f"{Counting.calls} learner fit(s) ran before the refusal"
 
     def test_oat_cluster_refusal_names_its_own_missing_result(self) -> None:
         frame = clustered_frame(n_clusters=20, size=5)
@@ -745,7 +718,7 @@ class TestContinuousDoseOutcomeSupport:
     """A dose has no arms, but its binary outcome still needs training support."""
 
     def test_a_stranded_outcome_class_is_refused_before_fitting(self) -> None:
-        reset_counter()
+        Counting.calls = 0
         n = 90
         rng = np.random.default_rng(7)
         assignment = random_partition(n, 3, seed=0).assignment
@@ -768,7 +741,7 @@ class TestContinuousDoseOutcomeSupport:
                 covariates=["W"],
                 treatment_kind="continuous",
             )
-        assert _FIT_COUNTER == [], f"{len(_FIT_COUNTER)} learner fit(s) ran before the refusal"
+        assert Counting.calls == 0, f"{Counting.calls} learner fit(s) ran before the refusal"
 
 
 # ------------------------------------------------------------ the longitudinal rules
@@ -968,12 +941,12 @@ class TestTheBootstrapDropsWhatThePreflightRefuses:
             "simultaneous": False,
             "estimands": ["ate"],
         }
-        reset_counter()
+        Counting.calls = 0
         TMLE(**settings).fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
-        per_replicate = len(_FIT_COUNTER)
+        per_replicate = Counting.calls
         assert per_replicate > 0, "the ordinary fit ran no learner, so the count means nothing"
 
-        reset_counter()
+        Counting.calls = 0
         with pytest.warns(UserWarning, match="bootstrap replicates failed and were dropped"):
             result = (
                 TMLE(n_bootstrap=40, **settings)
@@ -988,8 +961,8 @@ class TestTheBootstrapDropsWhatThePreflightRefuses:
             "common enough for others to keep it"
         )
         ran = bootstrap.n_requested - bootstrap.n_failed
-        assert len(_FIT_COUNTER) == per_replicate * (ran + 1), (
-            f"{len(_FIT_COUNTER)} learner fits over {ran} surviving replicates plus the "
+        assert Counting.calls == per_replicate * (ran + 1), (
+            f"{Counting.calls} learner fits over {ran} surviving replicates plus the "
             f"original fit, against {per_replicate} per fit. A dropped replicate that "
             "fitted a learner would show up here"
         )
@@ -1101,7 +1074,7 @@ class TestARespondentlessComplementIsRefusedOnEveryScale:
 
     def test_the_fit_is_refused_with_no_learner_fitted(self) -> None:
         frame, seed = respondents_in_one_fold()
-        reset_counter()
+        Counting.calls = 0
         estimator = self.selection_fit(
             outcome_learner=CountingLinear(),
             treatment_learner=CountingLogistic(max_iter=1000),
@@ -1115,7 +1088,7 @@ class TestARespondentlessComplementIsRefusedOnEveryScale:
             ),
         ):
             estimator.fit(frame, **self.columns())
-        assert _FIT_COUNTER == [], f"{len(_FIT_COUNTER)} learner fit(s) ran before the refusal"
+        assert Counting.calls == 0, f"{Counting.calls} learner fit(s) ran before the refusal"
 
     def test_the_refusal_names_no_redraw(self) -> None:
         frame, seed = respondents_in_one_fold()
@@ -1131,7 +1104,7 @@ class TestARespondentlessComplementIsRefusedOnEveryScale:
         """The control. Without the check the respondentless complement reaches a fit."""
         monkeypatch.setattr(TMLE, "_check_training_support", lambda *a, **k: None)
         frame, seed = respondents_in_one_fold()
-        reset_counter()
+        Counting.calls = 0
         estimator = self.selection_fit(
             outcome_learner=CountingLinear(),
             treatment_learner=CountingLogistic(max_iter=1000),
@@ -1139,7 +1112,7 @@ class TestARespondentlessComplementIsRefusedOnEveryScale:
         )
         with pytest.raises(Exception):  # noqa: B017 - any downstream failure will do
             estimator.fit(frame, **self.columns())
-        assert _FIT_COUNTER, "the disabled preflight still fitted no learner"
+        assert Counting.calls > 0, "the disabled preflight still fitted no learner"
 
 
 class TestASingleEventOutcomeStatesASampleMinimum:
@@ -1179,7 +1152,7 @@ class TestASingleEventOutcomeStatesASampleMinimum:
         return TMLE(**settings)
 
     def test_the_refusal_states_the_minimum_and_names_no_split(self) -> None:
-        reset_counter()
+        Counting.calls = 0
         estimator = self.binary_fit(
             outcome_learner=CountingLogistic(max_iter=1000),
             treatment_learner=CountingLogistic(max_iter=1000),
@@ -1194,7 +1167,7 @@ class TestASingleEventOutcomeStatesASampleMinimum:
         assert "collect more observations with outcome 1" in message
         for forbidden in ("Increase n_folds", "different random_state", "reduce n_folds"):
             assert forbidden not in message, f"the refusal offers {forbidden!r}"
-        assert _FIT_COUNTER == [], f"{len(_FIT_COUNTER)} learner fit(s) ran before the refusal"
+        assert Counting.calls == 0, f"{Counting.calls} learner fit(s) ran before the refusal"
 
     def test_two_events_in_one_cluster_count_as_one_unit(self) -> None:
         """The unit is the cluster, because a grouped draw moves whole clusters."""

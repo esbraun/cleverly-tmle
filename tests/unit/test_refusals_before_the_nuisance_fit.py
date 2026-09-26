@@ -37,7 +37,7 @@ import copy
 import importlib
 from collections.abc import Callable
 from dataclasses import replace
-from typing import Any, ClassVar
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -69,7 +69,13 @@ from tests.unit._declaration_support import (
     assert_refused_before_any_call,
     tmle_module,
 )
-from tests.unit._natural_course_support import NeverFit, never_fit_learners
+from tests.unit._natural_course_support import (
+    Counting,
+    CountingLinear,
+    CountingLogistic,
+    NeverFit,
+    never_fit_learners,
+)
 from tests.unit.test_drtmle_missing import _binary_trial, _trial
 
 drtmle_module = importlib.import_module("cleverly.estimators.drtmle")
@@ -84,6 +90,8 @@ MEAN = "the 'mean' group's alternating targeting equations"
 CONTINUOUS = "continuous MSMs do not yet support baseline strata"
 GUARD_REMEDY = "pass guard=(), which is the ordinary TMLE and accepts strata="
 NESTED = "targeting='one_step' and reduced_crossfit='nested' are not combined"
+#: Every non-empty ``guard``, each of which gives the ``mean`` group reduced regressions.
+GUARDS = [("Q", "g"), ("Q",), ("g",)]
 
 
 def strata_frame(n: int = 200) -> pd.DataFrame:
@@ -96,6 +104,12 @@ def binary_strata_frame() -> pd.DataFrame:
     """:func:`strata_frame` with ``Y`` replaced by ``Y > median(Y)``, for the logit link."""
     frame = strata_frame()
     return frame.assign(Y=(frame["Y"] > frame["Y"].median()).astype(int))
+
+
+def positive_strata_frame() -> pd.DataFrame:
+    """:func:`strata_frame` with ``Y`` replaced by ``exp(Y / 10)``, for the log link."""
+    frame = strata_frame()
+    return frame.assign(Y=np.exp(frame["Y"] / 10.0))
 
 
 def dose_strata_frame() -> pd.DataFrame:
@@ -155,6 +169,12 @@ TMLE_ROWS: dict[str, tuple[Callable[[dict[str, Any]], Any], tuple[str, ...]]] = 
         ),
         (IPSI, X8),
     ),
+    "log-link MSM": (
+        lambda s: fit(
+            TMLE(msm=MSM.linear(link="log"), **s), positive_strata_frame(), treatment="A"
+        ),
+        (MSM_GROUP, "use an arm/regime/shift target", X8),
+    ),
     "logit-link MSM": (
         lambda s: fit(
             TMLE(msm=MSM.linear(link="logit"), **s), binary_strata_frame(), treatment="A"
@@ -173,15 +193,13 @@ def tmle_witness(name: str) -> None:
     assert_refused_before_any_call(lambda: build(spies()), None, "", *fragments)
 
 
-def drtmle_witness() -> None:
+def drtmle_witness(guard: tuple[str, ...]) -> None:
     """The ``DRTMLE`` message names ``guard=()``, and no target that ``DRTMLE`` refuses."""
-    estimator = DRTMLE(estimands=("ate",), **drtmle_spies())
-    assert_refused_before_any_call(
+    estimator = DRTMLE(guard=guard, estimands=("ate",), **drtmle_spies())
+    raised = assert_refused_before_any_call(
         lambda: fit(estimator, strata_frame(), treatment="A"), None, "", MEAN, GUARD_REMEDY, X8
     )
-    with pytest.raises(CapabilityError) as raised:
-        fit(DRTMLE(estimands=("ate",), **drtmle_spies()), strata_frame(), treatment="A")
-    assert "arm/regime/shift" not in str(raised.value)
+    assert "arm/regime/shift" not in str(raised)
 
 
 def _stratified_trial() -> pd.DataFrame:
@@ -218,15 +236,18 @@ def guard_independent_witness(name: str) -> None:
     The strata refusal names ``guard=()`` as the remedy, and this request is refused there too.
     """
     build, fragment = GUARD_INDEPENDENT[name]
-    assert_refused_before_any_call(build, None, "", fragment)
-    with pytest.raises(CapabilityError) as raised:
-        build()
-    assert "guard=()" not in str(raised.value)
+    raised = assert_refused_before_any_call(build, None, "", fragment)
+    assert "guard=()" not in str(raised)
 
 
 IDENTIFY_ROWS: dict[str, tuple[Callable[[], CausalStudy], Any, str]] = {
     "incremental": (study, TILTS, IPSI),
     "incremental mean": (study, IncrementalMean((Incremental(2.0, name="two"),)), IPSI),
+    "log-link MSM": (
+        lambda: study(positive_strata_frame()),
+        MSMProjection(MSM.linear(link="log")),
+        MSM_GROUP,
+    ),
     "logit-link MSM": (
         lambda: study(binary_strata_frame()),
         MSMProjection(MSM.linear(link="logit")),
@@ -300,8 +321,9 @@ class TestAStratifiedRequestRefusesBeforeAnyLearner:
     def test_the_fit_names_x8(self, name: str) -> None:
         tmle_witness(name)
 
-    def test_the_drtmle_fit_names_x8_and_the_empty_guard(self) -> None:
-        drtmle_witness()
+    @pytest.mark.parametrize("guard", GUARDS)
+    def test_the_drtmle_fit_names_x8_and_the_empty_guard(self, guard: tuple[str, ...]) -> None:
+        drtmle_witness(guard)
 
     @pytest.mark.parametrize("name", list(GUARD_INDEPENDENT))
     def test_a_refusal_that_guard_repairs_comes_last(self, name: str) -> None:
@@ -525,24 +547,6 @@ class TestEachMovedRefusalIsACapabilityError:
         assert_refused_before_any_call(build, None, "", fragment)
 
 
-class Counting:
-    """Counts the ``fit`` calls of :class:`CountingLinear` and :class:`CountingLogistic`."""
-
-    calls: ClassVar[int] = 0
-
-
-class CountingLinear(LinearRegression):
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> Any:
-        Counting.calls += 1
-        return super().fit(X, y, sample_weight=sample_weight)
-
-
-class CountingLogistic(LogisticRegression):
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> Any:
-        Counting.calls += 1
-        return super().fit(X, y, sample_weight=sample_weight)
-
-
 class TestSupportedNeighboursStillFit:
     """Each control fits with ``strata=`` and reports a stratum-specific name."""
 
@@ -606,8 +610,9 @@ class TestTheWitnessesHaveTeeth:
     ) -> None:
         """Each ``TMLE`` row reaches ``NeverFit.fit``.  The identify check still refuses."""
         self.remove(monkeypatch, tmle_module)
-        assert_every_witness_fails([lambda name=name: tmle_witness(name) for name in TMLE_ROWS])
-        assert NeverFit.calls > 0
+        for name in TMLE_ROWS:
+            assert_every_witness_fails([lambda name=name: tmle_witness(name)])
+            assert NeverFit.calls > 0, f"{name} failed before any learner"
         for name in IDENTIFY_ROWS:
             identify_witness(name)
 
@@ -646,7 +651,7 @@ class TestTheWitnessesHaveTeeth:
         self.remove(monkeypatch, drtmle_module)
         assert_every_witness_fails(
             [
-                drtmle_witness,
+                *(lambda guard=guard: drtmle_witness(guard) for guard in GUARDS),
                 lambda: estimate_witness("DR-TMLE"),
                 lambda: refit_slot_witness(unguarded_result, monkeypatch),
             ]
