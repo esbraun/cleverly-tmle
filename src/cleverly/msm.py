@@ -387,6 +387,64 @@ _DESIGN_DECLARATION = FunctionDeclaration(
 )
 
 
+def refuse_continuous_msm_mechanisms(data: CausalData, *, subject: str, missingness: str) -> None:
+    """Raise when a continuous-dose MSM fit carries a second mechanism its covariate lacks.
+
+    The clever covariate of a continuous-dose MSM divides by the treatment density at the
+    observed dose and at each dose of the integration grid.  A missing outcome needs the
+    response mechanism at each of those doses, and an intermediate variable needs the
+    intermediate mechanism there.  No targeting step or evidence for either is written, so
+    the fit refuses at every ``cross_fit`` setting (RM32; X10 in ``docs/roadmap.md`` tracks
+    the construction).  The rule keys on ``data.has_missing_outcome``, not on the
+    declaration, as the missing-outcome check of ``CausalStudy.identify`` does: a declared
+    indicator with every outcome observed keeps its fit.
+
+    ``TMLE`` runs this before any learner, and ``CausalStudy.identify`` runs it on
+    :class:`~cleverly.study.MSMProjection`.  ``build_submodel`` in
+    :mod:`cleverly.estimators.targeting` keeps a backstop for its internal callers.
+
+    Parameters
+    ----------
+    data : CausalData
+        The data of the fit.  A discrete treatment returns at once.
+    subject : str
+        What the message names as refused, such as ``"An MSM (msm=)"``.
+    missingness : str
+        How the caller declares missing outcomes, such as ``"delta="``.
+
+    Raises
+    ------
+    CapabilityError
+        If the treatment is continuous and ``data`` has a missing outcome or an
+        intermediate variable.
+    """
+    if not data.is_continuous_treatment:
+        return
+    declared: list[str] = []
+    mechanisms: list[str] = []
+    if data.has_missing_outcome:
+        declared.append(f"missing outcomes ({missingness})")
+        mechanisms.append(
+            f"the response mechanism P({data.delta_name or 'Delta'} = 1 | {data.treatment_name}, W)"
+        )
+    if data.has_intermediate:
+        declared.append("an intermediate variable (intermediate=)")
+        mechanisms.append(
+            f"the intermediate mechanism P({data.intermediate_name or 'Z'} = z | "
+            f"{data.treatment_name}, W)"
+        )
+    if not declared:
+        return
+    raise CapabilityError(
+        f"{subject} on a continuous dose does not yet support {' and '.join(declared)}, "
+        "in sample or cross-fitted. Its clever covariate divides by the treatment density "
+        "at the observed dose and at each dose of the integration grid. This composition "
+        f"must also divide by {' and '.join(mechanisms)} at each of those doses, and no "
+        "targeting step or evidence for it is written here. "
+        "docs/roadmap.md X10 tracks it."
+    )
+
+
 def refuse_msm_functions(model: MSM) -> None:
     """Raise unless ``model`` declares a design and a weight this package can report on.
 

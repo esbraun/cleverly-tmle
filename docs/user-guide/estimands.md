@@ -185,6 +185,10 @@ coefficient remains a projection parameter when the working model is misspecifie
 declaration.
 [MSM projections](../technical-reference/msm-projections.md#variations) gives the refusals.
 
+On a continuous dose, `MSMProjection` needs complete outcomes. `CausalStudy.identify` raises
+`CapabilityError` when an outcome is missing.
+[X10](../roadmap.md#x10-continuous-dose-msm-with-a-second-mechanism) tracks that composition.
+
 ## Controlled direct effects
 
 `ControlledDirectEffect(intermediate=z)` compares treatment arms while setting the declared
