@@ -90,3 +90,8 @@ The full replay needs 800 `cleverly` nuisance fits, 800 cached-nuisance retarget
 2,400 R policy fits: one natural-course fit and two quarter-shift fits per replicate. It then
 performs 20,000 bootstrap draws of the 800 paired keys. A small code-path test may validate array
 shape and ratio routing before the full replay. It must not calculate a diagnostic reading.
+
+From the repository root, `python -m tests.diagnostics.rm18_comparator_density.replay --smoke
+--output <new-directory>` checks one redrawn pair against both registered anchors. It writes no
+reading. Omit `--smoke` to run all 800 pairs after that check. The full runner writes
+`cells.csv.gz` and `reading.csv` to its new output directory only after both anchors pass.
