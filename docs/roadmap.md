@@ -354,7 +354,7 @@ probe table and the corrections. Read it with `git show b876ec3f:docs/roadmap.md
 | part | what shipped |
 | --- | --- |
 | identification | `_identify_point` in `src/cleverly/study.py` runs `refuse_mixed_interventions` on the set of each regime, shift and incremental estimand. An item of another kind raises `CapabilityError` before any learner |
-| point sets | `_identify_point` refuses a mapping, a string or a single item as a point set with `DataError`. The message names the tuple form |
+| point sets | `_identify_point` refuses a mapping, an iterator, a string or a single item as a point set with `DataError`, before it reads the set. The message names the tuple form |
 | messages | each refusal names the field, the item, and the typed estimands for its kind. It cites [F17](#f17-joint-point-treatment-parameter-axes) for a joint request. The two refusals of an estimated density also name `IncrementalMean` and `IncrementalEffect` |
 | estimator guard | `as_interventions` and the `TMLE` constructor run the same check on `interventions=`, `shifts=` and `incremental=` |
 | zero-dimensional plan | commit `b64d334d` refused it with `DataError`. The message now names the sequence form and `DynamicRegimen` |

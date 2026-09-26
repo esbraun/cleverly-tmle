@@ -196,12 +196,28 @@ MALFORMED = {
         ("must be a sequence", "one-item tuple"),
         0,
     ),
+    "zero-dimensional array": Request(
+        binary,
+        RegimeMean(regimens=np.array(1)),
+        DataError,
+        "RegimeMean.regimens",
+        ("must be a sequence", "one-item tuple"),
+        0,
+    ),
+    "generator": Request(
+        binary,
+        RegimeMean(regimens=(level for level in (0, 1))),
+        DataError,
+        "RegimeMean.regimens",
+        ("must be a sequence", "iterator", "empty after its first read"),
+        1,
+    ),
     "mapping": Request(
         binary,
         RegimeMean(regimens={"a": 1, "b": 0}),
         DataError,
         "RegimeMean.regimens",
-        ("must be a sequence", "name="),
+        ("must be a sequence", "is a mapping", "name="),
         2,
     ),
 }
@@ -249,6 +265,18 @@ class TestAMixedRequestIsRefusedAtIdentify:
     @pytest.mark.parametrize("name", list(MALFORMED))
     def test_identify_refuses_a_set_that_is_not_a_sequence(self, name: str) -> None:
         identify_witness(name)
+
+    @pytest.mark.parametrize("name", [name for name in MALFORMED if name != "mapping"])
+    def test_only_a_mapping_gets_the_mapping_remedy(self, name: str) -> None:
+        with pytest.raises(DataError) as raised:
+            identify(MALFORMED[name])
+        assert "mapping" not in str(raised.value)
+
+    def test_a_refused_generator_is_not_read(self) -> None:
+        """At commit 3e67b783 the check read the generator, and the functional was empty."""
+        plans = (level for level in (0, 1))
+        assert_refused(lambda: binary().identify(RegimeMean(regimens=plans)), DataError)
+        assert next(plans) == 0
 
     @pytest.mark.parametrize("name", SPIED)
     def test_no_learner_fits_before_the_refusal(self, name: str) -> None:

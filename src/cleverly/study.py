@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
@@ -2099,12 +2099,27 @@ class ExplicitAdjustmentProvider:
             field_name, kind = declared
             items = getattr(actual, field_name)
             holder = f"{type(actual).__name__}.{field_name}"
-            if isinstance(items, (str, bytes, Mapping)) or not isinstance(items, Iterable):
-                raise DataError(
-                    f"{holder} must be a sequence, such as a tuple, and it received "
-                    f"{items!r}. Write one item as a one-item tuple. A point-treatment design "
-                    "reads no mapping key, so give an item its name with name="
+            # Refused rather than read: an iterator is empty after its first read, and
+            # ``_point_functional`` and the provenance matcher each read the set again.
+            problem = None
+            if isinstance(items, Mapping):
+                problem = (
+                    "It is a mapping, and a point-treatment design reads no mapping key. Give "
+                    "each item its name with name="
                 )
+            elif isinstance(items, Iterator):
+                problem = (
+                    f"It is an iterator, {type(items).__name__}, and an iterator is empty "
+                    "after its first read"
+                )
+            elif (
+                isinstance(items, (str, bytes))
+                or getattr(items, "ndim", 1) == 0
+                or not isinstance(items, Iterable)
+            ):
+                problem = f"It received one item, {items!r}. Write one item as a one-item tuple"
+            if problem is not None:
+                raise DataError(f"{holder} must be a sequence, such as a tuple. {problem}")
             refuse_mixed_interventions(items, kind=kind, holder=holder)
         # Keyed on the outcome being missing, not on the declaration.  The engine guard
         # this fronts -- ``TargetContext.observed_mean`` -- keys on the observation mask,
@@ -2307,7 +2322,7 @@ class CausalStudy:
             a typed estimand holds an intervention of another kind.
         DataError
             If the estimand names a value that the data lack, or if the set of a point
-            estimand is a mapping, a string, or a single item.
+            estimand is a mapping, an iterator, a string, or a single item.
 
         See Also
         --------
