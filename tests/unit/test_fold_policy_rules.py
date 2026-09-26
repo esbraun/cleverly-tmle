@@ -1757,3 +1757,62 @@ class TestVariableImportanceRefusesBeforeItsFirstFit:
         with pytest.raises(AssertionError, match="a refusal or preflight must run"):
             self.run_undeclared_scale()
         assert NeverFit.calls > 0
+
+    @staticmethod
+    def refusal_of(estimator: TMLE, frame: Any, **columns: Any) -> tuple[str, str]:
+        """What ``variable_importance`` raises, beside what ``fit`` raises on one candidate."""
+        with pytest.raises(CapabilityError) as ranked:
+            variable_importance(
+                frame, outcome="Y", candidates=["A"], covariates=["W1", "W2"],
+                estimator=estimator, **columns,
+            )  # fmt: skip
+        with pytest.raises(CapabilityError) as fitted:
+            estimator.fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"], **columns)
+        assert NeverFit.calls == 0
+        return str(ranked.value), str(fitted.value)
+
+    def test_the_fold_policy_refusal_precedes_the_scale_refusal_as_in_fit(self) -> None:
+        """The first refusal isolates the fold-policy call, which the fit preflight repeats.
+
+        The estimator requests a refused fold policy *and* cross-fits a continuous outcome
+        on an undeclared scale. ``fit`` names the fold policy first. Without the early
+        fold-policy call, ``variable_importance`` would reach the per-candidate scale
+        refusal first and name the other remedy.
+        """
+        frame, _ = make_linear_ate(n=400, seed=2)
+        estimator = TMLE(**linear_in_sample(cross_fit=True, n_folds=2, **never_fit_learners()))
+        estimator.stratify_folds = "treatment"
+        ranked, fitted = self.refusal_of(estimator, frame)
+        assert ranked == fitted == estimator._fold_policy_refusal()
+
+    def test_the_scale_refusal_precedes_the_status_refusal(self) -> None:
+        """The scale call isolates itself against a status that supplies no inference.
+
+        Twelve clusters, below the few-cluster threshold, give the candidate a status that
+        ``variable_importance`` refuses. ``fit`` refuses the undeclared scale first and
+        names its remedy. Without the per-candidate scale call, the status refusal would
+        arrive first and name no remedy.
+        """
+        frame, _ = make_linear_ate(n=240, seed=2)
+        frame["cluster"] = np.arange(len(frame)) % 12
+        estimator = TMLE(**linear_in_sample(cross_fit=True, n_folds=2, **never_fit_learners()))
+        ranked, fitted = self.refusal_of(estimator, frame, id="cluster")
+        assert ranked == fitted
+        assert "Declare the known outcome support" in ranked
+
+    def test_a_declared_scale_meets_the_status_refusal(self) -> None:
+        """The control: with the scale declared, the same clusters meet the status refusal."""
+        frame, _ = make_linear_ate(n=240, seed=2)
+        frame["cluster"] = np.arange(len(frame)) % 12
+        bounds = (float(frame["Y"].min()) - 1.0, float(frame["Y"].max()) + 1.0)
+        estimator = TMLE(
+            **linear_in_sample(cross_fit=True, n_folds=2, q_bounds=bounds, **never_fit_learners())
+        )
+        with pytest.raises(CapabilityError) as raised:
+            variable_importance(
+                frame, outcome="Y", candidates=["A"], covariates=["W1", "W2"],
+                estimator=estimator, id="cluster",
+            )  # fmt: skip
+        assert str(raised.value).startswith("variable_importance() is not defined here.")
+        assert "fewer than 40 clusters" in str(raised.value)
+        assert NeverFit.calls == 0

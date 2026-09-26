@@ -54,6 +54,7 @@ from cleverly import RegimeMean, variable_importance
 from cleverly._declarations import declarations_pass
 from cleverly.assessment import POINT_REPLAY_DECLARATION, replayability
 from cleverly.data import CausalData
+from cleverly.datasets import make_linear_ate
 from cleverly.estimators import TMLE, tmle
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError
@@ -799,6 +800,29 @@ class TestAnUndeclaredResultReadsNoReplay:
             CapabilityError,
             UNDECLARED_CLASS,
         )
+        assert NeverFit.calls == 0
+
+    def test_the_declaration_refusal_precedes_the_scale_refusal_as_in_fit(self) -> None:
+        """The early declaration call isolates itself against the per-candidate scale call.
+
+        The estimator holds an undeclared class *and* cross-fits a continuous outcome on an
+        undeclared scale. ``fit`` names the declaration first. Without the early
+        declaration call, ``variable_importance`` would reach the scale refusal first.
+        """
+        frame, _ = make_linear_ate(n=400, seed=2)
+        estimator = TMLE(
+            estimands="ate",
+            interventions=(BareTilt(),),
+            cross_fit=True,
+            n_folds=2,
+            **never_fit_learners(),
+        )
+        columns = {"outcome": "Y", "covariates": ["W1", "W2"]}
+        for call in (
+            lambda: variable_importance(frame, candidates=["A"], estimator=estimator, **columns),
+            lambda: estimator.fit(frame, treatment="A", **columns),
+        ):
+            assert_refused(call, CapabilityError, UNDECLARED_CLASS)
         assert NeverFit.calls == 0
 
 
