@@ -2615,7 +2615,7 @@ def test_each_binary_mean_alias_runs_the_supported_real_refit(
     treatment: float | None,
     expected_alias: str | None,
 ) -> None:
-    """Exercise compatibility aliases and an explicit ``ey[...]`` on every engine."""
+    """Exercise the short ``ey1`` and ``ey0`` aliases and an explicit ``ey[...]`` per engine."""
     result = _fit_binary_mean(treatment=treatment, method=method)
     if expected_alias is None:
         alias = next(name for name, key in result.parameter_keys.items() if key.value == 1.0)
@@ -3815,7 +3815,7 @@ def test_a_named_reconstruction_failure_refuses_and_an_unnamed_one_is_raised(
         ("missing", "missing-outcome"),
         ("intermediate", "controlled-direct-effect"),
         ("cluster", "clustered"),
-        ("restored", "replayable"),
+        ("no-estimator", "replayable"),
         ("estimator", "supports ordinary TMLE"),
         ("outcome-family", "outcome family"),
         ("identification", "identification metadata"),
@@ -3850,7 +3850,7 @@ def test_unsupported_compositions_are_refused_before_refit(
         data = with_intermediate_column(data)
     elif change == "cluster":
         data = replace(data, cluster=np.arange(data.n), cluster_name="id")
-    elif change == "restored":
+    elif change == "no-estimator":
         result = replace(result, estimator=None)
     elif change == "estimator":
         result = replace(result, estimator=_UnsupportedTMLE())

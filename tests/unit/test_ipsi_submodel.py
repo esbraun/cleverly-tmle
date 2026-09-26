@@ -180,12 +180,12 @@ def test_a_missing_covariate_names_the_builder_that_needs_it() -> None:
         submodel_for("ipsi", data.treatment, np.full((data.n, 2), 0.5), arms=data.arm_codes)
 
 
-def test_a_builder_predating_the_keyword_is_told_what_to_add() -> None:
-    """The migration message, on the terms `arms` and `regimes` already set."""
+def test_a_builder_without_the_keyword_is_told_what_to_add() -> None:
+    """The missing-keyword message, on the terms `arms` and `regimes` already set."""
     from cleverly.fluctuation import register_submodel
     from cleverly.fluctuation.submodel import SUBMODEL_BUILDERS
 
-    def old_signature(  # type: ignore[no-untyped-def]
+    def without_the_keyword(  # type: ignore[no-untyped-def]
         treatment,
         propensity,
         *,
@@ -201,12 +201,12 @@ def test_a_builder_predating_the_keyword_is_told_what_to_add() -> None:
     ):
         raise AssertionError("not reached")
 
-    register_submodel("stale_for_test", old_signature)
+    register_submodel("no_incremental_for_test", without_the_keyword)
     try:
         with pytest.raises(TypeError, match="incremental=None"):
-            submodel_for("stale_for_test", np.zeros(3), np.zeros((3, 2)))
+            submodel_for("no_incremental_for_test", np.zeros(3), np.zeros((3, 2)))
     finally:
-        del SUBMODEL_BUILDERS["stale_for_test"]
+        del SUBMODEL_BUILDERS["no_incremental_for_test"]
 
 
 # ------------------------------------------------------------ the mechanism fluctuation

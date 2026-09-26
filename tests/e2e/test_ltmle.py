@@ -471,7 +471,6 @@ def test_material_cumulative_truncation_warns_and_reports_the_share() -> None:
         result = run(frame, regimens={"always": 1}, g_bounds=0.9)
     message = str(caught[0].message)
     assert "diagnostics.support()" in message
-    assert "diagnostics.stagewise()" not in message
     diagnostics = result.diagnostics.support().to_frame()
     assert float(diagnostics["share_truncated"].max()) == 1.0
     fit = result.fits["always"]

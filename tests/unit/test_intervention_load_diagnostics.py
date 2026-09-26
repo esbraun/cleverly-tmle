@@ -978,7 +978,7 @@ def test_cached_intervention_loads_replay_after_persistence(
 
 @pytest.fixture(scope="module")
 def score_load_records(intervention_results: dict[str, Any]) -> dict[str, Any]:
-    """One instance of each record class the defaulting unpickle now serves."""
+    """One instance of each record class that carries a score load."""
     records: dict[str, Any] = {
         group: next(iter(_rows(intervention_results[group], group).values())) for group in GROUPS
     }
@@ -998,12 +998,7 @@ def score_load_records(intervention_results: dict[str, Any]) -> dict[str, Any]:
 def test_every_score_load_record_survives_a_real_pickle_round_trip(
     score_load_records: dict[str, Any], key: str, expected: type
 ) -> None:
-    """The four classes that share one restore, taken through ``dumps`` and ``loads``.
-
-    The shared restore adds a ``__setstate__`` to classes that had none, which is the kind
-    of change that can break an ordinary round trip while every hand-called restore keeps
-    passing.
-    """
+    """The four score-load record classes survive a real pickle round trip."""
     record = score_load_records[key]
     assert isinstance(record, expected)
     restored = pickle.loads(pickle.dumps(record))
