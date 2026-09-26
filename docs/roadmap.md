@@ -9,6 +9,11 @@ capabilities belong in the [user guide](user-guide/index.md), scientific contrac
 The main grid is one binding sequence. Complete lower numbers before higher numbers. Items with no
 published theory do not enter this sequence.
 
+`cleverly` is alpha, and it keeps no backward compatibility. `cleverly.load` warns with
+`VersionMismatchWarning` when a different version saved the artifact, and it does not migrate the
+artifact. This roadmap therefore carries no compatibility or migration items. The "Compatibility"
+section of `CLAUDE.md` states the rule.
+
 ## Remediation
 
 This queue is the triage set that must be complete before a beta release. It holds shipped
@@ -30,21 +35,16 @@ one, by the `id` in the "What this row asks for" table of RM18.
 verdict stays red under a `reporting` policy, so no verdict is hidden and no margin moved.
 
 The detail section of a delivered row keeps a short record of what shipped. Commit `dea3297e`
-holds the full plan, probe and review record of each row that was delivered before RM33. Read it
-with `git show dea3297e:docs/roadmap.md`.
-
-Commit `cf914b61` holds the full RM33 record. Read it with `git show cf914b61:docs/roadmap.md`.
-Commit `4befdaa6` holds the full RM34 record. Read it with `git show 4befdaa6:docs/roadmap.md`.
-The table below lists the rows that remain.
+holds the full plan, probe and review record of each delivered row. Read it with
+`git show dea3297e:docs/roadmap.md`. The table below lists the rows that remain.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.04 | Inference status of saved bands and E-values outside their result | decide the status that a `SimultaneousBands` or `EValue` takes when it loads without its result | the object records no status, and it publishes its bands or its E-value limit. No field tells an old object from a current one | [RM35](#rm35-inference-status-of-saved-bands-and-e-values-outside-their-result) |
 | 0.32 | Intervention refusals at identification | refuse mixed intervention kinds in `CausalStudy.identify`, and name the typed estimands in each message. Refuse a zero-dimensional regimen plan by name | a mixed request passes identification and then fails at estimation, once with an `AttributeError` | [RM14](#rm14-intervention-refusals-at-identification) |
 | 0.33 | Continuous-dose MSM fit with missing outcomes | refuse the composition by name before any learner, as `CapabilityError` | an in-sample continuous-dose MSM fit with `delta=` raises `ValueError` from the nuisance fit, after two learner fits | [RM32](#rm32-continuous-dose-msm-fit-with-missing-outcomes) |
 | 0.34 | Refusals after the nuisance fit | raise each refusal as `CapabilityError` before any learner call | two stratified requests refuse with `NotImplementedError` after 2 and 8 learner fits. An incremental request with an intermediate variable refuses with `ValueError`. Two refusals in the refit replay chain raise a plain `ValueError` or `NotImplementedError` | [RM24](#rm24-refusals-after-the-nuisance-fit) |
 | 0.41 | Calibration-slope warning rule | replace the fixed band with a rule that a registered calibration study supports | the band flagged 14 of 40 fits of a correctly specified weak-signal propensity model | [RM15](#rm15-calibration-slope-warning-rule) |
-| 0.42 | Summary and error-message accuracy | correct six display surfaces, three data error messages and one refusal remedy, add a fingerprint-only protocol option, and decide what a bootstrap summary publishes on a non-inferential fit. The simultaneous-request policy is settled below. Correct two `benchmark` argument checks, and make one truncation row agree with its call | each surface omits, misstates, or repeats a fact that the fit records. Three more surfaces misstate what a call accepts or needs | [RM16](#rm16-summary-and-error-message-accuracy) |
+| 0.42 | Summary and error-message accuracy | correct six display surfaces, three data error messages and one refusal remedy, add a fingerprint-only protocol option, and decide what a bootstrap summary publishes on a non-inferential fit. The simultaneous-request policy is settled below. Correct two `benchmark` argument checks | each surface omits, misstates, or repeats a fact that the fit records. Two more surfaces misstate what a call accepts | [RM16](#rm16-summary-and-error-message-accuracy) |
 | 0.51 | Red property cells after the fold, scale and law changes | keep each red verdict under `reporting` with its interval, and admit inference only when F18 or F19 supplies the exact result. The [red-cell ledger](technical-reference/method-evidence/red-cells.md) delivers this. Then declare and run the five open RM18 follow-up designs, each declared before its run | registered studies publish red verdicts after the fold, scale and law changes and the pooled update. The ledger lists each one and the ask that owns it. Five RM18 follow-up designs are not declared and have not run | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
 | 0.52 | One-sided robustness bias increment in DR-TMLE | investigate the exploratory between-implementation increment on binary `treatment_correct`, under a design declared before it runs | the RM18 reading is `mixed` on that configuration. The unadjusted paired 99% interval of `cleverly` minus R `drtmle` runs 0.000068 to 0.001942, while the Bonferroni interval for that comparison covers zero. No implementation defect is established | [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) |
 | 0.61 | Learned-policy value evaluation | implement a typed learned-policy target with fold-local training and evaluation, using a published estimating and inference contract | fixed-rule paths refuse a rule learned from the analysis sample; published learned-policy methods give distinct targets and inference | [RM30](#rm30-learned-policy-value-evaluation) |
@@ -55,7 +55,7 @@ depends on comes before that row.
 
 | tier | reason | rows |
 | --- | --- | --- |
-| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM35 |
+| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | no open row |
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM14, RM32 |
 | c | a correct refusal that arrives late or as the wrong type | RM24 |
 | d | a diagnostic or a warning that misleads | RM15 |
@@ -67,7 +67,6 @@ The table gives the reason for each place inside a tier.
 
 | row | reason for its place |
 | --- | --- |
-| RM35 | a band or an E-value that a caller saved apart from its result publishes a limit that this version can withhold. Only a caller who pickles a band or E-value alone meets it |
 | RM14 | one mixed request raises an `AttributeError`. It also has a late refusal of tier c, so it takes the higher tier |
 | RM32 | one composition raises a `ValueError` that is not a refusal, after two learner fits. RM14 reaches every mixed intervention request, so RM14 comes first |
 | RM24 | two refusals arrive after 2 and 8 learner fits, and the refusals of the row have the wrong type |
@@ -77,15 +76,13 @@ The table gives the reason for each place inside a tier.
 | RM19 | one configuration, which RM18 opened. Its Bonferroni interval covers zero, and it moves no verdict |
 | RM30 | a published learned-policy method can resolve the current refusal, but requires a distinct target, fold-local evaluation, and inference validation |
 
-No open row waits on another open row. The RM14, RM24 and RM32 requests produce no fit, and RM35
-reads an artifact that an earlier version saved.
+No open row waits on another open row. The RM14, RM24 and RM32 requests produce no fit.
 
-Use five delivery groups for these nine rows and the two investigations that RM18 waits on.
+Use four delivery groups for these eight rows and the two investigations that RM18 waits on.
 Keep each item's acceptance criteria separate inside its group.
 
 | delivery group | items | shared boundary |
 | --- | --- | --- |
-| saved-result inference | RM35 | the status that a saved artifact takes when this version refuses the configuration that produced its interval, or cannot read that configuration |
 | refusal surfaces | RM14, RM32 and RM24 | a refusal reaches the caller where its declaration says, before the work that it refuses |
 | diagnostic reports | RM15 and RM16 | one assessment and summary surface, with one documentation pass |
 | red property cells | RM18 and RM19, and the F18 and F19 derivations that RM18 waits on | the recorded rule that a red cell is reporting evidence, designs declared before their runs that move no verdict, and two exact derivations that would close the inferential gaps |
@@ -101,8 +98,8 @@ queue. The RM IDs and their anchors never change, so a commit names a row by its
 row takes its priority with it, and the other rows keep theirs.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
-The queue holds nine rows. Six rows need their corrections: RM14 to RM16, RM24, RM32 and
-RM35. RM18 has five follow-up designs that are not declared and have not run. RM19 has no
+The queue holds eight rows. Five rows need their corrections: RM14 to RM16, RM24 and RM32.
+RM18 has five follow-up designs that are not declared and have not run. RM19 has no
 declared design. RM30 holds the published learned-policy implementation.
 
 The F18 and F19 derivations do not block priority 1, because an item with no published theory does
@@ -226,7 +223,7 @@ An item is complete only when all applicable conditions hold:
 - signs, masks, guards, and counterfactual blocks that can vanish at truth have a nonzero witness
   or deliberate-mutation control in addition to exact-law checks;
 - cross-module changes satisfy [the architecture invariants](architecture-invariants.md);
-- reader-facing behavior, migration, methodology, references, and evidence are updated without
+- reader-facing behavior, methodology, references, and evidence are updated without
   presenting a proposal as a release claim; and
 - every relevant check has run locally and GitHub Actions is green. CI is the final merge signal,
   not a substitute for the local validation record.
@@ -315,7 +312,6 @@ Pull request 223 delivered this row. The table gives what shipped.
 | status | `ParameterEstimate` carries an `inference` field. `CTMLE` sets it to `working_mechanism_plugin` on the greedy, ordered, and discrete paths. `ci`, `pvalue`, and `std_error` raise `CapabilityError`. `plugin_std_error` and `plugin_interval` keep the diagnostic |
 | downstream refusals | a contrast, a simultaneous band, every E-value branch, `variable_importance()`, and `tipping_gamma(use_ci=True)` refuse on these paths |
 | names | `influence.spread_name` gives the name that each spread takes under each status |
-| saved results | `TMLEResult.__setstate__` re-stamps each estimate from the estimator that the artifact carries |
 | path record | the docstrings state that the unpenalized fluctuation cannot worsen its own loss, while the recorded penalized selection risk can rise |
 
 `TestTheWorkingMechanismDiagnosticMissesTheExactVariance` and
@@ -451,14 +447,13 @@ The witnesses must fail when a component is wrong:
 | split-spread fact of the `nuisance_models` assessment row on a selector fit | says "largest sd/se", while `summary()` of the same report says "sd/plugin se" | `_nuisance_item` in `src/cleverly/assessment.py` writes fixed text. A greedy fit of `make_instrument(n=600, seed=44)` with `repeats=2` prints "largest sd/se 0.0743 for ate" beside the working-mechanism note | read the name from `influence.spread_name`, as the other surfaces do |
 | an explicit `simultaneous=True` on a fit that supplies no inference | the fit builds no band and raises no warning. Only `summary()` states the omission | a greedy fit of the same law with three estimands records no warning. Its summary prints "no simultaneous bands: a band is a joint confidence statement, and this fit reports none." The default is `True`, so the fit cannot tell an explicit request from the default | keep the present behavior. The fit makes no band and its summary names the omission. A warning would fire on every default non-inferential fit. The [collaborative reference](technical-reference/collaborative-tmle.md) and [inference status](technical-reference/inference.md#inference-status) record this policy |
 | in-sample C-TMLE selection-fold refusal | tells the caller to fit in sample with `cross_fit=False`, and the fit is already in sample. The downstream nuisance error says the same | `CTMLE(strategy="greedy", cross_fit=False, selection_folds=6, q_bounds=(0, 1))` with `delta=` on `respondents_in_one_fold()` from `tests/unit/test_fold_policy_rules.py`, at `random_state=1146`. The fit raises `DataError` "C-TMLE selection cannot fit its nuisances because repeat 0, fold 2's training complement contains no row with an observed outcome", which ends "Either fit in sample with cross_fit=False on the engine". With `TMLE._check_training_support` patched out, the nuisance fold loop raises `ValueError` "a cross-fitting fold has no trainable rows for a nuisance model", which says "Fit in sample instead (cross_fit=False on the engine ...)". The remedy is `_IN_SAMPLE_REMEDY` in `src/cleverly/learners/crossfit.py` and the text in `src/cleverly/estimators/_nuisance.py` | name the selection folds as the split that failed, and give a remedy that is true for an in-sample fit |
-| fold-policy refusal on a restored continuous-dose fit | the old message said `stratify_folds='treatment'` "balances the outer folds on the treatment", although the saved continuous-dose split used no treatment strata | `TMLE._fold_strata` returns `None` for a continuous treatment. A copied or restored estimator can carry the old policy into `refit`, where `fold_strata_refusal` refuses it before a learner runs. `tests/unit/test_saved_fold_policy_status.py::test_restored_dose_refit_names_the_requested_strata` checks the dose and a discrete-treatment control | delivered: the refusal now says the policy "requests stratification" and describes what a split drawn from those strata would do. It retains the unstratified and in-sample remedies |
+| fold-policy refusal on a reconfigured continuous-dose estimator | the old message said `stratify_folds='treatment'` "balances the outer folds on the treatment", although the continuous-dose split used no treatment strata | `TMLE._fold_strata` returns `None` for a continuous treatment. A copied or modified estimator can carry the policy into `refit`, where `fold_strata_refusal` refuses it before a learner runs. `tests/unit/test_fold_policy_rules.py::test_a_reconfigured_refit_names_the_requested_strata` checks the dose and a discrete-treatment control | delivered: the refusal now says the policy "requests stratification" and describes what a split drawn from those strata would do. It retains the unstratified and in-sample remedies |
 | `DRTMLE` class docstring | describes an open centring defect on a quarter of splits, and names the test class `TestTheReportedCurveIsNotAlwaysCentred` | no test class has that name. `TestTheReportedCurveIsCentredWhereTheBoundBinds` in `tests/unit/test_drtmle_fit.py` records the fix, which solves the score at the truncated tilt. The docstring of `TestEachDrawSolvesItsOwnEquations` names the old class too | describe the fixed state, and name the present class in both docstrings |
-| bootstrap summary on a non-inferential fit | `estimate.bootstrap.ci` answers, and `to_dict` emits `bootstrap_std_err`, under inferential names on a fit whose status supplies no inference | `BootstrapSummary` in `src/cleverly/inference/influence.py` is a plain dataclass, and `ParameterEstimate.to_dict` writes `bootstrap_std_err` whatever the status. `to_dict` already renames the percentile limits to `bootstrap_range_lower` and `bootstrap_range_upper`. RM12 kept the `bootstrap_std_err` name on purpose, and the [collaborative reference](technical-reference/collaborative-tmle.md) says so | decide what the bootstrap publishes on such a fit, and record the decision in the collaborative reference and in [inference status](technical-reference/inference.md#inference-status). A refusal at `.bootstrap.ci` would break the `ci=` keyword of the `BootstrapSummary` constructor, every reader of that field, and results pickled before the change |
+| bootstrap summary on a non-inferential fit | `estimate.bootstrap.ci` answers, and `to_dict` emits `bootstrap_std_err`, under inferential names on a fit whose status supplies no inference | `BootstrapSummary` in `src/cleverly/inference/influence.py` is a plain dataclass, and `ParameterEstimate.to_dict` writes `bootstrap_std_err` whatever the status. `to_dict` already renames the percentile limits to `bootstrap_range_lower` and `bootstrap_range_upper`. RM12 kept the `bootstrap_std_err` name on purpose, and the [collaborative reference](technical-reference/collaborative-tmle.md) says so | decide what the bootstrap publishes on such a fit, and record the decision in the collaborative reference and in [inference status](technical-reference/inference.md#inference-status). A refusal at `.bootstrap.ci` would break the `ci=` keyword of the `BootstrapSummary` constructor and every reader of that field |
 | continuous-treatment `DataError` | the error for a continuous treatment with no `shifts=` and no `msm=` offers `Shift(0.0, cap=None)` as "the natural course". A cross-fitted fit with `delta=` then meets the F21 refusal of a shift target, whose remedy is the in-sample fit | `TMLE._check_shifts` in `src/cleverly/estimators/tmle.py`. The review probe of the F21 refusal (commit 45f072b) fitted `make_missing_outcome_binary(n=400, seed=4)` with a continuous dose and `Shift(0.0, cap=None)`, cross-fitted with `delta=`. It refused before any learner. Its in-sample fit reports `ey_shift[natural course]` 0.51256 | on a cross-fitted fit with `delta=`, name the in-sample fit beside the natural course, so that the suggested request does not meet a refusal |
 | longitudinal plan written as a mapping | `{"x": {"t1": 1, "t2": d}}` resolves to `Regimen('x', t1/t2)`, with the dictionary keys as arms. The fit then raises `DataError`: "regimen 'x' assigns 't1' at time 1". The message names a label that the user did not mean as an arm, and nothing checks or calls `d` | `_plan_nodes` in `src/cleverly/longitudinal/regimen.py` reads any iterable that is not an iterator as a tuple of its items. The review of RM28 probed the plan at a0e93bb6 and at commit 75e86be, with the same result | refuse a mapping plan by name, and name the sequence form and `DynamicRegimen` in the message |
 | `benchmark(covariates=[])` | runs a refit that drops nothing. The report reads "implied cf_y = 0.0000, cf_d = 0.0000" and "the estimate moved by +0" | `benchmark_refusal` in `src/cleverly/sensitivity/omitted_variable.py` returns `None` for an empty request, because a covariate remains. A 2026-09-24 probe on the RM23 sweep's `ordinary` kind, `make_linear_ate(n=400, seed=2)` in sample, returned that report | refuse an empty `covariates` as a malformed argument, before the refit |
 | `benchmark` covariate names on a fit with an encoded categorical covariate | accepts the indicator column `V__low`, and rejects the logical name `V` with `DataError`: "unknown covariates ['V']; this fit adjusts for ['W1', 'W2', 'W3', 'W4', 'V__low']". The fit adjusts for `V` | the same probe on the sweep's `stratified` kind, which adds a two-level `V` as a stratum and a covariate. `simulated_confounding` refuses an encoded column by name, because zeroing one encoded column does not define a logical-covariate benchmark | accept the logical name and drop its whole encoded block, or refuse an indicator column by name as `simulated_confounding` does. Name the logical column in the message |
-| `truncation_curve` row of a restored guarded DR-TMLE result under a refused fold policy | reads `unavailable`, although the module call `truncation_curve(result, [0.05])` runs and returns a curve | the same probe restored the sweep's DR-TMLE kind, `make_binary_outcome(n=240, seed=11)`, with `stratify_folds="treatment"`. `assessment_capabilities` makes the guarded row require `refit_nuisances`, which reads false. The curve refits the reduced regressions inside `retarget`, and does not call `refit()` | decide which replay slot the guarded curve needs, and make the row and the call agree |
 
 Each correction needs a unit test that fails without it. Three tests are nonzero witnesses. A
 `RegimeContrast` summary keeps its reference line. A design with a time-varying covariate prints it
@@ -470,16 +465,14 @@ table gives what the other tests need.
 | split-spread fact | the test fails on a selector fit with `repeats=2`, and it passes on an ordinary fit |
 | `DRTMLE` class docstring | the docstring test asserts that each test class that a docstring names exists |
 | in-sample C-TMLE selection-fold refusal | the test fits the probe above, and asserts that neither message offers `cross_fit=False` to an in-sample fit. A control keeps that remedy on a cross-fitted fit |
-| fold-policy refusal on a restored continuous-dose fit | `test_restored_dose_refit_names_the_requested_strata` refits a restored dose result and a discrete-treatment control under each refused policy. It checks that the message describes a request, not observed balance |
+| fold-policy refusal on a reconfigured continuous-dose estimator | `test_a_reconfigured_refit_names_the_requested_strata` refits a reconfigured dose result and a discrete-treatment control under each refused policy. It checks that the message describes a request, not observed balance |
 | bootstrap summary | a decision before a test |
 | continuous-treatment `DataError` | the test fits the suggested shift, cross-fitted with `delta=`, and asserts that the message names the in-sample fit |
 | the two `benchmark` rows | the test fits the probe kind of the RM23 sweep. The control is a proper subset of the covariates, which runs |
-| `truncation_curve` row | the test compares the row with the module call on the restored result |
 
 The simultaneous row needs no change. `LTMLE` skips its default band below 40 clusters, as `TMLE`
 does under each non-inferential status. The result summary names the omission for both estimators.
-Tier e holds the two `benchmark` rows and the truncation row by the extension that its reason
-states.
+Tier e holds the two `benchmark` rows by the extension that its reason states.
 
 Pull request 229 corrected two refusal reasons that this row held. `_risk_ratio_refusal` names the
 missing intermediate intervention level, and `_select_evalue` gives a separate reason for each
@@ -880,8 +873,7 @@ control that keeps its interval, and the item that holds the reopen route.
 A status keeps the point estimate. `ci`, `pvalue`, and `std_error` raise `CapabilityError` with
 the reason of the status. `plugin_std_error` and `plugin_interval` keep the diagnostic, as RM12 set
 up. `summary()` prints the label and the reason of the status, the nuisance note marks it, and the
-E-value row reads `unavailable`. `variable_importance()` refuses before its first fit. A result
-saved before the status existed loads re-stamped.
+E-value row reads `unavailable`. `variable_importance()` refuses before its first fit.
 
 The estimated-weight decision is a status and not a refusal. The `weights_estimated` flag changes
 no number (`src/cleverly/data/weighting.py`), so a caller could drop the flag to bypass a refusal.
@@ -902,55 +894,20 @@ missing-outcome contract. The docstring of `TMLE._resolve_arm_indexed_missing_co
 | ---: | --- | --- |
 | 1 | `working_mechanism_plugin` | no result shows that the reported curve is the influence curve of the estimator |
 | 2 | `generated_design_plugin` | the same premise |
-| 3 | `undeclared_function_plugin` | the saved curve treats a restored function as fixed, and no code can check that it was fixed |
-| 4 | `estimated_weight_plugin` | the same premise as order 1 |
-| 5 | `cross_fitted_longitudinal_plugin` | no read source covers the cluster-robust variance of the sequential recursion under grouped folds |
-| 6 | `stratified_fold_plugin` | no shipped result covers a saved split that read the treatment |
-| 7 | `undeclared_scale_plugin` | no shipped result covers an outcome scale that the held-out rows set |
-| 8 | `unequal_cluster_plugin` | the cross-fitted interval lacks validation at unequal cluster sizes or masses |
-| 9 | `few_cluster_plugin` | no read source supports the reference distribution |
-| 10 | `unrecorded_status_plugin` | the saved estimate records no status, and holds no configuration to read one from |
+| 3 | `estimated_weight_plugin` | the same premise as order 1 |
+| 4 | `unequal_cluster_plugin` | the cross-fitted interval lacks validation at unequal cluster sizes or masses |
+| 5 | `few_cluster_plugin` | no read source supports the reference distribution |
 
-RM20 shipped orders 1, 2, 4, 8 and 9.
-[RM29](#rm29-saved-cross-fitted-clustered-longitudinal-results) added order 5, and [RM28](#rm28-declared-densities-of-user-written-interventions) added order 3.
-[RM31](#rm31-inference-status-of-a-saved-stratified-cross-fitted-result) added order 6, and
-[RM33](#rm33-inference-status-of-a-saved-undeclared-scale-cross-fitted-result) added order 7,
-and [RM34](#rm34-inference-status-of-a-saved-estimate-outside-its-result) added order 10.
-`PRECEDENCE` in `tests/unit/test_inference_status_registry.py` pins `NON_INFERENTIAL` to this
-order.
+RM20 shipped all five orders. `PRECEDENCE` in `tests/unit/test_inference_status_registry.py` pins
+`NON_INFERENTIAL` to this order.
 
-Among the five RM20 statuses, only three pairs can meet. On DR-TMLE, the estimated-weight status
-meets each clustered status. On
-TMLE and DR-TMLE, the two clustered statuses meet each other. C-TMLE refuses `id=` at every
-setting.
+Among the five statuses, only three pairs can meet. On DR-TMLE, the estimated-weight status meets
+each clustered status. On TMLE and DR-TMLE, the two clustered statuses meet each other. C-TMLE
+refuses `id=` at every setting.
 
-On a restored result, order 3 can meet each clustered status, the saved split and the saved
-scale, orders 5 to 9, and it takes precedence.
-`test_the_undeclared_status_precedes_the_cluster_status`, in
-`tests/unit/test_rule_and_intervention_declarations.py` and
-`tests/unit/test_regimen_rule_declarations.py`, restores a real few-cluster fit and reads order 3.
-Order 3 cannot meet order 4, because `DRTMLE` refuses `interventions=` and `msm=`.
-
-On a restored result, order 6 can meet orders 3, 4, 5, 7, 8 and 9. Orders 3, 4 and 5 take
-precedence over it, and it takes precedence over the saved scale and the cluster statuses, orders
-7 to 9.
-`test_the_status_comes_before_a_cluster_status`, in `tests/unit/test_saved_fold_policy_status.py`,
-restores a stratified fit of 39 clusters and reads order 6. A restored `LTMLE` split with
-`id=` meets order 5, which comes first.
-
-On a restored result, order 7 can meet orders 3, 4, 6, 8 and 9. It cannot meet order 5, which only
-`LTMLE` takes, because the `LTMLE` path has no scale rule. Orders 3, 4 and 6 take precedence over
-it, and it takes precedence over the cluster statuses, orders 8 and 9.
-`test_a_saved_stratified_split_comes_first`, `test_an_undeclared_function_comes_first` and
-`test_the_status_comes_before_a_cluster_status`, in `tests/unit/test_saved_scale_status.py`, read
-orders 6, 3 and 7 on restored fits.
-
-Order 10 meets no other order. No hook returns it, and each result re-stamp replaces it with
-the status of the configuration that the result holds.
-
-Each status of orders 1 to 9 reads the estimator configuration and the prepared data alone, so it
-is known before a learner runs. Order 10 reads the saved state of an estimate. No status reads a
-fitted quantity. The estimator stamps the status after nuisance fitting.
+Each status reads the estimator configuration and the prepared data alone, so it is known before a
+learner runs. No status reads a fitted quantity. The estimator stamps the status after nuisance
+fitting.
 
 Two neighboring surfaces keep their intervals without a registered study. This row records each
 one and adds no row for it.
@@ -993,7 +950,7 @@ Pull request 230 delivered this row. The table gives what shipped.
 | part | what shipped |
 | --- | --- |
 | share term | `_conditioning_share_influence` in `src/cleverly/sensitivity/omitted_variable.py`. `_elements_for` adds the term under the doubly robust estimator for every parameter that conditions on an arm. The point $\nu^2$ does not move |
-| plug-in limits | `SensitivityBounds` records `nu2_estimator`. Under `"plugin"` the six limit accessors raise `CapabilityError` with the reason that cites [F26](#f26-confidence-limits-of-the-plug-in-omitted-variable-bound). A bound pickled before RM22 reads `"unrecorded"` and refuses its limits |
+| plug-in limits | `SensitivityBounds` records `nu2_estimator`. Under `"plugin"` the six limit accessors raise `CapabilityError` with the reason that cites [F26](#f26-confidence-limits-of-the-plug-in-omitted-variable-bound) |
 | witnesses | `tests/unit/test_omitted_variable_standard_error.py` compares the curve of $\hat\nu^2$ with its Gateaux derivative, row by row |
 | study | the registered [omitted-variable bound study](technical-reference/method-evidence/omitted-variable-bound-standard-error.md) reads the standard-error ratio of the doubly robust ATT limits |
 
@@ -1012,8 +969,8 @@ Pull request 231 delivered this row. Each row now resolves from the predicate th
 `simulated_confounding_refusal`, and the `bound_parameters` rule. The two replay slots read
 `_refit_configuration_refusal`, which runs the checks of `refit()` without a fit.
 `tests/unit/test_capability_row_sweep.py` fits 30 kinds of fit and asserts that each row that a
-request resolves as available answers it. The delivery routed its other findings to RM16, RM24,
-RM31 and RM32.
+request resolves as available answers it. The delivery routed its other findings to RM16, RM24
+and RM32.
 
 ### RM24. Refusals after the nuisance fit
 
@@ -1104,8 +1061,7 @@ Pull request 226 delivered this row. `_inference_status(data, folds)` in
 `cleverly.longitudinal.estimator` calls `cluster_inference_status` on the prepared cluster labels
 and weights. An `LTMLE` fit with fewer than 40 positive-mass clusters takes `few_cluster_plugin`.
 `summary()`, `curve()`, `incidence_total()` and the simultaneous bands follow the status.
-`LongitudinalResult.__setstate__` re-stamps a saved result. `tests/unit/test_longitudinal_cluster_status.py`
-holds the witnesses.
+`tests/unit/test_longitudinal_cluster_status.py` holds the witnesses.
 
 ### RM27. Declared MSM design functions
 
@@ -1143,24 +1099,7 @@ Pull request 228 delivered this row. The table gives what shipped.
 | declarations | `Rule.rule_kind` and `DynamicRegimen.rule_kind` take `"known"`, `"estimated"`, or `None`. `Intervention` gains a read-only `density_kind`. `_RULE_DECLARATION` and `_INTERVENTION_DECLARATION` in `src/cleverly/interventions/base.py` hold the refusal texts |
 | point check | `refuse_regime_densities` checks each item before any learner |
 | longitudinal check | `refuse_regimen_rules` in `cleverly.longitudinal.regimen` reads the raw `regimens=` value. A callable written inline in a `regimens=` mapping carries no declaration, and the fit refuses it |
-| restored results | the non-inferential status `undeclared_function_plugin`, third in the precedence. A restored `TMLE` or `LTMLE` result takes it when a rule, a user-written class, a `Stochastic` density, or a written MSM function is not declared `"known"` |
 | witnesses | `tests/unit/test_rule_and_intervention_declarations.py` and `tests/unit/test_regimen_rule_declarations.py`. `tests/unit/_policy_declaration_support.py` holds the exact-law values that the plan in the record at commit `dea3297e` declares |
-
-### RM29. Saved cross-fitted clustered longitudinal results
-
-Releases 0.1.0 and 0.1.1 predate commit 5f32c14, which refused `id=` on a cross-fitted `LTMLE` fit.
-Those releases drew grouped folds from the cluster labels, and the fit reported a cluster-robust
-interval. [F22](#f22-grouped-cross-fitting-beyond-point-treatment-tmle) records that no source read
-here covers that variance. A v0.1.1 result with 40 equal clusters loaded under `influence_curve`.
-Its `ate_regimen[always vs never]` read 0.486285, with `ci` (0.3374, 0.6352).
-
-Pull request 226 delivered this row. A saved cross-fitted clustered `LTMLE` result now loads under
-`cross_fitted_longitudinal_plugin` at every cluster count and size. It keeps its point estimates,
-and `ci`, `pvalue`, and `std_error` refuse with a reason that names F22. Loading drops the saved
-bands and assessment answers.
-`tests/unit/test_longitudinal_cluster_status.py::TestASavedCrossFittedClusteredResult` holds the
-witness. `LongitudinalData.__setstate__` also restores unit weights on an artifact saved before
-observation weights existed.
 
 ### RM30. Learned-policy value evaluation
 
@@ -1199,28 +1138,6 @@ this method and its validation are delivered. The JSS result gives no pathwise d
 arbitrary user-written odds tilt. The [source audit](references.md#point-treatment-and-stochastic-interventions)
 records the published boundaries.
 
-### RM31. Inference status of a saved stratified cross-fitted result
-
-Releases 0.1.0 and 0.1.1 cross-fitted under `stratify_folds="treatment"` by default. This version
-refuses that policy, because no shipped result covers a partition read off the data that the fit
-then conditions on. The
-[fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules) give
-the audit. A result that either release saved under that policy reported its interval.
-
-Pull request 232 delivered this row. The table gives what shipped.
-
-| part | what shipped |
-| --- | --- |
-| status | `"stratified_fold_plugin"` in `src/cleverly/_inference_status.py`, sixth in the precedence. Its record names RM31 |
-| point-treatment rule | `TMLE._saved_fold_policy_status` in `src/cleverly/estimators/tmle.py` reads `crossfit_plan(data).stratify_by`. `DRTMLE` reaches it through `super()` |
-| longitudinal rule | `_saved_split_status` in `src/cleverly/longitudinal/estimator.py`. Only `LongitudinalResult._restamp_inference_status` reads it |
-| variable importance | `VariableImportanceResult.__setstate__` gives each entry the estimate of its re-stamped fit, and withholds `adjusted_pvalue` as `None` on a non-inferential status. `variable_importance` raises the fold-policy refusal before any learner |
-| tests | `tests/unit/test_saved_fold_policy_status.py` |
-
-The re-stamp reaches the estimates that a result holds, and nothing that a caller saved apart from
-its result. [RM34](#rm34-inference-status-of-a-saved-estimate-outside-its-result) delivered the
-estimate saved alone. [RM35](#rm35-inference-status-of-saved-bands-and-e-values-outside-their-result) holds bands and E-values.
-
 ### RM32. Continuous-dose MSM fit with missing outcomes
 
 An in-sample `TMLE` fit of a continuous-dose MSM with `delta=` raises a `ValueError` that is not a
@@ -1248,82 +1165,6 @@ the MSM fit too.
 
 The witness fits the probe request with spy learners. It asserts the named refusal and zero learner
 fits. A control keeps the in-sample shift fit with `delta=` running.
-
-<a id="rm33-inference-status-of-a-saved-unbounded-scale-cross-fitted-result"></a>
-
-### RM33. Inference status of a saved undeclared-scale cross-fitted result
-
-Releases 0.1.0 and 0.1.1 set `q_bounds=None` by default (`src/cleverly/estimators/tmle.py:382`
-at v0.1.1). A continuous outcome then took its scale from every observed outcome, held-out rows
-included. Commit 5f32c149 refused that scale under cross-fitting, because no shipped result covers
-it. The [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules)
-give the audit. A continuous dose drew an unstratified split, so
-[RM31](#rm31-inference-status-of-a-saved-stratified-cross-fitted-result) left the interval of such a
-result.
-
-The RM33 pull request delivered this row. The table gives what shipped. Commit `cf914b61` holds
-the full RM33 plan and delivery record. Read it with `git show cf914b61:docs/roadmap.md`.
-
-| part | what shipped |
-| --- | --- |
-| status | `"undeclared_scale_plugin"` in `src/cleverly/_inference_status.py`, seventh in the precedence. Its record names RM33 |
-| rule | `TMLE._outcome_scale_refusal` in `src/cleverly/estimators/tmle.py` holds the predicate and the sentence. `_refuse_unbounded_cross_fitted_scale` raises the sentence at fit time. `TMLE._saved_scale_status` reads it as a status. `DRTMLE` reaches it through `super()`. `LTMLE` has no saved-scale rule. Its legacy cross-fitted results have the `"stratified_fold_plugin"` saved-fold status, subject to earlier statuses |
-| variable importance | `variable_importance` raises `_refuse_unbounded_cross_fitted_scale` on each candidate's prepared data before it asks the status. The sentence names the remedy `Targeting(q_bounds=(lower, upper))` |
-| tests | `tests/unit/test_saved_scale_status.py` holds the witnesses, three precedence witnesses, the controls and four mutations. `tests/unit/test_inference_status_registry.py` pins the precedence |
-
-The witness loads a cross-fitted continuous-dose fit that reads `ey_shift[+0.5]` 3.798198 with
-`ci` (3.3419, 4.2545). The restored result reads `undeclared_scale_plugin`, and `plugin_interval`
-keeps (3.3419, 4.2545). `ci`, `pvalue`, and `std_error` raise `CapabilityError` with the status
-reason. No registered study moves, because no live fit reaches the status.
-
-### RM34. Inference status of a saved estimate outside its result
-
-`TMLEResult.__setstate__` and `LongitudinalResult.__setstate__` re-stamped the estimates that the
-result held, from the estimator, the prepared data and the folds. An estimate pickled apart from
-its result held none of them. Release 0.1.1 wrote no `inference` field
-(`src/cleverly/inference/influence.py:94` at v0.1.1). The class default `"influence_curve"` filled
-it, so `ci`, `pvalue` and `std_error` answered.
-
-The RM34 pull request delivered this row. The table gives what shipped. Commit `4befdaa6` holds
-the full RM34 plan and delivery record. Read it with `git show 4befdaa6:docs/roadmap.md`.
-
-| part | what shipped |
-| --- | --- |
-| status | `"unrecorded_status_plugin"` in `src/cleverly/_inference_status.py`, tenth in the precedence, with the constant `UNRECORDED_STATUS`. Its record names RM34 |
-| load rule | `ParameterEstimate._PICKLE_BACKFILL` in `src/cleverly/inference/influence.py` gives the status to a state without the `inference` key, through `_DefaultingUnpickle` |
-| re-stamp | `restamp_restored` in the same module is the one re-stamp of both results. `stamp_inference` returns the status to `"influence_curve"` when the configuration supplies inference, and `_stamp_cached` does the same for an estimate that the assessment cache saved |
-| variable importance | `VariableImportanceEntry.__setstate__` withholds `adjusted_pvalue` when its estimate refuses a p-value. `_readjusted` in `src/cleverly/variable_importance.py` computes the adjustment again when every re-stamped entry supplies inference |
-| tests | `tests/unit/test_saved_bare_estimate_status.py` holds the witnesses, the controls and the mutations. `assert_restamped` in `tests/unit/_inference_status_support.py` also loads the shape without the key |
-
-The witness is the release 0.1.1 `ate` estimate saved alone. It reads `psi` 0.219215 and
-`plugin_interval` (0.158065, 0.280365), and `ci` refuses. No registered study moves, because no
-committed artifact is a pickle.
-
-### RM35. Inference status of saved bands and E-values outside their result
-
-RM34 gave a status to a `ParameterEstimate` saved without one. Two other objects publish a limit
-and record no status.
-
-| object pickled alone | what it loads as | evidence |
-| --- | --- | --- |
-| `SimultaneousBands` | its `critical_value` and `bands` | the fields at `src/cleverly/inference/multiplier.py:182-186` match `v0.1.1:src/cleverly/inference/multiplier.py:181-185`. The class has no status field and no `__setstate__` |
-| `EValue` | its `risk_ratio_ci` and `limit` | the fields at `src/cleverly/sensitivity/evalue.py:185-194` match `v0.1.1:src/cleverly/sensitivity/evalue.py:134-143`. The class has no status field and no `__setstate__` |
-
-A current object of either class exists only on a fit that supplies inference, because
-`simultaneous_bands` and the E-value refuse every other status. A load rule cannot tell an old
-object from a current one. A rule that withheld an old object would therefore withhold a current
-one too. One option adds a recorded status field to each class. The missing-key rule of RM34 then
-separates an object that an earlier version saved from a current one.
-
-The witness pickles each object without the decided field, and loads it. It asserts the decided
-status and each withheld limit. A mutation that skips the decision must fail. A current object
-that records its status loads as saved.
-
-`BootstrapSummary` is outside this row, because
-[RM16](#rm16-summary-and-error-message-accuracy) decides what a bootstrap summary publishes on a
-non-inferential fit. `ScoreCheck`, `RefutationTest`, `NuisanceDiagnostics`, `ReplicationRecord`
-and `EstimandSummary` are outside it too. Their `inference` field picks a name or a wording, and
-no accessor refuses on it.
 
 ### P1. EP learner
 
@@ -1475,13 +1316,13 @@ Analytic fits may report mechanisms and truncation; direct fits report represent
 tails, leverage, regularization, and clipping; composed fits report components and products.
 Direct-only fits must not reconstruct a propensity model for diagnostics or sensitivity.
 
-Increment the persistence format. Store ordered stage definitions and evidence IDs, every fitted
-array, reconstructible strategy configuration, fingerprints, settings, structured identification
-and parameter keys, cached reports, and replayability. Unknown types fail allowlist decoding.
-Custom callables are descriptive and non-reconstructible; cache-only operations remain possible
-only when stored predictions and provenance suffice. Losing `alpha_star`, stage order, or component
-products is a load error. Round trips compare every artifact, score, diagnostic, estimate,
-influence curve, metadata record, and cached assessment.
+Store ordered stage definitions and evidence IDs, every fitted array, reconstructible strategy
+configuration, fingerprints, settings, structured identification and parameter keys, cached reports,
+and replayability. Unknown types fail allowlist decoding. Custom callables are descriptive and
+non-reconstructible; cache-only operations remain possible only when stored predictions and
+provenance suffice. Losing `alpha_star`, stage order, or component products is a load error. Round
+trips compare every artifact, score, diagnostic, estimate, influence curve, metadata record, and
+cached assessment.
 
 #### Evidence and implementation sequence
 
@@ -2118,13 +1959,6 @@ reopens each one.
 Each status keeps the point estimate, and `ci`, `pvalue`, and `std_error` refuse.
 [RM26](#rm26-longitudinal-clustered-intervals-at-few-clusters) applied the few-cluster decision to
 the in-sample longitudinal fit.
-
-Releases 0.1.0 and 0.1.1 predate commit 5f32c14, which refused `id=` on a cross-fitted `LTMLE`
-fit. They could save that fit. On load, every such result now takes
-`cross_fitted_longitudinal_plugin`, including equal, unequal, and few-cluster data. It keeps the
-point estimate and a diagnostic spread, but no interval, p-value, standard error, or band.
-[RM29](#rm29-saved-cross-fitted-clustered-longitudinal-results) records the probe and the repair.
-The F22 route that reopens the fit would also cover saved results.
 
 The later source audit found related work, but no derivation for this composition. Nugent et al.
 (2024) group folds and aggregate cluster influence curves in partially clustered trials. Balkus,

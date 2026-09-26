@@ -21,6 +21,21 @@ Everything else is routed:
 
 Current behavior is determined by code and tests, not by historical plans or investigation notes.
 
+## Compatibility
+
+`cleverly` is alpha, and it keeps no backward compatibility: not for saved results, pickled
+objects, or studies, and not for the public API.
+
+- Do not write migration code, pickle backfills, `__setstate__` field renames, re-stamps of saved
+  artifacts, deprecated aliases, or refusals that exist only to name a removed keyword. Remove or
+  rename the old thing, and update its callers, tests, and docs in the same change.
+- `result.save()` and `dumps()` record the version that wrote an artifact. On a different version,
+  `cleverly.load()` and `loads()` emit `VersionMismatchWarning` and load the artifact as saved.
+  That warning is the whole cross-version contract (`cleverly._saved_version`).
+- Do not add a test that loads an old-format artifact, and do not open a roadmap item for one.
+- Cache keys, study provenance hashes, and branches on external library versions are not
+  compatibility code. Keep them.
+
 ## Scientific changes
 
 - Exact-law checks are blind to terms that vanish at the truth. When a sign, mask, guard, or
