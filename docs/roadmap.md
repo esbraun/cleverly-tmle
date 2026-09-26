@@ -131,7 +131,7 @@ contract.
 | 2.4 | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
 | 2.5 | Stratified incremental and MSM targeting | source audit | implemented pooled stratified fluctuation, and marginal incremental and MSM targeting | [X8](#x8-stratified-incremental-and-msm-targeting) |
 | 2.6 | Omitted-variable bounds on the other linear functionals | published support; pending source read | the shipped arm-axis bound | [X9](#x9-omitted-variable-bounds-on-the-other-linear-functionals) |
-| 2.7 | Continuous-dose MSM with a second mechanism | source audit | implemented continuous-dose MSM targeting and missing-outcome arm targeting | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) |
+| 2.7 | Continuous-dose MSM with a second mechanism | source audit | implemented continuous-dose MSM targeting, missing-outcome arm targeting, and controlled-direct-effect targeting | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) |
 | 3 | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
 | 4.1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | 4.2 | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -2136,25 +2136,24 @@ The need for the grid doses belongs to that construction, not to the parameter. 
 fluctuation takes the regression weights $\Delta / (g \pi)$ at the observed dose and the covariate
 $\varphi(a)$. It needs the second mechanism at the observed dose only. It is the candidate design.
 
-This item is unwritten work rather than a hard stop. The parameter is well posed. Neugebauer and
-van der Laan (2007) define the MSM parameter as a projection of the dose-response curve onto a
-working model. The introduction of Kennedy et al. (2017,
-[arXiv:1507.00747](https://arxiv.org/abs/1507.00747)) cites them for that projection.
+This item is unwritten work rather than a hard stop. The parameter is well posed. The table gives
+the sources that the source audit starts from, and what this project has checked in each.
 
-Díaz and van der Laan (2017), Section 2.1 and Equation (1), give the response weight for one arm.
-The [source audit](references.md#point-treatment-and-stochastic-interventions) of the stacked
-arm-indexed contract records that locator. Tsiatis (2006) maps a full-data influence function to
-observed data under coarsening at random. This project has not read the theorem of that mapping
-first-hand.
+| mechanism or step | source | what this project checked |
+| --- | --- | --- |
+| the MSM parameter | Neugebauer and van der Laan (2007) define it as a projection of the dose-response curve onto a working model | only at second hand. Section 1 of Kennedy, Ma, McHugh and Small (2017), *Journal of the Royal Statistical Society Series B* 79(4), 1229–1245, cites them for that projection. This project read that section in the author manuscript, PMC5627792 |
+| the response weight | Díaz and van der Laan (2017), Section 2.1 and Equation (1), give it for one arm | the [source audit](references.md#point-treatment-and-stochastic-interventions) of the stacked arm-indexed contract records that locator |
+| the intermediate weight | none. The package's [controlled direct effect](technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects) cites no published derivation. Its evidence is the R `tmle` 2.1.1 comparison of the [controlled direct-effect study](technical-reference/method-evidence/controlled-direct-effect-tmle.md) | the source audit must find a derivation, or record this gap in the contract |
+| the coarsening-at-random mapping of a full-data influence function | Kennedy (2020, arXiv:1802.08952) cites Theorem 7.2 of Tsiatis (2006). Baer et al. (arXiv:2306.16571) cite Theorem 8.3 of Tsiatis (2006) and Theorem 1.3 of van der Laan and Robins (2003) | the citing sentences only. This project has not read either book, so each locator is a candidate for the audit |
 
 Match the composition to one published result, or show that it meets the
 [Eligibility](#eligibility) conditions. If neither holds, move this item to the future
 investigations grid.
 
-Acceptance needs an exact-law Gateaux witness with a nonzero response weight at the grid doses. A
-mutation control must drop that weight and fail. The `continuous` rule of `fit_wide_tilt_refusal`
-must then name the MSM fit. The cross-fitted fit stays in
-[F21](#f21-other-missing-outcome-cv-tmle-variants).
+Acceptance needs two exact-law Gateaux witnesses: one with a nonzero response weight, and one with
+a nonzero intermediate weight. For each weight, a mutation control must drop that weight and fail.
+The `continuous` rule of `fit_wide_tilt_refusal` must then name the MSM fit. The cross-fitted fit
+stays in [F21](#f21-other-missing-outcome-cv-tmle-variants).
 
 ## Reading a gap correctly
 
