@@ -951,7 +951,7 @@ admitted the stratified incremental and MSM estimands. Other composition refusal
 `ValueError` or `NotImplementedError` before any learner, and the refit replay slot read both as
 refusals.
 
-Pull request NNN delivered this row. The table gives what shipped. Commit `e4bb35c3` holds the
+Pull request 241 delivered this row. The table gives what shipped. Commit `e4bb35c3` holds the
 probe table and the corrections. Read it with `git show e4bb35c3:docs/roadmap.md`.
 
 | part | what shipped |
