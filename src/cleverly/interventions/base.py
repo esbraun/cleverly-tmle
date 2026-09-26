@@ -442,7 +442,8 @@ InterventionKind = Literal["regime", "shift", "incremental"]
 _KIND_TEXT: dict[InterventionKind, tuple[str, str, str, str]] = {
     "regime": (
         "treatment levels and regimes",
-        "a treatment level or a regime, which assigns an arm from the covariates",
+        "a treatment level or a regime, which assigns a distribution over the arms from the "
+        "covariates",
         "RegimeMean or RegimeContrast",
         "TMLE(interventions=...)",
     ),
@@ -464,9 +465,13 @@ _KIND_TEXT: dict[InterventionKind, tuple[str, str, str, str]] = {
 _NOT_A_REGIME: dict[InterventionKind, str] = {
     "incremental": (
         " Its g*(a | W) is a functional of P, so its influence curve carries a term for the "
-        "fitted mechanism (Kennedy 2019) that a regime curve lacks."
+        "treatment mechanism g (Kennedy 2019) that a regime curve lacks."
     ),
-    "shift": " A shift of a discrete treatment is a Rule.",
+    "shift": (
+        " A shift is a function d(A, W) of the treatment that a unit received, and a regime "
+        "depends on the covariates alone (Haneuse and Rotnitzky 2013). A shift needs a "
+        "continuous treatment, treatment_kind='continuous'."
+    ),
 }
 
 

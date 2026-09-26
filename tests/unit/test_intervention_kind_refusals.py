@@ -116,7 +116,7 @@ MIXED = {
         RegimeMean(regimens=(Static(1), Shift(0.5, cap=None))),
         CapabilityError,
         "RegimeMean.regimens",
-        (SHIFT, "is a Rule", F17),
+        (SHIFT, "d(A, W)", "covariates alone", F17),
         0,
     ),
     "regime in an incremental set": Request(

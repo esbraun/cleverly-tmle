@@ -173,7 +173,7 @@ class TestTheRefusals:
 
     def test_a_shift_of_an_arm_coded_treatment_is_refused(self) -> None:
         data = binary_frame()
-        with pytest.raises(DataError, match="which is a Rule"):
+        with pytest.raises(DataError, match="fits it on a continuous treatment only"):
             estimator(shifts=SHIFTS).fit(
                 data,
                 outcome="Y",

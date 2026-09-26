@@ -2346,19 +2346,22 @@ class TMLE:
     def _check_shifts(self, data: CausalData) -> None:
         """Refuse a shift the treatment cannot carry, and a dose with no policy declared.
 
-        Both directions matter.  A shift of an arm-coded treatment is a ``Rule`` written
-        the wrong way round -- ``d(a, w) = a + 1`` on arms ``{0, 1}`` assigns an arm that
-        does not exist -- and a continuous treatment with no ``shifts=`` has no estimand
-        at all, since every registered arm-indexed target names a level it has none of.
+        Both directions matter.  A shift reads the treatment that a unit received,
+        :math:`d(A, W)`, and this package fits it on a continuous treatment only --
+        ``d(a, w) = a + 1`` on arms ``{0, 1}`` assigns an arm that does not exist.  A
+        ``Rule`` is :math:`d(W)`, a different policy.  A continuous treatment with no
+        ``shifts=`` has no estimand at all, since every registered arm-indexed target names
+        a level it has none of.
         """
         if self.shifts and not data.is_continuous_treatment:
             raise DataError(
                 f"shifts= declares a modified treatment policy, which needs a continuous "
                 f"treatment, but {data.treatment_name} has arms "
-                f"{list(data.treatment_levels)}. A shift of a discrete treatment assigns "
-                "an arm as a function of (A, W), which is a Rule -- pass it to "
-                "interventions=. To treat this column as a dose, build the CausalData "
-                "with treatment_kind='continuous'."
+                f"{list(data.treatment_levels)}. A shift is a function d(A, W) of the "
+                "treatment that a unit received, and this package fits it on a continuous "
+                "treatment only. A regime in interventions= is a different policy, which "
+                "depends on the covariates alone. To treat this column as a dose, build the "
+                "CausalData with treatment_kind='continuous'."
             )
         if data.is_continuous_treatment and not self.shifts and self.msm is None:
             raise DataError(
