@@ -931,9 +931,11 @@ A cross-fitted result of a discrete treatment under a stratified fold policy als
 cross-fitted continuous-dose result of a continuous outcome with `q_bounds=None` withholds them
 too. It takes `"undeclared_scale_plugin"` when it loads
 ([RM33](../roadmap.md#rm33-inference-status-of-a-saved-undeclared-scale-cross-fitted-result)).
-A `ParameterEstimate` that release 0.1.0 or 0.1.1 saved apart from its result withholds them too,
-under `"unrecorded_status_plugin"` ([RM34](../roadmap.md#rm34-inference-status-of-a-saved-estimate-outside-its-result)).
-It records no status, so load the whole result, which gives each estimate its status again.
+
+Load the whole saved result rather than a `ParameterEstimate` that release 0.1.0 or 0.1.1 saved
+apart from it. Those releases recorded no status on an estimate, so such an estimate loads under
+`"unrecorded_status_plugin"` and refuses `ci`, `pvalue` and `std_error` ([RM34](../roadmap.md#rm34-inference-status-of-a-saved-estimate-outside-its-result)).
+The whole result reads its configuration and gives each estimate the status of that configuration.
 
 The saved artifact carries the assessment cache. A result you derive with `dataclasses.replace`
 does not. The cache key records the operation and its arguments, and it records nothing about the

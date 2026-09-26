@@ -54,7 +54,7 @@ import warnings
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from types import MappingProxyType
-from typing import Any, Literal, NamedTuple
+from typing import Any, ClassVar, Literal, NamedTuple
 
 import numpy as np
 
@@ -70,6 +70,7 @@ from ..fluctuation.iterative import InitialFit
 from ..fluctuation.submodel import Submodel
 from ..msm import link_for, solve_projection
 from ..utils.bounds import OutcomeScaler, bound
+from ..utils.records import _DefaultingUnpickle
 from .cluster import influence_variance, stacked_second_moment_variance
 from .delta import log_odds_ratio_influence, log_ratio_influence, normal_ci, two_sided_pvalue
 
@@ -95,6 +96,7 @@ __all__ = [
     "reduced_correction_parts",
     "reduced_corrections",
     "regime_means",
+    "restamp_restored",
     "shift_means",
     "spread_name",
     "stamp_inference",
@@ -113,12 +115,13 @@ CovarianceRule = Literal["centered", "second_moment"]
 # re-exported here, where the documentation names them.  ``inference`` is a field with a
 # class-level default on :class:`ParameterEstimate`, so a constructor call that omits it
 # declares ``"influence_curve"``.  A pickle is not a constructor call: releases 0.1.0 and
-# 0.1.1 wrote no ``inference`` key, and ``ParameterEstimate.__setstate__`` gives such an
-# estimate ``UNRECORDED_STATUS`` (roadmap row RM34), because the estimate holds no
+# 0.1.1 wrote no ``inference`` key, and ``ParameterEstimate._PICKLE_BACKFILL`` gives such
+# an estimate ``UNRECORDED_STATUS`` (roadmap row RM34), because the estimate holds no
 # configuration to read its status from.  A :class:`~cleverly.estimators.TMLEResult` or
 # :class:`~cleverly.longitudinal.LongitudinalResult` restored from such a pickle re-stamps
-# its estimates from the configuration it holds, and :func:`stamp_inference` returns the
-# unrecorded status to ``"influence_curve"`` when that configuration supplies inference.
+# its estimates from the configuration it holds, through :func:`restamp_restored`, and
+# :func:`stamp_inference` returns the unrecorded status to ``"influence_curve"`` when that
+# configuration supplies inference.
 
 #: The name each spread column takes when the package supplies no inference.  The one
 #: table of "which number under which name": every frame, record and printed label that
@@ -201,12 +204,14 @@ def spread_name(name: str, status: InferenceStatus) -> str:
 def stamp_inference(
     estimates: Mapping[str, ParameterEstimate], status: InferenceStatus
 ) -> dict[str, ParameterEstimate]:
-    """Declare ``status`` on every estimate of a report.
+    """Give each estimate of a report the status its configuration gives.
 
-    The one stamp. ``TMLE._retarget_detailed`` applies it to the fit's estimates and to
-    both fold-level reports, and ``TMLEResult.__setstate__`` and
-    ``LongitudinalResult.__setstate__`` apply it to an artifact saved under another
-    status, so no report can carry a status the others do not.
+    The one stamp. Under a non-inferential ``status`` every estimate declares ``status``.
+    Under ``"influence_curve"`` only an estimate that loaded without a recorded status
+    changes, and every recorded status stays. ``TMLE._retarget_detailed`` applies it to
+    the fit's estimates and to both fold-level reports. :func:`restamp_restored` applies it
+    to a restored result, and :meth:`~cleverly.estimators.CVTargeting.stamped` to its
+    fold-level reports.
 
     Parameters
     ----------
@@ -240,11 +245,11 @@ def carries_status(
 ) -> bool:
     """Whether a restored result already holds ``status`` on every estimate it reports.
 
-    The early return of ``TMLEResult._restamp_inference_status`` and
-    ``LongitudinalResult._restamp_inference_status``. An estimate that loaded under
-    ``"unrecorded_status_plugin"`` recorded no status, so a report that holds one is
-    never settled, even when ``status`` is that status. That re-stamp then drops the
-    simultaneous bands and the saved assessment answers of a non-inferential fit.
+    The early return of :func:`restamp_restored`. The clause on
+    ``"unrecorded_status_plugin"`` is defensive: no hook returns that status, so a result
+    re-stamp never passes it here. A test that forces it on a hook shows that a report
+    under it is never settled, so that re-stamp still drops the simultaneous bands and the
+    saved assessment answers.
 
     Parameters
     ----------
@@ -264,8 +269,62 @@ def carries_status(
     )
 
 
+def _stamp_cached(cache: Mapping[str, Any], status: InferenceStatus) -> dict[str, Any]:
+    """The saved assessment answers, with each saved estimate stamped by :func:`stamp_inference`.
+
+    ``sensitivity.derived_risk_ratio`` saves a whole :class:`ParameterEstimate`, and the
+    E-value reads its ``ci``. A release 0.1.1 cache holds it without a recorded status.
+    """
+    estimates = {key: value for key, value in cache.items() if isinstance(value, ParameterEstimate)}
+    stamped = stamp_inference(estimates, status)
+    return {key: stamped.get(key, value) for key, value in cache.items()}
+
+
+def restamp_restored(
+    state: dict[str, Any],
+    status: InferenceStatus,
+    fold_reports: Sequence[Mapping[str, ParameterEstimate]] = (),
+) -> bool:
+    """Give the estimates of a restored result the status that its configuration gives.
+
+    The one re-stamp of ``TMLEResult._restamp_inference_status`` and
+    ``LongitudinalResult._restamp_inference_status``. Pickle builds each estimate before
+    the result, so an estimate saved without a status arrives under
+    ``"unrecorded_status_plugin"`` (roadmap row RM34). The re-stamp therefore runs in both
+    directions, through :func:`stamp_inference`. On a non-inferential ``status`` it drops
+    the simultaneous bands, a joint confidence statement that the fit now refuses, and the
+    saved assessment answers, which may have read an interval. On ``"influence_curve"`` it
+    keeps both, and it stamps each estimate that the answers saved.
+
+    Parameters
+    ----------
+    state : dict of str to Any
+        The instance state of the restored result, changed in place.
+    status : str
+        The status that the result's configuration gives. One of :data:`InferenceStatus`.
+    fold_reports : sequence of mapping of str to ParameterEstimate
+        The fold-level reports that the result also holds. The caller stamps them.
+
+    Returns
+    -------
+    bool
+        ``True`` when the result was re-stamped, so the caller stamps its fold-level
+        reports too. ``False`` when :func:`carries_status` finds it settled.
+    """
+    estimates = state.get("estimates") or {}
+    if carries_status([estimates, *fold_reports], status):
+        return False
+    state["estimates"] = stamp_inference(estimates, status)
+    if not supplies_inference(status):
+        state["simultaneous"] = None
+        state["assessment_cache"] = {}
+    elif state.get("assessment_cache"):
+        state["assessment_cache"] = _stamp_cached(state["assessment_cache"], status)
+    return True
+
+
 @dataclass(frozen=True)
-class ParameterEstimate:
+class ParameterEstimate(_DefaultingUnpickle):
     """A point estimate with everything needed to do inference on it.
 
     Parameters
@@ -365,25 +424,14 @@ class ParameterEstimate:
     covariance_rule: CovarianceRule = "centered"
     inference: InferenceStatus = "influence_curve"
 
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        """Restore an estimate, and give a state without a status the unrecorded one.
-
-        The dataclass ``__init__`` writes every field, so the state of a current estimate
-        always holds ``inference`` and loads as it was saved. Releases 0.1.0 and 0.1.1
-        wrote no ``inference`` key. Such an estimate reads
-        ``"unrecorded_status_plugin"`` (roadmap row RM34), and :attr:`ci`,
-        :attr:`pvalue` and :attr:`std_error` refuse. The class default
-        ``"influence_curve"`` is not read here. A result that holds the estimate
-        re-stamps it from its own configuration as it loads.
-
-        Parameters
-        ----------
-        state : dict of str to Any
-            The pickled instance state.
-        """
-        restored = dict(state)
-        restored.setdefault("inference", UNRECORDED_STATUS)
-        self.__dict__.update(restored)
+    #: What a pickle without a field restores, where that differs from the default. The
+    #: dataclass ``__init__`` writes every field, so the state of a current estimate always
+    #: holds ``inference`` and loads as it was saved. Releases 0.1.0 and 0.1.1 wrote no
+    #: ``inference`` key, and an estimate alone holds no configuration to read one from, so
+    #: it loads under ``"unrecorded_status_plugin"`` (roadmap row RM34). A result that holds
+    #: the estimate re-stamps it as it loads. A missing ``covariance_rule`` takes its
+    #: default, ``"centered"``, the rule every such estimate used.
+    _PICKLE_BACKFILL: ClassVar[dict[str, Any]] = {"inference": UNRECORDED_STATUS}
 
     def _plugin_std_error(self) -> float:
         """The plug-in standard error, under any inference status.

@@ -69,7 +69,7 @@ FEW_CLUSTER_THRESHOLD: Final[int] = 40
 HELD_OUT_SCALE: Final[str] = "from every observed outcome, held-out rows included"
 
 #: The status of an estimate whose saved state records none (roadmap row RM34). Releases
-#: 0.1.0 and 0.1.1 wrote no ``inference`` field, so ``ParameterEstimate.__setstate__``
+#: 0.1.0 and 0.1.1 wrote no ``inference`` field, so ``ParameterEstimate._PICKLE_BACKFILL``
 #: gives it to such an estimate, and ``stamp_inference`` returns it to
 #: ``"influence_curve"`` when the result that holds the estimate supplies inference.
 UNRECORDED_STATUS: Final = "unrecorded_status_plugin"
@@ -389,8 +389,9 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "interval, no p-value and no standard error. Releases 0.1.0 and 0.1.1 wrote "
                 "no status on an estimate. An estimate saved apart from its result holds no "
                 "estimator, data or folds, so this version cannot read the configuration "
-                "that produced it. Those releases drew stratified folds by default, and "
-                "this version withholds the interval of such a cross-fitted fit. The saved "
+                "that produced it. Those releases cross-fitted a discrete treatment on "
+                "stratified folds by default, and this version withholds the interval of "
+                "such a fit. The saved "
                 "point estimate stands. The plug-in standard error of the reported curve "
                 "remains as a diagnostic under plugin_std_error and plugin_interval. RM34 "
                 "in docs/roadmap.md records the rule. Load the whole saved result, which "

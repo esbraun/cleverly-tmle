@@ -9,8 +9,9 @@ stand, and ``ci``, ``pvalue`` and ``std_error`` refuse.
 
 Pickle builds each estimate before the result that holds it, so a whole result without
 the key sees the unrecorded status on every estimate. The result re-stamps each one from
-its own configuration, in both directions. The controls load in-sample ``TMLE``, ``LTMLE``
-and variable-importance results in the released shape, and each keeps its interval, its
+its own configuration, in both directions, and it stamps the estimates its saved
+assessment answers hold. The controls load in-sample ``TMLE``, ``LTMLE`` and
+variable-importance results in the released shape, and each keeps its interval, its
 bands, its saved answers and its adjusted p-values. Each mutation must fail the witness or
 the control it names.
 """
@@ -18,13 +19,11 @@ the control it names.
 from __future__ import annotations
 
 import importlib
-import io
 import pickle
 from collections.abc import Callable, Iterator
 from dataclasses import replace
 from typing import Any
 
-import joblib
 import numpy as np
 import pandas as pd
 import pytest
@@ -33,8 +32,9 @@ from cleverly import variable_importance
 from cleverly._inference_status import UNRECORDED_STATUS, supplies_inference
 from cleverly.datasets import make_longitudinal
 from cleverly.estimators import TMLE, CVTargeting
-from cleverly.estimators import base as base_module
+from cleverly.estimators.base import TMLEResult
 from cleverly.exceptions import CapabilityError, inference_refusal
+from cleverly.inference import influence as influence_module
 from cleverly.inference.influence import ParameterEstimate, carries_status
 from cleverly.longitudinal import LTMLE, LongitudinalResult
 from cleverly.variable_importance import VariableImportanceEntry, VariableImportanceResult
@@ -42,12 +42,14 @@ from tests import discrete_law
 from tests.conftest import linear_in_sample
 from tests.pickles import legacy_without
 from tests.unit._inference_status_support import (
+    BARE_ROUTES,
     LONGITUDINAL_NODES,
     ROUTES,
+    SAVED_ANSWERS,
+    SAVED_BANDS,
     assert_refused_by,
     assert_restamped,
     legacy_copy,
-    longitudinal_estimator,
     longitudinal_learners,
     restore,
 )
@@ -57,13 +59,8 @@ pytestmark = pytest.mark.xdist_group("saved_bare_estimate_status")
 #: The module, which the package shadows with the function of the same name.
 variable_importance_module = importlib.import_module("cleverly.variable_importance")
 
-#: The two ways a bare object is saved: a pickle, and joblib, whose unpickler is the
-#: pure-Python one.
-BARE_ROUTES = ("pickle", "joblib")
-
-#: What :func:`legacy_copy` writes in place of the bands and the saved answers.
-SAVED_BANDS = "bands built before the status"
-SAVED_ANSWERS = {"sensitivity.evalue": "an answer read off .ci"}
+#: The cache operation that saves a whole estimate: the risk ratio the E-value derives.
+DERIVED_RISK_RATIO = "sensitivity.derived_risk_ratio"
 
 
 # ----------------------------------------------------------------------------- fits
@@ -73,6 +70,15 @@ SAVED_ANSWERS = {"sensitivity.evalue": "an answer read off .ci"}
 def in_sample() -> Any:
     """An in-sample ``TMLE`` fit of the discrete law, which supplies inference."""
     return TMLE(**linear_in_sample()).fit(discrete_law.frame(), outcome="Y", treatment="A").single()
+
+
+@pytest.fixture(scope="module")
+def derived_evalue() -> Any:
+    """An in-sample binary-outcome ``ate`` fit whose default E-value saved a derived risk ratio."""
+    estimator = TMLE(**linear_in_sample(estimands=("ate",)))
+    result = estimator.fit(discrete_law.frame(), outcome="Y", treatment="A").single()
+    result.sensitivity.evalue()
+    return result
 
 
 @pytest.fixture(scope="module")
@@ -114,7 +120,10 @@ def importance() -> Any:
 
 
 def _estimates_of(record: Any) -> list[ParameterEstimate]:
-    """Every estimate that a bare estimate, entry or fold-level report holds."""
+    """Every estimate that a bare estimate, entry, fold-level report or result holds.
+
+    A result counts its estimates, and each estimate its saved assessment answers hold.
+    """
     if isinstance(record, ParameterEstimate):
         return [record]
     if isinstance(record, VariableImportanceEntry):
@@ -126,17 +135,13 @@ def _estimates_of(record: Any) -> list[ParameterEstimate]:
             *(entry.estimate for entry in record.entries),
             *(estimate for fit in record.fits.values() for estimate in fit.estimates.values()),
         ]
+    if isinstance(record, TMLEResult):
+        cached = record.assessment_cache.values()
+        return [
+            *record.estimates.values(),
+            *(value for value in cached if isinstance(value, ParameterEstimate)),
+        ]
     raise TypeError(f"no estimates known for {type(record).__name__}")
-
-
-def _load(record: Any, route: str) -> Any:
-    """``record`` saved and loaded by ``route``, one of :data:`BARE_ROUTES`."""
-    if route == "pickle":
-        return pickle.loads(pickle.dumps(record))
-    buffer = io.BytesIO()
-    joblib.dump(record, buffer)
-    buffer.seek(0)
-    return joblib.load(buffer)
 
 
 def saved_without_status(record: Any, route: str) -> Any:
@@ -148,7 +153,7 @@ def saved_without_status(record: Any, route: str) -> Any:
     # The nonzero witness: the copy is the released shape, and it reads the class default.
     assert all("inference" not in estimate.__dict__ for estimate in _estimates_of(bare))
     assert all(estimate.inference == "influence_curve" for estimate in _estimates_of(bare))
-    return _load(bare, route)
+    return restore(bare, route)
 
 
 def assert_unrecorded(estimate: ParameterEstimate, live: ParameterEstimate) -> None:
@@ -203,6 +208,33 @@ def check_in_sample_control(result: Any, route: str) -> None:
     check_keeps_everything(restore(legacy_copy(result, recorded=False), route), result)
 
 
+def check_derived_evalue_control(result: Any, route: str) -> None:
+    """The released shape keeps its saved risk ratio, and the ``ate`` E-value answers.
+
+    The fit saved the default E-value and the risk ratio it derived. ``evalue("ate")`` has
+    no saved answer, so it reads the saved risk ratio's ``ci``, which refuses while that
+    estimate stays unrecorded.
+    """
+    cached = [key for key in result.assessment_cache if key.startswith(DERIVED_RISK_RATIO)]
+    # The nonzero witness: the fit saved a whole estimate among its answers, and no answer
+    # to the request below, so the request reads that estimate.
+    assert len(cached) == 1
+    assert isinstance(result.assessment_cache[cached[0]], ParameterEstimate)
+    assert not [key for key in result.assessment_cache if '"estimand":"ate"' in key]
+    # A copy answers the live request, so the fixture keeps no answer to it.
+    live = pickle.loads(pickle.dumps(result)).sensitivity.evalue("ate")
+    restored = saved_without_status(result, route)
+    answered = restored.sensitivity.evalue("ate")
+    assert (answered.risk_ratio, answered.risk_ratio_ci, answered.limit) == (
+        live.risk_ratio,
+        live.risk_ratio_ci,
+        live.limit,
+    )
+    derived = restored.assessment_cache[cached[0]]
+    assert derived.inference == "influence_curve"
+    assert derived.ci == result.assessment_cache[cached[0]].ci
+
+
 def check_importance_control(importance: Any, route: str) -> None:
     """The released shape of an in-sample run keeps each adjusted p-value exactly."""
     # The nonzero witness: the adjustment moves at least one p-value.
@@ -213,6 +245,17 @@ def check_importance_control(importance: Any, route: str) -> None:
         assert entry.estimate.inference == "influence_curve"
         assert entry.adjusted_pvalue == live.adjusted_pvalue
     assert "p_value_adjusted" in restored.to_frame().columns
+
+
+def check_withheld_importance_control(importance: Any, route: str) -> None:
+    """A run whose fits re-stamp to a non-inferential status adjusts no p-value again.
+
+    The caller forces the status on the hook, as a saved stratified run meets it.
+    """
+    restored = saved_without_status(importance, route)
+    for entry in restored.entries:
+        assert entry.estimate.inference == "stratified_fold_plugin"
+        assert entry.adjusted_pvalue is None
 
 
 def check_recorded_status_control(result: Any) -> None:
@@ -226,6 +269,32 @@ def check_recorded_status_control(result: Any) -> None:
     assert restored.inference_status == "stratified_fold_plugin"
 
 
+def _nested_estimates(value: Any, seen: set[int], depth: int = 0) -> int:
+    """How many estimates ``value`` holds below its own level, found by a graph walk."""
+    if id(value) in seen or depth > 12:
+        return 0
+    seen.add(id(value))
+    if isinstance(value, ParameterEstimate):
+        return 1 if depth > 0 else 0
+    if isinstance(value, (str, bytes, int, float, bool, type(None), np.ndarray, np.generic)):
+        return 0
+    if isinstance(value, dict):
+        children: Any = value.values()
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        children = value
+    elif hasattr(value, "__dict__"):
+        children = vars(value).values()
+    else:
+        return 0
+    return sum(_nested_estimates(child, seen, depth + 1) for child in children)
+
+
+def _nested_in_cache(cache: Any) -> int:
+    """How many estimates the saved answers hold below the top level of the cache."""
+    seen: set[int] = set()
+    return sum(_nested_estimates(answer, seen) for answer in cache.values())
+
+
 # ------------------------------------------------------------------------ witnesses
 
 
@@ -233,7 +302,7 @@ class TestTheWitness:
     """An estimate, an entry, or a fold-level report saved alone withholds its inference."""
 
     def test_the_shared_helper_loads_the_estimate_under_the_status(self, in_sample: Any) -> None:
-        """``legacy_without`` reaches ``__setstate__`` the way an old pickle does."""
+        """``legacy_without`` reaches the restore the way an old pickle does."""
         live = in_sample["ate"]
         assert_unrecorded(legacy_without(live, "inference"), live)
 
@@ -282,9 +351,40 @@ class TestResultsWithoutTheKey:
             assert {estimate.inference for estimate in report.values()} == {"influence_curve"}
         assert detail.std_error == fold_evaluated.cv_targeting.std_error
 
+    @pytest.mark.parametrize("route", ROUTES)
+    def test_a_saved_derived_risk_ratio(self, derived_evalue: Any, route: str) -> None:
+        check_derived_evalue_control(derived_evalue, route)
+
     @pytest.mark.parametrize("route", BARE_ROUTES)
     def test_an_in_sample_variable_importance_result(self, importance: Any, route: str) -> None:
         check_importance_control(importance, route)
+
+    def test_a_withheld_variable_importance_result(
+        self, importance: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(TMLE, "_inference_status", lambda self, data: "stratified_fold_plugin")
+        check_withheld_importance_control(importance, "pickle")
+
+
+class TestTheCacheHoldsWholeEstimatesOnly:
+    """The cache stamp reads the top level, so no answer may hold an estimate below it."""
+
+    def test_the_tmle_batteries(self, derived_evalue: Any) -> None:
+        result = pickle.loads(pickle.dumps(derived_evalue))
+        result.sensitivity.run_all()
+        result.diagnostics.run_all()
+        result.validate()
+        assert _nested_in_cache(result.assessment_cache) == 0
+        # The nonzero witness: the walk finds the saved risk ratio one level down.
+        assert _nested_in_cache({"wrapped": list(result.assessment_cache.values())}) == 1
+
+    def test_the_ltmle_batteries(self, longitudinal: Any) -> None:
+        result = pickle.loads(pickle.dumps(longitudinal))
+        result.sensitivity.run_all()
+        result.diagnostics.run_all()
+        result.validate()
+        assert result.assessment_cache
+        assert _nested_in_cache(result.assessment_cache) == 0
 
 
 class TestCurrentObjectsLoadAsSaved:
@@ -313,6 +413,10 @@ class TestCurrentObjectsLoadAsSaved:
 
 
 # ------------------------------------------------------------------------ mutations
+#
+# :func:`~cleverly.inference.influence.restamp_restored` reads ``carries_status``,
+# ``stamp_inference`` and ``_stamp_cached`` from its own module, so each mutation of the
+# re-stamp patches that module once, for both results.
 
 
 def _old_stamp(estimates: Any, status: str) -> dict[str, ParameterEstimate]:
@@ -327,33 +431,25 @@ def _stamp_everything(estimates: Any, status: str) -> dict[str, ParameterEstimat
     return {name: replace(estimate, inference=status) for name, estimate in estimates.items()}
 
 
-def _tmle_status(result: Any) -> str:
-    return result.estimator._inference_status(result.__dict__["data"])
+def _old_return(reports: Any, status: Any) -> bool:
+    """The early return before RM34, which settled every inferential status."""
+    return supplies_inference(status) or carries_status(reports, status)
 
 
-def _longitudinal_status(result: Any) -> str:
-    state = result.__dict__
-    return longitudinal_estimator.precedent_status(
-        [
-            longitudinal_estimator._inference_status(
-                state["data"], state["folds"], state["config"].regimens, state.get("msm")
-            ),
-            longitudinal_estimator._saved_split_status(state["folds"]),
-        ]
+def _settled(reports: Any, status: Any) -> bool:
+    """The early return without its clause on the unrecorded status."""
+    return all(estimate.inference == status for report in reports for estimate in report.values())
+
+
+def _readjusted_without_the_guard(entries: Any) -> Any:
+    """``_readjusted`` without its check that every entry supplies inference."""
+    if all(entry.adjusted_pvalue is not None for entry in entries):
+        return entries
+    adjusted = variable_importance_module._bh_adjust([entry.estimate.pvalue for entry in entries])
+    return tuple(
+        replace(entry, adjusted_pvalue=float(value))
+        for entry, value in zip(entries, adjusted, strict=True)
     )
-
-
-def _old_return(
-    original: Callable[[Any], None], status: Callable[[Any], str]
-) -> Callable[[Any], None]:
-    """The re-stamp before RM34, which returns early on every inferential status."""
-
-    def restamp(self: Any) -> None:
-        if supplies_inference(status(self)):
-            return
-        original(self)
-
-    return restamp
 
 
 def _drops_on_every_status(original: Callable[[Any], None]) -> Callable[[Any], None]:
@@ -370,10 +466,14 @@ def _drops_on_every_status(original: Callable[[Any], None]) -> Callable[[Any], N
 
 
 @pytest.fixture
+def old_return(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    monkeypatch.setattr(influence_module, "carries_status", _old_return)
+    yield
+
+
+@pytest.fixture
 def old_stamp(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """``stamp_inference`` without its RM34 branch, where both results read it."""
-    monkeypatch.setattr(base_module, "stamp_inference", _old_stamp)
-    monkeypatch.setattr(longitudinal_estimator, "stamp_inference", _old_stamp)
+    monkeypatch.setattr(influence_module, "stamp_inference", _old_stamp)
     yield
 
 
@@ -381,10 +481,10 @@ class TestTheMutationsFail:
     """Each mutation fails the witness or the control it names."""
 
     @pytest.mark.parametrize("route", BARE_ROUTES)
-    def test_a_missing_estimate_setstate_fails_the_witness(
+    def test_an_empty_backfill_fails_the_witness(
         self, in_sample: Any, route: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.delattr(ParameterEstimate, "__setstate__")
+        monkeypatch.setattr(ParameterEstimate, "_PICKLE_BACKFILL", {})
         with pytest.raises(AssertionError):
             check_estimate_witness(in_sample, route)
 
@@ -396,25 +496,13 @@ class TestTheMutationsFail:
         with pytest.raises(AssertionError):
             check_entry_witness(importance, route)
 
-    def test_the_old_tmle_return_fails_the_tmle_control(
-        self, in_sample: Any, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        original = base_module.TMLEResult._restamp_inference_status
-        monkeypatch.setattr(
-            base_module.TMLEResult, "_restamp_inference_status", _old_return(original, _tmle_status)
-        )
+    @pytest.mark.usefixtures("old_return")
+    def test_the_old_return_fails_the_tmle_control(self, in_sample: Any) -> None:
         with pytest.raises(AssertionError):
             check_in_sample_control(in_sample, "pickle")
 
-    def test_the_old_ltmle_return_fails_the_ltmle_control(
-        self, longitudinal: Any, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        original = LongitudinalResult._restamp_inference_status
-        monkeypatch.setattr(
-            LongitudinalResult,
-            "_restamp_inference_status",
-            _old_return(original, _longitudinal_status),
-        )
+    @pytest.mark.usefixtures("old_return")
+    def test_the_old_return_fails_the_ltmle_control(self, longitudinal: Any) -> None:
         with pytest.raises(AssertionError):
             check_in_sample_control(longitudinal, "pickle")
 
@@ -431,16 +519,16 @@ class TestTheMutationsFail:
     def test_a_stamp_of_every_estimate_fails_the_recorded_status_control(
         self, in_sample: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(base_module, "stamp_inference", _stamp_everything)
+        monkeypatch.setattr(influence_module, "stamp_inference", _stamp_everything)
         with pytest.raises(AssertionError):
             check_recorded_status_control(in_sample)
 
     def test_dropped_bands_fail_the_tmle_control(
         self, in_sample: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        original = base_module.TMLEResult._restamp_inference_status
+        original = TMLEResult._restamp_inference_status
         monkeypatch.setattr(
-            base_module.TMLEResult, "_restamp_inference_status", _drops_on_every_status(original)
+            TMLEResult, "_restamp_inference_status", _drops_on_every_status(original)
         )
         with pytest.raises(AssertionError):
             check_in_sample_control(in_sample, "pickle")
@@ -455,6 +543,14 @@ class TestTheMutationsFail:
         with pytest.raises(AssertionError):
             check_in_sample_control(longitudinal, "pickle")
 
+    def test_an_unstamped_cache_fails_the_derived_risk_ratio_control(
+        self, derived_evalue: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(influence_module, "_stamp_cached", lambda cache, status: dict(cache))
+        with pytest.raises(CapabilityError) as raised:
+            check_derived_evalue_control(derived_evalue, "pickle")
+        assert_refused_by(UNRECORDED_STATUS, raised)
+
     def test_no_second_adjustment_fails_the_variable_importance_control(
         self, importance: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -462,18 +558,22 @@ class TestTheMutationsFail:
         with pytest.raises(AssertionError):
             check_importance_control(importance, "pickle")
 
+    def test_an_unguarded_second_adjustment_fails_the_withheld_control(
+        self, importance: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The adjustment reads each p-value, and a withheld estimate refuses it."""
+        monkeypatch.setattr(TMLE, "_inference_status", lambda self, data: "stratified_fold_plugin")
+        monkeypatch.setattr(
+            variable_importance_module, "_readjusted", _readjusted_without_the_guard
+        )
+        with pytest.raises(CapabilityError):
+            check_withheld_importance_control(importance, "pickle")
+
     def test_a_settled_unrecorded_status_keeps_the_bands_of_a_forced_fit(
         self, in_sample: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The early return without its unrecorded clause fails the forced-status control."""
-
-        def settled(reports: Any, status: Any) -> bool:
-            return all(
-                estimate.inference == status for report in reports for estimate in report.values()
-            )
-
-        assert carries_status([in_sample.estimates], "influence_curve")
-        monkeypatch.setattr(base_module, "carries_status", settled)
+        monkeypatch.setattr(influence_module, "carries_status", _settled)
         monkeypatch.setattr(TMLE, "_inference_status", lambda self, data: UNRECORDED_STATUS)
         with pytest.raises(AssertionError):
             assert_restamped(in_sample, UNRECORDED_STATUS, "pickle")

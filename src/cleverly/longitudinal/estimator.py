@@ -87,10 +87,9 @@ from ..inference.cluster import (
 from ..inference.influence import (
     ParameterEstimate,
     Scale,
-    carries_status,
     make_estimate,
+    restamp_restored,
     spread_name,
-    stamp_inference,
 )
 from ..inference.multiplier import SimultaneousBands, simultaneous_bands
 from ..inference.results import (
@@ -1463,16 +1462,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         fit did, so the artifact holds everything it needs. A regimen restored from before
         its ``rule_kind`` existed reads ``None``. An MSM restored from before
         ``functions_kind`` existed does too. Either result takes
-        ``"undeclared_function_plugin"`` (roadmap row RM28). The re-stamp runs in both
-        directions: pickle builds each estimate before this result, so an estimate saved
-        without a status arrives under ``"unrecorded_status_plugin"`` and takes
-        ``"influence_curve"`` here when the fit supplies inference (roadmap row RM34).
-        :func:`~cleverly.inference.influence.carries_status` decides the early return. A
-        re-stamp to a non-inferential status also drops what was derived under the old
-        status: the simultaneous bands, a joint confidence statement that the fit now
-        refuses, and the saved assessment answers, which may have read an interval. A
-        re-stamp to ``"influence_curve"`` keeps both. A saved split of more than one fold
-        with no recorded origin takes ``"stratified_fold_plugin"`` through
+        ``"undeclared_function_plugin"`` (roadmap row RM28).
+        :func:`~cleverly.inference.influence.restamp_restored` runs the re-stamp in both
+        directions (roadmap row RM34). It drops the simultaneous bands and the saved
+        assessment answers on a non-inferential status only. A saved split of more than one
+        fold with no recorded origin takes ``"stratified_fold_plugin"`` through
         :func:`_saved_split_status` (roadmap row RM31). Only the re-stamp reads that
         rule, so a live fit keeps the status that :func:`_inference_status` gives it. The
         truncation-curve replay resolves its status with the restored one, so it stays
@@ -1489,13 +1483,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 _saved_split_status(folds),
             ]
         )
-        estimates = self.__dict__.get("estimates") or {}
-        if carries_status([estimates], status):
-            return
-        self.__dict__["estimates"] = stamp_inference(estimates, status)
-        if not supplies_inference(status):
-            self.__dict__["simultaneous"] = None
-            self.__dict__["assessment_cache"] = {}
+        restamp_restored(self.__dict__, status)
 
     @staticmethod
     def _max_truncated(fit: RegimenFit) -> tuple[float, int]:

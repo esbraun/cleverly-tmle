@@ -906,11 +906,13 @@ missing-outcome contract. The docstring of `TMLE._resolve_arm_indexed_missing_co
 | 7 | `undeclared_scale_plugin` | no shipped result covers an outcome scale that the held-out rows set |
 | 8 | `unequal_cluster_plugin` | the cross-fitted interval lacks validation at unequal cluster sizes or masses |
 | 9 | `few_cluster_plugin` | no read source supports the reference distribution |
+| 10 | `unrecorded_status_plugin` | the saved estimate records no status, and holds no configuration to read one from |
 
 RM20 shipped orders 1, 2, 4, 8 and 9.
 [RM29](#rm29-saved-cross-fitted-clustered-longitudinal-results) added order 5, and [RM28](#rm28-declared-densities-of-user-written-interventions) added order 3.
 [RM31](#rm31-inference-status-of-a-saved-stratified-cross-fitted-result) added order 6, and
-[RM33](#rm33-inference-status-of-a-saved-undeclared-scale-cross-fitted-result) added order 7.
+[RM33](#rm33-inference-status-of-a-saved-undeclared-scale-cross-fitted-result) added order 7,
+and [RM34](#rm34-inference-status-of-a-saved-estimate-outside-its-result) added order 10.
 `PRECEDENCE` in `tests/unit/test_inference_status_registry.py` pins `NON_INFERENTIAL` to this
 order.
 
@@ -940,9 +942,12 @@ it, and it takes precedence over the cluster statuses, orders 8 and 9.
 `test_the_status_comes_before_a_cluster_status`, in `tests/unit/test_saved_scale_status.py`, read
 orders 6, 3 and 7 on restored fits.
 
-Each status reads the estimator configuration and the prepared data alone. No status
-reads a fitted quantity, so the applicable status can be determined from the prepared data and
-configuration alone. The estimator stamps the status after nuisance fitting.
+Order 10 meets no other order. No hook returns it, and each result re-stamp replaces it with
+the status of the configuration that the result holds.
+
+Each status of orders 1 to 9 reads the estimator configuration and the prepared data alone, so it
+is known before a learner runs. Order 10 reads the saved state of an estimate. No status reads a
+fitted quantity. The estimator stamps the status after nuisance fitting.
 
 Two neighboring surfaces keep their intervals without a registered study. This row records each
 one and adds no row for it.
@@ -1344,7 +1349,52 @@ The delivery changes the files in the table below.
 | `docs/technical-reference/scope-and-refusals.md` | a row after the contrast row |
 | `docs/architecture-invariants.md` | two rows for the new load rules, and the new return of both result re-stamps |
 | `docs/user-guide/results-assessment.md` | two sentences after the RM33 sentence under the inference status |
-| `docs/roadmap.md` | the RM33 trim: the row leaves the table, and this section keeps a short record. RM35 enters the table |
+| `docs/roadmap.md` | the RM34 trim: the row leaves the table, and this section keeps a short record. RM35 enters the table |
+
+#### RM34 delivery
+
+Commits 7300cbe2 and the review commit after it shipped the plan with the changes in the table
+below.
+
+| part | what shipped | change from the plan |
+| --- | --- | --- |
+| status | `"unrecorded_status_plugin"` in `src/cleverly/_inference_status.py`, order 10, with the constant `UNRECORDED_STATUS`. Its record names RM34, and its column label is `unrecorded-status plug-in se` | none |
+| load rule | `ParameterEstimate` takes the mixin `_DefaultingUnpickle` of `src/cleverly/utils/records.py`, and `_PICKLE_BACKFILL` maps `inference` to the new status | the plan wrote `ParameterEstimate.__setstate__` by hand. The review found the mixin, which `tests/unit/test_record_equality.py` sweeps |
+| stamp | `stamp_inference` returns the new status to `"influence_curve"` under an inferential status, and keeps every recorded status | none |
+| re-stamp | `restamp_restored` in `src/cleverly/inference/influence.py` is the one re-stamp of both results. `carries_status` decides its early return. It drops the bands and the saved answers on a non-inferential status only. `TMLEResult` stamps its fold-level reports when it returns `True` | the plan changed the two re-stamp returns in place. The review moved their shared tail into one helper |
+| saved answers | on an inferential status, `_stamp_cached` stamps each `ParameterEstimate` that the assessment cache holds at its top level | added by the review. `sensitivity.derived_risk_ratio` saves a whole estimate, and the E-value reads its `ci`. Without the stamp, a released in-sample result that saved the default E-value refused `evalue("ate")` after it loaded |
+| variable importance | `VariableImportanceEntry.__setstate__` withholds `adjusted_pvalue` when its estimate supplies no inference. `_readjusted` computes the adjustment again with `_bh_adjust` when every re-stamped entry supplies inference. `_restamped` changed its docstring only | the plan kept the saved value under a private key. `_bh_adjust` reads the p-values alone, and the result holds every entry. Its source and the p-value arithmetic match at v0.1.0, v0.1.1 and this version, and the three-candidate control gives back each saved value exactly |
+| tests | `tests/unit/test_saved_bare_estimate_status.py` holds 39 tests. `assert_restamped` in `tests/unit/_inference_status_support.py` loads the recorded shape and the shape without the key, so every earlier status witness also loads the released shape | the file adds the derived risk ratio control, the withheld variable-importance control, and a graph walk that finds no estimate below the top level of the cache after both batteries and `validate` on in-sample `TMLE` and `LTMLE` |
+
+Each mutation below is a monkeypatch in the test file, and each fails the check it names.
+
+| mutation | what fails |
+| --- | --- |
+| an empty `ParameterEstimate._PICKLE_BACKFILL` | the witness of an estimate saved alone, by pickle and by joblib |
+| no `VariableImportanceEntry.__setstate__` | the witness of an entry saved alone |
+| `carries_status` that settles every inferential status, the return before RM34 | the in-sample `TMLE` and `LTMLE` controls |
+| `stamp_inference` without its new branch | the in-sample `TMLE` and `LTMLE` controls |
+| `stamp_inference` that stamps every estimate | the recorded-status control |
+| a re-stamp that drops the bands and the answers on every status | the in-sample `TMLE` and `LTMLE` controls |
+| `_stamp_cached` that returns the cache unchanged | the derived risk ratio control. `evalue("ate")` raises with the RM34 reason |
+| `_readjusted` that returns the entries unchanged | the in-sample variable-importance control |
+| `_readjusted` without its check that every entry supplies inference | the withheld variable-importance control. The adjustment reads a p-value that its estimate refuses |
+| `carries_status` without its clause on the new status, under a hook forced to that status | `assert_restamped` on the shape without the key, which keeps its bands |
+
+One review question did not lead to a change. In the shape without the key, every adjusted p-value
+of a run is withheld when one fit re-stamps to a non-inferential status. Release 0.1.1 cannot
+save a run whose fits differ in status. That release gave each candidate fit the same rows,
+weights, cluster labels and estimator, and no `strata=`. Its data layer refuses missing values, so
+no candidate drops a row. A live run refuses before its first fit when any candidate reads a
+non-inferential status.
+
+The manual probe loads the four release 0.1.1 results of the RM31 probe under their current
+statuses. The `ate` estimate that the probe saved alone loads under the new status, with `psi`
+0.219215 and `plugin_interval` (0.158065, 0.280365), and `ci` refuses.
+
+No registered study moves. No committed artifact is a pickle, and no live fit writes the new
+status. The stamp, the re-stamp and the cache stamp change only an estimate that loads without
+the key.
 
 ### P1. EP learner
 

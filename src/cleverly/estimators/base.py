@@ -39,7 +39,7 @@ from ..inference.cluster import (
 from ..inference.influence import (
     ParameterEstimate,
     Scale,
-    carries_status,
+    restamp_restored,
     spread_name,
     stamp_inference,
 )
@@ -1179,35 +1179,23 @@ class TMLEResult:
         the artifact holds everything it needs. The fit's estimates and both fold-level
         reports are re-stamped together, with
         :func:`~cleverly.inference.influence.stamp_inference` and
-        :meth:`CVTargeting.stamped`. The re-stamp runs in both directions: pickle builds
-        each estimate before this result, so an estimate saved without a status arrives
-        under ``"unrecorded_status_plugin"`` and takes ``"influence_curve"`` here when the
-        estimator supplies inference (roadmap row RM34).
-        :func:`~cleverly.inference.influence.carries_status` decides the early return. A
-        re-stamp to a non-inferential status also drops what was derived under the old
-        status: the simultaneous bands, a joint confidence statement that the fit now
-        refuses, and the saved assessment answers, which may have read an interval. A
-        re-stamp to ``"influence_curve"`` keeps both.
+        :meth:`CVTargeting.stamped`.
+        :func:`~cleverly.inference.influence.restamp_restored` runs the re-stamp in both
+        directions (roadmap row RM34). It drops the simultaneous bands and the saved
+        assessment answers on a non-inferential status only.
         """
         hook = getattr(self.estimator, "_inference_status", None)
         data = self.__dict__.get("data")
         if hook is None or data is None:
             return
         status = hook(data)
-        estimates = self.__dict__.get("estimates") or {}
         extra = self.__dict__.get("extra") or {}
         detail = extra.get("cv_tmle")
-        reports = [estimates]
-        if isinstance(detail, CVTargeting):
-            reports.extend([detail.pooled, detail.canonical])
-        if carries_status(reports, status):
-            return
-        self.__dict__["estimates"] = stamp_inference(estimates, status)
-        if isinstance(detail, CVTargeting):
+        fold_reports = [detail.pooled, detail.canonical] if isinstance(detail, CVTargeting) else []
+        if restamp_restored(self.__dict__, status, fold_reports) and isinstance(
+            detail, CVTargeting
+        ):
             self.__dict__["extra"] = {**extra, "cv_tmle": detail.stamped(status)}
-        if not supplies_inference(status):
-            self.__dict__["simultaneous"] = None
-            self.__dict__["assessment_cache"] = {}
 
     # ---------------------------------------------------------------- output
 

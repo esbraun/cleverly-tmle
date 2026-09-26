@@ -17,11 +17,13 @@ test and the saved fold-policy test both fit them.
 from __future__ import annotations
 
 import importlib
+import io
 import pickle
 import re
 from dataclasses import replace
 from typing import Any
 
+import joblib
 import numpy as np
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -39,6 +41,15 @@ from tests.unit._natural_course_support import NeverFit
 
 #: The two ways an artifact is restored: the package's own serializer and a bare pickle.
 ROUTES = ("serialize", "pickle")
+
+#: The two ways an object other than a result is restored: a bare pickle, and joblib, whose
+#: unpickler is the pure-Python one. The package's serializer takes whole results only.
+BARE_ROUTES = ("pickle", "joblib")
+
+#: What :func:`legacy_copy` saves in place of the simultaneous bands and the assessment
+#: answers, so a control can tell that a restored result kept them.
+SAVED_BANDS = "bands built before the status"
+SAVED_ANSWERS = {"sensitivity.evalue": "an answer read off .ci"}
 
 #: The longitudinal estimator module, whose functions the longitudinal mutations patch.
 #: The package re-exports a function named ``ltmle``, so the module is imported by its path.
@@ -294,15 +305,20 @@ def legacy_copy(result: Any, *, recorded: bool = True) -> Any:
             else:
                 # Two reports can hold one estimate object, so the key can already be gone.
                 estimate.__dict__.pop("inference", None)
-    legacy.__dict__["simultaneous"] = "bands built before the status"
-    legacy.__dict__["assessment_cache"] = {"sensitivity.evalue": "an answer read off .ci"}
+    legacy.__dict__["simultaneous"] = SAVED_BANDS
+    legacy.__dict__["assessment_cache"] = dict(SAVED_ANSWERS)
     return legacy
 
 
 def restore(artifact: Any, route: str) -> Any:
-    """``artifact`` saved and loaded by ``route``, one of :data:`ROUTES`."""
+    """``artifact`` saved and loaded by ``route``, one of :data:`ROUTES` or :data:`BARE_ROUTES`."""
     if route == "serialize":
         return loads(dumps(artifact))
+    if route == "joblib":
+        buffer = io.BytesIO()
+        joblib.dump(artifact, buffer)
+        buffer.seek(0)
+        return joblib.load(buffer)
     return pickle.loads(pickle.dumps(artifact))
 
 

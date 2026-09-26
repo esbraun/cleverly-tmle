@@ -55,7 +55,7 @@ from cleverly.sensitivity import missingness_tilt, tipping_gamma
 from cleverly.validation import CoverageStudy, refute
 from cleverly.validation.score import score_check
 from tests.conftest import SELECTOR_CONFIGS, linear_ctmle, linear_in_sample
-from tests.unit._inference_status_support import legacy_copy
+from tests.unit._inference_status_support import SAVED_ANSWERS, SAVED_BANDS, legacy_copy
 
 #: The selector-path record, read where every raise and report reads it.
 WORKING_MECHANISM = NON_INFERENTIAL["working_mechanism_plugin"]
@@ -318,8 +318,8 @@ class TestALegacySelectorArtifactIsReStamped:
         """The control: a fit whose estimator supplies inference is not touched."""
         restored = loads(dumps(_legacy(ordinary_fit)))
         assert restored.inference_status == "influence_curve"
-        assert restored.simultaneous == "bands built before the status"
-        assert restored.assessment_cache == {"sensitivity.evalue": "an answer read off .ci"}
+        assert restored.simultaneous == SAVED_BANDS
+        assert restored.assessment_cache == SAVED_ANSWERS
         assert restored["ate"].ci == ordinary_fit["ate"].ci
 
 
