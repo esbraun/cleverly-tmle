@@ -41,11 +41,11 @@ remain.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.32 | Intervention refusals at identification | refuse mixed intervention kinds in `CausalStudy.identify`, and name the typed estimands in each message. Refuse a zero-dimensional regimen plan by name | a mixed request passes identification and then fails at estimation, once with an `AttributeError` | [RM14](#rm14-intervention-refusals-at-identification) |
+| 0.32 | Intervention refusals at identification | refuse mixed intervention kinds and malformed point sets in `CausalStudy.identify`, and name the typed estimands in each message. Name `DynamicRegimen` in the zero-dimensional plan refusal | a mixed request passes identification. A `Shift` in `IncrementalEffect` reports a wrong number with no error. Six other probed requests raise `AttributeError` | [RM14](#rm14-intervention-refusals-at-identification) |
 | 0.33 | Continuous-dose MSM fit with missing outcomes | refuse the composition by name before any learner, as `CapabilityError` | an in-sample continuous-dose MSM fit with `delta=` raises `ValueError` from the nuisance fit, after two learner fits | [RM32](#rm32-continuous-dose-msm-fit-with-missing-outcomes) |
 | 0.34 | Refusals after the nuisance fit | raise each refusal as `CapabilityError` before any learner call | two stratified requests refuse with `NotImplementedError` after 2 and 8 learner fits. An incremental request with an intermediate variable refuses with `ValueError`. Two refusals in the refit replay chain raise a plain `ValueError` or `NotImplementedError` | [RM24](#rm24-refusals-after-the-nuisance-fit) |
 | 0.41 | Calibration-slope warning rule | replace the fixed band with a rule that a registered calibration study supports | the band flagged 14 of 40 fits of a correctly specified weak-signal propensity model | [RM15](#rm15-calibration-slope-warning-rule) |
-| 0.42 | Summary and error-message accuracy | correct six display surfaces, three data error messages and one refusal remedy, add a fingerprint-only protocol option, and decide what a bootstrap summary publishes on a non-inferential fit. The simultaneous-request policy is settled below. Correct two `benchmark` argument checks, and make one truncation row agree with its call | each surface omits, misstates, or repeats a fact that the fit records. Three more surfaces misstate what a call accepts or needs | [RM16](#rm16-summary-and-error-message-accuracy) |
+| 0.42 | Summary and error-message accuracy | correct six display surfaces, two data error messages and one refusal remedy, add a fingerprint-only protocol option, and decide what a bootstrap summary publishes on a non-inferential fit. The simultaneous-request policy is settled below. Correct two `benchmark` argument checks, and make one truncation row agree with its call | each surface omits, misstates, or repeats a fact that the fit records. Three more surfaces misstate what a call accepts or needs | [RM16](#rm16-summary-and-error-message-accuracy) |
 | 0.51 | Red property cells after the fold, scale and law changes | keep each red verdict under `reporting` with its interval, and admit inference only when F18 or F19 supplies the exact result. The [red-cell ledger](technical-reference/method-evidence/red-cells.md) delivers this. Then declare and run the five open RM18 follow-up designs, each declared before its run | registered studies publish red verdicts after the fold, scale and law changes and the pooled update. The ledger lists each one and the ask that owns it. Five RM18 follow-up designs are not declared and have not run | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
 | 0.52 | One-sided robustness bias increment in DR-TMLE | investigate the exploratory between-implementation increment on binary `treatment_correct`, under a design declared before it runs | the RM18 reading is `mixed` on that configuration. The unadjusted paired 99% interval of `cleverly` minus R `drtmle` runs 0.000068 to 0.001942, while the Bonferroni interval for that comparison covers zero. No implementation defect is established | [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) |
 | 0.61 | Learned-policy value evaluation | implement a typed learned-policy target with fold-local training and evaluation, using a published estimating and inference contract | fixed-rule paths refuse a rule learned from the analysis sample; published learned-policy methods give distinct targets and inference | [RM30](#rm30-learned-policy-value-evaluation) |
@@ -56,8 +56,8 @@ depends on comes before that row.
 
 | tier | reason | rows |
 | --- | --- | --- |
-| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | no open row |
-| b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM14, RM32 |
+| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM14 |
+| b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM32 |
 | c | a correct refusal that arrives late or as the wrong type | RM24 |
 | d | a diagnostic or a warning that misleads | RM15 |
 | e | a display or a message that misstates a fact that the fit records. By extension, an argument check or a capability row that misstates what a call accepts or needs, when no number moves and nothing raises that is not a refusal | RM16 |
@@ -68,8 +68,8 @@ The table gives the reason for each place inside a tier.
 
 | row | reason for its place |
 | --- | --- |
-| RM14 | one mixed request raises an `AttributeError`. It also has a late refusal of tier c, so it takes the higher tier |
-| RM32 | one composition raises a `ValueError` that is not a refusal, after two learner fits. RM14 reaches every mixed intervention request, so RM14 comes first |
+| RM14 | one mixed request reports a wrong number with no error. Its other requests crash or refuse late, which are tiers b and c, so the row takes the highest tier |
+| RM32 | one composition raises a `ValueError` that is not a refusal, after two learner fits |
 | RM24 | two refusals arrive after 2 and 8 learner fits, and the refusals of the row have the wrong type |
 | RM15 | the warning flagged 14 of 40 fits of a correct model |
 | RM16 | each surface misstates or repeats a recorded fact, or misstates what a call accepts or needs, and no number changes |
@@ -77,7 +77,8 @@ The table gives the reason for each place inside a tier.
 | RM19 | one configuration, which RM18 opened. Its Bonferroni interval covers zero, and it moves no verdict |
 | RM30 | a published learned-policy method can resolve the current refusal, but requires a distinct target, fold-local evaluation, and inference validation |
 
-No open row waits on another open row. The RM14, RM24 and RM32 requests produce no fit.
+No open row waits on another open row. The RM24 and RM32 requests produce no fit. One RM14
+request produces a fit, and its number is wrong.
 
 Use four delivery groups for these eight rows and the two investigations that RM18 waits on.
 Keep each item's acceptance criteria separate inside its group.
@@ -344,42 +345,65 @@ records the declaration and both refusals.
 
 ### RM14. Intervention refusals at identification
 
-The typed estimands do not check the kinds of their elements. `RegimeMean.regimens` and
-`RegimeContrast.regimens` are typed `Any` (`src/cleverly/study.py:955`, `:993`), and
-`IncrementalMean.interventions` and `IncrementalEffect.interventions` declare
-`Sequence[Incremental]` with no runtime check (`:1064`, `:1106`). The refusal
-happens only when the estimator runs `as_interventions` (`src/cleverly/interventions/base.py:558-584`).
+The typed estimands do not check the kinds of their elements. The table gives each field at
+commit 0cdab190.
 
-| request | behavior | evidence |
-| --- | --- | --- |
-| `RegimeContrast(regimens=(Static(1), Incremental(2.0)))` | `identify` returns an `IdentifiedEffect`. `estimate` raises the `ValueError` from `refuse_unsupported` | probe, and `base.py:347-358` |
-| `IncrementalEffect((Incremental(1.0), Static(1)))` | `identify` succeeds. `estimate` raises `AttributeError: 'Static' object has no attribute 'delta'` | probe |
-| a `Shift` in a regimen set | the message tells the user to pass it to `TMLE(shifts=...)` | `base.py:359-366` |
+| estimand | field | declared type | line in `src/cleverly/study.py` |
+| --- | --- | --- | --- |
+| `RegimeMean`, `RegimeContrast` | `regimens` | `Any` | `:954`, `:992` |
+| `ModifiedTreatmentPolicy`, `ModifiedTreatmentPolicyEffect` | `shifts` | `Sequence[Shift]` | `:1027`, `:1045` |
+| `IncrementalMean`, `IncrementalEffect` | `interventions` | `Sequence[Incremental]` | `:1063`, `:1105` |
 
-The messages name the low-level keywords `TMLE(incremental=...)` and `TMLE(shifts=...)`. The top
-level does not export `TMLE` (`src/cleverly/__init__.py:105-166`). A `CausalStudy` user declares
-`IncrementalMean`, `IncrementalEffect`, `ModifiedTreatmentPolicy`, or
-`ModifiedTreatmentPolicyEffect`. The incremental message also says that the object is "not an
-intervention", although the user imported it from `cleverly.interventions`.
+No field has a runtime check. Only `as_interventions` refuses an item of the wrong kind
+(`src/cleverly/interventions/base.py:848-929`). It reads `interventions=` on the estimator alone.
+
+A 2026-09-26 probe at 0cdab190 fitted each request in sample. The binary rows use
+`tests/discrete_law`. The dose rows use `make_shift_dose(n=120)` with a continuous treatment. The
+last column counts the learner fits before the error.
+
+| request | behavior | learner fits |
+| --- | --- | ---: |
+| `RegimeContrast(regimens=(Static(1), Incremental(2.0)))` | `identify` succeeds. `estimate` raises the `ValueError` of `refuse_unsupported`, which names `TMLE(incremental=...)` | 0 |
+| `RegimeMean(regimens=(Static(1), Shift(0.5, cap=None)))` | the same, and the message names `TMLE(shifts=...)` | 0 |
+| `IncrementalEffect((Incremental(1.0), Static(1)))`, and `IncrementalMean((Static(1),))` | `estimate` raises `AttributeError: 'Static' object has no attribute 'delta'` | 1 |
+| `IncrementalEffect((Incremental(1.0, name="one"), Shift(0.5, cap=None, name="s")))` | no error. The fit reports `ate_ipsi[s vs one] = -0.245151`. `Incremental(0.5, name="s")` gives the same value, so the fit reads the shift as an odds multiplier | 2 |
+| `IncrementalMean((Incremental(1.0), 2.0))` | `AttributeError: 'float' object has no attribute 'name'` | 0 |
+| `ModifiedTreatmentPolicy(shifts=(Shift(0.5, cap=None), Incremental(2.0)))`, dose | `AttributeError: 'Incremental' object has no attribute 'apply'` | 1 |
+| `ModifiedTreatmentPolicyEffect(shifts=(Shift(0.5, cap=None), Static(1)))`, dose | `AttributeError: 'Static' object has no attribute 'delta'` | 1 |
+| `ModifiedTreatmentPolicy(shifts=(Shift(0.5, cap=None), 1.0))`, dose | `AttributeError: 'float' object has no attribute 'name'` | 0 |
+| `TMLE(incremental=(Incremental(1.0), Shift(0.5, cap=None)))` | no error. The fit reads the shift as the fourth row does. The constructor checks `interventions=` alone | not counted |
+| `RegimeMean(regimens=Static(1))`, a bare item | `identify` raises `TypeError: 'Static' object is not iterable` | 0 |
+| `RegimeMean(regimens={"a": 1, "b": 0})` on a point design | the fit reads the keys as treatment levels. `estimate` raises `DataError: 'a' is not a level of A` | 2 |
+
+The two `ValueError` messages name the keywords `TMLE(incremental=...)` and `TMLE(shifts=...)`.
+The top level does not export `TMLE`, so a `CausalStudy` user declares a typed estimand instead.
+The incremental message also says that the object is "not an intervention". The user imported it
+from `cleverly.interventions`. `_ESTIMATED_DENSITY` and `_ESTIMATED_INTERVENTION` in `base.py` also
+send the user to `TMLE(incremental=...)`, and they name no typed estimand.
 
 A user who declares a mixed request learns of the refusal only after the study is built. An
-`AttributeError` is a crash, not a refusal.
+`AttributeError` is a crash, not a refusal. The misread `Shift` is a wrong number with no error,
+so the row takes tier a.
 
-The longitudinal path has a sibling. `LTMLE({"x": np.array(1)}).fit(...)` raises
-`TypeError: iteration over a 0-d array` from `refuse_regimen_rules`, before any learner. A probe
-gave the same error at a0e93bb6 and at commit 75e86be.
+The longitudinal path has a sibling. Commit `b64d334d` refuses a zero-dimensional array plan, such
+as `LTMLE({"x": np.array(1)}).fit(...)`, with `DataError` before any learner. The message does not
+name `DynamicRegimen`. `test_a_zero_dimensional_array_plan_is_a_data_error_before_any_learner` in
+`tests/unit/test_regimen_rule_declarations.py` checks the `fit` entry alone.
 
 Apply these corrections:
 
-1. Check the element kinds when `CausalStudy.identify` builds the functional. Refuse a `Shift` or an
-   `Incremental` in a regimen set. Refuse any element other than `Incremental` in an incremental
-   estimand.
-2. Name the typed estimand for each kind in the message. Cite
+1. Check the element kinds when `CausalStudy.identify` builds a point functional. Refuse an item
+   of another kind in each regime, shift or incremental set with `CapabilityError`.
+2. Name the field, the item, and the typed estimands for its kind in the message. Cite
    [F17](#f17-joint-point-treatment-parameter-axes) for a joint request.
-3. Keep `as_interventions` as a second guard for direct estimator use, and name the typed estimands
-   there too.
-4. Refuse a `regimens=` plan that is a zero-dimensional array with `DataError`. Name the sequence
-   form and `DynamicRegimen` in the message.
+3. Refuse a mapping, a string or a bare item as a point set with `DataError`, and name the
+   sequence form. A longitudinal set takes a mapping, so apply this on the point path alone.
+4. Keep `as_interventions` as a second guard for direct estimator use. Run the same check on
+   `shifts=` and `incremental=` in the `TMLE` constructor. Name the typed estimands there too.
+5. Name `IncrementalMean` and `IncrementalEffect` in `_ESTIMATED_DENSITY` and
+   `_ESTIMATED_INTERVENTION`.
+6. Name the sequence form and `DynamicRegimen` in the zero-dimensional plan refusal. Test the
+   refusal at every longitudinal entry.
 
 Put the check in `_identify_point`, not in `_point_functional`.
 `_matches_registered_point_identification` calls `_point_functional` inside a `try` that catches
@@ -387,14 +411,15 @@ Put the check in `_identify_point`, not in `_point_functional`.
 
 The witnesses must fail when a component is wrong:
 
-- a pre-fit test for each row above pins the refusal, its message, and its raise at `identify`;
-- for the `IncrementalEffect` row, a spy learner shows that no nuisance fit ran. A 2026-09-22
-  probe recorded one learner fit before the present `AttributeError`, so this spy can fail. The
-  `RegimeContrast` refusal already runs before any learner fit, so a spy cannot fail on that
-  row, and only the raise at `identify` witnesses it;
-- a mutation that removes the identification check makes the test fail at `identify`, rather than
-  pass at `estimate`;
-- a pre-fit test pins the refusal of the zero-dimensional plan, its message, and zero learner fits.
+- a pre-fit test for each mixed request pins the refusal, its message, and its raise at `identify`;
+- a spy learner shows that no nuisance fit ran, for each request that fitted a learner at
+  0cdab190. The `RegimeContrast` refusal already runs before any learner fit, so a spy cannot fail
+  on that row, and only the raise at `identify` witnesses it;
+- a mutation that removes the identification check makes every `identify` test fail. The spy
+  tests still pass, because the constructor guard refuses before any learner;
+- a mutation that removes every check lets a learner fit, so the spy tests fail;
+- a pre-fit test pins the refusal of the zero-dimensional plan, its message, and zero learner fits
+  at each entry.
 
 ### RM15. Calibration-slope warning rule
 
@@ -452,7 +477,7 @@ The witnesses must fail when a component is wrong:
 | `DRTMLE` class docstring | describes an open centring defect on a quarter of splits, and names the test class `TestTheReportedCurveIsNotAlwaysCentred` | no test class has that name. `TestTheReportedCurveIsCentredWhereTheBoundBinds` in `tests/unit/test_drtmle_fit.py` records the fix, which solves the score at the truncated tilt. The docstring of `TestEachDrawSolvesItsOwnEquations` names the old class too | describe the fixed state, and name the present class in both docstrings |
 | bootstrap summary on a non-inferential fit | `estimate.bootstrap.ci` answers, and `to_dict` emits `bootstrap_std_err`, under inferential names on a fit whose status supplies no inference | `BootstrapSummary` in `src/cleverly/inference/influence.py` is a plain dataclass, and `ParameterEstimate.to_dict` writes `bootstrap_std_err` whatever the status. `to_dict` already renames the percentile limits to `bootstrap_range_lower` and `bootstrap_range_upper`. RM12 kept the `bootstrap_std_err` name on purpose, and the [collaborative reference](technical-reference/collaborative-tmle.md) says so | decide what the bootstrap publishes on such a fit, and record the decision in the collaborative reference and in [inference status](technical-reference/inference.md#inference-status). A refusal at `.bootstrap.ci` would break the `ci=` keyword of the `BootstrapSummary` constructor and every reader of that field |
 | continuous-treatment `DataError` | the error for a continuous treatment with no `shifts=` and no `msm=` offers `Shift(0.0, cap=None)` as "the natural course". A cross-fitted fit with `delta=` then meets the F21 refusal of a shift target, whose remedy is the in-sample fit | `TMLE._check_shifts` in `src/cleverly/estimators/tmle.py`. The review probe of the F21 refusal (commit 45f072b) fitted `make_missing_outcome_binary(n=400, seed=4)` with a continuous dose and `Shift(0.0, cap=None)`, cross-fitted with `delta=`. It refused before any learner. Its in-sample fit reports `ey_shift[natural course]` 0.51256 | on a cross-fitted fit with `delta=`, name the in-sample fit beside the natural course, so that the suggested request does not meet a refusal |
-| longitudinal plan written as a mapping | `{"x": {"t1": 1, "t2": d}}` resolves to `Regimen('x', t1/t2)`, with the dictionary keys as arms. The fit then raises `DataError`: "regimen 'x' assigns 't1' at time 1". The message names a label that the user did not mean as an arm, and nothing checks or calls `d` | `_plan_nodes` in `src/cleverly/longitudinal/regimen.py` reads any iterable that is not an iterator as a tuple of its items. The review of RM28 probed the plan at a0e93bb6 and at commit 75e86be, with the same result | refuse a mapping plan by name, and name the sequence form and `DynamicRegimen` in the message |
+| longitudinal plan written as a mapping | `{"x": {"t1": 1, "t2": d}}` resolved to `Regimen('x', t1/t2)`, with the dictionary keys as arms. The fit then raised `DataError`: "regimen 'x' assigns 't1' at time 1". The message named a label that the user did not mean as an arm, and nothing checked or called `d` | `_plan_nodes` in `src/cleverly/longitudinal/regimen.py` read any iterable that is not an iterator as a tuple of its items. The review of RM28 probed the plan at a0e93bb6 and at commit 75e86be, with the same result | delivered: commit `b64d334d` refuses a mapping plan with `DataError` before any learner. The message names the tuple form and `DynamicRegimen` |
 | `benchmark(covariates=[])` | runs a refit that drops nothing. The report reads "implied cf_y = 0.0000, cf_d = 0.0000" and "the estimate moved by +0" | `benchmark_refusal` in `src/cleverly/sensitivity/omitted_variable.py` returns `None` for an empty request, because a covariate remains. A 2026-09-24 probe on the RM23 sweep's `ordinary` kind, `make_linear_ate(n=400, seed=2)` in sample, returned that report | refuse an empty `covariates` as a malformed argument, before the refit |
 | `benchmark` covariate names on a fit with an encoded categorical covariate | accepts the indicator column `V__low`, and rejects the logical name `V` with `DataError`: "unknown covariates ['V']; this fit adjusts for ['W1', 'W2', 'W3', 'W4', 'V__low']". The fit adjusts for `V` | the same probe on the sweep's `stratified` kind, which adds a two-level `V` as a stratum and a covariate. `simulated_confounding` refuses an encoded column by name, because zeroing one encoded column does not define a logical-covariate benchmark | accept the logical name and drop its whole encoded block, or refuse an indicator column by name as `simulated_confounding` does. Name the logical column in the message |
 | `truncation_curve` row of a guarded DR-TMLE result whose estimator holds a refused configuration | reads `unavailable`, and `diagnostics.truncation_curve()` refuses, although the module call `truncation_curve(result, [0.05])` runs and returns a curve | a 2026-09-26 probe gave the RM23 sweep's `drtmle` kind `stratify_folds="treatment"` through `reconfigured` in `tests/unit/_capability_sweep_support.py`. `refit_nuisances` reads false with `point_replay_refit_configuration`. `assessment_capabilities` makes the guarded row require `refit_nuisances`. The curve refits the reduced regressions inside `retarget`, and does not call `refit()` | decide which replay slot the guarded curve needs, and make the row, the facade call and the module call agree |
@@ -2035,7 +2060,8 @@ weighted-law estimands and inference conventions.
 One ordinary point-treatment fit carries one parameter axis. A working model summarises the
 counterfactual means with one score equation per term. A known regime, a modified treatment policy,
 or an incremental intervention replaces what those means are. One fluctuation cannot solve both
-sets of score equations. The refusal comes from `TMLEMethod`, before any model is fitted.
+sets of score equations. The `TMLE` constructor refuses two intervention keywords together, or one
+of them with `msm=`, before any model is fitted.
 
 Wait for a published targeting and inference result for each proposed composition, including its
 joint score and covariance. Do not infer the construction from the existing single-axis
