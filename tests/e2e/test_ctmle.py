@@ -645,7 +645,9 @@ class TestCombinedWithOtherOptions:
             "stratify_folds": stratify_folds,
         }
         if stratify_folds == "treatment":
-            with pytest.raises(ValueError, match="balances the selection and nested folds"):
+            with pytest.raises(
+                ValueError, match="requests stratification of the selection and nested folds"
+            ):
                 CTMLE(**settings)
             assert NeverFit.calls == 0
             return

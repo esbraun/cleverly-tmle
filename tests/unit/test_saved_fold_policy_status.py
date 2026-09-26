@@ -145,6 +145,30 @@ def dose() -> Any:
     return reconfigured(result, stratify_folds="treatment")
 
 
+@pytest.mark.parametrize("policy", POLICIES)
+def test_restored_dose_refit_names_the_requested_strata(
+    dose: Any, stratified: dict[tuple[str, str], Any], policy: str
+) -> None:
+    """A saved dose policy did not stratify, but its refit still refuses that request."""
+    restored_dose = reconfigured(dose, stratify_folds=policy)
+    discrete = stratified[("tmle", policy)]
+    assert restored_dose.estimator._fold_strata(restored_dose.data) is None
+    assert discrete.estimator._fold_strata(discrete.data) is not None
+
+    for result in (restored_dose, discrete):
+        with pytest.raises(CapabilityError) as raised:
+            result.estimator.refit(result.data)
+        message = str(raised.value)
+        reads = (
+            "the treatment and the outcome" if policy == "treatment+outcome" else "the treatment"
+        )
+        assert f"requests stratification of the outer folds on {reads}" in message
+        assert "A split drawn from those strata would make" in message
+        assert "balances the outer folds" not in message
+        assert "Set stratify_folds='none'" in message
+        assert "cross_fit=False" in message
+
+
 class TestASavedStratifiedResult:
     """RM31: a saved stratified cross-fitted point result withholds its interval."""
 

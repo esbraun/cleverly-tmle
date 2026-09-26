@@ -315,7 +315,7 @@ def test_stratified_folds_are_refused_before_the_contract_is_reached() -> None:
     -- are ever reached.
     """
     with pytest.raises(
-        ValueError, match=r"stratify_folds='treatment' balances the outer folds"
+        ValueError, match=r"stratify_folds='treatment' requests stratification of the outer folds"
     ) as caught:
         _engine_fit(None, estimands=("ate",), stratify="treatment")
     assert "Set stratify_folds='none'" in str(caught.value)
@@ -324,7 +324,8 @@ def test_stratified_folds_are_refused_before_the_contract_is_reached() -> None:
 
 def test_crossed_folds_are_refused_before_the_contract_is_reached() -> None:
     with pytest.raises(
-        ValueError, match=r"stratify_folds='treatment\+outcome' balances the outer folds"
+        ValueError,
+        match=r"stratify_folds='treatment\+outcome' requests stratification of the outer folds",
     ) as caught:
         _engine_fit(None, estimands=("ate",), stratify="treatment+outcome")
     message = str(caught.value)
@@ -427,7 +428,8 @@ def test_the_public_stratified_folds_are_refused_before_the_contract_is_reached(
     used to catch.
     """
     with pytest.raises(
-        MethodConfigurationError, match=r"stratify_folds='treatment' balances the outer folds"
+        MethodConfigurationError,
+        match=r"stratify_folds='treatment' requests stratification of the outer folds",
     ) as caught:
         _public_fit(None, estimand=ATE(), stratify="treatment")
     assert "Set stratify_folds='none'" in str(caught.value)
@@ -466,7 +468,7 @@ def test_the_global_fold_policy_refusals_recur_at_fit_time_for_a_bypassed_estima
     stratified = copy.copy(admitted)
     stratified.stratify_folds = "treatment"
     with pytest.raises(
-        ValueError, match=r"stratify_folds='treatment' balances the outer folds"
+        ValueError, match=r"stratify_folds='treatment' requests stratification of the outer folds"
     ) as caught:
         stratified.fit(_frame(), **roles)
     assert "restored result or a copied estimator" in str(caught.value)

@@ -952,7 +952,7 @@ MUTATIONS: dict[str, Mutation] = {
         ),
         # The fold policy, the outcome scale, and the collaborative clustered refusal.
         _RAISED.format("refute")
-        + "(stratify_folds='treatment' balances|a cross-fitted fit of a continuous outcome"
+        + "(stratify_folds='treatment' requests stratification|a cross-fitted fit of a continuous outcome"
         + "|C-TMLE has no clustered result)",
     ),
     "M7": Mutation(

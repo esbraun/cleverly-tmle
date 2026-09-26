@@ -131,8 +131,9 @@ def fold_strata_refusal(stratify_folds: str, *, collaborative: bool) -> str | No
     """Return why a fold-stratification policy cannot run, or ``None``.
 
     ``"none"`` is the only policy any fit draws folds under. ``"treatment"`` and
-    ``"treatment+outcome"`` make the assignment a function of the treatment, and of the
-    outcome as well, while the cross-fitting argument conditions on the split. No shipped
+    ``"treatment+outcome"`` request strata based on the treatment, and on the outcome
+    as well. A split drawn from those strata would depend on data that the fit then
+    analyses, while the cross-fitting argument conditions on the split. No shipped
     result covers a partition read off the data it is then used to analyse
     (``docs/technical-reference/cv-tmle.md``, fold and outcome-scale rules).
 
@@ -172,8 +173,9 @@ def fold_strata_refusal(stratify_folds: str, *, collaborative: bool) -> str | No
         else f"Otherwise {_IN_SAMPLE_REMEDY}, which draws no split for a policy to apply to."
     )
     return (
-        f"stratify_folds={stratify_folds!r} balances {where} on {reads}, which makes the "
-        "partition a function of the data the fit then conditions on. No shipped result "
+        f"stratify_folds={stratify_folds!r} requests stratification of {where} on {reads}. "
+        "A split drawn from those strata would make the partition a function of the "
+        "data the fit then conditions on. No shipped result "
         "covers that split "
         "(docs/technical-reference/cv-tmle.md, fold and outcome-scale rules). "
         "Set stratify_folds='none' "

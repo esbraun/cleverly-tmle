@@ -222,7 +222,9 @@ def check(namespace: dict[str, Any]) -> None:
     # "cleverly refuses stratify_by='treatment' on any fit", and it refuses at construction,
     # before a study or a learner exists. The binary outcome is the nonzero witness that the
     # q_bounds rule refuses nothing here: the same five folds fit without a declared support.
-    with pytest.raises(MethodConfigurationError, match="balances the outer folds"):
+    with pytest.raises(
+        MethodConfigurationError, match="requests stratification of the outer folds"
+    ):
         CrossFitting(n_folds=5, stratify_by="treatment")
     assert box_method.targeting.q_bounds is None
     assert (
