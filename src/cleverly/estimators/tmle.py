@@ -765,11 +765,12 @@ class TMLE:
             if value
         ]
         if len(declared) > 1:
-            raise ValueError(
+            raise CapabilityError(
                 f"{' and '.join(declared)} each declare what this fit's counterfactuals "
-                "are -- a regime assigns an arm from W alone, a shift moves the dose the "
-                "unit actually received, and an incremental intervention tilts the odds "
-                "of the mechanism that was already there -- and one fluctuation cannot "
+                "are -- a regime assigns a distribution over the arms from W alone, a "
+                "shift moves the dose the unit actually received, and an incremental "
+                "intervention tilts the odds of the mechanism that was already there -- "
+                "and one fluctuation cannot "
                 "solve their score equations at once. Fit them separately. "
                 "docs/roadmap.md F17 tracks this stop."
             )
@@ -794,7 +795,7 @@ class TMLE:
                 if self.shifts
                 else "incremental="
             )
-            raise ValueError(
+            raise CapabilityError(
                 f"msm= and {other} cannot be combined. A working model summarises the "
                 "counterfactual means with p score equations, one per term, and "
                 f"{other} replaces what those means are; one fluctuation cannot solve "

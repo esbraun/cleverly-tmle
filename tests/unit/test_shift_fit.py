@@ -25,7 +25,7 @@ import tests.discrete_law_shift_cde as shift_law
 from cleverly.data import CausalData
 from cleverly.datasets import GENERATORS, make_shift_dose
 from cleverly.estimators import TMLE
-from cleverly.exceptions import DataError
+from cleverly.exceptions import CapabilityError, DataError
 from cleverly.fluctuation.iterative import InitialFit, solve_fluctuation
 from cleverly.fluctuation.submodel import submodel_for
 from cleverly.interventions import Shift, ShiftSet, Static, check_shift_support
@@ -168,7 +168,7 @@ class TestDeclaringTheAxis:
 
 class TestTheRefusals:
     def test_shifts_and_interventions_together_are_refused(self) -> None:
-        with pytest.raises(ValueError, match="cannot solve their score equations at once"):
+        with pytest.raises(CapabilityError, match="cannot solve their score equations at once"):
             estimator(shifts=SHIFTS, interventions=[Static(0), Static(1)])
 
     def test_a_shift_of_an_arm_coded_treatment_is_refused(self) -> None:
