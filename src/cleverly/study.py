@@ -1197,8 +1197,8 @@ PointEstimand = (
 )
 
 #: The typed object to reach for when a caller passes a string spelling.  Only the
-#: names that used to be accepted as ``TMLE(estimands=(...,))`` strings are listed; anything
-#: else gets the generic pointer to the roster in ``cleverly.__all__``.
+#: names ``TMLE(estimands=(...,))`` accepts as strings are listed; anything else gets the
+#: generic pointer to the roster in ``cleverly.__all__``.
 _STRING_ESTIMANDS: dict[str, str] = {
     "ate": "ATE()",
     "att": "ATT()",

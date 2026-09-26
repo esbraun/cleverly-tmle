@@ -1524,8 +1524,8 @@ def truncation_curve(
                     **estimate.spread_columns(pvalue=False),
                     "truncated_fraction": truncated_fraction,
                     "is_fitted_bound": pair == (fitted_lower, fitted_upper),
-                    # Additive metadata follows the legacy columns so positional consumers
-                    # retain the order they saw before the fitted-reference contract grew.
+                    # The upper bound and the fitted-reference columns follow the row's
+                    # lower bound, estimate, spread and truncation columns.
                     "upper_bound": upper,
                     "fitted_lower_bound": fitted_lower,
                     "fitted_upper_bound": fitted_upper,
