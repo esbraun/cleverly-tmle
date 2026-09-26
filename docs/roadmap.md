@@ -41,7 +41,7 @@ delivered row that this roadmap still describes. Read a record with, for example
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.33 | Continuous-dose MSM fit with missing outcomes | refuse the composition by name before any learner, as `CapabilityError` | an in-sample continuous-dose MSM fit with `delta=` raises `ValueError` from the nuisance fit, after two learner fits | [RM32](#rm32-continuous-dose-msm-fit-with-missing-outcomes) |
+| 0.33 | Continuous-dose MSM fit with missing outcomes | refuse the composition by name before any learner, as `CapabilityError`, in sample, cross-fitted and at `CausalStudy.identify` | an in-sample continuous-dose MSM fit with `delta=` or `intermediate=` raises `ValueError` from the nuisance fit, after two learner fits. The cross-fitted refusal sends the user to that fit | [RM32](#rm32-continuous-dose-msm-fit-with-missing-outcomes) |
 | 0.34 | Refusals after the nuisance fit | raise each refusal as `CapabilityError` before any learner call | two stratified requests refuse with `NotImplementedError` after 2 and 8 learner fits. An incremental request with an intermediate variable refuses with `ValueError`. Two refusals in the refit replay chain raise a plain `ValueError` or `NotImplementedError` | [RM24](#rm24-refusals-after-the-nuisance-fit) |
 | 0.41 | Calibration-slope warning rule | replace the fixed band with a rule that a registered calibration study supports | the band flagged 14 of 40 fits of a correctly specified weak-signal propensity model | [RM15](#rm15-calibration-slope-warning-rule) |
 | 0.42 | Summary and error-message accuracy | correct six display surfaces, two data error messages and one refusal remedy, add a fingerprint-only protocol option, and decide what a bootstrap summary publishes on a non-inferential fit. The simultaneous-request policy is settled below. Correct two `benchmark` argument checks, and make one truncation row agree with its call | each surface omits, misstates, or repeats a fact that the fit records. Three more surfaces misstate what a call accepts or needs | [RM16](#rm16-summary-and-error-message-accuracy) |
@@ -133,6 +133,7 @@ contract.
 | 2.4 | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
 | 2.5 | Stratified incremental and MSM targeting | source audit | implemented pooled stratified fluctuation, and marginal incremental and MSM targeting | [X8](#x8-stratified-incremental-and-msm-targeting) |
 | 2.6 | Omitted-variable bounds on the other linear functionals | published support; pending source read | the shipped arm-axis bound | [X9](#x9-omitted-variable-bounds-on-the-other-linear-functionals) |
+| 2.7 | Continuous-dose MSM with a second mechanism | source audit | implemented continuous-dose MSM targeting and missing-outcome arm targeting | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) |
 | 3 | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
 | 4.1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | 4.2 | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -1114,30 +1115,68 @@ records the published boundaries.
 ### RM32. Continuous-dose MSM fit with missing outcomes
 
 An in-sample `TMLE` fit of a continuous-dose MSM with `delta=` raises a `ValueError` that is not a
-refusal. A cross-fitted fit meets the F21 refusal before any learner, as the
-[scope page](technical-reference/scope-and-refusals.md#not-written-yet) states.
+refusal. A fit with `intermediate=` raises the same error. A cross-fitted fit meets the F21 refusal
+before any learner. The remedy of that refusal is the in-sample fit, which raises. The
+[scope page](technical-reference/scope-and-refusals.md#not-written-yet) also says that the in-sample
+fit with `delta=` remains available.
 
-A 2026-09-24 probe at commit 3a9e429a fitted `make_missing_outcome(n=400, seed=4)`. The dose was
-the arm plus standard normal noise from `numpy.random.default_rng(0)`. The fit used
-`treatment_kind="continuous"`, `MSM.linear(doses=(-1.0, 0.0, 0.5, 1.0, 2.0))`, `density_bins=6`,
-`LinearRegression` for the outcome, and `LogisticRegression(max_iter=1000)` for the treatment and
-the missingness learners.
+A 2026-09-26 probe at commit 4e42aff4 fitted `make_missing_outcome(n=400, seed=4)`, which has 92
+missing outcomes. The dose was the arm plus standard normal noise from
+`numpy.random.default_rng(0)`. The fit used `treatment_kind="continuous"`,
+`MSM.linear(doses=(-1.0, 0.0, 0.5, 1.0, 2.0))`, `density_bins=6`, `LinearRegression` for the
+outcome, and `LogisticRegression(max_iter=1000)` for the other learners. The last column counts the
+learner fits before the error.
 
-| request | result |
-| --- | --- |
-| `TMLE(...).fit(..., delta="Delta")` | `ValueError`: "need at least one array to concatenate", from `_mechanism_columns` in `src/cleverly/estimators/_nuisance.py`, after two learner fits |
-| the same request through `CausalStudy`, with `PointTreatment(missingness="Delta", treatment_kind="continuous")` and `MSMProjection` | the same `ValueError` |
-| the same fit without `delta=`, with each missing outcome set to 0 | runs, and reports `msm[(intercept)]` and `msm[a]` |
+| request | result | learner fits |
+| --- | --- | ---: |
+| `TMLE(...).fit(..., delta="Delta")` | `ValueError`: "need at least one array to concatenate", from `_mechanism_columns` in `src/cleverly/estimators/_nuisance.py` | 2 |
+| the same fit with `cross_fit=True` | the F21 `CapabilityError`. It ends "fit in sample with cross_fit=False on the engine" | 0 |
+| the same request through `CausalStudy`, with `PointTreatment(missingness="Delta", treatment_kind="continuous")` and `MSMProjection` | `identify` succeeds. `estimate` raises the same `ValueError` | 2 |
+| the fit with `intermediate="Z"` and every outcome observed | the same `ValueError`, from the intermediate block of `_mechanism_columns` | 2 |
+| the fit with `delta=` and `intermediate=` | the same `ValueError` | 2 |
+| the fit with each missing outcome set to 0, with or without `delta=` and a `Delta` column of ones | runs. Both fits report `msm[(intercept)]` 1.0899 and `msm[a]` 0.2362 | 2 |
+
+A study design with `intermediate=` already refuses `MSMProjection` at `identify`. It must identify
+`ControlledDirectEffect`, and a continuous dose gives that estimand no arm.
+
+The engine already names the gap. `build_submodel` in `src/cleverly/estimators/targeting.py` raises
+`NotImplementedError` for a continuous-dose MSM with `delta=` or `intermediate=`. The clever
+covariate would need those mechanisms at each dose of the integration grid. No fit reaches that
+guard, because the nuisance fit raises first, and no test pins its message.
+
+`TMLE._check_shifts` refuses a continuous dose with no `shifts=` and no `msm=`. Its `DataError`
+offers an MSM with a dose integration grid, and says nothing about missing outcomes.
 
 The `continuous` rule of `fit_wide_tilt_refusal` names `shifts=` and `ey_shift/ate_shift`. Only a
 shift fit reaches that rule now, because this fit raises first.
 
-Refuse the composition by name before any learner, as `CapabilityError`. A future implementation
-of the fit needs its own contract and evidence, and the `continuous` tilt sentence must then name
-the MSM fit too.
+Apply these corrections:
 
-The witness fits the probe request with spy learners. It asserts the named refusal and zero learner
-fits. A control keeps the in-sample shift fit with `delta=` running.
+1. Refuse a continuous-dose MSM with a missing outcome or an intermediate variable, by name, as
+   `CapabilityError`, before any learner, in sample and cross-fitted. Run the check before the F21
+   refusal, so that no message sends the fit to an in-sample fit that is also refused.
+2. Refuse `MSMProjection` on a continuous `PointTreatment` with a missing outcome at
+   `CausalStudy.identify`, with the same text.
+3. Key the check on a missing outcome, not on the declaration. A declared indicator with every
+   outcome observed keeps its fit.
+4. Name no remedy. A shift and an arm-coded MSM estimate different parameters. Cite
+   [X10](#x10-continuous-dose-msm-with-a-second-mechanism), which holds the missing construction.
+5. Offer the MSM in the `_check_shifts` message only with complete outcomes.
+
+Keep the `build_submodel` guard as a backstop for the internal callers of that function.
+
+The witnesses must fail when a component is wrong:
+
+- a spy learner shows that each refused fit runs no learner, in sample and cross-fitted, with
+  `delta=`, `intermediate=` and both;
+- a test pins the refusal at `identify` and its message;
+- a control fits a declared indicator with every outcome observed, and a check keyed on the
+  declaration fails it;
+- a mutation that removes the estimator check makes every fit witness fail;
+- a mutation that removes the identification check moves the study refusal to `estimate`, still
+  before any learner. A mutation that removes both checks lets a learner fit.
+
+A control keeps the in-sample shift fit with `delta=` running.
 
 ### P1. EP learner
 
@@ -2126,6 +2165,34 @@ weight that is zero off its support, as RM11 has for the intermediate represente
 C-TMLE fits stay in [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions), and longitudinal fits
 stay in [F16](#f16-longitudinal-sensitivity-bound-estimation). The `ipsi` axis stays refused,
 because its functional depends on the treatment mechanism.
+
+### X10. Continuous-dose MSM with a second mechanism
+
+[RM32](#rm32-continuous-dose-msm-fit-with-missing-outcomes) refuses a continuous-dose MSM fit with a
+missing outcome or an intermediate variable, in sample and cross-fitted. The clever covariate
+divides by the treatment density at the observed dose and at each dose of the integration grid.
+With a second mechanism, it must also divide by the response or the intermediate mechanism at each
+of those doses. The package does not predict either mechanism at a grid dose.
+
+This item is unwritten work rather than a hard stop. The parameter is well posed. Neugebauer and
+van der Laan (2007) define the MSM parameter as a projection of the dose-response curve onto a
+working model. The introduction of Kennedy et al. (2017,
+[arXiv:1507.00747](https://arxiv.org/abs/1507.00747)) cites them for that projection.
+
+Díaz and van der Laan (2017), Section 2.1 and Equation (1), give the response weight for one arm.
+The [source audit](references.md#point-treatment-and-stochastic-interventions) of the stacked
+arm-indexed contract records that locator. Tsiatis (2006) maps a full-data influence function to
+observed data under coarsening at random. This project has not read the theorem of that mapping
+first-hand.
+
+Match the composition to one published result, or show that it meets the
+[Eligibility](#eligibility) conditions. If neither holds, move this item to the future
+investigations grid.
+
+Acceptance needs an exact-law Gateaux witness with a nonzero response weight at the grid doses. A
+mutation control must drop that weight and fail. The `continuous` rule of `fit_wide_tilt_refusal`
+must then name the MSM fit. The cross-fitted fit stays in
+[F21](#f21-other-missing-outcome-cv-tmle-variants).
 
 ## Reading a gap correctly
 
