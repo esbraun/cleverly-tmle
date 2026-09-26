@@ -370,7 +370,11 @@ class PointTreatment:
     cluster : str or None
         Independent-cluster identifier used for variance estimation.
     strata : sequence of str
-        Columns used to preserve strata during cross-fitting.
+        Baseline strata columns, each also an adjustment column.  They define
+        stratum-specific parameters, such as ``ate[S=1]``, reported beside the marginal
+        ones.  :meth:`CausalStudy.identify` refuses them beside an incremental estimand and
+        an ``MSMProjection`` with a link other than the identity or with a continuous dose
+        (X8 in ``docs/roadmap.md``).
     treatment_kind : {"discrete", "continuous"}
         Treatment support used to select supported estimands.
     outcome_family : {"auto", "gaussian", "binomial"}

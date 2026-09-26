@@ -959,7 +959,7 @@ probe table and the corrections. Read it with `git show e4bb35c3:docs/roadmap.md
 | stratified targeting | `refuse_stratified_targeting` in `src/cleverly/estimators/tmle.py` runs in `_resolve_estimands_for_data`, in `DRTMLE._check_drtmle` and in `_identify_point` in `src/cleverly/study.py`. It raises `CapabilityError` before any learner and cites [X8](#x8-stratified-incremental-and-msm-targeting). The `DRTMLE` message names `guard=()`, which is the ordinary TMLE. The targeting-loop guard stays as a backstop |
 | identification | `CausalStudy.identify` refuses `IncrementalMean`, `IncrementalEffect`, and an `MSMProjection` with a link other than the identity or with a continuous dose, on a design with `strata=`. `estimate` refuses the `DRTMLE` case before any learner |
 | one-step nested | `DRTMLE._check_drtmle` refuses it at a non-empty `guard`, before any learner, on a copied estimator as well. The `solve_submodel` guard stays as a backstop |
-| types | every composition refusal in `src/cleverly/estimators/` that runs before any learner raises `CapabilityError`. The backstops in `build_submodel`, `_check_companion` and `_solve_missing_outcome_reduction`, which no fit reaches, keep their types. The incremental-intermediate refusal cites [F6](#f6-mnar-and-incremental-intermediate-compositions) |
+| types | these refusals raise `CapabilityError` before any learner: each composition refusal of `CTMLE` and `DRTMLE`, `reduced.refuse_unsupported`, the incremental-intermediate refusal, the fold-targeting refusal of `incremental=`, and the refusals of strata or `cv_evaluation=True` in the fit. Other constructor checks of `TMLE._validate_settings` keep `ValueError`, among them `targeting="one_step"` with `fluctuation="linear"` and the fold-policy reason. A copied estimator meets the fold-policy reason as `CapabilityError`. The backstops in `build_submodel`, `_check_companion` and `_solve_missing_outcome_reduction`, which no fit reaches, keep their types. The message of commit `8d48589d` says "every other composition refusal". This row gives the exceptions. The incremental-intermediate refusal cites [F6](#f6-mnar-and-incremental-intermediate-compositions) |
 | replay slot | `_refit_configuration_refusal` reads each `ValueError` of the chain as a refusal. Any other exception propagates |
 
 `tests/unit/test_refusals_before_the_nuisance_fit.py` holds the witnesses and five mutation
@@ -2041,7 +2041,8 @@ estimator limits.
 
 This item is unwritten work rather than a hard stop. Each parameter is well posed, and the package
 already fluctuates baseline strata for arm, regime, and shift targets. The refusal taxonomy
-records these refusals as [not written yet](technical-reference/scope-and-refusals.md#not-written-yet).
+records these refusals as
+[not written yet](technical-reference/scope-and-refusals.md#not-written-yet).
 
 Match the stratum-indexed targeting construction to a published derivation before implementation.
 Continuous MSMs also need dose-indexed strata semantics. Add the targeting equations and their

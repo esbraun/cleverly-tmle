@@ -394,8 +394,10 @@ The [learned-nuisance weighted study](method-evidence/learned-weighted-point-tre
 also fits both nuisance regressions with those weights. Its learner-only control separates the
 target and selected plug-ins, while weighted targeting repairs the control under a correct
 treatment mechanism.
-`strata=` produces stratum-specific parameters. `cluster=` changes the independent unit for
-covariance and fold construction, and it does not change the estimand.
+`strata=` produces stratum-specific parameters. The package refuses baseline strata beside
+incremental targets, non-identity-link or continuous-dose MSMs, and `DRTMLE` at a non-empty `guard`
+([X8](../roadmap.md#x8-stratified-incremental-and-msm-targeting)). `cluster=` changes the
+independent unit for covariance and fold construction, and it does not change the estimand.
 
 A grouped fold draw permutes the distinct cluster labels and cuts them into near-equal parts, so
 every row of a cluster lands in one fold. The cluster is then the independent unit the preflight
