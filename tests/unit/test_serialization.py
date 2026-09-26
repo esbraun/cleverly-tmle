@@ -761,7 +761,7 @@ _MISSING_CLASS = b"ccleverly.estimators.base\nNoSuchResult\n."
 
 @pytest.mark.parametrize("compressed", [True, False], ids=["zlib", "uncompressed"])
 @pytest.mark.parametrize("route", ROUTES)
-def test_a_bare_artifact_that_fails_to_load_says_it_records_no_version(
+def test_a_bare_artifact_that_fails_to_load_says_it_has_no_version_header(
     tmp_path: Path, route: str, compressed: bool
 ) -> None:
     """A bare artifact has no header to warn from, so the failure carries the note."""
@@ -769,9 +769,69 @@ def test_a_bare_artifact_that_fails_to_load_says_it_records_no_version(
     with pytest.raises(AttributeError, match="NoSuchResult") as raised:
         _load(route, blob, tmp_path)
     (note,) = raised.value.__notes__
-    assert note.startswith("this artifact records no cleverly version.")
+    assert note.startswith("cleverly could not read a version header from this artifact.")
     assert "direct joblib or pickle dump" in note
+    assert "truncated or corrupt" in note
     assert note.endswith(f"This is cleverly {cleverly.__version__}")
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_a_same_version_payload_that_fails_to_load_names_no_version_change(
+    point_result, tmp_path: Path, route: str
+) -> None:  # type: ignore[no-untyped-def]
+    """The versions agree, so the note names corruption and a shared snapshot version."""
+    blob = _artifact(_header(dumps(point_result)), _Unloadable())
+    with pytest.raises(_PayloadError) as raised:
+        _load(route, blob, tmp_path)
+    (note,) = raised.value.__notes__
+    assert f"records this cleverly version ({cleverly.__version__})" in note
+    assert "truncated or corrupt" in note
+    assert "saved by cleverly" not in note
+
+
+def _flip_crc(blob: bytes) -> bytes:
+    """``blob`` with the first byte of its gzip CRC32 trailer inverted."""
+    return blob[:-8] + bytes([blob[-8] ^ 0xFF]) + blob[-7:]
+
+
+#: Each damage to the stream's end, and what gzip or the loader raises for it. joblib
+#: stops at the result's last opcode, before the trailer, so each case loads silently
+#: unless the loader reads the stream to its end.
+_DAMAGED_ENDS = {
+    "flipped_crc": (_flip_crc, gzip.BadGzipFile, "CRC check failed"),
+    "cut_trailer": (lambda blob: blob[:-4], EOFError, "end-of-stream marker"),
+    "trailing_junk": (lambda blob: blob + b"junk", gzip.BadGzipFile, "Not a gzipped file"),
+    "two_artifacts": (lambda blob: blob + blob, ValueError, "data after the result"),
+}
+
+
+@pytest.mark.parametrize("damage", sorted(_DAMAGED_ENDS))
+@pytest.mark.parametrize("route", ROUTES)
+def test_a_damaged_stream_end_is_refused(
+    point_result, tmp_path: Path, route: str, damage: str
+) -> None:  # type: ignore[no-untyped-def]
+    change, error, message = _DAMAGED_ENDS[damage]
+    with pytest.raises(error, match=message) as raised:
+        _load(route, change(dumps(point_result)), tmp_path)
+    assert "truncated or corrupt" in raised.value.__notes__[0]
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_an_intact_stream_end_loads(point_result, tmp_path: Path, route: str) -> None:  # type: ignore[no-untyped-def]
+    """The control for the damaged ends: the same bytes, unchanged, load."""
+    _assert_same_estimates(_load(route, dumps(point_result), tmp_path), point_result)
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_a_damaged_bare_gzip_dump_is_refused(point_result, tmp_path: Path, route: str) -> None:  # type: ignore[no-untyped-def]
+    """A bare dump in gzip is read to its end as well, and its CRC is checked."""
+    buffer = io.BytesIO()
+    joblib.dump(point_result, buffer, compress=("gzip", 3))
+    with pytest.raises(gzip.BadGzipFile, match="CRC check failed") as raised:
+        _load(route, _flip_crc(buffer.getvalue()), tmp_path)
+    assert raised.value.__notes__[0].startswith("cleverly could not read a version header")
+    with pytest.warns(VersionMismatchWarning, match="recorded no version"):
+        _load(route, buffer.getvalue(), tmp_path)
 
 
 @pytest.mark.parametrize("route", ROUTES)
@@ -784,13 +844,31 @@ def test_an_artifact_that_holds_no_result_is_refused(
 
 
 def test_non_result_objects_are_refused(tmp_path: Path) -> None:
-    with pytest.raises(TypeError, match="fitted causal result"):
+    """Each refusal names the call that refused."""
+    with pytest.raises(TypeError, match=r"^save expects a fitted causal result; got dict$"):
         save({"not": "a result"}, tmp_path / "bad.joblib")
+    assert not (tmp_path / "bad.joblib").exists()
+    with pytest.raises(TypeError, match=r"^dumps expects a fitted causal result; got dict$"):
+        dumps({"not": "a result"})
 
     path = tmp_path / "bad-load.joblib"
     joblib.dump({"not": "a result"}, path)
-    with pytest.raises(TypeError, match="fitted causal result"):
+    with pytest.raises(TypeError, match=r"^load expects a fitted causal result; got dict$"):
         load(path)
+    with pytest.raises(TypeError, match=r"^loads expects a fitted causal result; got dict$"):
+        loads(path.read_bytes())
+
+
+def test_a_failed_save_keeps_the_earlier_artifact(point_result, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    """The write goes to a temporary file beside the destination, which a failure removes."""
+    path = point_result.save(tmp_path / "result.joblib")
+    saved = path.read_bytes()
+    broken = loads(saved)
+    broken.estimator.outcome_learner = FunctionTransformer(lambda values: values)
+    with pytest.raises(TypeError, match="not joblib-serializable"):
+        broken.save(path)
+    assert path.read_bytes() == saved
+    assert [entry.name for entry in tmp_path.iterdir()] == ["result.joblib"]
 
 
 def test_non_picklable_components_fail_at_save(point_result) -> None:  # type: ignore[no-untyped-def]

@@ -10,7 +10,10 @@ second is the result. Both pickles stream through the compressor, so an artifact
 holds a second uncompressed copy of the result in memory. :func:`load` reads the header
 first. On a different version it emits
 :class:`~cleverly.exceptions.VersionMismatchWarning` before it unpickles the result, and
-then it loads the result as saved, with no migration. Only :func:`save` and :func:`load`,
+then it loads the result as saved, with no migration. It then reads the stream to its end,
+so gzip checks the stream's CRC and length, and it refuses a stream with data after the
+result. :func:`save` writes a temporary file beside the destination and replaces the
+destination only when the write succeeds. Only :func:`save` and :func:`load`,
 and :func:`dumps` and :func:`loads`, record and compare the version. A direct pickle or
 joblib dump of a result gets no check.
 
@@ -23,6 +26,8 @@ from __future__ import annotations
 import contextlib
 import gzip
 import io
+import os
+import uuid
 from pathlib import Path
 from typing import IO, Any
 
@@ -38,19 +43,18 @@ _FORMAT = "cleverly.result"
 _GZIP_MAGIC = b"\x1f\x8b"
 
 
-def _check_result(result: Any) -> None:
+def _check_result(result: Any, *, operation: str) -> None:
     from ..longitudinal import LongitudinalResult
     from .base import TMLEResult
 
     if not isinstance(result, (TMLEResult, LongitudinalResult)):
-        raise TypeError(f"save expects a fitted causal result; got {type(result).__name__}")
+        raise TypeError(f"{operation} expects a fitted causal result; got {type(result).__name__}")
 
 
 def _write(result: Any, destination: IO[bytes]) -> None:
     """Stream the version header and then ``result`` into one gzip stream."""
     header = {"format": _FORMAT, "cleverly_version": __version__}
-    # ``filename=""`` and ``mtime=0`` keep the path and the clock out of the gzip header,
-    # so one result always writes the same bytes.
+    # ``filename=""`` and ``mtime=0`` keep the path and the clock out of the gzip header.
     with gzip.GzipFile(
         filename="", mode="wb", fileobj=destination, compresslevel=_COMPRESSION, mtime=0
     ) as stream:
@@ -68,7 +72,28 @@ def _is_header(value: Any) -> bool:
     return isinstance(value, dict) and value.get("format") == _FORMAT
 
 
-def _read(source: IO[bytes]) -> Any:
+def _drain(stream: Any) -> None:
+    """Read ``stream`` to its end, which makes gzip check the CRC and length trailer.
+
+    joblib stops at the pickle's last opcode, before the trailer, so without this read a
+    flipped trailer byte, a cut trailer, or a second gzip member would load silently.
+    """
+    if stream.read(1):
+        raise ValueError("the artifact holds data after the result")
+
+
+def _payload_note(saved: Any) -> str:
+    """The note a failed read of the result carries, after a readable header."""
+    if saved == __version__:
+        return (
+            f"the artifact records this cleverly version ({__version__}), so it can be "
+            "truncated or corrupt, or a development snapshot that shares the version string "
+            "can have written it"
+        )
+    return f"saved by cleverly {saved}; this is cleverly {__version__}"
+
+
+def _read(source: IO[bytes], *, operation: str) -> Any:
     """Read the header, warn on a version mismatch, and only then unpickle the result.
 
     ``stacklevel=4`` skips :func:`warn_on_version_mismatch`, this function, and
@@ -85,25 +110,30 @@ def _read(source: IO[bytes]) -> Any:
         )
         try:
             first = joblib.load(stream)
+            header = compressed and _is_header(first)
+            if compressed and not header:
+                _drain(stream)
         except Exception as error:
             error.add_note(
-                "this artifact records no cleverly version. It can predate version recording, "
-                f"or be a direct joblib or pickle dump. This is cleverly {__version__}"
+                "cleverly could not read a version header from this artifact. It can predate "
+                "version recording, be a direct joblib or pickle dump, or be truncated or "
+                f"corrupt. This is cleverly {__version__}"
             )
             raise
-        if not (compressed and _is_header(first)):
+        if not header:
             # A bare artifact holds the result with no header.
-            _check_result(first)
+            _check_result(first, operation=operation)
             warn_on_version_mismatch(None, stacklevel=4)
             return first
         saved = first.get("cleverly_version")
         warn_on_version_mismatch(saved, stacklevel=4)
         try:
             result = joblib.load(stream)
+            _drain(stream)
         except Exception as error:
-            error.add_note(f"saved by cleverly {saved}; this is cleverly {__version__}")
+            error.add_note(_payload_note(saved))
             raise
-    _check_result(result)
+    _check_result(result, operation=operation)
     return result
 
 
@@ -129,10 +159,19 @@ def save(result: Any, path: str | Path) -> Path:
     TypeError
         When ``result`` is not a fitted causal result, or when joblib cannot serialize it.
     """
-    _check_result(result)
+    _check_result(result, operation="save")
     destination = Path(path)
-    with destination.open("wb") as handle:
-        _write(result, handle)
+    # The temporary file sits beside the destination, so ``os.replace`` is one rename on one
+    # file system, and a failed write leaves an earlier artifact at ``path`` as it was.
+    # ``open(..., "xb")`` creates it with the process umask, as a direct write would.
+    partial = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.partial")
+    try:
+        with open(partial, "xb") as handle:
+            _write(result, handle)
+        os.replace(partial, destination)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
     return destination
 
 
@@ -157,9 +196,16 @@ def load(path: str | Path) -> Any:
     VersionMismatchWarning
         When a different cleverly version wrote the file, or when the file records no
         version. The result then loads as saved, with no migration.
+
+    Raises
+    ------
+    TypeError
+        When the file holds no fitted causal result.
+    ValueError
+        When the file holds data after the result.
     """
     with Path(path).open("rb") as handle:
-        return _read(handle)
+        return _read(handle, operation="load")
 
 
 def dumps(result: Any) -> bytes:
@@ -180,7 +226,7 @@ def dumps(result: Any) -> bytes:
     TypeError
         When ``result`` is not a fitted causal result, or when joblib cannot serialize it.
     """
-    _check_result(result)
+    _check_result(result, operation="dumps")
     buffer = io.BytesIO()
     _write(result, buffer)
     # In CPython ``getvalue`` returns the buffer's own bytes object, not a copy of it.
@@ -205,5 +251,12 @@ def loads(blob: bytes) -> Any:
     VersionMismatchWarning
         When a different cleverly version wrote the bytes, or when they record no version.
         The result then loads as saved, with no migration.
+
+    Raises
+    ------
+    TypeError
+        When the bytes hold no fitted causal result.
+    ValueError
+        When the bytes hold data after the result.
     """
-    return _read(io.BytesIO(blob))
+    return _read(io.BytesIO(blob), operation="loads")

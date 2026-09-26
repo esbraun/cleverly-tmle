@@ -1076,7 +1076,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Returns
         -------
         Path
-            Resolved output path.
+            The destination path, as given.
         """
         from ..estimators.serialize import save as _save
 

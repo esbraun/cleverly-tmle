@@ -1153,7 +1153,7 @@ class TMLEResult:
         Returns
         -------
         Path
-            Resolved output path.
+            The destination path, as given.
         """
         from .serialize import save as _save
 

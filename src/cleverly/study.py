@@ -248,7 +248,7 @@ class CausalResult(Protocol):
         Returns
         -------
         Path
-            Resolved output path.
+            The destination path, as given.
         """
         ...
 

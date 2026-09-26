@@ -256,6 +256,10 @@ On a different version, `cleverly.load()` reads the header and warns with `Versi
 before it unpickles the result. It then loads the artifact as saved, and it runs no migration,
 backfill, or re-stamp.
 
+The load reads the stream to its end, so gzip checks the CRC and the length. The load refuses a
+stream with data after the result. `result.save()` writes a temporary file beside the destination and
+renames it, so a failed save keeps an earlier artifact at that path.
+
 Development snapshots between two releases share one version string, so the check does not see a
 change between them. `cleverly._saved_version` holds the rule, and
 `tests/unit/test_serialization.py` checks it. *Reconsider when* the project leaves alpha.
