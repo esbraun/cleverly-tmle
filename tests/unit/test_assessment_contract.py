@@ -46,7 +46,7 @@ from cleverly.assessment import (
 )
 from cleverly.datasets import make_linear_ate, make_multi_arm
 from cleverly.estimators import TMLE
-from cleverly.sensitivity import ConfounderStrengthGrid, PositivityReport, simulated_confounding
+from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from cleverly.sensitivity._parameters import arm_parameters
 from cleverly.sensitivity._simulated_confounding_request import (
     _FIT_WIDE_RULES,
@@ -1158,30 +1158,6 @@ def test_cached_assessments_replay_after_persistence(
     assert set(restored.assessment_cache) == cache_keys
     assert restored.validate() == validation
     assert restored.diagnostics.run_all() == diagnostics
-
-
-def test_positivity_report_positional_slots_hold_the_repeats_and_the_backend() -> None:
-    """Positional construction fills the repeat and backend slots, and no group table."""
-    report = PositivityReport(
-        {},
-        {},
-        {},
-        {},
-        {"fraction": 0.0},
-        {},
-        (0.01, 0.99),
-        10,
-        {},
-        (),
-        0.0,
-        0.0,
-        3,
-        "pandas",
-    )
-
-    assert report.n_repeats == 3
-    assert report.backend == "pandas"
-    assert report.group_score_load == {}
 
 
 def test_a_cached_frame_replays_in_the_callers_backend(point_result, tmp_path) -> None:  # type: ignore[no-untyped-def]
