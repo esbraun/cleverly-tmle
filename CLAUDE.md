@@ -5,7 +5,7 @@ provisional: inspect the code and tests before changing it, and do not preserve 
 shape solely because this file, a plan, or an investigation note once described it. Code and tests
 determine current behavior.
 
-This file holds the working agreements that no test enforces. Everything else is routed:
+This file collects working agreements for coding agents. Related guidance is routed below:
 
 | for | read |
 | --- | --- |
@@ -59,8 +59,8 @@ objects, or `CausalStudy` objects, and not for the public API.
   recorded hash, which would leave the manifest describing bytes that never ran.
   `docs/development/method-benchmarking.md` says how to tell the two kinds of change apart.
 - Ruff and mypy are pinned once in `pyproject.toml`'s `dev` extra, which resolves to
-  `cleverly[all]` plus tooling. A new optional extra goes in `dev` or gets its own CI job;
-  `contributing.md` says why.
+  `cleverly[all]` plus tooling. For a new extra, follow
+  [Add an optional dependency](docs/development/contributing.md#add-an-optional-dependency).
 - Ruff *formats* the Python examples in Markdown, so run it over the whole tree. Its linter does
   not read Markdown at all, and the formatter skips any block it cannot parse. Neither one sees a
   syntax error in an example.
@@ -70,7 +70,7 @@ objects, or `CausalStudy` objects, and not for the public API.
 ## Documentation writing
 
 The root `README.md` and reader-facing documents under `docs/` align with Issue 9 of
-ASD-STE100 Simplified Technical English.
+ASD-STE100 Simplified Technical English. This project does not claim certified compliance.
 
 - Write one idea per sentence. Keep sentences to 20 words in procedures and 25 in descriptions.
 - Keep paragraphs to six sentences. Prefer three.
@@ -86,11 +86,13 @@ ASD-STE100 Simplified Technical English.
 - Give evidence for each material claim. Cite the source, name the test or artifact, or state the
   applicable condition. Remove adjectives and transitions that add no verifiable information.
 
-When you change a reader-facing document, run `python -m tests.prose` (`--path <file>` for one
-file), review every finding it reports, and plan a fix that keeps the sentence whole. Where the
-standard should not apply, run `python -m tests.prose --update` so the ledger holds the finding,
-then record `accepted: <reason>` against it in `tests/prose-report.md`. That is a passing outcome,
-and the reason is the point. The fast tier fails only on a finding nobody has judged. No tool here
+When you change a reader-facing document, follow the
+[documentation procedure](docs/development/contributing.md#write-documentation).
+Run `python -m tests.prose` and review every finding. `--path <file>` is for reports only.
+After edits, refresh the whole ledger with `python -m tests.prose --update`.
+Record `accepted: <reason>` for each retained finding in `tests/prose-report.md`, keeping existing
+reasons if they still apply. The fast tier rejects unjudged findings and stale ledger rows.
+Check scientific claims against code, tests, artifacts, and sources. No tool here
 certifies STE compliance or verifies a scientific claim.
 
 Scope is `README.md` and every reader-facing Markdown, RST, or notebook source under `docs/`.
