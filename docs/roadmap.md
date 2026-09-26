@@ -685,6 +685,13 @@ errors, so the diagnostic changes no verdict and no estimator.
 `shift-policies`. Its calibration leg fails with a 99% upper endpoint of 0.065856 against a margin
 of 0.05, at a resolution of 0.045019. The conclusion is therefore `inconclusive`.
 
+The [density-representation declaration](https://github.com/esbraun/cleverly-tmle/blob/main/tests/diagnostics/rm18_comparator_density/README.md)
+fixes a four-cell replay on 800 draws from the registered seed stream before any diagnostic fit. Each engine runs
+with its own ratio and the other engine's ratio. The reading requires both registered cells to
+reproduce their committed rows. Simultaneous intervals for signed calibration errors bound the
+within-engine density effects, same-ratio engine gaps, and interaction. The declared equivalence
+rule decides whether the density representation suffices for this law's observed gap.
+
 The `F19` acceptance does not require a negative paired standard-error deficit. Theorem 1 of
 Benkeser, Cai and van der Laan, arXiv:1901.05056 v1, gives no first-order generated-design term
 for one binary treatment-specific mean. The registered gate now requires each design's coverage and
