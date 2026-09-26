@@ -39,7 +39,6 @@ from ..inference.cluster import (
 from ..inference.influence import (
     ParameterEstimate,
     Scale,
-    restamp_restored,
     spread_name,
     stamp_inference,
 )
@@ -276,9 +275,8 @@ class CVTargeting:
 
     The two reports here are genuinely different estimators, not two views of one.
     :attr:`pooled` stitches the updated validation predictions together and evaluates the
-    estimand once over the whole sample; :attr:`canonical` (the compatibility name for
-    the original fold-evaluated report) evaluates it inside each fold and averages, which
-    is the construction Zheng & van der Laan (2011) analyse.  They
+    estimand once over the whole sample; :attr:`fold_evaluated` evaluates it inside each
+    fold and averages, which is the construction Zheng & van der Laan (2011) analyse.  They
     coincide exactly for estimands linear in the targeted predictions at equal fold
     sizes -- ``ate``, ``ey1``, ``ey0`` -- and diverge for ``rr``, ``or``, ``att`` and
     ``atc``, where a ratio of means is not a mean of ratios and the pooled conditional
@@ -296,7 +294,7 @@ class CVTargeting:
     fold-targeted predictions.
 
     Under ``repeats=R`` the fields divide by what they are.  The three that are
-    *estimates* -- :attr:`pooled`, :attr:`canonical` and :attr:`variance` -- follow every
+    *estimates* -- :attr:`pooled`, :attr:`fold_evaluated` and :attr:`variance` -- follow every
     draw, exactly as the headline report does. The four that are indexed *by fold* --
     :attr:`n_folds`, :attr:`fold_sizes`, :attr:`fold_estimates`, :attr:`fold_epsilon` --
     describe the first draw alone, because fold 3 of one draw is not fold 3 of another
@@ -308,7 +306,7 @@ class CVTargeting:
     variance : dict of str to float
         The cross-validated variance of Zheng & van der Laan (2011) -- the fold-averaged
         second moment of the fold-specific influence curves -- per estimand.  Its square
-        root is the standard error attached to :attr:`canonical`; the pooled report
+        root is the standard error attached to :attr:`fold_evaluated`; the pooled report
         carries the ordinary influence-curve one.  The two agree when the folds are
         balanced and the score equation is solved, so a gap between them is itself
         informative. Over ``R`` draws, the median aggregation adds each point's squared
@@ -327,10 +325,10 @@ class CVTargeting:
     fold_epsilon:
         Per-targeting-group tuple of fold-specific fluctuation coefficients, from the
         first draw. Empty for common pooled-validation targeting.
-    pooled, canonical:
+    pooled, fold_evaluated:
         The two reports, per estimand, combined by their median over every draw.
     repeats:
-        How many cross-fitting draws :attr:`pooled`, :attr:`canonical` and
+        How many cross-fitting draws :attr:`pooled`, :attr:`fold_evaluated` and
         :attr:`variance` cover.
     inference : str
     plugin_std_error : dict of str to float
@@ -343,7 +341,7 @@ class CVTargeting:
     epsilon: dict[str, tuple[float, ...]]
     fold_epsilon: dict[str, tuple[tuple[float, ...], ...]]
     pooled: dict[str, ParameterEstimate] = field(default_factory=dict)
-    canonical: dict[str, ParameterEstimate] = field(default_factory=dict)
+    fold_evaluated: dict[str, ParameterEstimate] = field(default_factory=dict)
     repeats: int = 1
     #: Name of the dataframe backend the fit's data arrived in, as on every other
     #: report here.
@@ -353,14 +351,17 @@ class CVTargeting:
     def inference(self) -> InferenceStatus:
         """The inference status both reports declare.
 
-        Read off the stamped estimates of :attr:`pooled` and :attr:`canonical` rather than
+        Read off the stamped estimates of :attr:`pooled` and :attr:`fold_evaluated` rather than
         stored, so the fold-level report cannot claim a status its own estimates do not
         carry. ``"influence_curve"`` when neither report holds an estimate. A mix raises
         :class:`ValueError`, as :attr:`TMLEResult.inference_status` does.
         """
         reports = {
             f"{label}[{name}]": estimate
-            for label, report in (("pooled", self.pooled), ("canonical", self.canonical))
+            for label, report in (
+                ("pooled", self.pooled),
+                ("fold_evaluated", self.fold_evaluated),
+            )
             for name, estimate in report.items()
         }
         return reported_status(reports)
@@ -387,17 +388,11 @@ class CVTargeting:
         """
         return {name: float(np.sqrt(value)) for name, value in self.variance.items()}
 
-    @property
-    def fold_evaluated(self) -> dict[str, ParameterEstimate]:
-        """The original fold-evaluated report (clear alias for ``canonical``)."""
-        return self.canonical
-
     def stamped(self, status: InferenceStatus) -> CVTargeting:
         """This report with both fold-level reports declaring ``status``.
 
         The one stamp for the fold-level reports. ``TMLE._retarget_detailed`` applies it
-        when it builds the report, and ``TMLEResult.__setstate__`` applies it to an
-        artifact saved under another status.
+        when it builds the report.
 
         Parameters
         ----------
@@ -407,14 +402,14 @@ class CVTargeting:
         Returns
         -------
         CVTargeting
-            A copy whose :attr:`pooled` and :attr:`canonical` estimates are stamped by
+            A copy whose :attr:`pooled` and :attr:`fold_evaluated` estimates are stamped by
             :func:`~cleverly.inference.influence.stamp_inference`, with every number
             unchanged.
         """
         return replace(
             self,
             pooled=stamp_inference(self.pooled, status),
-            canonical=stamp_inference(self.canonical, status),
+            fold_evaluated=stamp_inference(self.fold_evaluated, status),
         )
 
     def to_frame(self, data: CausalData | None = None) -> Any:
@@ -432,7 +427,7 @@ class CVTargeting:
         if not supplies_inference(status):
             payload["inference"] = [status for _ in names]
         payload |= {
-            "canonical_psi": [self.canonical[name].psi for name in names],
+            "fold_evaluated_psi": [self.fold_evaluated[name].psi for name in names],
             "pooled_psi": [self.pooled[name].psi for name in names],
             spread_name("cv_std_err", status): [errors[name] for name in names],
             spread_name("pooled_std_err", status): [
@@ -458,7 +453,7 @@ class CVTargeting:
             rows.append(
                 [
                     name,
-                    f"{self.canonical[name].psi:.5g}",
+                    f"{self.fold_evaluated[name].psi:.5g}",
                     f"{errors[name]:.4g}",
                     f"{self.pooled[name].psi:.5g}",
                     f"{self.pooled[name].plugin_std_error:.4g}",
@@ -620,8 +615,8 @@ class TMLEResult:
     bootstrap: BootstrapResult | None = None
     intermediate_value: float | None = None
     extra: dict[str, Any] = field(default_factory=dict)
-    #: Present for fits made through ``CausalStudy``. Legacy estimator calls leave it
-    #: absent while the clean-break migration is in progress.
+    #: Fits made through ``CausalStudy`` record this effect. Direct estimator calls
+    #: leave it unset.
     identified_effect: Any = None
     #: The normalized typed method configuration used by ``IdentifiedEffect.estimate``.
     method: Any = None
@@ -637,8 +632,8 @@ class TMLEResult:
     #: original's mapping straight through, so a result derived by ``attach_bootstrap`` --
     #: which changes ``estimates``, and therefore every sensitivity answer -- served the
     #: original's cached verdicts under a different method stamp.  A constructed result
-    #: now owns an empty cache, and joblib persistence restores the saved mapping through
-    #: ``__setstate__`` rather than through ``__init__``.
+    #: now owns an empty cache, and joblib persistence restores the saved mapping with the
+    #: instance state rather than through ``__init__``.
     assessment_cache: dict[str, Any] = field(default_factory=dict, init=False)
 
     #: Which family of assessment declarations applies to this result.  A class constant
@@ -837,8 +832,7 @@ class TMLEResult:
         """Fold-level detail for fold evaluation or fold-specific targeting.
 
         Carries both the stacked and original fold-evaluated reports whichever one
-        ``result[name]`` was configured to show, so the two can always be compared. The
-        latter retains the :attr:`CVTargeting.canonical` compatibility name.
+        ``result[name]`` was configured to show, so the two can always be compared.
         """
         value = self.extra.get("cv_tmle")
         return value if isinstance(value, CVTargeting) else None
@@ -1092,7 +1086,7 @@ class TMLEResult:
 
     @property
     def replayability(self) -> Replayability:
-        """Which post-fit operations this in-memory or restored result can replay."""
+        """Which post-fit operations this in-memory or loaded result can replay."""
         from ..assessment import replayability
 
         return replayability(self)
@@ -1125,12 +1119,8 @@ class TMLEResult:
         ``save`` pickles the result whole, and every
         :func:`~functools.cached_property` here writes its answer into ``__dict__``.
         ``summary()`` reads :attr:`score_verdict`, so the ordinary ``fit``, ``summary``,
-        ``save`` order baked that verdict into the file, and the loaded result then
-        reported a conclusion this version never reached.  Whatever the artifact carried
-        was restored unchecked: a mismatched object surfaced as an
-        :class:`AttributeError` from ``summary()`` rather than as anything a reader could
-        diagnose.  Unlike the persistent assessment cache there is no generation counter
-        that could invalidate a memo, because a memo records no question.
+        ``save`` order would bake that verdict into the file. Derived state is not
+        persisted: the loaded result computes each memo again when it is first read.
 
         :attr:`sensitivity` and :attr:`diagnostics` go with it.  Each facade already
         drops its own memoized verdicts, so what a stored facade pins is one derived
@@ -1145,65 +1135,15 @@ class TMLEResult:
         """
         return without_memos(type(self), self.__dict__)
 
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        """Restore a result, and discard any memo the artifact already carries.
-
-        :meth:`__getstate__` keeps a memo out of every artifact this version writes. It
-        cannot reach one an older version wrote, and that artifact is the migration case:
-        the stale verdict is inside the file. Filtering on the way in heals it.
-
-        The inference status is the second migration. A fit saved before
-        :attr:`~cleverly.ParameterEstimate.inference` existed, or before this version gave
-        its configuration a non-inferential status, loads its estimates with the status
-        they were saved under, and would publish an interval this version refuses. The
-        estimator that produced the estimates and the data it read are in the artifact, so
-        the status is recomputed from them and re-applied here. An estimate saved by
-        release 0.1.0 or 0.1.1 loads under ``"unrecorded_status_plugin"``, and the
-        re-stamp gives it the status of this configuration. A fit whose estimates already
-        carry a recorded status loads as it was saved when its estimator supplies
-        inference, or when that status is the estimator's.
-
-        Parameters
-        ----------
-        state : dict of str to Any
-            The pickled instance state.
-        """
-        self.__dict__.update(without_memos(type(self), state))
-        self._restamp_inference_status()
-
-    def _restamp_inference_status(self) -> None:
-        """Re-apply the estimator's inference status to estimates saved without it.
-
-        The stamp is written once, in ``TMLE._retarget_detailed``, so a live fit never
-        needs this. The hook reads the estimator configuration and the prepared data, so
-        the artifact holds everything it needs. The fit's estimates and both fold-level
-        reports are re-stamped together, with
-        :func:`~cleverly.inference.influence.stamp_inference` and
-        :meth:`CVTargeting.stamped`.
-        :func:`~cleverly.inference.influence.restamp_restored` runs the re-stamp in both
-        directions (roadmap row RM34). It drops the simultaneous bands and the saved
-        assessment answers on a non-inferential status only.
-        """
-        hook = getattr(self.estimator, "_inference_status", None)
-        data = self.__dict__.get("data")
-        if hook is None or data is None:
-            return
-        status = hook(data)
-        extra = self.__dict__.get("extra") or {}
-        detail = extra.get("cv_tmle")
-        fold_reports = [detail.pooled, detail.canonical] if isinstance(detail, CVTargeting) else []
-        if restamp_restored(self.__dict__, status, fold_reports) and isinstance(
-            detail, CVTargeting
-        ):
-            self.__dict__["extra"] = {**extra, "cv_tmle": detail.stamped(status)}
-
     # ---------------------------------------------------------------- output
 
     def save(self, path: Any) -> Any:
         """Write this result to a trusted joblib artifact; see :func:`cleverly.load`.
 
         Loading joblib data can execute arbitrary Python code. Only load files from a
-        trusted source in a compatible Python and dependency environment.
+        trusted source in a compatible Python and dependency environment. The artifact
+        records :data:`cleverly.__version__`. A load by a different version warns with
+        :class:`~cleverly.exceptions.VersionMismatchWarning` and does not migrate the result.
 
         Parameters
         ----------
@@ -1213,7 +1153,7 @@ class TMLEResult:
         Returns
         -------
         Path
-            Resolved output path.
+            The destination path, as given.
         """
         from .serialize import save as _save
 

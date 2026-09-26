@@ -81,15 +81,14 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, ClassVar
+from typing import Any
 
 import numpy as np
 
 from .._typing import FloatArray
 from ..data.causal_data import CausalData
-from ..data.weighting import SCORE_LOAD_PREDATES, effective_sample_size, format_score_load
+from ..data.weighting import effective_sample_size, format_score_load
 from ..exceptions import DataError
-from ..utils.records import _DefaultingUnpickle
 from .support import _intervention_loads, _InterventionLoadRow
 
 __all__ = ["IPSISet", "Incremental", "IncrementalSupport", "check_incremental_support"]
@@ -467,7 +466,7 @@ def _tilt(
 
 
 @dataclass(frozen=True)
-class IncrementalSupport(_DefaultingUnpickle):
+class IncrementalSupport:
     """Overlap for one tilt -- which for this estimand is a statement, not a warning.
 
     The clever covariate is bounded by :math:`\\delta` and :math:`1/\\delta` however small
@@ -532,8 +531,6 @@ class IncrementalSupport(_DefaultingUnpickle):
     #: why the siblings are unhashable for a different reason.
     score_load: _InterventionLoadRow | None = field(default=None, hash=False)
     score_load_omission: str | None = None
-
-    _PICKLE_BACKFILL: ClassVar[dict[str, Any]] = {"score_load_omission": SCORE_LOAD_PREDATES}
 
     def summary(self) -> str:
         """Return a printable summary.

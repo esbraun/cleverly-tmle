@@ -214,21 +214,10 @@ _PLUGIN_LIMITS_REFUSAL = (
     "tracks this stop"
 )
 
-#: Why a bound saved before RM22 publishes no confidence limit.  Such a pickle did not record
-#: its estimator, so its limits may be plug-in limits or ATT and ATC limits without the share
-#: term, and the package cannot tell which.
-_UNRECORDED_ESTIMATOR_REFUSAL = (
-    "this bound was saved before the package recorded the estimator of nu^2 that built it. "
-    "Its limits may come from the plug-in estimator, which has no derived standard error, or "
-    "from an ATT or ATC curve without the conditioning-share term that RM22 added. Call "
-    "omitted_variable_bounds() or result.sensitivity.omitted_confounding() on the fit again"
-)
-
 #: The estimators of nu^2 whose bounds refuse their limits, and why.  The doubly robust
 #: estimator is absent: its limits are the ones Theorem 4 derives.
 _ESTIMATOR_LIMIT_REFUSALS: dict[str, str] = {
     "plugin": _PLUGIN_LIMITS_REFUSAL,
-    "unrecorded": _UNRECORDED_ESTIMATOR_REFUSAL,
 }
 
 _ZERO_BIAS_LIMITS_REFUSAL = (
@@ -944,8 +933,7 @@ class SensitivityBounds:
         :doc:`inference reference </technical-reference/inference>` lists.
     nu2_estimator : str, default="doubly_robust"
         The resolved estimator of ``nu^2`` that built the bound. Under ``"plugin"`` the six
-        limit accessors refuse. A bound saved before this field existed reads
-        ``"unrecorded"`` and refuses them too.
+        limit accessors refuse.
     """
 
     estimand: str
@@ -966,15 +954,7 @@ class SensitivityBounds:
     robustness_value: float | None
     _robustness_value_ci: float | None
     null_hypothesis: float
-    #: A plain default, so a bound pickled before the field existed reads
-    #: ``"influence_curve"``. That label is not checked on such a bound: a release 0.1.x
-    #: bound of a stratified cross-fitted fit adjusts an estimate that RM31 withholds. No
-    #: such bound publishes a limit, because it also predates ``nu2_estimator``, and
-    #: :meth:`__setstate__` then reads ``"unrecorded"``, whose limits refuse (RM22).
     inference: InferenceStatus = "influence_curve"
-    #: Not the same rule as ``inference``: a bound pickled before this field existed may be
-    #: a plug-in bound, or an ATT or ATC bound without the share term, so
-    #: :meth:`__setstate__` sets ``"unrecorded"`` rather than trusting this default.
     nu2_estimator: str = "doubly_robust"
 
     @_accepts_stored_limit_names
@@ -1019,19 +999,6 @@ class SensitivityBounds:
             ("nu2_estimator", nu2_estimator),
         ):
             object.__setattr__(self, name, value)
-
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        """Move the public stored fields of an older pickle behind the guarded accessors.
-
-        A pickle without ``nu2_estimator`` predates RM22, so its estimator reads
-        ``"unrecorded"`` and its limits refuse.
-        """
-        restored = dict(state)
-        for name in ("ci_lower", "ci_upper", "robustness_value_ci"):
-            if name in restored:
-                restored[f"_{name}"] = restored.pop(name)
-        restored.setdefault("nu2_estimator", "unrecorded")
-        self.__dict__.update(restored)
 
     @property
     def _limits_derived(self) -> bool:
@@ -1455,7 +1422,7 @@ class BenchmarkResult:
         Riesz second moment with them dropped.
     random_state : int or None
         Seed this benchmark ran under.  Pass it back to :func:`benchmark` to obtain the
-        benchmark again.  ``None`` only on a result saved before this field existed.
+        benchmark again.  ``None`` only on a record built without a seed.
     """
 
     estimand: str

@@ -1238,56 +1238,55 @@ register_submodel("mtp", mtp_submodel)
 register_submodel("msm", msm_submodel)
 
 
-#: Keyword arguments that joined :data:`SubmodelBuilder`'s signature after it was first
-#: documented, and what to tell the author of a builder that predates each.  A missing one
-#: surfaces as a bare ``unexpected keyword argument`` from deep inside the dispatcher,
-#: which says nothing about the fix; these do.
+#: The keyword arguments of :data:`SubmodelBuilder`, and what to tell the author of a
+#: builder that does not accept one.  A missing one surfaces as a bare ``unexpected keyword
+#: argument`` from deep inside the dispatcher, which says nothing about the fix; these do.
 _SIGNATURE_ADDITIONS: dict[str, str] = {
     "arms": (
-        "Every submodel builder now takes the arm codes its columns are keyed by, because "
-        "a treatment may have more than two arms; add 'arms=(0.0, 1.0)' to its "
-        "keyword-only parameters and index the (n, K) propensity with it."
+        "Every submodel builder takes the arm codes its columns are keyed by, because a "
+        "treatment may have more than two arms; add 'arms=(0.0, 1.0)' to its keyword-only "
+        "parameters and index the (n, K) propensity with it."
     ),
     "regimes": (
-        "Every submodel builder now takes the regime densities, because an intervention "
-        "may be a rule or a stochastic assignment rather than a constant arm; add "
-        "'regimes=None' to its keyword-only parameters. A builder that targets arms "
-        "rather than regimes should accept and ignore it, as mean_submodel does."
+        "Every submodel builder takes the regime densities, because an intervention may be "
+        "a rule or a stochastic assignment rather than a constant arm; add 'regimes=None' to "
+        "its keyword-only parameters. A builder that targets arms rather than regimes "
+        "should accept and ignore it, as mean_submodel does."
     ),
     "shifts": (
-        "Every submodel builder now takes the shift clever covariates, because a "
-        "treatment may be continuous and its intervention a modified treatment policy "
-        "rather than anything indexed by an arm; add 'shifts=None' to its keyword-only "
-        "parameters. A builder that targets arms or regimes should accept and ignore it, "
-        "as mean_submodel does."
+        "Every submodel builder takes the shift clever covariates, because a treatment may "
+        "be continuous and its intervention a modified treatment policy rather than "
+        "anything indexed by an arm; add 'shifts=None' to its keyword-only parameters. A "
+        "builder that targets arms or regimes should accept and ignore it, as "
+        "mean_submodel does."
     ),
     "msm": (
-        "Every submodel builder now takes the working model's weighted design, because a "
-        "fit's parameters may be the coefficients of a marginal structural model rather "
-        "than anything indexed by an arm; add 'msm=None' to its keyword-only parameters. "
-        "A builder that targets arms, regimes or shifts should accept and ignore it, as "
+        "Every submodel builder takes the working model's weighted design, because a fit's "
+        "parameters may be the coefficients of a marginal structural model rather than "
+        "anything indexed by an arm; add 'msm=None' to its keyword-only parameters. A "
+        "builder that targets arms, regimes or shifts should accept and ignore it, as "
         "mean_submodel does."
     ),
     "arm_fractions": (
-        "'treated_fraction' is now 'arm_fractions': the share of the sample in *each* "
+        "Every submodel builder takes 'arm_fractions': the share of the sample in *each* "
         "arm, in 'arms' order, because a conditional effect on a multi-valued treatment "
-        "conditions on an arm that need not be arm 1. Rename the keyword; a builder that "
-        "wants only the treated share can still be handed one, since a scalar is read as "
-        "P(A = 1) on a binary treatment."
+        "conditions on an arm that need not be arm 1. A builder that wants only the "
+        "treated share can be handed one, since a scalar is read as P(A = 1) on a binary "
+        "treatment."
     ),
     "reference": (
-        "Every submodel builder now takes the arm every contrast is taken against, "
-        "because a conditional effect on a multi-valued treatment is one parameter per "
-        "non-reference arm and the fluctuation has to know which arm that is; add "
-        "'reference=None' to its keyword-only parameters. A builder whose columns target "
-        "arms rather than contrasts should accept and ignore it, as mean_submodel does."
+        "Every submodel builder takes the arm every contrast is taken against, because a "
+        "conditional effect on a multi-valued treatment is one parameter per non-reference "
+        "arm and the fluctuation has to know which arm that is; add 'reference=None' to its "
+        "keyword-only parameters. A builder whose columns target arms rather than contrasts "
+        "should accept and ignore it, as mean_submodel does."
     ),
     "incremental": (
-        "Every submodel builder now takes the incremental interventions' clever "
-        "covariates, because a fit's intervention may be a tilt of the estimated "
-        "mechanism rather than anything known in advance; add 'incremental=None' to its "
-        "keyword-only parameters. A builder that targets arms, regimes, shifts or a "
-        "working model should accept and ignore it, as mean_submodel does."
+        "Every submodel builder takes the incremental interventions' clever covariates, "
+        "because a fit's intervention may be a tilt of the estimated mechanism rather than "
+        "anything known in advance; add 'incremental=None' to its keyword-only parameters. "
+        "A builder that targets arms, regimes, shifts or a working model should accept and "
+        "ignore it, as mean_submodel does."
     ),
 }
 
@@ -1338,9 +1337,9 @@ def submodel_for(
             incremental=incremental,
         )
     except TypeError as error:
-        # Some keywords are newer than the extension point, so a builder written against
-        # an older signature fails here with a bare "unexpected keyword argument". Saying
-        # what to add is worth the branch: the builder is user code the library cannot fix.
+        # A builder that omits one of these keywords fails here with a bare "unexpected
+        # keyword argument". Saying what to add is worth the branch: the builder is user
+        # code the library cannot fix.
         message = str(error)
         for keyword, fix in _SIGNATURE_ADDITIONS.items():
             if keyword in message:

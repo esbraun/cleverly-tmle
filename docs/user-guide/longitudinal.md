@@ -133,8 +133,7 @@ influence curve.
 ## Diagnostics
 
 Longitudinal results provide cumulative support, targeting-score, and nuisance-model reports by
-node. Call `result.diagnostics.support()` for leverage and truncation by stage. The direct
-`stagewise()` method is a compatibility alias for the same report.
+node. Call `result.diagnostics.support()` for leverage and truncation by stage.
 
 The nuisance report separates four roles. Each fitted treatment and censoring model appears once
 per node. Outcome and pseudo-outcome models appear per fitted regimen, cause, horizon, and node.
@@ -158,7 +157,7 @@ every bound-dependent outcome or pseudo-outcome regression and targeting update.
 
 The curve is descriptive. It reports no standard error, confidence interval, preferred bound, or
 pass threshold. It refuses `mechanism=True`, which is a point-treatment option. It also refuses a
-legacy result without its replay recipe, and a learner it cannot replay.
+learner it cannot replay.
 [Replay-only unavailability](../technical-reference/scope-and-refusals.md#replay-only-unavailability)
 states the `random_state` rule each outcome and pseudo-outcome learner must satisfy.
 
@@ -190,16 +189,3 @@ every result, including the assessment cache and the capability rows a restored 
 `tests/unit/test_serialization.py`'s
 `test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment` checks the round trip
 against one cross-fitted, weighted, censored fit.
-
-### Fits from before the pooled fluctuation
-
-Earlier versions fluctuated each outer fold on its own training rows. This version fits one pooled
-fluctuation per node instead. The change applies to every fit with `n_folds > 1`, and the default
-is 10. The same data and seed now give a different estimate and a different standard error. A fit
-with `n_folds=1` keeps its construction.
-
-| what you kept | what this version does |
-| --- | --- |
-| a cross-fitted fit saved before the change | loads it. `score_equations()` still reports its `stitching` rows, and each `solver` row reads the worst fold |
-| the truncation curve of that saved fit | refuses it as `longitudinal_replay_fitted_bound_mismatch`, because the replay runs the pooled fluctuation and cannot reproduce the saved estimate. `run_all()` reports the row as unavailable |
-| a `run_all()` report cached in a saved result | ignores it and computes the report again. The `diagnostics.run_all` cache generation moved from 9 to 10 in `src/cleverly/_assessment_cache.py` |

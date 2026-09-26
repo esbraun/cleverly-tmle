@@ -14,13 +14,11 @@ records the defect.  This module pins these things:
 * the declaration is required, ``"estimated"`` is refused, and a density that is not
   callable is refused, with their messages;
 * the positional order of ``Stochastic`` is unchanged;
-* every fit entry refuses a restored or modified regime before any learner or density call,
-  and so do ``RegimeSet.evaluate`` and ``Stochastic.density`` called directly;
-* a regime pickled before the field existed loads undeclared;
-* a result restored with such a regime keeps its stored estimates, and every recomputation
-  from it refuses;
-* the simulated-confounding replay admits a frozen regime and refuses a restored one before
-  its density runs;
+* every fit entry refuses a modified regime before any learner or density call, and so do
+  ``RegimeSet.evaluate`` and ``Stochastic.density`` called directly;
+* every recomputation from a result whose regime loses its declaration refuses;
+* the simulated-confounding replay admits a frozen regime and refuses an undeclared one
+  before its density runs;
 * a deliberate mutation that removes a refusal makes those witnesses fail;
 * on an exact law, the odds tilt of the sample mechanism declared ``"known"`` gets the
   fixed-density curve, which understates variance for the population-law odds-tilt target;
@@ -69,7 +67,6 @@ from cleverly.sensitivity import _simulated_confounding_fixed as replay_module
 from cleverly.sensitivity import simulated_confounding
 from tests import discrete_law as law
 from tests.conftest import linear_in_sample
-from tests.pickles import legacy_without
 from tests.unit._confounding_support import Counter, forbid_draw_and_refit, validate_replay
 from tests.unit._declaration_support import (
     PATHWISE,
@@ -77,16 +74,15 @@ from tests.unit._declaration_support import (
     assert_refused,
     assert_refused_before_any_call,
     assert_replay_agrees,
-    assert_stored_interval_is_a_diagnostic,
+    modified,
+    modified_states,
     oracle_fit,
     point_entries,
     recomputations,
-    restored,
-    restored_states,
     se_ratio,
     tmle_module,
+    undeclared_copy,
 )
-from tests.unit._declaration_support import legacy_result as legacy_result_of
 from tests.unit._msm_declaration_support import (
     DESIGN_UNKNOWN,
     WEIGHTS_UNKNOWN,
@@ -215,14 +211,14 @@ def spy_coin() -> Stochastic:
     return coin(Counter(FixedDensity()), density_kind="known")
 
 
-#: Every fit entry that can reach a restored regime: ``TMLE.fit``, ``CausalStudy.estimate``,
+#: Every fit entry that can reach a modified regime: ``TMLE.fit``, ``CausalStudy.estimate``,
 #: and ``TMLE.refit``.
 ENTRIES = point_entries(
     lambda regime: {"interventions": (regime,)}, lambda regime: RegimeMean((regime,))
 )
 
-#: What a restored regime can carry, and the refusal each one meets.
-RESTORED = restored_states(UNDECLARED, ESTIMATED)
+#: What a modified regime can carry, and the refusal each one meets.
+MODIFIED = modified_states(UNDECLARED, ESTIMATED)
 
 
 def assert_entry_refuses(entry: str, regime: Any, *fragments: str) -> None:
@@ -234,14 +230,14 @@ def assert_entry_refuses(entry: str, regime: Any, *fragments: str) -> None:
     )
 
 
-class TestTheFitRefusesARestoredRegime:
+class TestTheFitRefusesAModifiedRegime:
     @pytest.mark.parametrize("entry", list(ENTRIES))
-    @pytest.mark.parametrize("name", list(RESTORED))
+    @pytest.mark.parametrize("name", list(MODIFIED))
     def test_every_entry_refuses_before_any_learner_or_density_call(
         self, entry: str, name: str
     ) -> None:
-        kind, fragments = RESTORED[name]
-        assert_entry_refuses(entry, restored(spy_coin(), "density_kind", kind), *fragments)
+        kind, fragments = MODIFIED[name]
+        assert_entry_refuses(entry, modified(spy_coin(), "density_kind", kind), *fragments)
 
     def test_a_subclass_that_skips_the_declaration_refuses_at_the_fit(self) -> None:
         """The fit selects regimes with ``isinstance``, so a subclass cannot opt out."""
@@ -272,22 +268,22 @@ EVALUATORS: dict[str, Callable[[Stochastic], Any]] = {
 
 
 class TestTheEvaluatorsCheckFirst:
-    """A restored regime handed straight to an evaluator refuses before its density runs."""
+    """A modified regime handed straight to an evaluator refuses before its density runs."""
 
     @pytest.mark.parametrize("evaluator", list(EVALUATORS))
-    @pytest.mark.parametrize("name", list(RESTORED))
-    def test_a_restored_regime_refuses_before_its_density_runs(
+    @pytest.mark.parametrize("name", list(MODIFIED))
+    def test_a_modified_regime_refuses_before_its_density_runs(
         self, evaluator: str, name: str
     ) -> None:
-        kind, fragments = RESTORED[name]
-        regime = restored(spy_coin(), "density_kind", kind)
+        kind, fragments = MODIFIED[name]
+        regime = modified(spy_coin(), "density_kind", kind)
         assert_refused(lambda: EVALUATORS[evaluator](regime), CapabilityError, *fragments)
         assert regime.density_fn.calls == 0, "the density was evaluated before the refusal"
 
     def test_the_set_checks_every_regime_before_the_first_density(self) -> None:
-        """A declared regime listed first does not run before a restored one refuses."""
+        """A declared regime listed first does not run before a modified one refuses."""
         first = Stochastic(Counter(FixedDensity()), "first", density_kind="known")
-        regime = restored(spy_coin(), "density_kind", None)
+        regime = modified(spy_coin(), "density_kind", None)
         assert_refused(
             lambda: RegimeSet.evaluate((first, regime), causal_data()), CapabilityError, UNDECLARED
         )
@@ -302,47 +298,42 @@ class TestTheEvaluatorsCheckFirst:
         assert regime.density_fn.calls == 1
 
 
-# ------------------------------------------------------------------ old pickles
+# ------------------------------------------------------------------ a lost declaration
 
 
-def legacy(regime: Stochastic) -> Stochastic:
-    """``regime`` as a pickle written before ``density_kind`` existed would restore it."""
-    return legacy_without(regime, "density_kind")
+def undeclared_regime(regime: Stochastic) -> Stochastic:
+    """``regime`` with its declaration removed after construction."""
+    return modified(regime, "density_kind", None)
 
 
-class TestALegacyRegimeLoads:
-    def test_a_pickle_without_the_field_reads_none_and_can_be_replaced(self) -> None:
-        old = legacy(coin(density_kind="known"))
-        assert "density_kind" not in vars(old)
+class TestARegimeThatLosesItsDeclaration:
+    def test_it_cannot_be_replaced_without_a_declaration(self) -> None:
+        old = undeclared_regime(coin(density_kind="known"))
         assert old.density_kind is None
         assert_refused(lambda: replace(old), CapabilityError, UNDECLARED)
         assert replace(old, density_kind="known").density_kind == "known"
 
-    def test_a_legacy_regime_refuses_at_the_fit(self) -> None:
-        """The pickle copies the counter, so the spy is the one on the restored regime."""
-        assert_entry_refuses("fit", legacy(spy_coin()), UNDECLARED)
+    def test_it_refuses_at_the_fit(self) -> None:
+        assert_entry_refuses("fit", undeclared_regime(spy_coin()), UNDECLARED)
 
 
 def stochastic_regimes(result: Any) -> list[Any]:
     return [item for item in result.estimator.interventions if isinstance(item, Stochastic)]
 
 
-def legacy_result(result: Any) -> Any:
-    """``result`` as an artifact written before ``density_kind`` existed would restore it."""
-    return legacy_result_of(result, "density_kind", stochastic_regimes)
+def undeclared(result: Any) -> Any:
+    """A copy of ``result`` whose stochastic regimes no longer declare their densities."""
+    return undeclared_copy(result, "density_kind", stochastic_regimes)
 
 
-#: The estimands a retarget of the legacy result requests.
+#: The estimands a retarget of the undeclared result requests.
 RETARGETED = ("ey_regime", "ate_regime")
 
 
-class TestALegacyResultKeepsItsPointEstimatesAndRefusesARecomputation:
-    """RM25: a restored result keeps its point estimates and computes nothing new.
+class TestAnUndeclaredResultRefusesARecomputation:
+    """RM25: a result whose density loses its declaration computes nothing new.
 
-    Loading raises nothing.  A density restored without its declaration gives the result
-    the ``"undeclared_function_plugin"`` status of RM28, so the stored interval becomes a
-    diagnostic.  Every sweep
-    recomputes through ``_retarget_detailed``, and a refit through
+    Every sweep recomputes through ``_retarget_detailed``, and a refit through
     ``_resolve_estimands_for_data``, and both check the declaration as the fit does.
     """
 
@@ -352,23 +343,22 @@ class TestALegacyResultKeepsItsPointEstimatesAndRefusesARecomputation:
         estimator = TMLE(interventions=regimes, **linear_in_sample())
         return estimator.fit(law.frame(), outcome="Y", treatment="A").single()
 
-    def test_the_stored_interval_becomes_a_diagnostic(self, result: Any) -> None:
+    def test_the_replay_slots_read_false(self, result: Any) -> None:
         assert "ey_regime[coin]" in result.estimates
-        old = legacy_result(result)
-        assert_stored_interval_is_a_diagnostic(result, old)
+        old = undeclared(result)
         assert not replayability(old).retarget_cached_nuisances
         assert not replayability(old).refit_nuisances
         assert not old.diagnostics.capability("truncation_curve").available
         assert replayability(result).refit_nuisances
 
     def test_each_replay_slot_agrees_with_its_call(self, result: Any) -> None:
-        """Both slots of the legacy result read false, and both calls refuse."""
-        assert_replay_agrees(legacy_result(result), RETARGETED)
+        """Both slots of the undeclared result read false, and both calls refuse."""
+        assert_replay_agrees(undeclared(result), RETARGETED)
         assert_replay_agrees(result, RETARGETED)
 
     @pytest.mark.parametrize("entry", ["truncation_curve", "retarget", "refit"])
     def test_every_recomputation_refuses(self, result: Any, entry: str) -> None:
-        old = legacy_result(result)
+        old = undeclared(result)
         assert_refused(recomputations(old, RETARGETED)[entry], CapabilityError, UNDECLARED)
 
     @pytest.mark.parametrize("entry", ["truncation_curve", "retarget", "refit"])
@@ -381,7 +371,7 @@ class TestALegacyResultKeepsItsPointEstimatesAndRefusesARecomputation:
         self, result: Any, entry: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A refit evaluates the densities again, so its mutation removes those checks too."""
-        old = legacy_result(result)
+        old = undeclared(result)
         monkeypatch.setattr(tmle_module, "refuse_regime_densities", lambda interventions: None)
         if entry == "refit":
             monkeypatch.setattr(base_module, "refuse_regime_densities", lambda items: None)
@@ -393,12 +383,12 @@ class TestALegacyResultKeepsItsPointEstimatesAndRefusesARecomputation:
 
 
 def counted_fit() -> tuple[Any, Counter]:
-    """A fitted regime mean whose density counts its calls, restored without its declaration.
+    """A fitted regime mean whose density counts its calls, without its declaration.
 
-    The counter is read off the restored result, because a pickle round trip copies it.
+    The counter is read off the copied result, because a pickle round trip copies it.
     """
     regime = Stochastic(Counter(_stochastic_density), name="policy", density_kind="known")
-    old = legacy_result(_estimate(_study(), RegimeMean((regime,))))
+    old = undeclared(_estimate(_study(), RegimeMean((regime,))))
     density = old.estimator.interventions[0].density_fn
     density.calls = 0
     return old, density
@@ -416,7 +406,7 @@ class TestTheReplay:
         )
         assert all(cell.failure is None for cell in surface.cells)
 
-    def test_a_legacy_regime_refuses_at_replay_before_its_density_runs(
+    def test_an_undeclared_regime_refuses_at_replay_before_its_density_runs(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         old, density = counted_fit()
@@ -469,14 +459,14 @@ class TestTheWitnessesHaveTeeth:
         assert_every_witness_fails(declaration_witnesses())
 
     @pytest.mark.parametrize("entry", list(ENTRIES))
-    @pytest.mark.parametrize("name", list(RESTORED))
+    @pytest.mark.parametrize("name", list(MODIFIED))
     def test_removing_the_fit_layer_check_fails_the_fit_witnesses(
         self, entry: str, name: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        kind, fragments = RESTORED[name]
+        kind, fragments = MODIFIED[name]
         monkeypatch.setattr(tmle_module, "refuse_regime_densities", lambda interventions: None)
         with pytest.raises(AssertionError):
-            assert_entry_refuses(entry, restored(spy_coin(), "density_kind", kind), *fragments)
+            assert_entry_refuses(entry, modified(spy_coin(), "density_kind", kind), *fragments)
         assert NeverFit.calls > 0, "the mutated fit refused before a learner"
 
     def test_every_site_calls_the_one_refusal(self) -> None:

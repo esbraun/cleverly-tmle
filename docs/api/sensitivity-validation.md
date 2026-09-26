@@ -49,7 +49,6 @@ assumptions, and inference primitives construct derived uncertainty summaries.
    cleverly.validation.BootstrapMeasurementError
    cleverly.validation.EmpiricalInclusionRule
    cleverly.validation.EmpiricalRefitRecord
-   cleverly.validation.GeneratedOutcomeRecord
    cleverly.validation.RefutationTest
    cleverly.validation.RefutationResult
    cleverly.validation.CoverageStudy

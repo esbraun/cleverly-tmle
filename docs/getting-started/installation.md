@@ -23,7 +23,8 @@ python -m pip install "cleverly[all]==0.1.0"
 ```
 
 `cleverly` uses `0.1.N` versions while it remains alpha software. A later patch can contain a
-public API change.
+public API change. A result that one release saves loads in another release with a warning, and
+the load does not migrate it.
 
 ## Development snapshot
 

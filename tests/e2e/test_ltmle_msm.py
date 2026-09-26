@@ -414,7 +414,7 @@ class TestTheSurroundingMachineryStillWorks:
         """The pooled epsilon is shared across the regimens, so a single column would
         print the first coefficient on every row and read as though each had its own."""
         result, _ = fitted
-        frame = result.diagnostics.stagewise().to_frame()
+        frame = result.diagnostics.support().to_frame()
         assert "epsilon" not in frame.columns
         assert list(TERMS) == [
             name[len("epsilon[") : -1] for name in frame.columns if name.startswith("epsilon[")

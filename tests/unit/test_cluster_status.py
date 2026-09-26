@@ -54,9 +54,8 @@ from tests.unit._inference_status_support import (
     assert_assessment_note,
     assert_evalue_unavailable,
     assert_fold_report_withholds,
-    assert_fold_reports_restamped,
     assert_keeps_inference,
-    assert_restamped,
+    assert_round_trips,
     assert_variable_importance_refuses,
     assert_withholds,
     at_or_below,
@@ -632,17 +631,12 @@ class TestTheWorkflowPageRunsOnUnequalClusters:
         result.save(tmp_path / "analysis.joblib")
 
 
-class TestAnOlderArtifact:
+class TestASavedResultLoadsAsSaved:
     @pytest.mark.parametrize("route", ROUTES)
-    def test_a_cv_evaluation_fit_saved_before_the_status_loads_under_it(
-        self, unequal_frame: Any, route: str
-    ) -> None:
+    def test_a_cv_evaluation_fit_keeps_its_status(self, unequal_frame: Any, route: str) -> None:
         result = fit(unequal_frame, **CROSS_FITTED, cv_evaluation=True)
-        restored = assert_restamped(result, UNEQUAL, route)
-        assert_fold_reports_restamped(restored, result, UNEQUAL)
+        assert_round_trips(result, UNEQUAL, route)
 
     @pytest.mark.parametrize("route", ROUTES)
-    def test_a_few_cluster_fit_saved_before_the_status_loads_under_it(
-        self, few_frame: Any, route: str
-    ) -> None:
-        assert_restamped(fit(few_frame, **IN_SAMPLE), FEW, route)
+    def test_a_few_cluster_fit_keeps_its_status(self, few_frame: Any, route: str) -> None:
+        assert_round_trips(fit(few_frame, **IN_SAMPLE), FEW, route)

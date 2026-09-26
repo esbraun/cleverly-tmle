@@ -14,6 +14,7 @@ or lifecycle use. Treat warnings as requests to inspect convergence, overlap, or
    cleverly.NotFittedError
    cleverly.ConvergenceWarning
    cleverly.PositivityWarning
+   cleverly.VersionMismatchWarning
    cleverly.WeightingWarning
 ```
 

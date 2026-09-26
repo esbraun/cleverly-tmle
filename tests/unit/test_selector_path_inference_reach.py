@@ -15,12 +15,8 @@ had never written.
     point-estimate curve is unchanged.  The control is the same tilt on an ordinary TMLE
     fit of the same frame, whose column names must not move.
 
-The round-trip case is here rather than beside the accessors because ``inference`` is a
-dataclass field with a class-level default.  A result restored from a pickle written
-before that field existed arrives without it, and its estimates read the default,
-``"influence_curve"``.  ``TMLEResult.__setstate__`` re-stamps them from the estimator the
-artifact carries, and :class:`TestALegacySelectorArtifactIsReStamped` pins that on a
-simulated pre-field artifact.
+The round-trip case is here rather than beside the accessors because a saved selector fit
+has to load with the status it was saved under, and refuse again.
 
 The later classes follow the refusal into every other surface that publishes a spread of
 the reported curve: the bootstrap limits, the repeat-spread report, the refutation frame,
@@ -45,7 +41,6 @@ from cleverly._inference_status import NON_INFERENTIAL
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_binary_outcome, make_instrument, make_missing_outcome
 from cleverly.estimators import CTMLE, TMLE
-from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import (
     CapabilityError,
     inference_refusal,
@@ -55,7 +50,6 @@ from cleverly.sensitivity import missingness_tilt, tipping_gamma
 from cleverly.validation import CoverageStudy, refute
 from cleverly.validation.score import score_check
 from tests.conftest import SELECTOR_CONFIGS, linear_ctmle, linear_in_sample
-from tests.unit._inference_status_support import SAVED_ANSWERS, SAVED_BANDS, legacy_copy
 
 #: The selector-path record, read where every raise and report reads it.
 WORKING_MECHANISM = NON_INFERENTIAL["working_mechanism_plugin"]
@@ -238,7 +232,7 @@ class TestTippingGammaSearchesThePointEstimateOnly:
 class TestARestoredSelectorFitStillRefuses:
     """``inference`` is a field with a class-level default, so its survival is pinned.
 
-    A restored result that lost the field would read ``"influence_curve"``, publish a
+    A round trip that lost the field would read ``"influence_curve"``, publish a
     confidence interval for the selected working mechanism, and look exactly like a fit
     the package supports.
     """
@@ -266,113 +260,6 @@ class TestARestoredSelectorFitStillRefuses:
         columns = set(missingness_tilt(restored, [0.0]).columns)
         assert columns >= DIAGNOSTIC_COLUMNS
         assert not (INFERENTIAL_COLUMNS & columns)
-
-
-def _legacy(result: Any) -> Any:
-    """A copy of ``result`` shaped as an artifact written before ``inference`` existed.
-
-    Each estimate loses the field from its instance state, so it reads the class-level
-    default until it is saved. The result also carries the two things such an artifact
-    could hold that the re-stamp has to drop: a band object and a saved assessment answer.
-    """
-    legacy = legacy_copy(result, recorded=False)
-    for estimate in legacy.estimates.values():
-        assert "inference" not in estimate.__dict__
-        assert estimate.inference == "influence_curve"
-    return legacy
-
-
-class TestALegacySelectorArtifactIsReStamped:
-    """A selector fit saved before the field existed must not load as inferential.
-
-    Without the re-stamp every estimate of such an artifact reads ``"influence_curve"``,
-    so ``.ci`` answers and the fit publishes the interval this version refuses.
-    """
-
-    @pytest.fixture(scope="class", params=["serialize", "pickle"])
-    def restored(self, request: Any, selector_fit: Any) -> Any:
-        legacy = _legacy(selector_fit)
-        if request.param == "serialize":
-            return loads(dumps(legacy))
-        return pickle.loads(pickle.dumps(legacy))
-
-    def test_the_estimates_carry_the_estimator_status_again(self, restored: Any) -> None:
-        assert {estimate.inference for estimate in restored.estimates.values()} == {DIAGNOSTIC}
-        assert restored.inference_status == DIAGNOSTIC
-
-    def test_the_interval_is_refused_again(self, restored: Any) -> None:
-        with pytest.raises(CapabilityError) as raised:
-            _ = restored["ate"].ci
-        assert WORKING_MECHANISM.reason in str(raised.value)
-
-    def test_the_diagnostic_is_bit_identical(self, restored: Any, selector_fit: Any) -> None:
-        assert restored["ate"].plugin_std_error == selector_fit["ate"].plugin_std_error
-        assert restored["ate"].plugin_interval == selector_fit["ate"].plugin_interval
-        assert restored["ate"].psi == selector_fit["ate"].psi
-
-    def test_what_was_derived_under_the_old_status_is_dropped(self, restored: Any) -> None:
-        assert restored.simultaneous is None
-        assert restored.assessment_cache == {}
-
-    def test_an_ordinary_legacy_artifact_loads_as_it_was_saved(self, ordinary_fit: Any) -> None:
-        """The control: a fit whose estimator supplies inference is not touched."""
-        restored = loads(dumps(_legacy(ordinary_fit)))
-        assert restored.inference_status == "influence_curve"
-        assert restored.simultaneous == SAVED_BANDS
-        assert restored.assessment_cache == SAVED_ANSWERS
-        assert restored["ate"].ci == ordinary_fit["ate"].ci
-
-
-def _pre_strategy(estimator: Any) -> Any:
-    """A copy of ``estimator`` shaped as one pickled before ``strategy`` replaced ``search``.
-
-    Commit d429d90 renamed the attribute. The old one took ``"greedy"``, ``"ordered"`` or
-    ``"discrete"``, so every such artifact holds a selector path.
-    """
-    legacy = pickle.loads(pickle.dumps(estimator))
-    legacy.__dict__["search"] = legacy.__dict__.pop("strategy")
-    return legacy
-
-
-class TestAPreStrategyArtifactLoadsAndRefuses:
-    """An estimator that stores ``search`` must load, and must re-stamp as a selector.
-
-    ``TMLEResult.__setstate__`` asks the estimator for its status while the result loads.
-    A reader of ``strategy`` alone raised ``AttributeError`` there, on an artifact that
-    loaded before the re-stamp existed. Mapping ``search`` to ``"oat"`` would load it as
-    inferential, so each test checks the refusal as well as the load.
-    """
-
-    @pytest.fixture(scope="class", params=["serialize", "pickle"])
-    def restored(self, request: Any, selector_fit: Any) -> Any:
-        legacy = _legacy(selector_fit)
-        legacy.__dict__["estimator"] = _pre_strategy(selector_fit.estimator)
-        if request.param == "serialize":
-            return loads(dumps(legacy))
-        return pickle.loads(pickle.dumps(legacy))
-
-    def test_the_estimator_carries_the_strategy_under_its_current_name(self, restored: Any) -> None:
-        assert restored.estimator.strategy == "greedy"
-        assert "search" not in restored.estimator.__dict__
-
-    def test_the_estimates_are_re_stamped_as_a_selector_path(self, restored: Any) -> None:
-        assert restored.inference_status == DIAGNOSTIC
-        assert restored.simultaneous is None
-        assert restored.assessment_cache == {}
-
-    def test_the_interval_is_refused(self, restored: Any) -> None:
-        with pytest.raises(CapabilityError) as raised:
-            _ = restored["ate"].ci
-        assert WORKING_MECHANISM.reason in str(raised.value)
-
-    @pytest.mark.parametrize("strategy", sorted(SELECTOR_CONFIGS))
-    def test_variable_importance_refuses_the_restored_estimator(self, strategy: str) -> None:
-        estimator = linear_ctmle(strategy, estimands=("ate",), **SELECTOR_CONFIGS[strategy])
-        restored = pickle.loads(pickle.dumps(_pre_strategy(estimator)))
-        assert restored.strategy == strategy
-        with pytest.raises(CapabilityError) as raised:
-            TestVariableImportanceRefusesBeforeItFits._call(restored)
-        assert str(raised.value).startswith("variable_importance() is not defined here.")
 
 
 @pytest.fixture(scope="module")

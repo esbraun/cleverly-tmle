@@ -1,8 +1,8 @@
 """Shared checks for the tests that follow an inference status through a fitted result.
 
 Two shapes recur in every status test: an estimate or a report that must withhold its
-inferential numbers by the reason of one status, and an artifact saved before its
-configuration took that status, which must load re-stamped. Three surfaces recur beside
+inferential numbers by the reason of one status, and a saved result, which must load with
+the status it was saved under. Three surfaces recur beside
 them: the nuisance note, the E-value row, and the refusal of ``variable_importance``
 before its first fit. The forced-status reach test and each surface's own test read them
 here, so a later status inherits the same checks.
@@ -11,7 +11,7 @@ because the forced-status test and the clustered surfaces both fit ``cv_evaluati
 The boundary mutant of the shared cluster rule lives here, because the point-treatment and
 the longitudinal cluster tests both patch it into their estimator module. The longitudinal
 law, its learners and its cluster labels live here too, because the longitudinal cluster
-test and the saved fold-policy test both fit them.
+test and the forced-status reach test both fit them.
 """
 
 from __future__ import annotations
@@ -45,11 +45,6 @@ ROUTES = ("serialize", "pickle")
 #: The two ways an object other than a result is restored: a bare pickle, and joblib, whose
 #: unpickler is the pure-Python one. The package's serializer takes whole results only.
 BARE_ROUTES = ("pickle", "joblib")
-
-#: What :func:`legacy_copy` saves in place of the simultaneous bands and the assessment
-#: answers, so a control can tell that a restored result kept them.
-SAVED_BANDS = "bands built before the status"
-SAVED_ANSWERS = {"sensitivity.evalue": "an answer read off .ci"}
 
 #: The longitudinal estimator module, whose functions the longitudinal mutations patch.
 #: The package re-exports a function named ``ltmle``, so the module is imported by its path.
@@ -220,7 +215,7 @@ def assert_fold_report_withholds(result: Any, status: str) -> None:
             _ = report.pooled[name].ci
         assert_refused_by(status, raised)
         with pytest.raises(CapabilityError):
-            _ = report.canonical[name].std_error
+            _ = report.fold_evaluated[name].std_error
     with pytest.raises(CapabilityError) as raised:
         _ = report.std_error
     assert_refused_by(status, raised)
@@ -229,23 +224,6 @@ def assert_fold_report_withholds(result: Any, status: str) -> None:
     assert_no_inferential_name(columns)
     assert {"inference", "cv_plugin_std_err", "pooled_plugin_std_err"} <= columns
     assert_no_inferential_text(report.summary())
-
-
-def assert_fold_reports_restamped(restored: Any, result: Any, status: str) -> None:
-    """Both fold-level reports of a restored ``restored`` carry ``status`` again.
-
-    ``result`` is the live fit the legacy copy was made from, so the diagnostic of each
-    pooled estimate is compared bit for bit.
-    """
-    detail = restored.cv_targeting
-    assert detail.inference == status
-    for name in detail.pooled:
-        assert detail.pooled[name].inference == status
-        assert detail.canonical[name].inference == status
-        assert (
-            detail.pooled[name].plugin_std_error
-            == result.cv_targeting.pooled[name].plugin_std_error
-        )
 
 
 def _unstamped(report: dict[str, Any]) -> dict[str, Any]:
@@ -268,7 +246,7 @@ def stamp_headline_only(monkeypatch: pytest.MonkeyPatch) -> None:
             detail = replace(
                 detail,
                 pooled=_unstamped(detail.pooled),
-                canonical=_unstamped(detail.canonical),
+                fold_evaluated=_unstamped(detail.fold_evaluated),
             )
         return ordered, fluctuations, detail
 
@@ -280,34 +258,6 @@ def at_or_below(cluster: Any, *, cross_fit: bool, **settings: Any) -> str:
     status = cluster_inference_status(cluster, cross_fit=cross_fit, **settings)
     at_threshold = np.unique(cluster).size == FEW_CLUSTER_THRESHOLD
     return "few_cluster_plugin" if status == "influence_curve" and at_threshold else status
-
-
-def legacy_copy(result: Any, *, recorded: bool = True) -> Any:
-    """A copy saved as an ordinary fit: every estimate and any fold report inferential.
-
-    With ``recorded=True``, the post-RM12, pre-RM20 shape: each estimate carries
-    ``inference="influence_curve"`` in its state. With ``recorded=False``, the shape of
-    releases 0.1.0 and 0.1.1: no estimate state holds an ``inference`` key, so the copy
-    reads the class default until it is saved, and each estimate loads under
-    ``"unrecorded_status_plugin"`` (roadmap row RM34). Either copy holds a simultaneous
-    band and an assessment answer that a status fit would not have.
-    """
-    legacy = pickle.loads(pickle.dumps(result))
-    reports = [legacy.estimates]
-    # A longitudinal result has no fold-level report.
-    detail = getattr(legacy, "cv_targeting", None)
-    if detail is not None:
-        reports.extend([detail.pooled, detail.canonical])
-    for report in reports:
-        for estimate in report.values():
-            if recorded:
-                estimate.__dict__["inference"] = "influence_curve"
-            else:
-                # Two reports can hold one estimate object, so the key can already be gone.
-                estimate.__dict__.pop("inference", None)
-    legacy.__dict__["simultaneous"] = SAVED_BANDS
-    legacy.__dict__["assessment_cache"] = dict(SAVED_ANSWERS)
-    return legacy
 
 
 def restore(artifact: Any, route: str) -> Any:
@@ -322,28 +272,35 @@ def restore(artifact: Any, route: str) -> Any:
     return pickle.loads(pickle.dumps(artifact))
 
 
-def assert_restamped(result: Any, status: str, route: str) -> Any:
-    """Both legacy copies of ``result`` load under ``status``, with the diagnostic unchanged.
+def assert_round_trips(result: Any, status: str, route: str) -> Any:
+    """``result`` loads by ``route`` with ``status`` and every report as it was saved.
 
-    The copy that records ``"influence_curve"`` loads first, then the copy without the
-    key, which is the shape of releases 0.1.0 and 0.1.1. So each status witness also
-    loads the released shape.
+    A load re-derives nothing: the status, the diagnostic of each estimate, the
+    simultaneous bands, the saved assessment answers and both fold-level reports come back
+    as the fit wrote them. The first line is the nonzero witness that the fit carries
+    ``status``.
 
-    Returns the restored copy without the key, so a caller can check the reports it adds.
+    Returns the restored result, so a caller can check the surfaces it adds.
     """
-    restored = None
-    for recorded in (True, False):
-        legacy = legacy_copy(result, recorded=recorded)
-        # The nonzero witness: the copy really is the inferential shape before it loads.
-        assert legacy.inference_status == "influence_curve"
-        restored = restore(legacy, route)
-        assert restored.inference_status == status
-        for name, estimate in restored.estimates.items():
+    assert result.inference_status == status
+    restored = restore(result, route)
+    assert restored.inference_status == status
+    for name, estimate in restored.estimates.items():
+        assert estimate.inference == status
+        assert estimate.plugin_std_error == result.estimates[name].plugin_std_error
+        assert estimate.plugin_interval == result.estimates[name].plugin_interval
+        if status != "influence_curve":
             with pytest.raises(CapabilityError) as raised:
                 _ = estimate.ci
             assert_refused_by(status, raised)
-            assert estimate.plugin_std_error == result.estimates[name].plugin_std_error
-            assert estimate.plugin_interval == result.estimates[name].plugin_interval
-        assert restored.simultaneous is None
-        assert restored.assessment_cache == {}
+    assert (restored.simultaneous is None) == (result.simultaneous is None)
+    assert restored.assessment_cache.keys() == result.assessment_cache.keys()
+    detail = getattr(result, "cv_targeting", None)
+    if detail is not None:
+        copy = restored.cv_targeting
+        assert copy.inference == detail.inference == status
+        for name in detail.pooled:
+            assert copy.pooled[name].inference == status
+            assert copy.fold_evaluated[name].inference == status
+            assert copy.pooled[name].plugin_std_error == detail.pooled[name].plugin_std_error
     return restored

@@ -229,11 +229,11 @@ def _refuse_result_type(result: Any) -> str | None:
 
 
 def _refuse_missing_estimator(result: Any) -> str | None:
-    """Refuse a restored or legacy result that stores no replay estimator."""
+    """Refuse a result that stores no replay estimator."""
     if result.estimator is None:
         return (
-            "simulated_confounding needs a replayable fitted estimator; this restored or "
-            "legacy result has no estimator configuration"
+            "simulated_confounding needs a replayable fitted estimator; this result stores "
+            "no estimator configuration"
         )
     return None
 
@@ -322,11 +322,11 @@ def _refuse_undeclared_weights(result: Any) -> str | None:
 
 
 def _refuse_identification(result: Any) -> str | None:
-    """Refuse a legacy fit that records no identification metadata."""
+    """Refuse a fit that records no identification metadata."""
     if result.identified_effect is None:
         return (
             "simulated_confounding needs identification metadata for a backdoor parameter; "
-            "this legacy fit records none"
+            "this result records none"
         )
     return None
 

@@ -26,7 +26,6 @@ from tests.unit._capability_sweep_support import (
     KINDS,
     MUTATIONS,
     SEAMS,
-    SPLIT_PLAN_DEFAULT,
     problems,
     ran,
     sweep,
@@ -39,13 +38,11 @@ def test_every_row_a_request_resolves_available_answers_it(kind: str) -> None:
     result = KINDS[kind].build()
     arguments = sweep_arguments(result)
     assert problems(result, arguments) == []
-    # The nonzero witness: the rows this kind must run did run, and no row it must
-    # not run answered.
+    # The nonzero witness: the rows this kind must run did run.
     answered = ran(result, arguments)
     assert KINDS[kind].must_run <= answered
-    assert not KINDS[kind].must_not_run & answered
     if result.assessment_family == "point":
-        # A fit passed the refit preflight, and a restored kind is one it refuses.
+        # A fit passed the refit preflight, and a reconfigured kind is one it refuses.
         assert replayability(result).refit_nuisances is KINDS[kind].refits
 
 
@@ -87,7 +84,7 @@ class TestEachMutationRestoresAMismatch:
         recorder = _Recorder()
         mutation.apply(recorder)  # type: ignore[arg-type]
         assert recorder.targets, mutation.describe
-        assert recorder.targets <= {*SEAMS, SPLIT_PLAN_DEFAULT}, mutation.describe
+        assert recorder.targets <= set(SEAMS), mutation.describe
 
     @pytest.mark.parametrize("kind", list(KINDS))
     @pytest.mark.parametrize("name", list(MUTATIONS))
@@ -95,9 +92,9 @@ class TestEachMutationRestoresAMismatch:
         self, name: str, kind: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         mutation = MUTATIONS[name]
-        # Built before the mutation, because M7 removes what a restored build reads. The
-        # copy has an empty report cache and no memoized facade, so no answer computed
-        # before the mutation can hide it.
+        # Built before the mutation, so the fit runs unmutated. The copy has an empty
+        # report cache and no memoized facade, so no answer computed before the mutation
+        # can hide it.
         result = KINDS[kind].build()
         mutation.apply(monkeypatch)
         found = sweep(result)

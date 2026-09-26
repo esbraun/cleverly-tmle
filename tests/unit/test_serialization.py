@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import gzip
 import importlib
 import inspect
 import io
 import math
 import pkgutil
+import warnings
+import zlib
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -22,6 +25,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.preprocessing import FunctionTransformer
 
 import cleverly
+import cleverly.estimators.serialize as serialization
 from cleverly import (
     ATE,
     CapabilityError,
@@ -33,6 +37,7 @@ from cleverly import (
     PointTreatment,
     RegimeContrast,
     RiskRatio,
+    VersionMismatchWarning,
     load,
 )
 from cleverly.datasets import (
@@ -631,28 +636,261 @@ def test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment(
     assert _capability_refusal(restored, "omitted_confounding") == refusal
 
 
-def test_legacy_npz_is_refused_with_a_migration_message(tmp_path: Path) -> None:
-    path = tmp_path / "legacy.npz"
-    np.savez_compressed(path, __manifest__=np.array([1], dtype=np.uint8))
-    with pytest.raises(ValueError, match=r"legacy cleverly \.npz"):
-        load(path)
+# ------------------------------------------------------------ the saved version
 
 
-def test_legacy_npz_bytes_are_refused() -> None:
+class _PayloadError(Exception):
+    """What the payload below raises as it is unpickled."""
+
+
+def _refuse_to_unpickle() -> None:
+    raise _PayloadError("a class in this payload changed")
+
+
+class _Unloadable:
+    """Pickles as a call that raises, as a payload whose classes changed can."""
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        return (_refuse_to_unpickle, ())
+
+
+def _header(blob: bytes) -> dict[str, Any]:
+    """The header of an artifact that :func:`dumps` wrote.
+
+    joblib reads the first pickle of the gzip stream, and the header is that pickle.
+    """
+    header = joblib.load(io.BytesIO(blob))
+    assert isinstance(header, dict)
+    return header
+
+
+def _artifact(header: dict[str, Any], payload: Any) -> bytes:
+    """An artifact in the format :func:`dumps` writes, with ``header`` and ``payload``."""
     buffer = io.BytesIO()
-    np.savez_compressed(buffer, __manifest__=np.array([1], dtype=np.uint8))
-    with pytest.raises(ValueError, match=r"legacy cleverly \.npz"):
-        loads(buffer.getvalue())
+    with gzip.GzipFile(filename="", mode="wb", fileobj=buffer, compresslevel=3, mtime=0) as stream:
+        joblib.dump(header, stream)
+        joblib.dump(payload, stream)
+    return buffer.getvalue()
+
+
+def _dumped(value: Any) -> bytes:
+    """``value`` dumped bare by joblib, as a caller outside :func:`dumps` can write it."""
+    buffer = io.BytesIO()
+    joblib.dump(value, buffer, compress=3)
+    return buffer.getvalue()
+
+
+def _load(route: str, blob: bytes, tmp_path: Path) -> Any:
+    """``blob`` loaded through the public file loader or the bytes loader."""
+    if route == "bytes":
+        return loads(blob)
+    path = tmp_path / "artifact.joblib"
+    path.write_bytes(blob)
+    return load(path)
+
+
+def _assert_same_estimates(restored: Any, original: Any) -> None:
+    assert restored.estimates.keys() == original.estimates.keys()
+    for name, estimate in original.estimates.items():
+        assert restored[name].psi == estimate.psi
+        assert restored[name].inference == estimate.inference
+    assert restored.inference_status == original.inference_status
+
+
+ROUTES = ["file", "bytes"]
+
+
+def test_an_artifact_records_the_version_that_wrote_it(point_result, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    blob = dumps(point_result)
+    assert blob == _artifact(_header(blob), point_result)
+    assert _header(blob) == {"format": "cleverly.result", "cleverly_version": cleverly.__version__}
+    path = point_result.save(tmp_path / "result.joblib")
+    assert path.read_bytes() == blob
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_the_same_version_loads_without_a_warning(point_result, tmp_path: Path, route: str) -> None:  # type: ignore[no-untyped-def]
+    """The control for the witness below: a matching version warns nothing."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        restored = _load(route, dumps(point_result), tmp_path)
+    _assert_same_estimates(restored, point_result)
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_another_version_warns_and_loads_as_saved(point_result, tmp_path: Path, route: str) -> None:  # type: ignore[no-untyped-def]
+    """A different recorded version warns, names both versions, and migrates nothing."""
+    header = {**_header(dumps(point_result)), "cleverly_version": "0.0.0"}
+    with pytest.warns(VersionMismatchWarning, match="saved by cleverly 0.0.0") as record:
+        restored = _load(route, _artifact(header, point_result), tmp_path)
+    message = str(record[0].message)
+    assert f"this is cleverly {cleverly.__version__}" in message
+    assert "no migration" in message
+    assert record[0].filename == __file__
+    _assert_same_estimates(restored, point_result)
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_a_bare_artifact_warns_that_it_recorded_no_version(
+    point_result, tmp_path: Path, route: str
+) -> None:  # type: ignore[no-untyped-def]
+    """A result dumped with no header, as a direct joblib dump writes it, still loads."""
+    written_by = r"a writer that recorded no version \(an earlier release, or a direct joblib"
+    with pytest.warns(VersionMismatchWarning, match=written_by) as record:
+        restored = _load(route, _dumped(point_result), tmp_path)
+    assert record[0].filename == __file__
+    _assert_same_estimates(restored, point_result)
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_a_payload_that_fails_to_load_names_both_versions(
+    point_result, tmp_path: Path, route: str
+) -> None:  # type: ignore[no-untyped-def]
+    """The warning comes from the header, so it precedes the failed unpickle of the result."""
+    header = {**_header(dumps(point_result)), "cleverly_version": "0.0.0"}
+    with pytest.warns(VersionMismatchWarning), pytest.raises(_PayloadError) as raised:
+        _load(route, _artifact(header, _Unloadable()), tmp_path)
+    assert f"saved by cleverly 0.0.0; this is cleverly {cleverly.__version__}" in (
+        raised.value.__notes__
+    )
+
+
+#: A pickle whose one object is a class the package does not define, as a bare artifact
+#: whose result class moved or was removed holds.
+_MISSING_CLASS = b"ccleverly.estimators.base\nNoSuchResult\n."
+
+
+@pytest.mark.parametrize("compressed", [True, False], ids=["zlib", "uncompressed"])
+@pytest.mark.parametrize("route", ROUTES)
+def test_a_bare_artifact_that_fails_to_load_says_it_has_no_version_header(
+    tmp_path: Path, route: str, compressed: bool
+) -> None:
+    """A bare artifact has no header to warn from, so the failure carries the note."""
+    blob = zlib.compress(_MISSING_CLASS, 3) if compressed else _MISSING_CLASS
+    with pytest.raises(AttributeError, match="NoSuchResult") as raised:
+        _load(route, blob, tmp_path)
+    (note,) = raised.value.__notes__
+    assert note.startswith("cleverly could not read a version header from this artifact.")
+    assert "direct joblib or pickle dump" in note
+    assert "truncated or corrupt" in note
+    assert note.endswith(f"This is cleverly {cleverly.__version__}")
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_a_same_version_payload_that_fails_to_load_names_no_version_change(
+    point_result, tmp_path: Path, route: str
+) -> None:  # type: ignore[no-untyped-def]
+    """The versions agree, so the note names corruption and a shared snapshot version."""
+    blob = _artifact(_header(dumps(point_result)), _Unloadable())
+    with pytest.raises(_PayloadError) as raised:
+        _load(route, blob, tmp_path)
+    (note,) = raised.value.__notes__
+    assert f"records this cleverly version ({cleverly.__version__})" in note
+    assert "truncated or corrupt" in note
+    assert "saved by cleverly" not in note
+
+
+def _flip_crc(blob: bytes) -> bytes:
+    """``blob`` with the first byte of its gzip CRC32 trailer inverted."""
+    return blob[:-8] + bytes([blob[-8] ^ 0xFF]) + blob[-7:]
+
+
+#: Each damage to the stream's end, and what gzip or the loader raises for it. joblib
+#: stops at the result's last opcode, before the trailer, so each case loads silently
+#: unless the loader reads the stream to its end.
+_DAMAGED_ENDS = {
+    "flipped_crc": (_flip_crc, gzip.BadGzipFile, "CRC check failed"),
+    "cut_trailer": (lambda blob: blob[:-4], EOFError, "end-of-stream marker"),
+    "trailing_junk": (lambda blob: blob + b"junk", gzip.BadGzipFile, "Not a gzipped file"),
+    "two_artifacts": (lambda blob: blob + blob, ValueError, "data after the result"),
+}
+
+
+@pytest.mark.parametrize("damage", sorted(_DAMAGED_ENDS))
+@pytest.mark.parametrize("route", ROUTES)
+def test_a_damaged_stream_end_is_refused(
+    point_result, tmp_path: Path, route: str, damage: str
+) -> None:  # type: ignore[no-untyped-def]
+    change, error, message = _DAMAGED_ENDS[damage]
+    with pytest.raises(error, match=message) as raised:
+        _load(route, change(dumps(point_result)), tmp_path)
+    assert "truncated or corrupt" in raised.value.__notes__[0]
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_an_intact_stream_end_loads(point_result, tmp_path: Path, route: str) -> None:  # type: ignore[no-untyped-def]
+    """The control for the damaged ends: the same bytes, unchanged, load."""
+    _assert_same_estimates(_load(route, dumps(point_result), tmp_path), point_result)
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_a_damaged_bare_gzip_dump_is_refused(point_result, tmp_path: Path, route: str) -> None:  # type: ignore[no-untyped-def]
+    """A bare dump in gzip is read to its end as well, and its CRC is checked."""
+    buffer = io.BytesIO()
+    joblib.dump(point_result, buffer, compress=("gzip", 3))
+    with pytest.raises(gzip.BadGzipFile, match="CRC check failed") as raised:
+        _load(route, _flip_crc(buffer.getvalue()), tmp_path)
+    assert raised.value.__notes__[0].startswith("cleverly could not read a version header")
+    with pytest.warns(VersionMismatchWarning, match="recorded no version"):
+        _load(route, buffer.getvalue(), tmp_path)
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_an_artifact_that_holds_no_result_is_refused(
+    point_result, tmp_path: Path, route: str
+) -> None:  # type: ignore[no-untyped-def]
+    header = _header(dumps(point_result))
+    with pytest.raises(TypeError, match="fitted causal result"):
+        _load(route, _artifact(header, {"not": "a result"}), tmp_path)
 
 
 def test_non_result_objects_are_refused(tmp_path: Path) -> None:
-    with pytest.raises(TypeError, match="fitted causal result"):
+    """Each refusal names the call that refused."""
+    with pytest.raises(TypeError, match=r"^save expects a fitted causal result; got dict$"):
         save({"not": "a result"}, tmp_path / "bad.joblib")
+    assert not (tmp_path / "bad.joblib").exists()
+    with pytest.raises(TypeError, match=r"^dumps expects a fitted causal result; got dict$"):
+        dumps({"not": "a result"})
 
     path = tmp_path / "bad-load.joblib"
     joblib.dump({"not": "a result"}, path)
-    with pytest.raises(TypeError, match="fitted causal result"):
+    with pytest.raises(TypeError, match=r"^load expects a fitted causal result; got dict$"):
         load(path)
+    with pytest.raises(TypeError, match=r"^loads expects a fitted causal result; got dict$"):
+        loads(path.read_bytes())
+
+
+def test_a_failed_save_keeps_the_earlier_artifact(point_result, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    """The write goes to a temporary file beside the destination, which a failure removes."""
+    path = point_result.save(tmp_path / "result.joblib")
+    saved = path.read_bytes()
+    broken = loads(saved)
+    broken.estimator.outcome_learner = FunctionTransformer(lambda values: values)
+    with pytest.raises(TypeError, match="not joblib-serializable"):
+        broken.save(path)
+    assert path.read_bytes() == saved
+    assert [entry.name for entry in tmp_path.iterdir()] == ["result.joblib"]
+
+
+def test_a_failed_destination_write_preserves_the_os_error_and_earlier_artifact(
+    point_result, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:  # type: ignore[no-untyped-def]
+    path = point_result.save(tmp_path / "result.joblib")
+    saved = path.read_bytes()
+    original_dump = serialization.joblib.dump
+
+    def fail_during_payload(value: Any, stream: Any) -> Any:
+        if value is point_result:
+            stream.write(b"partial payload")
+            raise OSError("destination is full")
+        return original_dump(value, stream)
+
+    monkeypatch.setattr(serialization.joblib, "dump", fail_during_payload)
+    with pytest.raises(OSError, match="destination is full") as raised:
+        point_result.save(path)
+    assert raised.value.__cause__ is None
+    assert path.read_bytes() == saved
+    assert [entry.name for entry in tmp_path.iterdir()] == ["result.joblib"]
 
 
 def test_non_picklable_components_fail_at_save(point_result) -> None:  # type: ignore[no-untyped-def]
@@ -767,18 +1005,12 @@ def test_every_memo_owner_either_drops_its_memos_or_reaches_no_artifact() -> Non
         if path in _UNREACHABLE_MEMO_OWNERS:
             continue
         names = _memo_names(owner)
-        poisoned = dict.fromkeys(names, "a verdict from a version that is not this one")
+        warmed = dict.fromkeys(names, "a verdict the artifact must not carry")
 
         written = owner.__new__(owner)
-        written.__dict__.update(poisoned)
+        written.__dict__.update(warmed)
         assert not set(names) & set(written.__getstate__()), (
             f"{path} writes a memo into every artifact it is saved in"
-        )
-
-        read = owner.__new__(owner)
-        read.__setstate__(poisoned)  # type: ignore[attr-defined]
-        assert not set(names) & set(read.__dict__), (
-            f"{path} restores whatever memo an older artifact already carries"
         )
 
 
@@ -806,17 +1038,11 @@ def test_no_saved_result_carries_a_value_it_derived(point_result) -> None:  # ty
     assert _memos_in_graph(loads(dumps(point_result))) == []
 
 
-def test_a_loaded_result_recomputes_the_score_verdict_an_artifact_carried(point_result) -> None:  # type: ignore[no-untyped-def]
-    """A stale verdict inside the file is the migration case, and it is not diagnosable.
+def test_a_loaded_result_recomputes_the_score_verdict(point_result) -> None:  # type: ignore[no-untyped-def]
+    """The verdict memo stays out of the artifact, and the loaded result computes it again.
 
-    Nothing invalidates a memo. There is no generation counter to compare, because a memo
-    records no question, so whatever the artifact carries is restored and reported. A
-    ``ScoreCheck`` saved at one tolerance answers at that tolerance for ever, and an
-    object of the wrong type surfaces as an ``AttributeError`` from ``summary()`` rather
-    than as anything a reader can act on.
-
-    A same-version round trip pins the write side. The revived states below pin the read
-    side, and need no committed binary artifact.
+    A same-version round trip pins the write side: ``__getstate__`` drops the memo, so the
+    loaded result reaches its verdict from the stored records.
     """
     fresh = point_result.score_verdict
     assert fresh.tolerance == pytest.approx(DEFAULT_TOLERANCE)
@@ -830,25 +1056,6 @@ def test_a_loaded_result_recomputes_the_score_verdict_an_artifact_carried(point_
     assert "score_verdict" not in restored.__dict__
     assert restored.score_verdict.tolerance == pytest.approx(DEFAULT_TOLERANCE)
     assert restored.score_verdict.rows == fresh.rows
-
-    # A verdict this version does not reach, at a tolerance no caller asked for.
-    stale = dict(state)
-    stale["score_verdict"] = dataclasses.replace(
-        fresh, tolerance=1e-12, corrected=not fresh.corrected
-    )
-    revived = type(point_result).__new__(type(point_result))
-    revived.__setstate__(stale)
-    assert "score_verdict" not in revived.__dict__
-    assert revived.score_verdict.tolerance == pytest.approx(DEFAULT_TOLERANCE)
-    assert revived.score_verdict.corrected == fresh.corrected
-
-    # Not merely stale: an artifact restores whatever it holds, of whatever type.
-    poisoned = dict(state)
-    poisoned["score_verdict"] = "a verdict from a version that is not this one"
-    healed = type(point_result).__new__(type(point_result))
-    healed.__setstate__(poisoned)
-    assert healed.score_verdict.passed == fresh.passed
-    assert healed.summary() == point_result.summary()
 
 
 def test_a_loaded_result_rebuilds_the_facades_it_was_saved_with(point_result) -> None:  # type: ignore[no-untyped-def]

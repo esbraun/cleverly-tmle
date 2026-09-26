@@ -573,11 +573,9 @@ class CausalData:
 
         The one reading of ``weights_estimated=True``. Constant weights fit the unweighted
         estimator, so the declaration has nothing to act on there, and every surface that
-        reacts to it asks this property. A ``CausalData`` pickled before
-        :attr:`weight_spec` existed has none, and it reads as undeclared.
+        reacts to it asks this property.
         """
-        spec = getattr(self, "weight_spec", None)
-        return self.is_weighted and bool(getattr(spec, "estimated", False))
+        return self.is_weighted and self.weight_spec.estimated
 
     @property
     def effective_n(self) -> float:

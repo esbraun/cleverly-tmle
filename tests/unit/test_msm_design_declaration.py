@@ -15,16 +15,14 @@ defect.  This module pins these things:
 * the declaration is required, ``"estimated"`` is refused, and a design that is not callable
   is refused, with their messages;
 * ``design_kind=None`` reads as known only on a design that ``MSM.linear`` built, by its
-  exact type, so a user design swapped into the shorthand needs its own declaration, and a
-  shorthand pickled before the field existed still reads as known;
-* every fit entry refuses a restored or modified model before any learner or design call,
-  and so do ``MSMSet.evaluate`` and ``evaluate_regimen_msm`` called directly;
-* a restored model meets its declaration refusal before a refusal of the fit configuration;
-* a result restored with an undeclared written design keeps its stored estimates, and every
-  recomputation from it refuses, while a restored ``MSM.linear`` result still recomputes;
-* the simulated-confounding replay refuses a result restored without either MSM
-  declaration before it runs the design or the weight, and carries the declaration of a
-  model it admits;
+  exact type, so a user design swapped into the shorthand needs its own declaration;
+* every fit entry refuses a modified model before any learner or design call, and so do
+  ``MSMSet.evaluate`` and ``evaluate_regimen_msm`` called directly;
+* a modified model meets its declaration refusal before a refusal of the fit configuration;
+* every recomputation from a result whose written design loses its declaration refuses,
+  while an ``MSM.linear`` result recomputes;
+* the simulated-confounding replay refuses a result without either MSM declaration before
+  it runs the design or the weight, and carries the declaration of a model it admits;
 * a deliberate mutation that removes a refusal makes those witnesses fail;
 * on an exact law, a design centred at the sample mean of ``W`` and declared ``"known"`` gets
   the fixed-centre curve, which understates the standard error of the intercept;
@@ -63,20 +61,17 @@ from cleverly.msm import (
 from cleverly.sensitivity import _simulated_confounding_fixed as replay_module
 from cleverly.sensitivity import simulated_confounding
 from tests import discrete_law as law
-from tests.pickles import legacy_without
 from tests.unit._confounding_support import Counter, forbid_draw_and_refit, validate_replay
 from tests.unit._declaration_support import (
     PATHWISE,
     assert_every_witness_fails,
-    assert_keeps_its_interval,
     assert_refused,
     assert_refused_before_any_call,
-    assert_stored_interval_is_a_diagnostic,
     cell_p,
+    modified,
+    modified_states,
     oracle_fit,
     recomputations,
-    restored,
-    restored_states,
     se_ratio,
     tmle_module,
 )
@@ -91,13 +86,13 @@ from tests.unit._msm_declaration_support import (
     evaluate_point,
     evaluate_regimen,
     in_sample_fit,
-    legacy_msm_result,
     linear,
     ltmle_fit,
     msm_curve,
     msm_eif,
     remove_every_fit_check,
     tmle_fit,
+    undeclared_msm_result,
     uniform_dose_fit,
     written,
 )
@@ -184,8 +179,7 @@ class TestTheDeclarationIsRequired:
 class TestTheExactTypeRuleReadsTheShorthand:
     """``design_kind=None`` reads known only on a design that ``MSM.linear`` built.
 
-    The shorthand and a model saved before the field existed both carry ``None``, so the
-    one rule serves both, and nothing else reads as known without a declaration.
+    The shorthand carries ``None``, and nothing else reads as known without a declaration.
     """
 
     def test_replacing_the_shorthand_design_drops_its_declaration(self) -> None:
@@ -199,15 +193,8 @@ class TestTheExactTypeRuleReadsTheShorthand:
         known = replace(linear(), design=CentredDesign(), design_kind="known")
         assert known.design_kind == "known"
 
-    def test_a_shorthand_pickled_before_the_field_reads_known(self) -> None:
-        old = legacy_without(linear(), "design_kind")
-        assert "design_kind" not in vars(old)
-        assert old.design_kind is None
-        assert refuse_msm_functions(old) is None
-        assert replace(old).design_kind is None
-
-    def test_a_legacy_written_design_refuses(self) -> None:
-        old = legacy_without(written(design_kind="known"), "design_kind")
+    def test_a_written_design_that_loses_its_declaration_refuses(self) -> None:
+        old = modified(written(design_kind="known"), "design_kind", None)
         assert old.design_kind is None
         assert_refused(lambda: replace(old), CapabilityError, UNDECLARED)
         assert replace(old, design_kind="known").design_kind == "known"
@@ -249,17 +236,17 @@ def without_learners(fit: Callable[[MSM, dict[str, Any]], Any]) -> Callable[[MSM
     return lambda model: fit(model, never_fit_learners())
 
 
-#: Every fit entry that can reach a restored model: its model builder and the fit.  Each
+#: Every fit entry that can reach a modified model: its model builder and the fit.  Each
 #: fit resets ``NeverFit``.
 ENTRIES: dict[str, tuple[Callable[[], MSM], Callable[[MSM], Any]]] = {
     **{name: (point_model, without_learners(fit)) for name, fit in MSM_ENTRIES.items()},
     "ltmle": (regimen_model, ltmle_fit),
 }
 
-#: What a restored model can carry, and the refusal each one meets.
-RESTORED = restored_states(UNDECLARED, ESTIMATED)
+#: What a modified model can carry, and the refusal each one meets.
+MODIFIED = modified_states(UNDECLARED, ESTIMATED)
 
-#: What a restored model can carry that is not a declaration, as the field, its value, and
+#: What a modified model can carry that is not a declaration, as the field, its value, and
 #: the fragments of the ``DataError`` it meets.
 MALFORMED: dict[str, tuple[str, Any, tuple[str, ...]]] = {
     "unknown": ("design_kind", "Known", (DESIGN_UNKNOWN,)),
@@ -269,17 +256,17 @@ MALFORMED: dict[str, tuple[str, Any, tuple[str, ...]]] = {
 
 def assert_entry_refuses(entry: str, kind: Any, *fragments: str) -> None:
     build, fit = ENTRIES[entry]
-    model = restored(build(), "design_kind", kind)
+    model = modified(build(), "design_kind", kind)
     assert_refused_before_any_call(lambda: fit(model), model.design, "design", *fragments)
 
 
-class TestTheFitRefusesARestoredModel:
+class TestTheFitRefusesAModifiedModel:
     @pytest.mark.parametrize("entry", list(ENTRIES))
-    @pytest.mark.parametrize("name", list(RESTORED))
+    @pytest.mark.parametrize("name", list(MODIFIED))
     def test_every_entry_refuses_before_any_learner_or_design_call(
         self, entry: str, name: str
     ) -> None:
-        kind, fragments = RESTORED[name]
+        kind, fragments = MODIFIED[name]
         assert_entry_refuses(entry, kind, *fragments)
 
     @pytest.mark.parametrize("entry", list(ENTRIES))
@@ -292,7 +279,7 @@ class TestTheFitRefusesARestoredModel:
         build, fit = ENTRIES[entry]
         model = build()
         spy = model.design
-        restored(model, field, value)
+        modified(model, field, value)
         assert_refused_before_any_call(
             lambda: fit(model), spy, "design", *fragments, error=DataError
         )
@@ -356,7 +343,7 @@ LATER_REFUSALS: dict[str, tuple[Callable[[MSM], Any], type[Exception], str]] = {
 
 
 class TestTheDeclarationRefusalComesFirst:
-    """A restored model meets its own refusal, whatever else its fit configuration breaks.
+    """A modified model meets its own refusal, whatever else its fit configuration breaks.
 
     ``_resolve_estimands_for_data`` checks the model before any refusal of the fit
     configuration.  Each of those refusals names a remedy, and no remedy lets an undeclared
@@ -375,11 +362,11 @@ class TestTheDeclarationRefusalComesFirst:
         )
 
     @pytest.mark.parametrize("refusal", list(LATER_REFUSALS))
-    @pytest.mark.parametrize("name", list(RESTORED))
-    def test_a_restored_model_meets_the_declaration_refusal(self, refusal: str, name: str) -> None:
-        kind, fragments = RESTORED[name]
+    @pytest.mark.parametrize("name", list(MODIFIED))
+    def test_a_modified_model_meets_the_declaration_refusal(self, refusal: str, name: str) -> None:
+        kind, fragments = MODIFIED[name]
         fit, _, _ = LATER_REFUSALS[refusal]
-        model = restored(point_model(), "design_kind", kind)
+        model = modified(point_model(), "design_kind", kind)
         assert_refused_before_any_call(lambda: fit(model), model.design, "design", *fragments)
 
 
@@ -391,16 +378,16 @@ EVALUATORS: dict[str, tuple[Callable[[], MSM], Callable[[MSM], Any]]] = {
 
 
 class TestTheEvaluatorsCheckFirst:
-    """A restored model handed straight to an evaluator refuses before its design runs."""
+    """A modified model handed straight to an evaluator refuses before its design runs."""
 
     @pytest.mark.parametrize("evaluator", list(EVALUATORS))
-    @pytest.mark.parametrize("name", list(RESTORED))
-    def test_a_restored_model_refuses_before_the_design_runs(
+    @pytest.mark.parametrize("name", list(MODIFIED))
+    def test_a_modified_model_refuses_before_the_design_runs(
         self, evaluator: str, name: str
     ) -> None:
-        kind, fragments = RESTORED[name]
+        kind, fragments = MODIFIED[name]
         build, evaluate = EVALUATORS[evaluator]
-        model = restored(build(), "design_kind", kind)
+        model = modified(build(), "design_kind", kind)
         assert_refused(lambda: evaluate(model), CapabilityError, *fragments)
         assert model.design.calls == 0, "the design was evaluated before the refusal"
 
@@ -413,26 +400,23 @@ class TestTheEvaluatorsCheckFirst:
         assert model.design.calls > 0
 
 
-# ------------------------------------------------------------------ a restored result
+# ------------------------------------------------------------------ an undeclared result
 
 
-def legacy_result(result: Any) -> Any:
-    """``result`` as an artifact written before ``design_kind`` existed would restore it."""
-    return legacy_msm_result(result, "design_kind")
+def undeclared(result: Any) -> Any:
+    """A copy of ``result`` whose written design no longer declares itself known."""
+    return undeclared_msm_result(result, "design_kind")
 
 
-#: The estimands a retarget of the legacy result requests.
+#: The estimands a retarget of the undeclared result requests.
 RETARGETED = ("msm",)
 RECOMPUTATIONS = ["truncation_curve", "retarget", "refit"]
 
 
-class TestALegacyResultKeepsItsPointEstimatesAndRefusesARecomputation:
-    """RM27: a restored result with a written design keeps its point estimates.
+class TestAnUndeclaredResultRefusesARecomputation:
+    """RM27: a result whose written design loses its declaration computes nothing new.
 
-    Loading raises nothing.  A written design restored without its declaration gives the
-    result the ``"undeclared_function_plugin"`` status of RM28, so the stored interval
-    becomes a diagnostic.  Every sweep
-    recomputes through ``_retarget_detailed``, and a refit through
+    Every sweep recomputes through ``_retarget_detailed``, and a refit through
     ``_resolve_estimands_for_data``, and both check the declaration as the fit does.
     """
 
@@ -444,24 +428,17 @@ class TestALegacyResultKeepsItsPointEstimatesAndRefusesARecomputation:
     def shorthand(self) -> Any:
         return in_sample_fit(linear())
 
-    def test_the_stored_interval_becomes_a_diagnostic(self, result: Any) -> None:
+    def test_the_replay_slots_read_false(self, result: Any) -> None:
         assert "msm[W]" in result.estimates
-        old = legacy_result(result)
-        assert_stored_interval_is_a_diagnostic(result, old)
+        old = undeclared(result)
         assert not replayability(old).retarget_cached_nuisances
         assert not replayability(old).refit_nuisances
         assert not old.diagnostics.capability("truncation_curve").available
         assert replayability(result).refit_nuisances
 
-    def test_a_legacy_shorthand_result_keeps_its_interval(self, shorthand: Any) -> None:
-        """The over-refusal control: ``MSM.linear`` saved before both declarations existed."""
-        old = legacy_msm_result(legacy_result(shorthand), "weights_kind")
-        assert type(old.estimator.msm.design) is _LinearDesign
-        assert_keeps_its_interval(shorthand, old)
-
     @pytest.mark.parametrize("entry", RECOMPUTATIONS)
     def test_every_recomputation_refuses(self, result: Any, entry: str) -> None:
-        old = legacy_result(result)
+        old = undeclared(result)
         assert_refused(recomputations(old, RETARGETED)[entry], CapabilityError, UNDECLARED)
 
     @pytest.mark.parametrize("entry", RECOMPUTATIONS)
@@ -470,11 +447,12 @@ class TestALegacyResultKeepsItsPointEstimatesAndRefusesARecomputation:
         recomputations(result, RETARGETED)[entry]()
 
     @pytest.mark.parametrize("entry", RECOMPUTATIONS)
-    def test_a_legacy_shorthand_result_still_recomputes(self, shorthand: Any, entry: str) -> None:
-        """The over-refusal control: a result saved before both MSM declarations existed."""
-        old = legacy_msm_result(legacy_result(shorthand), "weights_kind")
-        assert type(old.estimator.msm.design) is _LinearDesign
-        recomputations(old, RETARGETED)[entry]()
+    def test_a_shorthand_result_recomputes(self, shorthand: Any, entry: str) -> None:
+        """The over-refusal control: ``MSM.linear`` declares neither field."""
+        assert type(shorthand.estimator.msm.design) is _LinearDesign
+        assert shorthand.estimator.msm.design_kind is None
+        assert shorthand.estimator.msm.weights_kind is None
+        recomputations(shorthand, RETARGETED)[entry]()
 
 
 # ------------------------------------------------------------------ the replay
@@ -485,10 +463,6 @@ def shorthand_fit() -> Any:
     return _estimate(_study(), MSMProjection(linear()))
 
 
-def legacy_shorthand_fit() -> Any:
-    return legacy_result(shorthand_fit())
-
-
 #: The coefficient of the shorthand fit that the replay targets.
 SLOPE = "a"
 
@@ -497,10 +471,10 @@ UNDECLARED_BY_FIELD = {"weights_kind": _UNDECLARED_WEIGHTS, "design_kind": _UNDE
 
 
 def counted_msm_fit(field: str) -> tuple[Any, Counter, Counter]:
-    """A fitted MSM whose design and weight count their calls, restored without ``field``.
+    """A fitted MSM whose design and weight count their calls, without ``field`` declared.
 
-    Both functions are declared known before the fit, so the restored model lacks only the
-    declaration ``field`` names.  The counters are read off the restored result, because a
+    Both functions are declared known before the fit, so the modified model lacks only the
+    declaration ``field`` names.  The counters are read off the copied result, because a
     pickle round trip copies them.
     """
     model = MSM(
@@ -510,7 +484,7 @@ def counted_msm_fit(field: str) -> tuple[Any, Counter, Counter]:
         weights_kind="known",
         design_kind="known",
     )
-    old = legacy_msm_result(_estimate(_study(), MSMProjection(model)), field)
+    old = undeclared_msm_result(_estimate(_study(), MSMProjection(model)), field)
     design, weights = old.estimator.msm.design, old.estimator.msm.weights
     design.calls = weights.calls = 0
     return old, design, weights
@@ -534,10 +508,10 @@ def remove_the_evaluator_check(monkeypatch: pytest.MonkeyPatch) -> None:
 
 class TestTheReplayChecksAndCarriesTheDeclaration:
     @pytest.mark.parametrize("field", list(UNDECLARED_BY_FIELD))
-    def test_a_legacy_declaration_refuses_before_any_user_function_runs(
+    def test_a_lost_declaration_refuses_before_any_user_function_runs(
         self, field: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A result restored without either declaration refuses before any user function."""
+        """A result without either declaration refuses before any user function."""
         old, design, weights = counted_msm_fit(field)
         forbid_draw_and_refit(monkeypatch, old.estimator)
         assert_refused(
@@ -568,35 +542,28 @@ class TestTheReplayChecksAndCarriesTheDeclaration:
     def test_a_known_written_design_replays_declared(self) -> None:
         assert validate_replay(_fit_msm()).msm.design_kind == "known"
 
-    def test_a_legacy_shorthand_fit_replays(self) -> None:
+    def test_a_shorthand_fit_replays(self) -> None:
         """The frozen arrays replace ``_LinearDesign``, so the replay carries the rule.
 
-        The shorthand model holds ``None`` whether it was fitted now or restored from an
-        artifact that predates the field, so both replay declared ``"known"``.
+        The shorthand model holds ``None``, and it replays declared ``"known"``.
         """
         result = shorthand_fit()
         assert result.estimator.msm.design_kind is None
         assert validate_replay(result, SLOPE).msm.design_kind == "known"
         alias = _alias(result, coefficient=SLOPE)
-        expected = simulated_confounding(result, estimand=alias, grid=_GRID, random_state=31)
-        old = legacy_shorthand_fit()
-        assert "design_kind" not in vars(old.estimator.msm)
-        surface = simulated_confounding(old, estimand=alias, grid=_GRID, random_state=31)
+        surface = simulated_confounding(result, estimand=alias, grid=_GRID, random_state=31)
         assert all(cell.failure is None for cell in surface.cells)
-        assert surface == expected
-        assert validate_replay(old, SLOPE).msm.design_kind == "known"
 
-    def test_a_legacy_shorthand_dose_fit_replays(self) -> None:
+    def test_a_shorthand_dose_fit_replays(self) -> None:
         """The continuous twin: the frozen dose functions replace ``_LinearDesign`` too.
 
         The continuous replay builds its model with its own ``replace`` call, so the
         discrete witness above does not cover it.
         """
         result = uniform_dose_fit()
-        old = legacy_result(result)
-        assert "design_kind" not in vars(old.estimator.msm)
-        assert dose_surface(old) == dose_surface(result)
-        assert validate_replay(old, DOSE_SLOPE).msm.design_kind == "known"
+        assert result.estimator.msm.design_kind is None
+        dose_surface(result)
+        assert validate_replay(result, DOSE_SLOPE).msm.design_kind == "known"
 
     def test_a_replay_that_drops_the_declaration_refuses(
         self, monkeypatch: pytest.MonkeyPatch
@@ -639,12 +606,12 @@ class TestTheWitnessesHaveTeeth:
         assert_every_witness_fails(declaration_witnesses())
 
     @pytest.mark.parametrize("entry", list(ENTRIES))
-    @pytest.mark.parametrize("name", list(RESTORED))
+    @pytest.mark.parametrize("name", list(MODIFIED))
     def test_removing_the_fit_layer_check_fails_the_fit_witnesses(
         self, entry: str, name: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Mutation M2, at the fit, which removes the evaluator checks too."""
-        kind, fragments = RESTORED[name]
+        kind, fragments = MODIFIED[name]
         remove_every_fit_check(monkeypatch)
         with pytest.raises(AssertionError):
             assert_entry_refuses(entry, kind, *fragments)
@@ -654,13 +621,13 @@ class TestTheWitnessesHaveTeeth:
     def test_removing_the_fit_layer_check_fails_the_recomputation_refusal(
         self, entry: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Mutation M2, at a recomputation of a legacy result.
+        """Mutation M2, at a recomputation of an undeclared result.
 
         A refit evaluates the design again, so its mutation removes the evaluator checks
         too.  A sweep and a retarget reuse the stored arrays, so the check in
         ``_retarget_detailed`` is the only one on their path.
         """
-        old = legacy_result(in_sample_fit(written(design_kind="known")))
+        old = undeclared(in_sample_fit(written(design_kind="known")))
         if entry == "refit":
             remove_every_fit_check(monkeypatch)
         else:
@@ -675,11 +642,11 @@ class TestTheWitnessesHaveTeeth:
         """Mutation M7: the fit layer stops checking, and the evaluator checks stay.
 
         No learner and no design runs either way, so only the refusal that answers shows
-        the mutation.  The restored model meets the refusal of the configuration.
+        the mutation.  The modified model meets the refusal of the configuration.
         """
         fit, error, fragment = LATER_REFUSALS[refusal]
         monkeypatch.setattr(tmle_module, "refuse_msm_functions", lambda model: None)
-        model = restored(point_model(), "design_kind", None)
+        model = modified(point_model(), "design_kind", None)
         assert_refused_before_any_call(
             lambda: fit(model), model.design, "design", fragment, error=error
         )
@@ -818,7 +785,7 @@ class TestAnEstimatedCentreMisstatesTheVariance:
         """The honest declaration of the sample centre meets the refusal, before any fit."""
         centre = sample_centre(law.frame(CENTRE_COUNTS)["W"])
         assert_refused(lambda: written(centre, design_kind="estimated"), CapabilityError, ESTIMATED)
-        model = restored(written(centre, design_kind="known"), "design_kind", "estimated")
+        model = modified(written(centre, design_kind="known"), "design_kind", "estimated")
         assert_refused(lambda: tmle_fit(model, never_fit_learners()), CapabilityError, ESTIMATED)
         assert NeverFit.calls == 0
 

@@ -20,6 +20,7 @@ __all__ = [
     "MethodConfigurationError",
     "NotFittedError",
     "PositivityWarning",
+    "VersionMismatchWarning",
     "WeightingWarning",
     "inference_refusal",
     "refuse_after_repeats",
@@ -69,6 +70,15 @@ class DataWarning(UserWarning):
 
 class ConvergenceWarning(UserWarning):
     """The targeting step stopped before reaching the requested tolerance."""
+
+
+class VersionMismatchWarning(UserWarning):
+    """A saved result was written by a different cleverly version than the one loading it.
+
+    Alpha releases keep no compatibility for saved objects. :func:`cleverly.load` and
+    :func:`cleverly.estimators.serialize.loads` emit this warning and then load the object
+    as saved, with no migration. Fit the analysis again with the loading version.
+    """
 
 
 class WeightingWarning(UserWarning):

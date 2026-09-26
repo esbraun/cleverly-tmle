@@ -71,6 +71,7 @@ categorized API tables.
    cleverly.NotFittedError
    cleverly.ConvergenceWarning
    cleverly.PositivityWarning
+   cleverly.VersionMismatchWarning
    cleverly.WeightingWarning
    cleverly.learners.SuperLearnerDiagnostics
    cleverly.learners.CorrelationScreener
@@ -134,7 +135,6 @@ categorized API tables.
    cleverly.validation.BootstrapMeasurementError
    cleverly.validation.EmpiricalInclusionRule
    cleverly.validation.EmpiricalRefitRecord
-   cleverly.validation.GeneratedOutcomeRecord
    cleverly.validation.RefutationTest
    cleverly.validation.RefutationResult
    cleverly.validation.CoverageStudy

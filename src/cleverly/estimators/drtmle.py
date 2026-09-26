@@ -565,8 +565,7 @@ class DRTMLE(TMLE):
             raise ValueError(
                 f"update_order must be one of {list(UPDATE_ORDERS)}; got "
                 f"{self.update_order!r}. 'drtmle' is the canonical R package's loop and "
-                "the default; 'benkeser' is the published six-step recursion. The former "
-                "names 'cleverly' and 'paper' are no longer accepted."
+                "the default; 'benkeser' is the published six-step recursion."
             )
         if self.reduction not in REDUCTIONS:
             raise ValueError(f"reduction must be one of {list(REDUCTIONS)}; got {self.reduction!r}")

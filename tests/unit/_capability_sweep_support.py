@@ -59,7 +59,6 @@ from tests.conftest import (
     linear_in_sample,
     mean_one_weights,
 )
-from tests.unit._declaration_support import legacy_result
 from tests.unit._direct_effect_support import COVARIATES as CDE_COVARIATES
 from tests.unit._direct_effect_support import cde_frame
 from tests.unit._simulated_confounding_support import (
@@ -366,7 +365,7 @@ def fit_natural_course_study() -> Any:
     return dataclasses.replace(_fit_attributable("ey_obs", family="gaussian", strata=False))
 
 
-# ------------------------------------------------------------------- restored results
+# ------------------------------------------------------------------ reconfigured results
 
 
 def discrete_fit(**overrides: Any) -> Any:
@@ -381,39 +380,33 @@ def cross_fitted() -> Any:
 
 
 def reconfigured(result: Any, **configuration: Any) -> Any:
-    """``result`` saved, given ``configuration`` on its estimator, and loaded.
+    """A copy of ``result`` whose estimator is given ``configuration`` after construction.
 
-    ``__init__`` refuses each configuration the tests use. Only a result that an earlier
-    version saved, or a copied estimator, can carry one.
+    ``__init__`` refuses each configuration the tests use, so only a copied or modified
+    estimator can carry one.
     """
     old = loads(dumps(result))
     vars(old.estimator).update(configuration)
     return loads(dumps(old))
 
 
-def as_saved_by_v011(result: Any) -> Any:
-    """``result`` as release 0.1.1 saved it: its estimator holds no ``split_plan``."""
-    return legacy_result(result, "split_plan", lambda old: [old.estimator])
-
-
 def without_provenance() -> Any:
-    """A supplied-plan fit restored with a plan that records no generator."""
+    """A supplied-plan fit given a plan that records no generator."""
     result = fit_split_plan()
     return reconfigured(result, split_plan=SplitPlan(result.estimator.split_plan.assignments))
 
 
 def ctmle_stratified() -> Any:
-    """An in-sample greedy collaborative fit restored with a stratified fold policy."""
+    """An in-sample greedy collaborative fit given a stratified fold policy."""
     estimator = linear_ctmle("greedy", **SELECTOR_CONFIGS["greedy"], estimands=("ate",))
     result = estimator.fit(discrete_law.frame(), outcome="Y", treatment="A").single()
     return reconfigured(result, stratify_folds="treatment")
 
 
 def unbounded_scale_ate(engine: type[TMLE] = TMLE, **settings: Any) -> Any:
-    """A cross-fitted binary-treatment fit with declared bounds, restored without them.
+    """A cross-fitted binary-treatment fit with declared bounds, given none after the fit.
 
-    No release saved this shape, because it cross-fitted a discrete treatment under
-    ``"none"``. A copied estimator can carry it. ``engine`` is :class:`TMLE` or
+    A copied estimator can carry this shape. ``engine`` is :class:`TMLE` or
     :class:`DRTMLE`, and ``settings`` extend its linear learners. The fit reports ``ate``
     among its estimands, so the replay slots read it with that estimand.
     """
@@ -427,24 +420,23 @@ def unbounded_scale_ate(engine: type[TMLE] = TMLE, **settings: Any) -> Any:
 
 
 def unbounded_scale() -> Any:
-    """A cross-fitted continuous-dose fit with declared bounds, restored without them.
+    """A cross-fitted continuous-dose fit with declared bounds, given none after the fit.
 
-    The shape of the RM33 artifact on its outcome scale. It keeps ``stratify_folds="none"``,
-    so its refit meets the scale refusal. ``restored_stratified`` holds the fold policy.
+    It keeps ``stratify_folds="none"``, so its refit meets the scale refusal.
+    ``reconfigured_stratified`` holds the fold policy.
     """
     frame = dose_frame()
     result = fit_shift(frame, cross_fit=True, n_folds=2, q_bounds=outcome_bounds(frame))
     return reconfigured(result, q_bounds=None)
 
 
-def restored_ctmle_clustered() -> Any:
-    """An in-sample outcome-adaptive collaborative fit of clustered data, saved and loaded.
+def reconfigured_ctmle_clustered() -> Any:
+    """An in-sample outcome-adaptive collaborative fit, given clustered data after the fit.
 
-    Release 0.1.1 fitted C-TMLE on clustered data, and this version refuses that design in
-    the collaborative override of the refit preflight alone. The outcome-adaptive strategy
-    meets no fold-policy refusal first. The fit adjusts for ``W1`` and ``W2``, and the
-    restored result carries the same rows with ``cluster`` as their id, as the data of such
-    a saved result does.
+    This version refuses C-TMLE on clustered data in the collaborative override of the
+    refit preflight alone. The outcome-adaptive strategy meets no fold-policy refusal
+    first. The fit adjusts for ``W1`` and ``W2``, and the copy carries the same rows with
+    ``cluster`` as their id.
     """
     frame, _ = make_clustered(n=400, cluster_size=10, seed=7)
     estimator = linear_ctmle("oat", estimands=("ate",))
@@ -455,27 +447,9 @@ def restored_ctmle_clustered() -> Any:
     return loads(dumps(dataclasses.replace(fitted, data=clustered)))
 
 
-def restored_stratified() -> Any:
-    """The two-fold cross-fitted fit restored under ``stratify_folds="treatment"``."""
+def reconfigured_stratified() -> Any:
+    """The two-fold cross-fitted fit given ``stratify_folds="treatment"`` after the fit."""
     return reconfigured(cross_fitted(), stratify_folds="treatment")
-
-
-def v011_artifact(result: Any) -> Any:
-    """``result`` in the shape of a 0.1.1 artifact: its default policy, and no ``split_plan``.
-
-    Release 0.1.1 wrote ``stratify_folds="treatment"`` on every estimator, and it wrote no
-    ``split_plan``. :func:`as_saved_by_v011` drops the plan alone.
-    """
-    return as_saved_by_v011(reconfigured(result, stratify_folds="treatment"))
-
-
-def restored_v011() -> Any:
-    """The shape of the real 0.1.1 artifact: two stratified folds and no ``split_plan``.
-
-    Release 0.1.1 accepted ``stratify_folds="treatment"`` and wrote no ``split_plan``, so
-    this result needs the class default to be read at all, and then its refit is refused.
-    """
-    return v011_artifact(cross_fitted())
 
 
 # ----------------------------------------------------------------------- longitudinal
@@ -530,17 +504,12 @@ class Kind:
         Each kind names every row it answered when the snapshot was measured.
     refits : bool
         Whether ``refit()`` runs on the result's own data, so ``refit_nuisances`` reads
-        true. Every fit in this version refits, and a restored kind is one it refuses.
-    must_not_run : frozenset of str
-        Rows whose operation must not answer. A restored kind whose status supplies no
-        inference names the E-value row here, so the sweep sees a status rule that stops
-        applying. ``must_run`` alone would pass when an extra row answers.
+        true. Every fit in this version refits, and a reconfigured kind is one it refuses.
     """
 
     fit: Callable[[], Any]
     must_run: frozenset[str]
     refits: bool = True
-    must_not_run: frozenset[str] = frozenset()
 
     def build(self) -> Any:
         """A fresh copy of this kind's result, which shares the fit and nothing it reported.
@@ -554,15 +523,8 @@ class Kind:
         return dataclasses.replace(_fitted(self.fit))
 
 
-def _kind(
-    fit: Callable[[], Any], *must_run: str, refits: bool = True, must_not_run: tuple[str, ...] = ()
-) -> Kind:
-    return Kind(fit, frozenset(must_run), refits, frozenset(must_not_run))
-
-
-#: The row a restored kind with a non-inferential status must not answer: the E-value
-#: reads the interval that the status withholds.
-_NO_INTERVAL = ("evalue",)
+def _kind(fit: Callable[[], Any], *must_run: str, refits: bool = True) -> Kind:
+    return Kind(fit, frozenset(must_run), refits)
 
 
 #: The rows that read a fit's own nuisances and scores.
@@ -581,8 +543,8 @@ _BOUND = (*_PLUGIN_BOUND, "evalue")
 #: Every row of an arm-indexed ATE fit with complete outcomes and two or more covariates.
 _ARM = (*_LIVE, *_BOUND, "benchmark")
 
-#: One kind of fit per name: live point fits, two study fits, restored results whose refit
-#: this version refuses, and one longitudinal fit. Each kind's rows are the snapshot of the
+#: One kind of fit per name: live point fits, two study fits, reconfigured results whose
+#: refit this version refuses, and one longitudinal fit. Each kind's rows are the snapshot of the
 #: rows it answered, so a row that starts to refuse by mistake fails its kind.
 KINDS: dict[str, Kind] = {
     "ordinary": _kind(fit_ordinary, *_ARM),
@@ -612,36 +574,19 @@ KINDS: dict[str, Kind] = {
     "drtmle_companion": _kind(fit_drtmle_companion, *_LIVE, "corrections"),
     "policy_means": _kind(fit_policy_means, *_LIVE),
     "natural_course_study": _kind(fit_natural_course_study, *_LIVE),
-    # A saved stratified split reports no interval (RM31), so the E-value row does not answer.
-    "restored_stratified": _kind(
-        restored_stratified,
-        *_READ,
-        "truncation_curve",
-        *_PLUGIN_BOUND,
-        refits=False,
-        must_not_run=_NO_INTERVAL,
+    # Each reconfigured estimator keeps its cached nuisances, so every row but a refit runs.
+    "reconfigured_stratified": _kind(
+        reconfigured_stratified, *_READ, "truncation_curve", *_BOUND, refits=False
     ),
-    "restored_v011": _kind(
-        restored_v011,
-        *_READ,
-        "truncation_curve",
-        *_PLUGIN_BOUND,
-        refits=False,
-        must_not_run=_NO_INTERVAL,
+    # A shift fit answers no bound row.
+    "reconfigured_unbounded_scale": _kind(
+        unbounded_scale, *_READ, "truncation_curve", refits=False
     ),
-    # A saved undeclared scale reports no interval (RM33), and a shift fit answers no bound row.
-    "restored_unbounded_scale": _kind(unbounded_scale, *_READ, "truncation_curve", refits=False),
-    # The same status on an ATE fit, whose plug-in bound rows answer and whose E-value does not.
-    "restored_unbounded_scale_ate": _kind(
-        unbounded_scale_ate,
-        *_READ,
-        "truncation_curve",
-        *_PLUGIN_BOUND,
-        refits=False,
-        must_not_run=_NO_INTERVAL,
+    "reconfigured_unbounded_scale_ate": _kind(
+        unbounded_scale_ate, *_READ, "truncation_curve", *_BOUND, refits=False
     ),
-    "restored_ctmle_clustered": _kind(
-        restored_ctmle_clustered, *_READ, "truncation_curve", refits=False
+    "reconfigured_ctmle_clustered": _kind(
+        reconfigured_ctmle_clustered, *_READ, "truncation_curve", refits=False
     ),
     "ltmle": _kind(fit_ltmle, *_READ, "truncation_curve"),
 }
@@ -756,8 +701,7 @@ def sweep(result: Any) -> list[str]:
     """:func:`problems` under :func:`sweep_arguments`, for a result nobody has asked yet.
 
     Reading the rows to fill their arguments is part of the sweep, so an exception there
-    is a problem too. Without the class default for ``split_plan``, a result saved by
-    release 0.1.1 raises as soon as its first row is read.
+    is a problem too.
     """
     try:
         arguments = sweep_arguments(result)
@@ -808,9 +752,6 @@ SEAMS: tuple[tuple[Any, str], ...] = (
     (TMLE, "_refit_configuration_refusal"),
 )
 
-#: The class default that lets a result saved by release 0.1.1 be read. M7 removes it.
-SPLIT_PLAN_DEFAULT = (TMLE, "split_plan")
-
 
 def _passthrough(patch: pytest.MonkeyPatch) -> None:
     """Replace every seam with a wrapper that returns what the seam returns.
@@ -825,7 +766,6 @@ def _passthrough(patch: pytest.MonkeyPatch) -> None:
             patch.setattr(owner, name, wrapper)
         else:
             patch.setattr(owner, name, tuple(original))
-    patch.setattr(*SPLIT_PLAN_DEFAULT, None)
 
 
 def _without_bound_parameters(patch: pytest.MonkeyPatch) -> None:
@@ -884,7 +824,7 @@ DECLINED_TILT_KINDS += ("msm+missing", "rr+missing")
 #: What the sweep reports for a row that reads available while its call refuses.
 _RAISED = "{} reads available, and its call raised "
 
-#: M0 to M7 of the RM23 plan, M8 for the benchmark row the sweep found, M9 for the
+#: M0 to M6 of the RM23 plan, M8 for the benchmark row the sweep found, M9 for the
 #: simulated-confounding row, and M10 for the five omitted-variable rows. M0 wraps every
 #: seam and changes nothing, so a failure there is the wrapping and not a defect.
 MUTATIONS: dict[str, Mutation] = {
@@ -943,23 +883,16 @@ MUTATIONS: dict[str, Mutation] = {
         lambda patch: patch.setattr(TMLE, "_refit_configuration_refusal", lambda self, data: None),
         frozenset(
             {
-                "restored_stratified",
-                "restored_v011",
-                "restored_unbounded_scale",
-                "restored_unbounded_scale_ate",
-                "restored_ctmle_clustered",
+                "reconfigured_stratified",
+                "reconfigured_unbounded_scale",
+                "reconfigured_unbounded_scale_ate",
+                "reconfigured_ctmle_clustered",
             }
         ),
         # The fold policy, the outcome scale, and the collaborative clustered refusal.
         _RAISED.format("refute")
         + "(stratify_folds='treatment' requests stratification|a cross-fitted fit of a continuous outcome"
         + "|C-TMLE has no clustered result)",
-    ),
-    "M7": Mutation(
-        "no class default for split_plan",
-        lambda patch: patch.delattr(*SPLIT_PLAN_DEFAULT),
-        frozenset({"restored_v011"}),
-        "reading the rows raised AttributeError: 'TMLE' object has no attribute 'split_plan'",
     ),
     "M8": Mutation(
         "the benchmark row ignores the predicate",

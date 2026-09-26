@@ -297,7 +297,6 @@ __all__ = [
     "SCORE_LOAD_MISSING",
     "SCORE_LOAD_NOT_FINITE",
     "SCORE_LOAD_NO_EQUATION",
-    "SCORE_LOAD_PREDATES",
     "SCORE_LOAD_SHAPE_MISMATCH",
     "SCORE_LOAD_VERDICT_RATIO_FORMAT",
     "ScoreLoadRow",
@@ -758,9 +757,8 @@ REPORTED_DRAW = 1
 #: reason.
 SCORE_LOAD_NO_EQUATION = "no fitted score equation was recorded for this target"
 
-#: The fluctuation exists but kept no exact absolute score weights, which is what an
-#: artifact fitted before this diagnostic looks like.  It is also what a direct caller of
-#: :func:`~cleverly.interventions.check_support` and its two siblings gets, because all
+#: The fluctuation exists but kept no exact absolute score weights.  A direct caller of
+#: :func:`~cleverly.interventions.check_support` and its two siblings gets it, because all
 #: three default to no artifact.
 SCORE_LOAD_MISSING = "the fitted artifact has no exact absolute score weights"
 
@@ -780,10 +778,6 @@ SCORE_LOAD_EMPTY_MASK = "the fitted score mask contains no rows"
 #: The score mask has more rows than the data it was fitted on, which no real fit
 #: produces.  Refusing it is what keeps ``total_ratio`` from being published above one.
 SCORE_LOAD_MASK_TOO_LARGE = "the fitted score mask size is outside the fitted data"
-
-#: A report unpickled from before these fields existed, filled in by
-#: :class:`~cleverly.utils.records._DefaultingUnpickle` rather than by a fresh build.
-SCORE_LOAD_PREDATES = "the report predates fitted score-load diagnostics"
 
 #: How :meth:`~cleverly.sensitivity.PositivityReport.summary` states a score-load Kish ratio
 #: in its overlap verdict.  A whole percent, because that sentence names which target group

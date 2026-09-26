@@ -465,7 +465,7 @@ class TestRepeatedCanonicalCVTMLE:
     ) -> None:
         details = _per_draw_detail(canonical)
         for name, estimate in canonical.estimates.items():
-            parts = [detail.canonical[name] for detail in details]
+            parts = [detail.fold_evaluated[name] for detail in details]
             expected = (
                 float(np.exp(np.median([part.log_psi for part in parts])))
                 if estimate.scale == "ratio"
@@ -476,7 +476,7 @@ class TestRepeatedCanonicalCVTMLE:
     def test_the_variance_is_the_median_within_plus_between_quantity(self, canonical: Any) -> None:
         details = _per_draw_detail(canonical)
         for name, estimate in canonical.estimates.items():
-            points = np.asarray([detail.canonical[name].psi for detail in details])
+            points = np.asarray([detail.fold_evaluated[name].psi for detail in details])
             centre = float(np.median(points))
             expected = float(
                 np.median(
@@ -497,8 +497,8 @@ class TestRepeatedCanonicalCVTMLE:
         detail = canonical.cv_targeting
         assert detail.repeats == REPEATS
         for name, estimate in canonical.estimates.items():
-            assert detail.canonical[name].psi == estimate.psi
-            assert detail.canonical[name].variance == estimate.variance
+            assert detail.fold_evaluated[name].psi == estimate.psi
+            assert detail.fold_evaluated[name].variance == estimate.variance
 
     def test_the_pooled_report_stitches_the_same_fold_weighted_update(
         self, binary_frame: Any, canonical: Any
@@ -521,8 +521,8 @@ class TestRepeatedCanonicalCVTMLE:
         # The pooled ATT conditions under the whole-sample arm share; canonical ATT
         # averages the fold-specific conditioning populations.
         detail = canonical.cv_targeting
-        assert detail.canonical["ate"].psi == pytest.approx(detail.pooled["ate"].psi, rel=1e-9)
-        assert detail.canonical["att"].psi != pytest.approx(detail.pooled["att"].psi, rel=1e-9)
+        assert detail.fold_evaluated["ate"].psi == pytest.approx(detail.pooled["ate"].psi, rel=1e-9)
+        assert detail.fold_evaluated["att"].psi != pytest.approx(detail.pooled["att"].psi, rel=1e-9)
 
     def test_the_fold_level_detail_describes_the_first_draw(self, canonical: Any) -> None:
         # Fold 3 of one draw is not fold 3 of another, so these are the only fields with
@@ -1022,7 +1022,7 @@ class TestTheSensitivityLayerFollowsTheDraws:
         A target-group score-load row records no draw count of its own, deliberately: the
         count belongs to the whole fit and a second copy on every row is a second place for
         it to disagree with the first. The row's own count was read anyway, and a
-        ``GroupLeverageRow`` has none, so every repeated arm-level fit printed a total of
+        ``GroupScoreLoadRow`` has none, so every repeated arm-level fit printed a total of
         one draw beside a summary that printed three.
 
         A fit with one draw prints ``of 01`` either way, which is why the pair is here.

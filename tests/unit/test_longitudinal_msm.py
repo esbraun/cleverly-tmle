@@ -115,38 +115,24 @@ class TestSavedWorkingModelDeclarations:
         curve = restored.diagnostics.truncation_curve([restored.config.g_bounds])
         assert len(curve) == len(restored.estimates)
 
-    def test_legacy_arrays_keep_estimates_but_withhold_inference_and_replay(
-        self, known: Any
-    ) -> None:
-        legacy = loads(dumps(known))
-        assert legacy.msm is not None
-        vars(legacy.msm).pop("functions_kind")
-        object.__setattr__(legacy, "simultaneous", "stale band")
-        legacy.assessment_cache["stale"] = "answer based on an interval"
-        legacy = loads(dumps(legacy))
-        assert legacy.msm.functions_kind is None
-        assert legacy.inference_status == "undeclared_function_plugin"
-        for name, estimate in known.estimates.items():
-            assert legacy[name].psi == estimate.psi
-            assert legacy[name].plugin_interval == estimate.ci
-            with pytest.raises(CapabilityError):
-                _ = legacy[name].ci
-        assert legacy.simultaneous is None
-        assert legacy.assessment_cache == {}
-        assert not replayability(legacy).refit_nuisances
-        capability = legacy.diagnostics.capability("truncation_curve")
-        assert not capability.available
-        assert "saved MSM projection lacks proof" in capability.reason
-        with pytest.raises(CapabilityError, match="saved MSM projection lacks proof"):
-            legacy.diagnostics.truncation_curve([0.2])
+    def test_an_undeclared_projection_refuses_its_replay(self, known: Any) -> None:
+        """Evaluated arrays with no declaration marker cannot prove the source functions.
 
-    def test_legacy_fit_without_an_msm_keeps_its_interval(self) -> None:
-        known = fitted_regimens(msm=None)
-        restored = loads(dumps(known))
-        assert restored.msm is None
-        assert restored.inference_status == "influence_curve"
+        The marker is set by :func:`evaluate_regimen_msm` alone, so the undeclared state is
+        built on a live copy with ``object.__setattr__``. The replay refuses before it
+        refits, and the capability row names the missing proof.
+        """
+        undeclared = loads(dumps(known))
+        assert undeclared.msm is not None
+        object.__setattr__(undeclared.msm, "functions_kind", None)
         for name, estimate in known.estimates.items():
-            assert restored[name].ci == estimate.ci
+            assert undeclared[name].psi == estimate.psi
+        assert not replayability(undeclared).refit_nuisances
+        capability = undeclared.diagnostics.capability("truncation_curve")
+        assert not capability.available
+        assert "stored MSM projection lacks proof" in capability.reason
+        with pytest.raises(CapabilityError, match="stored MSM projection lacks proof"):
+            undeclared.diagnostics.truncation_curve([0.2])
 
 
 class TestItEvaluatesTheDeclaredModel:

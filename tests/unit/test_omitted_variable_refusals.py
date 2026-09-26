@@ -57,7 +57,6 @@ from cleverly.msm import MSM
 from cleverly.sensitivity.omitted_variable import (
     _FIT_WIDE_BOUND_RULES,
     _PLUGIN_LIMITS_REFUSAL,
-    _UNRECORDED_ESTIMATOR_REFUSAL,
     NU2_ESTIMATORS,
     OMITTED_VARIABLE_OPERATIONS,
     SensitivityBounds,
@@ -82,7 +81,6 @@ from tests.conftest import (
     fast_tmle,
     linear_in_sample,
 )
-from tests.pickles import legacy_without
 from tests.unit._direct_effect_support import cde_frame, fit_cde
 from tests.unit._exact_sensitivity_support import binary_oracle_fit
 
@@ -1043,10 +1041,6 @@ class TestThePluginLimitsRefuse:
         """The summary line carries the accessors' own reason, not a second wording of it."""
         plugin = omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin").summary()
         assert plugin.endswith(f"under nu2_estimator='plugin': {_PLUGIN_LIMITS_REFUSAL}.")
-        legacy = legacy_without(omitted_variable_bounds(exact_fit, "att"), "nu2_estimator")
-        assert legacy.summary().endswith(
-            f"under nu2_estimator='unrecorded': {_UNRECORDED_ESTIMATOR_REFUSAL}."
-        )
 
     def test_the_elements_carry_no_curve(self, exact_fit: Any) -> None:
         plugin = sensitivity_elements(exact_fit, "att", nu2_estimator="plugin")
@@ -1070,15 +1064,9 @@ class TestThePluginLimitsRefuse:
         )
         assert bound.to_dict()["inference"] == status
 
-    def test_a_bound_saved_before_rm22_refuses_its_limits(self, exact_fit: Any) -> None:
-        """An older pickle may hold plug-in limits or ATT limits without the share term."""
+    def test_a_doubly_robust_bound_round_trips_with_its_limits(self, exact_fit: Any) -> None:
+        """A pickle round trip keeps the estimator and the limits it derives."""
         current = omitted_variable_bounds(exact_fit, "att", **STRONG)
-        legacy = legacy_without(current, "nu2_estimator")
-        assert legacy.nu2_estimator == "unrecorded"
-        _assert_the_limits_refuse(legacy, "unrecorded", _UNRECORDED_ESTIMATOR_REFUSAL)
-        assert legacy.to_dict()["nu2_estimator"] == "unrecorded"
-        assert "saved before" in legacy.summary()
-        assert legacy.lower == current.lower
         restored = pickle.loads(pickle.dumps(current))
         assert restored.nu2_estimator == "doubly_robust"
         assert restored.ci_lower == current.ci_lower

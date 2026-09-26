@@ -525,14 +525,14 @@ class TestTheSurroundingMachineryWorks:
         """The group row selects and names its most concentrated score equation."""
         result, _ = fitted
         report = result.diagnostics.support()
-        row = report.group_leverage["msm"]
+        row = report.group_score_load["msm"]
         artifact = result.fluctuations["msm"].absolute_score_weights
         assert artifact is not None
         effective = np.array([_kish(artifact[:, j]) for j in range(artifact.shape[1])])
         selected = int(np.argmin(effective / artifact.shape[0]))
         load = artifact[:, selected]
 
-        assert report.group_leverage.keys() == result.fluctuations.keys() == {"msm"}
+        assert report.group_score_load.keys() == result.fluctuations.keys() == {"msm"}
         assert len(result.fluctuations["msm"].names) == 2
         assert row["equation"] == result.fluctuations["msm"].names[selected]
         assert row["n_targeted"] == float(artifact.shape[0])
@@ -554,7 +554,7 @@ class TestTheSurroundingMachineryWorks:
 
         assert header.index("equation") < header.index("Kish-equivalent rows")
         assert header.index("Kish / target") < header.index("max |w h|")
-        assert f"{report.group_leverage['msm']['max_load']:.4g}" in row
+        assert f"{report.group_score_load['msm']['max_load']:.4g}" in row
         assert "Kish values describe residual-multiplier concentration" in summary
         assert "not residual contributions or estimator information" in summary
 
@@ -663,7 +663,7 @@ class TestEachMSMScoreEquationIsDiagnosedSeparately:
         """All reported metrics use the selected column, never an L1 collapse."""
         ordinary, _ = centred
         report = ordinary.diagnostics.support()
-        row = report.group_leverage["msm"]
+        row = report.group_score_load["msm"]
         artifact = ordinary.fluctuations["msm"].absolute_score_weights
         assert artifact is not None
         ratios = np.array([_kish(artifact[:, j]) / artifact.shape[0] for j in range(2)])
@@ -685,8 +685,8 @@ class TestEachMSMScoreEquationIsDiagnosedSeparately:
     def test_per_column_rescaling_cannot_change_concentration(self, centred) -> None:
         """Changing dose units rescales one column but leaves every share invariant."""
         ordinary, scaled = centred
-        original = ordinary.diagnostics.support().group_leverage["msm"]
-        rescaled = scaled.diagnostics.support().group_leverage["msm"]
+        original = ordinary.diagnostics.support().group_score_load["msm"]
+        rescaled = scaled.diagnostics.support().group_score_load["msm"]
 
         assert original["equation"] == rescaled["equation"]
         for key in ("effective", "targeted_ratio", "total_ratio", "top_1pct", "top_5pct"):

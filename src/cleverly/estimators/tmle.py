@@ -92,11 +92,9 @@ from typing import Any, cast, get_args
 
 import numpy as np
 
-from .._declarations import declaration_status
 from .._inference_status import (
     HELD_OUT_SCALE,
     InferenceStatus,
-    precedent_status,
     supplies_inference,
 )
 from .._typing import (
@@ -296,9 +294,7 @@ _IN_SAMPLE_ARM_INDEXED_REMEDY = (
     "fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))"
 )
 
-#: The audit and the remedy that both outcome-scale refusals end with. A refusal names the
-#: remedy, and the status reason of a saved result does not, so the status shares only
-#: :data:`~cleverly._inference_status.HELD_OUT_SCALE`.
+#: The audit and the remedy that both outcome-scale refusals end with.
 _SCALE_AUDIT = "(docs/technical-reference/cv-tmle.md, fold and outcome-scale rules)"
 _SCALE_REMEDY = (
     "(Targeting(q_bounds=(lower, upper))). Without a known finite support, "
@@ -565,19 +561,15 @@ class TMLE:
 
     _assessment_method = "tmle"
 
-    # An estimator pickled by 0.1.0 or 0.1.1 has no instance attribute, and None is what
-    # those releases meant: they drew every fold from the data.
-    split_plan: SplitPlan | None = None
-
     def _inference_status(self, data: CausalData) -> InferenceStatus:
         """Whether this estimator's estimates on ``data`` carry inference or a diagnostic.
 
         A hook rather than a check at the assembly point, because only the estimator
         knows what it did. It reads the estimator configuration and the prepared data
-        and nothing fitted, so the status can be determined without learner results. Three callers
-        ask it: ``_retarget_detailed`` stamps the estimates, ``TMLEResult.__setstate__``
-        re-stamps a restored artifact, and ``variable_importance`` refuses before its
-        first fit. An override that finds more than one status resolves them with
+        and nothing fitted, so the status can be determined without learner results. Two
+        callers ask it: ``_retarget_detailed`` stamps the estimates, and
+        ``variable_importance`` refuses before its first fit. An override that finds more
+        than one status resolves them with
         :func:`~cleverly._inference_status.precedent_status`.
 
         Parameters
@@ -588,116 +580,18 @@ class TMLE:
         Returns
         -------
         str
-            One of :data:`~cleverly.inference.influence.InferenceStatus`. The ordinary
-            estimator resolves four statuses. :meth:`_declared_function_status` gives
-            ``"undeclared_function_plugin"`` to a restored estimator with a function that
-            is not declared known. :meth:`_saved_fold_policy_status` gives
-            ``"stratified_fold_plugin"`` to a restored estimator whose outer folds read
-            the treatment. :meth:`_saved_scale_status` gives
-            ``"undeclared_scale_plugin"`` to a restored cross-fitted estimator of a
-            continuous outcome with no declared ``q_bounds``.
+            One of :data:`~cleverly.inference.influence.InferenceStatus`.
             :func:`~cleverly.inference.cluster.cluster_inference_status` reads the cluster
             labels. It gives ``"influence_curve"`` on an unclustered fit, and a clustered
             status on a cross-fitted fit at unequal cluster sizes, in rows or in weight
             mass, or on a fit with few clusters in total or in one baseline stratum.
         """
-        return precedent_status(
-            [
-                self._declared_function_status(),
-                self._saved_fold_policy_status(data),
-                self._saved_scale_status(data),
-                cluster_inference_status(
-                    data.cluster,
-                    cross_fit=self.cross_fit,
-                    strata=data.strata,
-                    weights=data.weights if data.is_weighted else None,
-                ),
-            ]
+        return cluster_inference_status(
+            data.cluster,
+            cross_fit=self.cross_fit,
+            strata=data.strata,
+            weights=data.weights if data.is_weighted else None,
         )
-
-    def _saved_fold_policy_status(self, data: CausalData) -> InferenceStatus:
-        """Whether the outer folds of this estimator read the treatment, as a status.
-
-        The status predicate of roadmap row RM31. Releases 0.1.0 and 0.1.1 stratified
-        every cross-fitted split of a discrete treatment by default, and no shipped result
-        covers a partition read off the data that the fit then conditions on.
-        :meth:`crossfit_plan` records those strata in ``stratify_by``: only under
-        cross-fitting, only for a discrete treatment, and only under a policy other than
-        ``"none"``. So an in-sample fit and a continuous dose, whose split read no
-        treatment, keep their interval under this rule. A continuous dose of a continuous
-        outcome saved with ``q_bounds=None`` takes :meth:`_saved_scale_status` instead
-        (roadmap row RM33). A live fit refuses such a policy in
-        ``_resolve_estimands_for_data`` before it stamps a status, so only a restored or
-        copied estimator reaches ``"stratified_fold_plugin"``, and
-        ``TMLEResult.__setstate__`` then re-stamps its saved estimates. The study seams
-        that draw a stratified split replace :meth:`_folds` or :meth:`_fold_strata` and
-        keep ``stratify_folds="none"``, so this reads neither.
-
-        Parameters
-        ----------
-        data : CausalData
-            The prepared data. :meth:`crossfit_plan` reads its treatment kind.
-
-        Returns
-        -------
-        str
-            ``"stratified_fold_plugin"`` when the plan records strata, and
-            ``"influence_curve"`` otherwise.
-        """
-        if self.crossfit_plan(data).stratify_by:
-            return "stratified_fold_plugin"
-        return "influence_curve"
-
-    def _saved_scale_status(self, data: CausalData) -> InferenceStatus:
-        """Whether this estimator fits on an outcome scale that its held-out rows set.
-
-        The status predicate of roadmap row RM33. Releases 0.1.0 and 0.1.1 took the scale
-        of a continuous outcome from every observed outcome when ``q_bounds`` was
-        ``None``, their default, and no shipped result covers a cross-fitted fit on that
-        scale. The predicate is :meth:`_outcome_scale_refusal`, which the fit-time
-        refusal raises, so the two cannot disagree. It reads ``cross_fit``,
-        ``data.family`` and ``q_bounds``, and not the treatment kind. RM31 reaches a saved
-        discrete treatment first, so a saved continuous dose is the result that this
-        rule alone reaches. A live fit refuses this scale in
-        ``_resolve_estimands_for_data`` before it stamps a status, so only a restored or
-        copied estimator reaches ``"undeclared_scale_plugin"``, and
-        ``TMLEResult.__setstate__`` then re-stamps its saved estimates.
-
-        Parameters
-        ----------
-        data : CausalData
-            The prepared data. :meth:`_outcome_scale_refusal` reads its outcome family.
-
-        Returns
-        -------
-        str
-            ``"undeclared_scale_plugin"`` when this version refuses the outcome scale, and
-            ``"influence_curve"`` otherwise.
-        """
-        if self._outcome_scale_refusal(data) is not None:
-            return "undeclared_scale_plugin"
-        return "influence_curve"
-
-    def _declared_function_status(self) -> InferenceStatus:
-        """Whether every function of the configuration is declared known, as a status.
-
-        The status predicate of roadmap row RM28. It passes
-        :meth:`_refuse_undeclared_functions`, which every fit runs before any learner, to
-        :func:`~cleverly._declarations.declaration_status`, which reports a refusal as a
-        status. A live fit refuses such a function in ``_resolve_estimands_for_data`` and
-        ``_retarget_detailed`` before it stamps, and :func:`cleverly.variable_importance`
-        refuses it before it asks the status. So only a restored or modified estimator
-        reaches ``"undeclared_function_plugin"``, and ``TMLEResult.__setstate__`` then
-        re-stamps its saved estimates.
-
-        Returns
-        -------
-        str
-            ``"undeclared_function_plugin"`` when either refusal raises
-            :class:`~cleverly.exceptions.CapabilityError` or
-            :class:`~cleverly.exceptions.DataError`, and ``"influence_curve"`` otherwise.
-        """
-        return declaration_status(self._refuse_undeclared_functions)
 
     def _refuse_undeclared_functions(self) -> None:
         """Raise unless every function of the configuration is declared known.
@@ -705,10 +599,8 @@ class TMLE:
         :func:`~cleverly.msm.refuse_msm_functions` on the working model, then
         :func:`~cleverly.interventions.base.refuse_regime_densities` on the regimes. Each
         call site states why it runs this: ``_resolve_estimands_for_data`` before any
-        learner, ``_retarget_detailed`` before every recomputation,
-        :meth:`_declared_function_status` on a restored estimator, and
-        :func:`cleverly.variable_importance` before its first fit. The attributes are read
-        with a default, because an estimator pickled before a field existed has none.
+        learner, ``_retarget_detailed`` before every recomputation, and
+        :func:`cleverly.variable_importance` before its first fit.
 
         Raises
         ------
@@ -717,10 +609,9 @@ class TMLE:
         CapabilityError
             If a declaration is ``None`` or ``"estimated"``.
         """
-        msm = getattr(self, "msm", None)
-        if msm is not None:
-            refuse_msm_functions(msm)
-        refuse_regime_densities(getattr(self, "interventions", ()))
+        if self.msm is not None:
+            refuse_msm_functions(self.msm)
+        refuse_regime_densities(self.interventions)
 
     def __init__(
         self,
@@ -940,9 +831,9 @@ class TMLE:
         Asked twice on purpose.  :meth:`_validate_settings` asks it at construction, so a
         declaration that cannot run is refused where it was written.  A fit asks it again
         in :meth:`_resolve_estimands_for_data`, because two supported operations reach a
-        fit without running ``__init__``: :meth:`refit` copies an estimator, and a result
-        restored from a pickle written by an earlier version arrives with whatever policy
-        that version allowed.  Neither may fit under a policy this one refuses.
+        fit without running ``__init__``: :meth:`refit` copies an estimator, and a caller
+        can reassign an attribute of a constructed estimator.  Neither may fit under a
+        policy this one refuses.
         """
         return _cross_fit_policy_refusal(
             cross_fit=self.cross_fit,
@@ -953,14 +844,10 @@ class TMLE:
             stratify_folds=self.stratify_folds,
             collaborative=(
                 self._assessment_method == "collaborative_tmle"
-                # Deliberately ``!= "oat"`` and not
-                # :func:`~cleverly.estimators.ctmle.is_selector_strategy`. The only way to
-                # reach this line without a ``strategy`` attribute is a pickle from a
-                # version that predates the field, and ``None != "oat"`` holds the fold
-                # policy for it while ``is_selector_strategy(None)`` would release it.
-                # Swapping the spelling would quietly relax this refusal for restored
-                # artifacts.
-                and getattr(self, "strategy", None) != "oat"
+                # Only a ``CTMLE`` reports this method, and its constructor sets
+                # ``strategy`` before the base constructor asks this policy. The
+                # outcome-adaptive strategy draws no selector folds.
+                and cast("Any", self).strategy != "oat"
             ),
             option_name="cross_fit",
         )
@@ -1496,7 +1383,7 @@ class TMLE:
     ) -> CVTargeting | None:
         """One fold-level report for the whole fit, however many draws it combines.
 
-        The fields split by what they *are*.  ``pooled``, ``canonical`` and ``variance``
+        The fields split by what they *are*.  ``pooled``, ``fold_evaluated`` and ``variance``
         are estimates, so they follow every draw exactly as the headline report does.
         ``n_folds``, ``fold_sizes``, ``fold_estimates`` and ``fold_epsilon`` are indexed
         by fold, and fold 3 of one draw is not fold 3 of another -- there is no
@@ -1521,13 +1408,13 @@ class TMLE:
         first = present[0]
         if len(present) == 1:
             return first
-        canonical = median_estimates([detail.canonical for detail in present])
+        fold_evaluated = median_estimates([detail.fold_evaluated for detail in present])
         return replace(
             first,
             repeats=len(present),
             pooled=median_estimates([detail.pooled for detail in present]),
-            canonical=canonical,
-            variance={name: value.variance for name, value in canonical.items()},
+            fold_evaluated=fold_evaluated,
+            variance={name: value.variance for name, value in fold_evaluated.items()},
         )
 
     # ------------------------------------------------------------- internals
@@ -1546,12 +1433,11 @@ class TMLE:
 
         This method first checks the declared fold policy without reading the data, because a
         fit can arrive here without having run ``__init__``: :meth:`refit` copies an
-        estimator, and an estimator restored from a pickle written by an earlier version
-        carries whatever policy that version allowed.  It then runs
-        :func:`~cleverly.msm.refuse_msm_functions` and
+        estimator, and a caller can reassign an attribute of a constructed estimator.  It
+        then runs :func:`~cleverly.msm.refuse_msm_functions` and
         :func:`~cleverly.interventions.base.refuse_regime_densities`, through
-        :meth:`_refuse_undeclared_functions`, for the same reason: a restored or modified
-        model or regime can carry a declaration this version refuses.
+        :meth:`_refuse_undeclared_functions`, for the same reason: a modified model or
+        regime can carry a declaration this version refuses.
         The regime check covers a ``Stochastic`` density, a ``Rule``, and a user-written
         ``Intervention``, which ``TMLE.__init__`` admits without a check.
         Those functions state what each one refuses.  The declaration check runs before
@@ -1587,14 +1473,14 @@ class TMLE:
         -------
         str or None
             What :meth:`_cross_fit_policy_reason` returns, then the sentence that names a
-            restored or copied estimator, or ``None`` when the policy runs.
+            copied or modified estimator, or ``None`` when the policy runs.
         """
         reason = self._cross_fit_policy_reason()
         if reason is None:
             return None
         return (
             f"{reason}. This fit was configured under a fold policy this version "
-            "refuses, which a restored result or a copied estimator can still carry"
+            "refuses, which a copied or modified estimator can still carry"
         )
 
     def _refuse_fold_policy(self) -> None:
@@ -1602,7 +1488,7 @@ class TMLE:
 
         Two call sites run it first: ``_resolve_estimands_for_data``, before any learner of
         a fit or a refit, and :func:`cleverly.variable_importance`, before it asks the
-        status of a restored or copied estimator (roadmap row RM31).
+        status of a copied or modified estimator.
 
         Raises
         ------
@@ -1629,9 +1515,8 @@ class TMLE:
         ``ValueError`` or ``NotImplementedError`` it raises is a refusal.
         :class:`~cleverly.exceptions.CapabilityError` and
         :class:`~cleverly.exceptions.DataError` are both ``ValueError``, and a subclass
-        design check raises a plain ``ValueError`` or ``NotImplementedError``.  A result
-        that release 0.1.1 saved passed each design check when it was fitted, or meets the
-        fold-policy refusal first.  A copied estimator can meet one, such as a
+        design check raises a plain ``ValueError`` or ``NotImplementedError``.  A copied
+        estimator can meet one, such as a
         :class:`~cleverly.CTMLE` put on a fit that reports ``att``.  Any other exception is
         a defect and propagates.
 
@@ -1698,8 +1583,7 @@ class TMLE:
         rows it predicts helped choose, so the split no longer separates what a fold saw
         from what it is scored on.  Declaring the support is the remedy that keeps the
         separation, and fitting in sample is the one that needs no support.
-        :meth:`_refuse_unbounded_cross_fitted_scale` raises the sentence, and
-        :meth:`_saved_scale_status` reads it as a status (roadmap row RM33).
+        :meth:`_refuse_unbounded_cross_fitted_scale` raises the sentence.
 
         Parameters
         ----------
@@ -1728,7 +1612,7 @@ class TMLE:
 
         Two call sites run it: ``_resolve_estimands_for_data``, before any learner of a fit
         or a refit, and :func:`cleverly.variable_importance`, on each candidate's prepared
-        data before it asks the status (roadmap row RM33).
+        data before it asks the status.
 
         Parameters
         ----------
@@ -2994,12 +2878,9 @@ class TMLE:
         It runs :func:`~cleverly.msm.refuse_msm_functions` and
         :func:`~cleverly.interventions.base.refuse_regime_densities` first, through
         :meth:`_refuse_undeclared_functions`, as :meth:`fit` does.  Every sweep that
-        recomputes an estimate comes through here, so a recomputation from a restored
-        result refuses when those functions refuse its model or its regimes: a
-        ``Stochastic`` density, a ``Rule``, or a user-written ``Intervention``.  They state
-        which declarations they refuse.  Loading raises nothing: a restored result whose
-        declaration this version refuses keeps its point estimates and takes the
-        ``"undeclared_function_plugin"`` status, from :meth:`_declared_function_status`.
+        recomputes an estimate comes through here, so a recomputation refuses when those
+        functions refuse a modified model or regime: a ``Stochastic`` density, a ``Rule``,
+        or a user-written ``Intervention``.  They state which declarations they refuse.
         """
         self._refuse_undeclared_functions()
         requested = tuple(estimands)
@@ -3016,7 +2897,7 @@ class TMLE:
         estimates: dict[str, ParameterEstimate] = {}
         fluctuations: dict[str, Fluctuation] = {}
         pooled_report: dict[str, ParameterEstimate] = {}
-        canonical_report: dict[str, ParameterEstimate] = {}
+        fold_evaluated_report: dict[str, ParameterEstimate] = {}
         fold_estimates: dict[str, tuple[float, ...]] = {}
         epsilon: dict[str, tuple[float, ...]] = {}
         fold_epsilon: dict[str, tuple[tuple[float, ...], ...]] = {}
@@ -3153,17 +3034,17 @@ class TMLE:
                 )
                 for index in indices
             ]  # regimes ride along on `nuisance`, and are sliced per fold below
-            canonical = _average_over_folds(
+            fold_evaluated = _average_over_folds(
                 per_fold, tuple(pooled), indices, n=data.n, cluster=data.cluster, alpha=level
             )
-            canonical_report.update(canonical)
+            fold_evaluated_report.update(fold_evaluated)
             fold_estimates.update(
                 {
                     name: tuple(values[name].psi for values in per_fold)
-                    for name in canonical  # only the estimands every fold could compute
+                    for name in fold_evaluated  # only the estimands every fold could compute
                 }
             )
-            estimates.update(canonical if self.cv_evaluation else pooled)
+            estimates.update(fold_evaluated if self.cv_evaluation else pooled)
 
         # Stamped at the one place every estimate this estimator produces comes from, so
         # ``fit``, ``retarget`` and every sensitivity sweep that retargets a perturbed
@@ -3177,12 +3058,12 @@ class TMLE:
             CVTargeting(
                 n_folds=len(indices),
                 fold_sizes=tuple(int(index.size) for index in indices),
-                variance={name: value.variance for name, value in canonical_report.items()},
+                variance={name: value.variance for name, value in fold_evaluated_report.items()},
                 fold_estimates=fold_estimates,
                 epsilon=epsilon,
                 fold_epsilon=fold_epsilon,
                 pooled=_in_report_order(pooled_report, requested),
-                canonical=_in_report_order(canonical_report, requested),
+                fold_evaluated=_in_report_order(fold_evaluated_report, requested),
                 backend=data.backend,
             ).stamped(status)
             if indices
@@ -3266,7 +3147,7 @@ class TMLE:
         Every fit reaches this method with ``stratify_folds="none"`` and leaves at the
         first branch below.  :meth:`_cross_fit_policy_reason` refuses the other two
         policies at construction, and again in :meth:`_resolve_estimands_for_data` for a
-        restored result or a copied estimator, and it refuses them under cross-fitting and
+        copied or modified estimator, and it refuses them under cross-fitting and
         at every selector-based collaborative setting. The remaining branches are therefore
         reachable only by replacing this method, which is what the deliberate-mutation controls in
         ``tests/unit/test_fold_policy_rules.py`` do to put a stratified split into
@@ -3300,11 +3181,9 @@ class TMLE:
 
         ``stratify_by`` records what the folds were held to.  It is empty on every fit
         this version runs, because :meth:`_cross_fit_policy_reason` refuses the two
-        balancing policies wherever a split is drawn.  The field stays because a result
-        restored from an earlier version carries the policy that version allowed, and
-        :class:`~cleverly.learners.crossfit.CrossFitPlan` reads it back.
-        :meth:`_saved_fold_policy_status` reads it to withhold the interval of such a
-        result (roadmap row RM31).  ``scheme`` names
+        balancing policies wherever a split is drawn.  The field stays because a copied or
+        modified estimator can declare such a policy, and the plan records it before the
+        fit refuses it.  ``scheme`` names
         only the splits this version draws for the same reason: ``"stratified"`` and
         ``"stratified-grouped"`` needed a nonempty ``stratify_by``, so no fit could record
         them, and they were deleted.

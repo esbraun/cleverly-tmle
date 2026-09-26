@@ -69,11 +69,9 @@ from typing import TYPE_CHECKING, Any, ClassVar, NoReturn
 import numpy as np
 from sklearn.base import clone
 
-from .._declarations import declaration_status
 from .._inference_status import (
     NO_SIMULTANEOUS_BANDS,
     InferenceStatus,
-    precedent_status,
     status_record,
     supplies_inference,
 )
@@ -88,7 +86,6 @@ from ..inference.influence import (
     ParameterEstimate,
     Scale,
     make_estimate,
-    restamp_restored,
     spread_name,
 )
 from ..inference.multiplier import SimultaneousBands, simultaneous_bands
@@ -116,7 +113,6 @@ from ..utils.bounds import (
     resolve_cumulative_g_bounds,
 )
 from ..utils.phases import PhaseProfile, phase, profile_phases
-from ..utils.records import _DefaultingUnpickle
 from ..utils.text import format_pvalue, format_table
 from .data import LongitudinalData
 from .msm import (
@@ -149,7 +145,6 @@ __all__ = ["LTMLE", "LongitudinalConfig", "LongitudinalResult", "ltmle"]
 
 #: Stable replayability omission codes.  These values are persisted and exposed through
 #: ``Replayability.unreconstructible``, so callers can branch on them without parsing prose.
-LONGITUDINAL_REPLAY_RECIPE_MISSING = "longitudinal_replay_recipe_missing"
 LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE = "longitudinal_replay_learner_unclonable"
 LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED = "longitudinal_replay_random_state_unseeded"
 LONGITUDINAL_REPLAY_RANDOM_STATE_NON_INTEGER = "longitudinal_replay_random_state_non_integer"
@@ -446,7 +441,7 @@ def _clipped_prefix(
 
 
 @dataclass(frozen=True)
-class _LongitudinalReplayRecipe(_DefaultingUnpickle):
+class _LongitudinalReplayRecipe:
     """Unfitted state required to repeat the bound-dependent recursion."""
 
     plans: tuple[Plan, ...]
@@ -461,12 +456,15 @@ class _LongitudinalReplayRecipe(_DefaultingUnpickle):
     def __setstate__(self, state: dict[str, Any]) -> None:
         """Restore a persisted recipe, then retake ownership of its plan matrices.
 
+        Pickle restores each plan matrix as a fresh writeable array, so the recipe freezes
+        them again, as it does at construction.
+
         Parameters
         ----------
         state : dict of str to Any
             The instance dictionary the pickle carries.
         """
-        super().__setstate__(state)
+        self.__dict__.update(state)
         object.__setattr__(self, "plans", _frozen_plans(self.plans))
 
 
@@ -706,8 +704,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Structured identities for reported aliases.
     fitted_method : str
         Method identity stamped by the estimator.
-    replay_recipe : object or None
+    replay_recipe : object
         Unfitted recursive learner templates and resolved plans for deterministic refits.
+        Keyword-only.
 
     Attributes
     ----------
@@ -785,10 +784,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: the result, so a mapping handed to the constructor by ``dataclasses.replace``
     #: would answer for a fit that never produced it.
     assessment_cache: dict[str, Any] = field(default_factory=dict, init=False)
-    #: Additive, unfitted state for a complete bound-dependent recursion. Appended after
-    #: every pre-existing field so older positional constructor calls keep their slots.
-    #: ``None`` is the legacy shape and becomes a stable replayability omission.
-    replay_recipe: _LongitudinalReplayRecipe | None = None
+    #: Unfitted state for a complete bound-dependent recursion.
+    replay_recipe: _LongitudinalReplayRecipe = field(kw_only=True)
 
     #: Which family of assessment declarations applies to this result.  See
     #: :attr:`~cleverly.estimators.TMLEResult.assessment_family`; the method identity is
@@ -1067,6 +1064,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     def save(self, path: Any) -> Any:
         """Persist the complete fitted result to a trusted joblib artifact.
 
+        The artifact records :data:`cleverly.__version__`. A load by a different version
+        warns with :class:`~cleverly.exceptions.VersionMismatchWarning` and does not
+        migrate the result.
+
         Parameters
         ----------
         path : path-like
@@ -1075,7 +1076,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Returns
         -------
         Path
-            Resolved output path.
+            The destination path, as given.
         """
         from ..estimators.serialize import save as _save
 
@@ -1432,59 +1433,6 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"LongitudinalResult({', '.join(self.estimates)})"
 
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        """Restore a result, and re-apply the inference status its data and regimens determine.
-
-        A fit saved before :attr:`~cleverly.ParameterEstimate.inference` reached the
-        longitudinal path, or before this version refused its configuration, loads its
-        estimates under the status they were saved with, and would publish an interval
-        this version refuses. The prepared data, folds, resolved regimens, and evaluated
-        MSM declaration are in the artifact, so the status is recomputed from them. A
-        legacy MSM with no retained declaration loses inference. An estimate saved by
-        release 0.1.0 or 0.1.1 loads under ``"unrecorded_status_plugin"``, and the
-        re-stamp gives it the status of this fit. A fit whose estimates already carry a
-        recorded status loads as it was saved when its status supplies inference, or when
-        that status is its own.
-
-        Parameters
-        ----------
-        state : dict of str to Any
-            The pickled instance state.
-        """
-        self.__dict__.update(state)
-        self._restamp_inference_status()
-
-    def _restamp_inference_status(self) -> None:
-        """Re-apply the fit's inference status to estimates saved without it.
-
-        The stamp is written in ``_estimates`` and ``_msm_estimates``, so a live fit never
-        needs this. It reads the prepared data, the folds and the resolved regimens, as the
-        fit did, so the artifact holds everything it needs. A regimen restored from before
-        its ``rule_kind`` existed reads ``None``. An MSM restored from before
-        ``functions_kind`` existed does too. Either result takes
-        ``"undeclared_function_plugin"`` (roadmap row RM28).
-        :func:`~cleverly.inference.influence.restamp_restored` runs the re-stamp in both
-        directions (roadmap row RM34). It drops the simultaneous bands and the saved
-        assessment answers on a non-inferential status only. A saved split of more than one
-        fold with no recorded origin takes ``"stratified_fold_plugin"`` through
-        :func:`_saved_split_status` (roadmap row RM31). Only the re-stamp reads that
-        rule, so a live fit keeps the status that :func:`_inference_status` gives it. The
-        truncation-curve replay resolves its status with the restored one, so it stays
-        equal to the restored fit.
-        """
-        data = self.__dict__.get("data")
-        folds = self.__dict__.get("folds")
-        if data is None or folds is None:
-            return
-        regimens = getattr(self.__dict__.get("config"), "regimens", ())
-        status = precedent_status(
-            [
-                _inference_status(data, folds, regimens, self.__dict__.get("msm")),
-                _saved_split_status(folds),
-            ]
-        )
-        restamp_restored(self.__dict__, status)
-
     @staticmethod
     def _max_truncated(fit: RegimenFit) -> tuple[float, int]:
         """Largest on-score truncation share and its earliest node.
@@ -1637,31 +1585,18 @@ class _Reported:
     contributors: dict[str, tuple[RegimenFit, ...]]
 
 
-def _inference_status(
-    data: LongitudinalData, folds: Folds, regimens: Any, msm: RegimenMSM | None = None
-) -> InferenceStatus:
+def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
     """The one inference status of every estimate a longitudinal fit reports.
 
-    :func:`_declared_regimen_status` gives ``"undeclared_function_plugin"`` to a restored
-    result with a callable node whose regimen is not declared known. A saved cross-fitted
-    MSM projection with no proof that its source functions were declared known takes the
-    same status. The evaluated design and weights cannot establish that proof. A saved
-    cross-fitted clustered result takes its own status at every cluster count and size.
-    New fits of
-    either kind are refused before this function runs. Otherwise RM20's
-    cluster rule applies to the prepared cluster labels and, on a weighted fit, to the
-    unit weights. It reads nothing fitted. ``LongitudinalData`` carries no baseline
+    RM20's cluster rule applies to the prepared cluster labels and, on a weighted fit, to
+    the unit weights. It reads nothing fitted. ``LongitudinalData`` carries no baseline
     strata, so the count is the number of clusters with positive weight mass in the whole
     fit, and :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` is the threshold.
-    :func:`~cleverly._inference_status.precedent_status` resolves the statuses that apply.
 
     ``LTMLE._refuse_cross_fitted_design`` refuses ``id=`` above one fold before this runs,
-    so a live fit can take ``"few_cluster_plugin"`` only. The fold count is still read
-    from the saved result, so an older grouped fit cannot publish an unsupported interval.
-
-    Three callers ask it: ``LTMLE.fit`` and the truncation-curve replay ``_refit_bound``
-    pass it to :func:`_estimates` or :func:`_msm_estimates`, and
-    ``LongitudinalResult.__setstate__`` re-stamps a result saved before the status existed.
+    so a fit can take ``"few_cluster_plugin"`` only. ``LTMLE.fit`` and the
+    truncation-curve replay ``_refit_bound`` pass the status to :func:`_estimates` or
+    :func:`_msm_estimates`.
 
     Parameters
     ----------
@@ -1669,91 +1604,18 @@ def _inference_status(
         The prepared data of the fit.
     folds : Folds
         The outer fold assignment of the fit.
-    regimens : Any
-        The regimens of the fit: the ``regimens=`` argument, or the resolved regimens of a
-        result.
-    msm : RegimenMSM or None
-        The evaluated working model, with provenance of its source function declarations.
 
     Returns
     -------
     str
         One of :data:`~cleverly.inference.influence.InferenceStatus`.
-        ``"influence_curve"`` on an unclustered fit whose rules are declared known.
+        ``"influence_curve"`` on an unclustered fit.
     """
-    cluster: InferenceStatus = (
-        "cross_fitted_longitudinal_plugin"
-        if data.cluster is not None and folds.n_folds > 1
-        else cluster_inference_status(
-            data.cluster,
-            cross_fit=folds.n_folds > 1,
-            weights=data.weights if data.is_weighted else None,
-        )
+    return cluster_inference_status(
+        data.cluster,
+        cross_fit=folds.n_folds > 1,
+        weights=data.weights if data.is_weighted else None,
     )
-    return precedent_status(
-        [
-            _declared_regimen_status(regimens),
-            declaration_status(lambda: refuse_evaluated_msm_functions(msm)),
-            cluster,
-        ]
-    )
-
-
-def _saved_split_status(folds: Folds) -> InferenceStatus:
-    """Whether a restored split read the first treatment node, as a status.
-
-    The longitudinal status predicate of roadmap row RM31. Releases 0.1.0 and 0.1.1
-    stratified the outer split on the first treatment node, and no shipped result covers
-    a partition read off the data that the fit then conditions on. Commit c887785c added
-    :attr:`~cleverly.learners.Folds.origin` before commit 5f32c149 removed the strata.
-    :func:`~cleverly.learners.random_partition` writes an origin, and
-    :meth:`~cleverly.learners.SplitPlan.to_folds` copies one from a plan that records it.
-    No stratified draw writes one, and ``LTMLE`` takes no split plan. So a split of more
-    than one fold with no origin came from a stratified draw. ``LTMLE._folds`` draws
-    through ``random_partition``, so a live fit always records an origin. The study seam
-    that draws the retired split records none, and only
-    ``LongitudinalResult._restamp_inference_status`` reads this rule, so its live fits
-    keep their interval.
-
-    Parameters
-    ----------
-    folds : Folds
-        The outer fold assignment of the restored result.
-
-    Returns
-    -------
-    str
-        ``"stratified_fold_plugin"`` for a split of more than one fold with no origin,
-        and ``"influence_curve"`` otherwise.
-    """
-    if folds.n_folds > 1 and getattr(folds, "origin", None) is None:
-        return "stratified_fold_plugin"
-    return "influence_curve"
-
-
-def _declared_regimen_status(regimens: Any) -> InferenceStatus:
-    """Whether every callable node of ``regimens`` is declared known, as a status.
-
-    The longitudinal status predicate of roadmap row RM28. It passes
-    :func:`~cleverly.longitudinal.regimen.refuse_regimen_rules`, which ``LTMLE.fit`` runs
-    before any learner, to :func:`~cleverly._declarations.declaration_status`, which
-    reports a refusal as a status. So only a restored or modified result reaches
-    ``"undeclared_function_plugin"``.
-
-    Parameters
-    ----------
-    regimens : Any
-        The regimens of the fit: the ``regimens=`` argument, or the resolved regimens of a
-        result.
-
-    Returns
-    -------
-    str
-        ``"undeclared_function_plugin"`` when the refusal raises
-        :class:`~cleverly.exceptions.CapabilityError` or
-        :class:`~cleverly.exceptions.DataError`, and ``"influence_curve"`` otherwise.
-    """
-    return declaration_status(lambda: refuse_regimen_rules(regimens))
 
 
 def _estimates(
@@ -2216,12 +2078,12 @@ class LTMLE:
         refuse_unsupported(refused, where="LTMLE.fit")
         if self.msm is not None:
             # Checked again here, before any learner, because ``MSM`` checks its design and
-            # weight declarations only when it is declared, and a restored or modified
-            # model can carry one this version refuses.
+            # weight declarations only when it is declared, and a modified model can carry
+            # one this version refuses.
             refuse_msm_functions(self.msm)
         # The raw ``regimens=``, before ``_prepare`` and any learner: an inline callable
-        # carries no declaration, and a restored or modified regimen can carry one this
-        # version refuses.  Its refusal comes before any refusal of the data or the design.
+        # carries no declaration, and a modified regimen can carry one this version
+        # refuses.  Its refusal comes before any refusal of the data or the design.
         refuse_regimen_rules(self.regimens)
         prepared = self._prepare(
             data,
@@ -2373,7 +2235,7 @@ class LTMLE:
                 None if model is None else fingerprint_array(model.design, model.weights)
             ),
         )
-        status = _inference_status(prepared, folds, regimens, model)
+        status = _inference_status(prepared, folds)
         with phase("influence_curve"):
             reported = (
                 _estimates(
@@ -2773,14 +2635,7 @@ def _refit_bound(
     )
     # The status the fit stamped, recomputed from the same data and folds, so the replay at
     # the fitted bound equals the fit in every field ``_fitted_replay_matches`` compares.
-    # The restored status joins it, because the re-stamp of a saved stratified split
-    # (RM31) reads a rule that a live fit does not.
-    status = precedent_status(
-        [
-            _inference_status(result.data, result.folds, result.config.regimens, result.msm),
-            result.inference_status,
-        ]
-    )
+    status = _inference_status(result.data, result.folds)
     if result.msm is None:
         reference = next(
             plan.regimen for plan in recipe.plans if plan.label == result.config.reference
@@ -2973,15 +2828,13 @@ def longitudinal_truncation_curve(
     Notes
     -----
     It runs :func:`~cleverly.longitudinal.regimen.refuse_regimen_rules` on
-    ``result.config.regimens`` first.  A result restored from an older pickle, or a
-    regimen changed with ``object.__setattr__``, can carry a declaration this version
-    refuses, and the replay would report a recomputation for it (roadmap row RM28).
+    ``result.config.regimens`` first.  A regimen changed with ``object.__setattr__`` can
+    carry a declaration this version refuses, and the replay would report a
+    recomputation for it (roadmap row RM28).
     """
     refuse_regimen_rules(result.config.regimens)
     refuse_evaluated_msm_functions(result.msm)
-    recipe = getattr(result, "replay_recipe", None)
-    if recipe is None:
-        _refuse_replay(LONGITUDINAL_REPLAY_RECIPE_MISSING)
+    recipe = result.replay_recipe
     if recipe.omissions:
         _refuse_replay(*recipe.omissions)
     # Resolved first and deduplicated after, so that ``0.2`` and ``(0.2, 1.0)`` are the one

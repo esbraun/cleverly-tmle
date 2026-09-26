@@ -70,7 +70,6 @@ from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
 
 from .._typing import BoolArray, FloatArray, IntArray
 from ..exceptions import DataError
-from ..utils.records import _DefaultingUnpickle
 
 __all__ = [
     "CrossFitPlan",
@@ -273,7 +272,7 @@ def _cross_fit_policy_refusal(
 
 
 @dataclass(frozen=True)
-class FoldOrigin(_DefaultingUnpickle):
+class FoldOrigin:
     """The record of how :func:`random_partition` drew one split.
 
     The four fields and the rows' cluster labels determine the assignment.  A caller
@@ -305,7 +304,7 @@ class FoldOrigin(_DefaultingUnpickle):
 
 
 @dataclass(frozen=True)
-class Folds(_DefaultingUnpickle):
+class Folds:
     """A cross-fitting partition.
 
     ``assignment[i]`` is the index of the fold that holds out observation ``i``.
@@ -319,7 +318,7 @@ class Folds(_DefaultingUnpickle):
         Number of folds the assignment ranges over.
     origin : FoldOrigin or None, default=None
         How :func:`random_partition` drew the split.  ``None`` for a split from any other
-        source: a stratified split, a hand-built one, or a pickle that predates the field.
+        source: a stratified split or a hand-built one.
         Equality ignores it, because two splits with the same labels hold out the same
         rows.
     """
@@ -432,7 +431,7 @@ class Folds(_DefaultingUnpickle):
 
 
 @dataclass(frozen=True, repr=False)
-class SplitPlan(_DefaultingUnpickle):
+class SplitPlan:
     """Reusable cross-fitting assignments for every repeat.
 
     A fit accepts a plan only when the plan records how :func:`random_partition` drew
@@ -456,8 +455,8 @@ class SplitPlan(_DefaultingUnpickle):
         plan bound to no data, which is what :meth:`unbound` returns.
     provenance : tuple of FoldOrigin or None, default=None
         One generator record per repeat, in repeat order. ``None`` for labels with no
-        record: a hand-built plan, a stratified split, or a pickle that predates the
-        field. A fit refuses a plan whose provenance is ``None``.
+        record: a hand-built plan or a stratified split. A fit refuses a plan whose
+        provenance is ``None``.
 
     Attributes
     ----------
@@ -1327,12 +1326,11 @@ class CrossFitPlan:
         exact assignments and nothing was generated.  ``"none"`` means the fit drew no
         split.  The other two are resolved from what the data declared rather than
         chosen: ``"grouped"`` whenever ``id=`` named clusters, and ``"vfold"`` otherwise.
-        A result restored from an earlier version can carry a stratified value, which this
-        version draws no split under.
     stratify_by : tuple of str
         What the outer folds were checked against, as user-facing names.  Empty on every
         fit this version runs, because it draws no split that balances the data it then
-        conditions on.  A result restored from an earlier version can carry names here.
+        conditions on.  A copied or modified estimator can declare names here, and its
+        fit then refuses.
     random_state : int or None
         Seed for generated outer splits and repeat-specific learner state. Under
         ``scheme="supplied"``, the assignments ignore it while learner and collaborative

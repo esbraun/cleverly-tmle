@@ -414,14 +414,6 @@ class TestTheOuterFoldGenerator:
 
         assert {spec.name: spec.compare for spec in fields(Folds)}["origin"] is False
 
-    def test_a_pickle_that_predates_the_origin_restores_with_none(self) -> None:
-        import pickle
-
-        restored = object.__new__(Folds)
-        restored.__setstate__({"assignment": np.array([0, 1, 0, 1]), "n_folds": 2})
-        assert restored.origin is None
-        assert pickle.loads(pickle.dumps(restored)).origin is None
-
     @pytest.mark.parametrize(
         ("seed", "match"),
         [

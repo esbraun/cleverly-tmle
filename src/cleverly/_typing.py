@@ -50,7 +50,7 @@ TargetingScheme = Literal["pooled", "fold"]
 #: are refused under cross-fitting, and refused at every setting by a selector-based
 #: collaborative fit, whose search draws selection folds without cross-fitting.  No shipped
 #: result covers a partition read off the data the fit then conditions on.  The alias keeps all
-#: three names because a restored result carries the policy its version allowed.
+#: three names because a copied or modified estimator can declare a refused policy.
 FoldStrata = Literal["none", "treatment", "treatment+outcome"]
 #: Every estimand *name* :class:`~cleverly.estimators.TMLE`'s ``estimands=`` accepts, which is
 #: every key of the target registry.  Which of them a *particular* fit can report depends on

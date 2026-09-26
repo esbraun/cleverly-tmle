@@ -18,16 +18,15 @@ things:
 * the positional order of ``Rule`` is unchanged;
 * the protocol carries the declaration: ``Static`` reads known by its exact type, and
   ``as_interventions`` admits a user-written class as it is, so its fit can refuse it;
-* every fit entry refuses an undeclared class, and a restored or modified rule, before any
-  learner or regime-function call, and so do ``RegimeSet.evaluate`` and ``Rule.density``;
+* every fit entry refuses an undeclared class, and a modified rule, before any learner or
+  regime-function call, and so do ``RegimeSet.evaluate`` and ``Rule.density``;
 * the declaration refusal comes before a refusal of the fit configuration;
-* a rule pickled before the field existed loads undeclared, and a result restored with such a
-  rule refuses every recomputation and refutation before any learner;
-* a fit or study result restored with an undeclared rule or class keeps its point estimates
-  and takes the ``"undeclared_function_plugin"`` status, and a declared one keeps its
-  interval;
-* the simulated-confounding replay refuses a restored rule before it runs, and each frozen
-  regime carries the declaration of its source;
+* a result whose rule loses its declaration refuses every recomputation and refutation
+  before any learner;
+* a fit or study result whose rule or class loses its declaration reads every replay slot
+  false, and a declared one replays;
+* the simulated-confounding replay refuses an undeclared rule before it runs, and each
+  frozen regime carries the declaration of its source;
 * a deliberate mutation that removes a check makes those witnesses fail;
 * on exact laws, a threshold at the sample mean and a user-written class that tilts the
   sample mechanism, each declared ``"known"``, get the fixed-function curve, which
@@ -49,12 +48,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import cleverly.assessment as assessment_module
 import cleverly.interventions.base as base_module
-import cleverly.longitudinal.estimator as ltmle_module
 from cleverly import RegimeMean, variable_importance
-from cleverly._declarations import declaration_status
+from cleverly._declarations import declarations_pass
 from cleverly.assessment import POINT_REPLAY_DECLARATION, replayability
 from cleverly.data import CausalData
+from cleverly.datasets import make_linear_ate
 from cleverly.estimators import TMLE, tmle
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError
@@ -78,29 +78,24 @@ from cleverly.sensitivity import simulated_confounding
 from cleverly.validation.refute import refute
 from tests import discrete_law as law
 from tests.conftest import linear_in_sample
-from tests.pickles import legacy_without
 from tests.unit._confounding_support import Counter, forbid_draw_and_refit, validate_replay
 from tests.unit._declaration_support import (
     PATHWISE,
-    UNDECLARED_STATUS,
     assert_every_witness_fails,
-    assert_keeps_its_interval,
     assert_refused,
     assert_refused_before_any_call,
     assert_replay_agrees,
     assert_replay_rows_available,
     assert_replay_rows_refused,
-    assert_stored_interval_is_a_diagnostic,
+    modified,
+    modified_states,
     oracle_fit,
     point_entries,
     recomputations,
-    restored,
-    restored_states,
     se_ratio,
     tmle_module,
+    undeclared_copy,
 )
-from tests.unit._declaration_support import legacy_result as legacy_result_of
-from tests.unit._inference_status_support import assert_withholds
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 from tests.unit._policy_declaration_support import (
     CENTRE,
@@ -242,7 +237,7 @@ class TestTheProtocolCarriesTheDeclaration:
     def test_a_rule_reads_its_field(self) -> None:
         rule = threshold_rule(rule_kind="known")
         assert rule.density_kind == "known"
-        assert restored(rule, "rule_kind", "estimated").density_kind == "estimated"
+        assert modified(rule, "rule_kind", "estimated").density_kind == "estimated"
 
     def test_every_declared_regime_satisfies_the_protocol(self) -> None:
         """The runtime check needs ``density_kind``, so a class without it fails the check."""
@@ -296,7 +291,7 @@ class TestAUserWrittenInterventionIsAdmitted:
         assert [item.level for item in items] == [1, "high", 0.5]  # type: ignore[attr-defined]
 
     def test_an_object_without_a_density_method_is_refused_by_the_check(self) -> None:
-        """A restored estimator can hold anything, so the check reads the method first."""
+        """A modified estimator can hold anything, so the check reads the method first."""
         assert_refused(lambda: refuse_regime_densities((object(),)), DataError, NO_DENSITY)
 
 
@@ -330,9 +325,9 @@ ENTRIES = {
     "tmle": one_call,
 }
 
-#: What a restored object can carry, and the refusal each one meets.
-RESTORED_RULE = restored_states(UNDECLARED_RULE, ESTIMATED_RULE)
-RESTORED_CLASS = restored_states(UNDECLARED_CLASS, ESTIMATED_CLASS)
+#: What a modified object can carry, and the refusal each one meets.
+MODIFIED_RULE = modified_states(UNDECLARED_RULE, ESTIMATED_RULE)
+MODIFIED_CLASS = modified_states(UNDECLARED_CLASS, ESTIMATED_CLASS)
 
 
 def spy_of(item: Any) -> Any:
@@ -352,14 +347,14 @@ def undeclared_classes() -> dict[str, tuple[Any, tuple[str, ...]]]:
         "no attribute": (BareTilt(), (UNDECLARED_CLASS, "density_kind attribute of 'known'")),
         **{
             name: (DataTilt(density_kind=kind), fragments)
-            for name, (kind, fragments) in RESTORED_CLASS.items()
+            for name, (kind, fragments) in MODIFIED_CLASS.items()
         },
     }
 
 
 class TestTheFitRefusesAnUndeclaredIntervention:
     @pytest.mark.parametrize("entry", list(ENTRIES))
-    @pytest.mark.parametrize("name", ["no attribute", *RESTORED_CLASS])
+    @pytest.mark.parametrize("name", ["no attribute", *MODIFIED_CLASS])
     def test_every_entry_refuses_before_any_learner_or_density_call(
         self, entry: str, name: str
     ) -> None:
@@ -367,7 +362,7 @@ class TestTheFitRefusesAnUndeclaredIntervention:
         assert_entry_refuses(entry, item, *fragments)
 
     def test_the_estimated_refusal_names_the_incremental_axis(self) -> None:
-        _, fragments = RESTORED_CLASS["estimated"]
+        _, fragments = MODIFIED_CLASS["estimated"]
         assert_entry_refuses(
             "fit", DataTilt(density_kind="estimated"), *fragments, "TMLE(incremental=...)"
         )
@@ -424,14 +419,14 @@ class TestTheFitRefusesAStaticSubclass:
         assert CountedStatic.calls == 0, "a density ran before the first learner"
 
 
-class TestTheFitRefusesARestoredRule:
+class TestTheFitRefusesAModifiedRule:
     @pytest.mark.parametrize("entry", list(ENTRIES))
-    @pytest.mark.parametrize("name", list(RESTORED_RULE))
+    @pytest.mark.parametrize("name", list(MODIFIED_RULE))
     def test_every_entry_refuses_before_any_learner_or_rule_call(
         self, entry: str, name: str
     ) -> None:
-        kind, fragments = RESTORED_RULE[name]
-        assert_entry_refuses(entry, restored(spy_rule(), "rule_kind", kind), *fragments)
+        kind, fragments = MODIFIED_RULE[name]
+        assert_entry_refuses(entry, modified(spy_rule(), "rule_kind", kind), *fragments)
 
     def test_a_malformed_rule_is_refused_before_any_call(self) -> None:
         """A rule that is not callable, and an unknown declaration, are data errors."""
@@ -441,7 +436,7 @@ class TestTheFitRefusesARestoredRule:
         ]:
             rule = spy_rule()
             spy = rule.rule
-            restored(rule, field, value)
+            modified(rule, field, value)
             assert_refused_before_any_call(
                 lambda rule=rule: ENTRIES["fit"](rule, never_fit_learners()),
                 spy,
@@ -508,9 +503,9 @@ LATER_REFUSALS: dict[str, tuple[Callable[[Any], Any], type[Exception], str]] = {
     ),
 }
 
-#: Each declared object, and the same object restored undeclared with its refusal.
-DECLARED_AND_RESTORED: dict[str, tuple[Callable[[], Any], Callable[[], Any], str]] = {
-    "rule": (spy_rule, lambda: restored(spy_rule(), "rule_kind", None), UNDECLARED_RULE),
+#: Each declared object, and the same object modified to be undeclared with its refusal.
+DECLARED_AND_MODIFIED: dict[str, tuple[Callable[[], Any], Callable[[], Any], str]] = {
+    "rule": (spy_rule, lambda: modified(spy_rule(), "rule_kind", None), UNDECLARED_RULE),
     "class": (lambda: DataTilt(density_kind="known"), DataTilt, UNDECLARED_CLASS),
 }
 
@@ -525,22 +520,22 @@ class TestTheDeclarationRefusalComesFirst:
     """
 
     @pytest.mark.parametrize("refusal", list(LATER_REFUSALS))
-    @pytest.mark.parametrize("kind", list(DECLARED_AND_RESTORED))
+    @pytest.mark.parametrize("kind", list(DECLARED_AND_MODIFIED))
     def test_a_declared_object_meets_the_later_refusal(self, refusal: str, kind: str) -> None:
         """The control: each configuration is refused when the declaration is intact."""
         fit, error, fragment = LATER_REFUSALS[refusal]
-        item = DECLARED_AND_RESTORED[kind][0]()
+        item = DECLARED_AND_MODIFIED[kind][0]()
         assert_refused_before_any_call(
             lambda: fit(item), spy_of(item), "regime", fragment, error=error
         )
 
     @pytest.mark.parametrize("refusal", list(LATER_REFUSALS))
-    @pytest.mark.parametrize("kind", list(DECLARED_AND_RESTORED))
+    @pytest.mark.parametrize("kind", list(DECLARED_AND_MODIFIED))
     def test_an_undeclared_object_meets_the_declaration_refusal(
         self, refusal: str, kind: str
     ) -> None:
         fit, _, _ = LATER_REFUSALS[refusal]
-        _, build, undeclared = DECLARED_AND_RESTORED[kind]
+        _, build, undeclared = DECLARED_AND_MODIFIED[kind]
         item = build()
         assert_refused_before_any_call(lambda: fit(item), spy_of(item), "regime", undeclared)
 
@@ -556,14 +551,14 @@ class TestTheEvaluatorsCheckFirst:
     """An undeclared object handed straight to an evaluator refuses before its function runs."""
 
     @pytest.mark.parametrize("evaluator", list(EVALUATORS))
-    @pytest.mark.parametrize("name", list(RESTORED_RULE))
-    def test_a_restored_rule_refuses_before_it_runs(self, evaluator: str, name: str) -> None:
-        kind, fragments = RESTORED_RULE[name]
-        rule = restored(spy_rule(), "rule_kind", kind)
+    @pytest.mark.parametrize("name", list(MODIFIED_RULE))
+    def test_a_modified_rule_refuses_before_it_runs(self, evaluator: str, name: str) -> None:
+        kind, fragments = MODIFIED_RULE[name]
+        rule = modified(spy_rule(), "rule_kind", kind)
         assert_refused(lambda: EVALUATORS[evaluator](rule), CapabilityError, *fragments)
         assert rule.rule.calls == 0, "the rule was evaluated before the refusal"
 
-    @pytest.mark.parametrize("name", ["no attribute", *RESTORED_CLASS])
+    @pytest.mark.parametrize("name", ["no attribute", *MODIFIED_CLASS])
     def test_an_undeclared_class_refuses_before_its_density_runs(self, name: str) -> None:
         item, fragments = undeclared_classes()[name]
         evaluate = EVALUATORS["RegimeSet.evaluate"]
@@ -595,26 +590,24 @@ class TestTheEvaluatorsCheckFirst:
         assert item.calls == 1
 
 
-# ------------------------------------------------------------------ old pickles
+# ------------------------------------------------------------------ a lost declaration
 
 
-def legacy(rule: Rule) -> Rule:
-    """``rule`` as a pickle written before ``rule_kind`` existed would restore it."""
-    return legacy_without(rule, "rule_kind")
+def undeclared_rule(rule: Rule) -> Rule:
+    """``rule`` with its declaration removed after construction."""
+    return modified(rule, "rule_kind", None)
 
 
-class TestALegacyRuleLoads:
-    def test_a_pickle_without_the_field_reads_none_and_can_be_replaced(self) -> None:
-        old = legacy(threshold_rule(rule_kind="known"))
-        assert "rule_kind" not in vars(old)
+class TestARuleThatLosesItsDeclaration:
+    def test_it_cannot_be_replaced_without_a_declaration(self) -> None:
+        old = undeclared_rule(threshold_rule(rule_kind="known"))
         assert old.rule_kind is None
         assert old.density_kind is None
         assert_refused(lambda: replace(old), CapabilityError, UNDECLARED_RULE)
         assert replace(old, rule_kind="known").rule_kind == "known"
 
-    def test_a_legacy_rule_refuses_at_the_fit(self) -> None:
-        """The pickle copies the counter, so the spy is the one on the restored rule."""
-        assert_entry_refuses("fit", legacy(spy_rule()), UNDECLARED_RULE)
+    def test_it_refuses_at_the_fit(self) -> None:
+        assert_entry_refuses("fit", undeclared_rule(spy_rule()), UNDECLARED_RULE)
 
     def test_replacing_the_function_keeps_the_declaration(self) -> None:
         """The recorded limit: ``replace`` copies every field that the call does not name."""
@@ -626,12 +619,12 @@ def rules(result: Any) -> list[Any]:
     return [item for item in result.estimator.interventions if isinstance(item, Rule)]
 
 
-def legacy_result(result: Any) -> Any:
-    """``result`` as an artifact written before ``rule_kind`` existed would restore it."""
-    return legacy_result_of(result, "rule_kind", rules)
+def undeclared(result: Any) -> Any:
+    """A copy of ``result`` whose rules no longer declare themselves known."""
+    return undeclared_copy(result, "rule_kind", rules)
 
 
-#: The estimands a retarget of the legacy result requests.
+#: The estimands a retarget of the undeclared result requests.
 RETARGETED = ("ey_regime", "ate_regime")
 RECOMPUTATIONS = ["truncation_curve", "retarget", "refit"]
 
@@ -687,8 +680,8 @@ REFUTATIONS: dict[str, Callable[[Any], Any]] = {
 }
 
 
-class TestALegacyRuleResultRefusesARecomputation:
-    """RM28: every recomputation from a restored result checks the rule as the fit does.
+class TestAnUndeclaredRuleResultRefusesARecomputation:
+    """RM28: every recomputation from a result checks the rule as the fit does.
 
     Every sweep recomputes through ``_retarget_detailed``, and a refit through
     ``_resolve_estimands_for_data``.
@@ -696,7 +689,7 @@ class TestALegacyRuleResultRefusesARecomputation:
 
     @pytest.mark.parametrize("entry", RECOMPUTATIONS)
     def test_every_recomputation_refuses(self, rule_result: Any, entry: str) -> None:
-        old = legacy_result(rule_result)
+        old = undeclared(rule_result)
         assert_refused(recomputations(old, RETARGETED)[entry], CapabilityError, UNDECLARED_RULE)
 
     @pytest.mark.parametrize("entry", RECOMPUTATIONS)
@@ -709,7 +702,7 @@ class TestALegacyRuleResultRefusesARecomputation:
     def test_a_refutation_refuses_before_any_learner_or_rule_call(
         self, study_rule_result: Any, entry: str
     ) -> None:
-        old, function = never_fitting(legacy_result(study_rule_result))
+        old, function = never_fitting(undeclared(study_rule_result))
         # The facade reports its unavailable capability before the refutation reaches
         # the estimator. A direct refutation reaches the estimator's specific refusal.
         reason = "known-function declaration" if entry == "diagnostics.refute" else UNDECLARED_RULE
@@ -727,22 +720,16 @@ class TestALegacyRuleResultRefusesARecomputation:
         assert function.calls == 0
 
 
-# ------------------------------------------------------------------ a restored result's status
+# ------------------------------------------------------------------ the replay slots
 
 
 def user_classes(result: Any) -> list[Any]:
     return [item for item in result.estimator.interventions if isinstance(item, KnownUserTilt)]
 
 
-def legacy_class_result(result: Any) -> Any:
-    """``result`` as an artifact written before its class declared ``density_kind``."""
-    return legacy_result_of(result, "density_kind", user_classes)
-
-
-@pytest.fixture(scope="module")
-def banded_rule_result() -> Any:
-    """The fit of :func:`rule_result` with simultaneous bands, which a restore must drop."""
-    return rule_fit(simultaneous=True)
+def undeclared_class(result: Any) -> Any:
+    """A copy of ``result`` whose user-written class no longer declares its density."""
+    return undeclared_copy(result, "density_kind", user_classes)
 
 
 @pytest.fixture(scope="module")
@@ -751,77 +738,60 @@ def user_class_result() -> Any:
     return oracle_fit(TILT_COUNTS, interventions=(KnownUserTilt(density_kind="known"),))
 
 
-def clustered_rule_fit() -> Any:
-    """The fit of :func:`rule_result` with 10 clusters, which takes ``"few_cluster_plugin"``."""
-    frame = law.frame()
-    return rule_fit(frame.assign(cluster=np.arange(len(frame)) * 10 // len(frame)), id="cluster")
+def assert_no_replay(old: Any) -> None:
+    """Both point replay slots of ``old`` read false."""
+    assert not replayability(old).retarget_cached_nuisances
+    assert not replayability(old).refit_nuisances
 
 
-class TestARestoredUndeclaredResultWithholdsInference:
-    """RM28: a restored result with an undeclared function keeps its point estimates only.
+class TestAnUndeclaredResultReadsNoReplay:
+    """RM28: the replayability record runs the declaration refusals of a fit.
 
-    Loading raises nothing.  The status hook of the restored estimator runs the declaration
-    refusals of a fit, and a refusal gives the result the ``"undeclared_function_plugin"``
-    status.  The stored interval becomes a diagnostic, and ``summary()`` prints the reason.
+    A result whose function loses its declaration keeps its estimates, and every replay
+    slot reads false, as every recomputation from it refuses.
     """
 
-    def test_a_restored_rule_result_withholds_inference(self, banded_rule_result: Any) -> None:
-        assert banded_rule_result.simultaneous is not None
-        old = legacy_result(banded_rule_result)
-        assert_stored_interval_is_a_diagnostic(banded_rule_result, old)
-        assert not replayability(old).retarget_cached_nuisances
-        assert not replayability(old).refit_nuisances
+    def test_an_undeclared_rule_result_reads_no_replay(self, rule_result: Any) -> None:
+        old = undeclared(rule_result)
+        assert_no_replay(old)
         capability = old.diagnostics.capability("truncation_curve")
         assert not capability.available
         assert "known-function declaration" in capability.reason
 
-    def test_a_restored_rule_result_refuses_every_replay_row(self, banded_rule_result: Any) -> None:
+    def test_an_undeclared_rule_result_refuses_every_replay_row(self, rule_result: Any) -> None:
         """Each slot agrees with its call, and a combined report still runs."""
-        old = legacy_result(banded_rule_result)
+        old = undeclared(rule_result)
         assert_replay_agrees(old, RETARGETED)
         assert_replay_rows_refused(old, POINT_REPLAY_DECLARATION)
 
-    def test_a_restored_study_result_withholds_inference(self, study_rule_result: Any) -> None:
-        """A ``CausalStudy`` result restores through the same status hook as a fit."""
-        old = legacy_result(study_rule_result)
-        assert_stored_interval_is_a_diagnostic(study_rule_result, old)
+    def test_an_undeclared_study_result_reads_no_replay(self, study_rule_result: Any) -> None:
+        """A ``CausalStudy`` result reads the same record as a fit."""
+        assert_no_replay(undeclared(study_rule_result))
 
-    def test_a_restored_user_class_result_withholds_inference(self, user_class_result: Any) -> None:
-        old = legacy_class_result(user_class_result)
-        assert_stored_interval_is_a_diagnostic(user_class_result, old)
-        assert not replayability(old).retarget_cached_nuisances
-        assert not replayability(old).refit_nuisances
+    def test_an_undeclared_user_class_result_reads_no_replay(self, user_class_result: Any) -> None:
+        assert_no_replay(undeclared_class(user_class_result))
 
     @pytest.mark.parametrize("kind", ["estimated", "Known"])
-    def test_a_modified_declaration_withholds_inference(self, rule_result: Any, kind: str) -> None:
+    def test_a_modified_declaration_reads_no_replay(self, rule_result: Any, kind: str) -> None:
         """A refused declaration, and a value outside the three states, which is a ``DataError``."""
         copy = loads(dumps(rule_result))
-        restored(rules(copy)[0], "rule_kind", kind)
-        assert_stored_interval_is_a_diagnostic(rule_result, loads(dumps(copy)))
+        modified(rules(copy)[0], "rule_kind", kind)
+        assert_no_replay(copy)
+        assert_replay_agrees(copy, RETARGETED)
 
-    def test_the_undeclared_status_precedes_the_cluster_status(self) -> None:
-        """The precedence on a fit: the status comes before ``"few_cluster_plugin"``."""
-        result = clustered_rule_fit()
-        assert result.inference_status == "few_cluster_plugin"
-        old = legacy_result(result)
-        assert_withholds(old, UNDECLARED_STATUS)
-
-    def test_a_restored_declared_result_keeps_its_interval(
-        self, banded_rule_result: Any, user_class_result: Any
-    ) -> None:
-        """The control: a declared rule and a declared class load under their interval."""
-        for result in (banded_rule_result, user_class_result):
-            restored_result = loads(dumps(result))
-            assert_keeps_its_interval(result, restored_result)
-            assert replayability(restored_result).retarget_cached_nuisances
-            assert replayability(restored_result).refit_nuisances
-            assert_replay_agrees(restored_result, RETARGETED)
-            assert_replay_rows_available(restored_result)
-        assert loads(dumps(banded_rule_result)).simultaneous is not None
+    def test_a_declared_result_replays(self, rule_result: Any, user_class_result: Any) -> None:
+        """The control: a declared rule and a declared class read every slot true."""
+        for result in (rule_result, user_class_result):
+            copy = loads(dumps(result))
+            assert copy.inference_status == result.inference_status == "influence_curve"
+            assert replayability(copy).retarget_cached_nuisances
+            assert replayability(copy).refit_nuisances
+            assert_replay_agrees(copy, RETARGETED)
+            assert_replay_rows_available(copy)
 
     def test_a_live_configuration_meets_the_declaration_refusal(self) -> None:
-        """``variable_importance`` asks the status before its first fit.  It refuses an
-        undeclared class by the declaration, as the fit does, and not by the status."""
+        """``variable_importance`` refuses an undeclared class by the declaration, as the
+        fit does, before its first fit."""
         estimator = TMLE(estimands="ate", interventions=(BareTilt(),), **never_fit_learners())
         assert_refused(
             lambda: variable_importance(
@@ -830,6 +800,29 @@ class TestARestoredUndeclaredResultWithholdsInference:
             CapabilityError,
             UNDECLARED_CLASS,
         )
+        assert NeverFit.calls == 0
+
+    def test_the_declaration_refusal_precedes_the_scale_refusal_as_in_fit(self) -> None:
+        """The early declaration call isolates itself against the per-candidate scale call.
+
+        The estimator holds an undeclared class *and* cross-fits a continuous outcome on an
+        undeclared scale. ``fit`` names the declaration first. Without the early
+        declaration call, ``variable_importance`` would reach the scale refusal first.
+        """
+        frame, _ = make_linear_ate(n=400, seed=2)
+        estimator = TMLE(
+            estimands="ate",
+            interventions=(BareTilt(),),
+            cross_fit=True,
+            n_folds=2,
+            **never_fit_learners(),
+        )
+        columns = {"outcome": "Y", "covariates": ["W1", "W2"]}
+        for call in (
+            lambda: variable_importance(frame, candidates=["A"], estimator=estimator, **columns),
+            lambda: estimator.fit(frame, treatment="A", **columns),
+        ):
+            assert_refused(call, CapabilityError, UNDECLARED_CLASS)
         assert NeverFit.calls == 0
 
 
@@ -842,36 +835,35 @@ def raising(error: type[Exception]) -> Callable[[], None]:
     return refuse
 
 
-class TestTheStatusPredicateIsShared:
-    """``TMLE`` and ``LTMLE`` read a refusal as a status through one function."""
+class TestTheDeclarationPredicateIsShared:
+    """The replayability record reads a refusal through one function."""
 
     @pytest.mark.parametrize("error", [CapabilityError, DataError])
-    def test_a_refusal_is_the_undeclared_status(self, error: type[Exception]) -> None:
-        assert declaration_status(raising(error)) == UNDECLARED_STATUS
+    def test_a_refusal_does_not_pass(self, error: type[Exception]) -> None:
+        assert not declarations_pass(raising(error))
 
-    def test_no_refusal_is_the_influence_curve(self) -> None:
-        assert declaration_status(lambda: None) == "influence_curve"
+    def test_no_refusal_passes(self) -> None:
+        assert declarations_pass(lambda: None)
 
-    def test_another_error_is_not_a_status(self) -> None:
-        """Only a refusal is a status, so a defect in a check is not read as one."""
+    def test_another_error_is_not_a_refusal(self) -> None:
+        """Only a refusal is read, so a defect in a check propagates."""
         with pytest.raises(ValueError, match="refused"):
-            declaration_status(raising(ValueError))
+            declarations_pass(raising(ValueError))
 
-    def test_both_estimators_call_the_one_predicate(self) -> None:
-        assert tmle_module.declaration_status is declaration_status
-        assert ltmle_module.declaration_status is declaration_status
+    def test_the_record_calls_the_one_predicate(self) -> None:
+        assert assessment_module.declarations_pass is declarations_pass
 
 
 # ------------------------------------------------------------------ the replay
 
 
 def counted_rule_fit() -> tuple[Any, Counter]:
-    """A fitted regime mean whose rule counts its calls, restored without its declaration.
+    """A fitted regime mean whose rule counts its calls, without its declaration.
 
-    The counter is read off the restored result, because a pickle round trip copies it.
+    The counter is read off the copied result, because a pickle round trip copies it.
     """
     rule = Rule(Counter(FixedThreshold(0.0)), name="policy", rule_kind="known")
-    old = legacy_result(_estimate(_study(), RegimeMean((rule,))))
+    old = undeclared(_estimate(_study(), RegimeMean((rule,))))
     function = old.estimator.interventions[0].rule
     function.calls = 0
     return old, function
@@ -903,7 +895,7 @@ class TestTheReplay:
         )
         assert all(cell.failure is None for cell in surface.cells)
 
-    def test_a_legacy_rule_refuses_at_replay_before_it_runs(
+    def test_an_undeclared_rule_refuses_at_replay_before_it_runs(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         old, function = counted_rule_fit()
@@ -963,14 +955,14 @@ def evaluator_witnesses() -> list[Callable[[], None]]:
     return [
         *(
             lambda evaluator=evaluator, name=name: (
-                suite.test_a_restored_rule_refuses_before_it_runs(evaluator, name)
+                suite.test_a_modified_rule_refuses_before_it_runs(evaluator, name)
             )
             for evaluator in EVALUATORS
-            for name in RESTORED_RULE
+            for name in MODIFIED_RULE
         ),
         *(
             lambda name=name: suite.test_an_undeclared_class_refuses_before_its_density_runs(name)
-            for name in ["no attribute", *RESTORED_CLASS]
+            for name in ["no attribute", *MODIFIED_CLASS]
         ),
         suite.test_the_set_checks_every_regime_before_the_first_function,
     ]
@@ -997,14 +989,14 @@ class TestTheWitnessesHaveTeeth:
         assert_every_witness_fails(evaluator_witnesses())
 
     @pytest.mark.parametrize("entry", list(ENTRIES))
-    @pytest.mark.parametrize("name", ["rule", "no attribute", *RESTORED_CLASS])
+    @pytest.mark.parametrize("name", ["rule", "no attribute", *MODIFIED_CLASS])
     def test_removing_the_fit_layer_check_fails_the_fit_witnesses(
         self, entry: str, name: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Mutation R2: the regimes are evaluated after the learners, so a learner runs."""
         monkeypatch.setattr(tmle_module, "refuse_regime_densities", lambda interventions: None)
         if name == "rule":
-            item, fragments = restored(spy_rule(), "rule_kind", None), (UNDECLARED_RULE,)
+            item, fragments = modified(spy_rule(), "rule_kind", None), (UNDECLARED_RULE,)
         else:
             item, fragments = undeclared_classes()[name]
         with pytest.raises(AssertionError):
@@ -1017,7 +1009,7 @@ class TestTheWitnessesHaveTeeth:
     ) -> None:
         """Mutation R2, at a recomputation.  A refit evaluates the rule again, so its
         mutation removes the evaluator checks too."""
-        old = legacy_result(rule_result)
+        old = undeclared(rule_result)
         monkeypatch.setattr(tmle_module, "refuse_regime_densities", lambda interventions: None)
         if entry == "refit":
             monkeypatch.setattr(base_module, "refuse_regime_densities", lambda items: None)
@@ -1025,7 +1017,7 @@ class TestTheWitnessesHaveTeeth:
             assert_refused(recomputations(old, RETARGETED)[entry], CapabilityError, UNDECLARED_RULE)
 
     @pytest.mark.parametrize("refusal", list(LATER_REFUSALS))
-    @pytest.mark.parametrize("kind", list(DECLARED_AND_RESTORED))
+    @pytest.mark.parametrize("kind", list(DECLARED_AND_MODIFIED))
     def test_removing_the_fit_layer_check_alone_lets_the_later_refusal_answer(
         self, refusal: str, kind: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1060,26 +1052,24 @@ class TestTheWitnessesHaveTeeth:
         assert tmle_module.refuse_regime_densities is refuse_regime_densities
         assert tmle_module.as_interventions is as_interventions
 
-    def test_a_status_that_ignores_the_declarations_fails_the_restored_witnesses(
+    def test_a_record_that_ignores_the_declarations_fails_the_replay_witnesses(
         self,
-        banded_rule_result: Any,
         user_class_result: Any,
         rule_result: Any,
         study_rule_result: Any,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Mutation R8: the status predicate returns ``"influence_curve"``."""
-        monkeypatch.setattr(TMLE, "_declared_function_status", lambda self: "influence_curve")
-        suite = TestARestoredUndeclaredResultWithholdsInference()
+        """Mutation R8: the replayability record reads every declaration as passing."""
+        monkeypatch.setattr(assessment_module, "declarations_pass", lambda refuse: True)
+        suite = TestAnUndeclaredResultReadsNoReplay()
         assert_every_witness_fails(
             [
-                lambda: suite.test_a_restored_rule_result_withholds_inference(banded_rule_result),
-                lambda: suite.test_a_restored_study_result_withholds_inference(study_rule_result),
-                lambda: suite.test_a_restored_user_class_result_withholds_inference(
+                lambda: suite.test_an_undeclared_rule_result_reads_no_replay(rule_result),
+                lambda: suite.test_an_undeclared_study_result_reads_no_replay(study_rule_result),
+                lambda: suite.test_an_undeclared_user_class_result_reads_no_replay(
                     user_class_result
                 ),
-                lambda: suite.test_a_modified_declaration_withholds_inference(rule_result, "Known"),
-                suite.test_the_undeclared_status_precedes_the_cluster_status,
+                lambda: suite.test_a_modified_declaration_reads_no_replay(rule_result, "Known"),
             ]
         )
 
@@ -1181,7 +1171,7 @@ class TestASampleThresholdRuleMisstatesTheVariance:
         assert_refused(
             lambda: threshold_rule(learned, rule_kind="estimated"), CapabilityError, ESTIMATED_RULE
         )
-        rule = restored(
+        rule = modified(
             threshold_rule(Counter(learned), rule_kind="known"), "rule_kind", "estimated"
         )
         estimator = TMLE(

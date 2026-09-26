@@ -4,8 +4,8 @@
 ``tests/unit/test_stochastic_regime_densities.py`` (RM25) and
 ``tests/unit/test_msm_design_declaration.py`` (RM27) test the three users of
 :class:`cleverly._declarations.FunctionDeclaration`.  This module holds the parts that do
-not depend on which field is declared: the refusal checks, the restored states, a legacy
-point or longitudinal result and the checks of its status (RM28), the checks that its
+not depend on which field is declared: the refusal checks, the modified states, a point or
+longitudinal result whose declaration is removed after the fit (RM28), the checks that its
 replay slots and rows agree with the calls they stand for (RM23), the fit entries, the
 two-node :func:`panel` with its columns and ``NeverFit`` learners, and the exact-law oracle
 fit.  ``tests/unit/_msm_declaration_support.py``
@@ -33,7 +33,6 @@ from cleverly.exceptions import CapabilityError, DataError
 from cleverly.sensitivity.positivity import truncation_curve
 from tests import discrete_law as law
 from tests.conftest import OracleOutcome, OracleTreatment
-from tests.unit._inference_status_support import assert_withholds
 from tests.unit._natural_course_support import NeverFit
 
 #: ``cleverly.estimators`` exports a function named ``tmle``, which shadows the module.
@@ -41,9 +40,6 @@ tmle_module = importlib.import_module("cleverly.estimators.tmle")
 
 #: A fragment of every refusal of ``"estimated"``: the term the reported curve omits.
 PATHWISE = "pathwise derivative"
-
-#: The status of a result restored with a function this version refuses (RM28).
-UNDECLARED_STATUS = "undeclared_function_plugin"
 
 
 def assert_refused(build: Callable[[], Any], error: type[Exception], *fragments: str) -> None:
@@ -89,60 +85,34 @@ def assert_every_witness_fails(witnesses: Iterable[Callable[[], None]]) -> None:
             witness()
 
 
-def restored(item: Any, field: str, kind: Any) -> Any:
-    """``item`` with its declaration changed after construction, as a restore can leave it."""
+def modified(item: Any, field: str, kind: Any) -> Any:
+    """``item`` with its declaration changed after construction, as a caller can leave it."""
     object.__setattr__(item, field, kind)
     return item
 
 
-def restored_states(undeclared: str, estimated: str) -> dict[str, tuple[Any, tuple[str, ...]]]:
-    """What a restored object can carry, and the fragments of the refusal each one meets."""
+def modified_states(undeclared: str, estimated: str) -> dict[str, tuple[Any, tuple[str, ...]]]:
+    """What a modified object can carry, and the fragments of the refusal each one meets."""
     return {"undeclared": (None, (undeclared,)), "estimated": ("estimated", (estimated, PATHWISE))}
 
 
-def legacy_result(result: Any, field: str, select: Callable[[Any], list[Any]]) -> Any:
-    """``result`` as an artifact written before ``field`` existed would restore it.
+def undeclared_copy(result: Any, field: str, select: Callable[[Any], list[Any]]) -> Any:
+    """A copy of ``result`` whose selected objects no longer declare ``field`` (RM28).
 
-    ``select`` maps the result to the objects that carry ``field``.  A point result holds
+    ``select`` maps the copy to the objects that carry ``field``.  A point result holds
     them on ``result.estimator``, and a longitudinal result holds its resolved regimens on
-    ``result.config.regimens``.  ``select`` must select at least one, or the result would
-    restore with nothing to drop.
+    ``result.config.regimens``.  The constructors refuse an undeclared function, so the
+    copy sets the field to ``None`` with ``object.__setattr__``, as a caller can modify a
+    live object.  ``select`` must select at least one object, or the copy would carry
+    nothing to refuse.
     """
-    old = loads(dumps(result))
-    for item in select(old):
-        vars(item).pop(field)
-    old = loads(dumps(old))
-    items = select(old)
+    copy = loads(dumps(result))
+    items = select(copy)
     assert items, f"the result carries no object with {field}"
-    assert all(getattr(item, field) is None for item in items)
-    return old
-
-
-def assert_stored_interval_is_a_diagnostic(result: Any, old: Any) -> None:
-    """``old``, ``result`` restored without its declaration, withholds inference (RM28).
-
-    Every point estimate is unchanged.  Every estimate takes
-    :data:`UNDECLARED_STATUS`, and ``ci``, ``pvalue`` and ``std_error`` refuse with its
-    reason, which ``summary()`` prints.  The stored interval and standard error remain as
-    ``plugin_interval`` and ``plugin_std_error``, and the simultaneous bands are dropped.
-    The first line is the nonzero witness: the declared result reported an interval.
-    """
-    assert result.inference_status == "influence_curve"
-    assert_withholds(old, UNDECLARED_STATUS)
-    assert old.estimates.keys() == result.estimates.keys()
-    for name, estimate in result.estimates.items():
-        assert old.estimates[name].psi == estimate.psi
-        assert old.estimates[name].plugin_interval == estimate.ci
-        assert old.estimates[name].plugin_std_error == estimate.std_error
-    assert old.simultaneous is None
-
-
-def assert_keeps_its_interval(result: Any, old: Any) -> None:
-    """``old``, ``result`` restored, keeps ``"influence_curve"`` and every stored interval."""
-    assert old.inference_status == "influence_curve"
-    for name, estimate in result.estimates.items():
-        assert old.estimates[name].psi == estimate.psi
-        assert old.estimates[name].ci == estimate.ci
+    for item in items:
+        assert getattr(item, field) is not None, f"{field} was already undeclared"
+        object.__setattr__(item, field, None)
+    return copy
 
 
 # ------------------------------------------------------------------------ the replay slots
@@ -201,7 +171,7 @@ def replay_rows(result: Any) -> list[Any]:
 def assert_replay_rows_refused(result: Any, code: str) -> None:
     """Every replay row reads unavailable, the replay code refuses one, and a report runs.
 
-    For a restored result whose replay slots read false, and ``code`` is the omission code
+    For a modified result whose replay slots read false, and ``code`` is the omission code
     that ``replayability`` reports for it. A row that a rule of its own refuses keeps that
     sentence, so the code need not name every row. The ``refute`` row reads unavailable
     too. A longitudinal ``refute`` row declares no replay slot, because it is unavailable
@@ -221,7 +191,7 @@ def assert_replay_rows_refused(result: Any, code: str) -> None:
 def assert_replay_rows_available(result: Any) -> None:
     """No replay row of ``result`` is refused by its slot, and one of them answers.
 
-    The mirror of :func:`assert_replay_rows_refused`, for a declared restored result.
+    The mirror of :func:`assert_replay_rows_refused`, for a declared result.
     Every slot a row declares reads true, and no row quotes a replay code. A row can still
     be refused by a rule of its own, so the check is that one row reads available or
     deferred.

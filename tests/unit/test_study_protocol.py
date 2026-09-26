@@ -9,7 +9,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-import joblib
 import numpy as np
 import pytest
 from joblib import hash as joblib_hash
@@ -21,14 +20,12 @@ from cleverly import (
     ExplicitAdjustmentProvider,
     LongitudinalTreatment,
     PointTreatment,
-    Provenance,
     RegimeMean,
     StudyProtocol,
     load,
 )
 from cleverly.datasets import make_linear_ate, make_longitudinal
 from tests.conftest import FAST_KWARGS, IN_SAMPLE
-from tests.pickles import _LegacyPickle
 
 
 def _protocol(**overrides: Any) -> StudyProtocol:
@@ -86,6 +83,13 @@ def test_protocol_is_frozen_and_its_schema_version_cannot_be_supplied() -> None:
         _protocol(schema_version=2)
     with pytest.raises(ValueError, match="schema_version must be 1"):
         StudyProtocol.from_dict({**protocol.to_dict(), "schema_version": 2})
+
+
+def test_from_dict_requires_schema_version() -> None:
+    payload = _protocol().to_dict()
+    del payload["schema_version"]
+    with pytest.raises(ValueError, match="schema_version is required"):
+        StudyProtocol.from_dict(payload)
 
 
 @pytest.mark.parametrize(
@@ -248,66 +252,6 @@ def test_complete_protocol_and_digest_survive_result_round_trip(
     for line in restored.identified_effect.protocol.summary_lines():
         assert line in restored.identified_effect.summary()
         assert line in restored.summary()
-
-
-def _write_pre_protocol_artifact(result: Any, path: Path) -> None:
-    study = result.identified_effect._study
-    study_state = {name: value for name, value in vars(study).items() if name != "_protocol"}
-    effect_state = {
-        name: value
-        for name, value in result.identified_effect.__dict__.items()
-        if name != "protocol"
-    }
-    effect_state["_study"] = _LegacyPickle(type(study), study_state)
-    provenance_state = {
-        name: value
-        for name, value in result.provenance.__dict__.items()
-        if name != "protocol_fingerprint"
-    }
-    result_state = dict(result.__getstate__() if hasattr(result, "__getstate__") else vars(result))
-    result_state["identified_effect"] = _LegacyPickle(type(result.identified_effect), effect_state)
-    result_state["provenance"] = _LegacyPickle(type(result.provenance), provenance_state)
-    joblib.dump(_LegacyPickle(type(result), result_state), path)
-
-
-@pytest.mark.parametrize("fixture_name", ["protocol_point_result", "protocol_longitudinal_result"])
-def test_public_load_backfills_pre_protocol_point_and_longitudinal_artifacts(
-    fixture_name: str, request: pytest.FixtureRequest, tmp_path: Path
-) -> None:
-    current = request.getfixturevalue(fixture_name)
-    without_protocol = replace(
-        current,
-        identified_effect=replace(current.identified_effect, protocol=None),
-        provenance=replace(current.provenance, protocol_fingerprint=None),
-    )
-    path = tmp_path / f"legacy-{fixture_name}.joblib"
-    _write_pre_protocol_artifact(without_protocol, path)
-
-    restored = load(path)
-
-    assert restored.identified_effect.protocol is None
-    assert restored.identified_effect._study.protocol is None
-    assert restored.provenance.protocol_fingerprint is None
-    assert "causal study protocol: absent" in restored.identified_effect.summary()
-    assert "causal study protocol: absent" in restored.summary()
-
-
-def test_provenance_from_dict_accepts_a_record_without_protocol_digest() -> None:
-    provenance = Provenance(
-        cleverly_version="0.1",
-        python_version="3.13",
-        platform="test",
-        created_utc="2026-09-10T00:00:00+00:00",
-        n=10,
-        n_covariates=2,
-        n_clusters=None,
-        data_fingerprint="data",
-        fold_fingerprint="folds",
-    )
-    payload = provenance.to_dict()
-    payload.pop("protocol_fingerprint")
-
-    assert Provenance.from_dict(payload).protocol_fingerprint is None
 
 
 @pytest.mark.parametrize("fixture_name", ["protocol_point_result", "protocol_longitudinal_result"])

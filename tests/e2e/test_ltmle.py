@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import inspect
 import warnings
-from types import SimpleNamespace
 from typing import Any, ClassVar
 
 import numpy as np
@@ -21,7 +20,7 @@ from cleverly.datasets import (
 from cleverly.exceptions import DataError, PositivityWarning
 from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalError, LongitudinalResult
 from cleverly.longitudinal.estimator import _level_head
-from cleverly.validation.longitudinal import STITCHED_SCORE_Z_TOLERANCE, _stitched_score_z
+from cleverly.validation.longitudinal import STITCHED_SCORE_Z_TOLERANCE, _standardized_score
 
 #: Fast-tier settings: parametric nuisances, few folds, seeded.  The mechanism of
 #: ``make_longitudinal`` is logistic-linear in the recorded history, so ``glm`` estimates
@@ -169,25 +168,19 @@ def test_the_reported_score_is_the_score_of_the_reported_fit(
 
 
 def test_clustered_stitching_uses_clusters_as_the_independent_units() -> None:
-    """Two correlated blocks are two draws, not 200 independent observations."""
+    """Two correlated blocks are two draws, not 200 independent observations.
+
+    ``_standardized_score`` is the ``z`` of every stitching row the working model reports.
+    """
     contribution = np.concatenate([np.ones(100), np.full(100, -7.0 / 13.0)])
-    step = SimpleNamespace(
-        clever=np.ones(200),
-        pseudo_outcome=contribution,
-        targeted=np.zeros(200),
-    )
-    iid = _stitched_score_z(step, np.ones(200))
-    clustered = _stitched_score_z(step, np.ones(200), np.repeat([0, 1], 100))
+    iid = float(_standardized_score(contribution)[0])
+    clustered = float(_standardized_score(contribution, np.repeat([0, 1], 100))[0])
     assert iid == pytest.approx(4.232020793899766)
     assert clustered == pytest.approx(0.3)
     assert iid > STITCHED_SCORE_Z_TOLERANCE
     assert clustered < STITCHED_SCORE_Z_TOLERANCE
-    assert np.isnan(_stitched_score_z(step, np.ones(200), np.zeros(200, dtype=int)))
-
-    constant = SimpleNamespace(
-        clever=np.ones(200), pseudo_outcome=np.ones(200), targeted=np.zeros(200)
-    )
-    assert np.isnan(_stitched_score_z(constant, np.ones(200)))
+    assert np.isnan(_standardized_score(contribution, np.zeros(200, dtype=int))[0])
+    assert np.isnan(_standardized_score(np.ones(200))[0])
 
 
 def test_recovers_the_truth_on_average() -> None:
@@ -285,7 +278,7 @@ def test_a_three_node_recursion_recovers_the_truth() -> None:
         multiplier = fit.obs_weights * step.clever
         score = float(np.mean(multiplier * (step.pseudo_outcome - step.targeted)))
         assert abs(score) / float(np.mean(np.abs(multiplier))) < 1e-9
-    assert len(result.diagnostics.stagewise().to_frame()) == 6  # two regimens by three nodes
+    assert len(result.diagnostics.support().to_frame()) == 6  # two regimens by three nodes
     estimate = result["ey_regimen[always]"]
     assert abs(estimate.psi - truth) < 3.0 * estimate.std_error
 
@@ -407,7 +400,7 @@ def test_diagnostics_report_the_cumulative_leverage(
     describe.
     """
     result, _ = fitted
-    frame = result.diagnostics.stagewise().to_frame()
+    frame = result.diagnostics.support().to_frame()
     assert len(frame) == 4  # two regimens by two nodes
     rows = {(row["regimen"], row["time"]): row for _, row in frame.iterrows()}
     for label, fit in result.fits.items():
@@ -478,7 +471,6 @@ def test_material_cumulative_truncation_warns_and_reports_the_share() -> None:
         result = run(frame, regimens={"always": 1}, g_bounds=0.9)
     message = str(caught[0].message)
     assert "diagnostics.support()" in message
-    assert "diagnostics.stagewise()" not in message
     diagnostics = result.diagnostics.support().to_frame()
     assert float(diagnostics["share_truncated"].max()) == 1.0
     fit = result.fits["always"]
@@ -518,7 +510,7 @@ def test_a_nonbinding_bound_reports_zero_without_a_positivity_warning() -> None:
     np.testing.assert_array_equal(
         result.fits["always"].cumulative_unbounded, result.fits["always"].cumulative
     )
-    assert float(result.diagnostics.stagewise().to_frame()["share_truncated"].max()) == 0.0
+    assert float(result.diagnostics.support().to_frame()["share_truncated"].max()) == 0.0
 
 
 def test_contrast_and_covariance_use_the_joint_curve(
@@ -621,7 +613,7 @@ def test_polars_in_polars_out() -> None:
     frame, _ = make_longitudinal(n=800, seed=5, backend="polars")
     result = run(frame)
     assert isinstance(result.to_frame(), polars.DataFrame)
-    assert isinstance(result.diagnostics.stagewise().to_frame(), polars.DataFrame)
+    assert isinstance(result.diagnostics.support().to_frame(), polars.DataFrame)
 
 
 def test_the_two_backends_produce_identical_numbers() -> None:
@@ -778,7 +770,7 @@ class TestObservationWeights:
         result = run(frame, weights="w")
         rows = {
             (row["regimen"], row["time"]): row
-            for _, row in result.diagnostics.stagewise().to_frame().iterrows()
+            for _, row in result.diagnostics.support().to_frame().iterrows()
         }
         for label, fit in result.fits.items():
             for step in fit.steps:
@@ -876,7 +868,7 @@ class TestADynamicRule:
         fit ran; for a rule it is the only place the report says what the rule actually
         did to this sample, since the settings can only say that a rule was declared.
         """
-        frame = fitted.diagnostics.stagewise().to_frame()
+        frame = fitted.diagnostics.support().to_frame()
         shares = {
             (row["regimen"], row["time"]): row["share_assigned_1"] for _, row in frame.iterrows()
         }
@@ -1362,7 +1354,7 @@ class TestASurvivalOutcome:
     ) -> None:
         """The ``regimen`` column is the regimen, not the key the fit is filed under."""
         result, _ = fitted
-        rows = result.diagnostics.stagewise().to_frame()
+        rows = result.diagnostics.support().to_frame()
         assert set(rows["regimen"]) == {"always", "never"}
         assert set(rows["horizon"]) == {1, 2}
         # One row per node of every horizon of every regimen: 2 * (1 + 2).

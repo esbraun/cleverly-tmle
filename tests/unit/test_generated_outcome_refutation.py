@@ -28,7 +28,7 @@ from cleverly.validation import (
     ReplicationFailure,
     refute,
 )
-from tests.pickles import FUNCTIONAL_TAMPERINGS
+from tests.unit._functional_tampering import FUNCTIONAL_TAMPERINGS
 from tests.unit._refutation_support import RefitResult, StubResult, stub_estimate
 
 
@@ -329,10 +329,10 @@ class TestGeneratedProcesses:
 
 
 class TestGeneratedOutcomeRefusals:
-    def test_legacy_fit_is_refused_before_a_refit(self) -> None:
+    def test_missing_identification_is_refused_before_a_refit(self) -> None:
         result = _eligible_result()
         result.identified_effect = None
-        with pytest.raises(CapabilityError, match="legacy fit"):
+        with pytest.raises(CapabilityError, match="this result records none"):
             refute(result, tests=("placebo", "dummy_outcome"), n_replicates=1)
         assert result.estimator.calls == []
 

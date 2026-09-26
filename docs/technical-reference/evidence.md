@@ -255,10 +255,9 @@ The latter checks both multi-arm DR-TMLE union-model cells against the complex-s
 derivative through real `DRTMLE` fits, and exercises `CTMLE(strategy="oat")` on the regular
 exact law where its generated design identifies `W`.
 
-The four registered rows replace the `TestMultiArmCollaborativeCoverage` legacy guard, which
-stays deprecated and does not run. The records publish replication accounting, truth and
-comparison verdicts, nuisance-regime properties, root-n ladders, and each selector path against
-one forced empty path. The reporting-policy rows keep red cells where the evidence does not
+The four registered rows publish replication accounting, truth and comparison verdicts, and
+nuisance-regime properties. They also cover root-n ladders and each selector path against one
+forced empty path. The reporting-policy rows keep red cells where the evidence does not
 support a stronger claim. Registration does not turn an observed limitation into an inherited
 binary theorem.
 

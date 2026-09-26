@@ -5,15 +5,11 @@ from __future__ import annotations
 import dataclasses
 import importlib
 import inspect
-import json
 import re
 import types
 import typing
-from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pandas as pd
 import pytest
 import sklearn.linear_model
@@ -34,7 +30,6 @@ from cleverly import (
     ValidationReport,
     load,
 )
-from cleverly._assessment_cache import _CACHE_GENERATIONS
 from cleverly.assessment import (
     _ATTENTION,
     _BLOCKING,
@@ -47,13 +42,11 @@ from cleverly.assessment import (
     SENSITIVITY_ROUTES,
     AssessmentItem,
     DiagnosticReport,
-    LongitudinalDiagnostics,
     _defaults_to_ambiguous_estimand,
 )
 from cleverly.datasets import make_linear_ate, make_multi_arm
 from cleverly.estimators import TMLE
-from cleverly.sensitivity import ConfounderStrengthGrid, PositivityReport, simulated_confounding
-from cleverly.sensitivity import omitted_variable as omitted_variable_module
+from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from cleverly.sensitivity._parameters import arm_parameters
 from cleverly.sensitivity._simulated_confounding_request import (
     _FIT_WIDE_RULES,
@@ -61,14 +54,12 @@ from cleverly.sensitivity._simulated_confounding_request import (
     _MULTI_ARM_REFUSAL,
     _fit_wide_refusal,
 )
-from cleverly.sensitivity.missingness import fit_wide_tilt_refusal
-from cleverly.sensitivity.positivity import positivity_report, truncation_refusal
+from cleverly.sensitivity.positivity import positivity_report
 from cleverly.targets.population_intervention import NATURAL_COURSE_SUPPORT_REFUSAL
 from cleverly.validation.nuisance import nuisance_diagnostics
-from cleverly.validation.refute import DEFAULT_TESTS, refute_refusal
 from tests import discrete_law_mar
 from tests.conftest import IN_SAMPLE, OracleMissingness, OracleOutcome, OracleTreatment
-from tests.unit._capability_sweep_support import DECLINED, KINDS, MUTATIONS
+from tests.unit._capability_sweep_support import KINDS
 from tests.unit._confounding_support import forbid_draw_and_refit
 
 
@@ -209,42 +200,6 @@ def point_result():  # type: ignore[no-untyped-def]
 
 
 @pytest.fixture(scope="module")
-def overfit_propensity_result():  # type: ignore[no-untyped-def]
-    """The same point ATE design, fitted with a propensity model that memorizes its rows.
-
-    :func:`test_a_pre_method_aware_nuisance_report_uses_additive_defaults` reads a real
-    finding off a nuisance report, not a name the report happens to carry. In sample,
-    ``point_result``'s logistic propensity model is well calibrated and reports no
-    finding, so it cannot witness a legacy report that still renders one. A decision
-    tree fit in sample on the same rows it predicts reaches AUC 1.0, which is the
-    "positivity problem, not a good fit" finding on a fact about this fit.
-    """
-    from sklearn.tree import DecisionTreeClassifier
-
-    frame, _ = make_linear_ate(n=350, seed=11)
-    return (
-        CausalStudy(
-            frame,
-            design=PointTreatment(
-                outcome="Y",
-                treatment="A",
-                adjustment=["W1", "W2", "W3", "W4"],
-            ),
-        )
-        .identify(ATE())
-        .estimate(
-            outcome_learner=sklearn.linear_model.LinearRegression(),
-            treatment_learner=DecisionTreeClassifier(random_state=0),
-            n_folds=3,
-            learner_folds=2,
-            random_state=4,
-            simultaneous=False,
-            **IN_SAMPLE,
-        )
-    )
-
-
-@pytest.fixture(scope="module")
 def longitudinal_result() -> Any:
     """The in-sample two-node regime fit, the sweep's ``ltmle`` kind."""
     return KINDS["ltmle"].build()
@@ -312,7 +267,6 @@ def test_every_diagnostic_operation_covers_every_result_family() -> None:
         "corrections",
         "truncation_curve",
         "refute",
-        "stagewise",
     }
     assert {item.result_family for item in ASSESSMENT_CAPABILITIES} == {"point", "longitudinal"}
     for family in ("point", "longitudinal"):
@@ -364,8 +318,8 @@ def test_point_diagnostics_reuse_the_existing_numbers(point_result) -> None:  # 
     assert support == positivity_report(point_result)
 
 
-def test_longitudinal_stagewise_reports_one_row_per_node(longitudinal_result) -> None:  # type: ignore[no-untyped-def]
-    frame = longitudinal_result.diagnostics.stagewise().to_frame()
+def test_longitudinal_support_reports_one_row_per_node(longitudinal_result) -> None:  # type: ignore[no-untyped-def]
+    frame = longitudinal_result.diagnostics.support().to_frame()
     assert list(frame.columns) == [
         "regimen",
         "time",
@@ -381,32 +335,10 @@ def test_longitudinal_stagewise_reports_one_row_per_node(longitudinal_result) ->
     assert set(frame["share_assigned_1"]) == {0.0, 1.0}  # two static regimens
 
 
-def test_longitudinal_stagewise_is_a_direct_support_alias(longitudinal_result) -> None:  # type: ignore[no-untyped-def]
-    result = dataclasses.replace(longitudinal_result)
-
-    stagewise = result.diagnostics.stagewise()
-
-    assert stagewise is result.diagnostics.support()
-    cache_operations = {key.split(":", 1)[0] for key in result.assessment_cache}
-    assert "diagnostics.support" in cache_operations
-    assert "diagnostics.stagewise" not in cache_operations
-
-
-def test_only_the_longitudinal_stagewise_alias_is_excluded_from_combined_reports(
-    longitudinal_result,
-) -> None:  # type: ignore[no-untyped-def]
-    excluded = {
-        (row.result_family, row.operation)
-        for row in ASSESSMENT_CAPABILITIES
-        if not row.include_in_combined
-    }
-    assert excluded == {("longitudinal", "stagewise")}
-    assert not longitudinal_result.diagnostics.capability("stagewise").include_in_combined
-
+def test_the_combined_report_presents_support_once(longitudinal_result) -> None:  # type: ignore[no-untyped-def]
     combined = dataclasses.replace(longitudinal_result).diagnostics.run_all()
     names = [item.name for item in combined.items]
     assert names.count("support") == 1
-    assert "stagewise" not in names
     assert combined.report("support").rows
 
 
@@ -428,7 +360,7 @@ def test_longitudinal_score_and_nuisance_adapters_cover_every_node(longitudinal_
     kinds = [row.kind for row in scores.rows]
     assert kinds == ["solver"] * expected
     assert all(row.score >= 0 and row.relative_score >= 0 for row in scores.rows)
-    assert all(row.n > 0 and row.reported_loss >= 0 for row in nuisances.rows)
+    assert all(row.n > 0 and row.loss >= 0 for row in nuisances.rows)
 
 
 def test_longitudinal_nuisance_capability_names_every_retained_artifact(
@@ -593,14 +525,8 @@ def test_a_saved_facade_carries_no_verdict_it_memoized(multi_arm_result, tmp_pat
     """A memo is derived state, and an artifact that keeps one pins a stale verdict.
 
     ``result.sensitivity`` is cached on the result and ``save`` pickles the result whole,
-    so a facade the caller has touched wrote ``_evalue_selections`` into the artifact. A
-    multi-arm result saved before ``deferred`` existed reloaded with
-    ``{None: ("unavailable", ...)}`` inside it, and the row read that tuple instead of
-    recomputing. The loaded result reported an unavailable E-value with no next step, past
-    the ``sensitivity.run_all`` cache generation that exists to force the recompute.
-
-    A same-version round trip pins the write side. The revived state below pins the read
-    side, which is the migration case, and needs no committed binary artifact.
+    so a facade the caller has touched would write ``_evalue_selections`` into the
+    artifact. ``__getstate__`` drops every memo, and a same-version round trip pins it.
     """
     facade = multi_arm_result.sensitivity
     fresh = facade.run_all()["evalue"]
@@ -618,15 +544,6 @@ def test_a_saved_facade_carries_no_verdict_it_memoized(multi_arm_result, tmp_pat
     assert "_evalue_selections" not in restored.sensitivity.__dict__
     assert restored.sensitivity.capability("evalue").status is AssessmentStatus.DEFERRED
     assert restored.sensitivity.run_all()["evalue"] == fresh
-
-    stale = dict(state)
-    stale["_evalue_selections"] = {None: ("unavailable", "an older verdict for this fit")}
-    revived = type(facade).__new__(type(facade))
-    revived.__setstate__(stale)
-
-    assert "_evalue_selections" not in revived.__dict__
-    assert revived.capability("evalue").status is AssessmentStatus.DEFERRED
-    assert revived.run_all()["evalue"] == fresh
 
 
 #: Every operation that declares ``estimand="ate"`` and answers for one parameter, with
@@ -753,30 +670,6 @@ def test_a_reported_ate_settles_the_choice_and_nothing_defers(  # type: ignore[n
         AssessmentStatus.UNAVAILABLE,
     }
     point_result.assessment_cache.clear()
-
-
-def test_a_saved_aggregate_from_before_the_deferral_is_not_replayed(  # type: ignore[no-untyped-def]
-    multi_arm_result, tmp_path
-) -> None:
-    """The migration case: the stale row is inside the artifact, not in the code.
-
-    ``run_all`` is cached on the result and ``save`` writes that cache, so a multi-arm
-    result saved before this change carries a combined report whose bound says
-    ``unavailable`` with no argument to act on. The cache key is what rejects it, so both
-    aggregates carry a generation and both had to move. Without the bump the loaded result
-    hits the old entry and republishes the old taxonomy.
-    """
-    result = dataclasses.replace(multi_arm_result)
-    fresh = result.sensitivity.run_all()
-    assert fresh["omitted_confounding"].status is AssessmentStatus.DEFERRED
-
-    current = next(key for key in result.assessment_cache if key.startswith("sensitivity.run_all:"))
-    result.assessment_cache.clear()
-    result.assessment_cache[_with_cache_generation(current, 1)] = "a verdict from before"
-    restored = load(result.save(tmp_path / "stale-multi-arm-aggregate.joblib"))
-
-    assert restored.sensitivity.run_all() == fresh
-    assert restored.diagnostics.run_all()["refute"].status is AssessmentStatus.DEFERRED
 
 
 def test_one_predicate_answers_the_row_and_the_substitution(multi_arm_result) -> None:  # type: ignore[no-untyped-def]
@@ -1267,267 +1160,6 @@ def test_cached_assessments_replay_after_persistence(
     assert restored.diagnostics.run_all() == diagnostics
 
 
-def test_a_pre_method_aware_nuisance_report_uses_additive_defaults(
-    overfit_propensity_result, tmp_path
-) -> None:
-    """An artifact pickled before the method-aware fields reads back and still renders.
-
-    Every field this change added carries a class-level default, so a legacy instance
-    resolves it through the class rather than through its own ``__dict__``. Asserting the
-    six attribute values alone does not test that: they resolve the same way whether or
-    not the instance ever lost them.
-
-    What a legacy artifact actually does is get *rendered*, and each renderer reads the
-    new fields directly. ``summary``, ``verdict``, ``findings``, the two frames and the
-    combined row are therefore the assertions here. An attribute that stops carrying a
-    default raises inside one of those, and nowhere else.
-    """
-    import joblib
-
-    report = nuisance_diagnostics(overfit_propensity_result)
-    live_summary = report.summary()
-    live_findings = report.findings
-    added = (
-        "selection",
-        "treatment_role",
-        "repeat_spread",
-        "selection_omission",
-        "repeat_spread_omission",
-        "reported_repeat",
-    )
-    for name in added:
-        object.__delattr__(report, name)
-
-    path = tmp_path / "legacy-nuisance-report.joblib"
-    joblib.dump(report, path)
-    restored = joblib.load(path)
-
-    assert restored is not report
-    # The round trip reconstructs the legacy shape rather than backfilling it, which is
-    # what makes the renderings below run against a genuinely older instance.
-    assert not set(added) & set(vars(restored))
-
-    assert restored.selection is None
-    assert restored.treatment_role is None
-    assert restored.repeat_spread == ()
-    assert restored.selection_omission is None
-    assert restored.repeat_spread_omission is None
-    assert restored.reported_repeat == 1
-
-    summary = restored.summary()
-    assert summary == live_summary
-    assert restored.verdict() in summary
-    assert restored.verdict().startswith("VERDICT:")
-    assert "C-TMLE" not in summary
-    assert "Repeated-split sensitivity" not in summary
-    assert "split spread unavailable" not in summary
-    # Non-empty, so the calibration rule runs its ``treatment_role`` gate on a live note
-    # rather than on an empty tuple that a broken gate would also produce.
-    assert live_findings
-    assert restored.findings == live_findings
-    assert list(restored.to_frame()["model"]) == [model.name for model in restored.models]
-    assert len(restored.repeat_spread_frame()) == 0
-
-    item = INTERPRETERS["nuisance_models"](restored, None)
-    assert item.status is AssessmentStatus.WARNING
-    assert item.detail == "; ".join(live_findings)
-
-    # The repeated branches read three of the absent fields and are unreachable at one
-    # draw, so the draw count is raised on the same legacy instance to reach them.
-    object.__setattr__(restored, "n_repeats", 3)
-    repeated_summary = restored.summary()
-    assert "draw 1 of 3" in repeated_summary
-    assert "split spread unavailable" not in repeated_summary
-    assert "split spread" not in INTERPRETERS["nuisance_models"](restored, None).detail
-
-
-def _without_cache_generation(key: str) -> str:
-    """Rewrite a current cache key as the unversioned key an older result carries."""
-    operation, encoded = key.split(":", 1)
-    payload = json.loads(encoded)
-    payload.pop("cache_generation")
-    return f"{operation}:{json.dumps(payload, sort_keys=True, separators=(',', ':'))}"
-
-
-def _with_cache_generation(key: str, generation: int) -> str:
-    """Rewrite a current cache key as an older versioned result carries it."""
-    operation, encoded = key.split(":", 1)
-    payload = json.loads(encoded)
-    payload["cache_generation"] = generation
-    return f"{operation}:{json.dumps(payload, sort_keys=True, separators=(',', ':'))}"
-
-
-def _with_previous_generation(key: str) -> str:
-    """Rewrite a current cache key as the generation directly below it.
-
-    Read from ``_CACHE_GENERATIONS`` rather than written as a literal. A seed one below the
-    current number is what puts a bump itself under test, and two bumps in a row each had
-    to be chased through hand-edited literals in three tests. A stale literal stops testing
-    the bump silently, because a miss on a generation nobody uses passes either way.
-    """
-    operation = key.split(":", 1)[0]
-    return _with_cache_generation(key, _CACHE_GENERATIONS[operation] - 1)
-
-
-def test_changed_assessment_schemas_ignore_persisted_unversioned_cache_entries(
-    point_result, tmp_path
-) -> None:  # type: ignore[no-untyped-def]
-    """Old support, aggregate, and validation entries are cache misses after loading."""
-    result = dataclasses.replace(point_result)
-    result.diagnostics.support()
-    result.diagnostics.nuisance_models()
-    result.diagnostics.run_all()
-    result.sensitivity.run_all()
-    result.validate()
-    versioned = {
-        key: value
-        for key, value in result.assessment_cache.items()
-        if key.split(":", 1)[0]
-        in {
-            "diagnostics.support",
-            "diagnostics.nuisance_models",
-            "diagnostics.run_all",
-            "sensitivity.run_all",
-            "validate",
-        }
-    }
-    assert {key.split(":", 1)[0] for key in versioned} == {
-        "diagnostics.support",
-        "diagnostics.nuisance_models",
-        "diagnostics.run_all",
-        "sensitivity.run_all",
-        "validate",
-    }
-
-    result.assessment_cache.clear()
-    legacy_keys = {_without_cache_generation(key) for key in versioned}
-    # Generation one: both aggregates now report ``deferred`` where they reported
-    # ``unavailable`` for an ambiguous default estimand, and a result saved before that
-    # carries the old row in its own cache. The generation directly below each aggregate's
-    # current one puts its latest bump under test: the pooled longitudinal construction for
-    # the diagnostic aggregate, and the RM21 E-value refusal for the sensitivity one.
-    generation_one_keys = {_with_cache_generation(key, 1) for key in versioned}
-    previous_aggregates = {
-        _with_previous_generation(key)
-        for key in versioned
-        if key.startswith(("diagnostics.run_all:", "sensitivity.run_all:"))
-    }
-    stale_keys = legacy_keys | generation_one_keys | previous_aggregates
-    result.assessment_cache.update(dict.fromkeys(stale_keys, "legacy cached report"))
-    restored = load(result.save(tmp_path / "legacy-assessment-cache.joblib"))
-
-    assert restored.diagnostics.support().group_leverage
-    assert restored.diagnostics.nuisance_models() != "legacy cached report"
-    assert restored.diagnostics.run_all() != "legacy cached report"
-    assert restored.sensitivity.run_all() != "legacy cached report"
-    assert restored.validate() != "legacy cached report"
-    assert restored.assess().diagnostics != "legacy cached report"
-    assert restored.assess().sensitivity != "legacy cached report"
-    assert stale_keys <= set(restored.assessment_cache)
-    assert any(
-        "cache_generation" in key and key.startswith("diagnostics.support:")
-        for key in restored.assessment_cache
-    )
-    assert any(
-        "cache_generation" in key and key.startswith("diagnostics.nuisance_models:")
-        for key in restored.assessment_cache
-    )
-    assert any(
-        "cache_generation" in key and key.startswith("sensitivity.run_all:")
-        for key in restored.assessment_cache
-    )
-
-
-def test_longitudinal_alias_and_aggregate_ignore_pre_change_cache_entries(
-    longitudinal_result, tmp_path
-) -> None:  # type: ignore[no-untyped-def]
-    result = dataclasses.replace(longitudinal_result)
-    result.diagnostics.support()
-    result.diagnostics.run_all()
-    current = {
-        key: value
-        for key, value in result.assessment_cache.items()
-        if key.split(":", 1)[0] in {"diagnostics.support", "diagnostics.run_all"}
-    }
-    assert {key.split(":", 1)[0] for key in current} == {
-        "diagnostics.support",
-        "diagnostics.run_all",
-    }
-
-    result.assessment_cache.clear()
-    stale = {_with_previous_generation(key) for key in current}
-    result.assessment_cache.update(dict.fromkeys(stale, "legacy cached report"))
-    result.assessment_cache['diagnostics.stagewise:{"args":[],"kwargs":{}}'] = (
-        "legacy stagewise report"
-    )
-    restored = load(result.save(tmp_path / "legacy-longitudinal-assessment-cache.joblib"))
-
-    # Compared against the value the support key was seeded with. The alias delegates to
-    # ``support`` and reads no key of its own, so an inequality against the stagewise
-    # sentinel holds however the support generation resolves. The positive assertions say
-    # the miss produced a recomputed report rather than any other object.
-    stagewise = restored.diagnostics.stagewise()
-    assert stagewise != "legacy cached report"
-    assert isinstance(stagewise, LongitudinalDiagnostics)
-    assert {row.regimen for row in stagewise.rows} == {"always", "never"}
-    assert {row.time for row in stagewise.rows} == {1, 2}
-    combined = restored.diagnostics.run_all()
-    assert combined != "legacy cached report"
-    assert [item.name for item in combined.items].count("support") == 1
-    assert "stagewise" not in {item.name for item in combined.items}
-    assert stale <= set(restored.assessment_cache)
-
-
-def test_the_validation_report_ignores_its_immediately_previous_generation(
-    point_result, tmp_path
-) -> None:  # type: ignore[no-untyped-def]
-    """The ``validate`` entry one generation below the current one.
-
-    The unversioned and generation-one seeds miss whatever the current number is, so they
-    hold while it stays anything above one and say nothing about a bump. Seeding the
-    generation directly below the current one is what puts the bump itself under test.
-    """
-    result = dataclasses.replace(point_result)
-    result.validate()
-    keys = [key for key in result.assessment_cache if key.split(":", 1)[0] == "validate"]
-    assert len(keys) == 1
-
-    result.assessment_cache.clear()
-    stale = _with_previous_generation(keys[0])
-    result.assessment_cache[stale] = "pre-generation validation report"
-    restored = load(result.save(tmp_path / "previous-generation-validate.joblib"))
-
-    report = restored.validate()
-    assert report != "pre-generation validation report"
-    assert isinstance(report, ValidationReport)
-    assert report.items
-    assert stale in restored.assessment_cache
-
-
-def test_positivity_report_preserves_its_pre_leverage_positional_slots() -> None:
-    """Appending diagnostics must not reinterpret the former repeat and backend slots."""
-    report = PositivityReport(
-        {},
-        {},
-        {},
-        {},
-        {"fraction": 0.0},
-        {},
-        (0.01, 0.99),
-        10,
-        {},
-        (),
-        0.0,
-        0.0,
-        3,
-        "pandas",
-    )
-
-    assert report.n_repeats == 3
-    assert report.backend == "pandas"
-    assert report.group_leverage == {}
-
-
 def test_a_cached_frame_replays_in_the_callers_backend(point_result, tmp_path) -> None:  # type: ignore[no-untyped-def]
     before = point_result.diagnostics.truncation_curve(bounds=[0.02, 0.05])
     assert {
@@ -1915,7 +1547,7 @@ def test_capabilities_never_claims_a_row_that_replayability_forbids(point_result
 
     ``truncation_curve``, ``benchmark`` and ``simulated_confounding`` each read their own
     replay slot in their own facade. ``refute`` read the same slot only when it ran, so a
-    restored result reported ``refute`` available and then raised. This check derives the
+    result without an estimator reported ``refute`` available and then raised. This check derives the
     requirement from the row rather than naming the operations.
     """
     detached = dataclasses.replace(point_result, estimator=None)
@@ -2378,17 +2010,16 @@ def test_completed_none_payload_survives_retrieval_and_pickle(point_result, tmp_
 
 
 @pytest.mark.parametrize(
-    "mse, expected", [(float("nan"), AssessmentStatus.WARNING), (0.1, AssessmentStatus.COMPLETED)]
+    "loss, expected", [(float("nan"), AssessmentStatus.WARNING), (0.1, AssessmentStatus.COMPLETED)]
 )
-def test_longitudinal_loss_warning(mse, expected):
+def test_longitudinal_loss_warning(loss, expected):
     from cleverly.assessment import (
-        INTERPRETERS,
         LongitudinalNuisanceDiagnostics,
         LongitudinalNuisanceRow,
     )
 
     report = LongitudinalNuisanceDiagnostics(
-        (LongitudinalNuisanceRow("always", None, None, 1, 12, mse),)
+        (LongitudinalNuisanceRow("always", None, None, 1, 12, float("nan"), loss=loss),)
     )
     assert INTERPRETERS["nuisance_models"](report, None).status is expected
 
@@ -2494,40 +2125,6 @@ def test_every_status_is_presented_by_exactly_one_grouping() -> None:
     assert set(AssessmentStatus) == {AssessmentStatus.COMPLETED, *summary_order}
 
 
-@pytest.mark.parametrize("fixture_name", ["point_result", "longitudinal_result"])
-def test_every_cached_item_bearing_report_declares_a_cache_generation(  # type: ignore[no-untyped-def]
-    request, fixture_name: str
-) -> None:
-    """A new aggregate cannot enter the cache without a row in the generation table.
-
-    A cached report that carries assessment items carries an interpretation, and an
-    interpretation changes. Without a generation the key never moves, so a result saved
-    before the change replays the old verdict for ever. The table is read from the cache a
-    real fit writes rather than from a list, so a fourth aggregate is covered on the day it
-    is added.
-
-    One family cannot discover an aggregate another family alone writes. A point fit and a
-    longitudinal fit are read here because the two declare different capabilities and reach
-    different report builders, so an aggregate that only a sequential fit produces is
-    covered too.
-    """
-    result = dataclasses.replace(request.getfixturevalue(fixture_name))
-    result.validate()
-    result.diagnostics.run_all()
-    result.sensitivity.run_all()
-    result.assess()
-
-    bearing = {
-        key.split(":", 1)[0]
-        for key, value in result.assessment_cache.items()
-        if isinstance(getattr(value, "items", None), tuple)
-        and all(isinstance(item, AssessmentItem) for item in value.items)
-        and value.items
-    }
-    assert bearing == {"diagnostics.run_all", "sensitivity.run_all", "validate"}
-    assert bearing <= set(_CACHE_GENERATIONS)
-
-
 @pytest.mark.parametrize("backend", ["pandas", "polars"])
 def test_frames_pack_once_and_retrieval_cannot_mutate_cached_storage(
     point_result, backend, monkeypatch, tmp_path
@@ -2609,158 +2206,3 @@ def test_natural_course_explicit_treatment_axis_is_refused_not_redirected(
     """
     with pytest.raises(CapabilityError, match="fits no treatment propensity"):
         natural_course_result.diagnostics.truncation_curve(bounds=(0.01, 0.05), mechanism=False)
-
-
-#: The combined sensitivity report's generation before RM22.  A fact about saved artifacts, so a
-#: literal rather than one below the current number, which would move with a missing bump.
-SENSITIVITY_RUN_ALL_BEFORE_RM22 = 3
-
-#: The single sensitivity entries RM22 versioned.  Before it, their keys carried no generation.
-VERSIONED_BY_RM22 = (
-    "sensitivity.elements",
-    "sensitivity.omitted_confounding",
-    "sensitivity.robustness_value",
-)
-
-
-def _as_before_rm22(patch: pytest.MonkeyPatch) -> None:
-    """Make the package compute and key its sensitivity reports as it did before RM22."""
-    patch.setattr(
-        omitted_variable_module,
-        "_conditioning_share_influence",
-        lambda nu2, indicator, share, weights: 0.0,
-    )
-    for operation in VERSIONED_BY_RM22:
-        patch.delitem(_CACHE_GENERATIONS, operation)
-    patch.setitem(_CACHE_GENERATIONS, "sensitivity.run_all", SENSITIVITY_RUN_ALL_BEFORE_RM22)
-
-
-def _lower_standard_error(bound: Any) -> float:
-    return float((bound.lower - bound.ci_lower) / 1.6448536269514722)
-
-
-def test_an_att_bound_saved_before_rm22_is_recomputed(att_result, monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
-    """A saved result carries its cached bounds, and the generations retire them.
-
-    The stale reports are written as the version before RM22 wrote them: the ATT curve has no
-    share term, and the keys carry the generations of that version.  On this fit the
-    lower-bound standard error at the large strength reads 0.1325 without the term and
-    0.1206 with it.  The control reads the loaded result at the old generations, where each
-    stale report is still served.
-    """
-    result = dataclasses.replace(att_result)
-    strength = {"estimand": "att", "cf_y": 0.5, "cf_d": 0.3}
-    with monkeypatch.context() as before_rm22:
-        _as_before_rm22(before_rm22)
-        stale_bound = result.sensitivity.omitted_confounding(**strength)
-        stale_values = result.sensitivity.robustness_value(estimand="att")
-        stale_elements = result.sensitivity.elements(estimand="att")
-        stale_row = result.sensitivity.run_all()["robustness_value"]
-    assert _lower_standard_error(stale_bound) == pytest.approx(0.1325, abs=5e-5)
-    loaded = load(result.save(tmp_path / "saved-before-rm22.joblib"))
-
-    fresh_bound = loaded.sensitivity.omitted_confounding(**strength)
-    assert _lower_standard_error(fresh_bound) == pytest.approx(0.1206, abs=5e-5)
-    assert loaded.sensitivity.robustness_value(estimand="att")["rva"] > stale_values["rva"]
-    fresh_elements = loaded.sensitivity.elements(estimand="att")
-    assert np.std(fresh_elements.psi_nu2) < np.std(stale_elements.psi_nu2) - 5.0
-    assert loaded.sensitivity.run_all()["robustness_value"].detail != stale_row.detail
-
-    _as_before_rm22(monkeypatch)
-    assert loaded.sensitivity.omitted_confounding(**strength).ci_lower == stale_bound.ci_lower
-    assert loaded.sensitivity.robustness_value(estimand="att") == stale_values
-    assert loaded.sensitivity.run_all()["robustness_value"].detail == stale_row.detail
-
-
-#: The combined reports' generations before RM23.  Facts about saved artifacts, so literals
-#: rather than one below the current numbers, which would move with a missing bump.
-DIAGNOSTICS_RUN_ALL_BEFORE_RM23 = 10
-SENSITIVITY_RUN_ALL_BEFORE_RM23 = 5
-
-
-def _keyed_before_rm23(patch: pytest.MonkeyPatch) -> None:
-    """Key the two combined reports as the version before RM23 keyed them."""
-    patch.setitem(_CACHE_GENERATIONS, "diagnostics.run_all", DIAGNOSTICS_RUN_ALL_BEFORE_RM23)
-    patch.setitem(_CACHE_GENERATIONS, "sensitivity.run_all", SENSITIVITY_RUN_ALL_BEFORE_RM23)
-
-
-def _as_before_rm23(patch: pytest.MonkeyPatch) -> None:
-    """Make the package compute and key its combined reports as it did before RM23.
-
-    M1 to M3 of the sweep restore the tilt, truncation and refute rows that ignored the
-    predicate their calls raise from.
-    """
-    for name in ("M1", "M2", "M3"):
-        MUTATIONS[name].apply(patch)
-    _keyed_before_rm23(patch)
-
-
-#: Each row a report cached before RM23 declined: the kind, the facade, the operation, the
-#: ``run_all`` arguments, the status the loaded result must read, and its sentence.
-CACHED_BEFORE_RM23 = [
-    pytest.param(
-        "shift+missing",
-        "sensitivity",
-        "missingness",
-        {"include_retargets": True},
-        AssessmentStatus.UNAVAILABLE,
-        fit_wide_tilt_refusal,
-        id="tilt",
-    ),
-    pytest.param(
-        "incremental",
-        "diagnostics",
-        "truncation_curve",
-        {"include_retargets": True},
-        AssessmentStatus.UNAVAILABLE,
-        truncation_refusal,
-        id="truncation",
-    ),
-    # The refute row shares the diagnostic report, and it now defers on ``tests``.
-    pytest.param(
-        "split_plan",
-        "diagnostics",
-        "refute",
-        {"include_refits": True},
-        AssessmentStatus.DEFERRED,
-        lambda loaded: refute_refusal(loaded, estimand="ate", tests=DEFAULT_TESTS),
-        id="refute",
-    ),
-]
-
-
-@pytest.mark.parametrize(
-    ("kind", "facade", "operation", "run_all", "status", "reason"), CACHED_BEFORE_RM23
-)
-def test_a_row_cached_before_rm23_is_recomputed(
-    kind: str,
-    facade: str,
-    operation: str,
-    run_all: dict[str, Any],
-    status: AssessmentStatus,
-    reason: Callable[[Any], str | None],
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """A row cached before RM23 is recomputed once the result is saved and loaded.
-
-    The stale report is written as the version before RM23 wrote it, and it declines the
-    request. The loaded result must answer with ``status`` and the sentence ``reason``
-    returns for it. The control keys the loaded result as before RM23, without the rows
-    that wrote the stale report, and the stale row is served again. So a reverted
-    generation fails the fresh assertion, because the key it reads holds the stale row.
-    """
-    result = KINDS[kind].build()
-    with monkeypatch.context() as before_rm23:
-        _as_before_rm23(before_rm23)
-        stale = getattr(result, facade).run_all(**run_all)[operation]
-    assert stale.status is AssessmentStatus.UNAVAILABLE
-    assert DECLINED in stale.detail
-    loaded = load(result.save(tmp_path / f"{operation}-before-rm23.joblib"))
-
-    fresh = getattr(loaded, facade).run_all(**run_all)[operation]
-    assert fresh.status is status
-    assert fresh.detail == reason(loaded)
-
-    _keyed_before_rm23(monkeypatch)
-    assert getattr(loaded, facade).run_all(**run_all)[operation].detail == stale.detail

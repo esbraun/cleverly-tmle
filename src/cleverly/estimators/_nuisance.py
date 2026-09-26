@@ -685,8 +685,8 @@ class RepeatFit:
     seed : int or None, default=None
         The concrete seed this draw ran under.  It seeded the folds, the learners and
         any C-TMLE selection folds.  Under ``random_state=None`` the engine drew it from
-        operating-system entropy, so this field is the only record of it.  ``None`` for a
-        result pickled before the field existed.
+        operating-system entropy, so this field is the only record of it.  ``None`` only on
+        a draw built by hand.
     """
 
     nuisance: NuisanceEstimates

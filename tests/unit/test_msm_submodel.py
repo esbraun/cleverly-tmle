@@ -203,10 +203,10 @@ def test_it_is_reachable_through_the_registry(setup) -> None:
     assert np.array_equal(direct.observed, dispatched.observed)
 
 
-def test_a_builder_predating_the_msm_keyword_is_told_what_to_add() -> None:
+def test_a_builder_without_the_msm_keyword_is_told_what_to_add() -> None:
     """The fix-it message, not a bare ``unexpected keyword argument`` from the dispatcher."""
 
-    def outdated(
+    def without_the_keyword(
         treatment,
         propensity,
         *,
@@ -221,11 +221,11 @@ def test_a_builder_predating_the_msm_keyword_is_told_what_to_add() -> None:
     ):
         raise AssertionError("should not be reached")  # pragma: no cover
 
-    register_submodel("outdated_for_msm_test", outdated)
+    register_submodel("no_msm_for_test", without_the_keyword)
     try:
         with pytest.raises(TypeError, match="does not accept 'msm'"):
-            submodel_for("outdated_for_msm_test", np.zeros(3), np.full((3, 2), 0.5))
+            submodel_for("no_msm_for_test", np.zeros(3), np.full((3, 2), 0.5))
     finally:
         from cleverly.fluctuation.submodel import SUBMODEL_BUILDERS
 
-        del SUBMODEL_BUILDERS["outdated_for_msm_test"]
+        del SUBMODEL_BUILDERS["no_msm_for_test"]

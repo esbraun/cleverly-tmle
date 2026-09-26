@@ -62,7 +62,6 @@ from ..targets import TARGETS, parameter_stem
 from ..targets.population_intervention import NATURAL_COURSE_SUPPORT_REFUSAL
 from ..utils.bounds import g_bounds_for
 from ..utils.frames import emit_frame
-from ..utils.records import _DefaultingUnpickle
 from ..utils.text import format_draw, format_table
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -78,7 +77,7 @@ _QUANTILES = (0.0, 0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99, 1.0)
 _THRESHOLDS = (0.01, 0.025, 0.05, 0.1)
 
 
-class GroupLeverageRow(ScoreLoadRow):
+class GroupScoreLoadRow(ScoreLoadRow):
     """One equation's descriptive absolute residual-multiplier concentration.
 
     The ten shared concentration keys come from
@@ -148,7 +147,7 @@ _COMPOSED_EXCLUSIONS: dict[str, str] = {
 
 
 @dataclass(frozen=True)
-class PositivityReport(_DefaultingUnpickle):
+class PositivityReport:
     """Overlap diagnostics for a fitted TMLE.
 
     Parameters
@@ -169,7 +168,7 @@ class PositivityReport(_DefaultingUnpickle):
         Largest reconstructed absolute clever-covariate value per targeted estimand
         family.  This is a covariate-scale diagnostic, not a score contribution or an
         observation's influence on the estimate.
-    group_leverage : dict of str to GroupLeverageRow
+    group_score_load : dict of str to GroupScoreLoadRow
         Absolute residual-multiplier concentration for each targeted family.  A row holds
         fourteen keys: ``equation``, ``n_total``, ``n_targeted``, ``effective``,
         ``targeted_ratio``, ``total_ratio``, ``top_1pct``, ``top_5pct``, ``max_load``,
@@ -205,7 +204,7 @@ class PositivityReport(_DefaultingUnpickle):
         appear only when :func:`positivity_report` is called directly.  ``mtp`` never
         appears at all, because ``shifts=`` needs a continuous treatment and this report
         refuses one.
-    group_leverage_omissions : dict of str to str
+    group_score_load_omissions : dict of str to str
         Machine-readable reasons an exact group diagnostic or one of its components could
         not be reported.  Exact score-weight loads are never reconstructed from a generic
         submodel, and clipping for a targeted treatment mechanism is unavailable unless
@@ -305,11 +304,6 @@ class PositivityReport(_DefaultingUnpickle):
     composed_excluded: tuple[str, ...] = ()
     nuisance_bound: float = 0.0
     simplex_deviation: float = 0.0
-    #: Defaulted rather than required, so a hand-built fixture still constructs.  The
-    #: default alone does not carry an *old pickle*, which arrives with no key of this name
-    #: at all; :meth:`__setstate__` is what fills it there.  Keyed exactly as
-    #: :attr:`clever_covariate_max` is, because both are filled from the same iteration
-    #: over the fit's targeted groups.
     #: How many cross-fitting draws the fit combined. Everything above describes the
     #: **first** of them, and this is here so a reader knows that.  Overlap is a property
     #: of one fitted mechanism, and combining ``R`` propensity vectors would produce a
@@ -323,17 +317,11 @@ class PositivityReport(_DefaultingUnpickle):
     #: :meth:`to_frame` honours "results come back in the backend you passed in"
     #: without a caller having to thread the container back in by hand.
     backend: str | None = None
-    #: Trailing for positional compatibility with reports created before this diagnostic.
-    group_leverage: dict[str, GroupLeverageRow] = field(default_factory=dict)
-    #: A fitted artifact can predate exact per-column absolute score weights.  Such a
-    #: group is omitted rather than reconstructed from a submodel that might not be the
-    #: one the fit used (for example under fold-specific targeting).
-    group_leverage_omissions: dict[str, str] = field(default_factory=dict)
-
-    # Unpickling a report from before `group_leverage` existed is
-    # `cleverly.utils.records._DefaultingUnpickle`, which this class's own hand-written
-    # restore became.  Its docstring carries the argument for driving the fill from
-    # `dataclasses.fields` rather than from a list of names.
+    group_score_load: dict[str, GroupScoreLoadRow] = field(default_factory=dict)
+    #: A fluctuation without exact per-column absolute score weights is omitted rather
+    #: than reconstructed from a submodel that might not be the one the fit used (for
+    #: example under fold-specific targeting).
+    group_score_load_omissions: dict[str, str] = field(default_factory=dict)
 
     def to_frame(self, data: Any = None) -> Any:
         """Propensity quantiles as a tidy frame.
@@ -439,7 +427,7 @@ class PositivityReport(_DefaultingUnpickle):
             f"({self.truncated['fraction']:.2%}); most extreme untruncated g(W) = "
             f"{self.truncated['most_extreme']:.5g}"
         )
-        if self.group_leverage:
+        if self.group_score_load:
             lines.append("")
             lines.append(
                 format_table(
@@ -480,7 +468,7 @@ class PositivityReport(_DefaultingUnpickle):
                                 else "unavailable"
                             ),
                         ]
-                        for group, load in self.group_leverage.items()
+                        for group, load in self.group_score_load.items()
                     ],
                 )
             )
@@ -493,9 +481,9 @@ class PositivityReport(_DefaultingUnpickle):
         if self.clever_covariate_max:
             for group, value in self.clever_covariate_max.items():
                 lines.append(f"max |clever covariate| ({group}): {value:.4g}")
-        if self.group_leverage_omissions:
+        if self.group_score_load_omissions:
             lines.append("")
-            for group, reason in self.group_leverage_omissions.items():
+            for group, reason in self.group_score_load_omissions.items():
                 lines.append(f"group diagnostic omitted ({group}): {reason}")
         if self.mechanisms:
             lines.append("")
@@ -549,7 +537,7 @@ class PositivityReport(_DefaultingUnpickle):
         omission that does not explain itself reads exactly like a clean bill of health.
 
         The refusal stands, and the note now says where those groups *are* covered.  The
-        per-group leverage table reads each covariate as built rather than a denominator
+        per-group score-load table reads each covariate as built rather than a denominator
         it never forms, so an excluded group has a load measure even though it has no
         derived row.  Naming it keeps the sentence from reading as "nothing here for you".
         """
@@ -567,7 +555,7 @@ class PositivityReport(_DefaultingUnpickle):
             else "no derived denominator row is reported for"
         )
         pointer = (
-            " Their score-weight load is in the group table above." if self.group_leverage else ""
+            " Their score-weight load is in the group table above." if self.group_score_load else ""
         )
         return f"({lead} {excluded}. Read the factor rows above for those estimands.{pointer})"
 
@@ -610,7 +598,7 @@ class PositivityReport(_DefaultingUnpickle):
         the fit clipped at a bound the caller configured, and therefore identifies where
         the score used a bounded rather than fitted mechanism value.
 
-        The **group** quantity from :attr:`group_leverage` is a different descriptive
+        The **group** quantity from :attr:`group_score_load` is a different descriptive
         object: concentration of ``abs(w_i * h_ij)`` in one fitted score equation.  It is
         stated separately, never pooled with arm or mechanism ESS, and adds no tier or
         threshold.  In particular it is not estimator effective sample size, information,
@@ -629,7 +617,7 @@ class PositivityReport(_DefaultingUnpickle):
         clip_label = (
             f"the marginal treatment-mechanism bound [{self.bounds[0]:.4g}, {self.bounds[1]:.4g}]"
         )
-        for group, load in self.group_leverage.items():
+        for group, load in self.group_score_load.items():
             group_fraction = float(load["clipped_fraction"])
             if np.isfinite(group_fraction) and group_fraction > fraction:
                 fraction = group_fraction
@@ -648,7 +636,7 @@ class PositivityReport(_DefaultingUnpickle):
         )
         group_rows = [
             (group, load)
-            for group, load in self.group_leverage.items()
+            for group, load in self.group_score_load.items()
             if np.isfinite(load["targeted_ratio"])
         ]
         if group_rows:
@@ -853,7 +841,7 @@ def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
     # this is recorded rather than restructured.
     most_extreme = float(min(inside.min(), 1.0 - inside.max())) if inside.size else float("nan")
 
-    group_leverage, group_omissions = _group_leverage(result)
+    group_score_load, group_omissions = _group_score_load(result)
     return PositivityReport(
         propensity_quantiles=quantiles,
         tail_mass=tail_mass,
@@ -874,8 +862,8 @@ def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
         nuisance_bound=result.config.missingness_bound,
         n_repeats=result.n_repeats,
         backend=data.backend,
-        group_leverage=group_leverage,
-        group_leverage_omissions=group_omissions,
+        group_score_load=group_score_load,
+        group_score_load_omissions=group_omissions,
     )
 
 
@@ -940,7 +928,7 @@ def _multi_arm_positivity_report(result: TMLEResult) -> PositivityReport:
     # report uses.
     most_extreme = float(inside.min()) if inside.size else float("nan")
 
-    group_leverage, group_omissions = _group_leverage(result)
+    group_score_load, group_omissions = _group_score_load(result)
     return PositivityReport(
         propensity_quantiles=quantiles,
         tail_mass=tail_mass,
@@ -962,8 +950,8 @@ def _multi_arm_positivity_report(result: TMLEResult) -> PositivityReport:
         simplex_deviation=float(np.max(np.abs(bounded.sum(axis=1) - 1.0))),
         n_repeats=result.n_repeats,
         backend=data.backend,
-        group_leverage=group_leverage,
-        group_leverage_omissions=group_omissions,
+        group_score_load=group_score_load,
+        group_score_load_omissions=group_omissions,
     )
 
 
@@ -1170,14 +1158,14 @@ def _max_abs_covariate(result: TMLEResult, group: str) -> float:
     return _group_submodel(result, group).max_abs
 
 
-def _group_leverage(
+def _group_score_load(
     result: TMLEResult,
-) -> tuple[dict[str, GroupLeverageRow], dict[str, str]]:
+) -> tuple[dict[str, GroupScoreLoadRow], dict[str, str]]:
     """Summarise the most concentrated fitted score equation in each target group.
 
     The fluctuation artifact is authoritative.  Rebuilding a generic submodel is not:
     fold-targeted ATT can use fold-specific arm fractions, and a nonlinear MSM can use a
-    different beta in every fold.  An older artifact without the exact absolute score
+    different beta in every fold.  A fluctuation without the exact absolute score
     weights is therefore omitted with a reason rather than approximated.
 
     Each score column is considered separately.  Kish and top-share concentration are
@@ -1192,7 +1180,7 @@ def _group_leverage(
     fit had is now omitted with a reason, where before it was described and published a
     ``total_ratio`` above one.
     """
-    rows: dict[str, GroupLeverageRow] = {}
+    rows: dict[str, GroupScoreLoadRow] = {}
     omissions: dict[str, str] = {}
     for group, fluctuation in result.fluctuations.items():
         loads, reason = validate_score_loads(
@@ -1536,8 +1524,8 @@ def truncation_curve(
                     **estimate.spread_columns(pvalue=False),
                     "truncated_fraction": truncated_fraction,
                     "is_fitted_bound": pair == (fitted_lower, fitted_upper),
-                    # Additive metadata follows the legacy columns so positional consumers
-                    # retain the order they saw before the fitted-reference contract grew.
+                    # The upper bound and the fitted-reference columns follow the row's
+                    # lower bound, estimate, spread and truncation columns.
                     "upper_bound": upper,
                     "fitted_lower_bound": fitted_lower,
                     "fitted_upper_bound": fitted_upper,
@@ -1597,9 +1585,9 @@ def _select(estimands: Any, reported_targets: dict[str, str]) -> tuple[str, ...]
 
 
 def _target_name(result: TMLEResult, name: str) -> str:
-    """Registered target for one reported alias, with a legacy-result fallback."""
-    # The mapping is a dataclass field and always exists, but a raw estimator result
-    # leaves it empty. The stem is that path's answer, and it is the only one available.
+    """Return a reported alias's target, using its stem when no key was recorded."""
+    # A direct estimator result can leave the mapping empty. Its alias stem is then
+    # the only available target name.
     keys = result.parameter_keys
     key = keys.get(name) if keys else None
     return key.estimand if key is not None else parameter_stem(name)

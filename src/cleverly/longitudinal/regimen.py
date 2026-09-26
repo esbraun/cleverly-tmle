@@ -148,9 +148,8 @@ class DynamicRegimen:
         plan with a callable node.  ``None``, the default, and ``"estimated"`` raise
         :class:`~cleverly.exceptions.CapabilityError` for such a plan, and a plan of
         labels alone is exempt.  Any other value raises
-        :class:`~cleverly.exceptions.DataError`.  A regimen pickled before this field
-        existed loads as ``None``.  It is the last field, so ``DynamicRegimen(label,
-        plan)`` keeps its positional order.
+        :class:`~cleverly.exceptions.DataError`.  It is the last field, so
+        ``DynamicRegimen(label, plan)`` keeps its positional order.
 
     Attributes
     ----------
@@ -159,8 +158,6 @@ class DynamicRegimen:
 
     label: str
     plan: tuple[RuleNode, ...]
-    #: A plain default, so it is a class attribute: a regimen pickled before the field
-    #: existed reads ``None`` here.
     rule_kind: FunctionKind | None = None
 
     def __post_init__(self) -> None:
@@ -221,8 +218,8 @@ class DynamicRegimen:
         influence curve, and the only way it could still matter is by putting a ``nan``
         into a design matrix that a learner is called on.
 
-        It runs :func:`refuse_regimen_rules` before it calls any rule, because a restored
-        or modified regimen can reach it directly with a declaration this version refuses.
+        It runs :func:`refuse_regimen_rules` before it calls any rule, because a modified
+        regimen can reach it directly with a declaration this version refuses.
 
         Parameters
         ----------
@@ -377,8 +374,8 @@ def refuse_regimen_rules(regimens: Any) -> None:
     built and before :meth:`DynamicRegimen.assignment` calls a rule.  ``LTMLE.fit`` runs
     it on the raw ``regimens=`` before any other check of the data and before any learner,
     and :func:`~cleverly.longitudinal.estimator.longitudinal_truncation_curve` runs it on
-    the resolved regimens of a result.  A regimen restored from an older pickle, or changed
-    with ``object.__setattr__``, can carry a declaration this version refuses.
+    the resolved regimens of a result.  A regimen changed with ``object.__setattr__`` can
+    carry a declaration this version refuses.
 
     Parameters
     ----------
@@ -393,8 +390,8 @@ def refuse_regimen_rules(regimens: Any) -> None:
         If a plan with a callable node declares ``None`` or ``"estimated"``.
     """
     for label, plan in _plans(regimens):
-        # Typed ``object`` on purpose: this checks what a restored or modified regimen holds
-        # at run time, which its annotations do not guarantee.
+        # Typed ``object`` on purpose: this checks what a modified regimen holds at run
+        # time, which its annotations do not guarantee.
         kind: object = plan.rule_kind if isinstance(plan, DynamicRegimen) else None
         nodes = _plan_nodes(label, plan)
         if any(callable(node) for node in ((plan,) if nodes is None else nodes)):

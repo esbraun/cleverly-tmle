@@ -232,8 +232,8 @@ class TestTheRegimesTravelWithTheFit:
         from cleverly.sensitivity import positivity_report
 
         report = positivity_report(result)
-        assert set(report.group_leverage) == {"regime"}
-        row = report.group_leverage["regime"]
+        assert set(report.group_score_load) == {"regime"}
+        row = report.group_score_load["regime"]
         artifact = result.fluctuations["regime"].absolute_score_weights
         assert artifact is not None
         effective = np.square(artifact.sum(axis=0)) / np.square(artifact).sum(axis=0)

@@ -82,7 +82,6 @@ __all__ = [
     "GaussianAdjustmentOutcome",
     "GaussianIndependentOutcome",
     "GaussianNoise",
-    "GeneratedOutcomeRecord",
     "RefutationResult",
     "RefutationTest",
     "RelativeGaussianNoise",
@@ -93,10 +92,10 @@ __all__ = [
 #: control outcome only the analyst can supply.
 DEFAULT_TESTS: tuple[str, ...] = ("placebo", "random_common_cause", "subset")
 
-#: Generated outcomes need an empirical distribution rather than the small smoke-test
-#: budget used by the older perturbations.
+#: Generated outcomes and measurement-error refits need an empirical distribution.
+#: The other perturbation tests use five refits by default.
 DEFAULT_OUTCOME_REPLICATES = 100
-_DEFAULT_LEGACY_REPLICATES = 5
+_DEFAULT_PERTURBATION_REPLICATES = 5
 
 
 @dataclass(frozen=True)
@@ -508,11 +507,6 @@ class EmpiricalRefitRecord:
     family: str
 
 
-# Compatibility alias. Saved reports and callers that imported the established name keep
-# the same class object while new empirical operations use the generic declaration.
-GeneratedOutcomeRecord = EmpiricalRefitRecord
-
-
 def _format_number(value: float | None) -> str:
     """Format one optional number for a summary line.
 
@@ -734,7 +728,7 @@ class RefutationResult:
     random_state : int or None
         Seed this report ran under.  Pass it back to :func:`refute` to obtain the report
         again, whether or not the fit carries a seed of its own.  ``None`` only on a
-        report saved before this field existed.
+        report built by hand.
     """
 
     tests: tuple[RefutationTest, ...]
@@ -1428,7 +1422,7 @@ def _validate_generated_eligibility(
     if identified is None:
         raise CapabilityError(
             f"{name} needs identification metadata for a backdoor additive mean contrast; "
-            "this legacy fit records none"
+            "this result records none"
         )
     functional = identified.functional
     if type(functional) is not BackdoorMeanContrast:
@@ -2058,7 +2052,7 @@ def refute(
             else (
                 DEFAULT_OUTCOME_REPLICATES
                 if name in _GENERATED_TESTS or name == "bootstrap_measurement_error"
-                else _DEFAULT_LEGACY_REPLICATES
+                else _DEFAULT_PERTURBATION_REPLICATES
             )
         )
         if name == "placebo":

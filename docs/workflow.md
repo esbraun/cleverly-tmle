@@ -165,5 +165,7 @@ result.save("analysis.joblib")
 ```
 
 The joblib artifact stores the complete fitted result, including estimator configuration and
-nuisance-model objects. Load only trusted artifacts in a compatible Python environment. See
+nuisance-model objects. Load only trusted artifacts in a compatible Python environment.
+`cleverly.load()` warns with `VersionMismatchWarning` when another `cleverly` version saved the
+artifact. It then loads the artifact as saved, with no migration. See
 [results, inference, and assessment](user-guide/results-assessment.md) for replayability rules.

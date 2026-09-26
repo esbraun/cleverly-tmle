@@ -504,10 +504,9 @@ class TestCanonicalEvaluation:
     ) -> None:
         cv = canonical_report.cv_targeting
         assert pooled_report.cv_targeting is None
-        assert sorted(cv.pooled) == sorted(cv.canonical) == sorted(CANONICAL)
-        assert cv.fold_evaluated is cv.canonical
+        assert sorted(cv.pooled) == sorted(cv.fold_evaluated) == sorted(CANONICAL)
         for name, estimate in canonical_report.estimates.items():
-            assert estimate.psi == cv.canonical[name].psi
+            assert estimate.psi == cv.fold_evaluated[name].psi
             assert cv.pooled[name].variance == pytest.approx(
                 influence_variance(cv.pooled[name].influence_curve, canonical_report.data.cluster),
                 rel=1e-12,
@@ -662,9 +661,13 @@ class TestRepeatedDraws:
         # so they stay equal after aggregation, and the rest stay apart.
         detail = repeated.cv_targeting
         for name in LINEAR:
-            assert detail.canonical[name].psi == pytest.approx(detail.pooled[name].psi, rel=1e-9)
+            assert detail.fold_evaluated[name].psi == pytest.approx(
+                detail.pooled[name].psi, rel=1e-9
+            )
         for name in ("att", "atc"):
-            assert detail.canonical[name].psi != pytest.approx(detail.pooled[name].psi, rel=1e-9)
+            assert detail.fold_evaluated[name].psi != pytest.approx(
+                detail.pooled[name].psi, rel=1e-9
+            )
 
     def test_the_cross_validated_variance_is_reported_for_every_estimand(self, repeated) -> None:
         assert set(repeated.cv_targeting.variance) == set(repeated.estimates)

@@ -9,7 +9,10 @@ gives the commit style, the pull request body, and what each CI job checks.
 One person maintains `cleverly`, so a review can take several days. Open an issue before you start
 a large change. An early conversation is cheaper than a rejected branch.
 
-`cleverly` is alpha software. The public API can change between `0.1.N` releases.
+`cleverly` is alpha software. The public API can change between `0.1.N` releases. A result that one
+release saves loads in another release with a `VersionMismatchWarning`, and the load does not
+migrate it. Do not add compatibility code for an earlier release. The "Compatibility" section of
+`CLAUDE.md` states the rule.
 
 The [roadmap](../roadmap.md) is the single planning contract. It puts source-backed work in one
 binding sequence. It keeps work without published theory in a separate future grid. Read its

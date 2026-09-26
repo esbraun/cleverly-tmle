@@ -365,8 +365,8 @@ class Fluctuation:
         Equation (10)'s fluctuation and the reduced regressions it was solved against,
         for a :class:`~cleverly.DRTMLE` fit.
     absolute_score_weights : ndarray or None
-        ``abs(w_i * h_ij)`` on the rows this outcome-score solve used. ``None`` only for
-        a fluctuation restored from an artifact that predates this field.
+        ``abs(w_i * h_ij)`` on the rows this outcome-score solve used. ``None`` only on a
+        fluctuation built by hand.
 
     Attributes
     ----------
@@ -423,9 +423,8 @@ class Fluctuation:
     #: Absolute per-row score weights, ``abs(w_i * h_ij)``, on exactly the rows used by
     #: this outcome-score solve.  Stored because stratified, fold-evaluated, fold-targeted,
     #: linked-MSM, and doubly-robust fits can use a covariate or scoring measure that
-    #: cannot be reconstructed from ``result.nuisance``.  ``None`` keeps reports pickled
-    #: before this artifact was introduced readable, and the trailing position preserves
-    #: the former positional constructor.
+    #: cannot be reconstructed from ``result.nuisance``.  ``None`` only on a fluctuation
+    #: built by hand.
     absolute_score_weights: FloatArray | None = None
 
     @property

@@ -21,8 +21,8 @@ from cleverly.validation import (
     DEFAULT_TESTS,
     BootstrapMeasurementError,
     EmpiricalInclusionRule,
+    EmpiricalRefitRecord,
     GaussianNoise,
-    GeneratedOutcomeRecord,
     RelativeGaussianNoise,
     ReplicationFailure,
     refute,
@@ -560,7 +560,7 @@ class TestBootstrapAndPerturbation:
         test = first["bootstrap_measurement_error"]
         assert first == second
         assert len(set(test.child_seeds)) == test.requested_draws
-        assert all(type(record) is GeneratedOutcomeRecord for record in test.records)
+        assert all(type(record) is EmpiricalRefitRecord for record in test.records)
         assert type(first.draws_frame("bootstrap_measurement_error")).__module__.startswith(backend)
 
 
@@ -666,8 +666,8 @@ class TestRuleVerdict:
             "successful refits reported inconsistent outcome families ['binomial', 'gaussian']"
         )
 
-    def test_the_default_budget_is_the_empirical_one_not_the_legacy_one(self) -> None:
-        # The default rule needs 40 successful draws. The legacy five-replicate budget
+    def test_the_default_budget_satisfies_the_empirical_rule(self) -> None:
+        # The default rule needs 40 successful draws. The five-replicate perturbation budget
         # could never satisfy it, so falling back to it would turn every unspecified
         # measurement request into a "too few draws" failure.
         result = _result(_data())

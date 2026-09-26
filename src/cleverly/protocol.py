@@ -158,7 +158,9 @@ class StudyProtocol:  # numpydoc ignore=PR02
             Validated immutable protocol record.
         """
         values = dict(payload)
-        schema_version = values.pop("schema_version", cls.CURRENT_SCHEMA_VERSION)
+        if "schema_version" not in values:
+            raise ValueError("schema_version is required in a protocol mapping")
+        schema_version = values.pop("schema_version")
         if schema_version != cls.CURRENT_SCHEMA_VERSION:
             raise ValueError(
                 f"schema_version must be {cls.CURRENT_SCHEMA_VERSION}; got {schema_version}"
