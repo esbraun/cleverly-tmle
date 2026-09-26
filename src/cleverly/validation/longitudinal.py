@@ -33,7 +33,7 @@ from .._typing import BoolArray, FloatArray, IntArray
 from ..data.weighting import effective_sample_size
 from ..inference.cluster import cluster_sums
 from ..utils.frames import emit_frame
-from ..utils.records import _DefaultingUnpickle, sentinel_equality
+from ..utils.records import sentinel_equality
 from .nuisance import (
     NuisanceModelReport,
     _aggregate_learner_info,
@@ -44,7 +44,6 @@ from .nuisance import (
 
 __all__ = [
     "LONGITUDINAL_CENSORING_NOT_FITTED",
-    "LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING",
     "STITCHED_SCORE_Z_TOLERANCE",
     "LongitudinalDiagnostics",
     "LongitudinalNuisanceDiagnostics",
@@ -59,12 +58,6 @@ __all__ = [
 #: The data has no censoring columns, so the estimator made no censoring fit.
 LONGITUDINAL_CENSORING_NOT_FITTED = "complete data has no censoring learner"
 
-#: A result written before observed-law mechanism predictions were retained cannot
-#: report mechanism fit quality without refitting.
-LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING = (
-    "the fitted artifact predates observed-law mechanism predictions"
-)
-
 
 #: How far a fold-fluctuated fit's *stitched* score may sit from zero, in standard errors
 #: of its own residual, before :func:`_longitudinal_scores` calls it a defect rather than
@@ -72,8 +65,7 @@ LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING = (
 #:
 #: Only a fluctuation that carries per-fold solves has a stitched score.  A new fit produces
 #: one only on the engine-level cross-fitted working model in
-#: :mod:`cleverly.longitudinal.msm`, which the public estimator refuses above one fold.  An
-#: artifact written before the pooled construction also carries them.  A
+#: :mod:`cleverly.longitudinal.msm`, which the public estimator refuses above one fold.  A
 #: cross-fitted per-regimen fit solves one pooled fluctuation per node over every follower,
 #: so its score is a solved equation and it emits no stitching row.
 #:
@@ -275,18 +267,12 @@ class LongitudinalScoreDiagnostics:
 
 @sentinel_equality
 @dataclass(frozen=True)
-class LongitudinalNuisanceRow(_DefaultingUnpickle):
+class LongitudinalNuisanceRow:
     """Fit quality for one longitudinal nuisance role at one node.
 
-    The first six fields retain the construction accepted by older releases. ``mse``
-    remains the regression MSE when that metric applies. New code reads ``loss_name``
-    and ``loss`` for the role-specific proper loss, and ``model`` retains the shared
-    calibration and learner-library report.
-
-    One retained value changed. An older release averaged the node regression's square
-    loss without weights. It now averages under the observation weights, which is what
-    every other reported loss does. The two agree when the weights are equal, and differ
-    on a weighted fit.
+    ``mse`` is the regression MSE when that metric applies. ``loss_name`` and ``loss``
+    give the role-specific proper loss, and ``model`` retains the shared calibration and
+    learner-library report. Every loss averages under the observation weights.
 
     Parameters
     ----------
@@ -301,7 +287,7 @@ class LongitudinalNuisanceRow(_DefaultingUnpickle):
     n : int
         Number of rows used to evaluate the fit.
     mse : float
-        Legacy weighted square loss. Binary outcome rows retain their Brier value here.
+        Weighted square loss. Binary outcome rows carry their Brier value here.
         Mechanism rows use ``nan``.
     role : str
         Nuisance role at this node.
@@ -327,14 +313,9 @@ class LongitudinalNuisanceRow(_DefaultingUnpickle):
     loss: float = float("nan")
     model: NuisanceModelReport | None = None
 
-    @property
-    def reported_loss(self) -> float:
-        """Return the role-specific loss, including an older row's MSE fallback."""
-        return self.loss if np.isfinite(self.loss) else self.mse
-
 
 @dataclass(frozen=True)
-class LongitudinalNuisanceOmission(_DefaultingUnpickle):
+class LongitudinalNuisanceOmission:
     """A nuisance role the fitted artifact cannot report.
 
     Parameters
@@ -353,7 +334,7 @@ class LongitudinalNuisanceOmission(_DefaultingUnpickle):
 
 
 @dataclass(frozen=True)
-class LongitudinalNuisanceDiagnostics(_DefaultingUnpickle):
+class LongitudinalNuisanceDiagnostics:
     """Fit quality for every treatment, censoring, outcome, and pseudo-outcome fit.
 
     Parameters
@@ -395,14 +376,14 @@ class LongitudinalNuisanceDiagnostics(_DefaultingUnpickle):
             "role": [row.role for row in self.rows],
             "evaluation": [row.evaluation for row in self.rows],
             "loss_name": [row.loss_name for row in self.rows],
-            "loss": [row.reported_loss for row in self.rows],
+            "loss": [row.loss for row in self.rows],
             "model": [None if row.model is None else row.model.name for row in self.rows],
             "kind": [None if row.model is None else row.model.kind for row in self.rows],
         }
-        # ``mse`` is already a column, and it holds the legacy square loss rather than the
+        # ``mse`` is already a column, and it holds the row's ``mse`` field rather than the
         # metric of that name. The skip keeps one meaning under one name, and loses nothing:
         # ``_continuous_report`` is the only report that emits an ``mse`` metric, and every
-        # row carrying one puts the same value in the legacy column.
+        # row carrying one puts the same value in the ``mse`` field.
         for name in _metric_names(row.model for row in self.rows):
             if name in payload:
                 continue
@@ -653,10 +634,10 @@ def _longitudinal_scores(result: Any, *, tolerance: float) -> LongitudinalScoreD
     recursion.
 
     A fluctuation that carries per-fold solves earns a second row, because the first one
-    stops being able to see the thing that can go wrong.  On this per-regimen path the one
-    producer is an artifact written before the pooled construction, whose folds each solved
-    their own fluctuation.  The engine-level cross-fitted working model reports the same two
-    rows through :func:`_longitudinal_msm_scores`.  Such a node's ``K`` solves each reach
+    stops being able to see the thing that can go wrong.  No current per-regimen fit
+    carries per-fold solves, and the rule covers any fluctuation that does.  The
+    engine-level cross-fitted working model reports the same two rows through
+    :func:`_longitudinal_msm_scores`.  Such a node's ``K`` solves each reach
     their own root on their own training complement, so the solver row is at machine
     precision whatever the stitched fit looks like -- including when the folds were
     stitched back in the wrong order, or a slab was read for the wrong fold.  The stitching
@@ -754,11 +735,10 @@ def _nuisance_row(
 ) -> LongitudinalNuisanceRow:
     """Bind one shared nuisance report to its longitudinal coordinates.
 
-    ``mse`` is the legacy column, and an older release put one quantity in it: the square
-    loss of a node regression.  A mechanism row is new here and has no square loss, so it
-    reports ``nan`` rather than borrowing the Brier value that
+    ``mse`` holds one quantity: the square loss of a node regression.  A mechanism row has
+    no square loss, so it reports ``nan`` rather than borrowing the Brier value that
     :func:`~cleverly.validation.nuisance._binary_report` also emits.  ``frame["mse"].max()``
-    therefore still answers about node regressions alone.
+    therefore answers about node regressions alone.
     """
     regression = role in {"outcome", "pseudo_outcome"}
     return LongitudinalNuisanceRow(
@@ -827,65 +807,45 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
     evaluation = "out_of_fold" if result.folds.n_folds > 1 else "in_sample"
     mechanism = result.mechanism
     fit_masks = result.data.regimen_masks(result.data.treatment)
-    # Read directly, as the diagnostics fields below are. The new ``Mechanism`` fields use
-    # plain defaults rather than a ``default_factory``, so the class attribute answers for
-    # an artifact pickled before they existed and an empty tuple records the omission.
-    treatment_observed = tuple(mechanism.treatment_observed)
-    censoring_observed = tuple(mechanism.censoring_observed)
-
     for time in range(1, result.data.n_times + 1):
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
-        if time <= len(treatment_observed):
-            report = _treatment_report(result, time, at_risk)
-            rows.append(
-                _nuisance_row(
-                    role="treatment",
-                    time=time,
-                    report=report,
-                    loss_name="log_loss",
-                    evaluation=evaluation,
-                    n=int(at_risk.sum()),
-                )
+        report = _treatment_report(result, time, at_risk)
+        rows.append(
+            _nuisance_row(
+                role="treatment",
+                time=time,
+                report=report,
+                loss_name="log_loss",
+                evaluation=evaluation,
+                n=int(at_risk.sum()),
             )
-        else:
-            omissions.append(
-                LongitudinalNuisanceOmission(
-                    "treatment", time, LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING
-                )
-            )
+        )
 
         if not result.data.censoring_names:
             continue
-        if time <= len(censoring_observed):
-            diagnostics = (
-                mechanism.censoring_diagnostics[time - 1]
-                if time <= len(mechanism.censoring_diagnostics)
-                else ()
+        diagnostics = (
+            mechanism.censoring_diagnostics[time - 1]
+            if time <= len(mechanism.censoring_diagnostics)
+            else ()
+        )
+        report = _binary_report(
+            f"censoring[t={time}]",
+            mechanism.censoring_observed[time - 1],
+            result.data.uncensored[:, time - 1],
+            result.data.weights,
+            diagnostics,
+            mask=at_risk,
+        )
+        rows.append(
+            _nuisance_row(
+                role="censoring",
+                time=time,
+                report=report,
+                loss_name="log_loss",
+                evaluation=evaluation,
+                n=int(at_risk.sum()),
             )
-            report = _binary_report(
-                f"censoring[t={time}]",
-                censoring_observed[time - 1],
-                result.data.uncensored[:, time - 1],
-                result.data.weights,
-                diagnostics,
-                mask=at_risk,
-            )
-            rows.append(
-                _nuisance_row(
-                    role="censoring",
-                    time=time,
-                    report=report,
-                    loss_name="log_loss",
-                    evaluation=evaluation,
-                    n=int(at_risk.sum()),
-                )
-            )
-        else:
-            omissions.append(
-                LongitudinalNuisanceOmission(
-                    "censoring", time, LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING
-                )
-            )
+        )
 
     if not result.data.censoring_names:
         omissions.append(

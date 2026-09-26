@@ -293,9 +293,8 @@ class Rule:
         The declaration that ``rule`` is a known function.  ``"known"`` is the one value a
         fit accepts.  ``None``, the default, and ``"estimated"`` raise
         :class:`~cleverly.exceptions.CapabilityError`, and any other value raises
-        :class:`~cleverly.exceptions.DataError`.  A rule pickled before this field existed
-        loads as ``None`` and refuses every estimator recomputation.  It is the last field,
-        so ``Rule(rule, name)`` keeps its positional order.
+        :class:`~cleverly.exceptions.DataError`.  It is the last field, so
+        ``Rule(rule, name)`` keeps its positional order.
         :func:`dataclasses.replace` copies it, so a rule replaced with ``rule=`` keeps the
         old declaration.
 
@@ -306,8 +305,6 @@ class Rule:
 
     rule: Callable[[Any], Any]
     name: str
-    #: A plain default, so it is a class attribute: a rule pickled before the field existed
-    #: reads ``None`` here, and :func:`dataclasses.replace` still works on it.
     rule_kind: FunctionKind | None = None
 
     def __post_init__(self) -> None:
@@ -334,8 +331,7 @@ class Rule:
         Notes
         -----
         It runs :func:`refuse_regime_densities` before it calls ``rule``, because a
-        restored or modified rule can reach it directly with a declaration this version
-        refuses.
+        modified rule can reach it directly with a declaration this version refuses.
         """
         refuse_regime_densities((self,))
         assigned = _as_array(self.rule(_covariate_frame(data)))
@@ -377,15 +373,12 @@ class Stochastic:
         The declaration that ``density_fn`` is a known function.  ``"known"`` is the one
         value a fit accepts.  ``None``, the default, and ``"estimated"`` raise
         :class:`~cleverly.exceptions.CapabilityError`, and any other value raises
-        :class:`~cleverly.exceptions.DataError`.  A regime pickled before this field
-        existed loads as ``None`` and refuses every estimator recomputation.  It is the last field,
-        so ``Stochastic(density_fn, name)`` keeps its positional order.
+        :class:`~cleverly.exceptions.DataError`.  It is the last field, so
+        ``Stochastic(density_fn, name)`` keeps its positional order.
     """
 
     density_fn: Callable[[Any], Any]
     name: str
-    #: A plain default, so it is a class attribute: a regime pickled before the field
-    #: existed reads ``None`` here, and :func:`dataclasses.replace` still works on it.
     density_kind: FunctionKind | None = None
 
     def __post_init__(self) -> None:
@@ -407,8 +400,7 @@ class Stochastic:
         Notes
         -----
         It runs :func:`refuse_regime_densities` before it calls ``density_fn``, because a
-        restored or modified regime can reach it directly with a declaration this version
-        refuses.
+        modified regime can reach it directly with a declaration this version refuses.
         """
         refuse_regime_densities((self,))
         values = np.asarray(_as_array(self.density_fn(_covariate_frame(data))), dtype=float)
@@ -609,11 +601,9 @@ def refuse_regime_densities(interventions: Iterable[object]) -> None:
     again before any learner and at the start of every retarget.
     :meth:`Stochastic.density`, :meth:`Rule.density` and :meth:`RegimeSet.evaluate` run it
     before any regime function is evaluated, so a direct call and the simulated-confounding
-    replay refuse before that function runs.  A regime restored from an older pickle, or
-    changed with ``object.__setattr__``, can carry a declaration this version refuses.
-    Loading raises nothing.  A restored result whose declaration this version refuses keeps
-    its point estimates and takes the ``"undeclared_function_plugin"`` status, so its
-    ``ci``, ``pvalue`` and ``std_error`` refuse (roadmap rows RM25 and RM28).
+    replay refuse before that function runs.  A regime changed with
+    ``object.__setattr__`` can carry a declaration this version refuses (roadmap rows RM25
+    and RM28).
 
     Parameters
     ----------
@@ -629,8 +619,8 @@ def refuse_regime_densities(interventions: Iterable[object]) -> None:
         If a declaration is ``None`` or ``"estimated"``.
     """
     for item in interventions:
-        # Typed ``object`` on purpose: this checks what a restored or modified regime holds
-        # at run time, which its annotations do not guarantee.
+        # Typed ``object`` on purpose: this checks what a modified regime holds at run
+        # time, which its annotations do not guarantee.
         function: object
         if isinstance(item, Stochastic):
             function = item.density_fn
@@ -740,9 +730,9 @@ class RegimeSet:
         -----
         It runs :func:`refuse_regime_densities` on every intervention before it evaluates
         any density, so a :class:`Rule` or a user-written :class:`Intervention` meets its
-        declaration check as a :class:`Stochastic` does.  A regime restored from an older
-        pickle, or changed with ``object.__setattr__``, can reach this method directly with
-        a declaration this version refuses.
+        declaration check as a :class:`Stochastic` does.  A regime changed with
+        ``object.__setattr__`` can reach this method directly with a declaration this
+        version refuses.
         """
         if len(interventions) < 1:
             raise DataError("at least one intervention is required")

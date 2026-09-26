@@ -33,11 +33,11 @@ from tests.conftest import linear_in_sample
 from tests.unit._confounding_support import alias_for
 from tests.unit._declaration_support import (
     PANEL_COLUMNS,
-    legacy_result,
     never_fit_longitudinal_learners,
     panel,
     point_entries,
     tmle_module,
+    undeclared_copy,
 )
 from tests.unit.test_simulated_confounding_msm import _GRID as DOSE_GRID
 from tests.unit.test_simulated_confounding_msm import _fit_continuous
@@ -118,9 +118,9 @@ def in_sample_fit(model: MSM) -> Any:
     return estimator.fit(law.frame(), outcome="Y", treatment="A").single()
 
 
-def legacy_msm_result(result: Any, field: str) -> Any:
-    """``result`` as an artifact written before the MSM field ``field`` existed."""
-    return legacy_result(result, field, lambda restored: [restored.estimator.msm])
+def undeclared_msm_result(result: Any, field: str) -> Any:
+    """A copy of ``result`` whose MSM no longer declares ``field``."""
+    return undeclared_copy(result, field, lambda copy: [copy.estimator.msm])
 
 
 # ------------------------------------------------------------------ the evaluators

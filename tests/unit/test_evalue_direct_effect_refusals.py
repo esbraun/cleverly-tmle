@@ -31,14 +31,12 @@ import warnings
 from collections.abc import Callable
 from dataclasses import replace
 from functools import partial
-from pathlib import Path
 from typing import Any, NamedTuple
 
 import numpy as np
 import pytest
 
-from cleverly import CausalStudy, ControlledDirectEffect, PointTreatment, load
-from cleverly._assessment_cache import _CACHE_GENERATIONS
+from cleverly import CausalStudy, ControlledDirectEffect, PointTreatment
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_multi_arm, make_shift_dose
 from cleverly.estimators import direct_effect
@@ -71,10 +69,6 @@ pytestmark = pytest.mark.xdist_group("evalue_direct_effect")
 #: mutation tests replace attributes of this module, and every call below reads them from it.
 evalue_module = importlib.import_module("cleverly.sensitivity.evalue")
 derived_module = importlib.import_module("cleverly.sensitivity._derived")
-
-#: The generation of the ``sensitivity.run_all`` cache key at 44f44998, the commit before RM21.
-#: A result saved by that version carries its combined report under this number.
-GENERATION_BEFORE_RM21 = 2
 
 #: The text of the cached-retarget rule in ``_risk_ratio_refusal``, which a direct call meets.
 DERIVED_TEXT = (
@@ -274,33 +268,6 @@ class TestAControlledDirectEffectRefusesEveryBranch:
         assert item.status is AssessmentStatus.UNAVAILABLE
         assert item.detail == _DIRECT_EFFECT_REFUSAL
         assert dict(item.arguments) == {}
-
-    def test_a_battery_saved_before_rm21_does_not_publish_its_e_value(
-        self, monkeypatch: pytest.MonkeyPatch, cde_fits: dict[str, Any], tmp_path: Path
-    ) -> None:
-        """A saved result carries its combined report, and the generation bump retires it.
-
-        The stale report is written as the version before RM21 wrote it: the E-value reads no
-        intermediate variable, and the aggregate sits at :data:`GENERATION_BEFORE_RM21`. That
-        number is a fact about the saved artifacts, so it is a literal rather than one below
-        the current generation, which would move with a missing bump. The control reads the
-        loaded result at that generation, where the stale completed row is still served.
-        """
-        assert _CACHE_GENERATIONS["sensitivity.run_all"] > GENERATION_BEFORE_RM21
-        result = replace(cde_fits["gaussian"][0.0])
-        with monkeypatch.context() as before_rm21:
-            before_rm21.setattr(evalue_module, "declares_intermediate", lambda result: False)
-            before_rm21.setitem(_CACHE_GENERATIONS, "sensitivity.run_all", GENERATION_BEFORE_RM21)
-            stale = result.sensitivity.run_all()["evalue"]
-        assert stale.status is AssessmentStatus.COMPLETED
-        loaded = load(result.save(tmp_path / "saved-before-rm21.joblib"))
-
-        for item in (loaded.sensitivity.run_all()["evalue"], loaded.assess().sensitivity["evalue"]):
-            assert item.status is AssessmentStatus.UNAVAILABLE
-            assert item.detail == _DIRECT_EFFECT_REFUSAL
-
-        monkeypatch.setitem(_CACHE_GENERATIONS, "sensitivity.run_all", GENERATION_BEFORE_RM21)
-        assert loaded.sensitivity.run_all()["evalue"].detail == stale.detail
 
     def test_a_continuous_dose_with_an_intermediate_is_not_applicable(self) -> None:
         """The continuous-treatment check runs first, so this fit keeps its older refusal.

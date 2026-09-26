@@ -230,14 +230,14 @@ class Mechanism:
     #: shape ``(K, n)``.  Only the engine-level cross-fitted working-model path
     #: (:mod:`cleverly.longitudinal.msm`) reads slab ``k``, for both the training and
     #: held-out rows of outer fold ``k``.  A per-regimen fit reads the out-of-fold
-    #: probabilities above.  Empty only on mechanisms made by older persisted fits.
+    #: probabilities above.  Empty only on a hand-built mechanism.
     treatment_by_fold: tuple[dict[str, FloatArray], ...] = ()
     censoring_by_fold: tuple[dict[str, FloatArray], ...] = ()
     #: Out-of-fold probability matrix at the observed history and treatment, one per
-    #: node. Empty on an artifact written before longitudinal nuisance reporting.
+    #: node. Empty only on a hand-built mechanism.
     treatment_observed: tuple[FloatArray, ...] = ()
     #: Out-of-fold retention probability at the observed treatment history, one per
-    #: censoring node. Empty for complete data and on an older artifact.
+    #: censoring node. Empty for complete data and on a hand-built mechanism.
     censoring_observed: tuple[FloatArray, ...] = ()
     #: Super Learner diagnostics from the same treatment fits that produced
     #: ``treatment_observed``. The inner tuple contains one record per fitted fold.
@@ -448,7 +448,7 @@ class SequentialStep:
     #: holds the target that row ``i``'s held-out fold composed from that fold's untargeted
     #: prediction at the later node.  A nuisance-loss diagnostic compares ``initial``
     #: against this array.  ``None`` on a single-fold fit, whose regression target is
-    #: ``pseudo_outcome``, and on an artifact written before the field existed.
+    #: ``pseudo_outcome``.
     regression_target: FloatArray | None = None
 
     @property

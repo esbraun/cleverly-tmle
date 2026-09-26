@@ -660,28 +660,6 @@ class CTMLE(TMLE):
             return "working_mechanism_plugin"
         return "generated_design_plugin"
 
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        """Restore a pickled estimator, renaming the attribute an older version wrote.
-
-        An estimator pickled before ``strategy`` replaced ``search`` carries only
-        ``search``, and every reader of :attr:`strategy` would raise ``AttributeError``
-        on it. That includes :meth:`_inference_status`, which
-        ``TMLEResult.__setstate__`` calls while it loads the result that holds this
-        estimator. ``search`` took ``"greedy"``, ``"ordered"`` or ``"discrete"``, and
-        each value keeps its name and its meaning as a ``strategy``. So each one is a
-        selector strategy and re-stamps ``"working_mechanism_plugin"``. An ``"oat"`` fit
-        always wrote ``strategy``, and it re-stamps ``"generated_design_plugin"``.
-
-        Parameters
-        ----------
-        state : dict of str to Any
-            The pickled instance state.
-        """
-        state = dict(state)
-        if "strategy" not in state and "search" in state:
-            state["strategy"] = state.pop("search")
-        self.__dict__.update(state)
-
     def __init__(
         self,
         *,
@@ -696,8 +674,6 @@ class CTMLE(TMLE):
         ctmle_estimand: str = "ate",
         **kwargs: Any,
     ) -> None:
-        if "search" in kwargs:
-            raise TypeError("search= was replaced by strategy=; use CTMLE(strategy=...)")
         if kwargs.get("cv_evaluation", False):
             raise ValueError(
                 "CTMLE does not support cv_evaluation=True: canonical CV-TMLE selection "

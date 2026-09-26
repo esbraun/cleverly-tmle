@@ -34,27 +34,14 @@ INFERENCE_PAGE = ROOT / "docs" / "technical-reference" / "inference.md"
 ROADMAP = ROOT / "docs" / "roadmap.md"
 
 #: The precedence order, written out. A fit that meets more than one status takes the first one
-#: here. The order is the one the roadmap's RM20 precedence table gives, with the orders that
-#: RM28, RM29, RM31, RM33 and RM34 added to it. RM28 puts its status third: every fit runs the
-#: declaration refusals before any refusal of the data or the design, and the two collaborative
-#: statuses never meet it. RM31 puts the saved stratified split sixth, after the saved grouped
-#: design of RM29: both are designs that this version refuses, and each comes before a cluster
-#: status of a design that it runs. RM33 puts the saved undeclared scale seventh, after RM31,
-#: because a fit refuses the fold policy before the outcome scale, and before the cluster
-#: statuses for the same reason as RM31. RM34 puts the unrecorded status last: every other
-#: status reads a recorded configuration, a result that reads one replaces this status, and no
-#: hook returns it.
+#: here. The order is the one the roadmap's RM20 precedence table gives: the two collaborative
+#: statuses, the estimated weight of a guarded DR-TMLE fit, and then the two cluster statuses.
 PRECEDENCE = (
     "working_mechanism_plugin",
     "generated_design_plugin",
-    "undeclared_function_plugin",
     "estimated_weight_plugin",
-    "cross_fitted_longitudinal_plugin",
-    "stratified_fold_plugin",
-    "undeclared_scale_plugin",
     "unequal_cluster_plugin",
     "few_cluster_plugin",
-    "unrecorded_status_plugin",
 )
 
 

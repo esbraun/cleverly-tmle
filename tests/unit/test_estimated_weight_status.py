@@ -31,7 +31,7 @@ from tests.unit._inference_status_support import (
     assert_assessment_note,
     assert_evalue_unavailable,
     assert_keeps_inference,
-    assert_restamped,
+    assert_round_trips,
     assert_variable_importance_refuses,
     assert_withholds,
 )
@@ -193,18 +193,7 @@ class TestTheStatusIsTheHooksToWithhold:
             assert_keeps_inference(fit(frame, guard=()))
 
 
-class TestAnOlderArtifact:
+class TestASavedResultLoadsAsSaved:
     @pytest.mark.parametrize("route", ROUTES)
-    def test_a_result_saved_before_the_status_loads_under_it(self, result: Any, route: str) -> None:
-        assert_restamped(result, STATUS, route)
-
-    def test_data_saved_before_the_weight_declaration_reads_as_undeclared(
-        self, result: Any
-    ) -> None:
-        """A ``CausalData`` pickled before ``weight_spec`` existed has no such attribute."""
-        data = result.data
-        legacy = object.__new__(type(data))
-        legacy.__dict__.update({k: v for k, v in data.__dict__.items() if k != "weight_spec"})
-        assert not hasattr(legacy, "weight_spec")
-        assert result.estimator._inference_status(data) == STATUS
-        assert result.estimator._inference_status(legacy) == "influence_curve"
+    def test_a_saved_result_keeps_its_status(self, result: Any, route: str) -> None:
+        assert_round_trips(result, STATUS, route)

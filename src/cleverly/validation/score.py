@@ -269,8 +269,7 @@ class ScoreCheck:
     #: :meth:`to_frame` honours "results come back in the backend you passed in"
     #: without a caller having to thread the container back in by hand.
     backend: str | None = None
-    #: A class-level default, so a check built by hand, or pickled before the field
-    #: existed, reads as the ordinary fit it described.
+    #: A default, so a check built by hand reads as the ordinary fit it describes.
     inference: InferenceStatus = "influence_curve"
 
     @property

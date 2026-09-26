@@ -26,7 +26,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from cleverly._inference_status import NON_INFERENTIAL, UNRECORDED_STATUS
+from cleverly._inference_status import NON_INFERENTIAL
 from cleverly.data import CausalData
 from cleverly.estimators.ctmle import (
     CTMLE_SELECTOR_STRATEGIES,
@@ -76,7 +76,6 @@ from cleverly.inference.multiplier import (
 from cleverly.inference.results import estimate_covariance, smooth_contrast
 from cleverly.utils.bounds import OutcomeScaler, expit
 from tests.conftest import binary_means
-from tests.pickles import legacy_without
 
 #: The selector-path record, read where every raise and report reads it.
 WORKING_MECHANISM = NON_INFERENTIAL["working_mechanism_plugin"]
@@ -1360,20 +1359,10 @@ class TestTheInferenceStatus:
         assert np.array_equal(diagnostic.influence_curve, inferential.influence_curve)
 
     def test_the_default_status_is_the_ordinary_one(self) -> None:
-        """A constructor call declares the ordinary status, and a pickle without one does not.
-
-        The class default applies to a constructor call. A bare estimate pickled before
-        the field existed loads under the unrecorded status (roadmap row RM34), because it
-        holds no configuration to read a status from.
-        ``tests/unit/test_saved_bare_estimate_status.py`` holds the witness and its
-        mutation. A whole result re-stamps its estimates from the configuration it holds,
-        which ``tests/unit/test_selector_path_inference_reach.py`` pins on a simulated
-        legacy artifact.
-        """
+        """A constructor call that omits the status declares the ordinary one."""
         inferential, _ = self._pair()
         assert inferential.inference == "influence_curve"
         assert ParameterEstimate.inference == "influence_curve"
-        assert legacy_without(inferential, "inference").inference == UNRECORDED_STATUS
 
     def test_to_dict_swaps_the_whole_inference_block_rather_than_blanking_it(self) -> None:
         inferential, diagnostic = self._pair()
@@ -1571,13 +1560,3 @@ class TestTheSelectorStrategyPartition:
         self, strategy: str
     ) -> None:
         assert is_selector_strategy(strategy) == (strategy != "oat")
-
-    def test_an_absent_strategy_is_not_a_selector(self) -> None:
-        """``None`` is the restored-pickle case, and it must not read as a selector.
-
-        ``tmle.py`` keeps its own ``!= "oat"`` spelling for exactly this asymmetry:
-        ``None != "oat"`` holds a fold-policy refusal that this predicate would release.
-        """
-        assert is_selector_strategy(None) is False
-        # The asymmetry itself, stated so a later reader does not "simplify" it away.
-        assert None not in CTMLE_SELECTOR_STRATEGIES

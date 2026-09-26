@@ -18,13 +18,11 @@ No code can inspect a closure, so the status of the rule is the declaration
 * an inline callable is refused, and a declared regimen in a mapping keeps its declaration;
 * the check and the resolver read a plan through one helper: a ``DynamicRegimen`` stores
   an iterator plan as a tuple, and a mapping refuses an iterator plan without reading it;
-* every fit entry refuses an inline, restored or modified rule before any learner or rule
-  call, and so do ``DynamicRegimen.assignment``, ``resolve_plans`` and ``resolve_regimens``;
+* every fit entry refuses an inline or modified rule before any learner or rule call, and
+  so do ``DynamicRegimen.assignment``, ``resolve_plans`` and ``resolve_regimens``;
 * the declaration refusal comes before a refusal of the data or the fit configuration;
-* a regimen pickled before the field existed loads undeclared, and a result restored with
-  such a regimen refuses its truncation curve before the replay;
-* such a result keeps its point estimates and takes the ``"undeclared_function_plugin"``
-  status, and a declared or static one keeps its interval;
+* a result whose regimen loses its declaration refuses its truncation curve before the
+  replay;
 * a deliberate mutation that removes a check makes those witnesses fail;
 * on an exact two-node law, the regimen :math:`(1, d)` with a threshold at the sample mean,
   declared ``"known"``, gets the fixed-rule curve, which understates the standard error of
@@ -66,26 +64,21 @@ from cleverly.longitudinal.estimator import (
     longitudinal_truncation_curve,
 )
 from cleverly.longitudinal.regimen import refuse_regimen_rules
-from tests.pickles import legacy_without
 from tests.unit._confounding_support import Counter
 from tests.unit._declaration_support import (
     PANEL_COLUMNS,
     PATHWISE,
-    UNDECLARED_STATUS,
     assert_every_witness_fails,
-    assert_keeps_its_interval,
     assert_refused,
     assert_refused_before_any_call,
     assert_replay_rows_available,
     assert_replay_rows_refused,
-    assert_stored_interval_is_a_diagnostic,
     never_fit_longitudinal_learners,
     panel,
     restored,
     restored_states,
+    undeclared_copy,
 )
-from tests.unit._declaration_support import legacy_result as legacy_result_of
-from tests.unit._inference_status_support import assert_withholds
 from tests.unit._natural_course_support import NeverFit
 from tests.unit._policy_declaration_support import (
     CENTRE,
@@ -503,32 +496,30 @@ class TestTheEvaluatorsCheckFirst:
         assert rule_of(regimen).calls == (0 if evaluator == "resolve_regimens" else 1)
 
 
-# ------------------------------------------------------------------ old pickles
+# ------------------------------------------------------------------ a lost declaration
 
 
-def legacy(regimen: DynamicRegimen) -> DynamicRegimen:
-    """``regimen`` as a pickle written before ``rule_kind`` existed would restore it."""
-    return legacy_without(regimen, "rule_kind")
+def undeclared_regimen(regimen: DynamicRegimen) -> DynamicRegimen:
+    """``regimen`` with its declaration removed after construction."""
+    return restored(regimen, "rule_kind", None)
 
 
-class TestALegacyRegimenLoads:
-    def test_a_pickle_without_the_field_reads_none_and_can_be_replaced(self) -> None:
-        old = legacy(threshold_regimen(rule_kind="known"))
-        assert "rule_kind" not in vars(old)
+class TestARegimenThatLosesItsDeclaration:
+    def test_it_cannot_be_replaced_without_a_declaration(self) -> None:
+        old = undeclared_regimen(threshold_regimen(rule_kind="known"))
         assert old.rule_kind is None
         assert_refused(lambda: replace(old), CapabilityError, UNDECLARED)
         assert replace(old, rule_kind="known").rule_kind == "known"
 
-    def test_a_legacy_regimen_refuses_at_the_fit(self) -> None:
-        """The pickle copies the counter, so the spy is the one on the restored regimen."""
-        old = legacy(spy_regimen())
+    def test_it_refuses_at_the_fit(self) -> None:
+        old = undeclared_regimen(spy_regimen())
         assert_refused_before_any_call(
             lambda: ENTRIES["fit"](with_reference(old)), rule_of(old), "rule", UNDECLARED
         )
 
-    def test_a_legacy_plan_of_labels_still_resolves(self) -> None:
-        """The control: the exemption holds for an old pickle too."""
-        old = legacy(DynamicRegimen("early", (1, 0), rule_kind="known"))
+    def test_a_plan_of_labels_still_resolves(self) -> None:
+        """The control: a plan of labels is exempt."""
+        old = undeclared_regimen(DynamicRegimen("early", (1, 0), rule_kind="known"))
         assert old.rule_kind is None
         assert type(resolve_regimens([old], 2)[0]) is Regimen
 
@@ -537,9 +528,9 @@ def rule_regimens(result: Any) -> list[Any]:
     return [item for item in result.config.regimens if isinstance(item, DynamicRegimen)]
 
 
-def legacy_result(result: Any) -> Any:
-    """``result`` as an artifact written before ``rule_kind`` existed would restore it."""
-    return legacy_result_of(result, "rule_kind", rule_regimens)
+def undeclared(result: Any) -> Any:
+    """A copy of ``result`` whose regimens no longer declare their rules known."""
+    return undeclared_copy(result, "rule_kind", rule_regimens)
 
 
 @pytest.fixture(scope="module")
@@ -561,20 +552,20 @@ def forbid_the_replay(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ltmle_module, "_refit_bound", replay)
 
 
-class TestALegacyLongitudinalResultRefusesARecomputation:
+class TestAnUndeclaredLongitudinalResultRefusesARecomputation:
     """RM28: a truncation curve checks the regimens of the result as the fit does."""
 
     def test_the_truncation_curve_refuses_before_the_replay(
         self, regimen_result: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        old = legacy_result(regimen_result)
+        old = undeclared(regimen_result)
         forbid_the_replay(monkeypatch)
         assert_refused(
             lambda: longitudinal_truncation_curve(old, BOUNDS), CapabilityError, UNDECLARED
         )
 
     def test_the_assessment_entry_refuses(self, regimen_result: Any) -> None:
-        old = legacy_result(regimen_result)
+        old = undeclared(regimen_result)
         assert not replayability(old).refit_nuisances
         capability = old.diagnostics.capability("truncation_curve")
         assert not capability.available
@@ -588,7 +579,7 @@ class TestALegacyLongitudinalResultRefusesARecomputation:
     def test_every_replay_row_refuses_and_a_combined_report_runs(self, regimen_result: Any) -> None:
         """A longitudinal result has no point retarget, so the rows carry the check."""
         assert_replay_rows_refused(
-            legacy_result(regimen_result), LONGITUDINAL_REPLAY_REGIMEN_DECLARATION
+            undeclared(regimen_result), LONGITUDINAL_REPLAY_REGIMEN_DECLARATION
         )
 
     def test_a_modified_declaration_refuses(self, regimen_result: Any) -> None:
@@ -606,67 +597,6 @@ class TestALegacyLongitudinalResultRefusesARecomputation:
         assert_replay_rows_available(restored)
         curve = longitudinal_truncation_curve(restored, BOUNDS)
         assert list(curve["estimand"]) == ["ey_regimen[thr]"]
-
-
-# ------------------------------------------------------------------ a restored result's status
-
-
-def status_fit(regimen: DynamicRegimen, frame: Any = None, **keywords: Any) -> Any:
-    """A static regimen and ``regimen`` on the two-node law, with simultaneous bands."""
-    regimens = [Regimen("never", (0, 0)), regimen]
-    return regimen_fit(regimens, frame, reference="never", simultaneous=True, **keywords)
-
-
-@pytest.fixture(scope="module")
-def banded_regimen_result() -> Any:
-    """A declared regimen beside a static one: the bands and the contrast must follow."""
-    return status_fit(threshold_regimen(FixedThreshold(), rule_kind="known"))
-
-
-class TestARestoredUndeclaredResultWithholdsInference:
-    """RM28: a restored ``LTMLE`` result with an undeclared node keeps its point estimates only.
-
-    Loading raises nothing.  ``LongitudinalResult.__setstate__`` runs the regimen check of
-    a fit on the resolved regimens, and a refusal gives every estimate of the result the
-    ``"undeclared_function_plugin"`` status, the static regimen's too.  The stored interval
-    becomes a diagnostic, and ``summary()`` prints the reason.
-    """
-
-    def test_a_restored_regimen_result_withholds_inference(
-        self, banded_regimen_result: Any
-    ) -> None:
-        assert banded_regimen_result.simultaneous is not None
-        assert "ey_regimen[never]" in banded_regimen_result.estimates
-        old = legacy_result(banded_regimen_result)
-        assert_stored_interval_is_a_diagnostic(banded_regimen_result, old)
-
-    @pytest.mark.parametrize("kind", ["estimated", "Known"])
-    def test_a_modified_declaration_withholds_inference(
-        self, banded_regimen_result: Any, kind: str
-    ) -> None:
-        """A refused declaration, and a value outside the three states, which is a ``DataError``."""
-        copy = loads(dumps(banded_regimen_result))
-        restored(rule_regimens(copy)[0], "rule_kind", kind)
-        assert_stored_interval_is_a_diagnostic(banded_regimen_result, loads(dumps(copy)))
-
-    def test_the_undeclared_status_precedes_the_cluster_status(self) -> None:
-        """The precedence on a fit: the status comes before ``"few_cluster_plugin"``."""
-        frame = threshold_frame(2)
-        frame = frame.assign(cluster=np.arange(len(frame)) % 10)
-        regimen = threshold_regimen(FixedThreshold(), rule_kind="known")
-        result = status_fit(regimen, frame, id="cluster")
-        assert result.inference_status == "few_cluster_plugin"
-        assert_withholds(legacy_result(result), UNDECLARED_STATUS)
-
-    def test_a_restored_declared_or_static_result_keeps_its_interval(
-        self, banded_regimen_result: Any
-    ) -> None:
-        """The controls: a declared regimen, and static plans that hold no rule."""
-        restored_result = loads(dumps(banded_regimen_result))
-        assert_keeps_its_interval(banded_regimen_result, restored_result)
-        assert restored_result.simultaneous is not None
-        static = regimen_fit({"always": 1, "never": 0}, reference="never", simultaneous=True)
-        assert_keeps_its_interval(static, loads(dumps(static)))
 
 
 # ------------------------------------------------------------------ the threshold witness
@@ -891,12 +821,12 @@ class TestTheWitnessesHaveTeeth:
         suite.test_an_undeclared_regimen_meets_the_declaration_refusal("unknown reference")
         suite.test_an_undeclared_regimen_meets_the_declaration_refusal("clustered cross-fit")
 
-    def test_removing_the_fit_check_fails_the_legacy_truncation_witness(
+    def test_removing_the_fit_check_fails_the_undeclared_truncation_witness(
         self, regimen_result: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Mutation R4: the replay runs from the saved plans, which no rule check guards."""
         remove_the_fit_check(monkeypatch)
-        suite = TestALegacyLongitudinalResultRefusesARecomputation()
+        suite = TestAnUndeclaredLongitudinalResultRefusesARecomputation()
         with pytest.raises(AssertionError, match="replayed before the refusal"):
             suite.test_the_truncation_curve_refuses_before_the_replay(regimen_result, monkeypatch)
 
@@ -947,23 +877,3 @@ class TestTheWitnessesHaveTeeth:
         regimen shares the declaration of ``Rule``."""
         assert ltmle_module.refuse_regimen_rules is refuse_regimen_rules
         assert regimen_module._RULE_DECLARATION is base_module._RULE_DECLARATION
-
-    def test_a_status_that_ignores_the_regimens_fails_the_restored_witnesses(
-        self, banded_regimen_result: Any, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Mutation R8: the status predicate returns ``"influence_curve"``."""
-        monkeypatch.setattr(
-            ltmle_module, "_declared_regimen_status", lambda regimens: "influence_curve"
-        )
-        suite = TestARestoredUndeclaredResultWithholdsInference()
-        assert_every_witness_fails(
-            [
-                lambda: suite.test_a_restored_regimen_result_withholds_inference(
-                    banded_regimen_result
-                ),
-                lambda: suite.test_a_modified_declaration_withholds_inference(
-                    banded_regimen_result, "Known"
-                ),
-                suite.test_the_undeclared_status_precedes_the_cluster_status,
-            ]
-        )

@@ -82,7 +82,6 @@ __all__ = [
     "GaussianAdjustmentOutcome",
     "GaussianIndependentOutcome",
     "GaussianNoise",
-    "GeneratedOutcomeRecord",
     "RefutationResult",
     "RefutationTest",
     "RelativeGaussianNoise",
@@ -508,11 +507,6 @@ class EmpiricalRefitRecord:
     family: str
 
 
-# Compatibility alias. Saved reports and callers that imported the established name keep
-# the same class object while new empirical operations use the generic declaration.
-GeneratedOutcomeRecord = EmpiricalRefitRecord
-
-
 def _format_number(value: float | None) -> str:
     """Format one optional number for a summary line.
 
@@ -734,7 +728,7 @@ class RefutationResult:
     random_state : int or None
         Seed this report ran under.  Pass it back to :func:`refute` to obtain the report
         again, whether or not the fit carries a seed of its own.  ``None`` only on a
-        report saved before this field existed.
+        report built by hand.
     """
 
     tests: tuple[RefutationTest, ...]

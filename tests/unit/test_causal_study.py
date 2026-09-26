@@ -3,7 +3,6 @@
 import dataclasses
 import inspect
 import pickle
-from collections.abc import Callable
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from typing import Any
@@ -98,7 +97,7 @@ from tests.conftest import (
     OracleOutcome,
     OracleTreatment,
 )
-from tests.pickles import PRE_SCHEMA_1_FIELDS, _LegacyPickle, legacy_without
+from tests.unit._functional_tampering import DESIGN_BOUND_FIELDS, DESIGN_FREE_FIELDS
 
 
 def _study() -> CausalStudy:
@@ -411,21 +410,14 @@ def test_cde_identification_matches_each_fitted_score_factor(level: float) -> No
     assert _fitted_nuisance_names(result) == effect.identification.required_nuisances
 
 
-def test_identification_functional_metadata_survives_pickle_and_backfills() -> None:
+def test_identification_functional_metadata_survives_pickle() -> None:
     effect = _study().identify(ATE())
     restored = pickle.loads(pickle.dumps(effect.functional))
     assert restored == effect.functional
     assert restored.expression == effect.functional.expression
 
-    legacy = legacy_without(effect.functional, *BackdoorMeanContrast._SCHEMA_1_FIELDS)
-    assert legacy.missingness is None
-    assert legacy.intermediate_name is None
-    assert legacy.treatment_levels == ()
-    assert legacy.treatment_value is None
-    assert legacy.schema_version == 0
 
-
-def test_design_bound_identification_provenance_requires_the_complete_record(tmp_path) -> None:
+def test_design_bound_identification_provenance_requires_the_complete_record() -> None:
     effect = _study().identify(ATE())
     assert effect._study is not None
     registered = TARGETS["ate"].identification
@@ -433,34 +425,9 @@ def test_design_bound_identification_provenance_requires_the_complete_record(tmp
         effect.identification, registered, effect, effect._study.data, effect.functional.axis
     )
     # A fresh functional declares its support, so swapping its dynamic record for the
-    # generic registry template is not a legacy compatibility case.
+    # generic registry template is refused.
     assert not _matches_registered_point_identification(
         registered, registered, effect, effect._study.data, effect.functional.axis
-    )
-
-    state = {
-        name: value
-        for name, value in effect.functional.__dict__.items()
-        if name not in set(BackdoorMeanContrast._SCHEMA_1_FIELDS)
-    }
-    legacy_effect = dataclasses.replace(
-        effect,
-        functional=_LegacyPickle(type(effect.functional), state),
-        identification=registered,
-    )
-    result = effect.estimate(**FAST_KWARGS, **IN_SAMPLE)
-    legacy_result = dataclasses.replace(result, identified_effect=legacy_effect)
-    restored = cleverly.load(legacy_result.save(tmp_path / "legacy-identification.joblib"))
-    restored_effect = restored.identified_effect
-    assert restored_effect.functional.schema_version == 0
-    assert restored_effect.functional.treatment_value is None
-    assert "identified by explicit-adjustment" in restored_effect.summary()
-    assert _matches_registered_point_identification(
-        registered,
-        registered,
-        restored_effect,
-        effect._study.data,
-        effect.functional.axis,
     )
 
     altered_assumptions = dataclasses.replace(
@@ -476,33 +443,8 @@ def test_design_bound_identification_provenance_requires_the_complete_record(tmp
         )
 
 
-def test_transitional_design_bound_pickle_remains_valid_but_stale_cde_mar_does_not() -> None:
-    effect = _study().identify(ATE())
-    assert effect._study is not None
-    transitional_state = {
-        name: value
-        for name, value in effect.functional.__dict__.items()
-        if name not in set(BackdoorMeanContrast._TRANSITIONAL_FIELDS)
-    }
-    restored = pickle.loads(
-        pickle.dumps(
-            dataclasses.replace(
-                effect,
-                functional=_LegacyPickle(type(effect.functional), transitional_state),
-            )
-        )
-    )
-    registered = TARGETS["ate"].identification
-    assert restored.functional.schema_version == 0
-    assert restored.functional.treatment_levels == (0, 1)
-    assert _matches_registered_point_identification(
-        restored.identification,
-        registered,
-        restored,
-        effect._study.data,
-        effect.functional.axis,
-    )
-
+def test_a_cde_mar_record_with_stale_assumptions_is_refused() -> None:
+    """A record whose missingness assumption omits the intermediate is not this design's."""
     cde = CausalStudy(
         discrete_law_cde.frame(),
         design=PointTreatment(
@@ -514,18 +456,21 @@ def test_transitional_design_bound_pickle_remains_valid_but_stale_cde_mar_does_n
         ),
     ).identify(ControlledDirectEffect(intermediate=0.0))
     assert cde._study is not None
+    cde_registered = TARGETS["ate"].identification
+    assert _matches_registered_point_identification(
+        cde.identification, cde_registered, cde, cde._study.data, cde.functional.axis
+    )
     stale_assumptions = tuple(
         item.replace("given (A, Z, W)", "given (A, W)")
         if item.startswith("missingness at random")
         else item
         for item in cde.identification.assumptions
     )
+    assert stale_assumptions != cde.identification.assumptions
     stale = dataclasses.replace(
         cde,
-        functional=legacy_without(cde.functional, *BackdoorMeanContrast._TRANSITIONAL_FIELDS),
         identification=dataclasses.replace(cde.identification, assumptions=stale_assumptions),
     )
-    cde_registered = TARGETS["ate"].identification
     assert not _matches_registered_point_identification(
         stale.identification,
         cde_registered,
@@ -1616,162 +1561,35 @@ def test_a_conditional_caveat_survives_when_its_replacement_does_not_apply() -> 
     assert any(item.startswith(INTERMEDIATE_CAVEAT_PREFIX) for item in assumptions)
 
 
-# ------------------------------------------------------------ the legacy provenance guard
-
-
-def _legacy_shaped(effect: Any) -> Any:
-    """Return ``effect`` with a functional written before the design-bound fields existed."""
-    return dataclasses.replace(
-        effect,
-        functional=legacy_without(effect.functional, *BackdoorMeanContrast._SCHEMA_1_FIELDS),
-    )
+# ------------------------------------------------------------------- the provenance guard
 
 
 def test_every_field_of_the_functional_is_classified_for_provenance() -> None:
     """A new field on the record forces a decision rather than shipping unchecked.
 
-    ``_SCHEMA_1_FIELDS`` is written by hand, and ``_tamperings`` refuses a matrix that
-    does not cover it.  Neither notices a field the tuple never names: ``_restored_without``
-    raises on a *renamed* field only, so a field added to the record and not to the tuple
-    keeps every refusal suite green while nothing forges it and the legacy reconstruction
-    leaves it in place.
+    ``DESIGN_BOUND_FIELDS`` is written by hand, and ``_tamperings`` refuses a matrix that
+    does not cover it.  Neither notices a field the tuple never names, so a field added to
+    the record and to neither tuple would keep every refusal suite green while nothing
+    forges it.
     """
     declared = {field.name for field in dataclasses.fields(BackdoorMeanContrast)}
-    classified = set(BackdoorMeanContrast._SCHEMA_1_FIELDS) | set(PRE_SCHEMA_1_FIELDS)
+    classified = set(DESIGN_BOUND_FIELDS) | set(DESIGN_FREE_FIELDS)
+    assert not set(DESIGN_BOUND_FIELDS) & set(DESIGN_FREE_FIELDS)
     assert declared == classified, (
         f"unclassified fields {sorted(declared - classified)}; stale names "
         f"{sorted(classified - declared)}. Decide for each new field: if a design writes "
-        "it, add it to BackdoorMeanContrast._SCHEMA_1_FIELDS and a forged value to "
-        "tests.pickles._FORGED_FUNCTIONAL_VALUES, so the provenance matcher reconstructs "
-        "a record without it and every tampering surface gets a row for it; if every "
-        "record ever written carries it, add it to tests.pickles.PRE_SCHEMA_1_FIELDS. A "
-        "renamed field needs renaming in whichever tuple names it."
-    )
-    assert BackdoorMeanContrast._SCHEMA_1_FIELDS[
-        -len(BackdoorMeanContrast._TRANSITIONAL_FIELDS) :
-    ] == (BackdoorMeanContrast._TRANSITIONAL_FIELDS)
-
-
-def test_a_legacy_shaped_record_with_an_altered_identification_is_refused() -> None:
-    """The witness the legacy branch never had.
-
-    Deleting ``and actual == registered`` from the static-legacy disjunct left 510 tests
-    across the four provenance files green, because nothing ever paired a legacy-shaped
-    functional with an identification that was not the registry's own.
-    """
-    effect = _study().identify(ATE())
-    assert effect._study is not None
-    registered = TARGETS["ate"].identification
-    legacy = _legacy_shaped(effect)
-    assert _matches_registered_point_identification(
-        registered, registered, legacy, effect._study.data, effect.functional.axis
-    )
-    for altered in (
-        dataclasses.replace(registered, assumptions=("same citations, different claim",)),
-        dataclasses.replace(registered, required_nuisances=("outcome_regression",)),
-        dataclasses.replace(registered, dr_condition="whatever the caller wants"),
-    ):
-        assert altered.references == registered.references
-        assert not _matches_registered_point_identification(
-            altered, registered, legacy, effect._study.data, effect.functional.axis
-        )
-
-
-def test_an_untouched_legacy_record_still_replays() -> None:
-    """Back-compat stays witnessed: a plain design's legacy record is still accepted."""
-    study = _study()
-    for estimand in (ATE(), ATT(), ATC()):
-        effect = study.identify(estimand)
-        assert effect._study is not None
-        registered = TARGETS[effect.functional.target].identification
-        assert _matches_registered_point_identification(
-            registered,
-            registered,
-            _legacy_shaped(effect),
-            effect._study.data,
-            effect.functional.axis,
-        )
-
-
-def _intermediate_only_frame() -> pd.DataFrame:
-    """A complete-outcome sample carrying an intermediate column.
-
-    ``discrete_law_cde`` cannot serve this row: its ``Y`` is ``NaN`` wherever ``Delta`` is
-    zero, so a design that declares no ``missingness=`` refuses it before identification.
-    """
-    frame, _ = make_linear_ate(n=120, seed=21)
-    return frame.assign(Z=(frame["W1"] > 0).astype(int))
-
-
-@pytest.mark.parametrize(
-    ("design", "frame"),
-    [
-        (
-            PointTreatment(outcome="Y", treatment="A", adjustment=("W",), missingness="Delta"),
-            discrete_law_mar.frame,
-        ),
-        (
-            PointTreatment(
-                outcome="Y",
-                treatment="A",
-                adjustment=("W",),
-                missingness="Delta",
-                intermediate="Z",
-            ),
-            discrete_law_cde.frame,
-        ),
-        # The third row is the witness the guard's second half never had. Both rows above
-        # declare missingness=, so ``design.intermediate is None`` could be deleted from
-        # the admissibility test with 214 selected tests still passing. A design that
-        # declares intermediate= alone is supported, and a schema-0 record cannot have
-        # come from one either.
-        (
-            PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2"), intermediate="Z"),
-            _intermediate_only_frame,
-        ),
-    ],
-    ids=["mar", "cde-mar", "cde"],
-)
-def test_a_legacy_record_is_refused_when_the_design_declares_a_further_mechanism(
-    design: PointTreatment, frame: Callable[[], pd.DataFrame]
-) -> None:
-    """The version discriminator was a downgrade switch, and this closes it.
-
-    A record predating the five design-bound fields carries the registry's generic
-    identification, which states neither missingness at random nor response positivity nor
-    intermediate positivity.  A design declaring ``missingness=`` or ``intermediate=``
-    cannot have produced one -- both compositions post-date the schema -- so accepting the
-    pairing would replay against assumptions the record does not state.  It was reachable
-    only because ``simulated_confounding`` and ``refute`` refuse missing-outcome results
-    earlier, and nothing pinned that ordering.
-    """
-    estimand: Any = ControlledDirectEffect(intermediate=0.0) if design.intermediate else ATE()
-    effect = CausalStudy(frame(), design=design).identify(estimand)
-    assert effect._study is not None
-    registered = TARGETS["ate"].identification
-    assert not _matches_registered_point_identification(
-        registered,
-        registered,
-        _legacy_shaped(effect),
-        effect._study.data,
-        effect.functional.axis,
-    )
-    # The complete design-bound record is still accepted, so the refusal is about the
-    # legacy shape rather than about the design.
-    assert _matches_registered_point_identification(
-        effect.identification,
-        registered,
-        effect,
-        effect._study.data,
-        effect.functional.axis,
+        "it, add it to tests.unit._functional_tampering.DESIGN_BOUND_FIELDS and a forged "
+        "value to _FORGED_FUNCTIONAL_VALUES, so every tampering surface gets a row for it; "
+        "otherwise add it to DESIGN_FREE_FIELDS. A renamed field needs renaming in "
+        "whichever tuple names it."
     )
 
 
-def test_the_matcher_refuses_a_record_whose_study_did_not_come_back_from_disk() -> None:
-    """``IdentifiedEffect`` says restored metadata may omit ``_study``; joblib retains it.
+def test_the_matcher_refuses_a_record_with_no_bound_study() -> None:
+    """An effect built without a study carries no design to reconstruct the record from.
 
     Pinned rather than left to chance, because the matcher's answer for a record without a
-    study is "refuse", and a caller reading the docstring could expect the opposite.
+    study is "refuse", and a caller could expect the opposite.
     """
     effect = _study().identify(ATE())
     assert effect._study is not None

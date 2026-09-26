@@ -32,7 +32,7 @@ from tests.unit._inference_status_support import (
     assert_assessment_note,
     assert_evalue_unavailable,
     assert_keeps_inference,
-    assert_restamped,
+    assert_round_trips,
     assert_variable_importance_refuses,
     assert_withholds,
 )
@@ -141,9 +141,9 @@ class TestTheStatusIsTheHooksToWithhold:
             assert_withholds(mutant, STATUS)
 
 
-class TestARestoredArtifactIsReStamped:
-    """An ``oat`` result saved before RM20 carries the ordinary status and loads under this one."""
+class TestASavedResultLoadsAsSaved:
+    """An ``oat`` result loads with the status it was saved under."""
 
     @pytest.mark.parametrize("route", ROUTES)
-    def test_the_estimates_carry_the_status_again(self, result: Any, route: str) -> None:
-        assert_restamped(result, STATUS, route)
+    def test_the_estimates_keep_the_status(self, result: Any, route: str) -> None:
+        assert_round_trips(result, STATUS, route)

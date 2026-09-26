@@ -28,7 +28,7 @@ from cleverly.validation import (
     ReplicationFailure,
     refute,
 )
-from tests.pickles import FUNCTIONAL_TAMPERINGS
+from tests.unit._functional_tampering import FUNCTIONAL_TAMPERINGS
 from tests.unit._refutation_support import RefitResult, StubResult, stub_estimate
 
 

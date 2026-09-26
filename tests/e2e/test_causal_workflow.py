@@ -50,7 +50,7 @@ def test_the_new_binary_ate_path_is_bit_for_bit_the_existing_fit(backend: str, t
     )
     assert result.identified_effect is effect
     assert isinstance(result.method, TMLEMethod)
-    assert result.parameter_keys["ate"].treatment == 1
+    assert result.parameter_keys["ate"].value == 1
     assert result.parameter_keys["ate"].reference == 0
     assert "identification assumptions" in result.summary()
     saved = result.save(tmp_path / "causal-result.joblib")
@@ -80,7 +80,7 @@ def test_structured_keys_are_composed_from_multi_arm_labels() -> None:
 
     assert set(result.parameter_keys) == {"ate[high vs medium]", "ate[low vs medium]"}
     high = result.parameter_keys["ate[high vs medium]"]
-    assert high.treatment == "high"
+    assert high.value == "high"
     assert high.reference == "medium"
 
 

@@ -81,16 +81,15 @@ from __future__ import annotations
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import Any, ClassVar
+from typing import Any
 
 import numpy as np
 
 from .._typing import BoolArray, FloatArray
 from ..data.causal_data import CausalData
-from ..data.weighting import SCORE_LOAD_PREDATES, effective_sample_size, format_score_load
+from ..data.weighting import effective_sample_size, format_score_load
 from ..exceptions import DataError, PositivityWarning
 from ..learners.density import ConditionalDensity, warn_if_unresolved
-from ..utils.records import _DefaultingUnpickle
 from .support import _intervention_loads, _InterventionLoadRow
 
 __all__ = ["Shift", "ShiftSet", "ShiftSupport", "check_shift_support"]
@@ -422,7 +421,7 @@ def _warn_outside_support(shift: Shift, shifted: FloatArray, observed: FloatArra
 
 
 @dataclass(frozen=True)
-class ShiftSupport(_DefaultingUnpickle):
+class ShiftSupport:
     """Overlap for one shift: how hard the density ratio is working, and where it fails.
 
     Parameters
@@ -480,8 +479,6 @@ class ShiftSupport(_DefaultingUnpickle):
     min_mechanism: float | None = None
     score_load: _InterventionLoadRow | None = None
     score_load_omission: str | None = None
-
-    _PICKLE_BACKFILL: ClassVar[dict[str, Any]] = {"score_load_omission": SCORE_LOAD_PREDATES}
 
     def summary(self) -> str:
         """Return a printable summary.

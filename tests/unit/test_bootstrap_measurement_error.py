@@ -21,8 +21,8 @@ from cleverly.validation import (
     DEFAULT_TESTS,
     BootstrapMeasurementError,
     EmpiricalInclusionRule,
+    EmpiricalRefitRecord,
     GaussianNoise,
-    GeneratedOutcomeRecord,
     RelativeGaussianNoise,
     ReplicationFailure,
     refute,
@@ -560,7 +560,7 @@ class TestBootstrapAndPerturbation:
         test = first["bootstrap_measurement_error"]
         assert first == second
         assert len(set(test.child_seeds)) == test.requested_draws
-        assert all(type(record) is GeneratedOutcomeRecord for record in test.records)
+        assert all(type(record) is EmpiricalRefitRecord for record in test.records)
         assert type(first.draws_frame("bootstrap_measurement_error")).__module__.startswith(backend)
 
 

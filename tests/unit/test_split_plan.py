@@ -499,19 +499,6 @@ class TestOnlyARecordedDrawIsAccepted:
         with pytest.raises(DataError, match=match):
             SplitPlan([[0, 1, 0, 1]], provenance=provenance)
 
-    def test_a_pickle_that_predates_the_field_restores_unrecorded(self) -> None:
-        """An old stored plan reads as what it is: labels with no generator record."""
-        plan = _package_plan(120)
-        state = {
-            "assignments": plan.assignments,
-            "source_fingerprint": plan.source_fingerprint,
-        }
-        restored = SplitPlan.__new__(SplitPlan)
-        restored.__setstate__(state)
-
-        assert restored.provenance is None
-        assert restored.assignments == plan.assignments
-
     def test_verify_accepts_the_draw_it_records(self) -> None:
         _package_plan(120).verify(n=120)
 
@@ -1094,7 +1081,7 @@ def test_generated_and_supplied_fold_diagnostics_are_exactly_identical() -> None
     assert actual.variance == expected.variance
     assert actual.repeats == expected.repeats
     assert actual.backend == expected.backend
-    for report in ("pooled", "canonical"):
+    for report in ("pooled", "fold_evaluated"):
         expected_estimates = getattr(expected, report)
         actual_estimates = getattr(actual, report)
         assert actual_estimates.keys() == expected_estimates.keys()

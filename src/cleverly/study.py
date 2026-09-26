@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import narwhals as nw
 
@@ -53,7 +53,6 @@ from .targets.population_intervention import (
     population_intervention_refusal,
 )
 from .utils.frames import as_frame
-from .utils.records import _DefaultingUnpickle
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .assessment import AssessmentReport
@@ -297,7 +296,7 @@ class CausalResult(Protocol):
 
     @property
     def replayability(self) -> Any:
-        """Report which analyses a restored result can replay."""
+        """Report which analyses this result can replay."""
         ...
 
 
@@ -1197,7 +1196,7 @@ PointEstimand = (
     | ControlledDirectEffect
 )
 
-#: The typed object to reach for when a caller passes the legacy string spelling.  Only the
+#: The typed object to reach for when a caller passes a string spelling.  Only the
 #: names that used to be accepted as ``TMLE(estimands=(...,))`` strings are listed; anything
 #: else gets the generic pointer to the roster in ``cleverly.__all__``.
 _STRING_ESTIMANDS: dict[str, str] = {
@@ -1271,7 +1270,7 @@ def _narrow_bootstrap(bootstrap: Any, retained: Mapping[str, Any]) -> Any:
 
 
 @dataclass(frozen=True)
-class BackdoorMeanContrast(_DefaultingUnpickle):
+class BackdoorMeanContrast:
     """Store a normalized observed-data functional for an estimator adapter.
 
     Users normally receive this object through :meth:`CausalStudy.identify`.
@@ -1308,10 +1307,6 @@ class BackdoorMeanContrast(_DefaultingUnpickle):
         Declared treatment levels, in the data container's stable order.
     treatment_value : Any or None
         One retained treatment level for a targeted counterfactual mean.
-    schema_version : int
-        Version of the design-bound identification record. Zero denotes a record
-        restored from before this discriminator was persisted; retained metadata
-        and identification distinguish static legacy from transitional records.
     """
 
     outcome: Any
@@ -1329,70 +1324,6 @@ class BackdoorMeanContrast(_DefaultingUnpickle):
     intermediate_name: str | None = None
     treatment_levels: tuple[Any, ...] = ()
     treatment_value: Any = None
-    schema_version: int = 1
-
-    _PICKLE_BACKFILL: ClassVar[dict[str, Any]] = {"schema_version": 0}
-
-    #: The fields the design-bound revision added, in the order they were added. A record
-    #: written before all of them is a static legacy record, and one written before the
-    #: trailing :attr:`_TRANSITIONAL_FIELDS` alone is a transitional record. The provenance
-    #: matcher reconstructs both shapes from this tuple, and the tests that forge a
-    #: functional derive their tampering matrix from it, so one edit here reaches the
-    #: matcher and every refusal surface rather than five hand-written copies.
-    _SCHEMA_1_FIELDS: ClassVar[tuple[str, ...]] = (
-        "missingness",
-        "intermediate_name",
-        "treatment_levels",
-        "treatment_value",
-        "schema_version",
-    )
-
-    #: The trailing subset of :attr:`_SCHEMA_1_FIELDS` that a transitional record lacks.
-    _TRANSITIONAL_FIELDS: ClassVar[tuple[str, ...]] = ("treatment_value", "schema_version")
-
-    @classmethod
-    def _restored_without(
-        cls, record: BackdoorMeanContrast, dropped: tuple[str, ...]
-    ) -> BackdoorMeanContrast:
-        """Return ``record`` as a pickle written before ``dropped`` existed restores it.
-
-        The state goes through ``__setstate__`` rather than through a written-out fill, so
-        the shape compared below is the shape an old pickle actually restores to. Naming
-        the fills here instead would state the restore rule a second time and let the two
-        copies disagree.
-
-        Parameters
-        ----------
-        record : BackdoorMeanContrast
-            A reconstructed current record.
-        dropped : tuple of str
-            Field names the older pickle did not carry.
-
-        Returns
-        -------
-        BackdoorMeanContrast
-            The record with those fields filled the way :meth:`__setstate__` fills them.
-
-        Raises
-        ------
-        KeyError
-            When a name in ``dropped`` is not a field of this class. The tuples that name
-            them are a second list of field names, so a rename leaves one of them naming a
-            field that no longer exists. Dropping such a name removes nothing, and the
-            comparison then accepts a record of the current shape as a legacy one.
-        """
-        absent = sorted(set(dropped) - set(record.__dict__))
-        if absent:
-            raise KeyError(
-                f"{cls.__name__} carries no such field: {', '.join(absent)}; a renamed "
-                "field needs its entry in _SCHEMA_1_FIELDS renamed with it, or the legacy "
-                "shape below is the current shape"
-            )
-        restored = object.__new__(cls)
-        restored.__setstate__(
-            {name: value for name, value in record.__dict__.items() if name not in dropped}
-        )
-        return restored
 
     @property
     def reference_arm(self) -> Any:
@@ -1400,8 +1331,9 @@ class BackdoorMeanContrast(_DefaultingUnpickle):
 
         One implementation, because the printed expression and the printed positivity
         statement both resolve it and a reader who saw them disagree could not tell which
-        arm the fit used. ``"reference"`` stands in only for a restored record that
-        predates :attr:`treatment_levels`, which is the one case with nothing to name.
+        arm the fit used. ``"reference"`` stands in when the record declares no reference
+        and no :attr:`treatment_levels`, as on a continuous treatment, which leaves
+        nothing to name.
         """
         if self.reference is not None:
             return self.reference
@@ -1542,11 +1474,6 @@ class ParameterKey:
     horizon: int | None = None
     cause: str | None = None
     term: str | None = None
-
-    @property
-    def treatment(self) -> Any:
-        """Return ``value`` as the backward-compatible treatment label."""
-        return self.value
 
 
 def _point_target(estimand: PointEstimand, data: CausalData) -> tuple[Any, str]:
@@ -2072,7 +1999,7 @@ def _matches_registered_point_identification(
     data: CausalData,
     axis: str,
 ) -> bool:
-    """Match a complete current record or an explicitly backfilled legacy record."""
+    """Match a complete record against the one the registered design reconstructs."""
     functional = getattr(identified, "functional", None)
     study = getattr(identified, "_study", None)
     design = getattr(study, "design", None)
@@ -2090,28 +2017,7 @@ def _matches_registered_point_identification(
         expected = _point_identification(registered, design, expected_functional)
     except (AttributeError, CapabilityError, DataError, KeyError, TypeError, ValueError):
         return False
-    schema = getattr(functional, "schema_version", None)
-    if schema == 0:
-        # A record written before these five fields existed carries the registry's generic
-        # identification, which states neither missingness at random, nor response
-        # positivity, nor an intermediate.  A design declaring missingness= or
-        # intermediate= cannot have produced one: both compositions post-date the schema.
-        # Accepting that pairing would let a replay run against assumptions the record
-        # does not state, so the back-compat allowance stops at a design that declares
-        # either mechanism.
-        static_legacy = BackdoorMeanContrast._restored_without(
-            expected_functional, BackdoorMeanContrast._SCHEMA_1_FIELDS
-        )
-        transitional = BackdoorMeanContrast._restored_without(
-            expected_functional, BackdoorMeanContrast._TRANSITIONAL_FIELDS
-        )
-        static_admissible = design.missingness is None and design.intermediate is None
-        return (static_admissible and functional == static_legacy and actual == registered) or (
-            functional == transitional and actual == expected
-        )
-    if schema != 1 or functional != expected_functional:
-        return False
-    return actual == expected
+    return functional == expected_functional and actual == expected
 
 
 _LONGITUDINAL_IDENTIFICATION = Identification(
@@ -2324,9 +2230,7 @@ class CausalStudy:
     'ate'
     """
 
-    # An artifact written before StudyProtocol has no instance value. The class fallback
-    # makes its public property report absence after trusted unpickling.
-    _protocol: StudyProtocol | None = None
+    _protocol: StudyProtocol | None
 
     def __init__(
         self,
@@ -2445,7 +2349,7 @@ class CausalStudy:
 
 
 @dataclass(frozen=True)
-class IdentifiedEffect(_DefaultingUnpickle):  # numpydoc ignore=PR01
+class IdentifiedEffect:  # numpydoc ignore=PR01
     """Bind an estimand to a functional and its identification assumptions.
 
     Parameters
@@ -2470,8 +2374,8 @@ class IdentifiedEffect(_DefaultingUnpickle):  # numpydoc ignore=PR01
     Notes
     -----
     ``_study`` is the bound study, kept private because it is not part of the reported
-    causal question.  Metadata restored from disk may omit it, and such an effect cannot
-    be refitted.
+    causal question.  An effect built without a study leaves it ``None``, and such an
+    effect cannot be refitted.
 
     Examples
     --------
@@ -2530,8 +2434,8 @@ class IdentifiedEffect(_DefaultingUnpickle):  # numpydoc ignore=PR01
         )
         # Read off the declared design rather than off a fitted result, so a caller who
         # asks which methods are available before fitting is told the same thing the fit
-        # would tell them. Metadata restored from disk carries no study, and then this
-        # cannot be answered and is not claimed.
+        # would tell them. An effect built without a study cannot answer this, and it
+        # claims nothing.
         design = getattr(self._study, "design", None)
         clustered = getattr(design, "cluster", None) is not None
         collaborative_blocker = (
@@ -2631,7 +2535,7 @@ class IdentifiedEffect(_DefaultingUnpickle):  # numpydoc ignore=PR01
         Raises
         ------
         CapabilityError
-            If the method is unavailable or restored metadata has no bound data.
+            If the method is unavailable or the effect has no bound study.
         MethodConfigurationError
             If ``method`` does not satisfy the estimation-method contract.
 
@@ -2664,7 +2568,7 @@ class IdentifiedEffect(_DefaultingUnpickle):  # numpydoc ignore=PR01
         """
         if self._study is None:
             raise CapabilityError(
-                "this effect was restored as fitted metadata and is not bound to analysis data; "
+                "this effect is not bound to analysis data; "
                 "construct a new CausalStudy to estimate it again"
             )
         normalized = self._method(method, overrides)

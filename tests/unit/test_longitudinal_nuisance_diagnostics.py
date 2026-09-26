@@ -17,23 +17,20 @@ import sklearn.linear_model
 
 from cleverly.datasets import make_longitudinal, make_longitudinal_survival
 from cleverly.longitudinal import LTMLE
-from cleverly.longitudinal.sequential import Mechanism
 from cleverly.msm import MSM
 from cleverly.validation.longitudinal import (
     LONGITUDINAL_CENSORING_NOT_FITTED,
-    LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING,
     LongitudinalNuisanceDiagnostics,
     LongitudinalNuisanceRow,
     _longitudinal_nuisances,
 )
 from cleverly.validation.nuisance import NuisanceModelReport
 from tests.conftest import FAST_KWARGS
-from tests.pickles import legacy_without as _legacy
 from tests.unit.test_sequential_design import COLUMNS, multivalue_panel
 
 #: The columns :meth:`LongitudinalNuisanceDiagnostics.to_frame` writes for every report,
-#: before the union of the metrics its nested reports carry. The first six are the legacy
-#: prefix an older release wrote.
+#: before the union of the metrics its nested reports carry. The first six are the row's
+#: coordinates, its size, and its ``mse`` field.
 BASE_COLUMNS = [
     "regimen",
     "cause",
@@ -148,7 +145,7 @@ def test_longitudinal_row_equality_keeps_nested_model_details() -> None:
     assert replace(right, model=changed_model) != left
 
 
-def test_to_frame_writes_the_legacy_prefix_and_then_the_metric_union(weighted_result) -> None:  # type: ignore[no-untyped-def]
+def test_to_frame_writes_the_base_prefix_and_then_the_metric_union(weighted_result) -> None:  # type: ignore[no-untyped-def]
     """The whole column list, not a prefix of it.
 
     A prefix check accepts any tail, and the Polars twin below compares one backend
@@ -170,14 +167,13 @@ def test_to_frame_writes_the_legacy_prefix_and_then_the_metric_union(weighted_re
 
 
 def test_to_frame_columns_a_report_whose_rows_retain_no_model() -> None:
-    """A row written before the nested model report still frames, with empty cells.
+    """A row that retains no nested model report still frames, with empty cells.
 
     ``_metric_names`` sees no metrics at all here, so the frame is the base contract and
-    nothing else. ``loss`` falls back to the legacy ``mse``, which is the column an older
-    reader reads.
+    nothing else.
     """
     rows = (
-        LongitudinalNuisanceRow(None, None, None, 1, 12, 0.25),
+        LongitudinalNuisanceRow(None, None, None, 1, 12, 0.25, loss=0.25),
         LongitudinalNuisanceRow("always", None, 2, 2, 8, float("nan")),
     )
     frame = LongitudinalNuisanceDiagnostics(rows, backend="pandas").to_frame()
@@ -250,7 +246,7 @@ def test_each_role_reports_its_stored_weighted_loss(weighted_result) -> None:  #
         assert row.model.calibration
 
 
-def test_the_legacy_mse_field_answers_about_node_regressions_alone(weighted_result) -> None:  # type: ignore[no-untyped-def]
+def test_the_mse_field_answers_about_node_regressions_alone(weighted_result) -> None:  # type: ignore[no-untyped-def]
     """``mse`` stays the square loss of a node regression, and mechanism rows read ``nan``.
 
     The claim the first six fields rest on is that ``frame["mse"]`` means one quantity. A
@@ -296,48 +292,6 @@ def test_the_outcome_row_sits_at_its_own_fits_horizon(weighted_result) -> None: 
             if fit.regimen.label == row.regimen and fit.cause == row.cause
         )
         assert (row.time == fit.horizon) is at_horizon
-
-
-def test_a_row_written_before_the_role_fields_reports_its_legacy_mse() -> None:
-    """An artifact carrying only the first six fields still answers ``reported_loss``.
-
-    Restored through a real pickle rather than a hand call, so the check covers the route
-    an old file takes. Every new field takes its own default, which leaves ``loss`` at
-    ``nan`` and makes the legacy ``mse`` the only loss the row can report.
-    """
-    row = LongitudinalNuisanceRow(
-        "always",
-        None,
-        None,
-        2,
-        40,
-        0.25,
-        role="outcome",
-        evaluation="out_of_fold",
-        loss_name="brier",
-        loss=0.5,
-        model=NuisanceModelReport(
-            name="outcome[regimen=always, t=2]",
-            kind="probability",
-            metrics={"brier": 0.5},
-            calibration={},
-            learner_weights={},
-            learner_risks={},
-        ),
-    )
-    legacy = _legacy(row, "role", "evaluation", "loss_name", "loss", "model")
-
-    assert (legacy.regimen, legacy.time, legacy.n) == ("always", 2, 40)
-    assert legacy.mse == pytest.approx(0.25)
-    assert (legacy.role, legacy.evaluation, legacy.loss_name) == (
-        "pseudo_outcome",
-        "in_sample",
-        "mse",
-    )
-    assert np.isnan(legacy.loss)
-    assert legacy.model is None
-    assert legacy.reported_loss == pytest.approx(0.25)
-    assert row.reported_loss == pytest.approx(0.5)
 
 
 def test_role_specific_prediction_mutations_move_only_the_bound_loss(weighted_result) -> None:  # type: ignore[no-untyped-def]
@@ -450,7 +404,7 @@ def test_later_mechanism_node_uses_only_its_nontrivial_at_risk_rows(weighted_res
     assert _row(inside, "censoring", time=2).n == censoring.n
 
 
-def test_complete_data_and_legacy_mechanisms_record_omissions() -> None:
+def test_complete_data_records_the_censoring_omission() -> None:
     frame, _ = make_longitudinal(n=140, seed=41, censoring=False)
     complete = LTMLE({"always": 1}, **PARAMETRIC).fit(
         frame,
@@ -464,49 +418,6 @@ def test_complete_data_and_legacy_mechanisms_record_omissions() -> None:
     assert [(item.role, item.time, item.reason) for item in report.omissions] == [
         ("censoring", None, LONGITUDINAL_CENSORING_NOT_FITTED)
     ]
-
-    source = complete.mechanism
-    legacy = Mechanism(
-        source.treatment,
-        source.censoring,
-        source.treatment_by_fold,
-        source.censoring_by_fold,
-    )
-    legacy_report = _longitudinal_nuisances(replace(complete, mechanism=legacy))
-    assert not any(row.role == "treatment" for row in legacy_report.rows)
-    assert {item.reason for item in legacy_report.omissions} == {
-        LONGITUDINAL_CENSORING_NOT_FITTED,
-        LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING,
-    }
-    assert any(row.role == "outcome" for row in legacy_report.rows)
-
-
-def test_a_legacy_mechanism_on_censored_data_omits_both_roles_at_every_node(  # type: ignore[no-untyped-def]
-    weighted_result,
-) -> None:
-    """The per-node censoring omission, which complete data cannot reach.
-
-    ``_longitudinal_nuisances`` leaves the node loop before the censoring branch when the
-    data carries no censoring columns, so the complete-data check above records the whole
-    role as absent and never produces a ``("censoring", t, ...)`` item. This panel is
-    censored, so both branches run at both nodes.
-    """
-    source = weighted_result.mechanism
-    legacy = Mechanism(
-        source.treatment,
-        source.censoring,
-        source.treatment_by_fold,
-        source.censoring_by_fold,
-    )
-    report = _longitudinal_nuisances(replace(weighted_result, mechanism=legacy))
-
-    assert [(item.role, item.time, item.reason) for item in report.omissions] == [
-        ("treatment", 1, LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING),
-        ("censoring", 1, LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING),
-        ("treatment", 2, LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING),
-        ("censoring", 2, LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING),
-    ]
-    assert {row.role for row in report.rows} == {"outcome", "pseudo_outcome"}
 
 
 def test_categorical_treatment_is_one_model_row_with_multinomial_log_loss() -> None:
@@ -599,9 +510,7 @@ def test_report_persistence_keeps_rows_models_and_omissions(weighted_result, tmp
     restored = joblib.load(path)
     restored_report = restored.diagnostics.nuisance_models()
     assert restored_report == report
-    assert [row.reported_loss for row in restored_report.rows] == [
-        row.reported_loss for row in report.rows
-    ]
+    assert [row.loss for row in restored_report.rows] == [row.loss for row in report.rows]
     assert restored_report.omissions == report.omissions
     for expected, actual in zip(report.rows, restored_report.rows, strict=True):
         assert expected.model is not None and actual.model is not None
@@ -652,7 +561,7 @@ def test_same_fit_through_pandas_and_polars_keeps_the_complete_report() -> None:
             right.evaluation,
             right.loss_name,
         )
-        assert right.reported_loss == pytest.approx(left.reported_loss)
+        assert right.loss == pytest.approx(left.loss)
         assert left.model is not None and right.model is not None
         assert (right.model.name, right.model.kind) == (left.model.name, left.model.kind)
         assert right.model.metrics == pytest.approx(left.model.metrics, nan_ok=True)

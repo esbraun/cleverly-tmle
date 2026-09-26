@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import copy
 import inspect
-import pickle
 import re
 from dataclasses import replace
 from types import SimpleNamespace
@@ -546,7 +544,6 @@ def test_descriptive_interpreters_complete_without_inventing_a_verdict() -> None
         "evalue": SimpleNamespace(point=2.0, limit=1.5, scale="risk ratio", approximate=False),
         "missingness": frame({"gamma": [0.5, 1.5], "psi": [0.9, 1.1]}),
         "tipping_gamma": None,
-        "stagewise": SimpleNamespace(rows=()),
     }
 
     for operation, report in reports.items():
@@ -1742,7 +1739,7 @@ def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventor
     """A real fit presents every row it ran: results in full, and the rest by name.
 
     Size is the witness a synthetic report cannot give. Two of this fit's status groups
-    hold four rows, so a summary that renders only the head of a group drops rows here
+    hold more than two rows, so a summary that renders only the head of a group drops rows here
     and stays self-consistent, because the count column reports what it printed. The
     inventory is therefore checked against every presented row rather than against the
     count printed beside it.
@@ -1757,7 +1754,7 @@ def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventor
     )
     assert list(sections) == ["Returned results", "Checks", "Not run"]
 
-    assert len(battery.to_frame()) == 16
+    assert len(battery.to_frame()) == 15
     assert text.index("bias-adjusted interval") < text.index("validation.nuisance_models")
     assert "poorly calibrated" not in text
     assert "not run by default because it retargets the fit" not in text
@@ -1765,7 +1762,7 @@ def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventor
     # The nonzero witness for completeness: two groups are larger than a head of two.
     statuses = [item.status for _, item in battery._presented()]
     assert statuses.count(AssessmentStatus.DEFERRED) == 4
-    assert statuses.count(AssessmentStatus.NOT_APPLICABLE) == 4
+    assert statuses.count(AssessmentStatus.NOT_APPLICABLE) == 3
 
     review = "\n".join((checks, omissions, _SUMMARY_FOOTER))
     inventoried = {
@@ -1773,7 +1770,7 @@ def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventor
         for surface, item in battery._presented()
         if item.status is not AssessmentStatus.COMPLETED
     }
-    assert len(inventoried) == 10
+    assert len(inventoried) == 9
     assert {name for name in inventoried if name in review} == inventoried
 
     # Every returned result names the operation ``report(...)`` takes. No detail on this
@@ -1826,53 +1823,6 @@ def test_next_steps_are_de_duplicated_and_keep_presentation_order():
         "read strength",
     )
     assert repeated.diagnostics.next_steps() == ("read the fit", "read bounds")
-
-
-def test_a_stagewise_row_reports_its_two_metrics_on_the_support_scale():
-    """``stagewise`` and ``support`` answer the same two questions, so they read alike.
-
-    ``stagewise`` interpolated both numbers raw and printed ``0.8888888888888887`` beside
-    a sibling row reading ``88.9%``, and ``None`` where the sibling prints nothing.
-    """
-    from cleverly.assessment import (
-        LongitudinalDiagnostics,
-        LongitudinalStageRow,
-        _stagewise_item,
-        _support_item,
-    )
-
-    def row(share: float, effective: float) -> LongitudinalStageRow:
-        return LongitudinalStageRow(
-            regimen="always",
-            cause=None,
-            horizon=None,
-            time=0,
-            n_followed=90,
-            assignment=1.0,
-            max_weight=2.0,
-            effective_n=effective,
-            share_truncated=share,
-            epsilon=(),
-            converged=True,
-        )
-
-    def diagnostics(*rows: LongitudinalStageRow) -> LongitudinalDiagnostics:
-        return LongitudinalDiagnostics(rows, (), False, False, False)
-
-    detail = _stagewise_item(diagnostics(row(0.0, 80.0), row(0.125, 72.0)), None).detail
-
-    assert detail == (
-        "2 stage row(s); maximum truncated fraction 12.5%; "
-        "minimum effective-sample-size ratio 80.0%"
-    )
-    # The paired witness: the sibling row formats the same two numbers the same way, so
-    # the two details cannot drift apart again without one of these strings changing.
-    support = _support_item(_positivity(0.125, 0.8), None)
-    assert support.detail.startswith(
-        "maximum truncated fraction 12.5%; minimum effective-sample-size ratio 80.0%"
-    )
-    # And an empty report says nothing rather than "None".
-    assert _stagewise_item(diagnostics(), None).detail == "0 stage row(s)"
 
 
 def test_an_unstamped_artifact_says_it_records_no_method():
@@ -2164,12 +2114,9 @@ def test_the_group_table_renders_when_a_row_is_not_finite() -> None:
 def test_a_report_built_without_the_group_table_still_lists_the_maxima() -> None:
     """The field is defaulted, so a hand-built report constructs and still shows the maxima.
 
-    This is the *constructor* path and nothing more: ``default_factory`` fires normally
-    here, so the attribute is present before any reader looks at it. It does not exercise
-    backward compatibility, which is a different mechanism and is covered by
-    ``test_a_report_pickled_before_the_group_table_existed_still_reads``. What it does
-    check is that a report with no group table presents a reader with the maxima rather
-    than with nothing where they used to be.
+    ``default_factory`` fires here, so the attribute is present before any reader looks at
+    it. The check is that a report with no group table presents a reader with the maxima
+    rather than with nothing where they used to be.
     """
     report = _positivity(0.0, 0.9, clever_covariate_max={"mean": 1.0, "att": 4.0})
 
@@ -2178,90 +2125,6 @@ def test_a_report_built_without_the_group_table_still_lists_the_maxima() -> None
     assert "max |clever covariate| (att): 4" in report.summary()
     assert "Kish-equivalent rows" not in report.summary()
     assert "Absolute-load concentration" not in report.verdict()
-
-
-def _older_state(report: PositivityReport) -> dict[str, object]:
-    """The instance dictionary a report pickled before ``group_leverage`` existed carries.
-
-    An older pickle stores the fields the older class had, and no key of that name. This
-    is that dictionary, taken from a real report so that every other field is a real
-    value rather than a stand-in.
-    """
-    state = dict(report.__dict__)
-    del state["group_leverage"]
-    del state["group_leverage_omissions"]
-    return state
-
-
-def test_a_report_pickled_before_the_group_table_existed_still_reads() -> None:
-    """Backward compatibility, through ``pickle`` rather than through the constructor.
-
-    ``dataclasses`` **deletes** the class attribute for a ``default_factory`` field, so
-    the default cannot stand behind an old pickle: the instance arrives with no
-    ``group_leverage`` key and nothing on the class to fall back to, and every reader of
-    the attribute raises ``AttributeError``. The first two assertions are that fact,
-    stated so that a future change which gives the class a real attribute fails here and
-    tells someone the mechanism moved. ``__setstate__`` is what closes the gap, and it is
-    driven by ``dataclasses.fields``, so ``n_repeats`` and ``backend`` come back filled by
-    the same pass.
-    """
-    report = _positivity(
-        0.0,
-        0.9,
-        clever_covariate_max={"mean": 1.0, "att": 4.0},
-        group_leverage={"mean": _load(0.5), "att": _load(0.3)},
-    )
-    state = _older_state(report)
-
-    assert getattr(type(report), "group_leverage", None) is None
-    raw = PositivityReport.__new__(PositivityReport)
-    raw.__dict__.update(state)
-    with pytest.raises(AttributeError, match="group_leverage"):
-        getattr(raw, "group_leverage")  # noqa: B009 -- the raise is the point
-
-    older = copy.copy(report)
-    older.__dict__.pop("group_leverage")
-    restored = pickle.loads(pickle.dumps(older))
-
-    assert "group_leverage" not in state
-    assert restored.group_leverage == {}
-    assert restored.group_leverage_omissions == {}
-    assert restored.n_repeats == 1 and restored.backend is None
-    assert restored.severity == "adequate"
-    assert "Absolute-load concentration" not in restored.verdict()
-    # And the summary takes the fallback branch: the table is gone, the maxima are not.
-    summary = restored.summary()
-    assert "max |clever covariate| (mean): 1" in summary
-    assert "max |clever covariate| (att): 4" in summary
-    assert "Kish-equivalent rows" not in summary
-
-
-def test_a_result_saved_before_the_group_table_existed_still_assesses(tmp_path) -> None:
-    """The same restore over the real artifact, which is where an old report comes from.
-
-    ``diagnostics.support()`` files its answer in ``assessment_cache``, and ``save()``
-    joblib-pickles the whole result with that cache inside it. So a stored artifact
-    written before this table existed carries exactly the report the test above builds by
-    hand, and ``cleverly.load`` is the reader that meets it. The cached report is edited
-    to drop the key rather than the class being rolled back, because the older class is
-    not importable from here.
-    """
-    result = _fit(_study(), ATE())
-    del result.diagnostics.support().__dict__["group_leverage"]
-    del result.diagnostics.support().__dict__["group_leverage_omissions"]
-    key = next(name for name in result.assessment_cache if "support" in name)
-    assert "group_leverage" not in result.assessment_cache[key].__dict__
-
-    restored = load(result.save(tmp_path / "older-result.joblib"))
-    report = restored.diagnostics.support()
-
-    assert report.group_leverage == {}
-    assert report.severity in {"adequate", "strain", "serious"}
-    assert "max |clever covariate| (mean): " in report.summary()
-    assert "max |h|" not in report.summary()
-    # The combined battery reads `severity` off the same object, which is the caller the
-    # missing attribute broke.
-    assert restored.assess().report("support").group_leverage == {}
 
 
 def test_the_truncation_verdict_keeps_the_requested_estimand() -> None:

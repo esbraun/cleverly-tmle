@@ -285,7 +285,7 @@ def test_a_three_node_recursion_recovers_the_truth() -> None:
         multiplier = fit.obs_weights * step.clever
         score = float(np.mean(multiplier * (step.pseudo_outcome - step.targeted)))
         assert abs(score) / float(np.mean(np.abs(multiplier))) < 1e-9
-    assert len(result.diagnostics.stagewise().to_frame()) == 6  # two regimens by three nodes
+    assert len(result.diagnostics.support().to_frame()) == 6  # two regimens by three nodes
     estimate = result["ey_regimen[always]"]
     assert abs(estimate.psi - truth) < 3.0 * estimate.std_error
 
@@ -407,7 +407,7 @@ def test_diagnostics_report_the_cumulative_leverage(
     describe.
     """
     result, _ = fitted
-    frame = result.diagnostics.stagewise().to_frame()
+    frame = result.diagnostics.support().to_frame()
     assert len(frame) == 4  # two regimens by two nodes
     rows = {(row["regimen"], row["time"]): row for _, row in frame.iterrows()}
     for label, fit in result.fits.items():
@@ -518,7 +518,7 @@ def test_a_nonbinding_bound_reports_zero_without_a_positivity_warning() -> None:
     np.testing.assert_array_equal(
         result.fits["always"].cumulative_unbounded, result.fits["always"].cumulative
     )
-    assert float(result.diagnostics.stagewise().to_frame()["share_truncated"].max()) == 0.0
+    assert float(result.diagnostics.support().to_frame()["share_truncated"].max()) == 0.0
 
 
 def test_contrast_and_covariance_use_the_joint_curve(
@@ -621,7 +621,7 @@ def test_polars_in_polars_out() -> None:
     frame, _ = make_longitudinal(n=800, seed=5, backend="polars")
     result = run(frame)
     assert isinstance(result.to_frame(), polars.DataFrame)
-    assert isinstance(result.diagnostics.stagewise().to_frame(), polars.DataFrame)
+    assert isinstance(result.diagnostics.support().to_frame(), polars.DataFrame)
 
 
 def test_the_two_backends_produce_identical_numbers() -> None:
@@ -778,7 +778,7 @@ class TestObservationWeights:
         result = run(frame, weights="w")
         rows = {
             (row["regimen"], row["time"]): row
-            for _, row in result.diagnostics.stagewise().to_frame().iterrows()
+            for _, row in result.diagnostics.support().to_frame().iterrows()
         }
         for label, fit in result.fits.items():
             for step in fit.steps:
@@ -876,7 +876,7 @@ class TestADynamicRule:
         fit ran; for a rule it is the only place the report says what the rule actually
         did to this sample, since the settings can only say that a rule was declared.
         """
-        frame = fitted.diagnostics.stagewise().to_frame()
+        frame = fitted.diagnostics.support().to_frame()
         shares = {
             (row["regimen"], row["time"]): row["share_assigned_1"] for _, row in frame.iterrows()
         }
@@ -1362,7 +1362,7 @@ class TestASurvivalOutcome:
     ) -> None:
         """The ``regimen`` column is the regimen, not the key the fit is filed under."""
         result, _ = fitted
-        rows = result.diagnostics.stagewise().to_frame()
+        rows = result.diagnostics.support().to_frame()
         assert set(rows["regimen"]) == {"always", "never"}
         assert set(rows["horizon"]) == {1, 2}
         # One row per node of every horizon of every regimen: 2 * (1 + 2).

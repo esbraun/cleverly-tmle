@@ -365,8 +365,8 @@ class Fluctuation:
         Equation (10)'s fluctuation and the reduced regressions it was solved against,
         for a :class:`~cleverly.DRTMLE` fit.
     absolute_score_weights : ndarray or None
-        ``abs(w_i * h_ij)`` on the rows this outcome-score solve used. ``None`` only for
-        a fluctuation restored from an artifact that predates this field.
+        ``abs(w_i * h_ij)`` on the rows this outcome-score solve used. ``None`` only on a
+        fluctuation built by hand.
 
     Attributes
     ----------

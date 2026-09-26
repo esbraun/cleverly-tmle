@@ -88,7 +88,6 @@ from tests.unit._capability_sweep_support import (
     INSTRUMENT_ORDERING,
     KINDS,
     MUTATIONS,
-    as_saved_by_v011,
     cross_fitted,
     ctmle_ordered,
     ctmle_stratified,
@@ -96,8 +95,8 @@ from tests.unit._capability_sweep_support import (
     drtmle_companion_frame,
     fit_drtmle,
     reconfigured,
-    restored_ctmle_clustered,
-    restored_stratified,
+    reconfigured_ctmle_clustered,
+    reconfigured_stratified,
     unbounded_scale_ate,
     without_provenance,
 )
@@ -685,8 +684,8 @@ class TestTheRefuteRowResolvesEachRequest:
             result.diagnostics.refute(estimand="ate", tests=("subset",))
 
     def test_a_malformed_argument_precedes_the_replay_gate(self) -> None:
-        """A restored result whose refit is refused still hears the malformed argument."""
-        result = restored_stratified()
+        """A reconfigured result whose refit is refused still hears the malformed argument."""
+        result = reconfigured_stratified()
         assert not result.diagnostics.capability("refute").available
         with pytest.raises(ValueError, match="unknown refutation test 'typo'") as error:
             result.diagnostics.refute(tests=("typo",))
@@ -1951,10 +1950,10 @@ class TestARefitDropsACompanionThatLacksACovariate:
 # ---------------------------------------------------------------------- the replay slots
 
 
-#: Each restored result, and whether its refit runs. A refused refit is the RM23 defect:
+#: Each reconfigured result, and whether its refit runs. A refused refit is the RM23 defect:
 #: before RM23 each of these read ``refit_nuisances`` true and its refit raised.
 REPLAY_KINDS: dict[str, tuple[Callable[[], Any], bool]] = {
-    "stratify=treatment": (restored_stratified, False),
+    "stratify=treatment": (reconfigured_stratified, False),
     "stratify=treatment+outcome": (
         lambda: reconfigured(cross_fitted(), stratify_folds="treatment+outcome"),
         False,
@@ -1964,21 +1963,19 @@ REPLAY_KINDS: dict[str, tuple[Callable[[], Any], bool]] = {
     "repeats=2 in sample": (lambda: reconfigured(discrete_fit(), repeats=2), False),
     "plan without provenance": (without_provenance, False),
     "ctmle greedy stratified": (ctmle_stratified, False),
-    "ctmle oat clustered": (restored_ctmle_clustered, False),
+    "ctmle oat clustered": (reconfigured_ctmle_clustered, False),
     "unbounded scale": (unbounded_scale_ate, False),
-    "v0.1.1 cross-fitted": (lambda: as_saved_by_v011(cross_fitted()), True),
-    "v0.1.1 in sample": (lambda: as_saved_by_v011(discrete_fit()), True),
     "declared cross-fitted": (lambda: loads(dumps(cross_fitted())), True),
     "declared in sample": (lambda: loads(dumps(discrete_fit())), True),
 }
 
-#: The restored kinds whose refit this version refuses.
+#: The reconfigured kinds whose refit this version refuses.
 REFUSED_REPLAY_KINDS = [kind for kind, (_, runs) in REPLAY_KINDS.items() if not runs]
 
 
 @pytest.fixture(scope="module")
 def replay_results() -> dict[str, Any]:
-    """One restored result of each kind in :data:`REPLAY_KINDS`."""
+    """One result of each kind in :data:`REPLAY_KINDS`."""
     return {kind: build() for kind, (build, _) in REPLAY_KINDS.items()}
 
 
@@ -2016,7 +2013,7 @@ class TestTheRefitSlotReadsTheRefitPreflight:
         assert "refitting the nuisance models is unavailable" in item.detail
         assert POINT_REPLAY_REFIT_CONFIGURATION in item.detail
 
-    def test_a_restored_stratified_refit_raises_the_slot_sentence(
+    def test_a_reconfigured_stratified_refit_raises_the_slot_sentence(
         self, replay_results: dict[str, Any]
     ) -> None:
         result = replay_results["stratify=treatment"]
@@ -2043,14 +2040,4 @@ class TestEachReplayMutationRestoresADisagreement:
         self, replay_results: dict[str, Any], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         MUTATIONS["M6"].apply(monkeypatch)
-        assert replay_disagreements(replay_results["declared cross-fitted"], ("ate",)) == []
-
-    def test_without_the_class_default_a_v011_result_raises(
-        self, replay_results: dict[str, Any], monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """M7: release 0.1.1 wrote no ``split_plan``, and only the class default supplies it."""
-        MUTATIONS["M7"].apply(monkeypatch)
-        with pytest.raises(AttributeError, match="split_plan"):
-            replay_disagreements(replay_results["v0.1.1 cross-fitted"], ("ate",))
-        # The control: a result that holds its own attribute needs no default.
         assert replay_disagreements(replay_results["declared cross-fitted"], ("ate",)) == []

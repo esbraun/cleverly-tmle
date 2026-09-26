@@ -41,11 +41,10 @@ from tests.unit._inference_status_support import (
     assert_assessment_note,
     assert_evalue_unavailable,
     assert_fold_report_withholds,
-    assert_fold_reports_restamped,
     assert_no_inferential_name,
     assert_no_inferential_text,
     assert_refused_by,
-    assert_restamped,
+    assert_round_trips,
     assert_variable_importance_refuses,
     stamp_headline_only,
 )
@@ -155,18 +154,6 @@ class TestTheOmittedVariableBound:
             _ = bound.ci_lower
         assert bound.plugin_interval_lower == bound.to_dict()["plugin_interval_lower"]
 
-    def test_old_pickle_fields_migrate_to_guarded_accessors(self, result: Any, status: str) -> None:
-        bound = omitted_variable_bounds(result, "ate")
-        old_state = dict(bound.__dict__)
-        for name in ("ci_lower", "ci_upper", "robustness_value_ci"):
-            old_state[name] = old_state.pop(f"_{name}")
-        restored = type(bound).__new__(type(bound))
-        restored.__setstate__(old_state)
-        with pytest.raises(CapabilityError):
-            _ = restored.ci_lower
-        assert restored.plugin_interval_lower == bound.plugin_interval_lower
-        assert restored.inference == status
-
     def test_a_module_that_ignores_the_status_fails_the_check(
         self, result: Any, status: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -225,15 +212,10 @@ class TestVariableImportanceRefusesBeforeItFits:
         )
 
 
-class TestARestoredArtifactIsReStamped:
-    """An artifact saved before its configuration took a status loads under the status.
-
-    The estimates are checked by the shared helper, which each surface's own test also
-    calls on a real fit. This class adds the fold-level reports, which only this fit has.
-    """
+class TestASavedResultLoadsAsSaved:
+    """A saved result loads with its status on the estimates and both fold-level reports."""
 
     @pytest.mark.parametrize("route", ROUTES)
-    def test_every_report_carries_the_status_again(
-        self, result: Any, status: str, route: str
-    ) -> None:
-        assert_fold_reports_restamped(assert_restamped(result, status, route), result, status)
+    def test_every_report_keeps_the_status(self, result: Any, status: str, route: str) -> None:
+        assert result.cv_targeting is not None
+        assert_round_trips(result, status, route)

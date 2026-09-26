@@ -38,7 +38,6 @@ from cleverly.data.weighting import (
     SCORE_LOAD_MISSING,
     SCORE_LOAD_NO_EQUATION,
     SCORE_LOAD_NOT_FINITE,
-    SCORE_LOAD_PREDATES,
     SCORE_LOAD_SHAPE_MISMATCH,
     format_score_load,
     score_load_row,
@@ -70,7 +69,6 @@ from cleverly.learners.density import ConditionalDensity
 from cleverly.sensitivity import positivity_report
 from cleverly.sensitivity.positivity import PositivityReport
 from tests.conftest import fast_tmle
-from tests.pickles import legacy_without as _legacy
 
 #: The three intervention axes, in the order their reports declare them.
 GROUPS = ("regime", "mtp", "ipsi")
@@ -1028,74 +1026,6 @@ def test_an_incremental_row_stays_hashable_with_a_fitted_score_load(
     without = dataclasses.replace(row, score_load=None)
     assert hash(without) == hash(row)
     assert without != row
-
-
-@pytest.mark.parametrize("group", GROUPS)
-def test_a_record_pickled_before_the_score_load_fields_says_the_report_predates_them(
-    score_load_records: dict[str, Any], group: str
-) -> None:
-    """Only the sentinel is load-bearing here, and that is the whole point.
-
-    ``score_load`` defaults to a plain ``None``, so ``dataclasses`` leaves a class attribute
-    behind it and ``restored.score_load is None`` holds even with the restore deleted
-    outright. ``score_load_omission`` defaults to ``None`` too, so the *sentinel* is the
-    only value that cannot arrive by accident. A report that predates the diagnostic says
-    so, where a fresh report with nothing to omit says ``None``.
-    """
-    record = score_load_records[group]
-    assert record.score_load is not None
-    assert record.score_load_omission is None
-
-    restored = _legacy(record, "score_load", "score_load_omission")
-    assert restored.score_load is None
-    assert restored.score_load_omission == SCORE_LOAD_PREDATES
-    assert _without_load(restored) == _without_load(record)
-
-
-def test_a_positivity_report_pickled_before_group_leverage_restores_empty_mappings(
-    score_load_records: dict[str, Any],
-) -> None:
-    """The factory-defaulted fields, which are the ones an absent restore cannot survive.
-
-    ``dataclasses`` deletes the class attribute for a ``default_factory`` field, so these
-    two have no fallback behind them. Without the restore this raises ``AttributeError``
-    rather than answering a wrong value, which is what makes them the discriminating case
-    that the plainly-defaulted fields are not.
-    """
-    report = score_load_records["positivity"]
-    assert report.group_leverage
-
-    restored = _legacy(report, "group_leverage", "group_leverage_omissions")
-    assert restored.group_leverage == {}
-    assert restored.group_leverage_omissions == {}
-    assert "Absolute-load concentration is greatest" not in restored.verdict()
-
-
-def test_the_legacy_pickle_helper_refuses_a_name_that_is_not_a_field(
-    score_load_records: dict[str, Any],
-) -> None:
-    """The helper's own mutation control, because a stale name fails it silently.
-
-    Every caller passes the names a past revision did not carry, and the helper drops
-    them from the state it pickles. A name that matches no attribute drops nothing, so
-    the caller gets a record of the *current* shape and its back-compatibility assertion
-    keeps passing against the shape it was written to exclude. Renaming a field is enough
-    to reach that: the call site still names the old field, and nothing else does.
-
-    ``_DefaultingUnpickle.check_pickle_backfill`` refuses a stale ``_PICKLE_BACKFILL`` key
-    for the same reason, and this helper does not inherit that protection, so it states
-    it itself.
-    """
-    record = score_load_records["regime"]
-    assert "score_load" in record.__dict__
-
-    with pytest.raises(KeyError, match="carries no such attribute: score_lode"):
-        _legacy(record, "score_lode", "score_load_omission")
-
-    # The valid half of that call still works, so the refusal is about the unknown name
-    # rather than about the helper having stopped dropping anything.
-    restored = _legacy(record, "score_load", "score_load_omission")
-    assert restored.score_load_omission == SCORE_LOAD_PREDATES
 
 
 # --------------------------------------------------------------------------------------

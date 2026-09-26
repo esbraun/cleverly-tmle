@@ -15,14 +15,14 @@ the defect.  This module pins seven things:
 * the fit refuses a restored or modified model before any learner or weight call;
 * ``MSMSet.evaluate`` and ``evaluate_regimen_msm``, called directly, refuse such a model
   before the weight runs;
-* a model pickled before the field existed loads, and a uniform-weight fit still replays;
-* a result restored with an undeclared callable weight keeps its stored estimates, and
-  every recomputation from it refuses;
+* a uniform-weight fit replays;
+* a result whose callable weight loses its declaration after the fit refuses every
+  recomputation;
 * a deliberate mutation that removes the refusal makes those witnesses fail;
 * on an exact law, a share weight declared ``"known"`` gets an influence curve that is right
   for the fixed-weight functional and understates the variance of the estimated-weight one.
 
-The replay refuses a restored undeclared weight before it runs the design or the weight.
+The replay refuses an undeclared weight before it runs the design or the weight.
 ``tests/unit/test_msm_design_declaration.py`` drives that witness for both MSM
 declarations, and ``tests/unit/_msm_declaration_support.py`` holds the builders the two
 files share.
@@ -35,7 +35,7 @@ asymptotic form of "the reported standard error is below the sampling standard d
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import fields, replace
+from dataclasses import fields
 from typing import Any
 
 import numpy as np
@@ -52,16 +52,13 @@ from cleverly.msm import (
 )
 from cleverly.sensitivity import simulated_confounding
 from tests import discrete_law as law
-from tests.pickles import legacy_without
 from tests.unit._confounding_support import Counter, validate_replay
 from tests.unit._declaration_support import (
     PATHWISE,
     assert_every_witness_fails,
-    assert_keeps_its_interval,
     assert_refused,
     assert_refused_before_any_call,
     assert_replay_agrees,
-    assert_stored_interval_is_a_diagnostic,
     cell_p,
     oracle_fit,
     recomputations,
@@ -80,13 +77,13 @@ from tests.unit._msm_declaration_support import (
     evaluate_point,
     evaluate_regimen,
     in_sample_fit,
-    legacy_msm_result,
     linear,
     ltmle_fit,
     msm_curve,
     msm_eif,
     remove_every_fit_check,
     tmle_fit,
+    undeclared_msm_result,
     uniform_dose_fit,
 )
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
@@ -320,43 +317,23 @@ class TestTheEvaluatorsCheckFirst:
         assert model.weights.calls > 0
 
 
-# ------------------------------------------------------------------ old pickles
+# ------------------------------------------------------------------ the replay
 
 
-def legacy_result(result: Any) -> Any:
-    """``result`` as an artifact written before ``weights_kind`` existed would restore it."""
-    return legacy_msm_result(result, "weights_kind")
+def undeclared(result: Any) -> Any:
+    """A copy of ``result`` whose MSM no longer declares its weight."""
+    return undeclared_msm_result(result, "weights_kind")
 
 
-class TestALegacyModelLoads:
-    def test_a_pickle_without_the_field_reads_none_and_can_be_replaced(self) -> None:
-        old = legacy_without(linear(), "weights_kind")
-        assert "weights_kind" not in vars(old)
-        assert old.weights_kind is None
-        assert replace(old).weights_kind is None
-        assert replace(old, weights_kind="known").weights_kind == "known"
-        assert replace(old, weights=FixedWeight(), weights_kind="known").weights_kind == "known"
-
-    def test_a_legacy_callable_weight_refuses_at_the_fit(self) -> None:
-        """An old model with a callable weight has no declaration, so it is refused."""
-        old = legacy_without(linear(weights=FixedWeight(), weights_kind="known"), "weights_kind")
-        assert old.weights_kind is None
-        assert_refused(lambda: tmle_fit(old, never_fit_learners()), CapabilityError, UNDECLARED)
-        assert NeverFit.calls == 0
-        assert_refused(lambda: replace(old), CapabilityError, UNDECLARED)
-
-    def test_a_legacy_uniform_weight_fit_replays(self) -> None:
+class TestAUniformWeightFitReplays:
+    def test_a_uniform_weight_fit_replays(self) -> None:
         """``_freeze_msm`` swaps the uniform weight for frozen arrays, declared known."""
         result = _fit_msm(saturated=True)
         assert result.estimator.msm.weights is None
         alias = _alias(result)
-        expected = simulated_confounding(result, estimand=alias, grid=_GRID, random_state=31)
-        old = legacy_result(result)
-        assert "weights_kind" not in vars(old.estimator.msm)
-        surface = simulated_confounding(old, estimand=alias, grid=_GRID, random_state=31)
+        surface = simulated_confounding(result, estimand=alias, grid=_GRID, random_state=31)
         assert all(cell.failure is None for cell in surface.cells)
-        assert surface == expected
-        assert validate_replay(old).msm.weights_kind == "known"
+        assert validate_replay(result).msm.weights_kind == "known"
 
     def test_a_uniform_weight_dose_fit_replays(self) -> None:
         """The continuous twin: ``_freeze_msm`` declares the frozen dose weight known.
@@ -379,46 +356,36 @@ class TestALegacyModelLoads:
         assert_refused(lambda: validate_replay(result), CapabilityError, UNDECLARED)
 
 
-#: The estimands a retarget of the legacy result requests.
+#: The estimands a retarget of the undeclared result requests.
 RETARGETED = ("msm",)
 
 
-class TestALegacyResultKeepsItsPointEstimatesAndRefusesARecomputation:
-    """RM13: a restored result keeps its point estimates and computes nothing new.
+class TestAnUndeclaredResultRefusesARecomputation:
+    """RM13: a result whose weight loses its declaration computes nothing new.
 
-    Loading raises nothing.  A callable weight restored without its declaration gives the
-    result the ``"undeclared_function_plugin"`` status of RM28, so the stored interval
-    becomes a diagnostic.  Every sweep recomputes through ``_retarget_detailed``, which
-    checks the declaration as the fit does.
+    Every sweep recomputes through ``_retarget_detailed``, which checks the declaration as
+    the fit does.
     """
 
     @pytest.fixture(scope="class")
     def result(self) -> Any:
-        """A fit whose model declares its callable weight known: the valid pre-load state."""
+        """A fit whose model declares its callable weight known: the valid state."""
         return in_sample_fit(linear(weights=FixedWeight(), weights_kind="known"))
 
-    def test_the_stored_interval_becomes_a_diagnostic(self, result: Any) -> None:
-        old = legacy_result(result)
-        assert_stored_interval_is_a_diagnostic(result, old)
+    def test_the_replay_slots_read_false(self, result: Any) -> None:
+        old = undeclared(result)
         assert not replayability(old).retarget_cached_nuisances
         assert not replayability(old).refit_nuisances
         assert replayability(result).refit_nuisances
 
     def test_each_replay_slot_agrees_with_its_call(self, result: Any) -> None:
-        """Both slots of the legacy result read false, and both calls refuse."""
-        assert_replay_agrees(legacy_result(result), RETARGETED)
+        """Both slots of the undeclared result read false, and both calls refuse."""
+        assert_replay_agrees(undeclared(result), RETARGETED)
         assert_replay_agrees(result, RETARGETED)
-
-    def test_a_legacy_uniform_weight_result_keeps_its_interval(self) -> None:
-        """The over-refusal control: uniform weights are known, so no status applies."""
-        result = in_sample_fit(linear())
-        old = legacy_result(result)
-        assert old.estimator.msm.weights is None
-        assert_keeps_its_interval(result, old)
 
     @pytest.mark.parametrize("entry", ["truncation_curve", "retarget"])
     def test_every_recomputation_refuses(self, result: Any, entry: str) -> None:
-        old = legacy_result(result)
+        old = undeclared(result)
         assert_refused(recomputations(old, RETARGETED)[entry], CapabilityError, UNDECLARED)
 
     @pytest.mark.parametrize("entry", ["truncation_curve", "retarget"])
@@ -430,7 +397,7 @@ class TestALegacyResultKeepsItsPointEstimatesAndRefusesARecomputation:
     def test_removing_the_retarget_check_fails_the_refusal(
         self, result: Any, entry: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        old = legacy_result(result)
+        old = undeclared(result)
         monkeypatch.setattr(tmle_module, "refuse_msm_functions", lambda model: None)
         with pytest.raises(AssertionError):
             assert_refused(recomputations(old, RETARGETED)[entry], CapabilityError, UNDECLARED)

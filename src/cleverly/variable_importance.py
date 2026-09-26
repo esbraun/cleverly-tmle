@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
 from copy import copy
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -43,10 +43,9 @@ class VariableImportanceEntry:
     estimate : ParameterEstimate
         The estimate and its influence curve.
     adjusted_pvalue : float or None
-        Its p-value after the multiplicity adjustment. ``None`` on a restored entry whose
-        estimate supplies no inference, as the entry and :class:`VariableImportanceResult`
-        withhold it when they load. A live run never builds such an entry, because
-        :func:`variable_importance` refuses the estimator before its first fit.
+        Its p-value after the multiplicity adjustment. ``None`` on an entry whose estimate
+        supplies no inference. :func:`variable_importance` never builds such an entry,
+        because it refuses the estimator before its first fit.
     """
 
     candidate: str
@@ -54,53 +53,6 @@ class VariableImportanceEntry:
     adjustment_set: tuple[str, ...]
     estimate: ParameterEstimate
     adjusted_pvalue: float | None
-
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        """Restore an entry, and withhold its adjusted p-value when its estimate refuses one.
-
-        Pickle builds the estimate before this entry. An estimate that release 0.1.0 or
-        0.1.1 saved loads under ``"unrecorded_status_plugin"`` (roadmap row RM34), so an
-        entry saved apart from its result reads ``None`` here, as its estimate refuses
-        :attr:`~cleverly.ParameterEstimate.pvalue`. Inside a
-        :class:`VariableImportanceResult`, the result re-stamps the entry from its fit, and
-        it computes the adjusted p-value again when every re-stamped entry supplies
-        inference.
-
-        Parameters
-        ----------
-        state : dict of str to Any
-            The pickled instance state.
-        """
-        self.__dict__.update(state)
-        if not self.estimate.supplies_inference:
-            self.__dict__["adjusted_pvalue"] = None
-
-    def _restamped(self, fit: TMLEResult | None) -> VariableImportanceEntry:
-        """This entry with the estimate of its restored fit, when that fit re-stamped it.
-
-        ``TMLEResult.__setstate__`` re-stamps the estimates of the fit alone, so an entry
-        saved beside its fit keeps the status it was saved with. The fit's estimate of the
-        same name carries the new status and the same numbers. When that status supplies
-        no inference, the adjusted p-value is withheld as ``None``. An entry that loaded
-        without a status has no adjusted p-value to keep, and
-        :meth:`VariableImportanceResult.__setstate__` computes it again.
-
-        Parameters
-        ----------
-        fit : TMLEResult or None
-            The restored fit of this entry's candidate, or ``None`` when the result holds
-            none.
-
-        Returns
-        -------
-        VariableImportanceEntry
-            This entry, or a copy that carries the fit's estimate.
-        """
-        stamped = None if fit is None else fit.estimates.get(self.parameter)
-        if stamped is None or stamped.inference == self.estimate.inference:
-            return self
-        adjusted = self.adjusted_pvalue if stamped.supplies_inference else None
-        return replace(self, estimate=stamped, adjusted_pvalue=adjusted)
 
 
 @dataclass(frozen=True)
@@ -124,31 +76,6 @@ class VariableImportanceResult:
     method: str = "Benjamini-Hochberg"
     backend: str | None = None
 
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        """Restore a result, and give each entry the status its re-stamped fit carries.
-
-        Each fit re-stamps itself as it loads (``TMLEResult.__setstate__``), whichever
-        status this version gives its configuration. An entry holds its own copy of the
-        estimate, so without this step it would keep the status it was saved with, and
-        :meth:`to_frame` would publish a p-value that its fit refuses.
-
-        An entry saved by release 0.1.0 or 0.1.1 loads without its adjusted p-value
-        (roadmap row RM34). When every re-stamped entry supplies inference, the adjusted
-        p-values are computed again from the entries' p-values, by the adjustment that
-        :func:`variable_importance` applies. That adjustment reads nothing but those
-        p-values, so it gives back the saved numbers.
-
-        Parameters
-        ----------
-        state : dict of str to Any
-            The pickled instance state.
-        """
-        self.__dict__.update(state)
-        fits = state.get("fits") or {}
-        self.__dict__["entries"] = _readjusted(
-            tuple(entry._restamped(fits.get(entry.candidate)) for entry in state.get("entries", ()))
-        )
-
     def __getitem__(self, index: int) -> VariableImportanceEntry:
         return self.entries[index]
 
@@ -161,10 +88,10 @@ class VariableImportanceResult:
     def to_frame(self) -> Any:
         """One row per candidate/parameter, in the order of the entries.
 
-        A live run sorts its entries by adjusted p-value, and a restored result keeps the
-        saved order. An ordinary result emits ``std_err``, ``ci_lower``, ``ci_upper``,
-        ``p_value`` and ``p_value_adjusted``. A restored result whose entries supply no
-        inference emits an ``inference`` column and the three spread columns under their
+        A run sorts its entries by adjusted p-value. An ordinary result emits ``std_err``,
+        ``ci_lower``, ``ci_upper``, ``p_value`` and ``p_value_adjusted``. A result whose
+        entries supply no inference emits an ``inference`` column and the three spread
+        columns under their
         diagnostic names, as ``TMLEResult.to_frame`` does. It emits neither p-value column.
         Every fit of one run shares one estimator and one set of rows, so the entries share
         one status.
@@ -197,29 +124,6 @@ class VariableImportanceResult:
             payload["p_value_adjusted"] = [entry.adjusted_pvalue for entry in self.entries]
         payload["adjustment_set"] = [", ".join(entry.adjustment_set) for entry in self.entries]
         return emit_frame(payload, backend=self.backend)
-
-
-def _readjusted(
-    entries: tuple[VariableImportanceEntry, ...],
-) -> tuple[VariableImportanceEntry, ...]:
-    """The entries, with the adjustment computed again when one of them withholds it.
-
-    The adjustment runs only when every entry supplies inference. Benjamini--Hochberg
-    reads the set of p-values and nothing else, and its value for each p-value does not
-    depend on the order of the set. So the entries of a restored result, in their saved
-    order, give back the numbers that :func:`variable_importance` computed from its
-    candidates in their fitted order. ``_bh_adjust`` and ``ParameterEstimate.pvalue`` do
-    the same arithmetic in releases 0.1.0 and 0.1.1.
-    """
-    if not entries or all(entry.adjusted_pvalue is not None for entry in entries):
-        return entries
-    if not all(entry.estimate.supplies_inference for entry in entries):
-        return entries
-    adjusted = _bh_adjust([entry.estimate.pvalue for entry in entries])
-    return tuple(
-        replace(entry, adjusted_pvalue=float(value))
-        for entry, value in zip(entries, adjusted, strict=True)
-    )
 
 
 def _bh_adjust(pvalues: Sequence[float]) -> np.ndarray:
@@ -320,13 +224,9 @@ def variable_importance(
     if outcome in candidate_names:
         raise DataError("the outcome cannot also be a candidate exposure")
     template = TMLE(estimands=estimand) if estimator is None else estimator
-    # The fold-policy refusal of every fit comes first, as it does in ``fit``.  Asked below,
-    # the status hook would report a restored stratified split as the status of a saved
-    # result (roadmap row RM31), and its reason does not name the remedy.
+    # The fold-policy and declaration refusals of every fit come first, as they do in
+    # ``fit``, so a copied or modified estimator meets the refusal that names its remedy.
     template._refuse_fold_policy()
-    # The declaration refusals of every fit come next, as they do in ``fit``.  Asked
-    # below, the status hook would report an undeclared function as the status of a
-    # restored result (roadmap row RM28), and its reason does not name the remedy.
     template._refuse_undeclared_functions()
     # Every candidate's data is prepared, and its status asked, before the first fit.
     # This procedure ends in a Benjamini--Hochberg adjustment of one p-value per
@@ -361,9 +261,7 @@ def variable_importance(
             treatment_kind="discrete",
         )
         # The outcome-scale refusal of every fit comes before the status, as the fold
-        # policy does.  Asked below, the status hook would report an undeclared scale as the
-        # status of a saved result (roadmap row RM33), and its reason does not name the
-        # remedy.
+        # policy does.
         template._refuse_unbounded_cross_fitted_scale(candidate_data)
         refuse_inference(
             template._inference_status(candidate_data), operation="variable_importance()"

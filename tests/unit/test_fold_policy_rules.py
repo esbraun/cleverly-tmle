@@ -25,8 +25,14 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+from cleverly import variable_importance
 from cleverly.data import CausalData
-from cleverly.datasets import make_binary_outcome, make_longitudinal, make_nonlinear_bounded
+from cleverly.datasets import (
+    make_binary_outcome,
+    make_linear_ate,
+    make_longitudinal,
+    make_nonlinear_bounded,
+)
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError, DataError, LongitudinalError
 from cleverly.interventions import Shift
@@ -34,12 +40,22 @@ from cleverly.learners import SuperLearner, random_partition
 from cleverly.learners.crossfit import _MAX_SEED
 from cleverly.longitudinal import LTMLE
 from cleverly.utils.bounds import OutcomeScaler
+from tests import discrete_law
+from tests.conftest import linear_in_sample
 from tests.studies import (
     multi_arm_common,
     multi_arm_ctmle_selector_properties,
     multi_arm_drtmle_properties,
     multi_arm_properties,
 )
+from tests.unit._capability_sweep_support import (
+    cross_fitted,
+    dose_frame,
+    fit_shift,
+    outcome_bounds,
+    reconfigured,
+)
+from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
 BOUNDED_COVARIATES = ["W1", "W2", "W3"]
 
@@ -1654,3 +1670,90 @@ class TestTheFoldPolicySeamReachesEverySplitLayer:
     def test_an_undeclared_policy_is_refused_before_the_estimator_is_built(self, seam: str) -> None:
         with pytest.raises(ValueError, match="policy must be one of"):
             getattr(multi_arm_properties, seam)("treatment_outcome_stratified")
+
+
+# --------------------------------------------- a copied or modified estimator is refused
+
+
+@pytest.mark.parametrize("policy", ["treatment", "treatment+outcome"])
+def test_a_reconfigured_refit_names_the_requested_strata(policy: str) -> None:
+    """A dose split reads no treatment, and its refit still refuses the requested policy.
+
+    ``__init__`` refuses both policies, so each result here is a live fit whose estimator
+    was given the policy after construction. The discrete fit draws strata under the policy
+    and the dose fit draws none, and both refits refuse with the same sentence.
+    """
+    frame = dose_frame()
+    dose = reconfigured(
+        fit_shift(frame, cross_fit=True, n_folds=2, q_bounds=outcome_bounds(frame)),
+        stratify_folds=policy,
+    )
+    discrete = reconfigured(cross_fitted(), stratify_folds=policy)
+    assert dose.estimator._fold_strata(dose.data) is None
+    assert discrete.estimator._fold_strata(discrete.data) is not None
+
+    for result in (dose, discrete):
+        with pytest.raises(CapabilityError) as raised:
+            result.estimator.refit(result.data)
+        message = str(raised.value)
+        reads = (
+            "the treatment and the outcome" if policy == "treatment+outcome" else "the treatment"
+        )
+        assert f"requests stratification of the outer folds on {reads}" in message
+        assert "A split drawn from those strata would make" in message
+        assert "balances the outer folds" not in message
+        assert "Set stratify_folds='none'" in message
+        assert "cross_fit=False" in message
+
+
+def test_a_live_fit_on_an_undeclared_scale_is_refused() -> None:
+    """A cross-fitted dose fit needs a declared scale, and the declared one keeps its interval."""
+    frame = dose_frame()
+    result = fit_shift(frame, cross_fit=True, n_folds=2, q_bounds=outcome_bounds(frame))
+    assert result.inference_status == "influence_curve"
+    with pytest.raises(CapabilityError, match="needs a declared q_bounds"):
+        fit_shift(frame, cross_fit=True, n_folds=2)
+
+
+class TestVariableImportanceRefusesBeforeItsFirstFit:
+    """``variable_importance`` raises the fit-time refusals before any learner."""
+
+    def test_a_modified_fold_policy_meets_the_fold_policy_refusal(self) -> None:
+        """The refusal names the remedy, and it arrives before any learner."""
+        estimator = TMLE(**linear_in_sample(cross_fit=True, n_folds=2, **never_fit_learners()))
+        estimator.stratify_folds = "treatment"
+        with pytest.raises(CapabilityError) as raised:
+            variable_importance(
+                discrete_law.frame(),
+                outcome="Y",
+                candidates=["A"],
+                covariates=["W"],
+                estimator=estimator,
+            )
+        assert str(raised.value) == estimator._fold_policy_refusal()
+        assert "Set stratify_folds='none'" in str(raised.value)
+        assert NeverFit.calls == 0
+
+    @staticmethod
+    def run_undeclared_scale() -> tuple[TMLE, CausalData]:
+        frame, _ = make_linear_ate(n=400, seed=2)
+        estimator = TMLE(**linear_in_sample(cross_fit=True, n_folds=2, **never_fit_learners()))
+        prepared = CausalData.from_frame(frame, outcome="Y", treatment="A", covariates=("W1", "W2"))
+        variable_importance(
+            frame, outcome="Y", candidates=["A"], covariates=["W1", "W2"], estimator=estimator
+        )
+        return estimator, prepared
+
+    def test_an_undeclared_scale_meets_the_scale_refusal(self) -> None:
+        """The refusal names the remedy, and it arrives before any learner."""
+        with pytest.raises(CapabilityError) as raised:
+            self.run_undeclared_scale()
+        assert "Declare the known outcome support" in str(raised.value)
+        assert NeverFit.calls == 0
+
+    def test_without_the_scale_check_a_learner_runs(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The control: with the refusal removed, the run reaches its first learner."""
+        monkeypatch.setattr(TMLE, "_refuse_unbounded_cross_fitted_scale", lambda self, data: None)
+        with pytest.raises(AssertionError, match="a refusal or preflight must run"):
+            self.run_undeclared_scale()
+        assert NeverFit.calls > 0

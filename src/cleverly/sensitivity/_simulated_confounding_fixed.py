@@ -200,7 +200,7 @@ def _freeze_regimes(result: Any, key: Any, typed: Any, functional: Any) -> tuple
     ):
         raise DataError("regime declarations disagree")
     # ``RegimeSet.evaluate`` checks the source declarations before any density runs, so a
-    # regime restored with no declaration refuses at replay as it would at the fit
+    # regime modified to carry no declaration refuses at replay as it would at the fit
     # (roadmap rows RM25 and RM28).  A frozen regime holds fixed arrays and carries the
     # ``density_kind`` of its source, and the refit checks it again.
     expected = _checked_regimes(
@@ -256,8 +256,8 @@ def _freeze_msm(result: Any, key: Any, typed: Any, functional: Any) -> tuple[Any
     ):
         raise DataError("MSM declarations disagree")
     # ``MSMSet.evaluate`` checks the source model before it runs the user's design or
-    # weight, so a model restored with no declaration refuses at replay as it would at the
-    # fit (roadmap rows RM13 and RM27).
+    # weight, so a model modified to carry no declaration refuses at replay as it would at
+    # the fit (roadmap rows RM13 and RM27).
     expected = MSMSet.evaluate(model, data)
     for nuisance in result.nuisances:
         state = nuisance.msm

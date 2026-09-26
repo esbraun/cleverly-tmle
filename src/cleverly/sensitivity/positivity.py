@@ -62,7 +62,6 @@ from ..targets import TARGETS, parameter_stem
 from ..targets.population_intervention import NATURAL_COURSE_SUPPORT_REFUSAL
 from ..utils.bounds import g_bounds_for
 from ..utils.frames import emit_frame
-from ..utils.records import _DefaultingUnpickle
 from ..utils.text import format_draw, format_table
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -148,7 +147,7 @@ _COMPOSED_EXCLUSIONS: dict[str, str] = {
 
 
 @dataclass(frozen=True)
-class PositivityReport(_DefaultingUnpickle):
+class PositivityReport:
     """Overlap diagnostics for a fitted TMLE.
 
     Parameters
@@ -305,11 +304,6 @@ class PositivityReport(_DefaultingUnpickle):
     composed_excluded: tuple[str, ...] = ()
     nuisance_bound: float = 0.0
     simplex_deviation: float = 0.0
-    #: Defaulted rather than required, so a hand-built fixture still constructs.  The
-    #: default alone does not carry an *old pickle*, which arrives with no key of this name
-    #: at all; :meth:`__setstate__` is what fills it there.  Keyed exactly as
-    #: :attr:`clever_covariate_max` is, because both are filled from the same iteration
-    #: over the fit's targeted groups.
     #: How many cross-fitting draws the fit combined. Everything above describes the
     #: **first** of them, and this is here so a reader knows that.  Overlap is a property
     #: of one fitted mechanism, and combining ``R`` propensity vectors would produce a
@@ -323,17 +317,11 @@ class PositivityReport(_DefaultingUnpickle):
     #: :meth:`to_frame` honours "results come back in the backend you passed in"
     #: without a caller having to thread the container back in by hand.
     backend: str | None = None
-    #: Trailing for positional compatibility with reports created before this diagnostic.
     group_leverage: dict[str, GroupLeverageRow] = field(default_factory=dict)
-    #: A fitted artifact can predate exact per-column absolute score weights.  Such a
-    #: group is omitted rather than reconstructed from a submodel that might not be the
-    #: one the fit used (for example under fold-specific targeting).
+    #: A fluctuation without exact per-column absolute score weights is omitted rather
+    #: than reconstructed from a submodel that might not be the one the fit used (for
+    #: example under fold-specific targeting).
     group_leverage_omissions: dict[str, str] = field(default_factory=dict)
-
-    # Unpickling a report from before `group_leverage` existed is
-    # `cleverly.utils.records._DefaultingUnpickle`, which this class's own hand-written
-    # restore became.  Its docstring carries the argument for driving the fill from
-    # `dataclasses.fields` rather than from a list of names.
 
     def to_frame(self, data: Any = None) -> Any:
         """Propensity quantiles as a tidy frame.
@@ -1177,7 +1165,7 @@ def _group_leverage(
 
     The fluctuation artifact is authoritative.  Rebuilding a generic submodel is not:
     fold-targeted ATT can use fold-specific arm fractions, and a nonlinear MSM can use a
-    different beta in every fold.  An older artifact without the exact absolute score
+    different beta in every fold.  A fluctuation without the exact absolute score
     weights is therefore omitted with a reason rather than approximated.
 
     Each score column is considered separately.  Kish and top-share concentration are

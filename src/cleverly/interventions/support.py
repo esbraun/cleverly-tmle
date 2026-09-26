@@ -24,14 +24,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+from typing import Any
 
 import numpy as np
 
 from .._typing import FloatArray
 from ..data.weighting import (
     REPORTED_DRAW,
-    SCORE_LOAD_PREDATES,
     SCORE_LOAD_SHAPE_MISMATCH,
     ScoreLoadRow,
     effective_sample_size,
@@ -40,7 +39,6 @@ from ..data.weighting import (
     validate_score_loads,
 )
 from ..utils.frames import emit_frame
-from ..utils.records import _DefaultingUnpickle
 from ..utils.text import format_table
 from .base import RegimeSet
 
@@ -96,7 +94,7 @@ def _intervention_loads(
 
 
 @dataclass(frozen=True)
-class RegimeSupport(_DefaultingUnpickle):
+class RegimeSupport:
     """Overlap for one regime.
 
     Parameters
@@ -145,8 +143,6 @@ class RegimeSupport(_DefaultingUnpickle):
     unsupported: int
     score_load: _InterventionLoadRow | None = None
     score_load_omission: str | None = None
-
-    _PICKLE_BACKFILL: ClassVar[dict[str, Any]] = {"score_load_omission": SCORE_LOAD_PREDATES}
 
 
 #: Which score-load value each frame column reads, and what it carries when the row has no

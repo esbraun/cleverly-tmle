@@ -199,8 +199,8 @@ class RegimenMSM:
         keeping this object arrays-and-scalars as its point-treatment sibling is.
     functions_kind : {"known", "estimated"} or None
         ``"known"`` only when :func:`evaluate_regimen_msm` checked the source MSM's
-        design and projection-weight declarations. ``None`` on an older saved projection
-        or a manually built one, whose evaluated arrays cannot prove those declarations.
+        design and projection-weight declarations. ``None`` on a manually built
+        projection, whose evaluated arrays cannot prove those declarations.
     """
 
     terms: tuple[str, ...]
@@ -208,7 +208,6 @@ class RegimenMSM:
     weights: FloatArray
     cells: tuple[Cell, ...]
     link: str = "identity"
-    #: A plain default makes an older pickle read as undeclared without migrating arrays.
     functions_kind: FunctionKind | None = None
 
     def __post_init__(self) -> None:
@@ -319,8 +318,8 @@ def refuse_evaluated_msm_functions(model: RegimenMSM | None) -> None:
     """Refuse replay or inference without provenance for the MSM's source functions.
 
     A result stores evaluated arrays rather than the design and weight callables. Only the
-    evaluation site can assert that their declarations passed; an older artifact has no
-    such assertion and must be refitted from its original MSM for inference.
+    evaluation site can assert that their declarations passed. A model built without that
+    assertion must be refitted from its original MSM.
 
     Parameters
     ----------
@@ -356,8 +355,8 @@ def evaluate_regimen_msm(
     convenience; :meth:`~cleverly.longitudinal.LongitudinalData.baseline_frame` says why.
 
     It runs :func:`~cleverly.msm.refuse_msm_functions` before it calls the design or the
-    weight, because a restored or modified model can reach it directly with a declaration
-    this version refuses.
+    weight, because a modified model can reach it directly with a declaration this
+    version refuses.
 
     Parameters
     ----------

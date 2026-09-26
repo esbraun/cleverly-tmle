@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import inspect
-import json
 import pickle
 from dataclasses import replace
 from typing import Any
@@ -23,7 +22,6 @@ from cleverly import (
     LongitudinalTreatment,
     RegimeContrast,
 )
-from cleverly._assessment_cache import _CACHE_GENERATIONS, _pack_cached
 from cleverly.assessment import _truncation_item, replayability
 from cleverly.datasets import (
     make_longitudinal,
@@ -39,7 +37,6 @@ from cleverly.longitudinal.estimator import (
     LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE,
     LONGITUDINAL_REPLAY_RANDOM_STATE_NON_INTEGER,
     LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED,
-    LONGITUDINAL_REPLAY_RECIPE_MISSING,
     _consumed_prefixes,
     _exact_replay_equal,
     _replay_random_state_omissions,
@@ -1048,12 +1045,7 @@ def test_seeded_stochastic_templates_are_accepted_and_replay_exactly() -> None:
     result.diagnostics.truncation_curve([result.config.g_bounds])
 
 
-def test_stable_replay_omissions_cover_legacy_rng_and_unclonable_cases(result) -> None:  # type: ignore[no-untyped-def]
-    legacy = replace(result, replay_recipe=None)
-    assert replayability(legacy).unreconstructible == (LONGITUDINAL_REPLAY_RECIPE_MISSING,)
-    with pytest.raises(CapabilityError, match=LONGITUDINAL_REPLAY_RECIPE_MISSING):
-        legacy.diagnostics.truncation_curve([0.2])
-
+def test_stable_replay_omissions_cover_rng_and_unclonable_cases(result) -> None:  # type: ignore[no-untyped-def]
     learner = RandomForestRegressor(n_estimators=2)
     assert _replay_random_state_omissions([learner]) == (LONGITUDINAL_REPLAY_RANDOM_STATE_UNSEEDED,)
     assert _replay_random_state_omissions(
@@ -1329,51 +1321,3 @@ def test_combined_report_requires_both_bounds_and_the_refit_opt_in(result) -> No
     assert "include_refits=True" in wrong_flag.detail
     assert completed.status is AssessmentStatus.COMPLETED
     assert completed._report is not None
-
-
-def test_persisted_pre_rm4_combined_unavailable_row_is_not_reused(result) -> None:  # type: ignore[no-untyped-def]
-    artifact = pickle.loads(pickle.dumps(result))
-    # ``result`` is module scoped and every earlier test's report is filed on it, so the
-    # clone starts with a populated cache.  Clearing the clone's own dictionary cannot reach
-    # the fixture's: ``assessment_cache`` is ``field(init=False, default_factory=dict)``, so
-    # both ``replace`` and an unpickle build a fresh one.
-    artifact.assessment_cache.clear()
-    assert artifact.assessment_cache is not result.assessment_cache
-    current = artifact.diagnostics.run_all()
-    combined = [key for key in artifact.assessment_cache if key.startswith("diagnostics.run_all:")]
-    # One, and said so rather than taken off the front: the key below is rebuilt by editing
-    # this one, and a second combined key here would make that edit describe the wrong call.
-    assert len(combined) == 1
-    current_key = combined[0]
-    prefix, encoded = current_key.split(":", 1)
-    normalized = json.loads(encoded)
-    # Read from the table rather than pinned to a literal.  Every result-changing fix to a
-    # reported column bumps this generation, so a literal here fails on the bump it is meant
-    # to accompany.  ``tests/unit/test_assessment_contract.py`` derives its seed the same way.
-    assert normalized["cache_generation"] == _CACHE_GENERATIONS[prefix]
-    normalized["cache_generation"] -= 1
-    stale_key = f"{prefix}:{json.dumps(normalized, sort_keys=True, separators=(',', ':'))}"
-    stale = replace(
-        current,
-        items=tuple(
-            replace(
-                item,
-                status=AssessmentStatus.UNAVAILABLE,
-                detail="pre-RM4 longitudinal truncation was unavailable",
-            )
-            if item.name == "truncation_curve"
-            else item
-            for item in current.items
-        ),
-    )
-    artifact.assessment_cache.clear()
-    artifact.assessment_cache[stale_key] = _pack_cached(stale, artifact.data.backend)
-
-    restored = pickle.loads(pickle.dumps(artifact))
-    refreshed = restored.diagnostics.run_all()
-
-    assert refreshed["truncation_curve"].status is AssessmentStatus.DEFERRED
-    assert "bounds" in refreshed["truncation_curve"].detail
-    assert "pre-RM4" not in refreshed["truncation_curve"].detail
-    assert stale_key in restored.assessment_cache
-    assert current_key in restored.assessment_cache

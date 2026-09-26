@@ -28,7 +28,7 @@ from ._assessment_cache import (
     _pack_cached,
     _unpack_cached,
 )
-from ._declarations import declaration_status
+from ._declarations import declarations_pass
 from ._inference_status import precedent_status, status_record, supplies_inference
 from ._typing import CumulativeGBounds
 from .data.weighting import REPORTED_DRAW, format_score_load
@@ -44,7 +44,6 @@ from .utils.text import format_draw, format_table
 from .validation.drtmle import IDENTITY_TOLERANCE
 from .validation.longitudinal import (
     LONGITUDINAL_CENSORING_NOT_FITTED,
-    LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING,
     STITCHED_SCORE_Z_TOLERANCE,
     LongitudinalDiagnostics,
     LongitudinalNuisanceDiagnostics,
@@ -62,7 +61,6 @@ from .validation.score import DEFAULT_TOLERANCE
 __all__ = [
     "ASSESSMENT_CAPABILITIES",
     "LONGITUDINAL_CENSORING_NOT_FITTED",
-    "LONGITUDINAL_MECHANISM_PREDICTIONS_MISSING",
     "SENSITIVITY_ROUTES",
     "STITCHED_SCORE_Z_TOLERANCE",
     "VALIDATION_OPERATIONS",
@@ -253,8 +251,6 @@ class AssessmentCapability:
     requires_replay : str or None
         Name of the :class:`Replayability` field the operation needs. ``None`` means the
         operation reads stored artifacts only.
-    include_in_combined : bool
-        Whether :meth:`DiagnosticsFacade.run_all` includes the capability as a report row.
     """
 
     operation: str
@@ -282,9 +278,6 @@ class AssessmentCapability:
     #: ``available=True`` on a result with no estimator while ``truncation_curve``,
     #: ``benchmark`` and ``simulated_confounding`` beside it reported the truth.
     requires_replay: str | None = None
-    #: Whether the combined report presents this operation. Compatibility aliases remain
-    #: explicit capabilities even when their canonical operation is the only combined row.
-    include_in_combined: bool = True
 
 
 def _capability(
@@ -303,7 +296,6 @@ def _capability(
     methods: Sequence[str] | None = None,
     accepts_random_state: bool = False,
     requires_replay: str | None = None,
-    include_in_combined: bool = True,
 ) -> AssessmentCapability:
     return AssessmentCapability(
         operation=operation,
@@ -324,7 +316,6 @@ def _capability(
         requires_arguments=tuple(requires_arguments),
         accepts_random_state=accepts_random_state,
         requires_replay=requires_replay,
-        include_in_combined=include_in_combined,
     )
 
 
@@ -383,15 +374,6 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         accepts_random_state=True,
         interpretation="behavior under placebo, noise, and subsampling perturbations",
         requires_replay="refit_nuisances",
-    ),
-    _capability(
-        "stagewise",
-        "point",
-        artifacts=(),
-        available=False,
-        status=AssessmentStatus.NOT_APPLICABLE,
-        reason="a point-treatment fit has no sequential nodes",
-        interpretation="node-specific longitudinal recursion diagnostics",
     ),
     _capability(
         "support",
@@ -454,13 +436,6 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         status=AssessmentStatus.UNAVAILABLE,
         reason="no evidence-backed longitudinal perturbation/refit adapter is implemented",
         interpretation="behavior under longitudinal data perturbations",
-    ),
-    _capability(
-        "stagewise",
-        "longitudinal",
-        artifacts=("sequential steps", "cumulative mechanism products"),
-        interpretation="risk sets, assignment, leverage, truncation, and convergence by node",
-        include_in_combined=False,
     ),
 )
 
@@ -1150,15 +1125,13 @@ def replayability(result: Any) -> Replayability:
     if _family(result) == "longitudinal":
         from .longitudinal.estimator import (
             LONGITUDINAL_REPLAY_MSM_DECLARATION,
-            LONGITUDINAL_REPLAY_RECIPE_MISSING,
             LONGITUDINAL_REPLAY_REGIMEN_DECLARATION,
         )
         from .longitudinal.msm import refuse_evaluated_msm_functions
         from .longitudinal.regimen import refuse_regimen_rules
 
-        recipe = getattr(result, "replay_recipe", None)
-        missing = [LONGITUDINAL_REPLAY_RECIPE_MISSING] if recipe is None else list(recipe.omissions)
-        # These are the same guards the replay runs. An old artifact may retain every
+        missing = list(result.replay_recipe.omissions)
+        # These are the same guards the replay runs. A modified result may retain every
         # learner template and evaluated array yet lack the declarations needed to use
         # them as a new fitted result.
         try:
@@ -1175,11 +1148,11 @@ def replayability(result: Any) -> Replayability:
     if estimator is None:
         return Replayability(True, False, False, False, False, ("estimator configuration",))
     refuse_functions = getattr(estimator, "_refuse_undeclared_functions", None)
-    if callable(refuse_functions) and declaration_status(refuse_functions) != "influence_curve":
+    if callable(refuse_functions) and not declarations_pass(refuse_functions):
         return Replayability(True, False, False, False, False, (POINT_REPLAY_DECLARATION,))
-    # The checks a refit runs before any learner, read without fitting. A result saved
-    # under a configuration this version refuses keeps its cached nuisances, so it still
-    # retargets, and only the refit slot reads false.
+    # The checks a refit runs before any learner, read without fitting. A result whose
+    # estimator was modified to a configuration this version refuses keeps its cached
+    # nuisances, so it still retargets, and only the refit slot reads false.
     refit_refusal = getattr(estimator, "_refit_configuration_refusal", None)
     data = getattr(result, "data", None)
     if callable(refit_refusal) and data is not None and refit_refusal(data) is not None:
@@ -1496,11 +1469,7 @@ class _CapabilityFacade:
         so every :func:`~functools.cached_property` on a facade the caller has touched is
         written into the artifact.  Those memos are derived state: ``_declared``,
         ``_capability_map`` and ``_evalue_selections`` all restate what this version of the
-        package concludes from the stored artifacts.  Persisting one pins the conclusion of
-        the version that saved it.  A multi-arm result saved before ``DEFERRED`` existed
-        carried ``{None: ("unavailable", ...)}``, and the loaded result kept reporting an
-        unavailable E-value with no next step, past the cache generation that exists to
-        force exactly that recompute.
+        package concludes from the stored artifacts, so derived state is not persisted.
 
         Dropping every memo rather than the three by name, because the next one added is
         stale in an artifact the moment it is written, and recomputing costs one pass over
@@ -1512,20 +1481,6 @@ class _CapabilityFacade:
             The instance state, without the entries a ``cached_property`` owns.
         """
         return without_memos(type(self), self.__dict__)
-
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        """Restore a facade, and discard any memo the artifact already carries.
-
-        :meth:`__getstate__` keeps a memo out of every artifact this version writes. It
-        cannot reach one an older version wrote, and that artifact is the migration case:
-        the stale verdict is inside the file. Filtering on the way in heals it.
-
-        Parameters
-        ----------
-        state : dict of str to Any
-            The pickled instance state.
-        """
-        self.__dict__.update(without_memos(type(self), state))
 
     @property
     def _declared(self) -> tuple[AssessmentCapability, ...]:
@@ -1872,8 +1827,6 @@ class _CapabilityFacade:
         def compute() -> DiagnosticReport:
             items = []
             for declared in self.capabilities:
-                if not declared.include_in_combined:
-                    continue
                 operation_arguments = dict(supplied.get(declared.operation, {}))
                 capability = self._capability_for_arguments(declared.operation, operation_arguments)
                 if capability.accepts_random_state and random_state is not None:
@@ -2346,30 +2299,6 @@ class DiagnosticsFacade(_CapabilityFacade):
             return ()
         return _default_estimand_candidates(self._result, self._result.estimates)
 
-    def stagewise(self) -> LongitudinalDiagnostics:
-        """Return support and targeting diagnostics by longitudinal stage.
-
-        This is a compatibility alias. :meth:`support` is the canonical name for the same
-        report, and the combined report presents it under that name alone. The alias keeps
-        its own capability, so it still refuses a point-treatment fit by name.
-
-        Returns
-        -------
-        LongitudinalDiagnostics
-            Diagnostics for each regimen and time point.
-
-        Raises
-        ------
-        CapabilityError
-            If the fitted result is not longitudinal.
-
-        See Also
-        --------
-        support : The canonical name for this report.
-        """
-        self._require("stagewise")
-        return self.support()
-
     def support(self) -> Any:
         """Return the support diagnostic for the fitted intervention.
 
@@ -2402,8 +2331,8 @@ class DiagnosticsFacade(_CapabilityFacade):
                 """The fitted score artifact for one group, as ``check_*`` keywords.
 
                 A group with no fluctuation at all reports no equations, which is a
-                different state from a fluctuation whose artifact predates the retained
-                weights, and the two get different reasons in the report.
+                different state from a fluctuation that retains no score weights, and the
+                two get different reasons in the report.
                 """
                 fluctuation = self._result.fluctuations.get(group)
                 return {
@@ -2503,9 +2432,9 @@ class DiagnosticsFacade(_CapabilityFacade):
 
         **A fold-fluctuated node gets two rows**, because it poses two questions with
         different right answers.  The engine-level cross-fitted working model, which the
-        public estimator refuses, and an artifact written before the pooled construction
-        are the two sources.  Its ``"solver"`` row asks whether every outer fold reached the
-        root of its own equation, which ``tolerance`` gates as above.  Its ``"stitching"``
+        public estimator refuses, is the one source.  Its ``"solver"`` row asks whether
+        every outer fold reached the root of its own equation, which ``tolerance`` gates as
+        above.  Its ``"stitching"``
         row asks whether the score of the *stitched* fit sits where sampling would leave it
         -- which is not zero, because each fold fits its coefficient on rows it does not
         report -- and is gated in standard errors by :data:`STITCHED_SCORE_Z_TOLERANCE`
@@ -2930,7 +2859,7 @@ def _nuisance_item(
 ) -> AssessmentItem:
     findings = tuple(getattr(report, "findings", ()))
     if isinstance(report, LongitudinalNuisanceDiagnostics):
-        finite = [row.reported_loss for row in report.rows if np.isfinite(row.reported_loss)]
+        finite = [row.loss for row in report.rows if np.isfinite(row.loss)]
         if not finite:
             return AssessmentItem(
                 "nuisance_models",
@@ -3433,31 +3362,6 @@ def _tipping_item(
     return AssessmentItem("tipping_gamma", AssessmentStatus.COMPLETED, detail)
 
 
-def _stagewise_item(
-    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
-) -> AssessmentItem:
-    truncated, ess = _support_metrics(report)
-    # No report path reaches this. ``stagewise`` is ``include_in_combined=False`` on the
-    # longitudinal family and ``available=False`` on the point one, so the combined loop
-    # skips it and the point row renders as a refusal. It stays because ``INTERPRETERS`` and
-    # ``ASSESSMENT_CAPABILITIES`` are checked against each other in both directions, and a
-    # missing entry would read as a capability nobody can interpret rather than as an alias.
-    #
-    # The same two numbers ``_support_item`` reports, so they carry the same presentation.
-    # Interpolated raw they printed "0.8888888888888887" beside a sibling row reading
-    # "88.9%", and "None" where the sibling says nothing at all.
-    return AssessmentItem(
-        "stagewise",
-        AssessmentStatus.COMPLETED,
-        "; ".join(
-            [
-                f"{len(report.rows)} stage row(s)",
-                *_support_facts(truncated, ess),
-            ]
-        ),
-    )
-
-
 #: How each operation's own report becomes one report row.
 #:
 #: The third argument is what the caller supplied for that operation.  An interpreter that
@@ -3473,7 +3377,6 @@ INTERPRETERS: dict[str, Callable[[Any, Any, Mapping[str, Any]], AssessmentItem]]
     "corrections": _correction_item,
     "truncation_curve": _truncation_item,
     "refute": _refute_item,
-    "stagewise": _stagewise_item,
     "omitted_confounding": _omitted_item,
     "robustness_value": _robustness_item,
     "elements": _elements_item,

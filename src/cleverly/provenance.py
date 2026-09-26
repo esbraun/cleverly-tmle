@@ -28,8 +28,6 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from .utils.records import _DefaultingUnpickle
-
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable, Sequence
 
@@ -124,7 +122,7 @@ def _version(name: str) -> str:
 
 
 @dataclass(frozen=True)
-class Provenance(_DefaultingUnpickle):
+class Provenance:
     """Enough to tell whether two results came from the same place.
 
     Parameters

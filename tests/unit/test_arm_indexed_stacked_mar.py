@@ -458,8 +458,8 @@ def test_a_single_fold_is_refused_before_the_contract_is_reached() -> None:
 def test_the_global_fold_policy_refusals_recur_at_fit_time_for_a_bypassed_estimator() -> None:
     """A copy that bypassed ``__init__`` meets the same refusal again, at fit time.
 
-    :meth:`~cleverly.estimators.TMLE.refit` and a result restored from a pickle written
-    by an earlier version both reach ``fit`` without running the constructor's checks, so
+    :meth:`~cleverly.estimators.TMLE.refit` and an estimator modified after construction
+    both reach ``fit`` without running the constructor's checks, so
     ``_resolve_estimands_for_data`` asks ``_cross_fit_policy_reason`` again there.
     """
     roles = {"outcome": "Y", "treatment": "A", "covariates": COVARIATES, "delta": "Delta"}
@@ -471,7 +471,7 @@ def test_the_global_fold_policy_refusals_recur_at_fit_time_for_a_bypassed_estima
         ValueError, match=r"stratify_folds='treatment' requests stratification of the outer folds"
     ) as caught:
         stratified.fit(_frame(), **roles)
-    assert "restored result or a copied estimator" in str(caught.value)
+    assert "copied or modified estimator" in str(caught.value)
     assert NeverFit.calls == 0
 
     single_fold = copy.copy(admitted)
@@ -480,7 +480,7 @@ def test_the_global_fold_policy_refusals_recur_at_fit_time_for_a_bypassed_estima
         ValueError, match=r"cross_fit=True with n_folds=1 leaves one fold"
     ) as caught:
         single_fold.fit(_frame(), **roles)
-    assert "restored result or a copied estimator" in str(caught.value)
+    assert "copied or modified estimator" in str(caught.value)
     assert NeverFit.calls == 0
 
 

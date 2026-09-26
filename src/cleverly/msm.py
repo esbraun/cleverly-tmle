@@ -72,7 +72,7 @@ see :func:`refuse_unsupported` and :func:`refuse_msm_functions`:
   status of a weight is a declaration: ``weights=`` needs ``weights_kind="known"``.  An
   undeclared callable, an array, and ``weights_kind="estimated"`` are refused with
   :class:`~cleverly.exceptions.CapabilityError`, when the model is declared and again
-  when a fit starts, since a restored or copied model can carry what this version
+  when a fit starts, since a copied or modified model can carry what this version
   refuses.  A weight computed from the sample and declared ``"known"`` is not caught:
   the declaration is the user's statement, and
   ``tests/unit/test_msm_projection_weights.py`` measures the standard error it then
@@ -402,7 +402,6 @@ def refuse_msm_functions(model: MSM) -> None:
        population-law target can need.  A model whose ``design_kind`` is ``None`` and whose
        design has the exact type that :meth:`MSM.linear` builds reads as ``"known"``.
        That shorthand leaves the field ``None``, so its design is known by its type alone.
-       A model pickled before the field existed reads the same way.
     3. A ``weights_kind`` outside ``"known"``, ``"estimated"`` and ``None`` is a
        :class:`DataError`.  A value that is not a ``str``, such as an array or
        ``pandas.NA``, is outside them.
@@ -416,19 +415,15 @@ def refuse_msm_functions(model: MSM) -> None:
        missing pathwise-derivative term.
 
     :class:`MSM` runs this when it is declared, and ``TMLE`` and ``LTMLE`` run it again
-    before any learner: a model restored from an older pickle, or changed with
-    ``object.__setattr__``, can carry a declaration this version refuses. ``TMLE`` also
-    runs it at the start of every retarget, which each sensitivity sweep calls, so a
-    result restored with such a model refuses every recomputation.
+    before any learner: a model changed with ``object.__setattr__`` can carry a
+    declaration this version refuses. ``TMLE`` also runs it at the start of every
+    retarget, which each sensitivity sweep calls, so a result with such a model refuses
+    every recomputation (roadmap rows RM13, RM27 and RM28).
     :meth:`MSMSet.evaluate` and :func:`cleverly.longitudinal.msm.evaluate_regimen_msm`
     run it before they call the design or the weight, so a direct call and the
-    simulated-confounding replay refuse before any user function runs.  Loading raises
-    nothing.  A restored ``TMLE`` result whose model this version refuses keeps its point
-    estimates and takes the ``"undeclared_function_plugin"`` status, so its ``ci``,
-    ``pvalue`` and ``std_error`` refuse (roadmap rows RM13, RM27 and RM28).  A
-    longitudinal result keeps evaluated arrays and a marker that the source declarations
-    passed. An older saved projection without that marker takes the same non-inferential
-    status and refuses truncation replay.
+    simulated-confounding replay refuse before any user function runs.  A longitudinal
+    result keeps evaluated arrays and a marker that the source declarations passed, and
+    a projection without that marker refuses truncation replay.
 
     Parameters
     ----------
@@ -446,8 +441,8 @@ def refuse_msm_functions(model: MSM) -> None:
         ``weights`` is not callable, or if a callable ``weights`` has ``weights_kind``
         ``None`` or ``"estimated"``.
     """
-    # Typed ``object`` on purpose: this checks what a restored or modified model holds at
-    # run time, which its annotations do not guarantee.
+    # Typed ``object`` on purpose: this checks what a modified model holds at run time,
+    # which its annotations do not guarantee.
     design: object = model.design
     if not callable(design):
         raise DataError(
@@ -505,8 +500,7 @@ def _design_kind(model: MSM) -> FunctionKind | None:
     design has the exact type :class:`_LinearDesign`, :meth:`MSM.linear` built it, and that
     design is known by construction, so this reads ``"known"``.  The rule is the only way
     the shorthand's design reads as known, so a design swapped in with
-    :func:`dataclasses.replace` has no declaration unless the user writes one.  A model
-    pickled before ``design_kind`` existed also reads ``None`` and meets the same rule.
+    :func:`dataclasses.replace` has no declaration unless the user writes one.
     The rule tests the exact type: a user can set ``from_linear=True`` on any design, and a
     subclass passes ``isinstance``, so neither shows a known design.  Only
     :func:`refuse_msm_functions` and the simulated-confounding replay call this.
@@ -582,8 +576,7 @@ class MSM:
         ``h`` a functional of :math:`P` and the reported influence curve omits its
         pathwise derivative.  It is unrelated to
         :data:`cleverly.data.weighting.WeightKind`, which describes observation weights.
-        A model pickled before this field existed loads as ``None``.  It follows
-        ``doses``, so ``link`` stays the fourth positional argument.
+        It follows ``doses``, so ``link`` stays the fourth positional argument.
     design_kind : {"known", "estimated"} or None
         The declaration that ``design`` is a known function: a fixed function of the arm
         (or the regimen and horizon) and the covariates, chosen without reading the data.
@@ -593,9 +586,7 @@ class MSM:
         the reported curve lacks.  ``None`` reads as ``"known"`` only when the design
         has the exact type that :meth:`linear` builds.  That design is known by
         construction, so :meth:`linear` leaves this field ``None``, and a design swapped
-        into its model with :func:`dataclasses.replace` needs its own declaration.  A model
-        pickled before this field existed loads as ``None`` and meets the same rule.  It is
-        the last field, so the positional order of the fields before it is unchanged.
+        into its model with :func:`dataclasses.replace` needs its own declaration.
     """
 
     design: Callable[[Any, Any], Any]
@@ -604,9 +595,6 @@ class MSM:
     link: MSMLink = "identity"
     from_linear: bool = False
     doses: tuple[float, ...] = ()
-    # The two declarations have plain defaults, so each is a class attribute: a model
-    # pickled before the field existed reads ``None`` there, and
-    # :func:`dataclasses.replace` still works on it.
     weights_kind: MSMWeightsKind | None = None
     design_kind: FunctionKind | None = None
 
@@ -860,8 +848,8 @@ class MSMSet:
         by re-running the user's function and hoping it is deterministic.
 
         It runs :func:`refuse_msm_functions` before it calls the design or the weight.  A
-        model restored from an older pickle, or changed with ``object.__setattr__``, can
-        reach this method directly with a declaration this version refuses.
+        model changed with ``object.__setattr__`` can reach this method directly with a
+        declaration this version refuses.
 
         Parameters
         ----------

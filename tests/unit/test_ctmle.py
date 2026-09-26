@@ -922,10 +922,6 @@ class TestReporting:
 
 
 class TestValidation:
-    def test_the_replaced_search_keyword_has_a_migration_message(self) -> None:
-        with pytest.raises(TypeError, match="search= was replaced by strategy="):
-            CTMLE(search="ordered")
-
     @pytest.mark.parametrize(
         ("kwargs", "message"),
         [

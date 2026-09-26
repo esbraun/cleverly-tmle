@@ -11,8 +11,7 @@ a function is a declaration with three states:
   pathwise derivative. Inference for the realized learned-function target instead needs
   conditions that this API does not establish. The package refuses either use here.
 - ``None`` is the default, and it means undeclared. The package refuses it for a supplied
-  function, so an object restored from before its declaration field existed refuses every
-  recomputation. A user can accept ``None`` when no function is supplied: an MSM with
+  function. A user can accept ``None`` when no function is supplied: an MSM with
   ``weights=None`` has uniform weights, which are known.
 
 The declaration is a three-state ``Literal`` and not a bool, because an undeclared function
@@ -24,13 +23,12 @@ RM28 adds two users: the rule declaration that :class:`~cleverly.interventions.R
 :class:`~cleverly.longitudinal.DynamicRegimen` share, and the density declaration of a
 user-written :class:`~cleverly.interventions.Intervention`.
 
-A restored result can hold a function whose declaration this version refuses.
-:func:`declaration_status` turns the refusal of such a function into the status
-``"undeclared_function_plugin"``, and the point and the longitudinal estimators both call it.
+A modified result can hold a function whose declaration this version refuses.
+:func:`declarations_pass` reports whether such a refusal raises, and the replayability
+record reads it.
 
-A leaf module. It imports the standard library, :mod:`cleverly.exceptions` and the leaf
-:mod:`cleverly._inference_status` only, so :mod:`cleverly.msm` and
-:mod:`cleverly.interventions` can both import it without a cycle.
+A leaf module. It imports the standard library and :mod:`cleverly.exceptions` only, so
+:mod:`cleverly.msm` and :mod:`cleverly.interventions` can both import it without a cycle.
 """
 
 from __future__ import annotations
@@ -39,10 +37,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
-from ._inference_status import InferenceStatus
 from .exceptions import CapabilityError, DataError
 
-__all__ = ["FunctionDeclaration", "FunctionKind", "declaration_status"]
+__all__ = ["FunctionDeclaration", "FunctionKind", "declarations_pass"]
 
 #: What a declaration says about a user-supplied function. ``"known"`` is a fixed function,
 #: chosen independently of the analysis sample. ``"estimated"`` is one computed from that
@@ -84,8 +81,8 @@ class FunctionDeclaration:
         Parameters
         ----------
         kind : object
-            The value of the declaration field at run time. A restored or modified object
-            can hold any value, so the type is not narrowed.
+            The value of the declaration field at run time. A modified object can hold any
+            value, so the type is not narrowed.
 
         Raises
         ------
@@ -124,14 +121,13 @@ class FunctionDeclaration:
             raise CapabilityError(self.estimated)
 
 
-def declaration_status(refuse: Callable[[], None]) -> InferenceStatus:
-    """The inference status of a configuration, from the refusal of its declarations.
+def declarations_pass(refuse: Callable[[], None]) -> bool:
+    """Whether a configuration passes its declaration checks.
 
-    The status predicate of roadmap row RM28. ``refuse`` is the declaration check that
-    every fit runs before any learner, so a live fit never reaches the refusal here. Only
-    a restored or modified configuration does, and its saved estimates then take
-    ``"undeclared_function_plugin"``. ``TMLE._declared_function_status`` passes the point
-    check, and the longitudinal ``_declared_regimen_status`` passes the regimen check.
+    ``refuse`` is the declaration check that every fit runs before any learner, so a live
+    fit always passes. A modified configuration can fail it, and a replay of such a
+    configuration refuses. :func:`~cleverly.assessment.replayability` reads this, so the
+    replayability record agrees with the replay refusal.
 
     Parameters
     ----------
@@ -141,13 +137,12 @@ def declaration_status(refuse: Callable[[], None]) -> InferenceStatus:
 
     Returns
     -------
-    str
-        ``"undeclared_function_plugin"`` when ``refuse`` raises
-        :class:`~cleverly.exceptions.CapabilityError` or
-        :class:`~cleverly.exceptions.DataError`, and ``"influence_curve"`` otherwise.
+    bool
+        ``False`` when ``refuse`` raises :class:`~cleverly.exceptions.CapabilityError` or
+        :class:`~cleverly.exceptions.DataError`, and ``True`` otherwise.
     """
     try:
         refuse()
     except (CapabilityError, DataError):
-        return "undeclared_function_plugin"
-    return "influence_curve"
+        return False
+    return True

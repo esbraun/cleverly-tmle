@@ -23,7 +23,6 @@ __all__ = [
     "HELD_OUT_SCALE",
     "NON_INFERENTIAL",
     "NO_SIMULTANEOUS_BANDS",
-    "UNRECORDED_STATUS",
     "InferenceStatus",
     "StatusRecord",
     "precedent_status",
@@ -39,14 +38,9 @@ InferenceStatus = Literal[
     "influence_curve",
     "working_mechanism_plugin",
     "generated_design_plugin",
-    "undeclared_function_plugin",
     "estimated_weight_plugin",
-    "cross_fitted_longitudinal_plugin",
-    "stratified_fold_plugin",
-    "undeclared_scale_plugin",
     "unequal_cluster_plugin",
     "few_cluster_plugin",
-    "unrecorded_status_plugin",
 ]
 
 # A clustered fit with fewer clusters than this, in total or in one reported baseline
@@ -63,16 +57,9 @@ InferenceStatus = Literal[
 #: The cluster count below which a clustered fit reports no interval (RM20).
 FEW_CLUSTER_THRESHOLD: Final[int] = 40
 
-#: Where ``q_bounds=None`` takes the scale of a continuous outcome from. The status
-#: reason of ``"undeclared_scale_plugin"`` and both outcome-scale refusals of
-#: :class:`~cleverly.TMLE` say it, so the three name one fact in one wording.
+#: Where ``q_bounds=None`` takes the scale of a continuous outcome from. Both outcome-scale
+#: refusals of :class:`~cleverly.TMLE` say it, so the two name one fact in one wording.
 HELD_OUT_SCALE: Final[str] = "from every observed outcome, held-out rows included"
-
-#: The status of an estimate whose saved state records none (roadmap row RM34). Releases
-#: 0.1.0 and 0.1.1 wrote no ``inference`` field, so ``ParameterEstimate._PICKLE_BACKFILL``
-#: gives it to such an estimate, and ``stamp_inference`` returns it to
-#: ``"influence_curve"`` when the result that holds the estimate supplies inference.
-UNRECORDED_STATUS: Final = "unrecorded_status_plugin"
 
 #: The line a result summary prints when a fit that supplies no inference builds no
 #: simultaneous band. ``TMLEResult.summary`` and ``LongitudinalResult.summary`` both
@@ -190,35 +177,6 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             diagnostic_noun="generated-design plug-in diagnostic",
             reopened_by="F19",
         ),
-        "undeclared_function_plugin": StatusRecord(
-            reason=(
-                "A restored result whose regime rule, regime density, or MSM function lacks "
-                "a known-function declaration reports no confidence interval, no "
-                "p-value and no standard error. Each new fit refuses such a function before "
-                "any learner. A saved longitudinal MSM also needs retained evidence that its "
-                "source declarations passed. "
-                "The saved curve treats the function as fixed, and no code can check that a "
-                "saved closure was fixed. A function learned from the analysis sample "
-                "defines a data-adaptive target, and this API does not check the conditions "
-                "its inference needs. The point estimate stands. The plug-in standard error "
-                "of the reported curve remains as a diagnostic under plugin_std_error and "
-                "plugin_interval. RM28 in docs/roadmap.md records the rule. Fit the "
-                "analysis again with each function declared known to report an interval."
-            ),
-            assessment_note=(
-                "the reported curve is an undeclared-function diagnostic: no confidence "
-                "interval or p-value is available for this result, RM28 in the roadmap "
-                "records the rule, and a refit with each function declared known reports "
-                "an interval"
-            ),
-            summary_label="undeclared-function se",
-            bootstrap_note=(
-                "a diagnostic; the bootstrap reuses the saved function, and no result "
-                "validates its coverage when that function was learned from the sample"
-            ),
-            diagnostic_noun="undeclared-function plug-in diagnostic",
-            reopened_by="RM28",
-        ),
         "estimated_weight_plugin": StatusRecord(
             reason=(
                 "A DR-TMLE fit with a guard and weights declared estimated "
@@ -244,84 +202,6 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             diagnostic_noun="fixed-weight plug-in diagnostic",
             reopened_by="F5",
-        ),
-        "cross_fitted_longitudinal_plugin": StatusRecord(
-            reason=(
-                "A saved cross-fitted clustered LTMLE fit reports no confidence interval, "
-                "no p-value and no standard error. New fits of this design are refused. "
-                "No result read here establishes the cluster-robust variance of its "
-                "targeted sequential recursion under grouped folds. The saved point "
-                "estimate remains available without an inferential claim. The plug-in "
-                "standard error of the reported curve remains as a diagnostic under "
-                "plugin_std_error and plugin_interval. F22 in docs/roadmap.md reopens "
-                "this when a derivation and validation cover this design."
-            ),
-            assessment_note=(
-                "the reported curve is a grouped-longitudinal diagnostic: no confidence "
-                "interval or p-value is available for this saved fit, and F22 in the "
-                "roadmap is the condition that reopens it"
-            ),
-            summary_label="grouped-longitudinal plug-in se",
-            bootstrap_note=(
-                "a diagnostic; no result validates the bootstrap coverage of a "
-                "cross-fitted clustered longitudinal fit"
-            ),
-            diagnostic_noun="grouped-longitudinal plug-in diagnostic",
-            reopened_by="F22",
-        ),
-        "stratified_fold_plugin": StatusRecord(
-            reason=(
-                "A saved cross-fitted fit whose outer folds were stratified on the "
-                "treatment, or on the treatment and the outcome, reports no confidence "
-                "interval, no p-value and no standard error. Releases 0.1.0 and 0.1.1 drew "
-                "that split by default, and new fits refuse it. No shipped result covers a "
-                "partition read off the data that the fit then conditions on. The saved "
-                "point estimate stands. The plug-in standard error of the reported curve "
-                "remains as a diagnostic under plugin_std_error and plugin_interval. RM31 "
-                "in docs/roadmap.md records the rule. A new cross-fitted fit draws "
-                "unstratified folds by default. It reports an interval only when its "
-                "other inference conditions permit one."
-            ),
-            assessment_note=(
-                "the reported curve is a stratified-fold diagnostic: no confidence interval "
-                "or p-value is available for this saved fit, RM31 in the roadmap records "
-                "the rule; a new cross-fitted fit defaults to unstratified folds and "
-                "reports an interval only when its other inference conditions permit one"
-            ),
-            summary_label="stratified-fold plug-in se",
-            bootstrap_note=(
-                "a diagnostic; no result validates bootstrap coverage for a saved fit "
-                "with stratified outer folds"
-            ),
-            diagnostic_noun="stratified-fold plug-in diagnostic",
-            reopened_by="RM31",
-        ),
-        "undeclared_scale_plugin": StatusRecord(
-            reason=(
-                "A saved cross-fitted fit of a continuous outcome with q_bounds=None "
-                "reports no confidence interval, no p-value and no standard error. "
-                f"Releases 0.1.0 and 0.1.1 took that outcome scale {HELD_OUT_SCALE}, "
-                "and new fits refuse it. No shipped "
-                "result covers an outcome scale that the held-out rows set. The saved "
-                "point estimate stands. The plug-in standard error of the reported curve "
-                "remains as a diagnostic under plugin_std_error and plugin_interval. RM33 "
-                "in docs/roadmap.md records the rule. A new cross-fitted fit that declares "
-                "q_bounds, or an in-sample fit, reports an interval only when its other "
-                "inference conditions permit one."
-            ),
-            assessment_note=(
-                "the reported curve is an undeclared-scale diagnostic: no confidence "
-                "interval or p-value is available for this saved fit, RM33 in the roadmap "
-                "records the rule; a new fit that declares q_bounds, or fits in sample, "
-                "reports an interval only when its other inference conditions permit one"
-            ),
-            summary_label="undeclared-scale plug-in se",
-            bootstrap_note=(
-                "a diagnostic; no result validates bootstrap coverage for a saved "
-                "cross-fitted fit whose outcome scale the held-out rows set"
-            ),
-            diagnostic_noun="undeclared-scale plug-in diagnostic",
-            reopened_by="RM33",
         ),
         "unequal_cluster_plugin": StatusRecord(
             reason=(
@@ -382,34 +262,6 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             diagnostic_noun="few-cluster plug-in diagnostic",
             reopened_by="F22",
-        ),
-        UNRECORDED_STATUS: StatusRecord(
-            reason=(
-                "A saved estimate that records no inference status reports no confidence "
-                "interval, no p-value and no standard error. Releases 0.1.0 and 0.1.1 wrote "
-                "no status on an estimate. An estimate saved apart from its result holds no "
-                "estimator, data or folds, so this version cannot read the configuration "
-                "that produced it. Those releases cross-fitted a discrete treatment on "
-                "stratified folds by default, and this version withholds the interval of "
-                "such a fit. The saved "
-                "point estimate stands. The plug-in standard error of the reported curve "
-                "remains as a diagnostic under plugin_std_error and plugin_interval. RM34 "
-                "in docs/roadmap.md records the rule. Load the whole saved result, which "
-                "reads its configuration again, or fit the analysis again."
-            ),
-            assessment_note=(
-                "the reported curve is an unrecorded-status diagnostic: no confidence "
-                "interval or p-value is available for this saved estimate, RM34 in the "
-                "roadmap records the rule; load the whole saved result, or fit the "
-                "analysis again"
-            ),
-            summary_label="unrecorded-status plug-in se",
-            bootstrap_note=(
-                "a diagnostic; the saved estimate records no configuration, so no result "
-                "validates its bootstrap coverage"
-            ),
-            diagnostic_noun="unrecorded-status plug-in diagnostic",
-            reopened_by="RM34",
         ),
     }
 )
