@@ -1290,6 +1290,62 @@ The witness pickles a `ParameterEstimate` and a `VariableImportanceEntry` withou
 field, and loads each one. It asserts the decided status and each withheld accessor. A mutation
 that skips the decision must fail. A current estimate that records its status loads as saved.
 
+#### RM34 plan
+
+The 2026-09-25 plan fixes the decisions in the second table below. Its reads ran at a21a0345.
+
+Probes read the four release 0.1.1 artifacts of the RM31 probe. A prototype then applied the
+decisions below as runtime patches, with no source change.
+
+| step | result |
+| --- | --- |
+| load order | pickle builds each `ParameterEstimate` before the object that holds it. In the variable-importance artifact the order is the estimate, the entry, the fit, and then the result |
+| the four results | no estimate state holds `inference` or `covariance_rule`. The results load under `"stratified_fold_plugin"`, `"undeclared_scale_plugin"`, and `"stratified_fold_plugin"`. The variable-importance entry reads `"stratified_fold_plugin"`, with `adjusted_pvalue` `None` |
+| the `ate` estimate of the first result, taken out before the re-stamp and pickled alone | its state has no `inference` key. It loads under `"influence_curve"`: `psi` 0.219215, and `ci` (0.158065, 0.280365). Its result withholds that interval |
+| the prototype | the four results load as above. The `ate` estimate alone loads under the new status, and `ci` refuses. In-sample `TMLE`, `LTMLE` and variable-importance results without the key keep `"influence_curve"`, their bands, their saved answers and their adjusted p-value. A `CVTargeting` alone refuses `std_error` |
+
+| question | decision | evidence |
+| --- | --- | --- |
+| status | a dedicated non-inferential status, `"unrecorded_status_plugin"`. The point estimate stands, and `plugin_std_error` and `plugin_interval` keep the diagnostic. `ci`, `pvalue` and `std_error` refuse. Its record names RM34. The reason says that the estimate records no status and holds no configuration. The remedy is to load the whole result, or to fit again | the estimate holds no estimator, data or folds. Releases 0.1.0 and 0.1.1 cross-fitted on stratified folds by default, so a saved estimate can be one that RM31 withholds. The name follows RM22, whose `nu2_estimator="unrecorded"` names the same absence |
+| decision site | `ParameterEstimate.__setstate__` in `src/cleverly/inference/influence.py` sets the status with `setdefault` when the state has no `inference` key, as `SensitivityBounds.__setstate__` does for `nu2_estimator`. The class default stays `"influence_curve"`, so a constructor call does not change | the dataclass `__init__` writes every field, so the state of a current estimate always holds `inference`. A current estimate loads as saved |
+| results | `stamp_inference` in the same module resolves the status. Under `"influence_curve"`, an estimate with the new status returns to `"influence_curve"`, and every other estimate stays as given. `TMLEResult`, `CVTargeting.stamped` and `LongitudinalResult` reach it through their re-stamp | pickle builds the estimates before their result. So each re-stamp must replace the status in both directions, from the configuration that the result holds |
+| re-stamp return | both `_restamp_inference_status` methods drop the return on an inferential status. Each returns early only when every estimate carries the status and none carries the new status. Each drops the bands and the saved answers only on a non-inferential status | a release 0.1.1 in-sample result keeps its bands and answers today. The second clause drops them when the forced-status reach test forces the new status on the hook |
+| a recorded status in an inferential result | unchanged. Only the new status returns to `"influence_curve"` | a current artifact loads as saved, as the re-stamp does now |
+| `VariableImportanceEntry` | a new `__setstate__`. When its estimate supplies no inference, it keeps the saved adjusted p-value under a private key, and `adjusted_pvalue` reads `None`. `_restamped` gives that value back when the re-stamped fit supplies inference | pickle builds the entry before its fit. Without the key, an in-sample release 0.1.1 result would lose each adjusted p-value |
+| `CVTargeting` | no rule of its own. It takes the new status from its estimates, and `std_error` refuses | `CVTargeting.inference` reads both reports. Release 0.1.1 built `variance` from the canonical report, so a report with a variance has estimates |
+| precedence | order 10, after `"few_cluster_plugin"` | each other status reads a recorded configuration, and a result that reads one replaces this status. No hook returns it, so `precedent_status` never meets it with another status |
+| `covariance_rule` | no change | `ci` reads `variance` alone. The rule enters joint covariance, contrasts and bands. `smooth_contrast` inherits the new status, and `simultaneous_bands` refuses it. The field came after release 0.1.1, and every earlier estimate used `"centered"` |
+| `SensitivityBounds` | no change | RM22 refuses a pickle without `nu2_estimator` |
+| `SimultaneousBands` and `EValue` | outside RM34. The delivery adds row RM35, in tier a, at priority 0.04 | neither class records a status, and their fields match release 0.1.1. A current object exists only on a fit that supplies inference. A load rule that withheld an old object would withhold a current one too |
+| label siblings | outside RM34: `ScoreCheck`, `RefutationTest`, `NuisanceDiagnostics`, `ReplicationRecord` and `EstimandSummary` | their `inference` field picks a name or a wording, and no accessor refuses on it. Each number is the same under every status |
+| studies | none moves, and none is regenerated | no committed artifact is a pickle, and no live fit writes the new status |
+
+The new file `tests/unit/test_saved_bare_estimate_status.py` holds the checks in the table below.
+
+| check | what it asserts |
+| --- | --- |
+| witness | `legacy_without(estimate, "inference")` from `tests/pickles.py` loads under the new status, by `pickle` and by `joblib`. `ci`, `pvalue` and `std_error` raise the whole `inference_refusal` message. `psi`, `plugin_std_error` and `plugin_interval` equal the live values, and `to_dict()` names the status. An entry alone also reads `adjusted_pvalue` `None`, where the live entry reads a number. A `CVTargeting` alone refuses `std_error` |
+| results without the key | `legacy_copy(result, recorded=False)` in `tests/unit/_inference_status_support.py` removes the key from each estimate. In-sample `TMLE` and `LTMLE` copies keep `"influence_curve"`, `ci`, the bands and the answers, by both `ROUTES`. A `cv_evaluation=True` copy keeps both fold reports. An in-sample variable-importance copy keeps each adjusted p-value |
+| released shape | `assert_restamped` loads the recorded copy and the copy without the key. So each earlier status witness also loads the shape of releases 0.1.0 and 0.1.1 |
+| mutations | no `ParameterEstimate.__setstate__` fails the witness. No entry `__setstate__` fails the entry witness. Either old re-stamp return, or `stamp_inference` without its new branch, fails the in-sample controls. A branch that returns every estimate to `"influence_curve"` fails the recorded-status control. Dropped bands on an inferential status fail the `TMLE` and `LTMLE` controls. A `_restamped` that ignores the private key fails the variable-importance control |
+| controls | a current estimate loads under `"influence_curve"` with its `ci`. A current estimate under `"stratified_fold_plugin"` keeps that status. A current result keeps a recorded status that its hook does not give |
+| changed tests | `test_the_default_status_is_the_ordinary_one` in `tests/unit/test_inference.py` pins the class default and the load rule. `_legacy` in `tests/unit/test_selector_path_inference_reach.py` becomes `legacy_copy(result, recorded=False)`. `PRECEDENCE` in `tests/unit/test_inference_status_registry.py` gains the status |
+| manual probe | the release 0.1.1 `ate` estimate alone loads under the new status, with `plugin_interval` (0.158065, 0.280365). The four results load as the first table states |
+
+The delivery changes the files in the table below.
+
+| file | change |
+| --- | --- |
+| `src/cleverly/_inference_status.py` | the Literal member and the record, both last |
+| `src/cleverly/inference/influence.py` | `ParameterEstimate.__setstate__`, the `stamp_inference` branch, and the comment and docstring on the load rule |
+| `src/cleverly/estimators/base.py`, `src/cleverly/longitudinal/estimator.py` | the two re-stamp returns and their docstrings |
+| `src/cleverly/variable_importance.py` | `VariableImportanceEntry.__setstate__` and `_restamped` |
+| `docs/technical-reference/inference.md` | a last row in the status table |
+| `docs/technical-reference/scope-and-refusals.md` | a row after the contrast row |
+| `docs/architecture-invariants.md` | two rows for the new load rules, and the new return of both result re-stamps |
+| `docs/user-guide/results-assessment.md` | two sentences after the RM33 sentence under the inference status |
+| `docs/roadmap.md` | the RM33 trim: the row leaves the table, and this section keeps a short record. RM35 enters the table |
+
 ### P1. EP learner
 
 Van der Laan, Carone and Luedtke (2024), arXiv:2402.01972, govern this item. After first-hand
