@@ -35,8 +35,9 @@ one, by the `id` in the "What this row asks for" table of RM18.
 verdict stays red under a `reporting` policy, so no verdict is hidden and no margin moved.
 
 The detail section of a delivered row keeps a short record of what shipped. Commit `dea3297e`
-holds the full plan, probe and review record of each delivered row. Read it with
-`git show dea3297e:docs/roadmap.md`. The table below lists the rows that remain.
+holds the full plan, probe and review record of each delivered row that this roadmap still
+describes. Read it with `git show dea3297e:docs/roadmap.md`. The table below lists the rows that
+remain.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
@@ -44,7 +45,7 @@ holds the full plan, probe and review record of each delivered row. Read it with
 | 0.33 | Continuous-dose MSM fit with missing outcomes | refuse the composition by name before any learner, as `CapabilityError` | an in-sample continuous-dose MSM fit with `delta=` raises `ValueError` from the nuisance fit, after two learner fits | [RM32](#rm32-continuous-dose-msm-fit-with-missing-outcomes) |
 | 0.34 | Refusals after the nuisance fit | raise each refusal as `CapabilityError` before any learner call | two stratified requests refuse with `NotImplementedError` after 2 and 8 learner fits. An incremental request with an intermediate variable refuses with `ValueError`. Two refusals in the refit replay chain raise a plain `ValueError` or `NotImplementedError` | [RM24](#rm24-refusals-after-the-nuisance-fit) |
 | 0.41 | Calibration-slope warning rule | replace the fixed band with a rule that a registered calibration study supports | the band flagged 14 of 40 fits of a correctly specified weak-signal propensity model | [RM15](#rm15-calibration-slope-warning-rule) |
-| 0.42 | Summary and error-message accuracy | correct six display surfaces, three data error messages and one refusal remedy, add a fingerprint-only protocol option, and decide what a bootstrap summary publishes on a non-inferential fit. The simultaneous-request policy is settled below. Correct two `benchmark` argument checks | each surface omits, misstates, or repeats a fact that the fit records. Two more surfaces misstate what a call accepts | [RM16](#rm16-summary-and-error-message-accuracy) |
+| 0.42 | Summary and error-message accuracy | correct six display surfaces, three data error messages and one refusal remedy, add a fingerprint-only protocol option, and decide what a bootstrap summary publishes on a non-inferential fit. The simultaneous-request policy is settled below. Correct two `benchmark` argument checks, and make one truncation row agree with its call | each surface omits, misstates, or repeats a fact that the fit records. Three more surfaces misstate what a call accepts or needs | [RM16](#rm16-summary-and-error-message-accuracy) |
 | 0.51 | Red property cells after the fold, scale and law changes | keep each red verdict under `reporting` with its interval, and admit inference only when F18 or F19 supplies the exact result. The [red-cell ledger](technical-reference/method-evidence/red-cells.md) delivers this. Then declare and run the five open RM18 follow-up designs, each declared before its run | registered studies publish red verdicts after the fold, scale and law changes and the pooled update. The ledger lists each one and the ask that owns it. Five RM18 follow-up designs are not declared and have not run | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
 | 0.52 | One-sided robustness bias increment in DR-TMLE | investigate the exploratory between-implementation increment on binary `treatment_correct`, under a design declared before it runs | the RM18 reading is `mixed` on that configuration. The unadjusted paired 99% interval of `cleverly` minus R `drtmle` runs 0.000068 to 0.001942, while the Bonferroni interval for that comparison covers zero. No implementation defect is established | [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) |
 | 0.61 | Learned-policy value evaluation | implement a typed learned-policy target with fold-local training and evaluation, using a published estimating and inference contract | fixed-rule paths refuse a rule learned from the analysis sample; published learned-policy methods give distinct targets and inference | [RM30](#rm30-learned-policy-value-evaluation) |
@@ -454,6 +455,7 @@ The witnesses must fail when a component is wrong:
 | longitudinal plan written as a mapping | `{"x": {"t1": 1, "t2": d}}` resolves to `Regimen('x', t1/t2)`, with the dictionary keys as arms. The fit then raises `DataError`: "regimen 'x' assigns 't1' at time 1". The message names a label that the user did not mean as an arm, and nothing checks or calls `d` | `_plan_nodes` in `src/cleverly/longitudinal/regimen.py` reads any iterable that is not an iterator as a tuple of its items. The review of RM28 probed the plan at a0e93bb6 and at commit 75e86be, with the same result | refuse a mapping plan by name, and name the sequence form and `DynamicRegimen` in the message |
 | `benchmark(covariates=[])` | runs a refit that drops nothing. The report reads "implied cf_y = 0.0000, cf_d = 0.0000" and "the estimate moved by +0" | `benchmark_refusal` in `src/cleverly/sensitivity/omitted_variable.py` returns `None` for an empty request, because a covariate remains. A 2026-09-24 probe on the RM23 sweep's `ordinary` kind, `make_linear_ate(n=400, seed=2)` in sample, returned that report | refuse an empty `covariates` as a malformed argument, before the refit |
 | `benchmark` covariate names on a fit with an encoded categorical covariate | accepts the indicator column `V__low`, and rejects the logical name `V` with `DataError`: "unknown covariates ['V']; this fit adjusts for ['W1', 'W2', 'W3', 'W4', 'V__low']". The fit adjusts for `V` | the same probe on the sweep's `stratified` kind, which adds a two-level `V` as a stratum and a covariate. `simulated_confounding` refuses an encoded column by name, because zeroing one encoded column does not define a logical-covariate benchmark | accept the logical name and drop its whole encoded block, or refuse an indicator column by name as `simulated_confounding` does. Name the logical column in the message |
+| `truncation_curve` row of a guarded DR-TMLE result whose estimator holds a refused configuration | reads `unavailable`, and `diagnostics.truncation_curve()` refuses, although the module call `truncation_curve(result, [0.05])` runs and returns a curve | a 2026-09-26 probe gave the RM23 sweep's `drtmle` kind `stratify_folds="treatment"` through `reconfigured` in `tests/unit/_capability_sweep_support.py`. `refit_nuisances` reads false with `point_replay_refit_configuration`. `assessment_capabilities` makes the guarded row require `refit_nuisances`. The curve refits the reduced regressions inside `retarget`, and does not call `refit()` | decide which replay slot the guarded curve needs, and make the row, the facade call and the module call agree |
 
 Each correction needs a unit test that fails without it. Three tests are nonzero witnesses. A
 `RegimeContrast` summary keeps its reference line. A design with a time-varying covariate prints it
@@ -469,10 +471,12 @@ table gives what the other tests need.
 | bootstrap summary | a decision before a test |
 | continuous-treatment `DataError` | the test fits the suggested shift, cross-fitted with `delta=`, and asserts that the message names the in-sample fit |
 | the two `benchmark` rows | the test fits the probe kind of the RM23 sweep. The control is a proper subset of the covariates, which runs |
+| `truncation_curve` row | the test compares the row, the facade call and the module call on the reconfigured `drtmle` kind. A control keeps the row available on the live kind |
 
 The simultaneous row needs no change. `LTMLE` skips its default band below 40 clusters, as `TMLE`
 does under each non-inferential status. The result summary names the omission for both estimators.
-Tier e holds the two `benchmark` rows by the extension that its reason states.
+Tier e holds the two `benchmark` rows and the truncation row by the extension that its reason
+states.
 
 Pull request 229 corrected two refusal reasons that this row held. `_risk_ratio_refusal` names the
 missing intermediate intervention level, and `_select_evalue` gives a separate reason for each
