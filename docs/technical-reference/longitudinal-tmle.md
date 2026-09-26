@@ -322,17 +322,18 @@ and plug-in diagnostics. It reports no interval or band. [RM29](../roadmap.md#rm
 records the correction.
 
 Those releases also stratified every cross-fitted split on the first treatment node. A restored
-result with more than one fold whose `Folds.origin` is `None` now loads under
-`"stratified_fold_plugin"`. It retains point estimates and plug-in diagnostics, and it reports no
-interval or band
+result with more than one fold whose `Folds.origin` is `None` gets `"stratified_fold_plugin"`
+under the saved-fold rule. An earlier status can take precedence, including
+`"undeclared_function_plugin"` and `"cross_fitted_longitudinal_plugin"`. The result retains point
+estimates and plug-in diagnostics, and it reports no interval or band
 ([RM31](../roadmap.md#rm31-inference-status-of-a-saved-stratified-cross-fitted-result)).
 
 The longitudinal path has no rule for a saved outcome scale. A cross-fitted continuous result that
-release 0.1.0 or 0.1.1 saved with `q_bounds=None` has a split with no origin, so it loads under
-`"stratified_fold_plugin"` already. A current result cannot have that scale, because the fit
-refuses it. A current result whose estimator is set to `q_bounds=None` after the fit keeps its
-interval, and no release saved such a result
-([RM33](../roadmap.md#rm33-inference-status-of-a-saved-unbounded-scale-cross-fitted-result)).
+release 0.1.0 or 0.1.1 saved with `q_bounds=None` has a split with no origin. Its saved-fold rule
+gives `"stratified_fold_plugin"`, subject to earlier statuses. A current result cannot have that
+scale, because the fit refuses it. A current result whose estimator is set to `q_bounds=None` after
+the fit keeps its interval, and no release saved such a result
+([RM33](../roadmap.md#rm33-inference-status-of-a-saved-undeclared-scale-cross-fitted-result)).
 
 A restored result whose regimen has a callable node not declared `"known"` loads under
 `"undeclared_function_plugin"`, keeps its point estimates, and reports no interval or band

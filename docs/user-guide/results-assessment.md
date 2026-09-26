@@ -927,7 +927,7 @@ It takes `"stratified_fold_plugin"` when it loads
 ([RM31](../roadmap.md#rm31-inference-status-of-a-saved-stratified-cross-fitted-result)). A
 cross-fitted continuous-dose result of a continuous outcome with `q_bounds=None` withholds them
 too. It takes `"undeclared_scale_plugin"` when it loads
-([RM33](../roadmap.md#rm33-inference-status-of-a-saved-unbounded-scale-cross-fitted-result)). The 0.1.0
+([RM33](../roadmap.md#rm33-inference-status-of-a-saved-undeclared-scale-cross-fitted-result)). The 0.1.0
 and 0.1.1 releases saved no `split_plan` attribute. `TMLE` reads a missing attribute as `None`,
 which is what those releases meant.
 

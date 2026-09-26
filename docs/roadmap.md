@@ -910,7 +910,7 @@ missing-outcome contract. The docstring of `TMLE._resolve_arm_indexed_missing_co
 RM20 shipped orders 1, 2, 4, 8 and 9.
 [RM29](#rm29-saved-cross-fitted-clustered-longitudinal-results) added order 5, and [RM28](#rm28-declared-densities-of-user-written-interventions) added order 3.
 [RM31](#rm31-inference-status-of-a-saved-stratified-cross-fitted-result) added order 6, and
-[RM33](#rm33-inference-status-of-a-saved-unbounded-scale-cross-fitted-result) added order 7.
+[RM33](#rm33-inference-status-of-a-saved-undeclared-scale-cross-fitted-result) added order 7.
 `PRECEDENCE` in `tests/unit/test_inference_status_registry.py` pins `NON_INFERENTIAL` to this
 order.
 
@@ -1241,7 +1241,9 @@ the MSM fit too.
 The witness fits the probe request with spy learners. It asserts the named refusal and zero learner
 fits. A control keeps the in-sample shift fit with `delta=` running.
 
-### RM33. Inference status of a saved unbounded-scale cross-fitted result
+<a id="rm33-inference-status-of-a-saved-unbounded-scale-cross-fitted-result"></a>
+
+### RM33. Inference status of a saved undeclared-scale cross-fitted result
 
 Releases 0.1.0 and 0.1.1 set `q_bounds=None` by default (`src/cleverly/estimators/tmle.py:382`
 at v0.1.1). A continuous outcome then took its scale from every observed outcome, held-out rows
@@ -1257,7 +1259,7 @@ the full RM33 plan and delivery record. Read it with `git show cf914b61:docs/roa
 | part | what shipped |
 | --- | --- |
 | status | `"undeclared_scale_plugin"` in `src/cleverly/_inference_status.py`, seventh in the precedence. Its record names RM33 |
-| rule | `TMLE._outcome_scale_refusal` in `src/cleverly/estimators/tmle.py` holds the predicate and the sentence. `_refuse_unbounded_cross_fitted_scale` raises the sentence at fit time. `TMLE._saved_scale_status` reads it as a status. `DRTMLE` reaches it through `super()`. `LTMLE` has no rule, because every cross-fitted `LTMLE` result that a release saved reads `"stratified_fold_plugin"` |
+| rule | `TMLE._outcome_scale_refusal` in `src/cleverly/estimators/tmle.py` holds the predicate and the sentence. `_refuse_unbounded_cross_fitted_scale` raises the sentence at fit time. `TMLE._saved_scale_status` reads it as a status. `DRTMLE` reaches it through `super()`. `LTMLE` has no saved-scale rule. Its legacy cross-fitted results have the `"stratified_fold_plugin"` saved-fold status, subject to earlier statuses |
 | variable importance | `variable_importance` raises `_refuse_unbounded_cross_fitted_scale` on each candidate's prepared data before it asks the status. The sentence names the remedy `Targeting(q_bounds=(lower, upper))` |
 | tests | `tests/unit/test_saved_scale_status.py` holds the witnesses, three precedence witnesses, the controls and four mutations. `tests/unit/test_inference_status_registry.py` pins the precedence |
 
