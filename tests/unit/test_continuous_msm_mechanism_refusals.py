@@ -1,15 +1,16 @@
 """A continuous-dose MSM refuses a missing outcome and an intermediate variable, by name.
 
-The clever covariate of a continuous-dose MSM divides by the treatment density at the observed
-dose and at each dose of the integration grid.  With a missing outcome or an intermediate
-variable it must also divide by that second mechanism at each of those doses, and no targeting
-step for it is written.  Before RM32 in ``docs/roadmap.md``, the in-sample fit raised
+The clever covariate that this package builds for a continuous-dose MSM divides by the treatment
+density at the observed dose and at each dose of the integration grid.  With a missing outcome or
+an intermediate variable, that construction must also divide by the second mechanism at each of
+those doses, and no targeting step for it is written.  Before RM32 in ``docs/roadmap.md``, the in-sample fit raised
 ``ValueError`` from the nuisance fit after two learner fits, and the cross-fitted fit met the
 F21 refusal, whose remedy is that in-sample fit.  X10 in ``docs/roadmap.md`` tracks the
 construction.  This module pins these things:
 
 * the fit refuses with ``CapabilityError`` before any learner, in sample and cross-fitted, with
   ``delta=``, ``intermediate=`` and both, and names each missing mechanism;
+* ``refit`` on new data with a missing outcome refuses the same way;
 * the cross-fitted fit is not sent to the in-sample fit;
 * ``CausalStudy.identify`` refuses ``MSMProjection`` on a continuous design with a missing
   outcome, and ``estimate`` fits no learner;
@@ -28,15 +29,16 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.linear_model import LinearRegression, LogisticRegression
 
 import cleverly.study as study_module
 from cleverly import CausalStudy, PointTreatment
+from cleverly.data import CausalData
 from cleverly.datasets import make_missing_outcome
 from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError
 from cleverly.msm import MSM
 from cleverly.study import MSMProjection
+from tests.conftest import linear_in_sample
 from tests.unit._declaration_support import (
     assert_every_witness_fails,
     assert_refused,
@@ -110,14 +112,6 @@ def projection() -> MSMProjection:
     return MSMProjection(MSM.linear(doses=DOSES))
 
 
-def real_learners() -> dict[str, Any]:
-    return {
-        "outcome_learner": LinearRegression(),
-        "treatment_learner": LogisticRegression(max_iter=1000),
-        "missingness_learner": LogisticRegression(max_iter=1000),
-    }
-
-
 #: A refused fit: the frame, the fit columns, the estimator settings, and the fragments.
 Row = tuple[Callable[[], pd.DataFrame], dict[str, str], dict[str, Any], tuple[str, ...]]
 
@@ -138,6 +132,12 @@ DIRECT: dict[str, Row] = {
         lambda: complete(dose_frame()).drop(columns="Delta"),
         {"intermediate": "Z"},
         {},
+        (SUBJECT, "an intermediate variable (intermediate=)", INTERMEDIATE, GRID, X10),
+    ),
+    "intermediate, cross-fitted": (
+        lambda: complete(dose_frame()).drop(columns="Delta"),
+        {"intermediate": "Z"},
+        {"cross_fit": True, "n_folds": 5},
         (SUBJECT, "an intermediate variable (intermediate=)", INTERMEDIATE, GRID, X10),
     ),
     "both": (
@@ -163,6 +163,27 @@ def fit_witness(name: str) -> None:
         None,
         "",
         *fragments,
+    )
+
+
+def refit_witness() -> None:
+    """``refit`` on new data with a missing outcome, which the replay and the refutations use."""
+    data = CausalData.from_frame(
+        dose_frame(),
+        outcome="Y",
+        treatment="dose",
+        covariates=COVARIATES,
+        delta="Delta",
+        treatment_kind="continuous",
+    )
+    assert_refused_before_any_call(
+        lambda: estimator(never_fit_learners()).refit(data),
+        None,
+        "",
+        SUBJECT,
+        "missing outcomes (delta=)",
+        RESPONSE,
+        X10,
     )
 
 
@@ -210,6 +231,9 @@ class TestTheFitRefusesBeforeAnyLearner:
         assert "cross_fit=False" not in message
         assert "in sample or cross-fitted" in message
 
+    def test_a_refit_on_new_data_names_the_missing_mechanism(self) -> None:
+        refit_witness()
+
 
 class TestTheStudyRefusesAtIdentify:
     def test_identify_names_the_missing_mechanism(self) -> None:
@@ -223,8 +247,8 @@ class TestTheRuleKeysOnAMissingOutcome:
     def test_a_declared_indicator_with_every_outcome_observed_fits(self) -> None:
         """A rule keyed on ``delta_name is not None`` would refuse the first fit."""
         frame = complete(dose_frame())
-        declared = fit(estimator(real_learners()), frame, delta="Delta").single()
-        undeclared = fit(estimator(real_learners()), frame.drop(columns="Delta")).single()
+        declared = fit(estimator(linear_in_sample()), frame, delta="Delta").single()
+        undeclared = fit(estimator(linear_in_sample()), frame.drop(columns="Delta")).single()
         assert "msm[a]" in declared.estimates
         for key, estimate in undeclared.estimates.items():
             assert declared.estimates[key].psi == pytest.approx(estimate.psi, abs=1e-12)
@@ -243,11 +267,11 @@ class TestTheWitnessesHaveTeeth:
     def test_removing_the_fit_check_fails_every_fit_witness(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The in-sample rows reach ``NeverFit.fit``, and the cross-fitted row meets F21."""
+        """The in-sample rows reach ``NeverFit.fit``, and the cross-fitted rows meet another
+        refusal.  The refit witness runs last and in sample, so a learner has then fitted."""
         self.remove(monkeypatch, tmle_module)
-        assert_every_witness_fails(lambda name=name: fit_witness(name) for name in DIRECT)
-        with pytest.raises(AssertionError):
-            fit_witness("missing outcomes, in sample")
+        witnesses = [lambda name=name: fit_witness(name) for name in DIRECT]
+        assert_every_witness_fails([*witnesses, refit_witness])
         assert NeverFit.calls > 0
         identify_witness()
 
