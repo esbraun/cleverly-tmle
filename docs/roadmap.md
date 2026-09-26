@@ -348,7 +348,7 @@ them after one learner fit. A `Shift` in `IncrementalEffect` raised nothing, and
 shift as an odds multiplier. Each refusal named a `TMLE` keyword, and the top level does
 not export `TMLE`.
 
-Pull request NNN delivered this row. The table gives what shipped. Commit `b876ec3f` holds the
+Pull request 239 delivered this row. The table gives what shipped. Commit `b876ec3f` holds the
 probe table and the corrections. Read it with `git show b876ec3f:docs/roadmap.md`.
 
 | part | what shipped |
