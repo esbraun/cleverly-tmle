@@ -60,8 +60,8 @@ LONGITUDINAL_CENSORING_NOT_FITTED = "complete data has no censoring learner"
 
 
 #: How far a fold-fluctuated fit's *stitched* score may sit from zero, in standard errors
-#: of its own residual, before :func:`_longitudinal_scores` calls it a defect rather than
-#: sampling.
+#: of its own residual, before :func:`_longitudinal_msm_scores` calls it a defect rather
+#: than sampling.
 #:
 #: Only a fluctuation that carries per-fold solves has a stitched score.  A new fit produces
 #: one only on the engine-level cross-fitted working model in
@@ -72,12 +72,11 @@ LONGITUDINAL_CENSORING_NOT_FITTED = "complete data has no censoring learner"
 #: The stitched score is not a solved equation.  Each outer fold fits its ``epsilon`` on
 #: the rows it does not report, so what the pooled residual has to be is a mean-zero draw,
 #: and the scale to judge a mean-zero draw on is its own standard error.  Measured over 300
-#: replications of ``make_longitudinal`` at ``n=500`` and five folds, under the per-regimen
-#: fold fluctuation this package used before the pooled construction, the mean ``|z|`` per
-#: parameter ran from 0.006 to 0.08.  Four standard errors is therefore a long way outside
-#: anything that construction produced, while a fold-mapping or stitching defect -- which
-#: multiplies the residual by a constant rather than perturbing it -- moves ``z`` by orders
-#: of magnitude and cannot hide under it.
+#: replications of ``make_longitudinal`` at ``n=500`` and five folds, under a per-regimen
+#: fold fluctuation, the mean ``|z|`` per parameter ran from 0.006 to 0.08.  Four standard
+#: errors is therefore a long way outside anything that construction produced, while a
+#: fold-mapping or stitching defect -- which multiplies the residual by a constant rather
+#: than perturbing it -- moves ``z`` by orders of magnitude and cannot hide under it.
 #:
 #: Not a caller argument.  ``tolerance`` on
 #: :meth:`~cleverly.assessment.DiagnosticsFacade.score_equations` is a *relative-score*
@@ -502,20 +501,6 @@ def _standardized_score(contribution: FloatArray, cluster: IntArray | None = Non
     )
 
 
-def _stitched_score_z(step: Any, weights: FloatArray, cluster: IntArray | None = None) -> float:
-    r"""The stitched score over its own standard error.
-
-    The score is :math:`P_n[w H (Z - \bar Q^*)]`. Independent rows use the row-level
-    standard error. Clustered rows first sum their contributions within cluster and use
-    the same finite-sample scaling as the inference layer.
-
-    Returns ``nan`` when the residual has no spread, which is a degenerate node rather than
-    a perfect one and is not something to report a ``z`` of zero for.
-    """
-    contribution = weights * step.clever * (step.pseudo_outcome - step.targeted)
-    return float(_standardized_score(contribution, cluster)[0])
-
-
 def _msm_node_contributions(
     result: Any, msm_fit: Any, time: int
 ) -> tuple[FloatArray, FloatArray, Any]:
@@ -626,61 +611,24 @@ def _longitudinal_scores(result: Any, *, tolerance: float) -> LongitudinalScoreD
     tolerance would be reported as passing, which is the one answer this diagnostic must
     never give.
 
-    A cross-fitted per-regimen node gets the solver row alone.  Its one pooled fluctuation
-    solves the node's score over every follower against the stitched out-of-fold
-    predictions, so that score is the equation the node solved.  A misplaced fold changes
-    the stitched ``initial`` array itself, which
+    A per-regimen node gets the solver row alone, in sample or cross-fitted.  A
+    cross-fitted node's one pooled fluctuation solves the node's score over every follower
+    against the stitched out-of-fold predictions, so that score is the equation the node
+    solved.  A misplaced fold changes the stitched ``initial`` array itself, which
     ``tests/unit/test_pooled_longitudinal_targeting.py`` checks against a longhand
-    recursion.
-
-    A fluctuation that carries per-fold solves earns a second row, because the first one
-    stops being able to see the thing that can go wrong.  No current per-regimen fit
-    carries per-fold solves, and the rule covers any fluctuation that does.  The
-    engine-level cross-fitted working model reports the same two rows through
-    :func:`_longitudinal_msm_scores`.  Such a node's ``K`` solves each reach
-    their own root on their own training complement, so the solver row is at machine
-    precision whatever the stitched fit looks like -- including when the folds were
-    stitched back in the wrong order, or a slab was read for the wrong fold.  The stitching
-    row is where that shows.
+    recursion.  The engine-level cross-fitted working model, whose folds each solve their
+    own fluctuation, adds a stitching row through :func:`_longitudinal_msm_scores`.
     """
     if result.msm is not None:
         return _longitudinal_msm_scores(result, tolerance=tolerance)
 
     rows = []
     for fit in result.fits.values():
-        weights = np.asarray(fit.obs_weights, dtype=float)
         for step in fit.steps:
             fluctuation = step.fluctuation
             horizon = fit.horizon if result.data.is_survival else None
             converged = bool(fluctuation.converged)
-            # On a fold-fluctuated node the solved equations are the folds' own, and the
-            # aggregate `score` is the stitched fit's -- a different quantity, reported on
-            # the row below.  A pooled cross-fitted node carries no fold solves.  The worst
-            # fold is the honest summary of `K` solves: an average would let nine good folds
-            # hide one that did not move.
-            solver_relative = (
-                max(
-                    float(
-                        np.max(
-                            np.abs(record.score)
-                            / np.maximum(
-                                record.score_scale
-                                if record.score_scale is not None
-                                else fluctuation.score_scale,
-                                1e-300,
-                            )
-                        )
-                    )
-                    for record in fluctuation.folds
-                )
-                if fluctuation.folds
-                else float(fluctuation.relative_score_norm)
-            )
-            solver_score = (
-                max(float(np.max(np.abs(record.score))) for record in fluctuation.folds)
-                if fluctuation.folds
-                else float(fluctuation.score_norm)
-            )
+            solver_relative = float(fluctuation.relative_score_norm)
             rows.append(
                 LongitudinalScoreRow(
                     fit.regimen.label,
@@ -689,31 +637,11 @@ def _longitudinal_scores(result: Any, *, tolerance: float) -> LongitudinalScoreD
                     step.time,
                     None,
                     "solver",
-                    float(result.scaler.range * solver_score),
+                    float(result.scaler.range * float(fluctuation.score_norm)),
                     solver_relative,
                     float("nan"),
                     converged,
                     converged and solver_relative <= tolerance,
-                    int(fluctuation.n_iter),
-                    fluctuation.failure,
-                )
-            )
-            if not fluctuation.folds:
-                continue
-            z = _stitched_score_z(step, weights, result.data.cluster)
-            rows.append(
-                LongitudinalScoreRow(
-                    fit.regimen.label,
-                    fit.cause,
-                    horizon,
-                    step.time,
-                    None,
-                    "stitching",
-                    float(result.scaler.range * fluctuation.score_norm),
-                    float(fluctuation.relative_score_norm),
-                    z,
-                    converged,
-                    bool(np.isfinite(z) and abs(z) <= STITCHED_SCORE_Z_TOLERANCE),
                     int(fluctuation.n_iter),
                     fluctuation.failure,
                 )

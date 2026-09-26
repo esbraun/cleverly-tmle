@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import inspect
 import warnings
-from types import SimpleNamespace
 from typing import Any, ClassVar
 
 import numpy as np
@@ -21,7 +20,7 @@ from cleverly.datasets import (
 from cleverly.exceptions import DataError, PositivityWarning
 from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalError, LongitudinalResult
 from cleverly.longitudinal.estimator import _level_head
-from cleverly.validation.longitudinal import STITCHED_SCORE_Z_TOLERANCE, _stitched_score_z
+from cleverly.validation.longitudinal import STITCHED_SCORE_Z_TOLERANCE, _standardized_score
 
 #: Fast-tier settings: parametric nuisances, few folds, seeded.  The mechanism of
 #: ``make_longitudinal`` is logistic-linear in the recorded history, so ``glm`` estimates
@@ -169,25 +168,19 @@ def test_the_reported_score_is_the_score_of_the_reported_fit(
 
 
 def test_clustered_stitching_uses_clusters_as_the_independent_units() -> None:
-    """Two correlated blocks are two draws, not 200 independent observations."""
+    """Two correlated blocks are two draws, not 200 independent observations.
+
+    ``_standardized_score`` is the ``z`` of every stitching row the working model reports.
+    """
     contribution = np.concatenate([np.ones(100), np.full(100, -7.0 / 13.0)])
-    step = SimpleNamespace(
-        clever=np.ones(200),
-        pseudo_outcome=contribution,
-        targeted=np.zeros(200),
-    )
-    iid = _stitched_score_z(step, np.ones(200))
-    clustered = _stitched_score_z(step, np.ones(200), np.repeat([0, 1], 100))
+    iid = float(_standardized_score(contribution)[0])
+    clustered = float(_standardized_score(contribution, np.repeat([0, 1], 100))[0])
     assert iid == pytest.approx(4.232020793899766)
     assert clustered == pytest.approx(0.3)
     assert iid > STITCHED_SCORE_Z_TOLERANCE
     assert clustered < STITCHED_SCORE_Z_TOLERANCE
-    assert np.isnan(_stitched_score_z(step, np.ones(200), np.zeros(200, dtype=int)))
-
-    constant = SimpleNamespace(
-        clever=np.ones(200), pseudo_outcome=np.ones(200), targeted=np.zeros(200)
-    )
-    assert np.isnan(_stitched_score_z(constant, np.ones(200)))
+    assert np.isnan(_standardized_score(contribution, np.zeros(200, dtype=int))[0])
+    assert np.isnan(_standardized_score(np.ones(200))[0])
 
 
 def test_recovers_the_truth_on_average() -> None:
