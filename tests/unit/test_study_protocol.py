@@ -85,6 +85,13 @@ def test_protocol_is_frozen_and_its_schema_version_cannot_be_supplied() -> None:
         StudyProtocol.from_dict({**protocol.to_dict(), "schema_version": 2})
 
 
+def test_from_dict_requires_schema_version() -> None:
+    payload = _protocol().to_dict()
+    del payload["schema_version"]
+    with pytest.raises(ValueError, match="schema_version is required"):
+        StudyProtocol.from_dict(payload)
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
