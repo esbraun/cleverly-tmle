@@ -555,6 +555,13 @@ Arm positivity, regime support, shift support, and incremental support answer fo
 questions. The intervention classes therefore expose distinct reports rather than reducing every
 overlap question to one propensity histogram.
 
+The regime support table reads two mechanisms. `min g`, `max ratio` and `ratio effective n` read
+the treatment mechanism before truncation, which is what the data support. `score load` reads the
+clever covariate of the targeting step, which divides by the truncated mechanism. The table prints
+both facts under its rows. A bound that binds makes the two counts differ.
+`TestTheSupportTableStatesEachColumnsBasis` in `tests/unit/test_summary_and_message_accuracy.py`
+checks each count against its own mechanism at such a bound.
+
 ## Validation issues special to this method
 
 The generic instruments are described in

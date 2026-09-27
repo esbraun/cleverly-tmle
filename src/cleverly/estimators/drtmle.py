@@ -220,6 +220,22 @@ class ReducedFit:
     diagnostics: dict[str, list[SuperLearnerDiagnostics]] = field(default_factory=dict)
     missingness_bound: float | None = None
 
+    def describe(self) -> str:
+        """Return the line that :meth:`~cleverly.TMLEResult.summary` prints for this fit.
+
+        Returns
+        -------
+        str
+            The method, the guard and the fitted reduction. An empty guard fits no
+            reduced regression, so its line names no reduction.
+        """
+        if not self.guard:
+            return (
+                "DR-TMLE: empty guard, so no reduced regression was fitted and the estimate "
+                "is the ordinary TMLE"
+            )
+        return f"DR-TMLE: guard {', '.join(self.guard)}; {self.reduction} reduction"
+
     @staticmethod
     def evaluation(result: Any) -> Any:
         """The targeted companion of a fitted result, or ``None`` if it declared none.

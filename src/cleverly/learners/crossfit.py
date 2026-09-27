@@ -204,7 +204,7 @@ def _cross_fit_policy_refusal(
     1. ``repeats`` below one;
     2. a ``split_plan`` that is not a :class:`SplitPlan`;
     3. a plan that cannot serve the declared policy (:meth:`SplitPlan._policy_refusal`);
-    4. a plan combined with the targeted bootstrap;
+    4. a plan combined with the full-refit bootstrap;
     5. ``repeats`` above one without cross-fitting;
     6. cross-fitting declared with fewer than two folds;
     7. a fold-stratification policy this package draws no split under
@@ -225,7 +225,7 @@ def _cross_fit_policy_refusal(
     split_plan : object
         The supplied plan, or ``None``. Any other type is refused.
     n_bootstrap : int, default=0
-        Targeted-bootstrap replicates the declaration asks for.
+        Full-refit bootstrap replicates the declaration asks for.
     stratify_folds : str, default="none"
         The declared fold-stratification policy.
     collaborative : bool, default=False
@@ -249,7 +249,7 @@ def _cross_fit_policy_refusal(
             return reason
         if n_bootstrap:
             return (
-                "n_bootstrap cannot be combined with split_plan: targeted bootstrap "
+                "n_bootstrap cannot be combined with split_plan: full-refit bootstrap "
                 "replicates duplicate sampled rows, while the supplied assignments "
                 "identify only the original row positions"
             )

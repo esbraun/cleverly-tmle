@@ -741,7 +741,7 @@ class TestOneInputEarnsOneReasonAtBothLayers:
             ),
             (
                 {"split_plan": _package_plan(120, n_folds=2), "n_bootstrap": 4},
-                "n_bootstrap cannot be combined with split_plan: targeted bootstrap "
+                "n_bootstrap cannot be combined with split_plan: full-refit bootstrap "
                 "replicates duplicate sampled rows, while the supplied assignments "
                 "identify only the original row positions",
             ),

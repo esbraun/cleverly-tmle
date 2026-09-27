@@ -6,7 +6,7 @@ import hashlib
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 __all__ = ["StudyProtocol"]
 
@@ -200,3 +200,42 @@ class StudyProtocol:  # numpydoc ignore=PR02
             f"interference unit: {self.interference_unit}",
             f"assumption rationale: {list(self.assumption_rationale)}",
         )
+
+
+#: How much of the protocol record a summary prints: the whole record, or its first line,
+#: which carries the schema and the fingerprint.
+ProtocolDetail = Literal["full", "fingerprint"]
+
+
+def protocol_summary_lines(
+    protocol: StudyProtocol | None, detail: ProtocolDetail = "full"
+) -> tuple[str, ...]:
+    """Return the protocol lines of an identification or result summary.
+
+    The one-line form keeps the fingerprint of the canonical record, and
+    ``protocol.summary_lines()`` prints the whole record again.
+
+    Parameters
+    ----------
+    protocol : StudyProtocol or None
+        The study's protocol record. ``None`` records that no protocol was supplied.
+    detail : {"full", "fingerprint"}
+        ``"full"`` prints every field. ``"fingerprint"`` prints only the line with the
+        schema and the fingerprint.
+
+    Returns
+    -------
+    tuple of str
+        The protocol lines, or ``("causal study protocol: absent",)`` without a protocol.
+
+    Raises
+    ------
+    ValueError
+        If ``detail`` is neither ``"full"`` nor ``"fingerprint"``.
+    """
+    if detail not in ("full", "fingerprint"):
+        raise ValueError(f"protocol must be 'full' or 'fingerprint'; got {detail!r}")
+    if protocol is None:
+        return ("causal study protocol: absent",)
+    lines = protocol.summary_lines()
+    return lines if detail == "full" else lines[:1]

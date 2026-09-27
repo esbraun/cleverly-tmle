@@ -219,8 +219,8 @@ class Provenance:
         ]
         if self.run_id:
             lines.append(f"run_id: {self.run_id}")
-        if self.protocol_fingerprint is not None:
-            lines.append(f"protocol {self.protocol_fingerprint}")
+        # No line for ``protocol_fingerprint``: only a study fit sets it, and the
+        # identification block of the same summary prints it beside the schema.
         return lines
 
 

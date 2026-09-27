@@ -159,6 +159,12 @@ _SCORE_COLUMNS: tuple[tuple[str, Callable[[Mapping[str, Any]], Any], Any], ...] 
 class SupportReport:
     """:class:`RegimeSupport` for every regime in a fit, plus the worst case.
 
+    The columns read two mechanisms. The smallest propensity, the largest ratio and the
+    ratio effective sample size read the treatment mechanism before truncation, which is
+    what the data support. The score load reads the fitted clever covariate of the
+    targeting step, which divides by the truncated mechanism. :meth:`summary` prints both
+    facts under the table.
+
     Parameters
     ----------
     regimes : dict of str to RegimeSupport
@@ -253,7 +259,10 @@ class SupportReport:
                     rows,
                 ),
                 "",
-                "score load is Kish-equivalent mask rows from abs(w_i * H_ij), not estimator ESS.",
+                "min g, max ratio and ratio effective n read the treatment mechanism before "
+                "truncation.",
+                "score load reads the truncated mechanism of the targeting step, as "
+                "Kish-equivalent mask rows from abs(w_i * H_ij), not estimator ESS.",
             ]
         )
 

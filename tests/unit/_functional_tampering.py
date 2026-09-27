@@ -36,6 +36,7 @@ DESIGN_FREE_FIELDS: tuple[str, ...] = (
     "msm",
     "intermediate",
     "longitudinal",
+    "history",
 )
 
 #: One forged value per design-bound field. Each value has to differ from what a

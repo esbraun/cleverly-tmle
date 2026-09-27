@@ -57,8 +57,12 @@ def check(namespace: dict[str, Any]) -> None:
     summary = effect.summary()
     assert "sequential exchangeability" in summary and "sequential positivity" in summary
     assert "The protocol scores death before day 30 as not top box" in summary
-    # "The `adjustment/history` line lists only the baseline covariates."
-    assert "adjustment/history: ['age', 'baseline_readiness']" in summary
+    # "The two `history at` lines give the history at each navigation node."
+    assert "history at navigation_discharge: ['age', 'baseline_readiness']" in summary
+    assert (
+        "history at navigation_day7: ['age', 'baseline_readiness', 'navigation_discharge', "
+        "'engagement_day7']"
+    ) in summary
 
     # The protocol step changes exactly the two fields the reading names, appending the rule.
     protocol, base = namespace["protocol"], longitudinal_navigation_protocol()

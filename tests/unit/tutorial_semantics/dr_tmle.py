@@ -18,6 +18,7 @@ from tests.unit.tutorial_semantics import (
     assert_protocol_recorded,
     changed_fields,
     covers,
+    stored_output,
 )
 
 NOTEBOOK = EXAMPLES / "dr-tmle.ipynb"
@@ -64,6 +65,10 @@ def check(namespace: dict[str, Any]) -> None:
     guarded = namespace["guarded"]["ate"]
     assert namespace["drtmle"].guard == ("Q", "g")
     assert ordinary.psi == empty_guard.psi
+    # "The line `DR-TMLE: guard Q, g; univariate reduction` names the method, the default
+    # guard, and the reduction that the fit ran."
+    assert "DR-TMLE: guard Q, g; univariate reduction" in stored_output(NOTEBOOK, "estimate")
+    assert namespace["guarded"].extra["drtmle"].reduction == "univariate"
 
     # "The 95% interval ... contains the true ATE"; one draw, not a coverage result.
     truth = namespace["truth"]["ate"]

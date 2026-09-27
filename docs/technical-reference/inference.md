@@ -118,6 +118,13 @@ rename a number on a non-inferential status.
 | `robustness_value(...)` | `rva` | `rv_plugin_interval`, and an `inference` key |
 | `LongitudinalResult.curve()` | `std_err`, `ci_lower`, `ci_upper` | `plugin_std_err`, `plugin_interval_lower`, `plugin_interval_upper`, and an `inference` column |
 | `LongitudinalResult.incidence_total()` | `std_err` | `plugin_std_err` |
+| `to_frame()` of a fit with `n_bootstrap` | `bootstrap_std_err`, `bootstrap_ci_lower`, `bootstrap_ci_upper` | `bootstrap_sd`, `bootstrap_range_lower`, `bootstrap_range_upper` |
+| the bootstrap rows of `summary()` | `se`, `percentile CI` | `sd`, `percentile range` |
+
+The bootstrap spread is the sample standard deviation of the replicate estimates. A standard error
+is an inference claim, so a non-inferential status publishes that number as `sd`.
+`BootstrapSummary` keeps the field names `std_error` and `ci` at every status. Its fields describe
+the replicate distribution, and the status decides only the published name.
 
 Under `nu2_estimator="plugin"` an omitted-variable bound refuses its limits at every status, for a
 different reason. No derivation in a source this package cites gives their standard error. `to_dict()` then omits the three limit

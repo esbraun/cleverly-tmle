@@ -29,6 +29,10 @@ rejects blank text and unmatched treatment strategy and version counts.
 its canonical representation, and `fingerprint` supplies its BLAKE2b digest. The digest identifies
 the protocol record. It does not replace the separate data and fold fingerprints in `Provenance`.
 
+Each identification and result summary prints the whole record by default. Pass
+`protocol="fingerprint"` to `summary()` to print only the line with the schema and the
+fingerprint, for example after you print `protocol.summary_lines()` once.
+
 The fingerprint records the protocol. It does not verify it. The package does not check that
 `treatment_strategies` names the regimens or arms a result estimates, because the strategies are
 free text. The typed estimand stores the contrast.

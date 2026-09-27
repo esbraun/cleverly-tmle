@@ -54,8 +54,8 @@ Each code cell is followed by a markdown cell that starts with `**What this outp
 | 4 | `data` | code | the data under the program's column names, as [the data step](#the-data-step) describes | the shape, the column names, the first rows, and the known truth of the synthetic law |
 | 5 | `association` | code | an unadjusted comparison, where confounding is part of the lesson | the naive contrast beside the truth |
 | 6 | `protocol` | code | the `StudyProtocol` for the question | `protocol.summary_lines()`, including the fingerprint |
-| 7 | `identify` | code | the `CausalStudy`, the design, and `study.identify(...)` | `effect.summary()`: the formula, the nuisances, and the assumptions |
-| 8 | one id per fit | code | each fit, with its method written out in full | the result summary and the numbers the prose quotes |
+| 7 | `identify` | code | the `CausalStudy`, the design, and `study.identify(...)` | `effect.summary(protocol="fingerprint")`: the formula, the nuisances, the assumptions, and the protocol fingerprint |
+| 8 | one id per fit | code | each fit, with its method written out in full | `result.summary(protocol="fingerprint")` and the numbers the prose quotes |
 | 9 | `failure-mode` | code | the failure mode the [examples index](../examples/index.md#the-program) names for this tutorial | the numbers that show the failure |
 | 10 | `assessment` | code | `result.assess()` and the retained reports the page reads | the assessment summary and each report summary |
 | 11 | `sensitivity` | code | the sensitivity analysis that applies, or the refusal that explains why none does | the robustness value, the bounds, or the refusal message |
@@ -113,6 +113,10 @@ Reuse an unchanged entry of a sequence field by index, such as `*program.assumpt
 To add a strategy, such as a dynamic rule, append it and its version:
 `treatment_strategies=(*program.treatment_strategies, "<the rule>")`. Write a new `StudyProtocol`
 only when neither helper fits the design.
+
+The protocol step prints the whole record once. Each later summary of a study with that record
+passes `protocol="fingerprint"`, which prints only the fingerprint line. The record then appears
+once on the page. A record that a later step declares prints in full in its first summary.
 
 Every protocol that a notebook derives with `dataclasses.replace` needs two records. The reading
 names the changed fields. The callback asserts the exact set with `changed_fields(protocol, base)`,

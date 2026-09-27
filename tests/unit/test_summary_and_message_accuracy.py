@@ -1,4 +1,4 @@
-"""RM16a: messages and argument checks that state what a call accepts or needs.
+"""RM16: summaries, messages and argument checks that state what a fit records or a call needs.
 
 RM16 in ``docs/roadmap.md`` lists surfaces that misstated a recorded fact or what a call
 accepts. This module holds the witnesses of the rows that RM16a corrects:
@@ -24,8 +24,19 @@ the respondents.  The other two selection calls of ``cross_fit_predictions``, th
 constant and need a training set with no rows at all, which no preflight-free frame here
 builds.
 
-The mutation controls are hand mutations, recorded in the RM16a pull request: each reverts one
-correction and names the test here that fails.
+It also holds the witnesses of the summary displays that RM16b corrects:
+
+* a longitudinal summary prints the reference only beside a contrast;
+* a longitudinal identification summary prints the history at each treatment node;
+* a DR-TMLE summary names the guard and the reduction, or the empty guard;
+* the regime support table names the mechanism that each column reads;
+* ``protocol="fingerprint"`` prints one protocol line, and no summary prints the fingerprint
+  twice;
+* the split-spread fact and the bootstrap row name their spread as the status allows, and the
+  bootstrap heading names the full-refit bootstrap.
+
+The mutation controls are hand mutations, recorded in the RM16a and RM16b pull requests: each
+reverts one correction and names the test here that fails.
 """
 
 from __future__ import annotations
@@ -37,17 +48,31 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly import ATE, CausalStudy, PointTreatment
+from cleverly import (
+    ATE,
+    CausalStudy,
+    LongitudinalTreatment,
+    PointTreatment,
+    RegimeContrast,
+)
+from cleverly._inference_status import status_record
 from cleverly.data.validate import MISSING_OUTCOME_DECLARATION
-from cleverly.datasets import make_linear_ate, make_missing_outcome_binary
+from cleverly.datasets import (
+    make_binary_outcome,
+    make_linear_ate,
+    make_longitudinal,
+    make_missing_outcome_binary,
+    navigation_protocol,
+)
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError, DataError
-from cleverly.interventions import Shift
+from cleverly.interventions import Shift, Static
 from cleverly.sensitivity import benchmark
 from cleverly.sensitivity.positivity import truncation_curve
-from tests.conftest import linear_in_sample
+from tests.conftest import linear_drtmle, linear_in_sample
 from tests.unit import _capability_sweep_support as sweep
 from tests.unit import test_fold_policy_rules as fold_rules
+from tests.unit.test_intervention_load_diagnostics import SUPPORT_SUMMARY_CAVEAT
 
 # ------------------------------------------------------------ row 6: missing outcomes
 
@@ -559,3 +584,326 @@ class TestTheGuardedCurveReadsTheRefitSlot:
         facade = result.diagnostics.truncation_curve([0.05])
         module = truncation_curve(result, [0.05])
         pd.testing.assert_frame_equal(facade, module)
+
+
+# ============================================================== RM16b: summary displays
+
+
+def _longitudinal_study(protocol: Any = None) -> CausalStudy:
+    """The two-node design of :func:`tests.unit._capability_sweep_support.fit_ltmle`."""
+    frame, _ = make_longitudinal(n=400, seed=12)
+    return CausalStudy(
+        frame,
+        design=LongitudinalTreatment(
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+            censoring=["C1", "C2"],
+        ),
+        protocol=protocol,
+    )
+
+
+def _longitudinal_fit(effect: Any) -> Any:
+    """The in-sample learners and settings of ``fit_ltmle``."""
+    return effect.estimate(
+        outcome_learner=LinearRegression(),
+        pseudo_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        censoring_learner=LogisticRegression(max_iter=1000),
+        n_folds=3,
+        learner_folds=2,
+        random_state=5,
+        simultaneous=False,
+        cross_fit=False,
+    )
+
+
+def _contrast() -> RegimeContrast:
+    return RegimeContrast({"always": 1, "never": 0}, reference="never")
+
+
+# --------------------------------------------- row 1: the reference line of a mean
+
+
+class TestTheReferenceLineBelongsToAContrast:
+    """Row 1. A longitudinal summary prints the reference only beside a contrast."""
+
+    def test_a_regime_mean_summary_prints_no_reference(self) -> None:
+        result = sweep.fit_ltmle()
+        assert "  reference: always" not in result.summary().splitlines()
+        # The replay reads the field, so the correction hides the line and keeps the field.
+        assert result.config.reference == "always"
+
+    def test_a_regime_contrast_summary_keeps_its_reference(self) -> None:
+        """The nonzero witness: a result that holds a contrast prints its reference."""
+        result = _longitudinal_fit(_longitudinal_study().identify(_contrast()))
+        assert "  reference: never" in result.summary().splitlines()
+
+
+# ------------------------------------------- row 2: the history at each treatment node
+
+
+class TestTheIdentificationSummaryPrintsEachNodesHistory:
+    """Row 2. A longitudinal identification summary gives the history at each node."""
+
+    def test_each_node_lists_the_history_before_it(self) -> None:
+        lines = _longitudinal_study().identify(_contrast()).summary().splitlines()
+        assert "history at A1: ['W1', 'W2']" in lines
+        assert "history at A2: ['W1', 'W2', 'A1', 'L2']" in lines
+        assert not any(line.startswith("adjustment/history") for line in lines)
+
+    def test_a_point_design_keeps_its_adjustment_line(self) -> None:
+        study = CausalStudy(_missing_frame().fillna({"Y": 0.0}), design=_design())
+        lines = study.identify(ATE()).summary()
+        assert "adjustment/history: ['W1', 'W2', 'W3']" in lines.splitlines()
+        assert "history at" not in lines
+
+
+# --------------------------------------------------------- row 3: the DR-TMLE line
+
+
+def _guarded(guard: tuple[str, ...]) -> Any:
+    """:func:`tests.unit._capability_sweep_support.fit_drtmle` at the given guard."""
+    frame, _ = make_binary_outcome(n=160, seed=11)
+    estimator = DRTMLE(**linear_drtmle(n_folds=2, estimands=("ate",)), guard=guard)
+    return estimator.fit(frame, outcome="Y", treatment="A").single()
+
+
+class TestTheDRTMLESummaryNamesItsGuardAndReduction:
+    """Row 3. A DR-TMLE summary names the method, the guard and the reduction."""
+
+    def test_the_default_guard(self) -> None:
+        lines = sweep.fit_drtmle().summary().splitlines()
+        assert "DR-TMLE: guard Q, g; univariate reduction" in lines
+
+    def test_a_one_equation_guard(self) -> None:
+        lines = _guarded(("Q",)).summary().splitlines()
+        assert "DR-TMLE: guard Q; univariate reduction" in lines
+
+    def test_an_empty_guard_names_the_ordinary_tmle(self) -> None:
+        lines = _guarded(()).summary().splitlines()
+        assert (
+            "DR-TMLE: empty guard, so no reduced regression was fitted and the estimate is "
+            "the ordinary TMLE"
+        ) in lines
+
+    def test_an_ordinary_fit_prints_no_dr_tmle_line(self) -> None:
+        lines = sweep.fit_ordinary().summary().splitlines()
+        assert not any(line.startswith("DR-TMLE:") for line in lines)
+
+
+# ------------------------------------------------------ row 4: the support columns' basis
+
+
+def _kish(values: np.ndarray) -> float:
+    return float(values.sum() ** 2 / (values**2).sum())
+
+
+class TestTheSupportTableStatesEachColumnsBasis:
+    """Row 4. The regime table says which mechanism each column reads.
+
+    A bound that binds is the nonzero witness: at ``g_bounds=(0.4, 0.6)`` the two bases
+    give different numbers, and each column equals the Kish count of its own basis.
+    """
+
+    def test_a_binding_bound_separates_the_two_bases(self) -> None:
+        frame, _ = make_linear_ate(n=400, seed=2)
+        result = (
+            TMLE(**linear_in_sample(interventions=(Static(1), Static(0)), g_bounds=(0.4, 0.6)))
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        report = result.diagnostics.support()
+        assert tuple(report.summary().splitlines()[-2:]) == SUPPORT_SUMMARY_CAVEAT
+
+        g = np.asarray(result.nuisance.propensity.values, dtype=float)
+        observed = np.asarray(result.data.treatment, dtype=float)
+        for code, item in zip((1, 0), report.regimes.values(), strict=True):
+            arm = observed == code
+            raw = np.where(arm, 1.0 / g[:, code], 0.0)
+            clipped = np.where(arm, 1.0 / np.clip(g[:, code], 0.4, 0.6), 0.0)
+            assert item.min_support_propensity < 0.4
+            assert item.effective_sample_size == pytest.approx(_kish(raw), rel=1e-9)
+            assert item.score_load is not None
+            assert item.score_load["effective"] == pytest.approx(_kish(clipped), rel=1e-9)
+            assert item.score_load["effective"] > item.effective_sample_size + 1.0
+
+
+# ------------------------------------------------- row 5: the fingerprint-only protocol
+
+
+def _record_lines() -> tuple[str, ...]:
+    return navigation_protocol().summary_lines()
+
+
+def _count(text: str, lines: tuple[str, ...]) -> list[int]:
+    """How many times each of ``lines`` is a line of ``text``, indent removed."""
+    printed = [line.strip() for line in text.splitlines()]
+    return [printed.count(line) for line in lines]
+
+
+class TestTheProtocolPrintsOnceOrAsItsFingerprint:
+    """Row 5. ``protocol="fingerprint"`` prints one line; the default prints the record.
+
+    The result summary no longer repeats the fingerprint as a provenance line.
+    """
+
+    @pytest.fixture(scope="class")
+    def point(self) -> Any:
+        effect = CausalStudy(
+            _missing_frame().fillna({"Y": 0.0}),
+            design=_design(),
+            protocol=navigation_protocol(),
+        ).identify(ATE())
+        return effect, effect.estimate(**linear_in_sample())
+
+    @pytest.fixture(scope="class")
+    def longitudinal(self) -> Any:
+        effect = _longitudinal_study(navigation_protocol()).identify(_contrast())
+        return effect, _longitudinal_fit(effect)
+
+    @staticmethod
+    def _summaries(effect: Any, result: Any, **options: Any) -> list[str]:
+        return [
+            effect.summary(**options),
+            "\n".join(effect.summary_lines(**options)),
+            result.summary(**options),
+        ]
+
+    @pytest.mark.parametrize("kind", ["point", "longitudinal"])
+    def test_the_fingerprint_option_prints_one_line(
+        self, kind: str, request: pytest.FixtureRequest
+    ) -> None:
+        effect, result = request.getfixturevalue(kind)
+        for text in self._summaries(effect, result, protocol="fingerprint"):
+            assert _count(text, _record_lines()) == [1] + [0] * 10
+
+    @pytest.mark.parametrize("kind", ["point", "longitudinal"])
+    def test_the_default_prints_the_record_once_in_order(
+        self, kind: str, request: pytest.FixtureRequest
+    ) -> None:
+        effect, result = request.getfixturevalue(kind)
+        fingerprint = navigation_protocol().fingerprint
+        for text in self._summaries(effect, result):
+            printed = [line.strip() for line in text.splitlines()]
+            start = printed.index(_record_lines()[0])
+            assert tuple(printed[start : start + 11]) == _record_lines()
+            assert text.count(fingerprint) == 1
+
+    def test_an_unknown_option_is_refused(self, point: Any) -> None:
+        effect, result = point
+        for call in (effect.summary, effect.summary_lines, result.summary):
+            with pytest.raises(ValueError, match="protocol must be 'full' or 'fingerprint'"):
+                call(protocol="short")
+
+    def test_an_absent_protocol_prints_absent_in_both_modes(self) -> None:
+        fitted = TMLE(**linear_in_sample()).fit(_linear_frame(), outcome="Y", treatment="A")
+        for option in ("full", "fingerprint"):
+            assert "causal study protocol: absent" in fitted.summary(protocol=option)
+        with pytest.raises(ValueError, match="protocol must be 'full' or 'fingerprint'"):
+            fitted.summary(protocol="short")
+
+
+def _linear_frame() -> pd.DataFrame:
+    frame, _ = make_linear_ate(n=200, seed=1)
+    return frame
+
+
+# -------------------------------------------------------- row 7: the split-spread name
+
+
+def _binary_frame() -> pd.DataFrame:
+    frame, _ = make_binary_outcome(n=400, seed=17)
+    return frame
+
+
+def _repeated(estimator: type, **settings: Any) -> Any:
+    """Two cross-fitting draws of two folds, which is what reports a split spread."""
+    fitted = estimator(
+        outcome_learner=LogisticRegression(max_iter=1000),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        estimands=("ate",),
+        simultaneous=False,
+        random_state=0,
+        repeats=2,
+        n_folds=2,
+        **settings,
+    )
+    return fitted.fit(_binary_frame(), outcome="Y", treatment="A").single()
+
+
+class TestTheSplitSpreadFactReadsTheStatusName:
+    """Row 7. The ``nuisance_models`` row names the spread ratio as its report does."""
+
+    def test_a_selector_fit_names_the_plugin_ratio(self) -> None:
+        result = _repeated(CTMLE, strategy="greedy", selection_folds=3)
+        report = result.diagnostics.nuisance_models()
+        widest = max(report.repeat_spread, key=lambda row: row.ratio_to_standard_error)
+        detail = result.diagnostics.run_all()["nuisance_models"].detail
+        assert (
+            f"largest sd/plugin se {widest.ratio_to_standard_error:.3g} for {widest.estimand}"
+        ) in detail
+        assert "largest sd/se" not in detail
+
+    def test_an_ordinary_fit_keeps_the_inferential_ratio(self) -> None:
+        detail = _repeated(TMLE).diagnostics.run_all()["nuisance_models"].detail
+        assert "largest sd/se" in detail
+        assert "plugin" not in detail
+
+
+# --------------------------------------------- row 11 and the name: the bootstrap row
+
+
+class TestTheBootstrapPublishesUnderTheStatusName:
+    """Row 11. A non-inferential fit publishes its bootstrap spread as a standard deviation.
+
+    The heading names the procedure: each replicate refits the whole estimator.
+    """
+
+    @staticmethod
+    def _fit(estimator: type, **settings: Any) -> Any:
+        fitted = estimator(
+            outcome_learner=LogisticRegression(max_iter=1000),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            estimands=("ate",),
+            simultaneous=False,
+            random_state=0,
+            cross_fit=False,
+            n_bootstrap=4,
+            **settings,
+        )
+        return fitted.fit(_binary_frame(), outcome="Y", treatment="A").single()
+
+    @staticmethod
+    def _heading(result: Any) -> str:
+        usable = result.bootstrap.n_requested - result.bootstrap.n_failed
+        return f"full-refit bootstrap (iid resampling, {usable} usable replicates):"
+
+    def test_a_selector_fit_publishes_a_standard_deviation(self) -> None:
+        result = self._fit(CTMLE, strategy="greedy", selection_folds=3)
+        estimate = result["ate"]
+        row = estimate.to_dict()
+        assert row["bootstrap_sd"] == estimate.bootstrap.std_error
+        assert "bootstrap_std_err" not in row
+        low, high = estimate.bootstrap.ci
+        lines = result.summary().splitlines()
+        assert self._heading(result) in lines
+        assert (
+            f"  ate   sd {estimate.bootstrap.std_error:.4g}  percentile range "
+            f"[{low:.5g}, {high:.5g}] ({status_record(estimate.inference).bootstrap_note})"
+        ) in lines
+
+    def test_an_ordinary_fit_keeps_the_standard_error(self) -> None:
+        result = self._fit(TMLE)
+        estimate = result["ate"]
+        row = estimate.to_dict()
+        assert row["bootstrap_std_err"] == estimate.bootstrap.std_error
+        assert "bootstrap_sd" not in row
+        low, high = estimate.bootstrap.ci
+        lines = result.summary().splitlines()
+        assert self._heading(result) in lines
+        assert (
+            f"  ate   se {estimate.bootstrap.std_error:.4g}  percentile CI [{low:.5g}, {high:.5g}]"
+        ) in lines

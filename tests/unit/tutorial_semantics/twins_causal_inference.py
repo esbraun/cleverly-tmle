@@ -76,7 +76,10 @@ def check_stored() -> None:
     identify_text = stored_output(NOTEBOOK, "identify")
     assert f"causal study protocol: schema 1; {fingerprint}" in identify_text
     assert "causal study protocol: absent" not in identify_text
-    assert f"protocol {fingerprint}" in stored_output(NOTEBOOK, "production-fit")
+    # The later summaries print the fingerprint line of the record and none of its fields.
+    production_text = stored_output(NOTEBOOK, "production-fit")
+    assert f"causal study protocol: schema 1; {fingerprint}" in production_text
+    assert "assumption rationale:" not in identify_text + production_text
     assert f"`{fingerprint}`" in prose
 
     # Hand-built TMLE: the nonzero witnesses the reading narrates stay asserted and printed.

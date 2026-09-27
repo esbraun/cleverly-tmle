@@ -52,6 +52,7 @@ from ..inference.results import (
     sole_estimate,
 )
 from ..learners.crossfit import CrossFitPlan, SplitPlan
+from ..protocol import ProtocolDetail, protocol_summary_lines
 from ..provenance import Provenance
 from ..targets import TARGETS, all_names, resolve_estimands
 from ..utils.frames import emit_frame
@@ -1293,8 +1294,14 @@ class TMLEResult:
             {name: estimate.influence_curve for name, estimate in self.estimates.items()}
         )
 
-    def summary(self) -> str:
+    def summary(self, *, protocol: ProtocolDetail = "full") -> str:
         """A printable report of the fit.
+
+        Parameters
+        ----------
+        protocol : {"full", "fingerprint"}
+            ``"full"`` prints every field of the study protocol record. ``"fingerprint"``
+            prints only its schema and fingerprint, for a reader who has the record already.
 
         Returns
         -------
@@ -1313,9 +1320,9 @@ class TMLEResult:
             + f"; covariates = {data.n_covariates}; {_arm_shares(data)}",
         ]
         if self.identified_effect is not None:
-            facts.extend(self.identified_effect.summary_lines())
+            facts.extend(self.identified_effect.summary_lines(protocol=protocol))
         else:
-            facts.append("causal study protocol: absent")
+            facts.extend(protocol_summary_lines(None, protocol))
         if data.cluster is not None:
             facts.append(f"clusters = {_cluster_fact(data)} (cluster-robust variance)")
         if data.is_weighted:
@@ -1339,6 +1346,10 @@ class TMLEResult:
         selection = self.ctmle_selection
         if selection is not None:
             facts.append(selection.describe())
+        # Read the same way: ``base`` cannot import ``drtmle``, so the record describes itself.
+        reduced = self.extra.get("drtmle")
+        if reduced is not None:
+            facts.append(reduced.describe())
         if self.provenance is not None:
             facts.extend(self.provenance.describe())
 
@@ -1423,14 +1434,21 @@ class TMLEResult:
                 parts.append(f"  {name:<5s} [{low:.5g}, {high:.5g}]")
         if self.bootstrap is not None:
             parts.append("")
+            # Named by what each replicate does: it refits the whole estimator on the
+            # resample. docs/roadmap.md F2 keeps "targeted bootstrap" for a distinct
+            # procedure.
             parts.append(
-                f"targeted bootstrap ({self.bootstrap.resampling} resampling, "
+                f"full-refit bootstrap ({self.bootstrap.resampling} resampling, "
                 f"{self.bootstrap.n_requested - self.bootstrap.n_failed} usable replicates):"
             )
             for name, estimate in self.estimates.items():
                 if estimate.bootstrap is None:
                     continue
                 low, high = estimate.bootstrap.ci
+                spread = (
+                    f"  {name:<5s} {spread_name('se', estimate.inference)} "
+                    f"{estimate.bootstrap.std_error:.4g}  "
+                )
                 # A percentile interval is a confidence interval, and this fit reports
                 # none.  The same two numbers are printed as a range under the diagnostic
                 # framing, rather than the bootstrap being refused outright: the refit
@@ -1438,15 +1456,11 @@ class TMLEResult:
                 # reviewed result validates its coverage for this path.
                 if not estimate.supplies_inference:
                     parts.append(
-                        f"  {name:<5s} se {estimate.bootstrap.std_error:.4g}  "
-                        f"percentile range [{low:.5g}, {high:.5g}] "
+                        f"{spread}percentile range [{low:.5g}, {high:.5g}] "
                         f"({status_record(estimate.inference).bootstrap_note})"
                     )
                     continue
-                parts.append(
-                    f"  {name:<5s} se {estimate.bootstrap.std_error:.4g}  "
-                    f"percentile CI [{low:.5g}, {high:.5g}]"
-                )
+                parts.append(f"{spread}percentile CI [{low:.5g}, {high:.5g}]")
         # Last, and only when it failed. An interval whose score equation is unsolved is
         # not a wider interval, it is one the theory does not license, and until now the
         # only way to find that out was to know that `validation.score_check()` existed --
@@ -1555,22 +1569,32 @@ class TMLEResultSet(Mapping["float | None", TMLEResult]):
         stacked = nw.concat([nw.from_native(frame, eager_only=True) for frame in frames])
         return stacked.to_native()
 
-    def summary(self) -> str:
+    def summary(self, *, protocol: ProtocolDetail = "full") -> str:
         """The results, headed by level -- or bare, when there is only one.
 
         A single-entry set prints exactly what its result prints.  Heading it
         ``--- None = ... ---`` would put the internal sentinel in front of every ordinary
         fit's output.
+
+        Parameters
+        ----------
+        protocol : {"full", "fingerprint"}
+            Passed to :meth:`TMLEResult.summary` of each result.
+
+        Returns
+        -------
+        str
+            Each result's summary, headed by its level of the intermediate variable.
         """
         if len(self.results) == 1 and self.levels[0] is None:
-            return self.single().summary()
+            return self.single().summary(protocol=protocol)
         blocks = []
         for value in self.levels:
             label = (
                 "no intermediate" if value is None else f"{self.intermediate_name} = {value:.0f}"
             )
             blocks.append(f"--- {label} ---")
-            blocks.append(self.results[value].summary())
+            blocks.append(self.results[value].summary(protocol=protocol))
         return "\n\n".join(blocks)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid

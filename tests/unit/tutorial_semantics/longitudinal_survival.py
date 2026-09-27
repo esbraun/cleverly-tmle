@@ -66,8 +66,8 @@ def check(namespace: dict[str, Any]) -> None:
     # "The fit refuses a horizon outside 1..2 rather than interpolating it."
     retention_output = stored_output(NOTEBOOK, "estimate-retention")
     assert "outside 1..2" in retention_output
-    # "reference: never ... A RegimeMean fit reports no contrast, so this line changes no number."
-    assert result.config.reference == "never" and "reference: never" in retention_output
+    # "The summary prints no `reference` line, because a `RegimeMean` fit reports no contrast."
+    assert result.config.reference == "never" and "reference:" not in retention_output
     assert all(name.startswith("risk_regimen[") for name in result.estimates)
     from cleverly import RegimeMean
 
@@ -82,11 +82,14 @@ def check(namespace: dict[str, Any]) -> None:
     for name, estimate in result.estimates.items():
         assert default_reference[name].psi == pytest.approx(estimate.psi, abs=1e-12)
         assert default_reference[name].std_error == pytest.approx(estimate.std_error, abs=1e-12)
-    # "The adjustment/history line lists the baseline covariates only. The design still adds
-    # identified_needs to the history at the second node."
-    assert "adjustment/history: ['age', 'baseline_readiness']" in stored_output(
-        NOTEBOOK, "identify"
-    )
+    # "The two `history at` lines give the history at each navigation node. The second node adds
+    # the first offer and `identified_needs`."
+    identify_output = stored_output(NOTEBOOK, "identify")
+    assert "history at navigation_p1: ['age', 'baseline_readiness']" in identify_output
+    assert (
+        "history at navigation_p2: ['age', 'baseline_readiness', 'navigation_p1', "
+        "'identified_needs']"
+    ) in identify_output
     assert "identified_needs" not in result.data.history_names(1)
     assert result.data.history_names(2)[-1] == "identified_needs"
     # "The simultaneous bands are built to hold all four parameters at once ... wider than the

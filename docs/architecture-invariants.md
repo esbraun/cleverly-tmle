@@ -156,7 +156,7 @@ A supplied `SplitPlan` fixes outer validation assignments by input row position,
 off a result binds to that fit's data fingerprint. It does not fix inner learner or
 collaborative-selection folds. Validate every repeat against that fingerprint before nuisance
 fitting, including cluster integrity. Results derive the public plan from
-retained folds, and provenance fingerprints those same assignments. Targeted bootstrap,
+retained folds, and provenance fingerprints those same assignments. The full-refit bootstrap,
 longitudinal fits, and any refutation that changes the row set refuse a supplied plan until they
 define their own row-mapping and validation contracts.
 

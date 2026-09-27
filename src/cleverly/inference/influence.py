@@ -126,6 +126,11 @@ _DIAGNOSTIC_NAMES: Mapping[str, str] = MappingProxyType(
         # the "percentile range" wording ``TMLEResult.summary`` prints for them.
         "bootstrap_ci_lower": "bootstrap_range_lower",
         "bootstrap_ci_upper": "bootstrap_range_upper",
+        # The bootstrap spread is the sample standard deviation of the replicate
+        # estimates, which is a standard error only where the status supplies inference.
+        # ``bootstrap_std_err`` is the ``to_dict`` key and ``se`` the summary label.
+        "bootstrap_std_err": "bootstrap_sd",
+        "se": "sd",
         # RefutationTest.to_frame, which names the accessor it read.
         "std_error": "plugin_std_error",
         # StudyResult.to_frame.
@@ -493,10 +498,10 @@ class ParameterEstimate:
         ``ci_upper`` and ``p_value``. One whose :attr:`supplies_inference` is ``False``
         emits ``inference`` naming its status, and
         ``plugin_std_err``, ``plugin_interval_lower`` and ``plugin_interval_upper`` in
-        their place. Its bootstrap percentile limits are ``bootstrap_range_lower`` and
-        ``bootstrap_range_upper`` rather than ``bootstrap_ci_lower`` and
-        ``bootstrap_ci_upper``. Exactly one of ``std_err`` and ``inference`` is always
-        present, so a programmatic consumer has a total test.
+        their place. Its bootstrap columns are ``bootstrap_sd``, ``bootstrap_range_lower``
+        and ``bootstrap_range_upper`` rather than ``bootstrap_std_err``,
+        ``bootstrap_ci_lower`` and ``bootstrap_ci_upper``. Exactly one of ``std_err`` and
+        ``inference`` is always present, so a programmatic consumer has a total test.
 
         Returns
         -------
@@ -511,7 +516,7 @@ class ParameterEstimate:
         if self.log_psi is not None:
             row["log_psi"] = self.log_psi
         if self.bootstrap is not None:
-            row["bootstrap_std_err"] = self.bootstrap.std_error
+            row[spread_name("bootstrap_std_err", self.inference)] = self.bootstrap.std_error
             row[spread_name("bootstrap_ci_lower", self.inference)] = self.bootstrap.ci[0]
             row[spread_name("bootstrap_ci_upper", self.inference)] = self.bootstrap.ci[1]
         return row
@@ -533,7 +538,31 @@ class ParameterEstimate:
 
 @dataclass(frozen=True)
 class BootstrapSummary:
-    """Bootstrap inference for a single estimand."""
+    """The replicate distribution of one estimand under the full-refit bootstrap.
+
+    The fields describe the construction. The inference status of the estimate decides
+    the names that :meth:`ParameterEstimate.to_dict` and the result summary publish them
+    under: at a status that supplies no inference, ``std_error`` is published as
+    ``bootstrap_sd`` and ``ci`` as a percentile range.
+
+    Parameters
+    ----------
+    std_error : float
+        Sample standard deviation of the finite replicate estimates, ``ddof=1``. ``nan``
+        with fewer than two finite estimates, as every limit below.
+    ci : tuple of float
+        Two-sided percentile limits of the replicate estimates.
+    ci_one_sided_lower : float
+        Lower one-sided percentile limit.
+    ci_one_sided_upper : float
+        Upper one-sided percentile limit.
+    n_replicates : int
+        Replicates with a finite estimate.
+    n_failed : int
+        Replicates that raised and were dropped.
+    draws : ndarray
+        The finite replicate estimates.
+    """
 
     std_error: float
     ci: tuple[float, float]

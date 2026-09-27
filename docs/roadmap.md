@@ -41,7 +41,6 @@ delivered row that this roadmap still describes. Read a record with, for example
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.42 | Summary and error-message accuracy | RM16b: correct six display surfaces, add a fingerprint-only protocol option, publish the bootstrap of a non-inferential fit under diagnostic names, and name the bootstrap by its procedure. The simultaneous-request policy is settled below | each display surface omits, misstates, or repeats a fact that the fit records | [RM16](#rm16-summary-and-error-message-accuracy) |
 | 0.51 | Red property cells after the fold, scale and law changes | keep each red verdict under `reporting` with its interval, and admit inference only when F18 or F19 supplies the exact result. The [red-cell ledger](technical-reference/method-evidence/red-cells.md) delivers this. Then declare and run the five open RM18 follow-up designs, each declared before its run | registered studies publish red verdicts after the fold, scale and law changes and the pooled update. The ledger lists each one and the ask that owns it. Five RM18 follow-up designs are not declared and have not run | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
 | 0.52 | One-sided robustness bias increment in DR-TMLE | investigate the exploratory between-implementation increment on binary `treatment_correct`, under a design declared before it runs | the RM18 reading is `mixed` on that configuration. The unadjusted paired 99% interval of `cleverly` minus R `drtmle` runs 0.000068 to 0.001942, while the Bonferroni interval for that comparison covers zero. No implementation defect is established | [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) |
 | 0.61 | Learned-policy value evaluation | implement a typed learned-policy target with fold-local training and evaluation, using a published estimating and inference contract | fixed-rule paths refuse a rule learned from the analysis sample; published learned-policy methods give distinct targets and inference | [RM30](#rm30-learned-policy-value-evaluation) |
@@ -56,7 +55,7 @@ depends on comes before that row.
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | no open row |
 | c | a correct refusal that arrives late or as the wrong type | no open row |
 | d | a diagnostic or a warning that misleads | no open row |
-| e | a display or a message that misstates a fact that the fit records. By extension, an argument check or a capability row that misstates what a call accepts or needs, when no number moves and nothing raises that is not a refusal | RM16 |
+| e | a display or a message that misstates a fact that the fit records. By extension, an argument check or a capability row that misstates what a call accepts or needs, when no number moves and nothing raises that is not a refusal | no open row |
 | f | an investigation or a declared design that moves no verdict | RM18, RM19 |
 | g | a published method needed to resolve a shipped refusal | RM30 |
 
@@ -64,19 +63,17 @@ The table gives the reason for each place inside a tier.
 
 | row | reason for its place |
 | --- | --- |
-| RM16 | each surface misstates or repeats a recorded fact, or misstates what a call accepts or needs, and no number changes |
 | RM18 | five open designs, which read 19 red rows in six studies. The ledger already publishes each of those verdicts |
 | RM19 | one configuration, which RM18 opened. Its Bonferroni interval covers zero, and it moves no verdict |
 | RM30 | a published learned-policy method can resolve the current refusal, but requires a distinct target, fold-local evaluation, and inference validation |
 
 No open row waits on another open row.
 
-Use three delivery groups for these four rows and the two investigations that RM18 waits on.
+Use two delivery groups for these three rows and the two investigations that RM18 waits on.
 Keep each item's acceptance criteria separate inside its group.
 
 | delivery group | items | shared boundary |
 | --- | --- | --- |
-| diagnostic reports | RM16 | one assessment and summary surface, with one documentation pass |
 | red property cells | RM18 and RM19, and the F18 and F19 derivations that RM18 waits on | the recorded rule that a red cell is reporting evidence, designs declared before their runs that move no verdict, and two exact derivations that would close the inferential gaps |
 | learned-policy evaluation | RM30 | a typed target and a published fold-local learning, evaluation, and inference contract with validation |
 
@@ -90,7 +87,7 @@ queue. The RM IDs and their anchors never change, so a commit names a row by its
 row takes its priority with it, and the other rows keep theirs.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
-The queue holds four rows. One row needs its corrections: RM16.
+The queue holds three rows.
 RM18 has five follow-up designs that are not declared and have not run. RM19 has no
 declared design. RM30 holds the published learned-policy implementation.
 
@@ -385,87 +382,53 @@ The plan corrected the premise of this row. A warning on a correct model is not 
 
 ### RM16. Summary and error-message accuracy
 
-Each surface below omits, misstates, or repeats a fact that the fit records, or misstates what a
-call accepts or needs. No estimate moves. A probe at commit `52bc4d2e` reproduced each row. A
-second probe at `de8ea049`, after RM15, reproduced each row again.
+Summaries and messages omitted, misstated, or repeated facts that the fit records. A longitudinal
+summary printed a reference beside regime means, and its identification summary listed only the
+baseline covariates. A DR-TMLE summary named no guard, and the support table did not say which
+mechanism each column read. Each summary printed the protocol record again, and the provenance
+line of a result summary printed the fingerprint a second time. A non-inferential fit published its bootstrap spread as a
+standard error, and the package called its full-refit bootstrap "targeted". Messages sent a user to
+a refused fit or a field that the design does not have, and argument checks accepted requests that
+measure nothing.
 
-Two pull requests deliver this row. RM16a corrects the rows marked `a`: the messages, the
-argument checks, one iterator read and three exception types. It moves no notebook output. RM16b
-corrects the rows marked `b`: the summary displays, the protocol option, the bootstrap names and
-the name of the bootstrap procedure. In each of the 10 notebooks, the protocol step prints the
-record, and each later summary passes `protocol="fingerprint"`. RM16b also executes the
-notebooks again and writes the delivery record, so the row stays open until RM16b merges.
+Pull request 243 (RM16a) and pull request NNN (RM16b) delivered this row. The table gives what
+shipped. Commit `d8c654b6` holds the probe table, the corrections and the routed findings. Read it
+with `git show d8c654b6:docs/roadmap.md`.
 
-Pull request 243 (RM16a) delivered the rows marked `a` and the four routed findings marked `a`.
-`tests/unit/test_summary_and_message_accuracy.py` holds the witnesses of the messages, the
-argument checks and the truncation row. `test_every_named_test_exists` in
-`tests/unit/test_documentation_links.py` checks the test references. The pinned tests in
+| part | what shipped |
+| --- | --- |
+| messages | one missing-outcome remedy, `MISSING_OUTCOME_DECLARATION` in `src/cleverly/data/validate.py`, names `missingness=` and `delta=` at three sites. The in-sample C-TMLE selection-fold refusal names the fold and two remedies that run as written. On a cross-fitted `TMLE` with missing outcomes, the continuous-treatment message names F21 and the in-sample fit |
+| argument checks | `benchmark` refuses an empty request and an indicator column, and accepts the logical name of an encoded covariate. A facade reads a one-shot iterator once. The guarded DR-TMLE truncation curve reads the `refit_nuisances` slot on the row, the facade and the module call |
+| types and references | `_solve_reduction` and `refuse_unsupported("link")` raise `ValueError`, and `refuse_scheme` raises `CapabilityError`. The `DRTMLE` docstrings name test classes that exist, and `test_every_named_test_exists` checks each reference |
+| longitudinal summaries | `LongitudinalConfig.describe` prints the reference only for a result that holds a contrast. `config.reference` stays set, because the replay reads it. The identification summary prints the history at each treatment node from `BackdoorMeanContrast.history` |
+| DR-TMLE and support | `ReducedFit.describe` gives the guard and the reduction, or the empty guard, in `TMLEResult.summary`. `SupportReport.summary` names the mechanism that each column reads |
+| protocol | `summary(protocol="fingerprint")` prints only the fingerprint line of the record, through `protocol_summary_lines` in `src/cleverly/protocol.py`. The default prints the whole record. `Provenance.describe` no longer prints the fingerprint. Each of the 10 notebooks prints the record once |
+| spread names | the split-spread fact of the `nuisance_models` row and the bootstrap rows read their names through `spread_name`. A non-inferential fit publishes `bootstrap_sd` and `sd`. `BootstrapSummary` keeps its field names. The summary, the docstrings and the pages call the procedure the full-refit bootstrap, and F2 keeps its name |
+
+`tests/unit/test_summary_and_message_accuracy.py` holds the witnesses. The pinned tests in
 `tests/unit/test_drtmle_fit.py`, `tests/unit/test_msm.py` and `tests/unit/test_learners.py` check
 the three exception types.
 
-| part | surface | defect | evidence | correction |
-| --- | --- | --- | --- | --- |
-| a | missing-outcome `DataError` | tells a study user to pass `delta=<column>`, and `PointTreatment` names the field `missingness`. Two sensitivity refusals give the same remedy | `check_outcome` in `src/cleverly/data/validate.py` raises the error from `CausalData`, which a study design and a direct fit both build. `_refuse_complete_outcome` in `src/cleverly/sensitivity/missingness.py` and `_refuse_observation_axis` in `src/cleverly/sensitivity/positivity.py` name `delta=<column>` on `fit()`. A probe reproduces all three through `CausalStudy` | write one remedy that names both spellings: `missingness=<column>` on `PointTreatment`, or `delta=<column>` on `fit()` or `CausalData`. The three messages use it |
-| a | in-sample C-TMLE selection-fold refusal | tells the caller to fit in sample with `cross_fit=False`, and the fit is already in sample. The nuisance fold loop says the same | `CTMLE(strategy="greedy", cross_fit=False, selection_folds=6, q_bounds=(0, 1))` with `delta=` on `respondents_in_one_fold()` from `tests/unit/test_fold_policy_rules.py`, at `random_state=1146`, raises `DataError` "C-TMLE selection cannot fit its nuisances because repeat 0, fold 2's training complement contains no row with an observed outcome". It ends "Either fit in sample with cross_fit=False on the engine". `_preflight_selection_folds` in `src/cleverly/estimators/ctmle.py` calls `TMLE._check_training_support`, whose remedy is `_IN_SAMPLE_ARM_INDEXED_REMEDY`. With that check patched out, `cross_fit_companion` in `src/cleverly/estimators/_nuisance.py` raises `ValueError` "a cross-fitting fold has no trainable rows for a nuisance model", which says "Fit in sample instead". `strategy="oat"` and the in-sample `TMLE` both fit the same frame | name the selection fold as the split that failed. Name the fits that draw no selection split, as each runs: `strategy="oat"` with every selector setting at its default, and `TMLE(cross_fit=False)`. The selection calls of `cross_fit_predictions` pass the same remedy |
-| a | `DRTMLE` class docstring | describes an open centring defect on a quarter of splits. Three references name test classes that do not exist | the docstring in `src/cleverly/estimators/drtmle.py` and the docstring of `TestEachDrawSolvesItsOwnEquations` name `TestTheReportedCurveIsNotAlwaysCentred`. A docstring in `tests/unit/test_drtmle_fit.py` names `TestTheExtraEquationsAreIllConditionedWhereTheMechanismIsRight`, and that class is now `TestTheAlternationCanBeIllConditioned`. `TestTheReportedCurveIsCentredWhereTheBoundBinds` records the fix, which solves the score at the truncated tilt | describe the fixed state, and name the present classes. A test checks that each reference to a test class or function resolves |
-| a | continuous-treatment `DataError` | offers `Shift(0.0, cap=None)` as "the natural course". A cross-fitted fit with `delta=` then meets the F21 refusal of a shift target, whose remedy is the in-sample fit | `TMLE._check_shifts` in `src/cleverly/estimators/tmle.py`. A probe fits `make_missing_outcome_binary(n=400, seed=4)` with a continuous dose. The suggested shift, cross-fitted with `delta=`, raises `CapabilityError` before any learner. Its in-sample fit reports `ey_shift[natural course]` 0.51256 | on a cross-fitted `TMLE` with missing outcomes, name F21 and the in-sample fit beside the natural course. A `CTMLE` or `DRTMLE`, which fits no shift, refuses the dose before the shift check |
-| a | `benchmark(covariates=[])` | runs a refit that drops nothing. The report reads "implied cf_y = 0.0000, cf_d = 0.0000" and "the estimate moved by +0" | `benchmark_refusal` in `src/cleverly/sensitivity/omitted_variable.py` returns `None` for an empty request, because a covariate remains. The probe fits the `ordinary` kind of the RM23 sweep, `make_linear_ate(n=400, seed=2)` in sample | refuse an empty `covariates` with `DataError`, as a malformed argument, before the refit |
-| a | a one-shot iterator given to a facade | `result.sensitivity.benchmark(covariates=<generator>)` records the covariates `()` and a movement of 0.0, and a list gives 0.35921. `result.diagnostics.refute(tests=<generator>)` returns 0 rows, and a list gives 1. `assess()` and `run_all()` with a generator in `arguments=` give the same answers | the facade reads the argument to check it, and then passes the empty iterator to the call. The module call reads it once | read an iterator once, into a tuple, before a facade reads its arguments or keys its cache by them |
-| a | `benchmark` names on a fit with an encoded categorical covariate | accepts the indicator column `V__low`, and rejects the logical name `V` with `DataError`: "unknown covariates ['V']; this fit adjusts for ['W1', 'W2', 'W3', 'W4', 'V__low']". The fit adjusts for `V` | the probe fits the `stratified` kind of the sweep, which adds a two-level `V` as a stratum and a covariate. `simulated_confounding` refuses an encoded column by name, because a zeroed encoded column does not define a logical-covariate benchmark | accept the logical name and drop its whole encoded block. Refuse an indicator column by name. List the logical names in the message. A boolean covariate is one column under its own name, so its name is no indicator |
-| a | `truncation_curve` of a guarded DR-TMLE result whose estimator holds a refused configuration | the row reads `unavailable`, and `diagnostics.truncation_curve()` refuses. The module call `truncation_curve(result, [0.05])` runs. Under `targeting="one_step"` and `reduced_crossfit="nested"`, the module call raises a plain `ValueError` inside the retarget | the probe gives the `drtmle` kind of the sweep `stratify_folds="treatment"` through `reconfigured` in `tests/unit/_capability_sweep_support.py`. `n_folds=1` and a `q_bounds` reconfiguration give the same result. `assessment_capabilities` makes the guarded row require `refit_nuisances`. The curve refits the reduced regressions inside `retarget`, and does not call `refit()` | the guarded curve needs the `refit_nuisances` slot. `truncation_refusal` returns the refusal of `refit()` for a guarded result, so the row, the facade call and the module call agree |
-| b | longitudinal `RegimeMean` result summary | prints `reference: always`, although the result keeps no contrast | `_estimate_longitudinal` in `src/cleverly/study.py` drops the contrasts and keeps `config.reference`. `LongitudinalConfig.describe` in `src/cleverly/longitudinal/estimator.py` prints the reference unconditionally | print the line only for a result that holds a contrast. Keep `config.reference`: `_bound_replay` reads it, and `diagnostics.truncation_curve()` runs on the narrowed result |
-| b | longitudinal identification summary | the `adjustment/history` line lists only the baseline covariates | `_identify_longitudinal` in `src/cleverly/study.py` sets `adjustment=tuple(design.baseline)`, and `IdentifiedEffect.summary` prints it. A probe prints `['W1', 'W2']` for a design with `L2` at node 2 | print the history at each treatment node |
-| b | DR-TMLE result summary | names neither DR-TMLE, the guard, nor the reduction | `TMLEResult.summary` and `TMLEConfig.describe` in `src/cleverly/estimators/base.py` have no method line. A probe finds `fitted_method` equal to `drtmle` and `extra["drtmle"]` with `guard=('Q', 'g')` and `reduction='univariate'`. The summary holds none of `drtmle`, `DR-TMLE`, `guard`, or `univariate` | add one line that gives the method, the guard, and the reduction |
-| b | regime support table | `min g`, `max ratio`, and `ratio effective n` use the mechanism before truncation. `score load` uses the truncated mechanism. The table does not say so | `SupportReport.summary` in `src/cleverly/interventions/support.py`. With `g_bounds=(0.4, 0.6)` on `make_linear_ate(n=400, seed=2)`, a probe prints a `min g` of 0.2725 and 0.2135. In the `interventions` notebook, offer to all prints a `min g` of 0.001774, below the fit's bound of 0.0114 | label the basis of each column. The source chooses the untruncated mechanism on purpose, so this is a display gap and not an estimator defect |
-| b | identification and result summaries | each summary prints all 11 protocol lines again. The result summary also prints the fingerprint a second time, as the provenance line `protocol <fingerprint>`. Each of the 10 notebooks shows the record three times | `StudyProtocol.summary_lines` in `src/cleverly/protocol.py` returns 11 lines. `IdentifiedEffect.summary`, `IdentifiedEffect.summary_lines`, `TMLEResult.summary` and `LongitudinalResult.summary` append them. `Provenance.describe` in `src/cleverly/provenance.py` prints the fingerprint | add a summary option that prints only the `causal study protocol: schema N; fingerprint` line. Keep the full record as the default, so that a summary read alone stays complete. Remove the provenance line |
-| b | split-spread fact of the `nuisance_models` assessment row on a selector fit | says "largest sd/se", while `summary()` of the same report says "sd/plugin se" | `_nuisance_item` in `src/cleverly/assessment.py` writes fixed text. A greedy fit of `make_instrument(n=600, seed=44)` with `repeats=2`, `n_folds=2` and a declared `q_bounds` prints "largest sd/se 0.266 for ate" beside the working-mechanism note. Without `q_bounds`, the cross-fitted continuous fit now refuses | read the name from `influence.spread_name`, as the other surfaces do |
-| b | bootstrap summary on a non-inferential fit | `estimate.bootstrap.ci` answers, and `to_dict` emits `bootstrap_std_err`, under inferential names on a fit whose status supplies no inference | `BootstrapSummary` in `src/cleverly/inference/influence.py` is a plain dataclass, and `ParameterEstimate.to_dict` writes the literal key `bootstrap_std_err` whatever the status. `to_dict` already renames the percentile limits to `bootstrap_range_lower` and `bootstrap_range_upper`. A greedy fit with `n_bootstrap=20` prints "se" beside the percentile range | publish each bootstrap number under the name that the status allows: `bootstrap_sd` in `to_dict` and `sd` in the summary. The number is the standard deviation of the replicate estimates. Keep the `BootstrapSummary` field names, and record the decision in the [collaborative reference](technical-reference/collaborative-tmle.md) and in [inference status](technical-reference/inference.md#inference-status) |
-| b | the name "targeted bootstrap" | the summary, the docstrings, two refusal messages and three pages give the package bootstrap the name of the procedure that [F2](#f2-targeted-bootstrap-inference) waits for. F2 states that a full refit and a targeted bootstrap are distinct procedures, which the name must not imply | `run_bootstrap` in `src/cleverly/inference/bootstrap.py` resamples rows or clusters. For each replicate, `TMLE._bootstrap_point_estimates` in `src/cleverly/estimators/tmle.py` runs the nuisance fits, the selection and the cross-fitting draws again, and then the targeting step. Its docstring calls this "a full refit". No API identifier contains the name | call the procedure the "full-refit bootstrap" at each site. F2 keeps its name, because it names the procedure that it waits for |
-| none | an explicit `simultaneous=True` on a fit that supplies no inference | the fit builds no band and raises no warning. Only `summary()` states the omission | a greedy fit of the same law with three estimands records no warning. Its summary prints "no simultaneous bands: a band is a joint confidence statement, and this fit reports none." The default is `True`, so the fit cannot tell an explicit request from the default | keep the present behavior. The fit makes no band and its summary names the omission. A warning would fire on every default non-inferential fit. The [collaborative reference](technical-reference/collaborative-tmle.md) and [inference status](technical-reference/inference.md#inference-status) record this policy |
-
-The RM16 plan routed five more findings to this row. The table gives the part that delivers each
-one.
-
-| part | finding | disposition |
-| --- | --- | --- |
-| RM24 | `_replay_refusal` on a DR-TMLE result at `guard=()` | commit `9bf03908` delivered it. The reason names the marginal contract and the ordinary TMLE. A probe estimates the same study with `"tmle"`, and the result replays `ate[S=1]` |
-| a | `TMLE._solve_reduction` raises `NotImplementedError` when a `TMLE` retargets DR-TMLE nuisances | the caller passed the wrong object, and no composition is refused. Raise `ValueError` with the same text |
-| a | `refuse_unsupported("link")` in `src/cleverly/msm.py` raises `NotImplementedError` for an unknown link. `MSM.linear(link="probit")` reaches it | the value is malformed. Raise `ValueError`, as each other unknown-name check does |
-| a | `refuse_scheme` in `src/cleverly/learners/crossfit.py` raises `NotImplementedError` for `"blocked"` and `"rolling_origin"` | each is a named refusal of a well-posed split that is not implemented. Raise `CapabilityError`, the RM24 convention. The redirect of `"repeated"` stays a plain `ValueError` |
-| a | `IdentifiedEffect.available_methods` lists `drtmle` as available on a design with `strata=`, and `estimate("drtmle")` raises the X8 `CapabilityError` before any learner | the record is per method name, and `DRTMLEMethod(guard=())` fits. State this in the docstrings of `MethodAvailability` and `available_methods`. A per-name `False` would block `guard=()` |
-
-Each correction needs a unit test that fails without it. Three tests are nonzero witnesses. A
-`RegimeContrast` summary keeps its reference line. A design with a time-varying covariate prints it
-at its node. A truncated fit labels a `score load` that differs from its `ratio effective n`. The
-table gives what the other tests need.
-
-| row | what its test needs |
+| decision | what it chose |
 | --- | --- |
-| split-spread fact | the test fails on a selector fit with `repeats=2`, and it passes on an ordinary fit |
-| `DRTMLE` class docstring | the test asserts that each test class or function that a reference names exists |
-| in-sample C-TMLE selection-fold refusal | the test fits the probe above, and asserts that neither message offers `cross_fit=False` to an in-sample fit. The control is a cross-fitted `TMLE` that strands an arm, which keeps that remedy. A cross-fitted `CTMLE` with `delta=` meets the arm-indexed contract first, so it cannot be the control |
-| bootstrap summary | a selector fit publishes `bootstrap_sd`, and an ordinary fit keeps `bootstrap_std_err`. Both summaries head the rows with the full-refit bootstrap |
-| continuous-treatment `DataError` | the test fits the suggested shift, cross-fitted with `delta=`, and asserts that the message names the in-sample fit |
-| the two `benchmark` rows and the iterator row | the empty request and the iterators fit the `ordinary` kind of the RM23 sweep. The encoded row fits `make_linear_ate(n=400, seed=2)` with a three-level `V` or a boolean `B`. The control is a proper subset of the covariates, which runs |
-| `truncation_curve` row | the test compares the row, the facade call and the module call on the reconfigured `drtmle` kind. A control keeps the row available on the live kind |
+| D1 | the bootstrap of a non-inferential fit publishes each number under the name that the status allows |
+| D2 | `protocol="full"` or `"fingerprint"` on the identification and result summaries, with `"full"` the default |
+| D3 | no provenance line for the protocol fingerprint |
+| D4 | the notebooks print each protocol record once |
+| D5 | one missing-outcome remedy that names both spellings |
+| D6 | the selection calls of `cross_fit_predictions` pass the selection remedy |
+| D7 | the guarded truncation curve needs the `refit_nuisances` slot |
+| D8 | two pull requests, RM16a for the messages and RM16b for the displays |
+| D9 | the three exception types are part of this row |
+| D10 | `available_methods` stays per method name, and its docstring states the stratified `DRTMLE` case |
 
-The simultaneous row needs no change. `LTMLE` skips its default band below 40 clusters, as `TMLE`
-does under each non-inferential status. The result summary names the omission for both estimators.
-Tier e holds the two `benchmark` rows, the iterator row and the truncation row by the extension
-that its reason states.
+An explicit `simultaneous=True` on a fit that supplies no inference makes no band and raises no
+warning. Its summary names the omission, and
+[inference status](technical-reference/inference.md#inference-status) records the policy.
 
-Commit `cdb55d6e` delivered a refusal that this row held. A reconfigured continuous-dose estimator
-under a refused fold policy now reads that the policy "requests stratification".
-`test_a_reconfigured_refit_names_the_requested_strata` in `tests/unit/test_fold_policy_rules.py`
-checks the dose and a discrete-treatment control.
-
-Commit `b64d334d` delivered a refusal that this row held. `_plan_nodes` in
-`src/cleverly/longitudinal/regimen.py` refuses a longitudinal plan written as a mapping with
-`DataError` before any learner. The message names the tuple form and `DynamicRegimen`.
-
-Pull request 229 corrected two refusal reasons that this row held. `_risk_ratio_refusal` names the
-missing intermediate intervention level, and `_select_evalue` gives a separate reason for each
-failed condition. `tests/unit/test_evalue_direct_effect_refusals.py` checks both.
+Commit `cdb55d6e` delivered the fold-policy refusal of a reconfigured continuous-dose estimator.
+Commit `b64d334d` delivered the refusal of a longitudinal plan written as a mapping. Pull request
+229 corrected the reasons of `_risk_ratio_refusal` and `_select_evalue`.
 
 ### RM18. Red property cells after the fold, scale and law changes
 
