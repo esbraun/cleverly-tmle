@@ -15,3 +15,23 @@ sha256 ow-a-reading.csv: d5d50fe17e1d331316a2eb24a52f2baec460ddc70b4bc21097a9240
 sha256 ow-a-rows.csv.gz: 1c890bbb995cb94858573214b5ab125ee23129cb98d27833774d92415631b106
 sha256 ow-a-validation.csv: b4052f3daa44597adf42ed249a4ae178697103d87e7e963f6ca8b4b51d31b60d
 
+=== OW-B, cap None
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle\.venv\Scripts\python.exe' 'C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\tests\diagnostics\rm18_ordinary_weighted\run.py' --part OW-B --output C:/Users/erics/rm18_scratch/runs/rm18_ordinary_weighted
+commit: ba00527976dbb63bd8c851ff3e88377bc9a8c2cb; upstream ba00527976dbb63bd8c851ff3e88377bc9a8c2cb
+clean tree: True
+cleverly 0.1.2 from C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\__init__.py
+python 3.13.7; numpy 2.4.6; scipy 1.18.0; pandas 3.0.5; scikit-learn 1.9.0; joblib 1.5.3
+installed distributions: 130, sha256 f4b33890dcf2623521a239ea0ba2ac74046a0304cc8d4b96933ca443c5644ebd
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 16
+started: 2026-09-27T07:16:31+00:00
+finished: 2026-09-27T07:20:13+00:00
+wall seconds: 221.7
+exit code: 0
+sha256 ow-a-reading.csv: d5d50fe17e1d331316a2eb24a52f2baec460ddc70b4bc21097a9240b892c6d42
+sha256 ow-a-rows.csv.gz: 1c890bbb995cb94858573214b5ab125ee23129cb98d27833774d92415631b106
+sha256 ow-a-validation.csv: b4052f3daa44597adf42ed249a4ae178697103d87e7e963f6ca8b4b51d31b60d
+sha256 ow-b-reading.csv: d5432e2963070034f8cf0fa5a73e90340a50a96cfcf45a46aee03cdd89496b8d
+sha256 ow-b-rows.csv.gz: b324375590bb9edca68c501f3d734eb2724da42bdf246f3f06abd54cf6e99534
+sha256 ow-b-validation.csv: f0b76f7bb1427405e3d469ba20bfb5af3c76469c1ce29b37468b96fc2ce1f851
+
