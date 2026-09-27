@@ -391,7 +391,7 @@ its bootstrap spread as a standard error, and the package called its full-refit 
 "targeted". Messages sent a user to a refused fit or a field that the design does not have, and
 argument checks accepted requests that measure nothing.
 
-Pull request 243 (RM16a) and pull request NNN (RM16b) delivered this row. The table gives what
+Pull request 243 (RM16a) and pull request 244 (RM16b) delivered this row. The table gives what
 shipped. Commit `d8c654b6` holds the probe table, the corrections and the routed findings. Read it
 with `git show d8c654b6:docs/roadmap.md`.
 
