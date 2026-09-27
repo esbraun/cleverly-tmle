@@ -344,5 +344,7 @@ def test_each_committed_reading_follows_from_its_record(part: str) -> None:
     if part in DECLARED_ROWS:
         assert DECLARED_ROWS[part](shared.read_rows(rows_path))
     rebuilt = bd.table(part, bd.HERE, 1)
-    pd.testing.assert_frame_equal(rebuilt, shared.read_rows(reading), check_dtype=False, rtol=1e-12)
+    pd.testing.assert_frame_equal(
+        shared.as_committed(rebuilt), shared.read_rows(reading), check_dtype=False, rtol=1e-12
+    )
     assert shared.SMOKE not in set(rebuilt["result"])

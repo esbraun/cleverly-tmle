@@ -272,7 +272,9 @@ def test_the_committed_rows_meet_the_declared_budget() -> None:
 @pytest.mark.skipif(not _ran(), reason="FW-A has not run")
 def test_the_committed_reading_follows_from_the_committed_rows() -> None:
     rebuilt = fw.table(fw.PART, fw.HERE, 1)
-    pd.testing.assert_frame_equal(rebuilt, shared.read_rows(READING), check_dtype=False, rtol=1e-12)
+    pd.testing.assert_frame_equal(
+        shared.as_committed(rebuilt), shared.read_rows(READING), check_dtype=False, rtol=1e-12
+    )
     assert shared.SMOKE not in set(rebuilt["result"])
 
 

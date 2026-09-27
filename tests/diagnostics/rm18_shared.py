@@ -18,6 +18,7 @@ import importlib.metadata
 import os
 import shlex
 import sys
+import tempfile
 import time
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from pathlib import Path
@@ -623,6 +624,18 @@ def write_table(frame: pd.DataFrame, path: Path) -> None:
     """Write one diagnostic table with LF endings, and a gzip one with ``mtime=0``."""
     compression = {"method": "gzip", "mtime": 0} if path.name.endswith(".gz") else None
     write_csv(frame, path, compression=compression)
+
+
+def as_committed(frame: pd.DataFrame) -> pd.DataFrame:
+    """``frame`` as its committed file parses, through :func:`write_table` and :func:`read_rows`.
+
+    A rebuilt reading and a committed one compare like with like only through the same writer
+    and reader; an empty ``result`` label, for example, reads back as a missing value.
+    """
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "reading.csv"
+        write_table(frame, path)
+        return read_rows(path)
 
 
 def budget(declared: int, cap: int | None) -> int:

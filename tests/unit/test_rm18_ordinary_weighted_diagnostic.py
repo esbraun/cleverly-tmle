@@ -250,6 +250,6 @@ def test_each_committed_reading_follows_from_its_rows(part: str) -> None:
     assert len(sizes) == groups and sizes.eq(getattr(ow, budget)).all()
     rebuilt = ow.table(part, ow.HERE, 1)
     pd.testing.assert_frame_equal(
-        rebuilt, shared.read_rows(reading_path), check_dtype=False, rtol=1e-12
+        shared.as_committed(rebuilt), shared.read_rows(reading_path), check_dtype=False, rtol=1e-12
     )
     assert shared.SMOKE not in set(rebuilt["result"])
