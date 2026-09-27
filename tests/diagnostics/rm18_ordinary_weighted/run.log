@@ -35,3 +35,26 @@ sha256 ow-b-reading.csv: d5432e2963070034f8cf0fa5a73e90340a50a96cfcf45a46aee03cd
 sha256 ow-b-rows.csv.gz: b324375590bb9edca68c501f3d734eb2724da42bdf246f3f06abd54cf6e99534
 sha256 ow-b-validation.csv: f0b76f7bb1427405e3d469ba20bfb5af3c76469c1ce29b37468b96fc2ce1f851
 
+=== OW-C, cap None
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle\.venv\Scripts\python.exe' 'C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\tests\diagnostics\rm18_ordinary_weighted\run.py' --part OW-C --output C:/Users/erics/rm18_scratch/runs/rm18_ordinary_weighted
+commit: 75e850ee6e4a5d1ce834a9c6678897bfcd094e42; upstream 75e850ee6e4a5d1ce834a9c6678897bfcd094e42
+clean tree: True
+cleverly 0.1.2 from C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\__init__.py
+python 3.13.7; numpy 2.4.6; scipy 1.18.0; pandas 3.0.5; scikit-learn 1.9.0; joblib 1.5.3
+installed distributions: 130, sha256 f4b33890dcf2623521a239ea0ba2ac74046a0304cc8d4b96933ca443c5644ebd
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 16
+started: 2026-09-27T07:21:35+00:00
+finished: 2026-09-27T07:22:07+00:00
+wall seconds: 32.6
+exit code: 0
+sha256 ow-a-reading.csv: d5d50fe17e1d331316a2eb24a52f2baec460ddc70b4bc21097a9240b892c6d42
+sha256 ow-a-rows.csv.gz: 1c890bbb995cb94858573214b5ab125ee23129cb98d27833774d92415631b106
+sha256 ow-a-validation.csv: b4052f3daa44597adf42ed249a4ae178697103d87e7e963f6ca8b4b51d31b60d
+sha256 ow-b-reading.csv: d5432e2963070034f8cf0fa5a73e90340a50a96cfcf45a46aee03cdd89496b8d
+sha256 ow-b-rows.csv.gz: b324375590bb9edca68c501f3d734eb2724da42bdf246f3f06abd54cf6e99534
+sha256 ow-b-validation.csv: f0b76f7bb1427405e3d469ba20bfb5af3c76469c1ce29b37468b96fc2ce1f851
+sha256 ow-c-reading.csv: 9492094dfed11264f39a14d73efc8b75ee38de0c2f7d1328cd7477ddc4c84489
+sha256 ow-c-rows.csv.gz: dc2f215f89c6714497e78775005c14fa42c884c6c9d5e86b55158bfbb4568293
+sha256 ow-c-validation.csv: 0a5daebd35ff13997ac0eef94f320ebd5e76b945dd4a5fe8c2001942bf03793f
+
