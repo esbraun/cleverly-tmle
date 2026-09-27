@@ -1070,7 +1070,7 @@ one-correct bias contracts with `n` on this law, with the outer rungs sized by t
 | control budget | the `both_wrong` control runs the positives' budget, so the instrument's control has the positives' resolution |
 | verdict budget | a new `CONTRACTION_VERDICT_REPLICATES = 600` in `multi_arm_drtmle_properties.py`, passed as `verdict_replicates=600`, with the binary module's import-time guards |
 | statistic | the registered slope of log absolute mean bias on log `n`, with the 99% percentile bootstrap of 10,000 draws on the unchanged stream `stream_seed(MULTI, CONTRACTION_FAMILY, scenario)`. Each rung also reports its bias with the 99% Student interval |
-| harness validation | before the run, refit rows 0 to 599 of the six outer rungs to R4. After the run, every other cell, the primary Python rows and the committed R rows (`--skip-reference`) must reproduce to R4. The inputs of the rung-cost diagnostic, read at the 600-row verdict budget, must not change |
+| harness validation | before the run, refit rows 0 to 599 of the six outer rungs to R4. After the run, every other cell must reproduce to R4, and the reference-phase artifacts must reproduce byte for byte, as the amendment below states. The inputs of the rung-cost diagnostic, read at the 600-row verdict budget, must not change |
 | prediction | the control's slope half-width shrinks by about `sqrt(73,000 / 600)` = 11.03, from 0.0438 to about 0.0040, within 15% |
 | publication policy | `reporting`, unchanged |
 
@@ -1101,8 +1101,17 @@ contraction.
 | `does not contract` or `grows` | a new row (R7) that localizes the armwise extension. The cell moves to that owner |
 
 SL extends the registered study, so it follows the regeneration rules of method benchmarking. A
-disposable smoke run and the R4 pre-check come first. The declared regeneration runs with
-`--skip-reference`, no failed replication and no margin change.
+disposable smoke run and the R4 pre-check come first. The declared regeneration runs with no
+failed replication and no margin change.
+
+A commit amended the run form after the smoke run and the pre-check, and before the run. The
+table gives each change.
+
+| item | amendment |
+| --- | --- |
+| reference phase | the regeneration runs without `--skip-reference`. The driver refuses that flag for a record that declares an extra artifact, and this record declares `fit-diagnostics.csv` |
+| reference artifacts | `replicates.csv.gz`, `summary.csv`, `equivalence.csv`, `performance-tests.csv`, `fit-diagnostics.csv` and the manifest's `reference_sha256` must reproduce byte for byte. Any difference stops the delivery, and the run is reported and not committed. A 48-draw smoke run reproduced these rows exactly |
+| runtime | the measured projection is about 20 hours, with an upper value of 21.3 hours. The plan gave 11 hours. Timed slices on the host measured an effective parallelism of 6.4 workers, against the 12 that the plan assumed |
 
 (what-the-five-designs-found)=
 #### What the five designs found
