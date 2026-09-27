@@ -42,7 +42,7 @@ delivered row that this roadmap still describes. Read a record with, for example
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
 | 0.51 | Red property cells after the fold, scale and law changes | keep each red verdict under `reporting` with its interval, and admit inference only when F18 or F19 supplies the exact result. The [red-cell ledger](technical-reference/method-evidence/red-cells.md) delivers this. Then run Design SL once, the last of the five declared RM18 follow-up designs | registered studies publish red verdicts after the fold, scale and law changes and the pooled update. The ledger lists each one and the ask that owns it. Four RM18 follow-up designs ran once, and no reading names a defect in `cleverly`. Design SL is declared and has not run | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
-| 0.52 | One-sided robustness bias increment in DR-TMLE | investigate the exploratory between-implementation increment on binary `treatment_correct`, under a design declared before it runs | the RM18 reading is `mixed` on that configuration. The unadjusted paired 99% interval of `cleverly` minus R `drtmle` runs 0.000068 to 0.001942, while the Bonferroni interval for that comparison covers zero. No implementation defect is established | [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) |
+| 0.52 | One-sided robustness bias increment in DR-TMLE | run the declared localization design once and publish its reading. Part A re-reads the committed paired rows, and Parts B and C read fresh draws | the RM18 reading is `mixed` on that configuration. The unadjusted paired 99% interval of `cleverly` minus R `drtmle` runs 0.000068 to 0.001942, while the Bonferroni interval for that comparison covers zero. No implementation defect is established | [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) |
 | 0.61 | Learned-policy value evaluation | implement a typed learned-policy target with fold-local training and evaluation, using a published estimating and inference contract | fixed-rule paths refuse a rule learned from the analysis sample; published learned-policy methods give distinct targets and inference | [RM30](#rm30-learned-policy-value-evaluation) |
 
 Each row takes a tier by the harm that its defect does to a user today. The table gives the tiers,
@@ -64,7 +64,7 @@ The table gives the reason for each place inside a tier.
 | row | reason for its place |
 | --- | --- |
 | RM18 | one declared design that has not run, which reads two red rows in one study. Four designs ran, read 17 red rows in six studies, and moved no verdict. The ledger already publishes each of those verdicts |
-| RM19 | one configuration, which RM18 opened. Its Bonferroni interval covers zero, and it moves no verdict |
+| RM19 | one configuration, which RM18 opened. Its design is declared and has not run. Its Bonferroni interval covers zero, and it moves no verdict |
 | RM30 | a published learned-policy method can resolve the current refusal, but requires a distinct target, fold-local evaluation, and inference validation |
 
 No open row waits on another open row.
@@ -88,8 +88,8 @@ row takes its priority with it, and the other rows keep theirs.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
 The queue holds three rows.
-RM18 has one follow-up design, Design SL, that is declared and has not run. RM19 has no
-declared design. RM30 holds the published learned-policy implementation.
+RM18 has one follow-up design, Design SL, that is declared and has not run. RM19's design is
+declared and has not run. RM30 holds the published learned-policy implementation.
 
 The F18 and F19 derivations do not block priority 1, because an item with no published theory does
 not enter the sequence. Their cells stay red under `reporting` until F18 or F19 meets its
@@ -1409,13 +1409,12 @@ gives its priority and the reason for its place.
 | question | state |
 | --- | --- |
 | does `cleverly` add bias over R `drtmle` on this configuration | measured by the declared unadjusted interval, which excludes zero. The Bonferroni interval covers zero |
-| which step of the `cleverly` fit produces the increment | open. No diagnostic has read it |
-| does the increment change with the sample size | open. The paired rows exist at n = 3,000 alone. RM18 design BD read the binary `treatment_correct` rung at n = 1,500 on fresh draws, for `cleverly` alone and unpaired. Its bias interval of 0.00774 to 0.00965 moves nothing ("[What design BD found](#what-design-bd-found)") |
-| the multi-arm `double_robustness/treatment_correct` excess | one stream reads `finite-sample excess detected`. The independent rung does not reproduce it, and the pooled comparison covers zero. The overall evidence is inconclusive. No comparator fits that configuration, so the source is not identified |
+| which step of the `cleverly` fit produces the increment | open. Declared in "[The localization design, declared before it runs](#the-localization-design-declared-before-it-runs)"; not run |
+| does the increment change with the sample size | open. The paired rows exist at n = 3,000 alone. RM18 design BD read the binary `treatment_correct` rung at n = 1,500 on fresh draws, for `cleverly` alone and unpaired. Its bias interval of 0.00774 to 0.00965 moves nothing ("[What design BD found](#what-design-bd-found)"). Part C of the localization design reads the paired increment at n = 1,500 and 6,000; declared, not run |
+| the multi-arm `double_robustness/treatment_correct` excess | one stream reads `finite-sample excess detected`. The independent rung does not reproduce it, and the pooled comparison covers zero. The overall evidence is inconclusive. No comparator fits that configuration, so the source is not identified. The localization design cannot read it |
 
-Next action: declare a design that localizes the binary increment, before any run of it. The
-declaration names each step it tests, the statistic each step reads, and the rule that reads the
-result. It reads the committed paired rows as they stand.
+Next action: run the declared localization design once and publish its reading. Part A re-reads
+the committed paired rows. Parts B and C read fresh draws.
 
 Acceptance:
 
@@ -1426,6 +1425,197 @@ Acceptance:
   witness that fails without it, and each affected study regenerates under the RM18 rule.
 - The declaration states whether its design can read the multi-arm excess. If it cannot, the row
   records that, and the multi-arm cell keeps its owner.
+
+(the-localization-design-declared-before-it-runs)=
+#### The localization design, declared before it runs
+
+This subsection declares the design that localizes the binary increment. It fixes every quantity
+that decides a reading, and this commit is pushed before any part runs. The design is a one-off
+diagnostic in `tests/diagnostics/rm19_one_sided_increment/`. It writes no registered artifact. It
+moves no verdict, margin, budget, law, learner, size or seed of a registered study.
+
+The design asks three questions about binary `treatment_correct`. Is the increment of `cleverly`
+over R `drtmle` present on fresh draws? Which named difference between the two targeting loops
+carries it? How does it change with the sample size `n`?
+
+| id | hypothesis | part that reads it |
+| --- | --- | --- |
+| H0 | on fresh draws at n = 3,000, the mean paired difference of `cleverly` minus R is zero | B. This is the one confirmatory test |
+| HJ, HP, HS | the tilt geometry, the priming step or the exit carries a nonzero mean effect on `ate` | B governs. A attributes the committed signal |
+| HG | the step guards of R carry a nonzero mean effect | A and B, when a guard event occurs |
+| Hn | `sqrt(n)` times the mean paired difference is the same at n = 1,500, 3,000 and 6,000 | C, descriptive |
+
+The construction is that of Benkeser, Carone, van der Laan and Gilbert (2017), Section 3.2, which
+extends van der Laan (2014), DOI 10.1515/ijb-2012-0038. The two sources state no finite-sample
+bias for this configuration. The registered study fits the reduced regressions by GLMs, and no
+read source states that a GLM reduced regression meets their rate conditions. That statement is
+an unsourced derivation of the RM19 plan, and no rule below depends on it.
+
+##### The arms
+
+The file `rtrans.py` in the diagnostic directory transcribes the binary cross-validated loop of R
+`drtmle` 1.1.2 at commit `538a3a2`. It uses the settings of `tests/canonical/drtmle/run_drtmle.R`.
+With every switch at 0, the transcription is R. Each switch at 1 moves one step to the choice of
+the registered `cleverly` fit.
+
+| switch | value 0, R `drtmle` | value 1, `cleverly` |
+| --- | --- | --- |
+| J, tilt geometry | two one-column tilts of `g_0` and `g_1` along `Qr_a / g_a`, each clipped below at `tolg` (`fluctuate.R`, `fluctuateG`) | one tilt of `g_1` along the two columns `(-Qr_0 / g_0, Qr_1 / g_1)`, with `g_0 = 1 - g_1` |
+| P, priming | the loop starts with the `g` step on the initial `Qbar` | one equation-(8) step of the initial `Qbar` before the loop |
+| S, exit | the loop stops when each of the six score means is at most `tolIC = 1e-8`, or at `maxIter = 100` | the exit, the stall rule, the cap of 100 rounds and the closing pass of `solve_with_reduction` |
+| G, step guards | a step is skipped when every covariate value is below `1e-7`. A step keeps the current fit when `glm` fails to converge or a coefficient exceeds `1e3` in absolute value | no skip and no fallback |
+
+| arm | definition |
+| --- | --- |
+| `C` | the registered `fit_cleverly(frame, scenario)`, unchanged |
+| `T(j, p, s)` | the transcription with switches J, P and S at `j`, `p` and `s`, and with the step guards of R. `T(0, 0, 0)` is R |
+| `T0+G` | `T(0, 0, 0)` without the step guards of R |
+
+Every arm reads the shared initial arrays of one draw. These are `qn0`, `qn1` and `gn1` from the
+`C` fit, as `_replicate` builds the payload for R. `T0+G` equals `T(0, 0, 0)` exactly on a draw
+where `T(0, 0, 0)` records no guard event, because the guards then change no step. The harness
+therefore fits `T0+G` only on a draw with a guard event, and copies `T(0, 0, 0)` elsewhere.
+
+##### The parts
+
+| item | declaration |
+| --- | --- |
+| law | the registered binary law: `draw_from_seed`, `_learners(scenario)`, 10 unstratified folds drawn from `seed + 1`, `G_BOUNDS = (0.01, 0.99)`, `MAX_OUTER = 100`, and every other `fit_cleverly` setting |
+| Part A, committed draws | the 800 registered primary draws of each of the three scenarios, drawn again from `replicate_seed`. On `treatment_correct`, the arms are `C`, the eight `T(j, p, s)` and `T0+G`. On `outcome_correct` and `both_correct`, the arms are `C`, `T(0, 0, 0)`, `T(1, 0, 0)`, `T(1, 1, 1)` and `T0+G`. Part A validates the harness and attributes the committed signal. It confirms nothing, because it reads the rows that produced the signal |
+| Part B, fresh draws | 2,000 fresh `treatment_correct` draws at n = 3,000, with the arms `C`, the eight `T(j, p, s)` and `T0+G` |
+| Part C, fresh draws | 2,000 fresh `treatment_correct` draws at n = 1,500, and 2,000 at n = 6,000, with the arms `C` and `T(0, 0, 0)`. Part C is descriptive |
+| V4, the real R check | the pinned container `cleverly-drtmle-reference:538a3a2` runs `run_drtmle.R`, unchanged, on the first 200 Part B draws, in a scratch directory. The call is `Reference.run` with the arguments of `tests/canonical/drtmle/regenerate.py`, and at most 7 R workers |
+| order | A, then B, then V4, then C. Parts B and C start only when the pushed upstream holds the Part A validation record and every Part A check holds. V4 starts only when the pushed upstream holds the Part B rows |
+| budget | `R_B = 2,000` in each part. The rule is the Monte Carlo standard error of a mean, `SD / sqrt(R)`, from Morris, White and Crowther (2019), Table 6. The 99% half-width target is one fifth of the distance from 0 to the registered similarity margin of the `ate` row, 0.002990 (`equivalence.csv`, `mean_margin`), so it is 0.000598. The SD is the committed paired SD, 0.010261. `ceil((2.575829 * 0.010261 / 0.000598)^2)` = 1,954, rounded up to 2,000 |
+| seeds | the draw seed of replicate `k` of Part B or Part C at size `n` is `stream_seed(BINARY, "rm19", "one-sided-increment", n, k)`. The fold draw uses `seed + 1` |
+| seed collision | the seed-collision rule of RM18 applies, as "[Rules that every design follows](#rules-that-every-design-follows)" states it. On `canonical-drtmle` the assignment order is the registered seeds, then BD-1, then Part B, then Part C at n = 1,500, then Part C at n = 6,000. The seed `2^32 - 1` counts as taken, because its fold seed `seed + 1` lies outside the range of `random_partition` |
+
+##### The statistics
+
+| statistic | definition |
+| --- | --- |
+| paired difference | for each draw, `d = ate_x - ate_y` for the named pair of arms. Its mean has a Student interval with `R - 1` degrees of freedom |
+| primary difference | the paired difference `C - T(0, 0, 0)`, at 99% |
+| main effect of J, P or S | for each draw, the mean `ate` of the four `T(j, p, s)` arms at level 1 of the factor minus the mean of the four at level 0. The mean over draws has a Student interval |
+| main effect of G | for each draw, `ate` of `T0+G` minus `ate` of `T(0, 0, 0)` |
+| family | J, P and S, and also G when `T(0, 0, 0)` records a guard event on at least one draw that the part reads. Each main effect has the level `1 - 0.01 / k`, with `k` the number of effects in the family |
+| two-way interactions | the contrasts JP, JS and PS of the 2^3 design, at 99%. No rule reads them |
+| bracket | the 99% interval of the mean of `T(1, 1, 1) - C` |
+| bias | the mean `ate - truth` of each arm, at 99%. No rule reads it |
+| instruments | for each draw, read by no rule: the iteration count and exit of each `T` arm (`tolIC` or `cap` at S = 0; `tolerance`, `stall` or `cap` at S = 1), the closing steps at S = 1, the guard events, the rows at which a mechanism lies at or beyond 0.01 or 0.99, and the largest absolute score mean. For `C`, the `exit_reason`, the rounds, the closing steps, the rows at a mechanism bound, and the largest absolute score |
+
+Every interval that the table does not name is 99%.
+
+##### Harness validation
+
+| check | declaration |
+| --- | --- |
+| V1 | the `C` fits of Part A reproduce all 2,400 committed `cleverly` rows. `estimate` and `std_error` of the three estimands must satisfy `abs(new - committed) <= 1e-9 * max(1, abs(committed))`, with the committed rows parsed by `pandas.read_csv(..., float_precision="round_trip")` |
+| V2 | `T(0, 0, 0)` reproduces all 2,400 committed `drtmle-r` rows, in the same columns and to the same tolerance. The `std_error` is the covariance of `DnoStar - DnQoStar - DngoStar` that R forms under `targeted_se` (`drtmle.R`), transcribed |
+| V3 | the shared initial arrays of every Part A draw reproduce the committed `drtmle-r` `initial_estimate` of each estimand to 1e-12 |
+| V4 | the R rows of the first 200 Part B draws, `estimate` and `std_error` of the three estimands, equal the Part B `T(0, 0, 0)` rows to the V1 tolerance. The `C` refit that rebuilds each payload must equal its Part B `C` row to the same tolerance |
+| outcome | a V1, V2 or V3 miss stops the design with `harness not validated, no reading`. A V4 miss, or a V4 that has not run, gives Part B the same reading. Part C reads on V1 to V3 alone |
+
+##### The readings
+
+Each reading table is read from the top, and the first condition that holds names the reading, as
+the RM18 rule states. The primary reading reads Part B.
+
+| primary reading | condition |
+| --- | --- |
+| `increment confirmed` | the 99% interval of the mean of `C - T(0, 0, 0)` lies above 0 |
+| `reverse increment` | it lies below 0 |
+| `no increment at the declared resolution` | it covers 0, and its half-width is at most 0.000598 |
+| `unresolved` | otherwise |
+
+The side of the primary difference is the side of 0 on which its interval lies. When the interval
+covers 0, the side is the sign of its point estimate. A main effect excludes 0 on that side when
+its interval lies wholly on that side.
+
+| localization reading | condition |
+| --- | --- |
+| `unexplained` | the bracket fails: its interval does not lie inside -0.0001 to 0.0001 |
+| `nothing to localize` | the primary reading is `no increment at the declared resolution`. The factorial is reported, and no label applies |
+| `attributed to X` | exactly one main effect X, of J, P, S and G, excludes 0 on the side of the primary difference |
+| `shared by X and Y` | two or more main effects exclude 0 on that side. The label names each of them |
+| `interaction only` | the primary reading is `increment confirmed` |
+| `no localization label` | otherwise |
+
+Part A applies the primary rule and the localization rule to its `treatment_correct` draws. Its
+labels read `committed-draw attribution`, and they confirm nothing.
+
+Two predictions were written in the plan before any run. Each part reports each one as `holds`
+or `fails`, and no route reads either one.
+
+| prediction | statement |
+| --- | --- |
+| P-ctrl | on the Part A `outcome_correct` and `both_correct` draws, the 99% interval of the mean of `T(1, 0, 0) - T(0, 0, 0)` covers 0, and its SD is at most the committed paired SD of that scenario, 0.002223 and 0.000869 |
+| P-bracket | the bracket interval lies inside -0.0001 to 0.0001 |
+
+Part C gives `sqrt(n)` times the mean of `C - T(0, 0, 0)` at n = 1,500, 3,000 and 6,000. The value
+at 3,000 comes from the Part B rows. Each interval has the Bonferroni level `1 - 0.01 / 3`. An
+interval that lies above 0 reads `increment`, and one that lies below 0 reads `reverse increment`.
+Otherwise no label applies.
+
+`supported-estimands.md` states that the two tilt geometries differ
+at second order. No read source states that, so it is an unsourced statement. A second-order
+effect predicts that `sqrt(n)` times the increment falls as `n` grows. Part C reports whether the
+intervals agree with that prediction, and no rule reads it.
+
+A supplementary Part C row gives the `C` bias at n = 1,500 beside the BD-1 interval of 0.00774 to
+0.00965, and at n = 6,000 beside the committed `double_robust_contraction/treatment_correct_n6000`
+bias. No rule reads it.
+
+##### Rules for the runs
+
+| point | rule |
+| --- | --- |
+| failed fit | the RM18 failed-fit rule applies to every arm. A fit that raises, or that returns a non-finite estimate or standard error, stops the part, with no replacement draw. For a `T` arm, a raise includes a non-finite coefficient that no guard catches. A guard fallback of R is a guard event, and it is not a failure |
+| one run | RM18 rule R6, as amended, applies to each part. The harness refuses a run from a tree with changes, from a commit that differs from its upstream, or with `cleverly` imported from outside the tree's `src`. `run.log` records what R6 names. No other process pool, R phase, fast suite or study runs beside a part |
+| smoke runs | a run capped with `--replicates` is a smoke run, and each of its labels reads `smoke run, not the declared budget` |
+
+##### The routes
+
+| reading | route |
+| --- | --- |
+| `no increment at the declared resolution` | record. The committed signal was a Monte Carlo excursion, and RM19 closes |
+| `increment confirmed` with `attributed to J`, `P` or `S`, or `shared` among them | record. Each of J, P and S is a documented or documentable route choice, and no read theorem prefers either side. This is not a defect in `cleverly`. RM19 closes with its documentation edits, and no estimator changes |
+| `attributed to G`, or `shared` with G | record as comparator behaviour. The documentation names the guard of R. No `cleverly` change |
+| `interaction only` | record, and give the largest two-way interaction. RM19 closes |
+| `unexplained` | open a new remediation row that localizes the residual between `T(1, 1, 1)` and `C`. The residual can be a defect in `cleverly` or in the transcription. That row's `id` enters "[What this row asks for](#what-this-row-asks-for)" only if the row takes over a red cell |
+| a reading that shows `cleverly` departing from its own documented algorithm in a way that moves an estimate | a defect. Open a separate fix row, with a nonzero witness that fails without the fix. Each affected study regenerates under the RM18 rule |
+| `reverse increment`, `unresolved` or `no localization label` | record. RM19 closes, and the record states the qualification |
+
+Every reading leaves the three one-sided cells red under `reporting`, and `RM18-one-sided-bias`
+stays their owner.
+
+##### What the design cannot read
+
+No validated R comparator fits the multi-arm `double_robustness/treatment_correct` configuration,
+and the transcription is validated on binary rows alone. The design therefore cannot read the
+multi-arm excess, and the multi-arm cell keeps its owner. On more than two arms, `cleverly`
+already uses the armwise tilt of R, so switch J does not exist there. Switches P and S do. If Part
+B reads `attributed to J`, the multi-arm excess cannot share that source. Any other reading leaves
+the question open.
+
+##### Reads made before this declaration
+
+The rules above were fixed after these reads, and no rule refers to their values. Every read used
+committed rows or registered draws. No fresh draw was read.
+
+| read | value |
+| --- | --- |
+| R fits that end above `tolIC`, `treatment_correct` | 46 of 800. Their mean paired difference is 0.002895, and that of the other 754 is 0.000890 |
+| per-arm paired intervals, `treatment_correct` | `ey0` from -0.001130 to 0.000301, and `ey1` from -0.000080 to 0.001261 |
+| a transcription probe on registered draws 0 to 6 of `treatment_correct` | the transcription reproduced the committed R `ate` to 2.1e-14. J and P each moved single draws by up to 0.01, and they did not act additively. G changed no draw |
+| harness development on registered draws | on `treatment_correct` draws 0, 1 and 3, `T(0, 0, 0)` reproduced the committed R estimates to 5.3e-14 and standard errors to 8.4e-15, and `T(1, 1, 1)` came within 5.5e-6 of `C`. On `outcome_correct` draws 0 and 1, `T(1, 0, 0) - T(0, 0, 0)` was 0.000146 and -0.002524 |
+| a V1 smoke on registered draws 0 to 2 of each scenario | the largest scaled difference was 9.7e-17 |
+
+##### Runtime
+
+The runtime is the main checkout's Python 3.13.7 with `PYTHONPATH` set to this tree's `src` and
+root, and one thread for each numerical library. The declared parts take about 4 h of wall time
+on 16 logical cores. The harness README gives the smoke timings and the projection for each part.
 
 ### RM20. Intervals outside every claimed contract
 
