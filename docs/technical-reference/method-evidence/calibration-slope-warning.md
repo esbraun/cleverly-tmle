@@ -22,7 +22,7 @@ zero-row equivalence artifact records the absence of a comparator.
 | outcome | $Y \sim \operatorname{Bernoulli}(\operatorname{expit}(0.5 A + 0.5 W_1 - 0.25))$. The outcome learner returns this known regression, so the outcome report is calibrated and each fit tests two models |
 | covariates | four standard normal covariates, except the `correct_weak` law, which has one |
 | primary scenarios | the known propensity at a weak signal, $\operatorname{logit} g_0 = 0.15 W_1$, and at a strong signal, $\operatorname{logit} g_0 = W_1 - 0.5 W_2$ |
-| primary estimand | the calibration slope of the propensity report. Its truth is 1, because each fold's prediction is a fixed rule scored on rows it never saw |
+| primary estimand | the calibration slope of the propensity report. Its truth is 1, because the treatment learner returns the true propensity |
 | primary interval | the slope plus or minus 1.959964 standard errors |
 | `warning_rate` laws | the two known propensities; a correct unpenalized logistic model on one weak covariate; the same law with four covariates and the model on all four; and a randomized law, $g_0 = 1/2$, with the model on four covariates |
 | `fixed_band` controls | the same fits, read with the rule before RM15: the pooled one-intercept slope of the propensity or the outcome lies outside [0.7, 1.4] |
@@ -69,12 +69,12 @@ reads the fits of its positive cell.
 
 Every primary test and every property cell passed. The rule stays below the type-I ceiling on all
 five laws where a warning is false, including the true propensity, a correct weak-signal model and
-a randomized law. On the same fits the band flags each law above the ceiling. The rule detects both
-tempered learners in every fit.
+a randomized law. Four of those laws have a band control. On the same fits, the band's rate lies
+above the ceiling on each of the four. The rule detects both tempered learners in every fit.
 
-The `calibrated_strong` rate is the largest of the five positive cells, and its interval contains
-the family level of 0.05. The two tested models share that level, so the rate of either finding is
-bounded by 0.05 up to the accuracy of the standard errors.
+The `calibrated_strong` rate, 0.0539, is the largest of the five positive cells. Its 99% interval,
+0.0482 to 0.0600, contains the family level of 0.05. The rate of a finding on either tested model
+is therefore consistent with 0.05. The study bounds it at the type-I ceiling of 0.10.
 
 ## Measured values
 
@@ -109,6 +109,11 @@ from the committed results and checked at the precision printed.
 | `properties[warning_rate/randomized__rule]:mean_estimate` | -0.1451 | mean out-of-fold slope on the randomized law |
 | `properties[power/overconfident_moderate__rule]:rejection_ci_lower` | 0.9995 | detection lower endpoint, doubled logit |
 | `properties[power/underconfident_strong__rule]:rejection_ci_lower` | 0.9995 | detection lower endpoint, halved logit |
+| `properties[warning_rate/correct_weak__rule]:se_ratio` | 1.4612 | mean SE over empirical SD, correct model on one weak covariate |
+| `properties[warning_rate/correct_nested_weak__rule]:se_ratio` | 0.9435 | mean SE over empirical SD, correct model on four covariates |
+| `properties[warning_rate/randomized__rule]:se_ratio` | 0.7693 | mean SE over empirical SD, randomized law |
+| `properties[power/overconfident_moderate__rule]:se_ratio` | 4.2290 | mean SE over empirical SD, doubled logit |
+| `properties[power/underconfident_strong__rule]:se_ratio` | 8.0270 | mean SE over empirical SD, halved logit |
 | `margin:confidence_level` | 0.9900 | confidence level of every Monte Carlo interval |
 | `margin:alpha` | 0.0500 | nominal size of the reported intervals, and the family level of the rule |
 | `margin:nominal_coverage` | 0.9500 | nominal coverage those intervals claim |
@@ -143,8 +148,9 @@ from the committed results and checked at the precision printed.
 | A binary propensity only | The rule also tests `propensity[<arm>]`, `missingness`, `intermediate` and a binary `outcome`. The study covers the binary propensity, and its outcome model is known |
 | Three folds and one sample size | The fold intercepts and the cross-fit dependence change with the fold count and $n$ |
 | Known and unpenalized logistic learners only | A flexible learner is not covered. A planning probe of 40 gradient-boosting fits is not evidence |
-| Detection only for a scaled logit at moderate and strong signal | At a weak signal a doubled logit has an interval that often reaches 0, and the rule then gives no finding |
-| No prediction at 0 or 1 | A prediction clipped at the probability bounds has a logit near $\pm 27.6$, which can dominate the regression and move the slope toward 0. The rule then gives no finding |
+| The standard error treats the fold models as fixed | The sandwich takes each fold's predictions as given. For a fitted learner, the ratio of the mean standard error to the empirical standard deviation of the slope is 1.4612, 0.9435 and 0.7693 on the `correct_weak`, `correct_nested_weak` and `randomized` laws. It is 4.2290 and 8.0270 for the doubled and the halved logit. The primary SE ratios of the known propensity are 0.9976 and 1.0018. Read the rule's rates, not its interval, as the evidence for a fitted learner |
+| Detection only for a scaled logit at moderate and strong signal | At a weak signal a doubled logit has an interval that often reaches 0. When the interval reaches 0, the rule gives no finding |
+| No prediction at 0 or 1 | A prediction clipped at the probability bounds has a logit near $\pm 27.6$, which can dominate the regression and move the slope toward 0. When the interval reaches 0, the rule gives no finding |
 | Point treatment and out-of-fold predictions only | The longitudinal report and an in-sample fit carry the slope and no rule |
 
 ## Reproduction

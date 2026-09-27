@@ -518,8 +518,8 @@ the model has many covariates. Review the learner before you change the model
 | can a correct model warn? | yes. With a weak signal or many covariates, estimation noise can make out-of-fold predictions more extreme than the truth |
 | does a finding mean that the model is misspecified? | no. A misspecified logistic model with an intercept also has a population slope of 1, so the slope cannot detect it |
 | does a finding mean that the estimate is biased? | no. The rule measures the spread of the predictions and does not measure the estimate |
-| why is there no finding on an in-sample fit? | an unpenalized logistic model with an intercept has an in-sample slope of exactly 1, so `nuisance.evaluation` is `in_sample` and the report tests nothing |
-| why is a slope missing? | `calibration_omission` names the cause, for example predictions that are constant within every fold |
+| why is there no finding on an in-sample fit? | the report tests out-of-fold predictions only. A fit without cross-fitting has `nuisance.evaluation` equal to `in_sample`, and the report tests nothing there. An unpenalized logistic model with an intercept has an in-sample slope of exactly 1, so that slope says nothing about new rows |
+| why is a slope missing? | `nuisance["propensity"].calibration_omission` names the cause for that model, for example predictions that are constant within every fold. `nuisance.summary()` prints each cause under the table. `nuisance.to_frame()` has no column for it |
 
 The [calibration-slope study](../technical-reference/method-evidence/calibration-slope-warning.md)
 measures the rule's false-warning rate and its detection rate for a binary propensity.

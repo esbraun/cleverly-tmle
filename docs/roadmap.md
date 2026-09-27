@@ -359,78 +359,29 @@ probe table and the corrections. Read it with `git show b876ec3f:docs/roadmap.md
 ### RM15. Calibration-slope warning rule
 
 `NuisanceDiagnostics.findings` warned when a pooled one-intercept calibration slope fell outside
-[0.7, 1.4]. The finding said that the model "biased the weights", which the rule did not measure.
-The band warned on 27% of fits of the true propensity at a weak signal, on 10 to 28 of 40 fits of a
-correct weak-signal model, and on every mean-only fit of a randomized law. There, the pooled
-intercept made the slope $-2$ at three folds. The band applied to in-sample slopes too. The
-longitudinal report put a logistic and a linear slope under one name.
+[0.7, 1.4]. The finding said that the model "biases the weights", which the rule did not measure.
+The band warned on 27% of fits of the true propensity at a weak signal, and on every mean-only fit
+of a randomized law. There, the pooled intercept made the slope $-2$ at three folds. The band
+applied to in-sample slopes too. The longitudinal report put a logistic and a linear slope under
+one name.
 
 Pull request NNN delivered this row. The table gives what shipped. Commit `87b13e7d` holds the
 probe tables, the design and the study declaration. Read it with `git show 87b13e7d:docs/roadmap.md`.
 
 | part | what shipped |
 | --- | --- |
-| statistic | `_recalibration` in `src/cleverly/validation/nuisance.py` regresses the label on one indicator for each validation fold and on $\operatorname{logit} \hat p$. `calibration_slope_se` is the sandwich standard error, read through `influence_variance` with the fit's cluster codes. A prediction that is constant within every fold, a failed fit, or a standard error that is not finite gives no slope, and `calibration_omission` names the cause |
+| statistic | `_recalibration` in `src/cleverly/validation/nuisance.py` regresses the label on one indicator for each validation fold and on $\operatorname{logit} \hat p$. `calibration_slope_se` is the sandwich standard error with the fit's cluster codes. A prediction that is constant within every fold or that separates the labels, a failed fit, or a standard error that is not finite gives no slope, and `calibration_omission` names the cause |
 | rule | `_calibration_finding` warns when the Bonferroni interval over the tested models lies above 0 and excludes 1. An in-sample fit tests no model, and `NuisanceDiagnostics.evaluation` records the basis |
-| message | the direction, the slope, the interval at its level, the AUC, and for a weight model the largest inverse weight, `largest_inverse_weight`. It names the weak-signal cause and asks for a review. It makes no claim about bias |
-| names | `regression_slope` holds the linear slope in the point and the longitudinal reports. The longitudinal binary rows use the new statistic with the fit's folds and cluster codes, and carry no rule |
-| summary | the table gains `cal_se` and `reg_slope`. One line states the basis of the slope and the rule, and one line names each omission |
-| study | the registered [calibration-slope study](technical-reference/method-evidence/calibration-slope-warning.md), with the `warning_rate` verdict in `tests/studies/evidence/property_verdicts.py` |
-| reference | the [calibration-slope rule](technical-reference/validation-methods.md#calibration-slope-rule), the user guide, and the [calibration references](references.md#calibration-of-prediction-models) |
+| message | the direction, the slope, the interval, the AUC, and for a weight model the largest untruncated inverse weight. It asks for a review of the learner and makes no claim about bias |
+| names and summary | `regression_slope` holds the linear slope in the point and the longitudinal reports. The summary table gains `cal_se` and `reg_slope`, a line for the basis and a line for each omission |
+| evidence | the [calibration-slope study](technical-reference/method-evidence/calibration-slope-warning.md): the rule's rate is 0.0225 to 0.0539 on five laws where a warning is false, the old band's rate is 0.2543 to 0.9869 on four of them, and both tempered learners are detected in every fit. `tests/unit/test_calibration_slope_rule.py` holds the witnesses |
 
 The plan corrected the premise of this row. A warning on a correct model is not always false.
 
 | premise | what the delivery found |
 | --- | --- |
-| a correct model should have a slope of 1 | noise in the fitted coefficients makes the out-of-fold predictions of a correct weak-signal model more extreme than the truth. The study's correct model on four weak covariates has a mean slope near 0.58. The rule does not remove that over-dispersion. It asks for evidence that the predictions discriminate before it reads the slope |
+| a correct model should have a slope of 1 | noise in the fitted coefficients can make the out-of-fold predictions of a correct weak-signal model more extreme than the truth. The study's correct model on four weak covariates has a mean slope near 0.58. The rule does not remove that over-dispersion. It reads the slope only when the interval lies above 0 |
 | a slope finding means the model is misspecified | the population slope of any logistic limit with an intercept and main effects is 1, whether the model is correct or not. The slope cannot see misspecification of that kind |
-
-The declared study ran once, at 10,000 replications for each primary law and each property law.
-It took 4 min 29 s on 16 cores. Every verdict is green under the `reporting` policy.
-
-| cell | rate | 99% interval | verdict |
-| --- | ---: | --- | --- |
-| rule, known propensity, weak | 0.0364 | 0.0317 to 0.0415 | pass, at or below 0.10 |
-| rule, known propensity, strong | 0.0539 | 0.0482 to 0.0600 | pass, at or below 0.10 |
-| rule, correct model on one weak covariate | 0.0225 | 0.0189 to 0.0266 | pass, at or below 0.10 |
-| rule, correct model on four covariates | 0.0403 | 0.0354 to 0.0456 | pass, at or below 0.10 |
-| rule, randomized law | 0.0228 | 0.0191 to 0.0269 | pass, at or below 0.10 |
-| fixed band on the same four laws | 0.2543 to 0.9869 | lowest lower end 0.2432 | pass, above 0.10 |
-| detection, doubled logit and halved logit | 1.0000 and 1.0000 | lower ends 0.9995 | pass, at or above 0.80 |
-
-The two primary scenarios pass their bias, coverage and SE-ratio verdicts. The pilot put the
-strong-signal rate at 0.022 over 400 fits, and it counted a propensity finding only. The study
-counts a finding on either tested model.
-
-`tests/unit/test_calibration_slope_rule.py` holds the witnesses W1 to W13 of the plan. Eight hand
-mutations ran one at a time from a backup with a sha256 hash. Each run restored the file, and the
-restored file matched its hash.
-
-| mutation | tests that fail |
-| --- | --- |
-| H1. the fixed band restored | W5, W7, W9, two W8 cases, and the interval below 0 |
-| H2. one pooled intercept | W1, W2, W3, and the longitudinal fold witness. W4 passes, because the constant-prediction check runs before the fit |
-| H3. the weights dropped | W1, W2, W3 |
-| H4. the clusters dropped | W3 and the one-cluster omission |
-| H5. the Bonferroni divisor deleted | W9 |
-| H6. the in-sample gate removed | W10 |
-| H7. the gate at 0 removed | W7, two W8 cases, and the interval below 0 |
-| H8. the directions swapped | both W6 cases and two W8 cases |
-
-The delivery departed from the plan in these places.
-
-| departure | reason |
-| --- | --- |
-| the weight clause also appears in a "more moderate" finding | correction 3 asks for the largest weight beside the slope, and the clause depends on the model, not the direction |
-| the negative control in `tests/unit/test_method_evidence.py` that shrinks a calibration cell's standard error skips this study | the study tests a warning rule and declares no interval-calibration cell. Its standard-error claim is the primary SE-ratio verdict |
-| the `longitudinal-tmle` and TWINS notebooks print `regression_slope` beside `calibration_slope` | a pseudo-outcome row now leaves `calibration_slope` empty, and the reading quotes both slopes |
-| the TWINS notebook ran under Python 3.13.7 | it records that interpreter. Under 3.11.13 its hand-built TMLE table switches to scientific notation, as commit `77edf027` records |
-
-A learner that predicts 0 or 1 for some rows gives a logit near $\pm 27.6$ after the clip. A few
-such rows can move the slope toward 0, and the rule then gives no finding. A linear regression on
-a binary outcome in `tests/unit/test_post_fit_assessment_battery.py` shows this case. The
-[calibration-slope rule](technical-reference/validation-methods.md#calibration-slope-rule) states
-the limit.
 
 ### RM16. Summary and error-message accuracy
 

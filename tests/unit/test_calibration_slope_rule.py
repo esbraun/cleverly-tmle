@@ -352,7 +352,7 @@ class TestTheStatistic:
         assert propensity.calibration_omission == nuisance_module.CALIBRATION_CONSTANT_WITHIN_FOLDS
         assert _calibration_notes(report) == []
 
-        # The pooled recalibration of these very predictions reads -(V - 1) = -2 at three
+        # The pooled recalibration of these very predictions reads about -(V - 1) = -2 at three
         # folds, which is the value the band used to warn on.
         predicted = np.clip(result.nuisance.propensity.arm(1.0), 1e-12, 1.0 - 1e-12)
         folds = np.asarray(result.nuisance.folds.assignment)

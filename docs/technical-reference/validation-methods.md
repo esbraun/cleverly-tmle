@@ -491,7 +491,7 @@ learner. It is not evidence that the estimate is biased.
 | --- | --- |
 | calibration slope | the last coefficient of a weighted logistic regression of the label on one indicator for each validation fold and on $\operatorname{logit} \hat p$, with no other intercept. A slope below 1 means the predictions are more extreme than the observed rates. A slope above 1 means they are more moderate. An in-sample fit has one fold, which gives the pooled recalibration of Cox (1958) |
 | standard error | the sandwich. With $B = X^\top \operatorname{diag}(w \mu (1 - \mu)) X$ and the score $s_i = w_i (y_i - \mu_i) x_i$, the curve of the slope is $n (B^{-1} s_i)_{\mathrm{slope}}$. `influence_variance` reads the curve with the fit's cluster codes |
-| omission | `calibration_omission` names why a report has no slope. `CALIBRATION_CONSTANT_WITHIN_FOLDS` is the state of a mean-only learner or an intercept-only mechanism. `CALIBRATION_SEPARATED` means that in every fold one threshold on $\operatorname{logit} \hat p$ splits the labels, the same way in each fold. The likelihood then rises without bound in the slope. A Newton fit that does not converge, a singular information matrix, or a standard error that is not finite also removes the slope |
+| omission | `NuisanceModelReport.calibration_omission` names why a report has no slope, and `summary()` prints it under the table. `to_frame()` has no column for it. `CALIBRATION_CONSTANT_WITHIN_FOLDS` is the state of a mean-only learner or an intercept-only mechanism. `CALIBRATION_SEPARATED` means that in every fold one threshold on $\operatorname{logit} \hat p$ splits the labels, the same way in each fold. The likelihood then rises without bound in the slope. A Newton fit that does not converge, a singular information matrix, or a standard error that is not finite also removes the slope |
 | tested models | every probability report with a finite slope and standard error, except a C-TMLE working mechanism, on an out-of-fold fit. An in-sample fit tests none |
 | level | with $K$ tested models, the interval is the slope plus or minus $z_{1 - 0.05 / (2K)}$ standard errors. That is a Bonferroni split of `CALIBRATION_FAMILY_ALPHA` over the report |
 | finding | the interval lies above 0 and excludes 1 |
@@ -500,23 +500,25 @@ learner. It is not evidence that the estimate is biased.
 
 The fold intercepts matter. Cross-fitting moves the level of each fold's predictions against that
 fold's labels. With one pooled intercept that movement drives the slope, and a prediction that is
-constant in each fold reads $-(V - 1)$. The package reported $-2$ at three folds before RM15.
+constant in each fold reads close to $-(V - 1)$. At three folds,
+`test_w4_a_fold_constant_prediction_has_no_slope` pins that pooled slope within 0.05 of $-2$.
 
 Four facts shape the rule. Each has its source or its witness.
 
 | fact | source or witness |
 | --- | --- |
 | the slope measures spread, not specification. The limit $\eta^*$ of a logistic model with an intercept and main effects solves $E[(A - \operatorname{expit} \eta^*)(1, \eta^*)] = 0$, so its population slope is 1 whether the model is correct or not | the score equations of the model. [Riley et al. (2021)](../references.md#calibration-of-prediction-models), Section 2.1.2, state the in-sample case |
-| estimation noise puts the out-of-fold slope of a correct model below 1 when the signal is weak or the covariates are many | Riley et al. (2021), Section 2.1.2. The [calibration-slope study](method-evidence/calibration-slope-warning.md) measures the mean slope of a correct model on four covariates |
+| estimation noise can put the out-of-fold slope of a correct model below 1 when the signal is weak or the covariates are many | Riley et al. (2021), Section 2.1.2. The [calibration-slope study](method-evidence/calibration-slope-warning.md) measures the mean slope of a correct model on four covariates |
 | an unpenalized logistic model with an intercept has an in-sample slope of exactly 1 | Riley et al. (2021), Section 2.1.2. `test_w10_an_in_sample_fit_carries_no_test` |
-| the slope is read beside discrimination, not alone | [Stevens and Poppe (2020)](../references.md#calibration-of-prediction-models), Sections 3 and 4, and [Van Calster et al. (2019)](../references.md#calibration-of-prediction-models), section "How to assess calibration?" |
+| the slope measures the spread of the predictions, and it is read with the calibration intercept, not alone | [Stevens and Poppe (2020)](../references.md#calibration-of-prediction-models), Sections 3 and 4, and [Van Calster et al. (2019)](../references.md#calibration-of-prediction-models), section "How to assess calibration?" |
 
 No read source gives a fixed band or a rule for cross-fitted nuisance predictions. The interval, the
 Bonferroni split and the gate at 0 are therefore design decisions of this package. The gate at 0
-refuses to read a spread where the predictions show no signal.
+refuses to read a spread where the slope shows no association between the predictions and the
+label.
 
 **Limits.** A prediction at 0 or 1 has a logit near $\pm 27.6$ after the clip, and a few such rows
-can move the slope toward 0. The interval then reaches 0 and the rule gives no finding. Read the
+can move the slope toward 0. When the interval reaches 0, the rule gives no finding. Read the
 calibration table and the AUC beside the slope.
 
 | witness | what it checks |
