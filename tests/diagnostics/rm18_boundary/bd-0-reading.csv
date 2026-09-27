@@ -1,0 +1,6 @@
+part,scope,statistic,value,ci_lower,ci_upper,result
+BD-0,SELECTOR root_n_and_efficiency/n_500,pass probability at the nominal truth,0.8489780599625945,,,
+BD-0,BINARY double_robust_contraction/treatment_correct_n1500,pass probability at the nominal truth,0.9977363071266788,,,
+BD-0,MULTI double_robust_contraction/outcome_correct_n4000,pass probability at the nominal truth,0.9806663167709653,,,
+BD-0,MULTI root_n_and_efficiency/n_500,pass probability at the nominal truth,0.8489780599625945,,,
+BD-0,"MULTI interval_calibration/correctly_specified, SE-ratio leg",pass probability at the nominal truth,0.8336319521671907,,,

@@ -1,0 +1,15 @@
+=== BD-0, cap None
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle\.venv\Scripts\python.exe' 'C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\tests\diagnostics\rm18_boundary\run.py' --part BD-0 --output C:/Users/erics/rm18_scratch/runs/rm18_boundary
+commit: 57f38e4cfed7a64c3cf10f2e001eb3fd02093dc8; upstream 57f38e4cfed7a64c3cf10f2e001eb3fd02093dc8
+clean tree: True
+cleverly 0.1.2 from C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\__init__.py
+python 3.13.7; numpy 2.4.6; scipy 1.18.0; pandas 3.0.5; scikit-learn 1.9.0; joblib 1.5.3
+installed distributions: 130, sha256 f4b33890dcf2623521a239ea0ba2ac74046a0304cc8d4b96933ca443c5644ebd
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 16
+started: 2026-09-27T07:45:13+00:00
+finished: 2026-09-27T07:45:13+00:00
+wall seconds: 0.0
+exit code: 0
+sha256 bd-0-reading.csv: 630e9ba7f06db751a007865ddd947a02648d3787716e598d2a978b67e836fe37
+
