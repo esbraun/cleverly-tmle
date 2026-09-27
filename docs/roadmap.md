@@ -365,7 +365,7 @@ of a randomized law. There, the pooled intercept made the slope $-2$ at three fo
 applied to in-sample slopes too. The longitudinal report put a logistic and a linear slope under
 one name.
 
-Pull request NNN delivered this row. The table gives what shipped. Commit `87b13e7d` holds the
+Pull request 242 delivered this row. The table gives what shipped. Commit `87b13e7d` holds the
 probe tables, the design and the study declaration. Read it with `git show 87b13e7d:docs/roadmap.md`.
 
 | part | what shipped |
