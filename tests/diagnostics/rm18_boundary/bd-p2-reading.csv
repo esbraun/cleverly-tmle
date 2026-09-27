@@ -1,0 +1,47 @@
+part,scope,statistic,value,ci_lower,ci_upper,result
+BD-P2,the pilot is the committed pilot,largest scaled difference,0.0,,,holds over 1
+BD-P2,"ey_regimen[always], native",paired difference,0.0028874213520142093,-3.0525276203740153e-05,3.824965079304512e-05,value is the margin
+BD-P2,"ey_regimen[always], native",RMSE ratio bound,1.0083886527636294,,,
+BD-P2,"ey_regimen[always], native",coverage difference bound,-0.03453649708425498,,,
+BD-P2,"ey_regimen[always], native",calibration excess bound,-0.15814792186481463,,,
+BD-P2,"ey_regimen[always], native",calibration excess resolution,0.02565429768045846,,,
+BD-P2,"ey_regimen[always], native",conclusion,,,,inconclusive
+BD-P2,"ey_regimen[never], native",paired difference,0.004656617638612254,-1.3508034668474627e-06,0.00012166147732380751,value is the margin
+BD-P2,"ey_regimen[never], native",RMSE ratio bound,1.012631513988951,,,
+BD-P2,"ey_regimen[never], native",coverage difference bound,-0.012618137944902474,,,
+BD-P2,"ey_regimen[never], native",calibration excess bound,-0.002719462490560831,,,
+BD-P2,"ey_regimen[never], native",calibration excess resolution,0.02446956943970473,,,
+BD-P2,"ey_regimen[never], native",conclusion,,,,equivalent
+BD-P2,"ey_regimen[treat then continue if l2 positive], native",paired difference,0.0031296013723267724,-7.388076870326724e-05,3.159579490962854e-05,value is the margin
+BD-P2,"ey_regimen[treat then continue if l2 positive], native",RMSE ratio bound,1.016183208456843,,,
+BD-P2,"ey_regimen[treat then continue if l2 positive], native",coverage difference bound,-0.033732656344258996,,,
+BD-P2,"ey_regimen[treat then continue if l2 positive], native",calibration excess bound,-0.12163874206854325,,,
+BD-P2,"ey_regimen[treat then continue if l2 positive], native",calibration excess resolution,0.024517202079175793,,,
+BD-P2,"ey_regimen[treat then continue if l2 positive], native",conclusion,,,,inconclusive
+BD-P2,"ey_regimen[always], hajek",paired difference,0.0028874213520142093,-3.0525276203740153e-05,3.824965079304512e-05,value is the margin
+BD-P2,"ey_regimen[always], hajek",RMSE ratio bound,1.0083886527636294,,,
+BD-P2,"ey_regimen[always], hajek",coverage difference bound,-0.0020108586366378444,,,
+BD-P2,"ey_regimen[always], hajek",calibration excess bound,0.005184181959000723,,,
+BD-P2,"ey_regimen[always], hajek",calibration excess resolution,0.008137291636911459,,,
+BD-P2,"ey_regimen[always], hajek",conclusion,,,,equivalent
+BD-P2,"ey_regimen[never], hajek",paired difference,0.004656617638612254,-1.3508034668474627e-06,0.00012166147732380751,value is the margin
+BD-P2,"ey_regimen[never], hajek",RMSE ratio bound,1.012631513988951,,,
+BD-P2,"ey_regimen[never], hajek",coverage difference bound,-0.004122260205107581,,,
+BD-P2,"ey_regimen[never], hajek",calibration excess bound,0.008314789165386242,,,
+BD-P2,"ey_regimen[never], hajek",calibration excess resolution,0.0026875993166493514,,,
+BD-P2,"ey_regimen[never], hajek",conclusion,,,,equivalent
+BD-P2,"ey_regimen[treat then continue if l2 positive], hajek",paired difference,0.0031296013723267724,-7.388076870326724e-05,3.159579490962854e-05,value is the margin
+BD-P2,"ey_regimen[treat then continue if l2 positive], hajek",RMSE ratio bound,1.016183208456843,,,
+BD-P2,"ey_regimen[treat then continue if l2 positive], hajek",coverage difference bound,-0.0048763321938467726,,,
+BD-P2,"ey_regimen[treat then continue if l2 positive], hajek",calibration excess bound,0.007193181399745055,,,
+BD-P2,"ey_regimen[treat then continue if l2 positive], hajek",calibration excess resolution,0.002044141952334091,,,
+BD-P2,"ey_regimen[treat then continue if l2 positive], hajek",conclusion,,,,equivalent
+BD-P2,ey_regimen[never],cleverly coverage,,0.9388855059017513,0.947387827799163,
+BD-P2,ey_regimen[never],cleverly SE ratio,0.9938475105869865,,,
+BD-P2,ey_regimen[always],cleverly coverage,,0.9431020554865364,0.9513132304386576,
+BD-P2,ey_regimen[always],cleverly SE ratio,0.9994595828138999,,,
+BD-P2,ey_regimen[treat then continue if l2 positive],cleverly coverage,,0.9400821490787082,0.9485030977996876,
+BD-P2,ey_regimen[treat then continue if l2 positive],cleverly SE ratio,0.9925681082835524,,,
+FW-B,ey_regimen[never],reading,,,,equivalent at the declared budget
+BD-P,ey_regimen[always],reading,,,,comparator SE convention
+BD-P,ey_regimen[treat then continue if l2 positive],reading,,,,comparator SE convention
