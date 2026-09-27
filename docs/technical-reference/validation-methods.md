@@ -798,7 +798,7 @@ before every refusal.
 
 | order | request | what happens |
 | --- | --- | --- |
-| 1 | an empty `covariates`, an indicator column of an encoded covariate, or a name that the fit does not adjust for | `DataError`. The message lists the covariates of the fit, with an encoded covariate once by its column name |
+| 1 | an empty `covariates`, an indicator column of an encoded covariate, or a name that the fit does not adjust for | `DataError`. The message for an unknown name lists the covariates of the fit, with an encoded covariate once by its column name |
 | 2 | a result that holds no estimator | `CapabilityError` |
 | 3 | a `nu2_estimator` outside the three accepted values | `ValueError` |
 | 4 | a fit that the table above refuses | `CapabilityError` with that table's sentence |
@@ -808,8 +808,10 @@ before every refusal.
 Name an encoded categorical covariate by its column. The refit then drops the whole block of
 indicator columns, because one indicator alone does not define a covariate. The class
 `TestBenchmarkNamesAreLogicalCovariates` in `tests/unit/test_summary_and_message_accuracy.py`
-checks the dropped block. The facade and a combined report read a one-shot iterator argument once,
-into a tuple. A generator of names therefore gives the same result as a list.
+checks the dropped block. A boolean covariate is one column under its own name, and a benchmark
+names it directly. The facade and a combined report read a one-shot iterator argument once, into
+a tuple, and the assessment cache keys the answer by that tuple. A generator of names therefore
+gives the same result as a list.
 
 The `benchmark` capability row reads the same predicate for each request. On a fit with one
 covariate, the bare row reads `unavailable`, because no value runs. On a wider fit, the bare row
