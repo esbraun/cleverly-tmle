@@ -1,7 +1,7 @@
 # Canonical DR-TMLE
 
 This reporting study evaluates the binary complete-data DR-TMLE against the primary simulation
-law in Benkeser et al. (2017), Section 4, and against R
+law in Benkeser et al. (2017), Section 5.1, and against R
 [`drtmle`](https://github.com/benkeser/drtmle) 1.1.2 at pinned commit
 [`538a3a2`](https://github.com/benkeser/drtmle/tree/538a3a264c1ca984b6d88978ca7f96165f43152c).
 The truth and acceptance rules do not come from the R implementation: treatment-specific means
@@ -17,7 +17,7 @@ equivalence, coverage superiority, or an inconclusive result without selecting o
 
 | setting | `cleverly` | R `drtmle` |
 | --- | --- | --- |
-| data-generating law | binary complete-data law from Benkeser et al. (2017), Section 4 | identical realized rows |
+| data-generating law | binary complete-data law from Benkeser et al. (2017), Section 5.1 | identical realized rows |
 | nuisance regimes | outcome correct, treatment correct, and both correct | identical nuisance predictions supplied as `Qn` and `gn` |
 | cross-fitting | one deterministic unstratified ten-fold assignment, drawn by `random_partition` from the sample seed | the identical fold vector through the package's documented `cvFolds` route |
 | construction | pooled cross-fitted, univariate reductions, guards `Q` and `g`, R-package update order | native `drtmle()` with the corresponding univariate guards and two Q steps |

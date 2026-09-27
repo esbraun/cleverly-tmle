@@ -1697,8 +1697,9 @@ Two names are inverted between the papers and the `benkeser/drtmle` source. This
 transcribe backwards. No R enters this repository or its CI, so the pinned source is provenance
 rather than a comparison target.
 
-- van der Laan (2014), *Targeted estimation of nuisance parameters to obtain valid statistical
-  inference*, International Journal of Biostatistics 10(1):29–57. **Theorem 3** is the bivariate
+- van der Laan (2014), [*Targeted estimation of nuisance parameters to obtain valid statistical
+  inference*](https://doi.org/10.1515/ijb-2012-0038), International Journal of Biostatistics
+  10(1):29–57, DOI 10.1515/ijb-2012-0038. **Theorem 3** is the bivariate
   construction's binary targeted recursion and asymptotic-linearity result; its proof supplies the
   corrected influence function and product-remainder conditions. Read first-hand for the bivariate
   implementation; the later univariate result remains the default.
@@ -1712,8 +1713,9 @@ rather than a comparison target.
   [*Doubly robust nonparametric inference on the average treatment effect*](https://pmc.ncbi.nlm.nih.gov/articles/PMC5793673/),
   *Biometrika* 104(4):863–880. The **published** version of the above, and authoritative wherever
   the two differ. Read first-hand. Theorem 1 states the score and remainder conditions for
-  asymptotic linearity. Section 4 supplies the binary simulation law and its three nuisance
-  scenarios.
+  asymptotic linearity. Section 4 treats doubly robust inference by one-step estimation.
+  Section 5 is the simulation study.
+  Section 5.1 supplies the binary simulation law and its three nuisance scenarios.
 - Benkeser & Hejazi (2023), [*Doubly-Robust Inference in R using
   `drtmle`*](https://doi.org/10.1353/obs.2023.0017), *Observational Studies* 9(2):43–78, DOI
   10.1353/obs.2023.0017. Read first-hand. Multi-level treatments are §4.6, pp. 66–67;
