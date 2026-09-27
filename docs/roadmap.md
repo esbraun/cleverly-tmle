@@ -1503,7 +1503,8 @@ of the equation-(8) solve. The mechanism term is then the unconstrained tilt tha
 
 The guards of R act only on the steps of R. At K = 1, every guarded step is a `cleverly` solver,
 so no guard acts. At K = 0, the guards act on the outcome steps, and at J = 0 also on the
-mechanism step.
+mechanism step. K's contrast includes removing R's guards on the steps K replaces; G reads
+`T(0, 0, 0, 0)` alone.
 
 Every arm reads the shared initial arrays of one draw. These are `qn0`, `qn1` and `gn1` from the
 `C` fit, as `_replicate` builds the payload for R. `T0+G` equals `T(0, 0, 0, 0)` exactly on a
@@ -1705,11 +1706,20 @@ review read the scratch directory of the 32-draw run.
 | the timing smoke at `--replicates 32` | the first 32 Part B draws, the first 32 Part C draws at each size, and V4 on the first 32 Part B draws | the same reading rows, labelled as a smoke run. The V4 values motivated the tolerance amendment above |
 | the harness review | the scratch files of the 32-draw smoke, and registered draws | per-draw `T(1, 1, 1) - C`, with SD 5.1e-4 on Part A and 1.07e-3 on Part B, and single draws to 3.4e-3. That finding led to factor K |
 | the investigation of the review finding | registered Part A draws only: all 800 of each scenario | the step-by-step and per-draw differences between `C` and variants of `T(1, 1, 1)`, round counts and guard counts. One `C` `ate` was printed, on `treatment_correct` draw 25. No attribution statistic was computed: no `C - T(0, 0, 0)`, no main effect and no value of `T(0, 0, 0)` |
-| the runtime measurement of this amendment | registered Part A draws only | wall time alone |
+| the timing probe of this amendment | registered draws: 32 of each scenario with the Part A arms, and 32 of `treatment_correct` with the Part B arms | the wall time alone: 243.8 s and 158.1 s |
+| the Part A smoke run at `--replicates 4` for this amendment. It ran from 20:15 to 20:17 UTC on commit `8e3b16ba`, with the K changes uncommitted in the tree. Commit "Amend the RM19 design with the outcome-step factor K" followed at 20:21 UTC | registered draws 0 to 3 of each scenario | every Part A reading row, labelled as a smoke run. On `treatment_correct`, these rows are the committed-draw attribution: `C - T(0, 0, 0, 0)` of 0.00208, the main effects of J, P, S and K, the bracket, the two-way contrasts and the K decomposition. The run also printed P-ctrl, V1, V2, V3 and V5. The harness README gives its wall time of 128.0 s as a runtime measurement |
 
-No rule of this amendment refers to a smoke value of a fresh draw. The amendment changes the
-arms, the family, V5 and the K decomposition, and it keeps every budget, margin, resolution,
-primary reading and bracket width.
+More reads followed this amendment, before any declared part ran.
+
+| read after this amendment | draws | what was printed and seen |
+| --- | --- | --- |
+| the smoke runs at `--replicates 4`, from 20:24 to 20:30 UTC on commit `cee7ecd6`, with the harness changes uncommitted in the tree | Part A on registered draws 0 to 3 of each scenario again; the first 4 Part B draws; V4 on the first 4 Part B draws; the first 4 Part C draws at each size | Part A printed the rows of the previous table again. Part B printed its validation rows and `harness not validated, no reading`, because V4 had not run. After V4, read-only rebuilds printed the Part A and Part B readings. For Part B, these rows include `C - T(0, 0, 0, 0)`, the main effects of J, P, S, K and G, the bracket, the two-way contrasts and the localization row. Part C printed `sqrt(n)` times `C - T(0, 0, 0, 0)` at each size, and the context rows. V4 printed its validation rows |
+| the exit codes of those smoke runs | the same | the first V4 smoke exited with code 1, because of a defect in the reading table of the harness. Commit "Add the outcome-step factor to the RM19 harness" fixed it. A second V4 smoke and a second Part C smoke exited with code 0 |
+| the K8 re-review of this amendment and of the K harness | registered draws only for its own probes, including `treatment_correct` 14, 19 and 25, `both_correct` 19 and `outcome_correct` 21 | `T(1, 1, 1, 1) - C`, the rounds, the exits and the guard events of each arm, with and without two mutations of the stall objective. A text search of the smoke files showed one committed-draw `C - T(0, 0, 0, 0)` point, 0.00208, and the fresh-draw bracket value 0.0 |
+
+No rule refers to a value that a read in these tables printed. The amendment changes the arms,
+the family, V5 and the K decomposition, and it keeps every budget, margin, resolution, primary
+reading and bracket width.
 
 ##### Runtime
 
