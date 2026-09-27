@@ -5,16 +5,24 @@ accepts. This module holds the witnesses of the rows that RM16a corrects:
 
 * the missing-outcome ``DataError`` and its two sensitivity siblings name ``missingness=`` on
   ``PointTreatment`` beside ``delta=`` on ``fit()`` or ``CausalData``;
-* the in-sample C-TMLE selection-fold refusal and its nuisance-fold backstop name the selection
-  fold and a remedy that draws no selection split, while a cross-fitted ``TMLE`` keeps the
-  in-sample remedy;
-* the continuous-treatment ``DataError`` names F21 and the in-sample fit on a cross-fitted fit
-  with ``delta=``, and the in-sample fit it names runs;
+* the in-sample C-TMLE selection-fold refusal names the selection fold, or the inner fold of
+  the nested split, and a remedy that runs as written.  The nuisance-fold backstop names the
+  same remedy, and a cross-fitted ``TMLE`` keeps the in-sample remedy;
+* the continuous-treatment ``DataError`` names F21 and the in-sample fit on a cross-fitted
+  ``TMLE`` with missing outcomes, and the in-sample fit it names runs.  A cross-fitted ``CTMLE``
+  or ``DRTMLE`` refuses the dose without shift advice;
 * ``benchmark`` refuses an empty request and an indicator column, accepts the logical name of
-  an encoded covariate, and drops its whole block;
-* a facade reads a one-shot iterator once, on a direct call and in a combined report;
+  an encoded covariate, drops its whole block, and accepts a boolean covariate;
+* a facade reads a one-shot iterator once, on a direct call, in a combined report and in the
+  cache key;
 * the guarded DR-TMLE truncation curve refuses a refused refit configuration through the row,
   the facade and the module call alike.
+
+The backstop witness reaches the outcome regression of ``_selection_base``, which trains on
+the respondents.  The other two selection calls of ``cross_fit_predictions``, the propensity of
+``_fit_propensity_with`` and the missingness regression of ``_selection_base``, pass the same
+constant and need a training set with no rows at all, which no preflight-free frame here
+builds.
 
 The mutation controls are hand mutations, recorded in the RM16a pull request: each reverts one
 correction and names the test here that fails.
@@ -30,6 +38,7 @@ import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import ATE, CausalStudy, PointTreatment
+from cleverly.data.validate import MISSING_OUTCOME_DECLARATION
 from cleverly.datasets import make_linear_ate, make_missing_outcome_binary
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError, DataError
@@ -39,16 +48,8 @@ from cleverly.sensitivity.positivity import truncation_curve
 from tests.conftest import linear_in_sample
 from tests.unit import _capability_sweep_support as sweep
 from tests.unit import test_fold_policy_rules as fold_rules
-from tests.unit.test_fold_policy_rules import bounded_fit, respondents_in_one_fold
 
 # ------------------------------------------------------------ row 6: missing outcomes
-
-
-def _declaration() -> str:
-    """The shared remedy, imported where it is read so the module collects before the fix."""
-    from cleverly.data.validate import MISSING_OUTCOME_DECLARATION
-
-    return MISSING_OUTCOME_DECLARATION
 
 
 def _missing_frame() -> pd.DataFrame:
@@ -81,7 +82,7 @@ class TestTheMissingOutcomeRemedyNamesBothSpellings:
     """Row 6. One remedy names ``missingness=`` and ``delta=``, at three sites."""
 
     def test_the_declaration_names_the_study_and_the_direct_spelling(self) -> None:
-        assert _declaration() == (
+        assert MISSING_OUTCOME_DECLARATION == (
             "missingness=<column> on PointTreatment, or delta=<column> on fit() or CausalData"
         )
 
@@ -90,16 +91,18 @@ class TestTheMissingOutcomeRemedyNamesBothSpellings:
             CausalStudy(_missing_frame(), design=_design())
         assert str(raised.value) == (
             "Y has 48 missing value(s) but no missingness indicator was supplied. Declare one "
-            f"(1 = outcome observed) with {_declaration()}, so the missingness mechanism is "
+            f"(1 = outcome observed) with {MISSING_OUTCOME_DECLARATION}, so the missingness mechanism is "
             "estimated and enters the clever covariate."
         )
 
     def test_a_direct_fit_without_delta_reads_the_same_sentence(self) -> None:
-        with pytest.raises(DataError) as raised:
+        with pytest.raises(DataError) as study:
+            CausalStudy(_missing_frame(), design=_design())
+        with pytest.raises(DataError) as direct:
             TMLE(**linear_in_sample()).fit(
                 _missing_frame().drop(columns=["Delta"]), outcome="Y", treatment="A"
             )
-        assert f"Declare one (1 = outcome observed) with {_declaration()}, so" in str(raised.value)
+        assert str(direct.value) == str(study.value)
 
     def test_the_named_study_declaration_runs(self) -> None:
         """The remedy's first spelling fits the frame the refusal came from."""
@@ -124,14 +127,14 @@ class TestTheMissingOutcomeRemedyNamesBothSpellings:
             _complete_study_fit().sensitivity.missingness([1.0, 2.0])
         assert str(raised.value).endswith(
             "missingness_tilt requires a fit with missing outcomes. Declare the indicator "
-            f"with {_declaration()}, so the missingness mechanism is estimated."
+            f"with {MISSING_OUTCOME_DECLARATION}, so the missingness mechanism is estimated."
         )
 
     def test_the_mechanism_axis_refusal_names_both_spellings(self) -> None:
         with pytest.raises(CapabilityError) as raised:
             _complete_study_fit().diagnostics.truncation_curve([0.05], mechanism=True)
         assert str(raised.value).endswith(
-            f"Declare the indicator with {_declaration()}, or the intermediate variable with "
+            f"Declare the indicator with {MISSING_OUTCOME_DECLARATION}, or the intermediate variable with "
             "intermediate=<column> on PointTreatment or fit()."
         )
 
@@ -168,7 +171,7 @@ class TestTheSelectionSplitRefusalOffersAnInSampleFitNothing:
     )
 
     def test_the_preflight_names_the_selection_fold_and_its_remedy(self) -> None:
-        frame, seed = respondents_in_one_fold()
+        frame, seed = fold_rules.respondents_in_one_fold()
         with pytest.raises(DataError) as raised:
             _selection_fit(seed).fit(frame, **_SELECTION_COLUMNS)
         message = str(raised.value)
@@ -185,7 +188,7 @@ class TestTheSelectionSplitRefusalOffersAnInSampleFitNothing:
         The ordinary remedy is ``TMLE(cross_fit=False)``, given only the explicit learners
         a fast test needs in place of the default library.
         """
-        frame, seed = respondents_in_one_fold()
+        frame, seed = fold_rules.respondents_in_one_fold()
         refused = _selection_fit(seed)
         oat = CTMLE(
             strategy="oat",
@@ -205,9 +208,21 @@ class TestTheSelectionSplitRefusalOffersAnInSampleFitNothing:
         assert "ate" in oat.fit(frame, **_SELECTION_COLUMNS).single().estimates
         assert "ate" in ordinary.fit(frame, **_SELECTION_COLUMNS).single().estimates
 
+    def test_the_nested_split_names_its_inner_fold(self) -> None:
+        """Seed 0 passes the selection split and strands the respondents of a nested split."""
+        frame, _ = fold_rules.respondents_in_one_fold()
+        with pytest.raises(DataError) as raised:
+            _selection_fit(0).fit(frame, **_SELECTION_COLUMNS)
+        message = str(raised.value)
+        assert message.startswith(
+            "the nested split of C-TMLE selection fold 5 cannot fit its nuisances because "
+            "inner fold 1's training complement contains no row with an observed outcome."
+        )
+        assert f"Either {self.REMEDY}, or collect more observations" in message
+
     def test_the_backstop_names_the_selection_remedy(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(TMLE, "_check_training_support", lambda *a, **k: None)
-        frame, seed = respondents_in_one_fold()
+        frame, seed = fold_rules.respondents_in_one_fold()
         with pytest.raises(ValueError) as raised:
             _selection_fit(seed).fit(frame, **_SELECTION_COLUMNS)
         message = str(raised.value)
@@ -219,7 +234,7 @@ class TestTheSelectionSplitRefusalOffersAnInSampleFitNothing:
         """The control: a cross-fitted outer split can be fitted in sample instead."""
         frame, seed = fold_rules.TestAStrandedArmIsRefusedBeforeAnyLearner.stranded_frame()
         with pytest.raises(DataError) as raised:
-            bounded_fit(n_folds=10, random_state=seed).fit(
+            fold_rules.bounded_fit(n_folds=10, random_state=seed).fit(
                 frame, outcome="Y", treatment="A", covariates=["W1", "W2"]
             )
         message = str(raised.value)
@@ -462,11 +477,11 @@ class TestAFacadeReadsAnIteratorOnce:
         generated = result.diagnostics.refute(
             tests=(name for name in ["placebo"]), n_replicates=1, random_state=1
         )
-        assert [test.name for test in generated.tests] == [test.name for test in listed.tests]
-        assert len(generated.tests) == 1
+        assert [test.name for test in generated.tests] == ["placebo"]
+        pd.testing.assert_frame_equal(generated.to_frame(), listed.to_frame())
 
-    def test_a_combined_report_reads_each_generator_once(self) -> None:
-        """``assess()`` checks its arguments before it runs them, and runs the names given."""
+    def test_a_combined_report_runs_and_records_the_generated_names(self) -> None:
+        """``assess()`` runs each operation on the generated names and records them."""
         result = sweep.fit_ordinary()
         report = result.assess(
             include_refits=True,

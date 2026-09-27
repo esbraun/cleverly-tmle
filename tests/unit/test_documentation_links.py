@@ -32,6 +32,7 @@ unchecked, and there is a lot of it -- so this is one hole closed rather than th
 from __future__ import annotations
 
 import ast
+import functools
 import importlib
 import json
 import re
@@ -376,14 +377,15 @@ TEST_REFERENCE = re.compile(r"(tests/[\w/]+\.py)::(\w+)")
 LOCAL_TEST_CLASS = re.compile(r":class:`(Test\w+)`")
 
 
-def defined_names(path: Path) -> set[str]:
+@functools.cache
+def defined_names(path: Path) -> frozenset[str]:
     """Every class and function name that ``path`` defines, at any depth."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    return {
+    return frozenset(
         node.name
         for node in ast.walk(tree)
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
-    }
+    )
 
 
 def test_every_named_test_exists() -> None:
