@@ -1409,7 +1409,7 @@ gives its priority and the reason for its place.
 | question | state |
 | --- | --- |
 | does `cleverly` add bias over R `drtmle` on this configuration | measured by the declared unadjusted interval, which excludes zero. The Bonferroni interval covers zero |
-| which step of the `cleverly` fit produces the increment | open. Declared in "[The localization design, declared before it runs](#the-localization-design-declared-before-it-runs)"; not run |
+| which step of the `cleverly` fit produces the increment | open. Declared in "[The localization design, declared before it runs](#the-localization-design-declared-before-it-runs)". Part A ran and read `harness not validated, no reading`, and the V2 rule was amended after it ("[The amendment after the Part A validation failure](#the-amendment-after-the-part-a-validation-failure)"). Parts B and C have not run |
 | does the increment change with the sample size | open. The paired rows exist at n = 3,000 alone. RM18 design BD read the binary `treatment_correct` rung at n = 1,500 on fresh draws, for `cleverly` alone and unpaired. Its bias interval of 0.00774 to 0.00965 moves nothing ("[What design BD found](#what-design-bd-found)"). Part C of the localization design reads the paired increment at n = 1,500 and 6,000; declared, not run |
 | the multi-arm `double_robustness/treatment_correct` excess | one stream reads `finite-sample excess detected`. The independent rung does not reproduce it, and the pooled comparison covers zero. The overall evidence is inconclusive. No comparator fits that configuration, so the source is not identified. The localization design cannot read it |
 
@@ -1520,7 +1520,7 @@ elsewhere.
 | Part A, committed draws | the 800 registered primary draws of each of the three scenarios, drawn again from `replicate_seed`. On `treatment_correct`, the arms are `C`, the 16 `T(j, p, s, k)`, `T0+G`, and the four arms of the K decomposition. On `outcome_correct` and `both_correct`, the arms are `C`, `T(0, 0, 0, 0)`, `T(1, 0, 0, 0)`, `T(1, 1, 1, 1)` and `T0+G`. Part A validates the harness and attributes the committed signal. It confirms nothing, because it reads the rows that produced the signal |
 | Part B, fresh draws | 2,000 fresh `treatment_correct` draws at n = 3,000, with the arms `C`, the 16 `T(j, p, s, k)` and `T0+G` |
 | Part C, fresh draws | 2,000 fresh `treatment_correct` draws at n = 1,500, and 2,000 at n = 6,000, with the arms `C` and `T(0, 0, 0, 0)`. Part C is descriptive |
-| V4, the real R check | the pinned container `cleverly-drtmle-reference:538a3a2` runs `run_drtmle.R`, unchanged, on the first 200 Part B draws, in a scratch directory. The call is `Reference.run` with the arguments of `tests/canonical/drtmle/regenerate.py`, and at most 7 R workers |
+| V4, the real R check | the pinned container `cleverly-drtmle-reference:538a3a2` runs `run_drtmle.R`, unchanged, on the first 200 Part B draws, in a scratch directory. The call is `Reference.run` with the image and build context of `tests/canonical/drtmle/regenerate.py`, and at most 7 R workers. The runner is the counting wrapper of rule 1 below, which sources `run_drtmle.R` |
 | order | A, then B, then V4, then C. Part B starts only when the pushed upstream holds the Part A validation record and every Part A check holds. V4 starts only when the pushed upstream holds the Part B rows. Part C starts only when the pushed upstream holds the Part A validation record, the Part B rows and the V4 validation record |
 | budget | `R_B = 2,000` in each part. The rule is the Monte Carlo standard error of a mean, `SD / sqrt(R)`, from Morris, White and Crowther (2019), Table 6. The 99% half-width target is one fifth of the distance from 0 to the registered similarity margin of the `ate` row, 0.002990 (`equivalence.csv`, `mean_margin`), so it is 0.000598. The SD is the committed paired SD, 0.010261. `ceil((2.575829 * 0.010261 / 0.000598)^2)` = 1,954, rounded up to 2,000 |
 | seeds | the draw seed of replicate `k` of Part B or Part C at size `n` is `stream_seed(BINARY, "rm19", "one-sided-increment", n, k)`. The fold draw uses `seed + 1` |
@@ -1554,17 +1554,42 @@ Each part also records instruments for each draw. No rule reads them.
 | check | declaration |
 | --- | --- |
 | V1 | the `C` fits of Part A reproduce all 2,400 committed `cleverly` rows. `estimate` and `std_error` of the three estimands must satisfy `abs(new - committed) <= 1e-9 * max(1, abs(committed))`, with the committed rows parsed by `pandas.read_csv(..., float_precision="round_trip")` |
-| V2 | `T(0, 0, 0, 0)` reproduces all 2,400 committed `drtmle-r` rows, in the same columns. The `std_error` is the covariance of `DnoStar - DnQoStar - DngoStar` that R forms under `targeted_se` (`drtmle.R`), transcribed. The tolerance depends on the exit status of the draw, as the next table states |
+| V2 | `T(0, 0, 0, 0)` reproduces all 2,400 committed `drtmle-r` rows, in the same columns. The `std_error` is the covariance of `DnoStar - DnQoStar - DngoStar` that R forms under `targeted_se` (`drtmle.R`), transcribed. The tolerance depends on the round, the exit status and the conditioning of the draw, as "[The rule by round and conditioning](#the-rule-by-round-and-conditioning)" states |
 | V3 | the shared initial arrays of every Part A draw reproduce the committed `drtmle-r` `initial_estimate` of each estimand to 1e-12 |
 | V4 | the R rows of the first 200 Part B draws, `estimate` and `std_error` of the three estimands, equal the Part B `T(0, 0, 0, 0)` rows, with the tolerance of V2. The `C` refit that rebuilds each payload must equal its Part B `C` row to the V1 tolerance |
 | V5 | on every Part A draw of the three scenarios, `T(1, 1, 1, 1)` reproduces `C`. The `estimate` of each of the three estimands must satisfy `abs(T - C) <= 1e-9 * max(1, abs(C))` |
-| outcome | a V1, V2, V3 or V5 miss stops the design with `harness not validated, no reading`. An exit-status mismatch in V4 also stops the design, so the Part A and Part C readings fold in the V4 exit-status check when a V4 record exists. Any other V4 miss, or a V4 that has not run, gives Part B the same reading. Part C reads on V1, V2, V3, V5 and the V4 exit-status check |
+| outcome | a V1, V2, V3 or V5 miss stops the design with `harness not validated, no reading`. A V4 miss of rule 5 below, a round or exit that differs without a twin that differs, also stops the design. The Part A and Part C readings therefore fold in that V4 check when a V4 record exists. Any other V4 miss, or a V4 that has not run, gives Part B the same reading. Part C reads on V1, V2, V3, V5 and that V4 check |
 
 The exit status of a draw is `tolIC` when the largest absolute score mean of the R fit is at most
 `tolIC = 1e-8`, and `maxIter` otherwise. V2 and V4 read it for R and for `T(0, 0, 0, 0)` on
 every draw.
 
-| exit status | V2 and V4 rule |
+(the-rule-by-round-and-conditioning)=
+##### The rule by round and conditioning
+
+Commit "Amend the RM19 V2 and V4 rule after the Part A failure" replaced the exit-status rule of
+commit `520daebd` by this rule. V2 and V4 apply it to every draw. "[The amendment after the Part
+A validation failure](#the-amendment-after-the-part-a-validation-failure)" gives the reason.
+
+| rule | V2 and V4 |
+| --- | --- |
+| 1 | a counting wrapper in the pinned image, `count_rounds.R`, sources `run_drtmle.R` unchanged and counts the calls of `fluctuateG`. R makes one call in each round of its loop. The wrapper uses at most 8 R workers, and it stops when a worker returns no result. For V2, its rows must reproduce the committed `drtmle-r` rows, `estimate` and `std_error`, to 1e-15 |
+| 2 | the twin of a draw is `T(0, 0, 0, 0)` with a QR least-squares solve in place of LAPACK `gelsd`. A draw is rounding-sensitive when the twin changes the round count or the exit of `T(0, 0, 0, 0)`, or moves an estimate or a standard error by more than 1e-12 |
+| 3 | same round and exit, and not sensitive: 1e-9 on the estimates and standard errors, and 1e-4 on a draw where both sides reach `maxIter`, as declared. A miss fails the check |
+| 4 | same round and exit, and sensitive: the draw passes when `abs(T - R) <= 1e-7` and the shift of the twin is at least `0.1 abs(T - R)` |
+| 5 | different round or exit: allowed only when the twin itself changes the round or the exit. The draw then passes at 1e-4. Otherwise the check fails |
+| 6 | the check reports the count of excused draws and their signed mean `ate` difference, `T(0, 0, 0, 0)` minus R. An excused draw is one that rule 3 fails and rule 4 or rule 5 passes |
+| 7 | a fast-tier mutation witness: a one-step defect of the size that the harness review found, a changed `glm` tolerance of the `gr1` reduction, fails rule 3 |
+
+`abs(T - R)` is the largest scaled difference of the draw over its three estimates and three
+standard errors. The shift of the twin is the same quantity for the twin against
+`T(0, 0, 0, 0)`. Rule 4 applies to a draw that exits at `tolIC` on both sides. A draw that reaches
+`maxIter` on both sides keeps the 1e-4 of rule 3, sensitive or not, as the earlier amendment
+declared.
+
+Part A read the earlier rule, which this table states.
+
+| exit status | V2 and V4 rule of commit `520daebd` |
 | --- | --- |
 | the two exit statuses differ | the check fails. A mismatch on any draw stops the design with `harness not validated, no reading` |
 | `tolIC` on both sides | `abs(new - committed) <= 1e-9 * max(1, abs(committed))`, as V1 |
@@ -1581,6 +1606,7 @@ differed by 5.2e-8 and 6.2e-6.
 The 1e-4 tolerance cannot detect a small shift that is the same on every `maxIter` draw. Each
 part therefore reports the signed mean `ate` difference, `T(0, 0, 0, 0)` minus R, over its
 `maxIter` draws. The value goes to `run.log` and to a supplementary reading row. No rule reads it.
+The count and the signed mean of rule 6 go to the same places.
 
 ##### The amendment after the harness review
 
@@ -1600,6 +1626,69 @@ steps of the two implementations as the same. They are not.
 K is a named difference that no earlier factor covered. The design adds it as a full factor, so
 the arms double to 16 in parts A and B. The resolution, `R_B`, the margins, the primary reading and
 the bracket width stay as declared.
+
+(the-amendment-after-the-part-a-validation-failure)=
+##### The amendment after the Part A validation failure
+
+Under the rule of `520daebd`, Part A read `harness not validated, no reading` (`b51447cb`). That
+outcome stands in the record. V2 failed on 3 of the 2,400 committed draws, all on
+`treatment_correct`. The amendment in "[The rule by round and
+conditioning](#the-rule-by-round-and-conditioning)" came after that failure. It was made on
+committed draws only, and no fresh draw was read for it.
+
+A diagnosis compared the two loops round by round. A wrapper of the internal functions of R, in
+the pinned image, recorded each array of each round, and a copy of the `T(0, 0, 0, 0)` loop
+recorded the same arrays. In round 0, every quantity agreed to 5e-14 or better on the three draws.
+The diagnosis found no transcription defect.
+
+| draw | rounds, `T(0, 0, 0, 0)` and R | exit, `T(0, 0, 0, 0)` and R | largest difference | cause |
+| --- | --- | --- | --- | --- |
+| 568 | 10 and 10 | `tolIC` and `tolIC` | 2.2e-9 (`ey0`, `ate`) | in round 3, the `glm` of the equation-(10) step on arm 0 stops after 9 iterations in R and 10 in the transcription. One row has `Y = 0` at a fitted mean of 1 - 9.4e-13, so its deviance term loses precision. The convergence value is 9.07e-9 in R and 1.44e-8 in the transcription, on the two sides of the `epsilon` of 1e-8 |
+| 50 | 81 and 85 | `tolIC` and `tolIC` | 7.6e-5 (`ey0`, `ate`) | the arm-0 means of equations (9) and (10) stay between 1e-7 and 2.6e-5 for more than 60 rounds. Rounding differences of 1e-14 grow round by round, so the round of the first mean below `tolIC` depends on rounding |
+| 754 | 100 and 74 | `cap` and `tolIC` | 1.6e-6 (`ey1`, `ate`) | the same growth, on arm 1. R meets `tolIC` in round 74, and the transcription reaches the cap |
+
+A second check changed only the arithmetic of the transcription. It used a QR least-squares
+solve in place of LAPACK `gelsd`, and separately it changed one input value by one unit in the
+last place.
+
+| draw | `T(0, 0, 0, 0)` with the QR solve | `T(0, 0, 0, 0)` with one changed input |
+| --- | --- | --- |
+| 50 | stops in round 80; `ey0` moves by 4.3e-5 | reaches the cap; `ey0` moves by 5.5e-4 |
+| 754 | meets `tolIC` in round 90 | no change above 1e-15 |
+| 568 | `ey0` moves by 9.6e-10 | `ey0` moves by 7.5e-9 |
+| registered draws 0, 1 and 2 | no estimate moves by more than 1e-13 | the same |
+
+A rerun of R in the pinned image counted the rounds of all 2,400 committed draws. Its estimates
+equal the committed R rows to 5.6e-16. `T(0, 0, 0, 0)` stops in the same round as R on 2,398
+draws, and in another round on draws 50 and 754. The committed R rows hold no round count,
+because `run_drtmle.R` writes none.
+
+Part A does not run again. The new step `AV` rebuilds the payloads of the 2,400 committed draws.
+It runs the counting wrapper of rule 1 on them and fits the twin of rule 2. The step fits no arm
+other than the `C` fit that each payload needs and the twin.
+
+| file of step `AV` | content |
+| --- | --- |
+| `av-rows.csv.gz` | the rows of the R rerun, with the round count of each draw |
+| `av-twin-rows.csv.gz` | the twin rows |
+| `a-validation.csv` | V1 to V5 of Part A again, with V2 computed from the committed `a-rows.csv.gz` and the two files above |
+
+The Part A reading is then rebuilt with `--read-only`. The new files are committed with their
+`run.log` block.
+
+The diagnosis made these reads, all on committed draws. None printed a `C` value, a `T` arm other
+than `T(0, 0, 0, 0)`, or an attribution statistic.
+
+| read | draws | what was printed |
+| --- | --- | --- |
+| the operator's list of the V2 misses | the Part A rows of `T(0, 0, 0, 0)` and the committed R rows | the three draws, their exits, R's `score_max` and the scaled differences |
+| the round-by-round traces | `treatment_correct` 0, 1, 2, 50, 568 and 754 | for each round, the largest relative difference of each array and coefficient, the six score means of each side, the round counts, the exits and the final `ey0` and `ey1` of each side |
+| the `glm` traces of one step | `treatment_correct` 568, round 3 | each iteration of the `glm` of each side, and the deviance near the root |
+| the arithmetic changes | `treatment_correct` 0, 1, 2, 50, 568 and 754 | `T(0, 0, 0, 0)`, its QR twin and a one-ulp variant: rounds, exits, and estimates minus the committed R rows |
+| the round counts | all 2,400 committed draws | the rerun R estimates against the committed R rows, the rounds and exits of `T(0, 0, 0, 0)` and R, and the draws where they differ by more than 1e-12 |
+
+The first counting run used 16 R workers and lost 5 of them to memory. Its 250 missing draws ran
+again at 8 workers. Rule 1 therefore caps the workers at 8 and stops on a lost worker.
 
 ##### The readings
 
