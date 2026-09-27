@@ -1,0 +1,44 @@
+part,scope,statistic,value,ci_lower,ci_upper,result
+BD-P1,native reproduces equivalence.csv,largest scaled difference,0.0,,,holds over 3
+BD-P1,"ey_regimen[always], native",paired difference,0.0031354483902834743,-0.00014959561588177508,0.00020224823896355454,value is the margin
+BD-P1,"ey_regimen[always], native",RMSE ratio bound,1.0162439847730593,,,
+BD-P1,"ey_regimen[always], native",coverage difference bound,-0.0475,,,
+BD-P1,"ey_regimen[always], native",calibration excess bound,0.10497633692652333,,,
+BD-P1,"ey_regimen[always], native",calibration excess resolution,0.11206453849513034,,,
+BD-P1,"ey_regimen[always], native",conclusion,,,,underpowered
+BD-P1,"ey_regimen[never], native",paired difference,0.004659447596488312,-0.0003501479958668163,0.00026347045262475573,value is the margin
+BD-P1,"ey_regimen[never], native",RMSE ratio bound,1.0244638289772459,,,
+BD-P1,"ey_regimen[never], native",coverage difference bound,-0.03,,,
+BD-P1,"ey_regimen[never], native",calibration excess bound,0.04647976124105332,,,
+BD-P1,"ey_regimen[never], native",calibration excess resolution,0.0662234003393288,,,
+BD-P1,"ey_regimen[never], native",conclusion,,,,underpowered
+BD-P1,"ey_regimen[treat then continue if l2 positive], native",paired difference,0.003233597979212088,-0.00011793191274176725,0.000399781607064296,value is the margin
+BD-P1,"ey_regimen[treat then continue if l2 positive], native",RMSE ratio bound,1.0175475896185764,,,
+BD-P1,"ey_regimen[treat then continue if l2 positive], native",coverage difference bound,-0.042512499999999884,,,
+BD-P1,"ey_regimen[treat then continue if l2 positive], native",calibration excess bound,0.03821439431003924,,,
+BD-P1,"ey_regimen[treat then continue if l2 positive], native",calibration excess resolution,0.11190319762759647,,,
+BD-P1,"ey_regimen[treat then continue if l2 positive], native",conclusion,,,,underpowered
+BD-P1,"ey_regimen[always], hajek",paired difference,0.0031354483902834743,-0.00014959561588177508,0.00020224823896355454,value is the margin
+BD-P1,"ey_regimen[always], hajek",RMSE ratio bound,1.0162439847730593,,,
+BD-P1,"ey_regimen[always], hajek",coverage difference bound,-0.0075,,,
+BD-P1,"ey_regimen[always], hajek",calibration excess bound,0.012268943343667304,,,
+BD-P1,"ey_regimen[always], hajek",calibration excess resolution,0.007140876027639197,,,
+BD-P1,"ey_regimen[always], hajek",conclusion,,,,equivalent
+BD-P1,"ey_regimen[never], hajek",paired difference,0.004659447596488312,-0.0003501479958668163,0.00026347045262475573,value is the margin
+BD-P1,"ey_regimen[never], hajek",RMSE ratio bound,1.0244638289772459,,,
+BD-P1,"ey_regimen[never], hajek",coverage difference bound,-0.01875,,,
+BD-P1,"ey_regimen[never], hajek",calibration excess bound,0.019016370643982525,,,
+BD-P1,"ey_regimen[never], hajek",calibration excess resolution,0.008188793105096445,,,
+BD-P1,"ey_regimen[never], hajek",conclusion,,,,equivalent
+BD-P1,"ey_regimen[treat then continue if l2 positive], hajek",paired difference,0.003233597979212088,-0.00011793191274176725,0.000399781607064296,value is the margin
+BD-P1,"ey_regimen[treat then continue if l2 positive], hajek",RMSE ratio bound,1.0175475896185764,,,
+BD-P1,"ey_regimen[treat then continue if l2 positive], hajek",coverage difference bound,-0.0075,,,
+BD-P1,"ey_regimen[treat then continue if l2 positive], hajek",calibration excess bound,0.008899363716909227,,,
+BD-P1,"ey_regimen[treat then continue if l2 positive], hajek",calibration excess resolution,0.011276792291757688,,,
+BD-P1,"ey_regimen[treat then continue if l2 positive], hajek",conclusion,,,,equivalent
+BD-P1,ey_regimen[never],cleverly coverage,,0.9049112258138303,0.952290310252374,
+BD-P1,ey_regimen[never],cleverly SE ratio,0.9881394211682748,,,
+BD-P1,ey_regimen[always],cleverly coverage,,0.9034782775973259,0.9512400565314406,
+BD-P1,ey_regimen[always],cleverly SE ratio,0.9174274484169188,,,
+BD-P1,ey_regimen[treat then continue if l2 positive],cleverly coverage,,0.9179110893453581,0.961636805716896,
+BD-P1,ey_regimen[treat then continue if l2 positive],cleverly SE ratio,0.9627955871907795,,,
