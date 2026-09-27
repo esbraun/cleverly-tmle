@@ -22,13 +22,22 @@ verdict and no committed row.
 - BD-P1 against the committed `equivalence.csv`, and the `hajek` substitution with a nonzero
   witness;
 - the BD-P and FW-B rules through the reading table, with a mutation of each clause;
-- the BD-P2 table rebuilt from a comparisons file;
+- the BD-P1 and pilot comparisons recomputed from their committed paired rows, and the BD-P2
+  table rebuilt from a comparisons file;
 - the pairwise disjointness of every part's seeds on each record, and their distance from every
   registered seed;
-- two registered refits of every re-read cell, and one of the control.
+- two registered refits of every re-read cell, and one of the control;
+- the harness rule on the committed registered rows of each re-read cell, which reproduces the
+  published verdict and every published leg.
 
-Once a part is committed, the test checks its declared budget and rebuilds its reading. BD-P2's
-reading is rebuilt from the committed `bd-p2-comparisons.csv`.
+For each part, the test checks the declared budget of the committed rows and rebuilds the
+reading. A missing committed file fails the test. BD-P2 is the one part whose comparisons the
+test does not recompute from rows, because they take about 40 s. Its reading is rebuilt from the
+committed `bd-p2-comparisons.csv`.
+
+Each part ran once. The roadmap gives the readings in
+"[What design BD found](../../../docs/roadmap.md#what-design-bd-found)" and
+"[What design FW found](../../../docs/roadmap.md#what-design-fw-found)".
 
 ## Run
 
@@ -84,22 +93,17 @@ This table was fixed and committed before the run.
 
 ## Runtime
 
-The wall times assume about 11 effective workers on 16 logical cores. Single-core fit times are
-0.12 s for selector `n_500` and 1.0 s for binary `treatment_correct_n1500`. They are 0.8 s for
-multi-arm `outcome_correct_n4000`, 0.4 s for multi-arm `n_500` and 0.7 s for the multi-arm
-calibration cell. The both-wrong payload takes 0.043 s, and the primary `cleverly` fit 0.054 s.
-The R phase of 96 registered draws took 93 s of wall time on 16 R workers, about 0.97 s per
-draw. Its container peaked at 3.46 GiB of the 15.46 GiB Docker grants, because `study_stream`
-reads 64,000 sample lines at a time.
+`run.log` records the wall time of each declared run on 16 logical cores. BD-P2 drew
+`R_p` = 19,892 paired draws.
 
-| part | cost | wall |
-| --- | --- | --- |
-| BD-0 | none | seconds |
-| BD-1 | 13,900 core-s fresh, 3,100 validation | about 26 minutes |
-| BD-2 | 11,900 core-s fresh, 1,100 validation | about 20 minutes |
-| BD-3 | 110 core-s fresh, 50 validation | about 1 minute |
-| BD-P1 | none | about 1 minute |
-| BD-P-pilot | two R phases of 800 draws | about 30 minutes |
-| BD-P2 | `R_p` paired draws | about 0.97 s per draw: 4.3 hours at 16,086, 5.4 hours at the cap |
+| part | wall |
+| --- | ---: |
+| BD-0 | 0.0 s |
+| BD-1 | 4,079.1 s |
+| BD-2 | 3,125.3 s |
+| BD-3 | 38.1 s |
+| BD-P1 | 3.4 s |
+| BD-P-pilot | 1,335.2 s |
+| BD-P2 | 16,350.0 s |
 
 Smoke runs at `--replicates 4` took 5 to 32 s of wall time per part.

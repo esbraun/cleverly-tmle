@@ -15,8 +15,11 @@ discrimination probability. Dropping the weights moves the untargeted value, whi
 witness. The test also checks the three reading rules at each boundary, the OW-A and OW-B tables
 on synthetic ladders with a mutation each, and the family table with a mutation of the control.
 It checks the supplementary `p_1200` row, the smoke label, the seeds, and one registered refit
-per part. Once a part's rows are committed, it checks the declared budget and rebuilds that
-part's reading.
+per part. For each part, it checks that the committed rows meet the declared budget and rebuilds
+the part's reading. A missing committed file fails the test.
+
+Each part ran once. The roadmap gives the readings in
+"[What design OW found](../../../docs/roadmap.md#what-design-ow-found)".
 
 ## Run
 
@@ -58,13 +61,12 @@ This table was fixed and committed before the run.
 
 ## Runtime
 
-The wall times assume about 11 effective workers on 16 logical cores. The fit times come from one
-core on the idle host.
+`run.log` records the wall time of each declared run on 16 logical cores.
 
-| part | fit times | cost | wall |
-| --- | --- | --- | --- |
-| OW-A | 0.024, 0.074 and 0.290 s (W), 0.024, 0.079 and 0.305 s (U) at 2,000, 8,000 and 32,000 | 13,530 core-s | about 21 minutes |
-| OW-B | 0.040 and 0.146 s (W), 0.042 and 0.151 s (U) at 4,000 and 16,000 | 1,210 core-s | about 2 minutes |
-| OW-C | 0.031 s for one targeting payload | 80 core-s, and the exact-law fits | about 1 minute |
+| part | wall |
+| --- | ---: |
+| OW-A | 2,272.4 s |
+| OW-B | 221.7 s |
+| OW-C | 32.6 s |
 
 Each smoke part at `--replicates 4` took 15 to 17 s of wall time.

@@ -125,16 +125,16 @@ targeting, density-ratio direction, the active cap, and the exact natural-course
     `cleverly` fit again, with the analytic normal density in place of the 320 bins. That fit
     reports a standard error on the scale of the exact efficiency bound, as `lmtp` does. The
     reading is `cleverly density representation`. It does not move the paired verdict.
-    {ref}`What design CD found <what-design-cd-found>` gives the numbers.
-  - Three earlier measurements describe the density asymmetry. The two natural-course rows are
-    identical to six figures, because the ratio is one there and the discretization does nothing.
-    The two `ey_shift[+0.25]` SE ratios agree to within 0.2 percent.
-  - The discretized ratio differs from the analytic ratio on the primary law. The median difference
-    is 0.3 percent, and the mean is 1.8 percent. A contrast subtracts two influence curves that nearly cancel. That subtraction
-    turns the small relative deviation into a four percent difference in the contrast standard
-    error.
-  - The shift is not smaller than the bins. A shift of 0.25 moves 99.6 percent of rows across a bin
-    edge on the primary law. The median bin width is 0.013. The policy is therefore not invisible to
-    the estimator. Design CD does not say which property of the binned density produces the excess.
+    {ref}`What design CD found <what-design-cd-found>` gives the numbers, and
+    [`tests/diagnostics/rm18_comparator_density/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_comparator_density) holds the rows.
+  - Three earlier measurements describe the density asymmetry. The two natural-course rows agree
+    to six figures. The two `ey_shift[+0.25]` SE ratios agree to within 0.2 percent. The
+    discretized ratio differs from the analytic ratio on the primary law by a median of
+    0.3 percent. A shift of 0.25 moves 99.6 percent of rows across a bin edge, against a median
+    bin width of 0.013.
+  - One hypothesis says why a small ratio deviation moves the contrast standard error. A contrast
+    subtracts two influence curves that nearly cancel, so a small relative deviation in each
+    becomes a larger one in their difference. Design CD did not test this hypothesis. CD does not
+    say which property of the binned density produces the excess.
 - It excludes missing outcomes, weights, clusters, simultaneous bands, and flexible learning.
 - It does not validate categorical, longitudinal, or multiple-time modified treatment policies.

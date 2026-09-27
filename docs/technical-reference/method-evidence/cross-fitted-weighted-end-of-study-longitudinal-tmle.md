@@ -163,6 +163,7 @@ moves a verdict of this study, and none names a defect in `cleverly`.
 {ref}`What design FW found <what-design-fw-found>` and
 {ref}`What design BD found <what-design-bd-found>` give each number and what each reading does
 not show.
+[`tests/diagnostics/rm18_fixed_weights/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_fixed_weights) and [`tests/diagnostics/rm18_boundary/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_boundary) hold the rows.
 
 This reasoning does not transport automatically to complex surveys, calibrated or estimated
 weights, clustering, or other longitudinal weight laws. The

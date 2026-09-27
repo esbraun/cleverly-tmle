@@ -320,9 +320,14 @@ the ladder that resolved the slope.
 
 RM18 design BD re-read this rung on 6,000 fresh replicates, under a declaration written before its
 run. The coverage interval runs 0.9179 to 0.9354 and clears the floor, so the reading is `resolved:
-truth satisfies the gate`. The interval lies below 0.95. The rung rule reads coverage alone, and
-the fresh bias interval of 0.00774 to 0.00965 lies above its 0.25 SD margin. The re-read does not
-move the rung's verdict. {ref}`What design BD found <what-design-bd-found>` gives the numbers.
+truth satisfies the gate`. The interval lies wholly below 0.95. The rung rule reads coverage
+alone.
+
+The fresh bias interval of 0.00774 to 0.00965 lies above its 0.25 SD margin. The
+registered `double_robustness/treatment_correct` cell judges that bias, and the fresh interval
+is supplementary. The re-read does not move a verdict.
+{ref}`What design BD found <what-design-bd-found>` gives the numbers, and
+[`tests/diagnostics/rm18_boundary/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_boundary) holds the rows.
 
 ## Limitations
 

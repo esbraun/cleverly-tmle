@@ -163,8 +163,9 @@ stay inside their band, so the row records no departure from the rate the theory
 RM18 design BD re-read the n = 500 cell on 6,000 fresh replicates, under a declaration written
 before its run. The coverage interval runs 0.9318 to 0.9478 and clears the floor. The bias and SE
 ratio also meet the cell's rule, so the reading is `resolved: truth satisfies the gate`. The
-coverage interval lies below 0.95. The re-read does not move the cell's verdict.
-{ref}`What design BD found <what-design-bd-found>` gives the numbers.
+coverage interval lies wholly below 0.95. The re-read does not move the cell's verdict.
+{ref}`What design BD found <what-design-bd-found>` gives the numbers, and
+[`tests/diagnostics/rm18_boundary/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_boundary) holds the rows.
 
 The `fold_policy` family now measures that comparison. It runs the two split policies on one
 binary law and on one set of draws. It reports and it does not gate. Neither cell declares a

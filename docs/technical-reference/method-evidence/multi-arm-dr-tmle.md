@@ -178,6 +178,7 @@ run. Each reads `resolved: truth satisfies the gate`. The re-read does not move 
 0.9584. The roadmap record,
 {ref}`What design BD found <what-design-bd-found>`, gives every leg and what the re-read does not
 show.
+[`tests/diagnostics/rm18_boundary/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_boundary) holds the rows.
 
 The `n_500` cell was green at `0.9057` on the treatment-stratified split this row used before.
 Nothing but the fold draw moved, and 400 replications at n = 500 do not resolve a coverage

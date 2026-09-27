@@ -17,8 +17,12 @@ changes no study, no verdict and no committed row.
 the declared registered interval, the seeds and the collision rule, and the reading and
 attribution rules with a mutation at each boundary. It also checks the smoke label, the
 failed-fit rule, one registered refit, one fresh fit, and the run guard that every RM18
-diagnostic shares. Once the rows are committed, it checks that they meet the declared budget. It
-then rebuilds `fw-a-reading.csv` from them and refits one committed fresh row.
+diagnostic shares. It checks that the committed rows meet the declared budget, rebuilds
+`fw-a-reading.csv` from them, and refits one committed fresh row. A missing committed file fails
+the test.
+
+The part ran once. The roadmap gives the reading in
+"[What design FW found](../../../docs/roadmap.md#what-design-fw-found)".
 
 ## Run
 
@@ -28,11 +32,11 @@ virtual environment, which holds the runtime of the committed manifests, with th
 parallel layer.
 
 ```bash
-W=C:/Users/erics/Documents/Projects/cleverly-tmle/.claude/worktrees/bridge-cse_01BbvRGwt6wTxoguDudAmLTi
+W=<worktree>
 export PYTHONPATH="$W/src;$W"
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
   VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
-C:/Users/erics/Documents/Projects/cleverly-tmle/.venv/Scripts/python.exe \
+<main checkout>/.venv/Scripts/python.exe \
   -m tests.diagnostics.rm18_fixed_weights.run --part FW-A --output <scratch>
 ```
 
@@ -76,13 +80,5 @@ This table was fixed and committed before the run.
 
 ## Runtime
 
-The wall times assume about 11 effective workers on 16 logical cores (10 physical). The fit times
-come from one core on the idle host, with seeds that no part draws.
-
-| step | cost | wall |
-| --- | --- | --- |
-| fresh ladder | 8,300 x (0.034 + 0.089 + 0.316 + 0.036 + 0.096 + 0.312) s = 7,330 core-s | about 11 minutes |
-| validation | 2,400 x 0.04 s, and one summary | about 1 minute |
-| six bootstraps | 10,000 draws each | about 1 minute |
-
-A smoke run at `--replicates 4` took 16 s of wall time.
+The declared run took 1,230.5 s of wall time on 16 logical cores. `run.log` records it. A smoke
+run at `--replicates 4` took 16 s.

@@ -16,8 +16,12 @@ runs no R, and changes no study, verdict or committed row.
 against a Gauss-Hermite rule to 1e-6, and the analytic ratio against the normal tilt with a
 wrong-direction mutation. It checks the (Cb, L) excess against `equivalence.csv`, one refit, and
 the reading rule with a mutation at each clause. A synthetic three-arm table shows that the
-reading reads the (Ca, L) bound and that each mutation moves it. Once the rows are committed, the
-test checks the declared budget, rebuilds `cd-reading.csv`, and retargets one committed Ca row.
+reading reads the (Ca, L) bound and that each mutation moves it. The test also checks that the
+committed rows meet the declared budget, rebuilds `cd-reading.csv`, and retargets one committed
+Ca row. A missing committed file fails the test.
+
+The design ran once. The roadmap gives the reading in
+"[What design CD found](../../../docs/roadmap.md#what-design-cd-found)".
 
 ## Run
 
@@ -47,11 +51,11 @@ This table was fixed and committed before the run.
 
 | claim | source | locator |
 | --- | --- | --- |
-| the efficient influence function of the shift contrast | Díaz and van der Laan (2012), *Biometrics* 68(2):541-549, DOI 10.1111/j.1541-0420.2011.01685.x | Result 1, equation (5) |
+| the efficient influence function of the shift contrast | Díaz Muñoz and van der Laan (2012), *Biometrics* 68(2):541-549, DOI 10.1111/j.1541-0420.2011.01685.x | Result 1, equation (5) |
 | `lmtp` receives the analytic ratio with `.trim = 1`, so its classifier and trimming do not apply | `tests/canonical/lmtp_point_adapter.R` and `tests/canonical/lmtp_shift/run_study.R` | the density-ratio arguments |
 
 ## Runtime
 
-One Cb fit takes 1.9 to 2.1 s on one core, and a retarget 0.01 s. The run costs about
-1,600 core-seconds. With about 11 effective workers on 16 logical cores, that is about
-3 minutes. A smoke run at `--replicates 4` took 13 s of wall time.
+One Cb fit takes 1.9 to 2.1 s on one core, and a retarget 0.01 s. The declared run took 774.9 s
+of wall time on 16 logical cores. `run.log` records it. A smoke run at `--replicates 4` took
+13 s.
