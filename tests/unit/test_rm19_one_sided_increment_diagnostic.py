@@ -487,10 +487,28 @@ def test_part_b_reads_only_after_v4_holds(tmp_path: Path) -> None:
 
 def test_a_part_a_miss_stops_the_later_parts(tmp_path: Path) -> None:
     _write_part(tmp_path, "A", _synthetic().iloc[:0], [("V1 cleverly rows", False)])
-    checks = rm19.part_a_checks("C", tmp_path, smoke=True)
+    checks = rm19.prior_checks("C", tmp_path, smoke=True)
     assert not shared.validated(checks, "C")
     assert list(checks["check"]) == ["Part A V1 cleverly rows"]
-    assert rm19.part_a_checks("C", tmp_path / "missing", smoke=True).empty
+    assert rm19.prior_checks("C", tmp_path / "missing", smoke=True).empty
+
+
+@pytest.mark.parametrize("matched", [True, False])
+def test_a_v4_exit_mismatch_stops_part_c(tmp_path: Path, matched: bool) -> None:
+    _write_part(tmp_path, "A", _synthetic().iloc[:0], [("V1 cleverly rows", True)])
+    _write_part(
+        tmp_path,
+        "V4",
+        _synthetic().iloc[:0],
+        [("V4 R exit status", matched), ("V4 R maxIter draws", False)],
+    )
+    checks = rm19.prior_checks("C", tmp_path, smoke=True)
+    assert list(checks["check"]) == ["Part A V1 cleverly rows", "V4 R exit status"]
+    assert shared.validated(checks, "C") == matched
+    # Part B carries the Part A checks alone; its reading reads V4 in full.
+    assert list(rm19.prior_checks("B", tmp_path, smoke=True)["check"]) == [
+        "Part A V1 cleverly rows"
+    ]
 
 
 def test_a_declared_later_part_needs_the_pushed_part_a_record(
@@ -498,7 +516,11 @@ def test_a_declared_later_part_needs_the_pushed_part_a_record(
 ) -> None:
     directory = "tests/diagnostics/rm19_one_sided_increment"
     assert rm19.pushed("A") == ()
-    assert rm19.pushed("B") == rm19.pushed("C") == (f"{directory}/a-validation.csv",)
+    assert rm19.pushed("B") == (f"{directory}/a-validation.csv",)
+    assert rm19.pushed("C") == (
+        f"{directory}/a-validation.csv",
+        f"{directory}/v4-validation.csv",
+    )
     assert rm19.pushed("V4") == (f"{directory}/b-rows.csv.gz",)
     answers = {
         ("status", "--porcelain"): "",
@@ -509,6 +531,81 @@ def test_a_declared_later_part_needs_the_pushed_part_a_record(
     monkeypatch.setattr(shared, "_git", lambda *arguments: answers.get(arguments, ""))
     refused = shared.refusals(smoke=False, pushed=rm19.pushed("B"))
     assert refused == [f"{directory}/a-validation.csv is not in the pushed upstream"]
+
+
+# ------------------------------------------------------------- V2 and V4 by exit status
+
+
+def _exit_case(
+    own_exit: str, score_max: float, shift: float
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """One exact ``tolIC`` draw, and one draw whose T000 ``ate`` sits ``shift`` from R's."""
+    transcribed = pd.DataFrame(
+        {
+            "scenario": rm19.SCENARIO,
+            "replicate": [0, 1],
+            "arm": "T000",
+            "exit": ["tolIC", own_exit],
+            **{name: [0.1, 0.1 + (shift if name == "ate" else 0.0)] for name in study.ESTIMANDS},
+            **{f"se_{name}": [0.02, 0.02] for name in study.ESTIMANDS},
+        }
+    )
+    reference = pd.DataFrame(
+        [
+            {
+                "scenario": rm19.SCENARIO,
+                "replicate": k,
+                "estimand": name,
+                "estimate": 0.1,
+                "std_error": 0.02,
+            }
+            for k in (0, 1)
+            for name in study.ESTIMANDS
+        ]
+    )
+    scores = pd.DataFrame(
+        {"scenario": rm19.SCENARIO, "replicate": [0, 1], "score_max": [5e-9, score_max]}
+    )
+    return transcribed, reference, scores
+
+
+@pytest.mark.parametrize(
+    ("own_exit", "score_max", "shift", "failing"),
+    [
+        ("cap", 2e-6, 1e-5, None),
+        ("tolIC", 5e-9, 1e-8, "V2 tolIC draws"),
+        ("cap", 5e-9, 0.0, "V2 exit status"),
+        ("tolIC", 2e-6, 0.0, "V2 exit status"),
+        ("cap", 2e-6, 2e-4, "V2 maxIter draws"),
+    ],
+)
+def test_v2_and_v4_read_the_tolerance_of_each_exit_status(
+    own_exit: str, score_max: float, shift: float, failing: str | None
+) -> None:
+    shared._NOTES.clear()
+    rows = shared.validation_frame(
+        rm19.compare_by_exit("A", "V2", *_exit_case(own_exit, score_max, shift))
+    )
+    failed = list(rows.loc[rows["result"] == shared.FAILS, "check"])
+    assert failed == ([] if failing is None else [failing])
+    counts = dict(zip(rows["check"], rows["compared"], strict=True))
+    matched = own_exit == ("tolIC" if score_max <= 1e-8 else "cap")
+    assert counts == {
+        "V2 exit status": 2,
+        "V2 tolIC draws": 1 + int(matched and own_exit == "tolIC"),
+        "V2 maxIter draws": int(matched and own_exit == "cap"),
+    }
+    assert [
+        f"V2: {counts['V2 maxIter draws']} maxIter draws, largest scaled difference "
+        f"{rows.set_index('check').loc['V2 maxIter draws', 'largest_difference']:.3g}"
+    ] == shared._NOTES
+    shared._NOTES.clear()
+
+
+def test_a_draw_on_one_side_only_stops_the_check() -> None:
+    transcribed, reference, scores = _exit_case("tolIC", 5e-9, 0.0)
+    with pytest.raises(RuntimeError, match="one side only"):
+        rm19.compare_by_exit("A", "V2", transcribed.iloc[:1], reference, scores)
 
 
 # ------------------------------------------------------------------ the R reference (V4)

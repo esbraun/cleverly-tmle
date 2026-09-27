@@ -570,6 +570,15 @@ THREAD_VARIABLES = (
 )
 
 
+#: Lines a part asks :func:`run_log` to record in its block, as ``note: <text>``.
+_NOTES: list[str] = []
+
+
+def note(text: str) -> None:
+    """Record one line in the ``run.log`` block of the running part."""
+    _NOTES.append(text)
+
+
 @contextlib.contextmanager
 def run_log(output: Path, title: str) -> Iterator[None]:
     """Append one block to ``output/run.log``: the code, the runtime, the wall time, the exit.
@@ -606,6 +615,8 @@ def run_log(output: Path, title: str) -> Iterator[None]:
         code = 0
     finally:
         finished = datetime.datetime.now(datetime.UTC)
+        lines += [f"note: {text}" for text in _NOTES]
+        _NOTES.clear()
         lines += [
             f"finished: {finished.isoformat(timespec='seconds')}",
             f"wall seconds: {time.perf_counter() - clock:.1f}",

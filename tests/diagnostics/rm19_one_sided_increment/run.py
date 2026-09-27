@@ -28,7 +28,7 @@ import pandas as pd
 
 from tests.diagnostics import rm18_seeds
 from tests.diagnostics import rm18_shared as shared
-from tests.diagnostics.rm19_one_sided_increment.rtrans import Switches, transcribe
+from tests.diagnostics.rm19_one_sided_increment.rtrans import TOL_IC, Switches, transcribe
 from tests.studies import canonical_drtmle as study
 from tests.studies.canonical_drtmle import STUDY as BINARY
 from tests.studies.evidence.inference import Interval, student_interval
@@ -57,6 +57,10 @@ Z = 2.575829
 RESOLUTION = 0.000598
 #: The bracket: ``T(1, 1, 1) - C`` must lie inside this, one tenth of the committed increment.
 BRACKET = 1e-4
+#: V2 and V4 on a draw where R reaches ``maxIter``: the amended tolerance.  A draw that exits at
+#: ``tolIC`` keeps the R4 tolerance of ``rm18_shared``.
+MAX_ITER_TOLERANCE = 1e-4
+TOL_IC_EXIT, MAX_ITER_EXIT = "tolIC", "maxIter"
 #: P-ctrl: the committed paired SD of each control scenario.
 CONTROL_SD = {"outcome_correct": 0.002223, "both_correct": 0.000869}
 #: The seed that ``random_partition`` cannot take as ``seed + 1``.
@@ -280,23 +284,95 @@ def _long(rows: pd.DataFrame, arm: str) -> pd.DataFrame:
     )
 
 
+def exit_status(transcribed: pd.Series, score_max: pd.Series) -> tuple[np.ndarray, np.ndarray]:
+    """The exit status of each draw, for ``T(0, 0, 0)`` and for R.
+
+    R's is ``tolIC`` when its largest absolute score mean is at most ``tolIC``, and ``maxIter``
+    otherwise; the transcription's is its own recorded exit.
+    """
+    own = np.where(transcribed.to_numpy() == TOL_IC_EXIT, TOL_IC_EXIT, MAX_ITER_EXIT)
+    reference = np.where(score_max.to_numpy(dtype=float) <= TOL_IC, TOL_IC_EXIT, MAX_ITER_EXIT)
+    return own, reference
+
+
+def compare_by_exit(
+    part: str,
+    check: str,
+    transcribed: pd.DataFrame,
+    reference: pd.DataFrame,
+    scores: pd.DataFrame,
+) -> list[dict[str, Any]]:
+    """V2 and V4: ``T(0, 0, 0)`` against R, with the tolerance of each draw's exit status.
+
+    ``transcribed`` holds the ``T(0, 0, 0)`` rows, ``reference`` R's long rows by
+    ``(scenario, replicate, estimand)``, and ``scores`` R's ``score_max`` by draw.  Every draw
+    must have the same exit status on both sides.  A ``tolIC`` draw then meets the R4 tolerance,
+    and a ``maxIter`` draw :data:`MAX_ITER_TOLERANCE`.  The ``maxIter`` count and largest
+    difference also go to ``run.log``.
+    """
+    draw = ["scenario", "replicate"]
+    status = transcribed[[*draw, "exit"]].merge(
+        scores.drop_duplicates(draw), on=draw, how="outer", validate="1:1"
+    )
+    if status[["exit", "score_max"]].isna().any().any():
+        raise RuntimeError(f"{check}: a draw appears on one side only")
+    status["own"], status["reference"] = exit_status(status["exit"], status["score_max"])
+    matched = status["own"] == status["reference"]
+    out = [
+        shared.validation_row(
+            part,
+            f"{check} exit status",
+            (bool(matched.all()), float(np.sum(~matched)), len(status)),
+        )
+    ]
+    keys = [*draw, "estimand"]
+    for exit_name, tolerance in (
+        (TOL_IC_EXIT, shared.TOLERANCE),
+        (MAX_ITER_EXIT, MAX_ITER_TOLERANCE),
+    ):
+        selected = status.loc[matched & (status["reference"] == exit_name), draw]
+        largest = 0.0
+        if len(selected):
+            _, largest, _ = shared.compare_rows(
+                _long(transcribed, T000).merge(selected, on=draw),
+                reference.merge(selected, on=draw),
+                keys,
+            )
+        out.append(
+            shared.validation_row(
+                part, f"{check} {exit_name} draws", (largest <= tolerance, largest, len(selected))
+            )
+        )
+        if exit_name == MAX_ITER_EXIT:
+            shared.note(
+                f"{check}: {len(selected)} maxIter draws, largest scaled difference {largest:.3g}"
+            )
+    return out
+
+
 def validate_committed(rows: pd.DataFrame) -> pd.DataFrame:
     """V1, V2 and V3 on the Part A rows, against the committed ``replicates.csv.gz``."""
     committed = shared.read_rows(BINARY.artifact("replicates.csv.gz"))
     keys = ["scenario", "replicate", "estimand"]
     fitted = rows[["scenario", "replicate"]].drop_duplicates()
     committed = committed.merge(fitted, on=["scenario", "replicate"])
-    out = []
-    for check, arm, implementation in (
-        ("V1 cleverly rows", C, BINARY.implementation),
-        ("V2 drtmle-r rows", T000, BINARY.reference),
-    ):
-        selection = committed.loc[committed["implementation"] == implementation]
-        out.append(
-            shared.validation_row(
-                "A", check, shared.compare_rows(_long(rows, arm), selection, keys)
-            )
+    selection = committed.loc[committed["implementation"] == BINARY.implementation]
+    out = [
+        shared.validation_row(
+            "A", "V1 cleverly rows", shared.compare_rows(_long(rows, C), selection, keys)
         )
+    ]
+    diagnostics = shared.read_rows(BINARY.artifact("fit-diagnostics.csv"))
+    diagnostics = diagnostics.loc[diagnostics["implementation"] == BINARY.reference].merge(
+        fitted, on=["scenario", "replicate"]
+    )
+    out += compare_by_exit(
+        "A",
+        "V2 drtmle-r",
+        rows.loc[rows["arm"] == T000],
+        committed.loc[committed["implementation"] == BINARY.reference],
+        diagnostics[["scenario", "replicate", "score_max"]],
+    )
     initial = _long(rows, C).drop(columns=["estimate", "std_error"])
     initial["initial"] = np.concatenate(
         [rows.loc[rows["arm"] == C, f"initial_{name}"].to_numpy() for name in ESTIMANDS]
@@ -315,13 +391,27 @@ def record_path(name: str, output: Path, smoke: bool) -> Path:
     return (output if smoke else HERE) / name
 
 
-def part_a_checks(part: str, output: Path, smoke: bool) -> pd.DataFrame:
-    """The Part A checks, carried into a later part's record; a missing record carries none."""
-    path = record_path(shared.part_paths(output, "A")[1].name, output, smoke)
-    checks = shared.optional_rows(path)
-    if checks.empty:
+def prior_checks(part: str, output: Path, smoke: bool) -> pd.DataFrame:
+    """The earlier checks a later part carries into its record; a missing record carries none.
+
+    B and C carry every Part A check.  C also carries the V4 exit-status check, because an
+    exit-status mismatch in V4 stops the design.
+    """
+    frames = []
+    for source, keep in (("A", None), ("V4", "exit status")):
+        if source == "V4" and part != "C":
+            continue
+        path = record_path(shared.part_paths(output, source)[1].name, output, smoke)
+        checks = shared.optional_rows(path)
+        if checks.empty:
+            continue
+        if keep is not None:
+            checks = checks.loc[checks["check"].astype(str).str.endswith(keep)]
+        prefix = "Part A " if source == "A" else ""
+        frames.append(checks.assign(part=part, check=prefix + checks["check"].astype(str)))
+    if not frames:
         return shared.validation_frame([])
-    return checks.assign(part=part, check="Part A " + checks["check"].astype(str))
+    return pd.concat(frames, ignore_index=True)
 
 
 # ----------------------------------------------------------------------------------- V4
@@ -383,10 +473,12 @@ def run_v4(output: Path, cap: int | None, jobs: int) -> None:
                 "V4 payload C refit",
                 shared.compare_rows(_long(refit, C), _long(fresh, C), keys),
             ),
-            shared.validation_row(
+            *compare_by_exit(
                 "V4",
-                "V4 R rows against T000",
-                shared.compare_rows(r_rows, _long(fresh, T000), keys),
+                "V4 R",
+                fresh.loc[fresh["arm"] == T000],
+                r_rows,
+                r_rows[["scenario", "replicate", "score_max"]],
             ),
         ]
     )
@@ -714,7 +806,7 @@ def run_part(part: str, output: Path, cap: int | None, jobs: int) -> None:
         shared.write_table(rows, rows_path)
         shared.write_table(validate_committed(rows), validation_path)
         return
-    validation = part_a_checks(part, output, smoke)
+    validation = prior_checks(part, output, smoke)
     shared.write_table(validation, validation_path)
     if shared.validated(validation, part):
         shared.write_table(fit_part(part, cap, jobs), rows_path)
@@ -754,8 +846,10 @@ def table(part: str, output: Path, jobs: int) -> pd.DataFrame:
 def pushed(part: str) -> tuple[str, ...]:
     """The records a declared part reads from the pushed upstream."""
     directory = HERE.relative_to(ROOT).as_posix()
-    if part in {"B", "C"}:
+    if part == "B":
         return (f"{directory}/a-validation.csv",)
+    if part == "C":
+        return (f"{directory}/a-validation.csv", f"{directory}/v4-validation.csv")
     if part == "V4":
         return (f"{directory}/b-rows.csv.gz",)
     return ()

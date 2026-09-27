@@ -24,6 +24,8 @@ checks:
   2^3 contrasts against their longhand form, and the Bonferroni levels against SciPy;
 - P-ctrl, the Part C scaling rows, the V4 precondition of Part B, and the Part A precondition of
   the later parts;
+- V2 and V4 by exit status on synthetic draws: a `maxIter` draw 1e-5 away passes, a `tolIC`
+  draw 1e-8 away fails, an exit mismatch fails, and a V4 exit mismatch stops Part C;
 - that V4 calls the registered runner with the files the study manifest hashes.
 
 Two tests read the committed record of each part: its validation, its reading rebuilt from its
@@ -56,8 +58,9 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
 
 A run without `--replicates` is refused before any work in three cases. `cleverly` is imported
 from outside this tree's `src`, the tree has changes, or `HEAD` differs from its upstream. A
-declared B or C is also refused unless the pushed upstream holds `a-validation.csv`, and a
-declared V4 unless it holds `b-rows.csv.gz`. A fit that raises, or that returns a non-finite
+declared B is also refused unless the pushed upstream holds `a-validation.csv`, a declared V4
+unless it holds `b-rows.csv.gz`, and a declared C unless it holds `a-validation.csv` and
+`v4-validation.csv`. Part C carries the V4 exit-status check, so a V4 exit mismatch stops it. A fit that raises, or that returns a non-finite
 estimate or standard error, stops the part with exit code 1 and no reading.
 
 The Part B reading needs V4. Part B writes its reading when it ends, and that reading is
@@ -90,9 +93,10 @@ This table was fixed and committed before the run.
 | localization side | the side of the primary interval, or the sign of its point estimate when it covers 0. A zero point estimate has no side | the declared rule |
 | Part A labels | the primary and localization labels read `committed-draw attribution: <label>`, on `treatment_correct` | the declared Part A reading |
 | P-ctrl | `T100 - T000` on each control scenario: the 99% interval covers 0, and its `ddof = 1` SD is at most 0.002223 or 0.000869 | the declared prediction |
-| V1 and V2 | `compare_rows` of `rm18_shared` on `(scenario, replicate, estimand)`, over `estimate` and `std_error` | R4 |
+| V1 | `compare_rows` of `rm18_shared` on `(scenario, replicate, estimand)`, over `estimate` and `std_error` | R4 |
+| V2 and V4, by exit status | one function, `compare_by_exit`, for both. R's exit status is `tolIC` when its `score_max` is at most `1e-8` (from `fit-diagnostics.csv` for V2 and the runner's rows for V4), and `maxIter` otherwise. The status of `T(0, 0, 0)` is its recorded exit, with `cap` read as `maxIter`. It writes three rows: `exit status`, whose `largest_difference` is the number of draws whose statuses differ and which fails on any; `tolIC draws` at the R4 tolerance; and `maxIter draws` at `1e-4`. Each row's `compared` is a count of draws. The `maxIter` count and largest difference also go to `run.log` as a `note:` line, through `rm18_shared.note` | the amended declaration |
 | V3 | the payload means against the committed `drtmle-r` `initial_estimate`, scaled difference at most `1e-12` | the declared check |
-| V4 | the first 200 Part B draws are drawn again from their committed seeds and refit, and each `C` row must equal its Part B row. `REFERENCE.run` of `tests/canonical/drtmle/regenerate.py` then runs `run_drtmle.R` in a temporary directory inside `--output`, with `CLEVERLY_R_CORES` at most 7. Its rows must equal the Part B `T(0, 0, 0)` rows | the declared call, with the runner arguments in one place |
+| V4 | the first 200 Part B draws are drawn again from their committed seeds and refit, and each `C` row must equal its Part B row to R4. `REFERENCE.run` of `tests/canonical/drtmle/regenerate.py` then runs `run_drtmle.R` in a temporary directory inside `--output`, with `CLEVERLY_R_CORES` at most 7. Its rows are compared with the Part B `T(0, 0, 0)` rows by exit status | the declared call, with the runner arguments in one place |
 | Part C scaling | `sqrt(n)` times `C - T000` at 1,500 and 6,000 from the C rows, and at 3,000 from the B rows in the same directory, each at `1 - 0.01 / 3` | the declared statistic |
 | supplementary context | the `C` bias at 1,500 beside the BD-1 `bias` row of `tests/diagnostics/rm18_boundary/bd-1-reading.csv`, and at 6,000 beside the `double_robust_contraction/treatment_correct_n6000` bias of `properties.csv` | the declared supplementary row |
 | instruments | `repeats[0].fluctuations["mean"].reduction` for the `C` rounds, exit and closing steps, and its targeted mechanism for the rows at a bound. `score_max` is the largest score of `score_equations()` for `C`, and the largest of the six means for a `T` arm | the declared instruments |
