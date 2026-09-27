@@ -395,7 +395,7 @@ corrects the rows marked `b`: the summary displays, the protocol option and the 
 RM16b also executes the notebooks again and writes the delivery record. The row stays open until
 RM16b merges.
 
-Pull request NNN (RM16a) delivered the rows marked `a` and the four routed findings marked `a`.
+Pull request 243 (RM16a) delivered the rows marked `a` and the four routed findings marked `a`.
 `tests/unit/test_summary_and_message_accuracy.py` holds the witnesses of the messages, the
 argument checks and the truncation row. `test_every_named_test_exists` in
 `tests/unit/test_documentation_links.py` checks the test references. The pinned tests in
