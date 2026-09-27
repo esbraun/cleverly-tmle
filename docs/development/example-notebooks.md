@@ -114,9 +114,13 @@ To add a strategy, such as a dynamic rule, append it and its version:
 `treatment_strategies=(*program.treatment_strategies, "<the rule>")`. Write a new `StudyProtocol`
 only when neither helper fits the design.
 
-The protocol step prints the whole record once. Each later summary of a study with that record
-passes `protocol="fingerprint"`, which prints only the fingerprint line. The record then appears
-once on the page. A record that a later step declares prints in full in its first summary.
+Print each protocol record once on the page. The table gives where each notebook prints it.
+
+| record | where the notebook prints it | later summaries of its study |
+| --- | --- | --- |
+| the record of the protocol step | the protocol step, with `"\n".join(protocol.summary_lines())` | pass `protocol="fingerprint"`, which prints only the fingerprint line |
+| a record that a later step declares | the first summary of its study, with the default `protocol="full"`. A step can instead print the fingerprint and the fields that it changed | pass `protocol="fingerprint"` |
+| no record | nothing to print. The summaries state `causal study protocol: absent` | keep the default |
 
 Every protocol that a notebook derives with `dataclasses.replace` needs two records. The reading
 names the changed fields. The callback asserts the exact set with `changed_fields(protocol, base)`,

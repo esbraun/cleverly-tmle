@@ -31,7 +31,7 @@ the protocol record. It does not replace the separate data and fold fingerprints
 
 Each identification and result summary prints the whole record by default. Pass
 `protocol="fingerprint"` to `summary()` to print only the line with the schema and the
-fingerprint, for example after you print `protocol.summary_lines()` once.
+fingerprint, for example after you print `"\n".join(protocol.summary_lines())` once.
 
 The fingerprint records the protocol. It does not verify it. The package does not check that
 `treatment_strategies` names the regimens or arms a result estimates, because the strategies are

@@ -125,6 +125,9 @@ The bootstrap spread is the sample standard deviation of the replicate estimates
 is an inference claim, so a non-inferential status publishes that number as `bootstrap sd`.
 `BootstrapSummary` keeps the field names `std_error` and `ci` at every status. Its fields describe
 the replicate distribution, and the status decides only the published name.
+`TestTheBootstrapPublishesUnderTheStatusName` in
+`tests/unit/test_summary_and_message_accuracy.py` checks both names on a selector fit and an
+ordinary fit.
 
 Under `nu2_estimator="plugin"` an omitted-variable bound refuses its limits at every status, for a
 different reason. No derivation in a source this package cites gives their standard error. `to_dict()` then omits the three limit

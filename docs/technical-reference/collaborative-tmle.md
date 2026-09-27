@@ -277,11 +277,11 @@ conditional selector coverage nor collaborative-double-robust coverage.
 
 The full-refit bootstrap reruns each adaptive construction, but no reviewed theorem validates it
 for either shipped path. On either path, `summary()` therefore prints the standard deviation of the
-replicate estimates as `bootstrap sd`, and a `percentile range`, under the same diagnostic framing. It prints
-no percentile confidence interval. `to_frame()` emits `bootstrap_sd`, `bootstrap_range_lower` and
-`bootstrap_range_upper` in place of `bootstrap_std_err`, `bootstrap_ci_lower` and
-`bootstrap_ci_upper`. The targeted-HAL bootstrap result cited in the audit fixes its data-adaptive complexity
-bound rather than reselecting it.
+replicate estimates as `bootstrap sd`, and a `percentile range`, under the same diagnostic
+framing. It prints no percentile confidence interval. `to_frame()` emits `bootstrap_sd`,
+`bootstrap_range_lower` and `bootstrap_range_upper` in place of `bootstrap_std_err`,
+`bootstrap_ci_lower` and `bootstrap_ci_upper`. The targeted-HAL bootstrap result cited in the
+audit fixes its data-adaptive complexity bound rather than reselecting it.
 
 | where to read the evidence | what is there |
 | --- | --- |

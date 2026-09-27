@@ -386,10 +386,10 @@ Summaries and messages omitted, misstated, or repeated facts that the fit record
 summary printed a reference beside regime means, and its identification summary listed only the
 baseline covariates. A DR-TMLE summary named no guard, and the support table did not say which
 mechanism each column read. Each summary printed the protocol record again, and the provenance
-line of a result summary printed the fingerprint a second time. A non-inferential fit published its bootstrap spread as a
-standard error, and the package called its full-refit bootstrap "targeted". Messages sent a user to
-a refused fit or a field that the design does not have, and argument checks accepted requests that
-measure nothing.
+line of a result summary printed the fingerprint a second time. A non-inferential fit published
+its bootstrap spread as a standard error, and the package called its full-refit bootstrap
+"targeted". Messages sent a user to a refused fit or a field that the design does not have, and
+argument checks accepted requests that measure nothing.
 
 Pull request 243 (RM16a) and pull request NNN (RM16b) delivered this row. The table gives what
 shipped. Commit `d8c654b6` holds the probe table, the corrections and the routed findings. Read it
@@ -397,7 +397,7 @@ with `git show d8c654b6:docs/roadmap.md`.
 
 | part | what shipped |
 | --- | --- |
-| messages | one missing-outcome remedy, `MISSING_OUTCOME_DECLARATION` in `src/cleverly/data/validate.py`, names `missingness=` and `delta=` at three sites. The in-sample C-TMLE selection-fold refusal names the fold and two remedies that run as written. On a cross-fitted `TMLE` with missing outcomes, the continuous-treatment message names F21 and the in-sample fit |
+| messages | one missing-outcome remedy, `MISSING_OUTCOME_DECLARATION` in `src/cleverly/data/validate.py`, names `missingness=` and `delta=` at three sites. The in-sample C-TMLE selection-fold refusal names the fold and two remedies that run as written. On a cross-fitted `TMLE` with missing outcomes, the continuous-treatment message names [F21](#f21-other-missing-outcome-cv-tmle-variants) and the in-sample fit |
 | argument checks | `benchmark` refuses an empty request and an indicator column, and accepts the logical name of an encoded covariate. A facade reads a one-shot iterator once. The guarded DR-TMLE truncation curve reads the `refit_nuisances` slot on the row, the facade and the module call |
 | types and references | `_solve_reduction` and `refuse_unsupported("link")` raise `ValueError`, and `refuse_scheme` raises `CapabilityError`. The `DRTMLE` docstrings name test classes that exist, and `test_every_named_test_exists` checks each reference |
 | longitudinal summaries | `LongitudinalConfig.describe` prints the reference only for a result that holds a contrast. `config.reference` stays set, because the replay reads it. The identification summary prints the history at each treatment node from `BackdoorMeanContrast.history` |
