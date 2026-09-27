@@ -52,3 +52,27 @@ sha256 bd-2-reading.csv: 234083390123abed4ed4e6d9446d272aef176dd0c7b64611918d3aa
 sha256 bd-2-rows.csv.gz: 807192eada3abdb107d9dfe05b49b6fcb553ff1aebb11ab814b52a35c8c8bfd3
 sha256 bd-2-validation.csv: 8a5447e3a8c1e3266640141f8b6b44f8aa2d1d89240d19064c5477d47973ce56
 
+=== BD-3, cap None
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle\.venv\Scripts\python.exe' 'C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\tests\diagnostics\rm18_boundary\run.py' --part BD-3 --output C:/Users/erics/rm18_scratch/runs/rm18_boundary
+commit: 50662298f68e6fc30a2180640fc0178eca9a3c56; upstream 50662298f68e6fc30a2180640fc0178eca9a3c56
+clean tree: True
+cleverly 0.1.2 from C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\__init__.py
+python 3.13.7; numpy 2.4.6; scipy 1.18.0; pandas 3.0.5; scikit-learn 1.9.0; joblib 1.5.3
+installed distributions: 130, sha256 f4b33890dcf2623521a239ea0ba2ac74046a0304cc8d4b96933ca443c5644ebd
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 16
+started: 2026-09-27T09:48:49+00:00
+finished: 2026-09-27T09:49:27+00:00
+wall seconds: 38.1
+exit code: 0
+sha256 bd-0-reading.csv: 630e9ba7f06db751a007865ddd947a02648d3787716e598d2a978b67e836fe37
+sha256 bd-1-reading.csv: f377316e7eca95eadfd269cd6a914aec27be2fa939a77b7f443fd90338066981
+sha256 bd-1-rows.csv.gz: e02a86082d7fade7b1c6c75d47d84a4d73ba8c2bb82980eab46c701dbe27a638
+sha256 bd-1-validation.csv: d23ac6250aa688d9f7b2a14e5efc5e32698868befb4e2a5cf1a5fa5595d7c070
+sha256 bd-2-reading.csv: 234083390123abed4ed4e6d9446d272aef176dd0c7b64611918d3aaa79e38386
+sha256 bd-2-rows.csv.gz: 807192eada3abdb107d9dfe05b49b6fcb553ff1aebb11ab814b52a35c8c8bfd3
+sha256 bd-2-validation.csv: 8a5447e3a8c1e3266640141f8b6b44f8aa2d1d89240d19064c5477d47973ce56
+sha256 bd-3-reading.csv: cdb32959397eb6177908406e453e12cb2cfe5331eedd8349916ead67c17e7855
+sha256 bd-3-rows.csv.gz: db92eb474a989429a61eb73edae07b14eee2064fb74463cab227dd574a54f3ff
+sha256 bd-3-validation.csv: 6b0646fba3851977e04c425b5750106dde6b5d0a36006ee455b124412010b793
+
