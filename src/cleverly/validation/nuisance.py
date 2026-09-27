@@ -21,12 +21,18 @@ selected working mechanism: its AUC describes the denominator the method used, n
 treatment given the complete adjustment set.  Read either case together with
 :meth:`~cleverly.assessment.DiagnosticsFacade.support`.
 
-**Calibration.**  Discrimination is irrelevant if the probabilities themselves are
-wrong: the clever covariate divides by ``g(W)``.  For an ordinary treatment-law estimate,
-systematic miscalibration is therefore evidence against the fitted weights.  C-TMLE's
-selected working mechanism keeps the same descriptive values without receiving that
-treatment-law interpretation.  The calibration table shows *where* predictions differ
-from observations.
+**Calibration.**  The clever covariate divides by ``g(W)``, so the spread of the predicted
+probabilities matters as well as their order.  ``calibration_slope`` is the slope of a logistic
+recalibration of the label on ``logit(p)``, with one intercept per validation fold (Cox, 1958;
+Riley et al., 2021, Section 2.1.2).  A slope below 1 says the predictions are more extreme than
+the observed rates, and a slope above 1 says they are more moderate.  The slope measures spread,
+not specification: the population slope of any logistic maximum-likelihood limit with an
+intercept is 1, whether the model is correct or not.  Estimation noise also puts the
+out-of-fold slope of a *correct* model below 1 when the signal is weak.  The rule in
+:attr:`NuisanceDiagnostics.findings` therefore asks for an interval, not a point in a band,
+and the finding is a prompt to review the learner rather than evidence against the weights.
+C-TMLE's selected working mechanism keeps the same descriptive values without the rule.  The
+calibration table shows *where* predictions differ from observations.
 
 **Outcome model R-squared / Brier score.**  Bounds how much variance reduction the
 targeting step can buy.  A near-zero R-squared means the estimate is effectively
@@ -44,11 +50,14 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
+from scipy.special import expit
+from scipy.stats import norm
 
 from .._inference_status import InferenceStatus, status_record, supplies_inference
-from .._typing import BoolArray, FloatArray
+from .._typing import BoolArray, FloatArray, IntArray
 from ..data.weighting import REPORTED_DRAW
 from ..exceptions import capitalize_first
+from ..inference.cluster import influence_variance
 from ..inference.influence import spread_name
 from ..utils.bounds import logit
 from ..utils.frames import emit_frame
@@ -102,7 +111,35 @@ SPREAD_NOT_FINITE = "the split spread is not finite for: "
 #: The result reports no parameter, so there is nothing to take a spread of.
 SPREAD_NO_PARAMETERS = "no reported parameter is available"
 
+#: Every validation fold holds one predicted value, so the fold intercepts absorb all of the
+#: variation and no slope is identified.  A mean-only learner and an intercept-only C-TMLE
+#: mechanism reach this state.
+CALIBRATION_CONSTANT_WITHIN_FOLDS = "the predictions are constant within every fold"
+
+#: The Newton fit of the recalibration model stopped before its score reached tolerance.  A
+#: fold whose labels are all one class, or predictions that separate the labels, do this.
+CALIBRATION_NOT_CONVERGED = "the recalibration fit did not converge"
+
+#: The recalibration information matrix has no inverse at the fitted coefficients.
+CALIBRATION_SINGULAR = "the recalibration information matrix is singular"
+
+#: Prefix of the reason a finite slope has no finite standard error, followed by the cause.
+CALIBRATION_NO_STANDARD_ERROR = "the slope has no finite standard error: "
+
+#: Family-wise level of the calibration-slope rule.  :attr:`NuisanceDiagnostics.findings` splits
+#: it over the models it tests (Bonferroni), so a report whose predictions are all calibrated
+#: warns with probability at most this, up to the accuracy of the standard errors.
+CALIBRATION_FAMILY_ALPHA = 0.05
+
+#: Within-fold standard deviation of ``logit(p)`` at or below which a fold counts as constant.
+#: Floating-point noise in a constant prediction sits near ``1e-15``, and any fitted model that
+#: reads a covariate sits many orders of magnitude above this.
+_CONSTANT_LOGIT_SPREAD = 1e-10
+
 TreatmentModelRole = Literal["estimated_treatment_law", "collaborative_working_model"]
+
+#: Whether the report's predictions were made out of fold or on the rows each model trained on.
+EvaluationBasis = Literal["out_of_fold", "in_sample"]
 
 
 @dataclass(frozen=True)
@@ -123,6 +160,10 @@ class NuisanceModelReport:
         Ensemble weight per candidate.
     learner_risks : dict of str to float
         Cross-validated risk per candidate.
+    calibration_omission : str or None
+        Why a probability report has no ``calibration_slope``, for example
+        :data:`CALIBRATION_CONSTANT_WITHIN_FOLDS`. ``None`` when the slope is available or the
+        report is not a probability model.
     """
 
     name: str
@@ -131,6 +172,7 @@ class NuisanceModelReport:
     calibration: dict[str, list[float]]
     learner_weights: dict[str, float]
     learner_risks: dict[str, float]
+    calibration_omission: str | None = None
 
     def row(self) -> list[str]:
         """Return this model's metrics as one row of the diagnostics table.
@@ -139,12 +181,91 @@ class NuisanceModelReport:
         -------
         list of str
             The formatted cells, in the column order
-            :meth:`NuisanceDiagnostics.summary` prints.
+            :meth:`NuisanceDiagnostics.summary` prints. A cell with no finite value reads
+            ``"-"``.
         """
-        order = ("auc", "brier", "log_loss", "r2", "mse", "calibration_slope")
         return [self.name] + [
-            f"{self.metrics[key]:.4f}" if key in self.metrics else "-" for key in order
+            f"{self.metrics[key]:.4f}"
+            if key in self.metrics and np.isfinite(self.metrics[key])
+            else "-"
+            for key in _TABLE_METRICS
         ]
+
+
+#: The metric of each column of :meth:`NuisanceDiagnostics.summary`, after the model name.
+_TABLE_METRICS = (
+    "auc",
+    "brier",
+    "log_loss",
+    "r2",
+    "mse",
+    "calibration_slope",
+    "calibration_slope_se",
+    "regression_slope",
+)
+_TABLE_HEADER = (
+    "model",
+    "auc",
+    "brier",
+    "log_loss",
+    "r2",
+    "mse",
+    "cal_slope",
+    "cal_se",
+    "reg_slope",
+)
+
+
+def _critical_value(eligible: int) -> float:
+    """The two-sided Bonferroni critical value for ``eligible`` tested models."""
+    return float(norm.ppf(1.0 - CALIBRATION_FAMILY_ALPHA / (2.0 * eligible)))
+
+
+def _level_label(eligible: int) -> str:
+    """The per-model confidence level of the rule, as ``"97.5%"``."""
+    return f"{100.0 * (1.0 - CALIBRATION_FAMILY_ALPHA / eligible):.1f}%"
+
+
+def _calibration_finding(model: NuisanceModelReport, eligible: int) -> str | None:
+    """The calibration-slope finding for one model tested among ``eligible``, or ``None``.
+
+    The interval is the slope plus or minus the Bonferroni critical value times its standard
+    error.  A finding needs the interval to lie above 0 and to exclude 1.  An interval that
+    reaches 0 shows no detectable association between the predictions and the label.  The slope
+    measures the spread of the predictions (Cox, 1958, as Stevens and Poppe, 2020, Section 3,
+    report), and a spread says nothing where the predictions carry no signal.  The gate at 0 is
+    this package's design decision, not a published rule.  An interval wholly below 0 gets no
+    finding either.  The verdict's low-AUC note covers that fit.
+    """
+    slope = model.metrics.get("calibration_slope", float("nan"))
+    std_error = model.metrics.get("calibration_slope_se", float("nan"))
+    if eligible < 1 or not (np.isfinite(slope) and np.isfinite(std_error)):
+        return None
+    half = _critical_value(eligible) * std_error
+    low, high = slope - half, slope + half
+    if low <= 0.0 or low <= 1.0 <= high:
+        return None
+    direction = "more extreme" if high < 1.0 else "more moderate"
+    facts = [
+        f"calibration slope {slope:.2f}",
+        f"{_level_label(eligible)} interval {low:.2f} to {high:.2f}",
+    ]
+    auc = model.metrics.get("auc", float("nan"))
+    if np.isfinite(auc):
+        facts.append(f"AUC {auc:.3f}")
+    weight = model.metrics.get("largest_inverse_weight", float("nan"))
+    if np.isfinite(weight):
+        facts.append(f"largest inverse weight {weight:.3g}")
+    note = (
+        f"{model.name}: the out-of-fold predictions are {direction} than the observed rates "
+        f"({', '.join(facts)})."
+    )
+    if direction == "more extreme":
+        note += (
+            " Estimation noise causes this in a correctly specified model when the signal is "
+            "weak or the model has many covariates."
+        )
+    return note + " Review the learner and result.diagnostics.support() before you change the model"
 
 
 def _metric_names(models: Iterable[NuisanceModelReport | None]) -> list[str]:
@@ -250,12 +371,16 @@ class NuisanceDiagnostics:
     """Fit quality for every nuisance model in a TMLE fit.
 
     The metrics are out-of-fold when the fit cross-fitted its nuisances, and in-sample when
-    it used one fold.
+    it used one fold.  :attr:`evaluation` records which.
 
     Parameters
     ----------
     models : tuple of NuisanceModelReport
         One report per fitted nuisance model.
+    evaluation : {"out_of_fold", "in_sample"}
+        Whether the predictions the reports read were made out of fold. The calibration-slope
+        rule tests out-of-fold predictions only, because an unpenalized logistic model with an
+        intercept has an in-sample slope of exactly 1.
     n_repeats : int
         Cross-fitting draws the fit combined. The reports describe the first.
     backend : str or None
@@ -285,6 +410,7 @@ class NuisanceDiagnostics:
     """
 
     models: tuple[NuisanceModelReport, ...]
+    evaluation: EvaluationBasis
     #: How many cross-fitting draws the fit combined. The reports above describe the
     #: **first** draw, for the reason
     #: :attr:`~cleverly.sensitivity.PositivityReport.n_repeats` gives: a model's
@@ -400,10 +526,8 @@ class NuisanceDiagnostics:
         str
             A printable table, one line per nuisance model.
         """
-        # The header used to say "(out of fold)" whatever the fit did. That is true of a
-        # cross-fitted fit and false of a one-fold one, and this object records no fold
-        # count to tell them apart, so it states the subject and leaves the evaluation
-        # scope to the class docstring rather than overclaiming on every line above.
+        # The header states the subject only. The line under the table states whether the
+        # calibration slopes are out of fold, which :attr:`evaluation` records.
         lines = [
             "Nuisance model diagnostics",
             "-" * 40,
@@ -413,12 +537,8 @@ class NuisanceDiagnostics:
                 f"describing {format_draw(self.reported_repeat, self.n_repeats)}; "
                 "each draw fits its own models"
             )
-        lines.append(
-            format_table(
-                ["model", "auc", "brier", "log_loss", "r2", "mse", "cal_slope"],
-                [model.row() for model in self.models],
-            )
-        )
+        lines.append(format_table(list(_TABLE_HEADER), [model.row() for model in self.models]))
+        lines.extend(self._calibration_lines())
         for model in self.models:
             if not model.learner_weights:
                 continue
@@ -536,9 +656,10 @@ class NuisanceDiagnostics:
 
         Exactly two claims are suppressed for such a report, and both are claims about
         the *treatment law* that a working mechanism does not make. An intercept-only
-        C-TMLE selection legitimately gives an AUC near 0.5 and a calibration slope near
-        ``-2``, and reporting "overlap is excellent" or "poorly calibrated" from those is
-        a false positive about a model nobody fitted.
+        C-TMLE selection legitimately gives an AUC near 0.5 and no calibration slope, and
+        a selection that stops at a weak covariate can give a slope far from one. Reporting
+        "overlap is excellent" or a calibration finding from those is a false positive about
+        a model nobody fitted.
 
         Nothing else is suppressed. The high-AUC positivity note stays, because
         ``CTMLE._nuisances`` puts the selected mechanism on ``nuisance.propensity`` and it
@@ -550,13 +671,63 @@ class NuisanceDiagnostics:
         return self._working_model and _is_propensity(model)
 
     @property
+    def _calibration_tested(self) -> tuple[NuisanceModelReport, ...]:
+        """The reports the calibration-slope rule tests.
+
+        Every probability report with a finite slope and standard error, except a C-TMLE
+        working mechanism, when the predictions are out of fold. An in-sample fit tests none:
+        an unpenalized logistic model with an intercept has an in-sample slope of exactly 1
+        (Riley et al., 2021, Section 2.1.2), so the slope there says nothing about new data.
+        The rule splits :data:`CALIBRATION_FAMILY_ALPHA` over the reports this returns, in
+        report order.
+        """
+        if self.evaluation != "out_of_fold":
+            return ()
+        return tuple(
+            model
+            for model in self.models
+            if model.kind == "probability"
+            and not self._working_mechanism(model)
+            and np.isfinite(model.metrics.get("calibration_slope", float("nan")))
+            and np.isfinite(model.metrics.get("calibration_slope_se", float("nan")))
+        )
+
+    def _calibration_lines(self) -> list[str]:
+        """The lines under the table that state the basis of the slope and each omission."""
+        probability = [model for model in self.models if model.kind == "probability"]
+        if not probability:
+            return []
+        if self.evaluation == "in_sample":
+            lines = [
+                "Calibration slopes are in sample and carry no test. An unpenalized logistic "
+                "model with an intercept has an in-sample slope of 1 by construction."
+            ]
+        else:
+            lines = [
+                "Calibration slope: logistic recalibration of the out-of-fold predictions "
+                "with one intercept per fold."
+            ]
+            tested = len(self._calibration_tested)
+            if tested:
+                lines.append(
+                    f"A finding needs the {_level_label(tested)} interval to lie above 0 and "
+                    f"exclude 1, a Bonferroni level over {tested} tested model(s)."
+                )
+        lines.extend(
+            f"calibration slope unavailable for {model.name}: {model.calibration_omission}"
+            for model in probability
+            if model.calibration_omission is not None
+        )
+        return lines
+
+    @property
     def findings(self) -> tuple[str, ...]:
         """Return findings that meet an existing diagnostic warning rule."""
         notes: list[str] = []
+        tested = self._calibration_tested
+        tested_ids = {id(model) for model in tested}
         for model in self.models:
             auc = model.metrics.get("auc")
-            slope = model.metrics.get("calibration_slope")
-            working_mechanism = self._working_mechanism(model)
             if _is_binary_propensity(model) and auc is not None and auc > 0.9:
                 notes.append(
                     f"the propensity model separates the arms almost perfectly "
@@ -568,11 +739,10 @@ class NuisanceDiagnostics:
                     "units had virtually no chance of a recorded outcome, so 1/P(Delta=1|A,W) "
                     "gives them extreme leverage -- check res.diagnostics.support()"
                 )
-            if not working_mechanism and slope is not None and not 0.7 <= slope <= 1.4:
-                notes.append(
-                    f"{model.name} is poorly calibrated (slope {slope:.2f}, ideal 1.0); its "
-                    "predicted probabilities are systematically off, which biases the weights"
-                )
+            if id(model) in tested_ids:
+                calibration = _calibration_finding(model, len(tested))
+                if calibration is not None:
+                    notes.append(calibration)
             mean_weight = model.learner_weights.get("mean", 0.0)
             if mean_weight > 0.8:
                 notes.append(
@@ -632,6 +802,10 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
     selection = result.ctmle_selection
     collaborative = result.fitted_method == "collaborative_tmle" or selection is not None
     selection_omission = NUISANCE_SELECTION_MISSING if collaborative and selection is None else None
+    # The reports describe the first draw, so they read that draw's fold assignment. One
+    # intercept per validation fold is what keeps between-fold level differences, which
+    # cross-fitting sets against each fold's labels, out of the calibration slope.
+    folds = np.asarray(nuisance.folds.assignment, dtype=np.int64)
 
     if data.is_binary_treatment and nuisance.fits_treatment:
         models.append(
@@ -641,6 +815,9 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
                 data.treatment,
                 data.weights,
                 nuisance.diagnostics.get("propensity"),
+                inverse_weight_rows="every_row",
+                folds=folds,
+                cluster=data.cluster,
             )
         )
     elif not data.is_continuous_treatment and nuisance.fits_treatment:
@@ -658,6 +835,9 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
                     (data.treatment == arm).astype(float),
                     data.weights,
                     nuisance.diagnostics.get("propensity"),
+                    inverse_weight_rows="label_one",
+                    folds=folds,
+                    cluster=data.cluster,
                 )
             )
 
@@ -669,6 +849,9 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
                 data.observed.astype(float),
                 data.weights,
                 nuisance.diagnostics.get("missingness"),
+                inverse_weight_rows="label_one",
+                folds=folds,
+                cluster=data.cluster,
             )
         )
 
@@ -681,6 +864,8 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
                 data.intermediate,
                 data.weights,
                 nuisance.diagnostics.get("intermediate"),
+                folds=folds,
+                cluster=data.cluster,
             )
         )
 
@@ -694,6 +879,8 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
                 data.weights,
                 nuisance.diagnostics.get("outcome"),
                 mask=data.observed,
+                folds=folds,
+                cluster=data.cluster,
             )
         )
     else:
@@ -710,6 +897,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
     spread_rows, spread_omission = _spread_rows(result)
     return NuisanceDiagnostics(
         models=tuple(models),
+        evaluation="in_sample" if nuisance.folds.is_single else "out_of_fold",
         n_repeats=result.n_repeats,
         backend=result.data.backend,
         selection=selection,
@@ -810,21 +998,48 @@ def _binary_report(
     diagnostics: Any,
     *,
     mask: BoolArray | None = None,
+    folds: IntArray | None = None,
+    cluster: IntArray | None = None,
+    inverse_weight_rows: Literal["every_row", "label_one"] | None = None,
 ) -> NuisanceModelReport:
-    """Discrimination, calibration and proper-scoring metrics for a probability model."""
+    """Discrimination, calibration and proper-scoring metrics for a probability model.
+
+    ``folds`` gives each row's validation fold, and ``None`` means one fold.  ``cluster``
+    gives the cluster codes the slope's standard error sums over.  Both are indexed by
+    ``mask`` like the predictions.
+
+    ``inverse_weight_rows`` names the rows whose weight inverts this prediction, and adds
+    ``largest_inverse_weight``.  ``"every_row"`` is a binary propensity: each row's weight is
+    one over the predicted probability of the treatment it received.  ``"label_one"`` is a
+    one-vs-rest arm or a response mechanism: only rows with label one carry the weight.
+    """
     index = slice(None) if mask is None else np.asarray(mask, dtype=bool)
     p = np.clip(np.asarray(predicted, dtype=float)[index], 1e-12, 1.0 - 1e-12)
     y = np.asarray(actual, dtype=float)[index]
     w = np.asarray(weights, dtype=float)[index]
+    fold = (
+        np.zeros(p.shape[0], dtype=np.int64)
+        if folds is None
+        else np.asarray(folds, dtype=np.int64)[index]
+    )
+    codes = None if cluster is None else np.asarray(cluster)[index]
 
+    slope, std_error, omission = _recalibration(p, y, w, fold, codes)
     metrics = {
         "auc": _weighted_auc(p, y, w),
         "brier": float(np.average((p - y) ** 2, weights=w)),
         "log_loss": float(-np.average(y * np.log(p) + (1.0 - y) * np.log(1.0 - p), weights=w)),
-        "calibration_slope": _calibration_slope(p, y, w),
+        "calibration_slope": slope,
+        "calibration_slope_se": std_error,
         "mean_predicted": float(np.average(p, weights=w)),
         "mean_observed": float(np.average(y, weights=w)),
     }
+    if inverse_weight_rows is not None:
+        observed = np.where(y == 1.0, p, 1.0 - p)
+        rows = y == 1.0 if inverse_weight_rows == "label_one" else np.ones_like(y, dtype=bool)
+        metrics["largest_inverse_weight"] = (
+            float(np.max(1.0 / observed[rows])) if rows.any() else float("nan")
+        )
     learner_weights, learner_risks = _aggregate_learner_info(diagnostics)
     return NuisanceModelReport(
         name=name,
@@ -833,6 +1048,7 @@ def _binary_report(
         calibration=_calibration_table(p, y, w),
         learner_weights=learner_weights,
         learner_risks=learner_risks,
+        calibration_omission=omission,
     )
 
 
@@ -856,7 +1072,7 @@ def _continuous_report(
     metrics = {
         "mse": mse,
         "r2": float(1.0 - mse / variance) if variance > 0 else float("nan"),
-        "calibration_slope": _regression_slope(p, y, w),
+        "regression_slope": _regression_slope(p, y, w),
         "mean_predicted": float(np.average(p, weights=w)),
         "mean_observed": float(np.average(y, weights=w)),
     }
@@ -903,13 +1119,59 @@ def _weighted_auc(predicted: FloatArray, actual: FloatArray, weights: FloatArray
     return float(concordant / (weight_positive * weight_negative))
 
 
-def _calibration_slope(predicted: FloatArray, actual: FloatArray, weights: FloatArray) -> float:
-    """Slope of a logistic recalibration of the predictions; 1.0 is perfect."""
+def _recalibration(
+    predicted: FloatArray,
+    actual: FloatArray,
+    weights: FloatArray,
+    folds: IntArray,
+    cluster: IntArray | None,
+) -> tuple[float, float, str | None]:
+    r"""The calibration slope, its standard error, and the reason either is missing.
+
+    A weighted logistic regression of the label on one indicator per validation fold and on
+    :math:`\operatorname{logit} p`, with no other intercept.  The last coefficient is the slope.
+    Each fold is then a fixed prediction rule scored on rows it never saw, which is the setting
+    of Cox (1958), and the folds share one slope.  One fold gives Cox's pooled recalibration.
+
+    The standard error is the sandwich.  With
+    :math:`B = X^\top \operatorname{diag}(w \mu (1 - \mu)) X` and the score
+    :math:`s_i = w_i (y_i - \mu_i) x_i`, the slope's influence curve is
+    :math:`n (B^{-1} s_i)_{\mathrm{slope}}`, and
+    :func:`~cleverly.inference.cluster.influence_variance` reads it with the cluster codes.
+
+    Returns ``(nan, nan, reason)`` when the slope is not identified or the fit fails, so a
+    report never carries a slope without its standard error.
+    """
     from ..fluctuation.iterative import _newton_logistic
 
-    x = np.column_stack([np.ones_like(predicted), logit(predicted)])
-    epsilon, _converged, _detail = _newton_logistic(x, actual, np.zeros_like(predicted), weights)
-    return float(epsilon[1])
+    predictor = logit(predicted)
+    levels = np.unique(folds)
+    members = [folds == level for level in levels]
+    if all(float(np.std(predictor[member])) <= _CONSTANT_LOGIT_SPREAD for member in members):
+        return float("nan"), float("nan"), CALIBRATION_CONSTANT_WITHIN_FOLDS
+    x = np.column_stack([*(member.astype(float) for member in members), predictor])
+    coefficients, converged, _detail = _newton_logistic(
+        x, actual, np.zeros_like(predictor), weights
+    )
+    if not converged:
+        return float("nan"), float("nan"), CALIBRATION_NOT_CONVERGED
+    mu = expit(x @ coefficients)
+    information = x.T @ (x * (weights * mu * (1.0 - mu))[:, None])
+    unit = np.zeros(x.shape[1])
+    unit[-1] = 1.0
+    try:
+        # ``B`` is symmetric, so this solve gives the slope's row of its inverse.
+        row = np.linalg.solve(information, unit)
+    except np.linalg.LinAlgError:
+        return float("nan"), float("nan"), CALIBRATION_SINGULAR
+    curve = predictor.shape[0] * ((x * (weights * (actual - mu))[:, None]) @ row)
+    try:
+        variance = influence_variance(curve, cluster)
+    except ValueError as error:
+        return float("nan"), float("nan"), CALIBRATION_NO_STANDARD_ERROR + str(error)
+    if not (np.isfinite(variance) and variance >= 0.0 and np.isfinite(coefficients[-1])):
+        return float("nan"), float("nan"), CALIBRATION_NO_STANDARD_ERROR + "it is not finite"
+    return float(coefficients[-1]), float(np.sqrt(variance)), None
 
 
 def _regression_slope(predicted: FloatArray, actual: FloatArray, weights: FloatArray) -> float:

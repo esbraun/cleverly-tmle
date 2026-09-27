@@ -156,6 +156,10 @@ The nested `model` retains calibration and Super Learner details when the learne
 A categorical treatment row uses `kind="multinomial probability"` and an empty calibration table.
 The report does not convert top-class confidence into binary calibration for a privileged arm.
 
+A binary row reports `calibration_slope` and `calibration_slope_se`. An outcome or pseudo-outcome
+row with a continuous target reports its linear slope as `regression_slope`. The longitudinal
+report applies no calibration rule.
+
 `nuisance.selection` retains the complete C-TMLE selector or outcome-adaptive artifact. For these
 fits, `nuisance.treatment_role` is `collaborative_working_model`. The propensity values describe
 the selected denominator and not treatment given the complete adjustment set.
@@ -165,7 +169,7 @@ The role drops exactly two claims. The report keeps every other claim it makes a
 | claim | on a collaborative fit | why |
 | --- | --- | --- |
 | an AUC below 0.55 means overlap is excellent and confounding by these covariates is limited | dropped | the claim reads a treatment law that the fit never estimated. An intercept-only candidate gives an AUC near chance by construction |
-| a calibration slope outside 0.7 to 1.4 means the predicted probabilities are systematically off | dropped | the same reason. A selected working mechanism has no calibration target |
+| a calibration-slope finding says the predictions are more extreme or more moderate than the observed rates | dropped | the same reason. A selected working mechanism has no calibration target |
 | an AUC above 0.9 signals a positivity problem | kept | `CTMLE._nuisances` puts the selected mechanism on `nuisance.propensity`, so it is the denominator the clever covariate divides by |
 | a super learner that puts over 80% of its weight on the marginal mean contributes little | kept | the note describes a learner library and not a treatment law |
 
@@ -488,6 +492,35 @@ lives on. A point-treatment fit compares the score in the outcome’s own units 
 `tolerance * se / sqrt(n)`; a longitudinal fit bounds each node’s relative score, the quantity
 the sequential targeting loop itself gates on, and can only tighten the fit’s own convergence
 verdict rather than overturn it.
+
+### Read a calibration-slope finding
+
+The point-treatment report tests the calibration slope of each probability model. The slope comes
+from a logistic recalibration of the out-of-fold predictions with one intercept per fold. A slope
+below 1 means the predictions are more extreme than the observed rates. A slope above 1 means they
+are more moderate. The [calibration-slope rule](../technical-reference/validation-methods.md#calibration-slope-rule)
+gives the statistic and its standard error.
+
+The report warns only when the slope's interval lies above 0 and excludes 1. The interval splits a
+level of 0.05 over the tested models. A finding reads like this line from a learner whose logit is
+doubled:
+
+```text
+propensity: the out-of-fold predictions are more extreme than the observed rates (calibration
+slope 0.50, 97.5% interval 0.44 to 0.56, AUC 0.756, largest inverse weight 220). ...
+```
+
+| question | answer |
+| --- | --- |
+| what does a finding ask you to do? | review the learner, and read `result.diagnostics.support()` for the weights it creates |
+| can a correct model warn? | yes. With a weak signal or many covariates, estimation noise makes out-of-fold predictions more extreme than the truth |
+| does a finding mean that the model is misspecified? | no. A misspecified logistic model with an intercept also has a population slope of 1, so the slope cannot detect it |
+| does a finding mean that the estimate is biased? | no. The rule measures the spread of the predictions and does not measure the estimate |
+| why is there no finding on an in-sample fit? | an unpenalized logistic model with an intercept has an in-sample slope of exactly 1, so `nuisance.evaluation` is `in_sample` and the report tests nothing |
+| why is a slope missing? | `calibration_omission` names the cause, for example predictions that are constant within every fold |
+
+The [calibration-slope study](../technical-reference/method-evidence/calibration-slope-warning.md)
+measures the rule's false-warning rate and its detection rate for a binary propensity.
 
 ## Sensitivity analysis
 

@@ -1637,6 +1637,35 @@ is the only empirical witness for it.
   Powerful Approach to Multiple Testing*](https://doi.org/10.1111/j.2517-6161.1995.tb02031.x),
   DOI 10.1111/j.2517-6161.1995.tb02031.x.
 
+## Calibration of prediction models
+
+The [calibration-slope rule](technical-reference/validation-methods.md#calibration-slope-rule)
+rests on the entries below. No entry gives a fixed band or a rule for cross-fitted nuisance
+predictions, so the rule is a design decision built from these parts.
+
+- Riley, Debray, Collins, Archer, Ensor, van Smeden & Snell (2021), [*Minimum sample size for
+  external validation of a clinical prediction model with a binary
+  outcome*](https://doi.org/10.1002/sim.9025), *Statistics in Medicine* 40(19):4230–4251. Section
+  2.1.2 and its Equation (2) define the calibration slope as the slope of a logistic regression
+  of the outcome on the linear predictor. The section states that an unpenalized maximum
+  likelihood fit has an apparent slope of 1 in its development data, and reads a slope below 1
+  on new data as overfitting. Section 3.2, Equations (6) and (7), gives the standard error of the
+  slope from the inverse Fisher information.
+- Stevens & Poppe (2020), [*Validation of clinical prediction models: what does the "calibration
+  slope" really measure?*](https://doi.org/10.1016/j.jclinepi.2019.09.016), *Journal of Clinical
+  Epidemiology* 118:93–99. Section 2 traces the statistic to Cox (1958), who called it a measure
+  of spread. Sections 3 and 4 show that the slope alone does not measure calibration and must be
+  read with the intercept.
+- Van Calster, McLernon, van Smeden, Wynants & Steyerberg (2019), [*Calibration: the Achilles
+  heel of predictive analytics*](https://doi.org/10.1186/s12916-019-1466-7), *BMC Medicine*
+  17:230. The section "How to assess calibration?" reads a slope below 1 as estimated risks that
+  are too extreme and a slope above 1 as risks that are too moderate. Read through the Europe PMC
+  full text, not page by page.
+- Cox (1958), [*Two further applications of a model for binary
+  regression*](https://doi.org/10.1093/biomet/45.3-4.562), *Biometrika* 45(3–4):562–565. The
+  logistic regression of observed outcomes on the logit of stated probabilities. Not read
+  first-hand here. Stevens & Poppe (2020), Section 2, report its content.
+
 ## Doubly-robust inference (`DRTMLE`)
 
 The variant rests on three sources. The first two give the estimating equations. The third gives

@@ -707,6 +707,8 @@ def _treatment_report(result: Any, time: int, mask: BoolArray) -> NuisanceModelR
             result.data.weights,
             diagnostics,
             mask=mask,
+            folds=result.folds.assignment,
+            cluster=result.data.cluster,
         )
 
     # A multinomial fit has no privileged arm. Report its source-backed proper loss and
@@ -763,6 +765,8 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
             result.data.weights,
             diagnostics,
             mask=at_risk,
+            folds=result.folds.assignment,
+            cluster=result.data.cluster,
         )
         rows.append(
             _nuisance_row(
@@ -807,6 +811,8 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
                     result.data.weights,
                     step.learner_diagnostics,
                     mask=mask,
+                    folds=result.folds.assignment,
+                    cluster=result.data.cluster,
                 )
                 if binary
                 else _continuous_report(

@@ -114,9 +114,11 @@ def check_stored() -> None:
     assert "needs attention: ('nuisance_models',)" in diagnostics
     assert "warning  1      validation.nuisance_models" in diagnostics
     assert "passed   1      validation.score_equations" in diagnostics
-    assert "outcome is poorly calibrated" in diagnostics
+    # "The verdict flags both models", each with its own calibration-slope finding.
+    assert "propensity: the out-of-fold predictions are more extreme" in diagnostics
+    assert "outcome: the out-of-fold predictions are more extreme" in diagnostics
     assert "rm15-calibration-slope-warning-rule" in prose, (
-        "the reading must send the calibration flag to the roadmap item that audits its band"
+        "the reading must send the calibration flag to the roadmap item that replaced the band"
     )
     overlap = stored_output(NOTEBOOK, "overlap")
     assert "n = 12000; propensity truncated to [0.004859, 0.9951]" in overlap

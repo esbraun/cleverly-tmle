@@ -1,0 +1,175 @@
+{
+  "schema_version": 2,
+  "study": "calibration-slope warning",
+  "slug": "calibration-slope-warning",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-calibration-slope-rule",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "87b13e7d0a07964c56422c69dacf3dd78602b4c9",
+      "cleverly_worktree_clean": false,
+      "python": "3.11.13",
+      "numpy": "2.4.6",
+      "scipy": "1.17.1",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 10000,
+    "n": 2000,
+    "seed": 20261501,
+    "resampling_seed": 20261502,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "calibrated_weak": [
+        "propensity_calibration_slope"
+      ],
+      "calibrated_strong": [
+        "propensity_calibration_slope"
+      ]
+    },
+    "fit": "TMLE(n_folds=3, simultaneous=False, estimands=('ate',), random_state=<sample seed>) at n = 2000; the outcome learner returns the known regression, so each fit tests two models (K = 2)",
+    "outcome": "Y ~ Bernoulli(expit(0.5 A + 0.5 W1 - 0.25))",
+    "laws": {
+      "calibrated_weak": {
+        "covariates": 4,
+        "logit_g0_coefficients": [
+          0.15
+        ],
+        "treatment_learner": "known",
+        "learner_columns": [],
+        "logit_scale": 1.0,
+        "limit_slope": 1.0
+      },
+      "calibrated_strong": {
+        "covariates": 4,
+        "logit_g0_coefficients": [
+          1.0,
+          -0.5
+        ],
+        "treatment_learner": "known",
+        "learner_columns": [],
+        "logit_scale": 1.0,
+        "limit_slope": 1.0
+      },
+      "correct_weak": {
+        "covariates": 1,
+        "logit_g0_coefficients": [
+          0.15
+        ],
+        "treatment_learner": "logistic",
+        "learner_columns": [
+          0
+        ],
+        "logit_scale": 1.0,
+        "limit_slope": 1.0
+      },
+      "correct_nested_weak": {
+        "covariates": 4,
+        "logit_g0_coefficients": [
+          0.15
+        ],
+        "treatment_learner": "logistic",
+        "learner_columns": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "logit_scale": 1.0,
+        "limit_slope": 1.0
+      },
+      "randomized": {
+        "covariates": 4,
+        "logit_g0_coefficients": [],
+        "treatment_learner": "logistic",
+        "learner_columns": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "logit_scale": 1.0,
+        "limit_slope": 1.0
+      },
+      "overconfident_moderate": {
+        "covariates": 4,
+        "logit_g0_coefficients": [
+          0.4,
+          -0.2
+        ],
+        "treatment_learner": "logistic",
+        "learner_columns": [
+          0,
+          1
+        ],
+        "logit_scale": 2.0,
+        "limit_slope": 0.5
+      },
+      "underconfident_strong": {
+        "covariates": 4,
+        "logit_g0_coefficients": [
+          1.0,
+          -0.5
+        ],
+        "treatment_learner": "logistic",
+        "learner_columns": [
+          0,
+          1
+        ],
+        "logit_scale": 0.5,
+        "limit_slope": 2.0
+      }
+    },
+    "primary_row": "estimate = calibration_slope of the propensity report; std_error = calibration_slope_se; interval = estimate +/- 1.959964 std_error; truth 1",
+    "rule": "a finding when slope +/- z_{1 - 0.05 / (2K)} se lies above 0 and excludes 1",
+    "warning_rate_row": "truth 1; covered = the rule's interval covers 1; rejected = the report has a calibration-slope finding",
+    "fixed_band_control": "the same fits; rejected = the pooled one-intercept recalibration slope of the propensity or the outcome lies outside [0.7, 1.4], as the package computed it before RM15",
+    "power_row": "truth = the limit slope 1 / scale; covered = the rule's interval covers it; rejected = the report has a calibration-slope finding",
+    "warnings": "PositivityWarning is filtered in each fit; the strong and tempered laws raise it on the truncation bounds, which the diagnostics do not read",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/calibration_slope_warning.py": "b53d4a471be015a125da1864a1a05abe3fc11a7cdc6e99764a987324f440e78d",
+    "tests/studies/calibration_slope_warning_properties.py": "b0d3df74010b9b495d47b1db60bed5b9ce544346d691726cacf82199e60775fa",
+    "tests/studies/evidence/properties.py": "276dabf582abae126f1ad00900e8eb3ab53eff8d50decab476e5d7c4d84d4296",
+    "tests/studies/evidence/property_verdicts.py": "d0f76edf934a8569d3f0346a0536ba2cf6ded4d595bcf1256bedc3b7c3e1cacc",
+    "tests/studies/evidence/schema.py": "e278cf870eccda458f47e6d635c1e9e9b9a678e142d9aeee446d85148642b94d",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "488adf4589422fffcce7ec5d1279b465982bf2b55247eaf5dfa490ee048c55ba",
+    "summary.csv": "32594e9e34c91fd4dd88c72d286df680b1650d2031f473befa71bc6c36d3b93c",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "4faeea5c52c28969250ee3701ac5453fbb287399e7287a4faa39044b4db25c64",
+    "property-replicates.csv.gz": "0b7bd93e9383adf3483e8ed3dc82f86b1771047b643e4f44b79ecbe38f04e868",
+    "properties.csv": "a0e5a577dde8c4f0eaef8b253231940282115ab8b147c4bcffbd0f2c115b0d59"
+  }
+}

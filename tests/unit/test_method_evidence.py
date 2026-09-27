@@ -585,6 +585,21 @@ class TestPublishedVerdicts:
                 f"{row.cell} publishes passed={row.passed} against its joint-coverage endpoint"
             )
 
+        # A false-warning rate and its control read one ceiling from opposite sides: the
+        # positive cell must bound its rate below it, and the control must establish that its
+        # own rule, on the same fits, rises above it.
+        ceiling = study.margins.alpha + study.margins.type_i_margin
+        rates = published.loc[published["property"] == property_verdicts.WARNING_RATE_FAMILY]
+        for row in rates.itertuples():
+            expected = (
+                row.rejection_ci_lower > ceiling
+                if row.role == "control"
+                else row.rejection_ci_upper <= ceiling
+            )
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its warning-rate endpoint"
+            )
+
         corrected = published.loc[published["property"] == "corrected_mar_inference"]
         for row in corrected.itertuples():
             expected = (
@@ -874,6 +889,7 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         "static_reduction",
         "treatment_score_necessity",
         "type_i_error",
+        property_verdicts.WARNING_RATE_FAMILY,
     }
 )
 
@@ -955,13 +971,18 @@ class TestNegativeControls:
         The calibration cell is the gate that catches it, so this mutation is what shows the
         cell is load bearing rather than decorative.
         """
-        rows = _property_rows(study.slug)
-        published = _property_summary(study.slug).set_index(["property", "cell"])
         family = (
             "interval_calibration"
             if "interval_calibration" in study.property_cells
             else "clustered_inference"
         )
+        if family not in study.property_cells:
+            # The calibration-slope study tests a warning rule, not an interval.  Its only
+            # standard-error claim is the primary SE-ratio verdict, and it declares no
+            # calibration cell for this mutation to corrupt.
+            pytest.skip(f"{study.slug} declares no interval-calibration cell")
+        rows = _property_rows(study.slug)
+        published = _property_summary(study.slug).set_index(["property", "cell"])
         calibration = published.loc[published.index.get_level_values(0) == family]
         positive_cells = set(
             calibration.loc[calibration["role"] == "positive"].index.get_level_values(1)

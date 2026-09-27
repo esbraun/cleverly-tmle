@@ -112,7 +112,11 @@ def check(namespace: dict[str, Any]) -> None:
     assert tuple(item.name for item in assessment.attention) == ("nuisance_models",)
     ledger = assessment.to_frame()
     rows = ledger[ledger["check"] == "nuisance_models"]
-    assert rows["detail"].str.contains("propensity is poorly calibrated").any()
+    assert (
+        rows["detail"]
+        .str.contains("propensity: the out-of-fold predictions are more extreme", regex=False)
+        .any()
+    )
     assert set(ledger.loc[ledger["check"] == "score_equations", "status"]) == {"passed"}
     # "a calibration slope below 1": the fitted propensities are more extreme than the rates.
     (propensity,) = (m for m in namespace["nuisance"].models if m.name == "propensity")

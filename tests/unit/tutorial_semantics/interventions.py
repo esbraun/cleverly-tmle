@@ -170,7 +170,13 @@ def check(namespace: dict[str, Any]) -> None:
     assert "nuisance_models" in {item.name for item in incremental.attention}
     ledger = incremental.to_frame()
     nuisance_rows = ledger[ledger["check"] == "nuisance_models"]
-    assert nuisance_rows["detail"].str.contains("propensity is poorly calibrated").any()
+    # "The boosted propensity's out-of-fold predictions are more extreme than the observed
+    # rates", which is the calibration-slope finding.
+    assert (
+        nuisance_rows["detail"]
+        .str.contains("propensity: the out-of-fold predictions are more extreme", regex=False)
+        .any()
+    )
     # "the interval excludes it on this draw", at 2.2 standard errors.
     tilt = namespace["incremental_result"]["ate_ipsi[double odds vs current odds]"]
     double_odds = namespace["incremental_truth"]["ate_ipsi[odds x2 vs natural course]"]
