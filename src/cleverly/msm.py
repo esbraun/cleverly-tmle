@@ -294,10 +294,11 @@ def refuse_unsupported(kind: str, detail: str = "") -> None:
 
     Kept beside the constructors a user would reach for, and worded to say what the
     estimator would *need*: "not implemented" invites the reader to assume the gap is
-    effort rather than a missing derivation.
+    effort rather than a missing derivation.  An unknown link is a malformed value, so it
+    raises ``ValueError``, as each other unknown-name check does.
     """
     if kind == "link":
-        raise NotImplementedError(
+        raise ValueError(
             f"link={detail!r} is not a link this package knows; the registered ones are "
             f"{sorted(LINKS)}. A link is declared by its mean function and two "
             "derivatives of it -- see cleverly.msm.Link and register_link -- and needs a "

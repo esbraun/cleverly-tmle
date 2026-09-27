@@ -287,7 +287,7 @@ from ..fluctuation.submodel import Submodel, restrict, weighted_form
 from ..inference.delta import log_odds_ratio_influence, log_ratio_influence
 from ..inference.influence import counterfactual_means
 from ..learners._fitting import Task, predict_mean, predict_probabilities
-from ..learners.crossfit import Folds, check_integrity, make_folds
+from ..learners.crossfit import _POST_DRAW_REMEDY, Folds, check_integrity, make_folds
 from ..learners.super_learner import resolve_learner
 from ..targets.base import parameter_name
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
@@ -341,6 +341,17 @@ def is_selector_strategy(strategy: str | None) -> bool:
 
 #: Floor applied to targeted predictions before taking a logarithm in the loss.
 _LOSS_EPS = 1e-12
+
+#: The way out of a selection or nested split that cannot fit its nuisances.  The search
+#: draws those splits even in sample, so fitting in sample removes neither of them.
+#: ``strategy="oat"`` and the ordinary TMLE fit the same data with no selection split.
+_SELECTION_SPLIT_REMEDY = (
+    "fit strategy='oat' or the ordinary TMLE (TMLE, or TMLEMethod), neither of which draws "
+    "a selection split"
+)
+
+#: The selection split's refusal remedy in the words the nuisance fold loop closes with.
+_SELECTION_SPLIT_BACKSTOP = _POST_DRAW_REMEDY.format(remedy=_SELECTION_SPLIT_REMEDY)
 
 
 @dataclass(frozen=True)
@@ -918,12 +929,22 @@ class CTMLE(TMLE):
             The draw's seed.
         """
         selection = self._selection_partition(data, seed)
-        self._check_training_support(data, (selection,), subject="C-TMLE selection")
+        self._check_training_support(
+            data,
+            (selection,),
+            subject="C-TMLE selection",
+            where="selection fold {fold}",
+            remedy=_SELECTION_SPLIT_REMEDY,
+        )
         for fold, (train, _) in enumerate(selection):
             train_data = data.subset(train)
             nested = self._nested_partition(train_data, seed)
             self._check_training_support(
-                train_data, (nested,), subject=f"the nested split of C-TMLE selection fold {fold}"
+                train_data,
+                (nested,),
+                subject=f"the nested split of C-TMLE selection fold {fold}",
+                where="inner fold {fold}",
+                remedy=_SELECTION_SPLIT_REMEDY,
             )
 
     def _outcome_adaptive_nuisances(
@@ -1323,6 +1344,7 @@ class _Selector:
                 clip=(0.0, 1.0),
                 classes=data.arm_codes,
                 n_jobs=self.est.n_jobs,
+                remedy=_SELECTION_SPLIT_BACKSTOP,
             )
             return Propensity(predictions["g1"], data.arm_codes)
         if train is None:
@@ -1780,6 +1802,7 @@ class _Selector:
             groups=data.cluster,
             clip=(0.0, 1.0),
             n_jobs=self.est.n_jobs,
+            remedy=_SELECTION_SPLIT_BACKSTOP,
         )
         outcome = InitialFit(
             outcome_out["observed"],
@@ -1809,6 +1832,7 @@ class _Selector:
                 groups=data.cluster,
                 clip=(0.0, 1.0),
                 n_jobs=self.est.n_jobs,
+                remedy=_SELECTION_SPLIT_BACKSTOP,
             )
             missingness = np.column_stack([missing_out[f"arm@{arm}"] for arm in data.arm_codes])
         return replace(

@@ -435,11 +435,13 @@ class DRTMLE(TMLE):
     -- see its docstring -- which is what leaves the primary split as the only source of
     draw-to-draw variation.  Two things to know.  ``result.extra["drtmle"]`` describes
     **draw 0 only**, as every read-through attribute on a repeated result does.  And
-    checking this is what surfaced the centring defect
-    ``tests/unit/test_drtmle_fit.py::TestTheReportedCurveIsNotAlwaysCentred`` records: on
-    roughly a quarter of splits the reported curve is not centred while all three
-    fluctuation rows report their scores solved.  That is a property of a *draw* and not of
-    the aggregation, so it is a defect in the fit rather than a reason to refuse ``repeats=``.
+    checking this surfaced a centring defect, which
+    ``tests/unit/test_drtmle_fit.py::TestTheReportedCurveIsCentredWhereTheBoundBinds``
+    records.  The score of equation (9) was solved at the raw tilted mechanism, while the
+    curve truncates it, so a draw whose bound clipped a row left the curve uncentred.  The
+    fit now solves the score at the truncated tilt, and that class asserts the identity on
+    the draw that failed.  It was a property of a *draw* and not of the aggregation, so it
+    was a defect in the fit rather than a reason to refuse ``repeats=``.
 
     Where it stops is an **estimated** weight.  Nothing read here says what the reduced
     regressions of a random tilt are.  The ordinary answer is that the interval conditions

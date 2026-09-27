@@ -49,7 +49,10 @@ class MethodAvailability:
     name : str
         Method name accepted by ``estimate(method=...)``.
     available : bool
-        Whether the method supports the identified functional.
+        Whether the method supports the identified functional. The record is per method
+        name. A configuration of an available method can still refuse before any learner:
+        on a design with ``strata=``, the default ``DRTMLEMethod()`` refuses (X8 in
+        ``docs/roadmap.md``), and ``DRTMLEMethod(guard=())`` fits.
     reason : str or None
         Refusal reason when ``available`` is false.
     """

@@ -69,7 +69,7 @@ import numpy as np
 from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
 
 from .._typing import BoolArray, FloatArray, IntArray
-from ..exceptions import DataError
+from ..exceptions import CapabilityError, DataError
 
 __all__ = [
     "CrossFitPlan",
@@ -1418,9 +1418,23 @@ def refuse_scheme(kind: str) -> None:
     shipped as ``repeats=``, and it keeps a branch only to say that it was never a
     *scheme* -- so a caller who reaches for it by name is redirected to the option that
     exists rather than told the feature does not.
+
+    Parameters
+    ----------
+    kind : str
+        The scheme name to refuse or redirect.
+
+    Raises
+    ------
+    CapabilityError
+        For ``"blocked"`` and ``"rolling_origin"``, each a well-posed split that this
+        version does not implement.
+    ValueError
+        For ``"repeated"``, which is redirected to ``repeats=``, for
+        ``"row_within_cluster"``, and for an unknown name.
     """
     if kind == "blocked":
-        raise NotImplementedError(
+        raise CapabilityError(
             "blocked temporal folds are not implemented. A contiguous-in-time split is "
             "perfectly expressible as a fold assignment -- what is missing is the "
             "ordering it would need. CausalData declares an outcome, a treatment, "
@@ -1431,7 +1445,7 @@ def refuse_scheme(kind: str) -> None:
             "supplies the ordering a *panel* would need and not the one this scheme does."
         )
     if kind == "rolling_origin":
-        raise NotImplementedError(
+        raise CapabilityError(
             "rolling-origin folds are not implemented, and not for want of a time index. "
             "Their training sets are nested prefixes: some rows are never held out and "
             "others fall in several evaluation windows, so there is no one fold that "

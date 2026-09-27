@@ -323,9 +323,11 @@ incremental fit with missing outcomes.
 
 An operation can also refuse after invocation, such as omitted-confounding sensitivity when the
 doubly robust $\nu^2$ is not positive. That row becomes an `unavailable` omission, retains its
-invocation arguments, and names the direct call. Other accepted diagnostics still run. Structural
-errors still stop the report. Examples are an invalid argument name, an unknown `refute` test,
-and an unknown `benchmark` covariate. A direct call raises the same error.
+invocation arguments, and names the direct call. Other accepted diagnostics still run.
+
+Structural errors still stop the report. Examples are an invalid argument name, an unknown `refute`
+test, and a malformed `benchmark` request. An empty `covariates`, an indicator column of an encoded
+covariate, and an unknown covariate are malformed. A direct call raises the same error.
 
 A combined report runs summaries and cheap retargets by default. The two costlier classes are
 named separately because they are disjoint. `refute()` and `benchmark()` refit nuisance models.
@@ -935,7 +937,7 @@ gives what such a result keeps.
 
 | operation | on such a result |
 | --- | --- |
-| point estimates and cached-nuisance retargets, such as `truncation_curve()` | run. `replayability.retarget_cached_nuisances` is `True`. A guarded DR-TMLE fit is the exception. Its `truncation_curve` row needs `refit_nuisances`, so the row reads `unavailable` and `diagnostics.truncation_curve()` refuses. The module call `truncation_curve(result, [0.05])` still runs. [RM16](../roadmap.md#rm16-summary-and-error-message-accuracy) records the disagreement |
+| point estimates and cached-nuisance retargets, such as `truncation_curve()` | run. `replayability.retarget_cached_nuisances` is `True`. A guarded DR-TMLE fit is the exception. Its curve refits the reduced regressions, so its `truncation_curve` row needs `refit_nuisances`. The row reads `unavailable`, and `diagnostics.truncation_curve()` and the module call `truncation_curve(result, [0.05])` both raise `CapabilityError` |
 | refits, such as `refute()` and `simulated_confounding()` | `unavailable`. `replayability.refit_nuisances` is `False`, with the code `point_replay_refit_configuration` |
 | `estimator.refit()` | raises `CapabilityError` before any learner |
 

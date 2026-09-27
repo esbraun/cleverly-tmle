@@ -66,6 +66,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._typing import FloatArray
+from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..exceptions import CapabilityError, refuse_inference
 from ..inference.delta import normal_ci
 from ..inference.influence import spread_name
@@ -131,8 +132,8 @@ def _refuse_complete_outcome(result: Any) -> str | None:
         return None
     return (
         "the identified functional has no observation mechanism: missingness_tilt requires "
-        "a fit with missing outcomes. Pass delta=<column> to fit() so the missingness "
-        "mechanism is estimated."
+        "a fit with missing outcomes. Declare the indicator with "
+        f"{MISSING_OUTCOME_DECLARATION}, so the missingness mechanism is estimated."
     )
 
 

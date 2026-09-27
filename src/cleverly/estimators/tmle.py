@@ -2234,7 +2234,13 @@ class TMLE:
         )
 
     def _check_training_support(
-        self, data: CausalData, folds: Sequence[Folds], *, subject: str
+        self,
+        data: CausalData,
+        folds: Sequence[Folds],
+        *,
+        subject: str,
+        where: str = "repeat {repeat}, fold {fold}",
+        remedy: str = _IN_SAMPLE_ARM_INDEXED_REMEDY,
     ) -> None:
         """Ask one realized partition the three questions above, under a caller's name.
 
@@ -2252,6 +2258,12 @@ class TMLE:
             One realized partition per repeat.
         subject : str
             What the refusal calls the fit, as the reader would name it.
+        where : str
+            What the refusal calls the fold that failed, formatted with ``repeat`` and
+            ``fold``.
+        remedy : str
+            The way out that the refusal names. The default fits in sample, which is true
+            of an outer split and not of a split that an in-sample fit draws itself.
         """
         treatment = np.asarray(data.treatment, dtype=float)
         arms = np.asarray(data.arm_codes, dtype=float)
@@ -2265,7 +2277,7 @@ class TMLE:
                     f"units, and arm {data.arm_label(arm)} appears in {count} {unit}(s). "
                     f"A split moves whole {unit}s, so every partition leaves some training "
                     "complement without that arm and no fold count or seed can fit the "
-                    f"treatment mechanism; {_IN_SAMPLE_ARM_INDEXED_REMEDY}"
+                    f"treatment mechanism; {remedy}"
                 )
         if data.family == "binomial":
             # The sample minimum the outcome classes owe, stated for the same reason the
@@ -2298,7 +2310,7 @@ class TMLE:
         if data.family == "binomial":
             outcome = np.where(observed, np.asarray(data.outcome, dtype=float), -1.0)
             support.append(("outcome", outcome, np.array([0.0, 1.0])))
-        remedy = _POST_DRAW_REMEDY.format(remedy=_IN_SAMPLE_ARM_INDEXED_REMEDY)
+        post_draw = _POST_DRAW_REMEDY.format(remedy=remedy)
         for repeat, draw in enumerate(folds):
             gap = missing_training_support(draw, support)
             if gap is not None:
@@ -2311,16 +2323,18 @@ class TMLE:
                 else:
                     described = f"observed outcome {value:g}"
                 raise DataError(
-                    f"{subject} cannot fit its nuisances because repeat {repeat}, fold "
-                    f"{fold}'s training complement contains no {described}. {remedy}"
+                    f"{subject} cannot fit its nuisances because "
+                    f"{where.format(repeat=repeat, fold=fold)}'s training complement "
+                    f"contains no {described}. {post_draw}"
                 )
         complement_gap = self._super_learner_complement_shortfall(data, folds)
         if complement_gap is not None:
             role, repeat, fold, described, count = complement_gap
             raise DataError(
-                f"{subject} cannot fit the {role} learner because repeat {repeat}, fold "
-                f"{fold}'s training complement holds {count} {described}. "
-                f"{_SUPER_LEARNER_INNER_SPLIT_RULE.format(role=role)} {remedy}"
+                f"{subject} cannot fit the {role} learner because "
+                f"{where.format(repeat=repeat, fold=fold)}'s training complement holds "
+                f"{count} {described}. {_SUPER_LEARNER_INNER_SPLIT_RULE.format(role=role)} "
+                f"{post_draw}"
             )
 
     def _preflight_natural_course_folds(
@@ -2461,13 +2475,22 @@ class TMLE:
                 "CausalData with treatment_kind='continuous'."
             )
         if data.is_continuous_treatment and not self.shifts and self.msm is None:
+            # The suggested shift meets the F21 refusal of a cross-fitted fit with missing
+            # outcomes, so that fit is told which fit estimates the natural course.
+            in_sample = (
+                " A cross-fitted fit with missing outcomes (delta=) refuses a shift target "
+                "(F21 in docs/roadmap.md). To estimate the natural course, "
+                f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}."
+                if data.has_missing_outcome and self.cross_fit
+                else ""
+            )
             raise DataError(
                 f"{data.treatment_name} was declared continuous, so it has no arms and "
                 "none of the arm-indexed estimands name a parameter it has. Say which "
                 "doses to compare with shifts=[Shift(delta, cap=...), ...]; "
                 "Shift(0.0, cap=None) is the natural course, whose mean is E[Y]. Or, "
                 "with every outcome observed and no intermediate=, declare an MSM with a "
-                "dose integration grid."
+                f"dose integration grid.{in_sample}"
             )
 
     def _reference_arm(
@@ -3546,7 +3569,7 @@ class TMLE:
         """
         reduction = self._reduction(data, nuisance)
         if reduction is None:
-            raise NotImplementedError(
+            raise ValueError(
                 "these nuisances carry reduced-dimension regressions, so the targeting step "
                 "has two further score equations to solve -- and solving them refits those "
                 f"regressions against the targeted pair, which a {type(self).__name__} has "

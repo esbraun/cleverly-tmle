@@ -45,6 +45,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 
 from .._typing import BoolArray, FloatArray
+from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..data.weighting import (
     REPORTED_DRAW,
     SCORE_LOAD_VERDICT_RATIO_FORMAT,
@@ -1276,7 +1277,8 @@ def _refuse_observation_axis(result: TMLEResult, axis: bool) -> str | None:
     return (
         "mechanism=True needs a fit with missing outcomes or an intermediate "
         "variable; without one there is no mechanism in the clever covariate to "
-        "truncate. Pass delta=<column> or intermediate=<column> to fit()."
+        f"truncate. Declare the indicator with {MISSING_OUTCOME_DECLARATION}, or the "
+        "intermediate variable with intermediate=<column> on PointTreatment or fit()."
     )
 
 
@@ -1321,6 +1323,29 @@ _TRUNCATION_RULES: tuple[tuple[str, Callable[[TMLEResult, bool], str | None]], .
 )
 
 
+def refits_reduced_regressions(result: TMLEResult) -> bool:
+    """Whether a truncation curve of ``result`` refits the reduced regressions at each bound.
+
+    A guarded DR-TMLE fit alternates its targeting against the reduced regressions, and
+    :func:`truncation_curve` refits them inside ``retarget``.  The capability row prices
+    that curve as a refit, and :func:`truncation_refusal` asks the estimator whether it
+    can refit.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A fitted point-treatment result.
+
+    Returns
+    -------
+    bool
+        ``True`` for a DR-TMLE fit that solved its correction equations.
+    """
+    return getattr(result, "fitted_method", None) == "drtmle" and bool(
+        getattr(result, "solved_corrections", False)
+    )
+
+
 def truncation_refusal(result: TMLEResult, mechanism: bool | None = None) -> str | None:
     """Return the refusal a point-treatment truncation curve meets on one axis.
 
@@ -1329,6 +1354,11 @@ def truncation_refusal(result: TMLEResult, mechanism: bool | None = None) -> str
     quotes it for the same request.  The row defers on ``mechanism`` when the default
     axis is refused and the other one runs, so a combined report names the argument
     instead of calling a curve the call refuses.
+
+    A guarded DR-TMLE curve refits the reduced regressions under the estimator's live
+    configuration, so it is refused on either axis when ``refit()`` refuses that
+    configuration.  The row requires the ``refit_nuisances`` replay slot, which reads the
+    same check.
 
     Parameters
     ----------
@@ -1343,6 +1373,13 @@ def truncation_refusal(result: TMLEResult, mechanism: bool | None = None) -> str
     str or None
         Exact refusal reason, or ``None`` when the requested axis can be swept.
     """
+    if refits_reduced_regressions(result) and result.estimator is not None:
+        reason = result.estimator._refit_configuration_refusal(result.data)
+        if reason is not None:
+            return (
+                "a guarded DR-TMLE truncation curve refits the reduced regressions under "
+                "this estimator's configuration, and refit() refuses that configuration: " + reason
+            )
     axis = truncation_axis(result, mechanism)
     for _name, rule in _TRUNCATION_RULES:
         reason = rule(result, axis)

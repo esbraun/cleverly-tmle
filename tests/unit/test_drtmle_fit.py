@@ -235,10 +235,9 @@ class TestWhatItReports:
         """On *this* process, and the qualification is the point.
 
         A converged exit is not something this loop reliably does, and
-        :class:`TestTheExtraEquationsAreIllConditionedWhereTheMechanismIsRight` is the
-        case where it does not. Here it does, so the round count is worth pinning as a
-        floor on how well it can behave; ``score_check`` is what decides whether an exit
-        at the cap matters.
+        :class:`TestTheAlternationCanBeIllConditioned` is the case where it does not. Here
+        it does, so the round count is worth pinning as a floor on how well it can behave;
+        ``score_check`` is what decides whether an exit at the cap matters.
         """
         reduction = fit.repeats[0].fluctuations["mean"].reduction
         assert 1 <= reduction.n_outer < 50
@@ -1078,11 +1077,14 @@ class TestTheRefusals:
         """It has no learners to refit the reductions with, and says so rather than guessing.
 
         The alternation refits inside itself, so re-solving against the cached arrays would
-        answer a different question from the one the fit answered -- quietly.
+        answer a different question from the one the fit answered -- quietly.  The caller
+        passed the wrong object, so the error is a ``ValueError``: no composition is refused,
+        and ``NotImplementedError`` would read as a missing feature.
         """
         data = CausalData.from_frame(frame(), outcome="Y", treatment="A", covariates=None)
-        with pytest.raises(NotImplementedError, match="no learners"):
+        with pytest.raises(ValueError, match="no learners") as raised:
             TMLE(**SETTINGS).retarget(data, fit.nuisance, estimands=ESTIMANDS)
+        assert not isinstance(raised.value, NotImplementedError)
 
 
 def _plain_curve(fit, data, fluctuation):
@@ -1130,8 +1132,8 @@ class TestEachDrawSolvesItsOwnEquations:
     which leaves the primary split as the only thing ``repeats=`` varies -- the right
     design, and the reason this is a check rather than a bug report.
 
-    What the check found is in :class:`TestTheReportedCurveIsNotAlwaysCentred` below, and it
-    is not about ``repeats=``.
+    What the check found is in :class:`TestTheReportedCurveIsCentredWhereTheBoundBinds`
+    below, and it is not about ``repeats=``.
 
     Note the obvious mutation for this row, and why it is not used:
     "drop a repeat and watch the combined curve decentre" cannot fail. A centred curve

@@ -2476,6 +2476,11 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         -----
         The result includes unavailable methods and their refusal reasons. Selecting one
         raises :class:`CapabilityError` before nuisance fitting starts.
+
+        ``available`` is per method name. A configuration of an available method can still
+        refuse before any learner: on a design with ``strata=``, the default
+        ``DRTMLEMethod()`` refuses (X8 in ``docs/roadmap.md``), and
+        ``DRTMLEMethod(guard=())`` fits.
         """
         point = not self.functional.longitudinal
         target = self.functional.target

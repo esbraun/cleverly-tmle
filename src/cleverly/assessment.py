@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
-from collections.abc import Callable, Container, Mapping, Sequence
+from collections.abc import Callable, Container, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from enum import Enum, StrEnum
 from functools import cached_property
@@ -555,7 +555,9 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
         else row
         for row in rows
     )
-    if _method(result) == "drtmle" and getattr(result, "solved_corrections", False):
+    from .sensitivity.positivity import refits_reduced_regressions
+
+    if refits_reduced_regressions(result):
         # A guarded DR-TMLE truncation curve is not a retarget.  `truncation_curve` calls
         # `estimator.retarget` once per bound, that reaches `_solve_reduction`, and
         # `DRTMLE._reduction` hands the alternation a closure that refits the reduced
@@ -1922,7 +1924,7 @@ class _CapabilityFacade:
         for operation, values in arguments.items():
             if not isinstance(values, Mapping):
                 raise TypeError(f"arguments[{operation!r}] must be a mapping")
-            kwargs = dict(values)
+            _, kwargs = _single_pass((), values)
             capability = self.capability(operation)
             if random_state is not None and "random_state" in kwargs:
                 raise ValueError(
@@ -2047,6 +2049,25 @@ def _bound_arguments(bound: inspect.BoundArguments, report: Any = None) -> dict[
         if resolved is not None:
             effective["random_state"] = resolved
     return effective
+
+
+def _single_pass(
+    args: tuple[Any, ...], kwargs: Mapping[str, Any]
+) -> tuple[tuple[Any, ...], dict[str, Any]]:
+    """Read each one-shot iterator argument once, into a tuple.
+
+    A facade checks an argument before it calls the operation, and a combined report
+    records it for replay.  A generator is empty after its first read, so the call then
+    ran on no names and the report recorded an exhausted iterator.  Every other value
+    passes through unchanged.
+    """
+
+    def once(value: Any) -> Any:
+        return tuple(value) if isinstance(value, Iterator) else value
+
+    return tuple(once(value) for value in args), {
+        name: once(value) for name, value in kwargs.items()
+    }
 
 
 def _validate_refute_arguments(bound: inspect.BoundArguments) -> None:
@@ -2633,6 +2654,7 @@ class DiagnosticsFacade(_CapabilityFacade):
         """
         # The malformed arguments first, through the check the function runs first, so the
         # facade and the function report a misspelled test before any refusal.
+        _, kwargs = _single_pass((), kwargs)
         bound = self._bind_arguments("refute", kwargs, partial=False)
         _validate_refute_arguments(bound)
         # The row this request resolves to, not the bare row, so a request that names
@@ -3873,14 +3895,14 @@ class SensitivityFacade(_CapabilityFacade):
         more, the bare row keeps its declared ``covariates`` argument, and a request that
         names every covariate reads ``unavailable``.
         """
-        from .sensitivity.omitted_variable import benchmark_refusal
+        from .sensitivity.omitted_variable import _benchmark_covariates, benchmark_refusal
 
         return _argument_resolved(
             capability,
             "covariates",
             arguments.get("covariates"),
             lambda covariates: benchmark_refusal(self._result, covariates),
-            tuple((name,) for name in self._result.data.covariate_names),
+            tuple((name,) for name in _benchmark_covariates(self._result.data)),
         )
 
     def _simulated_confounding_gated(
@@ -4095,6 +4117,7 @@ class SensitivityFacade(_CapabilityFacade):
         # facade and the function report an unknown name before any refusal. A
         # longitudinal fit has no covariate list to check a name against, and its row
         # refuses every request.
+        args, kwargs = _single_pass(args, kwargs)
         bound = self._bind_arguments("benchmark", kwargs, partial=True, args=args)
         _validate_benchmark_arguments(self._result, bound)
         return self._dispatch("benchmark", args, kwargs)

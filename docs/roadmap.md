@@ -395,6 +395,13 @@ corrects the rows marked `b`: the summary displays, the protocol option and the 
 RM16b also executes the notebooks again and writes the delivery record. The row stays open until
 RM16b merges.
 
+RM16a delivered the rows marked `a` and the four routed findings marked `a`.
+`tests/unit/test_summary_and_message_accuracy.py` holds the witnesses of the messages, the
+argument checks and the truncation row. `test_every_named_test_exists` in
+`tests/unit/test_documentation_links.py` checks the test references. The pinned tests in
+`tests/unit/test_drtmle_fit.py`, `tests/unit/test_msm.py` and `tests/unit/test_learners.py` check
+the three exception types.
+
 | part | surface | defect | evidence | correction |
 | --- | --- | --- | --- | --- |
 | a | missing-outcome `DataError` | tells a study user to pass `delta=<column>`, and `PointTreatment` names the field `missingness`. Two sensitivity refusals give the same remedy | `check_outcome` in `src/cleverly/data/validate.py` raises the error from `CausalData`, which a study design and a direct fit both build. `_refuse_complete_outcome` in `src/cleverly/sensitivity/missingness.py` and `_refuse_observation_axis` in `src/cleverly/sensitivity/positivity.py` name `delta=<column>` on `fit()`. A probe reproduces all three through `CausalStudy` | write one remedy that names both spellings: `missingness=<column>` on `PointTreatment`, or `delta=<column>` on `fit()` or `CausalData`. The three messages use it |
