@@ -1097,7 +1097,7 @@ disposable smoke run and the R4 pre-check come first. The declared regeneration 
 (what-the-five-designs-found)=
 #### What the five designs found
 
-Designs FW, OW, BD and CD each ran once, under the declarations above. Pull request NNN records
+Designs FW, OW, BD and CD each ran once, under the declarations above. Pull request 245 records
 the runs. Design SL has not run, and a later pull request carries it.
 
 Each part ran from a clean commit that its upstream held. The runtime was Python 3.13.7 with
