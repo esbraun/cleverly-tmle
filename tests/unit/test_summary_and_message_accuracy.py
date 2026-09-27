@@ -41,6 +41,7 @@ reverts one correction and names the test here that fails.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -56,6 +57,7 @@ from cleverly import (
     RegimeContrast,
 )
 from cleverly._inference_status import status_record
+from cleverly.assessment import INTERPRETERS
 from cleverly.data.validate import MISSING_OUTCOME_DECLARATION
 from cleverly.datasets import (
     make_binary_outcome,
@@ -64,11 +66,12 @@ from cleverly.datasets import (
     make_missing_outcome_binary,
     navigation_protocol,
 )
-from cleverly.estimators import CTMLE, DRTMLE, TMLE
+from cleverly.estimators import CTMLE, DRTMLE, TMLE, TMLEResultSet
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Shift, Static
 from cleverly.sensitivity import benchmark
 from cleverly.sensitivity.positivity import truncation_curve
+from cleverly.validation import RepeatSpreadRow
 from tests.conftest import linear_drtmle, linear_in_sample
 from tests.unit import _capability_sweep_support as sweep
 from tests.unit import test_fold_policy_rules as fold_rules
@@ -632,7 +635,8 @@ class TestTheReferenceLineBelongsToAContrast:
 
     def test_a_regime_mean_summary_prints_no_reference(self) -> None:
         result = sweep.fit_ltmle()
-        assert "  reference: always" not in result.summary().splitlines()
+        lines = result.summary().splitlines()
+        assert not any(line.strip().startswith("reference:") for line in lines)
         # The replay reads the field, so the correction hides the line and keeps the field.
         assert result.config.reference == "always"
 
@@ -700,6 +704,27 @@ class TestTheDRTMLESummaryNamesItsGuardAndReduction:
             "the ordinary TMLE"
         ) in lines
 
+    def test_the_bivariate_reduction(self) -> None:
+        frame, _ = make_binary_outcome(n=160, seed=11)
+        estimator = DRTMLE(**linear_drtmle(n_folds=2, estimands=("ate",)), reduction="bivariate")
+        lines = estimator.fit(frame, outcome="Y", treatment="A").single().summary().splitlines()
+        assert "DR-TMLE: guard Q, g; bivariate reduction" in lines
+
+    def test_the_missing_outcome_reduction(self) -> None:
+        """The line names the construction that ran, which the constructor did not name."""
+        estimator = DRTMLE(
+            **linear_drtmle(
+                estimands=("ate",),
+                cross_fit=False,
+                randomized=True,
+                missingness_learner=LogisticRegression(max_iter=1000),
+            )
+        )
+        assert estimator.reduction == "univariate"
+        result = estimator.fit(_missing_frame(), outcome="Y", treatment="A", delta="Delta")
+        lines = result.single().summary().splitlines()
+        assert "DR-TMLE: guard Q, g; missing_outcome reduction" in lines
+
     def test_an_ordinary_fit_prints_no_dr_tmle_line(self) -> None:
         lines = sweep.fit_ordinary().summary().splitlines()
         assert not any(line.startswith("DR-TMLE:") for line in lines)
@@ -739,6 +764,8 @@ class TestTheSupportTableStatesEachColumnsBasis:
             clipped = np.where(arm, 1.0 / np.clip(g[:, code], 0.4, 0.6), 0.0)
             assert item.min_support_propensity < 0.4
             assert item.effective_sample_size == pytest.approx(_kish(raw), rel=1e-9)
+            assert item.max_ratio == pytest.approx(raw.max(), rel=1e-12)
+            assert item.max_ratio > clipped.max()
             assert item.score_load is not None
             assert item.score_load["effective"] == pytest.approx(_kish(clipped), rel=1e-9)
             assert item.score_load["effective"] > item.effective_sample_size + 1.0
@@ -811,6 +838,16 @@ class TestTheProtocolPrintsOnceOrAsItsFingerprint:
             with pytest.raises(ValueError, match="protocol must be 'full' or 'fingerprint'"):
                 call(protocol="short")
 
+    @pytest.mark.parametrize("levels", [(None,), (0.0, 1.0)], ids=["single", "by_level"])
+    def test_a_result_set_forwards_the_option(
+        self, levels: tuple[float | None, ...], point: Any
+    ) -> None:
+        _, result = point
+        results = TMLEResultSet(dict.fromkeys(levels, result), intermediate_name="Z")
+        text = results.summary(protocol="fingerprint")
+        counts = _count(text, _record_lines())
+        assert counts == [len(levels)] + [0] * 10
+
     def test_an_absent_protocol_prints_absent_in_both_modes(self) -> None:
         fitted = TMLE(**linear_in_sample()).fit(_linear_frame(), outcome="Y", treatment="A")
         for option in ("full", "fingerprint"):
@@ -859,6 +896,26 @@ class TestTheSplitSpreadFactReadsTheStatusName:
             f"largest sd/plugin se {widest.ratio_to_standard_error:.3g} for {widest.estimand}"
         ) in detail
         assert "largest sd/se" not in detail
+
+    @pytest.mark.parametrize(
+        ("status", "expected"),
+        [("working_mechanism_plugin", "sd/plugin se"), ("influence_curve", "sd/se")],
+    )
+    def test_an_unavailable_ratio_reads_the_status_name(self, status: str, expected: str) -> None:
+        """No row has a finite ratio, so the fact names the ratio as unavailable."""
+        report = SimpleNamespace(
+            findings=(),
+            models=(),
+            selection=None,
+            selection_omission=None,
+            repeat_spread=(RepeatSpreadRow("ate", 2, 0.0, 0.0, float("nan")),),
+            repeat_spread_omission=None,
+            n_repeats=2,
+            reported_repeat=1,
+            inference=status,
+        )
+        detail = INTERPRETERS["nuisance_models"](report, None).detail
+        assert detail.endswith(f"across 2 draws; {expected} unavailable")
 
     def test_an_ordinary_fit_keeps_the_inferential_ratio(self) -> None:
         detail = _repeated(TMLE).diagnostics.run_all()["nuisance_models"].detail
