@@ -41,7 +41,7 @@ from ..learners._fitting import (
     predict_mean,
     predict_probabilities,
 )
-from ..learners.crossfit import Folds
+from ..learners.crossfit import _IN_SAMPLE_REMEDY, _POST_DRAW_REMEDY, Folds
 from ..learners.density import ConditionalDensity, fit_conditional_density
 from ..learners.screeners import CorrelationScreener
 from ..learners.super_learner import SuperLearnerDiagnostics
@@ -83,12 +83,8 @@ _SIMPLEX_TOLERANCE = 1e-9
 #: What a fold with no trainable rows offers when the caller names nothing else.  An outer
 #: split is gone in sample.  A split that an in-sample fit draws for itself, such as the
 #: C-TMLE selection split, passes its own remedy to :func:`cross_fit_predictions`.
-_CROSS_FIT_REMEDY = (
-    "The split is drawn from the seed alone and reads no treatment or outcome, so trying "
-    "fold counts or seeds until one fits would choose the partition by the values it must "
-    "not read. Fit in sample instead (cross_fit=False on the engine, "
-    "CrossFitting(enabled=False); n_folds=1 for a longitudinal fit), or collect more "
-    "observations of the rare thing"
+_CROSS_FIT_REMEDY = _POST_DRAW_REMEDY.format(
+    remedy=f"{_IN_SAMPLE_REMEDY}, or n_folds=1 for a longitudinal fit"
 )
 
 

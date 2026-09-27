@@ -1492,31 +1492,25 @@ class BenchmarkResult:
         return self.summary()
 
 
-def _encoded_blocks(data: Any) -> dict[str, tuple[str, ...]]:
-    """Each encoded categorical covariate, and the indicator columns the fit kept for it."""
-    kept = set(data.covariate_names)
-    return {
-        encoding.column: tuple(name for name in encoding.generated if name in kept)
-        for encoding in data.encodings
-    }
-
-
 def _benchmark_covariates(data: Any) -> tuple[str, ...]:
     """The covariates a benchmark can name, in fit order, with an encoded covariate once.
 
     An encoded categorical covariate enters the fit as a block of indicator columns. One
     indicator alone is not a covariate, so the column name stands for the whole block.
     """
-    source = {
-        column: logical for logical, block in _encoded_blocks(data).items() for column in block
-    }
-    return tuple(dict.fromkeys(source.get(name, name) for name in data.covariate_names))
+    sources = data.indicator_sources
+    return tuple(dict.fromkeys(sources.get(name, name) for name in data.covariate_names))
 
 
 def _benchmark_columns(data: Any, names: tuple[str, ...]) -> tuple[str, ...]:
     """The design columns that the covariate ``names`` stand for, in request order."""
-    blocks = _encoded_blocks(data)
-    return tuple(column for name in names for column in blocks.get(name, (name,)))
+    sources = data.indicator_sources
+    return tuple(
+        column
+        for name in names
+        for column in data.covariate_names
+        if sources.get(column, column) == name
+    )
 
 
 def _benchmark_names(result: TMLEResult, covariates: Any) -> tuple[str, ...]:
@@ -1552,13 +1546,13 @@ def _benchmark_names(result: TMLEResult, covariates: Any) -> tuple[str, ...]:
             "benchmark needs at least one covariate to drop; covariates= names none, and a "
             "refit that drops nothing measures nothing"
         )
-    for logical, block in _encoded_blocks(result.data).items():
-        for name in names:
-            if name in block:
-                raise DataError(
-                    f"{name!r} is an indicator column of the encoded covariate {logical!r}. "
-                    f"Name {logical!r} to drop its whole encoded block"
-                )
+    sources = result.data.indicator_sources
+    for name in names:
+        if name in sources:
+            raise DataError(
+                f"{name!r} is an indicator column of the encoded covariate {sources[name]!r}. "
+                f"Name {sources[name]!r} to drop its whole encoded block"
+            )
     fitted = _benchmark_covariates(result.data)
     unknown = sorted(set(names).difference(fitted))
     if unknown:

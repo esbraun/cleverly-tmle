@@ -344,10 +344,18 @@ _LOSS_EPS = 1e-12
 
 #: The way out of a selection or nested split that cannot fit its nuisances.  The search
 #: draws those splits even in sample, so fitting in sample removes neither of them.
-#: ``strategy="oat"`` and the ordinary TMLE fit the same data with no selection split.
+#: ``strategy="oat"`` refuses a selector setting away from its default, and the ordinary
+#: TMLE cross-fits by default, so the text names the settings under which each runs.
 _SELECTION_SPLIT_REMEDY = (
-    "fit strategy='oat' or the ordinary TMLE (TMLE, or TMLEMethod), neither of which draws "
-    "a selection split"
+    "fit strategy='oat' with every selector setting (selection_folds, selection_inner_folds, "
+    "loss, penalty, ctmle_estimand) at its default, or the ordinary TMLE in sample, "
+    "TMLE(cross_fit=False), neither of which draws a selection split"
+)
+
+#: Why CTMLE refuses a continuous dose, which every strategy does.
+_DISCRETE_TREATMENT_REFUSAL = (
+    "CTMLE strategies require a discrete treatment. strategy='oat' fits a categorical "
+    "mechanism on one Qbar prediction per arm, and a continuous dose has no finite arm vector."
 )
 
 #: The selection split's refusal remedy in the words the nuisance fold loop closes with.
@@ -1214,13 +1222,19 @@ class CTMLE(TMLE):
         self._check_estimands(data)
         return super()._resolve_estimands_for_data(data)
 
+    def _check_shifts(self, data: CausalData) -> None:
+        """Refuse a continuous dose before the shift check can suggest a shift.
+
+        ``TMLE._check_shifts`` runs first in the preflight, and it answers a dose with no
+        ``shifts=`` by suggesting one, which CTMLE does not fit.
+        """
+        if data.is_continuous_treatment:
+            raise CapabilityError(_DISCRETE_TREATMENT_REFUSAL)
+        super()._check_shifts(data)
+
     def _check_estimands(self, data: CausalData) -> None:
         if data.is_continuous_treatment:
-            raise CapabilityError(
-                "CTMLE strategies require a discrete treatment. strategy='oat' fits a "
-                "categorical mechanism on one Qbar prediction per arm, and a continuous "
-                "dose has no finite arm vector."
-            )
+            raise CapabilityError(_DISCRETE_TREATMENT_REFUSAL)
         if data.has_intermediate:
             raise CapabilityError(
                 "CTMLE does not compose either collaborative strategy with an intermediate "

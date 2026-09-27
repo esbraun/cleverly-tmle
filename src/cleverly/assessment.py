@@ -2056,10 +2056,12 @@ def _single_pass(
 ) -> tuple[tuple[Any, ...], dict[str, Any]]:
     """Read each one-shot iterator argument once, into a tuple.
 
-    A facade checks an argument before it calls the operation, and a combined report
-    records it for replay.  A generator is empty after its first read, so the call then
-    ran on no names and the report recorded an exhausted iterator.  Every other value
-    passes through unchanged.
+    A facade checks an argument before it calls the operation, a combined report records
+    it for replay, and the assessment cache keys the answer by it.  A generator is empty
+    after its first read, so the call then ran on no names and the report recorded an
+    exhausted iterator.  Its ``repr`` names a memory address that CPython reuses, so a
+    cache key built from it could return the answer of another generator.  Every other
+    value passes through unchanged.
     """
 
     def once(value: Any) -> Any:
@@ -2584,6 +2586,8 @@ class DiagnosticsFacade(_CapabilityFacade):
         # raises from, and it is checked before the cache, so an unanswerable request is
         # refused whether or not the cache already holds a curve.
         self._require("truncation_curve", {"mechanism": mechanism})
+        # The cache key holds these arguments, so a one-shot iterator is read once here.
+        (bounds, estimands), _ = _single_pass((bounds, estimands), {})
         longitudinal = _family(self._result) == "longitudinal"
         if longitudinal and bounds is None:
             raise CapabilityError(
@@ -4225,6 +4229,7 @@ class SensitivityFacade(_CapabilityFacade):
 
     def _dispatch(self, operation: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
         """Refuse by the declared capability, then call the declared implementation."""
+        args, kwargs = _single_pass(args, kwargs)
         explicit_evalue = operation == "evalue" and (bool(args) or "estimand" in kwargs)
         if not explicit_evalue:
             self._require(operation)

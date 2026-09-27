@@ -538,6 +538,20 @@ class CausalData:
         return int(np.unique(self.cluster).size)
 
     @property
+    def indicator_sources(self) -> dict[str, str]:
+        """Each generated indicator column, mapped to the covariate it encodes.
+
+        A boolean covariate enters the design as one column under its own name, so it is
+        no generated indicator and is left out.
+        """
+        return {
+            name: encoding.column
+            for encoding in self.encodings
+            for name in encoding.generated
+            if name != encoding.column
+        }
+
+    @property
     def has_missing_outcome(self) -> bool:
         return bool(not np.all(self.observed))
 

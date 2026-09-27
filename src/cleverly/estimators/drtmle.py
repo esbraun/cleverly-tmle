@@ -1005,6 +1005,16 @@ class DRTMLE(TMLE):
         self._check_drtmle(data)
         return estimands
 
+    def _check_shifts(self, data: CausalData) -> None:
+        """Refuse a continuous dose before the shift check can suggest a shift.
+
+        ``TMLE._check_shifts`` runs first in the preflight, and it answers a dose with no
+        ``shifts=`` by suggesting one, which DRTMLE does not fit.
+        """
+        if data.is_continuous_treatment:
+            refuse_unsupported("continuous")
+        super()._check_shifts(data)
+
     def _check_drtmle(self, data: CausalData) -> None:
         """The refusals that run before any learner of a fit or a refit, each by name."""
         if isinstance(self, CTMLE):

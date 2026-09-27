@@ -112,6 +112,7 @@ from .._typing import (
     TargetingScheme,
 )
 from ..data.causal_data import CausalData, TreatmentKind, arm_share
+from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..exceptions import (
     CapabilityError,
     ConvergenceWarning,
@@ -2476,12 +2477,14 @@ class TMLE:
             )
         if data.is_continuous_treatment and not self.shifts and self.msm is None:
             # The suggested shift meets the F21 refusal of a cross-fitted fit with missing
-            # outcomes, so that fit is told which fit estimates the natural course.
+            # outcomes, so that fit is told which fit estimates the natural course.  The
+            # condition is the one ``_refuse_cross_fitted_missing_off_contract`` refuses on.
             in_sample = (
-                " A cross-fitted fit with missing outcomes (delta=) refuses a shift target "
-                "(F21 in docs/roadmap.md). To estimate the natural course, "
+                " A cross-fitted fit with missing outcomes, declared with "
+                f"{MISSING_OUTCOME_DECLARATION}, refuses a shift target (F21 in "
+                "docs/roadmap.md). To estimate the natural course, "
                 f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}."
-                if data.has_missing_outcome and self.cross_fit
+                if self._assessment_method == "tmle" and self.cross_fit and data.has_missing_outcome
                 else ""
             )
             raise DataError(

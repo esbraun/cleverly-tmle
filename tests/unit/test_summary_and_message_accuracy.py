@@ -31,7 +31,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import ATE, CausalStudy, PointTreatment
 from cleverly.datasets import make_linear_ate, make_missing_outcome_binary
-from cleverly.estimators import CTMLE, TMLE
+from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Shift
 from cleverly.sensitivity import benchmark
@@ -157,14 +157,15 @@ def _selection_fit(seed: int) -> CTMLE:
 _SELECTION_COLUMNS = {"outcome": "Y", "treatment": "A", "covariates": ["W1", "W2"], "delta": "D"}
 
 
-def _selection_remedy() -> str:
-    from cleverly.estimators.ctmle import _SELECTION_SPLIT_REMEDY
-
-    return _SELECTION_SPLIT_REMEDY
-
-
 class TestTheSelectionSplitRefusalOffersAnInSampleFitNothing:
     """Row 9. The in-sample fit is already in sample, so the remedy names no ``cross_fit``."""
+
+    REMEDY = (
+        "fit strategy='oat' with every selector setting (selection_folds, "
+        "selection_inner_folds, loss, penalty, ctmle_estimand) at its default, or the "
+        "ordinary TMLE in sample, TMLE(cross_fit=False), neither of which draws a "
+        "selection split"
+    )
 
     def test_the_preflight_names_the_selection_fold_and_its_remedy(self) -> None:
         frame, seed = respondents_in_one_fold()
@@ -175,24 +176,34 @@ class TestTheSelectionSplitRefusalOffersAnInSampleFitNothing:
             "C-TMLE selection cannot fit its nuisances because selection fold 2's training "
             "complement contains no row with an observed outcome."
         )
-        assert f"Either {_selection_remedy()}, or collect more observations" in message
-        assert "cross_fit=False" not in message
+        assert f"Either {self.REMEDY}, or collect more observations" in message
+        assert "fit in sample with cross_fit=False on the engine" not in message
 
-    def test_the_named_remedies_fit_the_same_frame(self) -> None:
+    def test_each_named_remedy_fits_the_refused_frame_as_written(self) -> None:
+        """The refused fit with ``strategy='oat'`` and its selector setting at the default.
+
+        The ordinary remedy is ``TMLE(cross_fit=False)``, given only the explicit learners
+        a fast test needs in place of the default library.
+        """
         frame, seed = respondents_in_one_fold()
-        settings = {
-            "cross_fit": False,
-            "outcome_learner": LinearRegression(),
-            "treatment_learner": LogisticRegression(max_iter=1000),
-            "q_bounds": (0.0, 1.0),
-            "estimands": ["ate"],
-            "simultaneous": False,
-            "random_state": seed,
-        }
-        oat = CTMLE(strategy="oat", **settings).fit(frame, **_SELECTION_COLUMNS).single()
-        ordinary = TMLE(**settings).fit(frame, **_SELECTION_COLUMNS).single()
-        assert "ate" in oat.estimates
-        assert "ate" in ordinary.estimates
+        refused = _selection_fit(seed)
+        oat = CTMLE(
+            strategy="oat",
+            cross_fit=refused.cross_fit,
+            outcome_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            q_bounds=refused.q_bounds,
+            estimands=["ate"],
+            simultaneous=False,
+            random_state=seed,
+        )
+        ordinary = TMLE(
+            cross_fit=False,
+            outcome_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(max_iter=1000),
+        )
+        assert "ate" in oat.fit(frame, **_SELECTION_COLUMNS).single().estimates
+        assert "ate" in ordinary.fit(frame, **_SELECTION_COLUMNS).single().estimates
 
     def test_the_backstop_names_the_selection_remedy(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(TMLE, "_check_training_support", lambda *a, **k: None)
@@ -201,8 +212,8 @@ class TestTheSelectionSplitRefusalOffersAnInSampleFitNothing:
             _selection_fit(seed).fit(frame, **_SELECTION_COLUMNS)
         message = str(raised.value)
         assert message.startswith("a cross-fitting fold has no trainable rows")
-        assert f"Either {_selection_remedy()}, or collect more observations" in message
-        assert "cross_fit=False" not in message
+        assert f"Either {self.REMEDY}, or collect more observations" in message
+        assert "fit in sample with cross_fit=False on the engine" not in message
 
     def test_a_cross_fitted_tmle_keeps_the_in_sample_remedy(self) -> None:
         """The control: a cross-fitted outer split can be fitted in sample instead."""
@@ -249,14 +260,12 @@ def _dose_fit(frame: pd.DataFrame, *, cross_fit: bool, missing: bool, **settings
     return estimator.fit(frame, **columns)
 
 
-def _f21_sentence() -> str:
-    from cleverly.estimators.tmle import _IN_SAMPLE_ARM_INDEXED_REMEDY
-
-    return (
-        " A cross-fitted fit with missing outcomes (delta=) refuses a shift target (F21 in "
-        "docs/roadmap.md). To estimate the natural course, "
-        f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}."
-    )
+_F21_SENTENCE = (
+    " A cross-fitted fit with missing outcomes, declared with missingness=<column> on "
+    "PointTreatment, or delta=<column> on fit() or CausalData, refuses a shift target (F21 "
+    "in docs/roadmap.md). To estimate the natural course, fit in sample with cross_fit=False "
+    "on the engine (CrossFitting(enabled=False))."
+)
 
 
 class TestTheSuggestedShiftNamesTheFitThatRunsIt:
@@ -265,7 +274,51 @@ class TestTheSuggestedShiftNamesTheFitThatRunsIt:
     def test_a_cross_fitted_fit_with_delta_names_f21_and_the_in_sample_fit(self) -> None:
         with pytest.raises(DataError) as raised:
             _dose_fit(_dose_frame(), cross_fit=True, missing=True)
-        assert str(raised.value).endswith(_f21_sentence())
+        assert str(raised.value).endswith(_F21_SENTENCE)
+
+    @pytest.mark.parametrize(
+        ("engine", "settings", "refusal"),
+        [
+            (CTMLE, {"strategy": "greedy"}, "CTMLE strategies require a discrete treatment."),
+            (CTMLE, {"strategy": "oat"}, "CTMLE strategies require a discrete treatment."),
+            (
+                DRTMLE,
+                {"randomized": True},
+                "the reduced-dimension regressions read a per-arm mechanism g(a | W)",
+            ),
+        ],
+        ids=["ctmle_greedy", "ctmle_oat", "drtmle"],
+    )
+    def test_an_engine_that_refuses_a_dose_gives_no_shift_advice(
+        self, engine: type[TMLE], settings: dict[str, Any], refusal: str
+    ) -> None:
+        """The controls: a cross-fitted CTMLE or DRTMLE with ``delta=`` refuses the dose.
+
+        Neither engine fits a shift, in sample or cross-fitted, so neither message names a
+        shift, F21 or the in-sample fit.
+        """
+        estimator = engine(
+            outcome_learner=LogisticRegression(max_iter=1000),
+            treatment_learner=LinearRegression(),
+            missingness_learner=LogisticRegression(max_iter=1000),
+            cross_fit=True,
+            simultaneous=False,
+            random_state=0,
+            **settings,
+        )
+        with pytest.raises(CapabilityError) as raised:
+            estimator.fit(
+                _dose_frame(),
+                outcome="Y",
+                treatment="D",
+                delta="Delta",
+                covariates=("W1", "W2", "W3"),
+                treatment_kind="continuous",
+            )
+        message = str(raised.value)
+        assert message.startswith(refusal)
+        for advice in ("shifts=", "F21", "cross_fit=False"):
+            assert advice not in message
 
     def test_the_named_in_sample_fit_reports_the_natural_course(self) -> None:
         result = _dose_fit(
@@ -373,6 +426,22 @@ class TestBenchmarkNamesAreLogicalCovariates:
         """The control: a proper subset of numeric covariates."""
         assert benchmark(_encoded_fit(), ["W1"]).covariates == ("W1",)
 
+    def test_a_boolean_covariate_runs_and_its_row_agrees(self) -> None:
+        """A boolean covariate is one column under its own name, so its name is no indicator."""
+        frame, _ = make_linear_ate(n=400, seed=2)
+        frame["B"] = np.random.default_rng(5).random(len(frame)) < 0.5
+        result = (
+            TMLE(**linear_in_sample())
+            .fit(frame, outcome="Y", treatment="A", covariates=("W1", "W2", "W3", "W4", "B"))
+            .single()
+        )
+        assert result.data.covariate_names == ("W1", "W2", "W3", "W4", "B")
+        row = result.sensitivity._capability_for_arguments("benchmark", {"covariates": ["B"]})
+        assert row.available
+        report = benchmark(result, ["B"])
+        assert report.covariates == ("B",)
+        assert report.psi_short == _short_psi(result, ("B",), report.random_state)
+
 
 # --------------------------------------------------- row 13: one-shot iterator arguments
 
@@ -413,6 +482,28 @@ class TestAFacadeReadsAnIteratorOnce:
         assert benchmarked.arguments["covariates"] == ("W1",)
         assert [test.name for test in refuted.report.tests] == ["placebo"]
         assert refuted.arguments["tests"] == ("placebo",)
+
+    def test_two_truncation_generators_give_their_own_curves(self) -> None:
+        """A generator's ``repr`` names a memory address, which CPython reuses.
+
+        Before the fix the cache key held that ``repr``, so a second generator with other
+        bounds could read the first curve back.  The key must hold the bounds themselves.
+        """
+        result = sweep.fit_ordinary()
+        result.diagnostics.truncation_curve(bound for bound in [0.05])
+        second = result.diagnostics.truncation_curve(bound for bound in [0.2, 0.3])
+        listed = result.diagnostics.truncation_curve([0.2, 0.3])
+        pd.testing.assert_frame_equal(second, listed)
+        assert not any("generator" in key for key in result.assessment_cache)
+
+    def test_two_missingness_generators_give_their_own_tilts(self) -> None:
+        """The same for an operation that the sensitivity facade dispatches."""
+        result = sweep.fit_missing()
+        result.sensitivity.missingness(gamma for gamma in [1.0])
+        second = result.sensitivity.missingness(gamma for gamma in [2.0, 3.0])
+        listed = result.sensitivity.missingness([2.0, 3.0])
+        pd.testing.assert_frame_equal(second, listed)
+        assert not any("generator" in key for key in result.assessment_cache)
 
 
 # ---------------------------------------- row 15: the guarded curve needs a refit

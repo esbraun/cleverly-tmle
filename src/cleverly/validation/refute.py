@@ -1717,12 +1717,7 @@ def _validate_measurement_error_eligibility(
             f"preserving target metadata: {sorted(selected_strata)}"
         )
     encodings = _measurement_encodings(data)
-    generated = {
-        name: encoding.column
-        for encoding in data.encodings
-        for name in encoding.generated
-        if name != encoding.column
-    }
+    generated = data.indicator_sources
     numeric = set(data.covariate_names).difference(generated)
     original = numeric.union(encodings)
     unknown = [name for name in declaration.variables if name not in original]
