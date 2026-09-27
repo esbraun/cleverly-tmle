@@ -1511,10 +1511,25 @@ Every interval that the table does not name is 99%.
 | check | declaration |
 | --- | --- |
 | V1 | the `C` fits of Part A reproduce all 2,400 committed `cleverly` rows. `estimate` and `std_error` of the three estimands must satisfy `abs(new - committed) <= 1e-9 * max(1, abs(committed))`, with the committed rows parsed by `pandas.read_csv(..., float_precision="round_trip")` |
-| V2 | `T(0, 0, 0)` reproduces all 2,400 committed `drtmle-r` rows, in the same columns and to the same tolerance. The `std_error` is the covariance of `DnoStar - DnQoStar - DngoStar` that R forms under `targeted_se` (`drtmle.R`), transcribed |
+| V2 | `T(0, 0, 0)` reproduces all 2,400 committed `drtmle-r` rows, in the same columns. The `std_error` is the covariance of `DnoStar - DnQoStar - DngoStar` that R forms under `targeted_se` (`drtmle.R`), transcribed. The tolerance depends on the exit status of the draw, as the next table states |
 | V3 | the shared initial arrays of every Part A draw reproduce the committed `drtmle-r` `initial_estimate` of each estimand to 1e-12 |
-| V4 | the R rows of the first 200 Part B draws, `estimate` and `std_error` of the three estimands, equal the Part B `T(0, 0, 0)` rows to the V1 tolerance. The `C` refit that rebuilds each payload must equal its Part B `C` row to the same tolerance |
-| outcome | a V1, V2 or V3 miss stops the design with `harness not validated, no reading`. A V4 miss, or a V4 that has not run, gives Part B the same reading. Part C reads on V1 to V3 alone |
+| V4 | the R rows of the first 200 Part B draws, `estimate` and `std_error` of the three estimands, equal the Part B `T(0, 0, 0)` rows, with the tolerance of V2. The `C` refit that rebuilds each payload must equal its Part B `C` row to the V1 tolerance |
+| outcome | a V1, V2 or V3 miss stops the design with `harness not validated, no reading`. An exit-status mismatch in V4 also stops the design. Any other V4 miss, or a V4 that has not run, gives Part B the same reading. Part C reads on V1 to V3 alone |
+
+The exit status of a draw is `tolIC` when the largest absolute score mean of the R fit is at most
+`tolIC = 1e-8`, and `maxIter` otherwise. V2 and V4 read it for R and for `T(0, 0, 0)` on every
+draw.
+
+| exit status | V2 and V4 rule |
+| --- | --- |
+| the two exit statuses differ | the check fails. A mismatch on any draw stops the design with `harness not validated, no reading` |
+| `tolIC` on both sides | `abs(new - committed) <= 1e-9 * max(1, abs(committed))`, as V1 |
+| `maxIter` on both sides | the same expression with 1e-4 in place of 1e-9. The validation file and `run.log` report the number of such draws and their largest scaled difference |
+
+A draw that reaches `maxIter` amplifies the rounding differences of two arithmetic libraries round
+by round, and 1e-4 on one draw is below one fifth of the declared resolution of 0.000598. Commit
+"Amend the RM19 validation tolerance before the runs" made this change, after the harness smoke
+runs and before any declared part ran.
 
 ##### The readings
 
