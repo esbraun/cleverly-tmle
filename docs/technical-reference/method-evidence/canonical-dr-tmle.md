@@ -318,6 +318,12 @@ coverage is `0.9150` with a 99% lower endpoint of `0.8864` against a floor of `0
 regime rather than about the construction. Its budget did not move, so the cell stays red under
 the ladder that resolved the slope.
 
+RM18 design BD re-read this rung on 6,000 fresh replicates, under a declaration written before its
+run. The coverage interval runs 0.9179 to 0.9354 and clears the floor, so the reading is `resolved:
+truth satisfies the gate`. The interval lies below 0.95. The rung rule reads coverage alone, and
+the fresh bias interval of 0.00774 to 0.00965 lies above its 0.25 SD margin. The re-read does not
+move the rung's verdict. {ref}`What design BD found <what-design-bd-found>` gives the numbers.
+
 ## Limitations
 
 The comparison is binary, two-arm, complete-outcome, pointwise, and confined to the paper law and

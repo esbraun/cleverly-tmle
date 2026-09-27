@@ -153,7 +153,12 @@ def test_an_inflated_binned_standard_error_moves_the_first_difference() -> None:
     assert cd.d_intervals(_arms(1.08))["Cb", "L"].low > 0.0
 
 
-@pytest.mark.skipif(not READING.exists(), reason="CD has not run")
+def test_the_part_has_run() -> None:
+    """The declared set, not the file: a declared part whose record is missing fails."""
+    assert cd.PART in shared.RAN
+
+
+@pytest.mark.skipif(cd.PART not in shared.RAN, reason="CD has not run")
 def test_the_committed_reading_follows_from_the_committed_rows() -> None:
     rows = shared.read_rows(ROWS)
     assert (
@@ -167,7 +172,7 @@ def test_the_committed_reading_follows_from_the_committed_rows() -> None:
     assert shared.SMOKE not in set(rebuilt["result"])
 
 
-@pytest.mark.skipif(not READING.exists(), reason="CD has not run")
+@pytest.mark.skipif(cd.PART not in shared.RAN, reason="CD has not run")
 def test_one_committed_analytic_row_retargets_again() -> None:
     rows = shared.read_rows(ROWS)
     committed = rows.loc[(rows["implementation"] == cd.ANALYTIC) & (rows["replicate"] == 0)].iloc[0]

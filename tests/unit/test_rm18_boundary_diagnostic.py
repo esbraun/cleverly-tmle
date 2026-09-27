@@ -14,8 +14,11 @@ from tests.diagnostics import rm18_seeds
 from tests.diagnostics import rm18_shared as shared
 from tests.diagnostics.rm18_boundary import paired
 from tests.diagnostics.rm18_boundary import run as bd
+from tests.studies import drtmle_properties as binary
+from tests.studies.canonical_drtmle import STUDY as BINARY
 from tests.studies.canonical_multi_arm_drtmle import STUDY as MULTI
 from tests.studies.canonical_weighted_ltmle_crossfit import STUDY as CROSSFIT
+from tests.studies.evidence.property_verdicts import apply_shared_verdicts, contraction_verdicts
 from tests.studies.evidence.seeds import stream_seed
 
 #: BD-0 as the declaration publishes it.
@@ -97,6 +100,11 @@ def test_the_registered_rung_rule_reads_the_fresh_rows_and_a_short_rung_is_smoke
         return str(next(row["result"] for row in readings if row["statistic"] == "reading"))
 
     assert label(_rung(5_700)) == bd.SATISFIES
+    # The rung rule reads coverage alone.  A bias interval wholly outside 0.25 SD leaves the
+    # reading where the coverage interval puts it, as the declared rung row states.
+    biased = _rung(5_700).assign(estimate=lambda rows: rows["estimate"] + 0.005)
+    assert bd.registered_summary(biased, MULTI, "rung")["bias_discriminated"].iloc[0]
+    assert label(biased) == bd.SATISFIES
     assert label(_rung(5_280)) == bd.FAILS_GATE
     assert label(_rung(5_450)) == bd.UNRESOLVED
     assert label(_rung(5_700, count=5_999)) == shared.SMOKE
@@ -336,11 +344,48 @@ DECLARED_ROWS = {
 }
 
 
-@pytest.mark.parametrize("part", bd.PARTS)
+def _registered_cells() -> list[tuple[Any, str, str]]:
+    cells = [
+        (entry[0], entry[2], entry[3]) for part in ("BD-1", "BD-2") for entry in bd.CELLS[part]
+    ]
+    return [*cells, (CROSSFIT, *bd.CONTROL)]
+
+
+@pytest.mark.parametrize(
+    ("record", "property_name", "cell"),
+    _registered_cells(),
+    ids=lambda value: getattr(value, "slug", value),
+)
+def test_the_harness_rule_reproduces_each_registered_red_verdict(
+    record: Any, property_name: str, cell: str
+) -> None:
+    """The rule a re-read applies is the registered rule: on the committed registered rows it
+    gives the published verdict and coverage interval of the cell."""
+    committed = shared.read_rows(record.artifact("property-replicates.csv.gz"))
+    rows = committed.loc[(committed["property"] == property_name) & (committed["cell"] == cell)]
+    if record.slug == BINARY.slug and property_name == bd.CONTRACTION_FAMILY:
+        budget = binary.CONTRACTION_VERDICT_REPLICATES
+        rows = rows.loc[rows["replicate"] < budget].assign(requested_replicates=budget)
+    summary, _ = apply_shared_verdicts(rows, record, rate_labels=())
+    contraction_verdicts(summary, record)
+    published = shared.read_rows(record.artifact("properties.csv"))
+    expected = published.loc[
+        (published["property"] == property_name) & (published["cell"] == cell)
+    ].iloc[0]
+    row = summary.iloc[0]
+    assert not bool(expected["passed"]) and not bool(row["passed"])
+    for column in ("coverage_ci_lower", "coverage_ci_upper"):
+        assert float(row[column]) == pytest.approx(float(expected[column]), rel=1e-12)
+    assert bd.gate_label(row, record.margins) == bd.UNRESOLVED
+
+
+def test_every_part_of_the_design_has_run() -> None:
+    assert set(bd.PARTS) <= shared.RAN
+
+
+@pytest.mark.parametrize("part", sorted(set(bd.PARTS) & shared.RAN))
 def test_each_committed_reading_follows_from_its_record(part: str) -> None:
     rows_path, _, reading = shared.part_paths(bd.HERE, part)
-    if not reading.exists():
-        pytest.skip(f"{part} has not run")
     if part in DECLARED_ROWS:
         assert DECLARED_ROWS[part](shared.read_rows(rows_path))
     rebuilt = bd.table(part, bd.HERE, 1)

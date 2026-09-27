@@ -238,11 +238,13 @@ BUDGETS = {
 }
 
 
-@pytest.mark.parametrize("part", ow.PARTS)
+def test_every_part_of_the_design_has_run() -> None:
+    assert set(ow.PARTS) <= shared.RAN
+
+
+@pytest.mark.parametrize("part", sorted(set(ow.PARTS) & shared.RAN))
 def test_each_committed_reading_follows_from_its_rows(part: str) -> None:
     rows_path, _, reading_path = shared.part_paths(ow.HERE, part)
-    if not reading_path.exists():
-        pytest.skip(f"{part} has not run")
     first, second, budget, groups = BUDGETS[part]
     rows = shared.read_rows(rows_path)
     keys = [first] if second is None else [first, second]

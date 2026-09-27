@@ -48,6 +48,26 @@ SMOKE = "smoke run, not the declared budget"
 HOLDS = "holds"
 FAILS = "fails"
 
+#: Every part whose declared run is committed.  A committed-reading test reads each part named
+#: here, and a missing rows or reading file fails that test.  A part leaves this set only with
+#: its committed record.
+RAN = frozenset(
+    {
+        "CD",
+        "OW-A",
+        "OW-B",
+        "OW-C",
+        "FW-A",
+        "BD-0",
+        "BD-1",
+        "BD-2",
+        "BD-3",
+        "BD-P1",
+        "BD-P-pilot",
+        "BD-P2",
+    }
+)
+
 #: One published reading row.  ``value`` is a point statistic, the interval is its 99%
 #: interval where it has one, and ``result`` carries a label or a verdict.
 READING_COLUMNS = ("part", "scope", "statistic", "value", "ci_lower", "ci_upper", "result")

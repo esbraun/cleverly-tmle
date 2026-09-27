@@ -160,6 +160,12 @@ The budget, the size, the seed and the margins did not move, so the comparison i
 splits at one Monte Carlo resolution. The two larger sizes stay green, and both root-n rates
 stay inside their band, so the row records no departure from the rate the theory predicts.
 
+RM18 design BD re-read the n = 500 cell on 6,000 fresh replicates, under a declaration written
+before its run. The coverage interval runs 0.9318 to 0.9478 and clears the floor. The bias and SE
+ratio also meet the cell's rule, so the reading is `resolved: truth satisfies the gate`. The
+coverage interval lies below 0.95. The re-read does not move the cell's verdict.
+{ref}`What design BD found <what-design-bd-found>` gives the numbers.
+
 The `fold_policy` family now measures that comparison. It runs the two split policies on one
 binary law and on one set of draws. It reports and it does not gate. Neither cell declares a
 margin, so the pass counts above leave both out.

@@ -259,7 +259,12 @@ def test_a_library_from_another_tree_is_refused(
 
 
 def _ran() -> bool:
-    return READING.exists()
+    """The declared set, not the file: a declared part whose record is missing fails."""
+    return fw.PART in shared.RAN
+
+
+def test_the_part_has_run() -> None:
+    assert _ran()
 
 
 @pytest.mark.skipif(not _ran(), reason="FW-A has not run")

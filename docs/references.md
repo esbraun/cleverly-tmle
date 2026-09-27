@@ -24,8 +24,13 @@ previous reader had is not a citation; a page number is.
   equation after the observed-data curve is known. It does not derive RM8's missing-outcome curve
   or response transfer.
 - Díaz Muñoz & van der Laan (2012), [*Population Intervention Causal Effects Based on
-  Stochastic Interventions*](https://doi.org/10.1111/j.1541-0420.2011.01685.x), DOI
-  10.1111/j.1541-0420.2011.01685.x.
+  Stochastic Interventions*](https://doi.org/10.1111/j.1541-0420.2011.01685.x), *Biometrics*
+  68(2):541–549, DOI 10.1111/j.1541-0420.2011.01685.x. Read first-hand in the PubMed Central
+  author manuscript, PMC4117410, and not in the version of record. Journal page numbers are
+  therefore not checked. Section 3, Result 1, Equation (5), gives the efficient influence curve
+  of the shifted mean. Section 4.3 states that the TMLE variance estimate is consistent only if
+  both the mechanism and the outcome regression estimates are consistent. RM18 design CD of the
+  [roadmap](roadmap.md) computes its exact bound from Result 1.
 - Gruber & van der Laan (2010), *A targeted maximum likelihood estimator of a causal effect on a
   bounded continuous outcome*. Read first-hand in the
   [author working paper](https://biostats.bepress.com/ucbbiostat/paper265), U.C. Berkeley
@@ -1257,6 +1262,10 @@ is the only empirical witness for it.
   two-stage outcome-subsampling design, with targeted sampling weights and a different variance
   construction. It is relevant weighted-longitudinal theory, but it does not certify this
   package's fixed baseline-selection weights, pooled regimen targeting, or comparator contract.
+  A search on 2026-09-27 found no published version. arXiv lists version 1 of 2 July 2026 alone,
+  with no journal reference, and Crossref returns no record. RM18 design OW of the
+  [roadmap](roadmap.md) cites only the preprint's abstract, which reports coverage as low as 76%
+  for the standard variance estimators.
 - Williams & Díaz (2023), [*lmtp: An R Package for Estimating the Causal Effects of Modified
   Treatment Policies*](https://doi.org/10.1353/obs.2023.0019), *Observational Studies*
   9(2):103–122. This is the software reference for the comparator used by the registered studies;
