@@ -128,9 +128,9 @@ _DIAGNOSTIC_NAMES: Mapping[str, str] = MappingProxyType(
         "bootstrap_ci_upper": "bootstrap_range_upper",
         # The bootstrap spread is the sample standard deviation of the replicate
         # estimates, which is a standard error only where the status supplies inference.
-        # ``bootstrap_std_err`` is the ``to_dict`` key and ``se`` the summary label.
+        # ``bootstrap_std_err`` is the ``to_dict`` key and ``bootstrap se`` the summary label.
         "bootstrap_std_err": "bootstrap_sd",
-        "se": "sd",
+        "bootstrap se": "bootstrap sd",
         # RefutationTest.to_frame, which names the accessor it read.
         "std_error": "plugin_std_error",
         # StudyResult.to_frame.

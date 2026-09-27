@@ -589,7 +589,7 @@ class LongitudinalConfig:
     #: reasoning :attr:`plan_fingerprints` rests on.
     msm_fingerprint: str | None = None
 
-    def describe(self, *, contrast: bool = True) -> list[str]:
+    def describe(self, *, contrast: bool) -> list[str]:
         """Return the settings lines of :meth:`LongitudinalResult.summary`.
 
         Parameters

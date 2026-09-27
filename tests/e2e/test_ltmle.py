@@ -932,8 +932,8 @@ class TestTheReportSaysWhichRuleWasRun:
         low, high = (self._fit(frame, threshold) for threshold in self.THRESHOLDS)
 
         # The plan strings are identical, which is the problem the digest exists for.
-        assert low.config.describe()[2] == high.config.describe()[2]
-        assert "rule=(1/d)" in low.config.describe()[2]
+        assert low.config.describe(contrast=True)[2] == high.config.describe(contrast=True)[2]
+        assert "rule=(1/d)" in low.config.describe(contrast=True)[2]
 
         digests = [dict(result.config.plan_fingerprints)["rule"] for result in (low, high)]
         assert digests[0] != digests[1]
@@ -964,13 +964,13 @@ class TestTheReportSaysWhichRuleWasRun:
             reference="never",
             simultaneous=False,
         )
-        assert "rule=(1/d:responders)" in result.config.describe()[2]
+        assert "rule=(1/d:responders)" in result.config.describe(contrast=True)[2]
 
     def test_a_static_fit_reports_no_digest(self) -> None:
         """The line would say nothing a ``1/0`` has not already said in full."""
         frame, _ = make_longitudinal(n=600, seed=13)
         result = run(frame, simultaneous=False)
-        assert not any("assigned arms" in line for line in result.config.describe())
+        assert not any("assigned arms" in line for line in result.config.describe(contrast=True))
         assert result.config.plan_fingerprints  # recorded, just not printed
 
 

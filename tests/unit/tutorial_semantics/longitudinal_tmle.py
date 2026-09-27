@@ -60,8 +60,8 @@ def check(namespace: dict[str, Any]) -> None:
     # "The two `history at` lines give the history at each navigation node."
     assert "history at navigation_discharge: ['age', 'baseline_readiness']" in summary
     assert (
-        "history at navigation_day7: ['age', 'baseline_readiness', 'navigation_discharge', "
-        "'engagement_day7']"
+        "history at navigation_day7: ['age', 'baseline_readiness', 'engagement_day7', "
+        "'navigation_discharge']"
     ) in summary
 
     # The protocol step changes exactly the two fields the reading names, appending the rule.

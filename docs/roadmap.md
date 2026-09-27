@@ -403,7 +403,7 @@ with `git show d8c654b6:docs/roadmap.md`.
 | longitudinal summaries | `LongitudinalConfig.describe` prints the reference only for a result that holds a contrast. `config.reference` stays set, because the replay reads it. The identification summary prints the history at each treatment node from `BackdoorMeanContrast.history` |
 | DR-TMLE and support | `ReducedFit.describe` gives the guard and the reduction, or the empty guard, in `TMLEResult.summary`. `SupportReport.summary` names the mechanism that each column reads |
 | protocol | `summary(protocol="fingerprint")` prints only the fingerprint line of the record, through `protocol_summary_lines` in `src/cleverly/protocol.py`. The default prints the whole record. `Provenance.describe` no longer prints the fingerprint. Each of the 10 notebooks prints the record once |
-| spread names | the split-spread fact of the `nuisance_models` row and the bootstrap rows read their names through `spread_name`. A non-inferential fit publishes `bootstrap_sd` and `sd`. `BootstrapSummary` keeps its field names. The summary, the docstrings and the pages call the procedure the full-refit bootstrap, and F2 keeps its name |
+| spread names | the split-spread fact of the `nuisance_models` row and the bootstrap rows read their names through `spread_name`. A non-inferential fit publishes `bootstrap_sd` and `bootstrap sd`. `BootstrapSummary` keeps its field names. The summary, the docstrings and the pages call the procedure the full-refit bootstrap, and F2 keeps its name |
 
 `tests/unit/test_summary_and_message_accuracy.py` holds the witnesses. The pinned tests in
 `tests/unit/test_drtmle_fit.py`, `tests/unit/test_msm.py` and `tests/unit/test_learners.py` check

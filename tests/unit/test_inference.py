@@ -1397,7 +1397,7 @@ class TestTheInferenceStatus:
             "bootstrap_ci_lower": "bootstrap_range_lower",
             "bootstrap_ci_upper": "bootstrap_range_upper",
             "bootstrap_std_err": "bootstrap_sd",
-            "se": "sd",
+            "bootstrap se": "bootstrap sd",
             "std_error": "plugin_std_error",
             "mean_std_error": "mean_plugin_std_error",
             "reported_standard_error": "plugin_standard_error",

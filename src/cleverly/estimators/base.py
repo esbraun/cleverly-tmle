@@ -1446,7 +1446,7 @@ class TMLEResult:
                     continue
                 low, high = estimate.bootstrap.ci
                 spread = (
-                    f"  {name:<5s} {spread_name('se', estimate.inference)} "
+                    f"  {name:<5s} {spread_name('bootstrap se', estimate.inference)} "
                     f"{estimate.bootstrap.std_error:.4g}  "
                 )
                 # A percentile interval is a confidence interval, and this fit reports

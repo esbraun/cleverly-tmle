@@ -437,7 +437,8 @@ class TestTheSurroundingMachineryStillWorks:
 
     def test_the_settings_report_names_the_working_model(self, fitted: Any) -> None:
         result, _ = fitted
-        lines = result.config.describe()
+        # A working model has no reference line, even where the report would hold a contrast.
+        lines = result.config.describe(contrast=True)
         assert any("working model: 2 term(s) (intercept), duration" in line for line in lines)
         assert not any(line.startswith("reference:") for line in lines)
 

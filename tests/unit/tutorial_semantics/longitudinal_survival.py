@@ -82,13 +82,13 @@ def check(namespace: dict[str, Any]) -> None:
     for name, estimate in result.estimates.items():
         assert default_reference[name].psi == pytest.approx(estimate.psi, abs=1e-12)
         assert default_reference[name].std_error == pytest.approx(estimate.std_error, abs=1e-12)
-    # "The two `history at` lines give the history at each navigation node. The second node adds
-    # the first offer and `identified_needs`."
+    # "Each line lists the covariates first and the earlier offers last. The second node adds
+    # `identified_needs` and the first offer."
     identify_output = stored_output(NOTEBOOK, "identify")
     assert "history at navigation_p1: ['age', 'baseline_readiness']" in identify_output
     assert (
-        "history at navigation_p2: ['age', 'baseline_readiness', 'navigation_p1', "
-        "'identified_needs']"
+        "history at navigation_p2: ['age', 'baseline_readiness', 'identified_needs', "
+        "'navigation_p1']"
     ) in identify_output
     assert "identified_needs" not in result.data.history_names(1)
     assert result.data.history_names(2)[-1] == "identified_needs"

@@ -648,10 +648,21 @@ class TestTheReferenceLineBelongsToAContrast:
 class TestTheIdentificationSummaryPrintsEachNodesHistory:
     """Row 2. A longitudinal identification summary gives the history at each node."""
 
-    def test_each_node_lists_the_history_before_it(self) -> None:
-        lines = _longitudinal_study().identify(_contrast()).summary().splitlines()
+    def test_each_node_lists_the_history_its_mechanism_reads(self) -> None:
+        """The validated names, in design order: a constant ``K`` is dropped, not printed."""
+        frame, _ = make_longitudinal(n=400, seed=12)
+        design = LongitudinalTreatment(
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2", "K"],
+            time_varying=[[], ["L2"]],
+            censoring=["C1", "C2"],
+        )
+        study = CausalStudy(frame.assign(K=1.0), design=design)
+        assert "K" in study.design.baseline
+        lines = study.identify(_contrast()).summary().splitlines()
         assert "history at A1: ['W1', 'W2']" in lines
-        assert "history at A2: ['W1', 'W2', 'A1', 'L2']" in lines
+        assert "history at A2: ['W1', 'W2', 'L2', 'A1']" in lines
         assert not any(line.startswith("adjustment/history") for line in lines)
 
     def test_a_point_design_keeps_its_adjustment_line(self) -> None:
@@ -705,7 +716,9 @@ class TestTheSupportTableStatesEachColumnsBasis:
     """Row 4. The regime table says which mechanism each column reads.
 
     A bound that binds is the nonzero witness: at ``g_bounds=(0.4, 0.6)`` the two bases
-    give different numbers, and each column equals the Kish count of its own basis.
+    give different numbers. ``min g`` falls below the bound, ``ratio effective n`` equals
+    the Kish count of the untruncated ratio, and ``score load`` equals the Kish count of
+    the truncated one.
     """
 
     def test_a_binding_bound_separates_the_two_bases(self) -> None:
@@ -891,7 +904,7 @@ class TestTheBootstrapPublishesUnderTheStatusName:
         lines = result.summary().splitlines()
         assert self._heading(result) in lines
         assert (
-            f"  ate   sd {estimate.bootstrap.std_error:.4g}  percentile range "
+            f"  ate   bootstrap sd {estimate.bootstrap.std_error:.4g}  percentile range "
             f"[{low:.5g}, {high:.5g}] ({status_record(estimate.inference).bootstrap_note})"
         ) in lines
 
@@ -905,5 +918,6 @@ class TestTheBootstrapPublishesUnderTheStatusName:
         lines = result.summary().splitlines()
         assert self._heading(result) in lines
         assert (
-            f"  ate   se {estimate.bootstrap.std_error:.4g}  percentile CI [{low:.5g}, {high:.5g}]"
+            f"  ate   bootstrap se {estimate.bootstrap.std_error:.4g}  "
+            f"percentile CI [{low:.5g}, {high:.5g}]"
         ) in lines

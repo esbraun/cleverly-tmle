@@ -145,7 +145,7 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             summary_label="working-mechanism se",
             bootstrap_note=(
-                "a diagnostic; the refit bootstrap reruns the selection, and no result "
+                "a diagnostic; the full-refit bootstrap reruns the selection, and no result "
                 "validates its coverage for this path"
             ),
             diagnostic_noun="working-mechanism plug-in diagnostic",
@@ -171,8 +171,8 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             summary_label="generated-design se",
             bootstrap_note=(
-                "a diagnostic; the refit bootstrap reruns the generated design, and no result "
-                "validates its coverage for this path"
+                "a diagnostic; the full-refit bootstrap reruns the generated design, and no "
+                "result validates its coverage for this path"
             ),
             diagnostic_noun="generated-design plug-in diagnostic",
             reopened_by="F19",

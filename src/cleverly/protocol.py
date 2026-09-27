@@ -208,34 +208,34 @@ ProtocolDetail = Literal["full", "fingerprint"]
 
 
 def protocol_summary_lines(
-    protocol: StudyProtocol | None, detail: ProtocolDetail = "full"
+    record: StudyProtocol | None, protocol: ProtocolDetail = "full"
 ) -> tuple[str, ...]:
     """Return the protocol lines of an identification or result summary.
 
     The one-line form keeps the fingerprint of the canonical record, and
-    ``protocol.summary_lines()`` prints the whole record again.
+    ``record.summary_lines()`` prints the whole record again.
 
     Parameters
     ----------
-    protocol : StudyProtocol or None
+    record : StudyProtocol or None
         The study's protocol record. ``None`` records that no protocol was supplied.
-    detail : {"full", "fingerprint"}
+    protocol : {"full", "fingerprint"}
         ``"full"`` prints every field. ``"fingerprint"`` prints only the line with the
-        schema and the fingerprint.
+        schema and the fingerprint. The summaries pass their own ``protocol`` keyword.
 
     Returns
     -------
     tuple of str
-        The protocol lines, or ``("causal study protocol: absent",)`` without a protocol.
+        The protocol lines, or ``("causal study protocol: absent",)`` without a record.
 
     Raises
     ------
     ValueError
-        If ``detail`` is neither ``"full"`` nor ``"fingerprint"``.
+        If ``protocol`` is neither ``"full"`` nor ``"fingerprint"``.
     """
-    if detail not in ("full", "fingerprint"):
-        raise ValueError(f"protocol must be 'full' or 'fingerprint'; got {detail!r}")
-    if protocol is None:
+    if protocol not in ("full", "fingerprint"):
+        raise ValueError(f"protocol must be 'full' or 'fingerprint'; got {protocol!r}")
+    if record is None:
         return ("causal study protocol: absent",)
-    lines = protocol.summary_lines()
-    return lines if detail == "full" else lines[:1]
+    lines = record.summary_lines()
+    return lines if protocol == "full" else lines[:1]

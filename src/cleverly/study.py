@@ -1329,9 +1329,9 @@ class BackdoorMeanContrast:
     treatment_value : Any or None
         One retained treatment level for a targeted counterfactual mean.
     history : tuple of tuple
-        For a longitudinal functional, each treatment node with the covariates and earlier
-        treatment nodes before it, in time order. The treatment mechanism at that node
-        conditions on this set. Empty for a point treatment.
+        For a longitudinal functional, each treatment node with the set that its treatment
+        mechanism conditions on: the covariates measured before the node, then the earlier
+        treatment nodes. Empty for a point treatment.
     """
 
     outcome: Any
@@ -2243,15 +2243,13 @@ class ExplicitAdjustmentProvider:
         target = "msm_regimen" if isinstance(estimand, MSMProjection) else estimand.name
         data = study.data
         assert isinstance(data, LongitudinalData)
-        # The conditioning set of the treatment mechanism at each node, as
-        # ``LongitudinalData.history_design`` builds it: W, the blocks up to that node, and
-        # every earlier treatment, listed in time order.
-        history: list[tuple[str, tuple[str, ...]]] = []
-        running: list[str] = list(data.baseline_names)
-        for node, block in zip(data.treatment_names, data.time_varying_names, strict=True):
-            running.extend(block)
-            history.append((node, tuple(running)))
-            running.append(node)
+        # The conditioning set of the treatment mechanism at each node, in the column order of
+        # ``LongitudinalData.history_design``: the covariate history up to that node, then
+        # every earlier treatment.
+        history = tuple(
+            (node, (*data.history_names(time), *data.treatment_names[: time - 1]))
+            for time, node in enumerate(data.treatment_names, start=1)
+        )
         functional = BackdoorMeanContrast(
             outcome=design.outcome,
             treatment=tuple(design.treatment),
@@ -2263,7 +2261,7 @@ class ExplicitAdjustmentProvider:
             horizons=None if estimand.horizons is None else tuple(estimand.horizons),
             msm=estimand.model if isinstance(estimand, MSMProjection) else None,
             longitudinal=True,
-            history=tuple(history),
+            history=history,
         )
         return IdentifiedEffect(
             estimand=estimand,
