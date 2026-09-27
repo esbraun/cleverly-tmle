@@ -2,9 +2,10 @@
 
 Both implementations fit each primary draw.  The paired comparison then runs twice through the
 framework: once with the ``lmtp`` rows as committed (``native``) and once with the ``lmtp``
-standard error replaced by its ``hajek`` convention.  Step 1 does this on the committed 800
-draws.  The pilot validates the harness on the registered draws, fits 800 fresh draws on a
-throwaway seed and sets the step 2 budget ``R_p``.  Step 2 fits ``R_p`` fresh draws.
+standard error replaced by its ``hajek`` convention.  BD-P1 does this on the committed 800 draws.
+BD-P-pilot validates the harness on the registered draws, fits 800 fresh draws on a throwaway
+seed and writes ``pilot.csv``, which sets the step 2 budget ``R_p``.  BD-P2 fits ``R_p`` fresh
+draws.  Each part writes its comparisons once, and its reading is rebuilt from them.
 """
 
 from __future__ import annotations
@@ -12,7 +13,6 @@ from __future__ import annotations
 import gzip
 import math
 import tempfile
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +20,7 @@ import pandas as pd
 
 from cleverly.utils.parallel import map_parallel
 from tests.canonical.weighted_lmtp_ltmle.regenerate import REFERENCE
+from tests.diagnostics import rm18_seeds
 from tests.diagnostics import rm18_shared as shared
 from tests.studies import canonical_weighted_ltmle_crossfit as study
 from tests.studies import weighted_longitudinal_common as primary
@@ -29,11 +30,12 @@ from tests.studies.evidence.manifest import write_csv
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.red_cells import paired_legs
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
+HERE = Path(__file__).resolve().parent
 CROSSFIT = study.STUDY
 SUBJECT = str(CROSSFIT.implementation)
 COMPARATOR = str(CROSSFIT.reference)
+PARTS = ("BD-P1", "BD-P-pilot", "BD-P2")
 #: The three weighted mean rows.  FW-B reads ``ey_regimen[never]``, BD-P the other two.
 MEANS = primary.MEAN_NAMES
 FW_ROW = "ey_regimen[never]"
@@ -42,12 +44,14 @@ CONVENTIONS = ("native", "hajek")
 #: The two-sided 95% critical value the ``lmtp`` rows and ``reference_artifacts`` use.
 CRITICAL = 1.959963984540054
 
-PILOT_REPLICATES = 800
+PILOT_RECORD = rm18_seeds.PILOT_RECORD
+PAIRED_RECORD = rm18_seeds.PAIRED_RECORD
+PILOT_REPLICATES = rm18_seeds.PILOT_REPLICATES
+BUDGET_CAP = rm18_seeds.BUDGET_CAP
 TARGET_RESOLUTION = 0.025
 BUDGET_FLOOR = 800
-BUDGET_CAP = 20_000
-PILOT_RECORD = replace(CROSSFIT, seed=stream_seed(CROSSFIT, "rm18", "boundary-pilot"))
-PAIRED_RECORD = replace(CROSSFIT, seed=stream_seed(CROSSFIT, "rm18", "boundary-paired"))
+#: The committed pilot, relative to the repository root, which BD-P2 needs pushed.
+PILOT = "tests/diagnostics/rm18_boundary/pilot.csv"
 #: Python fits per batch before the samples reach the gzip stream.
 BATCH = 500
 #: The equivalence and performance bootstraps gather ``1,000 x R`` draws per column, so the
@@ -84,8 +88,8 @@ def paired_rows(rows: pd.DataFrame, inference: pd.DataFrame) -> pd.DataFrame:
     ].rename(columns={"std_error": "hajek_std_error"})
     merged = means.merge(hajek.assign(implementation=COMPARATOR), how="left", validate="one_to_one")
     comparator = merged["implementation"] == COMPARATOR
-    if merged.loc[comparator, "hajek_std_error"].isna().any():
-        raise RuntimeError("an lmtp row has no hajek standard error")
+    shared.require_finite(merged.loc[comparator], ("estimate", "std_error", "hajek_std_error"))
+    shared.require_finite(merged.loc[~comparator])
     return merged.loc[:, list(PAIRED_COLUMNS)].sort_values(
         ["replicate", "estimand", "implementation"], ignore_index=True
     )
@@ -164,17 +168,12 @@ def reproduces_committed(compared: pd.DataFrame) -> tuple[bool, float, int]:
     same = True
     for estimand in MEANS:
         for column in EQUIVALENCE_LEGS:
-            largest = max(
-                largest,
-                float(
-                    shared.scaled_difference(
-                        native.loc[estimand, column], committed.loc[estimand, column]
-                    )
-                ),
+            difference = shared.scaled_difference(
+                native.loc[estimand, column], committed.loc[estimand, column]
             )
-        same = (
-            same
-            and native.loc[estimand, "comparison_conclusion"]
+            largest = max(largest, float(difference))
+        same = same and (
+            native.loc[estimand, "comparison_conclusion"]
             == committed.loc[estimand, "comparison_conclusion"]
         )
     return bool(same and largest <= shared.TOLERANCE), largest, len(MEANS)
@@ -252,42 +251,39 @@ def registered_draws_reproduce(jobs: int, cap: int | None) -> list[dict[str, Any
     rows, inference = draw_both(CROSSFIT, replicates, jobs)
     committed = shared.read_rows(CROSSFIT.artifact("replicates.csv.gz"))
     committed = committed.loc[committed["replicate"] < replicates]
-    keys = ["implementation", "replicate", "estimand"]
-    out = [
+    stored = shared.read_rows(CROSSFIT.artifact("reference-inference.csv.gz"))
+    stored = stored.loc[stored["replicate"] < replicates]
+    return [
         shared.validation_row(
             "BD-P-pilot",
             "registered rows, both implementations",
-            shared.compare_rows(rows, committed, keys),
-        )
-    ]
-    stored = shared.read_rows(CROSSFIT.artifact("reference-inference.csv.gz"))
-    stored = stored.loc[stored["replicate"] < replicates]
-    out.append(
+            shared.compare_rows(rows, committed, ["implementation", "replicate", "estimand"]),
+        ),
         shared.validation_row(
             "BD-P-pilot",
             "registered lmtp conventions",
-            shared.compare_rows(
-                inference,
-                stored,
-                ["inference_method", "replicate", "estimand"],
-                ("estimate", "std_error"),
-            ),
-        )
-    )
-    return out
+            shared.compare_rows(inference, stored, ["inference_method", "replicate", "estimand"]),
+        ),
+    ]
 
 
 # ------------------------------------------------------------------------ budget and readings
 
 
-def paired_budget(pilot: pd.DataFrame) -> tuple[float, int]:
-    """``r_pilot`` and ``R_p = min(20,000, max(800, ceil(800 * (r_pilot / 0.025)^2)))``."""
+def paired_budget(pilot: pd.DataFrame, *, smoke: bool) -> tuple[float, int]:
+    """``r_pilot`` and ``R_p = min(20,000, max(800, ceil(800 * (r_pilot / 0.025)^2)))``.
+
+    A non-finite ``r_pilot`` stops the part.  A smoke pilot of a few draws gives one, and a
+    smoke run then takes the cap, which its own ``--replicates`` caps again.
+    """
     means = pilot.loc[pilot["estimand"].isin(MEANS) & pilot["convention"].isin(CONVENTIONS)]
     if len(means) != len(MEANS) * len(CONVENTIONS):
         raise RuntimeError("the pilot does not hold every mean row under both conventions")
-    resolution = float(means["calibration_excess_resolution"].max())
+    resolution = float(means["calibration_excess_resolution"].max(skipna=False))
     if not math.isfinite(resolution):
-        return resolution, BUDGET_CAP
+        if smoke:
+            return resolution, BUDGET_CAP
+        raise RuntimeError(f"r_pilot is {resolution}; a non-finite r_pilot stops the part")
     wanted = math.ceil(PILOT_REPLICATES * (resolution / TARGET_RESOLUTION) ** 2)
     return resolution, min(BUDGET_CAP, max(BUDGET_FLOOR, wanted))
 
@@ -304,7 +300,7 @@ def bd_p_label(native: Any, hajek: Any) -> str:
         return EQUIVALENT
     if hajek_conclusion in PASSING:
         return CONVENTION
-    return f"native {native_conclusion}; hajek {hajek_conclusion}"
+    return f"native {native_conclusion}, hajek {hajek_conclusion}"
 
 
 def fw_b_label(native: Any, hajek: Any) -> str:
@@ -327,7 +323,7 @@ def fw_b_label(native: Any, hajek: Any) -> str:
 
 
 def comparison_readings(
-    part: str, compared: pd.DataFrame, *, labelled: bool
+    part: str, compared: pd.DataFrame, *, labelled: bool, smoke: bool
 ) -> list[dict[str, Any]]:
     """Every leg of every row under both conventions, and the readings when ``labelled``."""
     out = []
@@ -355,7 +351,9 @@ def comparison_readings(
                 "calibration excess resolution",
                 value=float(row.calibration_excess_resolution),
             ),
-            shared.reading(part, scope, "conclusion", result=str(_verdict(row).conclusion)),
+            shared.reading(
+                part, scope, "conclusion", result=shared.label(str(_verdict(row).conclusion), smoke)
+            ),
         ]
     for estimand in MEANS:
         native = compared.loc[
@@ -384,24 +382,9 @@ def comparison_readings(
                 )
                 for convention in CONVENTIONS
             }
-            if estimand == FW_ROW:
-                out.append(
-                    shared.reading(
-                        "FW-B",
-                        estimand,
-                        "reading",
-                        result=fw_b_label(pair["native"], pair["hajek"]),
-                    )
-                )
-            else:
-                out.append(
-                    shared.reading(
-                        "BD-P",
-                        estimand,
-                        "reading",
-                        result=bd_p_label(pair["native"], pair["hajek"]),
-                    )
-                )
+            name, rule = ("FW-B", fw_b_label) if estimand == FW_ROW else ("BD-P", bd_p_label)
+            result = shared.label(rule(pair["native"], pair["hajek"]), smoke)
+            out.append(shared.reading(name, estimand, "reading", result=result))
     return out
 
 
@@ -412,24 +395,84 @@ def pilot_table(compared: pd.DataFrame) -> pd.DataFrame:
     ]
 
 
-def seeds(record: Any, replicates: int) -> set[int]:
-    """The primary sample seeds of ``replicates`` draws of ``record``."""
-    return {replicate_seed(record, primary.SCENARIO, index) for index in range(replicates)}
+# ------------------------------------------------------------------------------- the parts
 
 
-def registered_seed_set() -> set[int]:
-    """Every registered seed of the cross-fitted weighted study."""
-    return shared.weighted_registered_seeds(CROSSFIT)
+def comparisons_path(output: Path, part: str) -> Path:
+    """Where a part keeps the comparisons its reading is rebuilt from."""
+    return output / ("pilot.csv" if part == "BD-P-pilot" else f"{part.lower()}-comparisons.csv")
 
 
-def disjoint() -> bool:
-    """The pilot and every step 2 draw up to the cap miss the registered seeds and each other."""
-    pilot, paired = seeds(PILOT_RECORD, PILOT_REPLICATES), seeds(PAIRED_RECORD, BUDGET_CAP)
-    registered = registered_seed_set()
-    return bool(
-        pilot.isdisjoint(registered)
-        and paired.isdisjoint(registered)
-        and pilot.isdisjoint(paired)
-        and len(pilot) == PILOT_REPLICATES
-        and len(paired) == BUDGET_CAP
-    )
+def pilot_for(output: Path, smoke: bool) -> pd.DataFrame:
+    """The pilot step 2 reads: the committed one for a declared run, the scratch one for a smoke."""
+    return shared.read_rows(output / "pilot.csv" if smoke else HERE / "pilot.csv")
+
+
+def run_part(part: str, output: Path, cap: int | None, jobs: int) -> None:
+    """Write one paired part's rows, validation record and comparisons."""
+    rows_path, validation_path, _ = shared.part_paths(output, part)
+    smoke = cap is not None
+    if part == "BD-P1":
+        rows = committed_paired()
+        rows = rows.loc[rows["replicate"] < shared.budget(CROSSFIT.replicates, cap)]
+        compared = comparisons(rows, CROSSFIT, jobs)
+        check = (
+            ("smoke run, no comparison with equivalence.csv", (True, 0.0, 0))
+            if smoke
+            else ("native reproduces equivalence.csv", reproduces_committed(compared))
+        )
+        validation = shared.validation_frame([shared.validation_row(part, *check)])
+        shared.write_table(rows, rows_path)
+    elif part == "BD-P-pilot":
+        rm18_seeds.paired_seeds()
+        validation = shared.validation_frame(registered_draws_reproduce(jobs, cap))
+        if shared.validated(validation, part):
+            rows, inference = draw_both(PILOT_RECORD, shared.budget(PILOT_REPLICATES, cap), jobs)
+            rows = paired_rows(rows, inference)
+            shared.write_table(rows, rows_path)
+            compared = pilot_table(comparisons(rows, PILOT_RECORD, jobs))
+    else:
+        rm18_seeds.paired_seeds()
+        pilot = pilot_for(output, smoke)
+        if not smoke and output.resolve() != HERE:
+            shared.write_table(pilot, output / "pilot.csv")
+        _, declared = paired_budget(pilot, smoke=smoke)
+        rows, inference = draw_both(PAIRED_RECORD, shared.budget(declared, cap), jobs)
+        rows = paired_rows(rows, inference)
+        shared.write_table(rows, rows_path)
+        compared = comparisons(rows, PAIRED_RECORD, jobs)
+        validation = shared.validation_frame(
+            [
+                shared.validation_row(
+                    part, "the pilot is the committed pilot", (True, 0.0, 0 if smoke else 1)
+                )
+            ]
+        )
+    shared.write_table(validation, validation_path)
+    if shared.validated(validation, part):
+        shared.write_table(compared, comparisons_path(output, part))
+
+
+def table(part: str, output: Path) -> list[dict[str, Any]]:
+    """The reading rows of one paired part, rebuilt from its rows and its comparisons."""
+    rows_path, _, _ = shared.part_paths(output, part)
+    replicates = shared.optional_rows(rows_path)["replicate"].nunique()
+    compared = shared.read_rows(comparisons_path(output, part))
+    if part == "BD-P1":
+        smoke = replicates != CROSSFIT.replicates
+        return comparison_readings(part, compared, labelled=False, smoke=smoke)
+    if part == "BD-P-pilot":
+        smoke = replicates != PILOT_REPLICATES
+        resolution, budget = paired_budget(compared, smoke=smoke)
+        return [
+            shared.reading(
+                part, "pilot", "r_pilot", value=resolution, result=shared.label("", smoke)
+            ),
+            shared.reading(
+                part, "pilot", "R_p", value=float(budget), result=shared.label("", smoke)
+            ),
+        ]
+    pilot = shared.read_rows(output / "pilot.csv")
+    resolution, budget = paired_budget(pilot, smoke=True)
+    smoke = not math.isfinite(resolution) or replicates != budget
+    return comparison_readings(part, compared, labelled=True, smoke=smoke)

@@ -1,11 +1,11 @@
 """What the four RM18 follow-up diagnostics share.
 
 ``docs/roadmap.md`` declares the designs under RM18, in "The five follow-up designs, declared
-before they run".  Its rules R2 (fresh streams), R4 (harness validation) and R5 (intervals), and
-its closing rules for bootstrap streams, two-arm differences and seed collisions, read the same
-way in every diagnostic.  This module holds that reading once, together with the two weighted
-longitudinal pieces that more than one design fits: the ladder replicate of FW-A, OW-A and OW-B,
-and the exact-law frame of OW-C and BD-3.
+before they run".  Its rules R2 (fresh streams), R4 (harness validation), R5 (intervals) and R6
+(one run), and its closing rules for failed fits, seed collisions, bootstrap streams and two-arm
+differences, read the same way in every diagnostic.  This module holds that reading once,
+together with the weighted longitudinal pieces that more than one design fits, and the one
+command-line driver every diagnostic runs through.
 """
 
 from __future__ import annotations
@@ -16,13 +16,10 @@ import datetime
 import hashlib
 import importlib.metadata
 import os
-import platform
 import shlex
-import subprocess
 import sys
 import time
 from collections.abc import Callable, Iterable, Iterator, Sequence
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +32,7 @@ from tests.parallel import available_cores
 from tests.studies import weighted_longitudinal_common as primary
 from tests.studies import weighted_longitudinal_properties_common as weighted
 from tests.studies.evidence.inference import Interval, clopper_pearson, percentile_interval
-from tests.studies.evidence.manifest import ROOT, write_csv
+from tests.studies.evidence.manifest import ROOT, UNKNOWN, _git, provenance, write_csv
 from tests.studies.evidence.properties import ratio_draws, replicate_row
 from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
@@ -45,6 +42,8 @@ TOLERANCE = 1e-9
 #: R5: every interval is 99%.
 CONFIDENCE = 0.99
 NOT_VALIDATED = "harness not validated, no reading"
+#: The result of every reading row of a run capped with ``--replicates``.
+SMOKE = "smoke run, not the declared budget"
 HOLDS = "holds"
 FAILS = "fails"
 
@@ -63,6 +62,11 @@ def read_rows(path: Path) -> pd.DataFrame:
     return pd.read_csv(path, float_precision="round_trip")
 
 
+def optional_rows(path: Path) -> pd.DataFrame:
+    """The rows at ``path``, or an empty frame when a part stopped before it drew any."""
+    return read_rows(path) if path.exists() else pd.DataFrame()
+
+
 def scaled_difference(new: Any, committed: Any) -> np.ndarray:
     """``abs(new - committed) / max(1, abs(committed))``, elementwise (R4)."""
     new_values = np.asarray(new, dtype=float)
@@ -74,23 +78,23 @@ def scaled_difference(new: Any, committed: Any) -> np.ndarray:
 
 
 def fresh_seeds(
-    record: StudyRecord, labels: Sequence[tuple[Any, ...]], registered: set[int]
+    record: StudyRecord, labels: Sequence[tuple[Any, ...]], taken: set[int]
 ) -> list[int]:
     """The fresh seed of each label, in order, under the declared seed-collision rule.
 
-    A seed that equals a registered seed of the study, or a seed this call assigned earlier,
-    moves to the seed of the same label followed by ``"retry"`` and the smallest counter that
-    clears both sets.
+    ``taken`` holds every seed the label may not reuse: the study's registered seeds and the
+    seeds of the parts earlier in the declared assignment order.  A seed in it moves to the seed
+    of the same label followed by ``"retry"`` and the smallest counter that leaves it.  Each
+    assigned seed joins ``taken``, so a later label and a later part see it.
     """
-    assigned: set[int] = set()
     out: list[int] = []
     for label in labels:
         seed = stream_seed(record, *label)
         counter = 0
-        while seed in registered or seed in assigned:
+        while seed in taken:
             counter += 1
             seed = stream_seed(record, *label, "retry", counter)
-        assigned.add(seed)
+        taken.add(seed)
         out.append(seed)
     return out
 
@@ -109,11 +113,6 @@ def bootstrap_seed(record: StudyRecord, design: str, label: str) -> int:
     return stream_seed(record, "rm18", design, "bootstrap", label)
 
 
-def bootstrap_record(record: StudyRecord, design: str, label: str) -> StudyRecord:
-    """The record a framework function derives its own streams from, for one diagnostic label."""
-    return replace(record, resampling_seed=bootstrap_seed(record, design, label))
-
-
 # ------------------------------------------------------------------ fits and validation (R4)
 
 
@@ -126,6 +125,23 @@ def pool(function: Callable[..., Any], payloads: Iterable[Any], jobs: int) -> li
     return map_parallel(function, [(payload,) for payload in payloads], n_jobs=jobs)
 
 
+def require_finite(
+    rows: pd.DataFrame, columns: Sequence[str] = ("estimate", "std_error")
+) -> pd.DataFrame:
+    """Stop the part on a fit that returned a non-finite estimate or standard error.
+
+    The declared failed-fit rule: such a fit stops the part, which draws no replacement.
+    """
+    values = rows.loc[:, list(columns)].to_numpy(dtype=float)
+    bad = ~np.isfinite(values).all(axis=1)
+    if bad.any():
+        raise RuntimeError(
+            f"{int(bad.sum())} fresh rows carry a non-finite {' or '.join(columns)}; first "
+            f"{rows.loc[bad].head(3).to_dict('records')}. A failed fit stops the part"
+        )
+    return rows
+
+
 def compare_rows(
     refit: pd.DataFrame,
     committed: pd.DataFrame,
@@ -134,7 +150,8 @@ def compare_rows(
 ) -> tuple[bool, float, int]:
     """Whether every refit row reproduces its committed row, the largest difference, the count.
 
-    The two frames must hold the same keys, each once.
+    The two frames must hold the same keys, each once.  A structural miss raises, which ends
+    the run with a nonzero exit and no reading.
     """
     left = refit.loc[:, [*keys, *columns]]
     right = committed.loc[:, [*keys, *columns]]
@@ -162,9 +179,9 @@ def summary_check(
     """Whether the study's own summary, over the refit rows, reproduces the committed rows.
 
     The refit replaces the committed ``estimate``, ``std_error``, ``covered`` and ``rejected``
-    of the rows it covers, and the study's ``summarize_properties`` runs on the result.  Every
-    numeric column of each named ``(property, cell)`` row must then match ``properties.csv``
-    to the R4 tolerance, and every other column exactly.
+    of the rows it covers, and the study's ``summarize_properties`` runs once on the result.
+    Every numeric column of each named ``(property, cell)`` row must then match
+    ``properties.csv`` to the R4 tolerance, and every other column exactly.
     """
     keys = ["property", "cell", "replicate"]
     columns = ["estimate", "std_error", "covered", "rejected"]
@@ -194,8 +211,7 @@ def summary_check(
 
 
 def validation_row(part: str, check: str, outcome: tuple[bool, float, int]) -> dict[str, Any]:
-    """One :data:`VALIDATION_COLUMNS` row from a :func:`compare_rows` or
-    :func:`summary_check` outcome."""
+    """One :data:`VALIDATION_COLUMNS` row from a check's ``(held, largest, compared)``."""
     held, largest, compared = outcome
     return {
         "part": part,
@@ -204,6 +220,10 @@ def validation_row(part: str, check: str, outcome: tuple[bool, float, int]) -> d
         "largest_difference": largest,
         "result": HOLDS if held else FAILS,
     }
+
+
+def validation_frame(rows: Iterable[dict[str, Any]]) -> pd.DataFrame:
+    return pd.DataFrame(list(rows), columns=list(VALIDATION_COLUMNS))
 
 
 def validated(validation: pd.DataFrame, part: str) -> bool:
@@ -224,6 +244,9 @@ def validation_readings(validation: pd.DataFrame, part: str) -> list[dict[str, A
         )
         for row in validation.loc[validation["part"] == part].itertuples(index=False)
     ]
+
+
+# ------------------------------------------------------------------------------- readings
 
 
 def reading(
@@ -247,13 +270,23 @@ def reading(
     }
 
 
+def label(result: str, smoke: bool) -> str:
+    """A reading's result, or :data:`SMOKE` when the rows fall short of the declared budget."""
+    return SMOKE if smoke else result
+
+
 def reading_frame(rows: Sequence[dict[str, Any]]) -> pd.DataFrame:
     return pd.DataFrame(list(rows), columns=list(READING_COLUMNS))
 
 
+def interval_of(draws: np.ndarray) -> Interval:
+    """The 99% percentile interval of bootstrap draws."""
+    return percentile_interval(draws, confidence_level=CONFIDENCE)
+
+
 def difference_interval(left: np.ndarray, right: np.ndarray) -> Interval:
     """The 99% interval of a difference between two independent arms, draw by draw."""
-    return percentile_interval(np.asarray(left) - np.asarray(right), confidence_level=CONFIDENCE)
+    return interval_of(np.asarray(left) - np.asarray(right))
 
 
 def rms_se_ratio(group: pd.DataFrame) -> float:
@@ -264,29 +297,26 @@ def rms_se_ratio(group: pd.DataFrame) -> float:
 
 # ------------------------------------------------------------- weighted longitudinal pieces
 
-
 #: The weighted ladder arms: W is the registered selected law with weights ``1/pi(W)``, and U
 #: its unweighted twin, drawn with selection probability 1 and weight 1.
 ARM_SELECTION = {"W": weighted.SELECTION, "U": np.ones_like(weighted.SELECTION)}
-#: The laws a ladder arm draws from, by name.
-LADDER_LAWS = {"selected": (law.PROBS, float(law.TRUTH[STATIC]))}
-
-
-def _null_law() -> tuple[np.ndarray, float]:
-    from tests.studies.ltmle_properties import NULL_PROBS, NULL_TRUTH
-
-    return NULL_PROBS, float(NULL_TRUTH)
 
 
 def ladder_replicate(
-    payload: tuple[StudyRecord, bool, str, str, str, int, int, int, int],
+    payload: tuple[StudyRecord, bool, str, bool, str, int, int, int, int],
 ) -> dict[str, Any]:
     """One ladder replicate: draw, fit the registered configuration, read the static contrast.
 
-    ``payload`` is ``(record, cross_fit, part, law, arm, n, replicate, requested, seed)``.
+    ``payload`` is ``(record, cross_fit, part, null, arm, n, replicate, requested, seed)``.
+    ``null`` draws the sharp-null law of ``ltmle_properties`` instead of the selected law.
     """
-    record, cross_fit, part, law_name, arm, n, index, requested, seed = payload
-    probs, truth = _null_law() if law_name == "null" else LADDER_LAWS[law_name]
+    record, cross_fit, part, null, arm, n, index, requested, seed = payload
+    if null:
+        from tests.studies.ltmle_properties import NULL_PROBS, NULL_TRUTH
+
+        probs, truth = NULL_PROBS, float(NULL_TRUTH)
+    else:
+        probs, truth = law.PROBS, float(law.TRUTH[STATIC])
     frame = weighted.sample(probs, n, seed, selection=ARM_SELECTION[arm])
     result = weighted.fit(frame, "both_correct", cross_fit=cross_fit)
     row = replicate_row(
@@ -303,27 +333,39 @@ def ladder_replicate(
     return {**row, "arm": arm, "seed": seed}
 
 
+def ladder_labels(
+    prefix: tuple[str, ...], arms: Sequence[str], sizes: Sequence[int], replicates: int
+) -> list[tuple[Any, ...]]:
+    """A ladder's declared seed labels ``(*prefix, arm, n, replicate)``, in assignment order."""
+    return [(*prefix, arm, n, index) for arm in arms for n in sizes for index in range(replicates)]
+
+
 def ladder_payloads(
     record: StudyRecord,
     *,
     cross_fit: bool,
     part: str,
-    law_name: str,
-    prefix: tuple[str, ...],
-    arms: Sequence[str],
-    sizes: Sequence[int],
+    null: bool,
+    labels: Sequence[tuple[Any, ...]],
+    seeds: Sequence[int],
     replicates: int,
+    cap: int | None,
 ) -> list[tuple[Any, ...]]:
-    """One :func:`ladder_replicate` payload per fresh draw of a declared ladder.
-
-    The seed label is ``(*prefix, arm, n, replicate)``, assigned arm by arm, size by size and
-    replicate by replicate under the collision rule.
-    """
-    order = [(*prefix, arm, n, index) for arm in arms for n in sizes for index in range(replicates)]
-    seeds = fresh_seeds(record, order, weighted_registered_seeds(record))
+    """One :func:`ladder_replicate` payload per fresh draw, the first ``cap`` of each rung."""
     return [
-        (record, cross_fit, part, law_name, label[-3], label[-2], label[-1], replicates, seed)
-        for label, seed in zip(order, seeds, strict=True)
+        (
+            record,
+            cross_fit,
+            part,
+            null,
+            label[-3],
+            label[-2],
+            label[-1],
+            budget(replicates, cap),
+            seed,
+        )
+        for label, seed in zip(labels, seeds, strict=True)
+        if label[-1] < budget(replicates, cap)
     ]
 
 
@@ -380,9 +422,55 @@ def ladder_statistics(
     return rows, points, draws
 
 
-def interval_of(draws: np.ndarray) -> Interval:
-    """The 99% percentile interval of bootstrap draws."""
-    return percentile_interval(draws, confidence_level=CONFIDENCE)
+def ladder_table(
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    *,
+    design: str,
+    part: str,
+    arms: Sequence[str],
+    sizes: Sequence[int],
+    bounds: dict[str, float] | None,
+    declared: int,
+) -> tuple[list[dict[str, Any]], dict[tuple[str, int], dict[str, Any]], bool]:
+    """Every arm and size of one ladder, what each reading needs, and whether it is a smoke run.
+
+    A rung with fewer rows than ``declared`` marks the run as a smoke run.
+    """
+    out: list[dict[str, Any]] = []
+    kept: dict[tuple[str, int], dict[str, Any]] = {}
+    smoke = False
+    for arm in arms:
+        for n in sizes:
+            group = rows.loc[(rows["arm"] == arm) & (rows["n"] == n)]
+            smoke = smoke or len(group) != declared
+            statistics, points, draws = ladder_statistics(
+                group,
+                record,
+                design=design,
+                part=part,
+                bound=None if bounds is None else bounds[arm],
+            )
+            out.extend(statistics)
+            kept[arm, n] = {"points": points, "draws": draws, "rows": statistics}
+    return out, kept, smoke
+
+
+def row_interval(rows: Sequence[dict[str, Any]], statistic: str) -> Interval:
+    """The interval of the one reading row that carries ``statistic``."""
+    row = next(row for row in rows if row["statistic"] == statistic)
+    return Interval(float(row["ci_lower"]), float(row["ci_upper"]))
+
+
+def weighted_draw(payload: tuple[StudyRecord, bool, tuple[Any, ...]]) -> list[dict[str, Any]]:
+    """One registered-shape weighted payload through ``_fit_replication``, each row with its seed.
+
+    Both the R4 refit of registered payloads and the fresh OW-C and BD-3 draws go through it.
+    """
+    record, cross_fit, call = payload
+    return [
+        {**row, "seed": int(call[5])} for row in weighted._fit_replication(record, cross_fit, call)
+    ]
 
 
 def validate_weighted(
@@ -394,7 +482,7 @@ def validate_weighted(
     cells: Sequence[tuple[str, str]],
     cap: int | None,
     jobs: int,
-) -> pd.DataFrame:
+) -> list[dict[str, Any]]:
     """R4 on the committed replicates of one registered weighted payload family.
 
     ``payload`` names the ``(property, suffix)`` of the registered ``_payloads`` entries to
@@ -403,24 +491,14 @@ def validate_weighted(
     committed = read_rows(record.artifact("property-replicates.csv.gz"))
     calls = [call for call in weighted._payloads(record) if (call[0], call[1]) == payload]
     calls = calls[: budget(len(calls), cap)]
-    fitted = pool(_registered_weighted, [(record, cross_fit, call) for call in calls], jobs)
+    fitted = pool(weighted_draw, [(record, cross_fit, call) for call in calls], jobs)
     refit = pd.DataFrame([row for rows in fitted for row in rows])
     keys = ["property", "cell", "replicate"]
     selection = committed.merge(refit[keys], on=keys)
-    return pd.DataFrame(
-        [
-            validation_row(part, "refit rows", compare_rows(refit, selection, keys)),
-            validation_row(part, "summary rows", summary_check(record, committed, refit, cells)),
-        ],
-        columns=list(VALIDATION_COLUMNS),
-    )
-
-
-def _registered_weighted(
-    payload: tuple[StudyRecord, bool, tuple[Any, ...]],
-) -> list[dict[str, Any]]:
-    record, cross_fit, call = payload
-    return weighted._fit_replication(record, cross_fit, call)
+    return [
+        validation_row(part, "refit rows", compare_rows(refit, selection, keys)),
+        validation_row(part, "summary rows", summary_check(record, committed, refit, cells)),
+    ]
 
 
 def exact_selected_frame(*, use_weights: bool = True) -> pd.DataFrame:
@@ -442,35 +520,36 @@ def exact_selected_frame(*, use_weights: bool = True) -> pd.DataFrame:
     return frame
 
 
-def follower_mean(label: str, *, use_weights: bool = True) -> float:
-    """The weighted mean outcome of the units that follow static regimen ``label``, longhand.
+# --------------------------------------------------------------- the run guard and record
 
-    Read off the support and ``SELECTED_PROBS`` alone: no learner, no fit and no frame.
+
+def refusals(smoke: bool, pushed: Sequence[str] = ()) -> list[str]:
+    """Why a run may not start, if it may not (R6).
+
+    A declared run needs ``cleverly`` imported from this tree's ``src``, a clean tree, and a
+    ``HEAD`` equal to its upstream.  ``pushed`` names repository files the upstream must hold,
+    such as the BD-P pilot that step 2 reads.  A smoke run is refused nothing.
     """
-    arm = {"always": 1.0, "never": 0.0}[label]
-    followed = np.array(
-        [
-            point[2] == 1 and point[1] == arm and point[5] == 1 and point[4] == arm
-            for point in law.SUPPORT
-        ]
+    if smoke:
+        return []
+    import cleverly
+
+    out = []
+    source = Path(cleverly.__file__).resolve()
+    if not source.is_relative_to((ROOT / "src").resolve()):
+        out.append(f"cleverly is imported from {source}, not from {ROOT / 'src'}")
+    status = _git("status", "--porcelain")
+    if status:
+        out.append(f"the tree has changes: {status.splitlines()[:5]}")
+    head, upstream = _git("rev-parse", "HEAD"), _git("rev-parse", "@{u}")
+    if head == UNKNOWN or head != upstream:
+        out.append(f"HEAD {head} is not its pushed upstream {upstream}")
+    out.extend(
+        f"{name} is not in the pushed upstream"
+        for name in pushed
+        if _git("cat-file", "-e", f"@{{u}}:{name}") == UNKNOWN
     )
-    outcome = np.array([0.0 if point[6] is None else float(point[6]) for point in law.SUPPORT])
-    weights = weighted.OBS_WEIGHTS if use_weights else np.ones_like(weighted.OBS_WEIGHTS)
-    mass = weighted.SELECTED_PROBS * weights * followed
-    return float(np.sum(mass * outcome) / np.sum(mass))
-
-
-def exact_untargeted(configuration: str, *, use_weights: bool = True) -> dict[str, float]:
-    """The ordinary fit and the untargeted plug-in of each static regimen on the exact frame."""
-    frame = exact_selected_frame(use_weights=use_weights)
-    result = weighted.fit(frame, configuration, cross_fit=False)
-    return {
-        label: weighted.untargeted(frame, label, configuration, cross_fit=False, folds=result.folds)
-        for label in ("always", "never")
-    }
-
-
-# --------------------------------------------------------------------------- the run record
+    return out
 
 
 def _installed_digest() -> tuple[str, int]:
@@ -479,13 +558,6 @@ def _installed_digest() -> tuple[str, int]:
         for distribution in importlib.metadata.distributions()
     )
     return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest(), len(lines)
-
-
-def _git(*arguments: str) -> str:
-    completed = subprocess.run(
-        ["git", *arguments], cwd=ROOT, capture_output=True, text=True, check=False, timeout=30
-    )
-    return completed.stdout.strip()
 
 
 THREAD_VARIABLES = (
@@ -501,20 +573,25 @@ THREAD_VARIABLES = (
 def run_log(output: Path, title: str) -> Iterator[None]:
     """Append one block to ``output/run.log``: the code, the runtime, the wall time, the exit.
 
-    R6 asks for the commit, the command, the installed-package digest, the thread limits, the
-    wall time and the exit code.  The block also records the SHA-256 of every file the run
-    left in ``output``.
+    R6 names what it holds.  The block also records the SHA-256 of every file the run left in
+    ``output``; ``manifest.hashes`` keys its digests by a path under the repository, and the
+    output directory sits outside it.
     """
+    import joblib
+
     import cleverly
 
     digest, packages = _installed_digest()
+    record = provenance()
     started = datetime.datetime.now(datetime.UTC)
     lines = [
         f"=== {title}",
         f"command: {shlex.join([sys.executable, *sys.argv])}",
-        f"commit: {_git('rev-parse', 'HEAD')}",
-        f"clean tree: {_git('status', '--porcelain') == ''}",
-        f"python {platform.python_version()}; cleverly {cleverly.__file__}",
+        f"commit: {record['cleverly_commit']}; upstream {_git('rev-parse', '@{u}')}",
+        f"clean tree: {record['cleverly_worktree_clean']}",
+        f"cleverly {record['cleverly_version']} from {cleverly.__file__}",
+        f"python {record['python']}; numpy {record['numpy']}; scipy {record['scipy']}; "
+        f"pandas {record['pandas']}; scikit-learn {record['scikit_learn']}; joblib {joblib.__version__}",
         f"installed distributions: {packages}, sha256 {digest}",
         "threads: "
         + " ".join(f"{name}={os.environ.get(name, 'unset')}" for name in THREAD_VARIABLES),
@@ -548,46 +625,9 @@ def write_table(frame: pd.DataFrame, path: Path) -> None:
     write_csv(frame, path, compression=compression)
 
 
-def arguments(description: str, parts: Sequence[str], here: Path) -> argparse.Namespace:
-    """The command line every RM18 follow-up diagnostic takes.
-
-    ``--output`` is required, so a bare run cannot overwrite the committed record.
-    ``--read-only`` rebuilds ``reading.csv`` from the rows and the validation record already in
-    ``--output`` and fits nothing.  ``--replicates`` caps every budget, for a disposable smoke
-    run only.
-    """
-    parser = argparse.ArgumentParser(description=description)
-    parser.add_argument(
-        "--output",
-        type=Path,
-        required=True,
-        help=f"a directory for the rows and reading.csv; the committed record is {here}",
-    )
-    parser.add_argument("--part", choices=parts, required=True)
-    parser.add_argument("--read-only", action="store_true", help="fit nothing; rebuild reading.csv")
-    parser.add_argument(
-        "--replicates", type=int, help="cap every budget at this many replicates (smoke only)"
-    )
-    parser.add_argument("--jobs", type=int, default=available_cores())
-    parsed = parser.parse_args()
-    parsed.output.mkdir(parents=True, exist_ok=True)
-    return parsed
-
-
 def budget(declared: int, cap: int | None) -> int:
     """The declared budget, or the smoke cap when one is given."""
     return declared if cap is None else min(declared, cap)
-
-
-def optional_rows(path: Path) -> pd.DataFrame:
-    """The rows at ``path``, or an empty frame when a part stopped before it drew any."""
-    return read_rows(path) if path.exists() else pd.DataFrame()
-
-
-def show(path: Path) -> None:
-    """Print one written table in full."""
-    with pd.option_context("display.width", 220, "display.max_rows", None):
-        print(pd.read_csv(path).to_string(index=False))
 
 
 def part_paths(output: Path, part: str) -> tuple[Path, Path, Path]:
@@ -598,3 +638,49 @@ def part_paths(output: Path, part: str) -> tuple[Path, Path, Path]:
         output / f"{stem}-validation.csv",
         output / f"{stem}-reading.csv",
     )
+
+
+def main(
+    description: str,
+    parts: Sequence[str],
+    here: Path,
+    run_part: Callable[[str, Path, int | None, int], None],
+    table: Callable[[str, Path, int], pd.DataFrame],
+    pushed: Callable[[str], Sequence[str]] = lambda part: (),
+) -> None:
+    """The command line every RM18 follow-up diagnostic runs through.
+
+    ``--output`` is required, so a bare run cannot overwrite the committed record.  ``--part``
+    picks one declared part.  ``--replicates`` caps every budget for a disposable smoke run.
+    ``--read-only`` rebuilds the part's reading from what ``--output`` holds and fits nothing.
+    A run that is neither passes :func:`refusals` first.  ``run_part`` writes the part's rows
+    and validation record, and ``table`` builds its reading.
+    """
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help=f"a directory for the part's files; the committed record is {here}",
+    )
+    parser.add_argument("--part", choices=parts, required=True)
+    parser.add_argument("--read-only", action="store_true", help="fit nothing; rebuild the reading")
+    parser.add_argument(
+        "--replicates", type=int, help="cap every budget at this many replicates (smoke only)"
+    )
+    parser.add_argument("--jobs", type=int, default=available_cores())
+    arguments = parser.parse_args()
+    output, part = arguments.output, arguments.part
+    _, _, reading_path = part_paths(output, part)
+    if not arguments.read_only:
+        refused = refusals(arguments.replicates is not None, pushed(part))
+        if refused:
+            parser.exit(2, "refused:\n  " + "\n  ".join(refused) + "\n")
+        output.mkdir(parents=True, exist_ok=True)
+        with run_log(output, f"{part}, cap {arguments.replicates}"):
+            run_part(part, output, arguments.replicates, arguments.jobs)
+            write_table(table(part, output, arguments.jobs), reading_path)
+    else:
+        write_table(table(part, output, arguments.jobs), reading_path)
+    with pd.option_context("display.width", 220, "display.max_rows", None):
+        print(pd.read_csv(reading_path).to_string(index=False))

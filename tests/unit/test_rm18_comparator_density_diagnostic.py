@@ -55,10 +55,11 @@ def test_the_committed_pair_reproduces_the_registered_excess() -> None:
     committed = cd.committed_rows()
     rows = committed.loc[committed["estimand"] == cd.ESTIMAND]
     bound = cd.excess(rows, "Cb", "L")
-    assert shared.scaled_difference(bound["upper"], cd.REGISTERED_EXCESS[0]) <= shared.TOLERANCE
-    assert (
-        shared.scaled_difference(bound["resolution"], cd.REGISTERED_EXCESS[1]) <= shared.TOLERANCE
-    )
+    upper, resolution = cd.registered_excess()
+    assert shared.scaled_difference(bound["upper"], upper) <= shared.TOLERANCE
+    assert shared.scaled_difference(bound["resolution"], resolution) <= shared.TOLERANCE
+    # The declared values, as the roadmap prints them.
+    assert (round(upper, 6), round(resolution, 6)) == (0.065856, 0.045019)
 
 
 def test_one_refit_reproduces_its_committed_rows() -> None:
@@ -90,26 +91,61 @@ def test_the_reading_rule_and_its_mutations(
     assert cd.reading_label(binned, analytic, bound) == expected
 
 
-def _arms(inflation: float) -> pd.DataFrame:
+def _arms(
+    inflation: float = 1.08, analytic_spread: float = 1.0, comparator: float = 1.0, count: int = 800
+) -> pd.DataFrame:
+    """Three arms on the same draws, as the registered pairing has them.
+
+    Each arm reports an SE equal to the spread of the estimates, times ``inflation`` for Cb and
+    ``comparator`` for L.  Ca's estimates spread ``analytic_spread`` times as far.
+    """
     rng = np.random.default_rng(9)
     scale = cd.SIGMA / math.sqrt(cd.N)
-    frames = []
-    for arm, implementation in cd.ARMS.items():
-        errors = scale * (1.0 + 0.02 * rng.normal(size=300))
-        frames.append(
+    noise = rng.normal(size=count)
+    noise = noise / noise.std(ddof=1) * scale
+    reported = scale * (1.0 + 0.01 * rng.normal(size=count))
+    factors = {"Cb": (inflation, 1.0), "Ca": (1.0, analytic_spread), "L": (comparator, 1.0)}
+    return pd.concat(
+        [
             pd.DataFrame(
                 {
                     "implementation": implementation,
-                    "replicate": np.arange(300),
+                    "replicate": np.arange(count),
                     "truth": 0.3,
-                    "estimate": 0.3 + scale * rng.normal(size=300),
-                    "inference_estimate": 0.0,
-                    "std_error": errors * (inflation if arm == "Cb" else 1.0),
+                    "estimate": 0.3 + noise * factors[arm][1],
+                    "inference_estimate": 0.3 + noise * factors[arm][1],
+                    "std_error": reported * factors[arm][0],
                     "covered": 1,
                 }
             )
-        )
-    return pd.concat(frames, ignore_index=True)
+            for arm, implementation in cd.ARMS.items()
+        ],
+        ignore_index=True,
+    )
+
+
+def _holding() -> pd.DataFrame:
+    return shared.validation_frame(
+        [shared.validation_row(cd.PART, "Cb refit rows", (True, 0.0, 1))]
+    )
+
+
+def _reading(table: pd.DataFrame) -> str:
+    return str(table.loc[table["statistic"] == "reading", "result"].iloc[0])
+
+
+def test_the_table_reads_the_ca_l_bound_and_mutations_move_it() -> None:
+    # Cb's SE is 8% too wide, so its own excess over L is above 0.05. The reading still names
+    # the density, which it can only do by reading the (Ca, L) bound.
+    assert _reading(cd.reading_table(_arms(), _holding())) == cd.DENSITY
+    # Ca's spread is off while its SE is not: D_Ca - D_L still covers 0, and the (Ca, L) bound
+    # leaves the margin, so the density reading fails.
+    assert _reading(cd.reading_table(_arms(analytic_spread=1.10), _holding())) == cd.UNRESOLVED
+    assert (
+        _reading(cd.reading_table(_arms(inflation=1.0, comparator=1.08), _holding()))
+        == cd.COMPARATOR_READING
+    )
+    assert _reading(cd.reading_table(_arms(count=799), _holding())) == shared.SMOKE
 
 
 def test_an_inflated_binned_standard_error_moves_the_first_difference() -> None:
@@ -117,13 +153,19 @@ def test_an_inflated_binned_standard_error_moves_the_first_difference() -> None:
     assert cd.d_intervals(_arms(1.08))["Cb", "L"].low > 0.0
 
 
-@pytest.mark.skipif(not ROWS.exists(), reason="CD has not run")
+@pytest.mark.skipif(not READING.exists(), reason="CD has not run")
 def test_the_committed_reading_follows_from_the_committed_rows() -> None:
-    rebuilt = cd.reading_table(shared.read_rows(ROWS), shared.read_rows(VALIDATION))
+    rows = shared.read_rows(ROWS)
+    assert (
+        rows.groupby("implementation").size().eq(800).all()
+        and rows["implementation"].nunique() == 3
+    )
+    rebuilt = cd.table(cd.PART, cd.HERE, 1)
     pd.testing.assert_frame_equal(rebuilt, shared.read_rows(READING), check_dtype=False, rtol=1e-12)
+    assert shared.SMOKE not in set(rebuilt["result"])
 
 
-@pytest.mark.skipif(not ROWS.exists(), reason="CD has not run")
+@pytest.mark.skipif(not READING.exists(), reason="CD has not run")
 def test_one_committed_analytic_row_retargets_again() -> None:
     rows = shared.read_rows(ROWS)
     committed = rows.loc[(rows["implementation"] == cd.ANALYTIC) & (rows["replicate"] == 0)].iloc[0]

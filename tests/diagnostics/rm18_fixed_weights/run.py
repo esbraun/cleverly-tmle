@@ -16,9 +16,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
+from tests.diagnostics import rm18_seeds
 from tests.diagnostics import rm18_shared as shared
 from tests.studies import weighted_longitudinal_properties_common as weighted
 from tests.studies.canonical_weighted_ltmle_crossfit import STUDY as CROSSFIT
@@ -36,9 +36,8 @@ BOUNDS = {
     "W": weighted.EFFICIENCY_SD["static"],
     "U": UNWEIGHTED_EFFICIENCY_SD["static"],
 }
-#: The registered cell this part reads, and its committed empirical efficiency interval.
+#: The registered cell this part reads.
 CELL = ("interval_calibration", "static__correctly_specified")
-REGISTERED_EFFICIENCY = (1.060724, 1.019495, 1.100601)
 #: The reading reads the W arm at this size.
 READ_SIZE = 32_000
 #: The contraction window: 1.5 times the R3 half-width of 0.020 either side of 1.
@@ -52,30 +51,22 @@ REVERSE = "reverse"
 NO_WEIGHT_EXCESS = "no weight-specific excess"
 
 
-def payloads(replicates: int) -> list[tuple[Any, ...]]:
-    """The declared fresh draws, with seeds ``stream_seed(CROSSFIT, "rm18", DESIGN, arm, n, k)``."""
+def labels() -> list[tuple[Any, ...]]:
+    """The declared seed labels ``("rm18", DESIGN, arm, n, replicate)``, in assignment order."""
+    return shared.ladder_labels(("rm18", DESIGN), ARMS, SIZES, REPLICATES)
+
+
+def payloads(cap: int | None = None) -> list[tuple[Any, ...]]:
+    """The declared fresh draws, the first ``cap`` of each rung under a smoke cap."""
     return shared.ladder_payloads(
         CROSSFIT,
         cross_fit=True,
         part=PART,
-        law_name="selected",
-        prefix=("rm18", DESIGN),
-        arms=ARMS,
-        sizes=SIZES,
-        replicates=replicates,
-    )
-
-
-def validate(cap: int | None, jobs: int) -> pd.DataFrame:
-    """R4 on the 2,400 committed replicates of the calibration cell."""
-    return shared.validate_weighted(
-        CROSSFIT,
-        cross_fit=True,
-        part=PART,
-        payload=("interval_calibration", "correctly_specified"),
-        cells=[CELL],
+        null=False,
+        labels=labels(),
+        seeds=rm18_seeds.weighted_seeds()[PART],
+        replicates=REPLICATES,
         cap=cap,
-        jobs=jobs,
     )
 
 
@@ -104,61 +95,72 @@ def reading_table(rows: pd.DataFrame, validation: pd.DataFrame) -> pd.DataFrame:
     if not shared.validated(validation, PART):
         out.append(shared.reading(PART, scope, "reading", result=shared.NOT_VALIDATED))
         return shared.reading_frame(out)
-    points: dict[tuple[str, int], float] = {}
-    draws: dict[tuple[str, int], np.ndarray] = {}
-    for arm in ARMS:
-        for n in SIZES:
-            group = rows.loc[(rows["arm"] == arm) & (rows["n"] == n)]
-            statistics, point, draw = shared.ladder_statistics(
-                group, CROSSFIT, design=DESIGN, part=PART, bound=BOUNDS[arm]
-            )
-            out.extend(statistics)
-            points[arm, n] = point["efficiency_empirical"]
-            draws[arm, n] = draw["efficiency_empirical"]
+    statistics, kept, smoke = shared.ladder_table(
+        rows,
+        CROSSFIT,
+        design=DESIGN,
+        part=PART,
+        arms=ARMS,
+        sizes=SIZES,
+        bounds=BOUNDS,
+        declared=REPLICATES,
+    )
+    out.extend(statistics)
     for n in SIZES:
-        delta = shared.difference_interval(draws["W", n], draws["U", n])
+        delta = shared.difference_interval(
+            kept["W", n]["draws"]["efficiency_empirical"],
+            kept["U", n]["draws"]["efficiency_empirical"],
+        )
         out.append(
             shared.reading(
                 PART,
                 f"n = {n}",
                 "Delta(n)",
-                value=points["W", n] - points["U", n],
+                value=kept["W", n]["points"]["efficiency_empirical"]
+                - kept["U", n]["points"]["efficiency_empirical"],
                 interval=delta,
-                result=attribution(delta),
+                result=shared.label(attribution(delta), smoke),
             )
         )
-    interval = shared.interval_of(draws["W", READ_SIZE])
+    interval = shared.interval_of(kept["W", READ_SIZE]["draws"]["efficiency_empirical"])
     out.append(
-        shared.reading(PART, scope, "reading", interval=interval, result=reading_label(interval))
+        shared.reading(
+            PART,
+            scope,
+            "reading",
+            interval=interval,
+            result=shared.label(reading_label(interval), smoke),
+        )
     )
     return shared.reading_frame(out)
 
 
-def main() -> None:
-    arguments = shared.arguments(__doc__.splitlines()[0], (PART,), HERE)
-    output = arguments.output
-    rows_path, validation_path, reading_path = shared.part_paths(output, PART)
-    if not arguments.read_only:
-        with shared.run_log(output, f"{PART}, cap {arguments.replicates}"):
-            validation = validate(arguments.replicates, arguments.jobs)
-            shared.write_table(validation, validation_path)
-            if shared.validated(validation, PART):
-                replicates = shared.budget(REPLICATES, arguments.replicates)
-                rows = pd.DataFrame(
-                    shared.pool(shared.ladder_replicate, payloads(replicates), arguments.jobs)
-                )
-                shared.write_table(rows, rows_path)
-            shared.write_table(table(output), reading_path)
-    else:
-        shared.write_table(table(output), reading_path)
-    shared.show(reading_path)
+def run_part(part: str, output: Path, cap: int | None, jobs: int) -> None:
+    """R4 on the 2,400 committed replicates of the calibration cell, then the fresh ladder."""
+    rows_path, validation_path, _ = shared.part_paths(output, part)
+    validation = shared.validation_frame(
+        shared.validate_weighted(
+            CROSSFIT,
+            cross_fit=True,
+            part=part,
+            payload=("interval_calibration", "correctly_specified"),
+            cells=[CELL],
+            cap=cap,
+            jobs=jobs,
+        )
+    )
+    shared.write_table(validation, validation_path)
+    if shared.validated(validation, part):
+        rows = pd.DataFrame(shared.pool(shared.ladder_replicate, payloads(cap), jobs))
+        shared.write_table(shared.require_finite(rows), rows_path)
 
 
-def table(output: Path) -> pd.DataFrame:
+def table(part: str, output: Path, jobs: int) -> pd.DataFrame:
     """The reading table from the rows and the validation record in ``output``."""
-    rows_path, validation_path, _ = shared.part_paths(output, PART)
+    del jobs
+    rows_path, validation_path, _ = shared.part_paths(output, part)
     return reading_table(shared.optional_rows(rows_path), shared.read_rows(validation_path))
 
 
 if __name__ == "__main__":
-    main()
+    shared.main(__doc__.splitlines()[0], (PART,), HERE, run_part, table)

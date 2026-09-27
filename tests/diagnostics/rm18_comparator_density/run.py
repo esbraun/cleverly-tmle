@@ -48,8 +48,6 @@ SIGMA = math.sqrt(
     DGP.noise_scale**2 * (math.exp(DELTA**2) - 1.0)
     + (2.0 * study.PRIMARY_CURVATURE * DELTA) ** 2 * DOSE_VARIANCE
 )
-#: The committed (Cb, L) calibration excess bound and resolution the harness must reproduce.
-REGISTERED_EXCESS = (0.06585605196523549, 0.045019132349535154)
 MARGIN = SHIFT.margins.calibration_noninferiority
 
 BINNED = "cleverly"
@@ -151,6 +149,13 @@ def excess(rows: pd.DataFrame, subject: str, reference: str) -> dict[str, float]
     }
 
 
+def registered_excess() -> tuple[float, float]:
+    """The committed (Cb, L) calibration excess bound and resolution, from ``equivalence.csv``."""
+    committed = shared.read_rows(SHIFT.artifact("equivalence.csv")).set_index("estimand")
+    row = committed.loc[ESTIMAND]
+    return float(row["calibration_excess_upper"]), float(row["calibration_excess_resolution"])
+
+
 def validate(fitted: pd.DataFrame, cap: int | None) -> pd.DataFrame:
     """R4: Cb reproduces every committed ``cleverly`` row, and (Cb, L) its committed excess."""
     committed = committed_rows()
@@ -167,7 +172,7 @@ def validate(fitted: pd.DataFrame, cap: int | None) -> pd.DataFrame:
         largest = float(
             np.max(
                 shared.scaled_difference(
-                    [bound["upper"], bound["resolution"]], list(REGISTERED_EXCESS)
+                    [bound["upper"], bound["resolution"]], list(registered_excess())
                 )
             )
         )
@@ -259,12 +264,13 @@ def reading_table(rows: pd.DataFrame, validation: pd.DataFrame) -> pd.DataFrame:
     if not shared.validated(validation, PART):
         out.append(shared.reading(PART, ESTIMAND, "reading", result=shared.NOT_VALIDATED))
         return shared.reading_frame(out)
+    smoke = bool((rows.groupby("implementation").size() != study.PRIMARY_REPLICATES).any())
     out.append(shared.reading(PART, "exact bound", "sigma*", value=SIGMA))
-    for arm, statistics in arm_statistics(rows).items():
+    points = arm_statistics(rows)
+    for arm, statistics in points.items():
         for name, value in statistics.items():
             out.append(shared.reading(PART, arm, name, value=value))
     intervals = d_intervals(rows)
-    points = arm_statistics(rows)
     for (left, right), interval in intervals.items():
         out.append(
             shared.reading(
@@ -291,38 +297,28 @@ def reading_table(rows: pd.DataFrame, validation: pd.DataFrame) -> pd.DataFrame:
             )
         )
     label = reading_label(intervals["Cb", "L"], intervals["Ca", "L"], bounds["Ca", "L"]["upper"])
-    out.append(shared.reading(PART, ESTIMAND, "reading", result=label))
+    out.append(shared.reading(PART, ESTIMAND, "reading", result=shared.label(label, smoke)))
     return shared.reading_frame(out)
 
 
-def main() -> None:
-    arguments = shared.arguments(__doc__.splitlines()[0], (PART,), HERE)
-    output = arguments.output
-    rows_path, validation_path, reading_path = shared.part_paths(output, PART)
-    if not arguments.read_only:
-        with shared.run_log(output, f"{PART}, cap {arguments.replicates}"):
-            replicates = shared.budget(study.PRIMARY_REPLICATES, arguments.replicates)
-            fitted = pd.DataFrame(
-                [
-                    row
-                    for rows in shared.pool(refit, range(replicates), arguments.jobs)
-                    for row in rows
-                ]
-            )
-            validation = validate(fitted, arguments.replicates)
-            shared.write_table(validation, validation_path)
-            if shared.validated(validation, PART):
-                shared.write_table(paired_rows(fitted), rows_path)
-            shared.write_table(table(output), reading_path)
-    else:
-        shared.write_table(table(output), reading_path)
-    shared.show(reading_path)
+def run_part(part: str, output: Path, cap: int | None, jobs: int) -> None:
+    """Refit the registered draws (Cb and Ca), validate Cb, and write the three arms' rows."""
+    rows_path, validation_path, _ = shared.part_paths(output, part)
+    replicates = shared.budget(study.PRIMARY_REPLICATES, cap)
+    fitted = pd.DataFrame(
+        [row for rows in shared.pool(refit, range(replicates), jobs) for row in rows]
+    )
+    validation = validate(shared.require_finite(fitted), cap)
+    shared.write_table(validation, validation_path)
+    if shared.validated(validation, part):
+        shared.write_table(paired_rows(fitted), rows_path)
 
 
-def table(output: Path) -> pd.DataFrame:
-    rows_path, validation_path, _ = shared.part_paths(output, PART)
+def table(part: str, output: Path, jobs: int) -> pd.DataFrame:
+    del jobs
+    rows_path, validation_path, _ = shared.part_paths(output, part)
     return reading_table(shared.optional_rows(rows_path), shared.read_rows(validation_path))
 
 
 if __name__ == "__main__":
-    main()
+    shared.main(__doc__.splitlines()[0], (PART,), HERE, run_part, table)
