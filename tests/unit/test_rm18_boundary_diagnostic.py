@@ -14,11 +14,9 @@ from tests.diagnostics import rm18_seeds
 from tests.diagnostics import rm18_shared as shared
 from tests.diagnostics.rm18_boundary import paired
 from tests.diagnostics.rm18_boundary import run as bd
-from tests.studies import drtmle_properties as binary
-from tests.studies.canonical_drtmle import STUDY as BINARY
 from tests.studies.canonical_multi_arm_drtmle import STUDY as MULTI
 from tests.studies.canonical_weighted_ltmle_crossfit import STUDY as CROSSFIT
-from tests.studies.evidence.property_verdicts import apply_shared_verdicts, contraction_verdicts
+from tests.studies.evidence.property_verdicts import _at_verdict_budget
 from tests.studies.evidence.seeds import stream_seed
 
 #: BD-0 as the declaration publishes it.
@@ -344,46 +342,84 @@ DECLARED_ROWS = {
 }
 
 
-def _registered_cells() -> list[tuple[Any, str, str]]:
+def _registered_cells() -> list[tuple[Any, Any, str, str]]:
     cells = [
-        (entry[0], entry[2], entry[3]) for part in ("BD-1", "BD-2") for entry in bd.CELLS[part]
+        (entry[0], entry[1], entry[2], entry[3])
+        for part in ("BD-1", "BD-2")
+        for entry in bd.CELLS[part]
     ]
-    return [*cells, (CROSSFIT, *bd.CONTROL)]
+    return [*cells, (CROSSFIT, None, *bd.CONTROL)]
+
+
+#: The legs of each registered rule that the published summary carries.
+SUMMARY_LEGS = (
+    "coverage_ci_lower",
+    "coverage_ci_upper",
+    "bias",
+    "bias_ci_lower",
+    "bias_ci_upper",
+    "bias_margin",
+    "se_ratio",
+    "se_ratio_ci_lower",
+    "se_ratio_ci_upper",
+)
 
 
 @pytest.mark.parametrize(
-    ("record", "property_name", "cell"),
+    ("record", "module", "property_name", "cell"),
     _registered_cells(),
-    ids=lambda value: getattr(value, "slug", value),
+    ids=lambda value: getattr(value, "slug", None) or getattr(value, "__name__", value),
 )
 def test_the_harness_rule_reproduces_each_registered_red_verdict(
-    record: Any, property_name: str, cell: str
+    record: Any, module: Any, property_name: str, cell: str
 ) -> None:
-    """The rule a re-read applies is the registered rule: on the committed registered rows it
-    gives the published verdict and coverage interval of the cell."""
+    """The rule a re-read applies is the registered rule.  ``bd.registered_summary`` on the
+    committed registered rows, on the registered stream and at the verdict budget, gives the
+    published verdict and every published leg of the cell."""
     committed = shared.read_rows(record.artifact("property-replicates.csv.gz"))
     rows = committed.loc[(committed["property"] == property_name) & (committed["cell"] == cell)]
-    if record.slug == BINARY.slug and property_name == bd.CONTRACTION_FAMILY:
-        budget = binary.CONTRACTION_VERDICT_REPLICATES
-        rows = rows.loc[rows["replicate"] < budget].assign(requested_replicates=budget)
-    summary, _ = apply_shared_verdicts(rows, record, rate_labels=())
-    contraction_verdicts(summary, record)
+    rows = _at_verdict_budget(rows, getattr(module, "CONTRACTION_VERDICT_REPLICATES", None))
+    row = bd.registered_summary(rows, record, None).iloc[0]
     published = shared.read_rows(record.artifact("properties.csv"))
     expected = published.loc[
         (published["property"] == property_name) & (published["cell"] == cell)
     ].iloc[0]
-    row = summary.iloc[0]
     assert not bool(expected["passed"]) and not bool(row["passed"])
-    for column in ("coverage_ci_lower", "coverage_ci_upper"):
-        assert float(row[column]) == pytest.approx(float(expected[column]), rel=1e-12)
+    for column in ("bias_equivalent", "bias_discriminated"):
+        assert bool(row[column]) == bool(expected[column]), column
+    for column in SUMMARY_LEGS:
+        if pd.isna(expected[column]):
+            assert pd.isna(row[column]), column
+        else:
+            assert float(row[column]) == pytest.approx(float(expected[column]), rel=1e-12), column
     assert bd.gate_label(row, record.margins) == bd.UNRESOLVED
 
 
-def test_every_part_of_the_design_has_run() -> None:
-    assert set(bd.PARTS) <= shared.RAN
+@pytest.mark.parametrize(
+    ("part", "rows_file", "record", "committed"),
+    [
+        ("BD-P1", "bd-p1-rows.csv.gz", CROSSFIT, "bd-p1-comparisons.csv"),
+        ("BD-P-pilot", "bd-p-pilot-rows.csv.gz", paired.PILOT_RECORD, "pilot.csv"),
+    ],
+)
+def test_the_committed_comparisons_follow_from_the_committed_rows(
+    part: str, rows_file: str, record: Any, committed: str
+) -> None:
+    """BD-P1 and the pilot rebuild their readings from their comparisons.  The comparisons
+    themselves follow from the committed paired rows.  BD-P2 is the one exception: its
+    comparisons over 19,892 draws take about 40 s, so its reading is rebuilt from them."""
+    compared = paired.comparisons(shared.read_rows(bd.HERE / rows_file), record, 1)
+    if part == "BD-P-pilot":
+        compared = paired.pilot_table(compared)
+    pd.testing.assert_frame_equal(
+        shared.as_committed(compared),
+        shared.read_rows(bd.HERE / committed),
+        check_dtype=False,
+        rtol=1e-12,
+    )
 
 
-@pytest.mark.parametrize("part", sorted(set(bd.PARTS) & shared.RAN))
+@pytest.mark.parametrize("part", bd.PARTS)
 def test_each_committed_reading_follows_from_its_record(part: str) -> None:
     rows_path, _, reading = shared.part_paths(bd.HERE, part)
     if part in DECLARED_ROWS:

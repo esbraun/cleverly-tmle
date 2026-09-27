@@ -1328,7 +1328,7 @@ What CD does not show:
 | the pooled longitudinal update matches a longhand recomputation, and four mutations break it | `tests/unit/test_pooled_longitudinal_targeting.py` |
 | the runtime isolation attributes each changed verdict to the code or the runtime | `tests/diagnostics/rm18_runtime/compare.py` reads the four arms of each study and writes `isolation.csv` in that directory. `run.log` records each arm's command, runtime, `pip freeze` digest and exit code |
 | the committed history separates the runtime from the code on three point-treatment studies | `tests/diagnostics/rm18_runtime/row_drift.py` writes `row-drift.csv` in that directory |
-| each reading of designs FW, OW, BD and CD follows from its committed rows under its declared rule | the four `tests/unit/test_rm18_*_diagnostic.py` files rebuild each committed reading, test each rule on synthetic tables with a mutation per branch, and fail when a part in `RAN` of `tests/diagnostics/rm18_shared.py` has no committed record |
+| each reading of designs FW, OW, BD and CD follows from its committed rows under its declared rule | the four `tests/unit/test_rm18_*_diagnostic.py` files rebuild each committed reading, test each rule on synthetic tables with a mutation per branch, and read every declared part, so a missing committed file fails. BD-P1 and the pilot also recompute their comparisons from the committed rows |
 
 #### Deferred findings and review resolutions
 

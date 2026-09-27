@@ -212,13 +212,18 @@ def validate_cells(part: str, cap: int | None, jobs: int) -> pd.DataFrame:
     return shared.validation_frame(out)
 
 
-def registered_summary(rows: pd.DataFrame, record: StudyRecord, label: str) -> pd.DataFrame:
+def registered_summary(rows: pd.DataFrame, record: StudyRecord, label: str | None) -> pd.DataFrame:
     """The registered rule of each fresh cell, through the framework, on the diagnostic stream.
 
     The framework derives its bootstrap stream from the record, so the record carries the
-    diagnostic stream as its ``resampling_seed``.
+    diagnostic stream as its ``resampling_seed``.  ``label=None`` keeps the registered stream,
+    which reproduces the published summary of the registered rows.
     """
-    stream = replace(record, resampling_seed=shared.bootstrap_seed(record, DESIGN, label))
+    stream = (
+        record
+        if label is None
+        else replace(record, resampling_seed=shared.bootstrap_seed(record, DESIGN, label))
+    )
     summary, _ = apply_shared_verdicts(
         rows.drop(columns=["seed", "study"], errors="ignore"), stream, rate_labels=()
     )

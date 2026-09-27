@@ -258,23 +258,12 @@ def test_a_library_from_another_tree_is_refused(
 # ------------------------------------------------------------------------ the committed run
 
 
-def _ran() -> bool:
-    """The declared set, not the file: a declared part whose record is missing fails."""
-    return fw.PART in shared.RAN
-
-
-def test_the_part_has_run() -> None:
-    assert _ran()
-
-
-@pytest.mark.skipif(not _ran(), reason="FW-A has not run")
 def test_the_committed_rows_meet_the_declared_budget() -> None:
     rows = shared.read_rows(ROWS)
     assert rows.groupby(["arm", "n"]).size().eq(fw.REPLICATES).all()
     assert len(rows.groupby(["arm", "n"])) == len(fw.ARMS) * len(fw.SIZES)
 
 
-@pytest.mark.skipif(not _ran(), reason="FW-A has not run")
 def test_the_committed_reading_follows_from_the_committed_rows() -> None:
     rebuilt = fw.table(fw.PART, fw.HERE, 1)
     pd.testing.assert_frame_equal(
@@ -283,7 +272,6 @@ def test_the_committed_reading_follows_from_the_committed_rows() -> None:
     assert shared.SMOKE not in set(rebuilt["result"])
 
 
-@pytest.mark.skipif(not _ran(), reason="FW-A has not run")
 def test_one_committed_fresh_row_refits_and_every_seed_is_declared() -> None:
     rows = shared.read_rows(ROWS)
     payloads = {(p[4], p[5], p[6]): p for p in fw.payloads()}
