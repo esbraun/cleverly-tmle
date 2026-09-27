@@ -377,8 +377,10 @@ def test_the_harness_rule_reproduces_each_registered_red_verdict(
     committed registered rows, on the registered stream and at the verdict budget, gives the
     published verdict and every published leg of the cell."""
     committed = shared.read_rows(record.artifact("property-replicates.csv.gz"))
+    committed = _at_verdict_budget(
+        committed, getattr(module, "CONTRACTION_VERDICT_REPLICATES", None)
+    )
     rows = committed.loc[(committed["property"] == property_name) & (committed["cell"] == cell)]
-    rows = _at_verdict_budget(rows, getattr(module, "CONTRACTION_VERDICT_REPLICATES", None))
     row = bd.registered_summary(rows, record, None).iloc[0]
     published = shared.read_rows(record.artifact("properties.csv"))
     expected = published.loc[

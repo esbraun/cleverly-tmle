@@ -66,8 +66,36 @@ MISSPECIFIED_TREATMENT_COLUMNS = (1, 2)
 #: Fitting log |bias| on log ``n`` separates them.  The ``both_wrong`` arm rides along as the
 #: control that must fail to contract.  The ladder starts at the size the level cell is judged
 #: at and doubles twice, so its first rung reproduces that regime rather than a milder one.
+#:
+#: **The rung budgets.**  ``docs/roadmap.md`` RM18, "Design SL", declared them before the run
+#: (commit ``ebd3d1b9``).  The outer rungs of all three scenarios run 73,000 and the middle rung
+#: runs 600.  The rule is the one ``CONTRACTION_REPLICATES`` in ``drtmle_properties.py``
+#: declares, as ``tests/diagnostics/rm18_rung_cost/cost.csv`` evaluates it: the smallest
+#: budget on a 1,000 grid whose surrogate 99% half-width of the slope is at or below 1 under
+#: every surrogate seed.  ``treatment_correct`` needs 70,000 to 73,000.  One budget serves all
+#: three scenarios, so the ``both_wrong`` control has the positives' resolution.  The middle
+#: rung's slope weight is zero, so it keeps the budget its own coverage row was declared at.
 CONTRACTION_SIZES = (2000, 4000, 8000)
-CONTRACTION_REPLICATES = 600
+CONTRACTION_REPLICATES = (73_000, 600, 73_000)
+
+#: How many replications each rung's *own* coverage verdict is read from.  The extra outer
+#: draws serve the slope alone, and each rung's coverage verdict stays at its declared 600, as
+#: "Design SL" declares and as ``drtmle_properties.CONTRACTION_VERDICT_REPLICATES`` explains.
+CONTRACTION_VERDICT_REPLICATES = 600
+
+if len(CONTRACTION_REPLICATES) != len(CONTRACTION_SIZES):  # pragma: no cover - import-time guard
+    raise AssertionError(
+        f"the contraction ladder declares {len(CONTRACTION_SIZES)} sizes and "
+        f"{len(CONTRACTION_REPLICATES)} replication counts; they are indexed together in "
+        f"_contraction_cells() and a mismatch would silently give a rung the wrong budget"
+    )
+
+if min(CONTRACTION_REPLICATES) < CONTRACTION_VERDICT_REPLICATES:  # pragma: no cover - guard
+    raise AssertionError(
+        f"the contraction ladder reads each rung's verdict at {CONTRACTION_VERDICT_REPLICATES} "
+        f"replications, but its smallest rung runs {min(CONTRACTION_REPLICATES)}; a verdict "
+        f"cannot be read at a budget the rung never drew"
+    )
 
 
 class ColumnLogistic(BaseEstimator, ClassifierMixin):
@@ -124,7 +152,7 @@ def _contraction_cells() -> tuple[PropertyCell, ...]:
             multi_arm_properties.Sampler(),
             *_nuisances(scenario),
             size,
-            CONTRACTION_REPLICATES,
+            CONTRACTION_REPLICATES[size_index],
             # One offset per rung, so no two rungs share a replication stream.  The ladder is
             # fitted across sizes, and a shared stream would correlate the rungs and narrow
             # the slope interval for a reason that has nothing to do with the estimator.
@@ -242,6 +270,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         rows,
         STUDY,
         extra_columns=("coverage_gain_ci_lower", "coverage_gain_ci_upper"),
+        verdict_replicates=CONTRACTION_VERDICT_REPLICATES,
         return_parts=True,
     )
     fold_policy_diagnostics(summary, rows, STUDY)
