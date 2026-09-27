@@ -47,7 +47,7 @@ from cleverly.sensitivity.evalue import (
 )
 from cleverly.sensitivity.positivity import PositivityReport
 from cleverly.validation import RepeatSpreadRow
-from cleverly.validation.nuisance import SPREAD_SINGLE_DRAW
+from cleverly.validation.nuisance import SPREAD_SINGLE_DRAW, _critical_value
 
 
 def _study(*, strata: bool = False) -> CausalStudy:
@@ -1744,7 +1744,8 @@ def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventor
     inventory is therefore checked against every presented row rather than against the
     count printed beside it.
     """
-    battery = _fit(_study(), ATE()).assess()
+    fitted = _fit(_study(), ATE())
+    battery = fitted.assess()
     text = battery.summary()
     sections = _summary_sections(text)
     results, checks, omissions = (
@@ -1758,6 +1759,15 @@ def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventor
     assert text.index("bias-adjusted interval") < text.index("validation.score_equations")
     assert "poorly calibrated" not in text
     assert "not run by default because it retargets the fit" not in text
+    # The nuisance row completes because the linear outcome learner puts some predictions of
+    # this binary outcome at or beyond 0 or 1. Their clipped logits pull the slope toward 0,
+    # and the rule's interval reaches 0, so the rule gives no finding.
+    nuisance = fitted.diagnostics.nuisance_models()
+    outcome = nuisance["outcome"].metrics
+    predicted = np.asarray(fitted.nuisance.outcome.observed, dtype=float)
+    assert np.any((predicted <= 0.0) | (predicted >= 1.0))
+    z = _critical_value(len(nuisance._calibration_tested))
+    assert outcome["calibration_slope"] - z * outcome["calibration_slope_se"] <= 0.0
 
     # The nonzero witness for completeness: two groups are larger than a head of two.
     statuses = [item.status for _, item in battery._presented()]

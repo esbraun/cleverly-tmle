@@ -36,7 +36,11 @@ from cleverly.estimators import TMLE
 from cleverly.exceptions import PositivityWarning
 from cleverly.utils.bounds import logit
 from cleverly.utils.parallel import map_parallel
-from cleverly.validation.nuisance import nuisance_diagnostics
+from cleverly.validation.nuisance import (
+    CALIBRATION_FAMILY_ALPHA,
+    _critical_value,
+    nuisance_diagnostics,
+)
 from tests.parallel import STUDY_JOBS
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
@@ -175,7 +179,8 @@ CONFIGURATION = {
     },
     "primary_row": "estimate = calibration_slope of the propensity report; std_error = "
     "calibration_slope_se; interval = estimate +/- 1.959964 std_error; truth 1",
-    "rule": "a finding when slope +/- z_{1 - 0.05 / (2K)} se lies above 0 and excludes 1",
+    "rule": f"a finding when slope +/- z_{{1 - {CALIBRATION_FAMILY_ALPHA} / (2K)}} se lies above 0 "
+    "and excludes 1",
     "warning_rate_row": "truth 1; covered = the rule's interval covers 1; rejected = the report "
     "has a calibration-slope finding",
     "fixed_band_control": "the same fits; rejected = the pooled one-intercept recalibration "
@@ -189,11 +194,8 @@ CONFIGURATION = {
 
 
 def g0(law: Law, covariates: np.ndarray) -> np.ndarray:
-    """The law's propensity at each row."""
-    index = np.zeros(covariates.shape[0])
-    for column, coefficient in enumerate(law.coefficients):
-        index = index + coefficient * covariates[:, column]
-    return np.asarray(expit(index), dtype=float)
+    """The law's propensity at each row, which the known treatment learner returns."""
+    return np.asarray(KnownPropensity(law.coefficients).predict_proba(covariates)[:, 1])
 
 
 def qbar(treatment: np.ndarray, w1: np.ndarray) -> np.ndarray:
@@ -367,9 +369,8 @@ def read(result: Any) -> Reading:
 
 
 def rule_covers(reading: Reading, truth: float) -> bool:
-    """Whether the rule's Bonferroni interval covers ``truth``."""
-    critical = float(stats.norm.ppf(1.0 - 0.05 / (2.0 * reading.tested)))
-    half = critical * reading.std_error
+    """Whether the rule's Bonferroni interval covers ``truth``, at the package's own level."""
+    half = _critical_value(reading.tested) * reading.std_error
     return bool(reading.slope - half <= truth <= reading.slope + half)
 
 

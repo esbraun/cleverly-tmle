@@ -12,13 +12,14 @@ This module pins the replacement:
   the fit's cluster codes.  W1 checks both against an independent numpy fit to 1e-10, and W2, W3
   and the pooled-fit contrast are nonzero witnesses for the weights, the clusters and the fold
   intercepts;
+* ``nuisance_diagnostics`` passes the propensity and outcome reports the fit's folds and cluster
+  codes, and the response model's largest inverse weight reads respondents only;
 * a prediction that is constant within every fold, or that separates the labels within every
   fold, has no slope, and the report names the reason;
 * a finding needs the Bonferroni interval over the eligible models to lie above 0 and exclude 1;
 * an in-sample fit carries no test;
 * the message reports the interval, the AUC and, for a weight model, the largest untruncated
-  inverse weight,
-  and it makes no claim that the weights are biased;
+  inverse weight, and it makes no claim that the weights are biased;
 * a conditional-mean report names its linear slope ``regression_slope``.
 
 Every name is read off the module inside each test, so the file collects on a tree without the
@@ -367,6 +368,61 @@ class TestTheStatistic:
         )
 
 
+class TestTheCallSites:
+    """``nuisance_diagnostics`` passes each probability report the fit's folds and clusters.
+
+    W1 to W4 drive ``_binary_report`` directly, so they cannot see a call site that drops an
+    argument.  These tests read the reports of a clustered cross-fitted fit with a binary
+    outcome.  On this fit the clusters move each standard error and the fold intercepts move
+    each slope, so a call site that dropped either would fail the equality.
+    """
+
+    @pytest.fixture(scope="class")
+    def clustered(self) -> Any:
+        from cleverly.datasets import make_clustered
+
+        frame, _ = make_clustered(n=400, cluster_size=10, seed=7, family="binomial")
+        return (
+            TMLE(
+                outcome_learner=_logistic(),
+                treatment_learner=_logistic(),
+                n_folds=3,
+                simultaneous=False,
+                estimands=("ate",),
+                random_state=7,
+            )
+            .fit(frame, outcome="Y", treatment="A", covariates=("W1", "W2"), id="cluster")
+            .single()
+        )
+
+    @pytest.mark.parametrize("name", ["propensity", "outcome"])
+    def test_a_report_reads_the_fit_folds_and_cluster_codes(
+        self, clustered: Any, name: str
+    ) -> None:
+        data = clustered.data
+        folds = np.asarray(clustered.nuisance.folds.assignment)
+        if name == "propensity":
+            arguments = (name, clustered.nuisance.propensity.arm(1.0), data.treatment)
+        else:
+            arguments = (name, clustered.nuisance.outcome.observed, data.outcome)
+        options = {"mask": None if name == "propensity" else data.observed}
+
+        def direct(fold: np.ndarray, cluster: Any) -> dict[str, float]:
+            return nuisance_module._binary_report(
+                *arguments, data.weights, None, folds=fold, cluster=cluster, **options
+            ).metrics
+
+        reported = clustered.diagnostics.nuisance_models()[name].metrics
+        expected = direct(folds, data.cluster)
+
+        assert reported["calibration_slope"] == expected["calibration_slope"]
+        assert reported["calibration_slope_se"] == expected["calibration_slope_se"]
+        rows = direct(folds, None)
+        assert abs(rows["calibration_slope_se"] - expected["calibration_slope_se"]) > 1e-3
+        pooled = direct(np.zeros_like(folds), data.cluster)
+        assert abs(pooled["calibration_slope"] - expected["calibration_slope"]) > 1e-2
+
+
 # ------------------------------------------------------------ W5 to W9: the rule
 
 
@@ -383,8 +439,17 @@ class TestTheRule:
         report = result.diagnostics.nuisance_models()
         propensity = report["propensity"].metrics
         slope, se = propensity["calibration_slope"], propensity["calibration_slope_se"]
+        predicted = np.clip(result.nuisance.propensity.arm(1.0), 1e-12, 1.0 - 1e-12)
+        pooled, _ = _reference(
+            predicted,
+            result.data.treatment,
+            np.ones(result.n),
+            np.asarray(result.nuisance.folds.assignment),
+            pooled=True,
+        )
 
         assert not 0.7 <= slope <= 1.4
+        assert not 0.7 <= pooled <= 1.4
         z = float(stats.norm.ppf(1.0 - 0.05 / 4.0))
         assert slope - z * se > 0.0
         assert slope - z * se <= 1.0 <= slope + z * se
@@ -561,6 +626,42 @@ class TestTheSurfaces:
             float(np.max(1.0 / observed)), rel=1e-12
         )
         assert "largest_inverse_weight" not in report["outcome"].metrics
+
+    def test_the_missingness_weight_reads_the_respondents_only(self) -> None:
+        """Only a row with a recorded outcome carries ``1 / P(Delta = 1 | A, W)``.
+
+        On this draw the largest ``1 / (1 - p)`` over the nonrespondents is larger than the
+        largest ``1 / p`` over the respondents, so a report that read every row would differ.
+        The fit is in sample, because a cross-fitted continuous outcome with missing values
+        needs declared outcome bounds, and the mask does not depend on the folds.
+        """
+        from cleverly.datasets import make_missing_outcome
+
+        frame, _ = make_missing_outcome(n=400, seed=4)
+        result = (
+            TMLE(
+                outcome_learner=LinearRegression(),
+                treatment_learner=_logistic(),
+                missingness_learner=_logistic(),
+                cross_fit=False,
+                simultaneous=False,
+                estimands=("ate",),
+                random_state=4,
+            )
+            .fit(frame, outcome="Y", treatment="A", delta="Delta")
+            .single()
+        )
+        report = result.diagnostics.nuisance_models()
+        response = np.asarray(result.nuisance.missingness, dtype=float)
+        arm = np.where(result.data.treatment == 1.0, response[:, 1], response[:, 0])
+        p = np.clip(arm, 1e-12, 1.0 - 1e-12)
+        observed = result.data.observed
+
+        expected = float(np.max(1.0 / p[observed]))
+        assert report["missingness"].metrics["largest_inverse_weight"] == pytest.approx(
+            expected, rel=1e-12
+        )
+        assert float(np.max(1.0 / (1.0 - p[~observed]))) > expected
 
     def test_w12_a_conditional_mean_report_names_a_regression_slope(self) -> None:
         frame, _ = make_linear_ate(n=300, seed=1)
