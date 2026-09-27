@@ -739,7 +739,8 @@ figure.
 #### The five follow-up designs, declared before they run
 
 This subsection declares the designs that the five open asks name. It fixes every quantity that
-decides a reading. The commit that adds it is pushed before any run starts.
+decides a reading. The commit that adds it is pushed before any run starts. The seed-collision
+rule was added before any run, after the harness found seed collisions that R2 refuses.
 
 | design | ask | form | directory or study |
 | --- | --- | --- | --- |
@@ -778,12 +779,13 @@ Table 6, with `z = 2.575829`. They read nominal values, gates and the 99% level,
 | bias of a control, in SD | 0, margin 0.25 SD | 0.05 SD | `ceil((z / 0.05)^2)` = 2,654 | 2,655 |
 | rejection rate | 0.05, ceiling 0.10 | 0.010 | `ceil(z^2 * 0.05 * 0.95 / 0.010^2)` = 3,152 | 3,200 |
 
-Four further rules close the points that the design tables share.
+Five further rules close the points that the design tables share.
 
 | point | rule |
 | --- | --- |
 | reading order | each reading table is read from the top. The first condition that holds names the reading |
 | failed fit | a fit that raises stops the part. The part draws no replacement sample and states no reading |
+| seed collision | a fresh seed can equal a registered seed of the study, or a seed that the same part assigned earlier. The harness then uses the seed of the same label followed by `"retry"` and the smallest counter `j >= 1` that clears both sets. A `CoverageStudy` cell moves its whole seed when any replicate seed collides. Its registered set also holds the 73,000 outer-rung seeds that SL declares |
 | bootstrap streams | a diagnostic bootstrap seed is `stream_seed(record, "rm18", <design>, "bootstrap", <label>)`. Where a framework function derives its own stream from the record, the harness passes a copy of the record whose `resampling_seed` is that value |
 | two-arm differences | a difference between two independent arms, such as `Delta(n)`, takes its 99% percentile interval from the draw-by-draw difference of the two arms' bootstrap samples |
 
