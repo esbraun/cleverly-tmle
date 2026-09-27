@@ -1631,6 +1631,17 @@ is the only empirical witness for it.
   does not copy its dtype check, categorical probability reuse, or shared simulation seed. The
   source locator is an implementation reference and not acceptance evidence.
 
+## Simulation studies
+
+- Morris, White & Crowther (2019), [*Using simulation studies to evaluate statistical
+  methods*](https://doi.org/10.1002/sim.8086), *Statistics in Medicine* 38(11):2074–2102, DOI
+  10.1002/sim.8086. Read first-hand in the open-access version of record on PubMed Central,
+  PMC6492164. Table 6 gives the Monte Carlo standard error of each performance measure. For the
+  empirical SE it is `EmpSE / sqrt(2 (n_sim - 1))`. Section 5.2 defines the average model SE as
+  the root mean of the squared model SEs. Section 5.3, Equation (1), sizes a study for coverage
+  as `n_sim = E(Coverage) (1 - E(Coverage)) / MCSE^2`. RM18 of the [roadmap](roadmap.md) reads
+  its re-read budgets off these forms.
+
 ## Multiple testing
 
 - Benjamini & Hochberg (1995), [*Controlling the False Discovery Rate: A Practical and

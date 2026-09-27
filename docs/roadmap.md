@@ -740,7 +740,9 @@ figure.
 
 This subsection declares the designs that the five open asks name. It fixes every quantity that
 decides a reading. The commit that adds it is pushed before any run starts. The seed-collision
-rule was added before any run, after the harness found seed collisions that R2 refuses.
+rule was added before any run, after the harness found seed collisions that R2 refuses. A
+harness review then amended the collision rule, the failed-fit rule, R6 and four source
+statements, again before any run.
 
 | design | ask | form | directory or study |
 | --- | --- | --- | --- |
@@ -753,7 +755,9 @@ rule was added before any run, after the harness found seed collisions that R2 r
 A diagnostic writes no registered artifact. Its directory holds the code, the per-replicate rows,
 `reading.csv`, `run.log` and a README. The README states how the code resolves each point this
 declaration leaves open, and that table is committed before the run. A fast-tier test recomputes
-each reading from the committed rows.
+each reading from the committed rows. The one exception is BD-P step 2, whose reading the test
+rebuilds from the committed `bd-p2-comparisons.csv`. A run capped with `--replicates` is a smoke
+run, and each of its readings says `smoke run, not the declared budget`.
 
 (rules-that-every-design-follows)=
 ##### Rules that every design follows
@@ -765,29 +769,40 @@ each reading from the committed rows.
 | R3, budget rule | each re-read budget gives a 99% Monte Carlo half-width equal to one fifth of the distance between the nominal value and the gate. The table below gives each budget |
 | R4, harness validation | before any fresh draw, the harness refits every committed replicate of each cell it reads. Each `estimate` and `std_error` must satisfy `abs(new - committed) <= 1e-9 * max(1, abs(committed))`, with the committed rows parsed by `pandas.read_csv(..., float_precision="round_trip")`. The study's own summary function must recompute the committed summary row of the cell to the same tolerance. A miss stops that part with the reading "harness not validated, no reading" |
 | R5, intervals | every interval is 99%. Coverage and rejection use the exact two-sided Clopper-Pearson interval. A ratio uses the framework's percentile bootstrap of 10,000 draws. A mean bias uses the Student interval. A paired row uses the legs of `comparison_verdict` |
-| R6, one run | each design part runs once, from a clean pushed commit. `run.log` records the commit, the command, the `pip freeze` digest, the thread limits, the wall time and the exit code. One process pool runs at a time. No R phase, fast suite or study runs beside it |
+| R6, one run | each design part runs once, from a clean pushed commit. The harness refuses a run from a tree with changes, from a commit that differs from its upstream, or with `cleverly` imported from outside the tree's `src`. `run.log` records the commit, the command, the path of `cleverly`, the versions of Python, NumPy, SciPy, pandas, scikit-learn and joblib, the SHA-256 of the sorted list of installed distributions, the thread limits, the wall time and the exit code. One process pool runs at a time. No R phase, fast suite or study runs beside it |
 | R7, every reading publishes | a reading publishes whichever way it falls. A reading that names a defect in `cleverly` opens a new remediation row, with a nonzero witness that fails without the fix. That row's `id` enters "What this row asks for", and the ledger moves the cell to it. Every other reading leaves the owner where it is |
 
 The R3 budgets use the Monte Carlo standard-error forms of Morris, White and Crowther (2019),
 Table 6, with `z = 2.575829`. They read nominal values, gates and the 99% level, and no verdict.
+The coverage and rejection rows use Section 5.3, Equation (1), at the value that sets the widest
+error. The ratio rows use the relative error of the empirical SE, `1 / sqrt(2 (R - 1))`, which the
+rule rounds to `1 / sqrt(2R)`. They leave out the error of the mean reported SE.
 
 | statistic | nominal and gate | half-width | rule | budget |
 | --- | --- | --- | --- | ---: |
 | coverage | 0.95, floor 0.90 | 0.010 | `ceil(z^2 * 0.90 * 0.10 / 0.010^2)` = 5,972 | 6,000 |
 | SE ratio | 1, band edge 0.93 | 0.014 | `ceil((z / 0.014)^2 / 2)` = 16,926 | 17,000 |
-| empirical efficiency ratio | 1, band edge 1.10 | 0.020 | `ceil((z / 0.020)^2 / 2)` = 8,295 | 8,300 |
+| empirical efficiency ratio | 1, band edge 1.10 | 0.020 | `ceil((z / 0.020)^2 / 2)` = 8,294 | 8,300 |
 | bias of a control, in SD | 0, margin 0.25 SD | 0.05 SD | `ceil((z / 0.05)^2)` = 2,654 | 2,655 |
 | rejection rate | 0.05, ceiling 0.10 | 0.010 | `ceil(z^2 * 0.05 * 0.95 / 0.010^2)` = 3,152 | 3,200 |
 
-Five further rules close the points that the design tables share.
+Five further rules close the points that the design tables share. The seed-collision rule reads
+the assignment order in the table after them.
 
 | point | rule |
 | --- | --- |
 | reading order | each reading table is read from the top. The first condition that holds names the reading |
-| failed fit | a fit that raises stops the part. The part draws no replacement sample and states no reading |
-| seed collision | a fresh seed can equal a registered seed of the study, or a seed that the same part assigned earlier. The harness then uses the seed of the same label followed by `"retry"` and the smallest counter `j >= 1` that clears both sets. A `CoverageStudy` cell moves its whole seed when any replicate seed collides. Its registered set also holds the 73,000 outer-rung seeds that SL declares |
+| failed fit | a fit that raises, or that returns a non-finite estimate or standard error, stops the part. The part draws no replacement sample and states no reading |
+| seed collision | a fresh seed is judged against every seed that an RM18 part draws on the same registered record. That set holds the study's registered seeds, the seeds of every part earlier in the assignment order, and the seeds that the same part assigned earlier. A fresh seed in that set moves to the seed of the same label followed by `"retry"` and the smallest counter `j >= 1` that leaves the set. A `CoverageStudy` cell moves its whole seed when any replicate seed collides. The BD-P seeds are fixed by their records. A BD-P seed that equals a registered seed stops the part |
 | bootstrap streams | a diagnostic bootstrap seed is `stream_seed(record, "rm18", <design>, "bootstrap", <label>)`. Where a framework function derives its own stream from the record, the harness passes a copy of the record whose `resampling_seed` is that value |
 | two-arm differences | a difference between two independent arms, such as `Delta(n)`, takes its 99% percentile interval from the draw-by-draw difference of the two arms' bootstrap samples |
+
+| record | seed assignment order |
+| --- | --- |
+| `weighted-ltmle-crossfit` | the registered seeds and the BD-P pilot and step 2 seeds up to the 20,000 cap, then FW-A, then BD-3 |
+| `weighted-ltmle` | the registered seeds, then OW-A, then OW-B, then OW-C |
+| `canonical-multi-arm-drtmle` | the registered seeds and the 73,000 outer-rung seeds that SL declares, then `double_robust_contraction/outcome_correct_n4000`, then `root_n_and_efficiency/n_500`, then `interval_calibration/correctly_specified` |
+| `canonical-multi-arm-ctmle-selector`, `canonical-drtmle` | the registered seeds, then the one BD-1 cell |
 
 The seed labels below use the registered records by slug: `CROSSFIT` is `weighted-ltmle-crossfit`,
 `ORDINARY` is `weighted-ltmle`, `SELECTOR` is `canonical-multi-arm-ctmle-selector`, `BINARY` is
@@ -825,11 +840,13 @@ The tolerance of 0.03 is 1.5 times the R3 half-width and under a third of the ba
 each size, a labelled attribution reads `Delta(n)`. It reads `weights add excess` if the interval
 lies above 0, `reverse` if it lies below 0, and `no weight-specific excess` otherwise.
 
-`finite-sample, contracting` explains the red cell as a finite-sample cross-fit or weight excess
-at the registered size. Theorem 3 of Díaz, Williams, Hoffman and Schenck (2023) gives that
-behaviour for the unweighted pooled update. `persistent excess` names an efficiency defect in the
-weighted pooled update and opens a row under R7. A pass at another size or budget does not re-read
-the registered cell, and `Delta(n)` does not locate a step.
+`finite-sample, contracting` explains the red cell as a finite-sample excess at the registered
+size that shrinks with `n`. Theorem 3 of Díaz, Williams, Hoffman and Schenck (2023) gives the
+efficient limit of the unweighted pooled update under its stated conditions. It has no
+observation weights and states no finite-sample rate. The reading is therefore consistent with
+the theorem, and the theorem does not prove it. `persistent excess` names an efficiency defect in
+the weighted pooled update and opens a row under R7. A pass at another size or budget does not
+re-read the registered cell, and `Delta(n)` does not locate a step.
 
 Part FW-B reads the paired `ey_regimen[never]` row. It shares its fresh draws with part BD-P.
 
@@ -890,6 +907,11 @@ approximation gives this probability.
 p_1200 = Phi(sqrt(1,200) * (b - 0.25) - t) + Phi(-sqrt(1,200) * (b + 0.25) - t)
 ```
 
+A supplementary row reports `p_1200` at the two ends of the 99% interval of `SD`. That interval
+is the percentile bootstrap of 10,000 draws on the OW bootstrap stream with the label
+`control SD`. The row enters no reading. It shows how far the Monte Carlo error of `SD` moves
+`p_1200` near its 0.80 threshold.
+
 | part | reading | condition |
 | --- | --- | --- |
 | OW-A, on W at 32,000 | `persistent deficit` | the SE-ratio interval's upper end is below 0.97 |
@@ -904,11 +926,12 @@ p_1200 = Phi(sqrt(1,200) * (b - 0.25) - t) + Phi(-sqrt(1,200) * (b + 0.25) - t)
 | OW-C, fresh draws | `family resolved` | the registered family rule holds at 2,655: every cell passes its own rule, and the smaller displacement is at or above 0.25 |
 | OW-C, fresh draws | `family not resolved` | otherwise |
 
-A contracting deficit is the known in-sample overfit of the influence-curve variance. Weights make
-it larger through a smaller effective sample size. Tran, Petersen, Schwab and van der Laan (2023)
-describe the mechanism. Landsiedel, Petersen and van der Laan (2026), arXiv preprint section 2.4,
-describe it under weights. `persistent deficit` and `resolved outside gate` open a row in tier
-a (R7).
+A contracting deficit would fit an in-sample overfit of the influence-curve variance, which
+weights can enlarge through a smaller effective sample size. No source read for this design
+proves that for this estimator. Landsiedel, Petersen and van der Laan (2026), an arXiv preprint,
+study a different two-stage IPCW-LTMLE. Their abstract reports coverage as low as 76% for the
+standard variance estimators, and nominal coverage for the cross-fitted ones. `persistent deficit`
+and `resolved outside gate` open a row in tier a (R7).
 
 A boundary control is a design property of the family, and not an estimator fact. `control inert`
 and `control underpowered by design` are recorded. A future re-declaration of the control law must
@@ -956,7 +979,7 @@ BD-P step 2 sizes its budget with a pilot.
 | harness validation | the registered 800 primary draws, refit by both implementations through the step 2 path. The `cleverly` rows must reproduce the committed rows to R4. The `lmtp-weighted` rows and their `native`, `horvitz_thompson` and `hajek` standard errors must reproduce `replicates.csv.gz` and `reference-inference.csv.gz` to R4 |
 | pilot | 800 fresh primary draws, both implementations, on the throwaway record `replace(CROSSFIT, seed=stream_seed(CROSSFIT, "rm18", "boundary-pilot"))`. The pilot rows enter no reading |
 | `r_pilot` | the largest `calibration_excess_resolution` of the pilot, over the three mean rows and the `native` and `hajek` comparisons |
-| budget | `R_p = min(20,000, max(800, ceil(800 * (r_pilot / 0.025)^2)))`. The target resolution 0.025 is half the calibration margin |
+| budget | `R_p = min(20,000, max(800, ceil(800 * (r_pilot / 0.025)^2)))`. The target resolution 0.025 is half the calibration margin. A non-finite `r_pilot` stops the part |
 | fresh draws | `R_p` primary draws on the record `replace(CROSSFIT, seed=stream_seed(CROSSFIT, "rm18", "boundary-paired"))`, through `draw_and_fit` of `weighted_longitudinal_common` and the registered `lmtp` runner |
 | comparisons | the framework `equivalence` on that record, once with the `native` rows and once with the `hajek` rows |
 | order | the pilot runs, and `pilot.csv` with `R_p` is committed and pushed before step 2 starts |
