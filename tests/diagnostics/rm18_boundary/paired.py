@@ -405,7 +405,7 @@ def comparisons_path(output: Path, part: str) -> Path:
 
 def pilot_for(output: Path, smoke: bool) -> pd.DataFrame:
     """The pilot step 2 reads: the committed one for a declared run, the scratch one for a smoke."""
-    return shared.read_rows(output / "pilot.csv" if smoke else HERE / "pilot.csv")
+    return shared.read_rows(shared.record_path(HERE, "pilot.csv", output, smoke))
 
 
 def run_part(part: str, output: Path, cap: int | None, jobs: int) -> None:

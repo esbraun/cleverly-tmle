@@ -1,14 +1,14 @@
 """RM19: localize the one-sided DR-TMLE increment of ``cleverly`` over R ``drtmle``.
 
 RM19 of ``docs/roadmap.md`` declares the design in "The localization design, declared before it
-runs".  Each part runs on its own, in this order:
+runs", as amended.  Each part runs on its own, in this order:
 
 * A refits the registered primary draws of the three scenarios, validates the harness (V1 to
-  V3) and attributes the committed signal;
-* B fits 2,000 fresh ``treatment_correct`` draws at n = 3,000 with ``C`` and every arm of the
+  V3 and V5) and attributes the committed signal;
+* B fits 2,000 fresh ``treatment_correct`` draws at n = 3,000 with ``C`` and the 16 arms of the
   transcription;
 * V4 runs the pinned R container on the first 200 Part B draws;
-* C fits 2,000 fresh draws at n = 1,500 and 6,000 with ``C`` and ``T(0, 0, 0)``.
+* C fits 2,000 fresh draws at n = 1,500 and 6,000 with ``C`` and ``T(0, 0, 0, 0)``.
 
     python -m tests.diagnostics.rm19_one_sided_increment.run --part A --output <scratch>
 
@@ -19,16 +19,26 @@ from __future__ import annotations
 
 import functools
 import itertools
+import subprocess
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
+from tests.canonical.drtmle.regenerate import HERE as REFERENCE_HERE
+from tests.canonical.drtmle.regenerate import REFERENCE
 from tests.diagnostics import rm18_seeds
 from tests.diagnostics import rm18_shared as shared
-from tests.diagnostics.rm19_one_sided_increment.rtrans import TOL_IC, Switches, transcribe
+from tests.diagnostics.rm19_one_sided_increment.rtrans import (
+    K_PARTS,
+    TOL_IC,
+    Switches,
+    transcribe,
+)
 from tests.studies import canonical_drtmle as study
 from tests.studies.canonical_drtmle import STUDY as BINARY
 from tests.studies.evidence.inference import Interval, student_interval
@@ -55,7 +65,7 @@ MARGIN = 0.002990
 COMMITTED_SD = 0.010261
 Z = 2.575829
 RESOLUTION = 0.000598
-#: The bracket: ``T(1, 1, 1) - C`` must lie inside this, one tenth of the committed increment.
+#: The bracket: ``T(1, 1, 1, 1) - C`` must lie inside this, one tenth of the committed increment.
 BRACKET = 1e-4
 #: V2 and V4 on a draw where R reaches ``maxIter``: the amended tolerance.  A draw that exits at
 #: ``tolIC`` keeps the R4 tolerance of ``rm18_shared``.
@@ -66,19 +76,25 @@ CONTROL_SD = {"outcome_correct": 0.002223, "both_correct": 0.000869}
 #: The seed that ``random_partition`` cannot take as ``seed + 1``.
 LAST_SEED = 2**32 - 1
 
-#: The factorial arms, in ``(J, P, S)`` order, and the guard arm.
+#: The factorial arms, in ``(J, P, S, K)`` order, and the other named arms.
+FACTORS = {"J": "joint_tilt", "P": "prime", "S": "cleverly_exit", "K": "cleverly_numerics"}
 FACTORIAL = tuple(
-    Switches(joint_tilt=bool(j), prime=bool(p), cleverly_exit=bool(s))
-    for j, p, s in itertools.product((0, 1), repeat=3)
+    Switches(joint_tilt=bool(j), prime=bool(p), cleverly_exit=bool(s), cleverly_numerics=bool(k))
+    for j, p, s, k in itertools.product((0, 1), repeat=len(FACTORS))
 )
+INTERACTIONS = tuple(itertools.combinations(FACTORS, 2))
 REFERENCE_ARM = Switches()
+FULL = Switches(True, True, True, True)
+WITHOUT_K = Switches(True, True, True)
 NO_GUARD = Switches(no_guard=True)
-CONTROL_ARMS = (REFERENCE_ARM, Switches(joint_tilt=True), Switches(True, True, True))
-FACTORS = {"J": "joint_tilt", "P": "prime", "S": "cleverly_exit"}
-INTERACTIONS = (("J", "P"), ("J", "S"), ("P", "S"))
+CONTROL_ARMS = (REFERENCE_ARM, Switches(joint_tilt=True), FULL)
+#: K5, supplementary: each part of K alone, added to ``T(1, 1, 1, 0)``, on Part A.
+DECOMPOSITION = tuple(Switches(True, True, True, part=part) for part in K_PARTS)
 C = "C"
-T000 = REFERENCE_ARM.label
-T111 = Switches(True, True, True).label
+T0000 = REFERENCE_ARM.label
+T1000 = Switches(joint_tilt=True).label
+T1110 = WITHOUT_K.label
+T1111 = FULL.label
 T0G = NO_GUARD.label
 
 INCREMENT = "increment confirmed"
@@ -90,6 +106,7 @@ NOTHING = "nothing to localize"
 INTERACTION_ONLY = "interaction only"
 NO_LABEL = "no localization label"
 COMMITTED = "committed-draw attribution"
+SUPPLEMENTARY = "supplementary"
 HOLDS, FAILS = shared.HOLDS, shared.FAILS
 
 ROW_COLUMNS = (
@@ -126,10 +143,15 @@ def taken_seeds() -> set[int]:
 
 
 @functools.cache
-def fresh_seeds() -> dict[str, tuple[int, ...]]:
-    """The declared seeds of Parts B and C, assigned in the declared order after BD-1."""
+def fresh_seeds() -> Mapping[str, tuple[int, ...]]:
+    """The declared seeds of Parts B and C, assigned in the declared order after BD-1.
+
+    A read-only view, because the cache hands every caller the same object.
+    """
     taken = taken_seeds()
-    return {part: tuple(shared.fresh_seeds(BINARY, labels(part), taken)) for part in ("B", "C")}
+    return MappingProxyType(
+        {part: tuple(shared.fresh_seeds(BINARY, labels(part), taken)) for part in ("B", "C")}
+    )
 
 
 def draws(part: str, cap: int | None = None) -> list[tuple[str, int, int, int]]:
@@ -150,12 +172,13 @@ def draws(part: str, cap: int | None = None) -> list[tuple[str, int, int, int]]:
 
 
 def arms(part: str, scenario: str) -> tuple[Switches, ...]:
-    """The transcription arms of one part and scenario, ``T0+G`` last."""
+    """The transcription arms of one part and scenario: the reference arm first, ``T0+G`` after
+    the declared arms, and the K decomposition last on Part A ``treatment_correct``."""
     if part == "C":
         return (REFERENCE_ARM,)
-    if scenario == SCENARIO:
-        return (*FACTORIAL, NO_GUARD)
-    return (*CONTROL_ARMS, NO_GUARD)
+    if scenario != SCENARIO:
+        return (*CONTROL_ARMS, NO_GUARD)
+    return (*FACTORIAL, NO_GUARD, *(DECOMPOSITION if part == "A" else ()))
 
 
 # -------------------------------------------------------------------------------- fits
@@ -235,8 +258,8 @@ def draw_payload(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, float,
 
 
 def fit_draw(call: tuple[str, str, int, int, int]) -> list[dict[str, Any]]:
-    """Every arm of one draw.  ``T0+G`` is a copy of ``T(0, 0, 0)`` on a draw with no guard event,
-    because the guards then change no step."""
+    """Every arm of one draw.  ``T0+G`` is a copy of ``T(0, 0, 0, 0)`` on a draw with no guard
+    event, because the guards then change no step."""
     part, scenario, n, k, seed = call
     payload, truth, result = draw_payload(scenario, n, seed)
     common = {**_base(part, scenario, n, k, seed, truth), **_initial(payload)}
@@ -285,7 +308,7 @@ def _long(rows: pd.DataFrame, arm: str) -> pd.DataFrame:
 
 
 def exit_status(transcribed: pd.Series, score_max: pd.Series) -> tuple[np.ndarray, np.ndarray]:
-    """The exit status of each draw, for ``T(0, 0, 0)`` and for R.
+    """The exit status of each draw, for ``T(0, 0, 0, 0)`` and for R.
 
     R's is ``tolIC`` when its largest absolute score mean is at most ``tolIC``, and ``maxIter``
     otherwise; the transcription's is its own recorded exit.
@@ -295,6 +318,39 @@ def exit_status(transcribed: pd.Series, score_max: pd.Series) -> tuple[np.ndarra
     return own, reference
 
 
+def _statuses(transcribed: pd.DataFrame, scores: pd.DataFrame) -> pd.DataFrame:
+    draw = ["scenario", "replicate"]
+    status = transcribed[[*draw, "exit"]].merge(
+        scores.drop_duplicates(draw), on=draw, how="outer", validate="1:1"
+    )
+    if status[["exit", "score_max"]].isna().any().any():
+        raise RuntimeError("a draw appears on one side only")
+    status["own"], status["reference"] = exit_status(status["exit"], status["score_max"])
+    return status
+
+
+def max_iter_drift(
+    transcribed: pd.DataFrame, reference: pd.DataFrame, scores: pd.DataFrame
+) -> tuple[int, float]:
+    """F8: the count and the signed mean ``ate`` difference, ``T(0, 0, 0, 0)`` minus R, over the
+    draws where both sides reach ``maxIter``.  Reported, and read by no rule."""
+    status = _statuses(transcribed, scores)
+    selected = status.loc[
+        (status["own"] == MAX_ITER_EXIT) & (status["reference"] == MAX_ITER_EXIT),
+        ["scenario", "replicate"],
+    ]
+    if selected.empty:
+        return 0, float("nan")
+    keys = ["scenario", "replicate", "estimand"]
+    merged = (
+        _long(transcribed, T0000)
+        .merge(selected, on=["scenario", "replicate"])
+        .merge(reference[[*keys, "estimate"]], on=keys, suffixes=("", "_r"))
+    )
+    ate = merged.loc[merged["estimand"] == "ate"]
+    return len(ate), float(np.mean(ate["estimate"] - ate["estimate_r"]))
+
+
 def compare_by_exit(
     part: str,
     check: str,
@@ -302,21 +358,19 @@ def compare_by_exit(
     reference: pd.DataFrame,
     scores: pd.DataFrame,
 ) -> list[dict[str, Any]]:
-    """V2 and V4: ``T(0, 0, 0)`` against R, with the tolerance of each draw's exit status.
+    """V2 and V4: ``T(0, 0, 0, 0)`` against R, with the tolerance of each draw's exit status.
 
-    ``transcribed`` holds the ``T(0, 0, 0)`` rows, ``reference`` R's long rows by
+    ``transcribed`` holds the ``T(0, 0, 0, 0)`` rows, ``reference`` R's long rows by
     ``(scenario, replicate, estimand)``, and ``scores`` R's ``score_max`` by draw.  Every draw
     must have the same exit status on both sides.  A ``tolIC`` draw then meets the R4 tolerance,
-    and a ``maxIter`` draw :data:`MAX_ITER_TOLERANCE`.  The ``maxIter`` count and largest
-    difference also go to ``run.log``.
+    and a ``maxIter`` draw :data:`MAX_ITER_TOLERANCE`.  The ``maxIter`` count, largest difference
+    and signed mean ``ate`` difference also go to ``run.log``.
     """
     draw = ["scenario", "replicate"]
-    status = transcribed[[*draw, "exit"]].merge(
-        scores.drop_duplicates(draw), on=draw, how="outer", validate="1:1"
-    )
-    if status[["exit", "score_max"]].isna().any().any():
-        raise RuntimeError(f"{check}: a draw appears on one side only")
-    status["own"], status["reference"] = exit_status(status["exit"], status["score_max"])
+    try:
+        status = _statuses(transcribed, scores)
+    except RuntimeError as error:
+        raise RuntimeError(f"{check}: {error}") from None
     matched = status["own"] == status["reference"]
     out = [
         shared.validation_row(
@@ -334,7 +388,7 @@ def compare_by_exit(
         largest = 0.0
         if len(selected):
             _, largest, _ = shared.compare_rows(
-                _long(transcribed, T000).merge(selected, on=draw),
+                _long(transcribed, T0000).merge(selected, on=draw),
                 reference.merge(selected, on=draw),
                 keys,
             )
@@ -344,51 +398,70 @@ def compare_by_exit(
             )
         )
         if exit_name == MAX_ITER_EXIT:
+            count, drift = max_iter_drift(transcribed, reference, scores)
             shared.note(
-                f"{check}: {len(selected)} maxIter draws, largest scaled difference {largest:.3g}"
+                f"{check}: {len(selected)} maxIter draws, largest scaled difference {largest:.3g}, "
+                f"signed mean ate difference {drift:.3g} over {count}"
             )
     return out
 
 
-def validate_committed(rows: pd.DataFrame) -> pd.DataFrame:
-    """V1, V2 and V3 on the Part A rows, against the committed ``replicates.csv.gz``."""
+def _committed_reference(rows: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """The committed ``cleverly`` and R rows and R's ``score_max`` of the draws ``rows`` holds."""
     committed = shared.read_rows(BINARY.artifact("replicates.csv.gz"))
-    keys = ["scenario", "replicate", "estimand"]
     fitted = rows[["scenario", "replicate"]].drop_duplicates()
     committed = committed.merge(fitted, on=["scenario", "replicate"])
-    selection = committed.loc[committed["implementation"] == BINARY.implementation]
-    out = [
-        shared.validation_row(
-            "A", "V1 cleverly rows", shared.compare_rows(_long(rows, C), selection, keys)
-        )
-    ]
     diagnostics = shared.read_rows(BINARY.artifact("fit-diagnostics.csv"))
     diagnostics = diagnostics.loc[diagnostics["implementation"] == BINARY.reference].merge(
         fitted, on=["scenario", "replicate"]
     )
-    out += compare_by_exit(
-        "A",
-        "V2 drtmle-r",
-        rows.loc[rows["arm"] == T000],
+    return (
+        committed.loc[committed["implementation"] == BINARY.implementation],
         committed.loc[committed["implementation"] == BINARY.reference],
         diagnostics[["scenario", "replicate", "score_max"]],
     )
+
+
+def validate_committed(rows: pd.DataFrame) -> pd.DataFrame:
+    """V1, V2, V3 and V5 on the Part A rows, against the committed ``replicates.csv.gz``."""
+    ours, theirs, scores = _committed_reference(rows)
+    keys = ["scenario", "replicate", "estimand"]
+    out = [
+        shared.validation_row(
+            "A", "V1 cleverly rows", shared.compare_rows(_long(rows, C), ours, keys)
+        )
+    ]
+    out += compare_by_exit("A", "V2 drtmle-r", rows.loc[rows["arm"] == T0000], theirs, scores)
     initial = _long(rows, C).drop(columns=["estimate", "std_error"])
     initial["initial"] = np.concatenate(
         [rows.loc[rows["arm"] == C, f"initial_{name}"].to_numpy() for name in ESTIMANDS]
     )
-    reference = committed.loc[committed["implementation"] == BINARY.reference]
-    merged = initial.merge(reference[[*keys, "initial_estimate"]], on=keys, validate="1:1")
+    merged = initial.merge(theirs[[*keys, "initial_estimate"]], on=keys, validate="1:1")
     largest = float(np.max(shared.scaled_difference(merged["initial"], merged["initial_estimate"])))
     out.append(
         shared.validation_row("A", "V3 initial estimates", (largest <= 1e-12, largest, len(merged)))
     )
+    out.append(
+        shared.validation_row(
+            "A",
+            "V5 T1111 against C",
+            shared.compare_rows(_long(rows, T1111), _long(rows, C), keys, columns=("estimate",)),
+        )
+    )
     return shared.validation_frame(out)
 
 
-def record_path(name: str, output: Path, smoke: bool) -> Path:
-    """A precondition file: the pushed record for a declared run, ``output`` for a smoke run."""
-    return (output if smoke else HERE) / name
+def _record(name: str, output: Path, smoke: bool) -> Path:
+    return shared.record_path(HERE, name, output, smoke)
+
+
+def _v4_exit_status(path: Path, part: str) -> pd.DataFrame:
+    """The V4 exit-status row of the V4 record at ``path``, relabelled for ``part``, if any."""
+    checks = shared.optional_rows(path)
+    if checks.empty:
+        return shared.validation_frame([])
+    checks = checks.loc[checks["check"].astype(str).str.endswith("exit status")]
+    return checks.assign(part=part)
 
 
 def prior_checks(part: str, output: Path, smoke: bool) -> pd.DataFrame:
@@ -397,20 +470,17 @@ def prior_checks(part: str, output: Path, smoke: bool) -> pd.DataFrame:
     B and C carry every Part A check.  C also carries the V4 exit-status check, because an
     exit-status mismatch in V4 stops the design.
     """
-    frames = []
-    for source, keep in (("A", None), ("V4", "exit status")):
-        if source == "V4" and part != "C":
-            continue
-        path = record_path(shared.part_paths(output, source)[1].name, output, smoke)
-        checks = shared.optional_rows(path)
-        if checks.empty:
-            continue
-        if keep is not None:
-            checks = checks.loc[checks["check"].astype(str).str.endswith(keep)]
-        prefix = "Part A " if source == "A" else ""
-        frames.append(checks.assign(part=part, check=prefix + checks["check"].astype(str)))
-    if not frames:
-        return shared.validation_frame([])
+    frames = [shared.validation_frame([])]
+    if part in ("B", "C"):
+        checks = shared.optional_rows(
+            _record(shared.part_paths(output, "A")[1].name, output, smoke)
+        )
+        if not checks.empty:
+            frames.append(checks.assign(part=part, check="Part A " + checks["check"].astype(str)))
+    if part == "C":
+        frames.append(
+            _v4_exit_status(_record(shared.part_paths(output, "V4")[1].name, output, smoke), part)
+        )
     return pd.concat(frames, ignore_index=True)
 
 
@@ -439,13 +509,28 @@ def _v4_draw(call: tuple[int, int, int]) -> tuple[pd.DataFrame, dict[str, Any], 
     return sample, truth_row, {"scenario": SCENARIO, "replicate": k, **cleverly_row(result)}
 
 
-def run_v4(output: Path, cap: int | None, jobs: int) -> None:
-    from tests.canonical.drtmle.regenerate import HERE as REFERENCE_HERE
-    from tests.canonical.drtmle.regenerate import REFERENCE
+def image_id() -> str:
+    """The local ID of the pinned R image, for ``run.log``."""
+    done = subprocess.run(
+        ["docker", "image", "inspect", "--format", "{{.Id}}", REFERENCE.image],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return done.stdout.strip() or f"unknown ({done.stderr.strip()})"
 
+
+def _b_rows(output: Path, smoke: bool) -> pd.DataFrame:
+    """The Part B rows a later part reads: the pushed record for a declared run (F5)."""
+    path = _record(shared.part_paths(output, "B")[0].name, output, smoke)
+    if not path.exists():
+        raise RuntimeError(f"{path} does not exist; Part B must run first")
+    return shared.read_rows(path)
+
+
+def run_v4(output: Path, cap: int | None, jobs: int) -> None:
     rows_path, validation_path, _ = shared.part_paths(output, "V4")
-    smoke = cap is not None
-    b_rows = shared.read_rows(record_path(shared.part_paths(output, "B")[0].name, output, smoke))
+    b_rows = _b_rows(output, cap is not None)
     built = v4_payloads(b_rows, cap, jobs)
     samples = pd.concat([sample for sample, _, _ in built], ignore_index=True)
     truths = pd.DataFrame([truth for _, truth, _ in built])
@@ -463,6 +548,7 @@ def run_v4(output: Path, cap: int | None, jobs: int) -> None:
             cores=min(jobs, R_WORKERS),
         )
         r_rows = shared.read_rows(result)
+    shared.note(f"V4 image {REFERENCE.image}: {image_id()}")
     shared.write_table(r_rows, rows_path)
     keys = ["scenario", "replicate", "estimand"]
     fresh = b_rows.loc[b_rows["replicate"].isin(refit["replicate"])]
@@ -476,7 +562,7 @@ def run_v4(output: Path, cap: int | None, jobs: int) -> None:
             *compare_by_exit(
                 "V4",
                 "V4 R",
-                fresh.loc[fresh["arm"] == T000],
+                fresh.loc[fresh["arm"] == T0000],
                 r_rows,
                 r_rows[["scenario", "replicate", "score_max"]],
             ),
@@ -494,7 +580,7 @@ def budget_rule() -> int:
 
 
 def primary_label(interval: Interval) -> str:
-    """The primary reading of the interval of the mean of ``C - T(0, 0, 0)``."""
+    """The primary reading of the interval of the mean of ``C - T(0, 0, 0, 0)``."""
     if interval.low > 0.0:
         return INCREMENT
     if interval.high < 0.0:
@@ -553,20 +639,26 @@ def _wide(rows: pd.DataFrame) -> pd.DataFrame:
     return rows.pivot(index="replicate", columns="arm", values="ate")
 
 
+def _level_arms(attribute: str, level: bool) -> list[str]:
+    return [arm.label for arm in FACTORIAL if getattr(arm, attribute) == level]
+
+
 def main_effects(wide: pd.DataFrame, guard: bool) -> dict[str, np.ndarray]:
     """The per-draw main effect of each factor, and of G when a guard event occurred."""
-    out = {}
-    for name, attribute in FACTORS.items():
-        high = [arm.label for arm in FACTORIAL if getattr(arm, attribute)]
-        low = [arm.label for arm in FACTORIAL if not getattr(arm, attribute)]
-        out[name] = (wide[high].mean(axis=1) - wide[low].mean(axis=1)).to_numpy()
+    out = {
+        name: (
+            wide[_level_arms(attribute, True)].mean(axis=1)
+            - wide[_level_arms(attribute, False)].mean(axis=1)
+        ).to_numpy()
+        for name, attribute in FACTORS.items()
+    }
     if guard:
-        out["G"] = (wide[T0G] - wide[T000]).to_numpy()
+        out["G"] = (wide[T0G] - wide[T0000]).to_numpy()
     return out
 
 
 def interaction(wide: pd.DataFrame, pair: tuple[str, str]) -> np.ndarray:
-    """The 2^3 two-way contrast: the arms whose two levels agree minus those whose differ."""
+    """The 2^4 two-way contrast: the arms whose two levels agree minus those whose differ."""
     first, second = (FACTORS[name] for name in pair)
     agree = [arm.label for arm in FACTORIAL if getattr(arm, first) == getattr(arm, second)]
     differ = [arm.label for arm in FACTORIAL if getattr(arm, first) != getattr(arm, second)]
@@ -586,19 +678,26 @@ def _statistic(
     )
 
 
+def guard_fired(rows: pd.DataFrame) -> bool:
+    """Whether ``T(0, 0, 0, 0)`` records a guard event on any draw of ``rows`` (the G family)."""
+    return bool(rows.loc[rows["arm"] == T0000, "guard_events"].sum() > 0)
+
+
 def factorial_table(
-    part: str, rows: pd.DataFrame, declared: int, prefix: str = ""
+    part: str, rows: pd.DataFrame, declared: int, *, guard: bool, prefix: str = ""
 ) -> list[dict[str, Any]]:
-    """The primary, the family, the bracket, the interactions and the localization of one part."""
+    """The primary, the family, the bracket, the interactions and the localization of one part.
+
+    ``guard`` says whether G joins the family; the caller reads it off every row of the part.
+    """
     scope = f"{SCENARIO}, n = {int(rows['n'].iloc[0])}"
-    smoke = rows.groupby("arm").size().ne(declared).any()
+    smoke = bool(rows.groupby("arm").size().ne(declared).any())
     wide = _wide(rows)
-    guard = bool(rows.loc[rows["arm"] == T000, "guard_events"].sum() > 0)
 
     def labelled(text: str) -> str:
-        return shared.label(prefix + text, bool(smoke))
+        return shared.label(prefix + text, smoke)
 
-    primary_values = (wide[C] - wide[T000]).to_numpy()
+    primary_values = (wide[C] - wide[T0000]).to_numpy()
     primary_interval = student_interval(primary_values, confidence_level=shared.CONFIDENCE)
     primary = primary_label(primary_interval)
     effects = main_effects(wide, guard)
@@ -606,23 +705,23 @@ def factorial_table(
     intervals = {
         name: student_interval(values, confidence_level=level) for name, values in effects.items()
     }
-    bracket_values = (wide[T111] - wide[C]).to_numpy()
+    bracket_values = (wide[T1111] - wide[C]).to_numpy()
     bracket = student_interval(bracket_values, confidence_level=shared.CONFIDENCE)
     out = [
         shared.reading(
             part,
             scope,
-            "C - T000",
+            f"C - {T0000}",
             value=float(np.mean(primary_values)),
             interval=primary_interval,
             result=labelled(primary),
         ),
-        shared.reading(part, scope, "C - T000 half-width", value=primary_interval.width / 2.0),
+        shared.reading(part, scope, f"C - {T0000} half-width", value=primary_interval.width / 2.0),
         shared.reading(
             part,
             scope,
-            "guard events of T000",
-            value=float(rows.loc[rows["arm"] == T000, "guard_events"].sum()),
+            f"guard events of {T0000}",
+            value=float(rows.loc[rows["arm"] == T0000, "guard_events"].sum()),
             result="G in the family" if guard else "inert on these draws",
         ),
     ]
@@ -634,10 +733,10 @@ def factorial_table(
         shared.reading(
             part,
             scope,
-            "T111 - C",
+            f"{T1111} - C",
             value=float(np.mean(bracket_values)),
             interval=bracket,
-            result=labelled("P-bracket " + (HOLDS if bracket_holds(bracket) else FAILS)),
+            result=labelled("bracket " + (HOLDS if bracket_holds(bracket) else FAILS)),
         )
     )
     out += [
@@ -647,7 +746,7 @@ def factorial_table(
             f"interaction {a}{b}",
             interaction(wide, (a, b)),
             shared.CONFIDENCE,
-            "supplementary",
+            SUPPLEMENTARY,
         )
         for a, b in INTERACTIONS
     ]
@@ -655,6 +754,35 @@ def factorial_table(
         primary, primary_interval, float(np.mean(primary_values)), bracket, intervals
     )
     out.append(shared.reading(part, scope, "localization", result=labelled(label)))
+    return out
+
+
+def decomposition_table(rows: pd.DataFrame) -> list[dict[str, Any]]:
+    """K5, supplementary: each part of K alone added to ``T(1, 1, 1, 0)``, and K whole."""
+    wide = _wide(rows)
+    scope = f"{SCENARIO}, n = {int(rows['n'].iloc[0])}"
+    arms_by_name = {arm.part: arm.label for arm in DECOMPOSITION}
+    out = [
+        _statistic(
+            "A",
+            scope,
+            f"{arms_by_name[part]} - {T1110}",
+            (wide[arms_by_name[part]] - wide[T1110]).to_numpy(),
+            shared.CONFIDENCE,
+            SUPPLEMENTARY,
+        )
+        for part in K_PARTS
+    ]
+    out.append(
+        _statistic(
+            "A",
+            scope,
+            f"{T1111} - {T1110}",
+            (wide[T1111] - wide[T1110]).to_numpy(),
+            shared.CONFIDENCE,
+            SUPPLEMENTARY,
+        )
+    )
     return out
 
 
@@ -668,7 +796,7 @@ def arm_summaries(part: str, rows: pd.DataFrame) -> list[dict[str, Any]]:
             f"{name} {count}" for name, count in group["exit"].value_counts().sort_index().items()
         )
         out += [
-            _statistic(part, scope, "bias", error, shared.CONFIDENCE, "supplementary"),
+            _statistic(part, scope, "bias", error, shared.CONFIDENCE, SUPPLEMENTARY),
             shared.reading(
                 part,
                 scope,
@@ -693,7 +821,7 @@ def control_table(rows: pd.DataFrame) -> list[dict[str, Any]]:
         group = rows.loc[rows["scenario"] == scenario]
         wide = _wide(group)
         smoke = bool(group.groupby("arm").size().ne(BINARY.replicates).any())
-        difference = (wide[Switches(joint_tilt=True).label] - wide[T000]).to_numpy()
+        difference = (wide[T1000] - wide[T0000]).to_numpy()
         interval = student_interval(difference, confidence_level=shared.CONFIDENCE)
         spread = float(np.std(difference, ddof=1))
         held = interval.contains(0.0) and spread <= CONTROL_SD[scenario]
@@ -701,7 +829,7 @@ def control_table(rows: pd.DataFrame) -> list[dict[str, Any]]:
             shared.reading(
                 "A",
                 scenario,
-                "T100 - T000",
+                f"{T1000} - {T0000}",
                 value=float(np.mean(difference)),
                 interval=interval,
                 result=shared.label("P-ctrl " + (HOLDS if held else FAILS), smoke),
@@ -709,48 +837,50 @@ def control_table(rows: pd.DataFrame) -> list[dict[str, Any]]:
             shared.reading(
                 "A",
                 scenario,
-                "T100 - T000 SD",
+                f"{T1000} - {T0000} SD",
                 value=spread,
                 result=f"bound {CONTROL_SD[scenario]}",
             ),
             _statistic(
                 "A",
                 scenario,
-                "T111 - C",
-                (wide[T111] - wide[C]).to_numpy(),
+                f"{T1111} - C",
+                (wide[T1111] - wide[C]).to_numpy(),
                 shared.CONFIDENCE,
-                "supplementary",
+                SUPPLEMENTARY,
             ),
         ]
     return out
 
 
 def scaling_table(rows: pd.DataFrame, b_rows: pd.DataFrame) -> list[dict[str, Any]]:
-    """``sqrt(n)`` times the mean of ``C - T(0, 0, 0)`` at each size, Bonferroni over three."""
+    """``sqrt(n)`` times the mean of ``C - T(0, 0, 0, 0)`` at each size, Bonferroni over three."""
     level = 1.0 - (1.0 - shared.CONFIDENCE) / 3.0
-    combined = pd.concat([b_rows, rows], ignore_index=True) if not b_rows.empty else rows
+    combined = pd.concat([b_rows, rows], ignore_index=True)
     out = []
     for n, group in combined.groupby("n"):
-        wide = _wide(group.loc[group["arm"].isin([C, T000])])
-        values = np.sqrt(float(n)) * (wide[C] - wide[T000]).to_numpy()
+        wide = _wide(group.loc[group["arm"].isin([C, T0000])])
+        values = np.sqrt(float(n)) * (wide[C] - wide[T0000]).to_numpy()
         interval = student_interval(values, confidence_level=level)
         label = "increment" if interval.low > 0 else REVERSE if interval.high < 0 else ""
-        smoke = len(wide) != REPLICATES
         out.append(
             shared.reading(
                 "C",
                 f"{SCENARIO}, n = {n}",
-                "sqrt(n) (C - T000)",
+                f"sqrt(n) (C - {T0000})",
                 value=float(np.mean(values)),
                 interval=interval,
-                result=shared.label(label, smoke) if label else "",
+                result=shared.label(label, len(wide) != REPLICATES),
             )
         )
     return out
 
 
 def context_table(rows: pd.DataFrame) -> list[dict[str, Any]]:
-    """The supplementary Part C row: the ``C`` bias beside BD-1 and the committed n = 6,000 rung."""
+    """The supplementary Part C rows: BD-1's bias at 1,500 and the committed n = 6,000 rung's.
+
+    The ``C`` bias beside each comes from :func:`arm_summaries`.
+    """
     bd1 = shared.read_rows(ROOT / "tests/diagnostics/rm18_boundary/bd-1-reading.csv")
     bd1_bias = bd1.loc[
         bd1["scope"].str.startswith(BINARY.slug) & (bd1["statistic"] == "bias")
@@ -766,30 +896,29 @@ def context_table(rows: pd.DataFrame) -> list[dict[str, Any]]:
             rung_row["bias_ci_upper"],
         ),
     }
-    out = []
-    for n, (name, value, low, high) in references.items():
-        group = rows.loc[(rows["arm"] == C) & (rows["n"] == n)]
-        if group.empty:
-            continue
-        out += [
-            _statistic(
-                "C",
-                f"{SCENARIO}, n = {n}, C",
-                "bias",
-                (group["ate"] - group["truth"]).to_numpy(),
-                shared.CONFIDENCE,
-                "supplementary",
-            ),
-            shared.reading(
-                "C",
-                f"{SCENARIO}, n = {n}",
-                name,
-                value=float(value),
-                interval=Interval(float(low), float(high)),
-                result="supplementary",
-            ),
-        ]
-    return out
+    return [
+        shared.reading(
+            "C",
+            f"{SCENARIO}, n = {n}",
+            name,
+            value=float(value),
+            interval=Interval(float(low), float(high)),
+            result=SUPPLEMENTARY,
+        )
+        for n, (name, value, low, high) in references.items()
+        if (rows["n"] == n).any()
+    ]
+
+
+def drift_reading(part: str, count: int, drift: float) -> dict[str, Any]:
+    """F8: the signed mean ``ate`` difference over the ``maxIter`` draws, reported."""
+    return shared.reading(
+        part,
+        f"{count} maxIter draws",
+        f"{T0000} - R, signed mean ate difference",
+        value=drift,
+        result=SUPPLEMENTARY,
+    )
 
 
 # ---------------------------------------------------------------------------- the parts
@@ -807,37 +936,59 @@ def run_part(part: str, output: Path, cap: int | None, jobs: int) -> None:
         shared.write_table(validate_committed(rows), validation_path)
         return
     validation = prior_checks(part, output, smoke)
+    if part == "C":
+        # The scaling reads n = 3,000 from the Part B rows, so they must exist (F5).
+        _b_rows(output, smoke)
     shared.write_table(validation, validation_path)
     if shared.validated(validation, part):
         shared.write_table(fit_part(part, cap, jobs), rows_path)
+
+
+def _smoke_rows(rows: pd.DataFrame, declared: int) -> bool:
+    return bool(rows.groupby(["n", "arm"]).size().ne(declared).any())
 
 
 def table(part: str, output: Path, jobs: int) -> pd.DataFrame:
     del jobs
     rows_path, validation_path, _ = shared.part_paths(output, part)
     validation = shared.read_rows(validation_path)
+    v4_path = shared.part_paths(output, "V4")[1]
     v4_ran = True
     if part == "B":
         # V4 is a precondition of the Part B reading: a V4 that has not run leaves none.
-        v4 = shared.optional_rows(shared.part_paths(output, "V4")[1])
+        v4 = shared.optional_rows(v4_path)
         v4_ran = not v4.empty
         validation = pd.concat([validation, v4.assign(part="B")], ignore_index=True)
+    elif part == "A":
+        # F3: a V4 exit-status mismatch stops the design, so it stops the Part A reading too.
+        validation = pd.concat([validation, _v4_exit_status(v4_path, "A")], ignore_index=True)
     out = shared.validation_readings(validation, part)
     if part == "V4":
+        r_rows = shared.read_rows(rows_path)
+        b_rows = _b_rows(output, r_rows["replicate"].nunique() != V4_DRAWS)
+        fresh = b_rows.loc[(b_rows["arm"] == T0000) & b_rows["replicate"].isin(r_rows["replicate"])]
+        scores = r_rows[["scenario", "replicate", "score_max"]]
+        out.append(drift_reading(part, *max_iter_drift(fresh, r_rows, scores)))
         return shared.reading_frame(out)
     if not (v4_ran and shared.validated(validation, part)):
         out.append(shared.reading(part, "", "reading", result=shared.NOT_VALIDATED))
         return shared.reading_frame(out)
     rows = shared.read_rows(rows_path)
     if part == "A":
+        _, theirs, scores = _committed_reference(rows)
+        out.append(
+            drift_reading(part, *max_iter_drift(rows.loc[rows["arm"] == T0000], theirs, scores))
+        )
         focus = rows.loc[rows["scenario"] == SCENARIO]
-        out += factorial_table(part, focus, BINARY.replicates, prefix=f"{COMMITTED}: ")
+        out += factorial_table(
+            part, focus, BINARY.replicates, guard=guard_fired(rows), prefix=f"{COMMITTED}: "
+        )
+        out += decomposition_table(focus)
         out += control_table(rows)
     elif part == "B":
-        out += factorial_table(part, rows, REPLICATES)
+        out += factorial_table(part, rows, REPLICATES, guard=guard_fired(rows))
     else:
-        b_rows = shared.optional_rows(shared.part_paths(output, "B")[0])
-        out += scaling_table(rows, b_rows)
+        out += scaling_table(rows, _b_rows(output, _smoke_rows(rows, REPLICATES)))
         out += context_table(rows)
     out += arm_summaries(part, rows)
     return shared.reading_frame(out)
@@ -849,7 +1000,11 @@ def pushed(part: str) -> tuple[str, ...]:
     if part == "B":
         return (f"{directory}/a-validation.csv",)
     if part == "C":
-        return (f"{directory}/a-validation.csv", f"{directory}/v4-validation.csv")
+        return (
+            f"{directory}/a-validation.csv",
+            f"{directory}/b-rows.csv.gz",
+            f"{directory}/v4-validation.csv",
+        )
     if part == "V4":
         return (f"{directory}/b-rows.csv.gz",)
     return ()

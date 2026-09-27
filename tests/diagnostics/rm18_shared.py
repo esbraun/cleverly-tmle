@@ -579,6 +579,11 @@ def note(text: str) -> None:
     _NOTES.append(text)
 
 
+def notes() -> tuple[str, ...]:
+    """The lines :func:`note` has recorded since the running part's block opened."""
+    return tuple(_NOTES)
+
+
 @contextlib.contextmanager
 def run_log(output: Path, title: str) -> Iterator[None]:
     """Append one block to ``output/run.log``: the code, the runtime, the wall time, the exit.
@@ -610,6 +615,7 @@ def run_log(output: Path, title: str) -> Iterator[None]:
     ]
     clock = time.perf_counter()
     code = 1
+    _NOTES.clear()
     try:
         yield
         code = 0
@@ -652,6 +658,12 @@ def as_committed(frame: pd.DataFrame) -> pd.DataFrame:
 def budget(declared: int, cap: int | None) -> int:
     """The declared budget, or the smoke cap when one is given."""
     return declared if cap is None else min(declared, cap)
+
+
+def record_path(here: Path, name: str, output: Path, smoke: bool) -> Path:
+    """A file a later part reads: the committed record in ``here`` for a declared run, and the
+    run's own ``output`` for a smoke run."""
+    return (output if smoke else here) / name
 
 
 def part_paths(output: Path, part: str) -> tuple[Path, Path, Path]:

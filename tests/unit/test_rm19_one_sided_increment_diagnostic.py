@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import functools
+import inspect
 import itertools
 from pathlib import Path
 
@@ -10,6 +12,9 @@ import pandas as pd
 import pytest
 from scipy.stats import t as student
 
+from cleverly.estimators import targeting
+from cleverly.estimators.targeting import TargetingSpec
+from cleverly.fluctuation import mechanism
 from tests.canonical.drtmle import regenerate
 from tests.diagnostics import rm18_seeds
 from tests.diagnostics import rm18_shared as shared
@@ -28,6 +33,7 @@ from tests.studies.evidence.seeds import replicate_seed, stream_seed
 RECORDED: tuple[str, ...] = ()
 
 COMMITTED = shared.read_rows(study.STUDY.artifact("replicates.csv.gz"))
+FULL = Switches(True, True, True, True)
 
 
 def _committed(scenario: str, replicate: int, implementation: str) -> pd.DataFrame:
@@ -39,16 +45,22 @@ def _committed(scenario: str, replicate: int, implementation: str) -> pd.DataFra
     return rows.set_index("estimand")
 
 
-def _registered(replicate: int) -> tuple[pd.DataFrame, float, object]:
-    seed = replicate_seed(study.STUDY, rm19.SCENARIO, replicate)
-    return rm19.draw_payload(rm19.SCENARIO, study.PRIMARY_N, seed)
+@functools.cache
+def _registered(
+    replicate: int, scenario: str = rm19.SCENARIO
+) -> tuple[pd.DataFrame, float, object]:
+    """A registered draw, its payload and its ``C`` fit, fitted once per test session."""
+    seed = replicate_seed(study.STUDY, scenario, replicate)
+    return rm19.draw_payload(scenario, study.PRIMARY_N, seed)
 
 
-@pytest.fixture(scope="module")
-def draw_one() -> tuple[pd.DataFrame, float]:
-    """Registered ``treatment_correct`` draw 1, where R converges in 11 rounds, and its ``C``."""
-    payload, _, result = _registered(1)
-    return payload, float(result.estimates["ate"].psi)  # type: ignore[attr-defined]
+def _cleverly(replicate: int, scenario: str = rm19.SCENARIO) -> dict[str, float]:
+    result = _registered(replicate, scenario)[2]
+    return {name: float(result.estimates[name].psi) for name in study.ESTIMANDS}  # type: ignore[attr-defined]
+
+
+def _miss(out: rtrans.Transcribed, cleverly: dict[str, float]) -> float:
+    return max(abs(out.estimates[name] - cleverly[name]) for name in study.ESTIMANDS)
 
 
 # ------------------------------------------------------------------------ the declaration
@@ -72,16 +84,28 @@ def test_the_budget_and_the_declared_inputs_come_from_the_committed_rows() -> No
 
 def test_the_arms_are_the_declared_arms() -> None:
     labels = [arm.label for arm in rm19.FACTORIAL]
-    assert labels == [f"T{j}{p}{s}" for j, p, s in itertools.product("01", repeat=3)]
-    assert [arm.label for arm in rm19.arms("B", rm19.SCENARIO)] == [*labels, "T000+G"]
+    assert labels == [f"T{''.join(levels)}" for levels in itertools.product("01", repeat=4)]
+    parts = [f"T1110[{part}]" for part in rtrans.K_PARTS]
+    assert [arm.label for arm in rm19.arms("A", rm19.SCENARIO)] == [*labels, "T0000+G", *parts]
+    assert [arm.label for arm in rm19.arms("B", rm19.SCENARIO)] == [*labels, "T0000+G"]
     assert [arm.label for arm in rm19.arms("A", "outcome_correct")] == [
-        "T000",
-        "T100",
-        "T111",
-        "T000+G",
+        "T0000",
+        "T1000",
+        "T1111",
+        "T0000+G",
     ]
-    assert [arm.label for arm in rm19.arms("C", rm19.SCENARIO)] == ["T000"]
+    assert [arm.label for arm in rm19.arms("C", rm19.SCENARIO)] == ["T0000"]
     assert rm19.SIZES == {"B": (3_000,), "C": (1_500, 6_000)}
+    assert rm19.INTERACTIONS == (
+        ("J", "P"),
+        ("J", "S"),
+        ("J", "K"),
+        ("P", "S"),
+        ("P", "K"),
+        ("S", "K"),
+    )
+    with pytest.raises(ValueError, match="part must be one of"):
+        Switches(cleverly_numerics=True, part="outcome solver")
 
 
 def test_part_a_draws_the_registered_primary_samples() -> None:
@@ -90,6 +114,30 @@ def test_part_a_draws_the_registered_primary_samples() -> None:
     registered, _ = study.draw_scenario(scenario, n, replicate)
     pd.testing.assert_frame_equal(frame, registered)
     assert len(rm19.draws("A")) == 3 * study.PRIMARY_REPLICATES
+
+
+def test_the_cleverly_side_constants_are_the_package_values() -> None:
+    """D5: every constant the transcription copies from ``cleverly`` or the study equals it."""
+    spec = TargetingSpec()
+    config = study.CONFIGURATION
+    assert spec.alpha == rtrans.ALPHA
+    assert config["max_iter"] == rtrans.OUTCOME_MAX_ITER
+    assert rtrans.NEGLIGIBLE == targeting._NEGLIGIBLE
+    assert rtrans.STALL_FACTOR == targeting._STALL_FACTOR
+    closing = inspect.signature(targeting._close_at_frozen_reductions).parameters["max_steps"]
+    assert closing.default == rtrans.CLOSING_STEPS
+    assert rtrans.LOGIT_GUARD == mechanism._LOGIT_GUARD
+    assert rtrans.MAX_ITER == study.MAX_OUTER == config["max_outer"]
+    assert (rtrans.TOLG, 1.0 - rtrans.TOLG) == study.G_BOUNDS
+    # The registered fit's own settings, read back from a fit rather than from the source.
+    fitted = _registered(1)[2].config.targeting_spec  # type: ignore[attr-defined]
+    assert (fitted.tol, fitted.alpha, fitted.max_iter) == (
+        rtrans.CLEVERLY_TOL,
+        rtrans.ALPHA,
+        rtrans.OUTCOME_MAX_ITER,
+    )
+    reduced = inspect.signature(mechanism.solve_bounded_mechanism).parameters["max_iter"]
+    assert reduced.default == 50
 
 
 # ----------------------------------------------------------------------------- seeds
@@ -113,6 +161,9 @@ def test_every_fresh_seed_is_new_and_assigned_by_the_declared_rule() -> None:
         fresh["C"][rm19.REPLICATES],
         fresh["C"][rm19.REPLICATES + 1],
     ]
+    # The cached seeds are read-only, so no caller can move them for the next one.
+    with pytest.raises(TypeError):
+        fresh["B"] = ()  # type: ignore[index]
 
 
 def test_a_forced_collision_moves_to_the_retry_label() -> None:
@@ -142,19 +193,58 @@ def test_the_reference_arm_reproduces_the_committed_r_and_cleverly_rows(replicat
     assert reference.exit == "tolIC" and reference.guard_events == 0
 
 
-def test_the_tilt_and_the_prime_are_nonzero_witnesses(
-    draw_one: tuple[pd.DataFrame, float],
+#: V5's pins: A 14 and A 25, the draws on which the review found the old bracket open;
+#: ``treatment_correct`` 19, on which ``T(0, 0, 0, 0)`` records a guard event; and
+#: ``outcome_correct`` 21, on which ``C``'s mechanism sits at its bound.
+V5_DRAWS = [
+    (rm19.SCENARIO, 14),
+    (rm19.SCENARIO, 25),
+    (rm19.SCENARIO, 19),
+    ("outcome_correct", 21),
+]
+
+
+@pytest.mark.parametrize(("scenario", "replicate"), V5_DRAWS)
+def test_v5_the_full_transcription_is_cleverly(scenario: str, replicate: int) -> None:
+    payload = _registered(replicate, scenario)[0]
+    out = transcribe(payload, FULL)
+    assert _miss(out, _cleverly(replicate, scenario)) <= 1e-9
+    if (scenario, replicate) == (rm19.SCENARIO, 19):
+        assert transcribe(payload).guard_events > 0
+
+
+@pytest.mark.parametrize(
+    ("part", "scenario", "replicate"),
+    [
+        ("outcome solver", rm19.SCENARIO, 25),
+        ("mechanism root", "outcome_correct", 21),
+        ("reduction bounds", rm19.SCENARIO, 48),
+        ("reduction learners", rm19.SCENARIO, 69),
+    ],
+)
+def test_each_part_of_k_is_needed_for_v5(
+    part: str, scenario: str, replicate: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    payload, _ = draw_one
+    """A deliberate mutation per part of K: without it, ``T(1, 1, 1, 1)`` misses ``C``."""
+    payload = _registered(replicate, scenario)[0]
+    monkeypatch.setattr(
+        Switches, "uses", lambda self, name: self.cleverly_numerics and name != part
+    )
+    assert _miss(transcribe(payload, FULL), _cleverly(replicate, scenario)) > 1e-9
+
+
+def test_the_tilt_the_prime_and_k_are_nonzero_witnesses() -> None:
+    payload = _registered(1)[0]
     reference = transcribe(payload).estimates["ate"]
     assert abs(transcribe(payload, Switches(joint_tilt=True)).estimates["ate"] - reference) > 1e-4
     assert abs(transcribe(payload, Switches(prime=True)).estimates["ate"] - reference) > 1e-4
+    payload = _registered(25)[0]
+    without = transcribe(payload, rm19.WITHOUT_K).estimates["ate"]
+    assert abs(transcribe(payload, FULL).estimates["ate"] - without) > 1e-4
 
 
-def test_the_exit_switch_changes_the_exit_and_the_estimate(
-    draw_one: tuple[pd.DataFrame, float],
-) -> None:
-    payload, _ = draw_one
+def test_the_exit_switch_changes_the_exit_and_the_estimate() -> None:
+    payload = _registered(1)[0]
     reference = transcribe(payload)
     exited = transcribe(payload, Switches(cleverly_exit=True))
     assert (reference.exit, reference.closing) == ("tolIC", 0)
@@ -162,25 +252,19 @@ def test_the_exit_switch_changes_the_exit_and_the_estimate(
     assert abs(exited.estimates["ate"] - reference.estimates["ate"]) > 1e-8
 
 
-def test_the_bracket_holds_on_draw_one_and_a_mutated_tilt_breaks_it(
-    draw_one: tuple[pd.DataFrame, float], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    payload, cleverly = draw_one
-    full = Switches(True, True, True)
-    assert abs(transcribe(payload, full).estimates["ate"] - cleverly) < 1e-5
+def test_a_mutated_tilt_breaks_the_bracket(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = _registered(1)[0]
+    cleverly = _cleverly(1)
+    assert _miss(transcribe(payload, FULL), cleverly) <= 1e-9
 
-    def mutated(a: np.ndarray, gn: list[np.ndarray], qrn: list[np.ndarray]) -> list[np.ndarray]:
+    def mutated(qrn: list[np.ndarray], upper: np.ndarray) -> np.ndarray:
         # The arm-0 column divided by g_1 rather than g_0.  A sign flip of that column would
         # not do: it reparameterizes the tilt and solves the same equation.
-        upper = gn[1]
-        design = np.column_stack([-qrn[0] / upper, qrn[1] / upper])
-        offset = rtrans.trim_logit(upper, rtrans.LOGIT_GUARD)
-        coef, _ = rtrans.glm_binomial((a == 1.0).astype(float), design, offset, np.zeros(2))
-        tilted = np.clip(rtrans.expit(offset + design @ coef), rtrans.TOLG, 1.0 - rtrans.TOLG)
-        return [1.0 - tilted, tilted]
+        bounded = np.clip(upper, rtrans.TOLG, 1.0 - rtrans.TOLG)
+        return np.column_stack([-qrn[0] / bounded, qrn[1] / bounded])
 
-    monkeypatch.setattr(rtrans, "fluctuate_g_joint", mutated)
-    assert abs(transcribe(payload, full).estimates["ate"] - cleverly) > 1e-4
+    monkeypatch.setattr(rtrans, "joint_design", mutated)
+    assert abs(transcribe(payload, FULL).estimates["ate"] - cleverly["ate"]) > 1e-4
 
 
 def _guarded_payload() -> pd.DataFrame:
@@ -205,12 +289,36 @@ def test_the_guards_fire_and_removing_them_changes_the_fit() -> None:
     a = payload["A"].to_numpy()
     qn = [payload["qn0"].to_numpy(), payload["qn1"].to_numpy()]
     gn = [1.0 - payload["gn1"].to_numpy(), payload["gn1"].to_numpy()]
-    signed, _ = rtrans.estimate_grn(a, qn, gn, rtrans.fold_rows(payload["fold"].to_numpy()))[1]
+    split = rtrans.Split.of(payload["fold"].to_numpy())
+    signed, _ = rtrans.estimate_grn(a, qn, gn, split)[1]
     assert np.all(signed[a == 1.0] < 0.0)
     guarded = transcribe(payload)
     unguarded = transcribe(payload, Switches(no_guard=True))
     assert guarded.guard_events > 0 and unguarded.guard_events == 0
     assert abs(guarded.estimates["ate"] - unguarded.estimates["ate"]) > 1e-3
+    # K2: at k = 1 the outcome and mechanism steps are cleverly's, so no R guard acts.
+    assert transcribe(payload, Switches(cleverly_numerics=True)).guard_events == 0
+
+
+def test_the_mechanism_fallback_predicts_like_r() -> None:
+    """F2: when both ``glm`` attempts fail, R predicts with the failed retry's fitted values.
+
+    ``fluctuate-g-fallback.csv`` is R ``drtmle`` 1.1.2's ``fluctuateG`` in the pinned image on a
+    constructed case (``fluctuate_g_fallback.R``).  Arm 1 separates, so R's coefficient is 0 and
+    its prediction is not ``g``.
+    """
+    case = shared.read_rows(rm19.HERE / "fluctuate-g-fallback.csv")
+    a = case["A"].to_numpy(dtype=float)
+    gn = [case["g0"].to_numpy(), case["g1"].to_numpy()]
+    log = rtrans._Log()
+    out = rtrans.fluctuate_g_armwise(
+        a, gn, [case["qr0"].to_numpy(), case["qr1"].to_numpy()], True, log
+    )
+    assert list(case["r_eps1"].unique()) == [0.0] and log.guard_events == 1
+    np.testing.assert_allclose(out[0], case["r_g0"], rtol=0.0, atol=1e-12)
+    np.testing.assert_allclose(out[1], case["r_g1"], rtol=0.0, atol=1e-12)
+    # The rule this replaced, a zero tilt of g, is far from R there.
+    assert np.max(np.abs(np.clip(gn[1], rtrans.TOLG, 1.0 - rtrans.TOLG) - case["r_g1"])) > 0.5
 
 
 def test_the_guard_arm_is_a_copy_only_where_no_guard_fired(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -225,12 +333,12 @@ def test_the_guard_arm_is_a_copy_only_where_no_guard_fired(monkeypatch: pytest.M
     monkeypatch.setattr(rm19, "_initial", lambda _: {})
     monkeypatch.setattr(rm19, "transcribed_row", fake)
     copied = rm19.fit_draw(("C", "outcome_correct", 3_000, 0, 1))
-    assert [row["arm"] for row in copied] == ["C", "T000"]
+    assert [row["arm"] for row in copied] == ["C", "T0000"]
     copied = rm19.fit_draw(("A", "outcome_correct", 3_000, 0, 1))
-    assert copied[-1]["arm"] == "T000+G" and copied[-1]["ate"] == 0.0
+    assert copied[-1]["arm"] == "T0000+G" and copied[-1]["ate"] == 0.0
     rows["guard_events"] = 2
     fitted = rm19.fit_draw(("A", "outcome_correct", 3_000, 0, 1))
-    assert fitted[-1]["arm"] == "T000+G" and fitted[-1]["ate"] == 1.0
+    assert fitted[-1]["arm"] == "T0000+G" and fitted[-1]["ate"] == 1.0
 
 
 # ---------------------------------------------------------------------- the reading rules
@@ -265,7 +373,7 @@ HELD = Interval(-0.00005, 0.00005)
             ABOVE,
             5e-4,
             HELD,
-            {"J": ABOVE, "P": ACROSS, "S": ACROSS},
+            {"J": ABOVE, "P": ACROSS, "S": ACROSS, "K": ACROSS},
             "attributed to J",
         ),
         (
@@ -273,7 +381,15 @@ HELD = Interval(-0.00005, 0.00005)
             ABOVE,
             5e-4,
             HELD,
-            {"J": ABOVE, "P": ABOVE, "S": ACROSS},
+            {"J": ACROSS, "P": ACROSS, "S": ACROSS, "K": ABOVE},
+            "attributed to K",
+        ),
+        (
+            rm19.INCREMENT,
+            ABOVE,
+            5e-4,
+            HELD,
+            {"J": ABOVE, "P": ABOVE, "S": ACROSS, "K": ACROSS},
             "shared by J and P",
         ),
         (
@@ -281,15 +397,15 @@ HELD = Interval(-0.00005, 0.00005)
             ABOVE,
             5e-4,
             HELD,
-            {"J": ABOVE, "P": ABOVE, "S": ABOVE},
-            "shared by J, P and S",
+            {"J": ABOVE, "P": ABOVE, "S": ABOVE, "K": ABOVE},
+            "shared by J, P, S and K",
         ),
         (
             rm19.INCREMENT,
             ABOVE,
             5e-4,
             HELD,
-            {"J": BELOW, "P": ACROSS, "S": ACROSS},
+            {"J": BELOW, "P": ACROSS, "S": ACROSS, "K": ACROSS},
             rm19.INTERACTION_ONLY,
         ),
         (rm19.INCREMENT, ABOVE, 5e-4, Interval(-0.0002, 0.00005), {"J": ABOVE}, rm19.UNEXPLAINED),
@@ -330,8 +446,8 @@ def _synthetic(
 ) -> pd.DataFrame:
     """Part B rows in which each factor at level 1 adds its ``effect`` to ``ate``.
 
-    ``C`` is ``T(1, 1, 1)`` plus ``residual``, so ``C - T000`` is the sum of the J, P and S
-    effects plus ``residual``.  Each arm carries its own small noise.
+    ``C`` is ``T(1, 1, 1, 1)`` plus ``residual``, so ``C - T0000`` is the sum of the J, P, S and
+    K effects plus ``residual``.  Each arm carries its own small noise.
     """
     rng = np.random.default_rng(11)
     effect = effect or {}
@@ -342,8 +458,10 @@ def _synthetic(
         + rng.normal(0.0, 1e-5, replicates)
         for arm in rm19.FACTORIAL
     }
-    arms["T000+G"] = arms["T000"] + effect.get("G", 0.0)
-    arms["C"] = arms["T111"] + residual + rng.normal(0.0, 1e-6, replicates)
+    arms["T0000+G"] = arms["T0000"] + effect.get("G", 0.0)
+    for part in rm19.DECOMPOSITION:
+        arms[part.label] = arms["T1110"] + effect.get(str(part.part), 0.0)
+    arms["C"] = arms["T1111"] + residual + rng.normal(0.0, 1e-6, replicates)
     frames = [
         pd.DataFrame(
             {
@@ -357,7 +475,7 @@ def _synthetic(
                 "iterations": 10,
                 "exit": "tolIC",
                 "closing": 0,
-                "guard_events": guard if arm == "T000" else 0,
+                "guard_events": guard if arm == "T0000" else 0,
                 "at_bound": 0,
                 "score_max": 1e-9,
             }
@@ -371,31 +489,33 @@ def _result(table: list[dict[str, object]], statistic: str) -> str:
     return str(next(row["result"] for row in table if row["statistic"] == statistic))
 
 
-def test_the_factorial_contrasts_are_the_longhand_2_cubed_contrasts() -> None:
-    rows = _synthetic({"J": 0.003, "P": -0.001, "S": 0.0005})
+def test_the_factorial_contrasts_are_the_longhand_2_to_the_4_contrasts() -> None:
+    rows = _synthetic({"J": 0.003, "P": -0.001, "S": 0.0005, "K": 0.002})
     wide = rows.pivot(index="replicate", columns="arm", values="ate")
     effects = rm19.main_effects(wide, guard=False)
-    for name in ("J", "P", "S"):
-        index = list(rm19.FACTORS).index(name)
-        high = [f"T{''.join(c)}" for c in itertools.product("01", repeat=3) if c[index] == "1"]
-        low = [f"T{''.join(c)}" for c in itertools.product("01", repeat=3) if c[index] == "0"]
+    names = list(rm19.FACTORS)
+    for name in names:
+        index = names.index(name)
+        high = [f"T{''.join(c)}" for c in itertools.product("01", repeat=4) if c[index] == "1"]
+        low = [f"T{''.join(c)}" for c in itertools.product("01", repeat=4) if c[index] == "0"]
         np.testing.assert_allclose(effects[name], wide[high].mean(axis=1) - wide[low].mean(axis=1))
-    assert float(np.mean(effects["J"])) == pytest.approx(0.003, abs=1e-6)
-    jp = rm19.interaction(wide, ("J", "P"))
-    longhand = (
-        sum(
-            (1 if j == p else -1) * wide[f"T{j}{p}{s}"]
-            for j, p, s in itertools.product("01", repeat=3)
+    assert float(np.mean(effects["K"])) == pytest.approx(0.002, abs=1e-6)
+    for first, second in rm19.INTERACTIONS:
+        i, j = names.index(first), names.index(second)
+        longhand = (
+            sum(
+                (1 if levels[i] == levels[j] else -1) * wide[f"T{''.join(levels)}"]
+                for levels in itertools.product("01", repeat=4)
+            )
+            / 8.0
         )
-        / 4.0
-    )
-    np.testing.assert_allclose(jp, longhand)
+        np.testing.assert_allclose(rm19.interaction(wide, (first, second)), longhand)
 
 
-@pytest.mark.parametrize(("guard", "k"), [(0, 3), (1, 4)])
+@pytest.mark.parametrize(("guard", "k"), [(0, 4), (1, 5)])
 def test_the_family_level_is_bonferroni_over_the_family(guard: int, k: int) -> None:
     rows = _synthetic({"J": 0.001}, guard=guard)
-    table = rm19.factorial_table("B", rows, rm19.REPLICATES)
+    table = rm19.factorial_table("B", rows, rm19.REPLICATES, guard=rm19.guard_fired(rows))
     effect = next(row for row in table if row["statistic"] == "main effect J")
     assert effect["result"] == f"level {1 - 0.01 / k:.6g}"
     wide = rows.pivot(index="replicate", columns="arm", values="ate")
@@ -408,35 +528,66 @@ def test_the_family_level_is_bonferroni_over_the_family(guard: int, k: int) -> N
 
 
 def test_the_factorial_table_reads_and_each_mutation_moves_it() -> None:
-    table = rm19.factorial_table("B", _synthetic({"J": 0.001}), rm19.REPLICATES)
-    assert _result(table, "C - T000") == rm19.INCREMENT
-    assert _result(table, "localization") == "attributed to J"
-    assert _result(table, "T111 - C") == "P-bracket holds"
-    moved = rm19.factorial_table("B", _synthetic({"J": 0.001}, residual=0.0002), rm19.REPLICATES)
+    table = rm19.factorial_table("B", _synthetic({"K": 0.001}), rm19.REPLICATES, guard=False)
+    assert _result(table, "C - T0000") == rm19.INCREMENT
+    assert _result(table, "localization") == "attributed to K"
+    assert _result(table, "T1111 - C") == "bracket holds"
+    moved = rm19.factorial_table(
+        "B", _synthetic({"J": 0.001}, residual=0.0002), rm19.REPLICATES, guard=False
+    )
     assert _result(moved, "localization") == rm19.UNEXPLAINED
-    assert _result(moved, "T111 - C") == "P-bracket fails"
-    nothing = rm19.factorial_table("B", _synthetic(), rm19.REPLICATES)
-    assert _result(nothing, "C - T000") == rm19.NO_INCREMENT
+    assert _result(moved, "T1111 - C") == "bracket fails"
+    nothing = rm19.factorial_table("B", _synthetic(), rm19.REPLICATES, guard=False)
+    assert _result(nothing, "C - T0000") == rm19.NO_INCREMENT
     assert _result(nothing, "localization") == rm19.NOTHING
-    short = rm19.factorial_table("B", _synthetic({"J": 0.001}, replicates=50), rm19.REPLICATES)
+    short = rm19.factorial_table(
+        "B", _synthetic({"J": 0.001}, replicates=50), rm19.REPLICATES, guard=False
+    )
     assert _result(short, "localization") == shared.SMOKE
-    assert _result(short, "C - T000") == shared.SMOKE
+    assert _result(short, "C - T0000") == shared.SMOKE
+
+
+def test_the_k_decomposition_reads_each_part_against_t1110() -> None:
+    effect = {part: 0.0001 * (index + 1) for index, part in enumerate(rtrans.K_PARTS)}
+    table = rm19.decomposition_table(_synthetic(effect))
+    assert [row["statistic"] for row in table] == [
+        *(f"T1110[{part}] - T1110" for part in rtrans.K_PARTS),
+        "T1111 - T1110",
+    ]
+    assert {row["result"] for row in table} == {rm19.SUPPLEMENTARY}
+    for row, part in zip(table, rtrans.K_PARTS, strict=False):
+        assert row["value"] == pytest.approx(effect[part], abs=1e-9)
+
+
+def _controls(spread: dict[str, float], shift: dict[str, float] | None = None) -> pd.DataFrame:
+    rows = _synthetic(replicates=study.PRIMARY_REPLICATES)
+    frames = []
+    for scenario, width in spread.items():
+        wide = rows.loc[rows["arm"].isin(["C", "T0000", "T1111"])].copy()
+        wide["scenario"] = scenario
+        jitter = np.random.default_rng(3).normal(0.0, width, study.PRIMARY_REPLICATES)
+        t1000 = wide.loc[wide["arm"] == "T0000"].assign(arm="T1000")
+        t1000["ate"] = (
+            t1000["ate"].to_numpy() + jitter - jitter.mean() + (shift or {}).get(scenario, 0.0)
+        )
+        frames += [wide, t1000]
+    return pd.concat(frames, ignore_index=True)
 
 
 def test_p_ctrl_reads_the_interval_and_the_declared_sd() -> None:
-    rows = _synthetic(replicates=study.PRIMARY_REPLICATES)
-    frames = []
-    for scenario, spread in (("outcome_correct", 0.001), ("both_correct", 0.002)):
-        wide = rows.loc[rows["arm"].isin(["C", "T000", "T111"])].copy()
-        wide["scenario"] = scenario
-        jitter = np.random.default_rng(3).normal(0.0, spread, study.PRIMARY_REPLICATES)
-        t100 = wide.loc[wide["arm"] == "T000"].assign(arm="T100")
-        t100["ate"] = t100["ate"].to_numpy() + jitter - jitter.mean()
-        frames += [wide, t100]
-    table = rm19.control_table(pd.concat(frames, ignore_index=True))
-    results = [row["result"] for row in table if row["statistic"] == "T100 - T000"]
     # 0.001 is inside the outcome_correct bound 0.002223; 0.002 exceeds both_correct's 0.000869.
+    table = rm19.control_table(_controls({"outcome_correct": 0.001, "both_correct": 0.002}))
+    results = [row["result"] for row in table if row["statistic"] == "T1000 - T0000"]
     assert results == ["P-ctrl holds", "P-ctrl fails"]
+    # A spread inside both bounds with a mean far from 0: the interval branch fails alone.
+    table = rm19.control_table(
+        _controls(
+            {"outcome_correct": 0.0005, "both_correct": 0.0005},
+            {"outcome_correct": 0.001},
+        )
+    )
+    results = [row["result"] for row in table if row["statistic"] == "T1000 - T0000"]
+    assert results == ["P-ctrl fails", "P-ctrl holds"]
 
 
 def test_the_scaling_rows_use_three_sizes_and_label_only_an_excluding_interval() -> None:
@@ -444,7 +595,7 @@ def test_the_scaling_rows_use_three_sizes_and_label_only_an_excluding_interval()
     for n, shift in ((1_500, 0.0), (6_000, 0.002)):
         rows = _synthetic({"J": shift})
         rows["n"] = n
-        frames.append(rows.loc[rows["arm"].isin(["C", "T000"])])
+        frames.append(rows.loc[rows["arm"].isin(["C", "T0000"])])
     b_rows = _synthetic()
     table = rm19.scaling_table(pd.concat(frames, ignore_index=True), b_rows)
     assert [row["scope"] for row in table] == [
@@ -452,11 +603,36 @@ def test_the_scaling_rows_use_three_sizes_and_label_only_an_excluding_interval()
     ]
     assert [row["result"] for row in table] == ["", "", "increment"]
     wide = frames[1].pivot(index="replicate", columns="arm", values="ate")
-    values = np.sqrt(6_000) * (wide["C"] - wide["T000"]).to_numpy()
+    values = np.sqrt(6_000) * (wide["C"] - wide["T0000"]).to_numpy()
     half = (
         student.ppf(1 - 0.01 / 3 / 2, len(values) - 1) * values.std(ddof=1) / np.sqrt(len(values))
     )
     assert table[2]["ci_upper"] - table[2]["value"] == pytest.approx(half, rel=1e-9)
+    # A short run labels every row, with or without a label of its own.
+    short = rm19.scaling_table(
+        pd.concat(frames, ignore_index=True).query("replicate < 50"), b_rows.query("replicate < 50")
+    )
+    assert {row["result"] for row in short} == {shared.SMOKE}
+
+
+def test_the_context_rows_are_the_two_references_alone() -> None:
+    rows = _synthetic(replicates=4)
+    rows = pd.concat([rows.assign(n=1_500), rows.assign(n=6_000)], ignore_index=True)
+    table = rm19.context_table(rows)
+    assert [(row["scope"], row["statistic"]) for row in table] == [
+        (f"{rm19.SCENARIO}, n = 1500", "BD-1 bias"),
+        (f"{rm19.SCENARIO}, n = 6000", "committed rung bias"),
+    ]
+    bd1 = shared.read_rows(ROOT / "tests/diagnostics/rm18_boundary/bd-1-reading.csv")
+    bias = bd1.loc[
+        bd1["scope"].str.startswith(study.STUDY.slug) & (bd1["statistic"] == "bias")
+    ].iloc[0]
+    assert (table[0]["value"], table[0]["ci_lower"], table[0]["ci_upper"]) == (
+        bias["value"],
+        bias["ci_lower"],
+        bias["ci_upper"],
+    )
+    assert rm19.context_table(rows.loc[rows["n"] == 6_000])[0]["statistic"] == "committed rung bias"
 
 
 def _write_part(
@@ -477,12 +653,38 @@ def test_part_b_reads_only_after_v4_holds(tmp_path: Path) -> None:
     _write_part(tmp_path, "B", rows, [("Part A V1", True)])
     table = rm19.table("B", tmp_path, 1)
     assert list(table["result"])[-1] == shared.NOT_VALIDATED
-    _write_part(tmp_path, "V4", rows.iloc[:0], [("V4 R rows against T000", False)])
+    _write_part(tmp_path, "V4", rows.iloc[:0], [("V4 R rows against T0000", False)])
     assert list(rm19.table("B", tmp_path, 1)["result"])[-1] == shared.NOT_VALIDATED
-    _write_part(tmp_path, "V4", rows.iloc[:0], [("V4 R rows against T000", True)])
+    _write_part(tmp_path, "V4", rows.iloc[:0], [("V4 R rows against T0000", True)])
     table = rm19.table("B", tmp_path, 1)
     localization = table.loc[table["statistic"] == "localization", "result"]
     assert list(localization) == ["attributed to J"]
+
+
+@pytest.mark.parametrize("matched", [True, False])
+def test_a_v4_exit_mismatch_stops_the_part_a_reading(
+    tmp_path: Path, matched: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F3 and F6: A folds in the V4 exit status, and G's family reads every Part A row."""
+    rows = _synthetic()
+    control = rows.loc[rows["arm"] == "T0000"].assign(scenario="outcome_correct", guard_events=3)
+    _write_part(tmp_path, "A", pd.concat([rows, control]), [("V1 cleverly rows", True)])
+    _write_part(tmp_path, "V4", rows.iloc[:0], [("V4 R exit status", matched)])
+    seen: dict[str, bool] = {}
+
+    def factorial(*_: object, guard: bool, **__: object) -> list[dict[str, object]]:
+        seen["guard"] = guard
+        return []
+
+    monkeypatch.setattr(rm19, "_committed_reference", lambda _: (None, None, None))
+    monkeypatch.setattr(rm19, "max_iter_drift", lambda *_: (0, float("nan")))
+    monkeypatch.setattr(rm19, "factorial_table", factorial)
+    for name in ("decomposition_table", "control_table", "arm_summaries"):
+        monkeypatch.setattr(rm19, name, lambda *_, **__: [])
+    table = rm19.table("A", tmp_path, 1)
+    assert "V4 R exit status" in set(table["scope"])
+    assert (list(table["result"])[-1] == shared.NOT_VALIDATED) == (not matched)
+    assert seen == ({"guard": True} if matched else {})
 
 
 def test_a_part_a_miss_stops_the_later_parts(tmp_path: Path) -> None:
@@ -511,7 +713,27 @@ def test_a_v4_exit_mismatch_stops_part_c(tmp_path: Path, matched: bool) -> None:
     ]
 
 
-def test_a_declared_later_part_needs_the_pushed_part_a_record(
+def test_part_c_reads_the_part_b_rows_of_its_own_record(tmp_path: Path) -> None:
+    """F5: a smoke C reads B from its own directory, a declared C from the pushed record."""
+    rows = _synthetic(replicates=4)
+    c_rows = pd.concat([rows.assign(n=1_500), rows.assign(n=6_000)], ignore_index=True)
+    c_rows = c_rows.loc[c_rows["arm"].isin(["C", "T0000"])]
+    _write_part(tmp_path, "C", c_rows, [("Part A V1 cleverly rows", True)])
+    with pytest.raises(RuntimeError, match="Part B must run first"):
+        rm19.table("C", tmp_path, 1)
+    _write_part(tmp_path, "B", rows, [("Part A V1 cleverly rows", True)])
+    table = rm19.table("C", tmp_path, 1)
+    scaling = table.loc[table["statistic"] == "sqrt(n) (C - T0000)", "scope"]
+    assert list(scaling) == [f"{rm19.SCENARIO}, n = {n}" for n in (1_500, 3_000, 6_000)]
+    # A declared C (2,000 rows per size) reads the committed record, which holds no B rows yet.
+    full = _synthetic()
+    declared = pd.concat([full.assign(n=1_500), full.assign(n=6_000)], ignore_index=True)
+    _write_part(tmp_path, "C", declared.loc[declared["arm"].isin(["C", "T0000"])], [("x", True)])
+    with pytest.raises(RuntimeError, match=str(rm19.HERE.name)):
+        rm19.table("C", tmp_path, 1)
+
+
+def test_a_declared_later_part_needs_the_pushed_records(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     directory = "tests/diagnostics/rm19_one_sided_increment"
@@ -519,6 +741,7 @@ def test_a_declared_later_part_needs_the_pushed_part_a_record(
     assert rm19.pushed("B") == (f"{directory}/a-validation.csv",)
     assert rm19.pushed("C") == (
         f"{directory}/a-validation.csv",
+        f"{directory}/b-rows.csv.gz",
         f"{directory}/v4-validation.csv",
     )
     assert rm19.pushed("V4") == (f"{directory}/b-rows.csv.gz",)
@@ -533,18 +756,24 @@ def test_a_declared_later_part_needs_the_pushed_part_a_record(
     assert refused == [f"{directory}/a-validation.csv is not in the pushed upstream"]
 
 
+def test_record_path_reads_the_record_for_a_declared_run(tmp_path: Path) -> None:
+    """D7: one helper, shared with ``rm18_boundary``, picks the record or the scratch copy."""
+    assert shared.record_path(rm19.HERE, "x.csv", tmp_path, smoke=True) == tmp_path / "x.csv"
+    assert shared.record_path(rm19.HERE, "x.csv", tmp_path, smoke=False) == rm19.HERE / "x.csv"
+
+
 # ------------------------------------------------------------- V2 and V4 by exit status
 
 
 def _exit_case(
     own_exit: str, score_max: float, shift: float
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """One exact ``tolIC`` draw, and one draw whose T000 ``ate`` sits ``shift`` from R's."""
+    """One exact ``tolIC`` draw, and one draw whose T0000 ``ate`` sits ``shift`` from R's."""
     transcribed = pd.DataFrame(
         {
             "scenario": rm19.SCENARIO,
             "replicate": [0, 1],
-            "arm": "T000",
+            "arm": "T0000",
             "exit": ["tolIC", own_exit],
             **{name: [0.1, 0.1 + (shift if name == "ate" else 0.0)] for name in study.ESTIMANDS},
             **{f"se_{name}": [0.02, 0.02] for name in study.ESTIMANDS},
@@ -582,7 +811,7 @@ def _exit_case(
 def test_v2_and_v4_read_the_tolerance_of_each_exit_status(
     own_exit: str, score_max: float, shift: float, failing: str | None
 ) -> None:
-    shared._NOTES.clear()
+    before = len(shared.notes())
     rows = shared.validation_frame(
         rm19.compare_by_exit("A", "V2", *_exit_case(own_exit, score_max, shift))
     )
@@ -595,17 +824,69 @@ def test_v2_and_v4_read_the_tolerance_of_each_exit_status(
         "V2 tolIC draws": 1 + int(matched and own_exit == "tolIC"),
         "V2 maxIter draws": int(matched and own_exit == "cap"),
     }
-    assert [
+    maxiter = int(matched and own_exit == "cap")
+    drift = f"{shift:.3g} over 1" if maxiter else "nan over 0"
+    assert list(shared.notes()[before:]) == [
         f"V2: {counts['V2 maxIter draws']} maxIter draws, largest scaled difference "
-        f"{rows.set_index('check').loc['V2 maxIter draws', 'largest_difference']:.3g}"
-    ] == shared._NOTES
-    shared._NOTES.clear()
+        f"{rows.set_index('check').loc['V2 maxIter draws', 'largest_difference']:.3g}, "
+        f"signed mean ate difference {drift}"
+    ]
+
+
+def test_the_max_iter_drift_is_the_signed_mean_over_max_iter_draws() -> None:
+    """F8: reported beside the count and the largest difference, and read by no rule."""
+    assert rm19.max_iter_drift(*_exit_case("cap", 2e-6, -3e-5)) == (1, pytest.approx(-3e-5))
+    count, drift = rm19.max_iter_drift(*_exit_case("tolIC", 5e-9, 1e-8))
+    assert count == 0 and np.isnan(drift)
+    reading = rm19.drift_reading("A", 1, -3e-5)
+    assert (reading["value"], reading["result"]) == (-3e-5, rm19.SUPPLEMENTARY)
+
+
+def test_the_v4_reading_reports_the_drift_of_its_t0000_rows(tmp_path: Path) -> None:
+    """F8 on V4: the drift reads the Part B ``T0000`` rows of the V4 draws, one row per draw."""
+    b_rows = _synthetic(replicates=4)
+    b_rows = b_rows.assign(
+        ey0=b_rows["ate"], ey1=b_rows["ate"], **{f"se_{name}": 0.02 for name in study.ESTIMANDS}
+    )
+    t0000 = b_rows.loc[b_rows["arm"] == "T0000"].set_index("replicate")["ate"]
+    b_rows.loc[b_rows["arm"] == "T0000", "exit"] = ["tolIC", "cap", "tolIC", "tolIC"]
+    r_rows = pd.DataFrame(
+        [
+            {
+                "scenario": rm19.SCENARIO,
+                "replicate": k,
+                "estimand": name,
+                "estimate": float(t0000[k]) - (2e-6 if (k == 1 and name == "ate") else 0.0),
+                "std_error": 0.02,
+                "score_max": 1e-5 if k == 1 else 1e-9,
+            }
+            for k in range(4)
+            for name in study.ESTIMANDS
+        ]
+    )
+    _write_part(tmp_path, "B", b_rows, [("x", True)])
+    _write_part(tmp_path, "V4", r_rows, [("V4 R exit status", True)])
+    table = rm19.table("V4", tmp_path, 1)
+    drift = table.loc[table["statistic"] == "T0000 - R, signed mean ate difference"]
+    assert list(drift["scope"]) == ["1 maxIter draws"]
+    assert float(drift["value"].iloc[0]) == pytest.approx(2e-6)
 
 
 def test_a_draw_on_one_side_only_stops_the_check() -> None:
     transcribed, reference, scores = _exit_case("tolIC", 5e-9, 0.0)
     with pytest.raises(RuntimeError, match="one side only"):
         rm19.compare_by_exit("A", "V2", transcribed.iloc[:1], reference, scores)
+
+
+def test_run_log_clears_the_notes_of_a_part(tmp_path: Path) -> None:
+    """D6: a note made before a part's block opens does not leak into it."""
+    shared.note("stale")
+    with shared.run_log(tmp_path, "test"):
+        assert shared.notes() == ()
+        shared.note("fresh")
+    assert shared.notes() == ()
+    block = (tmp_path / "run.log").read_text(encoding="utf-8")
+    assert "note: fresh" in block and "stale" not in block
 
 
 # ------------------------------------------------------------------ the R reference (V4)
@@ -634,8 +915,7 @@ def test_each_part_is_recorded_only_with_its_checks(part: str) -> None:
     if part not in RECORDED:
         assert not any(path.exists() for path in (rows, validation, reading)), part
         return
-    record = shared.read_rows(validation)
-    assert shared.validated(record, part), record.to_string()
+    # A part that did not validate is still recorded: its reading then says so.
     rebuilt = rm19.table(part, rm19.HERE, 1)
     pd.testing.assert_frame_equal(
         shared.as_committed(rebuilt), shared.read_rows(reading), check_dtype=False, rtol=1e-12
@@ -651,7 +931,8 @@ def test_each_recorded_part_meets_its_declared_budget(part: str) -> None:
         return
     rows = shared.read_rows(rows_path)
     if part == "V4":
-        assert rows["replicate"].nunique() == rm19.V4_DRAWS
+        assert sorted(rows["replicate"].unique()) == list(range(rm19.V4_DRAWS))
+        assert rows.groupby("replicate").size().eq(len(study.ESTIMANDS)).all()
         return
     declared = {"A": study.PRIMARY_REPLICATES}.get(part, rm19.REPLICATES)
     counts = rows.groupby(["scenario", "n", "arm"]).size()
