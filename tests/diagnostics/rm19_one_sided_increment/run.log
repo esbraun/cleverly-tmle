@@ -1,0 +1,18 @@
+=== A, cap None
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle\.venv\Scripts\python.exe' 'C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\tests\diagnostics\rm19_one_sided_increment\run.py' --part A --jobs 16 --output C:/Users/erics/rm19_scratch/declared
+commit: 270872b41e2060cfd1ef16bba2e6631843d4e7db; upstream 270872b41e2060cfd1ef16bba2e6631843d4e7db
+clean tree: True
+cleverly 0.1.2 from C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\__init__.py
+python 3.13.7; numpy 2.4.6; scipy 1.18.0; pandas 3.0.5; scikit-learn 1.9.0; joblib 1.5.3
+installed distributions: 130, sha256 f4b33890dcf2623521a239ea0ba2ac74046a0304cc8d4b96933ca443c5644ebd
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 16
+started: 2026-09-27T20:56:54+00:00
+note: V2 drtmle-r: 88 maxIter draws, largest scaled difference 2.08e-05, signed mean ate difference -2.36e-07 over 88
+finished: 2026-09-27T22:15:57+00:00
+wall seconds: 4742.4
+exit code: 0
+sha256 a-reading.csv: 99c24c48aa14d1ccf78e4f2529ff38a348fa25dda2f5d2dc6b98dab38ea6cb3c
+sha256 a-rows.csv.gz: 91d3d24d04b35b9abff2aa31f8182e3e7ebedf6373d803f6c3dfc0b5e6802635
+sha256 a-validation.csv: 24a3b3666b2c60437468d39a464253717d64e3d0db95fe82b7142fcd03b8783c
+

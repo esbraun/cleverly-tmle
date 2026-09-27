@@ -1,0 +1,8 @@
+part,scope,statistic,value,ci_lower,ci_upper,result
+A,V1 cleverly rows,largest scaled difference,9.8879238130678e-17,,,holds over 7200
+A,V2 drtmle-r exit status,largest scaled difference,1.0,,,fails over 2400
+A,V2 drtmle-r tolIC draws,largest scaled difference,7.573965222951173e-05,,,fails over 2311
+A,V2 drtmle-r maxIter draws,largest scaled difference,2.0810923944518563e-05,,,holds over 88
+A,V3 initial estimates,largest scaled difference,6.106226635438361e-16,,,holds over 7200
+A,V5 T1111 against C,largest scaled difference,0.0,,,holds over 7200
+A,,reading,,,,"harness not validated, no reading"
