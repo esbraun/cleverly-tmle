@@ -199,7 +199,9 @@ def test_binary_rows_read_the_fits_folds_and_linear_rows_a_regression_slope(
     folded = nuisance_module._binary_report(
         *arguments, mask=at_risk, folds=weighted_result.folds.assignment, cluster=data.cluster
     )
-    pooled = nuisance_module._binary_report(*arguments, mask=at_risk)
+    pooled = nuisance_module._binary_report(
+        *arguments, mask=at_risk, folds=np.zeros(data.n, dtype=np.int64), cluster=data.cluster
+    )
 
     slope = treatment.model.metrics["calibration_slope"]
     assert slope == folded.metrics["calibration_slope"]

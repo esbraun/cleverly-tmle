@@ -491,12 +491,12 @@ learner. It is not evidence that the estimate is biased.
 | --- | --- |
 | calibration slope | the last coefficient of a weighted logistic regression of the label on one indicator for each validation fold and on $\operatorname{logit} \hat p$, with no other intercept. A slope below 1 means the predictions are more extreme than the observed rates. A slope above 1 means they are more moderate. An in-sample fit has one fold, which gives the pooled recalibration of Cox (1958) |
 | standard error | the sandwich. With $B = X^\top \operatorname{diag}(w \mu (1 - \mu)) X$ and the score $s_i = w_i (y_i - \mu_i) x_i$, the curve of the slope is $n (B^{-1} s_i)_{\mathrm{slope}}$. `influence_variance` reads the curve with the fit's cluster codes |
-| omission | `calibration_omission` names why a report has no slope. `CALIBRATION_CONSTANT_WITHIN_FOLDS` is the state of a mean-only learner or an intercept-only mechanism. A Newton fit that does not converge, a singular information matrix, or a standard error that is not finite also removes the slope |
+| omission | `calibration_omission` names why a report has no slope. `CALIBRATION_CONSTANT_WITHIN_FOLDS` is the state of a mean-only learner or an intercept-only mechanism. `CALIBRATION_SEPARATED` means that in every fold one threshold on $\operatorname{logit} \hat p$ splits the labels, the same way in each fold. The likelihood then rises without bound in the slope. A Newton fit that does not converge, a singular information matrix, or a standard error that is not finite also removes the slope |
 | tested models | every probability report with a finite slope and standard error, except a C-TMLE working mechanism, on an out-of-fold fit. An in-sample fit tests none |
 | level | with $K$ tested models, the interval is the slope plus or minus $z_{1 - 0.05 / (2K)}$ standard errors. That is a Bonferroni split of `CALIBRATION_FAMILY_ALPHA` over the report |
 | finding | the interval lies above 0 and excludes 1 |
 | no finding | the interval contains 1, reaches 0, or lies below 0 |
-| message | the model, the direction, the slope, the interval, the AUC, and for `propensity`, `propensity[<arm>]` and `missingness` the largest inverse weight. That weight is the largest $1 / \hat p$ of the observed label over the rows whose weight uses it |
+| message | the model, the direction, the slope, the interval, the AUC, and for `propensity`, `propensity[<arm>]` and `missingness` the largest untruncated inverse weight. That weight is the largest $1 / \hat p$ of the observed label over the rows whose weight uses it, before any truncation bound applies |
 
 The fold intercepts matter. Cross-fitting moves the level of each fold's predictions against that
 fold's labels. With one pooled intercept that movement drives the slope, and a prediction that is

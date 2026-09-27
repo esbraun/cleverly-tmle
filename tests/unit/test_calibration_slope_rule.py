@@ -12,10 +12,12 @@ This module pins the replacement:
   the fit's cluster codes.  W1 checks both against an independent numpy fit to 1e-10, and W2, W3
   and the pooled-fit contrast are nonzero witnesses for the weights, the clusters and the fold
   intercepts;
-* a prediction that is constant within every fold has no slope, and the report names the reason;
+* a prediction that is constant within every fold, or that separates the labels within every
+  fold, has no slope, and the report names the reason;
 * a finding needs the Bonferroni interval over the eligible models to lie above 0 and exclude 1;
 * an in-sample fit carries no test;
-* the message reports the interval, the AUC and, for a weight model, the largest inverse weight,
+* the message reports the interval, the AUC and, for a weight model, the largest untruncated
+  inverse weight,
   and it makes no claim that the weights are biased;
 * a conditional-mean report names its linear slope ``regression_slope``.
 
@@ -189,7 +191,12 @@ def _sample(n: int = 600, seed: int = 11) -> dict[str, np.ndarray]:
     }
 
 
-def _report(sample: dict[str, np.ndarray], *, weights: np.ndarray | None = None, **options: Any):
+def _report(
+    sample: dict[str, np.ndarray],
+    *,
+    weights: np.ndarray | None = None,
+    cluster: np.ndarray | None = None,
+) -> Any:
     return nuisance_module._binary_report(
         "propensity",
         sample["predicted"],
@@ -197,7 +204,7 @@ def _report(sample: dict[str, np.ndarray], *, weights: np.ndarray | None = None,
         sample["weights"] if weights is None else weights,
         None,
         folds=sample["folds"],
-        **options,
+        cluster=cluster,
     )
 
 
@@ -271,6 +278,67 @@ class TestTheStatistic:
         assert np.isnan(report.metrics["calibration_slope_se"])
         assert report.calibration_omission is not None
         assert "cluster" in report.calibration_omission
+
+    @pytest.mark.parametrize("sign", [1.0, -1.0])
+    def test_predictions_that_separate_the_labels_have_no_slope(self, sign: float) -> None:
+        """Complete separation, in either direction, leaves the slope without a maximum.
+
+        The labels are ``1{sign * z > 0}`` and the predictions ``expit(z)``.  Without the
+        separation check the Newton fit meets its score tolerance at a slope near
+        ``sign * 8800`` with a finite standard error, and a positive slope gives a "more
+        moderate" finding.
+        """
+        rng = np.random.default_rng(0)
+        n = 900
+        signal = rng.standard_normal(n)
+        model = nuisance_module._binary_report(
+            "propensity",
+            expit(signal),
+            (sign * signal > 0.0).astype(float),
+            np.ones(n),
+            None,
+            folds=np.arange(n) % 3,
+            cluster=None,
+        )
+
+        assert np.isnan(model.metrics["calibration_slope"])
+        assert np.isnan(model.metrics["calibration_slope_se"])
+        assert model.calibration_omission == nuisance_module.CALIBRATION_SEPARATED
+        assert nuisance_module._calibration_finding(model, 1) is None
+
+    def test_a_fold_with_one_class_keeps_the_slope_of_the_other_folds(self) -> None:
+        """One fold whose labels are all one class adds nothing about the slope.
+
+        Its intercept grows without bound, and the slope stays the one the other folds give.
+        The separation check must not refuse this fit.
+        """
+        sample = _sample()
+        actual = sample["actual"].copy()
+        actual[sample["folds"] == 2] = 1.0
+        whole = nuisance_module._binary_report(
+            "propensity",
+            sample["predicted"],
+            actual,
+            sample["weights"],
+            None,
+            folds=sample["folds"],
+            cluster=None,
+        )
+        keep = sample["folds"] != 2
+        rest = nuisance_module._binary_report(
+            "propensity",
+            sample["predicted"][keep],
+            actual[keep],
+            sample["weights"][keep],
+            None,
+            folds=sample["folds"][keep],
+            cluster=None,
+        )
+
+        assert whole.calibration_omission is None
+        assert whole.metrics["calibration_slope"] == pytest.approx(
+            rest.metrics["calibration_slope"], rel=1e-8
+        )
 
     def test_w4_a_fold_constant_prediction_has_no_slope(self) -> None:
         frame = _law(2000, 4, (0.0,), seed=7)
@@ -477,8 +545,8 @@ class TestTheSurfaces:
         auc = report["propensity"].metrics["auc"]
         weight = report["propensity"].metrics["largest_inverse_weight"]
         assert f"AUC {auc:.3f}" in propensity
-        assert f"largest inverse weight {weight:.3g}" in propensity
-        assert "largest inverse weight" not in outcome
+        assert f"largest untruncated inverse weight {weight:.3g}" in propensity
+        assert "inverse weight" not in outcome
         for note in forced.findings:
             assert "biases the weights" not in note
             assert "poorly calibrated" not in note

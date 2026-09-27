@@ -116,8 +116,14 @@ SPREAD_NO_PARAMETERS = "no reported parameter is available"
 #: mechanism reach this state.
 CALIBRATION_CONSTANT_WITHIN_FOLDS = "the predictions are constant within every fold"
 
-#: The Newton fit of the recalibration model stopped before its score reached tolerance.  A
-#: fold whose labels are all one class, or predictions that separate the labels, do this.
+#: In every fold, one threshold on ``logit(p)`` splits the labels, in the same direction in
+#: every fold.  The likelihood then rises without bound as the slope grows, so no slope
+#: exists.  The Newton fit still meets its score tolerance there, at a very large slope.
+CALIBRATION_SEPARATED = "the predictions separate the labels within every fold"
+
+#: The Newton fit of the recalibration model stopped before its score reached tolerance.
+#: Separation does not cause this (see :data:`CALIBRATION_SEPARATED`), and neither does a fold
+#: whose labels are all one class: its intercept grows and the score still reaches tolerance.
 CALIBRATION_NOT_CONVERGED = "the recalibration fit did not converge"
 
 #: The recalibration information matrix has no inverse at the fitted coefficients.
@@ -127,8 +133,8 @@ CALIBRATION_SINGULAR = "the recalibration information matrix is singular"
 CALIBRATION_NO_STANDARD_ERROR = "the slope has no finite standard error: "
 
 #: Family-wise level of the calibration-slope rule.  :attr:`NuisanceDiagnostics.findings` splits
-#: it over the models it tests (Bonferroni), so a report whose predictions are all calibrated
-#: warns with probability at most this, up to the accuracy of the standard errors.
+#: it over the models it tests (Bonferroni).  On the calibrated laws of the calibration-slope
+#: study the warning rate is consistent with 0.05, and the study bounds it at 0.10.
 CALIBRATION_FAMILY_ALPHA = 0.05
 
 #: Within-fold standard deviation of ``logit(p)`` at or below which a fold counts as constant.
@@ -239,7 +245,7 @@ def _calibration_finding(model: NuisanceModelReport, eligible: int) -> str | Non
     """
     slope = model.metrics.get("calibration_slope", float("nan"))
     std_error = model.metrics.get("calibration_slope_se", float("nan"))
-    if eligible < 1 or not (np.isfinite(slope) and np.isfinite(std_error)):
+    if not (np.isfinite(slope) and np.isfinite(std_error)):
         return None
     half = _critical_value(eligible) * std_error
     low, high = slope - half, slope + half
@@ -255,17 +261,17 @@ def _calibration_finding(model: NuisanceModelReport, eligible: int) -> str | Non
         facts.append(f"AUC {auc:.3f}")
     weight = model.metrics.get("largest_inverse_weight", float("nan"))
     if np.isfinite(weight):
-        facts.append(f"largest inverse weight {weight:.3g}")
+        facts.append(f"largest untruncated inverse weight {weight:.3g}")
     note = (
         f"{model.name}: the out-of-fold predictions are {direction} than the observed rates "
         f"({', '.join(facts)})."
     )
     if direction == "more extreme":
         note += (
-            " Estimation noise causes this in a correctly specified model when the signal is "
-            "weak or the model has many covariates."
+            " Estimation noise can cause this even in a correctly specified model when the "
+            "signal is weak or the model has many covariates."
         )
-    return note + " Review the learner and result.diagnostics.support() before you change the model"
+    return note + " Review the learner before you change the model"
 
 
 def _metric_names(models: Iterable[NuisanceModelReport | None]) -> list[str]:
@@ -725,7 +731,6 @@ class NuisanceDiagnostics:
         """Return findings that meet an existing diagnostic warning rule."""
         notes: list[str] = []
         tested = self._calibration_tested
-        tested_ids = {id(model) for model in tested}
         for model in self.models:
             auc = model.metrics.get("auc")
             if _is_binary_propensity(model) and auc is not None and auc > 0.9:
@@ -739,7 +744,7 @@ class NuisanceDiagnostics:
                     "units had virtually no chance of a recorded outcome, so 1/P(Delta=1|A,W) "
                     "gives them extreme leverage -- check res.diagnostics.support()"
                 )
-            if id(model) in tested_ids:
+            if model in tested:
                 calibration = _calibration_finding(model, len(tested))
                 if calibration is not None:
                     notes.append(calibration)
@@ -997,31 +1002,30 @@ def _binary_report(
     weights: FloatArray,
     diagnostics: Any,
     *,
+    folds: IntArray,
+    cluster: IntArray | None,
     mask: BoolArray | None = None,
-    folds: IntArray | None = None,
-    cluster: IntArray | None = None,
     inverse_weight_rows: Literal["every_row", "label_one"] | None = None,
 ) -> NuisanceModelReport:
     """Discrimination, calibration and proper-scoring metrics for a probability model.
 
-    ``folds`` gives each row's validation fold, and ``None`` means one fold.  ``cluster``
-    gives the cluster codes the slope's standard error sums over.  Both are indexed by
-    ``mask`` like the predictions.
+    ``folds`` gives each row's validation fold.  ``cluster`` gives the cluster codes the
+    slope's standard error sums over, and ``None`` means each row is its own cluster.  Both
+    are indexed by ``mask`` like the predictions.  Neither has a default, so no caller drops
+    the fold intercepts or the clusters by omission.
 
     ``inverse_weight_rows`` names the rows whose weight inverts this prediction, and adds
-    ``largest_inverse_weight``.  ``"every_row"`` is a binary propensity: each row's weight is
-    one over the predicted probability of the treatment it received.  ``"label_one"`` is a
-    one-vs-rest arm or a response mechanism: only rows with label one carry the weight.
+    ``largest_inverse_weight``, the largest untruncated inverse of the predicted probability of
+    the observed label over those rows.  ``"every_row"`` is a binary propensity: each row's
+    weight is one over the predicted probability of the treatment it received.
+    ``"label_one"`` is a one-vs-rest arm or a response mechanism: only rows with label one
+    carry the weight.
     """
     index = slice(None) if mask is None else np.asarray(mask, dtype=bool)
     p = np.clip(np.asarray(predicted, dtype=float)[index], 1e-12, 1.0 - 1e-12)
     y = np.asarray(actual, dtype=float)[index]
     w = np.asarray(weights, dtype=float)[index]
-    fold = (
-        np.zeros(p.shape[0], dtype=np.int64)
-        if folds is None
-        else np.asarray(folds, dtype=np.int64)[index]
-    )
+    fold = np.asarray(folds, dtype=np.int64)[index]
     codes = None if cluster is None else np.asarray(cluster)[index]
 
     slope, std_error, omission = _recalibration(p, y, w, fold, codes)
@@ -1149,6 +1153,8 @@ def _recalibration(
     members = [folds == level for level in levels]
     if all(float(np.std(predictor[member])) <= _CONSTANT_LOGIT_SPREAD for member in members):
         return float("nan"), float("nan"), CALIBRATION_CONSTANT_WITHIN_FOLDS
+    if _separates(predictor, actual, weights, members):
+        return float("nan"), float("nan"), CALIBRATION_SEPARATED
     x = np.column_stack([*(member.astype(float) for member in members), predictor])
     coefficients, converged, _detail = _newton_logistic(
         x, actual, np.zeros_like(predictor), weights
@@ -1169,9 +1175,30 @@ def _recalibration(
         variance = influence_variance(curve, cluster)
     except ValueError as error:
         return float("nan"), float("nan"), CALIBRATION_NO_STANDARD_ERROR + str(error)
-    if not (np.isfinite(variance) and variance >= 0.0 and np.isfinite(coefficients[-1])):
+    if not np.isfinite(variance):
         return float("nan"), float("nan"), CALIBRATION_NO_STANDARD_ERROR + "it is not finite"
     return float(coefficients[-1]), float(np.sqrt(variance)), None
+
+
+def _separates(
+    predictor: FloatArray, actual: FloatArray, weights: FloatArray, members: list[BoolArray]
+) -> bool:
+    """Whether one threshold per fold on ``predictor`` splits the labels, one way in all folds.
+
+    This is the condition under which the recalibration likelihood rises without bound in the
+    slope.  A fold with one class, or with one predicted value, fits any threshold, because
+    its intercept absorbs the slope.  Rows with zero weight do not enter the likelihood.
+    """
+    ones = [member & (actual == 1.0) & (weights > 0.0) for member in members]
+    zeros = [member & (actual == 0.0) & (weights > 0.0) for member in members]
+    for sign in (1.0, -1.0):
+        score = sign * predictor
+        if all(
+            not one.any() or not zero.any() or score[zero].max() <= score[one].min()
+            for one, zero in zip(ones, zeros, strict=True)
+        ):
+            return True
+    return False
 
 
 def _regression_slope(predicted: FloatArray, actual: FloatArray, weights: FloatArray) -> float:

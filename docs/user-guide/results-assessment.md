@@ -507,13 +507,15 @@ doubled:
 
 ```text
 propensity: the out-of-fold predictions are more extreme than the observed rates (calibration
-slope 0.50, 97.5% interval 0.44 to 0.56, AUC 0.756, largest inverse weight 220). ...
+slope 0.50, 97.5% interval 0.44 to 0.56, AUC 0.756, largest untruncated inverse weight 220).
+Estimation noise can cause this even in a correctly specified model when the signal is weak or
+the model has many covariates. Review the learner before you change the model
 ```
 
 | question | answer |
 | --- | --- |
-| what does a finding ask you to do? | review the learner, and read `result.diagnostics.support()` for the weights it creates |
-| can a correct model warn? | yes. With a weak signal or many covariates, estimation noise makes out-of-fold predictions more extreme than the truth |
+| what does a finding ask you to do? | review the learner. For the `propensity` model of a binary point treatment, `result.diagnostics.support()` describes the weights that model creates |
+| can a correct model warn? | yes. With a weak signal or many covariates, estimation noise can make out-of-fold predictions more extreme than the truth |
 | does a finding mean that the model is misspecified? | no. A misspecified logistic model with an intercept also has a population slope of 1, so the slope cannot detect it |
 | does a finding mean that the estimate is biased? | no. The rule measures the spread of the predictions and does not measure the estimate |
 | why is there no finding on an in-sample fit? | an unpenalized logistic model with an intercept has an in-sample slope of exactly 1, so `nuisance.evaluation` is `in_sample` and the report tests nothing |
