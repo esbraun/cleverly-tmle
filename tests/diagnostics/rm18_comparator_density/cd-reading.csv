@@ -1,0 +1,23 @@
+part,scope,statistic,value,ci_lower,ci_upper,result
+CD,Cb refit rows,largest scaled difference,1.626245946239303e-16,,,holds over 4000
+CD,"(Cb, L) excess",largest scaled difference,1.021405182655144e-14,,,holds over 2
+CD,exact bound,sigma*,0.2239731093400053,,,
+CD,Cb,rho_rep,1.0723979268254114,,,
+CD,Cb,rho_emp,1.0394773864771056,,,
+CD,Cb,D,0.07239792682541135,,,
+CD,Ca,rho_rep,1.0008411389409881,,,
+CD,Ca,rho_emp,1.0103787577042185,,,
+CD,Ca,D,0.0008411389409881398,,,
+CD,L,rho_rep,0.9984458907445471,,,
+CD,L,rho_emp,1.0093808780125146,,,
+CD,L,D,0.0015541092554528513,,,
+CD,D_Cb - D_L,difference,0.0708438175699585,0.05890051651292565,0.08223031734845851,
+CD,D_Ca - D_L,difference,-0.0007129703144647115,-0.0027199442867378103,0.0027025381859147805,
+CD,D_Cb - D_Ca,difference,0.07155678788442321,0.06096478560457686,0.0821218607984954,
+CD,"(Cb, L)",calibration excess bound,0.0658560519652457,,,
+CD,"(Cb, L)",calibration excess resolution,0.0450191323495356,,,
+CD,"(Ca, L)",calibration excess bound,0.0079214268705867,,,
+CD,"(Ca, L)",calibration excess resolution,0.00931514074745341,,,
+CD,"(Cb, Ca)",calibration excess bound,0.06332713931472868,,,
+CD,"(Cb, Ca)",calibration excess resolution,0.041096505822151866,,,
+CD,ate_shift[+0.25 vs natural course],reading,,,,cleverly density representation
