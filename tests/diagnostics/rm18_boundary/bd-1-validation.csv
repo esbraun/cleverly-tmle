@@ -1,0 +1,8 @@
+part,check,compared,largest_difference,result
+BD-1,canonical-multi-arm-drtmle double_robust_contraction/outcome_correct_n4000 refit rows,600,0.0,holds
+BD-1,canonical-multi-arm-drtmle root_n_and_efficiency/n_500 refit rows,400,0.0,holds
+BD-1,canonical-multi-arm-drtmle summary rows,2,0.0,holds
+BD-1,canonical-multi-arm-ctmle-selector root_n_and_efficiency/n_500 refit rows,400,0.0,holds
+BD-1,canonical-multi-arm-ctmle-selector summary rows,1,0.0,holds
+BD-1,canonical-drtmle double_robust_contraction/treatment_correct_n1500 refit rows,2400,0.0,holds
+BD-1,canonical-drtmle summary rows,1,0.0,holds

@@ -1,0 +1,28 @@
+part,scope,statistic,value,ci_lower,ci_upper,result
+BD-1,canonical-multi-arm-drtmle double_robust_contraction/outcome_correct_n4000 refit rows,largest scaled difference,0.0,,,holds over 600
+BD-1,canonical-multi-arm-drtmle root_n_and_efficiency/n_500 refit rows,largest scaled difference,0.0,,,holds over 400
+BD-1,canonical-multi-arm-drtmle summary rows,largest scaled difference,0.0,,,holds over 2
+BD-1,canonical-multi-arm-ctmle-selector root_n_and_efficiency/n_500 refit rows,largest scaled difference,0.0,,,holds over 400
+BD-1,canonical-multi-arm-ctmle-selector summary rows,largest scaled difference,0.0,,,holds over 1
+BD-1,canonical-drtmle double_robust_contraction/treatment_correct_n1500 refit rows,largest scaled difference,0.0,,,holds over 2400
+BD-1,canonical-drtmle summary rows,largest scaled difference,0.0,,,holds over 1
+BD-1,canonical-multi-arm-drtmle double_robust_contraction/outcome_correct_n4000,replicates,6000.0,,,
+BD-1,canonical-multi-arm-drtmle double_robust_contraction/outcome_correct_n4000,coverage,0.9538333333333333,0.946403367731692,0.9605322490403141,
+BD-1,canonical-multi-arm-drtmle double_robust_contraction/outcome_correct_n4000,bias,0.0011531353274785716,0.0005314628594944995,0.0017748077954626257,margin 0.00467221
+BD-1,canonical-multi-arm-drtmle double_robust_contraction/outcome_correct_n4000,SE ratio,1.013551174316041,,,
+BD-1,canonical-multi-arm-drtmle double_robust_contraction/outcome_correct_n4000,reading,,,,resolved: truth satisfies the gate
+BD-1,canonical-multi-arm-drtmle root_n_and_efficiency/n_500,replicates,6000.0,,,
+BD-1,canonical-multi-arm-drtmle root_n_and_efficiency/n_500,coverage,0.9515,0.9439068551185318,0.9583661184144975,
+BD-1,canonical-multi-arm-drtmle root_n_and_efficiency/n_500,bias,-0.001031950374259627,-0.0028234517218517466,0.0007595509733325334,margin 0.0134641
+BD-1,canonical-multi-arm-drtmle root_n_and_efficiency/n_500,SE ratio,1.0166320887320874,,,
+BD-1,canonical-multi-arm-drtmle root_n_and_efficiency/n_500,reading,,,,resolved: truth satisfies the gate
+BD-1,canonical-multi-arm-ctmle-selector root_n_and_efficiency/n_500,replicates,6000.0,,,
+BD-1,canonical-multi-arm-ctmle-selector root_n_and_efficiency/n_500,coverage,0.9401666666666667,0.9318406264983863,0.947784959143631,
+BD-1,canonical-multi-arm-ctmle-selector root_n_and_efficiency/n_500,bias,-0.0003975566281780307,-0.0021747448941889062,0.0013796316378328554,margin 0.0133565
+BD-1,canonical-multi-arm-ctmle-selector root_n_and_efficiency/n_500,SE ratio,0.9775171744167843,,,
+BD-1,canonical-multi-arm-ctmle-selector root_n_and_efficiency/n_500,reading,,,,resolved: truth satisfies the gate
+BD-1,canonical-drtmle double_robust_contraction/treatment_correct_n1500,replicates,6000.0,,,
+BD-1,canonical-drtmle double_robust_contraction/treatment_correct_n1500,coverage,0.927,0.9179223646939998,0.9353919083828184,
+BD-1,canonical-drtmle double_robust_contraction/treatment_correct_n1500,bias,0.00869460773594568,0.007737590021001391,0.009651625450889982,margin 0.00719251
+BD-1,canonical-drtmle double_robust_contraction/treatment_correct_n1500,SE ratio,0.9738494072342412,,,
+BD-1,canonical-drtmle double_robust_contraction/treatment_correct_n1500,reading,,,,resolved: truth satisfies the gate
