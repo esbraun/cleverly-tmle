@@ -37,7 +37,9 @@ ARTIFACTS: dict[str, tuple[str, tuple[str, ...]]] = {
 FIT_DIAGNOSTICS_FILE = "fit-diagnostics.csv"
 FIT_DIAGNOSTICS = "fit_diagnostics"
 
-_REFERENCE = re.compile(r"^(?P<artifact>\w+)\[(?P<keys>[^\]]*)\]:(?P<column>\w+)$")
+#: The keys run to the last ``]:``, so a key may carry brackets of its own, as the estimand
+#: ``ey_learned_rule[learned rule]`` does.
+_REFERENCE = re.compile(r"^(?P<artifact>\w+)\[(?P<keys>.*)\]:(?P<column>\w+)$")
 
 
 def load(record: StudyRecord) -> dict[str, pd.DataFrame]:
@@ -353,6 +355,10 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
             )
     if "targeting_necessity" in record.property_cells:
         declared["margin:targeting_displacement"] = record.properties().TARGETING_DISPLACEMENT
+    if "fold_locality" in record.property_cells:
+        declared["margin:fold_locality_displacement"] = (
+            record.properties().FOLD_LOCALITY_DISPLACEMENT
+        )
     if "missingness_necessity" in record.property_cells:
         declared["margin:missingness_displacement"] = record.properties().MISSINGNESS_DISPLACEMENT
     if "correction_necessity" in record.property_cells:

@@ -238,6 +238,14 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "paired",
         "continuous_modified_policy/ate_shift[+0.25 vs natural course]",
     ),
+    # The two laws of the RM30 reporting study.  F27 states, row by row, that the
+    # ``exceptional`` cell has no published result and that the ``weak_blip`` cell has one.
+    "F27": _keys(
+        "learned-rule-cvtmle-boundary",
+        "truth",
+        "cleverly-learned-rule-cvtmle/exceptional/ey_learned_rule[learned rule]",
+        "cleverly-learned-rule-cvtmle/weak_blip/ey_learned_rule[learned rule]",
+    ),
 }
 
 

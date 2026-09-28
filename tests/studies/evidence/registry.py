@@ -217,7 +217,8 @@ class StudyRecord:
     #: skips the schema's constancy check, publishes the mean truth with ``truth_min`` and
     #: ``truth_max``, and reports inference on the level scale only.  Every other record
     #: keeps its arithmetic byte for byte, because subtracting a constant truth first would
-    #: move the last bits.  RM30 in ``docs/roadmap.md`` declares the rule.
+    #: move the last bits.  ``docs/development/method-benchmarking.md``, "A truth that varies
+    #: by replication", states the rule.
     truth_varies_by_replicate: bool = False
 
     def __post_init__(self) -> None:
@@ -351,6 +352,8 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_weighted_tmle import STUDY as CANONICAL_WEIGHTED_TMLE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
     from tests.studies.fold_targeted_cvtmle import STUDY as FOLD_TARGETED_CVTMLE
+    from tests.studies.learned_rule_cvtmle import STUDY as LEARNED_RULE_CVTMLE
+    from tests.studies.learned_rule_cvtmle_boundary import STUDY as LEARNED_RULE_CVTMLE_BOUNDARY
     from tests.studies.omitted_variable_bound import STUDY as OMITTED_VARIABLE_BOUND_SE
     from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
 
@@ -378,6 +381,8 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_MAR_DRTMLE,
         CANONICAL_POINT_MSM,
         CANONICAL_DETERMINISTIC_REGIMES,
+        LEARNED_RULE_CVTMLE,
+        LEARNED_RULE_CVTMLE_BOUNDARY,
         CANONICAL_STOCHASTIC_REGIMES,
         CANONICAL_SHIFT_POLICIES,
         CANONICAL_INCREMENTAL_INTERVENTIONS,

@@ -42,7 +42,6 @@ delivered row that this roadmap still describes. Read a record with, for example
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
 | 0.51 | Red property cells after the fold, scale and law changes | keep each red verdict under `reporting` with its interval, and admit inference only when F18 or F19 supplies the exact result. The [red-cell ledger](technical-reference/method-evidence/red-cells.md) delivers this. Then run Design SL once, after RM30 merges, the last of the five declared RM18 follow-up designs | registered studies publish red verdicts after the fold, scale and law changes and the pooled update. The ledger lists each one and the ask that owns it. Four RM18 follow-up designs ran once, and no reading names a defect in `cleverly`. Design SL is declared and has not run | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
-| 0.61 | Learned-policy value evaluation | implement the estimator and run the two studies that the RM30 section declares. The estimator and its evidence merge together | fixed-rule paths refuse a rule learned from the analysis sample; published learned-policy methods give distinct targets and inference | [RM30](#rm30-learned-policy-value-evaluation) |
 
 Each row takes a tier by the harm that its defect does to a user today. The table gives the tiers,
 from the most harmful. Inside a tier, a row with a wider reach comes first. A row that another row
@@ -56,25 +55,23 @@ depends on comes before that row.
 | d | a diagnostic or a warning that misleads | no open row |
 | e | a display or a message that misstates a fact that the fit records. By extension, an argument check or a capability row that misstates what a call accepts or needs, when no number moves and nothing raises that is not a refusal | no open row |
 | f | an investigation or a declared design that moves no verdict | RM18 |
-| g | a published method needed to resolve a shipped refusal | RM30 |
+| g | a published method needed to resolve a shipped refusal | no open row |
 
 The table gives the reason for each place inside a tier.
 
 | row | reason for its place |
 | --- | --- |
 | RM18 | one declared design that has not run, which reads two red rows in one study. Four designs ran, read 17 red rows in six studies, and moved no verdict. The ledger already publishes each of those verdicts |
-| RM30 | a published learned-policy method can resolve the current refusal, but requires a distinct target, fold-local evaluation, and inference validation |
 
-One open row waits on another. RM18's Design SL waits on RM30, so its regeneration runs once,
-after every row that could move its inputs.
+RM18's Design SL runs after [RM30](#rm30-learned-policy-value-evaluation) merges, so its
+regeneration runs once, after every row that could move its inputs.
 
-Use two delivery groups for these two rows and the two investigations that RM18 waits on.
-Keep each item's acceptance criteria separate inside its group.
+Use one delivery group for this row and the two investigations that RM18 waits on. Keep each
+item's acceptance criteria separate inside the group.
 
 | delivery group | items | shared boundary |
 | --- | --- | --- |
 | red property cells | RM18, and the F18 and F19 derivations that RM18 waits on | the recorded rule that a red cell is reporting evidence, designs declared before their runs that move no verdict, and two exact derivations that would close the inferential gaps |
-| learned-policy evaluation | RM30 | a typed target and a published fold-local learning, evaluation, and inference contract with validation |
 
 Each group holds consecutive priorities, so the group order is the priority order. Deliver the
 items inside a group in priority order. The first decimal digit of a priority names its group, and
@@ -86,11 +83,9 @@ queue. The RM IDs and their anchors never change, so a commit names a row by its
 row takes its priority with it, and the other rows keep theirs.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
-The queue holds two rows.
-RM18 has one follow-up design, Design SL, that is declared and has not run. RM30 holds the
-published learned-policy implementation. Its contract and its two studies are declared, and
-no study has run. Design SL runs after RM30, so its regeneration runs once, after every row
-that could move its inputs.
+The queue holds one row. RM18 has one follow-up design, Design SL, that is declared and has not
+run. Design SL runs after RM30 merges, so its regeneration runs once, after every row that could
+move its inputs.
 
 The F18 and F19 derivations do not block priority 1, because an item with no published theory does
 not enter the sequence. Their cells stay red under `reporting` until F18 or F19 meets its
@@ -161,7 +156,7 @@ the missing result. Package code and a related estimator do not remove the stop.
 | MNAR and incremental-intermediate compositions | identification and influence-function results for the exact compositions | point-treatment sensitivity and implemented interventions remain separate | [F6](#f6-mnar-and-incremental-intermediate-compositions) |
 | Joint point-treatment parameter axes | a targeting and inference result for one fit that carries an MSM projection together with a regime, shift, or incremental intervention, including its joint score and covariance | single-axis point-treatment fits only | [F17](#f17-joint-point-treatment-parameter-axes) |
 | Time-respecting cross-fitting | dependence and split-specific TMLE inference for blocked-temporal or rolling-origin folds | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
-| Learned-policy value outside the published conditions | an interval for the fold-average learned-rule value without a limiting rule, and results for the refused compositions | every learned rule refuses ([RM28](#rm28-declared-densities-of-user-written-interventions)). RM30 plans the fold-evaluated CV-TMLE | [F27](#f27-learned-policy-value-outside-the-published-conditions) |
+| Learned-policy value outside the published conditions | an interval for the fold-average learned-rule value without a limiting rule, and results for the refused compositions | `LearnedRuleValue` fits the fold-evaluated CV-TMLE of [RM30](#rm30-learned-policy-value-evaluation) under the limiting-rule condition. Its reporting study measures under-coverage at an exceptional law. The other F27 requests refuse before any learner | [F27](#f27-learned-policy-value-outside-the-published-conditions) |
 
 ## Eligibility
 
@@ -552,6 +547,7 @@ gives the cells of each owner and the reason for each assignment.
 | --- | --- | --- |
 | `F18` | an inference result for the shipped selector path | open. An influence curve derived after the stopping-index selection, and a registered study whose `selector_necessity` and `type_i_error` cells pass their existing margins at their existing budgets. The multi-arm `interval_calibration/correctly_specified` cell must also pass its band, because a selector-path covariance is the claim F18 supplies |
 | `F19` | an inference result for the generated design | open. A published result, or an Eligibility-qualifying natural extension, must establish whether the ordinary adaptive-propensity EIF suffices for the exact cross-fitted shared-multinomial joint target. Implement any representation contribution the result requires, then register covariance and coverage evidence at predeclared budgets. Keep the `generated_design` pair as a reporting diagnostic. Acceptance does not require a negative standard-error deficit |
+| `F27` | an interval for the fold-average learned-rule value outside the published conditions | open. [F27](#f27-learned-policy-value-outside-the-published-conditions) gives the acceptance for each request. Its `exceptional` row needs a published result. Its `weak_blip` row names no missing result, because that law is within C3 of RM30 |
 | `RM18-pooled` | a targeting result for the fold-local longitudinal recursion | delivered by the pooled route. The package now implements Section 5.2, Steps 1 to 4, which Theorem 3 certifies. `crossfit_overfitting/cross_fitted_ltmle` sits inside the shared ceiling at 8,000 draws, with a 99% interval from 0.996092 to 1.036997. "What the pooled update found" gives every moved cell, including two weighted cells that went red |
 | `RM18-n500` | a reading of the two `n_500` coverage endpoints | delivered. A registered fold-policy diagnostic reads both endpoints as a boundary resolution. "What the two readings found" gives the numbers |
 | `RM18-binary-slope` | a reading of the DR-TMLE contraction slope | delivered. A declared rung design resolves the slope, and its interval now sits below zero. "What the two readings found" gives the numbers |
@@ -591,6 +587,11 @@ reading.
 `F19` holds the `generated_design` pair of `canonical-multi-arm-ctmle-oat`. Both designs are
 judged by calibration to their own sampling spread. The exact shared-multinomial generated-design
 expansion remains open.
+
+`F27` holds the two truth rows of `learned-rule-cvtmle-boundary`, the reporting study of
+[RM30](#rm30-learned-policy-value-evaluation). Each row fails its coverage floor only. The RM30
+declaration names F27 as the owner of every red cell of that study. The F27 table states that the
+`exceptional` row has no published result and that the `weak_blip` row has one.
 
 `RM18-fixed-weights` holds `interval_calibration/static__correctly_specified` and the paired
 `ey_regimen[never]` row of `weighted-ltmle-crossfit`. Under this study's iid baseline-selection
@@ -1705,476 +1706,31 @@ Pull request 228 delivered this row. The table gives what shipped.
 
 ### RM30. Learned-policy value evaluation
 
-The fixed-rule paths refuse a `Rule` or a `DynamicRegimen` that is learned from the analysis
-sample. [RM28](#rm28-declared-densities-of-user-written-interventions) holds that refusal. This row
-adds a typed target for the value of rules that are learned inside the training folds. It does not
+The fixed-rule paths refused a `Rule` or a `DynamicRegimen` that is learned from the analysis
+sample, and no path estimated the value of a learned rule.
+[RM28](#rm28-declared-densities-of-user-written-interventions) holds that refusal. This row adds
+a typed target for the value of rules that are learned inside the training folds. It does not
 read a learned function as a declared fixed rule.
 
-Three pull requests deliver the row. Pull request B and pull request C merge together, so no
-release carries the interval before its study has run.
+Pull request 247 (RM30 A), pull request 248 (RM30 B) and pull request NNN (RM30 C) delivered this
+row. Pull requests 248 and NNN merge together, so no release carries the interval before its
+study. The table gives what shipped. Commit `edc70d7f` holds the contract, the sources and their
+locators, the refusal order, the declarations of both studies and the reads made before them.
+Read it with `git show edc70d7f:docs/roadmap.md`.
 
-| pull request | content | state |
-| --- | --- | --- |
-| A | this contract, [X11](#x11-learned-policy-follow-ups), [F27](#f27-learned-policy-value-outside-the-published-conditions), and the declarations of the two validation studies | recorded here. No study code exists, and nothing has run |
-| B | `LearnedRule`, `LearnedRuleValue`, the `ey_learned_rule` target, the `learned_rule` parameter axis, the result record, the refusals, the unit witnesses and the documentation | implemented on its branch. It merges with pull request C |
-| C | the per-replicate truth of the evidence framework, the study modules, the smoke runs, both declared runs, the study pages and the delivery record | not started |
-
-The table gives the acceptance of the row.
-
-| acceptance | what satisfies it |
+| part | what shipped |
 | --- | --- |
-| a typed public target | `LearnedRuleValue` and `ey_learned_rule`, with the target stated in the result, its summary and the documentation |
-| fold-local learner and evaluator contracts | a unit test with a row spy shows that no rule value at a row comes from a fit that saw that row |
-| saved policy and nuisance provenance | the realized rule of each row, per-fold summaries, the folds, the learner templates and the seeds survive `save` and `cleverly.load` |
-| an influence-variance check, and nonzero exact-law witnesses | unit witnesses at unequal folds, and a longhand oracle branch at a fixed rule |
-| mutation controls | using evaluation rows to learn the rule, dropping a targeting or influence-curve term, and changing the variance each fail a test or a declared cell |
-| a registered coverage study before an interval ships | the gated study below, including the `misspecified_limit` setting of a limiting rule |
-| refused routes | every unsupported learned-function route stays refused, and the RM28 refusal stays in force |
-
-Neither van der Laan and Luedtke (2015) nor Nordland and Holst (2026) licenses an arbitrary
-population-dependent intervention density. The doubly robust score and Wald interval of Nordland
-and Holst are a separate extension, and [X11](#x11-learned-policy-follow-ups) part (e) holds it.
-
-(the-contract)=
-#### The contract
-
-The target is the average, over the outer folds, of the value of the rule that is learned on the
-training rows of each fold. Van der Laan and Luedtke (2015), Section 7, define this target, and
-their Theorem 6 gives its inference. The target is a data-adaptive parameter. It depends on the
-realized split and on the fitted rules.
-
-$$
-\tilde\psi_{0n} = \frac1V \sum_{v=1}^V \Psi_{d_{nv}}(P_0),\qquad
-\Psi_d(P) = E_P\,\bar Q_P(d(W), W),\qquad
-d_{nv}(w) = \mathbb 1\{\bar Q_{nv}(1, w) - \bar Q_{nv}(0, w) > 0\}.
-$$
-
-Here $\bar Q_{nv}$ is the outcome regression that is fitted on the training rows of fold $v$. A
-tie assigns control, as Montoya, van der Laan, Skeem and Petersen (2023), Section 2.4, do.
-
-In this section, "JCI" names van der Laan and Luedtke (2015). "Montoya (2023a)" names the article
-of Montoya and co-authors on pages 217 to 238 of the *International Journal of Biostatistics*
-19(1). "Montoya (2023b)" names their article on pages 239 to 259 of the same issue.
-"[The sources and their locators](#the-sources-and-their-locators)" gives each version read.
-
-The target is not the value of one rule fitted on all rows, which JCI, Section 6, treats. It is
-not the value of the optimal rule, which Luedtke and van der Laan (2016), *Annals of Statistics*,
-treat.
-
-| part | contract | source |
-| --- | --- | --- |
-| design | a point treatment, a binary treatment, iid rows and no censoring | JCI, Section 8.1.1, treats the single time point as the special case $L(0) = V(0) = \emptyset$ of its setting |
-| rule learner | the plug-in rule of the fit's own outcome regression on each training fold. It adds no learner and no fit | JCI, Section 7.1, lets $d_{nj}$ be any rule estimator applied to training sample $j$ |
-| partition | `V` outer folds from `random_partition`, and one repeat | JCI, Section 7 |
-| clever covariate | $H_i = \mathbb 1\{A_i = d_i\} / g_{n,v(i)}(A_i \mid W_i)$, with $d_i = d_{n,v(i)}(W_i)$ | JCI, Appendix B, the covariate $H_2$ at one time point |
-| fluctuation | one $\varepsilon$ that minimizes $(1/V) \sum_v P^1_{n,v}$ of the binomial loss, with the offset $\operatorname{logit} \bar Q_{n,v(i)}$ and the validation weights $n / (V n_v)$ | JCI, Appendix B, the display that defines $\varepsilon_{2n}$, with the loss of Equation (21). The appendix states that "the fluctuation ε2 does not rely on j" |
-| estimate | $\psi^*_n = (1/V) \sum_v \psi^*_{nv}$. Each $\psi^*_{nv}$ is the mean of $\bar Q^*_{nv}(d_i, W_i)$ over the validation rows of fold $v$ | Montoya (2023b), Section 3.2, Steps 2(e) and 3. JCI, Appendix B, the displays after Equation (24), is first-order equivalent at one time point |
-| influence curve | $D_i = H_i\,(Y_i - \bar Q^*_{nv}(A_i, W_i)) + \bar Q^*_{nv}(d_i, W_i) - \psi^*_{nv}$. Each fold is centred at its own estimate | Montoya (2023b), Section 4.2, the fold-specific working influence curve. JCI, Section 7.2 |
-| variance | $V^{-2} \sum_v n_v^{-2} \sum_{i \in v} D_i^2$, from `cross_validated_variance` | JCI, Section 7.2, gives $\sigma_n^2 = (1/J) \sum_j P^1_{n,j} D^{*2}$. The two forms agree at equal folds. At unequal folds this contract uses the package form, and no read source makes that choice |
-| interval | the Wald interval at the 0.975 normal quantile | JCI, Section 7.2, prints 1.95. Montoya (2023b), Section 4.2, uses $\Phi^{-1}(0.975)$ |
-| inference status | `influence_curve`, decided before any learner | the architecture invariant for the inference status |
-
-The package already fits this construction for arm targets. The fit is `cross_fit=True`,
-`targeting_scheme="pooled"` and `cv_evaluation=True`. Pull request B sets the regime density to
-the fold-local rule, and it reuses the rest of the construction.
-
-Theorem 6 and Corollary 3 of JCI give the conditions. The data cannot confirm C2 to C4.
-
-| id | condition | source | what it means for this row |
-| --- | --- | --- | --- |
-| C1 | a bounded outcome, $Y \in [0, 1]$ after the declared transform | JCI, Appendix B. Theorem 6 bounds the supremum norm of $D^*$ | a binary outcome, or a continuous outcome with a declared `q_bounds` |
-| C2 | strong positivity | JCI, Theorem 6, through the same bound | `g_bounds` regularizes the fitted denominator only |
-| C3 | a limiting rule: $\max_j P_0\{D^*(d_{nj}, Q^*_{nj}, g_{nj}) - D^*(d_1, Q^{d_1}, g)\}^2 \to 0$ in probability, for one fixed rule $d_1$ | JCI, Theorem 6. Section 6 calls it "the weaker assumption that dn → d1". Montoya (2023b), Section 4.1.3, asks that the fold rules converge "to some fixed rule ... at any rate" | see the note below this table |
-| C4 | the remainder $(1/V) \sum_v R_{1, d_{nv}} = o_P(n^{-1/2})$, with $R_1$ from Theorem 3. Or Corollary 3 | JCI, Theorem 6 and Corollary 3 | Corollary 3 needs $g = g_0$ and its condition (14). JCI names an MLE $g_{nv}$ under a correct parametric model as a sufficient case. Corollary 3 allows a misspecified $\bar Q$, and the interval is then asymptotically conservative |
-| C5 | no Donsker condition | JCI, Section 7, first paragraph | the learners may be flexible |
-| C6 | iid rows, with no weights, clusters or missing outcomes | JCI, Section 2, with no censoring | every other composition refuses |
-
-The PMC text of JCI prints $O_P$ where the context of Theorem 6 and Corollary 3 needs $o_P$. This
-contract reads $o_P$.
-
-C3 names a fixed rule $d_1$ and allows a misspecified $Q^{d_1}$. This contract reads $d_1$ as the
-threshold of the learner's limit blip. JCI does not state that reading, so it is an unsourced
-derivation.
-
-C3 then holds when the limit blip is zero on a set of zero probability. It fails at an exceptional
-law with a consistent learner. At such a law, Luedtke and van der Laan (2016), *Annals of
-Statistics*, Section 4.1, expect the rule estimate "to fluctuate randomly" where the blip is zero.
-JCI, Equation (5), defines a non-exceptional law as one whose blip is nowhere zero with probability
-1.
-
-The contract does not claim the value of the optimal rule, or the value of one rule fitted on all
-rows. [X11](#x11-learned-policy-follow-ups) parts (f) and (a) hold them.
-
-(the-sources-and-their-locators)=
-#### The sources and their locators
-
-Each source is cited by its published DOI. A locator is a section, theorem, equation, algorithm or
-step number. No page number comes from a reprint or a manuscript. The table gives the version that
-this project read for each source, first-hand, on the date given.
-
-| source | published version | version read | locators this row uses |
-| --- | --- | --- | --- |
-| [van der Laan and Luedtke (2015)](references.md#point-treatment-and-stochastic-interventions), JCI | *Journal of Causal Inference* 3(1):61–95, DOI 10.1515/jci-2013-0022 | the NIH author manuscript PMC4517487, which states "Published in final edited form as" the article. Read on 2026-09-26, and again on 2026-09-27 and 2026-09-28. The publisher page returned no text on 2026-09-28 | Sections 2, 6, 7, 7.1, 7.2 and 8.1.1; Equations (5), (14), (21) and (24); Theorems 3, 5 and 6; Corollary 3; Appendix B |
-| [Luedtke and van der Laan (2016)](references.md#point-treatment-and-stochastic-interventions), *Annals of Statistics* | 44(2):713–742, DOI 10.1214/15-AOS1384 | the IMS reprint arXiv:1603.07573, whose pagination differs from the journal. Read on 2026-09-26, 2026-09-27 and 2026-09-28 | Sections 4.1, 4.2 and 5 |
-| [Luedtke and van der Laan (2016)](references.md#point-treatment-and-stochastic-interventions), *International Journal of Biostatistics* | 12(1):305–332, DOI 10.1515/ijb-2015-0052 | the NIH author manuscript PMC6056197. Read on 2026-09-26, and its section structure again on 2026-09-28 | Sections 4.1 to 4.3 and 6, for X11 part (g) |
-| [Montoya (2023a)](references.md#point-treatment-and-stochastic-interventions) | *International Journal of Biostatistics* 19(1):217–238, DOI 10.1515/ijb-2020-0127 | the publisher's version in PMC, PMC10238854. Read on 2026-09-27 and 2026-09-28 | Section 3.3, Step 6 |
-| [Montoya (2023b)](references.md#point-treatment-and-stochastic-interventions) | *International Journal of Biostatistics* 19(1):239–259, DOI 10.1515/ijb-2020-0128 | the publisher's version in PMC, PMC9722979. Read on 2026-09-28 | Sections 2.4, 3.2, 4.1.3, 4.2 and 5.4.3 |
-| [Nordland and Holst (2026)](references.md#point-treatment-and-stochastic-interventions) | *Journal of Statistical Software* 116(4):1–51, DOI 10.18637/jss.v116.i04 | the version of record from jstatsoft.org. Read on 2026-09-28 | Section 3.4 and Algorithm 4 |
-| [Hubbard, Kherad-Pajouh and van der Laan (2016)](references.md#collaborative-tmle) | *International Journal of Biostatistics* 12(1):3–19, DOI 10.1515/ijb-2015-0013 | the authors' eScholarship manuscript, read before 2026-09-11, when its reference entry was written. The publisher page returned no text on 2026-09-28 | the definition of the sample-split data-adaptive target only |
-| [Morris, White and Crowther (2019)](references.md#simulation-studies) | *Statistics in Medicine* 38(11):2074–2102, DOI 10.1002/sim.8086 | the version of record, PMC6492164. Read on 2026-09-26 for RM18 | Table 6; Section 5.3, Equation (1) |
-
-Montoya (2023b) is a published simulation of the same target. Its Section 3.2, Step 2(c), fits the
-update "on persons in the validation set", which is a fold-specific update. Its Section 4.2 gives
-the variance $(1/V) \sum_v \sigma^2_{n,v}$ and calls it conservative when $g_n$ is a correctly
-specified parametric MLE. Section 5.4.3 reports 93.9% coverage for this target with its most
-data-adaptive library. The article therefore supports the target and the variance. It does not
-support the pooled update.
-
-(the-refusals-their-order-and-the-shared-text)=
-#### The refusals, their order and the shared text
-
-Pull request B adds `refuse_learned_rule_composition`. It runs first in
-`_preflight_fit_configuration`, before `_check_shifts`. `CausalStudy.identify` runs the same check
-for `LearnedRuleValue`. Each refusal raises `CapabilityError` before any learner and cites its
-item. The table gives the order. A refusal that no configuration repairs comes before a refusal
-whose remedy is a configuration, as the [RM24](#rm24-refusals-after-the-nuisance-fit) order rule
-requires.
-
-| order | request | item |
-| ---: | --- | --- |
-| 1 | `CTMLE` or `DRTMLE` with `learned_rule=` | [F27](#f27-learned-policy-value-outside-the-published-conditions) |
-| 2 | `learned_rule=` beside `interventions=`, `shifts=`, `incremental=`, `msm=` or `reference=`, or beside an arm estimand | X11 (c) for `interventions=`, `reference=` and an arm estimand, because each asks for a contrast with a known regime or an arm. [F17](#f17-joint-point-treatment-parameter-axes) for `shifts=`, `incremental=` and `msm=` |
-| 3 | a continuous treatment | F27 |
-| 4 | a treatment with more than two arms | X11 (d) |
-| 5 | missing outcomes, `delta=` | [F21](#f21-other-missing-outcome-cv-tmle-variants), with a learned-rule text that runs before the F21 refusal |
-| 6 | `intermediate=` | F27 |
-| 7 | `weights=` | F27 |
-| 8 | `id=` | F27 |
-| 9 | `strata=` | F27 |
-| 10 | `cross_fit=False`, or one fold | X11 (a) |
-| 11 | `cv_evaluation=False` | X11 (e) |
-| 12 | `targeting_scheme="fold"` | X11 (h) |
-| 13 | `repeats` above 1 | F27 |
-| 14 | `n_bootstrap` above 0, the full-refit bootstrap | F27 |
-
-Rows 10 to 14 name the remedy: `CrossFitting(enabled=True, fold_evaluation=True)`, one repeat,
-pooled targeting and no full-refit bootstrap. A unit test fits that remedy, so the remedy that a
-message names is not itself refused.
-
-The order holds inside one call, with one exception at construction. `CrossFitting`,
-`TMLEMethod` and the `TMLE` constructor refuse a fold policy that the shared rules forbid. Examples
-are one fold, `repeats` above 1 without cross-fitting, and stratified folds. These refusals raise
-when the object is built, before the data exist, so they come before rows 3 to 9. On a
-learned-rule `TMLE`, rows 10 to 14 replace such a refusal where one of them applies. Rows 1 and 2
-also run at construction, and they come first in the table.
-
-The shared refusals take a learned-rule remedy. `_check_training_support` receives
-`LEARNED_RULE_REMEDY` through its `remedy=` parameter. After that preflight, the fold backstop of
-`cross_fit_companion` cannot fire for a learned-rule fit, so it keeps its default text. The
-outcome-scale refusal names `q_bounds` only.
-
-On the engine, a learned-rule fit meets rows 10 to 14
-before a shared fold-policy sentence, and no shared sentence offers it an in-sample fit.
-`CrossFitting` and `TMLEMethod` refuse at construction, before they see the estimand. Each of
-their fold-policy sentences that offers an in-sample fit therefore ends with one clause. That
-clause names `CrossFitting(enabled=True, fold_evaluation=True)` for `LearnedRuleValue`. A unit
-test runs each remedy that a learned-rule caller reads, as written.
-
-`Rule` and `DynamicRegimen` keep one declaration, and the RM28 refusal is unchanged. Its shared
-text `_ESTIMATED_RULE` gains these two sentences, which name the route for each surface.
-
-```text
-For a point treatment, LearnedRuleValue estimates the average value of rules learned inside each
-training fold (RM30). A learned longitudinal regimen has no supported path (X11 in
-docs/roadmap.md).
-```
-
-A refit relearns the rules, so `refute` and `benchmark` read `unavailable`. The E-value, the
-omitted-variable bound, simulated confounding and the missingness tilt also read `unavailable`,
-and they cite F27. The summarize rows and `truncation_curve` run, because they retarget the same
-rules.
-
-(the-two-studies-declared-before-they-run)=
-#### The two studies, declared before they run
-
-This subsection fixes every quantity that decides a verdict or a reading. This project pushes
-its commit before any smoke or declared run. A later change is a pushed amendment, made before the run that
-it changes, as commit `03fe89f1` did for RM18. No pilot value enters a verdict rule or sets a
-binding budget. The `p11_budget_inputs.py` values enter one budget row that binds nothing. The
-quadrature constants of the probe `q1_limits.py` enter the rules, and that probe drew no sample.
-
-| study | slug | policy | question |
-| --- | --- | --- | --- |
-| gated | `learned-rule-cvtmle` | `gated` | does the interval cover the target under the published conditions, C3 included |
-| reporting | `learned-rule-cvtmle-boundary` | `reporting` | how does the interval behave at an exceptional law and at a weak blip |
-
-The gated study states only the published conditions. The boundary laws go to a separate study,
-so a red boundary cell fails no gate that claims them.
-
-(rules-that-both-studies-follow)=
-##### Rules that both studies follow
-
-| rule | statement |
-| --- | --- |
-| L1, per-replicate truth | each row carries its own truth. "[The per-replicate truth](#the-per-replicate-truth)" gives the framework extension. The first commit of pull request C builds it, and that commit moves no registered artifact |
-| L2, seeds | the primary rows draw from `replicate_seed` of the study's record. A property draw uses the `"property_sample"` tuple of the property table. Two paired arms share one draw and one partition. The fold partition of each draw uses the tuple that "[The fold-partition seeds](#the-fold-partition-seeds)" gives. L3 does not judge fold seeds, because an equal partition seed on two different samples repeats no sample |
-| L3, seed collision | a sample seed is judged against every sample seed of the same law on the same record. The order is the primary scenarios, then the property cells in the order of the property table, then the replicates of a cell by index. A colliding property cell moves its whole label to the same label followed by `"retry"` and the smallest counter `j >= 1` that leaves the set. A collision inside a primary scenario stops the declaration |
-| L4, failed fit | a fit that raises, a non-finite estimate or standard error, or a truth-harness refit whose rule differs from the fit's rule on any validation row stops the run. The run draws no replacement sample and publishes nothing. A solver warning is not a failed fit: a declared run counts the warnings of each fit and of its truth refits in a `solver_warnings` column, and no rule reads that column |
-| L5, reading order | a reading table is read from the top. The first condition that holds names the reading |
-| L6, run form | RM18 rule R6 applies. Both manifests must record `cleverly_worktree_clean: true` and Python 3.13.7 |
-| L7, runtime | the main checkout's Python 3.13.7, with NumPy 2.4.6, SciPy 1.18.0, pandas 3.0.5, scikit-learn 1.9.0 and joblib 1.5.3. `PYTHONPATH` names the tree's `src` and root. One process pool runs at a time. No fast suite, `nox` session or other study runs beside it |
-| L8, smoke | two smoke runs come first, at the declared n = 2,000. The first uses `--replicates 4`, and the second uses at least 32 draws at `--jobs 16`. Both write to a scratch `--output` |
-| L9, throwaway seeds | a smoke run replaces the record by `replace(record, seed=stream_seed(record, "rm30", "smoke"), resampling_seed=stream_seed(record, "rm30", "smoke-resampling"))`. The harness refuses a smoke whose sample seed equals a declared sample seed. A smoke reading says `smoke run, not the declared budget` |
-| L10, solver | every smoke draw must show rule agreement 1 and no solver warning. Otherwise a pushed amendment changes the solver settings of the affected outcome learner before any declared run. This is the one exception to L11. The amendment may change `solver`, `tol` and `max_iter` only. It changes no model class, feature, penalty, law, size, budget, margin, seed or cell |
-| L11, one run | each study runs once, the gated study first. No margin, budget, law, learner, size, seed or cell changes after a smoke or a declared run, except by L10. A run that L4 stops is not the L11 run. Before its rerun, a pushed amendment may change the harness code and, by the rule of L10, the solver settings. The rerun reuses every declared seed. A red verdict publishes |
-| L12, merge | pull requests B and C merge together |
-
-(the-per-replicate-truth)=
-##### The per-replicate truth
-
-The framework assumes one truth for each scenario and estimand. The schema refuses a truth column
-that varies by more than `TRUTH_TOLERANCE`. The summaries read the first truth of a cell, and the
-spread statistics read the SD of `estimate`. For this target the truth varies by replicate, and
-$\operatorname{Var}(\psi^*_n)$ differs from $\operatorname{Var}(\psi^*_n - \tilde\psi_{0n})$.
-
-A new `StudyRecord` field, `truth_varies_by_replicate`, defaults to `False`. Only a record that sets
-it takes the branch in the table. Every other record keeps its arithmetic byte for byte, because
-subtracting a constant truth moves the last bits.
-
-| statistic | a record with one truth | a record with `truth_varies_by_replicate=True` |
-| --- | --- | --- |
-| schema check of the truth | constant within `TRUTH_TOLERANCE` | finite on every row. The schema skips the constancy check, and it checks `covered` against the row's own truth |
-| inference scale | any declared scale | the level scale only. The framework refuses any other scale for such a record |
-| bias, its Student interval, and the standardized bias | the mean estimate minus the truth, standardized by the SD of the estimate | the mean of the error $e_r = \hat\psi_r - \tilde\psi_{0n,r}$, standardized by the SD of the error |
-| empirical SE and RMSE | from the estimates | from the errors |
-| SE ratio and its bootstrap | the mean SE over the SD of the estimate | the mean SE over the SD of the error. The bootstrap resamples the error and SE together, by row |
-| efficiency ratios | the empirical ratio reads the SD of the estimate | the empirical ratio reads the SD of the error. The reported ratio is unchanged |
-| root-n slope, `spread` | the SD of the estimate at each size | the SD of the error at each size |
-| noise control | noise is added to the estimate | the same. The error is recomputed from the noisy estimate |
-| paired displacement | the difference of the arm means over the SD of the positive arm's estimate | the same statistic on the errors. Each arm subtracts its own truth |
-| coverage | the per-row `covered` flag | unchanged |
-| `summary.csv` | `truth` | `truth` holds the mean truth. The columns `truth_min` and `truth_max` are added for such a record only |
-
-A unit witness builds a table whose truth varies, with the SD of the estimate unequal to the SD of
-the error. The flagged branch must return the mean SE over the SD of the error. A mutation that
-reads the SD of the estimate must fail it. The fast-tier recomputation of every registered study
-must pass unchanged after the extension.
-
-(the-laws-and-the-constants-computed-before-the-declaration)=
-##### The laws, and the constants computed before the declaration
-
-Every law draws $W_1 \sim U(-1, 1)$ and $W_2 \sim \operatorname{Bernoulli}(0.5)$. The treatment
-mechanism is $\operatorname{logit} g_0(1 \mid W) = 0.3 W_1 - 0.2 W_2$, so $g_0$ lies in 0.38 to
-0.57. The outcome is $Y \sim \operatorname{Bernoulli}(\bar Q_0(A, W))$, with
-$\operatorname{logit} \bar Q_0(a, W) = 0.2 + 0.5 W_1 - 0.3 W_2 + a\, b(W)$.
-
-The probe `q1_limits.py` computed each constant below by quadrature, with no simulation and no
-seed. The limit blip is that of the population logistic fit of the declared outcome learner, on
-its seven columns. "Reads made before this declaration" lists the probe.
-
-| key | $b(W)$ | $d_0$ treats | limit blip of the learner, logit scale | $d_1$ treats | $\Psi_{d_0}(P_0)$ | $\Psi_{d_1}(P_0)$ | C3 | study |
-| --- | --- | --- | --- | --- | ---: | ---: | --- | --- |
-| `non_exceptional` | $0.1 + W_1$ | $W_1 > -0.1$ | $0.1 + W_1$, the true blip | $d_0$ | 0.577115 | 0.577115 | holds, with $d_1 = d_0$ | gated |
-| `misspecified_limit` | $0.8 W_1 + W_1^2 - 0.3$ | $W_1 > 0.278233$ | $-0.003990 + 0.794092\,W_1 + 0.002889\,W_2$ | $W_1 > 0.005025$ at $W_2 = 0$, and $W_1 > 0.001387$ at $W_2 = 1$ | 0.560251 | 0.554747 | holds, with $d_1 \ne d_0$. The cell rests on Corollary 3 | gated |
-| `weak_blip` | $0.15 W_1$ | $W_1 > 0$ | $0.15 W_1$ | $d_0$ | 0.521047 | 0.521047 | within C3: JCI, Equation (5), and Theorem 6 hold. A red cell is a finite-sample limit at n = 2,000 | reporting |
-| `exceptional` | $0$ | no unit | $0$ | none: the limit blip is zero everywhere | 0.512179 | 0.512179 | fails. Every rule has the value 0.512179 | reporting |
-
-| constant | value | computation |
-| --- | ---: | --- |
-| efficiency bound of `non_exceptional` | 0.664444 | $\sqrt{\operatorname{Var}_{P_0} D^*(d_0, \bar Q_0, g_0)}$, the SD of the influence curve at $d_1 = d_0$ |
-| SE-shrink factor | 0.70 | the factor that `cde_tmle_properties.py` and other registered studies declare |
-| displacement threshold, `targeting_necessity` | 0.5 | positive-arm SDs of the error, twice the bias margin |
-| displacement threshold, `fold_locality` | 0.5 | the same |
-| `targeting_necessity` learner, limit blip | 0.150594 at $W_2 = 0$, and 0.194255 at $W_2 = 1$ | the population logistic fit on $A$, $W_2$ and $A W_2$. Both values are nonzero, so C3 holds, and $d_1$ treats every unit |
-| its target $\Psi_{d_1}(P_0)$ | 0.531616 | the treat-all value |
-| its untargeted plug-in limit | 0.549165 | $E\,\bar Q_1(d_1(W), W)$ for the working limit $\bar Q_1$ |
-| its limit plug-in bias $b_\infty$ | +0.017549 | the plug-in limit minus the target |
-| $b_\infty$ in positive-arm SDs at n = 2,000 | 1.075 to 1.124 | $\sqrt{n}\,b_\infty$ over 0.729826, the SD of $D^*(d_1, \bar Q_1, g_0)$, and over 0.698330, the SD of $D^*(d_1, \bar Q_0, g_0)$ |
-
-The `misspecified_limit` cell tests coverage under Corollary 3, not the conservativeness of its
-interval. The Corollary 3 projection term predicts an SE ratio of 1.0002 there. The review probe
-`r1_quadrature.py` computed it as a ratio of two SDs. The SD of the working curve is 0.667442. The
-SD of that curve minus its projection on the logistic treatment model is 0.667326.
-
-The `targeting_necessity` positive arm also rests on Corollary 3,
-because its outcome learner omits $W_1$ and its mechanism is correct. Corollary 3 gives that arm
-the influence curve $D^*(d_1, Q^{d_1}, g_0) + D_g(P_0)$. The range of the last row assumes that
-the SD of that curve lies between the two SDs named. That step is an unsourced derivation, and no
-rule depends on it.
-
-(the-gated-study)=
-##### The gated study
-
-| field | declaration |
-| --- | --- |
-| slug and grid name | `learned-rule-cvtmle`, "CV-TMLE of the fold-local learned-rule value" |
-| scenarios | `non_exceptional` and `misspecified_limit`, each with the estimand `ey_learned_rule[learned rule]`, in that order |
-| estimator | `TMLE(learned_rule=LearnedRule(), n_folds=10, cv_evaluation=True, targeting_scheme="pooled", g_bounds="auto")`, with the fold seed of L2 |
-| outcome learner | `Pipeline(PolynomialFeatures(2, interaction_only=True, include_bias=False), LogisticRegression(C=1e6, max_iter=5000, tol=1e-10))` on the design $(A, W_1, W_2)$ |
-| treatment learner | `LogisticRegression(C=1e6, max_iter=1000)` on $(W_1, W_2)$, a correct parametric model |
-| sample size | n = 2,000. The ten folds hold 200 rows each, so the weights $1/V$ and $n_v / n$ agree |
-| primary budget | 6,000 replicates for each scenario |
-| primary verdicts | the framework defaults in the error form of L1: the 99% Student bias interval inside 0.25 SD, the 99% Clopper-Pearson coverage interval's lower end at or above 0.90, and the SE-ratio interval inside 0.80 to 1.20 |
-| truth | each replicate refits each fold's outcome learner on the fit's own training rows, from `result.nuisance.folds`, with the design order $(A, W_1, W_2)$. The refit rule must equal the fit's rule on every validation row (L4). The truth is $(1/V) \sum_v \Psi_{d_{nv}}(P_0)$, by the trapezoid rule on 4,001 points of $W_1$ for each $W_2$, with the known $\bar Q_0$ |
-| truth check | a unit test of pull request C recomputes every constant of the two law tables by quadrature, and each value must equal its table entry within 1e-5. It also evaluates the harness trapezoid rule at the fixed rules $d_0$ of the four laws, to the same tolerance. No untracked probe carries a constant that a verdict reads |
-| oracle SE | $\sqrt{V^{-2} \sum_v \operatorname{Var}_{P_0} D^*(d_{nv}, \bar Q_0, g_0) / n_v}$ for each replicate, by the same quadrature. It is a descriptive column, and no rule reads it |
-| seeds | `seed=20263001` and `resampling_seed=20263002` |
-| comparator | none. The study records an empty, schema-valid `equivalence.csv` |
-| efficiency bound | `efficiency_bounds={"non_exceptional": 0.664444}`, with `calibration_efficiency_ratio=False`. The bound sizes the noise control only, and no gate reads an efficiency band |
-| artifacts and modules | `tests/canonical/learned_rule_cvtmle/`; `tests/studies/learned_rule_cvtmle.py`, `tests/studies/learned_rule_cvtmle_properties.py` and `tests/studies/_learned_rule_law.py` |
-| document | `docs/technical-reference/method-evidence/learned-rule-cvtmle.md` |
-| limitations | a binary treatment and outcome, one learner class for each cell, equal folds, and no weights, clusters, missing outcomes, repeats, full-refit bootstrap or strata. The value of the optimal rule is not tested. The truth harness needs deterministic learners |
-
-The property cells run on the `non_exceptional` law with the declared learners, unless a row names
-another learner. The table gives them in the order that L3 reads.
-
-| family | cells and roles | n | replicates | draw label | rule |
-| --- | --- | --- | ---: | --- | --- |
-| `interval_calibration` | `non_exceptional__correctly_specified`, positive. `non_exceptional__shrunken_se_control` and `non_exceptional__noise_control`, derived from its rows | 2,000 | 17,000 | `("property_sample", "interval_calibration", "non_exceptional__correctly_specified", replicate, "retry", 1)`, moved by L3 | the positive SE-ratio interval lies inside 0.93 to 1.07, and its coverage interval inside 0.92 to 0.98. The shrunken control multiplies each SE by 0.70. The noise control adds noise with SD 0.664444 / $\sqrt{2000}$. Each control's SE-ratio interval must lie below 0.93 |
-| `root_n_and_efficiency` | `n_500`, control; `n_2000` and `n_8000`, positive | 500, 2,000 and 8,000 | 6,000 at each size | `("property_sample", "root_n_and_efficiency", "n_<size>", replicate)` | the framework rules, and the `root_n_rate` slopes of the error SD and of the mean SE |
-| `targeting_necessity` | `non_exceptional__targeted`, positive; `non_exceptional__untargeted`, control, the same fit without its fluctuation | 2,000 | 2,655 | `("property_sample", "targeting_necessity", "non_exceptional", replicate)`, one draw for both arms | the outcome learner is `Pipeline(ColumnTransformer([("keep", "passthrough", [0, 2])]), PolynomialFeatures(2, interaction_only=True, include_bias=False), LogisticRegression(C=1e6, max_iter=5000, tol=1e-10))` on the design order $(A, W_1, W_2)$, so it keeps $A$ and $W_2$. The treatment learner is correct. `necessity_verdicts` in the error form: the positive bias interval inside 0.25 SD, the control's `bias_discriminated`, and a displacement of at least 0.5 |
-| `fold_locality` | `non_exceptional__fold_local`, positive; `non_exceptional__validation_rows`, control | 2,000 | 2,655 | `("property_sample", "fold_locality", "non_exceptional", replicate)`, one draw and one partition for both arms | the outcome learner is `RandomForestClassifier(n_estimators=100, min_samples_leaf=5, random_state=0)`. The control, a study-only subclass, fits each fold's rule on that fold's validation rows. Each arm's truth is the value of the rules it used. `necessity_verdicts` in the error form with a displacement of at least 0.5. The family reads bias only, so no coverage or SE ratio enters |
-
-The study adds a `fold_locality` entry to `descriptions.py`. The deliberate mutation of dropping a
-targeting term is the `targeting_necessity` control. The mutation of the reported SE is the pair of
-calibration controls. At equal folds the pooled and cross-validated variance forms coincide, so no
-cell can see a change of the variance. The unit witnesses of pull request B cover that mutation at
-unequal folds.
-
-(the-fold-partition-seeds)=
-##### The fold-partition seeds
-
-Each draw's fold partition uses `stream_seed(record, *labels)` with the labels below. A property
-cell's labels equal its draw labels, with `"fold_partition"` in place of `"property_sample"`.
-
-| draws | labels |
-| --- | --- |
-| a primary draw of scenario `s`, both studies | `("fold_partition", "primary", s, replicate)` |
-| `interval_calibration` | `("fold_partition", "interval_calibration", "non_exceptional__correctly_specified", replicate, "retry", 1)` |
-| `root_n_and_efficiency` at size `m` | `("fold_partition", "root_n_and_efficiency", "n_<m>", replicate)` |
-| `targeting_necessity`, both arms | `("fold_partition", "targeting_necessity", "non_exceptional", replicate)` |
-| `fold_locality`, both arms | `("fold_partition", "fold_locality", "non_exceptional", replicate)` |
-
-The declared fold seeds hold 64,309 distinct values over 64,310 draws. One pair of draws shares a
-partition seed, and that pair repeats no sample.
-
-(the-reporting-study-and-its-reading-table)=
-##### The reporting study and its reading table
-
-| field | declaration |
-| --- | --- |
-| slug and grid name | `learned-rule-cvtmle-boundary`, "CV-TMLE of the fold-local learned-rule value at exceptional and weak-blip laws" |
-| scenarios | `exceptional` and `weak_blip`, each with `ey_learned_rule[learned rule]`, in that order |
-| estimator, learners, size, truth, oracle SE | as in the gated study |
-| primary budget | 6,000 replicates for each scenario |
-| verdicts | the gated study's primary verdicts, with `publication_policy="reporting"`. No property cell |
-| red cells | each red cell enters the [red-cell ledger](technical-reference/method-evidence/red-cells.md) with the owner F27. F27 states, row by row, that a red `exceptional` cell has no published result and that a red `weak_blip` cell has one. Pull request C adds the F27 anchor to `_OWNER_ANCHORS` in `red_cells.py` |
-| seeds | `seed=20263003` and `resampling_seed=20263004` |
-| artifacts, modules and document | `tests/canonical/learned_rule_cvtmle_boundary/`; `tests/studies/learned_rule_cvtmle_boundary.py` and the shared law module; `docs/technical-reference/method-evidence/learned-rule-cvtmle-boundary.md` |
-| limitations | the gated study's limitations. A red `exceptional` cell marks the boundary of C3. A red `weak_blip` cell is a finite-sample limit at n = 2,000 inside C3. Neither is a defect |
-
-The reading reads each law's 99% Clopper-Pearson coverage interval at 6,000 replicates.
-
-| reading, for each law | condition |
-| --- | --- |
-| `under-covers at the <law> law` | the interval's upper end is below 0.95 |
-| `no under-coverage resolved at the declared budget` | the interval's lower end is at or above 0.90 |
-| `unresolved` | otherwise |
-
-The user-guide statement of the boundary quotes the `exceptional` reading. No reading moves a
-verdict of the gated study.
-
-(seeds-derived-at-the-declaration)=
-##### Seeds derived at the declaration
-
-The probe `q2_seed_collisions.py` applied L3 to the declared labels. It computed seeds only, and it
-drew no sample.
-
-| record | law | sample seeds | result |
-| --- | --- | ---: | --- |
-| `learned-rule-cvtmle` | `non_exceptional` | 46,310 | calibration replicate 4,893 equals primary replicate 4,696. The calibration cell therefore moves to `("retry", 1)`, as the property table gives. No other collision |
-| `learned-rule-cvtmle` | `misspecified_limit` | 6,000 | no collision |
-| `learned-rule-cvtmle-boundary` | `exceptional`, `weak_blip` | 6,000 each | no collision |
-
-No declared sample seed equals a seed that a pilot or probe drew.
-
-(budget-and-runtime)=
-##### Budget and runtime
-
-The budgets use the R3 rule of the [RM18 rules](#rules-that-every-design-follows). The rule sets
-a target half-width for each gated statistic: one fifth of the distance between its nominal
-value and its gate. Each budget is the smallest one whose 99% half-width meets that target.
-
-A cell with more than one gated statistic takes the largest budget. The primary laws take 6,000
-from the coverage row. The calibration cell takes 17,000 from the SE-ratio row. The
-`fold_locality` cells take 2,655 from the control-bias row.
-
-The table applies the same rule to the root-n and `targeting_necessity` cells. The probe
-`q3_budget_rule.py` computes each value. The R3 forms need no pilot for coverage, the SE ratio
-and the bias. The reported-SE slope reads the coefficient of variation of the reported SE from the
-throwaway-seed pilot `p11_budget_inputs.py`: 0.0245 at n = 500 and 0.0071 at n = 8,000.
-
-| cell | gated statistic | nominal and gate | half-width | rule value | budget |
-| --- | --- | --- | --- | ---: | ---: |
-| `root_n_and_efficiency`, each size | coverage, the lower end for a positive size and the resolution for the control size | 0.95, floor 0.90 | 0.010 | 5,972 | 6,000 |
-| `root_n_and_efficiency`, positive sizes | SE ratio | 1, sanity edge 0.80 | 0.04 | 2,074 | within 6,000 |
-| `root_n_and_efficiency`, positive sizes | bias | 0, margin 0.25 SD | 0.05 SD | 2,654 | within 6,000 |
-| `root_n_rate`, `spread` | slope of the log error SD on log n | -0.5, margin 0.125 | 0.025 | 1,381 | within 6,000 |
-| `root_n_rate`, `reported` | slope of the log mean SE on log n | -0.5, margin 0.125 | 0.025 | 1 | within 6,000 |
-| `targeting_necessity`, both arms | bias, inside the margin for the positive arm and outside it for the control | 0, margin 0.25 SD | 0.05 SD | 2,654 | 2,655, as the R3 control-bias row |
-
-The first version of this declaration, at commit `dbf224cf`, set 800 for both cells with no R3
-basis. Commit `d0f8a9fa` replaced those budgets with the rule budgets above. The coverage row sets
-the root-n budget at each of the three sizes. The slope rows use a relative error of the SD of $1 /
-\sqrt{2R}$, as R3 does, over the three sizes spaced by $\log 4$.
-
-The paired displacement of `targeting_necessity` has no interval in the framework and no R3 row,
-so the rule sets no budget for it. For information only: the pilot gives the SD of the paired
-error difference as 0.5416 positive-arm SDs. The R3 form can take the quadrature value 1.075 as
-its nominal value and 0.5 as its gate. The rule value is then 148. No rule reads that number.
-
-| block | fits | seconds each | core-seconds |
-| --- | ---: | ---: | ---: |
-| gated primary, two laws | 12,000 | 0.30 | 3,600 |
-| `interval_calibration` | 17,000 | 0.30 | 5,100 |
-| `root_n_and_efficiency` at 500, 2,000 and 8,000 | 18,000 | 0.10, 0.30 and 1.2 | 9,600 |
-| `targeting_necessity`, one fit for both arms | 2,655 | 0.30 | 797 |
-| `fold_locality`, two arms with the forest | 5,310 | 7.9 | 41,950 |
-| reporting study, two laws | 12,000 | 0.30 | 3,600 |
-| total | | | about 64,600, or 18.0 core-hours |
-
-The seconds include the truth harness. Most come from the pilot logs under Python 3.11. A
-logistic fit took 0.23 to 0.40 s at n = 2,000. A forest fit took 1.75 s at n = 1,000, which this
-table scales by the training rows. The pilot `p11_budget_inputs.py` measured 0.10, 0.11 and
-0.18 s under the declared runtime at n = 500, 2,000 and 8,000. The table keeps the larger
-value at each size.
-
-At the measured parallelism of 6.4 on 16 logical cores, the runs take about 2.8 hours. The
-earlier real-run ratios against a 16-way projection, 1.8 to 4.3, give 2.0 to 4.8 hours. The
-budget is about 5 hours of the machine, alone, plus the two smoke runs.
-
-(reads-made-before-this-declaration)=
-##### Reads made before this declaration
-
-The planning reads below came before this declaration. Each pilot drew its own seeds, and none of
-them is a declared seed. Four design choices followed pilot readings, and the table states them.
-
-| read | runtime and seeds | what was printed | what it informed |
-| --- | --- | --- | --- |
-| p1 to p4 on 2026-09-26: the refusal, the fold-local density, the fold-evaluated variance and the timing | Python 3.11. Sample seeds 7 and 100 to 102. Fold seeds 11 and 0 to 2 | the refusal text, a pooled-score mean of -3.3e-14, a variance match to 2.568e-04, and 0.06 s for each fit | the reuse of the pooled fold-evaluated construction |
-| p5, p7 and p8 on 2026-09-26: coverage pilots | Python 3.11. Sample seeds 1,000 to 1,399, and fold seeds 0 to 399. 400 replicates for each law | coverage, bias and SE ratio for the laws N, E, M1, M2 and S. For example, coverage 0.945 with SE ratio 0.999 on N at n = 2,000, and 0.892 with 0.820 on E | the choice of the law M2 as `misspecified_limit` after M1 read like E, and the move of E and S to the reporting study |
-| p6 on 2026-09-26: the fold-locality mutation | Python 3.11. Sample seeds 5,000 to 5,149, and fold seeds 0 to 149 | a positive bias of -0.05 SD with coverage 0.907, and a control bias of +6.54 SD | the forest cell and the rule that `fold_locality` reads bias only |
-| `q1_limits.py` on 2026-09-28 | the declared runtime. No seed | every constant in the two law tables | the constants, $d_1$ of `misspecified_limit`, and the displacement threshold |
-| `p9_agreement_p1.py` on 2026-09-28 | the declared runtime. Throwaway seeds 9,300,000 to 9,300,039, each for the sample and its folds | on 40 draws for each of three learner and law pairs: rule agreement 1, no solver warning, and a median fit time of 0.06 s. It printed no estimate | the declared solver settings, which stay unchanged |
-| `p10_drop_w1_rule.py` on 2026-09-28 | the declared runtime. Throwaway seeds 9,400,000 to 9,400,099, each for the sample and its own fold permutation | 105 of 2,000 fold and stratum rules of the $W_1$-dropping learner do not treat, at n = 2,000 | a stated risk only. That arm's fold rule departs from its limit on some folds, and the family reads bias only |
-| `q2_seed_collisions.py` on 2026-09-28, run again after commit `d0f8a9fa` and after the review | the declared runtime. Seeds only, and no draw | three checks. L3 on the declared sample seeds. The overlap of every pilot sample seed and fold seed in this table with every declared sample seed and fold-partition seed: none. The overlap of the first 32 primary seeds of each L9 smoke record with every declared seed: none | the `("retry", 1)` label of the calibration cell |
-| `p11_budget_inputs.py` on 2026-09-28 | the declared runtime. Throwaway seeds 9,500,000 to 9,500,049, 9,600,000 to 9,600,049 and 9,700,000 to 9,700,049 for the three sizes, and 9,800,000 to 9,800,099 for the `targeting_necessity` pair, each for the sample and its folds | the CV of the reported SE (0.0245, 0.0138 and 0.0071), the wall time of a fit with its truth, and the SD ratio 0.5416 of the paired errors. It printed no coverage, bias or displacement. It also printed two solver warnings | the reported-SE slope row of the budget rule, the runtime, and the information row on the displacement |
-| `p12_ladder_warnings.py` and `p13_pair_warnings.py` on 2026-09-28 | the same throwaway seeds | warning counts and rule agreement only. The ladder showed no warning. On the pair, draw 69 gave one lbfgs `ABNORMAL` warning in the fit and the same warning in its refit, and rule agreement stayed 1 | a stated risk for L10: a smoke draw of the $W_1$-dropping learner can warn |
-| `q3_budget_rule.py` on 2026-09-28 | no seed | the rule values of the budget table | the root-n and `targeting_necessity` budgets |
-| the review probes `r1_quadrature.py`, `r2_seeds.py` and `r3_trapezoid.py` on 2026-09-28 | the declared runtime. Seeds only, or no seed | an independent recomputation of every constant, every budget and the seed rule, and the trapezoid error of the harness truth | the predicted SE ratio 1.0002 of `misspecified_limit`. No rule changed |
-
-The probes and their logs are in the planning directory, which the repository does not track. No
-declared seed has drawn a sample.
+| target | `LearnedRuleValue` and `TMLE(learned_rule=LearnedRule())` estimate the average, over the outer folds, of the value of the plug-in rule that each fold's training rows learn. Van der Laan and Luedtke (2015), Section 7 and Appendix B, define the target and its CV-TMLE. The `learned_rule` parameter axis reuses the regime fluctuation |
+| contract | [Learned rules](technical-reference/point-treatment-tmle.md#learned-rules) gives the algorithm, the conditions C1 to C6 and the refusal order. `refuse_learned_rule_composition` in `src/cleverly/interventions/learned.py` refuses every other composition before any learner, and each refusal cites [X11](#x11-learned-policy-follow-ups), [F27](#f27-learned-policy-value-outside-the-published-conditions), F17 or F21 |
+| record | `LearnedRuleRecord` in `result.extra["learned_rule"]` holds the fold sizes, the fold estimates, the treated shares and the blip quantiles. It survives `save` and `cleverly.load` |
+| RM28 text | `_ESTIMATED_RULE` names `LearnedRuleValue` for a point treatment and X11 for a longitudinal regimen. The refusal is unchanged |
+| evidence framework | `StudyRecord.truth_varies_by_replicate` reads every statistic on the error. [A truth that varies by replication](development/method-benchmarking.md#a-truth-that-varies-by-replication) states the rule. A study with no property cell registers as a reporting study and takes no grid row |
+| gated study | the [gated study](technical-reference/method-evidence/learned-rule-cvtmle.md) passes every primary test and every property cell. Coverage is 0.9465 at `non_exceptional` and 0.9413 at `misspecified_limit`, over 6,000 replications at n = 2,000 |
+| reporting study | the [boundary study](technical-reference/method-evidence/learned-rule-cvtmle-boundary.md) reads `under-covers at the exceptional law` and `under-covers at the weak_blip law`. Coverage is 0.8938 and 0.8948, and the SE ratio is 0.8211 and 0.8314. F27 owns both red rows |
+
+The unit witnesses are the six `tests/unit/test_learned_rule_*.py` modules for fold locality,
+targeting, the influence curve, the variance, the refusals and persistence.
+`tests/unit/test_per_replicate_truth.py` holds the witness of the evidence framework.
 
 ### RM32. Continuous-dose MSM fit with missing outcomes
 
@@ -3226,7 +2782,7 @@ The [RM30](#rm30-learned-policy-value-evaluation) contract estimates one target 
 construction. Each part below is a published follow-up outside that contract. For parts (a) to
 (e) and (h), the RM30 refusal of the request cites the part. No request reaches parts (f) and
 (g). Each part needs its own contract, witnesses and registered study
-before it ships, as RM30 does.
+before it ships, as RM30 did.
 
 | part | the request that RM30 refuses | published source | readiness |
 | --- | --- | --- | --- |
@@ -3246,9 +2802,10 @@ that update for arm targets.
 ### F27. Learned-policy value outside the published conditions
 
 The [RM30](#rm30-learned-policy-value-evaluation) contract refuses each request below before any
-learner, with two exceptions. The reporting study measures the exceptional-law row, and the
-assessment row reads `unavailable`. F27 owns every red cell of the reporting study. The table
-states, row by row, whether a published result is missing.
+learner, with two exceptions. The
+[reporting study](technical-reference/method-evidence/learned-rule-cvtmle-boundary.md) measures
+the exceptional-law row, and the assessment row reads `unavailable`. F27 owns every red cell of
+the reporting study. The table states, row by row, whether a published result is missing.
 
 | request | missing published result |
 | --- | --- |

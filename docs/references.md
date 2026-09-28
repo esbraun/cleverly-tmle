@@ -538,7 +538,7 @@ previous reader had is not a citation; a page number is.
   learned policy, and it gives the influence function when the learned policy has a limiting policy.
   Algorithm 4 learns each policy on the rows outside a fold. It pools the doubly robust scores with
   weight $1/N$, and it centres the variance estimate at the pooled estimate. This is a method
-  distinct from the one that [RM30](roadmap.md#rm30-learned-policy-value-evaluation) plans, and
+  distinct from the one that [RM30](roadmap.md#rm30-learned-policy-value-evaluation) implements, and
   [X11](roadmap.md#x11-learned-policy-follow-ups) part (e) holds it.
   [RM28](roadmap.md#rm28-declared-densities-of-user-written-interventions) requires `Rule`, and a
   `DynamicRegimen` with a callable node, to declare `rule_kind="known"`. It refuses a rule

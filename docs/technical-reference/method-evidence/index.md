@@ -1,6 +1,6 @@
 # Implementation validation studies
 
-Each page here validates one method that `cleverly` implements. A page exists only for a study
+Each page here reports one study of a method that `cleverly` implements. A page exists only for a study
 registered in `tests/studies/evidence/registry.py`. The shared machinery in
 `tests/studies/evidence/` computes every verdict, and `tests/unit/test_method_evidence.py` checks
 these pages against the committed results. Every table is generated from those results, so a stale
@@ -10,10 +10,14 @@ Read the pages in this order.
 
 | page | what it gives you |
 | --- | --- |
-| [Implementation validation grid](validation-grid.md) | all thirty-nine studies in one table, with the counts and the declared limits |
+| [Implementation validation grid](validation-grid.md) | the forty validation studies in one table, with the counts and the declared limits |
 | [How to read these studies](how-to-read.md) | the three questions, the verdict rules, and the terms every study below applies |
 | [The red-cell ledger](red-cells.md) | every red verdict the studies publish, and the roadmap ask that owns each one |
-| the thirty-nine study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
+| the forty-one study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
+
+A validation study declares property cells. The
+[learned-rule boundary study](learned-rule-cvtmle-boundary.md) declares none, so it has a page and
+no grid row.
 
 To register a new study, follow
 [adding a method row](../../development/method-benchmarking.md#adding-a-method-row).
@@ -47,6 +51,8 @@ controlled-direct-effect-tmle
 randomized-missing-outcome-dr-tmle
 point-treatment-msm-projection
 deterministic-point-treatment-regimes
+learned-rule-cvtmle
+learned-rule-cvtmle-boundary
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
 incremental-propensity-interventions

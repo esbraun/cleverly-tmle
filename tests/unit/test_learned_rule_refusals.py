@@ -1,7 +1,7 @@
 """Every learned-rule composition outside the RM30 contract refuses, in order, before a learner.
 
-The table in ``docs/roadmap.md`` (RM30, "The refusals, their order and the shared text")
-lists fourteen rows.  Each row raises :class:`~cleverly.exceptions.CapabilityError` with
+The refusal table of the learned-rule contract in
+``docs/technical-reference/point-treatment-tmle.md`` lists fourteen rows.  Each row raises :class:`~cleverly.exceptions.CapabilityError` with
 its item before any learner is fitted, at the engine and at ``CausalStudy``, with one
 exception: ``CrossFitting(n_folds=1)`` refuses at construction, before it sees the
 estimand, with a :class:`~cleverly.exceptions.MethodConfigurationError` that ends with the

@@ -152,6 +152,15 @@ rules. The interval can under-cover when the effect is zero or near zero for a s
 [Learned rules](../technical-reference/point-treatment-tmle.md#learned-rules) states the
 conditions.
 
+Two registered studies measure the 95% interval over 6,000 replications at n = 2,000. The table
+gives its coverage at each law.
+
+| law | coverage | reading |
+| --- | --- | --- |
+| no effect for any unit | 0.8938, with a 99% interval of 0.8832 to 0.9038 | `under-covers at the exceptional law`, in the [reporting study](../technical-reference/method-evidence/learned-rule-cvtmle-boundary.md) |
+| a weak effect, $0.15 W_1$ on the logit scale | 0.8948, with a 99% interval of 0.8842 to 0.9048 | `under-covers at the weak_blip law`, in the same study |
+| two laws that meet the published conditions | 0.9465 and 0.9413 | every verdict passes, in the [gated study](../technical-reference/method-evidence/learned-rule-cvtmle.md) |
+
 ```python
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline

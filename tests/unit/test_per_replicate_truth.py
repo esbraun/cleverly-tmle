@@ -1,4 +1,4 @@
-"""The per-replicate truth of the evidence framework (RM30, "The per-replicate truth").
+"""The per-replicate truth of the evidence framework (``method-benchmarking.md``, RM30).
 
 A record that sets ``truth_varies_by_replicate`` reads every statistic on the error
 ``estimate - truth`` of each row.  The witness here is a table whose truth varies much more

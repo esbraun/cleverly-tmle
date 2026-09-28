@@ -178,6 +178,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-learned-weighted-tmle": (
         "`cleverly` weighted point-treatment TMLE with learned nuisances"
     ),
+    "cleverly-learned-rule-cvtmle": "`cleverly` fold-evaluated CV-TMLE of the learned-rule value",
     "drtmle-r": "R `drtmle`",
     "drtmle-r-mar": "R `drtmle` with a joint treatment-response mechanism",
     "drtmle-r-multi-arm": "R `drtmle` multi-arm extension",
@@ -209,6 +210,13 @@ SCENARIOS: dict[str, str] = {
     "binary": "binary-outcome law",
     "linear": "linear Gaussian-outcome law with a constant effect, `make_linear_ate`",
     "calibrated_weak": "known propensity, logit g0 = 0.15 W1",
+    # The four learned-rule laws of RM30, by their blip b(W) on the logit scale.
+    "non_exceptional": "learned-rule law with the blip 0.1 + W1, correctly specified learners",
+    "misspecified_limit": (
+        "learned-rule law with the blip 0.8 W1 + W1^2 - 0.3, a misspecified outcome learner"
+    ),
+    "exceptional": "learned-rule law with the blip 0, no treatment effect for any unit",
+    "weak_blip": "learned-rule law with the weak blip 0.15 W1",
     "calibrated_strong": "known propensity, logit g0 = W1 - 0.5 W2",
     "binary_discrete": "binary-outcome law, discrete selector",
     "binary_greedy": "binary-outcome law, greedy selector",
@@ -310,6 +318,7 @@ REGIMENS: dict[str, str] = {
     "odds x0.5": "multiply the treatment odds by 0.5",
     "odds x2": "multiply the treatment odds by two",
     "rule": "follow the covariate-dependent rule",
+    "learned rule": "learned on each fold's training rows from its outcome regression",
     "tilt": "draw from the known stochastic tilt",
 }
 
@@ -333,6 +342,7 @@ PARAMETERISED: dict[str, str] = {
     "ate_regime": "difference in means under the regimes",
     "ate_shift": "difference in means under the modified treatment policies",
     "ey_ipsi": "mean under the incremental intervention",
+    "ey_learned_rule": "fold average of the value of the rule",
     "ey_regime": "mean under the regime",
     "ey_shift": "mean under the modified treatment policy",
 }

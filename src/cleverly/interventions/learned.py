@@ -477,7 +477,8 @@ def learned_rule_scheme_refusal(estimator: Any) -> str | None:
 def refuse_learned_rule_composition(data: CausalData, estimator: Any = None) -> None:
     """Refuse a learned-rule request that the RM30 contract does not cover.
 
-    The checks follow the RM30 refusal table in ``docs/roadmap.md``.  A refusal that no
+    The checks follow the refusal table of the learned-rule contract in
+    ``docs/technical-reference/point-treatment-tmle.md``.  A refusal that no
     setting repairs comes before a refusal whose remedy is a setting, as the RM24 order rule
     requires.  So a caller who follows one remedy never meets an earlier refusal next.
 

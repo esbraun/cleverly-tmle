@@ -244,7 +244,8 @@ axis-keyed consumer decides explicitly. The table gives the rules the fit keeps.
 | the estimate is the `1/V` average of the fold plug-ins | the fold-evaluated report, with each fold's curve centred at its own estimate |
 | no row is refitted | `refute`, the full-refit bootstrap and `repeats` above 1 refuse, because a refit relearns the rules. Every sensitivity analysis refuses too, because no derivation for this target was reviewed |
 
-[RM30](roadmap.md#rm30-learned-policy-value-evaluation) records the contract. *Reconsider when* the
+[Learned rules](technical-reference/point-treatment-tmle.md#learned-rules) states the contract, and
+[RM30](roadmap.md#rm30-learned-policy-value-evaluation) records its delivery. *Reconsider when* the
 package adds another learned-policy target
 ([X11](roadmap.md#x11-learned-policy-follow-ups)) or a population-law-dependent intervention
 function.

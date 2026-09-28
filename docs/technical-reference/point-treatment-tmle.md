@@ -492,8 +492,8 @@ The fit reuses the regime fluctuation and the fold-evaluated CV-TMLE. The table 
 
 "JCI" is van der Laan and Luedtke (2015). "Montoya (2023b)" is Montoya, van der Laan, Skeem and
 Petersen (2023), *International Journal of Biostatistics* 19(1):239–259. The
-{ref}`RM30 contract <the-contract>` gives every locator and the version of each source
-that this project read.
+[references](../references.md#point-treatment-and-stochastic-interventions) give every locator
+and the version of each source that this project read.
 
 The conditions come from JCI, Theorem 6 and Corollary 3. The data cannot confirm C2 to C4.
 
@@ -507,16 +507,43 @@ The conditions come from JCI, Theorem 6 and Corollary 3. The data cannot confirm
 | C6 | iid rows, with no weights, clusters, missing outcomes or intermediate variable |
 
 C3 fails at an exceptional law, where the effect is zero for a share of units and the learner is
-consistent. The fold rules then have no fixed limit, and the interval can under-cover. The
-{ref}`RM30 study declarations <the-two-studies-declared-before-they-run>` include a
-reporting study of this boundary. The study is declared, and pull request C runs it.
+consistent. The fold rules then have no fixed limit, and the interval can under-cover. Two
+registered studies measure the interval. The table gives their readings.
+
+| study | laws | reading |
+| --- | --- | --- |
+| [gated study](method-evidence/learned-rule-cvtmle.md) | `non_exceptional` and `misspecified_limit`, which meet C3 | every primary test and every property cell passes. Coverage is 0.9465 and 0.9413 over 6,000 replications at n = 2,000 |
+| [reporting study](method-evidence/learned-rule-cvtmle-boundary.md) | `exceptional`, where C3 fails, and `weak_blip`, within C3 | the interval under-covers at each law. Coverage is 0.8938 and 0.8948, and the SE ratio is 0.8211 and 0.8314 |
 
 The fit needs `CrossFitting(enabled=True, fold_evaluation=True)`, one repeat, pooled targeting and
 no full-refit bootstrap. `refuse_learned_rule_composition` in
 [`interventions/learned.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/learned.py)
-refuses every other composition before any learner, in the order that the
-{ref}`RM30 refusal table <the-refusals-their-order-and-the-shared-text>` gives. A refusal
-that no setting repairs comes first.
+refuses every other composition before any learner, in the order that the table gives. A refusal
+that no setting repairs comes before a refusal whose remedy is a setting, as the
+[RM24](../roadmap.md#rm24-refusals-after-the-nuisance-fit) order rule requires. For
+`LearnedRuleValue`, `CausalStudy.identify` runs the rows that the data decide, and
+`IdentifiedEffect.estimate` runs the rows that the settings decide.
+
+| order | request | item |
+| ---: | --- | --- |
+| 1 | `CTMLE` or `DRTMLE` with `learned_rule=` | [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
+| 2 | `learned_rule=` beside `interventions=`, `shifts=`, `incremental=`, `msm=` or `reference=`, or beside an arm estimand | [X11](../roadmap.md#x11-learned-policy-follow-ups) (c) for `interventions=`, `reference=` and an arm estimand. [F17](../roadmap.md#f17-joint-point-treatment-parameter-axes) for `shifts=`, `incremental=` and `msm=` |
+| 3 | a continuous treatment | F27 |
+| 4 | a treatment with more than two arms | X11 (d) |
+| 5 | missing outcomes, `delta=` | [F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants), with a learned-rule text that runs before the F21 refusal |
+| 6 | `intermediate=` | F27 |
+| 7 | `weights=` | F27 |
+| 8 | `id=` | F27 |
+| 9 | `strata=` | F27 |
+| 10 | `cross_fit=False`, or one fold | X11 (a) |
+| 11 | `cv_evaluation=False` | X11 (e) |
+| 12 | `targeting_scheme="fold"` | X11 (h) |
+| 13 | `repeats` above 1 | F27 |
+| 14 | `n_bootstrap` above 0, the full-refit bootstrap | F27 |
+
+Rows 1 and 2 run when the estimator is built. `CrossFitting`, `TMLEMethod` and the `TMLE`
+constructor also refuse a fold policy that the shared rules forbid, before the data exist. On a
+learned-rule `TMLE`, rows 10 to 14 replace such a refusal where one of them applies.
 [The refusals a caller can meet](cv-tmle.md#the-refusals-a-caller-can-meet) quotes each remedy.
 
 The result records the fit under `result.extra["learned_rule"]`, a `LearnedRuleRecord`. The
