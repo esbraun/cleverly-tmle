@@ -12,8 +12,9 @@ special about validating it. The pages beneath it carry the production contract:
 
 **Conditional validity.** The default univariate algorithm computes what Benkeser, Carone, van der
 Laan & Gilbert's Theorem 1 derives. `reduction="bivariate"` computes van der Laan (2014), Theorem
-3's earlier binary construction. Checks compare both constructions with their remainder derivations
-and with the parameter's Gateaux derivative. The exact finite-support laws and the remainder
+3's earlier binary construction. Benkeser et al. (2017), Section 3.1, gives that theorem number.
+Checks compare both constructions with their remainder derivations and with the parameter's
+Gateaux derivative. The exact finite-support laws and the remainder
 identities run at three arms as well as two, in the union-model cells where exactly one correction
 survives.
 
@@ -146,8 +147,8 @@ The source-to-equation map is in [the contract](theorem.md#the-objects).
 | --- | --- | --- |
 | `guard=("Q", "g")` | which extra equations are posed. The default is both | **yes**. An empty guard is a plain TMLE, and each single guard is its own construction |
 | `reduction="univariate"` | the three regressions above, from Benkeser et al. (2017). The default, because its reduced regressions can achieve faster rates | |
-| `reduction="bivariate"` | van der Laan (2014), Theorem 3: one two-column probability $P(A=a \mid \hat Q(a,W), \hat g(a\mid W))$, and equation (10)'s covariate replaced by $1_a(g_r - g)/(g\,g_r)$ | **yes**. `gr2` is `NaN` on this path by design, so accidental use of the absent regression cannot silently return zero |
-| `update_order="drtmle"` | the canonical R sequence. The default. The round refits only the mechanism reductions after equation (9), and only the outcome reduction after equation (8) | no. A diagnostic keyword. Both source-specific solve orders are pinned |
+| `reduction="bivariate"` | van der Laan (2014), Theorem 3, as Benkeser et al. (2017), Section 3.1, cites it: one two-column probability $P(A=a \mid \hat Q(a,W), \hat g(a\mid W))$, and equation (10)'s covariate replaced by $1_a(g_r - g)/(g\,g_r)$ | **yes**. `gr2` is `NaN` on this path by design, so accidental use of the absent regression cannot silently return zero |
+| `update_order="drtmle"` | the canonical R sequence. The default. One equation-(8) step primes the outcome regression before the first round, and R does not take it. The round refits only the mechanism reductions after equation (9), and only the outcome reduction after equation (8) | no. A diagnostic keyword. Both source-specific solve orders are pinned |
 | `update_order="benkeser"` | the published six-step recursion | no |
 | `reduced_crossfit="pooled"` | out-of-fold reduced fits sharing the primary split. The default | no. A diagnostic keyword |
 | `reduced_crossfit="nested"` | measures the generated-regressor dependence rather than assuming it away | no. Refused below three folds, under `cross_fit=False`, and with `targeting="one_step"` at a non-empty `guard` |

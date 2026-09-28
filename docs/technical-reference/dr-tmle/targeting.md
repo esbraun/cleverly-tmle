@@ -79,8 +79,14 @@ curve's mean from `5.8e-7` to `1.5e-6` at `n = 600`, which
 ## The update order
 
 `update_order="drtmle"` (default) or `"benkeser"`. **A diagnostic keyword rather than a tuning
-one.** `"drtmle"` follows the canonical R package: equation (9), refit only `g_{r,1}` and
-`g_{r,2}`, equations (10) and (8), then refit only `Q_r`. `"benkeser"` follows the published
+one.** The value `"drtmle"` takes the round order of the canonical R package: equation (9), refit only
+`g_{r,1}` and `g_{r,2}`, equations (10) and (8), then refit only `Q_r`.
+
+Before the first round, both orders prime `Qbar` with one equation-(8) step. R `drtmle` does not
+take that step. Step 2 of the algorithm in Benkeser et al. (2017), Section 3.2, fluctuates the
+outcome regression before it fits any reduced regression, and the prime follows it.
+
+`"benkeser"` follows the published
 six-step recursion. The working paper's step 7 states its termination as the three empirical means being
 approximately zero, so its six-step order is one route to a fixed point rather than something
 Theorem 1 assumes about the returned collection. The theorem's hypotheses are conditions on the
@@ -124,6 +130,14 @@ Read `update_order` as a diagnostic, and read a large route difference as a stat
 law rather than about the code. The
 [canonical DR-TMLE study](../method-evidence/canonical-dr-tmle.md) carries the
 measurement.
+
+RM19 measured the prime against R on 2,000 fresh draws of the binary `treatment_correct` law at
+`n = 3000`. A transcription of the R loop took the prime and three other named choices each from R or
+from this package. Averaged over the settings of the other three factors, the prime moved the mean `ate` by
+`-0.000534`. Its interval at the level 0.998 runs from `-0.001298` to `0.000231`. The whole
+difference between this package and R reads `no increment at the declared resolution`.
+{ref}`What the localization design found <what-the-localization-design-found>` gives each
+reading.
 
 ## How many rounds
 

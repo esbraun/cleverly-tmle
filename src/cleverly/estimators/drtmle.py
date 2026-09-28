@@ -4,7 +4,9 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
 
    **What this variant ships under is *conditional validity*.**  The default algorithm computes
    what Benkeser et al.'s Theorem 1 derives, and the bivariate option computes van der
-   Laan's Theorem 3 construction armwise -- checked against the theorem's appendices, against
+   Laan's (2014) Theorem 3 construction armwise (the theorem number as Benkeser et al.
+   (2017), Section 3.1, cite it; the journal version was not read here) -- checked against
+   the theorem's appendices, against
    the Gateaux derivative of the parameter, against exact finite-support laws, and against
    the remainder identities -- and the interval it reports is valid **conditional on** the
    caller obtaining
@@ -596,7 +598,7 @@ class DRTMLE(TMLE):
         if self.update_order not in UPDATE_ORDERS:
             raise ValueError(
                 f"update_order must be one of {list(UPDATE_ORDERS)}; got "
-                f"{self.update_order!r}. 'drtmle' is the canonical R package's loop and "
+                f"{self.update_order!r}. 'drtmle' is the canonical R package's round order and "
                 "the default; 'benkeser' is the published six-step recursion."
             )
         if self.reduction not in REDUCTIONS:

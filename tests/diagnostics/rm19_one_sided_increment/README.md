@@ -2,7 +2,11 @@
 
 This directory holds the design that RM19 of `docs/roadmap.md` declares in "The localization
 design, declared before it runs", as amended. It changes no study, no verdict and no committed
-row of a registered study.
+row of a registered study. Commit `b7ca9460` holds that declaration.
+
+Every declared part has run once, and its record is committed here. The primary reading, Part B
+on fresh draws, is `no increment at the declared resolution`. "What the localization design
+found" in RM19 of `docs/roadmap.md` gives each reading and what it does not show.
 
 | file | what it holds |
 | --- | --- |
@@ -110,6 +114,10 @@ AV and V4 need Docker and the image `cleverly-drtmle-reference:538a3a2`. They ru
 `tests/canonical/drtmle/Dockerfile` first, as a regeneration does. `r_phase` writes the image ID
 to `run.log` for both. Run nothing else on the machine during a part.
 
+The image ID changes with each build, so it differs between the AV and V4 blocks of `run.log`.
+The gated provenance is the hash of the `Dockerfile` and of the R runner in the study manifest.
+The two AV runs came from two builds and wrote byte-equal R rows.
+
 ## How the code resolves the declaration
 
 This table was fixed and committed before the run.
@@ -176,3 +184,14 @@ which fitted the first 32 fresh draws.
 | B | 158.1 s | 32 | 2,000 | about 2.8 h |
 | V4 | 85.3 s | 32 | 200 | about 10 min |
 | C | 39.7 s | 64 | 4,000 | about 45 min |
+
+The declared runs took these wall times at `--jobs 16`. `run.log` gives each block.
+
+| step | commit | wall time |
+| --- | --- | ---: |
+| A | `270872b4` | 4,742.4 s |
+| AV, first run | `478b0e94` | 4,382.9 s |
+| AV, under the tightened rule | `129df59e` | 4,660.6 s |
+| B | `56a8b831` | 7,067.0 s |
+| V4 | `3f275333` | 419.3 s |
+| C | `deca5b73` | 1,554.9 s |

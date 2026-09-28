@@ -23,10 +23,21 @@ targeted rows depart from it.
 margins independently even at `K = 2`; cleverly instead tilts `g_1` alone along a
 two-column covariate, so `g_0* = 1 - g_1*` holds exactly. Both solve the *same two* score
 equations. Column 0's is `P_n[Qr_0/g_0* {1(A=a_0) - g_0*}] = 0` once the sign convention in
-`reduced_mechanism_covariate` is unwound. They differ only in the submodel, hence at second
-order. So the estimator is not continuous in `K`, and a reader comparing a two-arm
+`reduced_mechanism_covariate` is unwound. They differ only in the submodel. No read source
+states that this difference is second order, so that statement is an unsourced derivation. So the
+estimator is not continuous in `K`, and a reader comparing a two-arm
 cleverly fit against a two-arm `drtmle` fit should expect agreement in the equations solved
 rather than in the iterates.
+
+RM19 measured the two routes on 2,000 fresh draws of the binary `treatment_correct` law at
+`n = 3000`. There, the treatment mechanism is correct and the outcome regression is not. The
+transcription of the R loop took each of four named choices from R or from this package.
+Averaged over the other three choices, the two-arm tilt raised the mean `ate` by `0.000833` to
+`0.001718`, at the level 0.998. The whole difference from R reads `no increment at the declared
+resolution`. `sqrt(n)` times that difference falls from `0.0789` at `n = 1500` to `0.0053` at
+`n = 6000`. Three sizes do not prove a rate, and that measurement does not isolate the tilt.
+{ref}`What the localization design found <what-the-localization-design-found>` gives each
+interval.
 
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression

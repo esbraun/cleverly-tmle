@@ -136,7 +136,8 @@ module pins both source-specific solve orders. `tests/unit/test_drtmle_fit.py` s
 historical `ill_conditioned` counter is positive despite a passing final score check.
 
 The bivariate alternative is also a construction over these targets. Its acceptance chain
-starts at van der Laan (2014), Theorem 3 and the bivariate remainder, then separately pins the
+starts at van der Laan (2014), Theorem 3, as Benkeser, Carone, van der Laan and Gilbert (2017),
+Section 3.1, cite it, and the bivariate remainder, then separately pins the
 pinned R source's two-column reduced probability and `(gr-g)/(g*gr)` outcome direction.
 Three modules carry it. `tests/unit/test_reduced_regressions.py` uses a finite-support
 joint-conditioning tie that fails if either generated design column is replaced by `W`.
