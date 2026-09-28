@@ -57,6 +57,8 @@ Commit `6d014540` rebuilt both files under the amended rule (`a-reading.csv` `3a
 recorded AV, and its `run.log` block describes those AV files. The W4 review then tightened the
 rule. The harness commit that follows it returns `a-validation.csv` and `a-reading.csv` to the
 bytes of `b51447cb` and removes the AV files, until AV runs again under the tightened rule.
+Commit "Record the RM19 AV check under the tightened rule" records that run and the rebuilt
+`a-reading.csv`, with SHA-256 `ecac4675...`.
 
 ## Run
 

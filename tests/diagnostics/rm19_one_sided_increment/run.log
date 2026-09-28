@@ -37,3 +37,25 @@ sha256 av-rows.csv.gz: 8ccfaabb28060974e8be1332772b66e08f7f469e10daab992283da6a8
 sha256 av-twin-rows.csv.gz: 508911fb0f9f811186ca6ccd24e8d86be101e392754d86bd0ec916539141c934
 sha256 av-validation.csv: b248f7aaf09aa5cc0c957278bd254ca8b96e340b4efbc2e744851e4f2ae7740f
 
+=== AV, cap None
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle\.venv\Scripts\python.exe' 'C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\tests\diagnostics\rm19_one_sided_increment\run.py' --part AV --jobs 16 --output C:/Users/erics/rm19_scratch/av2
+commit: 129df59ea48e2c6f76044be24b58687cad673b41; upstream 129df59ea48e2c6f76044be24b58687cad673b41
+clean tree: True
+cleverly 0.1.2 from C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\__init__.py
+python 3.13.7; numpy 2.4.6; scipy 1.18.0; pandas 3.0.5; scikit-learn 1.9.0; joblib 1.5.3
+installed distributions: 130, sha256 f4b33890dcf2623521a239ea0ba2ac74046a0304cc8d4b96933ca443c5644ebd
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 16
+started: 2026-09-28T01:46:33+00:00
+note: image cleverly-drtmle-reference:538a3a2: sha256:3eee02f73a12addd06159136d352b180c28cd936188493a784648f3d920ba521
+note: V2 drtmle-r: 88 maxIter draws, largest scaled difference 2.08e-05, signed mean ate difference -2.36e-07 over 88
+note: V2 drtmle-r: 3 excused draws, signed mean ate difference -2.47e-05
+finished: 2026-09-28T03:04:14+00:00
+wall seconds: 4660.6
+exit code: 0
+sha256 a-validation.csv: d6daff51b032c8131ebf8763b4ca272b5e2fab898a1305ad1f217ba79cbb247d
+sha256 av-reading.csv: 28d1f4d46e8f001ca4721cafb020ddb579d531432a36e6437fca5f81208a7c77
+sha256 av-rows.csv.gz: 8ccfaabb28060974e8be1332772b66e08f7f469e10daab992283da6a80fe07fd
+sha256 av-twin-rows.csv.gz: 0eda66461c1ef41daa4d4206b878b17844c2e2aee0505955eceb386949f8651f
+sha256 av-validation.csv: b248f7aaf09aa5cc0c957278bd254ca8b96e340b4efbc2e744851e4f2ae7740f
+
