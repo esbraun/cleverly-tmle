@@ -1,12 +1,15 @@
 # RM19: the localization design of the one-sided DR-TMLE increment
 
-This directory holds the design that RM19 of `docs/roadmap.md` declares in "The localization
+This directory holds the design that RM19 of `docs/roadmap.md` declared in "The localization
 design, declared before it runs", as amended. It changes no study, no verdict and no committed
-row of a registered study. Commit `b7ca9460` holds that declaration.
+row of a registered study. The roadmap at commit `b7ca9460` holds that declaration and its
+amendments. Read it with `git show b7ca9460:docs/roadmap.md`. A reference below to a rule by its
+number, such as rule 1 or rule 2, is to "The rule by round and conditioning" there.
 
-Every declared part has run once, and its record is committed here. The primary reading, Part B
-on fresh draws, is `no increment at the declared resolution`. "What the localization design
-found" in RM19 of `docs/roadmap.md` gives each reading and what it does not show.
+Each declared part ran once, and its record is committed here. The step AV ran twice, as "The
+record" below states. The primary reading, Part B on fresh draws, is `no increment at the
+declared resolution`. "What the localization design found" in RM19 of `docs/roadmap.md` gives
+each reading and what it does not show.
 
 | file | what it holds |
 | --- | --- |
@@ -58,11 +61,68 @@ still recorded, and its reading says `harness not validated, no reading`.
 Commit `b51447cb` holds the Part A record under the rule of `520daebd`: `a-reading.csv` with SHA-256
 `99c24c48...` and `a-validation.csv` with `24a3b366...`, the hashes of the first `run.log` block.
 Commit `6d014540` rebuilt both files under the amended rule (`a-reading.csv` `3a4bba67...`) and
-recorded AV, and its `run.log` block describes those AV files. The W4 review then tightened the
-rule. The harness commit that follows it returns `a-validation.csv` and `a-reading.csv` to the
+recorded AV, and its `run.log` block describes those AV files. The review of that amendment then
+tightened the rule. The harness commit that follows it returns `a-validation.csv` and `a-reading.csv` to the
 bytes of `b51447cb` and removes the AV files, until AV runs again under the tightened rule.
 Commit "Record the RM19 AV check under the tightened rule" records that run and the rebuilt
 `a-reading.csv`, with SHA-256 `ecac4675...`.
+
+The B, V4 and C blocks of `run.log` give `a-validation.csv` as `24a3b366...` and
+`a-reading.csv` as `99c24c48...`. Those are stale copies in the scratch `--output`, which still
+held the `b51447cb` files. A declared part reads the committed record through
+`rm18_shared.record_path`, not the scratch copy. At `56a8b831`, the commit that Part B ran from,
+the committed files were `a-validation.csv` `d6daff51...` and `a-reading.csv` `ecac4675...`.
+
+## The record
+
+Each step ran from a clean commit that equalled its pushed upstream, on the main checkout's Python
+3.13.7 with this tree's `src` first on `PYTHONPATH`, at `--jobs 16`.
+
+| step | commit | draws | wall time | outcome |
+| --- | --- | --- | ---: | --- |
+| A | `270872b4` | the 2,400 committed draws | 4,742.4 s | under the rule of `520daebd`, V2 failed on 3 draws: `harness not validated, no reading` |
+| AV, first run | `478b0e94` | the same | 4,382.9 s | V2 holds under the amended rule |
+| AV, second run | `129df59e` | the same | 4,660.6 s | V2 holds. The review of the amendment added the refit row of rule 2 and the 1% limit of rule 6, so AV ran again |
+| B | `56a8b831` | 2,000 fresh draws at n = 3,000 | 7,067.0 s | rows recorded |
+| V4 | `3f275333` | the first 200 Part B draws, in the pinned container | 419.3 s | holds |
+| C | `deca5b73` | 2,000 fresh draws at each of n = 1,500 and 6,000 | 1,554.9 s | rows recorded |
+
+Every check of the harness holds.
+
+| check | draws or rows compared | largest scaled difference |
+| --- | ---: | ---: |
+| V1, the `C` refits against the committed `cleverly` rows | 7,200 | 9.9e-17 |
+| V2, the counted R rerun against the committed R rows | 7,200 | 9.6e-17 |
+| V2, the refit of `T(0, 0, 0, 0)` | 2,400 | 0 |
+| V2, same round, `tolIC` | 2,295 | 5.9e-12 |
+| V2, same round, `maxIter` | 88 | 2.1e-5 |
+| V2, rounding-sensitive, `tolIC` | 15 | 2.2e-9 |
+| V2, a round or an exit that differs | 2 | 7.6e-5 |
+| V2, excused draws | 3 of 2,400 | a share of 0.00125, against a limit of 0.01 |
+| V3, the shared initial arrays | 7,200 | 6.1e-16 |
+| V5, `T(1, 1, 1, 1)` against `C` | 7,200 | 0 |
+| V4, the `C` refit of each payload | 600 | 0 |
+| V4, the refit of `T(0, 0, 0, 0)` | 200 | 0 |
+| V4, same round, `tolIC` | 185 | 1.1e-12 |
+| V4, same round, `maxIter` | 11 | 6.2e-6 |
+| V4, rounding-sensitive, `tolIC` | 4 | 5.7e-11 |
+| V4, a round or an exit that differs | 0 | 0 |
+| V4, excused draws | 0 of 200 | 0 |
+
+The signed mean `ate` difference, `T(0, 0, 0, 0)` minus R, is -2.4e-7 over the 88 `maxIter`
+draws of V2. It is -2.5e-5 over the 3 excused draws, and 5.6e-7 over the 11 `maxIter` draws of
+V4. No rule reads these values.
+
+The supplementary bias rows give the mean `ate - truth` of each arm, with a 99% interval. No rule
+reads them. BD-1 is the first part of the RM18 boundary design, which fitted `cleverly` alone on
+fresh draws at n = 1,500.
+
+| arm | Part B, n = 3,000 | Part C, n = 1,500 | Part C, n = 6,000 |
+| --- | --- | --- | --- |
+| `C` | 0.003617, from 0.002457 to 0.004777 | 0.009667, from 0.008029 to 0.011304 | 0.002711, from 0.001890 to 0.003531 |
+| `T(0, 0, 0, 0)` | 0.003051, from 0.001887 to 0.004214 | 0.007629, from 0.005978 to 0.009281 | 0.002642, from 0.001809 to 0.003474 |
+| `T0+G` | 0.037525, from 0.028303 to 0.046746 | not fitted | not fitted |
+| context | | BD-1: 0.008695, from 0.007738 to 0.009652 | the committed rung: 0.001861, from 0.000543 to 0.003179 |
 
 ## Run
 
@@ -174,8 +234,9 @@ This table was fixed and committed before the run.
 Wall times on 16 logical cores at `--jobs 16`. The projection scales the measured wall time to
 the declared budget. Parts A and B were measured on registered draws for the amendment that added
 K: Part A with its own arms, and Part B's arms on registered `treatment_correct` draws. V4 and
-Part C fit the same arms as before the amendment, so their rows repeat the phase 1 measurement,
-which fitted the first 32 fresh draws.
+Part C fit the same arms as before the amendment, so their rows repeat the earlier timing smoke
+run at `--replicates 32`. That run fitted the first 32 fresh draws of Part B, V4 and each Part C
+size.
 
 | part | measured | draws | declared draws | projected wall |
 | --- | ---: | ---: | ---: | ---: |
@@ -185,13 +246,4 @@ which fitted the first 32 fresh draws.
 | V4 | 85.3 s | 32 | 200 | about 10 min |
 | C | 39.7 s | 64 | 4,000 | about 45 min |
 
-The declared runs took these wall times at `--jobs 16`. `run.log` gives each block.
-
-| step | commit | wall time |
-| --- | --- | ---: |
-| A | `270872b4` | 4,742.4 s |
-| AV, first run | `478b0e94` | 4,382.9 s |
-| AV, under the tightened rule | `129df59e` | 4,660.6 s |
-| B | `56a8b831` | 7,067.0 s |
-| V4 | `3f275333` | 419.3 s |
-| C | `deca5b73` | 1,554.9 s |
+"The record" above gives the wall time of each declared run.

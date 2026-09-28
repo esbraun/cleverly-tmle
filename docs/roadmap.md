@@ -670,8 +670,13 @@ The `both_correct` paired interval covers zero, so neither binary reading is `un
 `outcome_correct`, the two implementations share the bias at this size. On `treatment_correct`,
 the unadjusted paired comparison finds a between-implementation increment of 0.001005 against the
 `cleverly` bias of 0.003102. The declaration adjusted for no multiplicity, so the signal is
-exploratory. [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) gives the adjusted
-interval and the reading of a declared design on fresh draws.
+exploratory.
+
+At the Bonferroni level of 1 - 0.01/3 over the three paired intervals, the
+`treatment_correct` interval runs from -0.000063 to 0.002073 and covers zero. It is a
+supplementary row of `readings.csv`.
+[RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) gives the reading of a declared
+design on fresh draws.
 
 No R comparator fits the multi-arm `treatment_correct` configuration. The declared multi-arm
 statistic (iv) is a Welch interval for the property-cell bias minus the primary bias at the same
@@ -1384,17 +1389,21 @@ regression is not. On the 800 committed primary replications at n = 3,000, the u
 covered zero. "[What the one-sided reading found](#what-the-one-sided-reading-found)" gives each
 interval.
 
-Pull request NNN delivered this row. The table gives what shipped. Commit `b7ca9460` holds the
-declaration, its amendments and the reads made before each run. Read it with
-`git show b7ca9460:docs/roadmap.md`. Commit `b51447cb` holds the Part A record under the first
-validation rule.
+Pull request NNN delivered this row. The table gives what shipped.
+
+Commit `b7ca9460` holds the declaration, "The localization design, declared before it runs", with
+its amendments. They are
+"The rule by round and conditioning", "The amendment after the harness review" and "The amendment
+after the Part A validation failure". The subsection "Reads made before this declaration" lists
+every read before each run. Read them with `git show b7ca9460:docs/roadmap.md`. Commit `b51447cb`
+holds the Part A record under the first validation rule.
 
 | part | what shipped |
 | --- | --- |
-| diagnostic | [`tests/diagnostics/rm19_one_sided_increment/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm19_one_sided_increment) holds a transcription of the binary loop of R `drtmle` 1.1.2, the harness, the per-draw rows, the validation records and the readings. `tests/unit/test_rm19_one_sided_increment_diagnostic.py` rebuilds each reading from the committed rows |
+| diagnostic | [`tests/diagnostics/rm19_one_sided_increment/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm19_one_sided_increment) holds a transcription of the binary loop of R `drtmle` 1.1.2, the harness, the per-draw rows, the validation records and the readings. Its README gives each run, the checks V1 to V5 and the bias of each arm. `tests/unit/test_rm19_one_sided_increment_diagnostic.py` rebuilds each reading from the committed rows |
 | primary reading | Part B, 2,000 fresh draws at n = 3,000: `no increment at the declared resolution` |
 | localization | Part B: `nothing to localize`. Part A, on the committed draws: `committed-draw attribution: shared by J and G`, which confirms nothing |
-| Part C | `sqrt(n)` times `C - T(0, 0, 0, 0)` reads `increment` at n = 1,500 and has no label at 3,000 and 6,000. Part C is descriptive |
+| Part C | the Part C rule labels `sqrt(n)` times `C - T(0, 0, 0, 0)` `increment` at n = 1,500, and gives no label at 3,000 and 6,000. No route reads a Part C label |
 | route | record, and close. No estimator changed. The three one-sided cells stay red under `reporting`, and `RM18-one-sided-bias` stays their owner |
 | documentation | "[The update order](technical-reference/dr-tmle/targeting.md#the-update-order)" names the prime step that R `drtmle` does not take. [Supported estimands](technical-reference/dr-tmle/supported-estimands.md) cites the J main effect and Part C. The [canonical DR-TMLE study page](technical-reference/method-evidence/canonical-dr-tmle.md) cites the reading. The `solve_with_reduction` docstring gives the settings of the registered R run. Theorem 3 of van der Laan (2014) is cited through Benkeser et al. (2017), Section 3.1 |
 
@@ -1403,62 +1412,29 @@ validation rule.
 
 Every value below comes from a `*-reading.csv` file of the diagnostic directory. The arm `C` is
 the registered `cleverly` fit. The arm `T(j, p, s, k)` is the transcription with the factors J, P,
-S and K at the named levels, and `T(0, 0, 0, 0)` is R. The arm `T0+G` is `T(0, 0, 0, 0)` without
-the step guards of R. Each interval is a Student interval over draws.
+S and K at the named levels. The factors are the tilt geometry, the priming step, the exit and the
+solver numerics. `T(0, 0, 0, 0)` is R. The arm `T0+G` is `T(0, 0, 0, 0)` without the step guards
+of R.
 
-Each step ran once from a clean commit that equalled its pushed upstream. The runtime was the main
-checkout's Python 3.13.7, with `PYTHONPATH` on this tree's `src`, at 16 workers.
+Each interval is a Student interval over draws. Every check V1 to V5 of the harness holds, and
+the diagnostic README gives each one.
 
-| step | commit | draws | wall time | outcome |
-| --- | --- | --- | ---: | --- |
-| A | `270872b4` | the 2,400 committed draws | 4,742.4 s | under the rule of `520daebd`, V2 failed on 3 draws: `harness not validated, no reading` |
-| AV | `129df59e` | the same | 4,660.6 s | V2 holds under the amended rule. A first AV run from `478b0e94` also held. The W4 review then added the refit row, so AV ran again |
-| B | `56a8b831` | 2,000 fresh draws at n = 3,000 | 7,067.0 s | rows recorded |
-| V4 | `3f275333` | the first 200 Part B draws, in the pinned container | 419.3 s | holds |
-| C | `deca5b73` | 2,000 fresh draws at each of n = 1,500 and 6,000 | 1,554.9 s | rows recorded |
-
-The harness validation holds in every check.
-
-| check | draws or rows compared | largest scaled difference |
-| --- | ---: | ---: |
-| V1, the `C` refits against the committed `cleverly` rows | 7,200 | 9.9e-17 |
-| V2, the counted R rerun against the committed R rows | 7,200 | 9.6e-17 |
-| V2, the refit of `T(0, 0, 0, 0)` | 2,400 | 0 |
-| V2, same round, `tolIC` | 2,295 | 5.9e-12 |
-| V2, same round, `maxIter` | 88 | 2.1e-5 |
-| V2, rounding-sensitive, `tolIC` | 15 | 2.2e-9 |
-| V2, a round or an exit that differs | 2 | 7.6e-5 |
-| V2, excused draws | 3 of 2,400 | a share of 0.00125, against a limit of 0.01 |
-| V3, the shared initial arrays | 7,200 | 6.1e-16 |
-| V5, `T(1, 1, 1, 1)` against `C` | 7,200 | 0 |
-| V4, the `C` refit of each payload | 600 | 0 |
-| V4, the refit of `T(0, 0, 0, 0)` | 200 | 0 |
-| V4, same round, `tolIC` | 185 | 1.1e-12 |
-| V4, same round, `maxIter` | 11 | 6.2e-6 |
-| V4, rounding-sensitive, `tolIC` | 4 | 5.7e-11 |
-| V4, a round or an exit that differs | 0 | 0 |
-| V4, excused draws | 0 of 200 | 0 |
-
-The signed mean `ate` difference, `T(0, 0, 0, 0)` minus R, is -2.4e-7 over the 88 `maxIter`
-draws of V2. It is -2.5e-5 over the 3 excused draws, and 5.6e-7 over the 11 `maxIter` draws of
-V4. No rule reads these values.
-
-The image ID in `run.log` is different for AV and V4. `Reference.run` calls `docker build` before
-each R phase, and each build writes a new image ID. The study manifest gates the hashes of
-`tests/canonical/drtmle/Dockerfile` and of the R runner, and not the image ID. The two AV runs
-came from two builds and wrote byte-equal R rows.
-
-The table gives each declared reading verbatim.
+Each declared part ran once. The step AV, which recomputes V2 for Part A, ran twice, and the
+README gives the reason. G entered the family in both parts, so each main effect has the
+Bonferroni level 1 - 0.01/5 = 0.998. The table gives each declared reading verbatim.
 
 | part | statistic | point | interval | reading |
 | --- | --- | ---: | --- | --- |
 | B | `C - T(0, 0, 0, 0)` | 0.000566 | -0.000023 to 0.001155, half-width 0.000589 | `no increment at the declared resolution` |
 | B | the bracket, `T(1, 1, 1, 1) - C` | 0 | 0 to 0 | `bracket holds` |
 | B | guard events of `T(0, 0, 0, 0)` | 531 | | `G in the family` |
+| B | main effect J | 0.001275 | 0.000833 to 0.001718 | level 0.998 |
+| B | main effects P, S and K | -0.000534, 0.000056, 0.000003 | each covers 0 | level 0.998 |
+| B | main effect G | 0.034474 | 0.023561 to 0.045387 | level 0.998 |
 | B | localization | | | `nothing to localize` |
 | A | `C - T(0, 0, 0, 0)` | 0.001005 | 0.000068 to 0.001942 | `committed-draw attribution: increment confirmed` |
 | A | the bracket | 0 | 0 to 0 | `committed-draw attribution: bracket holds` |
-| A | guard events of `T(0, 0, 0, 0)` | 308 | | `G in the family` |
+| A | main effects J and G | 0.001224 and 0.029386 | 0.000614 to 0.001834, and 0.011343 to 0.047429 | level 0.998. P, S and K cover 0 |
 | A | localization | | | `committed-draw attribution: shared by J and G` |
 | A, `outcome_correct` | `T(1, 0, 0, 0) - T(0, 0, 0, 0)` | -0.000068 | -0.000272 to 0.000135. The SD is 0.002228, against a bound of 0.002223 | `P-ctrl fails` |
 | A, `both_correct` | the same | 0.000015 | -0.000055 to 0.000085. The SD is 0.000763, against a bound of 0.000869 | `P-ctrl holds` |
@@ -1466,81 +1442,53 @@ The table gives each declared reading verbatim.
 | C, n = 3,000 | the same, from the Part B rows | 0.0310 | -0.0057 to 0.0678 | no label |
 | C, n = 6,000 | the same | 0.0053 | -0.0274 to 0.0381 | no label |
 
-G entered the family in both parts, so each main effect has the Bonferroni level 1 - 0.01/5 =
-0.998.
-
-| main effect | Part B, fresh draws | Part A, committed draws |
-| --- | --- | --- |
-| J, tilt geometry | 0.001275, from 0.000833 to 0.001718 | 0.001224, from 0.000614 to 0.001834 |
-| P, priming | -0.000534, from -0.001298 to 0.000231 | -0.000146, from -0.001307 to 0.001015 |
-| S, exit | 0.000056, from -0.000305 to 0.000418 | -0.000006, from -0.000486 to 0.000474 |
-| K, solver numerics | 0.000003, from -0.000360 to 0.000366 | 0.000078, from -0.000403 to 0.000559 |
-| G, step guards of R | 0.034474, from 0.023561 to 0.045387 | 0.029386, from 0.011343 to 0.047429 |
-
 Each of the six two-way interactions covers 0 in both parts. No rule reads them.
-
-The supplementary bias rows give the mean `ate - truth` of each arm. No rule reads them.
-
-| arm | Part B, n = 3,000 | Part C, n = 1,500 | Part C, n = 6,000 |
-| --- | --- | --- | --- |
-| `C` | 0.003617, from 0.002457 to 0.004777 | 0.009667, from 0.008029 to 0.011304 | 0.002711, from 0.001890 to 0.003531 |
-| `T(0, 0, 0, 0)` | 0.003051, from 0.001887 to 0.004214 | 0.007629, from 0.005978 to 0.009281 | 0.002642, from 0.001809 to 0.003474 |
-| `T0+G` | 0.037525, from 0.028303 to 0.046746 | not fitted | not fitted |
-| context | | BD-1: 0.008695, from 0.007738 to 0.009652 | the committed rung: 0.001861, from 0.000543 to 0.003179 |
 
 ##### What each reading means
 
 The declared rules decide each meaning. The last column states what the reading does not show.
+Hn is the declared descriptive hypothesis of Part C: `sqrt(n)` times the mean paired difference is
+the same at n = 1,500, 3,000 and 6,000.
 
 | reading | meaning under the declared rules | what it does not show |
 | --- | --- | --- |
-| `no increment at the declared resolution` | the fresh-draw interval covers 0, and its half-width of 0.000589 is below the declared 0.000598. The declared route reads: "record. The committed signal was a Monte Carlo excursion, and RM19 closes" | that the increment is 0. The interval also covers the committed point of 0.001005. It excludes only a mean increment above 0.001155 at n = 3,000. Both `C` and `T(0, 0, 0, 0)` keep a bias above 0 on the fresh draws |
-| `nothing to localize`, beside a J and a G main effect that exclude 0 | the localization table is read from the top. The bracket holds, so `unexplained` does not apply. The next row, `nothing to localize`, needs only the primary reading. The factorial is reported, and no label and no route apply to J or G | that J and G have no effect. The primary difference compares the two corners of the design. In a 2^4 design, the corner difference equals the sum of the four main effects and the four three-way contrasts. So J can exclude 0 while the corner interval covers it. The P main effect has the opposite sign |
-| the J main effect | averaged over the eight settings of P, S and K, the `cleverly` level of J raises `ate` by 0.000833 to 0.001718 on fresh draws, at the level 0.998 | the effect of the geometry alone. At K = 0, J also changes three settings of the mechanism step of R: the `glm` tolerance, the offset trim and the guard. The harness README lists them |
-| the G main effect | G is `T0+G` minus `T(0, 0, 0, 0)`. It reads R against R without its guards. `T(0, 0, 0, 0)` records 531 guard events on the 2,000 fresh draws. Without the guards, the bias of the R loop rises from 0.0031 to 0.0375 | a difference between `cleverly` and R. `cleverly` takes no guard, and at K = 1 no guard of R acts. G shows that the estimate of R depends on its guards on this law |
+| `no increment at the declared resolution` | the fresh-draw interval covers 0, and its half-width of 0.000589 is below the declared 0.000598. The declared route reads: "record. The committed signal was a Monte Carlo excursion, and RM19 closes". The excursion clause is the wording of the declared route. The fresh-draw readings neither confirm nor rule out a small increment | that the increment is 0. The interval also covers the committed point of 0.001005. It excludes only a mean increment above 0.001155 at n = 3,000. Both `C` and `T(0, 0, 0, 0)` keep a bias above 0 on the fresh draws |
+| `nothing to localize`, beside a J and a G main effect that exclude 0 | the localization table is read from the top. The bracket holds, so `unexplained` does not apply. The next row, `nothing to localize`, needs only the primary reading. The factorial is reported, and no label and no route apply to J or G | that J and G have no effect. The primary difference compares the two corners of the design. In a 2^4 design, the corner difference equals the sum of the four main effects and the four three-way contrasts. So J can exclude 0 while the corner interval covers 0. The P main effect has the opposite sign |
+| the J main effect | averaged over the eight settings of P, S and K, the `cleverly` level of J raises `ate` by 0.000833 to 0.001718 on fresh draws | the effect of the geometry alone. At K = 0, J also changes three settings of the mechanism step of R: the `glm` tolerance, the offset trim and the guard. The harness README lists them |
+| the G main effect | G is `T0+G` minus `T(0, 0, 0, 0)`, so it reads R against R without its guards. `T(0, 0, 0, 0)` records 531 guard events on 232 of the 2,000 fresh draws. On those 232 draws, removing the guards moves `ate` by 0.30 on average. The unguarded loop often fails to converge: it reaches the cap on 303 draws, against 95 for `T(0, 0, 0, 0)` | a difference between `cleverly` and R. `cleverly` takes no guard, and at K = 1 no guard of R acts |
 | `committed-draw attribution: increment confirmed` and `shared by J and G` | Part A reads the 800 draws that produced the RM18 signal. V1 and V2 hold, so it reproduces the committed interval. The declaration states that Part A confirms nothing | evidence for the increment. Part A and Part B read different draws, and each interval covers the point estimate of the other |
-| `P-ctrl fails` on `outcome_correct` | P-ctrl is a prediction written in the plan before any run. It is not a control of factor P. It reads the J contrast `T(1, 0, 0, 0) - T(0, 0, 0, 0)` on the two control scenarios. On `outcome_correct`, the mean interval covers 0, and the SD exceeds its bound by 0.24%. The declaration gives neither prediction a route | a mean effect of J on `outcome_correct`, or a defect. It shows that the premise of the prediction does not hold for single draws. J alone spreads `ate` by as much as the whole committed per-draw disagreement of that scenario |
-| Part C | the point estimates of `sqrt(n)` times the increment fall with n: 0.0789, 0.0310 and 0.0053. Only the n = 1,500 interval lies above 0. There the increment is 0.0020 on the raw scale, from 0.0010 to 0.0031. The n = 1,500 and n = 6,000 intervals do not overlap: 0.0389 against 0.0381 | a proof of a rate. Three sizes cannot identify a rate. The adjacent intervals overlap. The intervals at 3,000 and 6,000 cover 0, and they also cover 0.068 and 0.038. No rule reads Hn, and a gap between two intervals is not a declared test. Part C fits `C` and `T(0, 0, 0, 0)` alone, so it cannot name the factor that changes with n |
+| `P-ctrl fails` on `outcome_correct` | P-ctrl is a prediction that the declaration at `b7ca9460` states. It is not a control of factor P. It reads the J contrast `T(1, 0, 0, 0) - T(0, 0, 0, 0)` on the two control scenarios. On `outcome_correct`, the mean interval covers 0, and the SD exceeds its bound by 0.24%. The standard error of an SD from 800 draws is about 2.5% of the SD, so the SD equals its bound within sampling error. The declaration gives neither prediction a route | a mean effect of J on `outcome_correct`, or a defect |
+| Part C | the point estimates of `sqrt(n)` times the increment fall with n: 0.0789, 0.0310 and 0.0053. Only the n = 1,500 interval lies above 0. There the increment is 0.0020 on the raw scale, from 0.0010 to 0.0031. The n = 1,500 and n = 6,000 intervals do not overlap: 0.0389 against 0.0381 | a proof of a rate. Three sizes cannot identify a rate. The adjacent intervals overlap. The intervals at 3,000 and 6,000 cover 0, and they reach 0.0678 and 0.0381. No rule reads Hn, and a gap between two intervals is not a declared test. Part C fits `C` and `T(0, 0, 0, 0)` alone, so it cannot name the factor that changes with n |
 
 So the Part C intervals agree with an increment that vanishes faster than `1/sqrt(n)`, and they
 do not prove it.
 
 Benkeser, Carone, van der Laan and Gilbert (2017), Section 3.2, Theorem 1, has three conditions.
 First, one nuisance limit is correct. Second, the score equations (5) are $o_P(n^{-1/2})$. Third,
-the second-order terms of Appendix B are $o_P(n^{-1/2})$. The estimator is then asymptotically linear with the
-influence function $D^{*\#}(Q, g)$, which depends on the nuisance limits and not on the route.
-Appendix B gives one sufficient condition: rates of $o_P(n^{-1/4})$ in the $L^2(P_0)$ norm.
+the second-order terms of Appendix B are $o_P(n^{-1/2})$. The estimator is then asymptotically
+linear with the influence function $D^{*\#}(Q, g)$, which depends on the nuisance limits and not
+on the route. Appendix B gives one sufficient condition: rates of $o_P(n^{-1/4})$ in the
+$L^2(P_0)$ norm.
 
-If both `C` and `T(0, 0, 0, 0)` met these conditions, their difference would be $o_P(n^{-1/2})$. That
-step follows from the definition of asymptotic linearity. Two statements that the step would need
-have no read source.
+If both `C` and `T(0, 0, 0, 0)` met these conditions, their difference would be
+$o_P(n^{-1/2})$. That step follows from the definition of asymptotic linearity. Two statements
+that the step would need have no read source.
 
 | statement | status |
 | --- | --- |
-| the registered GLM reduced regressions meet, or fail, the conditions of Theorem 1 on this configuration. The RM19 plan derived that a misspecified `Qr` leaves a term of order $n^{-1/2}$ in general | an unsourced derivation. No rule depends on it |
-| the two tilt geometries "differ only in the submodel, hence at second order" ([supported estimands](technical-reference/dr-tmle/supported-estimands.md)) | an unsourced derivation. Part C reads the whole increment and not J alone, so it does not test this statement |
+| the registered GLM reduced regressions meet the conditions of Theorem 1 on this configuration. A derivation before the declaration found that a misspecified `Qr` leaves a term of order $n^{-1/2}$ in general | an unsourced derivation. No rule depends on it |
+| the two tilt geometries differ at second order. [Supported estimands](technical-reference/dr-tmle/supported-estimands.md) stated it before this row, and it now labels the statement unsourced | an unsourced derivation. Part C reads the whole increment and not J alone, so it does not test this statement |
 
 ##### The route and the acceptance
 
 The primary reading takes the declared route of `no increment at the declared resolution`:
-record, and RM19 closes. No reading shows `cleverly` departing from its documented algorithm. V5
-reproduces `C` exactly from the choices J, P, S and K on 7,200 committed rows. The bracket is 0 on
-the 2,000 fresh draws. Each choice has a documented source.
-
-| factor | where the `cleverly` choice is documented |
-| --- | --- |
-| J | [supported estimands](technical-reference/dr-tmle/supported-estimands.md), "Two arms keep their own route" |
-| P | the `solve_with_reduction` docstring (`prime:`), and Step 2 of the algorithm in Benkeser et al. (2017), Section 3.2. "[The update order](technical-reference/dr-tmle/targeting.md#the-update-order)" said that the `"drtmle"` order follows the R package, and did not name the prime. Decision D5 of the plan corrects that text in this row |
-| S | "[The update order](technical-reference/dr-tmle/targeting.md#the-update-order)": the stopping rule, the stall test and the closing pass |
-| K | `submodel_alpha` of `Targeting`, which bounds the logistic submodel at [1 - alpha, alpha]. "[The bound-inactive scope](technical-reference/dr-tmle/targeting.md#the-bound-inactive-scope)" gives the bounded mechanism root and the bounded reductions |
-
-No fix row opens.
+record, and RM19 closes.
 
 | acceptance | state |
 | --- | --- |
-| the declared design runs once and publishes its reading, whichever way the reading falls | met. Parts A, B and C and the step V4 ran once under the declaration as amended. Part A also ran under the first rule, and its reading `harness not validated, no reading` stays in `b51447cb` |
+| the declared design runs once and publishes its reading, whichever way the reading falls | met. Parts A, B and C and the check V4 each ran once under the declaration as amended. The step AV ran twice. Part A read `harness not validated, no reading` under the first rule, and `b51447cb` keeps that record |
 | the three one-sided cells stay red under `reporting`, `RM18-one-sided-bias` stays their owner, and no margin, budget or law moves | met. The ledger and every registered artifact are unchanged |
-| a reading that names a defect in `cleverly` opens a separate fix | no reading names a defect, so no fix row opens |
+| a reading that names a defect in `cleverly` opens a separate fix | no reading names a defect, so no fix row opens. V5 reproduces `C` exactly from the choices J, P, S and K on 7,200 committed rows, and the bracket is 0 on the fresh draws. Each choice has a documented source. J is in [supported estimands](technical-reference/dr-tmle/supported-estimands.md). P is in the `solve_with_reduction` docstring (`prime:`) and in Step 2 of Benkeser et al. (2017), Section 3.2. S is in "[The update order](technical-reference/dr-tmle/targeting.md#the-update-order)". K is `submodel_alpha` of `Targeting` and "[The bound-inactive scope](technical-reference/dr-tmle/targeting.md#the-bound-inactive-scope)". "The update order" said that the `"drtmle"` order follows the R package and did not name the prime. That was an error in the text, and this row corrects it |
 | the declaration states whether its design can read the multi-arm excess | met. The design cannot read it, because no validated R comparator fits that configuration. On more than two arms, `cleverly` uses the armwise tilt of R, so factor J does not exist there. Part B does not read `attributed to J`, so the source stays open. The multi-arm cell keeps its owner |
 
 ### RM20. Intervals outside every claimed contract

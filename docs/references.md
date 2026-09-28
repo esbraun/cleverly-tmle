@@ -796,9 +796,11 @@ is the only empirical witness for it.
   parametric delta method for a selected parametric mechanism model. Section 4.3 records random
   cross-validation over-selection and leaves its irregularity as an open area.
 - van der Laan (2014), [*Targeted estimation of nuisance parameters to obtain valid statistical
-  inference*](https://doi.org/10.1515/ijb-2012-0038), DOI 10.1515/ijb-2012-0038. Section 5.4
-  targets both nuisance estimators and solves extra score equations for a binary
-  treatment-specific mean. The shipped selector does not perform those targeting steps.
+  inference*](https://doi.org/10.1515/ijb-2012-0038), DOI 10.1515/ijb-2012-0038. It targets both
+  nuisance estimators and solves extra score equations for a binary treatment-specific mean. The
+  shipped selector does not perform those targeting steps. This entry gives no section locator,
+  because the RM19 review could not read the journal version, and the
+  [DR-TMLE entry](#doubly-robust-inference-drtmle) for the same article states why.
 - Gruber & van der Laan (2010), [*An application of collaborative targeted maximum likelihood
   estimation in causal inference and genomics*](https://pmc.ncbi.nlm.nih.gov/articles/PMC3126668/),
   DOI 10.2202/1557-4679.1182.

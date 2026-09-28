@@ -24,8 +24,9 @@ margins independently even at `K = 2`; cleverly instead tilts `g_1` alone along 
 two-column covariate, so `g_0* = 1 - g_1*` holds exactly. Both solve the *same two* score
 equations. Column 0's is `P_n[Qr_0/g_0* {1(A=a_0) - g_0*}] = 0` once the sign convention in
 `reduced_mechanism_covariate` is unwound. They differ only in the submodel. No read source
-states that this difference is second order, so that statement is an unsourced derivation. So the
-estimator is not continuous in `K`, and a reader comparing a two-arm
+states that this difference is second order, so that statement is an unsourced derivation.
+Because the two-arm route differs from the armwise one, the estimator is not continuous in `K`,
+and a reader comparing a two-arm
 cleverly fit against a two-arm `drtmle` fit should expect agreement in the equations solved
 rather than in the iterates.
 

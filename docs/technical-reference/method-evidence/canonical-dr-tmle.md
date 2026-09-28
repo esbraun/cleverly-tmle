@@ -250,7 +250,7 @@ increment again on 2,000 fresh draws at `n = 3,000`, under a design declared bef
 `0.001005`.
 
 At `n = 1,500`, the paired increment on fresh draws runs from `0.0010` to `0.0031`, at the level
-1 - 0.01/3. The design reports it descriptively, and no rule reads it. The three cells stay red, and their ledger owner
+1 - 0.01/3. The Part C rule labels it `increment`, and no route reads the label. The three cells stay red, and their ledger owner
 did not change.
 {ref}`What the localization design found <what-the-localization-design-found>` gives each
 reading and what it does not show. The per-draw rows are in
