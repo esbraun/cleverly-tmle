@@ -155,7 +155,7 @@ REFERENCE_METADATA = {
 }
 
 CONFIGURATION = {
-    "source_law": "Benkeser et al. (2017), Section 4",
+    "source_law": "Benkeser et al. (2017), Section 5.1",
     "cross_fit": True,
     "n_folds": N_FOLDS,
     "targeting_scheme": "pooled",
