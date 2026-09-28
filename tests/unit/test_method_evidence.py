@@ -216,7 +216,11 @@ class TestArtifacts:
     ) -> None:
         published = pd.read_csv(study.artifact("summary.csv"))
         pd.testing.assert_frame_equal(
-            published, summarize(rows), check_exact=False, rtol=1e-12, atol=1e-12
+            published,
+            summarize(rows, truth_varies=study.truth_varies_by_replicate),
+            check_exact=False,
+            rtol=1e-12,
+            atol=1e-12,
         )
 
     @pytest.mark.parametrize("name", ["summary", "equivalence", "performance", "properties"])
@@ -239,10 +243,14 @@ class TestPublishedVerdicts:
         for key, group in rows.groupby(["implementation", "scenario", "estimand"], sort=True):
             record = published.loc[key]
             inference = group["inference_estimate"].to_numpy(dtype=float)
-            truth = truth_on_inference_scale(
-                str(key[2]),
-                float(group["truth"].iloc[0]),
-                str(group["inference_scale"].iloc[0]),
+            truth = (
+                group["truth"].to_numpy(dtype=float)
+                if study.truth_varies_by_replicate
+                else truth_on_inference_scale(
+                    str(key[2]),
+                    float(group["truth"].iloc[0]),
+                    str(group["inference_scale"].iloc[0]),
+                )
             )
             bias = student_interval(
                 inference - truth, confidence_level=study.margins.confidence_level

@@ -398,7 +398,7 @@ def main(
     artifact_names = (*ARTIFACT_NAMES, *record.extra_artifacts)
     paths = {name: out / name for name in artifact_names}
     write_csv(rows, paths["replicates.csv.gz"], compression={"method": "gzip", "mtime": 0})
-    summaries = summarize(rows)
+    summaries = summarize(rows, truth_varies=record.truth_varies_by_replicate)
     write_csv(summaries, paths["summary.csv"])
     performance = independent_performance_tests(rows, record=record, n_jobs=arguments.jobs)
     write_csv(performance, paths["performance-tests.csv"])

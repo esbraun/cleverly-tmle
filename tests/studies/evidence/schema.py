@@ -145,6 +145,18 @@ def validate_replicates(rows: pd.DataFrame, *, record: StudyRecord) -> None:
     if not (rows["ci_lower"] <= rows["ci_upper"]).all():
         raise ValueError(f"{record.slug}: inverted confidence intervals")
 
+    varies = record.truth_varies_by_replicate
+    if varies and set(rows["inference_scale"]) != {"identity"}:
+        # The error is read on the scale of the estimate.  A per-row truth on another scale
+        # would need its own map for every row, and no study declares one.
+        raise ValueError(
+            f"{record.slug}: a truth that varies by replication is read on the level scale "
+            f"only; found {sorted(set(rows['inference_scale']))}"
+        )
+    if varies and not np.isfinite(rows["truth"].to_numpy(dtype=float)).all():
+        raise ValueError(f"{record.slug}: non-finite truths")
+
+    # Row by row, so a record whose truth varies checks each row against its own truth.
     recomputed = ((rows["ci_lower"] <= rows["truth"]) & (rows["truth"] <= rows["ci_upper"])).astype(
         int
     )
@@ -158,6 +170,8 @@ def validate_replicates(rows: pd.DataFrame, *, record: StudyRecord) -> None:
     for (scenario, estimand), group in rows.groupby(["scenario", "estimand"], sort=True):
         if estimand not in record.scenarios[str(scenario)]:
             raise ValueError(f"{record.slug}: {scenario} reports undeclared estimand {estimand}")
+        if varies:
+            continue
         spread = float(group["truth"].max() - group["truth"].min())
         # Not exact equality: the truth travels to the reference implementation through a
         # CSV and back, so the two sides can differ in the last bit or two.  A mis-joined

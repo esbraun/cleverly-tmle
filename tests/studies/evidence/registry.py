@@ -208,12 +208,28 @@ class StudyRecord:
     publication_policy: Literal["gated", "reporting"] = "gated"
     #: Further committed result files supplied by a study-specific ``extra_artifacts`` hook.
     extra_artifacts: tuple[str, ...] = ()
+    #: Whether each replication row carries its own truth.
+    #:
+    #: A data-adaptive target, such as the value of rules learned on each training fold,
+    #: differs from one sample to the next.  The spread of the estimate then differs from the
+    #: spread of the error, and every statistic has to read the error.  A record that sets
+    #: this reads the error ``estimate - truth`` row by row in every summary and verdict,
+    #: skips the schema's constancy check, publishes the mean truth with ``truth_min`` and
+    #: ``truth_max``, and reports inference on the level scale only.  Every other record
+    #: keeps its arithmetic byte for byte, because subtracting a constant truth first would
+    #: move the last bits.  RM30 in ``docs/roadmap.md`` declares the rule.
+    truth_varies_by_replicate: bool = False
 
     def __post_init__(self) -> None:
         if self.publication_policy not in ("gated", "reporting"):
             raise ValueError(
                 "publication_policy must be 'gated' or 'reporting'; "
                 f"got {self.publication_policy!r}"
+            )
+        if self.truth_varies_by_replicate and self.reference is not None:
+            raise ValueError(
+                "a record whose truth varies by replication cannot declare a reference: the "
+                "paired comparison reads one truth per cell"
             )
         if self.resampling_seed is not None and self.resampling_seed < 0:
             raise ValueError("resampling_seed must be non-negative")

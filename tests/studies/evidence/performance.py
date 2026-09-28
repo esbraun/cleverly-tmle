@@ -21,6 +21,7 @@ from tests.studies.evidence.inference import (
     percentile_interval,
     standardized_bias_verdict,
 )
+from tests.studies.evidence.properties import error_summary
 from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.schema import truth_on_inference_scale
 from tests.studies.evidence.seeds import stream_seed
@@ -28,8 +29,15 @@ from tests.studies.evidence.seeds import stream_seed
 CELL_KEYS = ["implementation", "scenario", "estimand"]
 
 
-def summarize(rows: pd.DataFrame) -> pd.DataFrame:
-    """Recompute the published performance table from the per-replication rows."""
+def summarize(rows: pd.DataFrame, *, truth_varies: bool = False) -> pd.DataFrame:
+    """Recompute the published performance table from the per-replication rows.
+
+    ``truth_varies`` is :attr:`StudyRecord.truth_varies_by_replicate`.  Given it, every
+    statistic reads the error ``estimate - truth`` of each row, ``truth`` publishes the mean
+    truth, and ``truth_min`` and ``truth_max`` follow it.
+    """
+    if truth_varies:
+        return _summarize_errors(rows)
     records: list[dict[str, Any]] = []
     for key, group in rows.groupby(CELL_KEYS, sort=True):
         implementation, scenario, estimand = key
@@ -85,6 +93,55 @@ def summarize(rows: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame.from_records(records)
 
 
+def _summarize_errors(rows: pd.DataFrame) -> pd.DataFrame:
+    """The performance table of a record whose truth varies by replication.
+
+    The schema has already refused any scale but the identity, so the inference estimate is
+    the estimate and each row's error is on the scale its interval was reported on.
+    """
+    records: list[dict[str, Any]] = []
+    for key, group in rows.groupby(CELL_KEYS, sort=True):
+        implementation, scenario, estimand = key
+        truths = group["truth"].to_numpy(dtype=float)
+        errors = group["estimate"].to_numpy(dtype=float) - truths
+        inference_errors = group["inference_estimate"].to_numpy(dtype=float) - truths
+        summary = error_summary(
+            errors,
+            group["std_error"].to_numpy(dtype=float),
+            group["covered"].to_numpy(),
+            np.zeros(len(group), dtype=bool),
+            n=int(group["n"].iloc[0]),
+            alpha=0.05,
+        )
+        empirical_se = float(np.std(inference_errors, ddof=1))
+        inference_bias = float(np.mean(inference_errors))
+        records.append(
+            {
+                "implementation": implementation,
+                "scenario": scenario,
+                "estimand": estimand,
+                "n": int(group["n"].iloc[0]),
+                "replicates": len(group),
+                "truth": float(np.mean(truths)),
+                "truth_min": float(np.min(truths)),
+                "truth_max": float(np.max(truths)),
+                "mean_estimate": float(group["estimate"].mean()),
+                "bias": summary.bias,
+                "bias_se": summary.bias_se,
+                "root_n_bias": summary.root_n_bias,
+                "rmse": summary.rmse,
+                "empirical_se": empirical_se,
+                "mean_std_error": summary.mean_std_error,
+                "se_ratio": summary.se_ratio,
+                "coverage": summary.coverage,
+                "coverage_se": summary.coverage_se,
+                "inference_bias": inference_bias,
+                "standardized_bias": inference_bias / empirical_se,
+            }
+        )
+    return pd.DataFrame.from_records(records)
+
+
 def se_ratio_interval(
     inference: np.ndarray,
     std_errors: np.ndarray,
@@ -113,9 +170,16 @@ def _cell(payload: tuple[StudyRecord, pd.DataFrame, tuple[str, str, str], int]) 
     margins = record.margins
     inference = group["inference_estimate"].to_numpy(dtype=float)
     std_errors = group["std_error"].to_numpy(dtype=float)
-    truth = float(group["truth"].iloc[0])
     scale = str(group["inference_scale"].iloc[0])
-    errors = inference - truth_on_inference_scale(estimand, truth, scale)
+    if record.truth_varies_by_replicate:
+        # Each row's own truth, on the identity scale the schema requires.  The SE ratio then
+        # reads the spread of the error, which is the spread the reported SE estimates.
+        errors = inference - group["truth"].to_numpy(dtype=float)
+        spread = errors
+    else:
+        truth = float(group["truth"].iloc[0])
+        errors = inference - truth_on_inference_scale(estimand, truth, scale)
+        spread = inference
     replicates = len(group)
 
     bias = standardized_bias_verdict(
@@ -125,7 +189,7 @@ def _cell(payload: tuple[StudyRecord, pd.DataFrame, tuple[str, str, str], int]) 
     )
     covered = int(group["covered"].sum())
     coverage = clopper_pearson(covered, replicates, confidence_level=margins.confidence_level)
-    ratio = se_ratio_interval(inference, std_errors, record=record, seed=seed)
+    ratio = se_ratio_interval(spread, std_errors, record=record, seed=seed)
     se_calibrated = ratio.within(*margins.se_ratio_sanity)
     coverage_valid = bool(coverage.low >= margins.coverage_floor)
     return {
@@ -147,7 +211,7 @@ def _cell(payload: tuple[StudyRecord, pd.DataFrame, tuple[str, str, str], int]) 
         "coverage_floor": margins.coverage_floor,
         "coverage_valid": coverage_valid,
         "over_covered": bool(coverage.low > margins.over_coverage_ceiling),
-        "se_ratio": float(np.mean(std_errors) / np.std(inference, ddof=1)),
+        "se_ratio": float(np.mean(std_errors) / np.std(spread, ddof=1)),
         "se_ratio_ci_lower": ratio.low,
         "se_ratio_ci_upper": ratio.high,
         "se_ratio_resolution": ratio.resolution(1.0),

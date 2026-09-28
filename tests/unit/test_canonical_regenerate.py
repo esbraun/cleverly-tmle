@@ -55,7 +55,9 @@ def _stub_primary(monkeypatch: pytest.MonkeyPatch, tmp_path: Any, record: Any) -
         lambda *args: regenerate._Phase(rows=_rows(record.implementation)),
     )
     monkeypatch.setattr(regenerate, "validate_replicates", lambda *args, **kwargs: None)
-    monkeypatch.setattr(regenerate, "summarize", lambda rows: pd.DataFrame({"summary": [1.0]}))
+    monkeypatch.setattr(
+        regenerate, "summarize", lambda rows, truth_varies: pd.DataFrame({"summary": [1.0]})
+    )
     monkeypatch.setattr(
         regenerate,
         "independent_performance_tests",
@@ -155,7 +157,9 @@ def test_complete_regeneration_gates_a_failed_joint_property_claim(
         lambda *args: regenerate._Phase(rows=_rows(record.implementation)),
     )
     monkeypatch.setattr(regenerate, "validate_replicates", lambda *args, **kwargs: None)
-    monkeypatch.setattr(regenerate, "summarize", lambda rows: pd.DataFrame({"summary": [1.0]}))
+    monkeypatch.setattr(
+        regenerate, "summarize", lambda rows, truth_varies: pd.DataFrame({"summary": [1.0]})
+    )
     monkeypatch.setattr(
         regenerate,
         "independent_performance_tests",
@@ -303,7 +307,9 @@ def test_reporting_policy_publishes_failed_scientific_verdicts(
         lambda *args: regenerate._Phase(rows=_rows(record.implementation)),
     )
     monkeypatch.setattr(regenerate, "validate_replicates", lambda *args, **kwargs: None)
-    monkeypatch.setattr(regenerate, "summarize", lambda rows: pd.DataFrame({"summary": [1.0]}))
+    monkeypatch.setattr(
+        regenerate, "summarize", lambda rows, truth_varies: pd.DataFrame({"summary": [1.0]})
+    )
     monkeypatch.setattr(
         regenerate,
         "independent_performance_tests",
@@ -342,7 +348,9 @@ def _stub_complete(
         regenerate, "_reference_rows", lambda *args, **kwargs: _rows(str(record.reference))
     )
     monkeypatch.setattr(regenerate, "validate_replicates", lambda *args, **kwargs: None)
-    monkeypatch.setattr(regenerate, "summarize", lambda rows: pd.DataFrame({"summary": [1.0]}))
+    monkeypatch.setattr(
+        regenerate, "summarize", lambda rows, truth_varies: pd.DataFrame({"summary": [1.0]})
+    )
     monkeypatch.setattr(
         regenerate,
         "independent_performance_tests",
