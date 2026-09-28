@@ -1558,7 +1558,7 @@ Each part also records instruments for each draw. No rule reads them.
 | V3 | the shared initial arrays of every Part A draw reproduce the committed `drtmle-r` `initial_estimate` of each estimand to 1e-12 |
 | V4 | the R rows of the first 200 Part B draws, `estimate` and `std_error` of the three estimands, equal the Part B `T(0, 0, 0, 0)` rows, with the tolerance of V2. The `C` refit that rebuilds each payload must equal its Part B `C` row to the V1 tolerance |
 | V5 | on every Part A draw of the three scenarios, `T(1, 1, 1, 1)` reproduces `C`. The `estimate` of each of the three estimands must satisfy `abs(T - C) <= 1e-9 * max(1, abs(C))` |
-| outcome | a V1, V2, V3 or V5 miss stops the design with `harness not validated, no reading`. A V4 miss of rule 5 below, a round or exit that differs without a twin that differs, also stops the design. The Part A and Part C readings therefore fold in that V4 check when a V4 record exists. Any other V4 miss, or a V4 that has not run, gives Part B the same reading. Part C reads on V1, V2, V3, V5 and that V4 check |
+| outcome | a V1, V2, V3 or V5 miss stops the design with `harness not validated, no reading`. In V4, a miss of rule 5 below also stops the design: a round or exit that differs without a twin that differs. A V4 miss of the refit row of rule 2 or of the 1% limit of rule 6 stops it too. The Part A and Part C readings therefore fold in these V4 checks when a V4 record exists. Any other V4 miss, or a V4 that has not run, gives Part B the same reading. Part C reads on V1, V2, V3, V5 and these V4 checks |
 
 The exit status of a draw is `tolIC` when the largest absolute score mean of the R fit is at most
 `tolIC = 1e-8`, and `maxIter` otherwise. V2 and V4 read it for R and for `T(0, 0, 0, 0)` on
@@ -1574,21 +1574,31 @@ A validation failure](#the-amendment-after-the-part-a-validation-failure)" gives
 | rule | V2 and V4 |
 | --- | --- |
 | 1 | a counting wrapper in the pinned image, `count_rounds.R`, sources `run_drtmle.R` unchanged and counts the calls of `fluctuateG`. R makes one call in each round of its loop. The wrapper uses at most 8 R workers, and it stops when a worker returns no result. For V2, its rows must reproduce the committed `drtmle-r` rows, `estimate` and `std_error`, to 1e-15 |
-| 2 | the twin of a draw is `T(0, 0, 0, 0)` with a QR least-squares solve in place of LAPACK `gelsd`. A draw is rounding-sensitive when the twin changes the round count or the exit of `T(0, 0, 0, 0)`, or moves an estimate or a standard error by more than 1e-12 |
+| 2 | the twin of a draw is `T(0, 0, 0, 0)` with a QR least-squares solve in place of LAPACK `gelsd`. The same run also fits `T(0, 0, 0, 0)` itself, the refit. The `T0000 refit` row requires the refit to equal the recorded `T(0, 0, 0, 0)` row to 1e-15, in the same round and exit, and a miss stops the design. A draw is rounding-sensitive when the twin changes the round count or the exit of the refit, or moves an estimate or a standard error by more than 1e-12 from the refit |
 | 3 | same round and exit, and not sensitive: 1e-9 on the estimates and standard errors, and 1e-4 on a draw where both sides reach `maxIter`, as declared. A miss fails the check |
 | 4 | same round and exit, and sensitive: the draw passes when `abs(T - R) <= 1e-7` and the shift of the twin is at least `0.1 abs(T - R)` |
 | 5 | different round or exit: allowed only when the twin itself changes the round or the exit. The draw then passes at 1e-4. Otherwise the check fails |
-| 6 | the check reports the count of excused draws and their signed mean `ate` difference, `T(0, 0, 0, 0)` minus R. An excused draw is one that rule 3 fails and rule 4 or rule 5 passes |
+| 6 | the check reports the count of excused draws and their signed mean `ate` difference, `T(0, 0, 0, 0)` minus R. An excused draw is one that rule 3 fails and rule 4 or rule 5 passes. When the excused draws exceed 1% of the draws that the check compares, the design stops with `harness not validated, no reading`. That limit is 24 of 2,400 draws for V2 and 2 of 200 for V4 |
 | 7 | a fast-tier mutation witness: a one-step defect of the size that the harness review found, a changed `glm` tolerance of the `gr1` reduction, fails rule 3 |
 
 `abs(T - R)` is the largest scaled difference of the draw over its three estimates and three
-standard errors. The shift of the twin is the same quantity for the twin against
-`T(0, 0, 0, 0)`. Rule 4 applies to a draw that exits at `tolIC` on both sides. A draw that reaches
+standard errors. The shift of the twin is the same quantity for the twin against the refit of
+the same run. Rule 4 applies to a draw that exits at `tolIC` on both sides. A draw that reaches
 `maxIter` on both sides keeps the 1e-4 of rule 3, sensitive or not, as the earlier amendment
 declared. A sensitive draw within the 1e-9 of rule 3 passes and is not excused, because rule 6
 excuses only a draw that rule 3 fails.
 
-Part A read the earlier rule, which this table states.
+Commit "Tighten the RM19 conditioning check before Part B" added the refit of rule 2 and the 1%
+limit of rule 6. It followed the W4 review of the amendment and its harness, and it was made
+before any fresh-draw run. The review found two gaps. First, the twin was compared with the
+recorded `T(0, 0, 0, 0)` row of another run, so a drift between runs would count as sensitivity.
+Second, no rule limited the number of excused draws. Step AV runs again under this rule, on
+committed draws only, so that V2 and V4 read the same harness.
+
+Part A read the earlier rule, which this table states. Commit `b51447cb` holds that Part A record:
+its `a-reading.csv` has SHA-256 `99c24c48...` and its `a-validation.csv` `24a3b366...`. The first
+block of `run.log` gives these hashes. Commit `6d014540` rebuilt both files under the amended
+rule, and its `a-reading.csv` has SHA-256 `3a4bba67...`.
 
 | exit status | V2 and V4 rule of commit `520daebd` |
 | --- | --- |
@@ -1665,13 +1675,13 @@ draws, and in another round on draws 50 and 754. The committed R rows hold no ro
 because `run_drtmle.R` writes none.
 
 Part A does not run again. The new step `AV` rebuilds the payloads of the 2,400 committed draws.
-It runs the counting wrapper of rule 1 on them and fits the twin of rule 2. The step fits no arm
-other than the `C` fit that each payload needs and the twin.
+It runs the counting wrapper of rule 1 on them, and it fits the refit and the twin of rule 2.
+The step fits no arm other than the `C` fit that each payload needs, the refit and the twin.
 
 | file of step `AV` | content |
 | --- | --- |
 | `av-rows.csv.gz` | the rows of the R rerun, with the round count of each draw |
-| `av-twin-rows.csv.gz` | the twin rows |
+| `av-twin-rows.csv.gz` | the refit rows and the twin rows |
 | `a-validation.csv` | V1 to V5 of Part A again, with V2 computed from the committed `a-rows.csv.gz` and the two files above |
 
 The Part A reading is then rebuilt with `--read-only`. The new files are committed with their
