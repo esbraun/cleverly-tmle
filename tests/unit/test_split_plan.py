@@ -68,6 +68,7 @@ from cleverly.exceptions import DataError, MethodConfigurationError
 from cleverly.interventions import Shift
 from cleverly.learners import FoldOrigin, random_partition
 from cleverly.learners.crossfit import (
+    _LEARNED_RULE_METHOD_CLAUSE,
     _UNRECORDED_PLAN_REASON,
     RANDOM_PARTITION_GENERATOR,
 )
@@ -709,7 +710,9 @@ class TestOneInputEarnsOneReasonAtBothLayers:
     Each case below trips more than one check where it can, so a layer that reordered its
     checks would report a different reason from the other layer.  The engine spells the
     cross-fitting switch ``cross_fit`` and the declaration spells it ``enabled``; the
-    reason names the spelling its caller wrote and is otherwise identical.
+    reason names the spelling its caller wrote and is otherwise identical.  The one
+    other difference: the declaration cannot see the estimand, so a reason that offers
+    an in-sample fit ends there with the learned-rule clause (roadmap row RM30).
     """
 
     @pytest.mark.parametrize(
@@ -789,7 +792,8 @@ class TestOneInputEarnsOneReasonAtBothLayers:
                 simultaneous=False,
             )
 
-        assert str(declared.value) == expected.format(switch="enabled")
+        clause = f". {_LEARNED_RULE_METHOD_CLAUSE}." if expected.endswith("repeats=1") else ""
+        assert str(declared.value) == expected.format(switch="enabled") + clause
         assert str(engine.value) == expected.format(switch="cross_fit")
 
 

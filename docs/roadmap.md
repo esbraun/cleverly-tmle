@@ -1861,10 +1861,17 @@ Rows 10 to 14 name the remedy: `CrossFitting(enabled=True, fold_evaluation=True)
 pooled targeting and no full-refit bootstrap. A unit test fits that remedy, so the remedy that a
 message names is not itself refused.
 
-The shared post-draw refusals take a learned-rule remedy. `_check_training_support` and
-`cross_fit_companion` receive `_LEARNED_RULE_REMEDY` through their `remedy=` parameters. The
-outcome-scale refusal names `q_bounds` only. No learned-rule message names `cross_fit=False` or
-`shifts=`, and a witness for each shared refusal asserts that.
+The shared refusals take a learned-rule remedy. `_check_training_support` receives
+`LEARNED_RULE_REMEDY` through its `remedy=` parameter. After that preflight, the fold backstop of
+`cross_fit_companion` cannot fire for a learned-rule fit, so it keeps its default text. The
+outcome-scale refusal names `q_bounds` only.
+
+On the engine, a learned-rule fit meets rows 10 to 14
+before a shared fold-policy sentence, and no shared sentence offers it an in-sample fit.
+`CrossFitting` and `TMLEMethod` refuse at construction, before they see the estimand. Each of
+their fold-policy sentences that offers an in-sample fit therefore ends with one clause. That
+clause names `CrossFitting(enabled=True, fold_evaluation=True)` for `LearnedRuleValue`. A unit
+test runs each remedy that a learned-rule caller reads, as written.
 
 `Rule` and `DynamicRegimen` keep one declaration, and the RM28 refusal is unchanged. Its shared
 text `_ESTIMATED_RULE` gains these two sentences, which name the route for each surface.

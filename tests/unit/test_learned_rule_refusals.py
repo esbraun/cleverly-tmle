@@ -6,17 +6,18 @@ its item before any learner is fitted, at the engine and at ``CausalStudy``.  A 
 that no setting repairs comes before a refusal whose remedy is a setting, which the RM24
 order rule requires, so the pair witnesses below meet the earlier row.
 
-No remedy may send the caller to a call that is refused.  Each remedy is therefore run as
-written, and each shared refusal that a learned-rule fit can meet is checked for the
-in-sample remedy it must not name.
+No remedy may send the caller to a call that is refused.  Each remedy that a learned-rule
+caller reads is therefore run as written: the witness finds the remedy's text in the
+message and evaluates that text.  Each shared refusal that a learned-rule fit can meet is
+also checked for the in-sample remedy it must not name.
 """
 
 from __future__ import annotations
 
-import importlib
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import make_pipeline
@@ -26,20 +27,21 @@ from cleverly import (
     CausalStudy,
     CrossFitting,
     LearnedRuleValue,
+    LongitudinalTreatment,
     PointTreatment,
     RegimeMean,
     TMLEMethod,
 )
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
-from cleverly.exceptions import CapabilityError, DataError
+from cleverly.exceptions import CapabilityError, DataError, MethodConfigurationError
 from cleverly.interventions import Incremental, LearnedRule, Shift, Static
 from cleverly.interventions.learned import (
+    LEARNED_RULE_CONFIGURATION,
     LEARNED_RULE_REFIT_REFUSAL,
     LEARNED_RULE_REMEDY,
-    LEARNED_RULE_SCALE_REMEDY,
     LEARNED_RULE_SENSITIVITY_REFUSAL,
 )
-from cleverly.learners.crossfit import _POST_DRAW_REMEDY
+from cleverly.learners.crossfit import _LEARNED_RULE_METHOD_CLAUSE, _POST_DRAW_REMEDY
 from cleverly.methods import ModelSpec
 from cleverly.msm import MSM
 from cleverly.sensitivity import evalue
@@ -50,8 +52,17 @@ from cleverly.validation.refute import refute
 from tests.unit import _learned_rule_support as support
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
-#: The engine module, whose name the package's ``tmle`` function shadows.
-tmle_module = importlib.import_module("cleverly.estimators.tmle")
+#: The engine settings of :data:`LEARNED_RULE_CONFIGURATION`, each as the message prints it.
+ENGINE_REMEDY = (
+    "cross_fit=True",
+    "cv_evaluation=True",
+    "repeats=1",
+    "targeting_scheme='pooled'",
+    "n_bootstrap=0",
+)
+
+#: The method remedy that ends each method-layer fold-policy sentence.
+METHOD_REMEDY = "CrossFitting(enabled=True, fold_evaluation=True)"
 
 #: The two routes a learned-rule message must not offer: an in-sample fit, which X11 (a)
 #: refuses, and a shift, which F17 refuses beside ``learned_rule=``.
@@ -252,6 +263,155 @@ class TestEachRemedyRunsAsWritten:
         assert set(result.estimates) == {support.NAME}
 
 
+def _as_written(message: str, *keywords: str) -> dict[str, Any]:
+    """Return the keyword arguments that ``message`` prints, each found there verbatim."""
+    settings: dict[str, Any] = {}
+    for keyword in keywords:
+        assert keyword in message, (keyword, message)
+        settings.update(eval(f"dict({keyword})", {"LearnedRule": LearnedRule}))
+    return settings
+
+
+def _method_as_written(message: str) -> CrossFitting:
+    """Return :data:`METHOD_REMEDY`, found verbatim at the end of ``message``, evaluated."""
+    assert message.endswith(f"{_LEARNED_RULE_METHOD_CLAUSE}."), message
+    assert METHOD_REMEDY in _LEARNED_RULE_METHOD_CLAUSE
+    return eval(METHOD_REMEDY, {"CrossFitting": CrossFitting})
+
+
+def _study_fit(cross_fitting: CrossFitting) -> Any:
+    """Fit ``LearnedRuleValue`` in a study, under ``cross_fitting``."""
+    study = CausalStudy(
+        support.law_frame(),
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=support.COVARIATES),
+    )
+    method = TMLEMethod(
+        models=ModelSpec(
+            outcome_learner=support.outcome_learner(),
+            treatment_learner=support.treatment_learner(),
+        ),
+        cross_fitting=cross_fitting,
+    )
+    return study.identify(LearnedRuleValue()).estimate(method, simultaneous=False)
+
+
+class TestEachSharedRefusalRemedyRunsAsWritten:
+    """Every shared refusal that a learned-rule caller can meet names a remedy that fits.
+
+    One witness per case.  The engine knows the estimand, so it answers with a row of
+    the RM30 table or with a shared sentence that offers no in-sample fit.
+    ``CrossFitting`` refuses before it sees the estimand, so its sentence ends with the
+    learned-rule clause, and the witness fits the clause's remedy.
+    """
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [{"cross_fit": False, "cv_evaluation": False, "repeats": 2}, {"n_folds": 1}],
+        ids=["in_sample_with_repeats", "one_fold"],
+    )
+    def test_the_engine_meets_row_10_before_the_shared_sentence(
+        self, overrides: dict[str, Any]
+    ) -> None:
+        """The shared sentences offer "set repeats=1" and an in-sample fit, which row 10
+        refuses, and "enable cross-fitting", which row 11 refuses."""
+        message = _refused(lambda: _engine(**overrides), "X11 (a)")
+        assert LEARNED_RULE_CONFIGURATION in message
+        assert not any(route in message for route in FORBIDDEN)
+        settings = _as_written(message, *ENGINE_REMEDY)
+        assert np.isfinite(support.fit(**settings).estimates[support.NAME].psi)
+
+    def test_the_engine_stratified_folds_offer_no_in_sample_fit(self) -> None:
+        with pytest.raises(ValueError, match="stratify_folds='treatment'") as caught:
+            _engine(stratify_folds="treatment")
+        message = str(caught.value)
+        assert not any(route in message for route in FORBIDDEN)
+        assert "in sample" not in message
+        settings = _as_written(message, "stratify_folds='none'")
+        assert np.isfinite(support.fit(**settings).estimates[support.NAME].psi)
+
+    @pytest.mark.parametrize(
+        "declared",
+        [
+            {"n_folds": 1, "fold_evaluation": True},
+            {"enabled": False, "repeats": 2},
+            {"fold_evaluation": True, "stratify_by": "treatment"},
+        ],
+        ids=["one_fold", "in_sample_with_repeats", "stratified"],
+    )
+    def test_the_method_sentence_ends_with_the_learned_rule_remedy(
+        self, declared: dict[str, Any]
+    ) -> None:
+        with pytest.raises(MethodConfigurationError) as caught:
+            CrossFitting(**declared)
+        result = _study_fit(_method_as_written(str(caught.value)))
+        assert np.isfinite(result.estimates[support.NAME].psi)
+
+    def test_the_method_stratified_folds_field_remedy_fits(self) -> None:
+        """The sentence also names the field to change, ``CrossFitting(stratify_by='none')``."""
+        with pytest.raises(MethodConfigurationError) as caught:
+            CrossFitting(fold_evaluation=True, stratify_by="treatment")
+        assert "CrossFitting(stratify_by='none')" in str(caught.value)
+        result = _study_fit(CrossFitting(fold_evaluation=True, stratify_by="none"))
+        assert np.isfinite(result.estimates[support.NAME].psi)
+
+    def test_a_learned_rule_target_without_learned_rule_names_it(self) -> None:
+        estimator = TMLE(
+            estimands=("ey_learned_rule",),
+            **never_fit_learners(),
+            n_folds=5,
+            simultaneous=False,
+            random_state=0,
+        )
+        NeverFit.calls = 0
+        with pytest.raises(ValueError, match="ey_learned_rule") as caught:
+            _fit(estimator)
+        assert NeverFit.calls == 0
+        settings = _as_written(
+            str(caught.value), "learned_rule=LearnedRule()", "cross_fit=True", "cv_evaluation=True"
+        )
+        result = TMLE(
+            estimands=("ey_learned_rule",),
+            outcome_learner=support.outcome_learner(),
+            treatment_learner=support.treatment_learner(),
+            n_folds=5,
+            simultaneous=False,
+            random_state=0,
+            **settings,
+        ).fit(support.law_frame(), outcome="Y", treatment="A", covariates=support.COVARIATES)
+        assert np.isfinite(result.single().estimates[support.NAME].psi)
+
+
+class TestRetargetKeepsTheLearnedRuleAxis:
+    """``retarget`` refuses a target of another axis, so a learned rule is never reported
+    as a known regime or as an arm."""
+
+    @pytest.fixture(scope="class")
+    def result(self) -> Any:
+        return support.fit()
+
+    @pytest.mark.parametrize("estimands", [("ey_regime",), ("ate",)])
+    def test_another_axis_refuses(self, result: Any, estimands: tuple[str, ...]) -> None:
+        with pytest.raises(CapabilityError, match="rule learned inside each training fold"):
+            result.estimator.retarget(result.data, result.nuisance, estimands=estimands)
+
+
+def test_a_longitudinal_design_cites_x11_b() -> None:
+    rng = np.random.default_rng(8080)
+    frame = pd.DataFrame(
+        {
+            "L0": rng.normal(size=60),
+            "A0": rng.binomial(1, 0.5, 60).astype(float),
+            "L1": rng.normal(size=60),
+            "A1": rng.binomial(1, 0.5, 60).astype(float),
+            "Y": rng.binomial(1, 0.5, 60).astype(float),
+        }
+    )
+    design = LongitudinalTreatment(
+        outcome="Y", treatment=("A0", "A1"), baseline=("L0",), time_varying=((), ("L1",))
+    )
+    _refused(lambda: CausalStudy(frame, design=design).identify(LearnedRuleValue()), "X11 (b)")
+
+
 class TestTheSharedRefusalsNameTheLearnedRuleRemedy:
     """No shared refusal sends a learned-rule caller to an in-sample fit or a shift."""
 
@@ -291,23 +451,6 @@ class TestTheSharedRefusalsNameTheLearnedRuleRemedy:
         assert _POST_DRAW_REMEDY.format(remedy=LEARNED_RULE_REMEDY) in message
         assert not any(route in message for route in FORBIDDEN)
 
-    def test_the_fold_backstop_receives_the_learned_rule_remedy(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The backstop fires only on a fold with no trainable rows, which the preflight
-        prevents, so the witness reads the remedy the fit hands to it."""
-        seen: list[str] = []
-        original = tmle_module.fit_nuisances
-
-        def spy(*args: Any, **kwargs: Any) -> Any:
-            seen.append(kwargs.get("remedy", ""))
-            return original(*args, **kwargs)
-
-        monkeypatch.setattr(tmle_module, "fit_nuisances", spy)
-        support.fit()
-        assert seen == [_POST_DRAW_REMEDY.format(remedy=LEARNED_RULE_REMEDY)]
-        assert not any(route in seen[0] for route in FORBIDDEN)
-
     def test_the_outcome_scale(self) -> None:
         frame = support.law_frame(120, 3)
         frame["Y"] = frame["Y"] + frame["W1"]
@@ -316,7 +459,9 @@ class TestTheSharedRefusalsNameTheLearnedRuleRemedy:
             _fit_frame(_engine(), frame)
         assert NeverFit.calls == 0
         message = str(caught.value)
-        assert message.endswith(LEARNED_RULE_SCALE_REMEDY)
+        assert message.endswith(
+            "Declare the known outcome support (Targeting(q_bounds=(lower, upper)))."
+        )
         assert not any(route in message for route in FORBIDDEN)
         # The remedy, as written: a declared support.
         bounds = (float(frame["Y"].min()) - 1.0, float(frame["Y"].max()) + 1.0)

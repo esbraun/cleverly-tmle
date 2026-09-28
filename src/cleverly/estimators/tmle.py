@@ -147,7 +147,6 @@ from ..interventions.base import refuse_mixed_interventions, refuse_regime_densi
 from ..interventions.incremental import refuse_multi_arm_tilt
 from ..interventions.learned import (
     LEARNED_RULE_REMEDY,
-    LEARNED_RULE_SCALE_REMEDY,
     LearnedRule,
     _learned_rule_regimes,
     learned_rule_configuration_refusal,
@@ -171,7 +170,14 @@ from ..learners.super_learner import SuperLearner, resolve_learner
 from ..msm import MSM, MSMSet, refuse_continuous_msm_mechanisms, refuse_msm_functions
 from ..provenance import data_fingerprint
 from ..provenance import record as provenance_record
-from ..targets import TargetContext, groups_for, parameter_stem, targets_for
+from ..targets import (
+    TARGETS,
+    TargetContext,
+    _off_axis_reason,
+    groups_for,
+    parameter_stem,
+    targets_for,
+)
 from ..targets.base import stratum_alias
 from ..targets.population_intervention import (
     NATURAL_COURSE_TARGET,
@@ -307,9 +313,11 @@ _IN_SAMPLE_ARM_INDEXED_REMEDY = (
 
 #: The audit and the remedy that both outcome-scale refusals end with.
 _SCALE_AUDIT = "(docs/technical-reference/cv-tmle.md, fold and outcome-scale rules)"
+#: The learned-rule value has no in-sample fit (X11 (a)), so its outcome-scale refusal
+#: names the declared support alone.
+_SCALE_SUPPORT = "(Targeting(q_bounds=(lower, upper)))"
 _SCALE_REMEDY = (
-    "(Targeting(q_bounds=(lower, upper))). Without a known finite support, "
-    + _IN_SAMPLE_ARM_INDEXED_REMEDY
+    f"{_SCALE_SUPPORT}. Without a known finite support, " + _IN_SAMPLE_ARM_INDEXED_REMEDY
 )
 
 #: The first clause of the refusal of every other cross-fitted missing-outcome target.
@@ -326,9 +334,6 @@ _OFF_CONTRACT_AXIS_NAMES: dict[ParameterAxis, str] = {
     "shift": "shift",
     "ipsi": "incremental",
     "regime": "regime",
-    # Unreachable: ``refuse_learned_rule_composition`` refuses missing outcomes first. The
-    # entry keeps the map total over the axes.
-    "learned_rule": "learned-rule",
     "msm": "MSM",
 }
 
@@ -957,10 +962,16 @@ class TMLE:
         # engine raises ValueError.  See ``_cross_fit_policy_refusal``.
         reason = self._cross_fit_policy_reason()
         if reason is not None:
-            # A learned-rule fit with one fold hears row 10 of its refusal table, which is
-            # a ``CapabilityError`` like every other row of that table.
-            learned = self.learned_rule is not None and self.cross_fit and self.n_folds < 2
-            raise (CapabilityError if learned else ValueError)(reason)
+            # A learned-rule fit hears rows 10 to 14 of its refusal table before a shared
+            # policy sentence.  Their remedy is the configuration that fits, and the
+            # shared remedies (enable cross-fitting, or set repeats=1) meet one of those
+            # rows next.  The rows raise ``CapabilityError``, as every row of that table
+            # does.  A policy that passes the shared checks meets these rows in the
+            # preflight instead, after the data rows, as the RM24 order requires.
+            learned = None if self.learned_rule is None else learned_rule_scheme_refusal(self)
+            if learned is not None:
+                raise CapabilityError(learned)
+            raise ValueError(reason)
 
     def _cross_fit_policy_reason(self) -> str | None:
         """Why this estimator's declared fold policy cannot run, or ``None``.
@@ -972,12 +983,8 @@ class TMLE:
         can reassign an attribute of a constructed estimator.  Neither may fit under a
         policy this one refuses.
 
-        A learned-rule fit with ``cross_fit=True`` and one fold hears the X11 (a) sentence
-        of :func:`~cleverly.interventions.learned.learned_rule_scheme_refusal` instead.  The
-        shared sentence offers an in-sample fit, and the learned-rule value has none.
+        A learned-rule fit has no in-sample fit, so its sentence offers none.
         """
-        if self.learned_rule is not None and self.cross_fit and self.n_folds < 2:
-            return learned_rule_scheme_refusal(self)
         return _cross_fit_policy_refusal(
             cross_fit=self.cross_fit,
             n_folds=self.n_folds,
@@ -993,6 +1000,7 @@ class TMLE:
                 and cast("Any", self).strategy != "oat"
             ),
             option_name="cross_fit",
+            learned_rule=self.learned_rule is not None,
         )
 
     # ------------------------------------------------------------------- fit
@@ -1468,6 +1476,14 @@ class TMLE:
 
         estimates = median_estimates(per_repeat)
         cv_detail = self._cv_detail(details, cluster=data.cluster)
+        if self.cv_evaluation and cv_detail is None:
+            raise RuntimeError(
+                "cv_evaluation=True needs at least two realised validation folds, but "
+                "the requested split collapsed to one. Use fewer-stratified data, or "
+                "fit without fold-evaluated CV-TMLE."
+            )
+        # A learned-rule fit is fold-evaluated, so the check above leaves ``cv_detail`` set.
+        # The second test is for the type checker.
         if self.learned_rule is not None and cv_detail is not None:
             # One draw: ``refuse_learned_rule_composition`` refuses repeats.
             (name,) = cv_detail.fold_estimates
@@ -1475,12 +1491,6 @@ class TMLE:
                 self.learned_rule, nuisances[0], cv_detail.fold_estimates[name]
             )
             extra = {**extra, "learned_rule": record}
-        if self.cv_evaluation and cv_detail is None:
-            raise RuntimeError(
-                "cv_evaluation=True needs at least two realised validation folds, but "
-                "the requested split collapsed to one. Use fewer-stratified data, or "
-                "fit without fold-evaluated CV-TMLE."
-            )
         result = TMLEResult(
             estimates=estimates,
             repeats=tuple(repeats),
@@ -1767,9 +1777,7 @@ class TMLE:
             "so each fold's nuisance is fitted on a scale the rows it predicts helped set, "
             f"and no shipped result covers that scale {_SCALE_AUDIT}. Declare the "
             "known outcome support "
-            # The learned-rule value has no in-sample fit (X11 (a)), so its remedy names
-            # the declared support alone.
-            + (LEARNED_RULE_SCALE_REMEDY if self.learned_rule is not None else _SCALE_REMEDY)
+            + (f"{_SCALE_SUPPORT}." if self.learned_rule is not None else _SCALE_REMEDY)
         )
 
     def _refuse_unbounded_cross_fitted_scale(self, data: CausalData) -> None:
@@ -2770,11 +2778,6 @@ class TMLE:
             companion=companion,
             n_jobs=self.n_jobs,
             fit_treatment=fit_treatment,
-            **(
-                {"remedy": _POST_DRAW_REMEDY.format(remedy=LEARNED_RULE_REMEDY)}
-                if self.learned_rule is not None
-                else {}
-            ),
         )
         # Evaluated once and carried with the fits, so that every reuse -- retarget, and
         # so the truncation curve, the MNAR tilt, the omitted-variable bound -- targets
@@ -3095,9 +3098,24 @@ class TMLE:
         recomputes an estimate comes through here, so a recomputation refuses when those
         functions refuse a modified model or regime: a ``Stochastic`` density, a ``Rule``,
         or a user-written ``Intervention``.  They state which declarations they refuse.
+
+        A requested target of another parameter axis is refused next.  :meth:`fit`
+        resolves its targets on the fit's own axis, but a direct call can name any
+        target, and the nuisances of this fit would then be read as that target's.  A
+        learned rule would be reported as a known regime.
         """
         self._refuse_undeclared_functions()
         requested = tuple(estimands)
+        off_axis = [
+            name
+            for name in requested
+            if name in TARGETS and not TARGETS[name].matches_axis(self._axis)
+        ]
+        if off_axis:
+            raise CapabilityError(
+                f"retarget cannot report {off_axis} from this fit's nuisances. "
+                f"{_off_axis_reason(off_axis, self._axis)}."
+            )
         level = self.alpha_sig if alpha_sig is None else alpha_sig
         regimes = nuisance.regimes
         reference = self._reference_arm(data, regimes, nuisance.shifts)

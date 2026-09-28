@@ -56,7 +56,8 @@ BLIP_QUANTILE_LEVELS: tuple[float, ...] = (0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0)
 LEARNED_RULE_CONFIGURATION = (
     "cross_fit=True, cv_evaluation=True on the engine, or "
     "CrossFitting(enabled=True, fold_evaluation=True) on the method, with n_folds of at least "
-    "2, repeats=1, targeting_scheme='pooled' and n_bootstrap=0"
+    "2, repeats=1, targeting_scheme='pooled' and n_bootstrap=0 (Inference(n_bootstrap=0) on "
+    "the method)"
 )
 
 #: The way out of a shared refusal that a drawn split raises.  The learned-rule value has
@@ -65,9 +66,6 @@ LEARNED_RULE_REMEDY = (
     "fit the learned-rule value on a larger sample, because it has no in-sample fit "
     "(X11 (a) in docs/roadmap.md)"
 )
-
-#: The way out of the outcome-scale refusal.  It names the declared support alone.
-LEARNED_RULE_SCALE_REMEDY = "(Targeting(q_bounds=(lower, upper)))."
 
 #: Why every sensitivity analysis refuses a learned-rule fit.  F27 holds the missing result.
 LEARNED_RULE_SENSITIVITY_REFUSAL = (
@@ -139,43 +137,56 @@ class LearnedRuleRecord:
     ----------
     name : str
         The label of the rule.
-    rule : str
-        The rule class, in words.
-    target : str
-        What the reported value is: the fold-average data-adaptive value.
     fold_sizes : tuple of int
         The validation rows of each outer fold.
-    fold_weights : tuple of float
-        The weight of each fold in the reported average, ``1/V`` for every fold.
     fold_estimates : tuple of float
         The targeted plug-in value of each fold on its own validation rows.
     treated_shares : tuple of float
         The share of each fold's validation rows that its rule treats.
     blip_quantiles : tuple of tuple of float
         For each fold, quantiles of the estimated blip ``Qbar_v(1, W) - Qbar_v(0, W)`` on
-        its validation rows, on the scale the outcome regression is fitted on.
-    quantile_levels : tuple of float
-        The levels of ``blip_quantiles``.
+        its validation rows, at :attr:`quantile_levels`, on the scale the outcome
+        regression is fitted on.
 
     Attributes
     ----------
     n_folds : int
+    fold_weights : tuple of float
+    rule : str
+    target : str
+    quantile_levels : tuple of float
     """
 
     name: str
-    rule: str
-    target: str
     fold_sizes: tuple[int, ...]
-    fold_weights: tuple[float, ...]
     fold_estimates: tuple[float, ...]
     treated_shares: tuple[float, ...]
     blip_quantiles: tuple[tuple[float, ...], ...]
-    quantile_levels: tuple[float, ...] = BLIP_QUANTILE_LEVELS
 
     @property
     def n_folds(self) -> int:
         """Return the number of outer folds."""
         return len(self.fold_sizes)
+
+    @property
+    def fold_weights(self) -> tuple[float, ...]:
+        """Return the weight of each fold in the reported average, ``1/V`` for every fold."""
+        return tuple(1.0 / self.n_folds for _ in self.fold_sizes)
+
+    @property
+    def rule(self) -> str:
+        """Return the rule class, in words (:data:`RULE_CLASS`)."""
+        return RULE_CLASS
+
+    @property
+    def target(self) -> str:
+        """Return what the reported value is (:data:`TARGET_KIND`)."""
+        return TARGET_KIND
+
+    @property
+    def quantile_levels(self) -> tuple[float, ...]:
+        """Return the levels of ``blip_quantiles`` (:data:`BLIP_QUANTILE_LEVELS`)."""
+        return BLIP_QUANTILE_LEVELS
 
     def describe(self) -> str:
         """Return the line that :meth:`~cleverly.TMLEResult.summary` prints for this fit.
@@ -198,17 +209,13 @@ def _blip(nuisance: NuisanceEstimates) -> np.ndarray:
     """The out-of-fold blip ``Qbar_v(1, W_i) - Qbar_v(0, W_i)`` at every row.
 
     Row ``i`` of fold ``v`` carries the prediction of the outcome regression fitted on the
-    training complement of ``v``, so the blip at a row never reads that row.
+    training complement of ``v``, so the blip at a row never reads that row.  Row 4 of
+    the refusal table refuses a treatment with more than two arms first.
     """
-    levels = nuisance.outcome.levels
-    if len(levels) != 2:
-        raise CapabilityError(
-            f"a learned rule needs a binary treatment, and this fit has {len(levels)} arms "
-            f"(X11 (d) in docs/roadmap.md)"
-        )
-    treated = np.asarray(nuisance.outcome.arms[levels[1]], dtype=float)
-    control = np.asarray(nuisance.outcome.arms[levels[0]], dtype=float)
-    return treated - control
+    control, treated = nuisance.outcome.levels
+    return np.asarray(nuisance.outcome.arms[treated], dtype=float) - np.asarray(
+        nuisance.outcome.arms[control], dtype=float
+    )
 
 
 def _learned_rule_regimes(nuisance: NuisanceEstimates, rule: LearnedRule) -> RegimeSet:
@@ -262,10 +269,7 @@ def learned_rule_record(
     tests = [np.asarray(test) for _, test in nuisance.folds]
     return LearnedRuleRecord(
         name=rule.name,
-        rule=RULE_CLASS,
-        target=TARGET_KIND,
         fold_sizes=tuple(int(test.size) for test in tests),
-        fold_weights=tuple(1.0 / len(tests) for _ in tests),
         fold_estimates=tuple(float(value) for value in fold_estimates),
         treated_shares=tuple(float(np.mean(treat[test])) for test in tests),
         blip_quantiles=tuple(
@@ -306,7 +310,7 @@ def learned_rule_configuration_refusal(estimator: Any) -> str | None:
     """
     method = getattr(estimator, "_assessment_method", "tmle")
     if method != "tmle":
-        label = {"collaborative_tmle": "CTMLE", "drtmle": "DRTMLE"}.get(method, method)
+        label = {"collaborative_tmle": "CTMLE", "drtmle": "DRTMLE"}[method]
         return (
             f"{label} does not estimate the learned-rule value. No collaborative or doubly "
             f"robust learned-rule result was reviewed ({_F27}). Fit the ordinary TMLE with "

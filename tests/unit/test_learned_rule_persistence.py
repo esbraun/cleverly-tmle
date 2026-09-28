@@ -36,8 +36,24 @@ def test_the_record_describes_the_fit(result: Any) -> None:
     )
     rule = result.nuisance.regimes.values[:, 1, 0]
     np.testing.assert_allclose(record.treated_shares, [np.mean(rule[test]) for test in tests])
-    assert all(len(row) == len(record.quantile_levels) for row in record.blip_quantiles)
     assert record.target == "fold-average data-adaptive value"
+
+
+def test_the_blip_quantiles_are_those_of_each_complement_fit(result: Any) -> None:
+    """A longhand refit on each training complement gives the recorded quantiles."""
+    record = result.extra["learned_rule"]
+    data = result.data
+    design = np.column_stack([data.treatment, data.covariates])
+    outcome = np.asarray(data.outcome, dtype=float)
+    for (train, test), recorded in zip(result.nuisance.folds, record.blip_quantiles, strict=True):
+        model = support.outcome_learner().fit(design[train], outcome[train])
+        treated = np.column_stack([np.ones(test.size), data.covariates[test]])
+        control = np.column_stack([np.zeros(test.size), data.covariates[test]])
+        blip = model.predict_proba(treated)[:, 1] - model.predict_proba(control)[:, 1]
+        np.testing.assert_allclose(
+            recorded, np.quantile(blip, record.quantile_levels), rtol=0, atol=1e-9
+        )
+    assert record.quantile_levels == (0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0)
 
 
 def test_the_summary_states_the_data_adaptive_target(result: Any) -> None:

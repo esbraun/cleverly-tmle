@@ -25,6 +25,7 @@ from cleverly.inference.cluster import (
 )
 from cleverly.inference.influence import make_estimate
 from cleverly.learners import make_folds, random_partition
+from cleverly.learners.crossfit import _LEARNED_RULE_METHOD_CLAUSE
 from cleverly.utils.bounds import logit
 from tests import discrete_law_mar as law
 from tests.conftest import OracleMissingness, OracleOutcome
@@ -162,7 +163,8 @@ def test_one_fold_through_the_public_method_is_refused_before_any_learner_fits()
 
     ``CrossFitting`` validates eagerly, at construction, so the refusal fires before a
     ``TMLEMethod`` or a ``CausalStudy.estimate`` call exists to run it, and before any
-    learner in ``never_fit_learners()`` could fit.
+    learner in ``never_fit_learners()`` could fit.  ``CrossFitting`` cannot see the
+    estimand, so the sentence ends with the learned-rule clause (roadmap row RM30).
     """
     NeverFit.calls = 0
     with pytest.raises(MethodConfigurationError, match="enabled=True with n_folds=1") as caught:
@@ -172,7 +174,7 @@ def test_one_fold_through_the_public_method_is_refused_before_any_learner_fits()
         "enabled=True with n_folds=1 leaves one fold, so every nuisance is fitted on the "
         "rows it predicts while the fit reports the cross-fitted estimator's name and "
         "variance rule. Set n_folds to at least 2, or fit in sample with "
-        "CrossFitting(enabled=False)"
+        f"CrossFitting(enabled=False). {_LEARNED_RULE_METHOD_CLAUSE}."
     )
     assert NeverFit.calls == 0
 

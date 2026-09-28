@@ -2304,6 +2304,12 @@ class ExplicitAdjustmentProvider:
     ) -> IdentifiedEffect:
         design = study.design
         assert isinstance(design, LongitudinalTreatment)
+        if isinstance(estimand, LearnedRuleValue):
+            raise CapabilityError(
+                "LearnedRuleValue is a point-treatment target, and a learned longitudinal "
+                "regimen has no supported path. Van der Laan and Luedtke (2015) give one at "
+                "two time points, and X11 (b) in docs/roadmap.md holds it"
+            )
         if not isinstance(estimand, (RegimeMean, RegimeContrast, MSMProjection)):
             raise CapabilityError(
                 f"{type(estimand).__name__} is not a longitudinal regimen functional"
