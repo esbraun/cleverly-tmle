@@ -6,6 +6,7 @@ import functools
 import inspect
 import itertools
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -182,8 +183,8 @@ def test_a_forced_collision_moves_to_the_retry_label() -> None:
 def test_the_reference_arm_reproduces_the_committed_r_and_cleverly_rows(replicate: int) -> None:
     payload, _, result = _registered(replicate)
     reference = transcribe(payload)
-    r_rows = _committed(rm19.SCENARIO, replicate, study.STUDY.reference)
-    c_rows = _committed(rm19.SCENARIO, replicate, study.STUDY.implementation)
+    r_rows = _committed(rm19.SCENARIO, replicate, str(study.STUDY.reference))
+    c_rows = _committed(rm19.SCENARIO, replicate, str(study.STUDY.implementation))
     cleverly = rm19.cleverly_row(result)
     for name in study.ESTIMANDS:
         assert abs(reference.estimates[name] - r_rows.loc[name, "estimate"]) <= 1e-9
@@ -678,6 +679,8 @@ def test_a_v4_exit_mismatch_stops_the_part_a_reading(
 
     monkeypatch.setattr(rm19, "_committed_reference", lambda _: (None, None, None))
     monkeypatch.setattr(rm19, "max_iter_drift", lambda *_: (0, float("nan")))
+    monkeypatch.setattr(rm19, "_conditioned", lambda *_: None)
+    monkeypatch.setattr(rm19, "excused", lambda *_: (0, float("nan")))
     monkeypatch.setattr(rm19, "factorial_table", factorial)
     for name in ("decomposition_table", "control_table", "arm_summaries"):
         monkeypatch.setattr(rm19, name, lambda *_, **__: [])
@@ -738,6 +741,7 @@ def test_a_declared_later_part_needs_the_pushed_records(
 ) -> None:
     directory = "tests/diagnostics/rm19_one_sided_increment"
     assert rm19.pushed("A") == ()
+    assert rm19.pushed("AV") == (f"{directory}/a-rows.csv.gz",)
     assert rm19.pushed("B") == (f"{directory}/a-validation.csv",)
     assert rm19.pushed("C") == (
         f"{directory}/a-validation.csv",
@@ -762,23 +766,41 @@ def test_record_path_reads_the_record_for_a_declared_run(tmp_path: Path) -> None
     assert shared.record_path(rm19.HERE, "x.csv", tmp_path, smoke=False) == rm19.HERE / "x.csv"
 
 
-# ------------------------------------------------------------- V2 and V4 by exit status
+# ----------------------------------------------------- V2 and V4 by round and conditioning
 
 
-def _exit_case(
-    own_exit: str, score_max: float, shift: float
+def _case(
+    *,
+    own_exit: str = "tolIC",
+    rounds: tuple[int, int] = (10, 10),
+    score_max: float = 5e-9,
+    gap: float = 0.0,
+    twin_shift: float = 0.0,
+    twin_rounds: int | None = None,
+    twin_exit: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """One exact ``tolIC`` draw, and one draw whose T0000 ``ate`` sits ``shift`` from R's."""
+    """Draw 0 exact and well conditioned; draw 1 as named.
+
+    Draw 1's ``T(0, 0, 0, 0)`` stops in ``rounds[0]`` with ``own_exit`` and sits ``gap`` from R in
+    ``ate``; R stops in ``rounds[1]`` with ``score_max``.  Its twin sits ``twin_shift`` from
+    ``T(0, 0, 0, 0)`` and stops in ``twin_rounds`` with ``twin_exit``, by default T's own.
+    """
+    own_rounds, r_rounds = rounds
     transcribed = pd.DataFrame(
         {
             "scenario": rm19.SCENARIO,
             "replicate": [0, 1],
             "arm": "T0000",
             "exit": ["tolIC", own_exit],
-            **{name: [0.1, 0.1 + (shift if name == "ate" else 0.0)] for name in study.ESTIMANDS},
+            "iterations": [10, own_rounds],
+            **{name: [0.1, 0.1 + (gap if name == "ate" else 0.0)] for name in study.ESTIMANDS},
             **{f"se_{name}": [0.02, 0.02] for name in study.ESTIMANDS},
         }
     )
+    twins = transcribed.assign(arm=rm19.TWIN)
+    twins.loc[1, "ate"] += twin_shift
+    twins.loc[1, "iterations"] = own_rounds if twin_rounds is None else twin_rounds
+    twins.loc[1, "exit"] = own_exit if twin_exit is None else twin_exit
     reference = pd.DataFrame(
         [
             {
@@ -792,90 +814,334 @@ def _exit_case(
             for name in study.ESTIMANDS
         ]
     )
-    scores = pd.DataFrame(
-        {"scenario": rm19.SCENARIO, "replicate": [0, 1], "score_max": [5e-9, score_max]}
+    r_rows = pd.DataFrame(
+        {
+            "scenario": rm19.SCENARIO,
+            "replicate": [0, 1],
+            "rounds": [10, r_rounds],
+            "score_max": [5e-9, score_max],
+        }
     )
-    return transcribed, reference, scores
+    return transcribed, reference, rm19.conditions(r_rows, r_rows, twins)
+
+
+CHECKS = [
+    f"V2 {kind}" for kind in (rm19.SAME_TOL_IC, rm19.SAME_MAX_ITER, rm19.SENSITIVE, rm19.DIFFERS)
+]
+TOL_IC_ROW, MAX_ITER_ROW, SENSITIVE_ROW, DIFFERS_ROW = CHECKS
 
 
 @pytest.mark.parametrize(
-    ("own_exit", "score_max", "shift", "failing"),
+    ("case", "kind", "failing", "excused"),
     [
-        ("cap", 2e-6, 1e-5, None),
-        ("tolIC", 5e-9, 1e-8, "V2 tolIC draws"),
-        ("cap", 5e-9, 0.0, "V2 exit status"),
-        ("tolIC", 2e-6, 0.0, "V2 exit status"),
-        ("cap", 2e-6, 2e-4, "V2 maxIter draws"),
+        # Rule 3: same round and exit, not sensitive.
+        ({"gap": 5e-10}, rm19.SAME_TOL_IC, None, 0),
+        ({"gap": 2e-9}, rm19.SAME_TOL_IC, TOL_IC_ROW, 0),
+        (
+            {"own_exit": "cap", "rounds": (100, 100), "score_max": 2e-6, "gap": 1e-5},
+            rm19.SAME_MAX_ITER,
+            None,
+            0,
+        ),
+        (
+            {"own_exit": "cap", "rounds": (100, 100), "score_max": 2e-6, "gap": 2e-4},
+            rm19.SAME_MAX_ITER,
+            MAX_ITER_ROW,
+            0,
+        ),
+        # A draw at maxIter on both sides keeps 1e-4 when it is sensitive, too.
+        (
+            {
+                "own_exit": "cap",
+                "rounds": (100, 100),
+                "score_max": 2e-6,
+                "gap": 2e-5,
+                "twin_shift": 1e-6,
+            },
+            rm19.SAME_MAX_ITER,
+            None,
+            0,
+        ),
+        # Rule 4: same round and exit, sensitive.
+        ({"gap": 5e-9, "twin_shift": 1e-9}, rm19.SENSITIVE, None, 1),
+        ({"gap": 5e-9, "twin_shift": 1e-10}, rm19.SENSITIVE, SENSITIVE_ROW, 0),
+        ({"gap": 2e-7, "twin_shift": 1e-6}, rm19.SENSITIVE, SENSITIVE_ROW, 0),
+        ({"gap": 5e-9, "twin_rounds": 11}, rm19.SENSITIVE, SENSITIVE_ROW, 0),
+        # Within rule 3's 1e-9, a sensitive draw passes and is not excused.
+        ({"gap": 5e-10, "twin_shift": 2e-12}, rm19.SENSITIVE, None, 0),
+        # Rule 5: another round or exit, excused only when the twin moves too.
+        ({"rounds": (81, 85), "gap": 7.6e-5, "twin_rounds": 80}, rm19.DIFFERS, None, 1),
+        ({"rounds": (81, 85), "gap": 0.0, "twin_shift": 1e-9}, rm19.DIFFERS, DIFFERS_ROW, 0),
+        (
+            {"own_exit": "cap", "rounds": (100, 74), "gap": 2e-6, "twin_rounds": 90},
+            rm19.DIFFERS,
+            None,
+            1,
+        ),
+        (
+            {"own_exit": "cap", "rounds": (100, 74), "gap": 2e-6, "twin_exit": "tolIC"},
+            rm19.DIFFERS,
+            None,
+            1,
+        ),
+        ({"rounds": (81, 85), "gap": 2e-4, "twin_rounds": 80}, rm19.DIFFERS, DIFFERS_ROW, 0),
+        (
+            {"own_exit": "cap", "rounds": (100, 100), "score_max": 5e-9, "twin_rounds": 90},
+            rm19.DIFFERS,
+            None,
+            1,
+        ),
     ],
 )
-def test_v2_and_v4_read_the_tolerance_of_each_exit_status(
-    own_exit: str, score_max: float, shift: float, failing: str | None
+def test_v2_and_v4_read_each_rule_by_round_and_conditioning(
+    case: dict[str, object], kind: str, failing: str | None, excused: int
 ) -> None:
+    transcribed, reference, conditioned = _case(**case)  # type: ignore[arg-type]
+    classes = rm19.classify(transcribed, reference, conditioned).set_index("replicate")
+    assert classes.loc[0, "class"] == rm19.SAME_TOL_IC and classes.loc[0, "passes"]
+    assert classes.loc[1, "class"] == kind
     before = len(shared.notes())
     rows = shared.validation_frame(
-        rm19.compare_by_exit("A", "V2", *_exit_case(own_exit, score_max, shift))
+        rm19.compare_by_exit("A", "V2", transcribed, reference, conditioned)
     )
-    failed = list(rows.loc[rows["result"] == shared.FAILS, "check"])
-    assert failed == ([] if failing is None else [failing])
+    assert list(rows["check"]) == CHECKS
+    assert list(rows.loc[rows["result"] == shared.FAILS, "check"]) == (
+        [] if failing is None else [failing]
+    )
     counts = dict(zip(rows["check"], rows["compared"], strict=True))
-    matched = own_exit == ("tolIC" if score_max <= 1e-8 else "cap")
-    assert counts == {
-        "V2 exit status": 2,
-        "V2 tolIC draws": 1 + int(matched and own_exit == "tolIC"),
-        "V2 maxIter draws": int(matched and own_exit == "cap"),
-    }
-    maxiter = int(matched and own_exit == "cap")
-    drift = f"{shift:.3g} over 1" if maxiter else "nan over 0"
-    assert list(shared.notes()[before:]) == [
-        f"V2: {counts['V2 maxIter draws']} maxIter draws, largest scaled difference "
-        f"{rows.set_index('check').loc['V2 maxIter draws', 'largest_difference']:.3g}, "
-        f"signed mean ate difference {drift}"
-    ]
+    assert sum(counts.values()) == 2 and counts[f"V2 {kind}"] >= 1
+    count, mean = rm19.excused(transcribed, reference, conditioned)
+    assert count == excused
+    gap = float(case.get("gap", 0.0))  # type: ignore[arg-type]
+    assert (mean == pytest.approx(gap)) if excused else np.isnan(mean)
+    notes = list(shared.notes()[before:])
+    assert notes[-1] == f"V2: {excused} excused draws, signed mean ate difference {mean:.3g}"
+    assert notes[0].startswith(f"V2: {counts[MAX_ITER_ROW]} maxIter draws")
+
+
+def test_a_draw_without_its_round_count_or_twin_stops_the_check() -> None:
+    transcribed, reference, conditioned = _case()
+    with pytest.raises(RuntimeError, match="one side only"):
+        rm19.compare_by_exit("A", "V2", transcribed.iloc[:1], reference, conditioned)
+    r_rows = conditioned[["scenario", "replicate", "rounds", "score_max"]]
+    twins = transcribed.assign(arm=rm19.TWIN)
+    with pytest.raises(RuntimeError, match="no R round count or no twin"):
+        rm19.conditions(r_rows, r_rows.iloc[:1], twins)
+    with pytest.raises(RuntimeError, match="no R round count or no twin"):
+        rm19.conditions(r_rows, r_rows, twins.iloc[:1])
 
 
 def test_the_max_iter_drift_is_the_signed_mean_over_max_iter_draws() -> None:
     """F8: reported beside the count and the largest difference, and read by no rule."""
-    assert rm19.max_iter_drift(*_exit_case("cap", 2e-6, -3e-5)) == (1, pytest.approx(-3e-5))
-    count, drift = rm19.max_iter_drift(*_exit_case("tolIC", 5e-9, 1e-8))
+    capped = _case(own_exit="cap", rounds=(100, 100), score_max=2e-6, gap=-3e-5)
+    assert rm19.max_iter_drift(*capped) == (1, pytest.approx(-3e-5))
+    count, drift = rm19.max_iter_drift(*_case(gap=1e-8))
     assert count == 0 and np.isnan(drift)
     reading = rm19.drift_reading("A", 1, -3e-5)
     assert (reading["value"], reading["result"]) == (-3e-5, rm19.SUPPLEMENTARY)
+    reading = rm19.excused_reading("A", 2, 4e-5)
+    assert (reading["scope"], reading["value"], reading["result"]) == (
+        "2 excused draws",
+        4e-5,
+        rm19.SUPPLEMENTARY,
+    )
 
 
-def test_the_v4_reading_reports_the_drift_of_its_t0000_rows(tmp_path: Path) -> None:
-    """F8 on V4: the drift reads the Part B ``T0000`` rows of the V4 draws, one row per draw."""
+def _v4_record(directory: Path, shift: float = 2e-6) -> None:
+    """Part B rows and a V4 record on 4 draws; draw 1 reaches ``maxIter`` on both sides."""
     b_rows = _synthetic(replicates=4)
     b_rows = b_rows.assign(
         ey0=b_rows["ate"], ey1=b_rows["ate"], **{f"se_{name}": 0.02 for name in study.ESTIMANDS}
     )
-    t0000 = b_rows.loc[b_rows["arm"] == "T0000"].set_index("replicate")["ate"]
-    b_rows.loc[b_rows["arm"] == "T0000", "exit"] = ["tolIC", "cap", "tolIC", "tolIC"]
+    is_t = b_rows["arm"] == "T0000"
+    b_rows.loc[is_t, "exit"] = ["tolIC", "cap", "tolIC", "tolIC"]
+    b_rows.loc[is_t, "iterations"] = [10, 100, 10, 10]
+    t0000 = b_rows.loc[is_t].set_index("replicate")
     r_rows = pd.DataFrame(
         [
             {
                 "scenario": rm19.SCENARIO,
                 "replicate": k,
                 "estimand": name,
-                "estimate": float(t0000[k]) - (2e-6 if (k == 1 and name == "ate") else 0.0),
+                "estimate": float(t0000.loc[k, "ate"])
+                - (shift if (k == 1 and name == "ate") else 0.0),
                 "std_error": 0.02,
                 "score_max": 1e-5 if k == 1 else 1e-9,
+                "rounds": int(t0000.loc[k, "iterations"]),
             }
             for k in range(4)
             for name in study.ESTIMANDS
         ]
     )
-    _write_part(tmp_path, "B", b_rows, [("x", True)])
-    _write_part(tmp_path, "V4", r_rows, [("V4 R exit status", True)])
+    _write_part(directory, "B", b_rows, [("x", True)])
+    _write_part(directory, "V4", r_rows, [("V4 R round and exit status", True)])
+    shared.write_table(t0000.reset_index().assign(arm=rm19.TWIN), rm19.twin_path(directory, "V4"))
+
+
+def test_the_v4_reading_reports_the_drift_of_its_t0000_rows(tmp_path: Path) -> None:
+    """F8 and rule 6 on V4: they read the Part B ``T0000`` rows of the V4 draws."""
+    _v4_record(tmp_path)
     table = rm19.table("V4", tmp_path, 1)
     drift = table.loc[table["statistic"] == "T0000 - R, signed mean ate difference"]
-    assert list(drift["scope"]) == ["1 maxIter draws"]
+    assert list(drift["scope"]) == ["1 maxIter draws", "0 excused draws"]
     assert float(drift["value"].iloc[0]) == pytest.approx(2e-6)
 
 
-def test_a_draw_on_one_side_only_stops_the_check() -> None:
-    transcribed, reference, scores = _exit_case("tolIC", 5e-9, 0.0)
-    with pytest.raises(RuntimeError, match="one side only"):
-        rm19.compare_by_exit("A", "V2", transcribed.iloc[:1], reference, scores)
+def test_v4_runs_the_counting_step_and_the_rule_of_v2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """V4 takes the path of step AV: ``r_phase``, then ``compare_by_exit`` with its conditions."""
+    _v4_record(tmp_path)
+    b_rows = shared.read_rows(shared.part_paths(tmp_path, "B")[0]).assign(n=3_000, seed=7)
+    shared.write_table(b_rows, shared.part_paths(tmp_path, "B")[0])
+    r_rows = shared.read_rows(shared.part_paths(tmp_path, "V4")[0])
+    twins = shared.read_rows(rm19.twin_path(tmp_path, "V4"))
+    calls: list[object] = []
+
+    def phase(requested: list[tuple[object, ...]], *_: object) -> tuple[pd.DataFrame, ...]:
+        calls.extend(requested)
+        return r_rows, b_rows.loc[b_rows["arm"] == "C"], twins
+
+    monkeypatch.setattr(rm19, "r_phase", phase)
+    monkeypatch.setattr(rm19, "image_id", lambda: "test")
+    rm19.run_v4(tmp_path, 4, 1)
+    assert calls == [("V4", rm19.SCENARIO, 3_000, k, 7) for k in range(4)]
+    checks = shared.read_rows(shared.part_paths(tmp_path, "V4")[1])
+    assert list(checks["check"]) == ["V4 payload C refit"] + [
+        f"V4 R {kind}"
+        for kind in (rm19.SAME_TOL_IC, rm19.SAME_MAX_ITER, rm19.SENSITIVE, rm19.DIFFERS)
+    ]
+    assert (checks["result"] == shared.HOLDS).all()
+    # Step AV runs the same phase and the same rule.
+    source = inspect.getsource(rm19.condition_part_a) + inspect.getsource(rm19.validate_committed)
+    assert "r_phase(" in source and "compare_by_exit(" in source
+
+
+class _Runner:
+    """A stand-in for the counting wrapper: it writes the rows and the round counts it is given."""
+
+    def __init__(self, rows: pd.DataFrame, rounds: pd.DataFrame) -> None:
+        self.rows, self.rounds = rows, rounds
+        self.cores: list[int] = []
+
+    def run(self, _: Path, samples: Path, truths: Path, output: Path, *, cores: int) -> None:
+        assert samples.exists() and truths.exists()
+        self.cores.append(cores)
+        shared.write_table(self.rows, output)
+        shared.write_table(self.rounds, output.with_name(output.stem + "-rounds.csv"))
+
+
+def test_count_rounds_merges_one_count_per_draw_and_stops_otherwise(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rows = pd.DataFrame(
+        {"scenario": rm19.SCENARIO, "replicate": [0, 0, 1, 1], "estimate": [0.1, 0.2, 0.3, 0.4]}
+    )
+    built: list[tuple[pd.DataFrame, dict[str, Any], dict[str, Any], dict[str, Any]]] = [
+        (pd.DataFrame({"Y": [1.0], "replicate": [k]}), {"replicate": k}, {}, {}) for k in (0, 1)
+    ]
+    runner = _Runner(
+        rows, pd.DataFrame({"scenario": rm19.SCENARIO, "replicate": [0, 1], "rounds": [7, 9]})
+    )
+    monkeypatch.setattr(rm19, "COUNTING", runner)
+    counted = rm19.count_rounds(built, tmp_path)
+    assert list(counted["rounds"]) == [7, 7, 9, 9]
+    assert runner.cores == [rm19.R_WORKERS] and rm19.R_WORKERS <= 8
+    runner.rounds = runner.rounds.iloc[:1]
+    with pytest.raises(RuntimeError, match="different draws"):
+        rm19.count_rounds(built, tmp_path)
+
+
+def test_the_counting_wrapper_sources_the_unchanged_runner_in_the_pinned_image() -> None:
+    """Rule 1 and W5: the same image and context, the canonical runner sourced, not copied."""
+    counting, reference = rm19.COUNTING, regenerate.REFERENCE
+    assert (counting.image, counting.build_context) == (reference.image, reference.build_context)
+    root = counting.runner_root or ROOT
+    wrapper = (root / counting.runner).read_text(encoding="utf-8")
+    runner = reference.files(regenerate.HERE)[1]
+    assert (root / "canonical" / "drtmle" / "run_drtmle.R") == runner
+    assert 'source("/fixture/canonical/drtmle/run_drtmle.R")' in wrapper
+    # run_drtmle.R stops when a worker returns no result; the wrapper when a count is missing.
+    assert "returned no result" in runner.read_text(encoding="utf-8")
+    assert "a draw has more than one round count" in wrapper
+
+
+def test_the_twin_is_the_same_fit_with_another_rounding() -> None:
+    """Rule 2: the QR solve agrees with ``gelsd`` to rounding, and the twin uses it."""
+    rng = np.random.default_rng(3)
+    design = np.column_stack([np.ones(50), rng.normal(size=50)])
+    response = rng.normal(size=50)
+    plain = rtrans.least_squares(design, response)
+    with rtrans.solving_with("qr"):
+        twin = rtrans.least_squares(design, response)
+    assert np.max(np.abs(twin - plain)) <= 1e-13
+    with pytest.raises(ValueError, match="solver"), rtrans.solving_with("svd"):  # type: ignore[arg-type]
+        pass
+    payload = _registered(1)[0]
+    reference, qr = transcribe(payload), transcribe(payload, solver="qr")
+    assert (qr.iterations, qr.exit) == (reference.iterations, reference.exit)
+    shifts = [abs(qr.estimates[name] - reference.estimates[name]) for name in study.ESTIMANDS]
+    assert 0.0 < max(shifts) <= rm19.SENSITIVE_SHIFT
+
+
+#: R's round count on registered ``treatment_correct`` draw 1, counted by ``count_rounds.R`` in
+#: the pinned image (the RM19 V2 diagnosis; step AV records it in ``av-rows.csv.gz``).
+R_ROUNDS_DRAW_1 = 11
+
+
+def test_a_one_step_defect_of_the_review_size_fails_rule_3(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Rule 7: a looser ``glm`` tolerance on the ``gr1`` reduction fails V2 by rule 3.
+
+    The harness review found a ``gr1`` refit that moved 4.2e-9 on equal inputs.  This defect
+    moves the round-0 ``gr1`` refit of registered draw 1 by less than 1e-8.
+    """
+    payload = _registered(1)[0]
+    reference = _committed(rm19.SCENARIO, 1, str(study.STUDY.reference)).reset_index()
+    reference = reference.assign(scenario=rm19.SCENARIO, replicate=1)
+    original = rtrans.glm_binomial
+
+    def looser(*args: object, epsilon: float = rtrans.GLM_EPSILON, **kwargs: object) -> object:
+        design = np.asarray(args[1])
+        if design.ndim == 2 and design.shape[1] == 2:  # the gr1 fit: an intercept and a slope
+            epsilon = 1e-6
+        return original(*args, epsilon=epsilon, **kwargs)  # type: ignore[arg-type]
+
+    def verdict() -> pd.Series:
+        rows = {}
+        for arm, solver in (("T0000", "gelsd"), (rm19.TWIN, "qr")):
+            out = transcribe(payload, solver=solver)  # type: ignore[arg-type]
+            rows[arm] = {
+                "scenario": rm19.SCENARIO,
+                "replicate": 1,
+                "arm": arm,
+                "exit": out.exit,
+                "iterations": out.iterations,
+                **out.estimates,
+                **{f"se_{name}": value for name, value in out.std_errors.items()},
+            }
+        transcribed = pd.DataFrame([rows["T0000"]])
+        twins = pd.DataFrame([rows[rm19.TWIN]])
+        scores = pd.DataFrame(
+            {"scenario": [rm19.SCENARIO], "replicate": [1], "score_max": [5e-9]}
+        ).assign(rounds=R_ROUNDS_DRAW_1)
+        conditioned = rm19.conditions(scores, scores, twins)
+        return rm19.classify(transcribed, reference, conditioned).iloc[0]
+
+    clean = verdict()
+    assert (clean["class"], bool(clean["passes"])) == (rm19.SAME_TOL_IC, True)
+    split = rtrans.Split.of(payload["fold"].to_numpy())
+    a = payload["A"].to_numpy(dtype=float)
+    qn = [payload["qn0"].to_numpy(dtype=float), payload["qn1"].to_numpy(dtype=float)]
+    upper = payload["gn1"].to_numpy(dtype=float)
+    gn = [np.where(g < rtrans.TOLG, rtrans.TOLG, g) for g in (1.0 - upper, upper)]
+    before = rtrans.estimate_grn(a, qn, gn, split)
+    monkeypatch.setattr(rtrans, "glm_binomial", looser)
+    after = rtrans.estimate_grn(a, qn, gn, split)
+    step = max(float(np.max(np.abs(x[1] - y[1]))) for x, y in zip(before, after, strict=True))
+    assert 1e-9 < step < 1e-8
+    mutated = verdict()
+    assert (mutated["class"], bool(mutated["passes"])) == (rm19.SAME_TOL_IC, False)
+    assert mutated["gap"] > rm19.SENSITIVE_TOLERANCE
 
 
 def test_run_log_clears_the_notes_of_a_part(tmp_path: Path) -> None:
@@ -930,13 +1196,38 @@ def test_each_recorded_part_meets_its_declared_budget(part: str) -> None:
         assert not rows_path.exists(), part
         return
     rows = shared.read_rows(rows_path)
-    if part == "V4":
-        assert sorted(rows["replicate"].unique()) == list(range(rm19.V4_DRAWS))
-        assert rows.groupby("replicate").size().eq(len(study.ESTIMANDS)).all()
+    if part in ("AV", "V4"):
+        # The counting rerun of R and the twins: every draw of the part once, with its count.
+        expected = (
+            {(scenario, k) for scenario in study.SCENARIOS for k in range(study.PRIMARY_REPLICATES)}
+            if part == "AV"
+            else {(rm19.SCENARIO, k) for k in range(rm19.V4_DRAWS)}
+        )
+        assert set(zip(rows["scenario"], rows["replicate"], strict=True)) == expected
+        assert rows.groupby(["scenario", "replicate"]).size().eq(len(study.ESTIMANDS)).all()
+        assert rows["rounds"].between(1, rtrans.MAX_ITER).all()
+        twins = shared.read_rows(rm19.twin_path(rm19.HERE, part))
+        assert set(zip(twins["scenario"], twins["replicate"], strict=True)) == expected
+        assert set(twins["arm"]) == {rm19.TWIN} and len(twins) == len(expected)
         return
     declared = {"A": study.PRIMARY_REPLICATES}.get(part, rm19.REPLICATES)
     counts = rows.groupby(["scenario", "n", "arm"]).size()
     assert counts.eq(declared).all(), counts.to_string()
-    expected = {(scenario, n, k, seed) for scenario, n, k, seed in rm19.draws(part)}
+    declared_draws = {(scenario, n, k, seed) for scenario, n, k, seed in rm19.draws(part)}
     observed = set(zip(rows["scenario"], rows["n"], rows["replicate"], rows["seed"], strict=True))
-    assert observed == expected
+    assert observed == declared_draws
+
+
+def test_the_part_a_validation_is_computed_from_its_committed_inputs() -> None:
+    """W3: ``a-validation.csv`` is V1 to V5 over the committed Part A rows and the step AV files."""
+    if "AV" not in RECORDED:
+        assert not rm19.twin_path(rm19.HERE, "AV").exists()
+        return
+    rows = shared.read_rows(shared.part_paths(rm19.HERE, "A")[0])
+    r_rows = shared.read_rows(shared.part_paths(rm19.HERE, "AV")[0])
+    twins = shared.read_rows(rm19.twin_path(rm19.HERE, "AV"))
+    rebuilt = shared.as_committed(rm19.validate_committed(rows, r_rows, twins))
+    committed = shared.read_rows(shared.part_paths(rm19.HERE, "A")[1])
+    pd.testing.assert_frame_equal(rebuilt, committed, check_dtype=False, rtol=1e-12)
+    counted = r_rows.drop_duplicates(["scenario", "replicate"]).set_index(["scenario", "replicate"])
+    assert counted.loc[(rm19.SCENARIO, 1), "rounds"] == R_ROUNDS_DRAW_1

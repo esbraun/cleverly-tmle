@@ -1585,7 +1585,8 @@ A validation failure](#the-amendment-after-the-part-a-validation-failure)" gives
 standard errors. The shift of the twin is the same quantity for the twin against
 `T(0, 0, 0, 0)`. Rule 4 applies to a draw that exits at `tolIC` on both sides. A draw that reaches
 `maxIter` on both sides keeps the 1e-4 of rule 3, sensitive or not, as the earlier amendment
-declared.
+declared. A sensitive draw within the 1e-9 of rule 3 passes and is not excused, because rule 6
+excuses only a draw that rule 3 fails.
 
 Part A read the earlier rule, which this table states.
 

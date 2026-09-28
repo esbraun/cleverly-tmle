@@ -7,9 +7,10 @@ row of a registered study.
 | file | what it holds |
 | --- | --- |
 | `rtrans.py` | the transcription of the binary cross-validated loop of R `drtmle` 1.1.2, with the factors J, P, S and K and the guard switch G |
-| `run.py` | parts A, B, V4 and C, their reading rules, and the command line |
+| `run.py` | parts A, B, V4 and C, the step AV, their reading rules, and the command line |
+| `count_rounds.R` | the counting wrapper of rule 1. It counts R's loop rounds per draw and sources `tests/canonical/drtmle/run_drtmle.R` unchanged, in the pinned image |
 | `fluctuate_g_fallback.R`, `fluctuate-g-fallback.csv` | R's `fluctuateG` on a constructed case where both `glm` attempts fail, run in the pinned image, and its output. A unit test compares the transcription with it |
-| `a-*`, `b-*`, `v4-*`, `c-*` | per part: `*-validation.csv`, `*-rows.csv.gz` and `*-reading.csv`. The parts have not run, so no such file exists yet |
+| `a-*`, `av-*`, `b-*`, `v4-*`, `c-*` | per part: `*-validation.csv`, `*-rows.csv.gz` and `*-reading.csv`. AV and V4 also write `*-twin-rows.csv.gz`, and their rows are R's counted rows. `RECORDED` in the unit test names the parts with a committed record |
 | `run.log` | one block per part, as RM18 rule R6 names it |
 
 `tests/unit/test_rm19_one_sided_increment_diagnostic.py` runs in the fast tier. It covers these
@@ -32,9 +33,15 @@ checks:
   2^4 contrasts against their longhand form, and the Bonferroni levels against SciPy;
 - P-ctrl on each of its two branches, the Part C scaling and context rows, the K decomposition,
   the V4 precondition of parts A, B and C, and the Part A precondition of the later parts;
-- V2 and V4 by exit status on synthetic draws: a `maxIter` draw 1e-5 away passes, a `tolIC`
-  draw 1e-8 away fails, an exit mismatch fails, and the `maxIter` drift is reported;
-- that V4 calls the registered runner with the files the study manifest hashes.
+- V2 and V4 by round and conditioning on synthetic draws: each branch of rules 3, 4 and 5, with
+  a passing and a failing case, the excused count and mean of rule 6, and the `maxIter` drift;
+- rule 7: a looser `glm` tolerance on the `gr1` reduction of registered draw 1, which moves one
+  refit by less than 1e-8, fails rule 3;
+- the twin's QR solve against `gelsd`, the counting step's merge and its stop on a missing
+  count, the counting wrapper's image and sourced runner, and V4 on the path of step AV;
+- that V4 calls the registered runner with the files the study manifest hashes;
+- once AV is recorded, that `a-validation.csv` is V1 to V5 over the committed Part A rows and
+  the AV files.
 
 Two tests read the committed record of each part: its reading rebuilt from its rows, its
 declared budget and its seeds. `RECORDED` in the test file lists the parts whose record is
@@ -60,16 +67,17 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
 | option | effect |
 | --- | --- |
 | `--output` | required. The part writes its files there, so a bare run cannot overwrite this record |
-| `--part` | `A`, `B`, `V4` or `C`, in that order |
+| `--part` | `A`, `AV`, `B`, `V4` or `C`, in that order. `AV` recomputes Part A's validation from the committed `a-rows.csv.gz`; a run of `A` takes that step itself |
 | `--read-only` | rebuilds the reading from the files in `--output`, and fits nothing |
 | `--replicates K` | caps every budget for a disposable smoke run. Each label of such a run says `smoke run, not the declared budget` |
-| `--jobs` | the pool size. The default is `available_cores()`. V4 uses at most 7 R workers |
+| `--jobs` | the pool size. The default is `available_cores()`. The counting runs of AV and V4 use 7 R workers, below the cap of 8 |
 
 A run without `--replicates` is refused before any work in three cases. `cleverly` is imported
 from outside this tree's `src`, the tree has changes, or `HEAD` differs from its upstream.
 
 | declared part | the pushed upstream must hold |
 | --- | --- |
+| AV | `a-rows.csv.gz` |
 | B | `a-validation.csv` |
 | V4 | `b-rows.csv.gz` |
 | C | `a-validation.csv`, `b-rows.csv.gz` and `v4-validation.csv` |
@@ -81,9 +89,13 @@ part with exit code 1 and no reading.
 The readings of parts A and B need V4. Each part writes its reading when it ends, and the Part B
 reading is `harness not validated, no reading` until V4 holds. After V4 is committed, rebuild the
 readings of A and B with `--read-only --output tests/diagnostics/rm19_one_sided_increment`, so
-that each folds in the V4 record. Part C carries the V4 exit-status check from its start.
+that each folds in the V4 record. Part C carries the V4 check of rule 5 from its start.
 
-V4 needs Docker and the image `cleverly-drtmle-reference:538a3a2`. It runs `docker build` on
+After AV, copy its files and its `a-validation.csv` into this directory, then rebuild the Part A
+reading with `--part A --read-only --output tests/diagnostics/rm19_one_sided_increment`. The
+Part A reading reads the AV files from the same directory.
+
+AV and V4 need Docker and the image `cleverly-drtmle-reference:538a3a2`. They run `docker build` on
 `tests/canonical/drtmle/Dockerfile` first, as a regeneration does, and writes the image ID to
 `run.log`. Run nothing else on the machine during a part.
 
@@ -116,11 +128,14 @@ This table was fixed and committed before the run.
 | Part A labels | the primary and localization labels read `committed-draw attribution: <label>`, on `treatment_correct` | the declared Part A reading |
 | P-ctrl | `T1000 - T0000` on each control scenario: the 99% interval covers 0, and its `ddof = 1` SD is at most 0.002223 or 0.000869 | the declared prediction |
 | V1 | `compare_rows` of `rm18_shared` on `(scenario, replicate, estimand)`, over `estimate` and `std_error` | R4 |
-| V2 and V4, by exit status | one function, `compare_by_exit`, for both. R's exit status is `tolIC` when its `score_max` is at most `1e-8` (from `fit-diagnostics.csv` for V2 and the runner's rows for V4), and `maxIter` otherwise. The status of `T(0, 0, 0, 0)` is its recorded exit, with `cap` read as `maxIter`. It writes three rows: `exit status`, whose `largest_difference` is the number of draws whose statuses differ and which fails on any; `tolIC draws` at the R4 tolerance; and `maxIter draws` at `1e-4`. Each row's `compared` is a count of draws. The `maxIter` count, the largest difference and the signed mean `ate` difference go to `run.log` as a `note:` line. The signed mean is also a supplementary reading row | the amended declaration |
+| V2 and V4, by round and conditioning | one function, `compare_by_exit`, for both, over `classify`. R's exit status is `tolIC` when its `score_max` is at most `1e-8` (from `fit-diagnostics.csv` for V2 and the runner's rows for V4), and `maxIter` otherwise. The status of `T(0, 0, 0, 0)` is its recorded exit, with `cap` read as `maxIter`. R's round count is the `rounds` of the counting run. `abs(T - R)` and the twin's shift are the largest scaled difference over the three estimates and three standard errors. It writes one row per class, in this order: `same round, tolIC draws` at the R4 tolerance (rule 3); `same round, maxIter draws` at `1e-4`, sensitive or not; `rounding-sensitive tolIC draws`, which pass at the R4 tolerance or under rule 4; and `round and exit status`, which pass only when the twin changes the round or the exit, at `1e-4` (rule 5). Each row's `compared` counts the class's draws and `largest_difference` is their largest `abs(T - R)`. The `maxIter` note and the count and signed mean `ate` difference of the excused draws go to `run.log`. Each is also a supplementary reading row | the declaration amended after the Part A failure. A sensitive draw within `1e-9` passes, because rule 6 defines an excused draw as one that rule 3 fails |
+| rule 1 | `count_rounds.R` wraps `drtmle`'s internal `fluctuateG` with a counter and `drtmle` with a writer that keys each count by the `scenario` and `replicate` of `run_drtmle.R`'s `fit_one`, then sources `run_drtmle.R`. `run_drtmle.R` stops when a worker returns no result; the wrapper stops unless each draw has exactly one count. `COUNTING` is `REFERENCE` with this runner and `tests/` mounted at `/fixture`. One scenario per R input, at 7 workers. For V2, `V2 drtmle-r rerun` compares the counted rows with the committed R rows at `1e-15` | W2 and W5 |
+| rule 2 | `transcribe(payload, solver="qr")`: every least-squares solve on R's side, the IRLS and the Gaussian `glm`, by `numpy.linalg.qr` and a triangular solve instead of `numpy.linalg.lstsq`. The twin rows carry the arm `T0000[qr]` | W2 |
+| step AV | rebuilds each committed Part A draw from its seed, fits `C` for the payload and the twin, and runs rule 1. `AV payload C refit` checks each `C` against the committed Part A row at R4. It then writes `a-validation.csv` from the committed `a-rows.csv.gz` and the AV files. No other arm is fitted | W3 |
 | V3 | the payload means against the committed `drtmle-r` `initial_estimate`, scaled difference at most `1e-12` | the declared check |
 | V5 | `compare_rows` of the `T1111` and `C` `estimate` columns of every Part A draw, all three scenarios, at the R4 tolerance | the amended declaration, extended to the controls because K3 found the control differences to be `cleverly` details |
-| V4 | the first 200 Part B draws are drawn again from their committed seeds and refit, and each `C` row must equal its Part B row to R4. `REFERENCE.run` of `tests/canonical/drtmle/regenerate.py` then runs `run_drtmle.R` in a temporary directory inside `--output`, with `CLEVERLY_R_CORES` at most 7. Its rows are compared with the Part B `T(0, 0, 0, 0)` rows by exit status | the declared call, with the runner arguments in one place |
-| the V4 exit status in A and C | the Part A reading folds in the V4 exit-status row when `--output` holds a V4 record. Part C carries it into its own validation record when it starts | F3 of the harness review |
+| V4 | the first 200 Part B draws are drawn again from their committed seeds and refit, and each `C` row must equal its Part B row to R4. The step of AV, `r_phase`, then fits the twins and runs `COUNTING`, which sources `run_drtmle.R`, in a temporary directory inside `--output`, with `CLEVERLY_R_CORES` at 7. Its rows are compared with the Part B `T(0, 0, 0, 0)` rows by round and conditioning | the declared call, with the runner arguments in one place |
+| the V4 rule 5 row in A and C | the Part A reading folds in the V4 row whose name ends in `exit status`, `V4 R round and exit status`, when `--output` holds a V4 record. Part C carries it into its own validation record when it starts | F3 of the harness review |
 | Part C scaling | `sqrt(n)` times `C - T0000` at 1,500 and 6,000 from the C rows, and at 3,000 from the B rows, each at `1 - 0.01 / 3`. A declared C reads the B rows of this directory, a smoke C those of `--output`, and a missing file stops the part | the declared statistic, and F5 of the harness review |
 | supplementary context | the BD-1 `bias` row of `tests/diagnostics/rm18_boundary/bd-1-reading.csv` at 1,500, and the `double_robust_contraction/treatment_correct_n6000` bias of `properties.csv` at 6,000. The `C` bias at each size is the arm summary row | the declared supplementary row |
 | instruments | `repeats[0].fluctuations["mean"].reduction` for the `C` rounds, exit and closing steps, and its targeted mechanism for the rows at a bound. `score_max` is the largest score of `score_equations()` for `C`, and the largest of the six means for a `T` arm | the declared instruments |

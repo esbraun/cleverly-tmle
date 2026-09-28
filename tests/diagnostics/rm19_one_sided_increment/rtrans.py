@@ -34,8 +34,11 @@ of this directory gives each resolution the declaration leaves open.
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import Iterator
+from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -189,6 +192,34 @@ def trim_logit(x: np.ndarray, trim: float = TRIM) -> np.ndarray:
     return np.asarray(np.log(clipped / (1.0 - clipped)), dtype=float)
 
 
+Solver = Literal["gelsd", "qr"]
+#: The least-squares solve of every fit on R's side, the ``glm`` IRLS and the Gaussian ``glm``.
+#: ``"gelsd"`` is the transcription; ``"qr"`` is its twin (RM19 rule 2), an equally valid solve
+#: whose rounding differs.  :func:`transcribe` sets it for the length of one fit.
+_SOLVER: ContextVar[Solver] = ContextVar("solver", default="gelsd")
+
+
+@contextlib.contextmanager
+def solving_with(solver: Solver) -> Iterator[None]:
+    """Use ``solver`` for every least-squares solve inside the block."""
+    if solver not in ("gelsd", "qr"):
+        raise ValueError(f"solver must be 'gelsd' or 'qr'; got {solver!r}")
+    token = _SOLVER.set(solver)
+    try:
+        yield
+    finally:
+        _SOLVER.reset(token)
+
+
+def least_squares(design: np.ndarray, response: np.ndarray) -> np.ndarray:
+    """The least-squares coefficients: LAPACK ``gelsd``, or a Householder QR for the twin."""
+    if _SOLVER.get() == "qr":
+        q, r = np.linalg.qr(design)
+        return np.asarray(np.linalg.solve(r, q.T @ response), dtype=float)
+    coef, *_ = np.linalg.lstsq(design, response, rcond=None)
+    return np.asarray(coef, dtype=float)
+
+
 def _deviance(y: np.ndarray, mu: np.ndarray) -> float:
     with np.errstate(divide="ignore", invalid="ignore"):
         first = np.where(y > 0, y * np.log(y / mu), 0.0)
@@ -243,7 +274,7 @@ def glm_irls(
         good = derivative != 0
         working = (eta - offset)[good] + (y - mu)[good] / derivative[good]
         root = np.sqrt(derivative[good] ** 2 / (mu * (1.0 - mu))[good])
-        new, *_ = np.linalg.lstsq(x[good] * root[:, None], working * root, rcond=None)
+        new = least_squares(x[good] * root[:, None], working * root)
         if not np.all(np.isfinite(new)):
             break
         eta_new = offset + x @ new
@@ -283,8 +314,7 @@ def ols(y: np.ndarray, x: np.ndarray) -> np.ndarray:
     if np.unique(x).size == 1:
         return np.array([float(np.mean(y)), 0.0])
     design = np.column_stack([np.ones_like(x), x])
-    coef, *_ = np.linalg.lstsq(design, y, rcond=None)
-    return np.asarray(coef, dtype=float)
+    return least_squares(design, y)
 
 
 # --------------------------------------------------------------- reduced regressions (R)
@@ -825,12 +855,20 @@ def at_bound(gn: list[np.ndarray]) -> int:
     return int(np.sum(np.any((stacked <= TOLG) | (stacked >= 1.0 - TOLG), axis=1)))
 
 
-def transcribe(payload: pd.DataFrame, switches: Switches = Switches()) -> Transcribed:
+def transcribe(
+    payload: pd.DataFrame, switches: Switches = Switches(), *, solver: Solver = "gelsd"
+) -> Transcribed:
     """One fit of the transcription on a study payload.
 
     ``payload`` carries ``Y``, ``A``, ``fold`` and the shared initial arrays ``qn0``, ``qn1`` and
-    ``gn1``, exactly as ``canonical_drtmle._replicate`` hands them to R.
+    ``gn1``, exactly as ``canonical_drtmle._replicate`` hands them to R.  ``solver="qr"`` fits the
+    twin of RM19 rule 2: the same steps with a QR least-squares solve on R's side.
     """
+    with solving_with(solver):
+        return _transcribe(payload, switches)
+
+
+def _transcribe(payload: pd.DataFrame, switches: Switches) -> Transcribed:
     y = payload["Y"].to_numpy(dtype=float)
     a = payload["A"].to_numpy(dtype=float)
     n = y.size
