@@ -247,7 +247,10 @@ def untargeted_estimate(result: Any) -> float:
     q1 = np.asarray(scaler.unscale_levels(nuisance.outcome.arms[treated]), dtype=float)
     treat = rule_of(result)
     plug_in = np.where(treat, q1, q0)
-    return float(np.mean([np.mean(plug_in[test]) for _, test in nuisance.folds]))
+    value = float(np.mean([np.mean(plug_in[test]) for _, test in nuisance.folds]))
+    if not np.isfinite(value):
+        raise RuntimeError(f"a non-finite untargeted estimate (rule L4): {value}")
+    return value
 
 
 def rule_of(result: Any) -> np.ndarray:

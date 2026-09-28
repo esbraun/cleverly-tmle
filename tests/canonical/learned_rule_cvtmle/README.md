@@ -29,11 +29,15 @@ each primary replication. The property rows carry the same three harness columns
 Use the main checkout's Python 3.13.7 with `PYTHONPATH` naming this tree's `src` and root, and one
 thread per numerical library. Run nothing else on the machine.
 
-A declared run refuses to start unless the tree is clean, `HEAD` equals its upstream, and
-`cleverly` imports from this tree's `src`:
+A declared run takes `--output` and `--jobs` only. `--output` names an empty scratch directory
+outside the repository. The run refuses to start unless the tree is clean, `HEAD` equals its
+upstream, `cleverly` imports from this tree's `src`, the runtime is the one rule L7 declares,
+and every thread variable is 1. It writes the artefacts, the manifest and `run.log` to the
+scratch directory, then copies them here. It copies them also when a gated verdict fails.
+Run this command:
 
 ```bash
-python -u -m tests.canonical.learned_rule_cvtmle.regenerate --jobs 16
+python -u -m tests.canonical.learned_rule_cvtmle.regenerate --jobs 16 --output <empty scratch directory>
 ```
 
 A smoke run is any other `--replicates`. It draws from the throwaway seeds of rule L9, writes to a
