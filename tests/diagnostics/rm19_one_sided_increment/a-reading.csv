@@ -9,6 +9,9 @@ A,V2 drtmle-r round and exit status,largest scaled difference,7.573965222951173e
 A,V2 drtmle-r excused draws,largest scaled difference,0.00125,,,holds over 2400
 A,V3 initial estimates,largest scaled difference,6.106226635438361e-16,,,holds over 7200
 A,V5 T1111 against C,largest scaled difference,0.0,,,holds over 7200
+A,V4 R T0000 refit,largest scaled difference,0.0,,,holds over 200
+A,V4 R round and exit status,largest scaled difference,0.0,,,holds over 0
+A,V4 R excused draws,largest scaled difference,0.0,,,holds over 200
 A,88 maxIter draws,"T0000 - R, signed mean ate difference",-2.3633005085702338e-07,,,supplementary
 A,3 excused draws,"T0000 - R, signed mean ate difference",-2.4723651411306485e-05,,,supplementary
 A,"treatment_correct, n = 3000",C - T0000,0.0010051943322082425,6.845658030002423e-05,0.0019419320841164607,committed-draw attribution: increment confirmed
