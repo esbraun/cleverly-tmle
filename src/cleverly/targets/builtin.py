@@ -143,6 +143,46 @@ _REGIME_ID = Identification(
 )
 
 
+#: The learned-rule value (RM30).  Its assumptions are the conditions C1 to C6 of the
+#: contract in ``docs/roadmap.md`` and ``docs/technical-reference/point-treatment-tmle.md``.
+#: The data cannot confirm C2 to C4.  No assumption opens with the two-arm positivity
+#: prefix, because a study binds that sentence to an arm scope and this target has none.
+_LEARNED_RULE_ID = Identification(
+    assumptions=(
+        "consistency: Y = Y^a when A = a",
+        *_NO_INTERFERENCE,
+        "no unmeasured confounding: Y^a is independent of A given W",
+        "the target is data-adaptive: it is the average over the outer folds of the value "
+        "of the rule learned on each fold's training rows, so it depends on the realized "
+        "split and on the fitted rules. It is not the value of one rule fitted on all rows, "
+        "and it is not the value of the optimal rule",
+        "C1, a bounded outcome: Y lies in [0, 1] after the declared transform, so a binary "
+        "outcome or a continuous one with a declared q_bounds",
+        "C2, strong positivity: g0(a | W) >= delta > 0 for both arms almost surely; "
+        "g_bounds regularizes the fitted denominator only",
+        "C3, a limiting rule: the fold curves converge in L2(P0) to the curve of one fixed "
+        "rule d1 (van der Laan and Luedtke 2015, Theorem 6). It holds when the limit blip "
+        "of the outcome learner is zero on a set of probability zero, and it fails at an "
+        "exceptional law with a consistent learner, where the interval can under-cover",
+        "C4, the remainder: the mean over the folds of the double-robust remainder along "
+        "each fold's rule is o_P(n^-1/2); or, by Corollary 3, g_nv is an asymptotically "
+        "linear estimator of g0, and the interval is then asymptotically conservative",
+        "C5: no Donsker condition is needed, so the learners may be flexible",
+        "C6: iid rows, with no observation weights, clusters, missing outcomes or "
+        "intermediate variable",
+    ),
+    required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
+    dr_condition=(
+        "the remainder is the fold average of the product of the outcome-regression and "
+        "mechanism errors along each fold's learned rule (C4); a correctly specified "
+        "parametric mechanism alone keeps the interval conservative (Corollary 3)"
+    ),
+    references=(
+        "van der Laan & Luedtke (2015)",
+        "Montoya, van der Laan, Skeem & Petersen (2023)",
+    ),
+)
+
 _IPSI_ID = Identification(
     assumptions=(
         "consistency: Y = Y^a when A = a",
@@ -361,6 +401,16 @@ def _ey_regime(ctx: TargetContext) -> list[ParameterEstimate]:
 def _ate_regime(ctx: TargetContext) -> list[ParameterEstimate]:
     """``E[Y^{g*}] - E[Y^{g*_ref}]``, once per non-reference regime."""
     return _difference_against_reference(ctx, "ate_regime")
+
+
+def _ey_learned_rule(ctx: TargetContext) -> list[ParameterEstimate]:
+    """The fold-average value of the rule learned inside each training fold.
+
+    On the fold-evaluated fit, ``ctx`` is one validation fold, and the context's regime
+    density is that fold's own one-hot rule.  The regime mean of that density is the fold
+    plug-in, and the estimator averages the folds with weight ``1/V``.
+    """
+    return _level_per_code(ctx, "ey_learned_rule")
 
 
 def _ey_ipsi(ctx: TargetContext) -> list[ParameterEstimate]:
@@ -629,6 +679,20 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         parameter_axis="regime",
         in_default_set=True,
         description="contrast of each regime against the reference regime",
+    ),
+    Target(
+        name="ey_learned_rule",
+        group="regime",
+        scale="level",
+        build=_ey_learned_rule,
+        identification=_LEARNED_RULE_ID,
+        parameter_axis="learned_rule",
+        requires_binary_treatment=True,
+        in_default_set=True,
+        description=(
+            "average over the outer folds of the value of the rule learned on each fold's "
+            "training rows"
+        ),
     ),
     Target(
         name="ey_ipsi",

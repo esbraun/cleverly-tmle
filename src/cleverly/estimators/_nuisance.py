@@ -1045,6 +1045,7 @@ def fit_nuisances(
     companion: CausalData | None = None,
     n_jobs: int = 1,
     fit_treatment: bool = True,
+    remedy: str = _CROSS_FIT_REMEDY,
 ) -> NuisanceEstimates:
     """Fit every nuisance model this estimator needs.
 
@@ -1075,6 +1076,10 @@ def fit_nuisances(
     accepted only for the shape that estimator supports: an arm-coded treatment, a fully
     observed outcome and no intermediate, which are exactly the refusals ``DRTMLE`` already
     makes by name.
+
+    ``remedy`` is the way out that the backstop of :func:`cross_fit_companion` names when a
+    fold has no trainable rows.  The default fits in sample.  A learned-rule fit passes its
+    own, because the learned-rule value has no in-sample fit.
     """
     diagnostics: dict[str, Any] = {}
     groups = data.cluster
@@ -1130,6 +1135,7 @@ def fit_nuisances(
             clip=(0.0, 1.0),
             classes=arms,
             n_jobs=n_jobs,
+            remedy=remedy,
         )
         propensity = Propensity(propensity_out["g"], arms)
         if propensity_diagnostics:
@@ -1174,6 +1180,7 @@ def fit_nuisances(
             groups=groups,
             clip=(0.0, 1.0),
             n_jobs=n_jobs,
+            remedy=remedy,
         )
         missingness = _mechanism_columns(missing_out, arms, shift_set)
         if missing_diagnostics:
@@ -1204,6 +1211,7 @@ def fit_nuisances(
             groups=groups,
             clip=(0.0, 1.0),
             n_jobs=n_jobs,
+            remedy=remedy,
         )
         intermediate = _mechanism_columns(intermediate_out, arms, shift_set)
         if intermediate_diagnostics:
@@ -1266,6 +1274,7 @@ def fit_nuisances(
         groups=groups,
         clip=(0.0, 1.0),
         n_jobs=n_jobs,
+        remedy=remedy,
     )
     if outcome_diagnostics:
         diagnostics["outcome"] = outcome_diagnostics

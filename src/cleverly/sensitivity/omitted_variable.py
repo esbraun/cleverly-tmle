@@ -96,6 +96,7 @@ from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, DataError, refuse_inference, repeats_refusal
 from ..inference.cluster import influence_variance
 from ..inference.influence import spread_name
+from ..interventions.learned import LEARNED_RULE_SENSITIVITY_REFUSAL
 from ..targets import parameter_stem
 from ..utils.bounds import g_bounds_for
 from ..utils.random import resolve_assessment_seed
@@ -360,6 +361,13 @@ def _refuse_non_arm_axis(result: Any) -> str | None:
     axis = result.config.parameter_axis
     if axis == "arm":
         return None
+    if axis == "learned_rule":
+        # A third reason: the target is data-adaptive, and no bound for it was reviewed.
+        # A benchmark refit would also relearn the rules, and so change the target.
+        return (
+            "the omitted-variable bound and its benchmark do not cover a learned-rule fit: "
+            + LEARNED_RULE_SENSITIVITY_REFUSAL
+        )
     if axis == "ipsi":
         return (
             "the omitted-variable bound does not cover a fit whose parameters are indexed "

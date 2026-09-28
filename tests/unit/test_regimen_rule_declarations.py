@@ -156,6 +156,8 @@ class TestTheRegimenDeclarationIsRequired:
             ESTIMATED,
             PATHWISE,
             "data-adaptive target",
+            # The shared text names the longitudinal route, X11, beside the point one.
+            "A learned longitudinal regimen has no supported path (X11 in docs/roadmap.md).",
         )
 
     @pytest.mark.parametrize("kind", ["Known", "probability", True, 1])

@@ -460,6 +460,84 @@ Laan (2012), and Diaz and van der Laan (2013). Implementation:
 and
 [`interventions/support.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/support.py).
 
+### Learned rules
+
+`LearnedRuleValue` estimates the value of a treatment rule that the fit learns. The engine
+spelling is `TMLE(learned_rule=LearnedRule())`. Van der Laan and Luedtke (2015), Section 7, define
+the target, and their Appendix B gives its CV-TMLE. The target is a data-adaptive parameter. It
+depends on the realized split and on the rules that the fit learns:
+
+$$
+\tilde\psi_{0n} = \frac1V \sum_{v=1}^V \Psi_{d_{nv}}(P_0),\qquad
+\Psi_d(P) = E_P\,\bar Q_P(d(W), W),\qquad
+d_{nv}(w) = \mathbb 1\{\bar Q_{nv}(1, w) - \bar Q_{nv}(0, w) > 0\}.
+$$
+
+Here $\bar Q_{nv}$ is the outcome regression that the fit trains on the training rows of fold
+$v$. A tie assigns control. The target is not the value of one rule fitted on all rows, and it is
+not the value of the optimal rule.
+[X11](../roadmap.md#x11-learned-policy-follow-ups) parts (a) and (f) hold those two targets.
+
+The fit reuses the regime fluctuation and the fold-evaluated CV-TMLE. The table gives each step.
+
+| step | what the fit computes | source |
+| --- | --- | --- |
+| rule | $d_i = d_{n,v(i)}(W_i)$ from the out-of-fold outcome regression, so no fit that saw row $i$ sets its rule | JCI, Section 7.1 |
+| clever covariate | $H_i = \mathbb 1\{A_i = d_i\} / g_{n,v(i)}(A_i \mid W_i)$, with $g$ truncated at `g_bounds` | JCI, Appendix B |
+| fluctuation | one $\varepsilon$ on the pooled validation rows, with the weights $n / (V n_v)$ | JCI, Appendix B, Equation (21) |
+| estimate | $\psi^*_n = (1/V) \sum_v \psi^*_{nv}$, where $\psi^*_{nv}$ is the mean of $\bar Q^*_{nv}(d_i, W_i)$ over the validation rows of fold $v$ | Montoya (2023b), Section 3.2 |
+| influence curve | $D_i = H_i\,(Y_i - \bar Q^*_{nv}(A_i, W_i)) + \bar Q^*_{nv}(d_i, W_i) - \psi^*_{nv}$, centred at each fold's own estimate | Montoya (2023b), Section 4.2 |
+| variance | $V^{-2} \sum_v n_v^{-2} \sum_{i \in v} D_i^2$ | JCI, Section 7.2, at equal folds |
+| interval | the Wald interval at the 0.975 normal quantile | JCI, Section 7.2 |
+
+"JCI" is van der Laan and Luedtke (2015). "Montoya (2023b)" is Montoya, van der Laan, Skeem and
+Petersen (2023), *International Journal of Biostatistics* 19(1):239–259. The
+{ref}`RM30 contract <the-contract>` gives every locator and the version of each source
+that this project read.
+
+The conditions come from JCI, Theorem 6 and Corollary 3. The data cannot confirm C2 to C4.
+
+| id | condition |
+| --- | --- |
+| C1 | a bounded outcome: a binary outcome, or a continuous outcome with a declared `q_bounds` |
+| C2 | strong positivity. `g_bounds` regularizes the fitted denominator only |
+| C3 | a limiting rule: the fold curves converge to the curve of one fixed rule |
+| C4 | a remainder of order $o_P(n^{-1/2})$ along each fold's rule. Or, by Corollary 3, a correct parametric treatment model, and the interval is then conservative |
+| C5 | no Donsker condition, so the learners can be flexible |
+| C6 | iid rows, with no weights, clusters, missing outcomes or intermediate variable |
+
+C3 fails at an exceptional law, where the effect is zero for a share of units and the learner is
+consistent. The fold rules then have no fixed limit, and the interval can under-cover. The
+{ref}`RM30 study declarations <the-two-studies-declared-before-they-run>` include a
+reporting study that measures this boundary.
+
+The fit needs `CrossFitting(enabled=True, fold_evaluation=True)`, one repeat, pooled targeting and
+no full-refit bootstrap. `refuse_learned_rule_composition` in
+[`interventions/learned.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/learned.py)
+refuses every other composition before any learner, in the order that the
+{ref}`RM30 refusal table <the-refusals-their-order-and-the-shared-text>` gives. A refusal
+that no setting repairs comes first.
+[The refusals a caller can meet](cv-tmle.md#the-refusals-a-caller-can-meet) quotes each remedy.
+
+The result records the fit under `result.extra["learned_rule"]`, a `LearnedRuleRecord`. The
+table gives its fields.
+
+| field | content |
+| --- | --- |
+| `fold_sizes`, `fold_weights` | the validation rows of each fold, and the weight $1/V$ of each fold |
+| `fold_estimates` | $\psi^*_{nv}$ for each fold |
+| `treated_shares` | the share of each fold's validation rows that its rule treats |
+| `blip_quantiles`, `quantile_levels` | quantiles of the estimated blip on each fold's validation rows |
+| `rule`, `target` | the rule class and the target kind, in words |
+
+`result.summary()` prints the target line of `LearnedRuleRecord.describe()`. The rule of each row
+is `result.nuisance.regimes.values[:, 1, 0]`. The fit keeps no fitted fold model, and the saved
+folds, learner templates and seeds replay it. A refit relearns the rules, so `refute` and every
+sensitivity analysis read `unavailable`.
+[F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) holds the
+sensitivity analyses. The support report and `truncation_curve` run, because they read the same
+rules.
+
 ### Modified treatment policies
 
 For a continuous exposure and an invertible shift $d(a,w)$, a modified treatment policy targets

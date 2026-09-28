@@ -17,6 +17,7 @@ from .exceptions import CapabilityError, CleverlyError, DataError, MethodConfigu
 from .inference.multiplier import SimultaneousBands, simultaneous_bands
 from .interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet
 from .interventions.base import InterventionKind, refuse_mixed_interventions
+from .interventions.learned import LearnedRule, refuse_learned_rule_composition
 from .longitudinal import LTMLE, LongitudinalData, LongitudinalResult
 from .methods import (
     CollaborativeTMLEMethod,
@@ -74,6 +75,7 @@ __all__ = [
     "IdentifiedEffect",
     "IncrementalEffect",
     "IncrementalMean",
+    "LearnedRuleValue",
     "LongitudinalTreatment",
     "MSMProjection",
     "ModifiedTreatmentPolicy",
@@ -1018,6 +1020,58 @@ class RegimeContrast:
 
 
 @dataclass(frozen=True)
+class LearnedRuleValue:
+    """Request the fold-average value of a treatment rule learned inside each training fold.
+
+    The target is data-adaptive.  It is the average over the outer folds of the value of
+    the rule learned on each fold's training rows, so it depends on the realized split and
+    on the fitted rules.  It is not the value of one rule fitted on all rows, and it is not
+    the value of the optimal rule.  Van der Laan and Luedtke (2015), Section 7 and
+    Appendix B, define it and its cross-validated TMLE.  The interval can under-cover when
+    the effect is zero or near zero for a share of units, where no limiting rule exists.
+
+    The fit needs the fold-evaluated CV-TMLE, ``CrossFitting(enabled=True,
+    fold_evaluation=True)``.  The default ``CrossFitting()`` refuses before any learner
+    and names that remedy.
+
+    Parameters
+    ----------
+    rule : LearnedRule
+        The rule class, and the label the reported parameter carries.
+
+    See Also
+    --------
+    cleverly.interventions.LearnedRule : The rule this estimand holds.
+    RegimeMean : The value of a known rule, fixed before the fit.
+    cleverly.CrossFitting : The fold-evaluated configuration this estimand needs.
+
+    Examples
+    --------
+    >>> from cleverly import LearnedRuleValue
+    >>> estimand = LearnedRuleValue()
+    >>> estimand.name, estimand.rule.name
+    ('ey_learned_rule', 'learned rule')
+    """
+
+    rule: LearnedRule = field(default_factory=LearnedRule)
+    name: str = field(default="ey_learned_rule", init=False)
+    definition: str = field(
+        default=(
+            "average over the outer folds of the value of the rule learned on each fold's "
+            "training rows"
+        ),
+        init=False,
+    )
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.rule, LearnedRule):
+            raise DataError(
+                "LearnedRuleValue(rule=...) takes a cleverly.interventions.LearnedRule, not "
+                f"{self.rule!r}"
+            )
+
+
+@dataclass(frozen=True)
 class ModifiedTreatmentPolicy:
     """Request mean outcomes under continuous-dose shift policies.
 
@@ -1209,6 +1263,7 @@ PointEstimand = (
     | OddsRatio
     | RegimeMean
     | RegimeContrast
+    | LearnedRuleValue
     | ModifiedTreatmentPolicy
     | ModifiedTreatmentPolicyEffect
     | IncrementalMean
@@ -1234,6 +1289,7 @@ _STRING_ESTIMANDS: dict[str, str] = {
     "or": "OddsRatio()",
     "ey_regime": "RegimeMean(regimens=...)",
     "ate_regime": "RegimeContrast(regimens=...)",
+    "ey_learned_rule": "LearnedRuleValue()",
     "ey_shift": "ModifiedTreatmentPolicy(shifts=...)",
     "ate_shift": "ModifiedTreatmentPolicyEffect(shifts=...)",
     "ey_ipsi": "IncrementalMean(interventions=...)",
@@ -1406,6 +1462,13 @@ class BackdoorMeanContrast:
             return f"E({self.outcome} | {', '.join(conditions)})"
 
         support = f" for a in {list(self.treatment_levels)!r}" if self.treatment_levels else ""
+        if self.axis == "learned_rule":
+            treated, control = self.treatment_levels[1], self.treatment_levels[0]
+            return (
+                f"(1/V) sum_v E_W[{regression('d_v(W)')}], where d_v(W) = 1 when "
+                f"{regression(repr(treated))} - {regression(repr(control))} > 0 as learned "
+                "on the training rows of outer fold v"
+            )
         if self.axis == "arm":
             reference = self.reference_arm
             comparisons = tuple(level for level in self.treatment_levels if level != reference)
@@ -2000,6 +2063,10 @@ def _point_functional(
         raise CapabilityError(f"{type(estimand).__name__} is not an evidenced point estimand")
     declared = _declared_interventions(actual)
     interventions: tuple[Any, ...] = () if declared is None else tuple(getattr(actual, declared[0]))
+    if isinstance(actual, LearnedRuleValue):
+        # The rule rides where a regime would, so the engine adapter reads it off the
+        # functional as it reads every other axis's declaration.
+        interventions = (actual.rule,)
     msm = actual.model if isinstance(actual, MSMProjection) else None
     return BackdoorMeanContrast(
         outcome=design.outcome,
@@ -2116,6 +2183,10 @@ class ExplicitAdjustmentProvider:
             )
         if target not in TARGETS:
             raise CapabilityError(f"{type(estimand).__name__} is not an evidenced point estimand")
+        if isinstance(actual, LearnedRuleValue):
+            # The rows of the RM30 refusal table that the data decide, before the generic
+            # axis and design checks below: their sentences name other remedies.
+            refuse_learned_rule_composition(data)
         # The kinds of the items are a property of the estimand, so they are checked before
         # the design.  Not in ``_point_functional``: the provenance matcher calls that inside
         # a ``try`` that reads a refusal as a mismatch (roadmap row RM14).
@@ -2506,7 +2577,9 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         ``available`` is per method name. A configuration of an available method can still
         refuse before any learner: on a design with ``strata=``, the default
         ``DRTMLEMethod()`` refuses (X8 in ``docs/roadmap.md``), and
-        ``DRTMLEMethod(guard=())`` fits.
+        ``DRTMLEMethod(guard=())`` fits.  For :class:`LearnedRuleValue`, the default
+        ``TMLEMethod()`` refuses (X11 (e) in ``docs/roadmap.md``), and
+        ``TMLEMethod(cross_fitting=CrossFitting(fold_evaluation=True))`` fits.
         """
         point = not self.functional.longitudinal
         target = self.functional.target
@@ -2514,6 +2587,9 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             "a controlled direct effect fixes an intermediate variable, and neither "
             "variant's score is derived for that functional"
             if self.functional.intermediate is not None
+            else "no collaborative or doubly robust learned-rule result was reviewed (F27 in "
+            "docs/roadmap.md)"
+            if self.functional.axis == "learned_rule"
             else None
         )
         variants = (
@@ -2717,6 +2793,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         kwargs.update({"estimands": (functional.target,), "reference": functional.reference})
         if functional.axis == "regime":
             kwargs["interventions"] = functional.interventions
+        elif functional.axis == "learned_rule":
+            (kwargs["learned_rule"],) = functional.interventions
         elif functional.axis == "shift":
             kwargs["shifts"] = functional.interventions
         elif functional.axis == "ipsi":
@@ -2830,6 +2908,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         else:
             state = {
                 "regime": result.nuisance.regimes,
+                # The fold-local rule is carried as a one-regime set named by the rule.
+                "learned_rule": result.nuisance.regimes,
                 "shift": result.nuisance.shifts,
                 "ipsi": result.nuisance.incremental,
                 "msm": result.nuisance.msm,

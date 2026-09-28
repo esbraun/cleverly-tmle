@@ -1716,7 +1716,7 @@ release carries the interval before its study has run.
 | pull request | content | state |
 | --- | --- | --- |
 | A | this contract, [X11](#x11-learned-policy-follow-ups), [F27](#f27-learned-policy-value-outside-the-published-conditions), and the declarations of the two validation studies | recorded here. No study code exists, and nothing has run |
-| B | `LearnedRule`, `LearnedRuleValue`, the `ey_learned_rule` target, the `learned_rule` parameter axis, the result record, the refusals, the unit witnesses and the documentation | not started |
+| B | `LearnedRule`, `LearnedRuleValue`, the `ey_learned_rule` target, the `learned_rule` parameter axis, the result record, the refusals, the unit witnesses and the documentation | implemented on its branch. It merges with pull request C |
 | C | the per-replicate truth of the evidence framework, the study modules, the smoke runs, both declared runs, the study pages and the delivery record | not started |
 
 The table gives the acceptance of the row.

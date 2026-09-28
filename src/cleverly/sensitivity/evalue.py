@@ -54,6 +54,7 @@ from .._inference_status import status_record
 from ..assessment import AssessmentStatus
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import CapabilityError
+from ..interventions.learned import LEARNED_RULE_SENSITIVITY_REFUSAL
 from ._derived import _derived_risk_ratio, _risk_ratio_refusal
 from ._parameters import arm_parameter_keys
 
@@ -361,6 +362,11 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
     if result.data.is_continuous_treatment:
         raise _EValueRefusal(
             AssessmentStatus.NOT_APPLICABLE, "an E-value requires a discrete arm contrast"
+        )
+    if result.config.parameter_axis == "learned_rule":
+        raise _EValueRefusal(
+            AssessmentStatus.UNAVAILABLE,
+            "an E-value does not cover a learned-rule fit: " + LEARNED_RULE_SENSITIVITY_REFUSAL,
         )
     # Fit-wide and ahead of the estimand, so a level or a multi-arm default refuses here too.
     if declares_intermediate(result):

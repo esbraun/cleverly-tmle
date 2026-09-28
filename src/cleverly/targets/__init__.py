@@ -148,8 +148,9 @@ def targets_for(group: TargetGroup, estimands: Sequence[str]) -> tuple[Target, .
 #: them will read.  Keyed by axis so the sentence names the keyword rather than the
 #: internal word.
 _AXIS_DECLARED_BY = {
-    "arm": "a fit without interventions=, shifts= or msm=",
+    "arm": "a fit without interventions=, learned_rule=, shifts= or msm=",
     "regime": "a fit that declares interventions=",
+    "learned_rule": "a fit that declares learned_rule=",
     "shift": "a fit that declares shifts=",
     "ipsi": "a fit that declares incremental=",
     "msm": "a fit that declares msm=",
@@ -159,6 +160,7 @@ _AXIS_DECLARED_BY = {
 _AXIS_INDEXES_BY = {
     "arm": "treatment arm",
     "regime": "declared regime",
+    "learned_rule": "rule learned inside each training fold",
     "shift": "declared shift",
     "ipsi": "declared tilt of the treatment mechanism",
     "msm": "working-model coefficient",

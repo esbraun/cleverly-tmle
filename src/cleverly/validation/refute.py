@@ -1010,6 +1010,16 @@ def _refuse_missing_estimator(result: TMLEResult, request: _RefuteRequest) -> st
     return "refute needs the fitted estimator that produced the result"
 
 
+def _refuse_learned_rule(result: TMLEResult, request: _RefuteRequest) -> str | None:
+    """Refuse a learned-rule fit, whose refit relearns the rules and so its target."""
+    from ..interventions.learned import LEARNED_RULE_REFIT_REFUSAL
+
+    # Read defensively: a stub result without a configuration meets the later rules.
+    if getattr(getattr(result, "config", None), "parameter_axis", None) != "learned_rule":
+        return None
+    return LEARNED_RULE_REFIT_REFUSAL
+
+
 def _refuse_unreported_estimand(result: TMLEResult, request: _RefuteRequest) -> str | None:
     """Refuse an estimand the fit did not report, which no refit can compare against."""
     if request.estimand in result.estimates:
@@ -1218,6 +1228,7 @@ def _refuse_generated_budget(result: TMLEResult, request: _RefuteRequest) -> str
 #: contract, so a test pins the order without respelling a message.
 _REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, _RefuteRequest], str | None]], ...] = (
     ("estimator", _refuse_missing_estimator),
+    ("learned_rule", _refuse_learned_rule),
     ("estimand", _refuse_unreported_estimand),
     ("no_effect_null", _refuse_no_effect_null),
     ("row_set_under_plan", _refuse_row_set_under_plan),

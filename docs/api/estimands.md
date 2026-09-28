@@ -19,6 +19,7 @@ defines its target population, contrast scale, intervention axis, and reference 
    cleverly.OddsRatio
    cleverly.RegimeMean
    cleverly.RegimeContrast
+   cleverly.LearnedRuleValue
    cleverly.ModifiedTreatmentPolicy
    cleverly.ModifiedTreatmentPolicyEffect
    cleverly.IncrementalMean

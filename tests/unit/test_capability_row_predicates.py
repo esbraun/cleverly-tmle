@@ -123,6 +123,9 @@ TILT_RULE_OF: dict[str, str | None] = {
     "rr+missing": "tiltable_parameters",
     "natural_course": "natural_course",
     "ordinary": "missing_outcome",
+    # First among the fit-wide rules after the family: a learned-rule fit has no missing
+    # outcome, and its row names the learned-rule reason rather than the absent mechanism.
+    "learned_rule": "learned_rule",
 }
 
 TILT_CALLS = {"missingness": missingness_tilt, "tipping_gamma": tipping_gamma}
@@ -182,6 +185,7 @@ class TestTheTiltRowsReadTheCallsPredicate:
         """The names are the contract the rows read, so the order is pinned by name."""
         assert [name for name, _ in _FIT_WIDE_TILT_RULES] == [
             "longitudinal",
+            "learned_rule",
             "natural_course",
             "missing_outcome",
             "continuous",
@@ -571,6 +575,7 @@ class TestTheRefuteRowResolvesEachRequest:
     def test_the_rule_table_is_ordered(self) -> None:
         assert [name for name, _ in _REQUEST_RULES] == [
             "estimator",
+            "learned_rule",
             "estimand",
             "no_effect_null",
             "row_set_under_plan",

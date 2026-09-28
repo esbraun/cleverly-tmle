@@ -144,6 +144,61 @@ On a point-treatment design, each typed estimand holds one intervention kind.
 Write one item as a one-item tuple.
 [F17](../roadmap.md#f17-joint-point-treatment-parameter-axes) tracks a fit with two kinds.
 
+## Learned treatment rules
+
+Use `LearnedRuleValue` to estimate the value of a treatment rule that the fit learns from the data.
+The fit learns one rule inside each training fold and reports the average of the values of those
+rules. The interval can under-cover when the effect is zero or near zero for a share of units.
+[Learned rules](../technical-reference/point-treatment-tmle.md#learned-rules) states the
+conditions.
+
+```python
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import PolynomialFeatures
+from cleverly import CrossFitting, LearnedRuleValue, ModelSpec, TMLEMethod
+
+fold_evaluated = TMLEMethod(
+    models=ModelSpec(
+        outcome_learner=make_pipeline(
+            PolynomialFeatures(2, interaction_only=True, include_bias=False),
+            LogisticRegression(max_iter=1000),
+        ),
+        treatment_learner=LogisticRegression(max_iter=1000),
+    ),
+    cross_fitting=CrossFitting(n_folds=5, fold_evaluation=True),
+)
+learned = study.estimate(LearnedRuleValue(), method=fold_evaluated, random_state=3)
+record = learned.extra["learned_rule"]
+shares = record.treated_shares
+```
+
+The rule of fold $v$ treats a unit when the outcome regression fitted on the other folds predicts
+a higher outcome under treatment. A tie assigns control. The outcome learner therefore sets the
+rule, so give it the treatment-by-covariate terms that the rule can depend on.
+
+The reported value is a data-adaptive target. It depends on the realized split and on the fitted
+rules. It is not the value of one rule fitted on all rows, and it is not the value of the optimal
+rule. The table gives what the result holds.
+
+| where | content |
+| --- | --- |
+| `learned.estimates` | one parameter, `ey_learned_rule[learned rule]` |
+| `learned.extra["learned_rule"]` | the fold sizes, the fold estimates, the treated share of each fold, and quantiles of the estimated blip |
+| `learned.nuisance.regimes.values[:, 1, 0]` | the rule of each row, `1.0` for treat |
+| `learned.summary()` | a line that states the target |
+
+The fit needs the fold-evaluated CV-TMLE, `CrossFitting(enabled=True, fold_evaluation=True)`. The
+default `CrossFitting()` refuses before any learner and names that remedy. The fit also needs a
+binary treatment, complete outcomes, iid rows without weights, and no strata or intermediate
+variable. `CausalStudy.identify` refuses each of those designs.
+
+A refit relearns the rules, so `refute` and every sensitivity analysis read `unavailable` on this
+fit. The support report and `truncation_curve` run.
+[X11](../roadmap.md#x11-learned-policy-follow-ups) and
+[F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) hold the refused
+requests.
+
 ## Modified treatment policies
 
 For a continuous dose, `Shift` maps each observed dose to a policy dose. `cap=` is part of the

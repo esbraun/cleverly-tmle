@@ -763,6 +763,7 @@ matching capability row therefore carry one reason.
 | a fit with an intermediate variable | an implementation. Each estimand at the level $z$ is a linear functional of the regression of $Y$ on $(A, Z, W)$, so Theorem 2 covers it. The representer carries the weight $1\{Z = z\} / P(Z = z \mid A, W)$, so $c_D$ would combine the treatment and intermediate mechanisms |
 | a longitudinal fit | any registered longitudinal derivation. See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) |
 | a `regime`, `shift`, or `msm` parameter axis | an implementation. Each of these parameters is a linear functional of the outcome regression and has a Riesz representer, so the bound is well posed here |
+| a `learned_rule` parameter axis | any sensitivity derivation for the fold-average value of rules learned inside each training fold. A benchmark refit would also relearn the rules and change the target. See [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
 | an `ipsi` parameter axis | a bound that covers it. An incremental intervention tilts the treatment mechanism, so the mechanism is part of the estimand rather than a nuisance |
 | an arm-indexed fit that reports no counterfactual mean and no linear contrast, such as a ratio-only, PAR, PAF, or complete-outcome `ey_obs` fit | a parameter to bound. One bound is the second moment of one contrast's own Riesz representer. On a fit that reports `rr` or `or`, the sentence names `sensitivity.evalue()` |
 | a median-combined fit from `repeats=` | an influence function for the median bound. A coordinatewise median of per-draw influence terms is not one. Fit one split for this analysis |
@@ -1368,12 +1369,12 @@ applies the same tolerance to selector-based and outcome-adaptive C-TMLE cells.
 **Refusals.** `_FIT_WIDE_RULES`, in
 `src/cleverly/sensitivity/_simulated_confounding_request.py`, is one ordered table. It names every
 boundary that neither the requested estimand nor the strength grid can move. `_fit_wide_refusal`
-walks that table and returns the first reason that applies. Six missing-science stops apply in
-this order: longitudinal, multi-arm, missing-outcome, intermediate, estimated-weight, and
-clustered fits. Each one carries a roadmap item, and the refusal table below gives it a row.
+walks that table and returns the first reason that applies. Seven missing-science stops apply
+in this order: longitudinal, learned-rule, multi-arm, missing-outcome, intermediate,
+estimated-weight, and clustered fits. Each one carries a roadmap item, and the refusal table below gives it a row.
 
 Twelve provenance and shape stops read the object you hold rather than the state of the science.
-The `result_type` stop runs second, before the multi-arm stop, because every later rule reads a
+The `result_type` stop runs second, before the learned-rule stop, because every later rule reads a
 field that only a `TMLEResult` declares. The other eleven follow the clustered stop. The table
 below gives all twelve in contract order.
 
@@ -1394,11 +1395,11 @@ below gives all twelve in contract order.
 
 `_validate_request` applies the first reason before calibration, a random draw, or a refit. The
 assessment capability walks the same table, so `available`, `status`, `reason`, and direct
-execution name the same stop for all eighteen. A fit that reaches the `provider` stop reports
+execution name the same stop for all nineteen. A fit that reaches the `provider` stop reports
 `reason="simulated_confounding needs registered explicit-adjustment backdoor provenance"` on its
 capability row.
 
-The rows below record the six missing-science stops, plus the estimands and compositions the
+The rows below record the seven missing-science stops, plus the estimands and compositions the
 surface refuses. The
 `kind` column uses the vocabulary of
 [how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal), plus
@@ -1407,6 +1408,7 @@ surface refuses. The
 | refused | kind | why |
 | --- | --- | --- |
 | a longitudinal result | waiting on published theory | no time-indexed latent law covers treatments, censoring, histories, outcomes, and contrasts. See [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
+| a learned-rule fit | waiting on published theory | a replay relearns the rules, so each draw has a different target, and no reviewed source gives a perturbation law for this target. See [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
 | multi-arm treatment | waiting on published theory | no source-backed category-valued perturbation defines the contrast. See [F8](../roadmap.md#f8-multi-arm-simulated-confounding-stress-surface) |
 | a missing outcome | waiting on published theory | no joint observation, treatment, and outcome perturbation law has identified refit semantics. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
 | a controlled direct effect, or any fit that carries an intermediate variable | waiting on published theory | no ordered treatment, intermediate, observation, and outcome law has a controlled contrast contract. See [F15](../roadmap.md#f15-controlled-direct-effect-simulated-confounding-replay) |
@@ -1527,6 +1529,7 @@ The selected path depends on the reported contrast and retained artifacts.
 | binomial ATT or ATC | refuse because the conditional baseline risk and conditional ratio target are absent |
 | level or non-arm parameter | report `not_applicable` because no supported two-arm contrast exists |
 | two-arm contrast on a fit whose status supplies no inference: a collaborative fit at any `strategy`, a `DRTMLE` fit with a `guard` and varying weights declared estimated, or a clustered fit under `"unequal_cluster_plugin"` or `"few_cluster_plugin"` | report `unavailable`. Each branch reads the estimate's interval or the reference arm's standard error, and this fit supplies neither. The reason of the status follows |
+| any request on a learned-rule fit | report `unavailable` before the estimand is resolved. No sensitivity derivation for the learned-rule value was reviewed. See [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
 | any request on a controlled-direct-effect fit with a discrete treatment, which is such a fit with `intermediate=` | report `unavailable` before the estimand is resolved. This package has no implemented E-value bound for the fitted controlled direct effect and its confounding model. [F25](../roadmap.md#f25-e-value-for-a-controlled-direct-effect) tracks the support gap |
 | binomial ATE without exact retarget support or a usable reported baseline | report `unavailable` and name the missing evidence, artifact, or target |
 | several eligible contrasts and no explicit estimand | report `deferred` and name `estimand` in the next step |
@@ -1634,11 +1637,12 @@ ordered, and each rule assumes that the rules above it passed.
 | order | rule | refuses | row status |
 | --- | --- | --- | --- |
 | 1 | `longitudinal` | a longitudinal result | `unavailable` |
-| 2 | `natural_course` | a missing-outcome `NaturalCourseMean` fit | `unavailable` |
-| 3 | `missing_outcome` | a fit with no missing outcome | `not_applicable` |
-| 4 | `continuous` | a continuous dose | `unavailable` |
-| 5 | `incremental` | an incremental fit | `unavailable` |
-| 6 | `tiltable_parameters` | a fit that reports no arm-indexed mean and no linear contrast, such as a regime, MSM, or ratio-only fit | `unavailable` |
+| 2 | `learned_rule` | a learned-rule fit, which refuses missing outcomes before any learner. [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) holds the derivation | `unavailable` |
+| 3 | `natural_course` | a missing-outcome `NaturalCourseMean` fit | `unavailable` |
+| 4 | `missing_outcome` | a fit with no missing outcome | `not_applicable` |
+| 5 | `continuous` | a continuous dose | `unavailable` |
+| 6 | `incremental` | an incremental fit | `unavailable` |
+| 7 | `tiltable_parameters` | a fit that reports no arm-indexed mean and no linear contrast, such as a regime, MSM, or ratio-only fit | `unavailable` |
 
 The omitted-variable bound refuses a fit with a response mechanism. Its sentence points at the tilt
 only when this table admits the fit. `TestTheTiltRowsReadTheCallsPredicate` and
@@ -1716,18 +1720,19 @@ it reads its capability row. The call then raises the first refusal of this tabl
 | order | rule | refuses |
 | --- | --- | --- |
 | 1 | `estimator` | a result with no estimator |
-| 2 | `estimand` | an estimand that the fit did not report |
-| 3 | `no_effect_null` | `placebo` or `negative_control_outcome` on an outcome or policy mean, an MSM coefficient, or a target with no registered null |
-| 4 | `row_set_under_plan` | `subset` or `bootstrap_measurement_error` on a fit given `split_plan=` |
-| 5 | `generated_rule` | a generated-outcome test under a rule that is not exactly `EmpiricalInclusionRule` |
-| 6 | `generated_eligibility` | a generated-outcome test whose fit, estimand, or process has no derivation, such as a direct fit that records no identification |
-| 7 | `measurement_declaration` | `bootstrap_measurement_error` without exactly a `BootstrapMeasurementError` declaration |
-| 8 | `measurement_rule` | `bootstrap_measurement_error` under a rule that is not exactly `EmpiricalInclusionRule` |
-| 9 | `measurement_eligibility` | a measurement-error declaration that the data of the fit cannot carry |
-| 10 | `measurement_budget` | a `bootstrap_measurement_error` draw count below the floor of its rule |
-| 11 | `generated_budget` | a generated-outcome draw count below the floor of its rule |
+| 2 | `learned_rule` | a learned-rule fit, whose refit relearns the rules and so changes the target. The `refute` row reads `unavailable` for the whole fit |
+| 3 | `estimand` | an estimand that the fit did not report |
+| 4 | `no_effect_null` | `placebo` or `negative_control_outcome` on an outcome or policy mean, an MSM coefficient, or a target with no registered null |
+| 5 | `row_set_under_plan` | `subset` or `bootstrap_measurement_error` on a fit given `split_plan=` |
+| 6 | `generated_rule` | a generated-outcome test under a rule that is not exactly `EmpiricalInclusionRule` |
+| 7 | `generated_eligibility` | a generated-outcome test whose fit, estimand, or process has no derivation, such as a direct fit that records no identification |
+| 8 | `measurement_declaration` | `bootstrap_measurement_error` without exactly a `BootstrapMeasurementError` declaration |
+| 9 | `measurement_rule` | `bootstrap_measurement_error` under a rule that is not exactly `EmpiricalInclusionRule` |
+| 10 | `measurement_eligibility` | a measurement-error declaration that the data of the fit cannot carry |
+| 11 | `measurement_budget` | a `bootstrap_measurement_error` draw count below the floor of its rule |
+| 12 | `generated_budget` | a generated-outcome draw count below the floor of its rule |
 
-Rules 6 and 9 call the validators that the tests run, so the table copies no check. The argument
+Rules 7 and 10 call the validators that the tests run, so the table copies no check. The argument
 check also requires an outcome array for `negative_control_outcome`. It raises `ValueError` before
 any refit when that array is absent.
 
