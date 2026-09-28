@@ -242,7 +242,7 @@ axis-keyed consumer decides explicitly. The table gives the rules the fit keeps.
 | the rule of a row comes from a fit that never saw the row | the rule reads the out-of-fold outcome regression of the row's fold |
 | one pooled fluctuation | `cv_evaluation=True` with `targeting_scheme="pooled"`; every other scheme refuses before any learner |
 | the estimate is the `1/V` average of the fold plug-ins | the fold-evaluated report, with each fold's curve centred at its own estimate |
-| no row is refitted | `refute`, the full-refit bootstrap, `repeats` above 1 and every sensitivity analysis refuse, because a refit relearns the rules |
+| no row is refitted | `refute`, the full-refit bootstrap and `repeats` above 1 refuse, because a refit relearns the rules. Every sensitivity analysis refuses too, because no derivation for this target was reviewed |
 
 [RM30](roadmap.md#rm30-learned-policy-value-evaluation) records the contract. *Reconsider when* the
 package adds another learned-policy target

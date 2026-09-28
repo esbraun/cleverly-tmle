@@ -488,7 +488,7 @@ The fit reuses the regime fluctuation and the fold-evaluated CV-TMLE. The table 
 | estimate | $\psi^*_n = (1/V) \sum_v \psi^*_{nv}$, where $\psi^*_{nv}$ is the mean of $\bar Q^*_{nv}(d_i, W_i)$ over the validation rows of fold $v$ | Montoya (2023b), Section 3.2 |
 | influence curve | $D_i = H_i\,(Y_i - \bar Q^*_{nv}(A_i, W_i)) + \bar Q^*_{nv}(d_i, W_i) - \psi^*_{nv}$, centred at each fold's own estimate | Montoya (2023b), Section 4.2 |
 | variance | $V^{-2} \sum_v n_v^{-2} \sum_{i \in v} D_i^2$ | JCI, Section 7.2, at equal folds |
-| interval | the Wald interval at the 0.975 normal quantile | JCI, Section 7.2 |
+| interval | the Wald interval at the 0.975 normal quantile | Montoya (2023b), Section 4.2 |
 
 "JCI" is van der Laan and Luedtke (2015). "Montoya (2023b)" is Montoya, van der Laan, Skeem and
 Petersen (2023), *International Journal of Biostatistics* 19(1):239–259. The
@@ -509,7 +509,7 @@ The conditions come from JCI, Theorem 6 and Corollary 3. The data cannot confirm
 C3 fails at an exceptional law, where the effect is zero for a share of units and the learner is
 consistent. The fold rules then have no fixed limit, and the interval can under-cover. The
 {ref}`RM30 study declarations <the-two-studies-declared-before-they-run>` include a
-reporting study that measures this boundary.
+reporting study of this boundary. The study is declared, and pull request C runs it.
 
 The fit needs `CrossFitting(enabled=True, fold_evaluation=True)`, one repeat, pooled targeting and
 no full-refit bootstrap. `refuse_learned_rule_composition` in
@@ -526,14 +526,17 @@ table gives its fields.
 | --- | --- |
 | `fold_sizes`, `fold_weights` | the validation rows of each fold, and the weight $1/V$ of each fold |
 | `fold_estimates` | $\psi^*_{nv}$ for each fold |
-| `treated_shares` | the share of each fold's validation rows that its rule treats |
+| `treated_shares` | the share of each fold's validation rows that its rule assigns to the higher arm code |
 | `blip_quantiles`, `quantile_levels` | quantiles of the estimated blip on each fold's validation rows |
 | `rule`, `target` | the rule class and the target kind, in words |
 
 `result.summary()` prints the target line of `LearnedRuleRecord.describe()`. The rule of each row
 is `result.nuisance.regimes.values[:, 1, 0]`. The fit keeps no fitted fold model, and the saved
-folds, learner templates and seeds replay it. A refit relearns the rules, so `refute` and every
-sensitivity analysis read `unavailable`.
+folds, learner templates and seeds replay it.
+
+A refit relearns the rules, so `refute` reads `unavailable`, and the full-refit bootstrap and
+`repeats` above 1 refuse. Every sensitivity analysis reads `unavailable` for another reason: no
+derivation for this target was reviewed.
 [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) holds the
 sensitivity analyses. The support report and `truncation_curve` run, because they read the same
 rules.

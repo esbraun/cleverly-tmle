@@ -193,8 +193,9 @@ default `CrossFitting()` refuses before any learner and names that remedy. The f
 binary treatment, complete outcomes, iid rows without weights, and no strata or intermediate
 variable. `CausalStudy.identify` refuses each of those designs.
 
-A refit relearns the rules, so `refute` and every sensitivity analysis read `unavailable` on this
-fit. The support report and `truncation_curve` run.
+A refit relearns the rules, so `refute` reads `unavailable` on this fit. No sensitivity
+derivation for this target was reviewed, so every sensitivity analysis reads `unavailable`
+too. The support report and `truncation_curve` run.
 [X11](../roadmap.md#x11-learned-policy-follow-ups) and
 [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) hold the refused
 requests.

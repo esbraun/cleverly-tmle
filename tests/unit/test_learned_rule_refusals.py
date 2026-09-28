@@ -257,6 +257,28 @@ class TestEachRemedyRunsAsWritten:
         result = support.fit(estimands=None)
         assert set(result.estimates) == {support.NAME}
 
+    @pytest.mark.parametrize(
+        ("overrides", "ending"),
+        [
+            ({"reference": "learned rule"}, "alone, without reference="),
+            (
+                {"estimands": ("ate",)},
+                "alone, with estimands=None, and fit the other target in a fit of its own",
+            ),
+            (
+                {"interventions": [Static(1)], "reference": "learned rule"},
+                "alone, without interventions= or reference=, and fit the other target in a fit of its own",
+            ),
+        ],
+        ids=["lone_reference", "arm_estimand", "regime_and_reference"],
+    )
+    def test_the_contrast_remedy_names_what_was_declared(
+        self, overrides: dict[str, Any], ending: str
+    ) -> None:
+        """A lone ``reference=`` names no other target, so its remedy drops the keyword."""
+        message = _refused(lambda: _engine(**overrides), "X11 (c)")
+        assert message.endswith(f"Fit the learned-rule value {ending}"), message
+
 
 def _as_written(message: str, *keywords: str) -> dict[str, Any]:
     """Return the keyword arguments that ``message`` prints, each found there verbatim."""

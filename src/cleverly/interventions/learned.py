@@ -34,15 +34,27 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators._nuisance import NuisanceEstimates
 
 __all__ = [
+    "BLIP_QUANTILE_LEVELS",
+    "LEARNED_RULE_CONFIGURATION",
+    "LEARNED_RULE_REFIT_REFUSAL",
+    "LEARNED_RULE_REMEDY",
+    "LEARNED_RULE_SENSITIVITY_REFUSAL",
+    "RULE_CLASS",
+    "TARGET_KIND",
     "LearnedRule",
     "LearnedRuleRecord",
+    "learned_rule_configuration_refusal",
+    "learned_rule_record",
+    "learned_rule_scheme_refusal",
     "refuse_learned_rule_composition",
 ]
 
-#: The rule class of version one, in words.  The record and the summary quote it.
+#: The rule class of version one, in words.  The record quotes it.  ``1`` and ``0`` stand
+#: for the higher and the lower of the two sorted arm codes.
 RULE_CLASS = (
     "the plug-in rule 1{Qbar_v(1, W) - Qbar_v(0, W) > 0} of the outcome regression fitted "
-    "on the training rows of each outer fold; a tie assigns control"
+    "on the training rows of each outer fold, where 1 is the higher arm code and 0 the "
+    "lower; a tie assigns the lower arm code"
 )
 
 #: What the reported value is.  The record and the summary quote it.
@@ -93,8 +105,10 @@ class LearnedRule:
     The rule is learned inside each outer training fold.  Version one has one rule class:
     the plug-in rule of the fit's own outcome regression,
     ``d_v(w) = 1{Qbar_v(1, w) - Qbar_v(0, w) > 0}``, where ``Qbar_v`` is fitted on the
-    training rows of fold ``v``.  A tie assigns control.  The rule needs no learner beyond
-    the outcome regression, and no fit beyond the cross-fitted nuisances.
+    training rows of fold ``v``.  ``1`` and ``0`` stand for the higher and the lower of
+    the two sorted arm codes, so a tie assigns the lower arm code.  The rule needs no
+    learner beyond the outcome regression, and no fit beyond the cross-fitted
+    nuisances.
 
     The object has no ``density`` method, so it never enters ``interventions=`` as a known
     regime.  Pass it as ``TMLE(learned_rule=LearnedRule())`` or
@@ -142,7 +156,8 @@ class LearnedRuleRecord:
     fold_estimates : tuple of float
         The targeted plug-in value of each fold on its own validation rows.
     treated_shares : tuple of float
-        The share of each fold's validation rows that its rule treats.
+        The share of each fold's validation rows that its rule assigns to the higher
+        arm code.
     blip_quantiles : tuple of tuple of float
         For each fold, quantiles of the estimated blip ``Qbar_v(1, W) - Qbar_v(0, W)`` on
         its validation rows, at :attr:`quantile_levels`, on the scale the outcome
@@ -222,7 +237,8 @@ def _learned_rule_regimes(nuisance: NuisanceEstimates, rule: LearnedRule) -> Reg
     """The fold-local plug-in rule of every row, as a one-regime :class:`RegimeSet`.
 
     The density is one-hot: ``values[i, 1, 0]`` is ``1`` when the rule of row ``i``'s fold
-    treats it, and ``values[i, 0, 0]`` is ``1`` otherwise.  A tie assigns control.  The set
+    assigns it the higher arm code, and ``values[i, 0, 0]`` is ``1`` otherwise.  A tie
+    assigns the lower arm code.  The set
     is built directly, so no regime declaration is checked: the rule is learned, and the
     target that reads it is the learned-rule value, not a regime mean.
 
@@ -348,11 +364,18 @@ def learned_rule_configuration_refusal(estimator: Any) -> str | None:
             f"Another parameter axis ({', '.join(axes)}) needs a fit of its own, because one "
             "fluctuation cannot solve the score equations of two axes (F17 in docs/roadmap.md)"
         )
+    # The remedy names what the caller declared: the keywords to drop, estimands=None for
+    # an arm estimand, and a fit of its own for another target.  reference= names no target.
+    steps = [
+        *([f"without {' or '.join([*contrasts, *axes])}"] if contrasts or axes else []),
+        *(["with estimands=None"] if arm else []),
+    ]
+    other = [keyword for keyword in [*contrasts, *axes] if keyword != "reference="] or arm
     return (
         "learned_rule= estimates one data-adaptive value, the fold average of the values of "
         f"rules learned inside each training fold. {'. '.join(reasons)}. Fit the "
-        "learned-rule value alone, with estimands=None, and fit the other target in a fit "
-        "of its own"
+        f"learned-rule value alone, {' and '.join(steps)}"
+        + (", and fit the other target in a fit of its own" if other else "")
     )
 
 

@@ -1861,6 +1861,13 @@ Rows 10 to 14 name the remedy: `CrossFitting(enabled=True, fold_evaluation=True)
 pooled targeting and no full-refit bootstrap. A unit test fits that remedy, so the remedy that a
 message names is not itself refused.
 
+The order holds inside one call, with one exception at construction. `CrossFitting`,
+`TMLEMethod` and the `TMLE` constructor refuse a fold policy that the shared rules forbid. Examples
+are one fold, `repeats` above 1 without cross-fitting, and stratified folds. These refusals raise
+when the object is built, before the data exist, so they come before rows 3 to 9. On a
+learned-rule `TMLE`, rows 10 to 14 replace such a refusal where one of them applies. Rows 1 and 2
+also run at construction, and they come first in the table.
+
 The shared refusals take a learned-rule remedy. `_check_training_support` receives
 `LEARNED_RULE_REMEDY` through its `remedy=` parameter. After that preflight, the fold backstop of
 `cross_fit_companion` cannot fire for a learned-rule fit, so it keeps its default text. The
