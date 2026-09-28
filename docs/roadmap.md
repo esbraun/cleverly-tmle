@@ -1113,6 +1113,18 @@ table gives each change.
 | reference artifacts | `replicates.csv.gz`, `summary.csv`, `equivalence.csv`, `performance-tests.csv`, `fit-diagnostics.csv` and the manifest's `reference_sha256` must reproduce byte for byte. Any difference stops the delivery, and the run is reported and not committed. A 48-draw smoke run reproduced these rows exactly |
 | runtime | the measured projection is about 20 hours, with an upper value of 21.3 hours. The plan gave 11 hours. Timed slices on the host measured an effective parallelism of 6.4 workers, against the 12 that the plan assumed |
 
+A second commit amended the run form before the declared run. It also discloses a first run that
+was stopped. The table gives each item.
+
+| item | amendment |
+| --- | --- |
+| stopped first run | a first regeneration started from commit `bbbb887e` at 17:02 UTC on 2026-09-27. The orchestrator stopped it after about 35 minutes, at the user's request, so that Design SL runs once, at the end of the stack. Its primary and reference phases had finished. It rewrote the five reference-phase artifacts, and each one was byte-identical to the committed file. Its property phase had written nothing, so no property value existed to read |
+| stack order | pull request 245 (Designs FW, OW, BD and CD), pull request 246 (RM19), pull requests 247 to 249 (RM30), then Design SL. Commits `0ac9753e` and `d42306fb` carry `4a44545a` and `bbbb887e` onto the head of pull request 249 without change. The originals stay on the remote branch as the record that the declaration came before any run |
+| scratch output | the regeneration writes to an empty scratch `--output` directory outside the repository. When the run ends, it copies the artifacts, `manifest.json` and `run.log` into `tests/canonical/multi_arm_drtmle/`. The driver writes each artifact before the manifest records `git status`. A run into the study directory therefore records `cleverly_worktree_clean: false`. The scratch output lets the manifest record the clean pushed commit. `tests/canonical/declared_run.py` holds this run form |
+| run log | `run.log` records the commit and its upstream, the command, the `cleverly` path, the interpreter and package versions, and a digest of the installed distributions. It also records the thread variables, the start and end times, the wall time, the exit code and the SHA-256 of each file |
+| guard | the run refuses to start when the tree has changes, when `HEAD` differs from its upstream, or when `cleverly` does not import from the tree's `src`. It also refuses to start when a thread variable is not 1: `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`, `VECLIB_MAXIMUM_THREADS` or `NUMEXPR_NUM_THREADS` |
+| one-sided reading | `tests/diagnostics/rm18_one_sided_bias/read.py` reads the multi-arm ladder at its verdict budget of 600 replications per rung, through `_at_verdict_budget`. After the run, its committed `readings.csv` must rebuild byte for byte under the runtime that wrote it, Python 3.11.13 with SciPy 1.17.1 |
+
 (what-the-five-designs-found)=
 #### What the five designs found
 
