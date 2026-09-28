@@ -88,7 +88,8 @@ Main-roadmap priority 1 waits until every remediation row is complete, as the ru
 The queue holds two rows.
 RM18 has one follow-up design, Design SL, that is declared and has not run. RM30 holds the
 published learned-policy implementation. Its contract and its two studies are declared, and
-no study has run.
+no study has run. Design SL runs after RM30, so its regeneration runs once, after every row
+that could move its inputs.
 
 The F18 and F19 derivations do not block priority 1, because an item with no published theory does
 not enter the sequence. Their cells stay red under `reporting` until F18 or F19 meets its
@@ -2007,8 +2008,8 @@ another learner. The table gives them in the order that L3 reads.
 | family | cells and roles | n | replicates | draw label | rule |
 | --- | --- | --- | ---: | --- | --- |
 | `interval_calibration` | `non_exceptional__correctly_specified`, positive. `non_exceptional__shrunken_se_control` and `non_exceptional__noise_control`, derived from its rows | 2,000 | 17,000 | `("property_sample", "interval_calibration", "non_exceptional__correctly_specified", replicate, "retry", 1)`, moved by L3 | the positive SE-ratio interval lies inside 0.93 to 1.07, and its coverage interval inside 0.92 to 0.98. The shrunken control multiplies each SE by 0.70. The noise control adds noise with SD 0.664444 / $\sqrt{2000}$. Each control's SE-ratio interval must lie below 0.93 |
-| `root_n_and_efficiency` | `n_500`, control; `n_2000` and `n_8000`, positive | 500, 2,000 and 8,000 | 800 at each size | `("property_sample", "root_n_and_efficiency", "n_<size>", replicate)` | the framework rules, and the `root_n_rate` slopes of the error SD and of the mean SE |
-| `targeting_necessity` | `non_exceptional__targeted`, positive; `non_exceptional__untargeted`, control, the same fit without its fluctuation | 2,000 | 800 | `("property_sample", "targeting_necessity", "non_exceptional", replicate)`, one draw for both arms | the outcome learner drops $W_1$ with a `ColumnTransformer` and keeps $(A, W_2)$. The treatment learner is correct. `necessity_verdicts` in the error form: the positive bias interval inside 0.25 SD, the control's `bias_discriminated`, and a displacement of at least 0.5 |
+| `root_n_and_efficiency` | `n_500`, control; `n_2000` and `n_8000`, positive | 500, 2,000 and 8,000 | 6,000 at each size | `("property_sample", "root_n_and_efficiency", "n_<size>", replicate)` | the framework rules, and the `root_n_rate` slopes of the error SD and of the mean SE |
+| `targeting_necessity` | `non_exceptional__targeted`, positive; `non_exceptional__untargeted`, control, the same fit without its fluctuation | 2,000 | 2,655 | `("property_sample", "targeting_necessity", "non_exceptional", replicate)`, one draw for both arms | the outcome learner drops $W_1$ with a `ColumnTransformer` and keeps $(A, W_2)$. The treatment learner is correct. `necessity_verdicts` in the error form: the positive bias interval inside 0.25 SD, the control's `bias_discriminated`, and a displacement of at least 0.5 |
 | `fold_locality` | `non_exceptional__fold_local`, positive; `non_exceptional__validation_rows`, control | 2,000 | 2,655 | `("property_sample", "fold_locality", "non_exceptional", replicate)`, one draw and one partition for both arms | the outcome learner is `RandomForestClassifier(n_estimators=100, min_samples_leaf=5, random_state=0)`. The control, a study-only subclass, fits each fold's rule on that fold's validation rows. Each arm's truth is the value of the rules it used. `necessity_verdicts` in the error form with a displacement of at least 0.5. The family reads bias only, so no coverage or SE ratio enters |
 
 The study adds a `fold_locality` entry to `descriptions.py`. The deliberate mutation of dropping a
@@ -2051,7 +2052,7 @@ drew no sample.
 
 | record | law | sample seeds | result |
 | --- | --- | ---: | --- |
-| `learned-rule-cvtmle` | `non_exceptional` | 28,855 | calibration replicate 4,893 equals primary replicate 4,696. The calibration cell therefore moves to `("retry", 1)`, as the property table gives. No other collision |
+| `learned-rule-cvtmle` | `non_exceptional` | 46,310 | calibration replicate 4,893 equals primary replicate 4,696. The calibration cell therefore moves to `("retry", 1)`, as the property table gives. No other collision |
 | `learned-rule-cvtmle` | `misspecified_limit` | 6,000 | no collision |
 | `learned-rule-cvtmle-boundary` | `exceptional`, `weak_blip` | 6,000 each | no collision |
 
@@ -2060,31 +2061,60 @@ No declared sample seed equals a seed that a pilot or probe drew.
 (budget-and-runtime)=
 ##### Budget and runtime
 
-The budgets use the R3 rows of the [RM18 rules](#rules-that-every-design-follows). The coverage
-row gives 6,000 replicates. The SE-ratio row gives 17,000. The control-bias row gives 2,655. This
-section declares the root-n and `targeting_necessity` budgets of 800, and no R3 row sets them.
+The budgets use the R3 rule of the [RM18 rules](#rules-that-every-design-follows). Each budget is
+the smallest one whose 99% half-width of a gated statistic is one fifth of the distance between
+its nominal value and its gate. A cell with more than one gated statistic takes the largest
+budget. The primary laws take 6,000 from the coverage row. The calibration cell takes 17,000 from
+the SE-ratio row. The `fold_locality` cells take 2,655 from the control-bias row.
+
+The table applies the same rule to the root-n and `targeting_necessity` cells. The probe
+`q3_budget_rule.py` computes each value. The R3 forms need no pilot for coverage, the SE ratio
+and the bias. The reported-SE slope reads the coefficient of variation of the reported SE from the
+throwaway-seed pilot `p11_budget_inputs.py`: 0.0245 at n = 500 and 0.0071 at n = 8,000.
+
+| cell | gated statistic | nominal and gate | half-width | rule value | budget |
+| --- | --- | --- | --- | ---: | ---: |
+| `root_n_and_efficiency`, each size | coverage, the lower end for a positive size and the resolution for the control size | 0.95, floor 0.90 | 0.010 | 5,972 | 6,000 |
+| `root_n_and_efficiency`, positive sizes | SE ratio | 1, sanity edge 0.80 | 0.04 | 2,074 | within 6,000 |
+| `root_n_and_efficiency`, positive sizes | bias | 0, margin 0.25 SD | 0.05 SD | 2,654 | within 6,000 |
+| `root_n_rate`, `spread` | slope of the log error SD on log n | -0.5, margin 0.125 | 0.025 | 1,381 | within 6,000 |
+| `root_n_rate`, `reported` | slope of the log mean SE on log n | -0.5, margin 0.125 | 0.025 | 1 | within 6,000 |
+| `targeting_necessity`, both arms | bias, inside the margin for the positive arm and outside it for the control | 0, margin 0.25 SD | 0.05 SD | 2,654 | 2,655, as the R3 control-bias row |
+
+Both rules give more than 800, so the table declares the rule budgets. The coverage row sets the
+root-n budget at each of the three sizes. The slope rows use a relative error of the SD of
+$1 / \sqrt{2R}$, as R3 does, over the three sizes spaced by $\log 4$.
+
+The paired displacement of `targeting_necessity` has no interval in the framework and no R3 row,
+so the rule sets no budget for it. For information only: the pilot gives the SD of the paired
+error difference as 0.5416 positive-arm SDs. In the R3 form, with the quadrature value 1.075 as
+its nominal value and 0.5 as its gate, the rule value would be 148. No rule reads that number.
 
 | block | fits | seconds each | core-seconds |
 | --- | ---: | ---: | ---: |
 | gated primary, two laws | 12,000 | 0.30 | 3,600 |
 | `interval_calibration` | 17,000 | 0.30 | 5,100 |
-| `root_n_and_efficiency` at 500, 2,000 and 8,000 | 2,400 | 0.075, 0.30 and 1.2 | 1,260 |
-| `targeting_necessity`, two arms | 1,600 | 0.30 | 480 |
+| `root_n_and_efficiency` at 500, 2,000 and 8,000 | 18,000 | 0.10, 0.30 and 1.2 | 9,600 |
+| `targeting_necessity`, one fit for both arms | 2,655 | 0.30 | 797 |
 | `fold_locality`, two arms with the forest | 5,310 | 7.9 | 41,950 |
 | reporting study, two laws | 12,000 | 0.30 | 3,600 |
-| total | | | about 56,000, or 15.6 core-hours |
+| total | | | about 64,600, or 18.0 core-hours |
 
-The seconds include the truth harness, and they come from the pilot logs under Python 3.11. A
+The seconds include the truth harness. Most come from the pilot logs under Python 3.11. A
 logistic fit took 0.23 to 0.40 s at n = 2,000. A forest fit took 1.75 s at n = 1,000, which this
-table scales by the training rows. At the measured parallelism of 6.4 on 16 logical cores, the
-runs take about 2.4 hours. The budget is about 4 hours of the machine, alone, plus the two smoke
-runs.
+table scales by the training rows. The pilot `p11_budget_inputs.py` measured 0.10, 0.11 and
+0.18 s under the declared runtime at n = 500, 2,000 and 8,000. The table keeps the larger
+value at each size.
+
+At the measured parallelism of 6.4 on 16 logical cores, the runs take about 2.8 hours. The
+earlier real-run ratios against a 16-way projection, 1.8 to 4.3, give 2.0 to 4.8 hours. The
+budget is about 5 hours of the machine, alone, plus the two smoke runs.
 
 (reads-made-before-this-declaration)=
 ##### Reads made before this declaration
 
 The planning reads below came before this declaration. Each pilot drew its own seeds, and none of
-them is a declared seed. Three design choices followed pilot readings, and the table states them.
+them is a declared seed. Four design choices followed pilot readings, and the table states them.
 
 | read | runtime and seeds | what was printed | what it informed |
 | --- | --- | --- | --- |
@@ -2094,7 +2124,10 @@ them is a declared seed. Three design choices followed pilot readings, and the t
 | `q1_limits.py` on 2026-09-28 | the declared runtime. No seed | every constant in the two law tables | the constants, $d_1$ of `misspecified_limit`, and the displacement threshold |
 | `p9_agreement_p1.py` on 2026-09-28 | the declared runtime. Throwaway seeds 9,300,000 to 9,300,039 | on 40 draws for each of three learner and law pairs: rule agreement 1, no solver warning, and a median fit time of 0.06 s. It printed no estimate | the declared solver settings, which stay unchanged |
 | `p10_drop_w1_rule.py` on 2026-09-28 | the declared runtime. Throwaway seeds 9,400,000 to 9,400,099 | 105 of 2,000 fold and stratum rules of the $W_1$-dropping learner do not treat, at n = 2,000 | a stated risk only. That arm's fold rule departs from its limit on some folds, and the family reads bias only |
-| `q2_seed_collisions.py` on 2026-09-28 | the declared runtime. Seeds only, and no draw | the collision table above | the `("retry", 1)` label of the calibration cell |
+| `q2_seed_collisions.py` on 2026-09-28, run again after the A3 budgets | the declared runtime. Seeds only, and no draw | the collision table above | the `("retry", 1)` label of the calibration cell |
+| `p11_budget_inputs.py` on 2026-09-28 | the declared runtime. Throwaway seeds 9,500,000 to 9,500,049, 9,600,000 to 9,600,049 and 9,700,000 to 9,700,049 for the three sizes, and 9,800,000 to 9,800,099 for the `targeting_necessity` pair | the CV of the reported SE (0.0245, 0.0138 and 0.0071), the wall time of a fit with its truth, and the SD ratio 0.5416 of the paired errors. It printed no coverage, bias or displacement. It also printed two solver warnings | the reported-SE slope row of the budget rule, the runtime, and the information row on the displacement |
+| `p12_ladder_warnings.py` and `p13_pair_warnings.py` on 2026-09-28 | the same throwaway seeds | warning counts and rule agreement only. The ladder showed no warning. On the pair, draw 69 gave one lbfgs `ABNORMAL` warning in the fit and the same warning in its refit, and rule agreement stayed 1 | a stated risk for L10: a smoke draw of the $W_1$-dropping learner can warn |
+| `q3_budget_rule.py` on 2026-09-28 | no seed | the rule values of the budget table | the root-n and `targeting_necessity` budgets |
 
 The probes and their logs are in the planning directory, which the repository does not track. No
 declared seed has drawn a sample.
@@ -3159,7 +3192,7 @@ before it ships, as RM30 does.
 | (e) the stacked doubly robust score evaluation | `cv_evaluation=False` | Nordland and Holst (2026), Algorithm 4, which pools the scores and centres the variance at the pooled estimate | published support; pending source read |
 | (f) the value of the optimal rule | no request reaches it | van der Laan and Luedtke (2015), Section 7.2, last paragraph; Luedtke and van der Laan (2016), *Annals of Statistics* | published support; pending source read |
 | (g) blip and weighted-classification rule learners | no request reaches it, because RM30 has one rule learner | Luedtke and van der Laan (2016), *International Journal of Biostatistics*, Sections 4.1 to 4.3 | published support; pending source read |
-| (h) fold-specific targeting | `targeting_scheme="fold"` | Montoya, van der Laan, Skeem and Petersen (2023), *International Journal of Biostatistics* 19(1):239–259, Section 3.2, Step 2(c), and Section 4.2 | published support; pending source read |
+| (h) fold-specific targeting | `targeting_scheme="fold"` | Montoya, van der Laan, Skeem and Petersen (2023), *International Journal of Biostatistics* 19(1):239–259, Section 3.2, Step 2(c), and Section 4.2, read first-hand in the publisher's version | published support |
 
 Part (h) is not the training-fold update that the [Eligibility](#eligibility) section names as new
 theory. Montoya and co-authors fit the update on the validation rows, and the package already ships
