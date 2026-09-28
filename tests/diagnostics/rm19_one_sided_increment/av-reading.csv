@@ -1,2 +1,0 @@
-part,scope,statistic,value,ci_lower,ci_upper,result
-AV,AV payload C refit,largest scaled difference,0.0,,,holds over 7200

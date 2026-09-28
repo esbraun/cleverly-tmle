@@ -93,6 +93,8 @@ RERUN_TOLERANCE = 1e-15
 SENSITIVE_SHIFT = 1e-12
 SENSITIVE_TOLERANCE = 1e-7
 TWIN_SHARE = 0.1
+#: Rule 6 (X2): the design stops when the excused draws exceed this share of a check's draws.
+EXCUSED_SHARE = 0.01
 #: The classes of rules 3 to 5, in the order of the validation rows.
 SAME_TOL_IC, SAME_MAX_ITER, SENSITIVE, DIFFERS = (
     "same round, tolIC draws",
@@ -100,6 +102,12 @@ SAME_TOL_IC, SAME_MAX_ITER, SENSITIVE, DIFFERS = (
     "rounding-sensitive tolIC draws",
     "round and exit status",
 )
+#: The rows of rule 2's refit (X1) and of rule 6's limit (X2).  With DIFFERS, a miss of either
+#: in V4 stops the design, so parts A and C fold these three V4 rows in.
+REFIT, EXCUSED = "T0000 refit", "excused draws"
+#: Rule 2: the refit and the twin, fitted in one run.
+SOLVERS: tuple[Solver, ...] = ("gelsd", "qr")
+STOPPING = (REFIT, DIFFERS, EXCUSED)
 #: P-ctrl: the committed paired SD of each control scenario.
 CONTROL_SD = {"outcome_correct": 0.002223, "both_correct": 0.000869}
 #: The seed that ``random_partition`` cannot take as ``seed + 1``.
@@ -394,25 +402,25 @@ def max_iter_drift(
 
 
 def conditions(scores: pd.DataFrame, r_rows: pd.DataFrame, twins: pd.DataFrame) -> pd.DataFrame:
-    """One row per draw: R's ``score_max``, R's round count (rule 1) and the twin (rule 2).
+    """One row per draw: R's ``score_max``, R's round count (rule 1), the refit and the twin.
 
     ``scores`` gives R's ``score_max`` of each draw, ``r_rows`` the rows of the counting run
-    with their ``rounds``, and ``twins`` the twin rows.  A draw that lacks either raises.
+    with their ``rounds``, and ``twins`` the rows of rule 2 from one run: the refit of
+    ``T(0, 0, 0, 0)`` (arm ``T0000``) and its twin (arm ``T0000[qr]``).  A draw that lacks any
+    of them raises.
     """
     rounds = r_rows[[*DRAW, "rounds"]].drop_duplicates()
     if rounds.duplicated(DRAW).any():
         raise RuntimeError("a draw carries two R round counts")
-    twin = twins[[*DRAW, *VALUES, "iterations", "exit"]].rename(
-        columns={column: f"twin_{column}" for column in (*VALUES, "iterations", "exit")}
-    )
-    out = (
-        scores[[*DRAW, "score_max"]]
-        .drop_duplicates(DRAW)
-        .merge(rounds, on=DRAW, how="left", validate="1:1")
-        .merge(twin, on=DRAW, how="left", validate="1:1")
-    )
-    if out[["rounds", "twin_iterations"]].isna().any().any():
-        raise RuntimeError("a draw has no R round count or no twin")
+    out = scores[[*DRAW, "score_max"]].drop_duplicates(DRAW)
+    out = out.merge(rounds, on=DRAW, how="left", validate="1:1")
+    columns = (*VALUES, "iterations", "exit")
+    for arm, prefix in ((T0000, "refit"), (TWIN, "twin")):
+        selected = twins.loc[twins["arm"] == arm, [*DRAW, *columns]]
+        renamed = selected.rename(columns={column: f"{prefix}_{column}" for column in columns})
+        out = out.merge(renamed, on=DRAW, how="left", validate="1:1")
+    if out[["rounds", "refit_iterations", "twin_iterations"]].isna().any().any():
+        raise RuntimeError("a draw has no R round count, no refit or no twin")
     return out
 
 
@@ -431,8 +439,10 @@ def classify(
 ) -> pd.DataFrame:
     """Rules 2 to 5 on each draw: its class, ``abs(T - R)``, the twin's shift, and the verdict.
 
-    ``transcribed`` holds the ``T(0, 0, 0, 0)`` rows, ``reference`` R's long rows and
-    ``conditioned`` the :func:`conditions` of the same draws.  A draw is in the same round when
+    ``transcribed`` holds the recorded ``T(0, 0, 0, 0)`` rows, ``reference`` R's long rows and
+    ``conditioned`` the :func:`conditions` of the same draws.  ``refit_gap`` and ``refit_same``
+    compare the refit of rule 2 with the recorded row; the twin's shift and its change of round
+    or exit are measured against the refit of the same run (X1).  A draw is in the same round when
     its round count and exit status equal R's.  Such a draw at ``maxIter`` on both sides keeps
     the declared ``1e-4``, sensitive or not.  A sensitive ``tolIC`` draw passes within rule 3's
     ``1e-9`` or under rule 4; a draw in another round passes only under rule 5.  A draw that
@@ -448,9 +458,13 @@ def classify(
         merged[[f"{column}_r" for column in VALUES]].set_axis(list(VALUES), axis=1),
     )
     twin = merged[[f"twin_{column}" for column in VALUES]].set_axis(list(VALUES), axis=1)
-    shift = _largest(twin, merged[list(VALUES)])
-    moves = (merged["twin_iterations"] != merged["iterations"]) | (
-        merged["twin_exit"] != merged["exit"]
+    refit = merged[[f"refit_{column}" for column in VALUES]].set_axis(list(VALUES), axis=1)
+    shift = _largest(twin, refit)
+    moves = (merged["twin_iterations"] != merged["refit_iterations"]) | (
+        merged["twin_exit"] != merged["refit_exit"]
+    )
+    refit_same = (merged["refit_iterations"] == merged["iterations"]) & (
+        merged["refit_exit"] == merged["exit"]
     )
     sensitive = moves | (shift > SENSITIVE_SHIFT)
     same = (merged["iterations"] == merged["rounds"]) & (merged["own"] == merged["reference"])
@@ -471,6 +485,8 @@ def classify(
             "class": kind,
             "gap": gap,
             "shift": shift,
+            "refit_gap": _largest(refit, merged[list(VALUES)]),
+            "refit_same": refit_same.to_numpy(),
             "sensitive": sensitive.to_numpy(),
             "passes": passes.astype(bool),
             "excused": (passes & ~rule_three).astype(bool),
@@ -499,16 +515,22 @@ def compare_by_exit(
 
     ``transcribed`` holds the ``T(0, 0, 0, 0)`` rows, ``reference`` R's long rows by
     ``(scenario, replicate, estimand)``, and ``conditioned`` the :func:`conditions` of the
-    draws.  One validation row per class of :func:`classify`, each holding when every draw of
-    its class passes; ``compared`` counts the class's draws and ``largest_difference`` is their
-    largest ``abs(T - R)``.  The ``maxIter`` count, largest difference and signed mean ``ate``
-    difference, and the count and signed mean of the excused draws, go to ``run.log``.
+    draws.  First the refit row of rule 2: every refit equals its recorded row to
+    :data:`RERUN_TOLERANCE`, in the same round and exit.  Then one row per class of
+    :func:`classify`, each holding when every draw of its class passes; ``compared`` counts the
+    class's draws and ``largest_difference`` is their largest ``abs(T - R)``.  Last the limit of
+    rule 6: the excused draws are at most :data:`EXCUSED_SHARE` of the draws, and
+    ``largest_difference`` is their share.  The ``maxIter`` count, largest difference and signed
+    mean ``ate`` difference, and the count and signed mean of the excused draws, go to
+    ``run.log``.
     """
     try:
         classes = classify(transcribed, reference, conditioned)
     except RuntimeError as error:
         raise RuntimeError(f"{check}: {error}") from None
-    out = []
+    refit_gap = float(classes["refit_gap"].max()) if len(classes) else 0.0
+    refit_held = bool(classes["refit_same"].all()) and refit_gap <= RERUN_TOLERANCE
+    out = [shared.validation_row(part, f"{check} {REFIT}", (refit_held, refit_gap, len(classes)))]
     for kind in (SAME_TOL_IC, SAME_MAX_ITER, SENSITIVE, DIFFERS):
         selected = classes.loc[classes["class"] == kind]
         largest = float(selected["gap"].max()) if len(selected) else 0.0
@@ -523,6 +545,9 @@ def compare_by_exit(
     chosen = classes.loc[classes["excused"], "ate_difference"]
     mean = float(chosen.mean()) if len(chosen) else float("nan")
     shared.note(f"{check}: {len(chosen)} excused draws, signed mean ate difference {mean:.3g}")
+    share = len(chosen) / len(classes) if len(classes) else 0.0
+    held = len(chosen) <= EXCUSED_SHARE * len(classes)
+    out.append(shared.validation_row(part, f"{check} {EXCUSED}", (held, share, len(classes))))
     return out
 
 
@@ -593,24 +618,24 @@ def _record(name: str, output: Path, smoke: bool) -> Path:
     return shared.record_path(HERE, name, output, smoke)
 
 
-def _v4_exit_status(path: Path, part: str) -> pd.DataFrame:
-    """The V4 row of rule 5 in the V4 record at ``path``, relabelled for ``part``, if any.
+def _v4_stopping(path: Path, part: str) -> pd.DataFrame:
+    """The V4 rows that stop the design, in the V4 record at ``path``, relabelled for ``part``.
 
-    Its name ends in ``exit status``: a draw in another round or exit, without a twin that
-    moves, stops the design.
+    They are the rows of :data:`STOPPING`: the refit of rule 2, rule 5 and the limit of rule 6.
+    A missing record gives none.
     """
     checks = shared.optional_rows(path)
     if checks.empty:
         return shared.validation_frame([])
-    checks = checks.loc[checks["check"].astype(str).str.endswith("exit status")]
+    checks = checks.loc[checks["check"].astype(str).str.endswith(STOPPING)]
     return checks.assign(part=part)
 
 
 def prior_checks(part: str, output: Path, smoke: bool) -> pd.DataFrame:
     """The earlier checks a later part carries into its record; a missing record carries none.
 
-    B and C carry every Part A check.  C also carries the V4 check of rule 5, because a miss
-    there stops the design.
+    B and C carry every Part A check.  C also carries the V4 rows of :data:`STOPPING`, because
+    a miss there stops the design.
     """
     frames = [shared.validation_frame([])]
     if part in ("B", "C"):
@@ -621,7 +646,7 @@ def prior_checks(part: str, output: Path, smoke: bool) -> pd.DataFrame:
             frames.append(checks.assign(part=part, check="Part A " + checks["check"].astype(str)))
     if part == "C":
         frames.append(
-            _v4_exit_status(_record(shared.part_paths(output, "V4")[1].name, output, smoke), part)
+            _v4_stopping(_record(shared.part_paths(output, "V4")[1].name, output, smoke), part)
         )
     return pd.concat(frames, ignore_index=True)
 
@@ -630,14 +655,18 @@ def prior_checks(part: str, output: Path, smoke: bool) -> pd.DataFrame:
 
 
 def twin_path(output: Path, part: str) -> Path:
-    """The twin rows of step AV or of V4."""
+    """The refit and twin rows of step AV or of V4."""
     return output / f"{part.lower()}-twin-rows.csv.gz"
 
 
 def condition_draw(
     call: tuple[str, str, int, int, int],
-) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any], dict[str, Any]]:
-    """One draw rebuilt: the payload for R, its truth row, its ``C`` row and its twin row."""
+) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    """One draw rebuilt: the payload for R, its truth row, its ``C`` row, and the rows of rule 2.
+
+    Rule 2 fits ``T(0, 0, 0, 0)`` itself, the refit, and its QR twin in this one run, so that
+    the twin's shift reads the same run's fit (X1).
+    """
     part, scenario, n, k, seed = call
     payload, truth, result = draw_payload(scenario, n, seed)
     sample = payload.copy()
@@ -648,16 +677,16 @@ def condition_draw(
         "replicate": k,
         **{f"truth_{name}": value for name, value in study.truth().items()},
     }
-    twin = {
-        **_base(part, scenario, n, k, seed, truth),
-        **_initial(payload),
-        **transcribed_row(payload, REFERENCE_ARM, solver="qr"),
-    }
-    return sample, truth_row, {"scenario": scenario, "replicate": k, **cleverly_row(result)}, twin
+    common = {**_base(part, scenario, n, k, seed, truth), **_initial(payload)}
+    rule_two = [
+        {**common, **transcribed_row(payload, REFERENCE_ARM, solver=solver)} for solver in SOLVERS
+    ]
+    c_row = {"scenario": scenario, "replicate": k, **cleverly_row(result)}
+    return sample, truth_row, c_row, rule_two
 
 
 def count_rounds(
-    built: list[tuple[pd.DataFrame, dict[str, Any], dict[str, Any], dict[str, Any]]],
+    built: list[tuple[pd.DataFrame, dict[str, Any], dict[str, Any], list[dict[str, Any]]]],
     output: Path,
 ) -> pd.DataFrame:
     """Rule 1: the counting wrapper on the rebuilt payloads, in a scratch directory.
@@ -690,16 +719,19 @@ def count_rounds(
 def r_phase(
     calls: list[tuple[str, str, int, int, int]], output: Path, jobs: int
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Rules 1 and 2 on the draws ``calls``: R's counted rows, the ``C`` refits, the twins.
+    """Rules 1 and 2 on the draws ``calls``: R's counted rows, the ``C`` refits, and the refit
+    and twin rows of ``T(0, 0, 0, 0)``.
 
-    One scenario at a time, so that one R input holds at most one scenario's draws.
+    One scenario at a time, so that one R input holds at most one scenario's draws.  The ID of
+    the pinned image goes to ``run.log`` (X4).
     """
+    shared.note(f"image {REFERENCE.image}: {image_id()}")
     r_frames, refits, twins = [], [], []
     for scenario in dict.fromkeys(call[1] for call in calls):
         built = shared.pool(condition_draw, [call for call in calls if call[1] == scenario], jobs)
         r_frames.append(count_rounds(built, output))
         refits += [refit for _, _, refit, _ in built]
-        twins += [twin for *_, twin in built]
+        twins += [row for *_, rows in built for row in rows]
     twin_rows = shared.require_finite(pd.DataFrame(twins, columns=list(ROW_COLUMNS)), VALUES)
     return pd.concat(r_frames, ignore_index=True), pd.DataFrame(refits), twin_rows
 
@@ -765,7 +797,6 @@ def run_v4(output: Path, cap: int | None, jobs: int) -> None:
         for row in selected.itertuples()
     ]
     r_rows, refit, twins = r_phase(calls, output, jobs)
-    shared.note(f"V4 image {REFERENCE.image}: {image_id()}")
     shared.write_table(r_rows, rows_path)
     shared.write_table(twins, twin_path(output, "V4"))
     fresh = b_rows.loc[b_rows["replicate"].isin(refit["replicate"])]
@@ -1198,8 +1229,8 @@ def table(part: str, output: Path, jobs: int) -> pd.DataFrame:
         v4_ran = not v4.empty
         validation = pd.concat([validation, v4.assign(part="B")], ignore_index=True)
     elif part == "A":
-        # F3: a V4 exit-status mismatch stops the design, so it stops the Part A reading too.
-        validation = pd.concat([validation, _v4_exit_status(v4_path, "A")], ignore_index=True)
+        # F3 and X1-X2: a V4 miss that stops the design stops the Part A reading too.
+        validation = pd.concat([validation, _v4_stopping(v4_path, "A")], ignore_index=True)
     out = shared.validation_readings(validation, part)
     if part == "AV":
         return shared.reading_frame(out)

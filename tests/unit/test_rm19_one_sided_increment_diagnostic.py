@@ -31,7 +31,7 @@ from tests.studies.evidence.seeds import replicate_seed, stream_seed
 #: adds its files, which turns on the budget and rebuild checks below for that part.  Until then
 #: the same tests assert that the part has no committed record, so no record can land without
 #: its check.
-RECORDED: tuple[str, ...] = ("A", "AV")
+RECORDED: tuple[str, ...] = ("A",)
 
 COMMITTED = shared.read_rows(study.STUDY.artifact("replicates.csv.gz"))
 FULL = Switches(True, True, True, True)
@@ -662,15 +662,22 @@ def test_part_b_reads_only_after_v4_holds(tmp_path: Path) -> None:
     assert list(localization) == ["attributed to J"]
 
 
+@pytest.mark.parametrize("stopping", rm19.STOPPING)
 @pytest.mark.parametrize("matched", [True, False])
-def test_a_v4_exit_mismatch_stops_the_part_a_reading(
-    tmp_path: Path, matched: bool, monkeypatch: pytest.MonkeyPatch
+def test_a_v4_stopping_miss_stops_the_part_a_reading(
+    tmp_path: Path, matched: bool, stopping: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """F3 and F6: A folds in the V4 exit status, and G's family reads every Part A row."""
+    """F3, X1, X2 and F6: A folds in each V4 row that stops the design, selected by its class
+    constant, and G's family reads every Part A row."""
     rows = _synthetic()
     control = rows.loc[rows["arm"] == "T0000"].assign(scenario="outcome_correct", guard_events=3)
     _write_part(tmp_path, "A", pd.concat([rows, control]), [("V1 cleverly rows", True)])
-    _write_part(tmp_path, "V4", rows.iloc[:0], [("V4 R exit status", matched)])
+    _write_part(
+        tmp_path,
+        "V4",
+        rows.iloc[:0],
+        [(f"V4 R {stopping}", matched), (f"V4 R {rm19.SAME_MAX_ITER}", False)],
+    )
     seen: dict[str, bool] = {}
 
     def factorial(*_: object, guard: bool, **__: object) -> list[dict[str, object]]:
@@ -685,7 +692,8 @@ def test_a_v4_exit_mismatch_stops_the_part_a_reading(
     for name in ("decomposition_table", "control_table", "arm_summaries"):
         monkeypatch.setattr(rm19, name, lambda *_, **__: [])
     table = rm19.table("A", tmp_path, 1)
-    assert "V4 R exit status" in set(table["scope"])
+    assert f"V4 R {stopping}" in set(table["scope"])
+    assert f"V4 R {rm19.SAME_MAX_ITER}" not in set(table["scope"])
     assert (list(table["result"])[-1] == shared.NOT_VALIDATED) == (not matched)
     assert seen == ({"guard": True} if matched else {})
 
@@ -699,16 +707,12 @@ def test_a_part_a_miss_stops_the_later_parts(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("matched", [True, False])
-def test_a_v4_exit_mismatch_stops_part_c(tmp_path: Path, matched: bool) -> None:
+def test_a_v4_stopping_miss_stops_part_c(tmp_path: Path, matched: bool) -> None:
     _write_part(tmp_path, "A", _synthetic().iloc[:0], [("V1 cleverly rows", True)])
-    _write_part(
-        tmp_path,
-        "V4",
-        _synthetic().iloc[:0],
-        [("V4 R exit status", matched), ("V4 R maxIter draws", False)],
-    )
+    v4 = [(f"V4 R {kind}", matched) for kind in rm19.STOPPING]
+    _write_part(tmp_path, "V4", _synthetic().iloc[:0], [*v4, (f"V4 R {rm19.SAME_MAX_ITER}", False)])
     checks = rm19.prior_checks("C", tmp_path, smoke=True)
-    assert list(checks["check"]) == ["Part A V1 cleverly rows", "V4 R exit status"]
+    assert list(checks["check"]) == ["Part A V1 cleverly rows", *(check for check, _ in v4)]
     assert shared.validated(checks, "C") == matched
     # Part B carries the Part A checks alone; its reading reads V4 in full.
     assert list(rm19.prior_checks("B", tmp_path, smoke=True)["check"]) == [
@@ -778,12 +782,14 @@ def _case(
     twin_shift: float = 0.0,
     twin_rounds: int | None = None,
     twin_exit: str | None = None,
+    drift: float = 0.0,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Draw 0 exact and well conditioned; draw 1 as named.
 
     Draw 1's ``T(0, 0, 0, 0)`` stops in ``rounds[0]`` with ``own_exit`` and sits ``gap`` from R in
     ``ate``; R stops in ``rounds[1]`` with ``score_max``.  Its twin sits ``twin_shift`` from
-    ``T(0, 0, 0, 0)`` and stops in ``twin_rounds`` with ``twin_exit``, by default T's own.
+    the same run's refit and stops in ``twin_rounds`` with ``twin_exit``, by default T's own.
+    The recorded ``ate`` of draw 1 then moves by ``drift``, away from the refit (X1).
     """
     own_rounds, r_rounds = rounds
     transcribed = pd.DataFrame(
@@ -797,10 +803,12 @@ def _case(
             **{f"se_{name}": [0.02, 0.02] for name in study.ESTIMANDS},
         }
     )
-    twins = transcribed.assign(arm=rm19.TWIN)
-    twins.loc[1, "ate"] += twin_shift
-    twins.loc[1, "iterations"] = own_rounds if twin_rounds is None else twin_rounds
-    twins.loc[1, "exit"] = own_exit if twin_exit is None else twin_exit
+    twin = transcribed.assign(arm=rm19.TWIN)
+    twin.loc[1, "ate"] += twin_shift
+    twin.loc[1, "iterations"] = own_rounds if twin_rounds is None else twin_rounds
+    twin.loc[1, "exit"] = own_exit if twin_exit is None else twin_exit
+    twins = pd.concat([transcribed, twin], ignore_index=True)
+    transcribed.loc[1, "ate"] += drift
     reference = pd.DataFrame(
         [
             {
@@ -825,10 +833,9 @@ def _case(
     return transcribed, reference, rm19.conditions(r_rows, r_rows, twins)
 
 
-CHECKS = [
-    f"V2 {kind}" for kind in (rm19.SAME_TOL_IC, rm19.SAME_MAX_ITER, rm19.SENSITIVE, rm19.DIFFERS)
-]
-TOL_IC_ROW, MAX_ITER_ROW, SENSITIVE_ROW, DIFFERS_ROW = CHECKS
+KINDS = (rm19.SAME_TOL_IC, rm19.SAME_MAX_ITER, rm19.SENSITIVE, rm19.DIFFERS)
+CHECKS = [f"V2 {kind}" for kind in (rm19.REFIT, *KINDS, rm19.EXCUSED)]
+REFIT_ROW, TOL_IC_ROW, MAX_ITER_ROW, SENSITIVE_ROW, DIFFERS_ROW, EXCUSED_ROW = CHECKS
 
 
 @pytest.mark.parametrize(
@@ -905,11 +912,13 @@ def test_v2_and_v4_read_each_rule_by_round_and_conditioning(
         rm19.compare_by_exit("A", "V2", transcribed, reference, conditioned)
     )
     assert list(rows["check"]) == CHECKS
+    # One excused draw of two is above rule 6's 1%, so its limit row fails beside the class.
     assert list(rows.loc[rows["result"] == shared.FAILS, "check"]) == (
-        [] if failing is None else [failing]
+        ([] if failing is None else [failing]) + ([EXCUSED_ROW] if excused else [])
     )
     counts = dict(zip(rows["check"], rows["compared"], strict=True))
-    assert sum(counts.values()) == 2 and counts[f"V2 {kind}"] >= 1
+    assert sum(counts[f"V2 {name}"] for name in KINDS) == 2 and counts[f"V2 {kind}"] >= 1
+    assert counts[REFIT_ROW] == counts[EXCUSED_ROW] == 2
     count, mean = rm19.excused(transcribed, reference, conditioned)
     assert count == excused
     gap = float(case.get("gap", 0.0))  # type: ignore[arg-type]
@@ -919,16 +928,79 @@ def test_v2_and_v4_read_each_rule_by_round_and_conditioning(
     assert notes[0].startswith(f"V2: {counts[MAX_ITER_ROW]} maxIter draws")
 
 
-def test_a_draw_without_its_round_count_or_twin_stops_the_check() -> None:
+def test_a_draw_without_its_round_count_refit_or_twin_stops_the_check() -> None:
     transcribed, reference, conditioned = _case()
     with pytest.raises(RuntimeError, match="one side only"):
         rm19.compare_by_exit("A", "V2", transcribed.iloc[:1], reference, conditioned)
     r_rows = conditioned[["scenario", "replicate", "rounds", "score_max"]]
-    twins = transcribed.assign(arm=rm19.TWIN)
-    with pytest.raises(RuntimeError, match="no R round count or no twin"):
+    twins = pd.concat([transcribed, transcribed.assign(arm=rm19.TWIN)], ignore_index=True)
+    missing = "no R round count, no refit or no twin"
+    with pytest.raises(RuntimeError, match=missing):
         rm19.conditions(r_rows, r_rows.iloc[:1], twins)
-    with pytest.raises(RuntimeError, match="no R round count or no twin"):
-        rm19.conditions(r_rows, r_rows, twins.iloc[:1])
+    for arm in ("T0000", rm19.TWIN):
+        with pytest.raises(RuntimeError, match=missing):
+            rm19.conditions(r_rows, r_rows, twins.loc[twins["arm"] != arm])
+
+
+@pytest.mark.parametrize("drift", [0.0, 1e-8])
+def test_a_recorded_row_that_drifted_from_the_refit_stops_the_check(drift: float) -> None:
+    """X1: the recorded ``T(0, 0, 0, 0)`` moves by 1e-8 between runs.  Compared with the old
+    rule's recorded-row twin, that drift read as sensitivity; the refit row now fails."""
+    transcribed, reference, conditioned = _case(drift=drift)
+    rows = shared.validation_frame(
+        rm19.compare_by_exit("A", "V2", transcribed, reference, conditioned)
+    )
+    failed = list(rows.loc[rows["result"] == shared.FAILS, "check"])
+    refit = rows.set_index("check").loc[REFIT_ROW]
+    assert float(refit["largest_difference"]) == pytest.approx(drift)
+    # The drift also sits 1e-8 from R on a draw the twin calls well conditioned: rule 3 fails.
+    assert failed == ([] if drift == 0.0 else [REFIT_ROW, TOL_IC_ROW])
+    assert rm19.excused(transcribed, reference, conditioned)[0] == 0
+    # A refit in another round fails the row as well, even at an equal estimate.
+    transcribed, reference, conditioned = _case()
+    conditioned.loc[1, "refit_iterations"] = 11
+    conditioned.loc[1, "twin_iterations"] = 11
+    rows = shared.validation_frame(
+        rm19.compare_by_exit("A", "V2", transcribed, reference, conditioned)
+    )
+    assert rows.set_index("check").loc[REFIT_ROW, "result"] == shared.FAILS
+
+
+def _many(draws: int, excused: int) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """``draws`` exact draws, of which the first ``excused`` stop four rounds from R with a
+    twin that moves too, 1e-5 away: each passes rule 5 and is excused."""
+    transcribed, reference, conditioned = _case()
+    one = [frame.loc[frame["replicate"] == 0] for frame in (transcribed, reference, conditioned)]
+    frames = [
+        pd.concat([frame.assign(replicate=k) for k in range(draws)], ignore_index=True)
+        for frame in one
+    ]
+    transcribed, reference, conditioned = frames
+    chosen = transcribed["replicate"] < excused
+    transcribed.loc[chosen, "iterations"] = 14
+    transcribed.loc[chosen, "ate"] += 1e-5
+    marked = conditioned["replicate"] < excused
+    conditioned.loc[marked, ["refit_iterations", "twin_iterations"]] = [14, 13]
+    conditioned.loc[marked, "refit_ate"] += 1e-5
+    conditioned.loc[marked, "twin_ate"] += 1e-5
+    return transcribed, reference, conditioned
+
+
+@pytest.mark.parametrize(
+    ("draws", "excused", "held"),
+    [(200, 2, True), (200, 3, False), (2_400, 24, True), (2_400, 25, False)],
+)
+def test_excused_draws_above_one_percent_stop_the_check(
+    draws: int, excused: int, held: bool
+) -> None:
+    """X2 at its boundary: 2 of 200 and 24 of 2,400 hold; one more fails."""
+    case = _many(draws, excused)
+    assert rm19.excused(*case)[0] == excused
+    rows = shared.validation_frame(rm19.compare_by_exit("V4", "V4 R", *case)).set_index("check")
+    assert rows.loc[f"V4 R {rm19.DIFFERS}", "result"] == shared.HOLDS
+    row = rows.loc[f"V4 R {rm19.EXCUSED}"]
+    assert (row["result"] == shared.HOLDS) == held
+    assert (int(row["compared"]), float(row["largest_difference"])) == (draws, excused / draws)
 
 
 def test_the_max_iter_drift_is_the_signed_mean_over_max_iter_draws() -> None:
@@ -974,8 +1046,10 @@ def _v4_record(directory: Path, shift: float = 2e-6) -> None:
         ]
     )
     _write_part(directory, "B", b_rows, [("x", True)])
-    _write_part(directory, "V4", r_rows, [("V4 R round and exit status", True)])
-    shared.write_table(t0000.reset_index().assign(arm=rm19.TWIN), rm19.twin_path(directory, "V4"))
+    _write_part(directory, "V4", r_rows, [(f"V4 R {rm19.DIFFERS}", True)])
+    refit = t0000.reset_index()
+    twins = pd.concat([refit, refit.assign(arm=rm19.TWIN)], ignore_index=True)
+    shared.write_table(twins, rm19.twin_path(directory, "V4"))
 
 
 def test_the_v4_reading_reports_the_drift_of_its_t0000_rows(tmp_path: Path) -> None:
@@ -1003,18 +1077,45 @@ def test_v4_runs_the_counting_step_and_the_rule_of_v2(
         return r_rows, b_rows.loc[b_rows["arm"] == "C"], twins
 
     monkeypatch.setattr(rm19, "r_phase", phase)
-    monkeypatch.setattr(rm19, "image_id", lambda: "test")
     rm19.run_v4(tmp_path, 4, 1)
     assert calls == [("V4", rm19.SCENARIO, 3_000, k, 7) for k in range(4)]
     checks = shared.read_rows(shared.part_paths(tmp_path, "V4")[1])
     assert list(checks["check"]) == ["V4 payload C refit"] + [
-        f"V4 R {kind}"
-        for kind in (rm19.SAME_TOL_IC, rm19.SAME_MAX_ITER, rm19.SENSITIVE, rm19.DIFFERS)
+        f"V4 R {kind}" for kind in (rm19.REFIT, *KINDS, rm19.EXCUSED)
     ]
     assert (checks["result"] == shared.HOLDS).all()
     # Step AV runs the same phase and the same rule.
     source = inspect.getsource(rm19.condition_part_a) + inspect.getsource(rm19.validate_committed)
     assert "r_phase(" in source and "compare_by_exit(" in source
+
+
+def test_the_draw_step_fits_the_refit_and_the_twin_in_one_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """X1 and X4: ``condition_draw`` fits ``T(0, 0, 0, 0)`` and its twin together, and
+    ``r_phase`` records the image ID for AV and V4 alike."""
+    payload = pd.DataFrame({"Y": [1.0]})
+    seen: list[str] = []
+
+    def row(_: object, switches: Switches, *, solver: str = "gelsd") -> dict[str, object]:
+        seen.append(solver)
+        arm = switches.label if solver == "gelsd" else rm19.TWIN
+        return {"arm": arm, **dict.fromkeys(rm19.VALUES, 0.1), "iterations": 10}
+
+    monkeypatch.setattr(rm19, "draw_payload", lambda *_: (payload, 0.0, None))
+    monkeypatch.setattr(rm19, "cleverly_row", lambda _: {"arm": "C"})
+    monkeypatch.setattr(rm19, "_initial", lambda _: {})
+    monkeypatch.setattr(rm19, "transcribed_row", row)
+    *_, rows = rm19.condition_draw(("AV", rm19.SCENARIO, 3_000, 5, 11))
+    assert seen == ["gelsd", "qr"]
+    assert [entry["arm"] for entry in rows] == ["T0000", rm19.TWIN]
+    assert all(entry["replicate"] == 5 and entry["part"] == "AV" for entry in rows)
+    monkeypatch.setattr(rm19, "image_id", lambda: "sha256:test")
+    monkeypatch.setattr(rm19.shared, "pool", lambda *_: [])
+    monkeypatch.setattr(rm19, "count_rounds", lambda *_: pd.DataFrame())
+    before = len(shared.notes())
+    rm19.r_phase([("AV", rm19.SCENARIO, 3_000, 0, 1)], tmp_path, 1)
+    assert list(shared.notes()[before:]) == [f"image {regenerate.REFERENCE.image}: sha256:test"]
 
 
 class _Runner:
@@ -1037,8 +1138,8 @@ def test_count_rounds_merges_one_count_per_draw_and_stops_otherwise(
     rows = pd.DataFrame(
         {"scenario": rm19.SCENARIO, "replicate": [0, 0, 1, 1], "estimate": [0.1, 0.2, 0.3, 0.4]}
     )
-    built: list[tuple[pd.DataFrame, dict[str, Any], dict[str, Any], dict[str, Any]]] = [
-        (pd.DataFrame({"Y": [1.0], "replicate": [k]}), {"replicate": k}, {}, {}) for k in (0, 1)
+    built: list[tuple[pd.DataFrame, dict[str, Any], dict[str, Any], list[dict[str, Any]]]] = [
+        (pd.DataFrame({"Y": [1.0], "replicate": [k]}), {"replicate": k}, {}, []) for k in (0, 1)
     ]
     runner = _Runner(
         rows, pd.DataFrame({"scenario": rm19.SCENARIO, "replicate": [0, 1], "rounds": [7, 9]})
@@ -1093,7 +1194,8 @@ def test_a_one_step_defect_of_the_review_size_fails_rule_3(monkeypatch: pytest.M
     """Rule 7: a looser ``glm`` tolerance on the ``gr1`` reduction fails V2 by rule 3.
 
     The harness review found a ``gr1`` refit that moved 4.2e-9 on equal inputs.  This defect
-    moves the round-0 ``gr1`` refit of registered draw 1 by less than 1e-8.
+    moves the round-0 ``gr1`` refit of registered draw 1 by less than 1e-8.  The rows come from
+    ``transcribed_row`` and the verdict from ``compare_by_exit``, as in step AV (X6).
     """
     payload = _registered(1)[0]
     reference = _committed(rm19.SCENARIO, 1, str(study.STUDY.reference)).reset_index()
@@ -1106,29 +1208,18 @@ def test_a_one_step_defect_of_the_review_size_fails_rule_3(monkeypatch: pytest.M
             epsilon = 1e-6
         return original(*args, epsilon=epsilon, **kwargs)  # type: ignore[arg-type]
 
-    def verdict() -> pd.Series:
-        rows = {}
-        for arm, solver in (("T0000", "gelsd"), (rm19.TWIN, "qr")):
-            out = transcribe(payload, solver=solver)  # type: ignore[arg-type]
-            rows[arm] = {
-                "scenario": rm19.SCENARIO,
-                "replicate": 1,
-                "arm": arm,
-                "exit": out.exit,
-                "iterations": out.iterations,
-                **out.estimates,
-                **{f"se_{name}": value for name, value in out.std_errors.items()},
-            }
-        transcribed = pd.DataFrame([rows["T0000"]])
-        twins = pd.DataFrame([rows[rm19.TWIN]])
-        scores = pd.DataFrame(
-            {"scenario": [rm19.SCENARIO], "replicate": [1], "score_max": [5e-9]}
-        ).assign(rounds=R_ROUNDS_DRAW_1)
-        conditioned = rm19.conditions(scores, scores, twins)
-        return rm19.classify(transcribed, reference, conditioned).iloc[0]
+    def verdict() -> pd.DataFrame:
+        draw = {"scenario": rm19.SCENARIO, "replicate": 1}
+        refit = {**draw, **rm19.transcribed_row(payload, rm19.REFERENCE_ARM)}
+        twin = {**draw, **rm19.transcribed_row(payload, rm19.REFERENCE_ARM, solver="qr")}
+        scores = pd.DataFrame([{**draw, "score_max": 5e-9, "rounds": R_ROUNDS_DRAW_1}])
+        conditioned = rm19.conditions(scores, scores, pd.DataFrame([refit, twin]))
+        rows = rm19.compare_by_exit("A", "V2", pd.DataFrame([refit]), reference, conditioned)
+        return shared.validation_frame(rows).set_index("check")
 
     clean = verdict()
-    assert (clean["class"], bool(clean["passes"])) == (rm19.SAME_TOL_IC, True)
+    assert (clean["result"] == shared.HOLDS).all()
+    assert int(clean.loc[TOL_IC_ROW, "compared"]) == 1
     split = rtrans.Split.of(payload["fold"].to_numpy())
     a = payload["A"].to_numpy(dtype=float)
     qn = [payload["qn0"].to_numpy(dtype=float), payload["qn1"].to_numpy(dtype=float)]
@@ -1140,8 +1231,9 @@ def test_a_one_step_defect_of_the_review_size_fails_rule_3(monkeypatch: pytest.M
     step = max(float(np.max(np.abs(x[1] - y[1]))) for x, y in zip(before, after, strict=True))
     assert 1e-9 < step < 1e-8
     mutated = verdict()
-    assert (mutated["class"], bool(mutated["passes"])) == (rm19.SAME_TOL_IC, False)
-    assert mutated["gap"] > rm19.SENSITIVE_TOLERANCE
+    assert list(mutated.index[mutated["result"] == shared.FAILS]) == [TOL_IC_ROW]
+    assert int(mutated.loc[TOL_IC_ROW, "compared"]) == 1
+    assert float(mutated.loc[TOL_IC_ROW, "largest_difference"]) > rm19.SENSITIVE_TOLERANCE
 
 
 def test_run_log_clears_the_notes_of_a_part(tmp_path: Path) -> None:
@@ -1208,7 +1300,7 @@ def test_each_recorded_part_meets_its_declared_budget(part: str) -> None:
         assert rows["rounds"].between(1, rtrans.MAX_ITER).all()
         twins = shared.read_rows(rm19.twin_path(rm19.HERE, part))
         assert set(zip(twins["scenario"], twins["replicate"], strict=True)) == expected
-        assert set(twins["arm"]) == {rm19.TWIN} and len(twins) == len(expected)
+        assert set(twins["arm"]) == {"T0000", rm19.TWIN} and len(twins) == 2 * len(expected)
         return
     declared = {"A": study.PRIMARY_REPLICATES}.get(part, rm19.REPLICATES)
     counts = rows.groupby(["scenario", "n", "arm"]).size()
