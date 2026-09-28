@@ -1389,7 +1389,7 @@ regression is not. On the 800 committed primary replications at n = 3,000, the u
 covered zero. "[What the one-sided reading found](#what-the-one-sided-reading-found)" gives each
 interval.
 
-Pull request NNN delivered this row. The table gives what shipped.
+Pull request 246 delivered this row. The table gives what shipped.
 
 Commit `b7ca9460` holds the declaration, "The localization design, declared before it runs", with
 its amendments. They are
