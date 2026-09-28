@@ -77,7 +77,9 @@ def test_the_fixed_rule_value_is_a_regime_value() -> None:
     np.testing.assert_allclose(law.eif(NAME), law.eif("ey_regime[rule]"), atol=1e-14, rtol=0)
 
 
-def test_each_fold_curve_is_the_gateaux_derivative_at_the_fold_law(fit: Any) -> None:
+def _fold_curves(fit: Any) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """For each fold: the support point of each validation row, the fold's unscaled curve
+    at those rows, and the law whose plug-in the fold reports."""
     n = fit.data.n
     cells = _cells()
     w = np.rint(fit.data.covariates[:, 0]).astype(int)
@@ -90,20 +92,35 @@ def test_each_fold_curve_is_the_gateaux_derivative_at_the_fold_law(fit: Any) -> 
         ]
     )
     g = PROBS.sum(axis=2)[:, 1] / PROBS.sum(axis=(1, 2))
+    arm = np.stack([1.0 - g, g], axis=1)
+    outcome = np.stack([1.0 - q_star, q_star], axis=2)
     curve = np.asarray(fit.estimates[NAME].influence_curve, dtype=float)
     folds = [np.asarray(test) for _, test in fit.nuisance.folds]
+    pieces = []
     for test in folds:
         share = np.bincount(w[test], minlength=3) / test.size
-        arm = np.stack([1.0 - g, g], axis=1)
-        outcome = np.stack([1.0 - q_star, q_star], axis=2)
         probs = share[:, None, None] * arm[:, :, None] * outcome
-        raw = curve[test] * len(folds) * test.size / n
-        for point in np.unique(cells[test]):
+        pieces.append((cells[test], curve[test] * len(folds) * test.size / n, probs))
+    return pieces
+
+
+def test_each_fold_curve_is_the_gateaux_derivative_at_the_fold_law(fit: Any) -> None:
+    for cells, raw, probs in _fold_curves(fit):
+        for point in np.unique(cells):
             expected = law.gateaux(NAME, int(point), probs=probs)
-            np.testing.assert_allclose(raw[cells[test] == point], expected, atol=1e-10, rtol=0)
+            np.testing.assert_allclose(raw[cells == point], expected, atol=1e-10, rtol=0)
 
 
 def test_control_a_wrong_rule_is_caught(fit: Any) -> None:
-    """The regime ``never`` differs from the fixed rule at two cells, and its derivative
-    differs from the fold curve by far more than the tolerance above."""
-    assert float(np.max(np.abs(law.eif("ey_regime[never]") - law.eif(NAME)))) > 1e-2
+    """The regime ``never`` differs from the fixed rule at two cells.  At each fold's law,
+    its derivative differs from the fold curve by far more than the tolerance above."""
+    for cells, raw, probs in _fold_curves(fit):
+        gaps = [
+            np.max(
+                np.abs(
+                    raw[cells == point] - law.gateaux("ey_regime[never]", int(point), probs=probs)
+                )
+            )
+            for point in np.unique(cells)
+        ]
+        assert float(np.max(gaps)) > 1e-2

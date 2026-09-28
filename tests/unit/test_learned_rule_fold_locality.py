@@ -45,9 +45,7 @@ def test_the_rule_is_the_longhand_rule_of_each_complement(spied: Any) -> None:
     rule = result.nuisance.regimes.values[:, 1, 0]
     for train, test in result.nuisance.folds:
         model = support.outcome_learner().fit(design[train], outcome[train])
-        treated = np.column_stack([np.ones(test.size), data.covariates[test]])
-        control = np.column_stack([np.zeros(test.size), data.covariates[test]])
-        blip = model.predict_proba(treated)[:, 1] - model.predict_proba(control)[:, 1]
+        blip = support.blip(model, data.covariates[test])
         np.testing.assert_array_equal(rule[test], (blip > 0.0).astype(float))
     assert 0.0 < float(np.mean(rule)) < 1.0
 
@@ -59,10 +57,7 @@ def test_control_a_rule_read_from_an_all_row_fit_differs(spied: Any) -> None:
     data = result.data
     design = np.column_stack([data.treatment, data.covariates])
     model = support.outcome_learner().fit(design, np.asarray(data.outcome, dtype=float))
-    treated = np.column_stack([np.ones(data.n), data.covariates])
-    control = np.column_stack([np.zeros(data.n), data.covariates])
-    blip = model.predict_proba(treated)[:, 1] - model.predict_proba(control)[:, 1]
-    everywhere = (blip > 0.0).astype(float)
+    everywhere = (support.blip(model, data.covariates) > 0.0).astype(float)
     assert not np.array_equal(everywhere, result.nuisance.regimes.values[:, 1, 0])
 
 

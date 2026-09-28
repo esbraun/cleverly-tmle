@@ -47,9 +47,7 @@ def test_the_blip_quantiles_are_those_of_each_complement_fit(result: Any) -> Non
     outcome = np.asarray(data.outcome, dtype=float)
     for (train, test), recorded in zip(result.nuisance.folds, record.blip_quantiles, strict=True):
         model = support.outcome_learner().fit(design[train], outcome[train])
-        treated = np.column_stack([np.ones(test.size), data.covariates[test]])
-        control = np.column_stack([np.zeros(test.size), data.covariates[test]])
-        blip = model.predict_proba(treated)[:, 1] - model.predict_proba(control)[:, 1]
+        blip = support.blip(model, data.covariates[test])
         np.testing.assert_allclose(
             recorded, np.quantile(blip, record.quantile_levels), rtol=0, atol=1e-9
         )
@@ -75,6 +73,11 @@ def test_a_round_trip_keeps_the_rule_the_record_and_the_estimate(
     assert saved.psi == estimate.psi and saved.variance == estimate.variance
     np.testing.assert_array_equal(saved.influence_curve, estimate.influence_curve)
     assert restored.config.parameter_axis == "learned_rule"
+    # The seeds: the estimator's, and the one that drew the split.
+    assert restored.config.random_state == result.config.random_state == 0
+    origins = restored.split_plan.provenance
+    assert origins == result.split_plan.provenance
+    assert [origin.seed for origin in origins] == [0]
     for (train, test), (saved_train, saved_test) in zip(
         result.nuisance.folds, restored.nuisance.folds, strict=True
     ):

@@ -26,8 +26,7 @@ from tests.unit import _learned_rule_support as support
 
 @pytest.fixture(scope="module")
 def planted() -> Any:
-    """A misspecified outcome regression at unequal folds: n = 203, V = 5."""
-    return support.fit(support.law_frame(203, 1), outcome_learner=support.misspecified_learner())
+    return support.planted()
 
 
 @pytest.fixture(scope="module")

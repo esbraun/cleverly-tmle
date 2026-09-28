@@ -2,19 +2,23 @@
 
 The table in ``docs/roadmap.md`` (RM30, "The refusals, their order and the shared text")
 lists fourteen rows.  Each row raises :class:`~cleverly.exceptions.CapabilityError` with
-its item before any learner is fitted, at the engine and at ``CausalStudy``.  A refusal
-that no setting repairs comes before a refusal whose remedy is a setting, which the RM24
-order rule requires, so the pair witnesses below meet the earlier row.
+its item before any learner is fitted, at the engine and at ``CausalStudy``, with one
+exception: ``CrossFitting(n_folds=1)`` refuses at construction, before it sees the
+estimand, with a :class:`~cleverly.exceptions.MethodConfigurationError` that ends with the
+learned-rule clause.  A refusal that no setting repairs comes before a refusal whose remedy
+is a setting, which the RM24 order rule requires, so the pair witnesses below meet the
+earlier row.
 
 No remedy may send the caller to a call that is refused.  Each remedy that a learned-rule
 caller reads is therefore run as written: the witness finds the remedy's text in the
-message and evaluates that text.  Each shared refusal that a learned-rule fit can meet is
-also checked for the in-sample remedy it must not name.
+message and evaluates that text.  On the engine, each shared refusal that a learned-rule
+fit can meet is also checked for the in-sample remedy it must not name.  On the method,
+that remedy stays for other estimands, and the witnesses check the clause that follows it.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pandas as pd
@@ -26,6 +30,7 @@ from sklearn.preprocessing import PolynomialFeatures
 from cleverly import (
     CausalStudy,
     CrossFitting,
+    Inference,
     LearnedRuleValue,
     LongitudinalTreatment,
     PointTreatment,
@@ -71,17 +76,7 @@ FORBIDDEN = ("cross_fit=False", "CrossFitting(enabled=False)", "shifts=[")
 
 def _engine(**overrides: Any) -> TMLE:
     """A learned-rule estimator whose learners fail if a refusal comes too late."""
-    return TMLE(
-        **{
-            "learned_rule": LearnedRule(),
-            **never_fit_learners(),
-            **support.FOLD_EVALUATED,
-            "n_folds": 5,
-            "simultaneous": False,
-            "random_state": 0,
-            **overrides,
-        }
-    )
+    return support.learned_tmle(**{**never_fit_learners(), **overrides})
 
 
 def _frame(kind: str = "binary") -> Any:
@@ -421,7 +416,7 @@ class TestTheSharedRefusalsNameTheLearnedRuleRemedy:
         frame.loc[0, "A"] = 1.0
         NeverFit.calls = 0
         with pytest.raises(DataError) as caught:
-            _fit_frame(_engine(), frame)
+            support.fit(frame, **never_fit_learners())
         assert NeverFit.calls == 0
         message = str(caught.value)
         assert LEARNED_RULE_REMEDY in message
@@ -437,7 +432,7 @@ class TestTheSharedRefusalsNameTheLearnedRuleRemedy:
         for seed in range(200):
             NeverFit.calls = 0
             try:
-                _fit_frame(_engine(n_folds=10, random_state=seed), frame)
+                support.fit(frame, **never_fit_learners(), n_folds=10, random_state=seed)
             except DataError as error:
                 message = str(error)
                 if "training complement" in message:
@@ -456,7 +451,7 @@ class TestTheSharedRefusalsNameTheLearnedRuleRemedy:
         frame["Y"] = frame["Y"] + frame["W1"]
         NeverFit.calls = 0
         with pytest.raises(CapabilityError) as caught:
-            _fit_frame(_engine(), frame)
+            support.fit(frame, **never_fit_learners())
         assert NeverFit.calls == 0
         message = str(caught.value)
         assert message.endswith(
@@ -472,12 +467,11 @@ class TestTheSharedRefusalsNameTheLearnedRuleRemedy:
         assert np.isfinite(result.estimates[support.NAME].psi)
 
 
-def _fit_frame(estimator: TMLE, frame: Any) -> Any:
-    return estimator.fit(frame, outcome="Y", treatment="A", covariates=support.COVARIATES)
-
-
 class TestTheStudyRefusesTheSameRows:
-    """``CausalStudy.identify`` refuses rows 3 to 9, and ``estimate`` rows 10 to 14."""
+    """``CausalStudy.identify`` refuses rows 3 to 9, and ``estimate`` rows 10 to 14.
+
+    One fold refuses earlier, in ``CrossFitting`` itself.
+    """
 
     @staticmethod
     def _study(kind: str) -> CausalStudy:
@@ -509,6 +503,46 @@ class TestTheStudyRefusesTheSameRows:
             lambda: effect.estimate(**never_fit_learners(), simultaneous=False), "X11 (e)"
         )
         assert "CrossFitting(enabled=True, fold_evaluation=True)" in message
+
+    #: Rows 10 to 14 on the method, each with its exception and item.  One fold refuses in
+    #: ``CrossFitting`` itself, before the estimand is known, so it raises the configuration
+    #: error and ends with the learned-rule clause.
+    METHOD_ROWS: ClassVar[dict[str, tuple[dict[str, Any], dict[str, Any], type, str]]] = {
+        "in_sample": ({"enabled": False}, {}, CapabilityError, "X11 (a)"),
+        "one_fold": (
+            {"n_folds": 1, "fold_evaluation": True},
+            {},
+            MethodConfigurationError,
+            "X11 (a)",
+        ),
+        "stacked": ({}, {}, CapabilityError, "X11 (e)"),
+        "fold_targeting": (
+            {"fold_evaluation": True, "targeting_scheme": "fold"},
+            {},
+            CapabilityError,
+            "X11 (h)",
+        ),
+        "repeats": ({"fold_evaluation": True, "repeats": 2}, {}, CapabilityError, "F27"),
+        "bootstrap": ({"fold_evaluation": True}, {"n_bootstrap": 10}, CapabilityError, "F27"),
+    }
+
+    @pytest.mark.parametrize("row", list(METHOD_ROWS))
+    def test_estimate_refuses_the_setting_rows(self, row: str) -> None:
+        cross_fitting, inference, error, item = self.METHOD_ROWS[row]
+        effect = self._study("binary").identify(LearnedRuleValue())
+        NeverFit.calls = 0
+        with pytest.raises(error) as caught:
+            effect.estimate(
+                TMLEMethod(
+                    models=ModelSpec(**never_fit_learners()),
+                    cross_fitting=CrossFitting(**cross_fitting),
+                    inference=Inference(**inference),
+                ),
+                simultaneous=False,
+            )
+        assert NeverFit.calls == 0
+        message = str(caught.value)
+        assert item in message and METHOD_REMEDY in message, message
 
     def test_the_variants_are_unavailable_and_cite_f27(self) -> None:
         effect = self._study("binary").identify(LearnedRuleValue())

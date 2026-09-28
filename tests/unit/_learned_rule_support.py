@@ -13,6 +13,7 @@ nonzero ``epsilon``.
 
 from __future__ import annotations
 
+import functools
 from typing import Any, ClassVar
 
 import numpy as np
@@ -109,6 +110,38 @@ def fit(frame: Any = None, **overrides: Any) -> Any:
         .fit(frame, outcome="Y", treatment="A", covariates=COVARIATES)
         .single()
     )
+
+
+@functools.cache
+def planted() -> Any:
+    """A misspecified outcome regression at unequal folds: n = 203, V = 5.
+
+    The regression omits ``W1``, so the pooled ``epsilon`` is nonzero, and 203 rows make
+    the five folds unequal, so the weights ``n / (V n_v)`` differ from one.  The fit is
+    cached, and every caller only reads it.
+    """
+    return fit(law_frame(203, 1), outcome_learner=misspecified_learner())
+
+
+def blip(model: Any, covariates: np.ndarray) -> np.ndarray:
+    """The blip ``P(Y = 1 | A = 1, W) - P(Y = 1 | A = 0, W)`` of a fitted outcome model.
+
+    Parameters
+    ----------
+    model : classifier
+        A fitted outcome model on the design ``(A, W1, W2)``.
+    covariates : numpy.ndarray
+        The rows of ``(W1, W2)`` to evaluate the blip at.
+
+    Returns
+    -------
+    numpy.ndarray
+        The blip at each row.
+    """
+    rows = len(covariates)
+    treated = np.column_stack([np.ones(rows), covariates])
+    control = np.column_stack([np.zeros(rows), covariates])
+    return model.predict_proba(treated)[:, 1] - model.predict_proba(control)[:, 1]
 
 
 class RowSpy(ClassifierMixin, BaseEstimator):
