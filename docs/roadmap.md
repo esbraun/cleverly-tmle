@@ -125,7 +125,7 @@ contract.
 | 2.5 | Stratified incremental and MSM targeting | source audit | implemented pooled stratified fluctuation, and marginal incremental and MSM targeting | [X8](#x8-stratified-incremental-and-msm-targeting) |
 | 2.6 | Omitted-variable bounds on the other linear functionals | published support; pending source read | the shipped arm-axis bound | [X9](#x9-omitted-variable-bounds-on-the-other-linear-functionals) |
 | 2.7 | Continuous-dose MSM with a second mechanism | source audit | implemented continuous-dose MSM targeting, missing-outcome arm targeting, and controlled-direct-effect targeting | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) |
-| 2.8 | Learned-policy follow-ups | set for each part in X11 | [RM30](#rm30-learned-policy-value-evaluation) | [X11](#x11-learned-policy-follow-ups) |
+| 2.8 | Learned-policy follow-ups | published support for parts (g) and (h); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c) and (d) | [RM30](#rm30-learned-policy-value-evaluation) | [X11](#x11-learned-policy-follow-ups) |
 | 3 | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
 | 4.1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | 4.2 | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -1778,7 +1778,7 @@ The package already fits this construction for arm targets. The fit is `cross_fi
 `targeting_scheme="pooled"` and `cv_evaluation=True`. Pull request B sets the regime density to
 the fold-local rule, and it reuses the rest of the construction.
 
-Theorem 6 and Corollary 3 of JCI give the conditions. C2 to C4 cannot be checked from the data.
+Theorem 6 and Corollary 3 of JCI give the conditions. The data cannot confirm C2 to C4.
 
 | id | condition | source | what it means for this row |
 | --- | --- | --- | --- |
@@ -1843,7 +1843,7 @@ requires.
 | order | request | item |
 | ---: | --- | --- |
 | 1 | `CTMLE` or `DRTMLE` with `learned_rule=` | [F27](#f27-learned-policy-value-outside-the-published-conditions) |
-| 2 | `learned_rule=` beside `interventions=`, `shifts=`, `incremental=`, `msm=` or `reference=`, or beside an arm estimand | X11 (c) for a regime or an arm contrast. [F17](#f17-joint-point-treatment-parameter-axes) for the other axes |
+| 2 | `learned_rule=` beside `interventions=`, `shifts=`, `incremental=`, `msm=` or `reference=`, or beside an arm estimand | X11 (c) for `interventions=`, `reference=` and an arm estimand, because each asks for a contrast with a known regime or an arm. [F17](#f17-joint-point-treatment-parameter-axes) for `shifts=`, `incremental=` and `msm=` |
 | 3 | a continuous treatment | F27 |
 | 4 | a treatment with more than two arms | X11 (d) |
 | 5 | missing outcomes, `delta=` | [F21](#f21-other-missing-outcome-cv-tmle-variants), with a learned-rule text that runs before the F21 refusal |
@@ -1883,8 +1883,8 @@ rules.
 (the-two-studies-declared-before-they-run)=
 #### The two studies, declared before they run
 
-This subsection fixes every quantity that decides a verdict or a reading. Its commit is pushed
-before any smoke or declared run. A later change is a pushed amendment, made before the run that
+This subsection fixes every quantity that decides a verdict or a reading. This project pushes
+its commit before any smoke or declared run. A later change is a pushed amendment, made before the run that
 it changes, as commit `03fe89f1` did for RM18. No pilot value enters a verdict rule or sets a
 binding budget. The `p11_budget_inputs.py` values enter one budget row that binds nothing. The
 quadrature constants of the probe `q1_limits.py` enter the rules, and that probe drew no sample.
@@ -1929,7 +1929,7 @@ subtracting a constant truth moves the last bits.
 
 | statistic | a record with one truth | a record with `truth_varies_by_replicate=True` |
 | --- | --- | --- |
-| schema check of the truth | constant within `TRUTH_TOLERANCE` | finite on every row. The constancy check is skipped. `covered` is checked against the row's own truth |
+| schema check of the truth | constant within `TRUTH_TOLERANCE` | finite on every row. The schema skips the constancy check, and it checks `covered` against the row's own truth |
 | inference scale | any declared scale | the level scale only. The framework refuses any other scale for such a record |
 | bias, its Student interval, and the standardized bias | the mean estimate minus the truth, standardized by the SD of the estimate | the mean of the error $e_r = \hat\psi_r - \tilde\psi_{0n,r}$, standardized by the SD of the error |
 | empirical SE and RMSE | from the estimates | from the errors |
@@ -1993,7 +1993,7 @@ rule depends on it.
 
 | field | declaration |
 | --- | --- |
-| slug and grid name | `learned-rule-cvtmle`, "Fold-local learned-rule value CV-TMLE" |
+| slug and grid name | `learned-rule-cvtmle`, "CV-TMLE of the fold-local learned-rule value" |
 | scenarios | `non_exceptional` and `misspecified_limit`, each with the estimand `ey_learned_rule[learned rule]`, in that order |
 | estimator | `TMLE(learned_rule=LearnedRule(), n_folds=10, cv_evaluation=True, targeting_scheme="pooled", g_bounds="auto")`, with the fold seed of L2 |
 | outcome learner | `Pipeline(PolynomialFeatures(2, interaction_only=True, include_bias=False), LogisticRegression(C=1e6, max_iter=5000, tol=1e-10))` on the design $(A, W_1, W_2)$ |
@@ -2006,7 +2006,7 @@ rule depends on it.
 | oracle SE | $\sqrt{V^{-2} \sum_v \operatorname{Var}_{P_0} D^*(d_{nv}, \bar Q_0, g_0) / n_v}$ for each replicate, by the same quadrature. It is a descriptive column, and no rule reads it |
 | seeds | `seed=20263001` and `resampling_seed=20263002` |
 | comparator | none. The study records an empty, schema-valid `equivalence.csv` |
-| efficiency bound | `efficiency_bounds={"non_exceptional": 0.664444}`, with `calibration_efficiency_ratio=False`. The bound sizes the noise control only, and no efficiency band is gated |
+| efficiency bound | `efficiency_bounds={"non_exceptional": 0.664444}`, with `calibration_efficiency_ratio=False`. The bound sizes the noise control only, and no gate reads an efficiency band |
 | artifacts and modules | `tests/canonical/learned_rule_cvtmle/`; `tests/studies/learned_rule_cvtmle.py`, `tests/studies/learned_rule_cvtmle_properties.py` and `tests/studies/_learned_rule_law.py` |
 | document | `docs/technical-reference/method-evidence/learned-rule-cvtmle.md` |
 | limitations | a binary treatment and outcome, one learner class for each cell, equal folds, and no weights, clusters, missing outcomes, repeats, full-refit bootstrap or strata. The value of the optimal rule is not tested. The truth harness needs deterministic learners |
@@ -2049,7 +2049,7 @@ partition seed, and that pair repeats no sample.
 
 | field | declaration |
 | --- | --- |
-| slug and grid name | `learned-rule-cvtmle-boundary`, "Fold-local learned-rule value CV-TMLE at exceptional and weak-blip laws" |
+| slug and grid name | `learned-rule-cvtmle-boundary`, "CV-TMLE of the fold-local learned-rule value at exceptional and weak-blip laws" |
 | scenarios | `exceptional` and `weak_blip`, each with `ey_learned_rule[learned rule]`, in that order |
 | estimator, learners, size, truth, oracle SE | as in the gated study |
 | primary budget | 6,000 replicates for each scenario |
@@ -2087,11 +2087,13 @@ No declared sample seed equals a seed that a pilot or probe drew.
 (budget-and-runtime)=
 ##### Budget and runtime
 
-The budgets use the R3 rule of the [RM18 rules](#rules-that-every-design-follows). Each budget is
-the smallest one whose 99% half-width of a gated statistic is one fifth of the distance between
-its nominal value and its gate. A cell with more than one gated statistic takes the largest
-budget. The primary laws take 6,000 from the coverage row. The calibration cell takes 17,000 from
-the SE-ratio row. The `fold_locality` cells take 2,655 from the control-bias row.
+The budgets use the R3 rule of the [RM18 rules](#rules-that-every-design-follows). The rule sets
+a target half-width for each gated statistic: one fifth of the distance between its nominal
+value and its gate. Each budget is the smallest one whose 99% half-width meets that target.
+
+A cell with more than one gated statistic takes the largest budget. The primary laws take 6,000
+from the coverage row. The calibration cell takes 17,000 from the SE-ratio row. The
+`fold_locality` cells take 2,655 from the control-bias row.
 
 The table applies the same rule to the root-n and `targeting_necessity` cells. The probe
 `q3_budget_rule.py` computes each value. The R3 forms need no pilot for coverage, the SE ratio
@@ -2114,8 +2116,8 @@ the root-n budget at each of the three sizes. The slope rows use a relative erro
 
 The paired displacement of `targeting_necessity` has no interval in the framework and no R3 row,
 so the rule sets no budget for it. For information only: the pilot gives the SD of the paired
-error difference as 0.5416 positive-arm SDs. In the R3 form, with the quadrature value 1.075 as
-its nominal value and 0.5 as its gate, the rule value would be 148. No rule reads that number.
+error difference as 0.5416 positive-arm SDs. The R3 form can take the quadrature value 1.075 as
+its nominal value and 0.5 as its gate. The rule value is then 148. No rule reads that number.
 
 | block | fits | seconds each | core-seconds |
 | --- | ---: | ---: | ---: |
@@ -3207,8 +3209,9 @@ stays in [F21](#f21-other-missing-outcome-cv-tmle-variants).
 ### X11. Learned-policy follow-ups
 
 The [RM30](#rm30-learned-policy-value-evaluation) contract estimates one target by one
-construction. Each part below is a published follow-up outside that contract, and the RM30 refusal
-of its request cites the part. Each part needs its own contract, witnesses and registered study
+construction. Each part below is a published follow-up outside that contract. For parts (a) to
+(e) and (h), the RM30 refusal of the request cites the part. No request reaches parts (f) and
+(g). Each part needs its own contract, witnesses and registered study
 before it ships, as RM30 does.
 
 | part | the request that RM30 refuses | published source | readiness |
