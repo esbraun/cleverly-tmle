@@ -1712,7 +1712,7 @@ sample, and no path estimated the value of a learned rule.
 a typed target for the value of rules that are learned inside the training folds. It does not
 read a learned function as a declared fixed rule.
 
-Pull request 247 (RM30 A), pull request 248 (RM30 B) and pull request NNN (RM30 C) delivered this
+Pull request 247 (RM30 A), pull request 248 (RM30 B) and pull request 249 (RM30 C) delivered this
 row. Pull requests 248 and NNN merge together, so no release carries the interval before its
 study. The table gives what shipped. Commit `edc70d7f` holds the contract, the sources and their
 locators, the refusal order, the declarations of both studies and the reads made before them.
