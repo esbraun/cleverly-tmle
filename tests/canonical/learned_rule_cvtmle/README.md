@@ -7,10 +7,10 @@ The target is the average, over the ten outer folds, of the value of the plug-in
 fold learns on its training rows. Van der Laan and Luedtke (2015), Section 7 and Appendix B, define
 the target and its inference.
 
-The RM30 section of `docs/roadmap.md` declares every quantity of this study before any run: the
-laws, the learners, the sizes, the budgets, the seeds, the fold-partition seeds, the truth rule,
-the failed-fit rule and the run form. Its subsection "The two studies, declared before they run"
-is the governing text.
+The RM30 section of `docs/roadmap.md` at commit `edc70d7f` declares every quantity of this study
+before any run: the laws, the learners, the sizes, the budgets, the seeds, the fold-partition
+seeds, the truth rule, the failed-fit rule and the run form. Its subsection "The two studies,
+declared before they run" is the governing text. Read it with `git show edc70d7f:docs/roadmap.md`.
 
 | part | declaration |
 | --- | --- |

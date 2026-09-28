@@ -310,9 +310,10 @@ def _arm_estimands(estimands: Any) -> tuple[str, ...]:
 def learned_rule_configuration_refusal(estimator: Any) -> str | None:
     """Return the refusal of a learned-rule estimator that no data can change, or ``None``.
 
-    Rows 1 and 2 of the RM30 refusal table: a collaborative or doubly robust estimator, and
-    ``learned_rule=`` beside another axis keyword, ``reference=`` or an arm estimand.  The
-    engine asks it at construction and again first in its preflight.
+    Rows 1 and 2 of the learned-rule refusal table in
+    ``docs/technical-reference/point-treatment-tmle.md``: a collaborative or doubly robust
+    estimator, and ``learned_rule=`` beside another axis keyword, ``reference=`` or an arm
+    estimand.  The engine asks it at construction and again first in its preflight.
 
     Parameters
     ----------
@@ -380,7 +381,10 @@ def learned_rule_configuration_refusal(estimator: Any) -> str | None:
 
 
 def _data_refusal(data: CausalData) -> str | None:
-    """Rows 3 to 9 of the RM30 refusal table: the data declarations no setting repairs."""
+    """Rows 3 to 9 of the learned-rule refusal table: the data declarations no setting repairs.
+
+    ``docs/technical-reference/point-treatment-tmle.md``, "Learned rules", holds the table.
+    """
     if data.is_continuous_treatment:
         return (
             "a learned rule over a continuous treatment is refused. No reviewed source "
@@ -426,8 +430,9 @@ def _data_refusal(data: CausalData) -> str | None:
 def learned_rule_scheme_refusal(estimator: Any) -> str | None:
     """Return the refusal of a learned-rule fit whose remedy is a configuration, or ``None``.
 
-    Rows 10 to 14 of the RM30 refusal table.  Each one names the configuration that fits,
-    :data:`LEARNED_RULE_CONFIGURATION`.
+    Rows 10 to 14 of the learned-rule refusal table in
+    ``docs/technical-reference/point-treatment-tmle.md``.  Each one names the configuration
+    that fits, :data:`LEARNED_RULE_CONFIGURATION`.
 
     Parameters
     ----------

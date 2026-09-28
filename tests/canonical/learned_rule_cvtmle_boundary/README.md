@@ -1,6 +1,7 @@
 # CV-TMLE of the fold-local learned-rule value at exceptional and weak-blip laws
 
-This directory holds the reporting study of the learned-rule value that roadmap row RM30 declares.
+This directory holds the reporting study of the learned-rule value that roadmap row RM30 declares,
+at commit `edc70d7f` (`git show edc70d7f:docs/roadmap.md`).
 The estimator, the learners, the size, the truth rule and the oracle standard error are those of
 the gated study in `../learned_rule_cvtmle/`. Only the laws differ.
 

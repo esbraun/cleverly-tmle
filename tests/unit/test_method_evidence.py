@@ -1749,6 +1749,7 @@ _FAMILY = {
     "score_audited_fits": "fit_diagnostics",
     "subject_score_failures": "fit_diagnostics",
     "reference_score_failures": "fit_diagnostics",
+    "mean_oracle_se": "harness",
 }
 
 

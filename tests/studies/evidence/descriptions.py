@@ -48,7 +48,7 @@ ARMS: dict[str, str] = {
     "dynamic_t2": "dynamic plan at horizon two",
     "five_reduction_cycle": "five-reduction correction cycle",
     # The one law of the learned-rule property cells (RM30).
-    "non_exceptional": "the learned-rule law with a blip that is nowhere zero",
+    "non_exceptional": "the learned-rule law with a blip that is zero with probability zero",
     "always_t2": "always-treat risk at horizon two",
     "relapse_dynamic_t2": "dynamic relapse contrast at horizon two",
     "death_static_t2": "static death contrast at horizon two",

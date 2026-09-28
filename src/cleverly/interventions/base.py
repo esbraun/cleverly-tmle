@@ -546,7 +546,8 @@ def refuse_mixed_interventions(
                 "learned rule. A learned rule has no fixed density, so it is not a regime, a "
                 "shift or a tilt. LearnedRuleValue holds it in a CausalStudy, and "
                 "TMLE(learned_rule=...) takes it on the estimator, with "
-                f"{LEARNED_RULE_CONFIGURATION} (RM30 in docs/roadmap.md)."
+                f"{LEARNED_RULE_CONFIGURATION} (the learned-rule refusal table in "
+                "docs/technical-reference/point-treatment-tmle.md)."
             )
         found = _intervention_kind(item)
         if found == kind:

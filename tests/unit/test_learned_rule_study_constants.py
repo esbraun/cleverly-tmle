@@ -1,9 +1,9 @@
 """Every constant of the two RM30 law tables, recomputed by quadrature (RM30 review D3).
 
 ``docs/roadmap.md`` at commit ``edc70d7f``, RM30, "The laws, and the constants computed before
-the declaration", prints two tables that an untracked planning probe computed.  This test recomputes each entry
-from the declared law and requires it within ``1e-5``, so no untracked probe carries a constant
-that a verdict reads.  It also evaluates the study harness's trapezoid rule at the fixed rule
+the declaration", prints two tables that an untracked planning probe computed.  This test
+recomputes each entry from the declared law and requires it within ``1e-5``, so no untracked
+probe carries a constant that a verdict reads.  It also evaluates the study harness's trapezoid rule at the fixed rule
 ``d0`` of each of the four laws, to the same tolerance.
 
 The quadrature here is independent of the harness.  The values integrate over ``W1`` with
