@@ -7,27 +7,20 @@ bias, a coverage or an SE ratio.  The declared seeds are only computed, never dr
 from __future__ import annotations
 
 import importlib
-import json
 import platform
-import subprocess
 import sys
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from tests.canonical import learned_rule_run
-from tests.canonical.regenerate import ARTIFACT_NAMES
-from tests.diagnostics.rm18_shared import THREAD_VARIABLES
+from tests.canonical import declared_run, learned_rule_run
 from tests.studies import _learned_rule_law as law
 from tests.studies import learned_rule_cvtmle as gated
 from tests.studies import learned_rule_cvtmle_boundary as boundary
 from tests.studies import learned_rule_cvtmle_properties as properties
 from tests.studies.evidence.inference import Interval
-from tests.studies.evidence.manifest import write_manifest
-from tests.studies.evidence.registry import ROOT
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
 #: Throwaway seeds, far from every declared and pilot seed.
@@ -193,110 +186,12 @@ class TestTheBoundaryReading:
         assert set(table["reading"]) == {boundary.SMOKE}
 
 
-def _git_status() -> str:
-    completed = subprocess.run(
-        ["git", "status", "--porcelain"], cwd=ROOT, capture_output=True, text=True, check=True
-    )
-    return completed.stdout.strip()
-
-
-def _writing_driver(*, fail: str | None = None) -> Any:
-    """A stand-in for the shared driver that writes every artefact and a real manifest.
-
-    ``fail="before"`` raises before the manifest exists, as a failed fit does (rule L4).
-    ``fail="after"`` raises after it, as a failed gated verdict does.
-    """
-
-    def driver(study: Any, properties: Any, *, here: Path) -> None:
-        output = Path(sys.argv[sys.argv.index("--output") + 1])
-        if fail == "before":
-            raise law.HarnessMismatch("fold 0: the refit rule differs")
-        record = study.STUDY
-        paths = [output / name for name in (*ARTIFACT_NAMES, *record.extra_artifacts)]
-        for path in paths:
-            path.write_text("artefact\n", encoding="utf-8", newline="\n")
-        write_manifest(output / "manifest.json", record, paths)
-        if fail == "after":
-            raise RuntimeError("independent performance gates failed")
-
-    return driver
-
-
 class TestTheRunForm:
-    @staticmethod
-    def _declared(
-        monkeypatch: pytest.MonkeyPatch, argv: list[str], *, guard: list[str] | None = None
-    ) -> None:
-        monkeypatch.setattr(sys, "argv", ["regenerate", *argv])
-        monkeypatch.setattr(learned_rule_run, "refusals", lambda smoke: list(guard or []))
-        monkeypatch.setattr(learned_rule_run, "runtime_refusals", list)
+    """What the RM30 run form adds to the shared one; ``test_declared_run.py`` tests that."""
 
-    def test_a_declared_run_refuses_what_rule_r6_refuses(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
-        self._declared(
-            monkeypatch, ["--output", str(tmp_path / "run")], guard=["the tree has changes"]
-        )
-        monkeypatch.setattr(learned_rule_run, "regenerate", pytest.fail)
-        with pytest.raises(SystemExit, match="the tree has changes"):
-            learned_rule_run.run(gated, properties, here=tmp_path / "here")
-
-    @pytest.mark.parametrize(
-        "extra",
-        [
-            ["--n", "500"],
-            ["--primary-only"],
-            ["--skip-properties"],
-            ["--allow-failures"],
-            ["--cache", "somewhere"],
-            ["--refresh-python"],
-        ],
-    )
-    def test_a_declared_run_refuses_every_flag_but_output_and_jobs(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, extra: list[str]
-    ) -> None:
-        self._declared(monkeypatch, ["--output", str(tmp_path / "run"), "--jobs", "2", *extra])
-        monkeypatch.setattr(learned_rule_run, "regenerate", pytest.fail)
-        with pytest.raises(SystemExit, match="--output and --jobs only"):
-            learned_rule_run.run(gated, properties, here=tmp_path / "here")
-
-    def test_a_declared_run_refuses_the_declared_count_named_explicitly(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
-        self._declared(monkeypatch, ["--replicates", "6000", "--output", str(tmp_path)])
-        monkeypatch.setattr(learned_rule_run, "regenerate", pytest.fail)
-        with pytest.raises(SystemExit, match="passes no --replicates"):
-            learned_rule_run.run(gated, properties, here=tmp_path / "here")
-
-    @pytest.mark.parametrize(
-        ("argv", "match"),
-        [
-            ([], "needs a scratch --output"),
-            (["--output", str(ROOT / "tests" / "canonical" / "learned_rule_cvtmle")], "outside"),
-        ],
-    )
-    def test_a_declared_run_writes_to_scratch_outside_the_repository(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, argv: list[str], match: str
-    ) -> None:
-        self._declared(monkeypatch, argv)
-        monkeypatch.setattr(learned_rule_run, "regenerate", pytest.fail)
-        with pytest.raises(SystemExit, match=match):
-            learned_rule_run.run(gated, properties, here=tmp_path / "here")
-
-    def test_a_declared_run_refuses_a_scratch_output_that_holds_files(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
-        (tmp_path / "stale.csv").write_text("x\n", encoding="utf-8")
-        self._declared(monkeypatch, ["--output", str(tmp_path)])
-        monkeypatch.setattr(learned_rule_run, "regenerate", pytest.fail)
-        with pytest.raises(SystemExit, match="not empty"):
-            learned_rule_run.run(gated, properties, here=tmp_path / "here")
-
-    def test_the_runtime_refusals_name_threads_and_versions(
+    def test_the_runtime_refusals_name_each_version_that_differs(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        for name in THREAD_VARIABLES:
-            monkeypatch.setenv(name, "1")
         monkeypatch.setattr(learned_rule_run, "PYTHON", platform.python_version())
         monkeypatch.setattr(
             learned_rule_run,
@@ -304,13 +199,21 @@ class TestTheRunForm:
             {name: importlib.import_module(name).__version__ for name in learned_rule_run.PACKAGES},
         )
         assert learned_rule_run.runtime_refusals() == []
-        monkeypatch.setenv("OMP_NUM_THREADS", "4")
         monkeypatch.setitem(learned_rule_run.PACKAGES, "sklearn", "0.0.0")
-        refused = learned_rule_run.runtime_refusals()
-        assert refused == [
+        assert learned_rule_run.runtime_refusals() == [
             f"sklearn is {importlib.import_module('sklearn').__version__}, not 0.0.0 (rule L7)",
-            "OMP_NUM_THREADS is 4, not 1 (rule R6)",
         ]
+
+    def test_a_declared_run_refuses_a_runtime_rule_l7_does_not_declare(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setattr(sys, "argv", ["regenerate", "--output", str(tmp_path / "run")])
+        monkeypatch.setattr(declared_run, "refusals", lambda smoke: [])
+        monkeypatch.setattr(declared_run, "thread_refusals", list)
+        monkeypatch.setattr(learned_rule_run, "PYTHON", "0.0.0")
+        monkeypatch.setattr(declared_run, "regenerate", pytest.fail)
+        with pytest.raises(SystemExit, match=r"not 0\.0\.0 \(rules L6 and L7\)"):
+            learned_rule_run.run(gated, properties, here=tmp_path / "here")
 
     def test_the_declared_packages_are_the_l7_list(self) -> None:
         assert learned_rule_run.PYTHON == "3.13.7"
@@ -321,75 +224,6 @@ class TestTheRunForm:
             "sklearn": "1.9.0",
             "joblib": "1.5.3",
         }
-
-    def test_the_manifest_sees_the_tree_as_the_run_found_it(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
-        """R1: nothing is written inside the repository before the manifest records its state.
-
-        On a clean pushed tree the manifest therefore records ``cleverly_worktree_clean: true``.
-        The driver used to write into the study directory first, which made every declared
-        manifest record ``false``.
-        """
-        before = _git_status()
-        here = tmp_path / "here"
-        self._declared(monkeypatch, ["--output", str(tmp_path / "run"), "--jobs", "3"])
-        calls: list[list[str]] = []
-        driver = _writing_driver()
-
-        def recording(study: Any, properties: Any, *, here: Path) -> None:
-            calls.append(list(sys.argv))
-            driver(study, properties, here=here)
-
-        monkeypatch.setattr(learned_rule_run, "regenerate", recording)
-        learned_rule_run.run(gated, properties, here=here)
-        assert calls == [["regenerate", "--jobs", "3", "--output", str(tmp_path / "run")]]
-        manifest = json.loads((here / "manifest.json").read_text(encoding="utf-8"))
-        clean = manifest["generated_with"]["subject"]["cleverly_worktree_clean"]
-        assert clean is (before == "")
-        assert _git_status() == before
-        expected = {*ARTIFACT_NAMES, *gated.STUDY.extra_artifacts, "manifest.json", "run.log"}
-        assert {path.name for path in here.iterdir()} == expected
-        log = (here / "run.log").read_text(encoding="utf-8")
-        assert "declared run" in log
-        assert "exit code: 0" in log
-
-    def test_the_output_of_the_old_path_would_have_dirtied_the_tree(self) -> None:
-        """The control: the study directory is inside the repository, so writing there first
-        is what the manifest's ``git status`` saw."""
-        assert gated.STUDY.artifacts.resolve().is_relative_to(ROOT.resolve())
-
-    def test_a_failed_gated_verdict_still_publishes_the_run(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
-        here = tmp_path / "here"
-        self._declared(monkeypatch, ["--output", str(tmp_path / "run")])
-        monkeypatch.setattr(learned_rule_run, "regenerate", _writing_driver(fail="after"))
-        with pytest.raises(RuntimeError, match="gates failed"):
-            learned_rule_run.run(gated, properties, here=here)
-        assert (here / "manifest.json").exists()
-        assert "exit code: 1" in (here / "run.log").read_text(encoding="utf-8")
-
-    def test_a_run_that_stops_before_its_manifest_publishes_nothing(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
-        here = tmp_path / "here"
-        self._declared(monkeypatch, ["--output", str(tmp_path / "run")])
-        monkeypatch.setattr(learned_rule_run, "regenerate", _writing_driver(fail="before"))
-        with pytest.raises(law.HarnessMismatch):
-            learned_rule_run.run(gated, properties, here=here)
-        assert not here.exists()
-
-    def test_a_smoke_run_refuses_an_output_inside_the_repository(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        inside = ROOT / "tests" / "canonical" / "learned_rule_cvtmle"
-        monkeypatch.setattr(
-            sys, "argv", ["regenerate", "--replicates", "4", "--output", str(inside)]
-        )
-        monkeypatch.setattr(learned_rule_run, "regenerate", pytest.fail)
-        with pytest.raises(SystemExit, match="outside the repository"):
-            learned_rule_run.run(gated, properties, here=gated.STUDY.artifacts)
 
     def test_the_harness_check_flag_is_refused_on_a_declared_run(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
