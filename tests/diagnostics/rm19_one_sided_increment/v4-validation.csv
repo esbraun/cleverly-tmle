@@ -1,0 +1,8 @@
+part,check,compared,largest_difference,result
+V4,V4 payload C refit,600,0.0,holds
+V4,V4 R T0000 refit,200,0.0,holds
+V4,"V4 R same round, tolIC draws",185,1.1333850524763989e-12,holds
+V4,"V4 R same round, maxIter draws",11,6.223111576442175e-06,holds
+V4,V4 R rounding-sensitive tolIC draws,4,5.658629120830483e-11,holds
+V4,V4 R round and exit status,0,0.0,holds
+V4,V4 R excused draws,200,0.0,holds
