@@ -720,8 +720,13 @@ def test_a_v4_stopping_miss_stops_part_c(tmp_path: Path, matched: bool) -> None:
     ]
 
 
-def test_part_c_reads_the_part_b_rows_of_its_own_record(tmp_path: Path) -> None:
+def test_part_c_reads_the_part_b_rows_of_its_own_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """F5: a smoke C reads B from its own directory, a declared C from the pushed record."""
+    record = tmp_path / "record"
+    record.mkdir()
+    monkeypatch.setattr(rm19, "HERE", record)
     rows = _synthetic(replicates=4)
     c_rows = pd.concat([rows.assign(n=1_500), rows.assign(n=6_000)], ignore_index=True)
     c_rows = c_rows.loc[c_rows["arm"].isin(["C", "T0000"])]
@@ -732,7 +737,7 @@ def test_part_c_reads_the_part_b_rows_of_its_own_record(tmp_path: Path) -> None:
     table = rm19.table("C", tmp_path, 1)
     scaling = table.loc[table["statistic"] == "sqrt(n) (C - T0000)", "scope"]
     assert list(scaling) == [f"{rm19.SCENARIO}, n = {n}" for n in (1_500, 3_000, 6_000)]
-    # A declared C (2,000 rows per size) reads the committed record, which holds no B rows yet.
+    # A declared C (2,000 rows per size) reads the record directory, here one with no B rows.
     full = _synthetic()
     declared = pd.concat([full.assign(n=1_500), full.assign(n=6_000)], ignore_index=True)
     _write_part(tmp_path, "C", declared.loc[declared["arm"].isin(["C", "T0000"])], [("x", True)])
