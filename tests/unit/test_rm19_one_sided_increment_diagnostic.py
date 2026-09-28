@@ -31,7 +31,7 @@ from tests.studies.evidence.seeds import replicate_seed, stream_seed
 #: adds its files, which turns on the budget and rebuild checks below for that part.  Until then
 #: the same tests assert that the part has no committed record, so no record can land without
 #: its check.
-RECORDED: tuple[str, ...] = ("A", "AV")
+RECORDED: tuple[str, ...] = ("A", "AV", "B")
 
 COMMITTED = shared.read_rows(study.STUDY.artifact("replicates.csv.gz"))
 FULL = Switches(True, True, True, True)
