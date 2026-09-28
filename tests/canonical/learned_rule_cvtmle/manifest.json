@@ -1,0 +1,92 @@
+{
+  "schema_version": 2,
+  "study": "CV-TMLE of the fold-local learned-rule value",
+  "slug": "learned-rule-cvtmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-learned-rule-cvtmle",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "5b7be91cb06b0ca95547aac86fd0cd238e8079dc",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 6000,
+    "n": 2000,
+    "seed": 20263001,
+    "resampling_seed": 20263002,
+    "publication_policy": "gated",
+    "truth_varies_by_replicate": true,
+    "scenarios": {
+      "non_exceptional": [
+        "ey_learned_rule[learned rule]"
+      ],
+      "misspecified_limit": [
+        "ey_learned_rule[learned rule]"
+      ]
+    },
+    "fit": "TMLE(learned_rule=LearnedRule(), n_folds=10, cv_evaluation=True, targeting_scheme='pooled', g_bounds='auto', random_state=<fold seed>) at n = 2000",
+    "outcome_learner": "Pipeline(PolynomialFeatures(2, interaction_only=True, include_bias=False), LogisticRegression(C=1e6, max_iter=5000, tol=1e-10)) on (A, W1, W2)",
+    "treatment_learner": "LogisticRegression(C=1e6, max_iter=1000) on (W1, W2)",
+    "law": "W1 ~ U(-1, 1); W2 ~ Bernoulli(0.5); logit g0 = 0.3 W1 - 0.2 W2; logit Qbar0 = 0.2 + 0.5 W1 - 0.3 W2 + A b(W)",
+    "blips": {
+      "non_exceptional": "0.1 + W1",
+      "misspecified_limit": "0.8 W1 + W1^2 - 0.3"
+    },
+    "truth": "per replication: refit each fold's outcome learner on the fit's own training rows, require the fit's rule on every validation row, and average the fold rules' values by the trapezoid rule on 4001 points of W1 for each W2, with the known Qbar0",
+    "oracle_se": "sqrt(V^-2 sum_v Var_P0 D*(d_v, Qbar0, g0) / n_v), by the same quadrature; descriptive, in harness.csv.gz",
+    "fold_seed": "stream_seed(record, 'fold_partition', 'primary', scenario, replicate)",
+    "solver_warnings": "scikit-learn and cleverly ConvergenceWarnings of the fit and its truth refits, counted in harness.csv.gz; no rule reads the count",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/learned_rule_cvtmle.py": "a4534b1e717ac0f92c2c0f39e7d8ff01b21150e2f7fc161a9f825e65b927b39e",
+    "tests/studies/learned_rule_cvtmle_properties.py": "a281f38fd3f7ba91bb71b9c0f263531dabbef1be4766c96030e20e06c7735cd6",
+    "tests/studies/_learned_rule_law.py": "37d69cfb37bf08e4ced0f5b40e052ebdcbd674c7c852ebeae10c537dfa884957",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "9587b99879c7923a0af3116c3a10958d3dad9d8bfb4d4e3064021beae5c54e71",
+    "tests/studies/evidence/property_verdicts.py": "ce47dc8e94409019689cd2e412f7043232e4b305b9f0428ea3c45e918b2bfe9b",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "3d001d4a15b7b73b5e790abd58e8868fa3c945a6a36b41a3e81bdb1b129a91c2",
+    "summary.csv": "8e5f24476861173e83d4cfec24910f5f0228337ca27e00891d2c5adc34cf1c42",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "bf6386d2800b7f4d2b01137a288ff411dfe9fb8d67da1c260a5791bef65ae313",
+    "property-replicates.csv.gz": "1e244a5b38f421fb6a28e6c72b487f264482e3540936c9e0e2973763f0623097",
+    "properties.csv": "b76272812202e7cc8b38613f727711be6d8d9ad79add7ef685d368d5e1000ec8",
+    "harness.csv.gz": "0364c36222fa1fed4320057375c194a77b68a7953f0b28c1b09355c9c9ee2837"
+  }
+}
