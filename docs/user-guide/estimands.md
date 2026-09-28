@@ -157,9 +157,9 @@ gives its coverage at each law.
 
 | law | coverage | reading |
 | --- | --- | --- |
-| no effect for any unit | 0.8938, with a 99% interval of 0.8832 to 0.9038 | `under-covers at the exceptional law`, in the [reporting study](../technical-reference/method-evidence/learned-rule-cvtmle-boundary.md) |
+| no effect for any unit | 0.8938, with a 99% interval of 0.8832 to 0.9038 | `under-covers at the exceptional law`, in the [boundary study](../technical-reference/method-evidence/learned-rule-cvtmle-boundary.md) |
 | a weak effect, $0.15 W_1$ on the logit scale | 0.8948, with a 99% interval of 0.8842 to 0.9048 | `under-covers at the weak_blip law`, in the same study |
-| two laws that meet the published conditions | 0.9465 and 0.9413 | every verdict passes, in the [gated study](../technical-reference/method-evidence/learned-rule-cvtmle.md) |
+| two laws that meet the published conditions, with the declared logistic outcome learner | 0.9465 and 0.9413 | every verdict passes, in the [gated study](../technical-reference/method-evidence/learned-rule-cvtmle.md) |
 
 ```python
 from sklearn.linear_model import LogisticRegression

@@ -513,7 +513,7 @@ registered studies measure the interval. The table gives their readings.
 | study | laws | reading |
 | --- | --- | --- |
 | [gated study](method-evidence/learned-rule-cvtmle.md) | `non_exceptional` and `misspecified_limit`, which meet C3 | every primary test and every property cell passes. Coverage is 0.9465 and 0.9413 over 6,000 replications at n = 2,000 |
-| [reporting study](method-evidence/learned-rule-cvtmle-boundary.md) | `exceptional`, where C3 fails, and `weak_blip`, within C3 | the interval under-covers at each law. Coverage is 0.8938 and 0.8948, and the SE ratio is 0.8211 and 0.8314 |
+| [boundary study](method-evidence/learned-rule-cvtmle-boundary.md) | `exceptional`, where C3 fails, and `weak_blip`, within C3 | the interval under-covers at each law. Coverage is 0.8938 and 0.8948, and the SE ratio is 0.8211 and 0.8314 |
 
 The fit needs `CrossFitting(enabled=True, fold_evaluation=True)`, one repeat, pooled targeting and
 no full-refit bootstrap. `refuse_learned_rule_composition` in

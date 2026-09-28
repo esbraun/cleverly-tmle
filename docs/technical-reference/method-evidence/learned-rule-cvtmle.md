@@ -1,9 +1,10 @@
 # CV-TMLE of the fold-local learned-rule value
 
-This study validates the interval of `LearnedRuleValue`, which the engine spells
-`TMLE(learned_rule=LearnedRule())`. The fit learns the plug-in rule of each fold's outcome
-regression on that fold's training rows. It targets the rules with one pooled fluctuation, averages
-the fold plug-ins with the weight $1/V$, and reports the cross-validated variance.
+This study validates the interval of `LearnedRuleValue` with the declared logistic outcome learner.
+The engine spells the estimator `TMLE(learned_rule=LearnedRule())`. The fit learns the plug-in
+rule of each fold's outcome regression on that fold's training rows. It targets the rules with
+one pooled fluctuation, averages the fold plug-ins with the weight $1/V$, and reports the
+cross-validated variance.
 [Learned rules](../point-treatment-tmle.md#learned-rules) gives the contract and the conditions
 C1 to C6.
 
@@ -100,7 +101,8 @@ a coverage and an SE ratio, and no verdict reads either one.
 ## Result
 
 Every primary test and every property cell passed. The interval covers the fold-average target at
-the two laws that meet the published conditions, with the declared learners at n = 2,000.
+the two laws that meet the published conditions, with the declared logistic outcome learner at
+n = 2,000.
 
 | reading | value | source |
 | --- | --- | --- |
@@ -113,16 +115,19 @@ the two laws that meet the published conditions, with the declared learners at n
 The 9 property rows come from four draws. Calibration replicate 12314 warned, and its two controls
 reuse its rows. `targeting_necessity` replicates 100, 509 and 2018 warned, and each pair of arms
 shares one fit. Rule L4 of the declaration counts a solver warning and does not treat it as a
-failed fit. No rule reads the count. A harness refit whose rule differed from the fit's rule would have stopped the
-run, and the run completed.
+failed fit. No rule reads the count. A harness refit whose rule differed from the fit's rule
+would have stopped the run, and the run completed.
+
+The two arms with other outcome learners under-cover. The forest arm of `fold_locality` covers
+0.9115, with a 99% interval of 0.8964 to 0.9251 and an SE ratio of 0.8542. The `W1`-dropping
+targeted arm of `targeting_necessity` covers 0.9175, with a 99% interval of 0.9028 to 0.9307 and
+an SE ratio of 0.9054. Each arm ran 2,655 replications. No verdict reads these numbers, because
+the RM30 declaration gates both families on bias only.
 
 The readings do not show the items in this list.
 
-- Coverage with a flexible outcome learner. The forest arm covers 0.9115 with an SE ratio of
-  0.8542, and the `W1`-dropping arm covers 0.9175 with an SE ratio of 0.9054. Neither number is a
-  verdict, and both come from 2,655 replications.
-- Coverage at an exceptional law or at a weak blip. The
-  [boundary study](learned-rule-cvtmle-boundary.md) reads both laws, and it under-covers at each.
+- Coverage at the exceptional and weak-blip laws that the
+  [boundary study](learned-rule-cvtmle-boundary.md) reads. It under-covers at each.
 - The value of the optimal rule, or the value of one rule fitted on all rows.
 
 ## Measured values
@@ -164,11 +169,17 @@ checked at the precision printed.
 | `properties[targeting_necessity/non_exceptional__untargeted]:standardized_bias` | 1.4716 | bias of the fit without its fluctuation, in error SDs |
 | `properties[targeting_necessity/non_exceptional__targeted]:targeting_displacement` | 1.1762 | paired displacement, against 0.5 |
 | `properties[targeting_necessity/non_exceptional__targeted]:coverage` | 0.9175 | coverage of the targeted arm, which no verdict reads |
+| `properties[targeting_necessity/non_exceptional__targeted]:coverage_ci_lower` | 0.9028 | its 99% lower endpoint |
+| `properties[targeting_necessity/non_exceptional__targeted]:coverage_ci_upper` | 0.9307 | its 99% upper endpoint |
 | `properties[targeting_necessity/non_exceptional__targeted]:se_ratio` | 0.9054 | SE ratio of the targeted arm, which no verdict reads |
 | `properties[fold_locality/non_exceptional__validation_rows]:standardized_bias` | 8.4371 | bias of the validation-row rules, in error SDs |
 | `properties[fold_locality/non_exceptional__fold_local]:fold_locality_displacement` | 6.5179 | paired displacement, against 0.5 |
 | `properties[fold_locality/non_exceptional__fold_local]:coverage` | 0.9115 | coverage of the forest arm, which no verdict reads |
+| `properties[fold_locality/non_exceptional__fold_local]:coverage_ci_lower` | 0.8964 | its 99% lower endpoint |
+| `properties[fold_locality/non_exceptional__fold_local]:coverage_ci_upper` | 0.9251 | its 99% upper endpoint |
 | `properties[fold_locality/non_exceptional__fold_local]:se_ratio` | 0.8542 | SE ratio of the forest arm, which no verdict reads |
+| `mean_oracle_se_non_exceptional` | 0.0149 | mean oracle SE of the fixed fold rules at `non_exceptional`, from `harness.csv.gz`. No rule reads it |
+| `mean_oracle_se_misspecified_limit` | 0.0149 | mean oracle SE at `misspecified_limit` |
 | `bound:non_exceptional_standard_error` | 0.0149 | the efficiency bound of the law `non_exceptional` at n = 2,000 |
 | `margin:confidence_level` | 0.9900 | confidence level of every Monte Carlo interval |
 | `margin:alpha` | 0.0500 | nominal size of the reported intervals |
@@ -202,7 +213,7 @@ checked at the precision printed.
 | limitation | what it means for use |
 | --- | --- |
 | There is no cross-implementation evidence | No maintained package fits this construction. The row rests on accuracy against the replication truth and on the theory properties |
-| Two regular laws only | Both primary laws meet condition C3. At an exceptional law and at a weak blip the interval under-covers, as the [boundary study](learned-rule-cvtmle-boundary.md) reads |
+| Two regular laws only | Both primary laws meet condition C3. The interval under-covers at the exceptional and weak-blip laws that the [boundary study](learned-rule-cvtmle-boundary.md) reads |
 | One learner class for each cell | The primary and calibration cells use a logistic outcome model with treatment interactions. The forest and the `W1`-dropping learners enter bias verdicts only, so the row does not claim coverage with them |
 | A binary treatment and a binary outcome | A continuous outcome with declared `q_bounds` and every other design are not tested. The package refuses more than two arms, weights, clusters, missing outcomes, strata, repeats and the full-refit bootstrap |
 | Equal folds | Each fold holds 200 rows, so the weights $1/V$ and $n_v / n$ agree and the two variance forms coincide. `tests/unit/test_learned_rule_variance.py` covers unequal folds |

@@ -63,8 +63,8 @@ The table gives the reason for each place inside a tier.
 | --- | --- |
 | RM18 | one declared design that has not run, which reads two red rows in one study. Four designs ran, read 17 red rows in six studies, and moved no verdict. The ledger already publishes each of those verdicts |
 
-RM18's Design SL runs after [RM30](#rm30-learned-policy-value-evaluation) merges, so its
-regeneration runs once, after every row that could move its inputs.
+The paragraph that gives the size of the queue also gives the order of RM18's Design SL and
+[RM30](#rm30-learned-policy-value-evaluation).
 
 Use one delivery group for this row and the two investigations that RM18 waits on. Keep each
 item's acceptance criteria separate inside the group.
@@ -156,7 +156,7 @@ the missing result. Package code and a related estimator do not remove the stop.
 | MNAR and incremental-intermediate compositions | identification and influence-function results for the exact compositions | point-treatment sensitivity and implemented interventions remain separate | [F6](#f6-mnar-and-incremental-intermediate-compositions) |
 | Joint point-treatment parameter axes | a targeting and inference result for one fit that carries an MSM projection together with a regime, shift, or incremental intervention, including its joint score and covariance | single-axis point-treatment fits only | [F17](#f17-joint-point-treatment-parameter-axes) |
 | Time-respecting cross-fitting | dependence and split-specific TMLE inference for blocked-temporal or rolling-origin folds | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
-| Learned-policy value outside the published conditions | an interval for the fold-average learned-rule value without a limiting rule, and results for the refused compositions | `LearnedRuleValue` fits the fold-evaluated CV-TMLE of [RM30](#rm30-learned-policy-value-evaluation) under the limiting-rule condition. Its reporting study measures under-coverage at an exceptional law. The other F27 requests refuse before any learner | [F27](#f27-learned-policy-value-outside-the-published-conditions) |
+| Learned-policy value outside the published conditions | an interval for the fold-average learned-rule value without a limiting rule, and results for the refused compositions | `LearnedRuleValue` fits the fold-evaluated CV-TMLE of [RM30](#rm30-learned-policy-value-evaluation) under the limiting-rule condition. Its boundary study measures under-coverage at an exceptional law. The other F27 requests refuse before any learner | [F27](#f27-learned-policy-value-outside-the-published-conditions) |
 
 ## Eligibility
 
@@ -588,7 +588,7 @@ reading.
 judged by calibration to their own sampling spread. The exact shared-multinomial generated-design
 expansion remains open.
 
-`F27` holds the two truth rows of `learned-rule-cvtmle-boundary`, the reporting study of
+`F27` holds the two truth rows of `learned-rule-cvtmle-boundary`, the boundary study of
 [RM30](#rm30-learned-policy-value-evaluation). Each row fails its coverage floor only. The RM30
 declaration names F27 as the owner of every red cell of that study. The F27 table states that the
 `exceptional` row has no published result and that the `weak_blip` row has one.
@@ -1706,7 +1706,7 @@ Pull request 228 delivered this row. The table gives what shipped.
 
 ### RM30. Learned-policy value evaluation
 
-The fixed-rule paths refused a `Rule` or a `DynamicRegimen` that is learned from the analysis
+The fixed-rule paths refuse a `Rule` or a `DynamicRegimen` that is learned from the analysis
 sample, and no path estimated the value of a learned rule.
 [RM28](#rm28-declared-densities-of-user-written-interventions) holds that refusal. This row adds
 a typed target for the value of rules that are learned inside the training folds. It does not
@@ -1726,10 +1726,11 @@ Read it with `git show edc70d7f:docs/roadmap.md`.
 | RM28 text | `_ESTIMATED_RULE` names `LearnedRuleValue` for a point treatment and X11 for a longitudinal regimen. The refusal is unchanged |
 | evidence framework | `StudyRecord.truth_varies_by_replicate` reads every statistic on the error. [A truth that varies by replication](development/method-benchmarking.md#a-truth-that-varies-by-replication) states the rule. A study with no property cell registers as a reporting study and takes no grid row |
 | gated study | the [gated study](technical-reference/method-evidence/learned-rule-cvtmle.md) passes every primary test and every property cell. Coverage is 0.9465 at `non_exceptional` and 0.9413 at `misspecified_limit`, over 6,000 replications at n = 2,000 |
-| reporting study | the [boundary study](technical-reference/method-evidence/learned-rule-cvtmle-boundary.md) reads `under-covers at the exceptional law` and `under-covers at the weak_blip law`. Coverage is 0.8938 and 0.8948, and the SE ratio is 0.8211 and 0.8314. F27 owns both red rows |
+| boundary study | the [boundary study](technical-reference/method-evidence/learned-rule-cvtmle-boundary.md) reads `under-covers at the exceptional law` and `under-covers at the weak_blip law`. Coverage is 0.8938 and 0.8948, and the SE ratio is 0.8211 and 0.8314. F27 owns both red rows |
 
-The unit witnesses are the six `tests/unit/test_learned_rule_*.py` modules for fold locality,
-targeting, the influence curve, the variance, the refusals and persistence.
+The unit witnesses are `test_learned_rule_fold_locality.py`, `test_learned_rule_targeting.py`,
+`test_learned_rule_influence.py`, `test_learned_rule_variance.py`,
+`test_learned_rule_refusals.py` and `test_learned_rule_persistence.py` in `tests/unit/`.
 `tests/unit/test_per_replicate_truth.py` holds the witness of the evidence framework.
 
 ### RM32. Continuous-dose MSM fit with missing outcomes
@@ -2802,15 +2803,16 @@ that update for arm targets.
 ### F27. Learned-policy value outside the published conditions
 
 The [RM30](#rm30-learned-policy-value-evaluation) contract refuses each request below before any
-learner, with two exceptions. The
-[reporting study](technical-reference/method-evidence/learned-rule-cvtmle-boundary.md) measures
-the exceptional-law row, and the assessment row reads `unavailable`. F27 owns every red cell of
-the reporting study. The table states, row by row, whether a published result is missing.
+learner, with three exceptions. The
+[boundary study](technical-reference/method-evidence/learned-rule-cvtmle-boundary.md) measures
+the exceptional-law row and the `weak_blip` row, and the assessment row reads `unavailable`.
+F27 owns every red cell of the boundary study. The table states, row by row, whether a
+published result is missing.
 
 | request | missing published result |
 | --- | --- |
 | an interval at an exceptional law, where the limiting-rule condition C3 of RM30 fails | a CV-TMLE interval for the fold-average target without a limiting rule. Luedtke and van der Laan (2016), *Annals of Statistics*, Section 4.2, name inverse weighting by the standard deviation and a central limit theorem for triangular arrays. Section 5 applies them to the optimal value. No reviewed source applies those tools to this target |
-| an interval at the `weak_blip` law of the reporting study | no missing result. That law is within C3, and Theorem 6 of van der Laan and Luedtke (2015) covers it. A red cell there is a finite-sample limit at n = 2,000, and F27 holds it as the owner of the reporting study |
+| an interval at the `weak_blip` law of the boundary study | no missing result. That law is within C3, and Theorem 6 of van der Laan and Luedtke (2015) covers it. A red cell there is a finite-sample limit at n = 2,000, and F27 holds it as the owner of the reporting study |
 | `repeats` above 1 | each split defines a different target, and no source aggregates over targets |
 | the full-refit bootstrap | each resample relearns the rules, so each draw has a different target |
 | a continuous treatment | no reviewed source defines a learned rule over a dose for this target |

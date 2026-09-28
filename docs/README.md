@@ -35,7 +35,7 @@ These are the documents no reader path introduces on its own.
 | [Roadmap](roadmap.md) | source-backed work in two binding sequences, a remediation queue and then the main grid, followed by hard-stopped future investigations, with implementation contracts, refusals, and evidence gates |
 | [Architecture invariants](architecture-invariants.md) | cross-module constraints and standing decisions, each with the condition that would reopen it |
 | [Evidence](technical-reference/evidence.md) | per registered estimand: which oracle, Gateaux, remainder, identity, and variant instruments exist, plus their blind spots |
-| [Implementation validation grid](technical-reference/method-evidence/validation-grid.md) | every registered study in one table: the method, the canonical implementation compared, the counts, and the declared limits |
+| [Implementation validation grid](technical-reference/method-evidence/validation-grid.md) | every registered validation study in one table: the method, the canonical implementation compared, the counts, and the declared limits |
 | [Implementation validation studies](technical-reference/method-evidence/index.md) | one row per committed test: what it checked, what its own endpoints required, and the verdict |
 | [The red-cell ledger](technical-reference/method-evidence/red-cells.md) | every red verdict the registered studies publish, generated from the committed results, with the roadmap ask that owns each one |
 | [Method benchmarking strategy](development/method-benchmarking.md) | how R comparisons and independent statistical-property studies are designed, registered, and accepted |

@@ -1,7 +1,7 @@
 # Implementation validation studies
 
-Each page here reports one study of a method that `cleverly` implements. A page exists only for a study
-registered in `tests/studies/evidence/registry.py`. The shared machinery in
+Each page here reports one study of a method that `cleverly` implements. A page exists only for
+a study registered in `tests/studies/evidence/registry.py`. The shared machinery in
 `tests/studies/evidence/` computes every verdict, and `tests/unit/test_method_evidence.py` checks
 these pages against the committed results. Every table is generated from those results, so a stale
 number is a test failure and not a reading error.

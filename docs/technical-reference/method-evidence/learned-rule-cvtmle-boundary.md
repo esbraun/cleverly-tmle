@@ -21,7 +21,7 @@ zero-row equivalence artifact records the absence of a comparator.
 | law, fit, learners, truth and oracle SE | as in the [gated study](learned-rule-cvtmle.md#what-was-tested) |
 | primary budget | 6,000 replications for each law, at n = 2,000 |
 | verdicts | the gated study's primary verdicts on the error, under `publication_policy="reporting"` |
-| reading | the declared reading table below, read from the top |
+| reading | the declared reading table of the Reading section, read from the top |
 | seeds | `seed=20263003` and `resampling_seed=20263004` |
 | policy | `reporting` |
 
@@ -51,8 +51,8 @@ each truth row is red.
 
 ## Reading
 
-The reading reads each law's 99% Clopper-Pearson coverage interval. The first condition that holds
-names the reading.
+The declared table takes each law's 99% Clopper-Pearson coverage interval. The first condition
+that holds names the reading.
 
 | reading, for each law | condition |
 | --- | --- |
@@ -61,29 +61,27 @@ names the reading.
 | `unresolved` | otherwise |
 
 The reading `unresolved` cannot occur at 6,000 replications. It needs an interval that reaches
-below 0.90 and above 0.95, which is 0.05 wide. At 6,000 replications the 99% Clopper-Pearson
-interval is at most 0.0334 wide.
+below 0.90 and above 0.95, so it is at least 0.05 wide. At 6,000 replications the 99%
+Clopper-Pearson interval is at most 0.0334 wide.
 
 | law | coverage | 99% interval | reading |
 | --- | ---: | --- | --- |
 | `exceptional` | 0.8938 | 0.8832 to 0.9038 | `under-covers at the exceptional law` |
 | `weak_blip` | 0.8948 | 0.8842 to 0.9048 | `under-covers at the weak_blip law` |
 
-`reading.csv` holds each reading. The measured-values table below gates every number in this
-table.
+`reading.csv` holds each reading. The Measured values section gates every number in this table.
 
 ## What the readings show
 
 | law | what the reading shows | source of the interpretation |
 | --- | --- | --- |
-| `exceptional` | the interval under-covers where condition C3 fails. The effect is zero for every unit, so the fold rules have no fixed limit. This law is non-regular | Luedtke and van der Laan (2016), *Annals of Statistics*, Section 4.1, expect the rule estimate "to fluctuate randomly" where the blip is zero. Section 4.2 names the tools that avoid a fixed limit, and no reviewed source applies them to this target ([F27](../../roadmap.md#f27-learned-policy-value-outside-the-published-conditions)) |
-| `weak_blip` | the interval under-covers at n = 2,000 on a law within C3. The red cell is a finite-sample limit at this size | van der Laan and Luedtke (2015), Equation (5) and Theorem 6, cover this law. F27 states that no published result is missing for it |
+| `exceptional` | the interval under-covers where condition C3 fails. The effect is zero for every unit, so the fold rules have no fixed limit and do not stabilize | Luedtke and van der Laan (2016), *Annals of Statistics*, Section 4.1, expect the rule estimate "to fluctuate randomly" where the blip is zero. Section 4.2 names the tools that avoid a fixed limit, and no reviewed source applies them to this target ([F27](../../roadmap.md#f27-learned-policy-value-outside-the-published-conditions)) |
+| `weak_blip` | the interval under-covers at n = 2,000 on a law within C3. Theorem 6 gives nominal coverage asymptotically. The study reads the red cell as a finite-sample limit, which one size does not establish. The mean reported SE agrees with the mean oracle SE of the fixed fold rules, 0.0156 against 0.0155, while the SD of the error is 0.0187. That agreement supports the reading | van der Laan and Luedtke (2015), Equation (5) and Theorem 6, cover this law. F27 states that no published result is missing for it |
 
 At both laws the mean reported SE is smaller than the SD of the error. The SE ratio is 0.8211 at
 `exceptional` and 0.8314 at `weak_blip`. The table gives the three spreads. The oracle SE is the
 standard error that the influence curves of the fold rules give under $P_0$, with each rule held
-fixed. It is a descriptive
-column of `harness.csv.gz`, and no rule reads it.
+fixed. It is a descriptive column of `harness.csv.gz`, and no rule reads it.
 
 | law | mean reported SE | mean oracle SE | SD of the error |
 | --- | ---: | ---: | ---: |
@@ -92,7 +90,7 @@ column of `harness.csv.gz`, and no rule reads it.
 
 The readings do not show the items in this list.
 
-- The cause of the smaller SE. The study does not separate the non-regularity from other
+- The cause of the smaller SE. The study does not separate the instability of the rules from other
   finite-sample effects.
 - The size at which `weak_blip` reaches nominal coverage. The study runs one size.
 - The coverage at other laws, learners or fold counts.
@@ -130,6 +128,8 @@ the committed results and checked at the precision printed.
 | `summary[cleverly-learned-rule-cvtmle/exceptional/ey_learned_rule[learned rule]]:empirical_se` | 0.0193 | SD of the error at `exceptional` |
 | `summary[cleverly-learned-rule-cvtmle/weak_blip/ey_learned_rule[learned rule]]:mean_std_error` | 0.0156 | mean reported SE at `weak_blip` |
 | `summary[cleverly-learned-rule-cvtmle/weak_blip/ey_learned_rule[learned rule]]:empirical_se` | 0.0187 | SD of the error at `weak_blip` |
+| `mean_oracle_se_exceptional` | 0.0158 | mean oracle SE of the fixed fold rules at `exceptional`, from `harness.csv.gz`. No rule reads it |
+| `mean_oracle_se_weak_blip` | 0.0155 | mean oracle SE at `weak_blip` |
 | `margin:confidence_level` | 0.9900 | confidence level of every Monte Carlo interval |
 | `margin:alpha` | 0.0500 | nominal size of the reported intervals |
 | `margin:nominal_coverage` | 0.9500 | nominal coverage those intervals claim |
