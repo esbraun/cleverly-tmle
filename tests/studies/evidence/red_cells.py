@@ -60,14 +60,16 @@ PAGE = ROOT / "docs" / "technical-reference" / "method-evidence" / "red-cells.md
 ROADMAP = ROOT / "docs" / "roadmap.md"
 OWNER_TABLE = ("id", "work", "acceptance")
 
-#: Where a reader finds each owner.  ``F18`` and ``F19`` have rows of their own; every other
-#: owner is a row of RM18's "What this row asks for" table.  MyST anchors headings to level 3
+#: Where a reader finds each owner.  ``F18``, ``F19`` and ``F27`` have rows of their own; every
+#: other owner is a row of RM18's "What this row asks for" table.  MyST anchors headings to level 3
 #: only, so that level-4 heading carries the explicit target ``(what-this-row-asks-for)=``,
 #: and another page reaches an explicit target through the ``{ref}`` role alone.
 _RM18 = "what-this-row-asks-for"
 _OWNER_ANCHORS = {
     "F18": "f18-selector-path-c-tmle-inference",
     "F19": "f19-outcome-adaptive-c-tmle-generated-design-inference",
+    # The owner of every red cell of the reporting study ``learned-rule-cvtmle-boundary``.
+    "F27": "f27-learned-policy-value-outside-the-published-conditions",
 }
 
 #: The three kinds of red row, in the order the ledger prints them.

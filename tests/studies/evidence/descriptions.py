@@ -47,6 +47,8 @@ ARMS: dict[str, str] = {
     "static_t2": "static plan at horizon two",
     "dynamic_t2": "dynamic plan at horizon two",
     "five_reduction_cycle": "five-reduction correction cycle",
+    # The one law of the learned-rule property cells (RM30).
+    "non_exceptional": "the learned-rule law with a blip that is nowhere zero",
     "always_t2": "always-treat risk at horizon two",
     "relapse_dynamic_t2": "dynamic relapse contrast at horizon two",
     "death_static_t2": "static death contrast at horizon two",
@@ -367,6 +369,10 @@ PROPERTIES: dict[str, str] = {
     "double_robustness": (
         "the estimator stays consistent when either the outcome regression or the treatment "
         "mechanism is correct"
+    ),
+    "fold_locality": (
+        "each fold's rule is learned on that fold's training rows, so no row that evaluates a "
+        "rule helped to learn it"
     ),
     "fold_policy": (
         "each split the fit draws is drawn under a named policy, on one law and one set of "
@@ -960,6 +966,14 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     # longitudinal ones fluctuate a sample-prior constant over a two-node recursion; the
     # point-treatment MSM projection fluctuates a deliberately inverted oracle over one node.
     # Naming either study's construction here published a false sentence on the other's page.
+    ("fold_locality", "fold_local"): (
+        "a random forest learns each fold's rule on the fold's training rows",
+        "bias interval inside the equivalence margin",
+    ),
+    ("fold_locality", "validation_rows"): (
+        "the same fit, with each fold's rule learned on the fold's own validation rows",
+        "bias interval must fall entirely outside the margin",
+    ),
     ("targeting_necessity", "targeted"): (
         "the estimator fluctuates a misspecified outcome model, so targeting does all the "
         "adjusting",

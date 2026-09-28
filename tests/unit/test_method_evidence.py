@@ -664,6 +664,18 @@ class TestPublishedVerdicts:
                 >= study.properties().TARGETING_DISPLACEMENT
             )
 
+        # The same joint clause for the learned-rule fold-locality pair: the mutation that
+        # learns each fold's rule on its own validation rows must move the error by the
+        # declared number of the positive arm's error SDs.
+        locality = published.loc[published["property"] == "fold_locality"]
+        if not locality.empty:
+            assert locality["property_passed"].nunique() == 1
+            assert bool(locality["property_passed"].iloc[0]) is bool(
+                locality["passed"].all()
+                and locality["fold_locality_displacement"].iloc[0]
+                >= study.properties().FOLD_LOCALITY_DISPLACEMENT
+            )
+
         missingness = published.loc[published["property"] == "missingness_necessity"]
         if not missingness.empty:
             assert missingness["property_passed"].nunique() == 1
@@ -854,6 +866,7 @@ BIAS_GATED_PROPERTIES = frozenset(
         "competing_risk_recursion_necessity",
         "survival_recursion_necessity",
         "targeting_necessity",
+        "fold_locality",
         "weight_necessity",
         "projection_necessity",
         "ratio_necessity",
