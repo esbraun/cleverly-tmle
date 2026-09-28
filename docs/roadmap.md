@@ -41,7 +41,7 @@ delivered row that this roadmap still describes. Read a record with, for example
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.51 | Red property cells after the fold, scale and law changes | keep each red verdict under `reporting` with its interval, and admit inference only when F18 or F19 supplies the exact result. The [red-cell ledger](technical-reference/method-evidence/red-cells.md) delivers this. Then run Design SL once, the last of the five declared RM18 follow-up designs | registered studies publish red verdicts after the fold, scale and law changes and the pooled update. The ledger lists each one and the ask that owns it. Four RM18 follow-up designs ran once, and no reading names a defect in `cleverly`. Design SL is declared and has not run | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
+| 0.51 | Red property cells after the fold, scale and law changes | keep each red verdict under `reporting` with its interval, and admit inference only when F18 or F19 supplies the exact result. The [red-cell ledger](technical-reference/method-evidence/red-cells.md) delivers this. Then run Design SL once, after RM30 merges, the last of the five declared RM18 follow-up designs | registered studies publish red verdicts after the fold, scale and law changes and the pooled update. The ledger lists each one and the ask that owns it. Four RM18 follow-up designs ran once, and no reading names a defect in `cleverly`. Design SL is declared and has not run | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
 | 0.61 | Learned-policy value evaluation | implement the estimator and run the two studies that the RM30 section declares. The estimator and its evidence merge together | fixed-rule paths refuse a rule learned from the analysis sample; published learned-policy methods give distinct targets and inference | [RM30](#rm30-learned-policy-value-evaluation) |
 
 Each row takes a tier by the harm that its defect does to a user today. The table gives the tiers,
@@ -65,7 +65,8 @@ The table gives the reason for each place inside a tier.
 | RM18 | one declared design that has not run, which reads two red rows in one study. Four designs ran, read 17 red rows in six studies, and moved no verdict. The ledger already publishes each of those verdicts |
 | RM30 | a published learned-policy method can resolve the current refusal, but requires a distinct target, fold-local evaluation, and inference validation |
 
-No open row waits on another open row.
+One open row waits on another. RM18's Design SL waits on RM30, so its regeneration runs once,
+after every row that could move its inputs.
 
 Use two delivery groups for these two rows and the two investigations that RM18 waits on.
 Keep each item's acceptance criteria separate inside its group.
@@ -160,7 +161,7 @@ the missing result. Package code and a related estimator do not remove the stop.
 | MNAR and incremental-intermediate compositions | identification and influence-function results for the exact compositions | point-treatment sensitivity and implemented interventions remain separate | [F6](#f6-mnar-and-incremental-intermediate-compositions) |
 | Joint point-treatment parameter axes | a targeting and inference result for one fit that carries an MSM projection together with a regime, shift, or incremental intervention, including its joint score and covariance | single-axis point-treatment fits only | [F17](#f17-joint-point-treatment-parameter-axes) |
 | Time-respecting cross-fitting | dependence and split-specific TMLE inference for blocked-temporal or rolling-origin folds | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
-| Learned-policy value outside the published conditions | an interval for the fold-average learned-rule value without a limiting rule, and results for the refused compositions | the fold-evaluated pooled CV-TMLE of the plug-in rule, for a binary point treatment on iid rows with one repeat. It is planned in RM30 | [F27](#f27-learned-policy-value-outside-the-published-conditions) |
+| Learned-policy value outside the published conditions | an interval for the fold-average learned-rule value without a limiting rule, and results for the refused compositions | every learned rule refuses ([RM28](#rm28-declared-densities-of-user-written-interventions)). RM30 plans the fold-evaluated CV-TMLE | [F27](#f27-learned-policy-value-outside-the-published-conditions) |
 
 ## Eligibility
 
@@ -1751,13 +1752,14 @@ $$
 Here $\bar Q_{nv}$ is the outcome regression that is fitted on the training rows of fold $v$. A
 tie assigns control, as Montoya, van der Laan, Skeem and Petersen (2023), Section 2.4, do.
 
-In this section, "JCI" names van der Laan and Luedtke (2015). "Montoya (2023a)" and "Montoya
-(2023b)" name the two articles of Montoya and co-authors in the *International Journal of
-Biostatistics* 19(1), on pages 217 to 238 and 239 to 259.
+In this section, "JCI" names van der Laan and Luedtke (2015). "Montoya (2023a)" names the article
+of Montoya and co-authors on pages 217 to 238 of the *International Journal of Biostatistics*
+19(1). "Montoya (2023b)" names their article on pages 239 to 259 of the same issue.
 "[The sources and their locators](#the-sources-and-their-locators)" gives each version read.
 
 The target is not the value of one rule fitted on all rows, which JCI, Section 6, treats. It is
-not the value of the optimal rule, which Luedtke and van der Laan (2016) treat.
+not the value of the optimal rule, which Luedtke and van der Laan (2016), *Annals of Statistics*,
+treat.
 
 | part | contract | source |
 | --- | --- | --- |
@@ -1766,8 +1768,8 @@ not the value of the optimal rule, which Luedtke and van der Laan (2016) treat.
 | partition | `V` outer folds from `random_partition`, and one repeat | JCI, Section 7 |
 | clever covariate | $H_i = \mathbb 1\{A_i = d_i\} / g_{n,v(i)}(A_i \mid W_i)$, with $d_i = d_{n,v(i)}(W_i)$ | JCI, Appendix B, the covariate $H_2$ at one time point |
 | fluctuation | one $\varepsilon$ that minimizes $(1/V) \sum_v P^1_{n,v}$ of the binomial loss, with the offset $\operatorname{logit} \bar Q_{n,v(i)}$ and the validation weights $n / (V n_v)$ | JCI, Appendix B, the display that defines $\varepsilon_{2n}$, with the loss of Equation (21). The appendix states that "the fluctuation ε2 does not rely on j" |
-| estimate | $\psi^*_n = (1/V) \sum_v \psi^*_{nv}$. Each $\psi^*_{nv}$ is the mean of $\bar Q^*_{nv}(d_i, W_i)$ over the validation rows of fold $v$ | JCI, Appendix B, the displays after Equation (24) |
-| influence curve | $D_i = H_i\,(Y_i - \bar Q^*_{nv}(A_i, W_i)) + \bar Q^*_{nv}(d_i, W_i) - \psi^*_{nv}$. Each fold is centred at its own estimate | JCI, Section 7.2 |
+| estimate | $\psi^*_n = (1/V) \sum_v \psi^*_{nv}$. Each $\psi^*_{nv}$ is the mean of $\bar Q^*_{nv}(d_i, W_i)$ over the validation rows of fold $v$ | Montoya (2023b), Section 3.2, Steps 2(e) and 3. JCI, Appendix B, the displays after Equation (24), is first-order equivalent at one time point |
+| influence curve | $D_i = H_i\,(Y_i - \bar Q^*_{nv}(A_i, W_i)) + \bar Q^*_{nv}(d_i, W_i) - \psi^*_{nv}$. Each fold is centred at its own estimate | Montoya (2023b), Section 4.2, the fold-specific working influence curve. JCI, Section 7.2 |
 | variance | $V^{-2} \sum_v n_v^{-2} \sum_{i \in v} D_i^2$, from `cross_validated_variance` | JCI, Section 7.2, gives $\sigma_n^2 = (1/J) \sum_j P^1_{n,j} D^{*2}$. The two forms agree at equal folds. At unequal folds this contract uses the package form, and no read source makes that choice |
 | interval | the Wald interval at the 0.975 normal quantile | JCI, Section 7.2, prints 1.95. Montoya (2023b), Section 4.2, uses $\Phi^{-1}(0.975)$ |
 | inference status | `influence_curve`, decided before any learner | the architecture invariant for the inference status |
@@ -1776,14 +1778,14 @@ The package already fits this construction for arm targets. The fit is `cross_fi
 `targeting_scheme="pooled"` and `cv_evaluation=True`. Pull request B sets the regime density to
 the fold-local rule, and it reuses the rest of the construction.
 
-Theorem 6 and Corollary 3 of JCI give the conditions. None of them can be checked from the data.
+Theorem 6 and Corollary 3 of JCI give the conditions. C2 to C4 cannot be checked from the data.
 
 | id | condition | source | what it means for this row |
 | --- | --- | --- | --- |
 | C1 | a bounded outcome, $Y \in [0, 1]$ after the declared transform | JCI, Appendix B. Theorem 6 bounds the supremum norm of $D^*$ | a binary outcome, or a continuous outcome with a declared `q_bounds` |
 | C2 | strong positivity | JCI, Theorem 6, through the same bound | `g_bounds` regularizes the fitted denominator only |
 | C3 | a limiting rule: $\max_j P_0\{D^*(d_{nj}, Q^*_{nj}, g_{nj}) - D^*(d_1, Q^{d_1}, g)\}^2 \to 0$ in probability, for one fixed rule $d_1$ | JCI, Theorem 6. Section 6 calls it "the weaker assumption that dn → d1". Montoya (2023b), Section 4.1.3, asks that the fold rules converge "to some fixed rule ... at any rate" | see the note below this table |
-| C4 | the remainder $(1/V) \sum_v R_{1, d_{nv}} = o_P(n^{-1/2})$, with $R_1$ from Theorem 3. Or Corollary 3 | JCI, Theorem 6 and Corollary 3 | Corollary 3 needs $g = g_0$, with each $g_{nv}$ an MLE under a correct parametric model. It allows a misspecified $\bar Q$, and the interval is then asymptotically conservative |
+| C4 | the remainder $(1/V) \sum_v R_{1, d_{nv}} = o_P(n^{-1/2})$, with $R_1$ from Theorem 3. Or Corollary 3 | JCI, Theorem 6 and Corollary 3 | Corollary 3 needs $g = g_0$ and its condition (14). JCI names an MLE $g_{nv}$ under a correct parametric model as a sufficient case. Corollary 3 allows a misspecified $\bar Q$, and the interval is then asymptotically conservative |
 | C5 | no Donsker condition | JCI, Section 7, first paragraph | the learners may be flexible |
 | C6 | iid rows, with no weights, clusters or missing outcomes | JCI, Section 2, with no censoring | every other composition refuses |
 
@@ -1794,10 +1796,11 @@ C3 names a fixed rule $d_1$ and allows a misspecified $Q^{d_1}$. This contract r
 threshold of the learner's limit blip. JCI does not state that reading, so it is an unsourced
 derivation.
 
-C3 then holds when the limit blip is zero on a set of zero probability. It fails at an
-exceptional law with a consistent learner. At such a law, Luedtke and van der Laan (2016), Section
-4.1, expect the rule estimate "to fluctuate randomly" where the blip is zero. JCI, Equation (5),
-defines a non-exceptional law as one whose blip is nowhere zero with probability 1.
+C3 then holds when the limit blip is zero on a set of zero probability. It fails at an exceptional
+law with a consistent learner. At such a law, Luedtke and van der Laan (2016), *Annals of
+Statistics*, Section 4.1, expect the rule estimate "to fluctuate randomly" where the blip is zero.
+JCI, Equation (5), defines a non-exceptional law as one whose blip is nowhere zero with probability
+1.
 
 The contract does not claim the value of the optimal rule, or the value of one rule fitted on all
 rows. [X11](#x11-learned-policy-follow-ups) parts (f) and (a) hold them.
@@ -1811,14 +1814,14 @@ this project read for each source, first-hand, on the date given.
 
 | source | published version | version read | locators this row uses |
 | --- | --- | --- | --- |
-| van der Laan and Luedtke (2015), JCI | *Journal of Causal Inference* 3(1):61–95, DOI 10.1515/jci-2013-0022 | the NIH author manuscript PMC4517487, which states "Published in final edited form as" the article. The publisher page returned no text on 2026-09-28 | Sections 2, 6, 7, 7.1, 7.2 and 8.1.1; Equations (5), (21) and (24); Theorems 3, 5 and 6; Corollary 3; Appendix B |
-| Luedtke and van der Laan (2016), Annals of Statistics | 44(2):713–742, DOI 10.1214/15-AOS1384 | the IMS reprint arXiv:1603.07573, whose pagination differs from the journal | Sections 4.1, 4.2 and 5 |
-| Luedtke and van der Laan (2016), International Journal of Biostatistics | 12(1):305–332, DOI 10.1515/ijb-2015-0052 | the NIH author manuscript PMC6056197 | Sections 4.1 to 4.3 and 6, for X11 part (g) |
-| Montoya (2023a) | *International Journal of Biostatistics* 19(1):217–238, DOI 10.1515/ijb-2020-0127 | the publisher's version in PMC, PMC10238854, read on 2026-09-28 | Section 3.3, Step 6 |
-| Montoya (2023b) | *International Journal of Biostatistics* 19(1):239–259, DOI 10.1515/ijb-2020-0128 | the publisher's version in PMC, PMC9722979, read on 2026-09-28 | Sections 2.4, 3.2, 4.1.3, 4.2 and 5.4.3 |
-| Nordland and Holst (2026) | *Journal of Statistical Software* 116(4):1–51, DOI 10.18637/jss.v116.i04 | the version of record from jstatsoft.org, read on 2026-09-28 | Section 3.4 and Algorithm 4 |
-| Hubbard, Kherad-Pajouh and van der Laan (2016) | *International Journal of Biostatistics* 12(1):3–19, DOI 10.1515/ijb-2015-0013 | the eScholarship manuscript that [the reference entry](references.md) records. The publisher page returned no text on 2026-09-28 | the definition of the sample-split data-adaptive target only |
-| Morris, White and Crowther (2019) | *Statistics in Medicine* 38(11):2074–2102, DOI 10.1002/sim.8086 | the version of record, PMC6492164 | Table 6; Section 5.3, Equation (1) |
+| [van der Laan and Luedtke (2015)](references.md#point-treatment-and-stochastic-interventions), JCI | *Journal of Causal Inference* 3(1):61–95, DOI 10.1515/jci-2013-0022 | the NIH author manuscript PMC4517487, which states "Published in final edited form as" the article. Read on 2026-09-26, and again on 2026-09-27 and 2026-09-28. The publisher page returned no text on 2026-09-28 | Sections 2, 6, 7, 7.1, 7.2 and 8.1.1; Equations (5), (14), (21) and (24); Theorems 3, 5 and 6; Corollary 3; Appendix B |
+| [Luedtke and van der Laan (2016)](references.md#point-treatment-and-stochastic-interventions), *Annals of Statistics* | 44(2):713–742, DOI 10.1214/15-AOS1384 | the IMS reprint arXiv:1603.07573, whose pagination differs from the journal. Read on 2026-09-26, 2026-09-27 and 2026-09-28 | Sections 4.1, 4.2 and 5 |
+| [Luedtke and van der Laan (2016)](references.md#point-treatment-and-stochastic-interventions), *International Journal of Biostatistics* | 12(1):305–332, DOI 10.1515/ijb-2015-0052 | the NIH author manuscript PMC6056197. Read on 2026-09-26, and its section structure again on 2026-09-28 | Sections 4.1 to 4.3 and 6, for X11 part (g) |
+| [Montoya (2023a)](references.md#point-treatment-and-stochastic-interventions) | *International Journal of Biostatistics* 19(1):217–238, DOI 10.1515/ijb-2020-0127 | the publisher's version in PMC, PMC10238854. Read on 2026-09-27 and 2026-09-28 | Section 3.3, Step 6 |
+| [Montoya (2023b)](references.md#point-treatment-and-stochastic-interventions) | *International Journal of Biostatistics* 19(1):239–259, DOI 10.1515/ijb-2020-0128 | the publisher's version in PMC, PMC9722979. Read on 2026-09-28 | Sections 2.4, 3.2, 4.1.3, 4.2 and 5.4.3 |
+| [Nordland and Holst (2026)](references.md#point-treatment-and-stochastic-interventions) | *Journal of Statistical Software* 116(4):1–51, DOI 10.18637/jss.v116.i04 | the version of record from jstatsoft.org. Read on 2026-09-28 | Section 3.4 and Algorithm 4 |
+| [Hubbard, Kherad-Pajouh and van der Laan (2016)](references.md#collaborative-tmle) | *International Journal of Biostatistics* 12(1):3–19, DOI 10.1515/ijb-2015-0013 | the authors' eScholarship manuscript, read before 2026-09-11, when its reference entry was written. The publisher page returned no text on 2026-09-28 | the definition of the sample-split data-adaptive target only |
+| [Morris, White and Crowther (2019)](references.md#simulation-studies) | *Statistics in Medicine* 38(11):2074–2102, DOI 10.1002/sim.8086 | the version of record, PMC6492164. Read on 2026-09-26 for RM18 | Table 6; Section 5.3, Equation (1) |
 
 Montoya (2023b) is a published simulation of the same target. Its Section 3.2, Step 2(c), fits the
 update "on persons in the validation set", which is a fold-specific update. Its Section 4.2 gives
@@ -1882,8 +1885,9 @@ rules.
 
 This subsection fixes every quantity that decides a verdict or a reading. Its commit is pushed
 before any smoke or declared run. A later change is a pushed amendment, made before the run that
-it changes, as commit `03fe89f1` did for RM18. No pilot value enters a rule. The quadrature
-constants of the probe `q1_limits.py` enter the rules, and that probe drew no sample.
+it changes, as commit `03fe89f1` did for RM18. No pilot value enters a verdict rule or sets a
+binding budget. The `p11_budget_inputs.py` values enter one budget row that binds nothing. The
+quadrature constants of the probe `q1_limits.py` enter the rules, and that probe drew no sample.
 
 | study | slug | policy | question |
 | --- | --- | --- | --- |
@@ -1899,16 +1903,16 @@ so a red boundary cell fails no gate that claims them.
 | rule | statement |
 | --- | --- |
 | L1, per-replicate truth | each row carries its own truth. "[The per-replicate truth](#the-per-replicate-truth)" gives the framework extension. The first commit of pull request C builds it, and that commit moves no registered artifact |
-| L2, seeds | the primary rows draw from `replicate_seed` of the study's record. A property draw uses `stream_seed(record, "property_sample", family, label, replicate)`. Two paired arms share one draw. The fold partition of a draw uses `stream_seed(record, "fold_partition", <labels>, replicate)`. The labels are `"primary"` and the scenario for a primary draw, and the family and the draw label for a property draw |
+| L2, seeds | the primary rows draw from `replicate_seed` of the study's record. A property draw uses the `"property_sample"` tuple of the property table. Two paired arms share one draw and one partition. The fold partition of each draw uses the tuple that "[The fold-partition seeds](#the-fold-partition-seeds)" gives. L3 does not judge fold seeds, because an equal partition seed on two different samples repeats no sample |
 | L3, seed collision | a sample seed is judged against every sample seed of the same law on the same record. The order is the primary scenarios, then the property cells in the order of the property table, then the replicates of a cell by index. A colliding property cell moves its whole label to the same label followed by `"retry"` and the smallest counter `j >= 1` that leaves the set. A collision inside a primary scenario stops the declaration |
-| L4, failed fit | a fit that raises, a non-finite estimate or standard error, or a truth-harness refit whose rule differs from the fit's rule on any validation row stops the run. The run draws no replacement sample and publishes nothing. A change before the rerun is a pushed amendment |
+| L4, failed fit | a fit that raises, a non-finite estimate or standard error, or a truth-harness refit whose rule differs from the fit's rule on any validation row stops the run. The run draws no replacement sample and publishes nothing. A solver warning is not a failed fit: a declared run counts the warnings of each fit and of its truth refits in a `solver_warnings` column, and no rule reads that column |
 | L5, reading order | a reading table is read from the top. The first condition that holds names the reading |
-| L6, run form | RM18 rule R6 applies. Each run starts from a wrapper that refuses a tree with changes, a `HEAD` that differs from its upstream, and a `cleverly` imported from outside the tree's `src`. It sets one thread for each numerical library, and it logs the versions, the command, the wall time and the exit code. Both manifests must record `cleverly_worktree_clean: true` and Python 3.13.7 |
+| L6, run form | RM18 rule R6 applies. Both manifests must record `cleverly_worktree_clean: true` and Python 3.13.7 |
 | L7, runtime | the main checkout's Python 3.13.7, with NumPy 2.4.6, SciPy 1.18.0, pandas 3.0.5, scikit-learn 1.9.0 and joblib 1.5.3. `PYTHONPATH` names the tree's `src` and root. One process pool runs at a time. No fast suite, `nox` session or other study runs beside it |
 | L8, smoke | two smoke runs come first, at the declared n = 2,000. The first uses `--replicates 4`, and the second uses at least 32 draws at `--jobs 16`. Both write to a scratch `--output` |
 | L9, throwaway seeds | a smoke run replaces the record by `replace(record, seed=stream_seed(record, "rm30", "smoke"), resampling_seed=stream_seed(record, "rm30", "smoke-resampling"))`. The harness refuses a smoke whose sample seed equals a declared sample seed. A smoke reading says `smoke run, not the declared budget` |
-| L10, solver | every smoke draw must show rule agreement 1 and no solver warning. Otherwise a pushed amendment changes the solver settings of the outcome learner before any declared run. It changes no model class, feature, law, size or budget |
-| L11, one run | each study runs once, the gated study first. No margin, budget, law, learner, size, seed or cell changes after a smoke or a declared run. A red verdict publishes |
+| L10, solver | every smoke draw must show rule agreement 1 and no solver warning. Otherwise a pushed amendment changes the solver settings of the affected outcome learner before any declared run. This is the one exception to L11. The amendment may change `solver`, `tol` and `max_iter` only. It changes no model class, feature, penalty, law, size, budget, margin, seed or cell |
+| L11, one run | each study runs once, the gated study first. No margin, budget, law, learner, size, seed or cell changes after a smoke or a declared run, except by L10. A run that L4 stops is not the L11 run. Before its rerun, a pushed amendment may change the harness code and, by the rule of L10, the solver settings. The rerun reuses every declared seed. A red verdict publishes |
 | L12, merge | pull requests B and C merge together |
 
 (the-per-replicate-truth)=
@@ -1958,7 +1962,7 @@ its seven columns. "Reads made before this declaration" lists the probe.
 | --- | --- | --- | --- | --- | ---: | ---: | --- | --- |
 | `non_exceptional` | $0.1 + W_1$ | $W_1 > -0.1$ | $0.1 + W_1$, the true blip | $d_0$ | 0.577115 | 0.577115 | holds, with $d_1 = d_0$ | gated |
 | `misspecified_limit` | $0.8 W_1 + W_1^2 - 0.3$ | $W_1 > 0.278233$ | $-0.003990 + 0.794092\,W_1 + 0.002889\,W_2$ | $W_1 > 0.005025$ at $W_2 = 0$, and $W_1 > 0.001387$ at $W_2 = 1$ | 0.560251 | 0.554747 | holds, with $d_1 \ne d_0$. The cell rests on Corollary 3 | gated |
-| `weak_blip` | $0.15 W_1$ | $W_1 > 0$ | $0.15 W_1$ | $d_0$ | 0.521047 | 0.521047 | holds, with a weak blip | reporting |
+| `weak_blip` | $0.15 W_1$ | $W_1 > 0$ | $0.15 W_1$ | $d_0$ | 0.521047 | 0.521047 | within C3: JCI, Equation (5), and Theorem 6 hold. A red cell is a finite-sample limit at n = 2,000 | reporting |
 | `exceptional` | $0$ | no unit | $0$ | none: the limit blip is zero everywhere | 0.512179 | 0.512179 | fails. Every rule has the value 0.512179 | reporting |
 
 | constant | value | computation |
@@ -1972,6 +1976,11 @@ its seven columns. "Reads made before this declaration" lists the probe.
 | its untargeted plug-in limit | 0.549165 | $E\,\bar Q_1(d_1(W), W)$ for the working limit $\bar Q_1$ |
 | its limit plug-in bias $b_\infty$ | +0.017549 | the plug-in limit minus the target |
 | $b_\infty$ in positive-arm SDs at n = 2,000 | 1.075 to 1.124 | $\sqrt{n}\,b_\infty$ over 0.729826, the SD of $D^*(d_1, \bar Q_1, g_0)$, and over 0.698330, the SD of $D^*(d_1, \bar Q_0, g_0)$ |
+
+The `misspecified_limit` cell tests coverage under Corollary 3, not the conservativeness of its
+interval. The Corollary 3 projection term predicts an SE ratio of 1.0002 there. The review probe
+`r1_quadrature.py` computed it as a ratio of two SDs. The SD of the working curve is 0.667442. The
+SD of that curve minus its projection on the logistic treatment model is 0.667326.
 
 The `targeting_necessity` positive arm also rests on Corollary 3,
 because its outcome learner omits $W_1$ and its mechanism is correct. Corollary 3 gives that arm
@@ -1993,7 +2002,7 @@ rule depends on it.
 | primary budget | 6,000 replicates for each scenario |
 | primary verdicts | the framework defaults in the error form of L1: the 99% Student bias interval inside 0.25 SD, the 99% Clopper-Pearson coverage interval's lower end at or above 0.90, and the SE-ratio interval inside 0.80 to 1.20 |
 | truth | each replicate refits each fold's outcome learner on the fit's own training rows, from `result.nuisance.folds`, with the design order $(A, W_1, W_2)$. The refit rule must equal the fit's rule on every validation row (L4). The truth is $(1/V) \sum_v \Psi_{d_{nv}}(P_0)$, by the trapezoid rule on 4,001 points of $W_1$ for each $W_2$, with the known $\bar Q_0$ |
-| truth check | a unit test evaluates the harness quadrature at the fixed rules $d_0$ of the four laws. Each value must equal the table above within 1e-5 |
+| truth check | a unit test of pull request C recomputes every constant of the two law tables by quadrature, and each value must equal its table entry within 1e-5. It also evaluates the harness trapezoid rule at the fixed rules $d_0$ of the four laws, to the same tolerance. No untracked probe carries a constant that a verdict reads |
 | oracle SE | $\sqrt{V^{-2} \sum_v \operatorname{Var}_{P_0} D^*(d_{nv}, \bar Q_0, g_0) / n_v}$ for each replicate, by the same quadrature. It is a descriptive column, and no rule reads it |
 | seeds | `seed=20263001` and `resampling_seed=20263002` |
 | comparator | none. The study records an empty, schema-valid `equivalence.csv` |
@@ -2009,7 +2018,7 @@ another learner. The table gives them in the order that L3 reads.
 | --- | --- | --- | ---: | --- | --- |
 | `interval_calibration` | `non_exceptional__correctly_specified`, positive. `non_exceptional__shrunken_se_control` and `non_exceptional__noise_control`, derived from its rows | 2,000 | 17,000 | `("property_sample", "interval_calibration", "non_exceptional__correctly_specified", replicate, "retry", 1)`, moved by L3 | the positive SE-ratio interval lies inside 0.93 to 1.07, and its coverage interval inside 0.92 to 0.98. The shrunken control multiplies each SE by 0.70. The noise control adds noise with SD 0.664444 / $\sqrt{2000}$. Each control's SE-ratio interval must lie below 0.93 |
 | `root_n_and_efficiency` | `n_500`, control; `n_2000` and `n_8000`, positive | 500, 2,000 and 8,000 | 6,000 at each size | `("property_sample", "root_n_and_efficiency", "n_<size>", replicate)` | the framework rules, and the `root_n_rate` slopes of the error SD and of the mean SE |
-| `targeting_necessity` | `non_exceptional__targeted`, positive; `non_exceptional__untargeted`, control, the same fit without its fluctuation | 2,000 | 2,655 | `("property_sample", "targeting_necessity", "non_exceptional", replicate)`, one draw for both arms | the outcome learner drops $W_1$ with a `ColumnTransformer` and keeps $(A, W_2)$. The treatment learner is correct. `necessity_verdicts` in the error form: the positive bias interval inside 0.25 SD, the control's `bias_discriminated`, and a displacement of at least 0.5 |
+| `targeting_necessity` | `non_exceptional__targeted`, positive; `non_exceptional__untargeted`, control, the same fit without its fluctuation | 2,000 | 2,655 | `("property_sample", "targeting_necessity", "non_exceptional", replicate)`, one draw for both arms | the outcome learner is `Pipeline(ColumnTransformer([("keep", "passthrough", [0, 2])]), PolynomialFeatures(2, interaction_only=True, include_bias=False), LogisticRegression(C=1e6, max_iter=5000, tol=1e-10))` on the design order $(A, W_1, W_2)$, so it keeps $A$ and $W_2$. The treatment learner is correct. `necessity_verdicts` in the error form: the positive bias interval inside 0.25 SD, the control's `bias_discriminated`, and a displacement of at least 0.5 |
 | `fold_locality` | `non_exceptional__fold_local`, positive; `non_exceptional__validation_rows`, control | 2,000 | 2,655 | `("property_sample", "fold_locality", "non_exceptional", replicate)`, one draw and one partition for both arms | the outcome learner is `RandomForestClassifier(n_estimators=100, min_samples_leaf=5, random_state=0)`. The control, a study-only subclass, fits each fold's rule on that fold's validation rows. Each arm's truth is the value of the rules it used. `necessity_verdicts` in the error form with a displacement of at least 0.5. The family reads bias only, so no coverage or SE ratio enters |
 
 The study adds a `fold_locality` entry to `descriptions.py`. The deliberate mutation of dropping a
@@ -2017,6 +2026,23 @@ targeting term is the `targeting_necessity` control. The mutation of the reporte
 calibration controls. At equal folds the pooled and cross-validated variance forms coincide, so no
 cell can see a change of the variance. The unit witnesses of pull request B cover that mutation at
 unequal folds.
+
+(the-fold-partition-seeds)=
+##### The fold-partition seeds
+
+Each draw's fold partition uses `stream_seed(record, *labels)` with the labels below. A property
+cell's labels equal its draw labels, with `"fold_partition"` in place of `"property_sample"`.
+
+| draws | labels |
+| --- | --- |
+| a primary draw of scenario `s`, both studies | `("fold_partition", "primary", s, replicate)` |
+| `interval_calibration` | `("fold_partition", "interval_calibration", "non_exceptional__correctly_specified", replicate, "retry", 1)` |
+| `root_n_and_efficiency` at size `m` | `("fold_partition", "root_n_and_efficiency", "n_<m>", replicate)` |
+| `targeting_necessity`, both arms | `("fold_partition", "targeting_necessity", "non_exceptional", replicate)` |
+| `fold_locality`, both arms | `("fold_partition", "fold_locality", "non_exceptional", replicate)` |
+
+The declared fold seeds hold 64,309 distinct values over 64,310 draws. One pair of draws shares a
+partition seed, and that pair repeats no sample.
 
 (the-reporting-study-and-its-reading-table)=
 ##### The reporting study and its reading table
@@ -2028,10 +2054,10 @@ unequal folds.
 | estimator, learners, size, truth, oracle SE | as in the gated study |
 | primary budget | 6,000 replicates for each scenario |
 | verdicts | the gated study's primary verdicts, with `publication_policy="reporting"`. No property cell |
-| red cells | each red cell enters the [red-cell ledger](technical-reference/method-evidence/red-cells.md) with the owner F27. Pull request C adds the F27 anchor to `_OWNER_ANCHORS` in `red_cells.py` |
+| red cells | each red cell enters the [red-cell ledger](technical-reference/method-evidence/red-cells.md) with the owner F27. F27 states, row by row, that a red `exceptional` cell has no published result and that a red `weak_blip` cell has one. Pull request C adds the F27 anchor to `_OWNER_ANCHORS` in `red_cells.py` |
 | seeds | `seed=20263003` and `resampling_seed=20263004` |
 | artifacts, modules and document | `tests/canonical/learned_rule_cvtmle_boundary/`; `tests/studies/learned_rule_cvtmle_boundary.py` and the shared law module; `docs/technical-reference/method-evidence/learned-rule-cvtmle-boundary.md` |
-| limitations | the gated study's limitations. A red cell here marks the boundary of C3. It is not a defect |
+| limitations | the gated study's limitations. A red `exceptional` cell marks the boundary of C3. A red `weak_blip` cell is a finite-sample limit at n = 2,000 inside C3. Neither is a defect |
 
 The reading reads each law's 99% Clopper-Pearson coverage interval at 6,000 replicates.
 
@@ -2081,9 +2107,10 @@ throwaway-seed pilot `p11_budget_inputs.py`: 0.0245 at n = 500 and 0.0071 at n =
 | `root_n_rate`, `reported` | slope of the log mean SE on log n | -0.5, margin 0.125 | 0.025 | 1 | within 6,000 |
 | `targeting_necessity`, both arms | bias, inside the margin for the positive arm and outside it for the control | 0, margin 0.25 SD | 0.05 SD | 2,654 | 2,655, as the R3 control-bias row |
 
-Both rules give more than 800, so the table declares the rule budgets. The coverage row sets the
-root-n budget at each of the three sizes. The slope rows use a relative error of the SD of
-$1 / \sqrt{2R}$, as R3 does, over the three sizes spaced by $\log 4$.
+The first version of this declaration, at commit `dbf224cf`, set 800 for both cells with no R3
+basis. Commit `d0f8a9fa` replaced those budgets with the rule budgets above. The coverage row sets
+the root-n budget at each of the three sizes. The slope rows use a relative error of the SD of $1 /
+\sqrt{2R}$, as R3 does, over the three sizes spaced by $\log 4$.
 
 The paired displacement of `targeting_necessity` has no interval in the framework and no R3 row,
 so the rule sets no budget for it. For information only: the pilot gives the SD of the paired
@@ -2118,16 +2145,17 @@ them is a declared seed. Four design choices followed pilot readings, and the ta
 
 | read | runtime and seeds | what was printed | what it informed |
 | --- | --- | --- | --- |
-| p1 to p4 on 2026-09-26: the refusal, the fold-local density, the fold-evaluated variance and the timing | Python 3.11. Seeds 7 and 100 to 102 | the refusal text, a pooled-score mean of -3.3e-14, a variance match to 2.568e-04, and 0.06 s for each fit | the reuse of the pooled fold-evaluated construction |
-| p5, p7 and p8 on 2026-09-26: coverage pilots | Python 3.11. Seeds 1,000 to 1,399. 400 replicates for each law | coverage, bias and SE ratio for the laws N, E, M1, M2 and S. For example, coverage 0.945 with SE ratio 0.999 on N at n = 2,000, and 0.892 with 0.820 on E | the choice of the law M2 as `misspecified_limit` after M1 read like E, and the move of E and S to the reporting study |
-| p6 on 2026-09-26: the fold-locality mutation | Python 3.11. Seeds 5,000 to 5,149 | a positive bias of -0.05 SD with coverage 0.907, and a control bias of +6.54 SD | the forest cell and the rule that `fold_locality` reads bias only |
+| p1 to p4 on 2026-09-26: the refusal, the fold-local density, the fold-evaluated variance and the timing | Python 3.11. Sample seeds 7 and 100 to 102. Fold seeds 11 and 0 to 2 | the refusal text, a pooled-score mean of -3.3e-14, a variance match to 2.568e-04, and 0.06 s for each fit | the reuse of the pooled fold-evaluated construction |
+| p5, p7 and p8 on 2026-09-26: coverage pilots | Python 3.11. Sample seeds 1,000 to 1,399, and fold seeds 0 to 399. 400 replicates for each law | coverage, bias and SE ratio for the laws N, E, M1, M2 and S. For example, coverage 0.945 with SE ratio 0.999 on N at n = 2,000, and 0.892 with 0.820 on E | the choice of the law M2 as `misspecified_limit` after M1 read like E, and the move of E and S to the reporting study |
+| p6 on 2026-09-26: the fold-locality mutation | Python 3.11. Sample seeds 5,000 to 5,149, and fold seeds 0 to 149 | a positive bias of -0.05 SD with coverage 0.907, and a control bias of +6.54 SD | the forest cell and the rule that `fold_locality` reads bias only |
 | `q1_limits.py` on 2026-09-28 | the declared runtime. No seed | every constant in the two law tables | the constants, $d_1$ of `misspecified_limit`, and the displacement threshold |
-| `p9_agreement_p1.py` on 2026-09-28 | the declared runtime. Throwaway seeds 9,300,000 to 9,300,039 | on 40 draws for each of three learner and law pairs: rule agreement 1, no solver warning, and a median fit time of 0.06 s. It printed no estimate | the declared solver settings, which stay unchanged |
-| `p10_drop_w1_rule.py` on 2026-09-28 | the declared runtime. Throwaway seeds 9,400,000 to 9,400,099 | 105 of 2,000 fold and stratum rules of the $W_1$-dropping learner do not treat, at n = 2,000 | a stated risk only. That arm's fold rule departs from its limit on some folds, and the family reads bias only |
-| `q2_seed_collisions.py` on 2026-09-28, run again after the A3 budgets | the declared runtime. Seeds only, and no draw | the collision table above | the `("retry", 1)` label of the calibration cell |
-| `p11_budget_inputs.py` on 2026-09-28 | the declared runtime. Throwaway seeds 9,500,000 to 9,500,049, 9,600,000 to 9,600,049 and 9,700,000 to 9,700,049 for the three sizes, and 9,800,000 to 9,800,099 for the `targeting_necessity` pair | the CV of the reported SE (0.0245, 0.0138 and 0.0071), the wall time of a fit with its truth, and the SD ratio 0.5416 of the paired errors. It printed no coverage, bias or displacement. It also printed two solver warnings | the reported-SE slope row of the budget rule, the runtime, and the information row on the displacement |
+| `p9_agreement_p1.py` on 2026-09-28 | the declared runtime. Throwaway seeds 9,300,000 to 9,300,039, each for the sample and its folds | on 40 draws for each of three learner and law pairs: rule agreement 1, no solver warning, and a median fit time of 0.06 s. It printed no estimate | the declared solver settings, which stay unchanged |
+| `p10_drop_w1_rule.py` on 2026-09-28 | the declared runtime. Throwaway seeds 9,400,000 to 9,400,099, each for the sample and its own fold permutation | 105 of 2,000 fold and stratum rules of the $W_1$-dropping learner do not treat, at n = 2,000 | a stated risk only. That arm's fold rule departs from its limit on some folds, and the family reads bias only |
+| `q2_seed_collisions.py` on 2026-09-28, run again after commit `d0f8a9fa` and after the review | the declared runtime. Seeds only, and no draw | three checks. L3 on the declared sample seeds. The overlap of every pilot sample seed and fold seed in this table with every declared sample seed and fold-partition seed: none. The overlap of the first 32 primary seeds of each L9 smoke record with every declared seed: none | the `("retry", 1)` label of the calibration cell |
+| `p11_budget_inputs.py` on 2026-09-28 | the declared runtime. Throwaway seeds 9,500,000 to 9,500,049, 9,600,000 to 9,600,049 and 9,700,000 to 9,700,049 for the three sizes, and 9,800,000 to 9,800,099 for the `targeting_necessity` pair, each for the sample and its folds | the CV of the reported SE (0.0245, 0.0138 and 0.0071), the wall time of a fit with its truth, and the SD ratio 0.5416 of the paired errors. It printed no coverage, bias or displacement. It also printed two solver warnings | the reported-SE slope row of the budget rule, the runtime, and the information row on the displacement |
 | `p12_ladder_warnings.py` and `p13_pair_warnings.py` on 2026-09-28 | the same throwaway seeds | warning counts and rule agreement only. The ladder showed no warning. On the pair, draw 69 gave one lbfgs `ABNORMAL` warning in the fit and the same warning in its refit, and rule agreement stayed 1 | a stated risk for L10: a smoke draw of the $W_1$-dropping learner can warn |
 | `q3_budget_rule.py` on 2026-09-28 | no seed | the rule values of the budget table | the root-n and `targeting_necessity` budgets |
+| the review probes `r1_quadrature.py`, `r2_seeds.py` and `r3_trapezoid.py` on 2026-09-28 | the declared runtime. Seeds only, or no seed | an independent recomputation of every constant, every budget and the seed rule, and the trapezoid error of the harness truth | the predicted SE ratio 1.0002 of `misspecified_limit`. No rule changed |
 
 The probes and their logs are in the planning directory, which the repository does not track. No
 declared seed has drawn a sample.
@@ -3191,7 +3219,7 @@ before it ships, as RM30 does.
 | (d) categorical treatments | a treatment with more than two arms | Nordland and Holst (2026), Section 3.4, for discrete actions | source audit |
 | (e) the stacked doubly robust score evaluation | `cv_evaluation=False` | Nordland and Holst (2026), Algorithm 4, which pools the scores and centres the variance at the pooled estimate | published support; pending source read |
 | (f) the value of the optimal rule | no request reaches it | van der Laan and Luedtke (2015), Section 7.2, last paragraph; Luedtke and van der Laan (2016), *Annals of Statistics* | published support; pending source read |
-| (g) blip and weighted-classification rule learners | no request reaches it, because RM30 has one rule learner | Luedtke and van der Laan (2016), *International Journal of Biostatistics*, Sections 4.1 to 4.3 | published support; pending source read |
+| (g) blip and weighted-classification rule learners | no request reaches it, because RM30 has one rule learner | Luedtke and van der Laan (2016), *International Journal of Biostatistics*, Sections 4.1 to 4.3, read first-hand in the author manuscript | published support |
 | (h) fold-specific targeting | `targeting_scheme="fold"` | Montoya, van der Laan, Skeem and Petersen (2023), *International Journal of Biostatistics* 19(1):239–259, Section 3.2, Step 2(c), and Section 4.2, read first-hand in the publisher's version | published support |
 
 Part (h) is not the training-fold update that the [Eligibility](#eligibility) section names as new
@@ -3201,12 +3229,14 @@ that update for arm targets.
 ### F27. Learned-policy value outside the published conditions
 
 The [RM30](#rm30-learned-policy-value-evaluation) contract refuses each request below before any
-learner. No reviewed source gives the result that the request needs. The reporting study that
-RM30 declares measures the first row, and each of its red cells names F27 as its owner.
+learner, with two exceptions. The reporting study measures the exceptional-law row, and the
+assessment row reads `unavailable`. F27 owns every red cell of the reporting study. The table
+states, row by row, whether a published result is missing.
 
 | request | missing published result |
 | --- | --- |
-| an interval at an exceptional or near-exceptional law, where the limiting-rule condition C3 of RM30 fails or holds only weakly | a CV-TMLE interval for the fold-average target without a limiting rule. Luedtke and van der Laan (2016), *Annals of Statistics*, Section 4.2, name inverse weighting by the standard deviation and a central limit theorem for triangular arrays. Section 5 applies them to the optimal value. No reviewed source applies those tools to this target |
+| an interval at an exceptional law, where the limiting-rule condition C3 of RM30 fails | a CV-TMLE interval for the fold-average target without a limiting rule. Luedtke and van der Laan (2016), *Annals of Statistics*, Section 4.2, name inverse weighting by the standard deviation and a central limit theorem for triangular arrays. Section 5 applies them to the optimal value. No reviewed source applies those tools to this target |
+| an interval at the `weak_blip` law of the reporting study | no missing result. That law is within C3, and Theorem 6 of van der Laan and Luedtke (2015) covers it. A red cell there is a finite-sample limit at n = 2,000, and F27 holds it as the owner of the reporting study |
 | `repeats` above 1 | each split defines a different target, and no source aggregates over targets |
 | the full-refit bootstrap | each resample relearns the rules, so each draw has a different target |
 | a continuous treatment | no reviewed source defines a learned rule over a dose for this target |

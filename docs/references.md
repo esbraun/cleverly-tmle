@@ -533,19 +533,20 @@ previous reader had is not a citation; a page number is.
   inference conditions. [RM25](roadmap.md#rm25-declared-stochastic-regime-densities) uses this
   distinction when interpreting its exact-law odds-tilt witness.
 - Nordland & Holst (2026), [*Policy Learning with the polle Package*](https://doi.org/10.18637/jss.v116.i04),
-  *Journal of Statistical Software* 116(4):1–51, DOI 10.18637/jss.v116.i04. Read first-hand in
-  the version of record of 31 May 2026, on 2026-09-28. Section 3.4 defines the target conditional on the learned policy, and it gives the
-  influence function when the learned policy has a limiting policy. Algorithm 4 learns each policy
-  on the rows outside a fold. It pools the doubly robust scores with weight $1/N$, and it centres
-  the variance estimate at the pooled estimate. This is a method distinct from the one that
-  [RM30](roadmap.md#rm30-learned-policy-value-evaluation) plans, and
+  *Journal of Statistical Software* 116(4):1–51, DOI 10.18637/jss.v116.i04. Read first-hand in the
+  version of record of 31 May 2026, on 2026-09-28. Section 3.4 defines the target conditional on the
+  learned policy, and it gives the influence function when the learned policy has a limiting policy.
+  Algorithm 4 learns each policy on the rows outside a fold. It pools the doubly robust scores with
+  weight $1/N$, and it centres the variance estimate at the pooled estimate. This is a method
+  distinct from the one that [RM30](roadmap.md#rm30-learned-policy-value-evaluation) plans, and
   [X11](roadmap.md#x11-learned-policy-follow-ups) part (e) holds it.
   [RM28](roadmap.md#rm28-declared-densities-of-user-written-interventions) requires `Rule`, and a
   `DynamicRegimen` with a callable node, to declare `rule_kind="known"`. It refuses a rule
   declared `"estimated"`.
 - van der Laan & Luedtke (2015), [*Targeted Learning of the Mean Outcome under an Optimal Dynamic
   Treatment Rule*](https://doi.org/10.1515/jci-2013-0022), *Journal of Causal Inference* 3(1):61–95,
-  DOI 10.1515/jci-2013-0022. Read first-hand in the NIH author manuscript PMC4517487, which states
+  DOI 10.1515/jci-2013-0022. Read first-hand on 2026-09-26, 2026-09-27 and 2026-09-28 in the NIH
+  author manuscript PMC4517487, which states
   that it was "Published in final edited form as" this article. The publisher page returned no
   text on 2026-09-28, so the locators are section, theorem, corollary, equation and appendix
   numbers, and no page numbers. Section 6, Theorem 5, treats the value of a rule fitted on all
@@ -579,13 +580,15 @@ previous reader had is not a citation; a page number is.
   [X11](roadmap.md#x11-learned-policy-follow-ups) part (h) cites its fold-specific update.
 - Luedtke & van der Laan (2016), [*Super-learning of an optimal dynamic treatment
   rule*](https://doi.org/10.1515/ijb-2015-0052), *International Journal of Biostatistics*
-  12(1):305–332, DOI 10.1515/ijb-2015-0052. Read first-hand in the NIH author manuscript
-  PMC6056197. Sections 4.1 to 4.3 give the blip and weighted-classification losses for a rule
-  learner, and Section 6 gives the CV-TMLE of a rule's risk. It gives no interval for the value.
+  12(1):305–332, DOI 10.1515/ijb-2015-0052. Read first-hand in the NIH author manuscript PMC6056197
+  on 2026-09-26, and its section structure again on 2026-09-28. Sections 4.1 to 4.3 give the blip
+  and weighted-classification losses for a rule learner, and Section 6 gives the CV-TMLE of a rule's
+  risk. It gives no interval for the value.
   [X11](roadmap.md#x11-learned-policy-follow-ups) part (g) cites it.
 - Luedtke & van der Laan (2016), [*Statistical inference for the mean outcome under a possibly
   non-unique optimal treatment strategy*](https://doi.org/10.1214/15-AOS1384), *Annals of
-  Statistics* 44(2):713–742, DOI 10.1214/15-AOS1384. Read first-hand in the IMS reprint
+  Statistics* 44(2):713–742, DOI 10.1214/15-AOS1384. Read first-hand on 2026-09-26, 2026-09-27
+  and 2026-09-28 in the IMS reprint
   arXiv:1603.07573, whose pagination differs from the journal, so the locators are section
   numbers. The paper gives the pathwise differentiability condition for the population
   optimal-rule value. Section 4.1 states that at an exceptional law the rule estimate is not
