@@ -2165,7 +2165,7 @@ def test_a_guarded_drtmle_truncation_curve_is_declared_a_refit() -> None:
 
     ``truncation_curve`` calls ``estimator.retarget`` once per bound. On a guarded
     DR-TMLE that reaches ``_solve_reduction``, and ``DRTMLE._reduction`` hands the
-    alternation a closure that refits the reduced regressions at the swept bounds. One
+    alternation a closure that refits the reduced regressions. One
     shared row called that a moderate retarget, so a caller who declined refits was given
     fit-cost work under a retarget permission.
 
@@ -2179,7 +2179,7 @@ def test_a_guarded_drtmle_truncation_curve_is_declared_a_refit() -> None:
 
     row = guarded.diagnostics.capability("truncation_curve")
     assert (row.execution, row.cost) == ("refit", "expensive")
-    assert row.requires_replay == "refit_nuisances"
+    assert row.requires_replay == "retarget_cached_nuisances"
 
     plain = unguarded.diagnostics.capability("truncation_curve")
     assert (plain.execution, plain.cost) == ("retarget", "moderate")

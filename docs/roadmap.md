@@ -455,7 +455,7 @@ The witnesses must fail when a component is wrong:
 | longitudinal plan written as a mapping | `{"x": {"t1": 1, "t2": d}}` resolves to `Regimen('x', t1/t2)`, with the dictionary keys as arms. The fit then raises `DataError`: "regimen 'x' assigns 't1' at time 1". The message names a label that the user did not mean as an arm, and nothing checks or calls `d` | `_plan_nodes` in `src/cleverly/longitudinal/regimen.py` reads any iterable that is not an iterator as a tuple of its items. The review of RM28 probed the plan at a0e93bb6 and at commit 75e86be, with the same result | refuse a mapping plan by name, and name the sequence form and `DynamicRegimen` in the message |
 | `benchmark(covariates=[])` | runs a refit that drops nothing. The report reads "implied cf_y = 0.0000, cf_d = 0.0000" and "the estimate moved by +0" | `benchmark_refusal` in `src/cleverly/sensitivity/omitted_variable.py` returns `None` for an empty request, because a covariate remains. A 2026-09-24 probe on the RM23 sweep's `ordinary` kind, `make_linear_ate(n=400, seed=2)` in sample, returned that report | refuse an empty `covariates` as a malformed argument, before the refit |
 | `benchmark` covariate names on a fit with an encoded categorical covariate | accepts the indicator column `V__low`, and rejects the logical name `V` with `DataError`: "unknown covariates ['V']; this fit adjusts for ['W1', 'W2', 'W3', 'W4', 'V__low']". The fit adjusts for `V` | the same probe on the sweep's `stratified` kind, which adds a two-level `V` as a stratum and a covariate. `simulated_confounding` refuses an encoded column by name, because zeroing one encoded column does not define a logical-covariate benchmark | accept the logical name and drop its whole encoded block, or refuse an indicator column by name as `simulated_confounding` does. Name the logical column in the message |
-| `truncation_curve` row of a guarded DR-TMLE result whose estimator holds a refused configuration | reads `unavailable`, and `diagnostics.truncation_curve()` refuses, although the module call `truncation_curve(result, [0.05])` runs and returns a curve | a 2026-09-26 probe gave the RM23 sweep's `drtmle` kind `stratify_folds="treatment"` through `reconfigured` in `tests/unit/_capability_sweep_support.py`. `refit_nuisances` reads false with `point_replay_refit_configuration`. `assessment_capabilities` makes the guarded row require `refit_nuisances`. The curve refits the reduced regressions inside `retarget`, and does not call `refit()` | decide which replay slot the guarded curve needs, and make the row, the facade call and the module call agree |
+| `truncation_curve` row of a guarded DR-TMLE result whose estimator holds a refused configuration | the old row read `unavailable`, and `diagnostics.truncation_curve()` refused, although the module call `truncation_curve(result, [0.05])` ran | a 2026-09-26 probe gave the RM23 sweep's `drtmle` kind `stratify_folds="treatment"` through `reconfigured` in `tests/unit/_capability_sweep_support.py`. `refit_nuisances` reads false with `point_replay_refit_configuration`. The curve refits reduced regressions inside `retarget`, and does not call the outer `refit()` | delivered: the guarded row requires `retarget_cached_nuisances`. `TestGuardedTruncationUsesCachedNuisanceReplay` checks row, facade, and module calls on live and reconfigured fits. It keeps an undeclared-function refusal |
 
 Each correction needs a unit test that fails without it. Three tests are nonzero witnesses. A
 `RegimeContrast` summary keeps its reference line. A design with a time-varying covariate prints it
@@ -617,8 +617,9 @@ its owner. This subsection gives the reason for each assignment.
 
 `F18` holds the red cells of both selector studies, except the multi-arm
 `root_n_and_efficiency/n_500` endpoint. On both laws of the point-treatment study, the population
-one-step remainder is exactly zero at the nuisance limits. The residual there is the selector's
-stopping behaviour and not a nuisance rate. On the multi-arm study, the greedy and ordered paths
+one-step remainder is exactly zero at the nuisance limits. That limit does not isolate the
+finite-sample nuisance remainder or the effect of the selector's stopping rule on the red cells.
+On the multi-arm study, the greedy and ordered paths
 miss their bias margins, and the discrete path stops at the empty candidate. The reversed
 standard-error ratio of `selector_necessity/collaborative` is also a nonzero witness for the
 [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism) refusal, and a label
@@ -1612,6 +1613,12 @@ the limiting dimension must exist and be nonrandom. The package instead selects 
 from nested targeted-loss folds. A proof must establish that this depth and its induced model meet
 those conditions.
 
+[Van der Laan et al. (2026)](https://arxiv.org/html/2501.11868v3), Section 5.2 and Appendix C,
+make the selected-model obligations explicit. Theorem 5 requires a linear expansion,
+influence-curve stabilization, and model-approximation rates. Section 5.1, Corollary 1, covers its
+own autoTML construction under Conditions B1 to B5. Neither result verifies those conditions for
+the shipped stopping rule.
+
 The oracle projection's efficiency bound is typically, not invariably, smaller
 than the nonparametric bound. Applicability could therefore ratify the current curve or require a
 different one; it does not predetermine the covariance verdict.
@@ -1769,7 +1776,7 @@ divergences are genuine, and the table below states each one.
 
 | divergence | what ships | what Appendix D outlines |
 | --- | --- | --- |
-| the final average | the stacked whole-sample plug-in (`src/cleverly/estimators/tmle.py:429-439`), because `CTMLE` refuses `cv_evaluation=True` (`src/cleverly/estimators/ctmle.py:753-757`) | the `(1/V) sum_v` fold average. The two agree only at equal fold weight mass |
+| the final average | the stacked whole-sample plug-in (`src/cleverly/estimators/tmle.py:429-439`), because `CTMLE` refuses `cv_evaluation=True` (`src/cleverly/estimators/ctmle.py:753-757`) | the `(1/V) sum_v` fold average. Equal fold weight mass guarantees agreement, but unequal mass can also agree. With fixed $V$, unweighted near-balanced folds, and bounded predictions, the difference is $O(V/n)$ |
 | the fluctuation dimension | a joint fluctuation with one column for each arm | one signed coefficient for the binary ATE |
 
 The package instead jointly targets both arm means with two fluctuation columns and derives means,

@@ -900,7 +900,7 @@ gives what such a result keeps.
 
 | operation | on such a result |
 | --- | --- |
-| point estimates and cached-nuisance retargets, such as `truncation_curve()` | run. `replayability.retarget_cached_nuisances` is `True`. A guarded DR-TMLE fit is the exception. Its `truncation_curve` row needs `refit_nuisances`, so the row reads `unavailable` and `diagnostics.truncation_curve()` refuses. The module call `truncation_curve(result, [0.05])` still runs. [RM16](../roadmap.md#rm16-summary-and-error-message-accuracy) records the disagreement |
+| point estimates and cached-nuisance retargets, such as `truncation_curve()` | run. `replayability.retarget_cached_nuisances` is `True`. A guarded DR-TMLE curve also runs: it retargets cached primary nuisances and refits reduced regressions inside that step. Its row reports the `refit` cost, but it does not require the outer estimator's `refit_nuisances` slot |
 | refits, such as `refute()` and `simulated_confounding()` | `unavailable`. `replayability.refit_nuisances` is `False`, with the code `point_replay_refit_configuration` |
 | `estimator.refit()` | raises `CapabilityError` before any learner |
 
