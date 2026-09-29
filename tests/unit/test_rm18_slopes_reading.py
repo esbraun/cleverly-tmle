@@ -2,8 +2,9 @@
 
 "Design SL" in ``docs/roadmap.md`` declares the reading table and the control rule before the
 run. This file applies them to the committed ``canonical-multi-arm-drtmle`` artifacts. The slope
-intervals come from ``properties.csv``. Each n = 2,000 bias interval is the 99% Student interval
-over the rows that the slope reads, which is all 73,000 rows of the rung.
+intervals come from ``properties.csv``. The declaration does not name the budget of the
+n = 2,000 bias interval, and RM18 resolved it after the run as the verdict budget of 600. The
+99% Student interval over all 73,000 rows of the rung is supplementary.
 """
 
 from __future__ import annotations
@@ -89,31 +90,35 @@ def test_the_longhand_interval_is_the_published_one_at_the_verdict_budget(
         assert high == pytest.approx(properties.loc[cell, "bias_ci_upper"], rel=1e-9, abs=1e-15)
 
 
-def test_each_positive_arm_reads_contracts(
+def test_each_positive_arm_reads_the_declared_label(
     properties: pd.DataFrame, rungs: dict[str, pd.DataFrame]
 ) -> None:
+    """The reading uses the n = 2,000 interval at the verdict budget, as RM18 resolved it."""
     published = {
-        "outcome_correct": ((-1.069362, -0.665233), (0.001748, 0.001495, 0.002001)),
-        "treatment_correct": ((-1.023461, -0.740296), (0.002539, 0.002285, 0.002793)),
+        "outcome_correct": ((-1.069362, -0.665233), (0.001127, -0.001651, 0.003905)),
+        "treatment_correct": ((-1.023461, -0.740296), (0.000585, -0.002274, 0.003444)),
     }
     for scenario in POSITIVES:
         slope = _slope(properties, scenario)
-        point, low, high = _bias(rungs, f"{scenario}_n2000", OUTER_BUDGET)
+        point, low, high = _bias(rungs, f"{scenario}_n2000", VERDICT_BUDGET)
         assert slope == pytest.approx(published[scenario][0], abs=5e-7)
         assert (point, low, high) == pytest.approx(published[scenario][1], abs=5e-7)
-        assert reading(slope, (low, high)) == "contracts"
+        assert reading(slope, (low, high)) == "contracts at the noise floor"
         assert bool(properties.loc[f"rate_{scenario}", "passed"])
 
 
-def test_the_verdict_budget_interval_would_read_the_noise_floor(
+def test_the_supplementary_full_rung_interval_excludes_zero(
     properties: pd.DataFrame, rungs: dict[str, pd.DataFrame]
 ) -> None:
-    """The first 600 rows of each rung were committed before the declaration; they cover 0."""
+    """The 73,000-row interval, which no rule reads, would give the stronger label."""
+    published = {
+        "outcome_correct": (0.001748, 0.001495, 0.002001),
+        "treatment_correct": (0.002539, 0.002285, 0.002793),
+    }
     for scenario in POSITIVES:
-        _, low, high = _bias(rungs, f"{scenario}_n2000", VERDICT_BUDGET)
-        assert reading(_slope(properties, scenario), (low, high)) == (
-            "contracts at the noise floor"
-        )
+        point, low, high = _bias(rungs, f"{scenario}_n2000", OUTER_BUDGET)
+        assert (point, low, high) == pytest.approx(published[scenario], abs=5e-7)
+        assert reading(_slope(properties, scenario), (low, high)) == "contracts"
 
 
 def test_the_control_passes_and_meets_its_prediction(properties: pd.DataFrame) -> None:

@@ -453,7 +453,7 @@ carry them onto the final stack without change.
 | Design OW | [`tests/diagnostics/rm18_ordinary_weighted/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_ordinary_weighted). OW-A reads `finite-sample, contracting`, and OW-B reads `resolved within gate`. OW-C reads `control underpowered by design` and `family resolved` |
 | Design BD | [`tests/diagnostics/rm18_boundary/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_boundary), which also holds FW-B. The six re-read cells read `resolved: truth satisfies the gate`, and the two paired rows read `comparator SE convention` |
 | Design CD | [`tests/diagnostics/rm18_comparator_density/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_comparator_density). The paired shift row reads `cleverly density representation` |
-| Design SL | the regeneration of `canonical-multi-arm-drtmle` at 73,000 replications on each outer rung. Both positive slopes read `contracts`. "[What design SL found](#what-design-sl-found)" gives the numbers |
+| Design SL | the regeneration of `canonical-multi-arm-drtmle` at 73,000 replications on each outer rung. Both positive slopes read `contracts at the noise floor`. "[What design SL found](#what-design-sl-found)" gives the numbers |
 | routes | no reading names a defect in `cleverly`, so no reading opened a new row. The two slope cells pass under the registered rule, and the ledger no longer lists them. Every other cell keeps its owner and stays red under `reporting` |
 
 The four `tests/unit/test_rm18_*_diagnostic.py` files of designs FW, OW, BD and CD rebuild each
@@ -496,7 +496,7 @@ gives the cells of each owner and the reason for each assignment.
 | `RM18-attribution` | an attribution of the verdicts that changed with the pooled update | delivered for the end-of-study and weighted studies. A declared code-by-runtime diagnostic reads the two weighted cells and the end-of-study overfitting cell as code changes. "What the runtime isolation found", in commit `985849c6`, gives the numbers. The weighted cells stay red as finite-sample reporting evidence |
 | `RM18-fixed-weights` | a fixed-known-weight follow-up for the two weighted cross-fitted cells that went red with the pooled update | delivered. Design FW ran once. FW-A reads `finite-sample, contracting`, and FW-B reads `equivalent at the declared budget`. "What design FW found", in commit `985849c6`, gives the numbers. The two cells stay red under `reporting` at their registered budgets |
 | `RM18-one-sided-bias` | a reading of the three one-sided-robustness bias rows | delivered. The reading that "The one-sided robustness reading, declared before it is computed" declares ran once. "[What the one-sided reading found](#what-the-one-sided-reading-found)" gives its result. The three cells stay red under `reporting` |
-| `RM18-slopes` | a reading of the two multi-arm DR-TMLE contraction slopes | delivered. Design SL ran once. Both slopes read `contracts`, and both rate cells pass under the registered rule. "[What design SL found](#what-design-sl-found)" gives the numbers |
+| `RM18-slopes` | a reading of the two multi-arm DR-TMLE contraction slopes | delivered. Design SL ran once. Both slopes read `contracts at the noise floor`, and both rate cells pass under the registered rule. "[What design SL found](#what-design-sl-found)" gives the numbers |
 | `RM18-ordinary-weighted` | an owner for the six red rows of the ordinary weighted longitudinal study | delivered. Design OW ran once. OW-A reads `finite-sample, contracting`, OW-B reads `resolved within gate`, and OW-C reads `control underpowered by design` and `family resolved`. "What design OW found", in commit `985849c6`, gives the numbers. The six rows stay red under `reporting` |
 | `RM18-learner-weight-se` | a diagnostic for the standard-error explosions in the cross-fitted `learner_weight_necessity` rows | delivered. A complete review declaration was pushed before a clean rerun that reproduced the refit table. "What the learner-weight diagnostic found" gives its reading. This row owns no red cell |
 | `RM18-boundary` | an owner for the red cells that sit at a finite-budget boundary | delivered. Design BD ran once. The six re-read cells read `resolved: truth satisfies the gate`, and the two paired rows read `comparator SE convention`. "What design BD found", in commit `985849c6`, gives the numbers. Each cell stays red under `reporting` at its declared budget |
@@ -666,36 +666,41 @@ Each check that the declaration names held after the run.
 
 Each slope interval is the registered 99% percentile bootstrap. Each slope reads 146,600
 replications: 73,000 at n = 2,000, 600 at n = 4,000 and 73,000 at n = 8,000. Each bias interval is
-the 99% Student interval over the 73,000 replications of its rung. The reading rule reads the
-n = 2,000 bias interval alone.
+the 99% Student interval of the n = 2,000 rung. The reading rule reads the interval at the verdict
+budget of 600. The interval over all 73,000 rows is supplementary, and no rule reads it.
 
-| cell | slope, 99% interval | n = 2,000 bias, 99% interval | n = 8,000 bias, 99% interval | reading |
+| cell | slope, 99% interval | n = 2,000 bias, 600 rows | n = 2,000 bias, 73,000 rows, supplementary | reading |
 | --- | --- | --- | --- | --- |
-| `rate_outcome_correct` | -0.8587, -1.0694 to -0.6652 | 0.001748, 0.001495 to 0.002001 | 0.000532, 0.000405 to 0.000658 | `contracts` |
-| `rate_treatment_correct` | -0.8740, -1.0235 to -0.7403 | 0.002539, 0.002285 to 0.002793 | 0.000756, 0.000630 to 0.000882 | `contracts` |
-| `rate_both_wrong`, the control | 0.0020, -0.0021 to 0.0061 | 0.049143, 0.048892 to 0.049394 | 0.049277, 0.049152 to 0.049402 | passes |
+| `rate_outcome_correct` | -0.8587, -1.0694 to -0.6652 | 0.001127, -0.001651 to 0.003905 | 0.001748, 0.001495 to 0.002001 | `contracts at the noise floor` |
+| `rate_treatment_correct` | -0.8740, -1.0235 to -0.7403 | 0.000585, -0.002274 to 0.003444 | 0.002539, 0.002285 to 0.002793 | `contracts at the noise floor` |
+| `rate_both_wrong`, the control | 0.0020, -0.0021 to 0.0061 | 0.050292, 0.047586 to 0.052998 | 0.049143, 0.048892 to 0.049394 | passes |
 
-Both positive slope intervals lie below 0, and each n = 2,000 bias interval excludes 0. The
-declared reading of both arms is therefore `contracts`. The registered rule passes both rate
-cells, and `CLAIMS` in `tests/studies/evidence/red_cells.py` no longer lists them. At 1,800
-replications, the slope intervals ran -1.2342 to 3.7735 and -3.2412 to 3.3387.
+Both positive slope intervals lie below 0. Each n = 2,000 bias interval at the verdict budget
+covers 0. The declared reading of both arms is therefore `contracts at the noise floor`. Its route
+is the ledger move of `contracts`, and the multi-arm page states the qualification. The registered
+rule passes both rate cells, and `CLAIMS` in `tests/studies/evidence/red_cells.py` no longer lists
+them. At 1,800 replications, the slope intervals ran -1.2342 to 3.7735 and -3.2412 to 3.3387.
+
+The qualification is the one the declaration gives. A zero bias can give a negative slope through
+Monte Carlo error alone. At the verdict budget, the n = 2,000 bias of neither arm is resolved from
+0. The supplementary intervals over 73,000 rows exclude 0, and no rule reads them.
+
+The declaration names the n = 2,000 bias interval, and it does not name the budget of that
+interval. The orchestrator resolved the budget after the run, when both readings were known. The
+resolution is the verdict budget of 600. The declaration keeps each rung's verdict at 600, and the
+extra outer rows serve the slope alone. A budget chosen after the run must not favour the stronger
+label.
+
+At 73,000 rows, both arms would read `contracts`. Both labels take the same ledger route.
+`tests/unit/test_rm18_slopes_reading.py` asserts the declared label and computes both intervals.
 
 The control's slope interval covers 0, so the control passes its registered rule. The raised
 control budget carried a declared risk. An `O(1/n)` transient in the both-wrong bias could place
 the interval below 0 at 73,000 replications. That did not occur. The declared consequence, that no
-`contracts` reading counts as evidence of contraction, therefore does not apply.
+positive reading counts as evidence of contraction, therefore does not apply.
 
 The declared prediction for the control also held. Its slope half-width is 0.004123, against a
 prediction of about 0.0040 within 15%. At 600 replications per rung it was 0.043840.
-
-The declaration names the n = 2,000 bias interval, and it does not name the budget of that
-interval. This record reads it over the 73,000 rows that the slope reads. The noise-floor reading
-exists for Monte Carlo error in the slope, and that error comes from those rows.
-
-Rows 0 to 599 of each rung were committed before the declaration. Over those rows, the
-n = 2,000 bias intervals run -0.001651 to 0.003905 and -0.002274 to 0.003444. Both cover 0, so a
-reading at that budget is `contracts at the noise floor` for both arms. That reading takes the
-same route in the ledger. `tests/unit/test_rm18_slopes_reading.py` checks both readings.
 
 What the readings do not show:
 

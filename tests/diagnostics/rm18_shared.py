@@ -35,6 +35,7 @@ from tests.studies import weighted_longitudinal_properties_common as weighted
 from tests.studies.evidence.inference import Interval, clopper_pearson, percentile_interval
 from tests.studies.evidence.manifest import ROOT, UNKNOWN, _git, provenance, write_csv
 from tests.studies.evidence.properties import ratio_draws, replicate_row
+from tests.studies.evidence.property_verdicts import CONTRACTION_FAMILY, _at_verdict_budget
 from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
@@ -183,6 +184,12 @@ def summary_check(
     of the rows it covers, and the study's ``summarize_properties`` runs once on the result.
     Every numeric column of each named ``(property, cell)`` row must then match
     ``properties.csv`` to the R4 tolerance, and every other column exactly.
+
+    A study that reads its contraction rungs at a verdict budget
+    (``CONTRACTION_VERDICT_REPLICATES``) is summarized from each rung's first rows at that
+    budget, through the framework's ``_at_verdict_budget``.  Every rung row is published at that
+    budget, so a named rung row is unchanged.  Only the fitted slopes would read the extra outer
+    rows, so a slope row cannot be named here.
     """
     keys = ["property", "cell", "replicate"]
     columns = ["estimate", "std_error", "covered", "rejected"]
@@ -193,7 +200,14 @@ def summary_check(
     if int(mask.sum()) != len(patch):
         raise RuntimeError("a refit row has no committed property row")
     rows.loc[mask, columns] = patch.loc[index[mask], columns].to_numpy()
-    summary = record.properties().summarize_properties(rows).set_index(["property", "cell"])
+    module = record.properties()
+    verdict_replicates = getattr(module, "CONTRACTION_VERDICT_REPLICATES", None)
+    if verdict_replicates is not None:
+        slopes = [cell for cell in cells if cell[0] == CONTRACTION_FAMILY and "_n" not in cell[1]]
+        if slopes:
+            raise ValueError(f"a cropped summary cannot check the fitted slope rows {slopes}")
+        rows = _at_verdict_budget(rows, verdict_replicates)
+    summary = module.summarize_properties(rows).set_index(["property", "cell"])
     published = read_rows(record.artifact("properties.csv")).set_index(["property", "cell"])
     largest = 0.0
     same = True

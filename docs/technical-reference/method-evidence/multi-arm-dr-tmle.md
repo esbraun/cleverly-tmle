@@ -160,9 +160,10 @@ its absence.
 
 RM18 design SL ran the two outer rungs of each regime at 73,000 replications. A declaration
 written before the run fixed that budget and the reading rule. The 99% interval of each fitted
-slope now lies below zero, and both slope rows pass. Over the 73,000 rows at n = 2,000, the bias
-interval of each one-correct regime excludes zero. The declared reading of both slopes is
-therefore `contracts`.
+slope now lies below zero, and both slope rows pass. The declared reading of both slopes is
+`contracts at the noise floor`. Over the 600 replications that each rung's verdict reads, the
+n = 2,000 bias interval of each one-correct regime covers zero. A zero bias can give a negative
+slope through Monte Carlo error alone, so these slopes do not show that a nonzero bias contracts.
 
 The both-wrong control's slope interval covers zero, and the control passes. Each rung's coverage
 verdict stays at 600 replications. A slope below zero shows the direction of the change, and it
