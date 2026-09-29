@@ -1492,20 +1492,42 @@ class BenchmarkResult:
         return self.summary()
 
 
+def _benchmark_covariates(data: Any) -> tuple[str, ...]:
+    """The covariates a benchmark can name, in fit order, with an encoded covariate once.
+
+    An encoded categorical covariate enters the fit as a block of indicator columns. One
+    indicator alone is not a covariate, so the column name stands for the whole block.
+    """
+    sources = data.indicator_sources
+    return tuple(dict.fromkeys(sources.get(name, name) for name in data.covariate_names))
+
+
+def _benchmark_columns(data: Any, names: tuple[str, ...]) -> tuple[str, ...]:
+    """The design columns that the covariate ``names`` stand for, in request order."""
+    sources = data.indicator_sources
+    return tuple(
+        column
+        for name in names
+        for column in data.covariate_names
+        if sources.get(column, column) == name
+    )
+
+
 def _benchmark_names(result: TMLEResult, covariates: Any) -> tuple[str, ...]:
     """The covariate names a ``covariates=`` value requests, one bare name included.
 
-    A name the fit does not adjust for is a malformed argument, and it is reported before
-    any refusal.  :func:`benchmark` and the ``benchmark`` method of
-    :class:`~cleverly.assessment.SensitivityFacade` each call this first, and
-    :func:`benchmark_refusal` returns ``None`` where it raises.
+    A malformed request is reported before any refusal: an empty one, an indicator column
+    of an encoded covariate, and a name the fit does not adjust for.  :func:`benchmark`
+    and the ``benchmark`` method of :class:`~cleverly.assessment.SensitivityFacade` each
+    call this first, and :func:`benchmark_refusal` returns ``None`` where it raises.
 
     Parameters
     ----------
     result : TMLEResult
         The fitted result whose covariates the names must be.
     covariates : str or sequence of str
-        The requested covariate names.
+        The requested covariate names.  An encoded categorical covariate is named by its
+        column, not by one of its indicator columns.
 
     Returns
     -------
@@ -1515,15 +1537,26 @@ def _benchmark_names(result: TMLEResult, covariates: Any) -> tuple[str, ...]:
     Raises
     ------
     DataError
-        If a name is not a covariate of the fit.
+        If the request names no covariate, names an indicator column, or names a
+        covariate the fit does not adjust for.
     """
     names = tuple([covariates] if isinstance(covariates, str) else covariates)
-    unknown = sorted(set(names).difference(result.data.covariate_names))
-    if unknown:
+    if not names:
         raise DataError(
-            f"unknown covariates {unknown}; this fit adjusts for "
-            f"{list(result.data.covariate_names)}"
+            "benchmark needs at least one covariate to drop; covariates= names none, and a "
+            "refit that drops nothing measures nothing"
         )
+    sources = result.data.indicator_sources
+    for name in names:
+        if name in sources:
+            raise DataError(
+                f"{name!r} is an indicator column of the encoded covariate {sources[name]!r}. "
+                f"Name {sources[name]!r} to drop its whole encoded block"
+            )
+    fitted = _benchmark_covariates(result.data)
+    unknown = sorted(set(names).difference(fitted))
+    if unknown:
+        raise DataError(f"unknown covariates {unknown}; this fit adjusts for {list(fitted)}")
     return names
 
 
@@ -1549,10 +1582,10 @@ def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> str | None:
     -------
     str or None
         Exact refusal reason, or ``None`` when the covariates leave one to adjust for or
-        name one the fit does not adjust for.  :func:`benchmark` reports an unknown name
-        itself, as a malformed argument, before any refusal.
+        form a malformed request.  :func:`benchmark` reports a malformed request itself,
+        before any refusal.
     """
-    fitted = tuple(result.data.covariate_names)
+    fitted = _benchmark_covariates(result.data)
     try:
         dropped = set(fitted[:1] if covariates is None else _benchmark_names(result, covariates))
     except DataError:
@@ -1589,7 +1622,8 @@ def benchmark(
     result : TMLEResult
         A fitted result.
     covariates : sequence of str
-        Observed covariates to calibrate against.
+        Observed covariates to calibrate against.  An encoded categorical covariate is
+        named by its column, and the refit drops its whole block of indicator columns.
     estimand : str
         Alias to benchmark.
     nu2_estimator : {"auto", "doubly_robust", "plugin"}
@@ -1608,8 +1642,9 @@ def benchmark(
     Raises
     ------
     DataError
-        If ``covariates`` names a covariate the fit does not adjust for.  The argument
-        is checked before any refusal.
+        If ``covariates`` is empty, names an indicator column of an encoded covariate, or
+        names a covariate the fit does not adjust for.  The argument is checked before any
+        refusal.
     ValueError
         If ``nu2_estimator`` is not one of :data:`NU2_ESTIMATORS`.
     CapabilityError
@@ -1633,7 +1668,7 @@ def benchmark(
     refusal = benchmark_refusal(result, names)
     if refusal is not None:
         raise CapabilityError(refusal)
-    short_data = result.data.without_covariates(names)
+    short_data = result.data.without_covariates(_benchmark_columns(result.data, names))
     short_result = estimator.refit(
         short_data, intermediate_value=result.intermediate_value, random_state=seed
     )

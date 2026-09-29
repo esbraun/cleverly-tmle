@@ -599,7 +599,7 @@ def _fillers(result: Any) -> dict[str, Callable[[], Any]]:
     """The value the sweep supplies for each argument a row can defer on."""
     return {
         "estimand": lambda: next(iter(result.estimates)),
-        "covariates": lambda: list(result.data.covariate_names[:1]),
+        "covariates": lambda: list(omitted_variable._benchmark_covariates(result.data)[:1]),
         "grid": lambda: _GRID,
         "bounds": lambda: (0.05,),
         "mechanism": lambda: True,

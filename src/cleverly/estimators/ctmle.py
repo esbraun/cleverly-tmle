@@ -287,7 +287,7 @@ from ..fluctuation.submodel import Submodel, restrict, weighted_form
 from ..inference.delta import log_odds_ratio_influence, log_ratio_influence
 from ..inference.influence import counterfactual_means
 from ..learners._fitting import Task, predict_mean, predict_probabilities
-from ..learners.crossfit import Folds, check_integrity, make_folds
+from ..learners.crossfit import _POST_DRAW_REMEDY, Folds, check_integrity, make_folds
 from ..learners.super_learner import resolve_learner
 from ..targets.base import parameter_name
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
@@ -341,6 +341,25 @@ def is_selector_strategy(strategy: str | None) -> bool:
 
 #: Floor applied to targeted predictions before taking a logarithm in the loss.
 _LOSS_EPS = 1e-12
+
+#: The way out of a selection or nested split that cannot fit its nuisances.  The search
+#: draws those splits even in sample, so fitting in sample removes neither of them.
+#: ``strategy="oat"`` refuses a selector setting away from its default, and the ordinary
+#: TMLE cross-fits by default, so the text names the settings under which each runs.
+_SELECTION_SPLIT_REMEDY = (
+    "fit strategy='oat' with every selector setting (selection_folds, selection_inner_folds, "
+    "loss, penalty, ctmle_estimand) at its default, or the ordinary TMLE in sample, "
+    "TMLE(cross_fit=False), neither of which draws a selection split"
+)
+
+#: Why CTMLE refuses a continuous dose, which every strategy does.
+_DISCRETE_TREATMENT_REFUSAL = (
+    "CTMLE strategies require a discrete treatment. strategy='oat' fits a categorical "
+    "mechanism on one Qbar prediction per arm, and a continuous dose has no finite arm vector."
+)
+
+#: The selection split's refusal remedy in the words the nuisance fold loop closes with.
+_SELECTION_SPLIT_BACKSTOP = _POST_DRAW_REMEDY.format(remedy=_SELECTION_SPLIT_REMEDY)
 
 
 @dataclass(frozen=True)
@@ -918,12 +937,22 @@ class CTMLE(TMLE):
             The draw's seed.
         """
         selection = self._selection_partition(data, seed)
-        self._check_training_support(data, (selection,), subject="C-TMLE selection")
+        self._check_training_support(
+            data,
+            (selection,),
+            subject="C-TMLE selection",
+            where="selection fold {fold}",
+            remedy=_SELECTION_SPLIT_REMEDY,
+        )
         for fold, (train, _) in enumerate(selection):
             train_data = data.subset(train)
             nested = self._nested_partition(train_data, seed)
             self._check_training_support(
-                train_data, (nested,), subject=f"the nested split of C-TMLE selection fold {fold}"
+                train_data,
+                (nested,),
+                subject=f"the nested split of C-TMLE selection fold {fold}",
+                where="inner fold {fold}",
+                remedy=_SELECTION_SPLIT_REMEDY,
             )
 
     def _outcome_adaptive_nuisances(
@@ -1193,13 +1222,19 @@ class CTMLE(TMLE):
         self._check_estimands(data)
         return super()._resolve_estimands_for_data(data)
 
+    def _check_shifts(self, data: CausalData) -> None:
+        """Refuse a continuous dose before the shift check can suggest a shift.
+
+        ``TMLE._check_shifts`` runs first in the preflight, and it answers a dose with no
+        ``shifts=`` by suggesting one, which CTMLE does not fit.
+        """
+        if data.is_continuous_treatment:
+            raise CapabilityError(_DISCRETE_TREATMENT_REFUSAL)
+        super()._check_shifts(data)
+
     def _check_estimands(self, data: CausalData) -> None:
         if data.is_continuous_treatment:
-            raise CapabilityError(
-                "CTMLE strategies require a discrete treatment. strategy='oat' fits a "
-                "categorical mechanism on one Qbar prediction per arm, and a continuous "
-                "dose has no finite arm vector."
-            )
+            raise CapabilityError(_DISCRETE_TREATMENT_REFUSAL)
         if data.has_intermediate:
             raise CapabilityError(
                 "CTMLE does not compose either collaborative strategy with an intermediate "
@@ -1323,6 +1358,7 @@ class _Selector:
                 clip=(0.0, 1.0),
                 classes=data.arm_codes,
                 n_jobs=self.est.n_jobs,
+                remedy=_SELECTION_SPLIT_BACKSTOP,
             )
             return Propensity(predictions["g1"], data.arm_codes)
         if train is None:
@@ -1780,6 +1816,7 @@ class _Selector:
             groups=data.cluster,
             clip=(0.0, 1.0),
             n_jobs=self.est.n_jobs,
+            remedy=_SELECTION_SPLIT_BACKSTOP,
         )
         outcome = InitialFit(
             outcome_out["observed"],
@@ -1809,6 +1846,7 @@ class _Selector:
                 groups=data.cluster,
                 clip=(0.0, 1.0),
                 n_jobs=self.est.n_jobs,
+                remedy=_SELECTION_SPLIT_BACKSTOP,
             )
             missingness = np.column_stack([missing_out[f"arm@{arm}"] for arm in data.arm_codes])
         return replace(

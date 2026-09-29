@@ -323,9 +323,11 @@ incremental fit with missing outcomes.
 
 An operation can also refuse after invocation, such as omitted-confounding sensitivity when the
 doubly robust $\nu^2$ is not positive. That row becomes an `unavailable` omission, retains its
-invocation arguments, and names the direct call. Other accepted diagnostics still run. Structural
-errors still stop the report. Examples are an invalid argument name, an unknown `refute` test,
-and an unknown `benchmark` covariate. A direct call raises the same error.
+invocation arguments, and names the direct call. Other accepted diagnostics still run.
+
+Structural errors still stop the report. Examples are an invalid argument name, an unknown `refute`
+test, and a malformed `benchmark` request. An empty `covariates`, an indicator column of an encoded
+covariate, and an unknown covariate are malformed. A direct call raises the same error.
 
 A combined report runs summaries and cheap retargets by default. The two costlier classes are
 named separately because they are disjoint. `refute()` and `benchmark()` refit nuisance models.
@@ -935,7 +937,7 @@ gives what such a result keeps.
 
 | operation | on such a result |
 | --- | --- |
-| point estimates and cached-nuisance retargets, such as `truncation_curve()` | run. `replayability.retarget_cached_nuisances` is `True`. A guarded DR-TMLE curve also runs: it retargets cached primary nuisances and refits reduced regressions inside that step. Its row reports the `refit` cost, but it does not require the outer estimator's `refit_nuisances` slot |
+| point estimates and cached-nuisance retargets, such as `truncation_curve()` | run. `replayability.retarget_cached_nuisances` is `True`. A guarded DR-TMLE curve also runs. It retargets the cached primary nuisances and refits the reduced regressions inside that step. Its row reports the `refit` cost, but it does not require the `refit_nuisances` slot of the outer estimator. The curve refuses a reduction setting that a fit refuses, such as `targeting="one_step"` with `reduced_crossfit="nested"`. It also refuses a `guard`, `reduction` or `reduced_crossfit` other than the fitted one |
 | refits, such as `refute()` and `simulated_confounding()` | `unavailable`. `replayability.refit_nuisances` is `False`, with the code `point_replay_refit_configuration` |
 | `estimator.refit()` | raises `CapabilityError` before any learner |
 

@@ -512,7 +512,7 @@ class PointTreatment:
         # ``covariate_names`` is post-encoding, so compare the columns the caller named:
         # a categorical adjustment variable arrives as several generated columns, and a
         # degenerate one may have been dropped entirely.
-        generated = {name: item.column for item in data.encodings for name in item.generated}
+        generated = data.indicator_sources
         sources = {generated.get(name, name) for name in data.covariate_names}
         sources.update(data.dropped_covariates)
         declared_adjustment = set(self.adjustment) or {RANDOMIZED_INTERCEPT}
@@ -2476,6 +2476,11 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         -----
         The result includes unavailable methods and their refusal reasons. Selecting one
         raises :class:`CapabilityError` before nuisance fitting starts.
+
+        ``available`` is per method name. A configuration of an available method can still
+        refuse before any learner: on a design with ``strata=``, the default
+        ``DRTMLEMethod()`` refuses (X8 in ``docs/roadmap.md``), and
+        ``DRTMLEMethod(guard=())`` fits.
         """
         point = not self.functional.longitudinal
         target = self.functional.target

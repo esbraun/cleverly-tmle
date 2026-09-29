@@ -67,13 +67,15 @@ class TestDeclaration:
         assert model.link == link
 
     def test_an_unknown_link_is_refused_with_the_ones_that_exist(self) -> None:
-        with pytest.raises(NotImplementedError, match="registered ones are"):
+        """A malformed value is a ``ValueError``, as each other unknown-name check is."""
+        with pytest.raises(ValueError, match="registered ones are") as raised:
             MSM(
                 design=lambda a, w: np.ones((len(w), 1)),
                 terms=("(intercept)",),
                 link="probit",  # type: ignore[arg-type]
                 design_kind="known",
             )
+        assert not isinstance(raised.value, NotImplementedError)
 
     def test_a_link_cannot_be_registered_twice(self) -> None:
         with pytest.raises(ValueError, match="already registered"):

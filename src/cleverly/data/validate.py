@@ -20,6 +20,7 @@ __all__ = [
     "MAX_TREATMENT_LEVELS",
     "MIN_CONTINUOUS_LEVELS",
     "MIN_OBSERVATIONS",
+    "MISSING_OUTCOME_DECLARATION",
     "RANDOMIZED_INTERCEPT",
     "arm_indicators",
     "check_binary",
@@ -43,6 +44,14 @@ __all__ = [
 #: standing between the column and ``drop_constant``.  Renaming one of the two would have
 #: dropped the column and left an unadjusted randomized fit with no covariates at all.
 RANDOMIZED_INTERCEPT = "__cleverly_randomized_intercept__"
+
+#: How a caller declares the response indicator, in both spellings.  :func:`check_outcome`
+#: raises from ``CausalData``, which a study design and a direct fit both build, so the
+#: sentence cannot know which one the caller wrote.  The two sensitivity refusals of a fit
+#: with no missing outcome send the caller to the same declaration.
+MISSING_OUTCOME_DECLARATION = (
+    "missingness=<column> on PointTreatment, or delta=<column> on fit() or CausalData"
+)
 
 #: Most treatment levels the estimator will accept.  Each level costs a counterfactual
 #: mean, a clever-covariate column and a row/column of the Newton solve, and positivity
@@ -308,8 +317,9 @@ def check_outcome(
         if missing.any():
             raise DataError(
                 f"{name} has {int(missing.sum())} missing value(s) but no missingness "
-                "indicator was supplied. Pass delta=<column> (1 = outcome observed) so the "
-                "missingness mechanism is estimated and enters the clever covariate."
+                "indicator was supplied. Declare one (1 = outcome observed) with "
+                f"{MISSING_OUTCOME_DECLARATION}, so the missingness mechanism is estimated "
+                "and enters the clever covariate."
             )
         return arr
 

@@ -209,7 +209,7 @@ class TestOutcomeAndFamily:
     def test_missing_outcomes_without_delta_are_refused_with_guidance(self) -> None:
         frame = _frame()
         frame.loc[frame.index[:5], "Y"] = np.nan
-        with pytest.raises(DataError, match="Pass delta="):
+        with pytest.raises(DataError, match=r"delta=<column> on fit\(\) or CausalData"):
             CausalData.from_frame(frame, outcome="Y", treatment="A")
 
     def test_delta_permits_missing_outcomes(self) -> None:

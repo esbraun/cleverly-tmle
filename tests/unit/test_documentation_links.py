@@ -31,6 +31,8 @@ unchecked, and there is a lot of it -- so this is one hole closed rather than th
 
 from __future__ import annotations
 
+import ast
+import functools
 import importlib
 import json
 import re
@@ -366,3 +368,52 @@ def test_every_roadmap_item_cited_in_source_exists(path: Path) -> None:
     assert not missing, (
         f"{path.relative_to(ROOT)} cites roadmap item(s) that do not exist: {missing}"
     )
+
+
+#: ``tests/<path>.py::<Name>``: a test module and a class or function it defines.
+TEST_REFERENCE = re.compile(r"(tests/[\w/]+\.py)::(\w+)")
+
+#: A ``:class:`` role on a ``Test`` class inside a test module, which names a class of that module.
+LOCAL_TEST_CLASS = re.compile(r":class:`(Test\w+)`")
+
+
+@functools.cache
+def defined_names(path: Path) -> frozenset[str]:
+    """Every class and function name that ``path`` defines, at any depth."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return frozenset(
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+    )
+
+
+def test_every_named_test_exists() -> None:
+    """A reference to a test names a class or function that the test module defines.
+
+    RM16 found three references to test classes that a rename had removed: two to
+    ``TestTheReportedCurveIsNotAlwaysCentred`` and one to
+    ``TestTheExtraEquationsAreIllConditionedWhereTheMechanismIsRight``.  The link sweep above
+    reads ``[text](target)`` forms only, so it saw neither kind.  The count assertion is the
+    negative control: a pattern that stopped matching would report every reference as fine.
+    """
+    broken: list[str] = []
+    checked = 0
+    for path in [*SOURCES, *DOCUMENTS]:
+        for found in TEST_REFERENCE.finditer(path.read_text(encoding="utf-8")):
+            module, name = found.groups()
+            checked += 1
+            target = ROOT / module
+            if not target.exists() or name not in defined_names(target):
+                broken.append(f"{path.relative_to(ROOT)}: {found.group(0)}")
+    for path in SOURCES:
+        if path.relative_to(ROOT).parts[0] != "tests":
+            continue
+        text = path.read_text(encoding="utf-8")
+        names = defined_names(path)
+        for found in LOCAL_TEST_CLASS.finditer(text):
+            checked += 1
+            if found.group(1) not in names:
+                broken.append(f"{path.relative_to(ROOT)}: {found.group(0)}")
+    assert checked > 20, f"only {checked} test references matched; check the patterns"
+    assert not broken, "references to tests that do not exist: " + "; ".join(broken)

@@ -211,6 +211,20 @@ second-order remainder.
 **retargets** cached nuisances through `TMLE.retarget`. Ordinary, collaborative, and unguarded
 doubly-robust fits refit no nuisance model, so their curves are retarget operations.
 
+A guarded DR-TMLE fit retargets its cached primary nuisances and refits its reduced regressions at
+each bound. Its row reports the `refit` cost and requires the `retarget_cached_nuisances` replay
+slot, because the curve does not call `refit()`. The function `truncation_refusal` first runs the
+checks of the reduction settings that the retarget reads. It also compares `guard`, `reduction`
+and `reduced_crossfit` with the fitted construction. When a fit refuses those settings or they
+differ from the fitted construction, the row reads `unavailable`. The facade call and the module
+call then each raise `CapabilityError`.
+
+| test | configuration | outcome |
+| --- | --- | --- |
+| `TestGuardedTruncationUsesCachedNuisanceReplay` in `tests/unit/test_capability_row_predicates.py` | a stratified fold policy | the curve runs, and the three surfaces agree |
+| `TestTheGuardedCurveReadsItsReductionSettings` in `tests/unit/test_summary_and_message_accuracy.py` | `targeting="one_step"` with `reduced_crossfit="nested"` | the three surfaces refuse |
+| `TestTheGuardedCurveReadsItsReductionSettings` | a changed `guard`, `reduction` or `reduced_crossfit` | the three surfaces refuse |
+
 `mechanism=None` sweeps the observation mechanism on a fit that estimates no treatment law, and
 `g(W)` on every other fit. `truncation_refusal` in `sensitivity/positivity.py` then applies three
 rules in order. The module call raises its sentence, and the capability row quotes it for the same
@@ -791,12 +805,20 @@ before every refusal.
 
 | order | request | what happens |
 | --- | --- | --- |
-| 1 | a covariate name that the fit does not adjust for | `DataError` |
+| 1 | an empty `covariates`, an indicator column of an encoded covariate, or a name that the fit does not adjust for | `DataError`. The message for an unknown name lists the covariates of the fit, with an encoded covariate once by its column name |
 | 2 | a result that holds no estimator | `CapabilityError` |
 | 3 | a `nu2_estimator` outside the three accepted values | `ValueError` |
 | 4 | a fit that the table above refuses | `CapabilityError` with that table's sentence |
 | 5 | an estimand that the bound does not cover, or that the fit did not report | `CapabilityError` from `resolve_parameter` |
 | 6 | every covariate of the fit | `CapabilityError` from `benchmark_refusal`. The short model would adjust for nothing, and no estimator here fits without a covariate |
+
+Name an encoded categorical covariate by its column. The refit then drops the whole block of
+indicator columns, because one indicator alone does not define a covariate. The class
+`TestBenchmarkNamesAreLogicalCovariates` in `tests/unit/test_summary_and_message_accuracy.py`
+checks the dropped block. A boolean covariate is one column under its own name, and a benchmark
+names it directly. The facade and a combined report read a one-shot iterator argument once, into
+a tuple, and the assessment cache keys the answer by that tuple. A generator of names therefore
+gives the same result as a list.
 
 The `benchmark` capability row reads the same predicate for each request. On a fit with one
 covariate, the bare row reads `unavailable`, because no value runs. On a wider fit, the bare row

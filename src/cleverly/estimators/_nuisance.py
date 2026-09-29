@@ -41,7 +41,7 @@ from ..learners._fitting import (
     predict_mean,
     predict_probabilities,
 )
-from ..learners.crossfit import Folds
+from ..learners.crossfit import _IN_SAMPLE_REMEDY, _POST_DRAW_REMEDY, Folds
 from ..learners.density import ConditionalDensity, fit_conditional_density
 from ..learners.screeners import CorrelationScreener
 from ..learners.super_learner import SuperLearnerDiagnostics
@@ -79,6 +79,13 @@ CompanionDesign: TypeAlias = "FloatArray | Sequence[FloatArray]"
 #: the float error in a classifier's ``[1 - p, p]`` and in a weighted arm proportion, tight
 #: enough that no real second mechanism slips through.
 _SIMPLEX_TOLERANCE = 1e-9
+
+#: What a fold with no trainable rows offers when the caller names nothing else.  An outer
+#: split is gone in sample.  A split that an in-sample fit draws for itself, such as the
+#: C-TMLE selection split, passes its own remedy to :func:`cross_fit_predictions`.
+_CROSS_FIT_REMEDY = _POST_DRAW_REMEDY.format(
+    remedy=f"{_IN_SAMPLE_REMEDY}, or n_folds=1 for a longitudinal fit"
+)
 
 
 @dataclass(frozen=True)
@@ -714,6 +721,7 @@ def cross_fit_predictions(
     clip: tuple[float, float] | None = None,
     classes: Sequence[float] | None = None,
     n_jobs: int = 1,
+    remedy: str = _CROSS_FIT_REMEDY,
 ) -> tuple[dict[str, FloatArray], list[SuperLearnerDiagnostics]]:
     """Out-of-fold predictions of one nuisance regression.
 
@@ -736,6 +744,8 @@ def cross_fit_predictions(
         rather than a single conditional mean -- the treatment mechanism of a ``K``-armed
         treatment.  Each named prediction then comes back ``(n, K)`` instead of ``(n,)``,
         with columns in ``classes`` order.
+    remedy:
+        The sentences a fold with no trainable rows closes its error with.
 
     Returns
     -------
@@ -756,6 +766,7 @@ def cross_fit_predictions(
         clip=clip,
         classes=classes,
         n_jobs=n_jobs,
+        remedy=remedy,
     )
     return predictions, diagnostics
 
@@ -775,6 +786,7 @@ def cross_fit_companion(
     clip: tuple[float, float] | None = None,
     classes: Sequence[float] | None = None,
     n_jobs: int = 1,
+    remedy: str = _CROSS_FIT_REMEDY,
 ) -> tuple[dict[str, FloatArray], dict[str, FloatArray], list[SuperLearnerDiagnostics]]:
     """:func:`cross_fit_predictions`, and each fold's model evaluated at further rows.
 
@@ -833,12 +845,7 @@ def cross_fit_companion(
         rows = train[mask[train]]
         if rows.size == 0:
             raise ValueError(
-                "a cross-fitting fold has no trainable rows for a nuisance model. The "
-                "split is drawn from the seed alone and reads no treatment or outcome, "
-                "so trying fold counts or seeds until one fits would choose the "
-                "partition by the values it must not read. Fit in sample instead "
-                "(cross_fit=False on the engine, CrossFitting(enabled=False); n_folds=1 "
-                "for a longitudinal fit), or collect more observations of the rare thing"
+                f"a cross-fitting fold has no trainable rows for a nuisance model. {remedy}"
             )
         model = fit_on_rows(learner, design, target, weights, rows, task, groups)
         predictions = {

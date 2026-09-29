@@ -13,7 +13,7 @@ from sklearn.ensemble import (
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.pipeline import Pipeline, make_pipeline
 
-from cleverly.exceptions import DataError
+from cleverly.exceptions import CapabilityError, DataError
 from cleverly.learners import (
     CorrelationScreener,
     CrossFitPlan,
@@ -438,22 +438,22 @@ class TestRefusedSchemes:
     """
 
     def test_blocked_temporal_names_the_missing_ordering(self) -> None:
-        with pytest.raises(NotImplementedError, match="no node carries a time index"):
+        with pytest.raises(CapabilityError, match="no node carries a time index"):
             refuse_scheme("blocked")
 
     def test_rolling_origin_names_the_storage_contract_not_the_time_index(self) -> None:
         # The distinction that matters: a rolling origin would still be refused after a
         # time index arrived, because one out-of-fold prediction per row is what
         # NuisanceEstimates is built on.
-        with pytest.raises(NotImplementedError, match="different storage contract"):
+        with pytest.raises(CapabilityError, match="different storage contract"):
             refuse_scheme("rolling_origin")
 
     def test_repeated_is_redirected_rather_than_refused(self) -> None:
-        # A ValueError rather than NotImplementedError, and that is the whole point: the
-        # feature exists, so the caller is pointed at repeats= rather than told to wait.
+        # A plain ValueError rather than a CapabilityError, and that is the whole point: the
+        # feature exists, so the caller is pointed at repeats= rather than told it is refused.
         with pytest.raises(ValueError, match="is not a scheme") as excinfo:
             refuse_scheme("repeated")
-        assert not isinstance(excinfo.value, NotImplementedError)
+        assert not isinstance(excinfo.value, CapabilityError)
         assert "repeats=" in str(excinfo.value)
 
     def test_splitting_a_cluster_to_buy_more_folds_is_refused(self) -> None:
