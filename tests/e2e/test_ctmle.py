@@ -37,7 +37,10 @@ from cleverly.datasets import (
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators.targeting import build_submodel
 from cleverly.inference.influence import counterfactual_means
-from cleverly.validation.nuisance import NUISANCE_SELECTION_MISSING
+from cleverly.validation.nuisance import (
+    CALIBRATION_CONSTANT_WITHIN_FOLDS,
+    NUISANCE_SELECTION_MISSING,
+)
 from tests.conftest import FAST_KWARGS, SELECTOR_CONFIGS, linear_ctmle, linear_in_sample
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
@@ -49,6 +52,33 @@ TMLE_SETTINGS = {**FAST_KWARGS, "estimands": ("ate", "ey1", "ey0")}
 #: Three selection folds rather than the default five keeps this file in the fast tier;
 #: nothing asserted here turns on the fold count.
 SETTINGS = {**TMLE_SETTINGS, "selection_folds": 3}
+
+
+def _flagged_slopes(report, *names: str):  # type: ignore[no-untyped-def]
+    """``report`` with a slope the calibration rule flags planted on each named model.
+
+    A slope of 0.3 with a standard error of 0.05 gives an interval above 0 that excludes 1
+    at any Bonferroni level the report can reach.  An intercept-only working mechanism has
+    no slope of its own, so a witness of the role's suppression has to plant one.
+    """
+    return replace(
+        report,
+        models=tuple(
+            replace(
+                model,
+                metrics={**model.metrics, "calibration_slope": 0.3, "calibration_slope_se": 0.05},
+            )
+            if model.name in names
+            else model
+            for model in report.models
+        ),
+    )
+
+
+def _calibration_notes(report, name: str = "") -> list[str]:  # type: ignore[no-untyped-def]
+    return [
+        note for note in report.findings if "calibration slope" in note and note.startswith(name)
+    ]
 
 
 def _binary_instrument_dgp():
@@ -172,9 +202,10 @@ class TestDownstreamMachineryStillWorks:
 
         Both suppressed claims read a metric of a model nobody fitted: the selected
         working mechanism is an intercept-only candidate here, so its AUC sits at chance
-        and its calibration slope is far from one.  Reporting "overlap is excellent" or
-        "poorly calibrated" from those describes assignment given the complete adjustment
-        set, which this fit never estimated.
+        and it has no calibration slope.  Reporting "overlap is excellent" or a calibration
+        finding from those describes assignment given the complete adjustment set, which
+        this fit never estimated.  The slope the rule flags is planted, because the
+        intercept-only mechanism has none.
 
         The high-AUC positivity note is the control that keeps the suppression narrow.
         ``CTMLE._nuisances`` puts the selected mechanism on ``nuisance.propensity``, so it
@@ -184,14 +215,16 @@ class TestDownstreamMachineryStillWorks:
         """
         diagnostics = fit.diagnostics.nuisance_models()
         assert diagnostics["propensity"].metrics["auc"] < 0.55
-        assert diagnostics["propensity"].metrics["calibration_slope"] < 0.7
+        assert np.isnan(diagnostics["propensity"].metrics["calibration_slope"])
+        assert diagnostics["propensity"].calibration_omission == CALIBRATION_CONSTANT_WITHIN_FOLDS
+        planted = _flagged_slopes(diagnostics, "propensity")
 
         # Suppressed: both claims would otherwise fire on these very metrics.
-        assert "confounding by these covariates is limited" not in diagnostics.verdict()
-        assert not any("propensity is poorly calibrated" in item for item in diagnostics.findings)
-        wrong_role = replace(diagnostics, treatment_role="estimated_treatment_law")
+        assert "confounding by these covariates is limited" not in planted.verdict()
+        assert _calibration_notes(planted, "propensity") == []
+        wrong_role = replace(planted, treatment_role="estimated_treatment_law")
         assert "confounding by these covariates is limited" in wrong_role.verdict()
-        assert any("propensity is poorly calibrated" in item for item in wrong_role.findings)
+        assert len(_calibration_notes(wrong_role, "propensity")) == 1
 
         # Not suppressed: the same metric read as a property of the weights, not the law.
         propensity = diagnostics["propensity"]
@@ -236,7 +269,7 @@ class TestDownstreamMachineryStillWorks:
         assert notes[0].startswith("propensity put 95%")
         assert notes[0] in report.verdict()
         # The two treatment-law claims are still quiet on the very same report.
-        assert not any("poorly calibrated" in note for note in report.findings)
+        assert _calibration_notes(_flagged_slopes(report, "propensity"), "propensity") == []
         assert "confounding by these covariates is limited" not in report.verdict()
         # And a weight under the threshold reports nothing, so the rule still has a gate.
         below = replace(propensity, learner_weights={"mean": 0.8, "glm": 0.2})
@@ -255,9 +288,9 @@ class TestDownstreamMachineryStillWorks:
         nothing distinguishes them and the widening is a term that vanishes at the truth.
 
         A K-armed collaborative fit is where they part.  Its one selected mechanism is
-        reported once per arm, and the calibration slope of an intercept-only selection is
-        far from one on every arm.  Narrowing the suppression to the exact name would make
-        this report state, three times, that a model nobody fitted is poorly calibrated.
+        reported once per arm.  With a slope the rule flags planted on every arm, narrowing
+        the suppression to the exact name would make this report state, three times, a
+        calibration finding about a model nobody fitted.
         """
         # A binary outcome, not the Gaussian default: a cross-fitted fit of a continuous
         # outcome now needs a declared q_bounds (the fold and scale rules), and
@@ -285,15 +318,15 @@ class TestDownstreamMachineryStillWorks:
         report = result.diagnostics.nuisance_models()
         assert report.treatment_role == "collaborative_working_model"
         arms = [model for model in report.models if model.name.startswith("propensity[")]
-        # The witness: every arm's slope is outside the gate the rule applies.
         assert len(arms) >= 2
-        assert all(not 0.7 <= model.metrics["calibration_slope"] <= 1.4 for model in arms)
+        # The witness: every arm carries a slope the rule flags under the ordinary role.
+        planted = _flagged_slopes(report, *(model.name for model in arms))
 
-        assert not any("poorly calibrated" in note for note in report.findings)
-        ordinary = replace(report, treatment_role="estimated_treatment_law")
-        fired = [note for note in ordinary.findings if "poorly calibrated" in note]
+        assert _calibration_notes(planted, "propensity") == []
+        ordinary = replace(planted, treatment_role="estimated_treatment_law")
+        fired = _calibration_notes(ordinary, "propensity")
         assert len(fired) == len(arms)
-        assert all(any(model.name in note for note in fired) for model in arms)
+        assert all(any(note.startswith(f"{model.name}: ") for note in fired) for model in arms)
 
     def test_the_working_model_verdict_replaces_the_ordinary_reassurance(self, fit) -> None:
         """With no finding to report, the two roles must not print the same sentence.
@@ -319,10 +352,10 @@ class TestDownstreamMachineryStillWorks:
         assert "no confidence interval or p-value is available" in role_only.summary()
 
         ordinary = replace(
-            role_only,
+            _flagged_slopes(role_only, "propensity"),
             inference="influence_curve",
         )
-        assert ordinary.findings != ()  # the calibration claim comes back
+        assert ordinary.findings != ()  # the planted calibration claim comes back
         no_metrics = replace(
             ordinary,
             models=tuple(replace(model, metrics={}) for model in diagnostics.models),
@@ -350,7 +383,7 @@ class TestDownstreamMachineryStillWorks:
         assert detached.fitted_method == "collaborative_tmle"
         assert diagnostics.treatment_role == "collaborative_working_model"
         assert "confounding by these covariates is limited" not in diagnostics.verdict()
-        assert not any("propensity is poorly calibrated" in item for item in diagnostics.findings)
+        assert _calibration_notes(_flagged_slopes(diagnostics, "propensity")) == []
         assert "The propensity metrics describe the selected C-TMLE working mechanism" in (
             diagnostics.summary()
         )
@@ -519,11 +552,13 @@ def test_the_documented_seed_reports_chance_auc_without_a_finding() -> None:
     """The two values a suppressed working-model report would otherwise misread.
 
     At this seed the search cuts at the intercept-only candidate, so the working
-    mechanism is a constant: AUC lands on chance and the calibration slope near ``-2``.
-    Those are the two values that would each raise a finding under the ordinary role, and
-    pinning them together with a ``completed`` status is the claim this test makes. The
-    mutated-role report below is the control that shows the numbers are extreme enough
-    for the suppression to be doing the work.
+    mechanism is a constant within each fold: AUC lands on chance, and the calibration
+    slope is not identified.  The pooled one-intercept slope the package reported before
+    RM15 read ``-2`` here, and the fixed band warned on it.  The fold-intercept slope
+    names the omission instead.  The low AUC would raise a note under the ordinary role,
+    and pinning it with a ``completed`` status is the claim this test makes.  The
+    mutated-role report below is the control that shows the AUC is extreme enough for the
+    suppression to be doing the work.
 
     ``docs/examples/collaborative-tmle.ipynb`` makes the *same* claim on a different fit.
     Its search stops at ``social_support`` rather than at the intercept, so its selected
@@ -560,7 +595,8 @@ def test_the_documented_seed_reports_chance_auc_without_a_finding() -> None:
     report = result.diagnostics.nuisance_models()
     metrics = report["propensity"].metrics
     assert metrics["auc"] == pytest.approx(0.490, abs=5e-3)
-    assert metrics["calibration_slope"] == pytest.approx(-2.00, abs=5e-2)
+    assert np.isnan(metrics["calibration_slope"])
+    assert report["propensity"].calibration_omission == CALIBRATION_CONSTANT_WITHIN_FOLDS
     assert report.findings == ()
 
     item = result.diagnostics.run_all()["nuisance_models"]
@@ -568,7 +604,7 @@ def test_the_documented_seed_reports_chance_auc_without_a_finding() -> None:
     assert "C-TMLE greedy selected candidate" in item.detail
 
     ordinary = replace(report, treatment_role="estimated_treatment_law")
-    assert any("poorly calibrated" in note for note in ordinary.findings)
+    assert _calibration_notes(ordinary) == []
     assert "confounding by these covariates is limited" in ordinary.verdict()
 
 

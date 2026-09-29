@@ -137,4 +137,5 @@ row. A move to `gated` is a separate registry decision.
 | [outcome-adaptive point-treatment C-TMLE](outcome-adaptive-point-treatment-c-tmle.md) | 29 | 0 |
 | [cross-fitted end-of-study longitudinal TMLE](cross-fitted-end-of-study-longitudinal-tmle.md) | 47 | 0 |
 | [omitted-variable bound standard error](omitted-variable-bound-standard-error.md) | 14 | 0 |
+| [calibration-slope warning](calibration-slope-warning.md) | 13 | 0 |
 <!-- /generated -->

@@ -47,7 +47,7 @@ from cleverly.sensitivity.evalue import (
 )
 from cleverly.sensitivity.positivity import PositivityReport
 from cleverly.validation import RepeatSpreadRow
-from cleverly.validation.nuisance import SPREAD_SINGLE_DRAW
+from cleverly.validation.nuisance import SPREAD_SINGLE_DRAW, _critical_value
 
 
 def _study(*, strata: bool = False) -> CausalStudy:
@@ -1744,7 +1744,8 @@ def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventor
     inventory is therefore checked against every presented row rather than against the
     count printed beside it.
     """
-    battery = _fit(_study(), ATE()).assess()
+    fitted = _fit(_study(), ATE())
+    battery = fitted.assess()
     text = battery.summary()
     sections = _summary_sections(text)
     results, checks, omissions = (
@@ -1755,9 +1756,18 @@ def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventor
     assert list(sections) == ["Returned results", "Checks", "Not run"]
 
     assert len(battery.to_frame()) == 15
-    assert text.index("bias-adjusted interval") < text.index("validation.nuisance_models")
+    assert text.index("bias-adjusted interval") < text.index("validation.score_equations")
     assert "poorly calibrated" not in text
     assert "not run by default because it retargets the fit" not in text
+    # The nuisance row completes because the linear outcome learner puts some predictions of
+    # this binary outcome at or beyond 0 or 1. Their clipped logits pull the slope toward 0,
+    # and the rule's interval reaches 0, so the rule gives no finding.
+    nuisance = fitted.diagnostics.nuisance_models()
+    outcome = nuisance["outcome"].metrics
+    predicted = np.asarray(fitted.nuisance.outcome.observed, dtype=float)
+    assert np.any((predicted <= 0.0) | (predicted >= 1.0))
+    z = _critical_value(len(nuisance._calibration_tested))
+    assert outcome["calibration_slope"] - z * outcome["calibration_slope_se"] <= 0.0
 
     # The nonzero witness for completeness: two groups are larger than a head of two.
     statuses = [item.status for _, item in battery._presented()]
@@ -1770,7 +1780,7 @@ def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventor
         for surface, item in battery._presented()
         if item.status is not AssessmentStatus.COMPLETED
     }
-    assert len(inventoried) == 9
+    assert len(inventoried) == 8
     assert {name for name in inventoried if name in review} == inventoried
 
     # Every returned result names the operation ``report(...)`` takes. No detail on this
@@ -1778,7 +1788,7 @@ def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventor
     completed = {
         item.name for _, item in battery._presented() if item.status is AssessmentStatus.COMPLETED
     }
-    assert {"support", "omitted_confounding"} <= completed
+    assert {"support", "nuisance_models", "omitted_confounding"} <= completed
     assert {name for name in completed if name in results} == completed
 
     assert max(len(line) for line in review.splitlines()) < 80

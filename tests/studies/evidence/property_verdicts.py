@@ -64,6 +64,12 @@ CONTRACTION_SCENARIOS = ("outcome_correct", "treatment_correct", "both_wrong")
 #: A power control must reject often enough that an inert test cannot pass the type-I cell.
 MINIMUM_POWER = 0.80
 
+#: The family of a warning rule's false-warning rate.  A positive cell holds a law on which
+#: the warning is false, and it must establish that the rate stays at or below the type-I
+#: ceiling.  A control applies another rule to the same fits, and it must establish that its
+#: rate lies above that ceiling, so the instrument can fail.  Detection belongs to ``power``.
+WARNING_RATE_FAMILY = "warning_rate"
+
 #: How far a ``double_robustness`` cell's reported standard error may sit from the sampling
 #: spread it estimates, before the cell stops describing the union model it names.
 #:
@@ -316,6 +322,8 @@ def apply_shared_verdicts(
     power = summary["property"] == "power"
     summary.loc[power, "passed"] = summary.loc[power, "rejection_ci_lower"] >= MINIMUM_POWER
 
+    warning_rate_verdicts(summary, margins)
+
     rates: list[dict[str, Any]] = []
     ladder = rows.loc[rows["property"] == "root_n_and_efficiency"]
     for label in rate_labels:
@@ -333,6 +341,25 @@ def apply_shared_verdicts(
                 suffix=suffix,
             )
     return summary, rates
+
+
+def warning_rate_verdicts(summary: pd.DataFrame, margins: Margins) -> None:
+    """Read each :data:`WARNING_RATE_FAMILY` cell against the side its role must establish.
+
+    One ceiling, the type-I one, read from both sides.  A positive cell passes when the upper
+    end of its exact rejection interval is at or below ``alpha + type_i_margin``.  A control
+    passes when the lower end lies above it.  Unlike ``type_i_error``, the family reads no
+    coverage, because its rows test a warning and not an interval for the estimand.
+    """
+    ceiling = margins.alpha + margins.type_i_margin
+    family = summary["property"] == WARNING_RATE_FAMILY
+    positive = family & (summary["role"] == "positive")
+    summary.loc[positive, "passed"] = summary.loc[positive, "rejection_ci_upper"] <= ceiling
+    control = family & (summary["role"] == "control")
+    summary.loc[control, "passed"] = summary.loc[control, "rejection_ci_lower"] > ceiling
+    unknown = family & ~summary["role"].isin(("positive", "control"))
+    if unknown.any():
+        raise ValueError(f"{WARNING_RATE_FAMILY} cells need a positive or control role")
 
 
 def fitted_rate_row(

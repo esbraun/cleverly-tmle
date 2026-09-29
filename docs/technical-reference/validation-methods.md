@@ -343,8 +343,9 @@ diagnostic unavailable.
 
 ### Nuisance model quality
 
-**Why.** A nuisance model can predict well and remain miscalibrated. The clever covariate divides by
-the predicted probability itself, so a miscalibrated fit moves every weight.
+**Why.** A nuisance model can order the rows well and still predict probabilities that are too
+extreme or too moderate. The clever covariate divides by the predicted probability itself, so the
+spread of the predictions matters as well as their order.
 
 **What it tells you.** The report gives prediction loss and calibration for each retained nuisance
 fit. It also gives the candidate weights and risks when a Super Learner supplies them. For C-TMLE,
@@ -354,9 +355,10 @@ movement across split draws.
 **How.** `result.diagnostics.nuisance_models()` returns a report for the fitted result family.
 Point-treatment results return `NuisanceDiagnostics` from
 [`validation/nuisance.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/nuisance.py).
-That report contains propensity AUC, logistic calibration, outcome fit metrics, and Super Learner
-candidate details. The metrics are out-of-fold when the fit cross-fitted its nuisances. They are
-in-sample when it used one fold.
+That report contains propensity AUC, the calibration slope and its standard error, outcome fit
+metrics, and Super Learner candidate details. The metrics are out-of-fold when the fit cross-fitted
+its nuisances. They are in-sample when it used one fold, and `evaluation` records which. The
+[calibration-slope rule](#calibration-slope-rule) below reads the slope.
 
 Longitudinal results return `LongitudinalNuisanceDiagnostics`. The report includes only models the
 estimator fitted. Treatment and censoring models appear once per node because each model serves all
@@ -395,7 +397,10 @@ record names `role`, `time`, and `reason`. A complete-data design uses
 `LONGITUDINAL_CENSORING_NOT_FITTED` because it made no censoring fit.
 
 `to_frame()` starts with the row identity, evaluation, loss, model name, and model kind. It then
-adds the union of metrics that the nested model reports.
+adds the union of metrics that the nested model reports. A binary row reports
+`calibration_slope` and `calibration_slope_se`, from the fit's folds and cluster codes. An outcome
+or pseudo-outcome row with a continuous target reports its linear slope as `regression_slope`. The
+longitudinal report applies no calibration rule.
 
 Read the propensity AUC as a positivity signal and not as a score. A higher AUC means the treatment
 is more predictable, which means the arms overlap less. Higher is not better here.
@@ -411,7 +416,7 @@ estimates.
 | claim the report can make about the propensity | on a collaborative fit | why |
 | --- | --- | --- |
 | an AUC below 0.55 means overlap is excellent and confounding by these covariates is limited | dropped | an intercept-only candidate gives an AUC near chance by construction, so the claim describes a model nobody fitted |
-| a calibration slope outside 0.7 to 1.4 means the predicted probabilities are systematically off | dropped | the same reason. A selected working mechanism has no calibration target |
+| a calibration-slope finding says the predictions are more extreme or more moderate than the observed rates | dropped | the same reason. A selected working mechanism has no calibration target. An intercept-only candidate has no slope at all |
 | an AUC above 0.9 signals a positivity problem | kept | `CTMLE._nuisances` puts the selected mechanism on `nuisance.propensity`, so it is the denominator the clever covariate divides by. An AUC near one there means the fitted weights are near-degenerate |
 | a super learner weight above 0.8 on the marginal mean means the model contributes little | kept | the note states a fact about a learner library, not an interpretation of the treatment law |
 
@@ -472,6 +477,54 @@ one condition always produces one text.
 The summary and the combined row print a spread reason only above one draw. `SPREAD_SINGLE_DRAW` is
 the ordinary state of an ordinary fit, and printing it would put an "unavailable" line under every
 report this package produces.
+
+### Calibration-slope rule
+
+**Why.** A learner can predict probabilities that are too extreme or too moderate for the observed
+rates. The calibration slope measures that spread. A finding asks the analyst to review the
+learner. It is not evidence that the estimate is biased.
+
+**What it tells you.** The table defines the statistic and the rule.
+`cleverly.validation.nuisance` implements both.
+
+| term | definition |
+| --- | --- |
+| calibration slope | the last coefficient of a weighted logistic regression of the label on one indicator for each validation fold and on $\operatorname{logit} \hat p$, with no other intercept. A slope below 1 means the predictions are more extreme than the observed rates. A slope above 1 means they are more moderate. An in-sample fit has one fold, which gives the pooled recalibration of Cox (1958) |
+| standard error | the sandwich. With $B = X^\top \operatorname{diag}(w \mu (1 - \mu)) X$ and the score $s_i = w_i (y_i - \mu_i) x_i$, the curve of the slope is $n (B^{-1} s_i)_{\mathrm{slope}}$. `influence_variance` reads the curve with the fit's cluster codes |
+| omission | `NuisanceModelReport.calibration_omission` names why a report has no slope, and `summary()` prints it under the table. `to_frame()` has no column for it. `CALIBRATION_CONSTANT_WITHIN_FOLDS` is the state of a mean-only learner or an intercept-only mechanism. `CALIBRATION_SEPARATED` means that in every fold one threshold on $\operatorname{logit} \hat p$ splits the labels, the same way in each fold. The likelihood then rises without bound in the slope. A Newton fit that does not converge, a singular information matrix, or a standard error that is not finite also removes the slope |
+| tested models | every probability report with a finite slope and standard error, except a C-TMLE working mechanism, on an out-of-fold fit. An in-sample fit tests none |
+| level | with $K$ tested models, the interval is the slope plus or minus $z_{1 - 0.05 / (2K)}$ standard errors. That is a Bonferroni split of `CALIBRATION_FAMILY_ALPHA` over the report |
+| finding | the interval lies above 0 and excludes 1 |
+| no finding | the interval contains 1, reaches 0, or lies below 0 |
+| message | the model, the direction, the slope, the interval, the AUC, and for `propensity`, `propensity[<arm>]` and `missingness` the largest untruncated inverse weight. That weight is the largest $1 / \hat p$ of the observed label over the rows whose weight uses it, before any truncation bound applies |
+
+The fold intercepts matter. Cross-fitting moves the level of each fold's predictions against that
+fold's labels. With one pooled intercept that movement drives the slope, and a prediction that is
+constant in each fold reads close to $-(V - 1)$. At three folds,
+`test_w4_a_fold_constant_prediction_has_no_slope` pins that pooled slope within 0.05 of $-2$.
+
+Four facts shape the rule. Each has its source or its witness.
+
+| fact | source or witness |
+| --- | --- |
+| the slope measures spread, not specification. The limit $\eta^*$ of a logistic model with an intercept and main effects solves $E[(A - \operatorname{expit} \eta^*)(1, \eta^*)] = 0$, so its population slope is 1 whether the model is correct or not | the score equations of the model. [Riley et al. (2021)](../references.md#calibration-of-prediction-models), Section 2.1.2, state the in-sample case |
+| estimation noise can put the out-of-fold slope of a correct model below 1 when the signal is weak or the covariates are many | Riley et al. (2021), Section 2.1.2. The [calibration-slope study](method-evidence/calibration-slope-warning.md) measures the mean slope of a correct model on four covariates |
+| an unpenalized logistic model with an intercept has an in-sample slope of exactly 1 | Riley et al. (2021), Section 2.1.2. `test_w10_an_in_sample_fit_carries_no_test` |
+| the slope measures the spread of the predictions, and it is read with the calibration intercept, not alone | [Stevens and Poppe (2020)](../references.md#calibration-of-prediction-models), Sections 3 and 4, and [Van Calster et al. (2019)](../references.md#calibration-of-prediction-models), section "How to assess calibration?" |
+
+No read source gives a fixed band or a rule for cross-fitted nuisance predictions. The interval, the
+Bonferroni split and the gate at 0 are therefore design decisions of this package. The gate at 0
+refuses to read a spread where the slope shows no association between the predictions and the
+label.
+
+**Limits.** A prediction at 0 or 1 has a logit near $\pm 27.6$ after the clip, and a few such rows
+can move the slope toward 0. When the interval reaches 0, the rule gives no finding. Read the
+calibration table and the AUC beside the slope.
+
+| witness | what it checks |
+| --- | --- |
+| `tests/unit/test_calibration_slope_rule.py` | the slope and its standard error on weighted data with three folds equal an independent fit to 1e-10. The weights, the clusters and the fold intercepts each move the result. The file also checks the truth table of the rule, the Bonferroni divisor, the gate at 0 and the in-sample gate. A correct weak-signal fit at a seed where the old band fired gives no finding, and a doubled or halved logit gives one |
+| [calibration-slope warning](method-evidence/calibration-slope-warning.md) | the standard error of the slope for a known propensity, the rule's false-warning rate on five laws, the old band's rate on the same fits, and detection on two tempered learners, over 10,000 samples each |
 
 ### Score equations
 

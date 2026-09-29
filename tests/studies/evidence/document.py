@@ -305,7 +305,7 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"bias {render(float(row.bias))}"
         )
-    if family in {"type_i_error", "power"}:
+    if family in {"type_i_error", "power", property_verdicts.WARNING_RATE_FAMILY}:
         return (
             f"rejection {render(float(row.rejection_rate))}, "
             f"{_interval(row.rejection_ci_lower, row.rejection_ci_upper)}"

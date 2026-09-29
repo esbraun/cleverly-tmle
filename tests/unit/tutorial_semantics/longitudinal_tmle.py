@@ -189,11 +189,16 @@ def check(namespace: dict[str, Any]) -> None:
     # The pooled cross-fitted fit and this in-sample fit both solve one score per node.
     assert namespace["score_kinds"] == ["solver"]
     assert "kinds of score row: ['solver']" in stored_output(NOTEBOOK, "retained-reports")
-    # "Every calibration slope here sits within 0.03 of 1": each model is measured on the rows
-    # it was fitted on. The auc column still separates the models, and the lowest value is the
-    # censoring model at node 2, which "barely separates the patients who stay tracked".
+    # "Every calibration slope here sits between 0.999 and 1.004, and each regression slope
+    # sits between 1.007 and 1.023": each model is measured on the rows it was fitted on. A
+    # binary row carries the logistic slope and a pseudo-outcome row the linear one. The auc
+    # column still separates the models, and the lowest value is the censoring model at node
+    # 2, which "barely separates the patients who stay tracked".
     nuisance = namespace["nuisance"]
-    assert nuisance["calibration_slope"].between(0.97, 1.03).all()
+    binary = nuisance["calibration_slope"].notna()
+    assert (binary == nuisance["regression_slope"].isna()).all()
+    assert nuisance.loc[binary, "calibration_slope"].round(3).between(0.999, 1.004).all()
+    assert nuisance.loc[~binary, "regression_slope"].round(3).between(1.007, 1.023).all()
     lowest = nuisance.loc[nuisance["auc"].idxmin()]
     assert (lowest["role"], lowest["time"]) == ("censoring", 2)
     assert lowest["auc"] < 0.6

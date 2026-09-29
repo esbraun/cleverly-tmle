@@ -35,6 +35,7 @@ from ..inference.cluster import cluster_sums
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
 from .nuisance import (
+    EvaluationBasis,
     NuisanceModelReport,
     _aggregate_learner_info,
     _binary_report,
@@ -290,8 +291,8 @@ class LongitudinalNuisanceRow:
         Mechanism rows use ``nan``.
     role : str
         Nuisance role at this node.
-    evaluation : str
-        ``"out_of_fold"`` or ``"in_sample"`` from the fitted split count.
+    evaluation : {"out_of_fold", "in_sample"}
+        Whether the row's predictions were made out of fold, from the fitted split count.
     loss_name : str
         Name of the role-specific proper loss.
     loss : float
@@ -307,7 +308,7 @@ class LongitudinalNuisanceRow:
     n: int
     mse: float
     role: str = "pseudo_outcome"
-    evaluation: str = "in_sample"
+    evaluation: EvaluationBasis = "in_sample"
     loss_name: str = "mse"
     loss: float = float("nan")
     model: NuisanceModelReport | None = None
@@ -655,7 +656,7 @@ def _nuisance_row(
     time: int,
     report: NuisanceModelReport,
     loss_name: str,
-    evaluation: str,
+    evaluation: EvaluationBasis,
     n: int,
     regimen: str | None = None,
     cause: str | None = None,
@@ -707,6 +708,8 @@ def _treatment_report(result: Any, time: int, mask: BoolArray) -> NuisanceModelR
             result.data.weights,
             diagnostics,
             mask=mask,
+            folds=result.folds.assignment,
+            cluster=result.data.cluster,
         )
 
     # A multinomial fit has no privileged arm. Report its source-backed proper loss and
@@ -732,7 +735,7 @@ def _treatment_report(result: Any, time: int, mask: BoolArray) -> NuisanceModelR
 def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
     rows: list[LongitudinalNuisanceRow] = []
     omissions: list[LongitudinalNuisanceOmission] = []
-    evaluation = "out_of_fold" if result.folds.n_folds > 1 else "in_sample"
+    evaluation: EvaluationBasis = "out_of_fold" if result.folds.n_folds > 1 else "in_sample"
     mechanism = result.mechanism
     fit_masks = result.data.regimen_masks(result.data.treatment)
     for time in range(1, result.data.n_times + 1):
@@ -763,6 +766,8 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
             result.data.weights,
             diagnostics,
             mask=at_risk,
+            folds=result.folds.assignment,
+            cluster=result.data.cluster,
         )
         rows.append(
             _nuisance_row(
@@ -807,6 +812,8 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
                     result.data.weights,
                     step.learner_diagnostics,
                     mask=mask,
+                    folds=result.folds.assignment,
+                    cluster=result.data.cluster,
                 )
                 if binary
                 else _continuous_report(

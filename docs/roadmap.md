@@ -41,7 +41,6 @@ delivered row that this roadmap still describes. Read a record with, for example
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.41 | Calibration-slope warning rule | replace the fixed band with a rule that a registered calibration study supports | the band flagged 14 of 40 fits of a correctly specified weak-signal propensity model | [RM15](#rm15-calibration-slope-warning-rule) |
 | 0.42 | Summary and error-message accuracy | correct six display surfaces, two data error messages and one refusal remedy, add a fingerprint-only protocol option, and decide what a bootstrap summary publishes on a non-inferential fit. The simultaneous-request policy is settled below. Correct two `benchmark` argument checks, and make one truncation row agree with its call | each surface omits, misstates, or repeats a fact that the fit records. Three more surfaces misstate what a call accepts or needs | [RM16](#rm16-summary-and-error-message-accuracy) |
 | 0.51 | Red property cells after the fold, scale and law changes | keep each red verdict under `reporting` with its interval, and admit inference only when F18 or F19 supplies the exact result. The [red-cell ledger](technical-reference/method-evidence/red-cells.md) delivers this. Then declare and run the five open RM18 follow-up designs, each declared before its run | registered studies publish red verdicts after the fold, scale and law changes and the pooled update. The ledger lists each one and the ask that owns it. Five RM18 follow-up designs are not declared and have not run | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
 | 0.52 | One-sided robustness bias increment in DR-TMLE | investigate the exploratory between-implementation increment on binary `treatment_correct`, under a design declared before it runs | the RM18 reading is `mixed` on that configuration. The unadjusted paired 99% interval of `cleverly` minus R `drtmle` runs 0.000068 to 0.001942, while the Bonferroni interval for that comparison covers zero. No implementation defect is established | [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) |
@@ -56,7 +55,7 @@ depends on comes before that row.
 | a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | no open row |
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | no open row |
 | c | a correct refusal that arrives late or as the wrong type | no open row |
-| d | a diagnostic or a warning that misleads | RM15 |
+| d | a diagnostic or a warning that misleads | no open row |
 | e | a display or a message that misstates a fact that the fit records. By extension, an argument check or a capability row that misstates what a call accepts or needs, when no number moves and nothing raises that is not a refusal | RM16 |
 | f | an investigation or a declared design that moves no verdict | RM18, RM19 |
 | g | a published method needed to resolve a shipped refusal | RM30 |
@@ -65,7 +64,6 @@ The table gives the reason for each place inside a tier.
 
 | row | reason for its place |
 | --- | --- |
-| RM15 | the warning flagged 14 of 40 fits of a correct model |
 | RM16 | each surface misstates or repeats a recorded fact, or misstates what a call accepts or needs, and no number changes |
 | RM18 | five open designs, which read 19 red rows in six studies. The ledger already publishes each of those verdicts |
 | RM19 | one configuration, which RM18 opened. Its Bonferroni interval covers zero, and it moves no verdict |
@@ -73,12 +71,12 @@ The table gives the reason for each place inside a tier.
 
 No open row waits on another open row.
 
-Use three delivery groups for these five rows and the two investigations that RM18 waits on.
+Use three delivery groups for these four rows and the two investigations that RM18 waits on.
 Keep each item's acceptance criteria separate inside its group.
 
 | delivery group | items | shared boundary |
 | --- | --- | --- |
-| diagnostic reports | RM15 and RM16 | one assessment and summary surface, with one documentation pass |
+| diagnostic reports | RM16 | one assessment and summary surface, with one documentation pass |
 | red property cells | RM18 and RM19, and the F18 and F19 derivations that RM18 waits on | the recorded rule that a red cell is reporting evidence, designs declared before their runs that move no verdict, and two exact derivations that would close the inferential gaps |
 | learned-policy evaluation | RM30 | a typed target and a published fold-local learning, evaluation, and inference contract with validation |
 
@@ -92,7 +90,7 @@ queue. The RM IDs and their anchors never change, so a commit names a row by its
 row takes its priority with it, and the other rows keep theirs.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
-The queue holds five rows. Two rows need their corrections: RM15 and RM16.
+The queue holds four rows. One row needs its corrections: RM16.
 RM18 has five follow-up designs that are not declared and have not run. RM19 has no
 declared design. RM30 holds the published learned-policy implementation.
 
@@ -360,42 +358,30 @@ probe table and the corrections. Read it with `git show b876ec3f:docs/roadmap.md
 
 ### RM15. Calibration-slope warning rule
 
-`NuisanceDiagnostics.findings` warns when a calibration slope falls outside [0.7, 1.4]. The finding
-says that the model "biases the weights" (`src/cleverly/validation/nuisance.py:571-575`). The
-assessment turns any finding into a `nuisance_models` warning (`src/cleverly/assessment.py:2653-2658`).
+`NuisanceDiagnostics.findings` warned when a pooled one-intercept calibration slope fell outside
+[0.7, 1.4]. The finding said that the model "biases the weights", which the rule did not measure.
+The band warned on 27% of fits of the true propensity at a weak signal, and on every mean-only fit
+of a randomized law. There, the pooled intercept made the slope $-2$ at three folds. The band
+applied to in-sample slopes too. The longitudinal report put a logistic and a linear slope under
+one name.
 
-The band ignores the spread of the true probabilities. With a weak signal, noise in the out-of-fold
-coefficients spreads the predictions more than the truth does. A correct model then gives a slope
-below 1. The finding also asserts an effect on the weights that the rule does not measure.
+Pull request 242 delivered this row. The table gives what shipped. Commit `87b13e7d` holds the
+probe tables, the design and the study declaration. Read it with `git show 87b13e7d:docs/roadmap.md`.
 
-| law | fits | result |
-| --- | --- | --- |
-| point treatment, $n = 2000$, $\operatorname{logit} g_0 = 0.15 W_1$, correct logistic learner, three folds | 40 seeds | mean slope 0.647, median slope 0.738, mean AUC 0.537. The rule flagged 14 fits |
-| longitudinal censoring at node 2, `make_longitudinal(n=8000)`, correct logistic model, a separate three-fold split | 60 seeds | out-of-fold slope mean 0.767, standard deviation 0.114 |
+| part | what shipped |
+| --- | --- |
+| statistic | `_recalibration` in `src/cleverly/validation/nuisance.py` regresses the label on one indicator for each validation fold and on $\operatorname{logit} \hat p$. `calibration_slope_se` is the sandwich standard error with the fit's cluster codes. A prediction that is constant within every fold or that separates the labels, a failed fit, or a standard error that is not finite gives no slope, and `calibration_omission` names the cause |
+| rule | `_calibration_finding` warns when the Bonferroni interval over the tested models lies above 0 and excludes 1. An in-sample fit tests no model, and `NuisanceDiagnostics.evaluation` records the basis |
+| message | the direction, the slope, the interval, the AUC, and for a weight model the largest untruncated inverse weight. It asks for a review of the learner and makes no claim about bias |
+| names and summary | `regression_slope` holds the linear slope in the point and the longitudinal reports. The summary table gains `cal_se` and `reg_slope`, a line for the basis and a line for each omission |
+| evidence | the [calibration-slope study](technical-reference/method-evidence/calibration-slope-warning.md): the rule's rate is 0.0225 to 0.0539 on five laws where a warning is false, the old band's rate is 0.2543 to 0.9869 on four of them, and both tempered learners are detected in every fit. `tests/unit/test_calibration_slope_rule.py` holds the witnesses |
 
-The longitudinal nuisance report applies no band (`assessment.py:2594-2604`), so the second row
-raises no warning. Its `calibration_slope` column also holds two statistics under one name. Binary
-rows use a logistic recalibration slope, and pseudo-outcome rows use a linear regression slope
-(`nuisance.py:824` and `:859`).
+The plan corrected the premise of this row. A warning on a correct model is not always false.
 
-A user who sees the warning respecifies a correct model. The warning does not say how to tell weak
-signal from miscalibration.
-
-Apply these corrections:
-
-1. Do not tune a new constant to these draws.
-2. Register a calibration study before a new rule ships. One law is correct with weak signal and
-   measures the false-warning rate. One law is miscalibrated and measures the detection rate. Fix
-   the thresholds before the final run.
-3. Until that study exists, word the finding as a prompt to review the model. Report the AUC and the
-   largest weight beside the slope, and do not assert that the weights are biased.
-4. Give the linear slope in the longitudinal report its own column name.
-
-The witnesses must fail when a component is wrong:
-
-- a unit test on the correct weak-signal law pins the outcome of the registered rule;
-- a mutation back to the fixed band makes that test fail;
-- a miscalibrated law shows that the rule still warns.
+| premise | what the delivery found |
+| --- | --- |
+| a correct model should have a slope of 1 | noise in the fitted coefficients can make the out-of-fold predictions of a correct weak-signal model more extreme than the truth. The study's correct model on four weak covariates has a mean slope near 0.58. The rule does not remove that over-dispersion. It reads the slope only when the interval lies above 0 |
+| a slope finding means the model is misspecified | the population slope of any logistic limit with an intercept and main effects is 1, whether the model is correct or not. The slope cannot see misspecification of that kind |
 
 ### RM16. Summary and error-message accuracy
 

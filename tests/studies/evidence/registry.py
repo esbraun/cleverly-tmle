@@ -274,6 +274,7 @@ def registered() -> tuple[StudyRecord, ...]:
     Imported lazily so the framework modules stay importable without pulling in a study's
     estimator configuration, and so a study module can import the framework.
     """
+    from tests.studies.calibration_slope_warning import STUDY as CALIBRATION_SLOPE_WARNING
     from tests.studies.canonical_categorical_ltmle import STUDY as CANONICAL_CATEGORICAL_LTMLE
     from tests.studies.canonical_categorical_ltmle_crossfit import (
         STUDY as CANONICAL_CATEGORICAL_LTMLE_CROSSFIT,
@@ -376,4 +377,5 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_LTMLE_COMPETING,
         CANONICAL_LTMLE_COMPETING_CROSSFIT,
         OMITTED_VARIABLE_BOUND_SE,
+        CALIBRATION_SLOPE_WARNING,
     )

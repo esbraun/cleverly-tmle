@@ -70,6 +70,14 @@ ARMS: dict[str, str] = {
     "atc_upper": "upper omitted-variable bound on the ATC",
     "ate_lower": "lower omitted-variable bound on the ATE",
     "ate_upper": "upper omitted-variable bound on the ATE",
+    # The seven treatment laws of the calibration-slope study, each with its treatment learner.
+    "calibrated_weak": "the known propensity at a weak signal",
+    "calibrated_strong": "the known propensity at a strong signal",
+    "correct_weak": "a correct logistic model on one weak covariate",
+    "correct_nested_weak": "a correct logistic model on four covariates, with a weak signal in one",
+    "randomized": "a logistic model on four covariates, for a randomized treatment",
+    "overconfident_moderate": "a logistic model with its logit doubled, at a moderate signal",
+    "underconfident_strong": "a logistic model with its logit halved, at a strong signal",
     # The four laws of the stacked arm-indexed missing-outcome study, and each estimand's
     # calibration label.  L1 and L2 have two arms; L3 and L4 have three, with ``high`` as
     # the reference arm.  L1 and L3 have a binary outcome; L2 and L4 a bounded continuous one.
@@ -147,6 +155,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-fold-targeted-cvtmle": "`cleverly` fold-targeted CV-TMLE",
     "cleverly-repeated-cvtmle": "`cleverly` repeated stacked CV-TMLE",
     "cleverly-omitted-variable-bound": "`cleverly` omitted-variable bound",
+    "cleverly-calibration-slope-rule": "`cleverly` calibration-slope rule",
     "cleverly-mar-drtmle": "`cleverly` randomized missing-outcome DR-TMLE",
     "cleverly-mar-natural-course-tmle": "`cleverly` missing-outcome natural-course TMLE",
     "cleverly-stacked-mar-natural-course-cvtmle": (
@@ -197,6 +206,8 @@ IMPLEMENTATIONS: dict[str, str] = {
 SCENARIOS: dict[str, str] = {
     "binary": "binary-outcome law",
     "linear": "linear Gaussian-outcome law with a constant effect, `make_linear_ate`",
+    "calibrated_weak": "known propensity, logit g0 = 0.15 W1",
+    "calibrated_strong": "known propensity, logit g0 = W1 - 0.5 W2",
     "binary_discrete": "binary-outcome law, discrete selector",
     "binary_greedy": "binary-outcome law, greedy selector",
     "binary_ordered": "binary-outcome law, ordered selector",
@@ -259,6 +270,9 @@ SCENARIOS: dict[str, str] = {
 
 
 ESTIMANDS: dict[str, str] = {
+    "propensity_calibration_slope": (
+        "calibration slope of the propensity report, one intercept per fold; truth 1"
+    ),
     "atc": "average effect on the untreated",
     "atc_lower": "lower omitted-variable bound on the ATC, at cf_y 0.5, cf_d 0.3, rho 1",
     "atc_upper": "upper omitted-variable bound on the ATC, at cf_y 0.5, cf_d 0.3, rho 1",
@@ -420,6 +434,10 @@ PROPERTIES: dict[str, str] = {
         "incremental inference includes the influence-curve derivative through the treatment mechanism"
     ),
     "type_i_error": "under a confounded sharp null the test rejects no more often than its nominal size",
+    "warning_rate": (
+        "a warning fires on a law where it is false no more often than the type-I ceiling, and "
+        "a control rule on the same fits fires more often than that"
+    ),
     "weight_necessity": (
         "fixed inverse-selection weights recover the population target from the selected law"
     ),
@@ -746,6 +764,20 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("interval_calibration", "noise_control"): (
         "one efficiency-bound unit of independent noise is added to each estimate",
         "the empirical efficiency ratio must rise above the band",
+    ),
+    ("warning_rate", "rule"): (
+        "the calibration-slope rule, which warns when the Bonferroni interval over the tested "
+        "models lies above 0 and excludes 1",
+        "rejection upper bound at or below the type-I ceiling",
+    ),
+    ("warning_rate", "fixed_band"): (
+        "the band before RM15 on the same fits, which warns when the pooled one-intercept slope "
+        "of the propensity or the outcome lies outside 0.7 to 1.4",
+        "rejection lower bound above the type-I ceiling",
+    ),
+    ("power", "rule"): (
+        "the calibration-slope rule, on a learner whose limit slope is not 1",
+        "rejection lower bound clears the minimum power",
     ),
     ("power", "alternative"): (
         "the same test applied to a law with a real effect",

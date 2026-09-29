@@ -18,6 +18,7 @@ import sklearn.linear_model
 from cleverly.datasets import make_longitudinal, make_longitudinal_survival
 from cleverly.longitudinal import LTMLE
 from cleverly.msm import MSM
+from cleverly.validation import nuisance as nuisance_module
 from cleverly.validation.longitudinal import (
     LONGITUDINAL_CENSORING_NOT_FITTED,
     LongitudinalNuisanceDiagnostics,
@@ -160,10 +161,52 @@ def test_to_frame_writes_the_base_prefix_and_then_the_metric_union(weighted_resu
         "brier",
         "log_loss",
         "calibration_slope",
+        "calibration_slope_se",
         "mean_predicted",
         "mean_observed",
         "r2",
+        "regression_slope",
     ]
+
+
+def test_binary_rows_read_the_fits_folds_and_linear_rows_a_regression_slope(
+    weighted_result,
+) -> None:  # type: ignore[no-untyped-def]
+    """One statistic under each name, in the longitudinal report as in the point one.
+
+    Before RM15 the ``calibration_slope`` column held a logistic slope on binary rows and a
+    linear slope on pseudo-outcome rows.  A binary row now reads the fold-intercept slope
+    with the fit's own folds.  On this two-fold fit one pooled intercept gives another value,
+    so a report that dropped the folds would fail the equality below.
+    """
+    report = _longitudinal_nuisances(weighted_result)
+    for row in report.rows:
+        assert row.model is not None
+        if row.model.kind == "probability":
+            assert "calibration_slope_se" in row.model.metrics
+            assert "regression_slope" not in row.model.metrics
+        else:
+            assert "regression_slope" in row.model.metrics
+            assert "calibration_slope" not in row.model.metrics
+
+    treatment = _row(report, "treatment", time=1)
+    data = weighted_result.data
+    masks = data.regimen_masks(data.treatment)
+    at_risk = masks.uncensored[:, 0] & masks.event_free[:, 0]
+    predicted = np.asarray(weighted_result.mechanism.treatment_observed[0], dtype=float)[:, 1]
+    actual = np.nan_to_num(data.treatment[:, 0], nan=0.0) == 1
+    arguments = (treatment.model.name, predicted, actual, data.weights, ())
+    folded = nuisance_module._binary_report(
+        *arguments, mask=at_risk, folds=weighted_result.folds.assignment, cluster=data.cluster
+    )
+    pooled = nuisance_module._binary_report(
+        *arguments, mask=at_risk, folds=np.zeros(data.n, dtype=np.int64), cluster=data.cluster
+    )
+
+    slope = treatment.model.metrics["calibration_slope"]
+    assert slope == folded.metrics["calibration_slope"]
+    assert treatment.model.metrics["calibration_slope_se"] == folded.metrics["calibration_slope_se"]
+    assert abs(slope - pooled.metrics["calibration_slope"]) > 1e-6
 
 
 def test_to_frame_columns_a_report_whose_rows_retain_no_model() -> None:
