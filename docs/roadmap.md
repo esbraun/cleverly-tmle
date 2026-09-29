@@ -40,7 +40,7 @@ or the commit that its detail section names, holds the full plan, probe and revi
 delivered row that this roadmap still describes. Read a record with, for example,
 `git show dea3297e:docs/roadmap.md`.
 
-The remediation queue holds no rows. Pull request NNN delivered
+The remediation queue holds no rows. Pull request 250 delivered
 [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes), the last open row.
 
 Each row takes a tier by the harm that its defect does to a user today. The table gives the tiers,
@@ -426,7 +426,7 @@ uncertainty around the truth and can change an unresolved verdict. Three post-ru
 therefore refused for every entry below. They are raising a budget, moving a margin, and
 re-declaring a positive cell's law, learner or size after seeing its verdict.
 
-Pull request 245 and pull request NNN delivered this row. The table gives what shipped. Commit
+Pull request 245 and pull request 250 delivered this row. The table gives what shipped. Commit
 `985849c6` holds the declarations of the five follow-up designs and their amendments. It also
 holds the readings of designs FW, OW, BD and CD, and the review record. Read it with
 `git show 985849c6:docs/roadmap.md`. Commit `dea3297e` holds the earlier declarations and
