@@ -36,10 +36,10 @@ carries a further term for the pathwise derivative through :math:`g`:
 A `Stochastic` regime evaluated at the very same density :math:`q_\delta` has the same
 mean and the same clever covariate, entry for entry, and a *different* influence curve --
 it is missing the middle term.  Reporting one for the other would report a standard error
-for a different functional, which is why
-:func:`~cleverly.interventions.refuse_unsupported` said no to this for as long as only the
-regime curve existed, and why :func:`~cleverly.inference.influence.ipsi_means` does not
-delegate to :func:`~cleverly.inference.influence.regime_means`.
+for a different functional.  That is why the regime path refuses an Incremental
+(:func:`~cleverly.interventions.refuse_mixed_interventions`), and why
+:func:`~cleverly.inference.influence.ipsi_means` does not delegate to
+:func:`~cleverly.inference.influence.regime_means`.
 ``tests/unit/test_influence_gateaux_ipsi.py`` keeps that as a negative control.
 
 **What the tilt buys: no positivity assumption.**  Every other estimand in this package

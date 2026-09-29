@@ -456,7 +456,8 @@ def _plan_nodes(label: object, plan: Any) -> tuple[Any, ...] | None:
     if isinstance(plan, np.ndarray) and plan.ndim == 0:
         raise DataError(
             f"the plan of regimen {label!r} is a zero-dimensional array. Pass a treatment "
-            "label to assign it at every node, or a sequence with one entry per node"
+            "label to assign it at every node, a sequence with one entry per node, or "
+            "DynamicRegimen(label, ordered_nodes, rule_kind='known') for a plan with a rule"
         )
     if callable(plan) or isinstance(plan, _LABEL_TYPES) or not hasattr(plan, "__iter__"):
         return None

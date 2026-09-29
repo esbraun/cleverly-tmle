@@ -38,6 +38,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from dataclasses import fields, replace
+from functools import partial
 from typing import Any
 
 import numpy as np
@@ -329,14 +330,19 @@ class TestAPlanIsReadOnce:
         assert NeverFit.calls == 0
 
     def test_a_zero_dimensional_array_plan_is_a_data_error_before_any_learner(self) -> None:
+        """The message names the sequence form and ``DynamicRegimen`` (roadmap row RM14)."""
         spec = {"thr": np.array(1)}
-        for evaluate in (
-            lambda: refuse_regimen_rules(spec),
-            lambda: resolve_regimens(spec, 2),
-            lambda: ENTRIES["fit"](spec),
-        ):
-            assert_refused(evaluate, DataError, "regimen 'thr'", "zero-dimensional array")
-        assert NeverFit.calls == 0
+        fragments = (
+            "regimen 'thr'",
+            "zero-dimensional array",
+            "a sequence with one entry per node",
+            "DynamicRegimen(",
+        )
+        for check in (lambda: refuse_regimen_rules(spec), lambda: resolve_regimens(spec, 2)):
+            assert_refused(check, DataError, *fragments)
+        for entry in ENTRIES.values():
+            assert_refused(partial(entry, spec), DataError, *fragments)
+            assert NeverFit.calls == 0
 
     @pytest.mark.parametrize("entry", list(ENTRIES))
     def test_every_entry_refuses_an_iterator_plan_before_any_learner_or_rule_call(

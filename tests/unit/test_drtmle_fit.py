@@ -40,6 +40,7 @@ from cleverly.estimators.tmle import (
     reported_mechanism,
 )
 from cleverly.inference.influence import counterfactual_means, reduced_corrections
+from cleverly.interventions import Incremental, Shift
 from cleverly.validation.drtmle import MARGIN_ACTIVE, CorrectionRow, correction_check
 from cleverly.validation.score import DEFAULT_TOLERANCE
 from tests.conftest import FAST_KWARGS
@@ -1008,8 +1009,8 @@ class TestTheRefusals:
     @pytest.mark.parametrize(
         ("keyword", "value"),
         [
-            ("incremental", [1.5]),
-            ("shifts", [0.5]),
+            ("incremental", [Incremental(1.5)]),
+            ("shifts", [Shift(0.5, cap=None)]),
         ],
     )
     def test_the_other_parameter_axes(self, keyword: str, value) -> None:

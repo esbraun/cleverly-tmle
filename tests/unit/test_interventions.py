@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from cleverly.data import CausalData
-from cleverly.exceptions import DataError
+from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import (
     Incremental,
     RegimeSet,
@@ -21,7 +21,6 @@ from cleverly.interventions import (
     Stochastic,
     as_interventions,
     check_support,
-    refuse_unsupported,
 )
 
 
@@ -145,36 +144,6 @@ def test_stochastic_refuses_the_wrong_number_of_arms() -> None:
 # ------------------------------------------------------------------- refusals
 
 
-def test_an_ipsi_is_redirected_to_its_own_keyword_rather_than_refused() -> None:
-    """It used to be a refusal; it is now a signpost, and the type says which.
-
-    The message still explains *why* the regime path cannot express it -- g* is a
-    functional of P, so the influence function carries a further term -- because that is
-    what stops a reader building one out of ``Stochastic`` and believing the standard
-    error.  What changed is that there is now somewhere to send them.
-    """
-    with pytest.raises(ValueError, match=r"TMLE\(incremental=") as raised:
-        refuse_unsupported("ipsi")
-    assert not isinstance(raised.value, NotImplementedError)
-    assert "functional of P" in str(raised.value)
-
-
-@pytest.mark.parametrize("kind", ["mtp", "shift"])
-def test_a_shift_is_redirected_to_its_own_keyword_rather_than_refused(kind: str) -> None:
-    """A shift is implemented; what it is not is an *intervention*.
-
-    The refusal used to say the learner interface had no ``predict_density``, which
-    stopped being true when the conditional density estimator landed.  It still raises,
-    because ``interventions=`` takes regimes -- a distribution over arms given ``W`` --
-    and a shift reads the dose the unit received.  So the message points at the keyword
-    that does work, and the type changes from ``NotImplementedError`` to ``ValueError``
-    to say the difference is one of API rather than of derivation.
-    """
-    with pytest.raises(ValueError, match=r"TMLE\(shifts=") as raised:
-        refuse_unsupported(kind)
-    assert not isinstance(raised.value, NotImplementedError)
-
-
 @pytest.mark.parametrize(
     ("declared", "keyword"),
     [
@@ -185,17 +154,16 @@ def test_a_shift_is_redirected_to_its_own_keyword_rather_than_refused(kind: str)
 def test_the_wrong_keyword_reaches_the_signpost_rather_than_falling_through(
     declared: object, keyword: str
 ) -> None:
-    """The two tests above call the refusal; this one arrives at it the way a user does.
+    """``as_interventions`` refuses a shift or an incremental item, alone or in a list.
 
-    Without this, ``refuse_unsupported`` has no call site in the library at all and those
-    tests only prove that a function raises when called.  ``as_interventions`` used to send
-    both of these to ``Static``, which wrapped the object as though it were a treatment
-    *level* -- so the fit failed much later, about something else, having first built a
-    regime named ``"always Shift(delta=0.5, cap=5.0, name='up')"``.
+    ``as_interventions`` used to send both of these to ``Static``, which wrapped the object
+    as though it were a treatment *level* -- so the fit failed much later, about something
+    else, having first built a regime named ``"always Shift(delta=0.5, cap=5.0, name='up')"``.
+    ``tests/unit/test_intervention_kind_refusals.py`` pins the rest of the message.
     """
-    with pytest.raises(ValueError, match=keyword):
+    with pytest.raises(CapabilityError, match=keyword):
         as_interventions(declared)
-    with pytest.raises(ValueError, match=keyword):
+    with pytest.raises(CapabilityError, match=keyword):
         as_interventions([Static(0.0), declared])
 
 

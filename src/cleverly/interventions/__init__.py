@@ -16,7 +16,7 @@ from .base import (
     Static,
     Stochastic,
     as_interventions,
-    refuse_unsupported,
+    refuse_mixed_interventions,
 )
 from .incremental import (
     Incremental,
@@ -45,5 +45,5 @@ __all__ = [
     "check_incremental_support",
     "check_shift_support",
     "check_support",
-    "refuse_unsupported",
+    "refuse_mixed_interventions",
 ]

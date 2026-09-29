@@ -52,6 +52,7 @@ from cleverly.datasets import (
     make_shift_dose,
 )
 from cleverly.estimators import TMLE
+from cleverly.interventions import Shift
 from cleverly.longitudinal import LTMLE, LongitudinalData
 from cleverly.longitudinal.estimator import DEFAULT_LTMLE_G_BOUNDS
 from cleverly.methods import (
@@ -1555,7 +1556,8 @@ def test_a_conditional_caveat_survives_when_its_replacement_does_not_apply() -> 
             outcome="Y", treatment="A", adjustment=("W1", "W2"), treatment_kind="continuous"
         ),
     )
-    effect = study.identify(ModifiedTreatmentPolicy(shifts=(0.0, 0.5)))
+    shifts = (Shift(0.0, cap=None), Shift(0.5, cap=None))
+    effect = study.identify(ModifiedTreatmentPolicy(shifts=shifts))
     assumptions = effect.identification.assumptions
     assert any(item.startswith(MISSINGNESS_CAVEAT_PREFIX) for item in assumptions)
     assert any(item.startswith(INTERMEDIATE_CAVEAT_PREFIX) for item in assumptions)

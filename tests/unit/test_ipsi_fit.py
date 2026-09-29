@@ -15,7 +15,7 @@ import pytest
 from cleverly import load
 from cleverly.datasets import make_nonlinear_ate
 from cleverly.estimators import CTMLE, TMLE
-from cleverly.exceptions import DataError
+from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Incremental, Shift, Static
 from tests.conftest import FAST_KWARGS, IN_SAMPLE
 
@@ -108,7 +108,7 @@ class TestTheRefusals:
         ],
     )
     def test_two_counterfactual_axes_together_are_refused(self, kwargs: dict, match: str) -> None:
-        with pytest.raises(ValueError, match=match):
+        with pytest.raises(CapabilityError, match=match):
             TMLE(**FAST_KWARGS, incremental=TILTS, **kwargs)
 
     def test_a_working_model_over_tilts_is_refused(self) -> None:
@@ -119,7 +119,7 @@ class TestTheRefusals:
             terms=("(intercept)", "a"),
             design_kind="known",
         )
-        with pytest.raises(ValueError, match="cannot be combined"):
+        with pytest.raises(CapabilityError, match="cannot be combined"):
             TMLE(**FAST_KWARGS, incremental=TILTS, msm=model)
 
     def test_an_explicit_propensity_bound_is_refused_with_the_reason(self) -> None:

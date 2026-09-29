@@ -26,8 +26,8 @@ what lets a single clever covariate
 cover the three, and collapse to :math:`\mathbb 1\{A = a\}/g_a(W)` exactly when the
 regime is :class:`Static`.
 
-**What is deliberately not here.**  Both are about the *influence function*, not about
-effort -- and both are implemented, elsewhere, under keywords of their own:
+**Two kinds that are not regimes.**  Both differ in the *influence function*, and each is
+implemented in its own module, under typed estimands and a ``TMLE`` keyword of its own:
 
 - An **incremental propensity-score intervention** tilts the population mechanism,
   :math:`g^\star_\delta(1 \mid W) = \delta g_1 / (\delta g_1 + 1 - g_1)`.  Its
@@ -36,31 +36,34 @@ effort -- and both are implemented, elsewhere, under keywords of their own:
   that a fixed-density regime curve lacks, and the estimator has to fluctuate the mechanism
   as well as :math:`\bar Q`.  Neither this Protocol -- whose ``density`` sees only the
   data -- nor the influence curve below can express that, which is why it is a parameter
-  axis of its own: :mod:`cleverly.interventions.incremental` and ``TMLE(incremental=)``.
+  axis of its own: :mod:`cleverly.interventions.incremental`, the typed estimands
+  ``IncrementalMean`` and ``IncrementalEffect``, and ``TMLE(incremental=)``.
   The paragraph stays here rather than being deleted, because the thing to stop a reader
   doing is writing one as a :class:`Stochastic`.  A :class:`Stochastic` must declare
   ``density_kind="known"``, and one declared ``"estimated"`` is refused (roadmap row RM25).
   A :class:`Rule` declares ``rule_kind="known"``, and a user-written :class:`Intervention`
   declares ``density_kind = "known"``, by the same three states (roadmap row RM28).
-- A **modified treatment policy** shifting a continuous treatment needs
-  :math:`g^\star` and :math:`g` as conditional *densities* on a continuum, which the
-  learner layer does not estimate -- there is no ``predict_density``.
+- A **modified treatment policy** reads the dose that a unit received and moves it, so
+  it is not a conditional distribution over the arms.  It is a parameter axis of its own
+  too: :mod:`cleverly.interventions.shift`, the typed estimands ``ModifiedTreatmentPolicy``
+  and ``ModifiedTreatmentPolicyEffect``, and ``TMLE(shifts=)``.
 
-:func:`refuse_unsupported` states both, by name, where a user would meet them.
+:func:`refuse_mixed_interventions` refuses either one in a set of regimes, and names the
+typed estimands that hold it (roadmap row RM14).
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
-from typing import Any, Protocol, cast, runtime_checkable
+from typing import Any, Literal, NamedTuple, Protocol, cast, runtime_checkable
 
 import numpy as np
 
 from .._declarations import FunctionDeclaration, FunctionKind
 from .._typing import FloatArray
 from ..data.causal_data import CausalData
-from ..exceptions import DataError
+from ..exceptions import CapabilityError, DataError
 
 __all__ = [
     "Intervention",
@@ -69,8 +72,8 @@ __all__ = [
     "Static",
     "Stochastic",
     "as_interventions",
+    "refuse_mixed_interventions",
     "refuse_regime_densities",
-    "refuse_unsupported",
 ]
 
 #: How close to one a supplied stochastic density's row sums must be.  Loose enough for
@@ -432,35 +435,121 @@ def check_regime_density(
 # ----------------------------------------------------------------- the refusals
 
 
-def refuse_unsupported(kind: str) -> None:
-    """Raise for an intervention that is not a regime, and say where it went.
+InterventionKind = Literal["regime", "shift", "incremental"]
 
-    Called from :func:`as_interventions`, which is where a ``Shift`` or an ``Incremental``
-    handed to ``interventions=`` arrives.  Both kinds here are implemented under keywords
-    of their own, so both messages name that keyword; the ``ValueError`` rather than
-    ``NotImplementedError`` says the difference is one of API rather than of derivation.
+
+class _KindText(NamedTuple):
+    """The words that a refusal of one intervention kind uses."""
+
+    accepts: str  # what a set of the kind accepts
+    example: str  # one item of the kind, as a user writes it
+    item: str  # what one item of the kind is
+    estimands: str  # the typed estimands that hold the kind in a CausalStudy
+    keyword: str  # the TMLE keyword that takes the kind on the estimator
+
+
+_KIND_TEXT: dict[InterventionKind, _KindText] = {
+    "regime": _KindText(
+        "treatment levels and regimes",
+        "Static(1)",
+        "a treatment level or a regime, which assigns a distribution over the arms from the "
+        "covariates",
+        "RegimeMean and RegimeContrast",
+        "TMLE(interventions=...)",
+    ),
+    "shift": _KindText(
+        "Shift objects",
+        "Shift(0.5, cap=None)",
+        "a modified treatment policy, which moves the dose that a unit received",
+        "ModifiedTreatmentPolicy and ModifiedTreatmentPolicyEffect",
+        "TMLE(shifts=...)",
+    ),
+    "incremental": _KindText(
+        "Incremental objects",
+        "Incremental(2.0)",
+        "an incremental propensity-score intervention, which multiplies the odds of treatment",
+        "IncrementalMean and IncrementalEffect",
+        "TMLE(incremental=...)",
+    ),
+}
+
+#: Why an item of a kind is not a regime.  It follows a refusal in a regimen set only.
+_NOT_A_REGIME: dict[InterventionKind, str] = {
+    "incremental": (
+        " Its g*(a | W) is a functional of P, so its influence curve carries a term for the "
+        "treatment mechanism g (Kennedy 2019) that a regime curve lacks."
+    ),
+    "shift": (
+        " A shift is a function d(A, W) of the treatment that a unit received, and a regime "
+        "depends on the covariates alone (Haneuse and Rotnitzky 2013). A shift needs a "
+        "continuous treatment, treatment_kind='continuous'."
+    ),
+}
+
+
+def _intervention_kind(item: object) -> InterventionKind:
+    """``"shift"`` for a Shift, ``"incremental"`` for an Incremental, else ``"regime"``.
+
+    A bare value is a regime, because :func:`as_interventions` reads it as a Static level.
     """
-    if kind == "ipsi":
-        raise ValueError(
-            "incremental propensity-score interventions are implemented, but not as an "
-            "intervention. Their g*(a | W) = delta*g / (delta*g + 1 - g) is a functional "
-            "of P, so the efficient influence function carries a further term for the "
-            "dependence on g-hat (Kennedy 2019) and the estimator fluctuates the "
-            "mechanism as well as the outcome regression -- neither of which the regime "
-            "path can express. Declare one with cleverly.interventions.Incremental and "
-            "pass it to TMLE(incremental=...). Building one by hand as a Stochastic "
-            "regime would report a standard error for a different functional, and would "
-            "be too small: the term it omits is orthogonal to the rest of the curve."
+    from .incremental import Incremental
+    from .shift import Shift
+
+    if isinstance(item, Shift):
+        return "shift"
+    if isinstance(item, Incremental):
+        return "incremental"
+    return "regime"
+
+
+def refuse_mixed_interventions(
+    items: Iterable[object], *, kind: InterventionKind, holder: str
+) -> None:
+    """Raise at the first item of ``items`` that is not of ``kind``.
+
+    One fit estimates one intervention kind.  ``_KIND_TEXT`` gives, for each kind, what a
+    set accepts, the typed estimands that hold it, and the ``TMLE`` keyword that takes it.
+    The message names the holder, the position and the item.  For an item of another kind
+    it names that kind's typed estimands and keyword, and F17 for a joint request.  In a set
+    of regimes it also says why the item is not a regime.  A bare value in a shift or
+    incremental set is not a regime the user meant, so its message shows the object to
+    write instead.  ``CausalStudy.identify`` runs this on the set of each typed estimand,
+    :func:`as_interventions` on ``interventions=``, and the ``TMLE`` constructor on
+    ``shifts=`` and ``incremental=`` (roadmap row RM14).
+
+    Parameters
+    ----------
+    items : iterable of object
+        The set of one typed estimand or of one ``TMLE`` keyword.
+    kind : {"regime", "shift", "incremental"}
+        The kind that the holder accepts.
+    holder : str
+        The field or the keyword that the message names, such as
+        ``"RegimeContrast.regimens"`` or ``"shifts="``.
+
+    Raises
+    ------
+    CapabilityError
+        If an item is of another kind.
+    """
+    text = _KIND_TEXT[kind]
+    for position, item in enumerate(items, start=1):
+        found = _intervention_kind(item)
+        if found == kind:
+            continue
+        if found == "regime" and not callable(getattr(item, "density", None)):
+            raise CapabilityError(
+                f"{holder} accepts {text.accepts}, and item {position}, {item!r}, is a bare "
+                f"value. Write it as an object, such as {text.example}."
+            )
+        other = _KIND_TEXT[found]
+        why = _NOT_A_REGIME.get(found, "") if kind == "regime" else ""
+        raise CapabilityError(
+            f"{holder} accepts {text.accepts}, such as {text.example}, and item {position}, "
+            f"{item!r}, is {other.item}. {other.estimands} hold that kind in a CausalStudy, "
+            f"and {other.keyword} takes it on the estimator.{why} One fit estimates one "
+            "intervention kind, and docs/roadmap.md F17 tracks a joint request."
         )
-    if kind in {"mtp", "shift"}:
-        raise ValueError(
-            "modified treatment policies are implemented, but not as an intervention. A "
-            "shift reads the dose a unit actually received and moves it, so it is not a "
-            "conditional distribution over arms the way a regime is; declare one with "
-            "cleverly.interventions.Shift and pass it to TMLE(shifts=...). A shift of a "
-            "*discrete* treatment can be written as a Rule."
-        )
-    raise ValueError(f"unknown intervention kind {kind!r}")
 
 
 #: Why an estimated regime density is refused.  ``_DENSITY_DECLARATION`` reads it, and
@@ -473,9 +562,11 @@ _ESTIMATED_DENSITY = (
     "API does not check. "
     "docs/technical-reference/scope-and-refusals.md (Wrong by construction) records the "
     "refusal, and RM25 in docs/roadmap.md records the reason. For the population odds tilt "
-    "of the treatment mechanism, declare cleverly.interventions.Incremental and pass it to "
-    "TMLE(incremental=...), whose curve carries that term. Otherwise pass density_fn= as "
-    "a fixed function of the covariates with density_kind='known'."
+    "of the treatment mechanism, declare cleverly.interventions.Incremental. "
+    f"{_KIND_TEXT['incremental'].estimands} hold it in a CausalStudy, and "
+    f"{_KIND_TEXT['incremental'].keyword} takes it on the estimator. Its curve carries that "
+    "term. Otherwise pass density_fn= as a fixed function of the covariates with "
+    "density_kind='known'."
 )
 
 _UNDECLARED_DENSITY = (
@@ -555,9 +646,11 @@ _ESTIMATED_INTERVENTION = (
     "instead defines a data-adaptive target whose inference needs conditions this API does "
     "not check. docs/technical-reference/scope-and-refusals.md (Wrong by construction) "
     "records the refusal, and RM28 in docs/roadmap.md records the reason. For the "
-    "population odds tilt of the treatment mechanism, pass "
-    "cleverly.interventions.Incremental to TMLE(incremental=...). Otherwise make "
-    "density(data) a fixed function of the covariates and set density_kind = 'known'."
+    "population odds tilt of the treatment mechanism, declare "
+    f"cleverly.interventions.Incremental. {_KIND_TEXT['incremental'].estimands} hold it in "
+    f"a CausalStudy, and {_KIND_TEXT['incremental'].keyword} takes it on the estimator. "
+    "Otherwise make density(data) a fixed function of the covariates and set "
+    "density_kind = 'known'."
 )
 
 #: The density declaration of a user-written :class:`Intervention`: the attribute
@@ -869,12 +962,12 @@ def as_interventions(value: Any) -> tuple[Intervention, ...]:
     declaration, so the fourth row refuses it and names :class:`Rule`.
 
     A :class:`~cleverly.interventions.Shift` or
-    :class:`~cleverly.interventions.Incremental` is neither a level nor a regime, and is
-    sent to :func:`refuse_unsupported` rather than falling through to ``Static``.  Both are
-    implemented, under keywords of their own, and the ``Static`` fallthrough would wrap
-    the object as though it were a treatment *level* -- giving a regime named
-    ``"always Shift(delta=0.5, ...)"`` and an error much further downstream, about
-    something else.
+    :class:`~cleverly.interventions.Incremental` is neither a level nor a regime, so
+    :func:`refuse_mixed_interventions` refuses it before any item becomes a regime.  Both are
+    implemented, under typed estimands and keywords of their own, and the ``Static``
+    fallthrough would wrap the object as though it were a treatment *level* -- giving a
+    regime named ``"always Shift(delta=0.5, ...)"`` and an error much further downstream,
+    about something else.
 
     Parameters
     ----------
@@ -891,22 +984,16 @@ def as_interventions(value: Any) -> tuple[Intervention, ...]:
     DataError
         If an item is a callable with no ``density``, or an object with a ``density`` and
         no ``name``.
-    ValueError
+    CapabilityError
         If an item is a :class:`~cleverly.interventions.Shift` or an
         :class:`~cleverly.interventions.Incremental`.
     """
-    from .incremental import Incremental
-    from .shift import Shift
-
     if value is None:
         return ()
     items = list(value) if isinstance(value, (list, tuple)) else [value]
+    refuse_mixed_interventions(items, kind="regime", holder="interventions=")
     out: list[Intervention] = []
     for item in items:
-        if isinstance(item, Shift):
-            refuse_unsupported("shift")
-        if isinstance(item, Incremental):
-            refuse_unsupported("ipsi")
         if isinstance(item, (str, bytes)):
             out.append(Static(item))
         elif callable(getattr(item, "density", None)):
