@@ -1376,11 +1376,13 @@ def truncation_refusal(result: TMLEResult, mechanism: bool | None = None) -> str
     from ..estimators.drtmle import DRTMLE
 
     if refits_reduced_regressions(result) and isinstance(result.estimator, DRTMLE):
-        reason = result.estimator._reduction_configuration_refusal()
+        reason = result.estimator._reduction_configuration_refusal(
+            result.extra["drtmle"], result.nuisance
+        )
         if reason is not None:
             return (
                 "a guarded DR-TMLE truncation curve refits the reduced regressions under "
-                "this estimator's reduction settings, and a fit refuses those settings: " + reason
+                "this estimator's reduction settings, and it refuses those settings: " + reason
             )
     axis = truncation_axis(result, mechanism)
     for _name, rule in _TRUNCATION_RULES:

@@ -937,7 +937,7 @@ gives what such a result keeps.
 
 | operation | on such a result |
 | --- | --- |
-| point estimates and cached-nuisance retargets, such as `truncation_curve()` | run. `replayability.retarget_cached_nuisances` is `True`. A guarded DR-TMLE curve also runs. It retargets the cached primary nuisances and refits the reduced regressions inside that step. Its row reports the `refit` cost, but it does not require the `refit_nuisances` slot of the outer estimator. The curve refuses a reduction setting that a fit refuses, such as `targeting="one_step"` with `reduced_crossfit="nested"` |
+| point estimates and cached-nuisance retargets, such as `truncation_curve()` | run. `replayability.retarget_cached_nuisances` is `True`. A guarded DR-TMLE curve also runs. It retargets the cached primary nuisances and refits the reduced regressions inside that step. Its row reports the `refit` cost, but it does not require the `refit_nuisances` slot of the outer estimator. The curve refuses a reduction setting that a fit refuses, such as `targeting="one_step"` with `reduced_crossfit="nested"`. It also refuses a `guard`, `reduction` or `reduced_crossfit` other than the fitted one |
 | refits, such as `refute()` and `simulated_confounding()` | `unavailable`. `replayability.refit_nuisances` is `False`, with the code `point_replay_refit_configuration` |
 | `estimator.refit()` | raises `CapabilityError` before any learner |
 

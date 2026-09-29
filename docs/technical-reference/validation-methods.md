@@ -214,13 +214,16 @@ doubly-robust fits refit no nuisance model, so their curves are retarget operati
 A guarded DR-TMLE fit retargets its cached primary nuisances and refits its reduced regressions at
 each bound. Its row reports the `refit` cost and requires the `retarget_cached_nuisances` replay
 slot, because the curve does not call `refit()`. The function `truncation_refusal` first runs the
-checks of the reduction settings that the retarget reads. When a fit refuses those settings, the
-row reads `unavailable`, and the facade call and the module call each raise `CapabilityError`.
+checks of the reduction settings that the retarget reads. It also compares `guard`, `reduction`
+and `reduced_crossfit` with the fitted construction. When a fit refuses those settings or they
+differ from the fitted construction, the row reads `unavailable`. The facade call and the module
+call then each raise `CapabilityError`.
 
 | test | configuration | outcome |
 | --- | --- | --- |
 | `TestGuardedTruncationUsesCachedNuisanceReplay` in `tests/unit/test_capability_row_predicates.py` | a stratified fold policy | the curve runs, and the three surfaces agree |
 | `TestTheGuardedCurveReadsItsReductionSettings` in `tests/unit/test_summary_and_message_accuracy.py` | `targeting="one_step"` with `reduced_crossfit="nested"` | the three surfaces refuse |
+| `TestTheGuardedCurveReadsItsReductionSettings` | a changed `guard`, `reduction` or `reduced_crossfit` | the three surfaces refuse |
 
 `mechanism=None` sweeps the observation mechanism on a fit that estimates no treatment law, and
 `g(W)` on every other fit. `truncation_refusal` in `sensitivity/positivity.py` then applies three
