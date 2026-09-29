@@ -1328,8 +1328,8 @@ def refits_reduced_regressions(result: TMLEResult) -> bool:
 
     A guarded DR-TMLE fit alternates its targeting against the reduced regressions, and
     :func:`truncation_curve` refits them inside ``retarget``.  The capability row prices
-    that curve as a refit, and :func:`truncation_refusal` asks the estimator whether it
-    can refit.
+    that curve as a refit, and :func:`truncation_refusal` asks the estimator whether its
+    reduction settings admit that refit.
 
     Parameters
     ----------
@@ -1355,10 +1355,10 @@ def truncation_refusal(result: TMLEResult, mechanism: bool | None = None) -> str
     axis is refused and the other one runs, so a combined report names the argument
     instead of calling a curve the call refuses.
 
-    A guarded DR-TMLE curve refits the reduced regressions under the estimator's live
-    configuration, so it is refused on either axis when ``refit()`` refuses that
-    configuration.  The row requires the ``refit_nuisances`` replay slot, which reads the
-    same check.
+    A guarded DR-TMLE curve retargets the cached primary nuisances and refits the reduced
+    regressions under the estimator's live reduction settings.  It is refused on either
+    axis when a fit refuses those settings.  A setting that only the primary split reads,
+    such as ``stratify_folds``, does not reach the curve and is not asked.
 
     Parameters
     ----------
@@ -1373,12 +1373,16 @@ def truncation_refusal(result: TMLEResult, mechanism: bool | None = None) -> str
     str or None
         Exact refusal reason, or ``None`` when the requested axis can be swept.
     """
-    if refits_reduced_regressions(result) and result.estimator is not None:
-        reason = result.estimator._refit_configuration_refusal(result.data)
+    from ..estimators.drtmle import DRTMLE
+
+    if refits_reduced_regressions(result) and isinstance(result.estimator, DRTMLE):
+        reason = result.estimator._reduction_configuration_refusal(
+            result.extra["drtmle"], result.nuisance
+        )
         if reason is not None:
             return (
                 "a guarded DR-TMLE truncation curve refits the reduced regressions under "
-                "this estimator's configuration, and refit() refuses that configuration: " + reason
+                "this estimator's reduction settings, and it refuses those settings: " + reason
             )
     axis = truncation_axis(result, mechanism)
     for _name, rule in _TRUNCATION_RULES:

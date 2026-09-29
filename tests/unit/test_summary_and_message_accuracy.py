@@ -15,8 +15,8 @@ accepts. This module holds the witnesses of the rows that RM16a corrects:
   an encoded covariate, drops its whole block, and accepts a boolean covariate;
 * a facade reads a one-shot iterator once, on a direct call, in a combined report and in the
   cache key;
-* the guarded DR-TMLE truncation curve refuses a refused refit configuration through the row,
-  the facade and the module call alike.
+* the guarded DR-TMLE truncation curve refuses a refused reduction setting, or a construction
+  other than the fitted one, through the row, the facade and the module call alike.
 
 The backstop witness reaches the outcome regression of ``_selection_base``, which trains on
 the respondents.  The other two selection calls of ``cross_fit_predictions``, the propensity of
@@ -67,6 +67,7 @@ from cleverly.datasets import (
     navigation_protocol,
 )
 from cleverly.estimators import CTMLE, DRTMLE, TMLE, TMLEResultSet
+from cleverly.estimators.targeting import ONE_STEP_NESTED_REFUSAL
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Shift, Static
 from cleverly.sensitivity import benchmark
@@ -549,35 +550,65 @@ class TestAFacadeReadsAnIteratorOnce:
         assert not any("generator" in key for key in result.assessment_cache)
 
 
-# ---------------------------------------- row 15: the guarded curve needs a refit
+# ------------------------ row 15: the guarded curve asks its reduction settings
 
 
-_REFIT_REFUSAL = "refit() refuses that configuration"
+class TestTheGuardedCurveReadsItsReductionSettings:
+    """Row 15. The row, the facade call and the module call agree on a guarded fit.
 
+    The curve retargets the cached primary nuisances, so a reconfigured primary split runs
+    (``TestGuardedTruncationUsesCachedNuisanceReplay`` in
+    ``tests/unit/test_capability_row_predicates.py``).  The alternation refits the reduced
+    regressions under the live reduction settings, so a refused setting or a construction
+    other than the fitted one refuses every surface.  Without the check, a changed
+    ``reduction`` or ``reduced_crossfit`` and the one-step nested pair raise a plain
+    ``ValueError`` inside the retarget, and ``guard=("Q",)`` on a ``("Q", "g")`` fit returns
+    the curve of another construction: an ATE of 0.3235 where the fitted construction gives
+    0.3168.
+    """
 
-class TestTheGuardedCurveReadsTheRefitSlot:
-    """Row 15. The row, the facade call and the module call agree on a guarded fit."""
-
-    @pytest.mark.parametrize(
-        "configuration",
-        [
-            {"stratify_folds": "treatment"},
-            {"targeting": "one_step", "reduced_crossfit": "nested"},
-        ],
-        ids=["stratified_folds", "one_step_nested"],
+    _PREFIX = (
+        "a guarded DR-TMLE truncation curve refits the reduced regressions under this "
+        "estimator's reduction settings, and it refuses those settings: "
     )
-    def test_a_refused_configuration_refuses_every_surface(
-        self, configuration: dict[str, Any]
-    ) -> None:
-        result = sweep.reconfigured(sweep.fit_drtmle(), **configuration)
+
+    @staticmethod
+    def _refused_everywhere(result: Any) -> str:
         assert not result.diagnostics.capability("truncation_curve").available
         with pytest.raises(CapabilityError):
             result.diagnostics.truncation_curve([0.05])
         with pytest.raises(CapabilityError) as raised:
             truncation_curve(result, [0.05])
-        assert str(raised.value).startswith(
-            "a guarded DR-TMLE truncation curve refits the reduced regressions under this "
-            f"estimator's configuration, and {_REFIT_REFUSAL}: "
+        return str(raised.value)
+
+    def test_a_refused_reduction_setting_refuses_every_surface(self) -> None:
+        # ``n_folds=3`` passes the nested fold-count check, so the one-step refusal answers.
+        result = sweep.reconfigured(
+            sweep.fit_drtmle(), targeting="one_step", reduced_crossfit="nested", n_folds=3
+        )
+        assert self._refused_everywhere(result) == self._PREFIX + ONE_STEP_NESTED_REFUSAL
+
+    @pytest.mark.parametrize(
+        ("configuration", "named"),
+        [
+            ({"guard": ("Q",)}, "guard=('Q',) (fitted ('Q', 'g'))"),
+            ({"reduction": "bivariate"}, "reduction='bivariate' (fitted 'univariate')"),
+            (
+                {"reduced_crossfit": "nested", "n_folds": 3},
+                "reduced_crossfit='nested' (fitted 'pooled')",
+            ),
+        ],
+        ids=["guard", "reduction", "reduced_crossfit"],
+    )
+    def test_a_changed_construction_refuses_every_surface(
+        self, configuration: dict[str, Any], named: str
+    ) -> None:
+        result = sweep.reconfigured(sweep.fit_drtmle(), **configuration)
+        assert self._refused_everywhere(result) == (
+            self._PREFIX
+            + "the estimator's reduction construction differs from the fitted one: "
+            + named
+            + ". Fit again with these settings, or restore the fitted ones."
         )
 
     def test_the_live_fit_answers_on_every_surface(self) -> None:
