@@ -315,7 +315,10 @@ class TestEverySpreadIsNamedByItsStatus:
         low, high = refused["ate"].bootstrap.ci
         assert row[spread_name("bootstrap_ci_lower", DIAGNOSTIC)] == low
         assert row[spread_name("bootstrap_ci_upper", DIAGNOSTIC)] == high
-        assert row["bootstrap_std_err"] == refused["ate"].bootstrap.std_error
+        assert (
+            row[spread_name("bootstrap_std_err", DIAGNOSTIC)] == refused["ate"].bootstrap.std_error
+        )
+        assert "bootstrap_std_err" not in row
         assert not {"bootstrap_ci_lower", "bootstrap_ci_upper"} & set(refused.to_frame().columns)
         assert "percentile range" in refused.summary()
 

@@ -627,7 +627,8 @@ class TMLE:
     alpha_sig:
         Significance level for confidence intervals.
     n_bootstrap, bootstrap_resampling:
-        Run a targeted bootstrap with this many replicates (R's ``B``).
+        Run a full-refit bootstrap with this many replicates (R's ``B``): each replicate
+        refits the nuisances and the targeting step on a resample.
     simultaneous, n_multiplier, multiplier_kind:
         Simultaneous confidence bands across estimands via the multiplier bootstrap.
         ``multiplier_kind="rademacher"`` (default) and ``"mammen"`` resample and so

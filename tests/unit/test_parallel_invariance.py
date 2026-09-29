@@ -2,7 +2,7 @@ r"""``n_jobs`` schedules work; it must not change the answer.
 
 Every parallel surface in the package takes an ``n_jobs`` and defaults it to one --
 :class:`~cleverly.TMLE`, :class:`~cleverly.LTMLE`,
-:class:`~cleverly.validation.CoverageStudy`, the targeted bootstrap -- and each of them
+:class:`~cleverly.validation.CoverageStudy`, the full-refit bootstrap -- and each of them
 hands the same closure to :func:`cleverly.utils.parallel.map_parallel`, which runs a list
 comprehension at ``n_jobs=1`` and a joblib ``Parallel`` above it.  Two code paths, one
 claimed result.

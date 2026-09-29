@@ -156,10 +156,13 @@ SUPPORT_SUMMARY_HEADINGS = (
     "unsupported",
 )
 
-#: The caveat the regime table closes with.  It is the only place the table says what the
-#: score column is not, so deleting it removes the whole distinction.
+#: The two lines the regime table closes with: the mechanism each column reads, and what the
+#: score column is not.  They are the only place the table says either, so deleting one
+#: removes that distinction.
 SUPPORT_SUMMARY_CAVEAT = (
-    "score load is Kish-equivalent mask rows from abs(w_i * H_ij), not estimator ESS."
+    "min g, max ratio and ratio effective n read the treatment mechanism before truncation.",
+    "score load reads the truncated mechanism of the targeting step, as Kish-equivalent "
+    "mask rows from abs(w_i * H_ij), not estimator ESS.",
 )
 
 
@@ -765,7 +768,7 @@ def test_the_regime_table_puts_the_score_column_between_the_two_counts_it_is_not
     assert positions == sorted(positions)
     assert header.index("ratio effective n") < header.index("score load")
     assert header.index("score load") < header.index("unsupported")
-    assert lines[-1] == SUPPORT_SUMMARY_CAVEAT
+    assert tuple(lines[-2:]) == SUPPORT_SUMMARY_CAVEAT
 
 
 def test_the_regime_table_says_a_missing_score_load_is_unavailable(
@@ -779,7 +782,7 @@ def test_the_regime_table_says_a_missing_score_load_is_unavailable(
 
     assert summary.count("unavailable") == len(report.regimes)
     assert "draw" not in summary
-    assert summary.splitlines()[-1] == SUPPORT_SUMMARY_CAVEAT
+    assert tuple(summary.splitlines()[-2:]) == SUPPORT_SUMMARY_CAVEAT
     assert list(frame["score_equation"]) == [None] * len(report.regimes)
     assert list(frame["score_load_omission"]) == [SCORE_LOAD_MISSING] * len(report.regimes)
     assert all(math.isnan(value) for value in np.asarray(frame["score_effective_n"]))

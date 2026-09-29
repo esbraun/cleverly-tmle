@@ -1,4 +1,4 @@
-"""Targeted bootstrap inference.
+"""Full-refit bootstrap inference.
 
 The influence-curve variance is the right default: it is cheap and, when the
 nuisance estimators converge fast enough, correct.  It is also asymptotic, and it
@@ -6,10 +6,11 @@ can be optimistic in exactly the situations practitioners care about -- small
 samples, weak overlap, a heavily targeted fit.  R's ``tmle`` therefore offers
 ``B > 1`` for a bootstrap, and so does this library.
 
-The bootstrap here is *targeted*: every replicate re-runs the whole procedure,
+The bootstrap here is a *full refit*: every replicate re-runs the whole procedure,
 nuisance fits included.  Bootstrapping only the targeting step while holding the
 nuisance fits fixed would understate the variance, because the nuisance
-estimation is itself a source of uncertainty.
+estimation is itself a source of uncertainty.  The name states that procedure: a
+targeted bootstrap is a distinct construction, which docs/roadmap.md F2 holds open.
 
 With clusters, whole clusters are resampled. Resampling rows would destroy the
 dependence structure the cluster variance exists to account for. Each sampled
@@ -265,7 +266,7 @@ def run_bootstrap(
     random_state: int | None = None,
     n_jobs: int = 1,
 ) -> BootstrapResult:
-    """Run ``n_replicates`` targeted bootstrap replicates.
+    """Run ``n_replicates`` full-refit bootstrap replicates.
 
     Parameters
     ----------

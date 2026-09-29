@@ -27,7 +27,7 @@ from .methods import (
     TMLEMethod,
 )
 from .msm import MSM, MSMSet, refuse_continuous_msm_mechanisms
-from .protocol import StudyProtocol
+from .protocol import ProtocolDetail, StudyProtocol, protocol_summary_lines
 from .targets import TARGETS
 from .targets.base import (
     INTERMEDIATE_MECHANISM,
@@ -231,8 +231,19 @@ class CausalResult(Protocol):
         """
         ...
 
-    def summary(self) -> str:
-        """Return a printable fit summary."""
+    def summary(self, *, protocol: ProtocolDetail = "full") -> str:
+        """Return a printable fit summary.
+
+        Parameters
+        ----------
+        protocol : {"full", "fingerprint"}
+            How much of the protocol record the summary prints.
+
+        Returns
+        -------
+        str
+            The estimates, the settings, and the recorded facts of the fit.
+        """
         ...
 
     def to_frame(self) -> Any:
@@ -1317,6 +1328,10 @@ class BackdoorMeanContrast:
         Declared treatment levels, in the data container's stable order.
     treatment_value : Any or None
         One retained treatment level for a targeted counterfactual mean.
+    history : tuple of tuple
+        For a longitudinal functional, each treatment node with the set that its treatment
+        mechanism conditions on: the covariates measured before the node, then the earlier
+        treatment nodes. Empty for a point treatment.
     """
 
     outcome: Any
@@ -1334,6 +1349,7 @@ class BackdoorMeanContrast:
     intermediate_name: str | None = None
     treatment_levels: tuple[Any, ...] = ()
     treatment_value: Any = None
+    history: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
     @property
     def reference_arm(self) -> Any:
@@ -2225,6 +2241,15 @@ class ExplicitAdjustmentProvider:
         if regimens is None:
             raise DataError("a longitudinal estimand must declare regimens")
         target = "msm_regimen" if isinstance(estimand, MSMProjection) else estimand.name
+        data = study.data
+        assert isinstance(data, LongitudinalData)
+        # The conditioning set of the treatment mechanism at each node, in the column order of
+        # ``LongitudinalData.history_design``: the covariate history up to that node, then
+        # every earlier treatment.
+        history = tuple(
+            (node, (*data.history_names(time), *data.treatment_names[: time - 1]))
+            for time, node in enumerate(data.treatment_names, start=1)
+        )
         functional = BackdoorMeanContrast(
             outcome=design.outcome,
             treatment=tuple(design.treatment),
@@ -2236,6 +2261,7 @@ class ExplicitAdjustmentProvider:
             horizons=None if estimand.horizons is None else tuple(estimand.horizons),
             msm=estimand.model if isinstance(estimand, MSMProjection) else None,
             longitudinal=True,
+            history=history,
         )
         return IdentifiedEffect(
             estimand=estimand,
@@ -2534,8 +2560,14 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             ),
         )
 
-    def summary(self) -> str:
+    def summary(self, *, protocol: ProtocolDetail = "full") -> str:
         """Return a readable identification summary.
+
+        Parameters
+        ----------
+        protocol : {"full", "fingerprint"}
+            ``"full"`` prints every field of the protocol record. ``"fingerprint"`` prints
+            only its schema and fingerprint, for a reader who has the record already.
 
         Returns
         -------
@@ -2543,38 +2575,45 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             A printable block naming the estimand, the functional, and the assumptions.
         """
         assumptions = "\n".join(f"  - {item}" for item in self.identification.assumptions)
-        protocol = (
-            ("causal study protocol: absent",)
-            if self.protocol is None
-            else self.protocol.summary_lines()
+        history = self.functional.history
+        # A longitudinal functional conditions each node's mechanism on its own history,
+        # so one list of the baseline covariates would understate every later node.
+        adjustment = (
+            [f"history at {node}: {list(names)}" for node, names in history]
+            if history
+            else [f"adjustment/history: {list(self.functional.adjustment)}"]
         )
-        return (
-            f"{self.estimand.definition}\n"
-            f"identified by {self.provider.name}: {self.functional.expression}\n"
-            f"adjustment/history: {list(self.functional.adjustment)}\n"
-            f"required nuisances: {list(self.identification.required_nuisances)}\n"
-            f"assumptions:\n{assumptions}\n" + "\n".join(protocol)
+        return "\n".join(
+            [
+                self.estimand.definition,
+                f"identified by {self.provider.name}: {self.functional.expression}",
+                *adjustment,
+                f"required nuisances: {list(self.identification.required_nuisances)}",
+                f"assumptions:\n{assumptions}",
+                *protocol_summary_lines(self.protocol, protocol),
+            ]
         )
 
-    def summary_lines(self) -> tuple[str, ...]:
+    def summary_lines(self, *, protocol: ProtocolDetail = "full") -> tuple[str, ...]:
         """Return identification facts for inclusion in result summaries.
+
+        Parameters
+        ----------
+        protocol : {"full", "fingerprint"}
+            ``"full"`` gives every field of the protocol record. ``"fingerprint"`` gives
+            only its schema and fingerprint.
 
         Returns
         -------
         tuple of str
             The same facts as lines, for a result summary to append.
         """
-        protocol = (
-            ("causal study protocol: absent",)
-            if self.protocol is None
-            else self.protocol.summary_lines()
-        )
         return (
             f"causal estimand: {self.estimand.definition}",
             f"identification: {self.provider.name}; {self.functional.expression}",
             "required nuisances: " + ", ".join(self.identification.required_nuisances),
             "identification assumptions: " + "; ".join(self.identification.assumptions),
-            *protocol,
+            *protocol_summary_lines(self.protocol, protocol),
         )
 
     def estimate(

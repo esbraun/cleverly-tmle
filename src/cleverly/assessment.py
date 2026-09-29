@@ -2928,6 +2928,8 @@ def _nuisance_item(
             facts.append(note)
         spread = tuple(getattr(report, "repeat_spread", ()))
         if spread:
+            # The name the report's own table heads the column with.
+            ratio = spread_name("sd/se", getattr(report, "inference", "influence_curve"))
             finite_rows: list[Any] = [
                 row for row in spread if np.isfinite(row.ratio_to_standard_error)
             ]
@@ -2935,13 +2937,13 @@ def _nuisance_item(
                 largest_row = max(finite_rows, key=lambda row: row.ratio_to_standard_error)
                 facts.append(
                     f"split spread for {len(spread)} parameter(s) across "
-                    f"{n_repeats} draws; largest sd/se "
+                    f"{n_repeats} draws; largest {ratio} "
                     f"{largest_row.ratio_to_standard_error:.3g} for {largest_row.estimand}"
                 )
             else:
                 facts.append(
                     f"split spread for {len(spread)} parameter(s) across "
-                    f"{n_repeats} draws; sd/se unavailable"
+                    f"{n_repeats} draws; {ratio} unavailable"
                 )
         spread_omission = getattr(report, "repeat_spread_omission", None)
         if n_repeats > 1 and spread_omission is not None:

@@ -1396,6 +1396,8 @@ class TestTheInferenceStatus:
             "ci_upper": "plugin_interval_upper",
             "bootstrap_ci_lower": "bootstrap_range_lower",
             "bootstrap_ci_upper": "bootstrap_range_upper",
+            "bootstrap_std_err": "bootstrap_sd",
+            "bootstrap se": "bootstrap sd",
             "std_error": "plugin_std_error",
             "mean_std_error": "mean_plugin_std_error",
             "reported_standard_error": "plugin_standard_error",
@@ -1459,7 +1461,8 @@ class TestTheInferenceStatus:
         """A percentile interval is a confidence interval too, so its name moves.
 
         The numbers do not: the range is the same two draws' quantiles the ordinary
-        estimate publishes as ``bootstrap_ci_*``, and the standard error keeps its name.
+        estimate publishes as ``bootstrap_ci_*``, and the replicate standard deviation is
+        the number the ordinary estimate publishes as ``bootstrap_std_err``.
         """
         summary = BootstrapSummary(
             std_error=0.21,
@@ -1480,7 +1483,9 @@ class TestTheInferenceStatus:
         assert not {"bootstrap_ci_lower", "bootstrap_ci_upper"} & set(refused)
         assert refused[spread_name("bootstrap_ci_lower", status)] == 0.9
         assert refused[spread_name("bootstrap_ci_upper", status)] == 1.7
-        assert refused["bootstrap_std_err"] == ordinary["bootstrap_std_err"] == 0.21
+        assert refused[spread_name("bootstrap_std_err", status)] == 0.21
+        assert ordinary["bootstrap_std_err"] == 0.21
+        assert "bootstrap_std_err" not in refused
 
     def test_the_median_over_repeats_keeps_and_refuses_to_mix_the_status(self) -> None:
         _, diagnostic = self._pair()

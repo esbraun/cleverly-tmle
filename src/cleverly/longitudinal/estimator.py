@@ -104,6 +104,7 @@ from ..learners.crossfit import Folds, _fresh_seed, random_partition
 from ..learners.library import _validate_learner
 from ..learners.super_learner import resolve_learner
 from ..msm import MSM, refuse_msm_functions
+from ..protocol import ProtocolDetail, protocol_summary_lines
 from ..provenance import Provenance, fingerprint_array
 from ..provenance import build as provenance_build
 from ..targets.base import parameter_name
@@ -239,7 +240,7 @@ _REFUSED: dict[str, str] = {
         "confounding and positivity assumptions to state"
     ),
     "n_bootstrap": (
-        "the targeted bootstrap resamples rows and refits, which needs a subset() on the "
+        "the full-refit bootstrap resamples rows and refits, which needs a subset() on the "
         "longitudinal container and a re-run of the whole backward recursion per replicate"
     ),
     "cross_fit": (
@@ -588,7 +589,20 @@ class LongitudinalConfig:
     #: reasoning :attr:`plan_fingerprints` rests on.
     msm_fingerprint: str | None = None
 
-    def describe(self) -> list[str]:
+    def describe(self, *, contrast: bool) -> list[str]:
+        """Return the settings lines of :meth:`LongitudinalResult.summary`.
+
+        Parameters
+        ----------
+        contrast : bool
+            Whether the report holds a contrast, which the reference line describes. A
+            report of regime means prints no reference line.
+
+        Returns
+        -------
+        list of str
+            One line per setting.
+        """
         plans = ", ".join(
             f"{regimen.label}=({describe_plan(regimen)})" for regimen in self.regimens
         )
@@ -628,14 +642,19 @@ class LongitudinalConfig:
             for label, digest in self.plan_fingerprints:
                 if label in dynamic:
                     lines.append(f"  assigned arms, {label}: {digest}")
-        lines += [
+        if self.msm_terms is not None:
             # A working model has no reference regimen -- what the intercept is against is
             # whatever the design makes it -- so the working model stands where that line
             # would, rather than beside a field that names nothing.
-            f"working model: {len(self.msm_terms)} term(s) "
-            f"{', '.join(self.msm_terms)}, link={self.msm_link}"
-            if self.msm_terms is not None
-            else f"reference: {self.reference}",
+            lines.append(
+                f"working model: {len(self.msm_terms)} term(s) "
+                f"{', '.join(self.msm_terms)}, link={self.msm_link}"
+            )
+        elif contrast:
+            # A report of means holds no contrast for the reference to describe. The field
+            # stays set, because a replay of the result reads it.
+            lines.append(f"reference: {self.reference}")
+        lines += [
             # A single fold is not cross-fitting, and printing "1 fold(s)" reads as
             # though it were: the nuisances are then fitted on the rows they predict
             # for, which the reported variance does not account for.
@@ -1329,8 +1348,14 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         payload: dict[str, list[Any]] = {key: [row[key] for row in rows] for key in rows[0]}
         return self.data.frame_like(payload)
 
-    def summary(self) -> str:
+    def summary(self, *, protocol: ProtocolDetail = "full") -> str:
         """A printable report: the estimates, then the settings, then the leverage.
+
+        Parameters
+        ----------
+        protocol : {"full", "fingerprint"}
+            ``"full"`` prints every field of the study protocol record. ``"fingerprint"``
+            prints only its schema and fingerprint, for a reader who has the record already.
 
         Returns
         -------
@@ -1364,11 +1389,13 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             table = format_table(
                 ["parameter", "estimate", "std. error", f"{level} CI", "p-value"], rows
             )
-        facts = list(self.config.describe())
+        # ``"level"`` is the scale of every mean, the rule ``to_frame`` reads as well.
+        contrast = any(estimate.scale != "level" for estimate in self.estimates.values())
+        facts = list(self.config.describe(contrast=contrast))
         if self.identified_effect is not None:
-            facts.extend(self.identified_effect.summary_lines())
+            facts.extend(self.identified_effect.summary_lines(protocol=protocol))
         else:
-            facts.append("causal study protocol: absent")
+            facts.extend(protocol_summary_lines(None, protocol))
         if self.data.cluster is not None:
             # The count the status reads, when it differs from the count of labels: a
             # cluster with zero weight mass contributes nothing to any estimate.

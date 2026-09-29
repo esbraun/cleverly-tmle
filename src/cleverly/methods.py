@@ -281,7 +281,7 @@ class Inference:
     alpha : float, default=0.05
         Significance level for reported intervals.
     n_bootstrap : int, default=0
-        Bootstrap fits. Zero disables refit bootstrap inference.
+        Bootstrap fits. Zero disables full-refit bootstrap inference.
     bootstrap_resampling : {"auto", "iid", "cluster"}, default="auto"
         Unit or cluster resampling policy.
     simultaneous : bool, default=True
@@ -295,7 +295,7 @@ class Inference:
     --------
     TMLEMethod : Method configuration this object is the inference half of.
     Targeting : Owns ``submodel_alpha``, which is not a significance level.
-    cleverly.inference.run_bootstrap : The refit bootstrap ``n_bootstrap`` requests.
+    cleverly.inference.run_bootstrap : The full-refit bootstrap ``n_bootstrap`` requests.
 
     Examples
     --------
