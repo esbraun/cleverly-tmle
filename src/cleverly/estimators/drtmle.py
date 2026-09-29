@@ -569,7 +569,7 @@ class DRTMLE(TMLE):
             raise CapabilityError(ONE_STEP_NESTED_REFUSAL)
 
     def _reduction_configuration_refusal(
-        self, fitted: ReducedFit, nuisance: NuisanceEstimates
+        self, fitted: ReducedFit | None, nuisance: NuisanceEstimates
     ) -> str | None:
         """Why a retarget cannot refit the reduced regressions under these settings.
 
@@ -585,10 +585,12 @@ class DRTMLE(TMLE):
 
         Parameters
         ----------
-        fitted : ReducedFit
-            The construction the result records.
+        fitted : ReducedFit or None
+            The construction the result records in ``extra["drtmle"]``, the only record of
+            the fitted ``guard``.  ``None`` is refused, because the guard cannot be checked.
         nuisance : NuisanceEstimates
-            The cached nuisances the curve retargets.
+            The cached nuisances the curve retargets.  Their reduced set gives the fitted
+            ``reduction``, and their inner designs the fitted ``reduced_crossfit``.
 
         Returns
         -------
@@ -600,16 +602,21 @@ class DRTMLE(TMLE):
             self._refuse_one_step_nested()
         except ValueError as error:
             return str(error)
+        if fitted is None:
+            return (
+                "the result records no fitted DR-TMLE construction in extra['drtmle'], so the "
+                "guard of the reduced refit cannot be checked. Fit again."
+            )
         changed = []
         if tuple(self.guard) != tuple(fitted.guard):
             changed.append(f"guard={tuple(self.guard)!r} (fitted {tuple(fitted.guard)!r})")
         # The missing-outcome construction replaces the setting, so only a complete-outcome
         # set is keyed by it.
         if (
-            not isinstance(nuisance.reduced, MissingOutcomeReducedSet)
-            and self.reduction != fitted.reduction
+            isinstance(nuisance.reduced, ReducedSet)
+            and self.reduction != nuisance.reduced.reduction
         ):
-            changed.append(f"reduction={self.reduction!r} (fitted {fitted.reduction!r})")
+            changed.append(f"reduction={self.reduction!r} (fitted {nuisance.reduced.reduction!r})")
         fitted_crossfit = "pooled" if nuisance.inner is None else "nested"
         if self.reduced_crossfit != fitted_crossfit:
             changed.append(
