@@ -3,7 +3,7 @@
 Two studies enter through it: the gated RM30 learned-rule study, through
 ``tests/canonical/learned_rule_run.py``, and ``canonical-multi-arm-drtmle`` (RM18 Design SL),
 whose ``regenerate.py`` calls :func:`tests.canonical.declared_run.run` with its reference.  A
-stand-in driver writes placeholder artefacts and a real manifest, so no test here fits a model
+stand-in driver writes placeholder artifacts and a real manifest, so no test here fits a model
 or runs a container.
 """
 
@@ -61,7 +61,7 @@ def _git_status() -> str:
 
 
 def _writing_driver(*, fail: str | None = None, calls: list[Any] | None = None) -> Any:
-    """A stand-in for the shared driver that writes every artefact and a real manifest.
+    """A stand-in for the shared driver that writes every artifact and a real manifest.
 
     ``fail="before"`` raises before the manifest exists, as a failed fit does.
     ``fail="after"`` raises after it, as a failed gated verdict does.  ``calls`` collects the
@@ -80,7 +80,7 @@ def _writing_driver(*, fail: str | None = None, calls: list[Any] | None = None) 
         record = study.STUDY
         paths = [output / name for name in (*ARTIFACT_NAMES, *record.extra_artifacts)]
         for path in paths:
-            path.write_text("artefact\n", encoding="utf-8", newline="\n")
+            path.write_text("artifact\n", encoding="utf-8", newline="\n")
         manifest.write_manifest(output / "manifest.json", record, paths)
         if fail == "after":
             raise RuntimeError("independent performance gates failed")
@@ -220,7 +220,7 @@ class TestTheRecord:
         """The witness: the manifest's ``git status`` sees nothing the run wrote.
 
         On a clean pushed commit the manifest therefore records ``cleverly_worktree_clean:
-        true``.  A run into the study directory would write the artefacts before the manifest
+        true``.  A run into the study directory would write the artifacts before the manifest
         reads the status, and the manifest would record ``false``.
         """
         module, enter, reference = study

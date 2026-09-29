@@ -1,7 +1,7 @@
 # RM18 design BD, and part FW-B
 
-This directory holds the design that RM18 of `docs/roadmap.md` declares in "Design BD", and part
-FW-B of "Design FW", which reads the same fresh paired draws as BD-P. It changes no study, no
+This directory holds the design that RM18 of `docs/roadmap.md` at commit `985849c6` declares in
+"Design BD", and part FW-B of "Design FW", which reads the same fresh paired draws as BD-P. It changes no study, no
 verdict and no committed row.
 
 | file | what it holds |

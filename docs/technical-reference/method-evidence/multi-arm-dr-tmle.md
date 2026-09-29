@@ -140,7 +140,7 @@ packages expose a vector intervention API, and this row measures their armwise e
 not claim a new multi-arm theorem. The [red-cell ledger](red-cells.md) lists each red cell of this
 study with the roadmap ask that owns it.
 
-The contraction ladder explains most of the red cells above. The `treatment_correct` level cell
+The contraction ladder explains the `treatment_correct` level cell. That cell
 misses its equivalence margin at n = 2,000 by 0.0004, which is about six per cent of the margin.
 The two figures print four units of the last digit apart in the generated table above.
 The ladder redraws that regime on independent streams at three sizes and puts the bias inside the
@@ -160,10 +160,14 @@ its absence.
 
 RM18 design SL ran the two outer rungs of each regime at 73,000 replications. A declaration
 written before the run fixed that budget and the reading rule. The 99% interval of each fitted
-slope now lies below zero, and both slope rows pass. The declared reading of both slopes is
-`contracts at the noise floor`. Over the 600 replications that each rung's verdict reads, the
-n = 2,000 bias interval of each one-correct regime covers zero. A zero bias can give a negative
-slope through Monte Carlo error alone, so these slopes do not show that a nonzero bias contracts.
+slope now lies below zero, and both slope rows pass. Over the 73,000 replications of each outer
+rung, the bias interval of each one-correct regime excludes zero at n = 2,000 and at n = 8,000.
+The declared reading of both slopes is therefore `contracts`.
+
+The declaration did not name the budget of the n = 2,000 bias interval. RM18 first read it at the
+600 replications of each rung's coverage verdict, and after review at the slope's own 73,000
+rows. Over the first 600 rows, both intervals cover zero, and the reading would be `contracts at
+the noise floor`. Both labels take the same route in the ledger.
 
 The both-wrong control's slope interval covers zero, and the control passes. Each rung's coverage
 verdict stays at 600 replications. A slope below zero shows the direction of the change, and it
@@ -182,7 +186,7 @@ run. Each reads `resolved: truth satisfies the gate`. The re-read does not move 
 17,000 fresh replicates, the calibration cell's SE-ratio interval runs 0.9932 to 1.0217. Over
 6,000 each, the n = 4,000 rung covers 0.9464 to 0.9605, and the `n_500` cell covers 0.9439 to
 0.9584. The roadmap record,
-[What design BD found](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-design-bd-found), gives every leg and what the re-read does not
+[What design BD found](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-design-bd-found) at commit `985849c6`, gives every leg and what the re-read does not
 show.
 [`tests/diagnostics/rm18_boundary/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_boundary) holds the rows.
 
@@ -205,13 +209,12 @@ This reading has less room than its design asked for. The declaration budgeted 8
 is 0.0051, because the two policies disagreed on more draws than the pilot predicted. The upper
 endpoint clears 0.005 only because the point estimate fell below zero. So this reading rests on
 where the difference landed, and not on the resolution the instrument achieved.
-[RM18](../../roadmap.md#rm18-red-property-cells-after-the-fold-scale-and-law-changes) records the
-declared and realized numbers.
+RM18 at commit `dea3297e` records the declared and realized numbers, in "What the two
+readings found".
 
 The diagnostic reads its own coverage over 8,000 draws. That coverage does not re-read the
-`n_500` cell. The gated cell keeps its own 400-replication budget.
-[RM18](../../roadmap.md#rm18-red-property-cells-after-the-fold-scale-and-law-changes) declares
-the rule this reading applies.
+`n_500` cell. The gated cell keeps its own 400-replication budget. RM18 at commit `dea3297e`
+declares the rule this reading applies, in "The two readings, declared before they run".
 
 Each side audits `score_audited_fits` fits against the shared empirical-score bar. Cleverly misses
 it on `subject_score_failures` fits, and R `drtmle` misses it on `reference_score_failures`. The

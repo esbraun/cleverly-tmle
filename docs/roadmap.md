@@ -26,8 +26,8 @@ main-roadmap priority 1.
 
 A new capability still needs its own contract and evidence, even in this queue.
 
-A queue row has a "next action" column. It states the remediation work, and it is not a
-readiness label.
+A queue row has five columns: priority, item, next action, problem and details. The "next
+action" column states the remediation work, and it is not a readiness label.
 
 The [red-cell ledger](technical-reference/method-evidence/red-cells.md) is the current record.
 It lists every red verdict that a registered study publishes. It names the ask that owns each
@@ -208,12 +208,12 @@ are also registered there. The ordinary arm-indexed missing-outcome row covers o
 `ey0`, and `ate`. The
 [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules) hold
 the source audit that changed the default cross-fitted fit.
-[RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) carries the property cells
-that went red when sixteen registered studies were regenerated under it.
+The [red-cell ledger](technical-reference/method-evidence/red-cells.md) carries the property
+cells that went red when sixteen registered studies were regenerated under it.
 
 Replicate-weight designs are the next source-audit item in the main grid. Implement them only after
-the remediation rows are complete and that audit supports the planned variance construction.
-The [Remediation](#remediation) section states what still blocks them.
+that audit supports the planned variance construction. No remediation row blocks them. The
+source audit does.
 
 Longitudinal sensitivity-bound estimation remains in
 [F16](#f16-longitudinal-sensitivity-bound-estimation).
@@ -434,14 +434,16 @@ readings.
 
 Each commit in the table below was pushed before the run that it governs. Commits `4a44545a` and
 `bbbb887e` are on the remote branch `agent/remediation-rm18b`. Commits `0ac9753e` and `d42306fb`
-carry them onto the final stack without change.
+carry them onto the final stack without change. The annotated tag `rm18-slopes-declaration`
+marks `bbbb887e`, and its ancestry holds `4a44545a`. The tag is the record that the Design SL
+declaration came before any run.
 
 | commit | what it declared |
 | --- | --- |
 | `ebd3d1b9` | designs FW, OW, BD, CD and SL, and the rules R1 to R7 |
 | `7e65bea7` | the seed-collision rule |
 | `03fe89f1` | the amendments of the harness review: the collision rule, the failed-fit rule, R6 and four source statements |
-| `4a44545a` | the Design SL budgets: 73,000 replications on each outer rung, and a verdict budget of 600 |
+| `4a44545a` | set the declared Design SL budgets in code: 73,000 replications on each outer rung, and a verdict budget of 600 |
 | `bbbb887e` | the first amendment of the Design SL run form: the reference phase runs, and its artifacts must reproduce byte for byte |
 | `985849c6` | the second amendment of the Design SL run form: the stopped first run, the stack order, the scratch output, the run log and the guard |
 
@@ -453,7 +455,7 @@ carry them onto the final stack without change.
 | Design OW | [`tests/diagnostics/rm18_ordinary_weighted/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_ordinary_weighted). OW-A reads `finite-sample, contracting`, and OW-B reads `resolved within gate`. OW-C reads `control underpowered by design` and `family resolved` |
 | Design BD | [`tests/diagnostics/rm18_boundary/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_boundary), which also holds FW-B. The six re-read cells read `resolved: truth satisfies the gate`, and the two paired rows read `comparator SE convention` |
 | Design CD | [`tests/diagnostics/rm18_comparator_density/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_comparator_density). The paired shift row reads `cleverly density representation` |
-| Design SL | the regeneration of `canonical-multi-arm-drtmle` at 73,000 replications on each outer rung. Both positive slopes read `contracts at the noise floor`. "[What design SL found](#what-design-sl-found)" gives the numbers |
+| Design SL | the regeneration of `canonical-multi-arm-drtmle` at 73,000 replications on each outer rung. Both positive slopes read `contracts`. "[What design SL found](#what-design-sl-found)" gives the numbers |
 | routes | no reading names a defect in `cleverly`, so no reading opened a new row. The two slope cells pass under the registered rule, and the ledger no longer lists them. Every other cell keeps its owner and stays red under `reporting` |
 
 The four `tests/unit/test_rm18_*_diagnostic.py` files of designs FW, OW, BD and CD rebuild each
@@ -490,15 +492,15 @@ gives the cells of each owner and the reason for each assignment.
 | `F18` | an inference result for the shipped selector path | open. An influence curve derived after the stopping-index selection, and a registered study whose `selector_necessity` and `type_i_error` cells pass their existing margins at their existing budgets. The multi-arm `interval_calibration/correctly_specified` cell must also pass its band, because a selector-path covariance is the claim F18 supplies |
 | `F19` | an inference result for the generated design | open. A published result, or an Eligibility-qualifying natural extension, must establish whether the ordinary adaptive-propensity EIF suffices for the exact cross-fitted shared-multinomial joint target. Implement any representation contribution the result requires, then register covariance and coverage evidence at predeclared budgets. Keep the `generated_design` pair as a reporting diagnostic. Acceptance does not require a negative standard-error deficit |
 | `F27` | an interval for the fold-average learned-rule value outside the published conditions | open. [F27](#f27-learned-policy-value-outside-the-published-conditions) gives the acceptance for each request. Its `exceptional` row needs a published result. Its `weak_blip` row names no missing result, because that law is within C3 of RM30 |
-| `RM18-pooled` | a targeting result for the fold-local longitudinal recursion | delivered by the pooled route. The package now implements Section 5.2, Steps 1 to 4, which Theorem 3 certifies. `crossfit_overfitting/cross_fitted_ltmle` sits inside the shared ceiling at 8,000 draws, with a 99% interval from 0.996092 to 1.036997. "What the pooled update found" gives every moved cell, including two weighted cells that went red |
-| `RM18-n500` | a reading of the two `n_500` coverage endpoints | delivered. A registered fold-policy diagnostic reads both endpoints as a boundary resolution. "What the two readings found" gives the numbers |
-| `RM18-binary-slope` | a reading of the DR-TMLE contraction slope | delivered. A declared rung design resolves the slope, and its interval now sits below zero. "What the two readings found" gives the numbers |
+| `RM18-pooled` | a targeting result for the fold-local longitudinal recursion | delivered by the pooled route. The package now implements Section 5.2, Steps 1 to 4, which Theorem 3 certifies. `crossfit_overfitting/cross_fitted_ltmle` sits inside the shared ceiling at 8,000 draws, with a 99% interval from 0.996092 to 1.036997. "What the pooled update found", in commit `dea3297e`, gives every moved cell, including two weighted cells that went red |
+| `RM18-n500` | a reading of the two `n_500` coverage endpoints | delivered. A registered fold-policy diagnostic reads both endpoints as a boundary resolution. "What the two readings found", in commit `dea3297e`, gives the numbers |
+| `RM18-binary-slope` | a reading of the DR-TMLE contraction slope | delivered. A declared rung design resolves the slope, and its interval now sits below zero. "What the two readings found", in commit `dea3297e`, gives the numbers |
 | `RM18-attribution` | an attribution of the verdicts that changed with the pooled update | delivered for the end-of-study and weighted studies. A declared code-by-runtime diagnostic reads the two weighted cells and the end-of-study overfitting cell as code changes. "What the runtime isolation found", in commit `985849c6`, gives the numbers. The weighted cells stay red as finite-sample reporting evidence |
 | `RM18-fixed-weights` | a fixed-known-weight follow-up for the two weighted cross-fitted cells that went red with the pooled update | delivered. Design FW ran once. FW-A reads `finite-sample, contracting`, and FW-B reads `equivalent at the declared budget`. "What design FW found", in commit `985849c6`, gives the numbers. The two cells stay red under `reporting` at their registered budgets |
-| `RM18-one-sided-bias` | a reading of the three one-sided-robustness bias rows | delivered. The reading that "The one-sided robustness reading, declared before it is computed" declares ran once. "[What the one-sided reading found](#what-the-one-sided-reading-found)" gives its result. The three cells stay red under `reporting` |
-| `RM18-slopes` | a reading of the two multi-arm DR-TMLE contraction slopes | delivered. Design SL ran once. Both slopes read `contracts at the noise floor`, and both rate cells pass under the registered rule. "[What design SL found](#what-design-sl-found)" gives the numbers |
+| `RM18-one-sided-bias` | a reading of the three one-sided-robustness bias rows | delivered. The reading that "The one-sided robustness reading, declared before it is computed", in commit `dea3297e`, declares ran once. "[What the one-sided reading found](#what-the-one-sided-reading-found)" gives its result. The three cells stay red under `reporting` |
+| `RM18-slopes` | a reading of the two multi-arm DR-TMLE contraction slopes | delivered. Design SL ran once. Both slopes read `contracts`, and both rate cells pass under the registered rule. "[What design SL found](#what-design-sl-found)" gives the numbers |
 | `RM18-ordinary-weighted` | an owner for the six red rows of the ordinary weighted longitudinal study | delivered. Design OW ran once. OW-A reads `finite-sample, contracting`, OW-B reads `resolved within gate`, and OW-C reads `control underpowered by design` and `family resolved`. "What design OW found", in commit `985849c6`, gives the numbers. The six rows stay red under `reporting` |
-| `RM18-learner-weight-se` | a diagnostic for the standard-error explosions in the cross-fitted `learner_weight_necessity` rows | delivered. A complete review declaration was pushed before a clean rerun that reproduced the refit table. "What the learner-weight diagnostic found" gives its reading. This row owns no red cell |
+| `RM18-learner-weight-se` | a diagnostic for the standard-error explosions in the cross-fitted `learner_weight_necessity` rows | delivered. A complete review declaration was pushed before a clean rerun that reproduced the refit table. "What the learner-weight diagnostic found", in commit `dea3297e`, gives its reading. This row owns no red cell |
 | `RM18-boundary` | an owner for the red cells that sit at a finite-budget boundary | delivered. Design BD ran once. The six re-read cells read `resolved: truth satisfies the gate`, and the two paired rows read `comparator SE convention`. "What design BD found", in commit `985849c6`, gives the numbers. Each cell stays red under `reporting` at its declared budget |
 | `RM18-comparator-density` | an attribution of the red paired row of the continuous modified treatment policy study | delivered. Design CD ran once and reads `cleverly density representation`. "What design CD found", in commit `985849c6`, gives the numbers. The row stays red under `reporting` |
 
@@ -646,7 +648,8 @@ ledger keeps `RM18-one-sided-bias` as their owner.
 (what-design-sl-found)=
 #### What design SL found
 
-Design SL ran once, under its declaration and three amendments, which commit `985849c6` holds.
+Design SL ran once, under its declaration in `ebd3d1b9` and the amendments in `7e65bea7`,
+`03fe89f1`, `bbbb887e` and `985849c6`. Commit `985849c6` holds all of them.
 The regeneration ran from the clean pushed commit `67deae8e` into a scratch directory. It started
 at 14:36 UTC on 2026-09-28. It ran for 70,427 seconds and ended with exit code 0. The runtime was
 Python 3.13.7 with SciPy 1.18.0, and `cleverly` came from the tree's `src`.
@@ -666,38 +669,47 @@ Each check that the declaration names held after the run.
 
 Each slope interval is the registered 99% percentile bootstrap. Each slope reads 146,600
 replications: 73,000 at n = 2,000, 600 at n = 4,000 and 73,000 at n = 8,000. Each bias interval is
-the 99% Student interval of the n = 2,000 rung. The reading rule reads the interval at the verdict
-budget of 600. The interval over all 73,000 rows is supplementary, and no rule reads it.
+the 99% Student interval over the 73,000 replications of its rung, which are the slope's own
+inputs. The reading rule reads the n = 2,000 interval. No rule reads the n = 8,000 interval.
 
-| cell | slope, 99% interval | n = 2,000 bias, 600 rows | n = 2,000 bias, 73,000 rows, supplementary | reading |
+| cell | slope, 99% interval | n = 2,000 bias, 99% interval | n = 8,000 bias, 99% interval | reading |
 | --- | --- | --- | --- | --- |
-| `rate_outcome_correct` | -0.8587, -1.0694 to -0.6652 | 0.001127, -0.001651 to 0.003905 | 0.001748, 0.001495 to 0.002001 | `contracts at the noise floor` |
-| `rate_treatment_correct` | -0.8740, -1.0235 to -0.7403 | 0.000585, -0.002274 to 0.003444 | 0.002539, 0.002285 to 0.002793 | `contracts at the noise floor` |
-| `rate_both_wrong`, the control | 0.0020, -0.0021 to 0.0061 | 0.050292, 0.047586 to 0.052998 | 0.049143, 0.048892 to 0.049394 | passes |
+| `rate_outcome_correct` | -0.8587, -1.0694 to -0.6652 | 0.001748, 0.001495 to 0.002001 | 0.000532, 0.000405 to 0.000658 | `contracts` |
+| `rate_treatment_correct` | -0.8740, -1.0235 to -0.7403 | 0.002539, 0.002285 to 0.002793 | 0.000756, 0.000630 to 0.000882 | `contracts` |
+| `rate_both_wrong`, the control | 0.0020, -0.0021 to 0.0061 | 0.049143, 0.048892 to 0.049394 | 0.049277, 0.049152 to 0.049402 | passes |
 
-Both positive slope intervals lie below 0. Each n = 2,000 bias interval at the verdict budget
-covers 0. The declared reading of both arms is therefore `contracts at the noise floor`. Its route
-is the ledger move of `contracts`, and the multi-arm page states the qualification. The registered
-rule passes both rate cells, and `CLAIMS` in `tests/studies/evidence/red_cells.py` no longer lists
-them. At 1,800 replications, the slope intervals ran -1.2342 to 3.7735 and -3.2412 to 3.3387.
+Both positive slope intervals lie below 0. Each bias interval at n = 2,000 and at n = 8,000
+excludes 0. The declared reading of both arms is therefore `contracts`. The registered rule passes
+both rate cells, and `CLAIMS` in `tests/studies/evidence/red_cells.py` no longer lists them. At
+1,800 replications, the slope intervals ran -1.2342 to 3.7735 and -3.2412 to 3.3387.
 
-The qualification is the one the declaration gives. A zero bias can give a negative slope through
-Monte Carlo error alone. At the verdict budget, the n = 2,000 bias of neither arm is resolved from
-0. The supplementary intervals over 73,000 rows exclude 0, and no rule reads them.
+The declared sizing rule set the outer-rung budget, and that rule reads no verdict. The
+`RM18-binary-slope` rung design used the same rule. The budget is therefore not a budget raised
+after a verdict was seen.
 
-The declaration names the n = 2,000 bias interval, and it does not name the budget of that
-interval. The orchestrator resolved the budget after the run, when both readings were known. The
-resolution is the verdict budget of 600. The declaration keeps each rung's verdict at 600, and the
-extra outer rows serve the slope alone. A budget chosen after the run must not favour the stronger
-label.
+The declaration names "the n = 2,000 bias interval", and it does not name the budget of that
+interval. This pull request resolved the budget after the run, when both readings were known. It
+first chose the 600 replications of the verdict budget. After review, it chose the slope's own
+73,000 rows. The table gives the reasons for the second choice.
 
-At 73,000 rows, both arms would read `contracts`. Both labels take the same ledger route.
+| kind | reason |
+| --- | --- |
+| text | the declaration explains the noise-floor reading by the slope's inputs: "The absolute bias estimate then tracks its standard error, which falls as `n^-1/2`." Those inputs are the rung means over 73,000 rows |
+| text | the declaration keeps 600 replications for "each rung's coverage verdict" (R1), and the extra outer rows serve the slope |
+| text | rows 0 to 599 of each rung, and their n = 2,000 bias intervals, were published before the declaration. At that budget, the run could not decide the bias condition |
+| data | at these budgets, a zero bias does not give a slope interval below 0. A review computation redrew each rung at zero bias with the committed spread, and every slope interval covered 0: about -3.9 to 2.7 and -4.3 to 2.0 |
+
+Rows 0 to 599 of each rung were committed before the declaration. Over those rows, the
+n = 2,000 bias intervals run -0.001651 to 0.003905 and -0.002274 to 0.003444. Both cover 0, so a
+reading at that budget is `contracts at the noise floor` for both arms. These intervals are
+supplementary. Both labels take the same route in the ledger.
 `tests/unit/test_rm18_slopes_reading.py` asserts the declared label and computes both intervals.
 
 The control's slope interval covers 0, so the control passes its registered rule. The raised
 control budget carried a declared risk. An `O(1/n)` transient in the both-wrong bias could place
-the interval below 0 at 73,000 replications. That did not occur. The declared consequence, that no
-positive reading counts as evidence of contraction, therefore does not apply.
+the interval below 0 at 73,000 replications. Then, as the declaration states, "no `contracts`
+reading of a positive arm counts as evidence of contraction". The interval does not lie below 0,
+so that consequence does not apply.
 
 The declared prediction for the control also held. Its slope half-width is 0.004123, against a
 prediction of about 0.0040 within 15%. At 600 replications per rung it was 0.043840.
@@ -1048,7 +1060,7 @@ a typed target for the value of rules that are learned inside the training folds
 read a learned function as a declared fixed rule.
 
 Pull request 247 (RM30 A), pull request 248 (RM30 B) and pull request 249 (RM30 C) delivered this
-row. Pull requests 248 and NNN merge together, so no release carries the interval before its
+row. Pull requests 248 and 249 merge together, so no release carries the interval before its
 study. The table gives what shipped. Commit `edc70d7f` holds the contract, the sources and their
 locators, the refusal order, the declarations of both studies and the reads made before them.
 Read it with `git show edc70d7f:docs/roadmap.md`.
@@ -1583,7 +1595,8 @@ intervals. It does not cover the shipped criterion, target or shared stopping in
 der Laan, Theorems 1 and 2 of arXiv:1706.07408v2, also select a scalar index on subsamples separate
 from the estimation sample. This search found no journal version of that paper.
 
-A third 2026-09-21 search found four neighbors for F18, and RM18 records its log. The nearest is
+A third 2026-09-21 search found four neighbors for F18, and RM18 at commit `dea3297e` records
+its log. The nearest is
 Rothenhäusler (2024), *Electronic Journal of Statistics*, DOI 10.1214/24-EJS2308. Its Section 3.4,
 Theorem 2, gives intervals after a choice among a fixed finite set of estimators. The preprint
 arXiv:2008.12892v2 numbers it Section 3.5, Theorem 4. The search read the other three from their
@@ -1729,7 +1742,8 @@ asymptotic variance unless it keeps superfluous covariates. Ma, Zhu, Zhang, Tsai
 (2019) state that an efficient-influence-function estimator with reduction-estimated nuisances
 stays efficient. Neither applies a targeting step or a shared multinomial mechanism.
 
-A third 2026-09-21 search ran two queries on the generated design, and RM18 records its log. It
+A third 2026-09-21 search ran two queries on the generated design, and RM18 at commit
+`dea3297e` records its log. It
 found no result for a shared multinomial mechanism fitted on estimated outcome columns, for its
 joint targeting, or for its cross-fitted form. It recorded one neighbor from its abstract:
 Schnitzer, Talbot, Liu et al. (2026), *Statistics in Medicine* 45(1-2):e70316, DOI

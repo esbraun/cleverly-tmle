@@ -1,9 +1,9 @@
 """The declared run form of a registered regeneration: a guard, a scratch output, a log, a copy.
 
-:func:`tests.canonical.regenerate.main` writes its artefacts before :func:`write_manifest`
+:func:`tests.canonical.regenerate.main` writes its artifacts before :func:`write_manifest`
 records ``git status``.  A run into the study directory therefore records
 ``cleverly_worktree_clean: false`` even from a clean pushed commit.  The declared run form
-closes that gap.  It writes the artefacts, the manifest and a ``run.log`` into a scratch
+closes that gap.  It writes the artifacts, the manifest and a ``run.log`` into a scratch
 ``--output`` outside the repository, and it copies them into the study directory afterwards.
 
 A **declared run** passes no ``--replicates``.  It takes ``--output`` and ``--jobs`` and refuses
@@ -16,7 +16,7 @@ error.
 
 A **smoke run** passes a ``--replicates`` other than the declared primary budget.  It goes to
 the shared driver unchanged, which then skips the property study.  It refuses an ``--output``
-inside the repository, so it cannot overwrite a committed artefact.
+inside the repository, so it cannot overwrite a committed artifact.
 
 The two RM30 learned-rule studies and ``canonical-multi-arm-drtmle`` (RM18 Design SL) use this
 form.
@@ -39,7 +39,7 @@ from tests.diagnostics.rm18_shared import THREAD_VARIABLES, refusals, run_log
 from tests.parallel import available_cores
 from tests.studies.evidence.registry import ROOT
 
-#: What a declared run writes beside the study's artefacts.
+#: What a declared run writes beside the study's artifacts.
 RECORD_FILES = ("manifest.json", "run.log")
 
 
@@ -75,9 +75,9 @@ def publish_run(
 ) -> None:
     """Run the shared driver into the scratch ``output`` and copy the record into ``here``.
 
-    The driver writes its artefacts and manifest into ``output``, outside the repository, so the
+    The driver writes its artifacts and manifest into ``output``, outside the repository, so the
     provenance the manifest records sees the tree as the run found it.  ``run_log`` then closes
-    its block, and every artefact, the manifest and the log are copied into ``here``.  A driver
+    its block, and every artifact, the manifest and the log are copied into ``here``.  A driver
     error after the manifest exists is a failed verdict of a gated study: the record is copied
     and the error is raised again.  A driver error before the manifest exists copies nothing.
     """

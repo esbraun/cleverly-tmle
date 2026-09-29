@@ -1264,8 +1264,8 @@ is the only empirical witness for it.
   A third 2026-09-21 search read Rothenhäusler (2024) first-hand in the published version, and
   recorded Zrnic and Jordan (2023), Schnitzer et al. (2020), Van Lancker et al. (2024), and
   Schnitzer et al. (2026) from their abstracts. No source it read closes F18 or F19.
-  [RM18](roadmap.md#rm18-red-property-cells-after-the-fold-scale-and-law-changes) records its
-  databases, its queries and each verdict.
+  RM18 at commit `dea3297e` records its databases, its queries and each verdict, in "What the
+  source search found for the first three asks".
 
 ## Longitudinal, survival and marginal structural models
 

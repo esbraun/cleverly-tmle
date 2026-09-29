@@ -1,7 +1,7 @@
 # RM18 design FW: fixed known weights
 
-This directory holds part FW-A of the design that RM18 of `docs/roadmap.md` declares in
-"Design FW". Part FW-B shares its fresh draws with part BD-P, so
+This directory holds part FW-A of the design that RM18 of `docs/roadmap.md` at commit
+`985849c6` declares in "Design FW". Part FW-B shares its fresh draws with part BD-P, so
 [`../rm18_boundary/`](../rm18_boundary/README.md) runs it and publishes its reading. The code
 changes no study, no verdict and no committed row.
 

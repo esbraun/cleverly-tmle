@@ -165,8 +165,7 @@ held-out fitting to restore SE scale and improve coverage over the in-sample con
 
 Under the pooled update the cross-fitted ratio is 0.983738, with a 99% interval from 0.963806 to
 1.003666. The fold-fluctuated construction it replaced gave 1.102157 on the same seeds.
-[RM18](../../roadmap.md#rm18-red-property-cells-after-the-fold-scale-and-law-changes) records both
-values.
+RM18 at commit `dea3297e` records both values, in "What the pooled update found".
 
 ## Measured values
 

@@ -1,7 +1,7 @@
 # RM18 design OW: the ordinary weighted study
 
-This directory holds the design that RM18 of `docs/roadmap.md` declares in "Design OW", for the
-six red rows of `weighted-ltmle`. It changes no study, no verdict and no committed row.
+This directory holds the design that RM18 of `docs/roadmap.md` at commit `985849c6` declares in
+"Design OW", for the six red rows of `weighted-ltmle`. It changes no study, no verdict and no committed row.
 
 | file | what it holds |
 | --- | --- |

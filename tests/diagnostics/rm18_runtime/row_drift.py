@@ -1,7 +1,7 @@
 """What the committed history already separates, read with ``git show`` and pandas alone.
 
 This module fits no estimator.  It compares each replication row that two commits both
-publish, and it reproduces two tables in RM18 of ``docs/roadmap.md``:
+publish, and it reproduces two tables in RM18 of ``docs/roadmap.md`` at commit ``dea3297e``:
 
 * "What the committed history already separates".  Three point-treatment studies changed
   runtime between an older commit and :data:`AFTER`.  The ``src/`` tree changed between the

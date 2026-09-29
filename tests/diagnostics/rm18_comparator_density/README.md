@@ -1,7 +1,7 @@
 # RM18 design CD: the density attribution of the shift row
 
-This directory holds the design that RM18 of `docs/roadmap.md` declares in "Design CD", for the
-red paired row `ate_shift[+0.25 vs natural course]` of `shift-policies`. It draws no new sample,
+This directory holds the design that RM18 of `docs/roadmap.md` at commit `985849c6` declares in
+"Design CD", for the red paired row `ate_shift[+0.25 vs natural course]` of `shift-policies`. It draws no new sample,
 runs no R, and changes no study, verdict or committed row.
 
 | file | what it holds |

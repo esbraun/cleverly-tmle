@@ -15,7 +15,7 @@ Regenerate from the repository root with Docker running. Set every thread variab
 A declared run takes `--output` and `--jobs` only. `--output` names an empty scratch directory
 outside the repository. The run refuses to start unless the tree is clean, `HEAD` equals its
 upstream, `cleverly` imports from this tree's `src`, and every thread variable is 1. It writes
-the artefacts, the manifest and `run.log` to the scratch directory, then copies them here. The
+the artifacts, the manifest and `run.log` to the scratch directory, then copies them here. The
 manifest then records the state of the tree at the start of the run. Run this command:
 
 ```bash

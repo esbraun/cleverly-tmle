@@ -400,7 +400,7 @@ def readings(
 
 
 def load() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """The three committed artefacts the reading consumes.
+    """The three committed artifacts the reading consumes.
 
     The multi-arm property rows are read at the contraction verdict budget.  RM18 "Design SL"
     raises the outer rungs of the ladder to 73,000 replications for the slope alone.  The

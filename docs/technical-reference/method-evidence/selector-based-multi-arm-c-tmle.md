@@ -164,7 +164,7 @@ RM18 design BD re-read the n = 500 cell on 6,000 fresh replicates, under a decla
 before its run. The coverage interval runs 0.9318 to 0.9478 and clears the floor. The bias and SE
 ratio also meet the cell's rule, so the reading is `resolved: truth satisfies the gate`. The
 coverage interval lies wholly below 0.95. The re-read does not move the cell's verdict.
-[What design BD found](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-design-bd-found) gives the numbers, and
+[What design BD found](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-design-bd-found) at commit `985849c6` gives the numbers, and
 [`tests/diagnostics/rm18_boundary/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_boundary) holds the rows.
 
 The `fold_policy` family now measures that comparison. It runs the two split policies on one
@@ -176,9 +176,8 @@ interval covers zero. The fold policy therefore does not explain the endpoint mo
 at this size.
 
 The diagnostic reads its own coverage over 8,000 draws. That coverage does not re-read the
-`n_500` cell. The gated cell keeps its own 400-replication budget.
-[RM18](../../roadmap.md#rm18-red-property-cells-after-the-fold-scale-and-law-changes) declares
-the rule this reading applies.
+`n_500` cell. The gated cell keeps its own 400-replication budget. RM18 at commit `dea3297e`
+declares the rule this reading applies, in "The two readings, declared before they run".
 
 The row does not establish equivalence to an external package, simultaneous inference, conditional
 effects, or cross-fitted primary performance. It covers binary outcomes, ordinary GLM nuisance
