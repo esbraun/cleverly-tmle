@@ -149,8 +149,8 @@ The source-to-equation map is in [the contract](theorem.md#the-objects).
 | `reduction="bivariate"` | van der Laan (2014), Theorem 3: one two-column probability $P(A=a \mid \hat Q(a,W), \hat g(a\mid W))$, and equation (10)'s covariate replaced by $1_a(g_r - g)/(g\,g_r)$ | **yes**. `gr2` is `NaN` on this path by design, so accidental use of the absent regression cannot silently return zero |
 | `update_order="drtmle"` | the canonical R sequence. The default. The round refits only the mechanism reductions after equation (9), and only the outcome reduction after equation (8) | no. A diagnostic keyword. Both source-specific solve orders are pinned |
 | `update_order="benkeser"` | the published six-step recursion | no |
-| `reduced_crossfit="pooled"` | out-of-fold reduced fits sharing the primary split. The default | no. A diagnostic keyword. Refused below three folds, under `cross_fit=False`, and with `algorithm="one_step"` |
-| `reduced_crossfit="nested"` | measures the generated-regressor dependence rather than assuming it away | no |
+| `reduced_crossfit="pooled"` | out-of-fold reduced fits sharing the primary split. The default | no. A diagnostic keyword |
+| `reduced_crossfit="nested"` | measures the generated-regressor dependence rather than assuming it away | no. Refused below three folds, under `cross_fit=False`, and with `targeting="one_step"` at a non-empty `guard` |
 | `randomized=`, `treatment_probabilities=` | the Diaz and van der Laan (2017) randomized missing-outcome surface: five reductions, and three separate corrections for treatment, observation, and outcome | **yes**. It requires `cross_fit=False` and both guards. See [the contract](theorem.md#randomized-trials-with-missing-outcomes) |
 | `evaluation=` | an independent-draw evaluation set carried through targeting | no. A remainder diagnostic |
 | multiple treatment levels | each reduction and correction is indexed by a free level, and equation (9) is solved by independent one-versus-rest fluctuations | this follows the published R workflow. The cited theorem is binary, so this is an implementation-backed armwise extension |

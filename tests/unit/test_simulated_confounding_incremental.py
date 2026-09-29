@@ -180,7 +180,7 @@ def test_natural_incremental_mean_refuses_before_draw_and_is_not_advertised(
 
 
 def test_incremental_stratified_targeting_is_refused_upstream() -> None:
-    with pytest.raises(NotImplementedError, match=r"baseline strata.*alternating targeting"):
+    with pytest.raises(CapabilityError, match=r"baseline strata.*alternating targeting"):
         _fit(strata=True)
 
 

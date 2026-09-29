@@ -318,6 +318,94 @@ _OFF_CONTRACT_AXIS_NAMES: dict[ParameterAxis, str] = {
     "msm": "MSM",
 }
 
+#: What a stratified refusal of the ``ipsi`` or ``msm`` group tells the caller to do instead.
+_FIXED_FLUCTUATION_REMEDY = (
+    "Fit the marginal parameter, or use an arm/regime/shift target whose outcome "
+    "fluctuation is fixed."
+)
+#: The same for the ``mean`` group of ``DRTMLE``, which refuses regimes and shifts.
+_EMPTY_GUARD_REMEDY = (
+    "Fit the marginal parameter, or pass guard=(), which is the ordinary TMLE and accepts strata=."
+)
+
+
+def _stratified_alternation_refusal(group: str) -> CapabilityError:
+    """The refusal of baseline strata beside a group whose targeting alternates.
+
+    Parameters
+    ----------
+    group : str
+        The target group whose targeting has a second equation, such as ``"ipsi"``.
+
+    Returns
+    -------
+    CapabilityError
+        The refusal, which cites X8 in ``docs/roadmap.md``.  The remedy of the ``"mean"``
+        group names ``guard=()``, because only ``DRTMLE`` gives that group a second equation.
+    """
+    remedy = _EMPTY_GUARD_REMEDY if group == "mean" else _FIXED_FLUCTUATION_REMEDY
+    return CapabilityError(
+        f"baseline strata are not yet combined with the {group!r} group's alternating "
+        f"targeting equations. {remedy} "
+        "docs/roadmap.md X8 tracks it."
+    )
+
+
+def refuse_stratified_targeting(
+    data: CausalData, *, incremental: bool = False, msm: MSM | None = None, reduced: bool = False
+) -> None:
+    """Refuse baseline strata beside a target that the package fluctuates marginally only.
+
+    The package fluctuates baseline strata in one pooled outcome step
+    (``TMLE._retarget_detailed``).  A group whose targeting alternates with a second
+    equation, or a continuous-dose MSM, has no stratified construction (X8 in
+    ``docs/roadmap.md``).  This check reads the configuration and the data declaration
+    only, so it refuses before any learner.  Each flag is the configuration form of the
+    predicate of the targeting-loop guard, which stays as a backstop because
+    :meth:`TMLE.retarget` runs no preflight:
+
+    * ``incremental`` is ``needs_mechanism``.  The ``ipsi`` group is the only registered
+      mechanism group (``cleverly.fluctuation.mechanism``);
+    * ``msm`` with a link other than the identity is ``needs_projection``;
+    * ``reduced`` is ``needs_reduction``.  A ``DRTMLE`` fit carries reduced regressions
+      exactly when its ``guard`` is not empty.
+
+    ``TMLE._resolve_estimands_for_data``, ``DRTMLE._check_drtmle`` and
+    ``CausalStudy.identify`` run it.
+
+    Parameters
+    ----------
+    data : CausalData
+        The data of the fit.  The check returns at once without baseline strata.
+    incremental : bool
+        Whether the fit targets an incremental intervention.
+    msm : MSM or None
+        The working model of the fit, or ``None``.
+    reduced : bool
+        Whether the fit targets reduced regressions beside the outcome.
+
+    Raises
+    ------
+    CapabilityError
+        If ``data`` has baseline strata and the fit has a continuous-dose MSM, an
+        incremental target, a working model with a link other than the identity, or
+        reduced regressions.
+    """
+    if not data.has_strata:
+        return
+    if msm is not None and data.is_continuous_treatment:
+        raise CapabilityError(
+            "continuous MSMs do not yet support baseline strata; conditional dose "
+            "projections need a stratum-specific density-ratio targeting construction. "
+            "Fit the marginal MSM projection. docs/roadmap.md X8 tracks it."
+        )
+    if incremental:
+        raise _stratified_alternation_refusal("ipsi")
+    if msm is not None and msm.link != "identity":
+        raise _stratified_alternation_refusal("msm")
+    if reduced:
+        raise _stratified_alternation_refusal("mean")
+
 
 def _independent_units(data: CausalData) -> tuple[IntArray, str]:
     """One label per row naming the unit a split moves as a whole, and what to call it.
@@ -739,7 +827,7 @@ class TMLE:
                 stacklevel=3,
             )
         if self.targeting_scheme == "fold" and self.incremental:
-            raise ValueError(
+            raise CapabilityError(
                 "targeting_scheme='fold' is not implemented for incremental interventions: "
                 "their targeting alternates the outcome and treatment mechanisms, and a "
                 "fold-specific version needs both equations re-solved inside every fold. "
@@ -1161,14 +1249,8 @@ class TMLE:
         self._check_shifts(data)
         self._check_incremental(data)
         estimands = self._resolve_estimands_for_data(data)
-        if data.has_strata and data.is_continuous_treatment and self.msm is not None:
-            raise NotImplementedError(
-                "continuous MSMs do not yet support baseline strata; conditional dose "
-                "projections need a stratum-specific density-ratio targeting construction. "
-                "Fit the marginal MSM projection."
-            )
         if data.has_strata and (self.cv_evaluation or self.targeting_scheme == "fold"):
-            raise NotImplementedError(
+            raise CapabilityError(
                 "baseline strata currently use one joint pooled fluctuation. "
                 "cv_evaluation=True or targeting_scheme='fold' would require the "
                 "stratum probabilities and conditional treatment shares to be rebuilt "
@@ -1225,7 +1307,7 @@ class TMLE:
                 name for name in estimands if parameter_stem(name) in {"rr", "or", "msm"}
             ]
             if unsupported:
-                raise ValueError(
+                raise CapabilityError(
                     "cv_evaluation=True does not yet support "
                     f"{unsupported}: averaging a nonlinear parameter over folds changes "
                     "its gradient fold by fold, so the ordinary mean/MSM fluctuation no "
@@ -1455,6 +1537,10 @@ class TMLE:
         holds at every ``cross_fit`` setting, so it runs before the cross-fitted refusal,
         whose remedy is the in-sample fit.
 
+        The refusal of baseline strata beside a target that the package fluctuates
+        marginally only, :func:`refuse_stratified_targeting`, runs next, for the same
+        reason.
+
         The natural-course contract runs next, because it resolves the target list the
         arm-indexed missing-outcome contract then reads.  The refusal of every other
         cross-fitted missing-outcome target follows them.  All three name a narrower
@@ -1472,6 +1558,7 @@ class TMLE:
         self._refuse_undeclared_functions()
         if self.msm is not None:
             refuse_continuous_msm_mechanisms(data, subject="An MSM (msm=)", missingness="delta=")
+        refuse_stratified_targeting(data, incremental=bool(self.incremental), msm=self.msm)
         estimands = self._resolve_natural_course_contract(data)
         self._resolve_arm_indexed_missing_contract(data, estimands)
         self._refuse_cross_fitted_missing_off_contract(data, estimands)
@@ -1524,13 +1611,12 @@ class TMLE:
         :func:`~cleverly.assessment.replayability` asks it first.
 
         The chain reads the configuration and ``data`` and fits nothing, so each
-        ``ValueError`` or ``NotImplementedError`` it raises is a refusal.
+        ``ValueError`` it raises is a refusal.  That includes
         :class:`~cleverly.exceptions.CapabilityError` and
-        :class:`~cleverly.exceptions.DataError` are both ``ValueError``, and a subclass
-        design check raises a plain ``ValueError`` or ``NotImplementedError``.  A copied
-        estimator can meet one, such as a
-        :class:`~cleverly.CTMLE` put on a fit that reports ``att``.  Any other exception is
-        a defect and propagates.
+        :class:`~cleverly.exceptions.DataError`, which are both ``ValueError``, and a
+        malformed setting that a copied estimator can carry, such as ``q_bounds`` on a
+        binary outcome or a malformed ``g_bounds`` pair.  Any other exception, a
+        ``NotImplementedError`` included, is a defect and propagates.
 
         Parameters
         ----------
@@ -1544,7 +1630,7 @@ class TMLE:
         """
         try:
             self._configured_for_refit(data)._preflight_fit_configuration(data)
-        except (ValueError, NotImplementedError) as error:
+        except ValueError as error:
             return str(error)
         return None
 
@@ -2346,11 +2432,12 @@ class TMLE:
             return
         refuse_multi_arm_tilt(data)
         if data.has_intermediate:
-            raise ValueError(
+            raise CapabilityError(
                 "incremental= and intermediate= are not combined. A controlled direct "
                 "effect under a tilt of the treatment mechanism is a parameter this "
                 "package has not written down, and reporting one would mean guessing at "
-                "its influence function."
+                "its influence function. "
+                "docs/roadmap.md F6 tracks it."
             )
 
     def _check_shifts(self, data: CausalData) -> None:
@@ -2933,16 +3020,14 @@ class TMLE:
             # from; `nuisance` stays the initial fit and is what the result reports.
             targeted = nuisance
             targeting_submodel: Submodel | None = None
+            # The backstop of ``refuse_stratified_targeting``, which refuses these fits
+            # before any learner: ``retarget`` runs no preflight.
             if data.has_strata and (
                 needs_mechanism(group)
                 or needs_reduction(nuisance, group)
                 or needs_projection(nuisance, group)
             ):
-                raise NotImplementedError(
-                    f"baseline strata are not yet combined with the {group!r} group's "
-                    "alternating targeting equations. Fit the marginal parameter, or "
-                    "use an arm/regime/shift target whose outcome fluctuation is fixed."
-                )
+                raise _stratified_alternation_refusal(group)
             if needs_mechanism(group):
                 submodel, fluctuation, targeted = solve_with_mechanism(
                     data,

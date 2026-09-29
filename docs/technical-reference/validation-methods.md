@@ -908,9 +908,10 @@ different stratum aliases use the same perturbed datasets.
 Ordinary TMLE supports conditional binary arm means, ATE, ratios, PAR, PAF, ATT, ATC, regime
 parameters, and identity-link MSM coefficients. It also supports conditional modified-policy
 means and contrasts. MSM strata require binary treatment and the identity link. Binary C-TMLE supports conditional arm means, ATE, and
-ratios. These paths retain fixed observation weights and estimator-owned repeat aggregation. A
-DR-TMLE fit refuses `strata=` when it fits, so no stratified DR-TMLE result exists for the surface
-to replay.
+ratios. These paths retain fixed observation weights and estimator-owned repeat aggregation.
+
+A DR-TMLE fit at a non-empty `guard` refuses `strata=` before any learner. A `guard=()` fit is the
+ordinary TMLE and fits strata. The surface refuses a requested stratum on every `DRTMLE` result.
 
 ATT and ATC condition on the arm that the structured key names. Each cell recomputes that group's
 membership from its perturbed treatment. Displacement combines changes in the fitted outcome
@@ -1345,7 +1346,7 @@ surface refuses. The
 | a clustered fit | waiting on published theory | no source chooses a row-level, cluster-level, or mixed latent cause. See [F9](../roadmap.md#f9-clustered-simulated-confounding-stress-surface) |
 | identification other than a backdoor mean contrast with explicit adjustment | not written yet | the surface reads registered explicit-adjustment provenance |
 | ATT or ATC under C-TMLE or DR-TMLE | not written yet | `CTMLE` and `DRTMLE` refuse these functionals when they estimate, so no such fitted result exists |
-| a requested baseline stratum under DR-TMLE | not written yet | a DR-TMLE fit refuses `strata=` when it fits, so no such fitted result exists. The guard keys on the requested stratum, not on `data.has_strata`. See [X8](../roadmap.md#x8-stratified-incremental-and-msm-targeting) |
+| a requested baseline stratum under DR-TMLE | not written yet | a DR-TMLE fit at a non-empty `guard` refuses `strata=` before any learner. A `guard=()` fit is the ordinary TMLE and fits strata. The surface still refuses a requested stratum on every `DRTMLE` result, because its DR-TMLE contract covers marginal targets only. The guard keys on the requested stratum, not on `data.has_strata`. See [X8](../roadmap.md#x8-stratified-incremental-and-msm-targeting) |
 | baseline strata with an incremental target or nonlinear or continuous MSM | not written yet | ordinary TMLE lacks stratified alternating equations or continuous-dose targeting for these groups. See [X8](../roadmap.md#x8-stratified-incremental-and-msm-targeting) |
 | a custom MSM link | not written yet | only built-in identity, log, and logit links have a replay audit |
 | a custom intervention type | not written yet | only exact `Static`, `Rule`, `Stochastic`, and `Incremental` declarations have an audited baseline-input contract |
@@ -1359,14 +1360,20 @@ surface refuses. The
 
 Some rows above record an upstream limit rather than a surface limit. The identified effect's
 method catalog refuses unsupported variant targets at `estimate()`, before it builds an estimator.
-`DRTMLE` itself refuses a baseline stratum during the fit. No fitted result reaches the surface
-guard in these cases. `_replay_refusal` keeps that guard as defence in depth.
+`DRTMLE` itself refuses a baseline stratum at a non-empty `guard` before any learner. No fitted
+result reaches the surface guard in these cases, and `_replay_refusal` keeps that guard as defence
+in depth.
+
+A `DRTMLE` fit at `guard=()` is the exception. It fits strata, so a request for one of its
+stratum-specific aliases reaches `_replay_refusal`. The stratum guard is the only refusal of that
+request. The surface covers marginal DR-TMLE targets only, and the message tells the caller to fit
+the ordinary TMLE, which `guard=()` is.
 
 | composition | layer that refuses | when | message |
 | --- | --- | --- | --- |
 | ATT or ATC under C-TMLE or DR-TMLE | the identified effect's method catalog | `estimate()` | `method 'collaborative_tmle' cannot estimate ATT: no collaborative score is evidenced for this functional`. `DRTMLE` names its reduced-dimension correction instead |
 | a modified-treatment policy under C-TMLE or DR-TMLE | the identified effect's method catalog | `estimate()` | `method 'drtmle' cannot estimate ModifiedTreatmentPolicy: no reduced-dimension correction is evidenced for this functional` |
-| a baseline stratum under DR-TMLE | `DRTMLE`, in the shared targeting loop of `src/cleverly/estimators/tmle.py` | the fit | `baseline strata are not yet combined with the 'mean' group's alternating targeting equations`. `needs_reduction` holds because a DR-TMLE fit always builds reduced regressions |
+| a baseline stratum under DR-TMLE at a non-empty `guard` | `DRTMLE._check_drtmle`, before any learner | the fit starts | `baseline strata are not yet combined with the 'mean' group's alternating targeting equations. Fit the marginal parameter, or pass guard=(), which is the ordinary TMLE and accepts strata=.` |
 | PAR or PAF under C-TMLE or DR-TMLE | the identified effect's method catalog | `estimate()` | `method 'collaborative_tmle' cannot estimate PopulationAttributableRisk: no collaborative score is evidenced for this functional`. DR-TMLE names its reduced-dimension correction; PAF names its own type |
 | regime or MSM under C-TMLE | the identified effect's method catalog | `estimate()` | `method 'collaborative_tmle' cannot estimate RegimeMean: no collaborative score is evidenced for this functional`. Other targets name their own type |
 | regime or MSM under DR-TMLE | the identified effect's method catalog | `estimate()` | `method 'drtmle' cannot estimate RegimeMean: no reduced-dimension correction is evidenced for this functional`. Other targets name their own type |

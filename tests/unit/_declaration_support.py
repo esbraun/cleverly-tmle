@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import importlib
 from collections.abc import Callable, Iterable
-from typing import Any
+from typing import Any, TypeVar
 
 import numpy as np
 import pandas as pd
@@ -41,12 +41,16 @@ tmle_module = importlib.import_module("cleverly.estimators.tmle")
 #: A fragment of every refusal of ``"estimated"``: the term the reported curve omits.
 PATHWISE = "pathwise derivative"
 
+#: The class of the refusal a check expects.
+E = TypeVar("E", bound=Exception)
 
-def assert_refused(build: Callable[[], Any], error: type[Exception], *fragments: str) -> None:
+
+def assert_refused(build: Callable[[], Any], error: type[E], *fragments: str) -> E:
     """``build()`` raises ``error`` with every fragment, or this raises ``AssertionError``.
 
     Written out rather than as ``pytest.raises``, whose failure is not an
-    ``AssertionError``, so that a mutation control can require it to fail.
+    ``AssertionError``, so that a mutation control can require it to fail.  It returns the
+    raised error, so a caller can check more of it without a second call.
     """
     try:
         build()
@@ -54,7 +58,7 @@ def assert_refused(build: Callable[[], Any], error: type[Exception], *fragments:
         message = str(raised)
         for fragment in fragments:
             assert fragment in message, message
-        return
+        return raised
     raise AssertionError(f"no {error.__name__} was raised")
 
 
@@ -64,7 +68,7 @@ def assert_refused_before_any_call(
     function: str,
     *fragments: str,
     error: type[Exception] = CapabilityError,
-) -> None:
+) -> Exception:
     """``build()`` refuses before any learner fit and before any call of the spy ``function``.
 
     ``spy`` is the declared function, a :class:`tests.unit._confounding_support.Counter`
@@ -72,11 +76,12 @@ def assert_refused_before_any_call(
     copies a counter.  Pass ``None`` when the request declares no function, and the check
     covers the learners alone.  :func:`never_fit_learners` resets ``NeverFit``.  ``error`` is the
     class of the refusal: a declaration that is refused raises ``CapabilityError``, and a
-    value that is not a declaration raises ``DataError``.
+    value that is not a declaration raises ``DataError``.  It returns the raised error.
     """
-    assert_refused(build, error, *fragments)
+    raised = assert_refused(build, error, *fragments)
     assert NeverFit.calls == 0, f"{NeverFit.calls} learner fit(s) ran before the refusal"
     assert spy is None or spy.calls == 0, f"the {function} was evaluated before the refusal"
+    return raised
 
 
 def assert_every_witness_fails(witnesses: Iterable[Callable[[], None]]) -> None:

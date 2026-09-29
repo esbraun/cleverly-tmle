@@ -960,7 +960,7 @@ class TestValidation:
 
     def test_controlled_direct_effect_composition_is_refused(self) -> None:
         frame, _ = make_cde(n=100, seed=4)
-        with pytest.raises(ValueError, match="does not compose either collaborative strategy"):
+        with pytest.raises(CapabilityError, match="does not compose either collaborative strategy"):
             CTMLE(**CTMLE_KWARGS).fit(frame, outcome="Y", treatment="A", intermediate="Z")
 
     def test_the_target_estimand_must_be_reported(self, instrument_frame) -> None:

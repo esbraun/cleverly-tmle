@@ -216,7 +216,7 @@ def test_a_complete_outcome_fit_with_strata_meets_the_generic_strata_gate(
         **overrides,
     )
 
-    with pytest.raises(NotImplementedError, match="baseline strata currently use one joint pooled"):
+    with pytest.raises(CapabilityError, match="baseline strata currently use one joint pooled"):
         estimator.fit(frame, outcome="Y", treatment="A", covariates=("W", "S"), strata="S")
     assert NeverFit.calls == 0
 

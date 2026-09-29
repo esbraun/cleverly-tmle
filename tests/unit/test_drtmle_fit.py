@@ -992,7 +992,7 @@ class TestTheRefusals:
         assert len(fit.estimates) == 2
 
     def test_the_conditional_effects(self) -> None:
-        with pytest.raises(NotImplementedError, match="ATT and ATC"):
+        with pytest.raises(CapabilityError, match="ATT and ATC"):
             DRTMLE(**{**SETTINGS, "estimands": ("ate", "att")}).fit(
                 frame(), outcome="Y", treatment="A"
             )
@@ -1014,15 +1014,15 @@ class TestTheRefusals:
         ],
     )
     def test_the_other_parameter_axes(self, keyword: str, value) -> None:
-        with pytest.raises(NotImplementedError, match=f"{keyword}="):
+        with pytest.raises(CapabilityError, match=f"{keyword}="):
             DRTMLE(**{**SETTINGS, keyword: value})
 
     def test_fold_wise_targeting(self) -> None:
-        with pytest.raises(NotImplementedError, match="canonical cvFolds mapping only"):
+        with pytest.raises(CapabilityError, match="canonical cvFolds mapping only"):
             DRTMLE(targeting_scheme="fold", **SETTINGS)
 
     def test_fold_wise_evaluation(self) -> None:
-        with pytest.raises(NotImplementedError, match="corrected parameter and influence curve"):
+        with pytest.raises(CapabilityError, match="corrected parameter and influence curve"):
             DRTMLE(cv_evaluation=True, **SETTINGS)
 
     def test_a_missing_outcome(self) -> None:
@@ -1030,14 +1030,14 @@ class TestTheRefusals:
         sample["D"] = 1
         sample.loc[sample.index[:50], "D"] = 0
         sample.loc[sample.index[:50], "Y"] = np.nan
-        with pytest.raises(NotImplementedError, match="delta="):
+        with pytest.raises(CapabilityError, match="delta="):
             DRTMLE(**SETTINGS).fit(sample, outcome="Y", treatment="A", delta="D")
 
     def test_combining_it_with_ctmle(self) -> None:
         class Both(DRTMLE, CTMLE):
             pass
 
-        with pytest.raises(NotImplementedError, match="CTMLE are not combined"):
+        with pytest.raises(CapabilityError, match="CTMLE are not combined"):
             Both(**SETTINGS).fit(frame(), outcome="Y", treatment="A")
 
     def test_a_reduced_learner_that_raises_fails_the_fit_rather_than_the_round(self) -> None:

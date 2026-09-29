@@ -326,7 +326,7 @@ def missing_outcome() -> Any:
 LATER_REFUSALS: dict[str, tuple[Callable[[MSM], Any], type[Exception], str]] = {
     "cv_evaluation": (
         lambda model: cross_fitted(model, law.frame(), cv_evaluation=True),
-        ValueError,
+        CapabilityError,
         "cv_evaluation=True does not yet support ['msm']",
     ),
     "unbounded scale": (

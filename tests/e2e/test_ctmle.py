@@ -600,7 +600,7 @@ class TestCombinedWithOtherOptions:
         assert "ctmle" in result.extra
 
     def test_fold_targeted_composition_is_refused(self) -> None:
-        with pytest.raises(ValueError, match="published pooled collaborative estimator"):
+        with pytest.raises(CapabilityError, match="published pooled collaborative estimator"):
             CTMLE(**{**SETTINGS, "targeting_scheme": "fold"})
 
     def test_missingness_is_refit_inside_selection_folds(self) -> None:

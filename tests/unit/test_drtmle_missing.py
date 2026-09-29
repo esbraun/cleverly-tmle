@@ -327,7 +327,7 @@ def test_treatment_correction_has_a_nonzero_independent_witness() -> None:
 
 @pytest.mark.parametrize("guard", [("Q",), ("g",)])
 def test_partial_guards_are_refused_for_missing_outcomes(guard) -> None:
-    with pytest.raises(NotImplementedError, match="requires guard"):
+    with pytest.raises(CapabilityError, match="requires guard"):
         _estimator(guard=guard).fit(
             _trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
         )
@@ -416,7 +416,7 @@ def test_known_probabilities_survive_whole_result_persistence(tmp_path) -> None:
 
 
 def test_observational_missing_outcomes_are_refused() -> None:
-    with pytest.raises(NotImplementedError, match="randomized trial"):
+    with pytest.raises(CapabilityError, match="randomized trial"):
         DRTMLE(cross_fit=False, estimands=("ate",)).fit(
             _trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
         )
@@ -430,7 +430,7 @@ def test_cross_fitted_missing_outcomes_are_refused() -> None:
     continuous outcome) stays quiet and this construction-specific refusal is the one
     that fires.
     """
-    with pytest.raises(NotImplementedError, match="cross-validated extension") as caught:
+    with pytest.raises(CapabilityError, match="cross-validated extension") as caught:
         DRTMLE(randomized=True, estimands=("ate",)).fit(
             _binary_trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
         )
@@ -447,7 +447,7 @@ def test_cross_fitted_missing_outcomes_refuse_before_a_fold_draw(monkeypatch) ->
 
     monkeypatch.setattr(DRTMLE, "_repeat_draws", forbid_draw)
     learners = never_fit_learners()
-    with pytest.raises(NotImplementedError, match="does not establish its cross-validated"):
+    with pytest.raises(CapabilityError, match="does not establish its cross-validated"):
         DRTMLE(
             guard=(),
             randomized=False,
@@ -501,7 +501,7 @@ def test_an_unguarded_cross_fitted_missing_outcome_fit_is_refused(
         estimands=("ate", "ey1", "ey0"),
         **learners,
     )
-    with pytest.raises(NotImplementedError, match="does not establish its cross-validated"):
+    with pytest.raises(CapabilityError, match="does not establish its cross-validated"):
         estimator.fit(
             _binary_trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
         )
@@ -509,7 +509,7 @@ def test_an_unguarded_cross_fitted_missing_outcome_fit_is_refused(
 
 
 def test_bivariate_missing_outcomes_are_refused_as_a_different_construction() -> None:
-    with pytest.raises(NotImplementedError, match="complete-outcome construction"):
+    with pytest.raises(CapabilityError, match="complete-outcome construction"):
         DRTMLE(
             randomized=True,
             cross_fit=False,
@@ -549,7 +549,7 @@ def test_bootstrapping_known_probabilities_is_refused() -> None:
     notice -- and ``run_bootstrap`` swallows replicate failures, so raising inside one
     would come back as "the fit is too unstable to bootstrap".
     """
-    with pytest.raises(NotImplementedError, match="n_bootstrap"):
+    with pytest.raises(CapabilityError, match="n_bootstrap"):
         _estimator(n_bootstrap=5).fit(
             _trial(100),
             outcome="Y",
@@ -568,7 +568,7 @@ def test_bootstrapping_known_probabilities_is_refused_without_a_guard() -> None:
     supported -- would have walked straight past it. The misalignment it prevents is
     silent, so a fit that merely runs is not evidence that it is right.
     """
-    with pytest.raises(NotImplementedError, match="n_bootstrap"):
+    with pytest.raises(CapabilityError, match="n_bootstrap"):
         _estimator(guard=(), n_bootstrap=5).fit(
             _trial(100),
             outcome="Y",

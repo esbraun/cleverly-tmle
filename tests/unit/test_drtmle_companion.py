@@ -44,6 +44,7 @@ import pytest
 
 from cleverly.datasets import make_binary_outcome, make_weak_overlap
 from cleverly.estimators import DRTMLE
+from cleverly.exceptions import CapabilityError
 from tests.conftest import linear_drtmle
 
 #: Small, cross-fitted, and ``glm`` throughout: every claim here is an exact identity, so
@@ -312,11 +313,11 @@ class TestWhatACompanionIsRefusedFor:
             DRTMLE(**SETTINGS, repeats=2, evaluation=frame)
 
     def test_the_one_step_walk_is_refused_on_cost(self, frame: Any) -> None:
-        with pytest.raises(NotImplementedError, match="one_step"):
+        with pytest.raises(CapabilityError, match="one_step"):
             DRTMLE(**SETTINGS, targeting="one_step", evaluation=frame)
 
     def test_the_weighted_submodel_is_refused_by_name(self, frame: Any) -> None:
-        with pytest.raises(NotImplementedError, match="target_weights"):
+        with pytest.raises(CapabilityError, match="target_weights"):
             DRTMLE(**SETTINGS, target_weights=True, evaluation=frame)
 
     def test_a_companion_on_different_covariates_is_refused(self, frame: Any) -> None:
