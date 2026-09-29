@@ -855,3 +855,44 @@ class TestDiagnosticRowsDoNotScore:
     def test_the_arithmetic_it_replaced_counts_them(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(claims, "_scored", lambda frame: frame)
         assert self._counts(self._properties(3)) == (4.0, 5.0, 3.0)
+
+
+class TestAReferenceWithABracketedKey:
+    """A key may carry one balanced pair of brackets, and an unbalanced one does not resolve.
+
+    The learned-rule estimand is ``ey_learned_rule[learned rule]``, so a page that quotes a
+    per-law endpoint names ``performance[<implementation>/<law>/ey_learned_rule[learned
+    rule]]:coverage``.  A pattern that stopped at the first ``]`` could not read it, and one
+    that ran to the last ``]:`` would also read a stray ``]`` into the key.
+    """
+
+    ESTIMAND = "ey_learned_rule[learned rule]"
+
+    def _data(self) -> dict[str, pd.DataFrame]:
+        return {
+            "performance": pd.DataFrame(
+                {
+                    "implementation": ["subject", "subject"],
+                    "scenario": ["z0", "z1"],
+                    "estimand": [self.ESTIMAND, self.ESTIMAND],
+                    "coverage": [0.8938, 0.9465],
+                }
+            )
+        }
+
+    def test_a_bracketed_estimand_resolves(self) -> None:
+        name = f"performance[subject/z1/{self.ESTIMAND}]:coverage"
+        assert claims.value(_seed_record(), name, self._data()) == 0.9465
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "performance[subject/z1/ey_learned_rule[learned rule]]]:coverage",
+            "performance[subject/z1/ey_learned_rule[learned rule]:coverage",
+            "performance[subject/z1]]:coverage",
+        ],
+    )
+    def test_an_unbalanced_bracket_is_rejected(self, name: str) -> None:
+        assert claims._REFERENCE.match(name) is None
+        with pytest.raises(KeyError, match="not a known quantity"):
+            claims.value(_seed_record(), name, self._data())

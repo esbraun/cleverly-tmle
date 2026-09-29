@@ -1,0 +1,92 @@
+{
+  "schema_version": 2,
+  "study": "CV-TMLE of the fold-local learned-rule value at exceptional and weak-blip laws",
+  "slug": "learned-rule-cvtmle-boundary",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-learned-rule-cvtmle",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "b09c055d0bc9500165c217c4c64be2a6cf7ef0b9",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 6000,
+    "n": 2000,
+    "seed": 20263003,
+    "resampling_seed": 20263004,
+    "publication_policy": "reporting",
+    "truth_varies_by_replicate": true,
+    "scenarios": {
+      "exceptional": [
+        "ey_learned_rule[learned rule]"
+      ],
+      "weak_blip": [
+        "ey_learned_rule[learned rule]"
+      ]
+    },
+    "fit": "TMLE(learned_rule=LearnedRule(), n_folds=10, cv_evaluation=True, targeting_scheme='pooled', g_bounds='auto', random_state=<fold seed>) at n = 2000",
+    "outcome_learner": "Pipeline(PolynomialFeatures(2, interaction_only=True, include_bias=False), LogisticRegression(C=1e6, max_iter=5000, tol=1e-10)) on (A, W1, W2)",
+    "treatment_learner": "LogisticRegression(C=1e6, max_iter=1000) on (W1, W2)",
+    "law": "W1 ~ U(-1, 1); W2 ~ Bernoulli(0.5); logit g0 = 0.3 W1 - 0.2 W2; logit Qbar0 = 0.2 + 0.5 W1 - 0.3 W2 + A b(W)",
+    "blips": {
+      "exceptional": "0",
+      "weak_blip": "0.15 W1"
+    },
+    "truth": "per replication: refit each fold's outcome learner on the fit's own training rows, require the fit's rule on every validation row, and average the fold rules' values by the trapezoid rule on 4001 points of W1 for each W2, with the known Qbar0",
+    "oracle_se": "sqrt(V^-2 sum_v Var_P0 D*(d_v, Qbar0, g0) / n_v), by the same quadrature; descriptive, in harness.csv.gz",
+    "fold_seed": "stream_seed(record, 'fold_partition', 'primary', scenario, replicate)",
+    "solver_warnings": "scikit-learn and cleverly ConvergenceWarnings of the fit and its truth refits, counted in harness.csv.gz; no rule reads the count",
+    "reading": "from the top, on each law's 99% Clopper-Pearson coverage interval: upper end below 0.95 -> under-covers at the <law> law; lower end at or above 0.90 -> no under-coverage resolved at the declared budget; otherwise unresolved",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/learned_rule_cvtmle_boundary.py": "4376f67650cb7714538f463cff764f2ad1f4ec3ce70eed66b5189317cf689888",
+    "tests/studies/learned_rule_cvtmle_boundary_properties.py": "1fc81d9031d10d19277813ba7c7b44941c0df54ef4c0d0244085337da5677543",
+    "tests/studies/_learned_rule_law.py": "37d69cfb37bf08e4ced0f5b40e052ebdcbd674c7c852ebeae10c537dfa884957",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "f2139bdfb2efbb42ab4f088365ecdc31f31a02974e8e9368b7ebce12df6f877f",
+    "summary.csv": "83a0675bbfbfd30d7025b81d4c1e62f2ff2c9b55d1848252c0e8f4d0f7953be6",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "6964ee878796fa46b9a221bf6ec155ba76fbed7ce09d482f52f373067b519125",
+    "property-replicates.csv.gz": "fb3c9f2bb88665a0443d48eef9d274a8291e16c14d6cf002fd76101ca39672b6",
+    "properties.csv": "f9941c012c9d4382c92fe56bb4f353058b90d77dd321c10ee9db895b180b293a",
+    "harness.csv.gz": "7ff103d360f5dc06754503dc6663f86c88f738e61ebc794a7e2e585555d92559",
+    "reading.csv": "7b5aa59f163855f411f41692e89017ae1fd24d0c0a9bf3704fe3af416e38bd9e"
+  }
+}

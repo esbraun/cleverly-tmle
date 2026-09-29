@@ -209,6 +209,7 @@ def test_contraction_rates_keep_strict_direction_control_inversion_and_streams(
             "bootstrap_replicates": record.margins.bootstrap_replicates,
             "confidence_level": record.margins.confidence_level,
             "seed": stream_seed(record, "double_robust_contraction", scenario),
+            "truth_varies": False,
         }
         assert row["property"] == "double_robust_contraction"
         assert row["rate_sizes"] == "20;40;80"

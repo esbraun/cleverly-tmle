@@ -151,6 +151,28 @@ material over-rejection. Positive claims need a control that makes the same inst
 Repeated-sampling, large-sample, and flexible-learner claims belong in a registered study and its
 committed artifacts. Documentation examples never count as statistical evidence.
 
+### A truth that varies by replication
+
+Set `truth_varies_by_replicate=True` on a `StudyRecord` when the target is a data-adaptive
+parameter. The value of the rules that each training fold learns is an example: each replication
+has its own truth. The spread of the estimate then differs from the spread of the error, so every
+statistic must read the error. The flag defaults to `False`. Every other record keeps its
+arithmetic byte for byte, because subtracting a constant truth moves the last bits.
+
+| statistic | a record with one truth | a record that sets the flag |
+| --- | --- | --- |
+| schema check of the truth | constant within `TRUTH_TOLERANCE` | finite on every row. `covered` is checked against the row's own truth |
+| inference scale | any declared scale | the level scale only |
+| bias, its interval, and the standardized bias | the mean estimate minus the truth, over the SD of the estimate | the mean error, over the SD of the error |
+| empirical SE, RMSE, SE ratio and its bootstrap | from the estimates | from the errors. The bootstrap resamples the error and the SE together |
+| the empirical efficiency ratio and the root-n `spread` slope | the SD of the estimate | the SD of the error |
+| paired displacement | on the estimates | on the errors. Each arm subtracts its own truth |
+| `summary.csv` and `properties.csv` | `truth` | `truth` holds the mean truth, beside `truth_min` and `truth_max` |
+
+Such a record cannot declare a reference, because the paired comparison reads one truth per cell.
+`tests/unit/test_per_replicate_truth.py` holds the witnesses. The learned-rule studies set the
+flag.
+
 ## Registration and acceptance
 
 Register the scenarios, estimands, sample size, replication count, margins, runner and property
@@ -300,3 +322,9 @@ artifacts, or provenance conventions for each comparison.
 If a registered study has no canonical comparator, its cross-implementation cell says so and its
 row rests on the other two columns; a study with no property cells is not a validation row at
 all, because matching another implementation is not evidence that either one is right.
+
+A study with no property cells can still register as a reporting study. It declares
+`publication_policy="reporting"` and an empty `property_cells`. It keeps its own page, with no
+properties block, and the red-cell ledger reads its verdicts. The validation grid does not list
+it. `tests/unit/test_method_evidence.py` checks each of these facts. The learned-rule boundary
+study is the example.

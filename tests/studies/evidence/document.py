@@ -398,6 +398,7 @@ _BIAS_GATED = frozenset(
         "cap_necessity",
         "competing_risk_recursion_necessity",
         "density_necessity",
+        "fold_locality",
         "learner_weight_necessity",
         "mar_robustness",
         "missingness_necessity",
@@ -484,6 +485,8 @@ def fill(record: StudyRecord) -> list[str]:
     for name, renderer in GENERATED.items():
         rendered = renderer(record, data)
         if name == "agreement" and record.reference is None:
+            rendered = []
+        if name == "properties" and not record.property_cells:
             rendered = []
         moved, bounds = _replace_block(lines, name, rendered, bounds)
         if moved:

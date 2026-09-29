@@ -24,6 +24,7 @@ from tests.studies.evidence.properties import (
     ratio_intervals,
     require_complete,
     se_ratio_interval,
+    spread_values,
     summarize_cells,
     summary_interval,
 )
@@ -232,11 +233,13 @@ def apply_shared_verdicts(
     at all.
     """
     margins = record.margins
+    varies = record.truth_varies_by_replicate
     summary = summarize_cells(
         rows,
         margin=margins.standardized_bias,
         confidence_level=margins.confidence_level,
         alpha=margins.alpha,
+        truth_varies=varies,
     )
     efficiency = () if efficiency_bounds is None else EFFICIENCY_COLUMNS
     for column in (*SHARED_COLUMNS, *efficiency, *extra_columns):
@@ -287,6 +290,7 @@ def apply_shared_verdicts(
             confidence_level=margins.confidence_level,
             seed=stream_seed(record, "interval_calibration", cell),
             bound=bound,
+            truth_varies=varies,
         )
         ratio = intervals["se_ratio"]
         mask = calibration & (summary["cell"] == cell)
@@ -294,8 +298,13 @@ def apply_shared_verdicts(
         summary.loc[mask, "se_ratio_ci_upper"] = ratio.high
         if bound is not None:
             scale = float(np.sqrt(int(group["n"].iloc[0]))) / bound
+            spread = (
+                float(np.std(spread_values(group, truth_varies=True), ddof=1))
+                if varies
+                else float(group["estimate"].std(ddof=1))
+            )
             for kind, point in (
-                ("empirical", float(group["estimate"].std(ddof=1) * scale)),
+                ("empirical", spread * scale),
                 ("reported", float(group["std_error"].mean() * scale)),
             ):
                 interval = intervals[f"efficiency_{kind}"]
@@ -423,6 +432,7 @@ def fitted_rate_row(
         bootstrap_replicates=margins.bootstrap_replicates,
         confidence_level=margins.confidence_level,
         seed=stream_seed(record, *seed_labels),
+        truth_varies=record.truth_varies_by_replicate,
     )
     sizes = sorted({int(value) for value in rows["n"]})
     row: dict[str, Any] = dict.fromkeys(columns, np.nan)
@@ -911,6 +921,7 @@ def necessity_verdicts(
     arms: tuple[str, str],
     column: str,
     threshold: float,
+    truth_varies: bool = False,
 ) -> None:
     """Was the step load bearing, and did it carry the estimate the right way?
 
@@ -951,6 +962,9 @@ def necessity_verdicts(
         The summary column the joint displacement is published in.
     threshold : float
         The declared minimum displacement.
+    truth_varies : bool, optional
+        :attr:`StudyRecord.truth_varies_by_replicate`.  Given it, the displacement reads each
+        arm's error, each arm subtracting its own truth.
     """
     mask = summary["property"] == family
     if not mask.any():
@@ -962,7 +976,13 @@ def necessity_verdicts(
     summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"]
 
     displacement = min(
-        paired_displacement(rows, family, f"{label}__{positive_arm}", f"{label}__{control_arm}")
+        paired_displacement(
+            rows,
+            family,
+            f"{label}__{positive_arm}",
+            f"{label}__{control_arm}",
+            truth_varies=truth_varies,
+        )
         for label in labels
     )
     summary.loc[mask, column] = displacement
@@ -1025,6 +1045,11 @@ def alternative_target_necessity_verdicts(
     mask = summary["property"] == family
     if not mask.any():
         return
+    if record.truth_varies_by_replicate:
+        raise ValueError(
+            f"{family} reads one alternative truth per label, and {record.slug} declares a "
+            "truth that varies by replication"
+        )
     missing = sorted(set(labels) - set(alternative_truths))
     if missing:
         raise ValueError(f"{family} has no alternative truth for {missing}")
@@ -1157,12 +1182,14 @@ def _paired_cell_verdicts(
         replicates=margins.bootstrap_replicates,
         confidence_level=margins.confidence_level,
         seed=stream_seed(record, family, positive_cell),
+        truth_varies=record.truth_varies_by_replicate,
     )
     control_se = se_ratio_interval(
         control,
         replicates=margins.bootstrap_replicates,
         confidence_level=margins.confidence_level,
         seed=stream_seed(record, family, control_cell),
+        truth_varies=record.truth_varies_by_replicate,
     )
     gain = coverage_gain_interval(
         positive,

@@ -376,6 +376,20 @@ def control_row(
     }
 
 
+def spread_values(group: pd.DataFrame, *, truth_varies: bool) -> np.ndarray:
+    """The values whose spread a statistic reads: the estimates, or each row's error.
+
+    A record with one truth reads the estimates, bit for bit as before.  A record whose truth
+    varies by replication (:attr:`StudyRecord.truth_varies_by_replicate`) reads the error
+    ``estimate - truth`` of each row, because the spread of the estimate then also carries
+    the spread of the target.
+    """
+    estimates = group["estimate"].to_numpy(dtype=float)
+    if not truth_varies:
+        return estimates
+    return estimates - group["truth"].to_numpy(dtype=float)
+
+
 def summary_interval(summary: pd.DataFrame, index: Any, prefix: str) -> Interval:
     """One already-computed interval, read back off a summary row by column prefix."""
     return Interval(
@@ -384,8 +398,13 @@ def summary_interval(summary: pd.DataFrame, index: Any, prefix: str) -> Interval
     )
 
 
-def paired_displacement(rows: pd.DataFrame, family: str, left: str, right: str) -> float:
+def paired_displacement(
+    rows: pd.DataFrame, family: str, left: str, right: str, *, truth_varies: bool = False
+) -> float:
     """How far ``right``'s mean sits from ``left``'s, in ``left``'s empirical spread.
+
+    ``truth_varies`` reads each arm's error instead of its estimate, each arm subtracting its
+    own truth, as :func:`spread_values` does.
 
     The statistic a necessity family's *joint* claim is made of.  Each row's own endpoint says
     the positive arm's bias is inside the margin and the control's is outside it, and a step
@@ -405,8 +424,14 @@ def paired_displacement(rows: pd.DataFrame, family: str, left: str, right: str) 
     }
     if not np.array_equal(arms["left"]["replicate"], arms["right"]["replicate"]):
         raise ValueError(f"the {family} arms {left} and {right} are not paired on replication")
-    spread = float(arms["left"]["estimate"].std(ddof=1))
-    moved = float(arms["right"]["estimate"].mean() - arms["left"]["estimate"].mean())
+    if truth_varies:
+        values = {
+            name: pd.Series(spread_values(arm, truth_varies=True)) for name, arm in arms.items()
+        }
+    else:
+        values = {name: arm["estimate"] for name, arm in arms.items()}
+    spread = float(values["left"].std(ddof=1))
+    moved = float(values["right"].mean() - values["left"].mean())
     return abs(moved) / spread
 
 
@@ -469,42 +494,98 @@ def require_complete(rows: pd.DataFrame) -> None:
             )
 
 
+def error_summary(
+    errors: np.ndarray,
+    std_errors: np.ndarray,
+    covered: np.ndarray,
+    rejected: np.ndarray,
+    *,
+    n: int,
+    alpha: float,
+) -> Any:
+    """The canonical summary of a cell, computed on its errors rather than its estimates.
+
+    Each record carries its error as the estimate and a truth of zero, so the canonical
+    bias, spread, SE ratio and RMSE are the error's.  The caller publishes the mean estimate
+    and the mean truth itself, because this summary's are the error's mean and zero.
+    """
+    return summarize_replications(
+        tuple(
+            ReplicationRecord(
+                replicate=index,
+                seed=-1,
+                estimand="cell",
+                truth=0.0,
+                estimate=float(error),
+                std_error=float(std_error),
+                covered=bool(hit),
+                rejected=bool(reject),
+                inference_estimate=float(error),
+                alpha=alpha,
+            )
+            for index, (error, std_error, hit, reject) in enumerate(
+                zip(errors, std_errors, covered, rejected, strict=True)
+            )
+        ),
+        estimand="cell",
+        n=n,
+    )
+
+
 def summarize_cells(
     rows: pd.DataFrame,
     *,
     margin: float,
     confidence_level: float,
     alpha: float,
+    truth_varies: bool = False,
 ) -> pd.DataFrame:
-    """Descriptive summary plus the per-cell interval verdicts, one row per cell."""
+    """Descriptive summary plus the per-cell interval verdicts, one row per cell.
+
+    ``truth_varies`` is :attr:`StudyRecord.truth_varies_by_replicate`.  Given it, the bias,
+    the spread, the SE ratio and the RMSE read each row's error, ``truth`` publishes the mean
+    truth, and ``truth_min`` and ``truth_max`` follow it.
+    """
     require_complete(rows)
     records: list[dict[str, Any]] = []
     for (property_name, cell), group in rows.groupby(["property", "cell"], sort=True):
         estimates = group["estimate"].to_numpy(dtype=float)
-        truth = float(group["truth"].iloc[0])
         replicates = len(group)
-        canonical = summarize_replications(
-            tuple(
-                ReplicationRecord(
-                    replicate=int(row.replicate),
-                    seed=-1,
-                    estimand="cell",
-                    truth=float(row.truth),
-                    estimate=float(row.estimate),
-                    std_error=float(row.std_error),
-                    covered=bool(row.covered),
-                    rejected=bool(row.rejected),
-                    inference_estimate=float(row.estimate),
-                    alpha=alpha,
-                )
-                for row in group.itertuples(index=False)
-            ),
-            estimand="cell",
-            n=int(group["n"].iloc[0]),
-        )
-        bias = standardized_bias_verdict(
-            estimates - truth, margin=margin, confidence_level=confidence_level
-        )
+        if truth_varies:
+            truths = group["truth"].to_numpy(dtype=float)
+            truth = float(np.mean(truths))
+            errors = estimates - truths
+            canonical = error_summary(
+                errors,
+                group["std_error"].to_numpy(dtype=float),
+                group["covered"].to_numpy(),
+                group["rejected"].to_numpy(),
+                n=int(group["n"].iloc[0]),
+                alpha=alpha,
+            )
+        else:
+            truth = float(group["truth"].iloc[0])
+            errors = estimates - truth
+            canonical = summarize_replications(
+                tuple(
+                    ReplicationRecord(
+                        replicate=int(row.replicate),
+                        seed=-1,
+                        estimand="cell",
+                        truth=float(row.truth),
+                        estimate=float(row.estimate),
+                        std_error=float(row.std_error),
+                        covered=bool(row.covered),
+                        rejected=bool(row.rejected),
+                        inference_estimate=float(row.estimate),
+                        alpha=alpha,
+                    )
+                    for row in group.itertuples(index=False)
+                ),
+                estimand="cell",
+                n=int(group["n"].iloc[0]),
+            )
+        bias = standardized_bias_verdict(errors, margin=margin, confidence_level=confidence_level)
         coverage = clopper_pearson(
             int(group["covered"].sum()), replicates, confidence_level=confidence_level
         )
@@ -521,7 +602,14 @@ def summarize_cells(
                 "replicates": replicates,
                 "failed_replicates": int(group["failed_replicates"].iloc[0]),
                 "truth": truth,
-                "mean_estimate": canonical.mean_estimate,
+                **(
+                    {"truth_min": float(np.min(truths)), "truth_max": float(np.max(truths))}
+                    if truth_varies
+                    else {}
+                ),
+                "mean_estimate": float(np.mean(estimates))
+                if truth_varies
+                else canonical.mean_estimate,
                 "bias": canonical.bias,
                 "bias_se": canonical.bias_se,
                 "bias_ci_lower": bias.interval.low,
@@ -553,8 +641,11 @@ def ratio_intervals(
     confidence_level: float,
     seed: int,
     bound: float | None = None,
+    truth_varies: bool = False,
 ) -> dict[str, Interval]:
     """Every spread ratio a calibration cell reports, off **one** set of draws.
+
+    ``truth_varies`` reads the spread of each row's error, as :func:`spread_values` does.
 
     Always returns ``se_ratio``: mean reported SE over the empirical spread of the estimates.
     That point ratio is a quotient of two statistics of the same replications, so its Monte
@@ -578,7 +669,9 @@ def ratio_intervals(
     """
     return {
         name: percentile_interval(draws, confidence_level=confidence_level)
-        for name, draws in ratio_draws(group, replicates=replicates, seed=seed, bound=bound).items()
+        for name, draws in ratio_draws(
+            group, replicates=replicates, seed=seed, bound=bound, truth_varies=truth_varies
+        ).items()
     }
 
 
@@ -588,14 +681,22 @@ def ratio_draws(
     replicates: int,
     seed: int,
     bound: float | None = None,
+    truth_varies: bool = False,
 ) -> dict[str, np.ndarray]:
     """The bootstrap draws behind :func:`ratio_intervals`, one array per ratio.
 
     A caller that compares two independent cells needs the draws rather than the intervals,
     because the interval of a difference is read off the draw-by-draw difference.
     :func:`ratio_intervals` takes its percentiles from exactly these arrays.
+
+    ``truth_varies`` resamples each row's error and its SE together, by row.
     """
-    values = group[["estimate", "std_error"]].to_numpy(dtype=float)
+    if truth_varies:
+        values = np.column_stack(
+            [spread_values(group, truth_varies=True), group["std_error"].to_numpy(dtype=float)]
+        )
+    else:
+        values = group[["estimate", "std_error"]].to_numpy(dtype=float)
     rng = np.random.default_rng(seed)
     blocks = [
         (draws[:, :, 0].std(axis=1, ddof=1), draws[:, :, 1].mean(axis=1))
@@ -612,7 +713,12 @@ def ratio_draws(
 
 
 def se_ratio_interval(
-    group: pd.DataFrame, *, replicates: int, confidence_level: float, seed: int
+    group: pd.DataFrame,
+    *,
+    replicates: int,
+    confidence_level: float,
+    seed: int,
+    truth_varies: bool = False,
 ) -> Interval:
     """Just the reported-over-empirical ratio of :func:`ratio_intervals`.
 
@@ -621,7 +727,11 @@ def se_ratio_interval(
     a dictionary to say so.
     """
     return ratio_intervals(
-        group, replicates=replicates, confidence_level=confidence_level, seed=seed
+        group,
+        replicates=replicates,
+        confidence_level=confidence_level,
+        seed=seed,
+        truth_varies=truth_varies,
     )["se_ratio"]
 
 
@@ -790,8 +900,12 @@ def rate(
     bootstrap_replicates: int,
     confidence_level: float,
     seed: int,
+    truth_varies: bool = False,
 ) -> Rate:
     """How fast the sampling distribution contracts as ``n`` grows.
+
+    ``truth_varies`` reads each row's error in place of its estimate, so ``spread`` is the
+    log SD of the error and ``bias`` the log absolute mean error.  ``reported`` is unchanged.
 
     ``statistic="spread"`` regresses the log *empirical* standard deviation of the estimates
     on log ``n``; root-n asymptotics predict a slope of :math:`-1/2`.  This is a property of
@@ -828,11 +942,17 @@ def rate(
             f"slope is estimated rather than read off one ratio"
         )
     sizes = np.array([size for size, _ in grouped], dtype=float)
-    column = "std_error" if statistic == "reported" else "estimate"
-    samples = [group[column].to_numpy(dtype=float) for _, group in grouped]
-    # One truth per rung.  Read per rung rather than once, because a ladder is entitled to
-    # a size-dependent truth and reading the first rung's would silently bias the others.
-    truths = [float(group["truth"].iloc[0]) for _, group in grouped]
+    if statistic != "reported" and truth_varies:
+        # Each row's error, whose truth is zero by construction.
+        samples = [spread_values(group, truth_varies=True) for _, group in grouped]
+        truths = [0.0 for _ in grouped]
+    else:
+        column = "std_error" if statistic == "reported" else "estimate"
+        samples = [group[column].to_numpy(dtype=float) for _, group in grouped]
+        # One truth per rung.  Read per rung rather than once, because a ladder is entitled
+        # to a size-dependent truth and reading the first rung's would silently bias the
+        # others.
+        truths = [float(group["truth"].iloc[0]) for _, group in grouped]
 
     def observed(values: np.ndarray, truth: float) -> float:
         if statistic == "spread":

@@ -37,7 +37,17 @@ ARTIFACTS: dict[str, tuple[str, tuple[str, ...]]] = {
 FIT_DIAGNOSTICS_FILE = "fit-diagnostics.csv"
 FIT_DIAGNOSTICS = "fit_diagnostics"
 
-_REFERENCE = re.compile(r"^(?P<artifact>\w+)\[(?P<keys>[^\]]*)\]:(?P<column>\w+)$")
+#: The second optional result file: the truth harness of a learned-rule study, one row per
+#: primary replication.  A study that declares it gains one ``mean_oracle_se_<scenario>``
+#: aggregate per scenario, so a page quotes the descriptive oracle standard error by name.
+HARNESS_FILE = "harness.csv.gz"
+HARNESS = "harness"
+
+#: A key may carry one balanced pair of brackets of its own, as the estimand
+#: ``ey_learned_rule[learned rule]`` does.  An unbalanced bracket does not match.
+_REFERENCE = re.compile(
+    r"^(?P<artifact>\w+)\[(?P<keys>(?:[^\[\]]|\[[^\[\]]*\])*)\]:(?P<column>\w+)$"
+)
 
 
 def load(record: StudyRecord) -> dict[str, pd.DataFrame]:
@@ -47,6 +57,8 @@ def load(record: StudyRecord) -> dict[str, pd.DataFrame]:
     }
     if FIT_DIAGNOSTICS_FILE in record.extra_artifacts:
         frames[FIT_DIAGNOSTICS] = pd.read_csv(record.artifact(FIT_DIAGNOSTICS_FILE))
+    if HARNESS_FILE in record.extra_artifacts:
+        frames[HARNESS] = pd.read_csv(record.artifact(HARNESS_FILE))
     return frames
 
 
@@ -229,6 +241,40 @@ def _score_audit_aggregates(
     return out
 
 
+def _harness_aggregates(
+    record: StudyRecord,
+) -> dict[str, Callable[[Mapping[str, pd.DataFrame]], float]]:
+    """The mean oracle standard error of each scenario, from the truth harness.
+
+    The oracle standard error is a descriptive column that no verdict reads.  A page that
+    compares it with the mean reported standard error still quotes it through here, so the
+    number it prints is the one the artefact holds.
+
+    Parameters
+    ----------
+    record : StudyRecord
+        The study whose harness is read.
+
+    Returns
+    -------
+    dict
+        Empty for a study that publishes no harness.
+    """
+    if HARNESS_FILE not in record.extra_artifacts:
+        return {}
+    out: dict[str, Callable[[Mapping[str, pd.DataFrame]], float]] = {}
+    for scenario in record.scenarios:
+
+        def mean_oracle_se(data: Mapping[str, pd.DataFrame], scenario: str = scenario) -> float:
+            rows = _scenario(data[HARNESS], scenario)
+            if rows.empty:
+                raise KeyError(f"the harness of {record.slug} has no rows for {scenario!r}")
+            return float(rows["oracle_se"].mean())
+
+        out[f"mean_oracle_se_{scenario}"] = mean_oracle_se
+    return out
+
+
 def _scenario(frame: pd.DataFrame, scenario: str) -> pd.DataFrame:
     return frame.loc[frame["scenario"] == scenario]
 
@@ -353,6 +399,10 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
             )
     if "targeting_necessity" in record.property_cells:
         declared["margin:targeting_displacement"] = record.properties().TARGETING_DISPLACEMENT
+    if "fold_locality" in record.property_cells:
+        declared["margin:fold_locality_displacement"] = (
+            record.properties().FOLD_LOCALITY_DISPLACEMENT
+        )
     if "missingness_necessity" in record.property_cells:
         declared["margin:missingness_displacement"] = record.properties().MISSINGNESS_DISPLACEMENT
     if "correction_necessity" in record.property_cells:
@@ -408,6 +458,7 @@ def quantities(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.DataF
         **_aggregates(record),
         **_scenario_aggregates(record),
         **_score_audit_aggregates(record),
+        **_harness_aggregates(record),
         **{name: (lambda data, value=value: value) for name, value in declared.items()},
     }
 

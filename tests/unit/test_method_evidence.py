@@ -48,6 +48,8 @@ from tests.studies.evidence.seeds import replicate_seed
 STUDIES = registered()
 IDS = [study.slug for study in STUDIES]
 STUDY_BY_SLUG = {study.slug: study for study in STUDIES}
+#: The studies the validation grid lists: those that declare property cells.
+VALIDATION_STUDIES = tuple(study for study in STUDIES if study.property_cells)
 
 #: Mutation controls only need a verdict to flip, not a published endpoint, so they run the
 #: resampling at a fraction of the published budget.
@@ -216,12 +218,21 @@ class TestArtifacts:
     ) -> None:
         published = pd.read_csv(study.artifact("summary.csv"))
         pd.testing.assert_frame_equal(
-            published, summarize(rows), check_exact=False, rtol=1e-12, atol=1e-12
+            published,
+            summarize(rows, truth_varies=study.truth_varies_by_replicate),
+            check_exact=False,
+            rtol=1e-12,
+            atol=1e-12,
         )
 
     @pytest.mark.parametrize("name", ["summary", "equivalence", "performance", "properties"])
     def test_reader_facing_tables_are_not_empty(self, study: StudyRecord, name: str) -> None:
         if name == "equivalence" and study.reference is None:
+            assert load(study)[name].empty
+            return
+        # A study that declares no property cell is a reporting study, not a validation row
+        # (``method-benchmarking.md``, "Adding a method row"), and its properties table is empty.
+        if name == "properties" and not study.property_cells:
             assert load(study)[name].empty
             return
         assert not load(study)[name].empty
@@ -239,10 +250,14 @@ class TestPublishedVerdicts:
         for key, group in rows.groupby(["implementation", "scenario", "estimand"], sort=True):
             record = published.loc[key]
             inference = group["inference_estimate"].to_numpy(dtype=float)
-            truth = truth_on_inference_scale(
-                str(key[2]),
-                float(group["truth"].iloc[0]),
-                str(group["inference_scale"].iloc[0]),
+            truth = (
+                group["truth"].to_numpy(dtype=float)
+                if study.truth_varies_by_replicate
+                else truth_on_inference_scale(
+                    str(key[2]),
+                    float(group["truth"].iloc[0]),
+                    str(group["inference_scale"].iloc[0]),
+                )
             )
             bias = student_interval(
                 inference - truth, confidence_level=study.margins.confidence_level
@@ -656,6 +671,18 @@ class TestPublishedVerdicts:
                 >= study.properties().TARGETING_DISPLACEMENT
             )
 
+        # The same joint clause for the learned-rule fold-locality pair: the mutation that
+        # learns each fold's rule on its own validation rows must move the error by the
+        # declared number of the positive arm's error SDs.
+        locality = published.loc[published["property"] == "fold_locality"]
+        if not locality.empty:
+            assert locality["property_passed"].nunique() == 1
+            assert bool(locality["property_passed"].iloc[0]) is bool(
+                locality["passed"].all()
+                and locality["fold_locality_displacement"].iloc[0]
+                >= study.properties().FOLD_LOCALITY_DISPLACEMENT
+            )
+
         missingness = published.loc[published["property"] == "missingness_necessity"]
         if not missingness.empty:
             assert missingness["property_passed"].nunique() == 1
@@ -846,6 +873,7 @@ BIAS_GATED_PROPERTIES = frozenset(
         "competing_risk_recursion_necessity",
         "survival_recursion_necessity",
         "targeting_necessity",
+        "fold_locality",
         "weight_necessity",
         "projection_necessity",
         "ratio_necessity",
@@ -1452,15 +1480,23 @@ class TestTheMethodEvidenceGrid:
     The grid arrived as a note: nothing read it, its counts were typed, and one of them counted
     the wrong study.  These tests are what make it a gate instead, and they are written against
     the register rather than against any one row, so the next method to be added inherits them.
+
+    The grid lists validation rows only.  A study with no property cell is not one
+    (``method-benchmarking.md``, "Adding a method row"), so these tests read the studies that
+    declare property cells.
     """
+
+    @pytest.fixture(params=VALIDATION_STUDIES, ids=[study.slug for study in VALIDATION_STUDIES])
+    def study(self, request: pytest.FixtureRequest) -> StudyRecord:
+        return request.param
 
     def test_every_registered_study_has_a_row_and_every_row_a_study(self) -> None:
         rows = set(_grid())
-        studies = {study.name for study in STUDIES}
+        studies = {study.name for study in VALIDATION_STUDIES}
         assert rows == studies, (
-            f"rows with no registered study {sorted(rows - studies)}, studies with no row "
-            f"{sorted(studies - rows)}. A study whose results are committed but unrowed is one "
-            f"no reader is routed to"
+            f"rows with no registered validation study {sorted(rows - studies)}, validation "
+            f"studies with no row {sorted(studies - rows)}. A study whose results are committed "
+            f"but unrowed is one no reader is routed to"
         )
 
     def test_the_row_points_at_the_registered_studys_document(self, study: StudyRecord) -> None:
@@ -1713,6 +1749,7 @@ _FAMILY = {
     "score_audited_fits": "fit_diagnostics",
     "subject_score_failures": "fit_diagnostics",
     "reference_score_failures": "fit_diagnostics",
+    "mean_oracle_se": "harness",
 }
 
 
@@ -1813,6 +1850,8 @@ class TestThePublishedTestTables:
         """Nothing between the sentinels is typed, so nothing between them can go stale."""
         if name == "agreement" and study.reference is None:
             pytest.skip("study declares no comparator")
+        if name == "properties" and not study.property_cells:
+            pytest.skip("study declares no property cell")
         published = _published_block(study, name)
         rendered = GENERATED[name](study, load(study))
         assert published == rendered, (
@@ -1823,6 +1862,8 @@ class TestThePublishedTestTables:
     def test_generated_efficiency_language_requires_an_independent_bound(
         self, study: StudyRecord
     ) -> None:
+        if not study.property_cells:
+            pytest.skip("study declares no property cell")
         properties = load(study)["properties"]
         columns = [name for name in properties if name.startswith("efficiency_")]
         has_bound = bool(columns) and bool(properties[columns].notna().any().any())
@@ -1849,6 +1890,31 @@ class TestThePublishedTestTables:
         )
         assert "no canonical implementation is compared" in section.casefold(), (
             f"{study.slug} must say in its own section that no comparator is claimed"
+        )
+
+    def test_a_study_without_property_cells_is_a_reporting_study_off_the_grid(
+        self, study: StudyRecord
+    ) -> None:
+        """A study with no property cell is not a validation row, so the grid does not list it.
+
+        ``method-benchmarking.md`` states the rule: matching another implementation, or a
+        coverage reading alone, is not evidence that a method is right.  Such a study still
+        registers, publishes its verdicts under ``reporting`` and carries its own page.
+        """
+        if study.property_cells:
+            pytest.skip("study declares property cells")
+        assert study.publication_policy == "reporting", (
+            f"{study.slug} declares no property cell, so it cannot gate a validation claim"
+        )
+        assert study.name not in _grid(), (
+            f"{study.slug} declares no property cell and is not a validation row, but the grid "
+            f"lists it"
+        )
+        lines = study.document_path.read_text(encoding="utf-8").splitlines()
+        start, stop = _section(lines, study.anchor, study.document_path)
+        section = "\n".join(lines[start:stop])
+        assert _OPEN.format(name="properties") not in section, (
+            f"{study.slug} declares no property cell but its section carries a properties block"
         )
 
     @pytest.mark.parametrize(
@@ -1880,6 +1946,8 @@ class TestThePublishedTestTables:
         """
         if name == "agreement" and study.reference is None:
             pytest.skip("study declares no comparator")
+        if name == "properties" and not study.property_cells:
+            pytest.skip("study declares no property cell")
         rows = pipe_table(study.document_path, columns, section=study.anchor)
         frame = load(study)[artifact]
         assert len(rows) == len(frame), (
@@ -2005,6 +2073,7 @@ MARGIN_SOURCES: dict[str, Any] = {
     "margin:efficiency_ratio_lower": lambda s: s.properties().EFFICIENCY_RATIO_BAND[0],
     "margin:efficiency_ratio_upper": lambda s: s.properties().EFFICIENCY_RATIO_BAND[1],
     "margin:targeting_displacement": lambda s: s.properties().TARGETING_DISPLACEMENT,
+    "margin:fold_locality_displacement": lambda s: s.properties().FOLD_LOCALITY_DISPLACEMENT,
     "margin:missingness_displacement": lambda s: s.properties().MISSINGNESS_DISPLACEMENT,
     "margin:correction_score_ratio": lambda s: s.properties().CORRECTION_SCORE_RATIO,
     "margin:uncorrected_score_floor": lambda s: s.properties().UNCORRECTED_SCORE_FLOOR,
@@ -2256,6 +2325,11 @@ class TestTheQuantityVocabulary:
             assert (
                 declared["margin:targeting_displacement"]
                 == study.properties().TARGETING_DISPLACEMENT
+            )
+        if "fold_locality" in study.property_cells:
+            assert (
+                declared["margin:fold_locality_displacement"]
+                == study.properties().FOLD_LOCALITY_DISPLACEMENT
             )
         if "weight_necessity" in study.property_cells:
             assert declared["margin:weight_displacement"] == study.properties().WEIGHT_DISPLACEMENT

@@ -40,8 +40,12 @@ Each owner is an `id` in the
 [F18](../../roadmap.md#f18-selector-path-c-tmle-inference) and
 [F19](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) wait on a
 published result, or on a natural extension that meets the
-[Eligibility](../../roadmap.md#eligibility) conditions. Each `RM18-` owner is a follow-up that
-RM18 records. Its acceptance cell states whether the ask is delivered or open.
+[Eligibility](../../roadmap.md#eligibility) conditions.
+[F27](../../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) owns the two
+truth rows of the [learned-rule boundary study](learned-rule-cvtmle-boundary.md). Its table states
+that the `exceptional` row has no published result and that the `weak_blip` row has one. Each
+`RM18-` owner is a follow-up that RM18 records. Its acceptance cell states whether the ask is
+delivered or open.
 
 A red row stays red under the `reporting` policy. It is read again only under the condition its
 owner names. The ledger moves no margin and changes no verdict.
@@ -72,13 +76,14 @@ The test fails on four states.
 | --- | --- | --- |
 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) | 9 | selector-based point-treatment C-TMLE, selector-based multi-arm C-TMLE |
 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) | 2 | outcome-adaptive multi-arm C-TMLE |
+| [`F27`](../../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) | 2 | CV-TMLE of the fold-local learned-rule value at exceptional and weak-blip laws |
 | {ref}`RM18-fixed-weights <what-this-row-asks-for>` | 2 | cross-fitted weighted end-of-study longitudinal TMLE |
 | {ref}`RM18-one-sided-bias <what-this-row-asks-for>` | 3 | DR-TMLE for binary complete data, multi-arm point-treatment DR-TMLE |
 | {ref}`RM18-slopes <what-this-row-asks-for>` | 2 | multi-arm point-treatment DR-TMLE |
 | {ref}`RM18-ordinary-weighted <what-this-row-asks-for>` | 6 | ordinary weighted end-of-study longitudinal TMLE |
 | {ref}`RM18-boundary <what-this-row-asks-for>` | 8 | selector-based multi-arm C-TMLE, DR-TMLE for binary complete data, multi-arm point-treatment DR-TMLE, cross-fitted weighted end-of-study longitudinal TMLE |
 | {ref}`RM18-comparator-density <what-this-row-asks-for>` | 1 | ordinary continuous modified treatment policies |
-| total | 33 | 8 studies |
+| total | 35 | 9 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -110,6 +115,8 @@ same text as the "measured" column of its study page.
 | [multi-arm point-treatment DR-TMLE](multi-arm-dr-tmle.md) | property | `double_robustness/treatment_correct` | positive | its own rule | bias 0.0015 to 0.0072, margin 0.0068, SE ratio 0.9998 | {ref}`RM18-one-sided-bias <what-this-row-asks-for>` |
 | [multi-arm point-treatment DR-TMLE](multi-arm-dr-tmle.md) | property | `interval_calibration/correctly_specified` | positive | its own rule | coverage 0.9300 to 0.9597, SE ratio 0.9258 to 1.0123 | {ref}`RM18-boundary <what-this-row-asks-for>` |
 | [multi-arm point-treatment DR-TMLE](multi-arm-dr-tmle.md) | property | `root_n_and_efficiency/n_500` | positive | its own rule | bias -0.000902, coverage 0.8965 to 0.9627, SE ratio 0.9888 | {ref}`RM18-boundary <what-this-row-asks-for>` |
+| [CV-TMLE of the fold-local learned-rule value at exceptional and weak-blip laws](learned-rule-cvtmle-boundary.md) | truth | `cleverly-learned-rule-cvtmle/exceptional/ey_learned_rule[learned rule]` | cleverly-learned-rule-cvtmle | its truth gate | bias -0.000748 to 0.000535, coverage 0.8938, SE ratio 0.8211 | [`F27`](../../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
+| [CV-TMLE of the fold-local learned-rule value at exceptional and weak-blip laws](learned-rule-cvtmle-boundary.md) | truth | `cleverly-learned-rule-cvtmle/weak_blip/ey_learned_rule[learned rule]` | cleverly-learned-rule-cvtmle | its truth gate | bias -0.000514 to 0.000732, coverage 0.8948, SE ratio 0.8314 | [`F27`](../../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
 | [ordinary continuous modified treatment policies](continuous-modified-treatment-policies.md) | paired | `continuous_modified_policy/ate_shift[+0.25 vs natural course]` | paired | inconclusive: calibration leg | difference 0.000061 to 0.000361 within 0.000770, RMSE ratio bound 1.0583 vs 1.1000, coverage difference bound -0.0063 vs -0.0250, calibration excess bound 0.0659 vs 0.0500, resolution 0.0450 | {ref}`RM18-comparator-density <what-this-row-asks-for>` |
 | [ordinary weighted end-of-study longitudinal TMLE](ordinary-weighted-end-of-study-longitudinal-tmle.md) | property | `interval_calibration/static__correctly_specified` | positive | its own rule | coverage 0.9187 to 0.9454, SE ratio 0.9263 to 0.9985, empirical efficiency ratio 0.9855 to 1.0615, reported efficiency ratio 0.9783 to 0.9899 | {ref}`RM18-ordinary-weighted <what-this-row-asks-for>` |
 | [ordinary weighted end-of-study longitudinal TMLE](ordinary-weighted-end-of-study-longitudinal-tmle.md) | property | `targeting_necessity/dynamic__targeted` | positive | the family's joint clause | bias -0.0025 to 0.0019, margin 0.0075 | {ref}`RM18-ordinary-weighted <what-this-row-asks-for>` |

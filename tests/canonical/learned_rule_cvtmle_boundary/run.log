@@ -1,0 +1,23 @@
+=== learned-rule-cvtmle-boundary declared run
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle\.venv\Scripts\python.exe' regenerate --jobs 16 --output 'C:\Users\erics\AppData\Local\Temp\rm30_run_boundary'
+commit: b09c055d0bc9500165c217c4c64be2a6cf7ef0b9; upstream b09c055d0bc9500165c217c4c64be2a6cf7ef0b9
+clean tree: True
+cleverly 0.1.2 from C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\__init__.py
+python 3.13.7; numpy 2.4.6; scipy 1.18.0; pandas 3.0.5; scikit-learn 1.9.0; joblib 1.5.3
+installed distributions: 130, sha256 f4b33890dcf2623521a239ea0ba2ac74046a0304cc8d4b96933ca443c5644ebd
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 16
+started: 2026-09-28T12:31:36+00:00
+finished: 2026-09-28T12:35:41+00:00
+wall seconds: 245.0
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 harness.csv.gz: 7ff103d360f5dc06754503dc6663f86c88f738e61ebc794a7e2e585555d92559
+sha256 manifest.json: c7db6287b0d2aa70461716fa836411eee2494a96fa9e4d14597835280a677940
+sha256 performance-tests.csv: 6964ee878796fa46b9a221bf6ec155ba76fbed7ce09d482f52f373067b519125
+sha256 properties.csv: f9941c012c9d4382c92fe56bb4f353058b90d77dd321c10ee9db895b180b293a
+sha256 property-replicates.csv.gz: fb3c9f2bb88665a0443d48eef9d274a8291e16c14d6cf002fd76101ca39672b6
+sha256 reading.csv: 7b5aa59f163855f411f41692e89017ae1fd24d0c0a9bf3704fe3af416e38bd9e
+sha256 replicates.csv.gz: f2139bdfb2efbb42ab4f088365ecdc31f31a02974e8e9368b7ebce12df6f877f
+sha256 summary.csv: 83a0675bbfbfd30d7025b81d4c1e62f2ff2c9b55d1848252c0e8f4d0f7953be6
+
