@@ -533,27 +533,68 @@ previous reader had is not a citation; a page number is.
   inference conditions. [RM25](roadmap.md#rm25-declared-stochastic-regime-densities) uses this
   distinction when interpreting its exact-law odds-tilt witness.
 - Nordland & Holst (2026), [*Policy Learning with the polle Package*](https://doi.org/10.18637/jss.v116.i04),
-  *Journal of Statistical Software* 116(4), DOI 10.18637/jss.v116.i04. Sections 2 and 3 describe
-  policy value scores. Section 3.4 and Algorithm 4 specify fold-specific policy learning,
-  evaluation, a variance estimate, and a Wald interval for a learned policy's value. The paper
-  states regularity conditions, including a limiting policy. This supports
-  [RM30](roadmap.md#rm30-learned-policy-value-evaluation), a distinct method that the package does
-  not implement.
+  *Journal of Statistical Software* 116(4):1–51, DOI 10.18637/jss.v116.i04. Read first-hand in the
+  version of record of 31 May 2026, on 2026-09-28. Section 3.4 defines the target conditional on the
+  learned policy, and it gives the influence function when the learned policy has a limiting policy.
+  Algorithm 4 learns each policy on the rows outside a fold. It pools the doubly robust scores with
+  weight $1/N$, and it centres the variance estimate at the pooled estimate. This is a method
+  distinct from the one that [RM30](roadmap.md#rm30-learned-policy-value-evaluation) plans, and
+  [X11](roadmap.md#x11-learned-policy-follow-ups) part (e) holds it.
   [RM28](roadmap.md#rm28-declared-densities-of-user-written-interventions) requires `Rule`, and a
   `DynamicRegimen` with a callable node, to declare `rule_kind="known"`. It refuses a rule
   declared `"estimated"`.
 - van der Laan & Luedtke (2015), [*Targeted Learning of the Mean Outcome under an Optimal Dynamic
   Treatment Rule*](https://doi.org/10.1515/jci-2013-0022), *Journal of Causal Inference* 3(1):61–95,
-  DOI 10.1515/jci-2013-0022. Section 6, Theorem 5, treats the value of a rule fitted on all rows,
-  subject to an empirical process condition. Section 7, Theorem 6, and Appendix B give CV-TMLE
-  for the average value of rules fitted on training folds. The paper states targeting, remainder,
-  and interval conditions for two treatment points. This is a published TMLE path for
+  DOI 10.1515/jci-2013-0022. Read first-hand on 2026-09-26, 2026-09-27 and 2026-09-28 in the NIH
+  author manuscript PMC4517487, which states
+  that it was "Published in final edited form as" this article. The publisher page returned no
+  text on 2026-09-28, so the locators are section, theorem, corollary, equation and appendix
+  numbers, and no page numbers. Section 6, Theorem 5, treats the value of a rule fitted on all
+  rows, subject to an empirical process condition. Section 7 defines the average value of rules
+  fitted on training folds. Section 7.2, Theorem 6, gives the CV-TMLE expansion under a limiting
+  rule, and Corollary 3 gives a conservative interval when each fold's treatment mechanism is an
+  MLE under a correct model. Appendix B gives the CV-TMLE with one pooled fluctuation, "the
+  fluctuation ε2 does not rely on j", with the loss of Equation (21). Section 8.1.1 treats the
+  single time point as a special case. The manuscript's MathML prints $O_P$ where the context
+  needs $o_P$. This is the governing method of
   [RM30](roadmap.md#rm30-learned-policy-value-evaluation), with a target distinct from the current
   fixed-rule fit and from the value of one rule fitted on all rows.
+- Montoya, van der Laan, Luedtke, Skeem, Coyle & Petersen (2023), [*The optimal dynamic treatment
+  rule superlearner: considerations, performance, and application to criminal justice
+  interventions*](https://doi.org/10.1515/ijb-2020-0127), *International Journal of Biostatistics*
+  19(1):217–238, DOI 10.1515/ijb-2020-0127. Read first-hand in the publisher's version on PubMed
+  Central, PMC10238854, on 2026-09-28. Section 3.3, Step 6, estimates the risk of a candidate rule
+  learner by the CV-TMLE of the average, over folds, of the value of each training-fold rule. The
+  article uses that quantity as a selection risk and gives no interval for it.
+- Montoya, van der Laan, Skeem & Petersen (2023), [*Estimators for the value of the optimal
+  dynamic treatment rule with application to criminal justice
+  interventions*](https://doi.org/10.1515/ijb-2020-0128), *International Journal of Biostatistics*
+  19(1):239–259, DOI 10.1515/ijb-2020-0128. Read first-hand in the publisher's version on PubMed
+  Central, PMC9722979, on 2026-09-28. Section 2.4 defines the target as the average of the true
+  values of the training-fold rules, and it assigns control at a zero blip. Section 3.2, Step 2(c),
+  fits the update "on persons in the validation set". Section 4.1.3 asks that the fold rules
+  converge "to some fixed rule ... at any rate". Section 4.2 gives the variance
+  $(1/V) \sum_v \sigma^2_{n,v}$, conservative with a correctly specified parametric treatment
+  model. Section 5.4.3 reports 93.9% coverage for this target. The article supports the target
+  and the variance of [RM30](roadmap.md#rm30-learned-policy-value-evaluation), and
+  [X11](roadmap.md#x11-learned-policy-follow-ups) part (h) cites its fold-specific update.
+- Luedtke & van der Laan (2016), [*Super-learning of an optimal dynamic treatment
+  rule*](https://doi.org/10.1515/ijb-2015-0052), *International Journal of Biostatistics*
+  12(1):305–332, DOI 10.1515/ijb-2015-0052. Read first-hand in the NIH author manuscript PMC6056197
+  on 2026-09-26, and its section structure again on 2026-09-28. Sections 4.1 to 4.3 give the blip
+  and weighted-classification losses for a rule learner, and Section 6 gives the CV-TMLE of a rule's
+  risk. It gives no interval for the value.
+  [X11](roadmap.md#x11-learned-policy-follow-ups) part (g) cites it.
 - Luedtke & van der Laan (2016), [*Statistical inference for the mean outcome under a possibly
   non-unique optimal treatment strategy*](https://doi.org/10.1214/15-AOS1384), *Annals of
-  Statistics* 44(2):713–742, DOI 10.1214/15-AOS1384. The paper gives the pathwise
-  differentiability condition for the population optimal-rule value. A learned optimal rule does
+  Statistics* 44(2):713–742, DOI 10.1214/15-AOS1384. Read first-hand on 2026-09-26, 2026-09-27
+  and 2026-09-28 in the IMS reprint
+  arXiv:1603.07573, whose pagination differs from the journal, so the locators are section
+  numbers. The paper gives the pathwise differentiability condition for the population
+  optimal-rule value. Section 4.1 states that at an exceptional law the rule estimate is not
+  expected to converge to any fixed function, and that it fluctuates where the blip is zero.
+  [F27](roadmap.md#f27-learned-policy-value-outside-the-published-conditions) cites Section 4.2
+  for a tool that the paper applies to the optimal value only. A learned optimal rule does
   not always require a first-order rule-estimation term; non-unique optima can cause nonregularity.
   The package's generic `Rule` path does not implement this optimal-value analysis.
   [RM28](roadmap.md#rm28-declared-densities-of-user-written-interventions) requires the
@@ -956,7 +997,9 @@ is the only empirical witness for it.
   arbitrarily adaptive parameter generation. Theorem 3 also permits same-sample generation under
   a uniform asymptotic expansion, Donsker, and influence-curve convergence conditions. Either route
   reports a data-adaptive estimand rather than automatically recovering the fixed target reported
-  by the package.
+  by the package. The publisher page returned no text on 2026-09-28.
+  [RM30](roadmap.md#rm30-learned-policy-value-evaluation) cites this entry for the definition of
+  the sample-split data-adaptive target only.
 - van der Laan (L.), Carone, Luedtke & van der Laan (M.) (2026), [*Adaptive debiased machine
   learning using data-driven model selection techniques*](https://arxiv.org/abs/2307.12544),
   arXiv:2307.12544v2. Read first-hand. The framework gives regular, locally uniform inference for
