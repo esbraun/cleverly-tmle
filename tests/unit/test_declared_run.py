@@ -10,6 +10,7 @@ or runs a container.
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 import sys
 from collections.abc import Callable, Sequence
@@ -163,8 +164,10 @@ class TestTheGuard:
         _, enter, _ = study
         _guard(monkeypatch, ["--output", str(tmp_path / "run"), "--jobs", "2", *extra])
         _no_driver(monkeypatch)
-        with pytest.raises(SystemExit, match="--output and --jobs only"):
+        with pytest.raises(SystemExit, match="--output and --jobs only") as refusal:
             enter(tmp_path / "here")
+        # RM30 cites its own declared rule; the multi-arm study declares no such rule.
+        assert ("(rule L11)" in str(refusal.value)) is (enter is _learned_rule)
 
     def test_a_declared_run_refuses_the_declared_count_named_explicitly(
         self, study: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -257,6 +260,9 @@ class TestTheRecord:
         log = (here / "run.log").read_text(encoding="utf-8")
         assert "declared run" in log
         assert "exit code: 0" in log
+        # The log records the command line as invoked, not the one rewritten for the driver.
+        invoked = shlex.join([sys.executable, "regenerate", "--output", str(output), "--jobs", "3"])
+        assert f"command: {invoked}\n" in log
 
     def test_the_study_directory_is_inside_the_repository(self, study: Any) -> None:
         """The control: writing into the study directory first is what ``git status`` saw."""

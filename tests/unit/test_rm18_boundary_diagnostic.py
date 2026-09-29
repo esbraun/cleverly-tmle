@@ -307,6 +307,16 @@ def test_two_registered_replicates_of_each_cell_reproduce(
     assert len(validation) == len(bd.CELLS[part]) + len({entry[0].slug for entry in bd.CELLS[part]})
 
 
+def test_a_cropped_summary_check_refuses_a_slope_row() -> None:
+    """The crop to the verdict budget would change a fitted slope, so no slope row is checked."""
+    empty = pd.DataFrame(
+        columns=["property", "cell", "replicate", "estimate", "std_error", "covered", "rejected"]
+    )
+    slope = ("double_robust_contraction", "rate_outcome_correct")
+    with pytest.raises(ValueError, match="rate_outcome_correct"):
+        shared.summary_check(MULTI, empty, empty, [slope])
+
+
 def test_one_registered_control_replicate_reproduces() -> None:
     validation = shared.validation_frame(
         shared.validate_weighted(

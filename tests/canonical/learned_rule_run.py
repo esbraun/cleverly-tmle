@@ -133,7 +133,14 @@ def run(study: ModuleType, properties: ModuleType, *, here: Path) -> None:
     if known.replicates is None:
         if known.property_harness_check is not None:
             raise SystemExit("refused: --property-harness-check is a smoke-only check")
-        declared(study, properties, here=here, arguments=rest, study_refusals=runtime_refusals)
+        declared(
+            study,
+            properties,
+            here=here,
+            arguments=rest,
+            study_refusals=runtime_refusals,
+            flag_rule="rule L11",
+        )
         return
     if known.replicates == study.PRIMARY_REPLICATES:
         raise SystemExit(

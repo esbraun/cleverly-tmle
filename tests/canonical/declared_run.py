@@ -82,10 +82,11 @@ def publish_run(
     and the error is raised again.  A driver error before the manifest exists copies nothing.
     """
     names = (*ARTIFACT_NAMES, *study.STUDY.extra_artifacts, *RECORD_FILES)
+    invoked = list(sys.argv)
     sys.argv = ["regenerate", *arguments, "--output", str(output)]
     failure: BaseException | None = None
     try:
-        with run_log(output, title):
+        with run_log(output, title, argv=invoked):
             regenerate(study, properties, here=here, reference=reference)
     except RuntimeError as error:
         if not (output / "manifest.json").exists():
@@ -110,14 +111,22 @@ def declared(
     arguments: Sequence[str],
     reference: Reference | None = None,
     study_refusals: Callable[[], list[str]] = list,
+    flag_rule: str | None = None,
 ) -> None:
-    """A declared run: the guard, the scratch output, the run log and the copy."""
+    """A declared run: the guard, the scratch output, the run log and the copy.
+
+    ``flag_rule`` names the study's own declared rule in the refusal of an extra flag, as RM30
+    names its rule L11.
+    """
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--jobs", type=int, default=available_cores())
     known, unknown = parser.parse_known_args(list(arguments))
     if unknown:
-        raise SystemExit(f"refused: a declared run takes --output and --jobs only, not {unknown}")
+        cited = "" if flag_rule is None else f" ({flag_rule})"
+        raise SystemExit(
+            f"refused: a declared run takes --output and --jobs only, not {unknown}{cited}"
+        )
     if known.output is None:
         raise SystemExit("refused: a declared run needs a scratch --output outside the repository")
     output = outside(known.output, "declared")
