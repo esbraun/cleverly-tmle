@@ -124,8 +124,8 @@ targeting, density-ratio direction, the active cap, and the exact natural-course
     RM18 design CD attributes the excess under a rule declared before its run. It targeted the same
     `cleverly` fit again, with the analytic normal density in place of the 320 bins. That fit
     reports a standard error on the scale of the exact efficiency bound, as `lmtp` does. The
-    reading is `cleverly density representation`. It does not move the paired verdict.
-    {ref}`What design CD found <what-design-cd-found>` gives the numbers, and
+    reading is `cleverly density representation`, and it does not move the paired verdict.
+    [What design CD found](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-design-cd-found) gives the numbers, and
     [`tests/diagnostics/rm18_comparator_density/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_comparator_density) holds the rows.
   - Three earlier measurements describe the density asymmetry. The two natural-course rows agree
     to six figures. The two `ey_shift[+0.25]` SE ratios agree to within 0.2 percent. The

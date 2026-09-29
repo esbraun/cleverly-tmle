@@ -135,7 +135,7 @@ accounts for them. The `ey_regimen[never]` row went red under the pooled update.
 difference is -0.000043, with a 99% interval from -0.000350 to 0.000263 against a margin of
 0.004659, so the two estimates agree. The failure is in coverage. `cleverly` covers 0.93125 of
 draws, and `lmtp` covers 0.94875 with a native standard-error ratio of 1.0316. A declared
-{ref}`code-by-runtime diagnostic <what-the-runtime-isolation-found>` attributes this
+[code-by-runtime diagnostic](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-the-runtime-isolation-found) attributes this
 move to the pooled code, not to the Python and SciPy change.
 
 One property cell also went red under the pooled update.
@@ -160,8 +160,8 @@ moves a verdict of this study, and none names a defect in `cleverly`.
 | paired `ey_regimen[always]` and `ey_regimen[treat then continue if l2 positive]` | BD-P, the same 19,892 draws | `comparator SE convention`. Each row is `equivalent` with the Hájek standard error and fails the coverage leg with the native one |
 | `double_robustness/static__both_wrong` | BD-3, 2,655 | `resolved: truth satisfies the gate`. The bias interval lies wholly outside its margin |
 
-{ref}`What design FW found <what-design-fw-found>` and
-{ref}`What design BD found <what-design-bd-found>` give each number and what each reading does
+[What design FW found](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-design-fw-found) and
+[What design BD found](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-design-bd-found) give each number and what each reading does
 not show.
 [`tests/diagnostics/rm18_fixed_weights/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_fixed_weights) and [`tests/diagnostics/rm18_boundary/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_boundary) hold the rows.
 

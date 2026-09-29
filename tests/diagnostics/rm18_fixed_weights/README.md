@@ -21,8 +21,8 @@ diagnostic shares. It checks that the committed rows meet the declared budget, r
 `fw-a-reading.csv` from them, and refits one committed fresh row. A missing committed file fails
 the test.
 
-The part ran once. The roadmap gives the reading in
-"[What design FW found](../../../docs/roadmap.md#what-design-fw-found)".
+The part ran once. The roadmap at commit `985849c6` gives the reading in
+"[What design FW found](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-design-fw-found)".
 
 ## Run
 

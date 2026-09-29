@@ -79,11 +79,10 @@ The test fails on four states.
 | [`F27`](../../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) | 2 | CV-TMLE of the fold-local learned-rule value at exceptional and weak-blip laws |
 | {ref}`RM18-fixed-weights <what-this-row-asks-for>` | 2 | cross-fitted weighted end-of-study longitudinal TMLE |
 | {ref}`RM18-one-sided-bias <what-this-row-asks-for>` | 3 | DR-TMLE for binary complete data, multi-arm point-treatment DR-TMLE |
-| {ref}`RM18-slopes <what-this-row-asks-for>` | 2 | multi-arm point-treatment DR-TMLE |
 | {ref}`RM18-ordinary-weighted <what-this-row-asks-for>` | 6 | ordinary weighted end-of-study longitudinal TMLE |
 | {ref}`RM18-boundary <what-this-row-asks-for>` | 8 | selector-based multi-arm C-TMLE, DR-TMLE for binary complete data, multi-arm point-treatment DR-TMLE, cross-fitted weighted end-of-study longitudinal TMLE |
 | {ref}`RM18-comparator-density <what-this-row-asks-for>` | 1 | ordinary continuous modified treatment policies |
-| total | 35 | 9 studies |
+| total | 33 | 9 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -110,8 +109,6 @@ same text as the "measured" column of its study page.
 | [DR-TMLE for binary complete data](canonical-dr-tmle.md) | property | `double_robustness/outcome_correct` | positive | its own rule | bias 0.0026 to 0.0075, margin 0.0067, SE ratio 0.9888 | {ref}`RM18-one-sided-bias <what-this-row-asks-for>` |
 | [DR-TMLE for binary complete data](canonical-dr-tmle.md) | property | `double_robustness/treatment_correct` | positive | its own rule | bias 0.0068 to 0.0121, margin 0.0072, SE ratio 0.9671 | {ref}`RM18-one-sided-bias <what-this-row-asks-for>` |
 | [multi-arm point-treatment DR-TMLE](multi-arm-dr-tmle.md) | property | `double_robust_contraction/outcome_correct_n4000` | positive | its own rule | coverage 0.8988 to 0.9542, bias 0.000900 | {ref}`RM18-boundary <what-this-row-asks-for>` |
-| [multi-arm point-treatment DR-TMLE](multi-arm-dr-tmle.md) | property | `double_robust_contraction/rate_outcome_correct` | positive | its own rule | slope -1.2342 to 3.7735 | {ref}`RM18-slopes <what-this-row-asks-for>` |
-| [multi-arm point-treatment DR-TMLE](multi-arm-dr-tmle.md) | property | `double_robust_contraction/rate_treatment_correct` | positive | its own rule | slope -3.2412 to 3.3387 | {ref}`RM18-slopes <what-this-row-asks-for>` |
 | [multi-arm point-treatment DR-TMLE](multi-arm-dr-tmle.md) | property | `double_robustness/treatment_correct` | positive | its own rule | bias 0.0015 to 0.0072, margin 0.0068, SE ratio 0.9998 | {ref}`RM18-one-sided-bias <what-this-row-asks-for>` |
 | [multi-arm point-treatment DR-TMLE](multi-arm-dr-tmle.md) | property | `interval_calibration/correctly_specified` | positive | its own rule | coverage 0.9300 to 0.9597, SE ratio 0.9258 to 1.0123 | {ref}`RM18-boundary <what-this-row-asks-for>` |
 | [multi-arm point-treatment DR-TMLE](multi-arm-dr-tmle.md) | property | `root_n_and_efficiency/n_500` | positive | its own rule | bias -0.000902, coverage 0.8965 to 0.9627, SE ratio 0.9888 | {ref}`RM18-boundary <what-this-row-asks-for>` |

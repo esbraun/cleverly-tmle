@@ -20,8 +20,8 @@ reading reads the (Ca, L) bound and that each mutation moves it. The test also c
 committed rows meet the declared budget, rebuilds `cd-reading.csv`, and retargets one committed
 Ca row. A missing committed file fails the test.
 
-The design ran once. The roadmap gives the reading in
-"[What design CD found](../../../docs/roadmap.md#what-design-cd-found)".
+The design ran once. The roadmap at commit `985849c6` gives the reading in
+"[What design CD found](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-design-cd-found)".
 
 ## Run
 

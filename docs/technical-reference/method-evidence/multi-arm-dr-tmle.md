@@ -64,9 +64,9 @@ and solver status for every replication.
 | `double_robust_contraction` | `outcome_correct_n2000` | positive | only the outcome regression is correctly specified, at n = 2,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.9245 to 0.9714, bias 0.0011 | pass |
 | `double_robust_contraction` | `outcome_correct_n4000` | positive | only the outcome regression is correctly specified, at n = 4,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.8988 to 0.9542, bias 0.000900 | **fail** |
 | `double_robust_contraction` | `outcome_correct_n8000` | positive | only the outcome regression is correctly specified, at n = 8,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.9165 to 0.9662, bias 0.0017 | pass |
-| `double_robust_contraction` | `rate_both_wrong` | control | the same regression with both nuisances misspecified | slope interval must not establish contraction | slope -0.0619 to 0.0258 | pass |
-| `double_robust_contraction` | `rate_outcome_correct` | positive | log absolute bias regressed on log n across three sizes, outcome regression correct, over every replication each rung ran | slope interval entirely below zero, so the bias contracts | slope -1.2342 to 3.7735 | **fail** |
-| `double_robust_contraction` | `rate_treatment_correct` | positive | the same regression with only the treatment mechanism correct | slope interval entirely below zero, so the bias contracts | slope -3.2412 to 3.3387 | **fail** |
+| `double_robust_contraction` | `rate_both_wrong` | control | the same regression with both nuisances misspecified | slope interval must not establish contraction | slope -0.0021 to 0.0061 | pass |
+| `double_robust_contraction` | `rate_outcome_correct` | positive | log absolute bias regressed on log n across three sizes, outcome regression correct, over every replication each rung ran | slope interval entirely below zero, so the bias contracts | slope -1.0694 to -0.6652 | pass |
+| `double_robust_contraction` | `rate_treatment_correct` | positive | the same regression with only the treatment mechanism correct | slope interval entirely below zero, so the bias contracts | slope -1.0235 to -0.7403 | pass |
 | `double_robust_contraction` | `treatment_correct_n2000` | positive | only the treatment mechanism is correctly specified, at n = 2,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.9204 to 0.9688, bias 0.000585 | pass |
 | `double_robust_contraction` | `treatment_correct_n4000` | positive | only the treatment mechanism is correctly specified, at n = 4,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.9224 to 0.9701, bias -0.000437 | pass |
 | `double_robust_contraction` | `treatment_correct_n8000` | positive | only the treatment mechanism is correctly specified, at n = 8,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.9285 to 0.9740, bias 0.000830 | pass |
@@ -95,7 +95,7 @@ and solver status for every replication.
 | `paired_tests_total` | 9 | paired comparison tests |
 | `paired_tests_passed` | 9 | paired tests passing |
 | `property_cells_total` | 22 | repeated-sampling property cells |
-| `property_cells_passed` | 16 | property cells passing |
+| `property_cells_passed` | 18 | property cells passing |
 | `property_cells_reported` | 2 | fold-policy rows reported rather than gated, and excluded from the two counts above |
 | `score_audited_fits` | 800 | fits each side audits against the shared score bar |
 | `subject_score_failures` | 2 | Cleverly fits that miss that bar |
@@ -158,16 +158,21 @@ covers zero. The overall evidence is inconclusive. These rows establish neither 
 its absence.
 {ref}`What the one-sided reading found <what-the-one-sided-reading-found>` gives each interval.
 
-Both fitted slopes then have nothing to regress. A one-correct bias that sits at the noise floor
-and changes sign across the ladder gives a wide slope interval, and neither interval establishes
-contraction. Read the ladder through its coverage rungs instead. Those rungs hold near the
-nominal rate in both one-correct regimes, while the both-wrong control's coverage collapses as
-the sample grows and its bias does not move.
+RM18 design SL ran the two outer rungs of each regime at 73,000 replications. A declaration
+written before the run fixed that budget and the reading rule. The 99% interval of each fitted
+slope now lies below zero, and both slope rows pass. Over the 73,000 rows at n = 2,000, the bias
+interval of each one-correct regime excludes zero. The declared reading of both slopes is
+therefore `contracts`.
+
+The both-wrong control's slope interval covers zero, and the control passes. Each rung's coverage
+verdict stays at 600 replications. A slope below zero shows the direction of the change, and it
+does not identify the exponent. {ref}`What design SL found <what-design-sl-found>` gives each
+interval and what the readings do not show.
 
 The three remaining red cells are red on their own terms, and each misses by less than the width
-of its own last printed digit. Six property rows are red in all: these three, the
-`treatment_correct` level cell above, and the two contraction slopes. The `interval_calibration` SE-ratio interval reaches `0.9258` against a band that
-opens at `0.93`. The `outcome_correct` rung at n = 4,000 has a coverage lower bound of `0.8988`
+of its own last printed digit. Four property rows are red in all: these three and the
+`treatment_correct` level cell above. The `interval_calibration` SE-ratio interval reaches
+`0.9258` against a band that opens at `0.93`. The `outcome_correct` rung at n = 4,000 has a coverage lower bound of `0.8988`
 against a floor of `0.90`. The `n_500` size cell has a lower bound of `0.8965` against the same
 floor.
 
@@ -176,7 +181,7 @@ run. Each reads `resolved: truth satisfies the gate`. The re-read does not move 
 17,000 fresh replicates, the calibration cell's SE-ratio interval runs 0.9932 to 1.0217. Over
 6,000 each, the n = 4,000 rung covers 0.9464 to 0.9605, and the `n_500` cell covers 0.9439 to
 0.9584. The roadmap record,
-{ref}`What design BD found <what-design-bd-found>`, gives every leg and what the re-read does not
+[What design BD found](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-design-bd-found), gives every leg and what the re-read does not
 show.
 [`tests/diagnostics/rm18_boundary/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_boundary) holds the rows.
 

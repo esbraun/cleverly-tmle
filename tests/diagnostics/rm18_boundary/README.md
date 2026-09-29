@@ -35,9 +35,9 @@ reading. A missing committed file fails the test. BD-P2 is the one part whose co
 test does not recompute from rows, because they take about 40 s. Its reading is rebuilt from the
 committed `bd-p2-comparisons.csv`.
 
-Each part ran once. The roadmap gives the readings in
-"[What design BD found](../../../docs/roadmap.md#what-design-bd-found)" and
-"[What design FW found](../../../docs/roadmap.md#what-design-fw-found)".
+Each part ran once. The roadmap at commit `985849c6` gives the readings in
+"[What design BD found](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-design-bd-found)" and
+"[What design FW found](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-design-fw-found)".
 
 ## Run
 
