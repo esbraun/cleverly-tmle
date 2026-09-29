@@ -41,6 +41,7 @@ reverts one correction and names the test here that fails.
 
 from __future__ import annotations
 
+import dataclasses
 from types import SimpleNamespace
 from typing import Any
 
@@ -609,6 +610,15 @@ class TestTheGuardedCurveReadsItsReductionSettings:
             + "the estimator's reduction construction differs from the fitted one: "
             + named
             + ". Fit again with these settings, or restore the fitted ones."
+        )
+
+    def test_a_result_without_its_construction_record_refuses(self) -> None:
+        """``extra["drtmle"]`` is the only record of the fitted guard, so its loss refuses."""
+        result = dataclasses.replace(sweep.fit_drtmle(), extra={})
+        assert self._refused_everywhere(result) == (
+            self._PREFIX
+            + "the result records no fitted DR-TMLE construction in extra['drtmle'], so the "
+            "guard of the reduced refit cannot be checked. Fit again."
         )
 
     def test_the_live_fit_answers_on_every_surface(self) -> None:

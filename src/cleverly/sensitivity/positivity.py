@@ -1377,7 +1377,7 @@ def truncation_refusal(result: TMLEResult, mechanism: bool | None = None) -> str
 
     if refits_reduced_regressions(result) and isinstance(result.estimator, DRTMLE):
         reason = result.estimator._reduction_configuration_refusal(
-            result.extra["drtmle"], result.nuisance
+            result.extra.get("drtmle"), result.nuisance
         )
         if reason is not None:
             return (
