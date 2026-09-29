@@ -411,7 +411,7 @@ the three exception types.
 | a | `benchmark(covariates=[])` | runs a refit that drops nothing. The report reads "implied cf_y = 0.0000, cf_d = 0.0000" and "the estimate moved by +0" | `benchmark_refusal` in `src/cleverly/sensitivity/omitted_variable.py` returns `None` for an empty request, because a covariate remains. The probe fits the `ordinary` kind of the RM23 sweep, `make_linear_ate(n=400, seed=2)` in sample | refuse an empty `covariates` with `DataError`, as a malformed argument, before the refit |
 | a | a one-shot iterator given to a facade | `result.sensitivity.benchmark(covariates=<generator>)` records the covariates `()` and a movement of 0.0, and a list gives 0.35921. `result.diagnostics.refute(tests=<generator>)` returns 0 rows, and a list gives 1. `assess()` and `run_all()` with a generator in `arguments=` give the same answers | the facade reads the argument to check it, and then passes the empty iterator to the call. The module call reads it once | read an iterator once, into a tuple, before a facade reads its arguments or keys its cache by them |
 | a | `benchmark` names on a fit with an encoded categorical covariate | accepts the indicator column `V__low`, and rejects the logical name `V` with `DataError`: "unknown covariates ['V']; this fit adjusts for ['W1', 'W2', 'W3', 'W4', 'V__low']". The fit adjusts for `V` | the probe fits the `stratified` kind of the sweep, which adds a two-level `V` as a stratum and a covariate. `simulated_confounding` refuses an encoded column by name, because a zeroed encoded column does not define a logical-covariate benchmark | accept the logical name and drop its whole encoded block. Refuse an indicator column by name. List the logical names in the message. A boolean covariate is one column under its own name, so its name is no indicator |
-| a | `truncation_curve` of a guarded DR-TMLE result whose estimator holds a refused configuration | the row reads `unavailable`, and `diagnostics.truncation_curve()` refuses. The module call `truncation_curve(result, [0.05])` runs. Under `targeting="one_step"` and `reduced_crossfit="nested"`, the module call raises a plain `ValueError` inside the retarget | the probe gives the `drtmle` kind of the sweep `stratify_folds="treatment"` through `reconfigured` in `tests/unit/_capability_sweep_support.py`. `n_folds=1` and a `q_bounds` reconfiguration give the same result. `assessment_capabilities` makes the guarded row require `refit_nuisances`. The curve refits the reduced regressions inside `retarget`, and does not call `refit()` | the guarded curve needs the `refit_nuisances` slot. `truncation_refusal` returns the refusal of `refit()` for a guarded result, so the row, the facade call and the module call agree |
+| a | `truncation_curve` of a guarded DR-TMLE result whose estimator holds a refused configuration | the row reads `unavailable`, and `diagnostics.truncation_curve()` refuses. The module call `truncation_curve(result, [0.05])` runs. Under `targeting="one_step"` and `reduced_crossfit="nested"`, the module call raises a plain `ValueError` inside the retarget | the probe gives the `drtmle` kind of the sweep `stratify_folds="treatment"` through `reconfigured` in `tests/unit/_capability_sweep_support.py`. `n_folds=1` and a `q_bounds` reconfiguration give the same result. `assessment_capabilities` makes the guarded row require `refit_nuisances`. The curve refits the reduced regressions inside `retarget`, and does not call `refit()` | pull request 238 made the guarded row require `retarget_cached_nuisances`, because the curve retargets the cached primary nuisances and does not call `refit()`. A reconfigured primary split therefore runs, and `TestGuardedTruncationUsesCachedNuisanceReplay` checks it. The alternation refits the reduced regressions under the live reduction settings. `truncation_refusal` asks those settings, so a refused one refuses the row, the facade call and the module call alike |
 | b | longitudinal `RegimeMean` result summary | prints `reference: always`, although the result keeps no contrast | `_estimate_longitudinal` in `src/cleverly/study.py` drops the contrasts and keeps `config.reference`. `LongitudinalConfig.describe` in `src/cleverly/longitudinal/estimator.py` prints the reference unconditionally | print the line only for a result that holds a contrast. Keep `config.reference`: `_bound_replay` reads it, and `diagnostics.truncation_curve()` runs on the narrowed result |
 | b | longitudinal identification summary | the `adjustment/history` line lists only the baseline covariates | `_identify_longitudinal` in `src/cleverly/study.py` sets `adjustment=tuple(design.baseline)`, and `IdentifiedEffect.summary` prints it. A probe prints `['W1', 'W2']` for a design with `L2` at node 2 | print the history at each treatment node |
 | b | DR-TMLE result summary | names neither DR-TMLE, the guard, nor the reduction | `TMLEResult.summary` and `TMLEConfig.describe` in `src/cleverly/estimators/base.py` have no method line. A probe finds `fitted_method` equal to `drtmle` and `extra["drtmle"]` with `guard=('Q', 'g')` and `reduction='univariate'`. The summary holds none of `drtmle`, `DR-TMLE`, `guard`, or `univariate` | add one line that gives the method, the guard, and the reduction |
@@ -600,8 +600,9 @@ its owner. This subsection gives the reason for each assignment.
 
 `F18` holds the red cells of both selector studies, except the multi-arm
 `root_n_and_efficiency/n_500` endpoint. On both laws of the point-treatment study, the population
-one-step remainder is exactly zero at the nuisance limits. The residual there is the selector's
-stopping behaviour and not a nuisance rate. On the multi-arm study, the greedy and ordered paths
+one-step remainder is exactly zero at the nuisance limits. That limit does not isolate the
+finite-sample nuisance remainder or the effect of the selector's stopping rule on the red cells.
+On the multi-arm study, the greedy and ordered paths
 miss their bias margins, and the discrete path stops at the empty candidate. The reversed
 standard-error ratio of `selector_necessity/collaborative` is also a nonzero witness for the
 [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism) refusal, and a label
@@ -1551,6 +1552,12 @@ the limiting dimension must exist and be nonrandom. The package instead selects 
 from nested targeted-loss folds. A proof must establish that this depth and its induced model meet
 those conditions.
 
+[Van der Laan et al. (2026)](https://arxiv.org/html/2501.11868v3), Section 5.2 and Appendix C,
+make the selected-model obligations explicit. Theorem 5 requires a linear expansion,
+influence-curve stabilization, and model-approximation rates. Section 5.1, Corollary 1, covers its
+own autoTML construction under Conditions B1 to B5. Neither result verifies those conditions for
+the shipped stopping rule.
+
 The oracle projection's efficiency bound is typically, not invariably, smaller
 than the nonparametric bound. Applicability could therefore ratify the current curve or require a
 different one; it does not predetermine the covariance verdict.
@@ -1708,7 +1715,7 @@ divergences are genuine, and the table below states each one.
 
 | divergence | what ships | what Appendix D outlines |
 | --- | --- | --- |
-| the final average | the stacked whole-sample plug-in (`src/cleverly/estimators/tmle.py:429-439`), because `CTMLE` refuses `cv_evaluation=True` (`src/cleverly/estimators/ctmle.py:753-757`) | the `(1/V) sum_v` fold average. The two agree only at equal fold weight mass |
+| the final average | the stacked whole-sample plug-in (`src/cleverly/estimators/tmle.py:429-439`), because `CTMLE` refuses `cv_evaluation=True` (`src/cleverly/estimators/ctmle.py:753-757`) | the `(1/V) sum_v` fold average. Equal fold weight mass guarantees agreement, but unequal mass can also agree. With fixed $V$, unweighted near-balanced folds, and bounded predictions, the difference is $O(V/n)$ |
 | the fluctuation dimension | a joint fluctuation with one column for each arm | one signed coefficient for the binary ATE |
 
 The package instead jointly targets both arm means with two fluctuation columns and derives means,

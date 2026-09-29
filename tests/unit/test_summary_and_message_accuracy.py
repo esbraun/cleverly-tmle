@@ -15,7 +15,7 @@ accepts. This module holds the witnesses of the rows that RM16a corrects:
   an encoded covariate, drops its whole block, and accepts a boolean covariate;
 * a facade reads a one-shot iterator once, on a direct call, in a combined report and in the
   cache key;
-* the guarded DR-TMLE truncation curve refuses a refused refit configuration through the row,
+* the guarded DR-TMLE truncation curve refuses a refused reduction setting through the row,
   the facade and the module call alike.
 
 The backstop witness reaches the outcome regression of ``_selection_base``, which trains on
@@ -41,6 +41,7 @@ from cleverly import ATE, CausalStudy, PointTreatment
 from cleverly.data.validate import MISSING_OUTCOME_DECLARATION
 from cleverly.datasets import make_linear_ate, make_missing_outcome_binary
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
+from cleverly.estimators.targeting import ONE_STEP_NESTED_REFUSAL
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Shift
 from cleverly.sensitivity import benchmark
@@ -521,35 +522,33 @@ class TestAFacadeReadsAnIteratorOnce:
         assert not any("generator" in key for key in result.assessment_cache)
 
 
-# ---------------------------------------- row 15: the guarded curve needs a refit
+# ------------------------ row 15: the guarded curve asks its reduction settings
 
 
-_REFIT_REFUSAL = "refit() refuses that configuration"
+class TestTheGuardedCurveReadsItsReductionSettings:
+    """Row 15. The row, the facade call and the module call agree on a guarded fit.
 
+    The curve retargets the cached primary nuisances, so a reconfigured primary split runs
+    (``TestGuardedTruncationUsesCachedNuisanceReplay`` in
+    ``tests/unit/test_capability_row_predicates.py``).  The alternation refits the reduced
+    regressions under the live reduction settings, so a refused one refuses every surface.
+    Without the check, the module call raises a plain ``ValueError`` inside the retarget.
+    """
 
-class TestTheGuardedCurveReadsTheRefitSlot:
-    """Row 15. The row, the facade call and the module call agree on a guarded fit."""
-
-    @pytest.mark.parametrize(
-        "configuration",
-        [
-            {"stratify_folds": "treatment"},
-            {"targeting": "one_step", "reduced_crossfit": "nested"},
-        ],
-        ids=["stratified_folds", "one_step_nested"],
-    )
-    def test_a_refused_configuration_refuses_every_surface(
-        self, configuration: dict[str, Any]
-    ) -> None:
-        result = sweep.reconfigured(sweep.fit_drtmle(), **configuration)
+    def test_a_refused_reduction_setting_refuses_every_surface(self) -> None:
+        # ``n_folds=3`` passes the nested fold-count check, so the one-step refusal answers.
+        result = sweep.reconfigured(
+            sweep.fit_drtmle(), targeting="one_step", reduced_crossfit="nested", n_folds=3
+        )
         assert not result.diagnostics.capability("truncation_curve").available
         with pytest.raises(CapabilityError):
             result.diagnostics.truncation_curve([0.05])
         with pytest.raises(CapabilityError) as raised:
             truncation_curve(result, [0.05])
-        assert str(raised.value).startswith(
+        assert str(raised.value) == (
             "a guarded DR-TMLE truncation curve refits the reduced regressions under this "
-            f"estimator's configuration, and {_REFIT_REFUSAL}: "
+            "estimator's reduction settings, and a fit refuses those settings: "
+            + ONE_STEP_NESTED_REFUSAL
         )
 
     def test_the_live_fit_answers_on_every_surface(self) -> None:
