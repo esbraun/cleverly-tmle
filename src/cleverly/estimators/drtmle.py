@@ -578,6 +578,76 @@ class DRTMLE(TMLE):
             ]
         )
 
+    def _refuse_one_step_nested(self) -> None:
+        # Asked at the fit and at a guarded truncation curve rather than in the
+        # constructor, so that an estimator whose ``targeting`` or ``reduced_crossfit``
+        # changes after construction meets it before any learner.  Nested inner designs
+        # exist only at a non-empty ``guard``.
+        if self.guard and self.targeting == "one_step" and self.reduced_crossfit == "nested":
+            raise CapabilityError(ONE_STEP_NESTED_REFUSAL)
+
+    def _reduction_configuration_refusal(
+        self, fitted: ReducedFit | None, nuisance: NuisanceEstimates
+    ) -> str | None:
+        """Why a retarget cannot refit the reduced regressions under these settings.
+
+        A guarded truncation curve retargets the cached primary nuisances, and the
+        alternation refits the reduced regressions with this estimator's ``guard``,
+        ``reduction``, ``reduced_crossfit``, ``targeting`` and reduced learners.  A copied
+        estimator can carry a setting that a fit refuses, so the curve asks the checks of
+        those settings first.  It can also carry a construction other than the fitted
+        one.  A changed ``guard`` then returns the curve of another construction, and a
+        changed ``reduction`` or ``reduced_crossfit`` fails inside the retarget, so each is
+        refused.  A setting that only the primary split reads, such as ``stratify_folds``,
+        does not reach the retarget and is not asked.
+
+        Parameters
+        ----------
+        fitted : ReducedFit or None
+            The construction the result records in ``extra["drtmle"]``, the only record of
+            the fitted ``guard``.  ``None`` is refused, because the guard cannot be checked.
+        nuisance : NuisanceEstimates
+            The cached nuisances the curve retargets.  Their reduced set gives the fitted
+            ``reduction``, and their inner designs the fitted ``reduced_crossfit``.
+
+        Returns
+        -------
+        str or None
+            The refusal for these settings, or ``None`` when no check refuses.
+        """
+        try:
+            self._validate_drtmle_settings()
+            self._refuse_one_step_nested()
+        except ValueError as error:
+            return str(error)
+        if fitted is None:
+            return (
+                "the result records no fitted DR-TMLE construction in extra['drtmle'], so the "
+                "guard of the reduced refit cannot be checked. Fit again."
+            )
+        changed = []
+        if tuple(self.guard) != tuple(fitted.guard):
+            changed.append(f"guard={tuple(self.guard)!r} (fitted {tuple(fitted.guard)!r})")
+        # The missing-outcome construction replaces the setting, so only a complete-outcome
+        # set is keyed by it.
+        if (
+            isinstance(nuisance.reduced, ReducedSet)
+            and self.reduction != nuisance.reduced.reduction
+        ):
+            changed.append(f"reduction={self.reduction!r} (fitted {nuisance.reduced.reduction!r})")
+        fitted_crossfit = "pooled" if nuisance.inner is None else "nested"
+        if self.reduced_crossfit != fitted_crossfit:
+            changed.append(
+                f"reduced_crossfit={self.reduced_crossfit!r} (fitted {fitted_crossfit!r})"
+            )
+        if changed:
+            return (
+                "the estimator's reduction construction differs from the fitted one: "
+                + ", ".join(changed)
+                + ". Fit again with these settings, or restore the fitted ones."
+            )
+        return None
+
     def _validate_drtmle_settings(self) -> None:
         unknown = [name for name in self.guard if name not in GUARDS]
         if unknown:
@@ -1045,11 +1115,7 @@ class DRTMLE(TMLE):
                 "targeted Qbar, so the criterion choosing g-hat presupposes that Qbar is "
                 "informative, which is precisely the case this variant insures against."
             )
-        # Asked here rather than in the constructor, so that an estimator whose
-        # ``targeting`` or ``reduced_crossfit`` changes after construction meets it before
-        # any learner.  Nested inner designs exist only at a non-empty ``guard``.
-        if self.guard and self.targeting == "one_step" and self.reduced_crossfit == "nested":
-            raise CapabilityError(ONE_STEP_NESTED_REFUSAL)
+        self._refuse_one_step_nested()
         if data.is_continuous_treatment:
             refuse_unsupported("continuous")
         if data.has_intermediate:
