@@ -43,7 +43,9 @@ from scipy.stats import t
 
 from tests.studies.evidence.inference import Interval, student_interval
 from tests.studies.evidence.manifest import write_csv
+from tests.studies.evidence.property_verdicts import _at_verdict_budget
 from tests.studies.evidence.registry import ROOT
+from tests.studies.multi_arm_drtmle_properties import CONTRACTION_VERDICT_REPLICATES
 
 HERE = Path(__file__).resolve().parent
 
@@ -398,11 +400,17 @@ def readings(
 
 
 def load() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """The three committed artefacts the reading consumes."""
+    """The three committed artifacts the reading consumes.
+
+    The multi-arm property rows are read at the contraction verdict budget.  RM18 "Design SL"
+    raises the outer rungs of the ladder to 73,000 replications for the slope alone.  The
+    supplementary rung rows read the first 600 replications of ``treatment_correct_n2000``,
+    the budget the committed readings were computed at.
+    """
     return (
         pd.read_csv(BINARY_PRIMARY),
         pd.read_csv(MULTI_ARM_PRIMARY),
-        pd.read_csv(MULTI_ARM_PROPERTIES),
+        _at_verdict_budget(pd.read_csv(MULTI_ARM_PROPERTIES), CONTRACTION_VERDICT_REPLICATES),
     )
 
 

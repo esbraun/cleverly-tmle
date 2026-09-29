@@ -1,9 +1,10 @@
 # RM18 multi-arm rung design cost
 
 This directory holds the computation behind "What the multi-arm rung design would cost" in RM18
-of `docs/roadmap.md`. `RM18-slopes` sanctions a rung design for the two multi-arm DR-TMLE
-contraction slopes, and this row defers its run. The code sizes that design under the rule that
-`CONTRACTION_REPLICATES` in `tests/studies/drtmle_properties.py` declares for the binary ladder.
+of `docs/roadmap.md` at commit `985849c6`. `RM18-slopes` sanctioned a rung design for the two
+multi-arm DR-TMLE contraction slopes. Design SL ran it, and "What design SL found" in RM18 gives
+its reading. The code sizes that design under the rule that `CONTRACTION_REPLICATES` in
+`tests/studies/drtmle_properties.py` declares for the binary ladder.
 It fits no estimator, and it changes no study, verdict or committed row.
 
 | file | what it does |

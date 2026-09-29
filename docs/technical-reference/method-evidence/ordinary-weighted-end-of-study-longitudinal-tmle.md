@@ -118,7 +118,7 @@ reading moves a verdict of this study, and none names a defect in `cleverly`.
 | `type_i_error/static__sharp_null` | 3,200 for each arm at n = 4,000 and 16,000 | `resolved within gate`. The rejection interval at 4,000 runs 0.0429 to 0.0635 |
 | the four `targeting_necessity` cells | 2,655 at n = 2,000 | `family resolved` on the fresh draws. The population reading of the static untargeted control is `control underpowered by design`: at the fresh SD, the registered design of 1,200 replicates discriminates it with a probability of about 0.72, by the normal approximation. That probability crosses 0.80 inside the 99% interval of the SD |
 
-{ref}`What design OW found <what-design-ow-found>` gives each number and what each reading does
+[What design OW found](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-design-ow-found) at commit `985849c6` gives each number and what each reading does
 not show.
 [`tests/diagnostics/rm18_ordinary_weighted/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_ordinary_weighted) holds the rows.
 

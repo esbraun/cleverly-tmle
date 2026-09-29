@@ -300,7 +300,7 @@ both commits, and their estimates agree within 7.3e-5. At that budget the slope 
 interval within 2e-5 at both commits, and
 `rate_outcome_correct` still runs `-3.0401` to `+0.1232`. The move below zero therefore comes
 from the declared budget. RM18 records the comparison under
-{ref}`What the committed history already separates <what-the-committed-history-already-separates>`.
+[What the committed history already separates](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-the-committed-history-already-separates) at commit `985849c6`.
 
 The fitted `-0.9176` sits near the `-1` that a second-order remainder predicts. The budget rule
 never read this cell, so the design did not steer that agreement. The interval still covers `-1`
@@ -344,7 +344,7 @@ alone.
 The fresh bias interval of 0.00774 to 0.00965 lies above its 0.25 SD margin. The
 registered `double_robustness/treatment_correct` cell judges that bias, and the fresh interval
 is supplementary. The re-read does not move a verdict.
-{ref}`What design BD found <what-design-bd-found>` gives the numbers, and
+[What design BD found](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-design-bd-found) at commit `985849c6` gives the numbers, and
 [`tests/diagnostics/rm18_boundary/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_boundary) holds the rows.
 
 ## Limitations

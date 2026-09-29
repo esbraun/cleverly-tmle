@@ -1,6 +1,7 @@
 """Design BD: re-read the boundary cells on fresh draws, and the paired rows of FW-B and BD-P.
 
-RM18 of ``docs/roadmap.md`` declares the design in "Design BD", and FW-B in "Design FW".  Each
+RM18 of ``docs/roadmap.md`` at commit ``985849c6`` declares the design in "Design BD",
+and FW-B in "Design FW".  Each
 part runs on its own, in this order:
 
 * BD-0 computes the pass probability of each registered budget at the nominal truth;

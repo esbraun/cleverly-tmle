@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 from scipy.stats import t, ttest_ind
 
+from tests.diagnostics.rm18_one_sided_bias import read as one_sided
 from tests.diagnostics.rm18_one_sided_bias.read import (
     BINARY_ESTIMAND,
     BINARY_REFERENCE,
@@ -33,6 +34,7 @@ from tests.diagnostics.rm18_one_sided_bias.read import (
     welch,
 )
 from tests.studies.evidence.inference import Interval
+from tests.studies.evidence.manifest import write_csv
 from tests.studies.evidence.registry import ROOT
 
 COMMITTED = HERE / "readings.csv"
@@ -372,3 +374,31 @@ def test_the_supplementary_welch_rows_match_scipy(
         ours = _row(rebuilt, study, "treatment_correct", statistic)
         assert ours["ci_lower"] == pytest.approx(theirs.low, rel=1e-9), statistic
         assert ours["ci_upper"] == pytest.approx(theirs.high, rel=1e-9), statistic
+
+
+def test_the_reading_ignores_rung_rows_beyond_the_verdict_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rebuilt: pd.DataFrame
+) -> None:
+    """A nonzero witness for the crop that Design SL needs: 600 extra, shifted rung rows."""
+    committed = pd.read_csv(one_sided.MULTI_ARM_PROPERTIES)
+    rung = (committed["property"] == "double_robust_contraction") & (
+        committed["cell"] == "treatment_correct_n2000"
+    )
+    extra = committed.loc[rung].copy()
+    extra["replicate"] += int(rung.sum())
+    extra["estimate"] += 1.0
+    extended = pd.concat([committed, extra], ignore_index=True)
+    extended.loc[extended["cell"] == "treatment_correct_n2000", "requested_replicates"] = int(
+        2 * rung.sum()
+    )
+    path = tmp_path / "property-replicates.csv.gz"
+    write_csv(extended, path, compression="gzip")
+    monkeypatch.setattr(one_sided, "MULTI_ARM_PROPERTIES", path)
+
+    binary, primary, properties = one_sided.load()
+    pd.testing.assert_frame_equal(readings(binary, primary, properties), rebuilt)
+    uncropped = readings(binary, primary, extended)
+    moved = _row(uncropped, MULTI_ARM_STUDY, MULTI_ARM_CELL, "rung bias")
+    assert (
+        moved["point"] > _row(rebuilt, MULTI_ARM_STUDY, MULTI_ARM_CELL, "rung bias")["point"] + 0.4
+    )

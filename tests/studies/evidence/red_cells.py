@@ -217,12 +217,6 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "double_robustness/treatment_correct",
         ),
     ),
-    "RM18-slopes": _keys(
-        "canonical-multi-arm-drtmle",
-        "property",
-        "double_robust_contraction/rate_outcome_correct",
-        "double_robust_contraction/rate_treatment_correct",
-    ),
     "RM18-ordinary-weighted": _keys(
         "weighted-ltmle",
         "property",

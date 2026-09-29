@@ -1,7 +1,7 @@
 # RM18 design FW: fixed known weights
 
-This directory holds part FW-A of the design that RM18 of `docs/roadmap.md` declares in
-"Design FW". Part FW-B shares its fresh draws with part BD-P, so
+This directory holds part FW-A of the design that RM18 of `docs/roadmap.md` at commit
+`985849c6` declares in "Design FW". Part FW-B shares its fresh draws with part BD-P, so
 [`../rm18_boundary/`](../rm18_boundary/README.md) runs it and publishes its reading. The code
 changes no study, no verdict and no committed row.
 
@@ -21,8 +21,8 @@ diagnostic shares. It checks that the committed rows meet the declared budget, r
 `fw-a-reading.csv` from them, and refits one committed fresh row. A missing committed file fails
 the test.
 
-The part ran once. The roadmap gives the reading in
-"[What design FW found](../../../docs/roadmap.md#what-design-fw-found)".
+The part ran once. The roadmap at commit `985849c6` gives the reading in
+"[What design FW found](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-design-fw-found)".
 
 ## Run
 

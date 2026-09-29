@@ -1,7 +1,7 @@
 """What the four RM18 follow-up diagnostics share.
 
-``docs/roadmap.md`` declares the designs under RM18, in "The five follow-up designs, declared
-before they run".  Its rules R2 (fresh streams), R4 (harness validation), R5 (intervals) and R6
+``docs/roadmap.md`` at commit ``985849c6`` declares the designs under RM18, in "The five
+follow-up designs, declared before they run".  Its rules R2 (fresh streams), R4 (harness validation), R5 (intervals) and R6
 (one run), and its closing rules for failed fits, seed collisions, bootstrap streams and two-arm
 differences, read the same way in every diagnostic.  This module holds that reading once,
 together with the weighted longitudinal pieces that more than one design fits, and the one
@@ -35,6 +35,7 @@ from tests.studies import weighted_longitudinal_properties_common as weighted
 from tests.studies.evidence.inference import Interval, clopper_pearson, percentile_interval
 from tests.studies.evidence.manifest import ROOT, UNKNOWN, _git, provenance, write_csv
 from tests.studies.evidence.properties import ratio_draws, replicate_row
+from tests.studies.evidence.property_verdicts import CONTRACTION_FAMILY, _at_verdict_budget
 from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
@@ -183,6 +184,12 @@ def summary_check(
     of the rows it covers, and the study's ``summarize_properties`` runs once on the result.
     Every numeric column of each named ``(property, cell)`` row must then match
     ``properties.csv`` to the R4 tolerance, and every other column exactly.
+
+    A study that reads its contraction rungs at a verdict budget
+    (``CONTRACTION_VERDICT_REPLICATES``) is summarized from each rung's first rows at that
+    budget, through the framework's ``_at_verdict_budget``.  Every rung row is published at that
+    budget, so a named rung row is unchanged.  Only the fitted slopes would read the extra outer
+    rows, so a slope row cannot be named here.
     """
     keys = ["property", "cell", "replicate"]
     columns = ["estimate", "std_error", "covered", "rejected"]
@@ -193,7 +200,16 @@ def summary_check(
     if int(mask.sum()) != len(patch):
         raise RuntimeError("a refit row has no committed property row")
     rows.loc[mask, columns] = patch.loc[index[mask], columns].to_numpy()
-    summary = record.properties().summarize_properties(rows).set_index(["property", "cell"])
+    module = record.properties()
+    verdict_replicates = getattr(module, "CONTRACTION_VERDICT_REPLICATES", None)
+    if verdict_replicates is not None:
+        slopes = [
+            cell for cell in cells if cell[0] == CONTRACTION_FAMILY and cell[1].startswith("rate_")
+        ]
+        if slopes:
+            raise ValueError(f"a cropped summary cannot check the fitted slope rows {slopes}")
+        rows = _at_verdict_budget(rows, verdict_replicates)
+    summary = module.summarize_properties(rows).set_index(["property", "cell"])
     published = read_rows(record.artifact("properties.csv")).set_index(["property", "cell"])
     largest = 0.0
     same = True
@@ -585,12 +601,13 @@ def notes() -> tuple[str, ...]:
 
 
 @contextlib.contextmanager
-def run_log(output: Path, title: str) -> Iterator[None]:
+def run_log(output: Path, title: str, *, argv: Sequence[str] | None = None) -> Iterator[None]:
     """Append one block to ``output/run.log``: the code, the runtime, the wall time, the exit.
 
     R6 names what it holds.  The block also records the SHA-256 of every file the run left in
     ``output``; ``manifest.hashes`` keys its digests by a path under the repository, and the
-    output directory sits outside it.
+    output directory sits outside it.  ``argv`` is the command line to record when the caller
+    has already rewritten ``sys.argv`` for a driver; the default records ``sys.argv``.
     """
     import joblib
 
@@ -601,7 +618,7 @@ def run_log(output: Path, title: str) -> Iterator[None]:
     started = datetime.datetime.now(datetime.UTC)
     lines = [
         f"=== {title}",
-        f"command: {shlex.join([sys.executable, *sys.argv])}",
+        f"command: {shlex.join([sys.executable, *(sys.argv if argv is None else argv)])}",
         f"commit: {record['cleverly_commit']}; upstream {_git('rev-parse', '@{u}')}",
         f"clean tree: {record['cleverly_worktree_clean']}",
         f"cleverly {record['cleverly_version']} from {cleverly.__file__}",

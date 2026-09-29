@@ -1,8 +1,8 @@
-"""The cost of the deferred multi-arm DR-TMLE rung design, computed from committed rows alone.
+"""The cost of the multi-arm DR-TMLE rung design, computed from committed rows alone.
 
-RM18 of ``docs/roadmap.md`` sanctions a rung design for the two multi-arm contraction slopes
-and defers its run.  "What the multi-arm rung design would cost" in that section states the
-cost.  This module is the computation behind it.  It applies the sizing rule that
+RM18 of ``docs/roadmap.md`` sanctioned a rung design for the two multi-arm contraction slopes,
+and Design SL ran it.  "What the multi-arm rung design would cost", in that section at commit
+``985849c6``, states the cost.  This module is the computation behind it.  It applies the sizing rule that
 ``CONTRACTION_REPLICATES`` in ``tests/studies/drtmle_properties.py`` declares for the binary
 ladder, and it reads ``tests/canonical/multi_arm_drtmle/properties.csv``.  It fits nothing.
 

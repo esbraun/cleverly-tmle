@@ -7,7 +7,7 @@ estimator and changes no verdict.
 
 | file | what it does |
 | --- | --- |
-| `read.py` | reads `tests/canonical/drtmle/replicates.csv.gz`, `tests/canonical/multi_arm_drtmle/replicates.csv.gz` and `tests/canonical/multi_arm_drtmle/property-replicates.csv.gz`. It writes one row per statistic |
+| `read.py` | reads `tests/canonical/drtmle/replicates.csv.gz`, `tests/canonical/multi_arm_drtmle/replicates.csv.gz` and `tests/canonical/multi_arm_drtmle/property-replicates.csv.gz`. It reads the contraction ladder at its verdict budget of 600 replications per rung, through the framework's `_at_verdict_budget`, so the extra outer-rung rows of Design SL do not enter. It writes one row per statistic |
 | `readings.csv` | the committed output. Each declared row carries the reading of its configuration. The binary `both_correct` row enters both binary readings and carries no reading of its own. The `scope` column marks each row `declared` or `supplementary` |
 
 `tests/unit/test_rm18_one_sided_bias_diagnostic.py` rebuilds `readings.csv` from the committed
@@ -15,7 +15,8 @@ artifacts in the fast tier. It also checks each rule case and the Welch interval
 It checks each statistic against the interval its study publishes. Six in-memory mutations shift
 the R rows or the property cell, and each one moves the reading. It also checks each
 supplementary Welch interval against SciPy, each Bonferroni width against the Student quantiles,
-and the rung bias against the interval its study publishes.
+and the rung bias against the interval its study publishes. A last test adds 600 shifted rows to
+the `treatment_correct_n2000` rung and checks that the reading does not change.
 
 ## Run
 

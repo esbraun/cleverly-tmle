@@ -1,7 +1,7 @@
 # RM18 design OW: the ordinary weighted study
 
-This directory holds the design that RM18 of `docs/roadmap.md` declares in "Design OW", for the
-six red rows of `weighted-ltmle`. It changes no study, no verdict and no committed row.
+This directory holds the design that RM18 of `docs/roadmap.md` at commit `985849c6` declares in
+"Design OW", for the six red rows of `weighted-ltmle`. It changes no study, no verdict and no committed row.
 
 | file | what it holds |
 | --- | --- |
@@ -18,8 +18,8 @@ It checks the supplementary `p_1200` row, the smoke label, the seeds, and one re
 per part. For each part, it checks that the committed rows meet the declared budget and rebuilds
 the part's reading. A missing committed file fails the test.
 
-Each part ran once. The roadmap gives the readings in
-"[What design OW found](../../../docs/roadmap.md#what-design-ow-found)".
+Each part ran once. The roadmap at commit `985849c6` gives the readings in
+"[What design OW found](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-design-ow-found)".
 
 ## Run
 
