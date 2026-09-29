@@ -511,7 +511,9 @@ def refuse_mixed_interventions(
     set accepts, the typed estimands that hold it, and the ``TMLE`` keyword that takes it.
     The message names the holder, the position and the item.  For an item of another kind
     it names that kind's typed estimands and keyword, and F17 for a joint request.  In a set
-    of regimes it also says why the item is not a regime.  A bare value in a shift or
+    of regimes it also says why the item is not a regime.  A
+    :class:`~cleverly.interventions.LearnedRule` is refused in every set, with the estimand
+    and the keyword that take it (roadmap row RM30).  A bare value in a shift or
     incremental set is not a regime the user meant, so its message shows the object to
     write instead.  ``CausalStudy.identify`` runs this on the set of each typed estimand,
     :func:`as_interventions` on ``interventions=``, and the ``TMLE`` constructor on
@@ -532,8 +534,20 @@ def refuse_mixed_interventions(
     CapabilityError
         If an item is of another kind.
     """
+    from .learned import LEARNED_RULE_CONFIGURATION, LearnedRule
+
     text = _KIND_TEXT[kind]
     for position, item in enumerate(items, start=1):
+        if isinstance(item, LearnedRule):
+            # Not wrapped as a Static level: a learned rule has no fixed density, and its
+            # value is a target of its own (roadmap row RM30).
+            raise CapabilityError(
+                f"{holder} accepts {text.accepts}, and item {position}, {item!r}, is a "
+                "learned rule. A learned rule has no fixed density, so it is not a regime, a "
+                "shift or a tilt. LearnedRuleValue holds it in a CausalStudy, and "
+                "TMLE(learned_rule=...) takes it on the estimator, with "
+                f"{LEARNED_RULE_CONFIGURATION} (RM30 in docs/roadmap.md)."
+            )
         found = _intervention_kind(item)
         if found == kind:
             continue
@@ -610,7 +624,9 @@ _ESTIMATED_RULE = (
     "at ties. docs/technical-reference/scope-and-refusals.md (Wrong by construction) "
     "records the refusal, and RM28 in docs/roadmap.md records the reason. Fix the rule "
     "before the fit, or learn it on data independent of the analysis sample, and declare "
-    "rule_kind='known'."
+    "rule_kind='known'. For a point treatment, LearnedRuleValue estimates the average value "
+    "of rules learned inside each training fold (RM30). A learned longitudinal regimen has "
+    "no supported path (X11 in docs/roadmap.md)."
 )
 
 #: The treatment-rule declaration that :class:`Rule` and

@@ -1350,6 +1350,10 @@ class TMLEResult:
         reduced = self.extra.get("drtmle")
         if reduced is not None:
             facts.append(reduced.describe())
+        # The same for the learned-rule record, which states the data-adaptive target.
+        learned = self.extra.get("learned_rule")
+        if learned is not None:
+            facts.append(learned.describe())
         if self.provenance is not None:
             facts.extend(self.provenance.describe())
 

@@ -91,6 +91,7 @@ EstimandName = Literal[
     "or",
     "ey_regime",
     "ate_regime",
+    "ey_learned_rule",
     "ey_ipsi",
     "ate_ipsi",
     "ey_shift",
@@ -112,7 +113,11 @@ EstimandName = Literal[
 #: ``"ipsi"`` is the one whose intervention is a functional of the observed-data law: its
 #: ``q_delta`` is built out of the estimated mechanism, so it carries an extra influence
 #: curve term and a second score equation.  That is why it is not a kind of ``"regime"``.
-ParameterAxis = Literal["arm", "regime", "shift", "ipsi", "msm"]
+#:
+#: ``"learned_rule"`` is the value of a rule learned inside each training fold (RM30).  It
+#: reuses the regime fluctuation, but its target is data-adaptive, so every axis-keyed
+#: consumer decides it explicitly rather than reading it as a declared regime.
+ParameterAxis = Literal["arm", "regime", "learned_rule", "shift", "ipsi", "msm"]
 
 #: Propensity-score truncation: ``"auto"`` for the sample-size dependent
 #: default, a single float ``lo`` meaning ``[lo, 1 - lo]``, or an explicit pair.

@@ -558,7 +558,8 @@ previous reader had is not a citation; a page number is.
   single time point as a special case. The manuscript's MathML prints $O_P$ where the context
   needs $o_P$. This is the governing method of
   [RM30](roadmap.md#rm30-learned-policy-value-evaluation), with a target distinct from the current
-  fixed-rule fit and from the value of one rule fitted on all rows.
+  fixed-rule fit and from the value of one rule fitted on all rows. `LearnedRuleValue` implements
+  Appendix B at one time point ([learned rules](technical-reference/point-treatment-tmle.md#learned-rules)).
 - Montoya, van der Laan, Luedtke, Skeem, Coyle & Petersen (2023), [*The optimal dynamic treatment
   rule superlearner: considerations, performance, and application to criminal justice
   interventions*](https://doi.org/10.1515/ijb-2020-0127), *International Journal of Biostatistics*

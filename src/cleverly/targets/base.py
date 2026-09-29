@@ -260,12 +260,18 @@ class Target:
         ``1{A = a}`` and the odds ``g_a / g_ref`` in place of the binary pair.
     parameter_axis:
         What this target's parameters are indexed by: ``"arm"`` for a treatment level,
-        ``"regime"`` for a regime declared with ``interventions=``, ``"shift"`` for a
-        modified treatment policy declared with ``shifts=``, ``"ipsi"`` for a tilt of the
-        mechanism declared with ``incremental=``, ``"msm"`` for a coefficient of a working
-        model declared with ``msm=``.
+        ``"regime"`` for a regime declared with ``interventions=``, ``"learned_rule"``
+        for a rule learned inside each training fold and declared with ``learned_rule=``,
+        ``"shift"`` for a modified treatment policy declared with ``shifts=``, ``"ipsi"``
+        for a tilt of the mechanism declared with ``incremental=``, ``"msm"`` for a
+        coefficient of a working model declared with ``msm=``.
 
-        The five **partition** the registry rather than accumulating: a target is
+        ``"learned_rule"`` reuses the ``regime`` group, because each fold evaluates one
+        fixed rule.  It is an axis of its own because its target is data-adaptive: a
+        consumer keyed by axis decides it explicitly rather than reading it as a declared
+        regime.
+
+        The six **partition** the registry rather than accumulating: a target is
         unavailable unless the fit's own axis matches, and declaring one axis makes the
         others unavailable in turn.  They are not alternative spellings of one report.
         A single fit reporting ``E[Y(1)]``, ``E[Y^{g*}]``, ``E[Y^{d}]`` and a working

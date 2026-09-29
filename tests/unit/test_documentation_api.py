@@ -50,6 +50,7 @@ EXAMPLE_TARGETS = (
     "cleverly.CounterfactualMean",
     "cleverly.RiskRatio",
     "cleverly.RegimeContrast",
+    "cleverly.LearnedRuleValue",
     "cleverly.ModifiedTreatmentPolicy",
     "cleverly.IncrementalEffect",
     "cleverly.ControlledDirectEffect",

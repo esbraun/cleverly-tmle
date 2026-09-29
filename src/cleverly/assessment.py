@@ -520,6 +520,24 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             else row
             for row in rows
         )
+    if family == "point" and result.config.parameter_axis == "learned_rule":
+        # A refit relearns the rule inside each training fold, so no refutation compares
+        # like with like, whatever the estimand.  Declared for the whole fit, so the row
+        # does not defer on an argument that no value lifts.  ``refute`` raises the same
+        # sentence from its own rule table.
+        from .interventions.learned import LEARNED_RULE_REFIT_REFUSAL
+
+        rows = tuple(
+            replace(
+                row,
+                available=False,
+                status=AssessmentStatus.UNAVAILABLE,
+                reason=LEARNED_RULE_REFIT_REFUSAL,
+            )
+            if row.operation == "refute"
+            else row
+            for row in rows
+        )
     if (
         family == "point"
         and result.data.is_continuous_treatment

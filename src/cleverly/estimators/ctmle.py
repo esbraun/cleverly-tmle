@@ -286,6 +286,7 @@ from ..fluctuation.iterative import InitialFit, apply_logistic, check_matching_a
 from ..fluctuation.submodel import Submodel, restrict, weighted_form
 from ..inference.delta import log_odds_ratio_influence, log_ratio_influence
 from ..inference.influence import counterfactual_means
+from ..interventions.learned import learned_rule_configuration_refusal
 from ..learners._fitting import Task, predict_mean, predict_probabilities
 from ..learners.crossfit import _POST_DRAW_REMEDY, Folds, check_integrity, make_folds
 from ..learners.super_learner import resolve_learner
@@ -693,6 +694,10 @@ class CTMLE(TMLE):
         ctmle_estimand: str = "ate",
         **kwargs: Any,
     ) -> None:
+        if kwargs.get("learned_rule") is not None:
+            # Row 1 of the RM30 refusal table comes before the fold-evaluation refusal
+            # below: its remedy, cv_evaluation=False, would meet this refusal next.
+            raise CapabilityError(learned_rule_configuration_refusal(self) or "")
         if kwargs.get("cv_evaluation", False):
             raise CapabilityError(
                 "CTMLE does not support cv_evaluation=True: canonical CV-TMLE selection "

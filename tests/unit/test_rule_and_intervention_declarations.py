@@ -136,6 +136,15 @@ from tests.unit._tilt_law_support import (
 #: is written once.
 UNDECLARED_RULE = _UNDECLARED_RULE
 ESTIMATED_RULE = _ESTIMATED_RULE
+
+#: The shared RM28 text names the route of each surface (RM30, Q2): the point treatment
+#: to ``LearnedRuleValue``, and a longitudinal regimen to X11.  ``Rule`` and
+#: ``DynamicRegimen`` share the text, so both refusals carry both sentences.
+ROUTES = (
+    "For a point treatment, LearnedRuleValue estimates the average value of rules learned "
+    "inside each training fold (RM30).",
+    "A learned longitudinal regimen has no supported path (X11 in docs/roadmap.md).",
+)
 UNDECLARED_CLASS = _UNDECLARED_INTERVENTION
 ESTIMATED_CLASS = _ESTIMATED_INTERVENTION
 #: Fragments of the other refusals.  A test matches a fragment, not the whole text, so a
@@ -170,6 +179,7 @@ class TestTheRuleDeclarationIsRequired:
             PATHWISE,
             "data-adaptive target",
             "nonregular at ties",
+            *ROUTES,
         )
 
     @pytest.mark.parametrize("kind", ["Known", "probability", True, 1])

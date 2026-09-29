@@ -70,6 +70,7 @@ from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..exceptions import CapabilityError, refuse_inference
 from ..inference.delta import normal_ci
 from ..inference.influence import spread_name
+from ..interventions.learned import LEARNED_RULE_SENSITIVITY_REFUSAL
 from ..targets.population_intervention import (
     NATURAL_COURSE_TILT_REFUSAL,
     is_natural_course_fit,
@@ -118,6 +119,19 @@ def _refuse_longitudinal(result: Any) -> str | None:
 def _refuse_natural_course(result: Any) -> str | None:
     """Refuse the missing-outcome natural-course mean, which is not indexed by arm."""
     return NATURAL_COURSE_TILT_REFUSAL if is_natural_course_fit(result) else None
+
+
+def _refuse_learned_rule(result: Any) -> str | None:
+    """Refuse a learned-rule fit, for which no tilt was derived.
+
+    Such a fit refuses missing outcomes before any learner, so it has no observation
+    mechanism either.  This rule runs first, so the row names the learned-rule reason.
+    """
+    if result.config.parameter_axis != "learned_rule":
+        return None
+    return "missingness_tilt does not cover a learned-rule fit: " + (
+        LEARNED_RULE_SENSITIVITY_REFUSAL
+    )
 
 
 def _refuse_complete_outcome(result: Any) -> str | None:
@@ -199,6 +213,7 @@ def _refuse_untiltable_parameters(result: Any) -> str | None:
 #: message.
 _FIT_WIDE_TILT_RULES: tuple[tuple[str, Callable[[Any], str | None]], ...] = (
     ("longitudinal", _refuse_longitudinal),
+    ("learned_rule", _refuse_learned_rule),
     ("natural_course", _refuse_natural_course),
     ("missing_outcome", _refuse_complete_outcome),
     ("continuous", _refuse_continuous),

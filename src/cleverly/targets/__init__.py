@@ -148,8 +148,9 @@ def targets_for(group: TargetGroup, estimands: Sequence[str]) -> tuple[Target, .
 #: them will read.  Keyed by axis so the sentence names the keyword rather than the
 #: internal word.
 _AXIS_DECLARED_BY = {
-    "arm": "a fit without interventions=, shifts= or msm=",
+    "arm": "a fit without interventions=, learned_rule=, shifts=, incremental= or msm=",
     "regime": "a fit that declares interventions=",
+    "learned_rule": "a fit that declares learned_rule=",
     "shift": "a fit that declares shifts=",
     "ipsi": "a fit that declares incremental=",
     "msm": "a fit that declares msm=",
@@ -159,10 +160,44 @@ _AXIS_DECLARED_BY = {
 _AXIS_INDEXES_BY = {
     "arm": "treatment arm",
     "regime": "declared regime",
+    "learned_rule": "rule learned inside each training fold",
     "shift": "declared shift",
     "ipsi": "declared tilt of the treatment mechanism",
     "msm": "working-model coefficient",
 }
+
+#: The fit that reports each axis's targets, for the remedy of the same message.  A
+#: learned-rule fit also needs the fold-evaluated configuration, so its route names it.
+_AXIS_ROUTE = {
+    **_AXIS_DECLARED_BY,
+    "learned_rule": (
+        "a fit that declares learned_rule=LearnedRule(), with cross_fit=True and cv_evaluation=True"
+    ),
+}
+
+
+def _off_axis_reason(mismatched: Sequence[str], axis: ParameterAxis) -> str:
+    """Say why targets of another parameter axis cannot come from this fit, and where they can.
+
+    Parameters
+    ----------
+    mismatched : sequence of str
+        Registered target names whose parameter axis is not ``axis``.
+    axis : ParameterAxis
+        What the fit's parameters are indexed by.
+
+    Returns
+    -------
+    str
+        Two sentences: the axes of the targets and of the fit, and the fit that reports the
+        targets.
+    """
+    other_axes = sorted({TARGETS[name].parameter_axis for name in mismatched})
+    return (
+        f"They are indexed by {' and '.join(_AXIS_INDEXES_BY[other] for other in other_axes)}, "
+        f"and this fit's parameters are indexed by {_AXIS_INDEXES_BY[axis]}. Report "
+        f"{list(mismatched)} from {' or '.join(_AXIS_ROUTE[other] for other in other_axes)}"
+    )
 
 
 def resolve_estimands(
@@ -199,16 +234,13 @@ def resolve_estimands(
     mismatched = [name for name in names if not TARGETS[name].matches_axis(axis)]
     if mismatched:
         available = list(all_names(family, n_arms, axis=axis))
-        other_axes = sorted({TARGETS[name].parameter_axis for name in mismatched})
         raise ValueError(
-            f"estimand(s) {mismatched} do not belong to {_AXIS_DECLARED_BY[axis]}; they are "
-            f"indexed by {' and '.join(_AXIS_INDEXES_BY[other] for other in other_axes)}, and this "
-            f"fit's parameters are indexed by {_AXIS_INDEXES_BY[axis]}. Declaring "
-            "interventions=, shifts= or incremental= says what the fit's counterfactuals "
-            "are, and msm= "
-            "says how they are summarised, so reporting across two of them from a single "
-            "fluctuation would put two score equations under one heading. Available here: "
-            f"{available}."
+            f"estimand(s) {mismatched} do not belong to {_AXIS_DECLARED_BY[axis]}. "
+            f"{_off_axis_reason(mismatched, axis)}. Declaring interventions=, "
+            "learned_rule=, shifts= or incremental= says what the fit's counterfactuals "
+            "are, and msm= says how they are summarised, so reporting across two of them "
+            "from a single fluctuation would put two score equations under one heading. "
+            f"Available here: {available}."
         )
 
     wrong_arms = [name for name in names if not TARGETS[name].supports_arms(n_arms)]

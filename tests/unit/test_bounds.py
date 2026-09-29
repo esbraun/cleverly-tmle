@@ -164,13 +164,14 @@ class TestWhichBoundAGroupGets:
         inverse probability rather than an odds.  ``ipsi`` is binary-only because an *odds
         multiplier* needs two arms -- but its covariate divides by no mechanism at all, so
         it takes neither bound, and the truncation it does not need is the point of the
-        estimand.
+        estimand.  ``regime`` is binary-only only through ``ey_learned_rule``, whose rule
+        thresholds a two-arm blip; its covariate is the regime's inverse probability.
         """
         from cleverly.targets import TARGETS
 
         binary_only = {t.group for t in TARGETS.values() if t.requires_binary_treatment}
         assert binary_only.isdisjoint(CONDITIONAL_GROUPS)
-        assert binary_only == {"mean", "ipsi"}
+        assert binary_only == {"mean", "ipsi", "regime"}
 
 
 class TestOutcomeScaler:

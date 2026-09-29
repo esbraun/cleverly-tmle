@@ -232,8 +232,22 @@ A longitudinal MSM keeps evaluated arrays and a `functions_kind` marker. Its eva
 `"known"` only after the source design and weight declarations pass. A projection built by hand
 has no marker, and it refuses truncation replay.
 [RM28](roadmap.md#rm28-declared-densities-of-user-written-interventions) records the rule.
-*Reconsider when* the package adds supported inference for learned policies or
-population-law-dependent intervention functions.
+
+A learned rule is not a declared rule. `TMLE(learned_rule=LearnedRule())` and `LearnedRuleValue`
+estimate its fold-average value on a parameter axis of their own, `"learned_rule"`, which every
+axis-keyed consumer decides explicitly. The table gives the rules the fit keeps.
+
+| rule | how the fit keeps it |
+| --- | --- |
+| the rule of a row comes from a fit that never saw the row | the rule reads the out-of-fold outcome regression of the row's fold |
+| one pooled fluctuation | `cv_evaluation=True` with `targeting_scheme="pooled"`; every other scheme refuses before any learner |
+| the estimate is the `1/V` average of the fold plug-ins | the fold-evaluated report, with each fold's curve centred at its own estimate |
+| no row is refitted | `refute`, the full-refit bootstrap and `repeats` above 1 refuse, because a refit relearns the rules. Every sensitivity analysis refuses too, because no derivation for this target was reviewed |
+
+[RM30](roadmap.md#rm30-learned-policy-value-evaluation) records the contract. *Reconsider when* the
+package adds another learned-policy target
+([X11](roadmap.md#x11-learned-policy-follow-ups)) or a population-law-dependent intervention
+function.
 
 A normalized method declaration either changes the selected engine request or fails before that
 engine is constructed. Shared configuration groups do not imply shared implementation: every

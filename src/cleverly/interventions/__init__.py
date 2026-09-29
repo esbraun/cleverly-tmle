@@ -4,7 +4,8 @@ See :mod:`cleverly.interventions.base` for what a regime is and which kinds are
 deliberately refused, :mod:`cleverly.interventions.incremental` for the one whose
 :math:`g^\\star` is built out of the estimated mechanism, and
 :mod:`cleverly.interventions.support` for the overlap diagnostics a regime needs that an
-arm-level positivity report does not give.
+arm-level positivity report does not give. :mod:`cleverly.interventions.learned` holds the
+rule learned inside each training fold, whose fold-average value is a target of its own.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from .incremental import (
     IPSISet,
     check_incremental_support,
 )
+from .learned import LearnedRule, LearnedRuleRecord
 from .shift import Shift, ShiftSet, ShiftSupport, check_shift_support
 from .support import RegimeSupport, SupportReport, check_support
 
@@ -32,6 +34,8 @@ __all__ = [
     "Incremental",
     "IncrementalSupport",
     "Intervention",
+    "LearnedRule",
+    "LearnedRuleRecord",
     "RegimeSet",
     "RegimeSupport",
     "Rule",

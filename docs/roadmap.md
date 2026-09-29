@@ -1717,7 +1717,7 @@ release carries the interval before its study has run.
 | pull request | content | state |
 | --- | --- | --- |
 | A | this contract, [X11](#x11-learned-policy-follow-ups), [F27](#f27-learned-policy-value-outside-the-published-conditions), and the declarations of the two validation studies | recorded here. No study code exists, and nothing has run |
-| B | `LearnedRule`, `LearnedRuleValue`, the `ey_learned_rule` target, the `learned_rule` parameter axis, the result record, the refusals, the unit witnesses and the documentation | not started |
+| B | `LearnedRule`, `LearnedRuleValue`, the `ey_learned_rule` target, the `learned_rule` parameter axis, the result record, the refusals, the unit witnesses and the documentation | implemented on its branch. It merges with pull request C |
 | C | the per-replicate truth of the evidence framework, the study modules, the smoke runs, both declared runs, the study pages and the delivery record | not started |
 
 The table gives the acceptance of the row.
@@ -1862,10 +1862,24 @@ Rows 10 to 14 name the remedy: `CrossFitting(enabled=True, fold_evaluation=True)
 pooled targeting and no full-refit bootstrap. A unit test fits that remedy, so the remedy that a
 message names is not itself refused.
 
-The shared post-draw refusals take a learned-rule remedy. `_check_training_support` and
-`cross_fit_companion` receive `_LEARNED_RULE_REMEDY` through their `remedy=` parameters. The
-outcome-scale refusal names `q_bounds` only. No learned-rule message names `cross_fit=False` or
-`shifts=`, and a witness for each shared refusal asserts that.
+The order holds inside one call, with one exception at construction. `CrossFitting`,
+`TMLEMethod` and the `TMLE` constructor refuse a fold policy that the shared rules forbid. Examples
+are one fold, `repeats` above 1 without cross-fitting, and stratified folds. These refusals raise
+when the object is built, before the data exist, so they come before rows 3 to 9. On a
+learned-rule `TMLE`, rows 10 to 14 replace such a refusal where one of them applies. Rows 1 and 2
+also run at construction, and they come first in the table.
+
+The shared refusals take a learned-rule remedy. `_check_training_support` receives
+`LEARNED_RULE_REMEDY` through its `remedy=` parameter. After that preflight, the fold backstop of
+`cross_fit_companion` cannot fire for a learned-rule fit, so it keeps its default text. The
+outcome-scale refusal names `q_bounds` only.
+
+On the engine, a learned-rule fit meets rows 10 to 14
+before a shared fold-policy sentence, and no shared sentence offers it an in-sample fit.
+`CrossFitting` and `TMLEMethod` refuse at construction, before they see the estimand. Each of
+their fold-policy sentences that offers an in-sample fit therefore ends with one clause. That
+clause names `CrossFitting(enabled=True, fold_evaluation=True)` for `LearnedRuleValue`. A unit
+test runs each remedy that a learned-rule caller reads, as written.
 
 `Rule` and `DynamicRegimen` keep one declaration, and the RM28 refusal is unchanged. Its shared
 text `_ESTIMATED_RULE` gains these two sentences, which name the route for each surface.

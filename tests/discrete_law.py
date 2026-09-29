@@ -144,6 +144,21 @@ REGIMES: dict[str, np.ndarray] = {
 REGIME_REFERENCE = "never"
 
 
+#: The label of the learned rule, as ``ey_learned_rule[learned rule]`` reports it.
+LEARNED_RULE_LABEL = "learned rule"
+
+#: The fixed rule the ``ey_learned_rule`` oracle branch is written at, ``d(a | W = w)`` as a
+#: ``(3, 2)`` array.  The learned-rule value is data-adaptive, so the oracle states the
+#: value of one fixed rule, conditional on training.  The rule treats at ``w = 0`` and
+#: ``w = 2`` and not at ``w = 1``, so it depends on ``W``.
+LEARNED_RULE = np.array([[0.0, 1.0], [1.0, 0.0], [0.0, 1.0]])
+
+#: ``Qbar(a, w)`` of a variant law whose true blip has the sign of :data:`LEARNED_RULE`:
+#: ``+0.3``, ``-0.3`` and ``+0.2``.  An oracle outcome regression on it learns that rule
+#: in every fold.  :func:`cell_counts` realises it exactly on ``N`` rows.
+LEARNED_RULE_Q = np.array([[0.40, 0.70], [0.50, 0.20], [0.60, 0.80]])
+
+
 #: The incremental interventions the ``ipsi`` estimands are checked against, as odds
 #: multipliers.  Unlike :data:`REGIMES` these are *not* densities: the density
 #: ``q_delta = delta g / (delta g + 1 - g)`` is a function of the law, so it has to be
@@ -296,6 +311,12 @@ def functional(probs: Any, estimand: str) -> Any:
         left, right = estimand[len("ate_regime[") : -1].split(" vs ")
         return functional(p, f"ey_regime[{left}]") - functional(p, f"ey_regime[{right}]")
 
+    # Psi_d(P) = sum_w P(W = w) E[Y | A = d(w), W = w] at the fixed rule d of
+    # LEARNED_RULE: the value of one learned rule, conditional on the training rows that
+    # learned it. The estimator averages this over the folds' rules.
+    if estimand == f"ey_learned_rule[{LEARNED_RULE_LABEL}]":
+        return (p_w * (LEARNED_RULE * q).sum(axis=1)).sum()
+
     # beta = M^-1 b, the h-weighted least-squares projection of the counterfactual means
     # onto m(a, W; beta), written straight off the normal equations:
     #
@@ -359,6 +380,7 @@ def functional(probs: Any, estimand: str) -> Any:
 PER_ARM_NAMES: dict[str, tuple[str, ...]] = {
     "ey": ("ey[0]", "ey[1]"),
     "ey_regime": tuple(f"ey_regime[{label}]" for label in REGIMES),
+    "ey_learned_rule": (f"ey_learned_rule[{LEARNED_RULE_LABEL}]",),
     "ey_ipsi": tuple(f"ey_ipsi[{label}]" for label in IPSI_DELTAS),
     "ate_ipsi": tuple(
         f"ate_ipsi[{label} vs {IPSI_REFERENCE}]" for label in IPSI_DELTAS if label != IPSI_REFERENCE
@@ -425,6 +447,7 @@ TRUTH = {
         "atc",
         *PER_ARM_NAMES["ey_regime"],
         *PER_ARM_NAMES["ate_regime"],
+        *PER_ARM_NAMES["ey_learned_rule"],
         *PER_ARM_NAMES["ey_ipsi"],
         *PER_ARM_NAMES["ate_ipsi"],
         *PER_ARM_NAMES["msm"],

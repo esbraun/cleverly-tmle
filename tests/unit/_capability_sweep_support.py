@@ -59,6 +59,7 @@ from tests.conftest import (
     linear_in_sample,
     mean_one_weights,
 )
+from tests.unit import _learned_rule_support as learned_rule_support
 from tests.unit._direct_effect_support import COVARIATES as CDE_COVARIATES
 from tests.unit._direct_effect_support import cde_frame
 from tests.unit._simulated_confounding_support import (
@@ -171,6 +172,17 @@ def fit_regime() -> Any:
         .fit(discrete_law.frame(), outcome="Y", treatment="A", covariates=("W",))
         .single()
     )
+
+
+def fit_learned_rule() -> Any:
+    """The fold-evaluated learned-rule fit of :mod:`tests.unit._learned_rule_support`.
+
+    The fit cross-fits in five folds, because the learned-rule value has no in-sample fit.
+    A refit relearns the rules, so ``refute`` and ``benchmark`` read unavailable, as do
+    the E-value, the omitted-variable bound, simulated confounding and the missingness
+    tilt (F27 in ``docs/roadmap.md``).  The summarize rows and ``truncation_curve`` run.
+    """
+    return learned_rule_support.fit()
 
 
 def fit_weighted() -> Any:
@@ -556,6 +568,8 @@ KINDS: dict[str, Kind] = {
     "ctmle_oat": _kind(fit_ctmle_oat, *_LIVE),
     "msm": _kind(fit_msm, *_LIVE),
     "regime": _kind(fit_regime, *_LIVE),
+    # A refit relearns the rules, so no refutation or bound row answers (RM30).
+    "learned_rule": _kind(fit_learned_rule, *_READ, "truncation_curve"),
     "weighted": _kind(fit_weighted, *_ARM),
     "stratified": _kind(fit_stratified, *_ARM),
     "clustered": _kind(fit_clustered, *_ARM),
@@ -832,7 +846,9 @@ MUTATIONS: dict[str, Mutation] = {
     "M1": Mutation(
         "the tilt rows ignore every rule the rows did not read before RM23",
         lambda patch: patch.setattr(SensitivityFacade, "_tilt_rule", _pre_rm23_tilt_rule),
-        frozenset(DECLINED_TILT_KINDS),
+        # The learned-rule kind came after RM23. Its tilt rule is one the pre-RM23 rows did
+        # not read, so M1 makes its tilt rows read available while both calls refuse.
+        frozenset((*DECLINED_TILT_KINDS, "learned_rule")),
         _RAISED.format("missingness") + "missingness_tilt ",
     ),
     "M2": Mutation(

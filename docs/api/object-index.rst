@@ -35,6 +35,7 @@ categorized API tables.
    cleverly.OddsRatio
    cleverly.RegimeMean
    cleverly.RegimeContrast
+   cleverly.LearnedRuleValue
    cleverly.ModifiedTreatmentPolicy
    cleverly.ModifiedTreatmentPolicyEffect
    cleverly.IncrementalMean
@@ -91,6 +92,8 @@ categorized API tables.
    cleverly.interventions.Rule
    cleverly.interventions.Stochastic
    cleverly.longitudinal.DynamicRegimen
+   cleverly.interventions.LearnedRule
+   cleverly.interventions.LearnedRuleRecord
    cleverly.interventions.RegimeSet
    cleverly.interventions.Incremental
    cleverly.interventions.IPSISet

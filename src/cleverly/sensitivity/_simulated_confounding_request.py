@@ -20,6 +20,7 @@ import numpy as np
 from ..estimators.base import MEAN_GROUP_ESTIMANDS, TMLEResult
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import CapabilityError
+from ..interventions.learned import LEARNED_RULE_SENSITIVITY_REFUSAL
 from ..study import (
     ATC,
     ATE,
@@ -228,6 +229,15 @@ def _refuse_result_type(result: Any) -> str | None:
     return None
 
 
+def _refuse_learned_rule(result: Any) -> str | None:
+    """Refuse a learned-rule fit, whose replay relearns the rules and so its target."""
+    if result.config.parameter_axis != "learned_rule":
+        return None
+    return "simulated_confounding does not cover a learned-rule fit: " + (
+        LEARNED_RULE_SENSITIVITY_REFUSAL
+    )
+
+
 def _refuse_missing_estimator(result: Any) -> str | None:
     """Refuse a result that stores no replay estimator."""
     if result.estimator is None:
@@ -367,6 +377,7 @@ def _refuse_provider(result: Any) -> str | None:
 _FIT_WIDE_RULES: tuple[tuple[str, Callable[[Any], str | None]], ...] = (
     ("longitudinal", _refuse_longitudinal),
     ("result_type", _refuse_result_type),
+    ("learned_rule", _refuse_learned_rule),
     ("multi_arm", _refuse_multi_arm),
     ("missing_outcome", _refuse_missing_outcome),
     ("intermediate", _refuse_intermediate),
