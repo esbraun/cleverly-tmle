@@ -396,7 +396,7 @@ with `git show d8c654b6:docs/roadmap.md`.
 | part | what shipped |
 | --- | --- |
 | messages | one missing-outcome remedy, `MISSING_OUTCOME_DECLARATION` in `src/cleverly/data/validate.py`, names `missingness=` and `delta=` at three sites. The in-sample C-TMLE selection-fold refusal names the fold and two remedies that run as written. On a cross-fitted `TMLE` with missing outcomes, the continuous-treatment message names [F21](#f21-other-missing-outcome-cv-tmle-variants) and the in-sample fit |
-| argument checks | `benchmark` refuses an empty request and an indicator column, and accepts the logical name of an encoded covariate. A facade reads a one-shot iterator once. The guarded DR-TMLE truncation curve reads the `refit_nuisances` slot on the row, the facade and the module call |
+| argument checks | `benchmark` refuses an empty request and an indicator column, and accepts the logical name of an encoded covariate. A facade reads a one-shot iterator once. The guarded DR-TMLE truncation curve refuses a refused or changed reduction construction on the row, the facade and the module call |
 | types and references | `_solve_reduction` and `refuse_unsupported("link")` raise `ValueError`, and `refuse_scheme` raises `CapabilityError`. The `DRTMLE` docstrings name test classes that exist, and `test_every_named_test_exists` checks each reference |
 | longitudinal summaries | `LongitudinalConfig.describe` prints the reference only for a result that holds a contrast. `config.reference` stays set, because the replay reads it. The identification summary prints the history at each treatment node from `BackdoorMeanContrast.history` |
 | DR-TMLE and support | `ReducedFit.describe` gives the guard and the reduction, or the empty guard, in `TMLEResult.summary`. `SupportReport.summary` names the mechanism that each column reads |
@@ -415,7 +415,7 @@ the three exception types.
 | D4 | the notebooks print each protocol record once |
 | D5 | one missing-outcome remedy that names both spellings |
 | D6 | the selection calls of `cross_fit_predictions` pass the selection remedy |
-| D7 | the guarded truncation curve needs the `refit_nuisances` slot |
+| D7 | the guarded truncation curve needs the `retarget_cached_nuisances` slot, as pull request 238 chose. It refuses a refused reduction setting, and a `guard`, `reduction` or `reduced_crossfit` other than the fitted construction |
 | D8 | two pull requests, RM16a for the messages and RM16b for the displays |
 | D9 | the three exception types are part of this row |
 | D10 | `available_methods` stays per method name, and its docstring states the stratified `DRTMLE` case |
@@ -568,8 +568,9 @@ its owner. This subsection gives the reason for each assignment.
 
 `F18` holds the red cells of both selector studies, except the multi-arm
 `root_n_and_efficiency/n_500` endpoint. On both laws of the point-treatment study, the population
-one-step remainder is exactly zero at the nuisance limits. The residual there is the selector's
-stopping behaviour and not a nuisance rate. On the multi-arm study, the greedy and ordered paths
+one-step remainder is exactly zero at the nuisance limits. That limit does not isolate the
+finite-sample nuisance remainder or the effect of the selector's stopping rule on the red cells.
+On the multi-arm study, the greedy and ordered paths
 miss their bias margins, and the discrete path stops at the empty candidate. The reversed
 standard-error ratio of `selector_necessity/collaborative` is also a nonzero witness for the
 [RM12](#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism) refusal, and a label
@@ -2198,6 +2199,12 @@ the limiting dimension must exist and be nonrandom. The package instead selects 
 from nested targeted-loss folds. A proof must establish that this depth and its induced model meet
 those conditions.
 
+[Van der Laan et al. (2026)](https://arxiv.org/html/2501.11868v3), Section 5.2 and Appendix C,
+make the selected-model obligations explicit. Theorem 5 requires a linear expansion,
+influence-curve stabilization, and model-approximation rates. Section 5.1, Corollary 1, covers its
+own autoTML construction under Conditions B1 to B5. Neither result verifies those conditions for
+the shipped stopping rule.
+
 The oracle projection's efficiency bound is typically, not invariably, smaller
 than the nonparametric bound. Applicability could therefore ratify the current curve or require a
 different one; it does not predetermine the covariance verdict.
@@ -2355,7 +2362,7 @@ divergences are genuine, and the table below states each one.
 
 | divergence | what ships | what Appendix D outlines |
 | --- | --- | --- |
-| the final average | the stacked whole-sample plug-in (`src/cleverly/estimators/tmle.py:429-439`), because `CTMLE` refuses `cv_evaluation=True` (`src/cleverly/estimators/ctmle.py:753-757`) | the `(1/V) sum_v` fold average. The two agree only at equal fold weight mass |
+| the final average | the stacked whole-sample plug-in (`src/cleverly/estimators/tmle.py:429-439`), because `CTMLE` refuses `cv_evaluation=True` (`src/cleverly/estimators/ctmle.py:753-757`) | the `(1/V) sum_v` fold average. Equal fold weight mass guarantees agreement, but unequal mass can also agree. With fixed $V$, unweighted near-balanced folds, and bounded predictions, the difference is $O(V/n)$ |
 | the fluctuation dimension | a joint fluctuation with one column for each arm | one signed coefficient for the binary ATE |
 
 The package instead jointly targets both arm means with two fluctuation columns and derives means,
