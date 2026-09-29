@@ -1,0 +1,12 @@
+part,scope,statistic,value,ci_lower,ci_upper,result
+BD-3,refit rows,largest scaled difference,0.0,,,holds over 2400
+BD-3,summary rows,largest scaled difference,0.0,,,holds over 2
+BD-3,weighted-ltmle-crossfit double_robustness/static__both_wrong,replicates,2655.0,,,
+BD-3,weighted-ltmle-crossfit double_robustness/static__both_wrong,coverage,0.7913370998116761,0.7703181133508721,0.8112997575317591,
+BD-3,weighted-ltmle-crossfit double_robustness/static__both_wrong,bias,-0.020976470026804528,-0.024271113372197714,-0.017681826681411328,margin 0.0164646
+BD-3,weighted-ltmle-crossfit double_robustness/static__both_wrong,SE ratio,0.6762852775608357,,,
+BD-3,weighted-ltmle-crossfit double_robustness/static__both_wrong,reading,,,,resolved: truth satisfies the gate
+BD-3,static__both_wrong,b_inf,-0.022050865800866848,,,
+BD-3,static__both_wrong,fresh SD,0.06585839651854021,,,
+BD-3,static__both_wrong,abs(b_inf) / SD,0.3348223911685911,,,
+BD-3,static__both_wrong,population reading,,,,control not inert

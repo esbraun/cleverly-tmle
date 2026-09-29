@@ -576,6 +576,25 @@ def ratio_intervals(
     the draws also costs a third of the work, which is what a ``(10,000 x 2,400)`` gather makes
     worth counting.
     """
+    return {
+        name: percentile_interval(draws, confidence_level=confidence_level)
+        for name, draws in ratio_draws(group, replicates=replicates, seed=seed, bound=bound).items()
+    }
+
+
+def ratio_draws(
+    group: pd.DataFrame,
+    *,
+    replicates: int,
+    seed: int,
+    bound: float | None = None,
+) -> dict[str, np.ndarray]:
+    """The bootstrap draws behind :func:`ratio_intervals`, one array per ratio.
+
+    A caller that compares two independent cells needs the draws rather than the intervals,
+    because the interval of a difference is read off the draw-by-draw difference.
+    :func:`ratio_intervals` takes its percentiles from exactly these arrays.
+    """
     values = group[["estimate", "std_error"]].to_numpy(dtype=float)
     rng = np.random.default_rng(seed)
     blocks = [
@@ -584,18 +603,12 @@ def ratio_intervals(
     ]
     spread = np.concatenate([block[0] for block in blocks])
     reported = np.concatenate([block[1] for block in blocks])
-    intervals = {
-        "se_ratio": percentile_interval(reported / spread, confidence_level=confidence_level)
-    }
+    draws = {"se_ratio": reported / spread}
     if bound is not None:
         scale = float(np.sqrt(int(group["n"].iloc[0]))) / bound
-        intervals["efficiency_empirical"] = percentile_interval(
-            spread * scale, confidence_level=confidence_level
-        )
-        intervals["efficiency_reported"] = percentile_interval(
-            reported * scale, confidence_level=confidence_level
-        )
-    return intervals
+        draws["efficiency_empirical"] = spread * scale
+        draws["efficiency_reported"] = reported * scale
+    return draws
 
 
 def se_ratio_interval(

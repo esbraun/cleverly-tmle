@@ -1,0 +1,7 @@
+convention,estimand,calibration_excess_upper,calibration_excess_resolution
+native,ey_regimen[always],0.016786191456024217,0.12465997302811116
+native,ey_regimen[never],0.04694011071059439,0.007989757593623907
+native,ey_regimen[treat then continue if l2 positive],-0.08143921384834046,0.07660452490600517
+hajek,ey_regimen[always],0.013773289950565416,0.007378776044135105
+hajek,ey_regimen[never],0.016141736994099674,0.008830808135312639
+hajek,ey_regimen[treat then continue if l2 positive],0.01444518835360442,0.012645189326701332

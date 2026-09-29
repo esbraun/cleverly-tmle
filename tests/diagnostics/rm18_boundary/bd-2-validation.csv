@@ -1,0 +1,3 @@
+part,check,compared,largest_difference,result
+BD-2,canonical-multi-arm-drtmle interval_calibration/correctly_specified refit rows,1600,0.0,holds
+BD-2,canonical-multi-arm-drtmle summary rows,1,0.0,holds

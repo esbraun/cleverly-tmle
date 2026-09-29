@@ -41,7 +41,7 @@ delivered row that this roadmap still describes. Read a record with, for example
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.51 | Red property cells after the fold, scale and law changes | keep each red verdict under `reporting` with its interval, and admit inference only when F18 or F19 supplies the exact result. The [red-cell ledger](technical-reference/method-evidence/red-cells.md) delivers this. Then declare and run the five open RM18 follow-up designs, each declared before its run | registered studies publish red verdicts after the fold, scale and law changes and the pooled update. The ledger lists each one and the ask that owns it. Five RM18 follow-up designs are not declared and have not run | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
+| 0.51 | Red property cells after the fold, scale and law changes | keep each red verdict under `reporting` with its interval, and admit inference only when F18 or F19 supplies the exact result. The [red-cell ledger](technical-reference/method-evidence/red-cells.md) delivers this. Then run Design SL once, the last of the five declared RM18 follow-up designs | registered studies publish red verdicts after the fold, scale and law changes and the pooled update. The ledger lists each one and the ask that owns it. Four RM18 follow-up designs ran once, and no reading names a defect in `cleverly`. Design SL is declared and has not run | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
 | 0.52 | One-sided robustness bias increment in DR-TMLE | investigate the exploratory between-implementation increment on binary `treatment_correct`, under a design declared before it runs | the RM18 reading is `mixed` on that configuration. The unadjusted paired 99% interval of `cleverly` minus R `drtmle` runs 0.000068 to 0.001942, while the Bonferroni interval for that comparison covers zero. No implementation defect is established | [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) |
 | 0.61 | Learned-policy value evaluation | implement a typed learned-policy target with fold-local training and evaluation, using a published estimating and inference contract | fixed-rule paths refuse a rule learned from the analysis sample; published learned-policy methods give distinct targets and inference | [RM30](#rm30-learned-policy-value-evaluation) |
 
@@ -63,7 +63,7 @@ The table gives the reason for each place inside a tier.
 
 | row | reason for its place |
 | --- | --- |
-| RM18 | five open designs, which read 19 red rows in six studies. The ledger already publishes each of those verdicts |
+| RM18 | one declared design that has not run, which reads two red rows in one study. Four designs ran, read 17 red rows in six studies, and moved no verdict. The ledger already publishes each of those verdicts |
 | RM19 | one configuration, which RM18 opened. Its Bonferroni interval covers zero, and it moves no verdict |
 | RM30 | a published learned-policy method can resolve the current refusal, but requires a distinct target, fold-local evaluation, and inference validation |
 
@@ -88,7 +88,7 @@ row takes its priority with it, and the other rows keep theirs.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
 The queue holds three rows.
-RM18 has five follow-up designs that are not declared and have not run. RM19 has no
+RM18 has one follow-up design, Design SL, that is declared and has not run. RM19 has no
 declared design. RM30 holds the published learned-policy implementation.
 
 The F18 and F19 derivations do not block priority 1, because an item with no published theory does
@@ -455,9 +455,12 @@ failed on. It names the `id` of the ask in "What this row asks for" that owns ea
 no red row, an owner that the `id` column does not list, and a red row in a `gated` study.
 
 The ledger delivers the reporting end state. Every red verdict stays red under `reporting` at its
-registered budget and margin. RM18 itself stays open. Five of its follow-ups ask for a design
-declared before its run, and none of those designs is declared or has run. "What this row asks
-for" marks each one `open`, and "Deferred findings and review resolutions" says why each one waits.
+registered budget and margin. RM18 itself stays open.
+
+Five of its follow-ups asked for a design declared before its run.
+[The declarations](#the-five-follow-up-designs-declared-before-they-run) give each design. Four
+designs ran, and "[What the five designs found](#what-the-five-designs-found)" gives their
+readings. Design SL has not run, and "What this row asks for" marks it `open`.
 
 The rows that F18 and F19 own stay red until F18 or F19 meets its acceptance.
 [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) carries the one measured increment
@@ -549,13 +552,13 @@ gives the cells of each owner and the reason for each assignment.
 | `RM18-n500` | a reading of the two `n_500` coverage endpoints | delivered. A registered fold-policy diagnostic reads both endpoints as a boundary resolution. "What the two readings found" gives the numbers |
 | `RM18-binary-slope` | a reading of the DR-TMLE contraction slope | delivered. A declared rung design resolves the slope, and its interval now sits below zero. "What the two readings found" gives the numbers |
 | `RM18-attribution` | an attribution of the verdicts that changed with the pooled update | delivered for the end-of-study and weighted studies. A declared code-by-runtime diagnostic reads the two weighted cells and the end-of-study overfitting cell as code changes. "What the runtime isolation found" gives the numbers. The weighted cells stay red as finite-sample reporting evidence |
-| `RM18-fixed-weights` | a fixed-known-weight follow-up for the two weighted cross-fitted cells that went red with the pooled update | open: the design this row asks for is not declared, and it has not run. The row closes when a design declared before its run reads the two cells, or when a published result for the pooled update under fixed known weights applies |
+| `RM18-fixed-weights` | a fixed-known-weight follow-up for the two weighted cross-fitted cells that went red with the pooled update | delivered. Design FW ran once. FW-A reads `finite-sample, contracting`, and FW-B reads `equivalent at the declared budget`. "[What design FW found](#what-design-fw-found)" gives the numbers. The two cells stay red under `reporting` at their registered budgets |
 | `RM18-one-sided-bias` | a reading of the three one-sided-robustness bias rows | delivered. The reading that "The one-sided robustness reading, declared before it is computed" declares ran once. "[What the one-sided reading found](#what-the-one-sided-reading-found)" gives its result. The three cells stay red under `reporting` |
-| `RM18-slopes` | a reading of the two multi-arm DR-TMLE contraction slopes | open: the design this row asks for is not declared, and it has not run. This row computed the cost of that design. The row closes when a rung design declared before its run reads both slopes |
-| `RM18-ordinary-weighted` | an owner for the six red rows of the ordinary weighted longitudinal study | open: the design this row asks for is not declared, and it has not run. The row closes when a design declared before its run reads the calibration row, the sharp-null row and the `targeting_necessity` family |
+| `RM18-slopes` | a reading of the two multi-arm DR-TMLE contraction slopes | open: declared in "[Design SL](#design-sl)"; not run. This row computed the cost of that design. The row closes when that rung design reads both slopes. A later pull request carries the run |
+| `RM18-ordinary-weighted` | an owner for the six red rows of the ordinary weighted longitudinal study | delivered. Design OW ran once. OW-A reads `finite-sample, contracting`, OW-B reads `resolved within gate`, and OW-C reads `control underpowered by design` and `family resolved`. "[What design OW found](#what-design-ow-found)" gives the numbers. The six rows stay red under `reporting` |
 | `RM18-learner-weight-se` | a diagnostic for the standard-error explosions in the cross-fitted `learner_weight_necessity` rows | delivered. A complete review declaration was pushed before a clean rerun that reproduced the refit table. "What the learner-weight diagnostic found" gives its reading. This row owns no red cell |
-| `RM18-boundary` | an owner for the red cells that sit at a finite-budget boundary | open: no re-read design is declared. Each cell stays red under `reporting` at its declared budget. A re-read needs a design declared before its run, and this row refuses an undeclared budget |
-| `RM18-comparator-density` | an attribution of the red paired row of the continuous modified treatment policy study | open: the design this row asks for is not declared, and it has not run. The row closes when a design declared before its run attributes the calibration excess to `cleverly` or to the comparator |
+| `RM18-boundary` | an owner for the red cells that sit at a finite-budget boundary | delivered. Design BD ran once. The six re-read cells read `resolved: truth satisfies the gate`, and the two paired rows read `comparator SE convention`. "[What design BD found](#what-design-bd-found)" gives the numbers. Each cell stays red under `reporting` at its declared budget |
+| `RM18-comparator-density` | an attribution of the red paired row of the continuous modified treatment policy study | delivered. Design CD ran once and reads `cleverly density representation`. "[What design CD found](#what-design-cd-found)" gives the numbers. The row stays red under `reporting` |
 
 (what-each-owner-holds)=
 ##### What each owner holds
@@ -733,8 +736,626 @@ coverage row needs.
 
 Both first-rung bias intervals cover zero, so the input that the rule reads is not resolved. The
 needed `R` grows as the inverse square of the true bias. A true bias below the point estimate
-raises the cost without a bound. `RM18-slopes` therefore records the cost and does not run the
-design.
+raises the cost without a bound. "[Design SL](#design-sl)" declares the run at the surrogate
+figure.
+
+(the-five-follow-up-designs-declared-before-they-run)=
+#### The five follow-up designs, declared before they run
+
+This subsection declares the designs that the five open asks name. It fixes every quantity that
+decides a reading. Commit `ebd3d1b9` added it. Commit `7e65bea7` added the seed-collision rule,
+after the harness found seed collisions that R2 refuses. Commit `03fe89f1` recorded a harness
+review, which amended the collision rule, the failed-fit rule, R6 and four source statements.
+All three commits were pushed before the first run, which ran from `4b91a916` and which
+`0eef4be3` recorded.
+
+| design | ask | form | directory or study |
+| --- | --- | --- | --- |
+| FW | `RM18-fixed-weights` | diagnostic | `tests/diagnostics/rm18_fixed_weights/` |
+| OW | `RM18-ordinary-weighted` | diagnostic | `tests/diagnostics/rm18_ordinary_weighted/` |
+| BD | `RM18-boundary` | diagnostic | `tests/diagnostics/rm18_boundary/` |
+| CD | `RM18-comparator-density` | diagnostic | `tests/diagnostics/rm18_comparator_density/` |
+| SL | `RM18-slopes` | registered-study extension | `canonical-multi-arm-drtmle` |
+
+A diagnostic writes no registered artifact. Its directory holds the code, the per-replicate rows,
+`reading.csv`, `run.log` and a README. The README states how the code resolves each point this
+declaration leaves open, and that table is committed before the run. A fast-tier test recomputes
+each reading from the committed rows. The one exception is BD-P step 2, whose reading the test
+rebuilds from the committed `bd-p2-comparisons.csv`. A run capped with `--replicates` is a smoke
+run, and each of its readings says `smoke run, not the declared budget`.
+
+(rules-that-every-design-follows)=
+##### Rules that every design follows
+
+| rule | statement |
+| --- | --- |
+| R1, no verdict moves | FW, OW, BD and CD change no verdict, margin, budget, law, learner, size or seed. Every cell they read stays red under `reporting` at its registered budget. SL extends the registered study. Its slope verdicts come from the registered rule, and each rung's coverage verdict stays at its declared 600 replications |
+| R2, fresh streams | a re-read uses no draw that a registered verdict or an earlier reading used. Each fresh seed is `stream_seed` of a hashed label, as the design tables give it. A unit test refuses a fresh seed that equals a registered seed of the study |
+| R3, budget rule | each re-read budget gives a 99% Monte Carlo half-width equal to one fifth of the distance between the nominal value and the gate. The table below gives each budget |
+| R4, harness validation | before any fresh draw, the harness refits every committed replicate of each cell it reads. Each `estimate` and `std_error` must satisfy `abs(new - committed) <= 1e-9 * max(1, abs(committed))`, with the committed rows parsed by `pandas.read_csv(..., float_precision="round_trip")`. The study's own summary function must recompute the committed summary row of the cell to the same tolerance. A miss stops that part with the reading "harness not validated, no reading" |
+| R5, intervals | every interval is 99%. Coverage and rejection use the exact two-sided Clopper-Pearson interval. A ratio uses the framework's percentile bootstrap of 10,000 draws. A mean bias uses the Student interval. A paired row uses the legs of `comparison_verdict` |
+| R6, one run | each design part runs once, from a clean pushed commit. The harness refuses a run from a tree with changes, from a commit that differs from its upstream, or with `cleverly` imported from outside the tree's `src`. `run.log` records the commit, the command, the path of `cleverly`, the versions of Python, NumPy, SciPy, pandas, scikit-learn and joblib, the SHA-256 of the sorted list of installed distributions, the thread limits, the wall time and the exit code. One process pool runs at a time. No R phase, fast suite or study runs beside it |
+| R7, every reading publishes | a reading publishes whichever way it falls. A reading that names a defect in `cleverly` opens a new remediation row, with a nonzero witness that fails without the fix. That row's `id` enters "What this row asks for", and the ledger moves the cell to it. Every other reading leaves the owner where it is |
+
+The R3 budgets use the Monte Carlo standard-error forms of Morris, White and Crowther (2019),
+Table 6, with `z = 2.575829`. They read nominal values, gates and the 99% level, and no verdict.
+The coverage and rejection rows use Section 5.3, Equation (1), at the value that sets the widest
+error. The ratio rows use the relative error of the empirical SE, `1 / sqrt(2 (R - 1))`, which the
+rule rounds to `1 / sqrt(2R)`. They leave out the error of the mean reported SE.
+
+| statistic | nominal and gate | half-width | rule | budget |
+| --- | --- | --- | --- | ---: |
+| coverage | 0.95, floor 0.90 | 0.010 | `ceil(z^2 * 0.90 * 0.10 / 0.010^2)` = 5,972 | 6,000 |
+| SE ratio | 1, band edge 0.93 | 0.014 | `ceil((z / 0.014)^2 / 2)` = 16,926 | 17,000 |
+| empirical efficiency ratio | 1, band edge 1.10 | 0.020 | `ceil((z / 0.020)^2 / 2)` = 8,294 | 8,300 |
+| bias of a control, in SD | 0, margin 0.25 SD | 0.05 SD | `ceil((z / 0.05)^2)` = 2,654 | 2,655 |
+| rejection rate | 0.05, ceiling 0.10 | 0.010 | `ceil(z^2 * 0.05 * 0.95 / 0.010^2)` = 3,152 | 3,200 |
+
+Five further rules close the points that the design tables share. The seed-collision rule reads
+the assignment order in the table after them.
+
+| point | rule |
+| --- | --- |
+| reading order | each reading table is read from the top. The first condition that holds names the reading |
+| failed fit | a fit that raises, or that returns a non-finite estimate or standard error, stops the part. The part draws no replacement sample and states no reading |
+| seed collision | a fresh seed is judged against every seed that an RM18 part draws on the same registered record. That set holds the study's registered seeds, the seeds of every part earlier in the assignment order, and the seeds that the same part assigned earlier. A fresh seed in that set moves to the seed of the same label followed by `"retry"` and the smallest counter `j >= 1` that leaves the set. A `CoverageStudy` cell moves its whole seed when any replicate seed collides. The BD-P seeds are fixed by their records. A BD-P seed that equals a registered seed stops the part |
+| bootstrap streams | a diagnostic bootstrap seed is `stream_seed(record, "rm18", <design>, "bootstrap", <label>)`. Where a framework function derives its own stream from the record, the harness passes a copy of the record whose `resampling_seed` is that value |
+| two-arm differences | a difference between two independent arms, such as `Delta(n)`, takes its 99% percentile interval from the draw-by-draw difference of the two arms' bootstrap samples |
+
+| record | seed assignment order |
+| --- | --- |
+| `weighted-ltmle-crossfit` | the registered seeds and the BD-P pilot and step 2 seeds up to the 20,000 cap, then FW-A, then BD-3 |
+| `weighted-ltmle` | the registered seeds, then OW-A, then OW-B, then OW-C |
+| `canonical-multi-arm-drtmle` | the registered seeds and the 73,000 outer-rung seeds that SL declares, then `double_robust_contraction/outcome_correct_n4000`, then `root_n_and_efficiency/n_500`, then `interval_calibration/correctly_specified` |
+| `canonical-multi-arm-ctmle-selector`, `canonical-drtmle` | the registered seeds, then the one BD-1 cell |
+
+The seed labels below use the registered records by slug: `CROSSFIT` is `weighted-ltmle-crossfit`,
+`ORDINARY` is `weighted-ltmle`, `SELECTOR` is `canonical-multi-arm-ctmle-selector`, `BINARY` is
+`canonical-drtmle`, `MULTI` is `canonical-multi-arm-drtmle`, and `SHIFT` is `shift-policies`.
+
+(design-fw)=
+##### Design FW
+
+Design FW reads the two weighted cross-fitted cells. The question is whether the cross-fitted
+pooled update attains the selected-sample efficiency bound as `n` grows, under fixed known weights
+that depend on `W` alone. The design also asks whether the paired `ey_regimen[never]` deficit
+belongs to `cleverly`, to the comparator's SE convention, or to the 800-draw budget.
+
+Part FW-A is an efficiency ladder.
+
+| item | declaration |
+| --- | --- |
+| cell read | `weighted-ltmle-crossfit` `interval_calibration/static__correctly_specified` |
+| arm W | the registered cell: the selected law, weights `1/pi(W)`, and `fit(frame, "both_correct", cross_fit=True)` of `weighted_longitudinal_properties_common` |
+| arm U | the unweighted twin: `law.PROBS` sampled with selection probability 1 and weight 1, and the same fit |
+| sizes | 2,000, 8,000 and 32,000 |
+| budget | 8,300 replicates for each arm and size (R3, efficiency row) |
+| sample seed | `stream_seed(CROSSFIT, "rm18", "fixed-weights", arm, n, replicate)`, with `arm` equal to `W` or `U` |
+| bounds | W: `EFFICIENCY_SD["static"]` = 3.045683. U: `ltmle_crossfit_properties.EFFICIENCY_SD["static"]` = 2.574884, which is `sqrt(sum(law.PROBS * law.eif(...)^2))` |
+| statistics | for each arm and size: the empirical efficiency ratio `sqrt(n) * SD(psi) / bound`, the reported efficiency ratio `sqrt(n) * mean(SE) / bound`, the SE ratio and the coverage. `Delta(n)` is the empirical ratio of W minus that of U. The RMS-SE ratio is supplementary and enters no rule |
+| harness validation | R4 on the 2,400 committed replicates of the cell. The recomputed empirical efficiency ratio must be 1.060724, from 1.019495 to 1.100601 |
+
+| reading, on W at 32,000 | condition |
+| --- | --- |
+| `persistent excess` | the empirical efficiency interval's lower end is above 1.03 |
+| `finite-sample, contracting` | the empirical efficiency interval lies inside 0.97 to 1.03 |
+| `unresolved` | otherwise |
+
+The tolerance of 0.03 is 1.5 times the R3 half-width and under a third of the band half-width. At
+each size, a labelled attribution reads `Delta(n)`. It reads `weights add excess` if the interval
+lies above 0, `reverse` if it lies below 0, and `no weight-specific excess` otherwise.
+
+`finite-sample, contracting` explains the red cell as a finite-sample excess at the registered
+size that shrinks with `n`. Theorem 3 of Díaz, Williams, Hoffman and Schenck (2023) gives the
+efficient limit of the unweighted pooled update under its stated conditions. It has no
+observation weights and states no finite-sample rate. The reading is therefore consistent with
+the theorem, and the theorem does not prove it. `persistent excess` names an efficiency defect in
+the weighted pooled update and opens a row under R7. A pass at another size or budget does not
+re-read the registered cell, and `Delta(n)` does not locate a step.
+
+Part FW-B reads the paired `ey_regimen[never]` row. It shares its fresh draws with part BD-P.
+
+| step | declaration |
+| --- | --- |
+| 1, committed rows | recompute the paired comparison twice on the committed 800 draws. The `native` comparison uses the committed `lmtp-weighted` rows and must reproduce every leg of the committed `equivalence.csv` to the R4 tolerance. The `hajek` comparison replaces the `lmtp-weighted` standard error and coverage with the `hajek` rows of `reference-inference.csv.gz`. Both also report the `cleverly` coverage interval and SE ratio |
+| 2, fresh draws | the same two comparisons on the BD-P draws, at the BD-P budget `R_p` |
+
+| reading, at step 2 | condition |
+| --- | --- |
+| `equivalent at the declared budget` | the `native` comparison concludes `equivalent` or `superior` |
+| `comparator SE convention` | the `native` comparison fails its coverage or calibration leg, and the `hajek` comparison holds its similarity, RMSE, coverage and calibration legs |
+| `deficit in cleverly` | the `hajek` comparison fails its coverage leg with a calibration resolution at or below 0.05, and the `cleverly` coverage interval lies below 0.92 |
+| `unresolved` | otherwise |
+
+`deficit in cleverly` opens a row in tier a, because the interval is anti-conservative (R7). Every
+other reading is recorded. This reading does not re-declare the registered comparator convention.
+
+While this design was planned, the committed rows of `ey_regimen[never]` were read. The table
+gives the values. The rules above were fixed after that read, and they do not refer to these values.
+
+| implementation and convention | coverage | SE ratio |
+| --- | ---: | ---: |
+| `cleverly` | 0.93125 | 0.988 |
+| `lmtp`, native | 0.94875 | 1.032 |
+| `lmtp`, Hájek | 0.940 | 0.999 |
+
+(design-ow)=
+##### Design OW
+
+Design OW reads the ordinary weighted study. The question is whether the calibration and
+sharp-null failures of the ordinary weighted fit are a finite-sample deficit of the plug-in
+variance that contracts with `n`. The design also asks whether the `targeting_necessity` family is
+red because its untargeted control sits at the discrimination threshold by design.
+
+| item | OW-A, calibration ladder | OW-B, sharp null | OW-C, targeting family |
+| --- | --- | --- | --- |
+| cells read | `interval_calibration/static__correctly_specified` | `type_i_error/static__sharp_null` | the four `targeting_necessity` cells |
+| law and arms | the selected law (W) and its unweighted twin (U), as in FW-A | `ltmle_properties.NULL_PROBS`, arms W and U | the selected law, configuration `mechanism_correct` |
+| estimator | `fit(frame, "both_correct", cross_fit=False)` | the same | the registered pair: the targeted fit, and `untargeted` on the same frame |
+| sizes | 2,000, 8,000 and 32,000 | 4,000, the registered size, and 16,000 | 2,000, the registered size |
+| budget | 17,000 for each arm and size (R3, SE-ratio row) | 3,200 for each arm and size (R3, rejection row) | 2,655 (R3, control-bias row) |
+| sample seed | `stream_seed(ORDINARY, "rm18", "ordinary-weighted", "interval_calibration", arm, n, replicate)` | `stream_seed(ORDINARY, "rm18", "ordinary-weighted", "type_i_error", arm, n, replicate)` | `stream_seed(ORDINARY, "rm18", "ordinary-weighted", "targeting_necessity", replicate)`, one draw for all four cells |
+| statistics | the SE ratio, the coverage, and the reported and empirical efficiency ratios against the FW-A bounds. `Delta_SE(n)` is the SE ratio of W minus that of U. The RMS-SE ratio is supplementary | the rejection rate, the coverage and the SE ratio | each cell's bias interval against its margin, and the family displacement. Also `b_inf`, the exact population limit of the static untargeted plug-in, and `p_1200`, the probability that the registered design of 1,200 replicates discriminates |
+| harness validation | R4 on the 2,400 committed replicates | R4 on the 800 committed replicates | R4 on the 1,200 committed replicates of the family |
+
+`b_inf` comes from an exact-law frame. Each support point enters in integer proportion to
+`SELECTED_PROBS`, so a point with `W > 0` enters once and a point with `W = 0` three times. The
+frame carries `obs_weight` equal to `1/pi(W)`. The ordinary fit and `untargeted` run on that
+frame, and `b_inf` is the untargeted static contrast minus its truth. As a precondition, the
+exact-law untargeted value of each regimen must equal the longhand weighted follower mean to 1e-12.
+
+`SD` is the empirical SD of the fresh static untargeted estimates. The population standardized
+bias is `b = abs(b_inf) / SD`. With `t` the Student quantile `t(0.995, 1,199)`, the normal
+approximation gives this probability.
+
+```text
+p_1200 = Phi(sqrt(1,200) * (b - 0.25) - t) + Phi(-sqrt(1,200) * (b + 0.25) - t)
+```
+
+A supplementary row reports `p_1200` at the two ends of the 99% interval of `SD`. That interval
+is the percentile bootstrap of 10,000 draws on the OW bootstrap stream with the label
+`control SD`. The row enters no reading. It shows how far the Monte Carlo error of `SD` moves
+`p_1200` near its 0.80 threshold.
+
+| part | reading | condition |
+| --- | --- | --- |
+| OW-A, on W at 32,000 | `persistent deficit` | the SE-ratio interval's upper end is below 0.97 |
+| OW-A | `finite-sample, contracting` | the SE-ratio interval lies inside 0.97 to 1.03 |
+| OW-A | `unresolved` | otherwise |
+| OW-B, on W at 4,000 | `resolved outside gate` | the rejection interval's lower end is above 0.10, or the coverage interval's upper end is below 0.90 |
+| OW-B | `resolved within gate` | the rejection interval's upper end is at or below 0.10, and the coverage interval's lower end is at or above 0.90 |
+| OW-B | `unresolved` | otherwise. The 16,000 rung is descriptive |
+| OW-C, population | `control inert` | `b` is at or below 0.25, so no budget discriminates at n = 2,000 |
+| OW-C, population | `control underpowered by design` | `p_1200` is below 0.80 |
+| OW-C, population | `control discriminable by design` | otherwise |
+| OW-C, fresh draws | `family resolved` | the registered family rule holds at 2,655: every cell passes its own rule, and the smaller displacement is at or above 0.25 |
+| OW-C, fresh draws | `family not resolved` | otherwise |
+
+A contracting deficit would fit an in-sample overfit of the influence-curve variance, which
+weights can enlarge through a smaller effective sample size. No source read for this design
+proves that for this estimator. Landsiedel, Petersen and van der Laan (2026), an arXiv preprint,
+study a different two-stage IPCW-LTMLE. Their abstract reports coverage as low as 76% for the
+standard variance estimators, and nominal coverage for the cross-fitted ones. `persistent deficit`
+and `resolved outside gate` open a row in tier a (R7).
+
+A boundary control is a design property of the family, and not an estimator fact. `control inert`
+and `control underpowered by design` are recorded. A future re-declaration of the control law must
+come before any regeneration, as the control precedent at `69de6f8` allows. The family shares its
+draws with its positive arm, so R1 refuses a change of its size. A pass at 32,000, at 16,000 or at
+2,655 does not re-read the registered cell.
+
+(design-bd)=
+##### Design BD
+
+Design BD reads the boundary cells. The question is whether each boundary cell's truth satisfies
+its registered gate, at a budget that a verdict-free rule sets, on fresh draws. The design also
+gives the pass probability of each registered budget at the nominal truth.
+
+| part | cells | declaration |
+| --- | --- | --- |
+| BD-0 | the five cells with a coverage or SE-ratio gate | the pass probability of the registered design at the nominal truth: coverage 0.95 and SE ratio 1. Coverage uses the exact binomial law. The SE-ratio band uses the normal approximation with a relative SD of `1 / sqrt(2R)`. It reads no verdict |
+| BD-1 | `SELECTOR` `root_n_and_efficiency/n_500`; `BINARY` `double_robust_contraction/treatment_correct_n1500`; `MULTI` `double_robust_contraction/outcome_correct_n4000` and `root_n_and_efficiency/n_500` | 6,000 fresh replicates (R3, coverage row) with the cell's law, learners, size and estimator. A multi-arm cell runs `replace(cell, seed=stream_seed(record, "rm18", "boundary", property, cell), replicates=6000)` through `run_cells`. The binary cell draws replicate `k` with `stream_seed(BINARY, "rm18", "boundary", property, cell, k)` and fits as `_property_replicate` does. The statistic is the cell's full registered rule |
+| BD-2 | `MULTI` `interval_calibration/correctly_specified` | 17,000 fresh replicates (R3, SE-ratio row) at n = 2,000, with the oracle outcome and the correct treatment model. The seed is `stream_seed(MULTI, "rm18", "boundary", "interval_calibration", "correctly_specified")` as the `CoverageStudy` seed. The statistics are the SE-ratio bootstrap interval and the coverage against the registered bands. The RMS-SE ratio is supplementary |
+| BD-3 | `CROSSFIT` `double_robustness/static__both_wrong` | 2,655 fresh replicates (R3, control-bias row) at n = 2,000, with the registered `both_wrong` configuration. The sample seed is `stream_seed(CROSSFIT, "rm18", "boundary", "double_robustness", "both_wrong", replicate)`. Also `b_inf`, the exact population limit of the both-wrong fit on the OW-C exact-law frame, with one outer fold |
+| BD-P | `CROSSFIT` paired `ey_regimen[always]` and `ey_regimen[treat then continue if l2 positive]`, with the FW-B row `ey_regimen[never]` | step 1 recompares the committed 800 draws, as FW-B does. Step 2 draws fresh primary samples and fits both implementations, as the rest of this table gives |
+
+The registered rules that BD-1, BD-2 and BD-3 apply are these.
+
+| cell kind | registered rule | the truth fails the gate when |
+| --- | --- | --- |
+| `root_n_and_efficiency` | the coverage interval's lower end is at or above 0.90, the SE ratio lies inside 0.80 to 1.20, and the bias interval lies inside 0.25 SD | the coverage interval's upper end is below 0.90, the bias interval lies wholly outside 0.25 SD, or the SE ratio lies outside 0.80 to 1.20 |
+| `double_robust_contraction` rung | the coverage interval's lower end is at or above 0.90 | the coverage interval's upper end is below 0.90 |
+| `interval_calibration` | the SE-ratio interval lies inside 0.93 to 1.07, and the coverage interval lies inside 0.92 to 0.98 | the SE-ratio interval lies wholly outside 0.93 to 1.07, or the coverage interval lies wholly outside 0.92 to 0.98 |
+| `double_robustness` control | the bias interval lies wholly outside 0.25 SD, and the SE ratio lies inside 0.1 to 10 | the bias interval lies wholly inside 0.25 SD, or the SE ratio lies outside 0.1 to 10 |
+
+| reading, BD-1 to BD-3 | condition |
+| --- | --- |
+| `resolved: truth satisfies the gate` | the fresh rows satisfy the registered rule |
+| `resolved: truth fails the gate` | the fresh rows meet the failing condition of the table above |
+| `unresolved` | otherwise |
+
+BD-3 also reads `control inert` when `abs(b_inf) / SD` is at or below 0.25, with `SD` the empirical
+SD of the fresh both-wrong estimates. It reads `control not inert` otherwise.
+
+BD-P step 2 sizes its budget with a pilot.
+
+| item | declaration |
+| --- | --- |
+| harness validation | the registered 800 primary draws, refit by both implementations through the step 2 path. The `cleverly` rows must reproduce the committed rows to R4. The `lmtp-weighted` rows and their `native`, `horvitz_thompson` and `hajek` standard errors must reproduce `replicates.csv.gz` and `reference-inference.csv.gz` to R4 |
+| pilot | 800 fresh primary draws, both implementations, on the throwaway record `replace(CROSSFIT, seed=stream_seed(CROSSFIT, "rm18", "boundary-pilot"))`. The pilot rows enter no reading |
+| `r_pilot` | the largest `calibration_excess_resolution` of the pilot, over the three mean rows and the `native` and `hajek` comparisons |
+| budget | `R_p = min(20,000, max(800, ceil(800 * (r_pilot / 0.025)^2)))`. The target resolution 0.025 is half the calibration margin. A non-finite `r_pilot` stops the part |
+| fresh draws | `R_p` primary draws on the record `replace(CROSSFIT, seed=stream_seed(CROSSFIT, "rm18", "boundary-paired"))`, through `draw_and_fit` of `weighted_longitudinal_common` and the registered `lmtp` runner |
+| comparisons | the framework `equivalence` on that record, once with the `native` rows and once with the `hajek` rows |
+| order | the pilot runs, and `pilot.csv` with `R_p` is committed and pushed before step 2 starts |
+
+| reading, BD-P, per row | condition |
+| --- | --- |
+| `equivalent at the declared budget` | the `native` comparison concludes `equivalent` or `superior` |
+| `comparator SE convention` | the `hajek` comparison concludes `equivalent` or `superior` |
+| the two conclusions | otherwise, as `comparison_conclusion` names them for `native` and `hajek` |
+
+A `truth fails the gate` reading on a positive cell opens a row, in tier a if the interval is
+anti-conservative (R7). On a control it records a weak control, as OW-C does. Every other reading
+is recorded, and the cell keeps its owner. A `truth satisfies the gate` reading beside a BD-0 pass
+probability below 1 explains the red cell as a finite-budget miss. No re-read replaces a registered
+verdict, and no study is regenerated at a re-read budget.
+
+BD-0 gives these pass probabilities at the nominal truth. They were computed while this design was
+planned, from budgets, bands and nominal values alone.
+
+| cell | registered budget | pass probability |
+| --- | ---: | ---: |
+| `SELECTOR` `root_n_and_efficiency/n_500` | 400 | 0.849 |
+| `BINARY` `double_robust_contraction/treatment_correct_n1500` | 800 | 0.998 |
+| `MULTI` `double_robust_contraction/outcome_correct_n4000` | 600 | 0.981 |
+| `MULTI` `root_n_and_efficiency/n_500` | 400 | 0.849 |
+| `MULTI` `interval_calibration/correctly_specified`, SE-ratio leg | 1,600 | 0.834 |
+
+(design-cd)=
+##### Design CD
+
+Design CD reads the continuous modified treatment policy row. The question is whether the
+calibration excess of `cleverly` over `lmtp` on `ate_shift[+0.25 vs natural course]` comes from
+the 320-bin pooled-hazard density, from the targeting step, or from the comparator.
+
+| item | declaration |
+| --- | --- |
+| cell read | `shift-policies` paired `continuous_modified_policy/ate_shift[+0.25 vs natural course]` |
+| data | the 800 registered primary draws, drawn again from their seeds, and the committed `lmtp` rows. No new draw and no R run |
+| arm Cb | the registered `cleverly` fit |
+| arm Ca | the same fit, targeted again through `result.estimator.retarget` after `nuisance.shifts` is rebuilt by `ShiftSet.evaluate(shifts, data, AnalyticDensity)`. `AnalyticDensity.density_at(a)` is `phi(a - mu(W))` with `mu(W) = 2 + 0.7 W1 - 0.3 W2` and SD 1 |
+| arm L | the committed `lmtp` rows |
+| exact bound | `sigma* = sqrt(0.8^2 * (exp(delta^2) - 1) + (2 * 0.15 * delta)^2 * Var(A))`, with `Var(A)` = 1.58 and `delta` = 0.25. So `sigma*` = 0.223973. The influence function is Result 1, equation (5), of Díaz Muñoz and van der Laan (2012), with `h = exp(delta * (A - mu) - delta^2 / 2)` |
+| statistics | for each arm, `rho_rep = sqrt(n) * mean(SE) / sigma*`, `rho_emp = sqrt(n) * SD(psi) / sigma*`, and `D = abs(rho_rep - 1)`. The paired bootstrap gives 99% intervals of `D_Cb - D_L`, `D_Ca - D_L` and `D_Cb - D_Ca` from one index matrix, with the label `D`. The framework calibration excess, bound and resolution come for the pairs (Cb, L), (Ca, L) and (Cb, Ca), on the registered stream `stream_seed(SHIFT, "equivalence", scenario, estimand)` |
+| harness validation | R4: the Cb refit reproduces every committed `cleverly` row of all five estimands, 800 by 5. The (Cb, L) excess bound and resolution reproduce 0.065856 and 0.045019. A unit test checks `sigma*` against Gauss-Hermite quadrature to 1e-6 |
+
+| reading | condition |
+| --- | --- |
+| `cleverly density representation` | the `D_Cb - D_L` interval lies above 0, the `D_Ca - D_L` interval does not lie above 0, and the (Ca, L) excess bound is at or below 0.05 |
+| `cleverly, not the density` | the `D_Cb - D_L` and `D_Ca - D_L` intervals both lie above 0 |
+| `comparator` | the `D_Cb - D_L` interval lies below 0 |
+| `unresolved` | otherwise |
+
+The first reading confirms, under a declared rule, the cause that the study page states under
+"Limits". It is recorded, because the 320-bin density is the documented estimator. `cleverly, not
+the density` opens a row that localizes the targeting step (R7), as RM19 was opened. The other
+readings are recorded. No reading moves the registered paired verdict.
+
+While this design was planned, the committed primary rows gave `rho_rep` = 1.0724 for `cleverly`
+and 0.9984 for `lmtp`, and `rho_emp` = 1.0395 and 1.0094. Three Ca refits gave standard errors of
+0.005092, 0.004973 and 0.004802. The same three Cb fits gave 0.005206, 0.004924 and 0.004964. The
+rule does not depend on these values.
+
+(design-sl)=
+##### Design SL
+
+Design SL reads the multi-arm contraction slopes. The question is whether each multi-arm
+one-correct bias contracts with `n` on this law, with the outer rungs sized by the declared rule.
+
+| item | declaration |
+| --- | --- |
+| cells read | `MULTI` `double_robust_contraction/rate_outcome_correct` and `rate_treatment_correct`. The control `rate_both_wrong` rides along |
+| law, learners, sizes and seeds | unchanged: `multi_arm_properties.Sampler()`, `_nuisances(scenario)`, n = 2,000, 4,000 and 8,000, and the ladder seeds `24_000 + 300 i + 100 j`. The `CoverageStudy` seed stream is prefix-stable, so rows 0 to 599 of every rung equal the committed rows |
+| budget | 73,000 on the outer rungs (2,000 and 8,000) of all three scenarios, and 600 on the middle rung. The rule is the one `CONTRACTION_REPLICATES` declares in `drtmle_properties.py`, as `tests/diagnostics/rm18_rung_cost/cost.csv` evaluates it: the smallest budget on a 1,000 grid whose surrogate 99% half-width of the slope is at or below 1 under every surrogate seed. `treatment_correct` needs 70,000 to 73,000. One budget serves all three scenarios, as the binary ladder declares |
+| control budget | the `both_wrong` control runs the positives' budget, so the instrument's control has the positives' resolution |
+| verdict budget | a new `CONTRACTION_VERDICT_REPLICATES = 600` in `multi_arm_drtmle_properties.py`, passed as `verdict_replicates=600`, with the binary module's import-time guards |
+| statistic | the registered slope of log absolute mean bias on log `n`, with the 99% percentile bootstrap of 10,000 draws on the unchanged stream `stream_seed(MULTI, CONTRACTION_FAMILY, scenario)`. Each rung also reports its bias with the 99% Student interval |
+| harness validation | before the run, refit rows 0 to 599 of the six outer rungs to R4. After the run, every other cell, the primary Python rows and the committed R rows (`--skip-reference`) must reproduce to R4. The inputs of the rung-cost diagnostic, read at the 600-row verdict budget, must not change |
+| prediction | the control's slope half-width shrinks by about `sqrt(73,000 / 600)` = 11.03, from 0.0438 to about 0.0040, within 15% |
+| publication policy | `reporting`, unchanged |
+
+| reading, per positive arm | condition |
+| --- | --- |
+| `grows` | the slope interval lies above 0 |
+| `contracts` | the slope interval lies below 0, and the n = 2,000 bias interval excludes 0 |
+| `contracts at the noise floor` | the slope interval lies below 0, and the n = 2,000 bias interval covers 0 |
+| `does not contract` | the slope interval covers 0, and the n = 2,000 bias interval excludes 0 |
+| `no resolved bias` | the slope interval covers 0, and the n = 2,000 bias interval covers 0 |
+
+`contracts at the noise floor` exists because a zero bias can give a negative slope through Monte
+Carlo error alone. The absolute bias estimate then tracks its standard error, which falls as
+`n^-1/2`.
+
+The control keeps its registered rule: it passes unless its slope interval lies below 0. The raised
+control budget carries a declared risk. The both-wrong bias can carry an `O(1/n)` transient, and at
+73,000 replicates that transient can place the control's interval below 0. The reading is then
+`instrument cannot separate a transient from contraction at this budget`. The control turns red,
+`RM18-slopes` owns it, and no `contracts` reading of a positive arm counts as evidence of
+contraction.
+
+| reading | route |
+| --- | --- |
+| `contracts` | the registered rule turns the rate cell green in the regenerated artifacts. `CLAIMS["RM18-slopes"]` drops the cell |
+| `contracts at the noise floor` | the same ledger move. The multi-arm page states the qualification |
+| `no resolved bias` | recorded. The cell stays red |
+| `does not contract` or `grows` | a new row (R7) that localizes the armwise extension. The cell moves to that owner |
+
+SL extends the registered study, so it follows the regeneration rules of method benchmarking. A
+disposable smoke run and the R4 pre-check come first. The declared regeneration runs with
+`--skip-reference`, no failed replication and no margin change.
+
+(what-the-five-designs-found)=
+#### What the five designs found
+
+Designs FW, OW, BD and CD each ran once, under the declarations above. Pull request 245 records
+the runs. Design SL has not run, and a later pull request carries it.
+
+Each part ran from a clean commit that its upstream held. The runtime was Python 3.13.7 with
+SciPy 1.18.0, and `cleverly` came from the tree's `src`. The `run.log` in each design directory
+records the commit, the command, the versions, the wall time and the exit code. Every part passed
+its harness validation (R4) before it drew a fresh sample. The largest scaled difference over all
+checks was 1.0e-14, against the tolerance of 1e-9.
+
+Every fresh value below comes from a `*-reading.csv` file in the design's directory. A value that
+the text calls registered comes from the study's `properties.csv`. The fast-tier test of each
+design rebuilds each reading file from the committed rows. BD-P step 2 is the one exception: its
+test rebuilds the reading from `bd-p2-comparisons.csv`.
+
+| design | part | reading | route |
+| --- | --- | --- | --- |
+| FW | FW-A | `finite-sample, contracting` | recorded |
+| FW | FW-B | `equivalent at the declared budget` | recorded |
+| OW | OW-A | `finite-sample, contracting` | recorded |
+| OW | OW-B | `resolved within gate` | recorded |
+| OW | OW-C, population | `control underpowered by design` | recorded. A deferred row holds the control re-declaration |
+| OW | OW-C, fresh draws | `family resolved` | recorded |
+| BD | BD-1, four cells, and BD-2 | `resolved: truth satisfies the gate` | recorded |
+| BD | BD-3 | `resolved: truth satisfies the gate` and `control not inert` | recorded |
+| BD | BD-P, two rows | `comparator SE convention` | recorded. A deferred row holds the comparator convention |
+| CD | CD | `cleverly density representation` | recorded |
+
+No reading names a defect in `cleverly`. The CD reading attributes the calibration excess to
+`cleverly`, to its 320-bin density. That density is the documented estimator, so the declaration
+records the reading and opens no row. R7 therefore opens no row, and every cell keeps its owner
+in the ledger. No verdict, margin, budget, seed or registered artifact moved (R1). Each cell
+that these designs read stays red under `reporting` at its registered budget.
+
+(what-design-fw-found)=
+##### What design FW found
+
+[`tests/diagnostics/rm18_fixed_weights/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_fixed_weights) holds the FW-A code, rows, reading and run record.
+[`tests/diagnostics/rm18_boundary/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_boundary) holds FW-B, because FW-B reads the BD-P draws.
+
+FW-A drew 8,300 fresh replicates for each arm and size. The table gives each empirical efficiency
+ratio with its 99% interval, and the labelled attribution of `Delta(n)`.
+
+| n | arm W | arm U | `Delta(n)` | attribution |
+| ---: | --- | --- | --- | --- |
+| 2,000 | 1.0566, 1.0348 to 1.0777 | 1.0204, 1.0006 to 1.0410 | 0.0362, 0.0064 to 0.0651 | `weights add excess` |
+| 8,000 | 1.0132, 0.9928 to 1.0339 | 1.0038, 0.9832 to 1.0238 | 0.0094, -0.0192 to 0.0381 | `no weight-specific excess` |
+| 32,000 | 0.9999, 0.9801 to 1.0200 | 0.9994, 0.9793 to 1.0194 | 0.0005, -0.0288 to 0.0294 | `no weight-specific excess` |
+
+On arm W at 32,000, the interval lies inside 0.97 to 1.03. The reading is therefore
+`finite-sample, contracting`. The arm W coverage is 0.9339, 0.9440 and 0.9529 at the three sizes.
+
+Under the declared rule, the registered cell's efficiency excess is a finite-sample excess that
+shrinks with `n` on this law. At 2,000, the weights add excess over the unweighted twin. The twin
+also shows an excess at 2,000, because its interval lies above 1.
+
+FW-B read the paired `ey_regimen[never]` row twice. Step 1 used the 800 committed draws. Step 2
+used the 19,892 fresh draws that BD-P sized.
+
+| step | draws | `native` conclusion | `hajek` conclusion |
+| --- | ---: | --- | --- |
+| 1, committed rows | 800 | `underpowered`, excess resolution 0.0662 | `equivalent`, excess resolution 0.0082 |
+| 2, fresh draws | 19,892 | `equivalent`, excess resolution 0.0245 | `equivalent`, excess resolution 0.0027 |
+
+The step 2 `native` comparison concludes `equivalent`. The reading is therefore `equivalent at the
+declared budget`. The fresh `cleverly` coverage interval runs 0.9389 to 0.9474, with an SE ratio
+of 0.9938.
+
+What FW does not show:
+
+- It does not re-read either registered cell. The calibration cell stays red at 2,400 replicates,
+  and the paired row stays `underpowered` at 800 draws.
+- It gives no rate of contraction, and `Delta(n)` does not locate a step.
+- It covers one finite-support law, with fixed known weights that depend on `W` alone.
+- The reading is consistent with Theorem 3 of Díaz, Williams, Hoffman and Schenck (2023), and the
+  theorem does not prove it. The theorem has no observation weights.
+- The fresh `cleverly` coverage interval of `ey_regimen[never]` lies below 0.95. It lies inside
+  the 0.92 to 0.98 band.
+
+(what-design-ow-found)=
+##### What design OW found
+
+[`tests/diagnostics/rm18_ordinary_weighted/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_ordinary_weighted) holds the code, rows, readings and run record.
+
+OW-A drew 17,000 fresh replicates for each arm and size. The table gives each SE ratio with its
+99% interval, the descriptive `Delta_SE(n)`, and the arm W coverage.
+
+| n | arm W SE ratio | arm U SE ratio | `Delta_SE(n)` | arm W coverage |
+| ---: | --- | --- | --- | --- |
+| 2,000 | 0.9499, 0.9364 to 0.9634 | 0.9755, 0.9620 to 0.9893 | -0.0256, -0.0447 to -0.0064 | 0.9275, 0.9222 to 0.9325 |
+| 8,000 | 0.9950, 0.9813 to 1.0091 | 0.9909, 0.9774 to 1.0044 | 0.0041, -0.0149 to 0.0243 | 0.9473, 0.9427 to 0.9516 |
+| 32,000 | 0.9923, 0.9788 to 1.0059 | 0.9956, 0.9819 to 1.0100 | -0.0033, -0.0227 to 0.0159 | 0.9471, 0.9425 to 0.9514 |
+
+On arm W at 32,000, the SE-ratio interval lies inside 0.97 to 1.03. The reading is therefore
+`finite-sample, contracting`. Under the declared rule, the standard-error deficit of the ordinary
+weighted fit at 2,000 shrinks with `n` on this law. At 2,000 the unweighted twin also reports a
+deficit, and the weighted deficit is larger.
+
+OW-B drew 3,200 fresh replicates for each arm and size.
+
+| arm and n | rejection rate | coverage | SE ratio |
+| --- | --- | --- | ---: |
+| W, 4,000 | 0.0525, 0.0429 to 0.0635 | 0.9475, 0.9365 to 0.9571 | 0.9964 |
+| W, 16,000 | 0.0578, 0.0477 to 0.0693 | 0.9422, 0.9307 to 0.9523 | 0.9847 |
+| U, 4,000 | 0.0513, 0.0417 to 0.0621 | 0.9488, 0.9379 to 0.9583 | 0.9985 |
+| U, 16,000 | 0.0509, 0.0414 to 0.0618 | 0.9491, 0.9382 to 0.9586 | 0.9982 |
+
+On arm W at 4,000, the rejection interval lies under the 0.10 ceiling. The coverage interval clears
+the 0.90 floor. The reading is therefore `resolved within gate`. The registered cell reads 0.0750,
+from 0.0530 to 0.1022, over 800 draws. The 16,000 rung is descriptive.
+
+OW-C computed `b_inf` on the exact-law frame, and its precondition held to 3.1e-15.
+
+| quantity | value |
+| --- | --- |
+| `b_inf` | -0.022051 |
+| fresh `SD` | 0.064628, from 0.062310 to 0.066923 |
+| `b = abs(b_inf) / SD` | 0.3412 |
+| `p_1200` | 0.7188 |
+| `p_1200` at the ends of the `SD` interval, supplementary | 0.5690 to 0.8459 |
+
+`b` lies beyond 0.25, and `p_1200` lies below 0.80. The population reading is therefore `control
+underpowered by design`. The registered family of 1,200 replicates discriminates this control with
+a probability of about 0.72, by the normal approximation. The red family is therefore a property
+of its design, and not an estimator fact.
+
+At 2,655 fresh replicates, every cell passes its own rule. The static untargeted control's bias
+runs -0.0245 to -0.0181, wholly outside its margin of 0.0162. The family displacement is 0.3259,
+at or above 0.25. The fresh reading is therefore `family resolved`.
+
+What OW does not show:
+
+- It does not re-read any registered cell. The six rows stay red at their registered budgets.
+- No source read for this design proves the mechanism of the OW-A deficit. `Delta_SE(n)` is
+  descriptive.
+- The supplementary `p_1200` row crosses 0.80. The population label therefore rests on the point
+  value of `SD`.
+- A resolved family at 2,655 does not re-read the family at 1,200. R1 refuses a change of the
+  family's size, because the family shares its draws with its positive arm.
+
+(what-design-bd-found)=
+##### What design BD found
+
+[`tests/diagnostics/rm18_boundary/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_boundary) holds the code, rows, readings and run record.
+
+BD-0 recomputed the pass probabilities of the declaration: 0.848978, 0.997736, 0.980666, 0.848978
+and 0.833632, in the order of its table. BD-1, BD-2 and BD-3 read each cell on fresh draws.
+
+| cell | fresh replicates | coverage | other legs of the rule | reading |
+| --- | ---: | --- | --- | --- |
+| `SELECTOR` `root_n_and_efficiency/n_500` | 6,000 | 0.9402, 0.9318 to 0.9478 | bias -0.00217 to 0.00138 against 0.01336; SE ratio 0.9775 | `resolved: truth satisfies the gate` |
+| `BINARY` `double_robust_contraction/treatment_correct_n1500` | 6,000 | 0.9270, 0.9179 to 0.9354 | none | `resolved: truth satisfies the gate` |
+| `MULTI` `double_robust_contraction/outcome_correct_n4000` | 6,000 | 0.9538, 0.9464 to 0.9605 | none | `resolved: truth satisfies the gate` |
+| `MULTI` `root_n_and_efficiency/n_500` | 6,000 | 0.9515, 0.9439 to 0.9584 | bias -0.00282 to 0.00076 against 0.01346; SE ratio 1.0166 | `resolved: truth satisfies the gate` |
+| `MULTI` `interval_calibration/correctly_specified` | 17,000 | 0.9513, 0.9469 to 0.9554 | SE ratio 1.0075, 0.9932 to 1.0217 | `resolved: truth satisfies the gate` |
+| `CROSSFIT` `double_robustness/static__both_wrong` | 2,655 | not read | bias -0.02427 to -0.01768 against 0.01646; SE ratio 0.6763 | `resolved: truth satisfies the gate` |
+
+The supplementary RMS-SE ratio of the calibration cell is 1.0076. For BD-3, `b_inf` is -0.022051
+and the fresh `SD` is 0.065858, so `abs(b_inf) / SD` is 0.3348. BD-3 therefore also reads `control
+not inert`.
+
+The binary rung's fresh bias interval runs 0.00774 to 0.00965. It lies above the 0.25 SD margin of
+0.00719. The registered rung rule reads coverage alone, as `contraction_verdicts` in
+`tests/studies/evidence/property_verdicts.py` states. The declared rung row reads no bias, so the
+reading follows its rule.
+
+The registered `double_robustness/treatment_correct` cell of
+`canonical-drtmle` judges this bias, in the same scenario at n = 1,500. `RM18-one-sided-bias` owns
+that cell. The fresh bias interval is supplementary, and it moves nothing.
+[RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) is related work, on paired rows at
+n = 3,000.
+
+`test_the_harness_rule_reproduces_each_registered_red_verdict` in
+`tests/unit/test_rm18_boundary_diagnostic.py` applies the harness rule to the committed registered
+rows of all six cells, on the registered bootstrap stream and at the verdict budget. It
+reproduces each published red verdict, and each published coverage, bias, margin and SE-ratio
+leg.
+
+Each fresh interval satisfies its registered gate. Beside the BD-0 pass probabilities below 1,
+the declared rule labels the five coverage and calibration cells as finite-budget misses. The
+binary rung's fresh coverage interval and the selector cell's fresh coverage interval lie wholly
+below 0.95. For these two cells, the fresh coverage is below nominal, and the label does not
+say that the true coverage is 0.95.
+
+The table below is supplementary, and no rule reads it. It applies the BD-0 formula of `run.py`
+with the fresh point estimate of the committed reading in place of the nominal value. The
+coverage rows use the registered budget and the exact binomial law. The SE-ratio row uses the
+registered budget of 1,600 and the normal approximation with an SD of `1 / sqrt(2R)`. The
+coverage rows give the coverage leg alone.
+
+| cell | registered budget | fresh point | pass probability at 0.95 or 1 (BD-0) | pass probability at the fresh point |
+| --- | ---: | ---: | ---: | ---: |
+| `SELECTOR` `root_n_and_efficiency/n_500`, coverage leg | 400 | 0.9402 | 0.849 | 0.560 |
+| `BINARY` `double_robust_contraction/treatment_correct_n1500` | 800 | 0.9270 | 0.998 | 0.513 |
+| `MULTI` `double_robust_contraction/outcome_correct_n4000` | 600 | 0.9538 | 0.981 | 0.994 |
+| `MULTI` `root_n_and_efficiency/n_500`, coverage leg | 400 | 0.9515 | 0.849 | 0.880 |
+| `MULTI` `interval_calibration/correctly_specified`, SE-ratio leg | 1,600 | 1.0075 | 0.834 | 0.796 |
+
+BD-0 does not cover the BD-3 control. Its fresh bias interval lies wholly outside the margin,
+which the registered 1,200 replicates did not resolve.
+
+BD-P sized its step 2 budget with a pilot of 800 fresh draws. The largest pilot resolution,
+`r_pilot`, was 0.12466, on the `native` comparison of `ey_regimen[always]`. The budget rule gave
+`R_p` = 19,892, below the cap of 20,000.
+
+| row | step 1 `native` | step 1 `hajek` | step 2 `native` | step 2 `hajek` | reading |
+| --- | --- | --- | --- | --- | --- |
+| `ey_regimen[always]` | `underpowered` | `equivalent` | `inconclusive` | `equivalent` | `comparator SE convention` |
+| `ey_regimen[treat then continue if l2 positive]` | `underpowered` | `equivalent` | `inconclusive` | `equivalent` | `comparator SE convention` |
+
+At step 2, the `native` coverage-difference bounds are -0.0345 and -0.0337, against the margin of
+-0.025. The `hajek` bounds are -0.0020 and -0.0049. The fresh `cleverly` coverage intervals run
+0.9431 to 0.9513 and 0.9401 to 0.9485, with SE ratios of 0.9995 and 0.9926.
+
+With the Hájek standard error of `lmtp`, both rows conclude `equivalent`. With the native
+Horvitz-Thompson standard error, both fail the coverage leg. RM18 records this convention and
+does not re-declare it. A deferred row below holds that choice for a future regeneration.
+
+What BD does not show:
+
+- No re-read replaces a registered verdict. No study is regenerated at a re-read budget.
+- The fresh point estimates are not the true values. The supplementary pass probabilities carry
+  the Monte Carlo error of those estimates.
+- BD-P does not show which standard-error convention suits the `lmtp` target in general. It shows
+  the conclusion of each convention at this budget, on this law.
+
+(what-design-cd-found)=
+##### What design CD found
+
+[`tests/diagnostics/rm18_comparator_density/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_comparator_density) holds the code, rows, reading and run record.
+
+CD refit the 800 registered primary draws. The Cb refit reproduced all 4,000 committed `cleverly`
+rows. The (Cb, L) excess bound and resolution reproduced 0.065856 and 0.045019. The exact bound
+`sigma*` is 0.223973.
+
+| arm | `rho_rep` | `rho_emp` | `D` |
+| --- | ---: | ---: | ---: |
+| Cb, the registered 320-bin fit | 1.0724 | 1.0395 | 0.0724 |
+| Ca, the same fit with the analytic density | 1.0008 | 1.0104 | 0.0008 |
+| L, `lmtp` | 0.9984 | 1.0094 | 0.0016 |
+
+| statistic | value | 99% interval |
+| --- | ---: | --- |
+| `D_Cb - D_L` | 0.0708 | 0.0589 to 0.0822 |
+| `D_Ca - D_L` | -0.0007 | -0.0027 to 0.0027 |
+| `D_Cb - D_Ca` | 0.0716 | 0.0610 to 0.0821 |
+| (Ca, L) calibration excess bound, and its resolution | 0.0079 | resolution 0.0093 |
+| (Cb, Ca) calibration excess bound, and its resolution | 0.0633 | resolution 0.0411 |
+
+`D_Cb - D_L` lies above 0, and `D_Ca - D_L` covers 0. The (Ca, L) excess bound is below 0.05. The
+reading is therefore `cleverly density representation`. With the analytic density, the same
+`cleverly` fit reports a standard error on the scale of the exact bound, as `lmtp` does. The
+320-bin density is the documented estimator, so the reading is recorded.
+
+What CD does not show:
+
+- It does not move the registered paired verdict, which stays `inconclusive`.
+- It does not say which property of the binned density produces the excess.
+- It covers one law and one shift of 0.25.
 
 #### Witnesses and evidence
 
@@ -745,17 +1366,16 @@ design.
 | the pooled longitudinal update matches a longhand recomputation, and four mutations break it | `tests/unit/test_pooled_longitudinal_targeting.py` |
 | the runtime isolation attributes each changed verdict to the code or the runtime | `tests/diagnostics/rm18_runtime/compare.py` reads the four arms of each study and writes `isolation.csv` in that directory. `run.log` records each arm's command, runtime, `pip freeze` digest and exit code |
 | the committed history separates the runtime from the code on three point-treatment studies | `tests/diagnostics/rm18_runtime/row_drift.py` writes `row-drift.csv` in that directory |
+| each reading of designs FW, OW, BD and CD follows from its committed rows under its declared rule | the four `tests/unit/test_rm18_*_diagnostic.py` files rebuild each committed reading, test each rule on synthetic tables with a mutation per branch, and read every declared part, so a missing committed file fails. BD-P1 and the pilot also recompute their comparisons from the committed rows |
 
 #### Deferred findings and review resolutions
 
 | finding | why it was deferred | what it needs |
 | --- | --- | --- |
 | `simulated_confounding` cannot perturb an outcome on a fit that declares `q_bounds`. `_gaussian_outcome` subtracts the strength times a standard normal latent value from the outcome, so every nonzero outcome strength sends the perturbed outcome outside the declared support and the refit refuses it | a cross-fitted continuous fit must declare `q_bounds`, so the outcome axis of the surface is unavailable to every such fit. No perturbation on the declared scale exists to put in its place | [F23](#f23-simulated-confounding-on-a-declared-outcome-scale) |
-| the multi-arm DR-TMLE contraction rung design. `double_robust_contraction/rate_outcome_correct` and `rate_treatment_correct` of `canonical-multi-arm-drtmle` stay red at 600 replications per rung, and a rung design declared before its run can read them | the binary sizing rule asks for at least 34,267 replications at each outer rung by the delta method, against 600 now. A surrogate puts the figure at 70,000 to 73,000. The first-rung bias intervals it reads both cover zero, so that cost has no upper bound. "[What the multi-arm rung design would cost](#what-the-multi-arm-rung-design-would-cost)" gives the arithmetic | one task that declares the rung budget from the rule, runs it once, and publishes the slope it produces. Each rung's own coverage verdict stays at its declared 600 replications, as `RM18-binary-slope` required for the binary ladder |
-| the fixed-known-weight design that `RM18-fixed-weights` asks for. Its two cells stay red under `reporting` | the ledger work from `cdd1b33` gave each red cell an owner and ran the two declared diagnostics. It declared no design for these cells, and a design needs its own declaration before its run | one task that declares the design, pushes the declaration, runs it once, and publishes its reading. A published result for the pooled update under fixed known weights would also close the row |
-| the design that `RM18-ordinary-weighted` asks for, which reads the calibration row, the sharp-null row and the `targeting_necessity` family of `weighted-ltmle` | the same. No design for these six rows is declared | one task that declares the design, pushes the declaration, runs it once, and publishes its reading |
-| the re-read design that `RM18-boundary` asks for. Its eight cells sit at a finite-budget boundary and stay red at their declared budgets | the same. A larger budget chosen after a verdict is the remedy that RM18 refuses, so a re-read needs a declared design first | one task that declares a re-read budget from a rule that reads no verdict of these cells, runs it once, and publishes what it produces |
-| the attribution design that `RM18-comparator-density` asks for. The calibration leg of the paired `ate_shift[+0.25 vs natural course]` row fails at a 99% upper endpoint of 0.065856 against 0.05 | the same. No design that separates `cleverly` from the comparator is declared | one task that declares the attribution, pushes the declaration, runs it once, and publishes its reading |
+| the multi-arm DR-TMLE contraction rung design. `double_robust_contraction/rate_outcome_correct` and `rate_treatment_correct` of `canonical-multi-arm-drtmle` stay red at 600 replications per rung, and a rung design declared before its run can read them | the binary sizing rule asks for at least 34,267 replications at each outer rung by the delta method, against 600 now. A surrogate puts the figure at 70,000 to 73,000. The first-rung bias intervals it reads both cover zero, so that cost has no upper bound. "[What the multi-arm rung design would cost](#what-the-multi-arm-rung-design-would-cost)" gives the arithmetic | "[Design SL](#design-sl)" declares the rung budget from the rule. It needs one run and a published slope. Each rung's own coverage verdict stays at its declared 600 replications, as `RM18-binary-slope` required for the binary ladder |
+| the static untargeted control of the `weighted-ltmle` `targeting_necessity` family. OW-C's population reading is `control underpowered by design`: at the fresh SD, the registered design of 1,200 replicates discriminates it with a probability of about 0.72 by the normal approximation, and that probability crosses 0.80 inside the 99% interval of the SD | R1 refuses a change at a re-read. The family shares its draws with its positive arm, so its size cannot change without a re-declaration of the positive arm | a re-declaration of the control law before any regeneration of the study, as the control precedent at `69de6f8` allows |
+| the `lmtp` standard-error convention of the weighted paired mean rows. BD-P reads `ey_regimen[always]` and `ey_regimen[treat then continue if l2 positive]` as `comparator SE convention` | RM18 records a comparator convention and does not re-declare it. The study page states the convention | a re-declaration of the comparator convention before a future regeneration of `weighted-ltmle-crossfit`, if that regeneration chooses one |
 
 ### RM19. One-sided robustness bias increment in DR-TMLE
 
@@ -791,7 +1411,7 @@ gives its priority and the reason for its place.
 | --- | --- |
 | does `cleverly` add bias over R `drtmle` on this configuration | measured by the declared unadjusted interval, which excludes zero. The Bonferroni interval covers zero |
 | which step of the `cleverly` fit produces the increment | open. No diagnostic has read it |
-| does the increment change with the sample size | open. The paired rows exist at n = 3,000 alone |
+| does the increment change with the sample size | open. The paired rows exist at n = 3,000 alone. RM18 design BD read the binary `treatment_correct` rung at n = 1,500 on fresh draws, for `cleverly` alone and unpaired. Its bias interval of 0.00774 to 0.00965 moves nothing ("[What design BD found](#what-design-bd-found)") |
 | the multi-arm `double_robustness/treatment_correct` excess | one stream reads `finite-sample excess detected`. The independent rung does not reproduce it, and the pooled comparison covers zero. The overall evidence is inconclusive. No comparator fits that configuration, so the source is not identified |
 
 Next action: declare a design that localizes the binary increment, before any run of it. The

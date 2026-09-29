@@ -1,0 +1,17 @@
+=== CD, cap None
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle\.venv\Scripts\python.exe' 'C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\tests\diagnostics\rm18_comparator_density\run.py' --part CD --output C:/Users/erics/rm18_scratch/runs/rm18_comparator_density
+commit: 4b91a91625735045b5ce0d4ba132a60cfe8a2d67; upstream 4b91a91625735045b5ce0d4ba132a60cfe8a2d67
+clean tree: True
+cleverly 0.1.2 from C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\__init__.py
+python 3.13.7; numpy 2.4.6; scipy 1.18.0; pandas 3.0.5; scikit-learn 1.9.0; joblib 1.5.3
+installed distributions: 130, sha256 f4b33890dcf2623521a239ea0ba2ac74046a0304cc8d4b96933ca443c5644ebd
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 16
+started: 2026-09-27T06:16:12+00:00
+finished: 2026-09-27T06:29:07+00:00
+wall seconds: 774.9
+exit code: 0
+sha256 cd-reading.csv: f2827ff6c0f94c6ef8532ad9b9fcea91573cd8cebd3ef8628ad7a581cadd7aba
+sha256 cd-rows.csv.gz: 6ae172ad1c2e763405d356eeb5d7098e3bd8b94efc38a4c90862ffce99beb5f2
+sha256 cd-validation.csv: f25ba5ea6ea0a123b2b38ae3c20b13f65b1331286aa857c1c7055bb974b44568
+

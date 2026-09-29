@@ -1,0 +1,16 @@
+part,scope,statistic,value,ci_lower,ci_upper,result
+OW-C,refit rows,largest scaled difference,0.0,,,holds over 4800
+OW-C,summary rows,largest scaled difference,1.5525775109992423e-15,,,holds over 4
+OW-C,exact-law precondition,largest scaled difference,3.1086244689504383e-15,,,holds over 2
+OW-C,dynamic__targeted,bias,0.0004950491211742104,-0.0009667156058776739,0.0019568138482260957,"margin 0.007305, passes"
+OW-C,dynamic__untargeted,bias,0.02625869872534624,0.024451104088635562,0.028066293362056908,"margin 0.009033, passes"
+OW-C,static__targeted,bias,0.0016095482445434295,-0.0019082396611492809,0.005127336150236163,"margin 0.017580, passes"
+OW-C,static__untargeted,bias,-0.021310004425620005,-0.024543106433689434,-0.01807690241755057,"margin 0.016157, passes"
+OW-C,family,displacement,0.3259370578214625,,,
+OW-C,static__untargeted,b_inf,-0.022050865800867958,,,
+OW-C,static__untargeted,fresh SD,0.06462821365173106,0.062310114206687826,0.06692280973027134,
+OW-C,static__untargeted,abs(b_inf) / SD,0.34119565674050356,,,
+OW-C,static__untargeted,p_1200,0.718764188622963,,,
+OW-C,static__untargeted,p_1200 at the SD interval's ends,,0.5690363278309836,0.8458713425704656,supplementary
+OW-C,static__untargeted,population reading,,,,control underpowered by design
+OW-C,family,fresh reading,,,,family resolved

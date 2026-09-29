@@ -1,0 +1,10 @@
+part,scope,statistic,value,ci_lower,ci_upper,result
+BD-2,canonical-multi-arm-drtmle interval_calibration/correctly_specified refit rows,largest scaled difference,0.0,,,holds over 1600
+BD-2,canonical-multi-arm-drtmle summary rows,largest scaled difference,0.0,,,holds over 1
+BD-2,canonical-multi-arm-drtmle interval_calibration/correctly_specified,replicates,17000.0,,,
+BD-2,canonical-multi-arm-drtmle interval_calibration/correctly_specified,coverage,0.9512941176470588,0.9468842117721499,0.9554491031513028,
+BD-2,canonical-multi-arm-drtmle interval_calibration/correctly_specified,bias,0.00016139086584443518,-0.00036152295987548235,0.0006843046915644269,margin 0.00661651
+BD-2,canonical-multi-arm-drtmle interval_calibration/correctly_specified,SE ratio,1.0074675300046911,,,
+BD-2,canonical-multi-arm-drtmle interval_calibration/correctly_specified,SE-ratio interval,,0.9932316063764297,1.0217407162721994,
+BD-2,canonical-multi-arm-drtmle interval_calibration/correctly_specified,reading,,,,resolved: truth satisfies the gate
+BD-2,canonical-multi-arm-drtmle interval_calibration/correctly_specified,RMS-SE ratio,1.0076388796666496,,,supplementary

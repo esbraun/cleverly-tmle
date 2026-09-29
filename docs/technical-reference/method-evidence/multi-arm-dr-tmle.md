@@ -171,6 +171,15 @@ opens at `0.93`. The `outcome_correct` rung at n = 4,000 has a coverage lower bo
 against a floor of `0.90`. The `n_500` size cell has a lower bound of `0.8965` against the same
 floor.
 
+RM18 design BD re-read these three cells on fresh draws, under a declaration written before its
+run. Each reads `resolved: truth satisfies the gate`. The re-read does not move a verdict. Over
+17,000 fresh replicates, the calibration cell's SE-ratio interval runs 0.9932 to 1.0217. Over
+6,000 each, the n = 4,000 rung covers 0.9464 to 0.9605, and the `n_500` cell covers 0.9439 to
+0.9584. The roadmap record,
+{ref}`What design BD found <what-design-bd-found>`, gives every leg and what the re-read does not
+show.
+[`tests/diagnostics/rm18_boundary/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_boundary) holds the rows.
+
 The `n_500` cell was green at `0.9057` on the treatment-stratified split this row used before.
 Nothing but the fold draw moved, and 400 replications at n = 500 do not resolve a coverage
 endpoint to better than about a point. Read it as one Monte Carlo resolution rather than as a

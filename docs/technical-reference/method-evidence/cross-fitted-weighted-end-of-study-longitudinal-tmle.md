@@ -150,6 +150,21 @@ tilted empirical law; normalized weighted targeting, the Hájek plug-in and the 
 multiplier implement that law's estimating equation. The two near-boundary failures therefore stay
 as finite-sample reporting evidence rather than an argument for the unsupported fold-local update.
 
+RM18 re-read these cells on fresh draws, under designs declared before their runs. No reading
+moves a verdict of this study, and none names a defect in `cleverly`.
+
+| cell | design and fresh draws | reading |
+| --- | --- | --- |
+| `interval_calibration/static__correctly_specified` | FW-A, 8,300 for each arm at n = 2,000, 8,000 and 32,000 | `finite-sample, contracting`. The empirical efficiency interval at 32,000 runs 0.9801 to 1.0200 |
+| paired `ey_regimen[never]` | FW-B, 19,892 primary draws | `equivalent at the declared budget` |
+| paired `ey_regimen[always]` and `ey_regimen[treat then continue if l2 positive]` | BD-P, the same 19,892 draws | `comparator SE convention`. Each row is `equivalent` with the Hájek standard error and fails the coverage leg with the native one |
+| `double_robustness/static__both_wrong` | BD-3, 2,655 | `resolved: truth satisfies the gate`. The bias interval lies wholly outside its margin |
+
+{ref}`What design FW found <what-design-fw-found>` and
+{ref}`What design BD found <what-design-bd-found>` give each number and what each reading does
+not show.
+[`tests/diagnostics/rm18_fixed_weights/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_fixed_weights) and [`tests/diagnostics/rm18_boundary/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_boundary) hold the rows.
+
 This reasoning does not transport automatically to complex surveys, calibrated or estimated
 weights, clustering, or other longitudinal weight laws. The
 `double_robustness/static__both_wrong` control was red before the update and stays red, because its
