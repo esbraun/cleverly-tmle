@@ -2023,6 +2023,53 @@ class TestTheRefitSlotReadsTheRefitPreflight:
         assert str(raised.value) == result.estimator._refit_configuration_refusal(result.data)
 
 
+@pytest.fixture(scope="module")
+def guarded_curve_results() -> dict[str, Any]:
+    live = fit_drtmle()
+    return {
+        "live": live,
+        "reconfigured": reconfigured(live, stratify_folds="treatment"),
+    }
+
+
+class TestGuardedTruncationUsesCachedNuisanceReplay:
+    @pytest.mark.parametrize("kind", ["live", "reconfigured"])
+    def test_the_row_facade_and_module_agree(
+        self, guarded_curve_results: dict[str, Any], kind: str
+    ) -> None:
+        result = guarded_curve_results[kind]
+        replay = replayability(result)
+        assert replay.retarget_cached_nuisances
+        assert replay.refit_nuisances is (kind == "live")
+        row = result.diagnostics.capability("truncation_curve")
+        assert row.available
+        assert row.requires_replay == "retarget_cached_nuisances"
+        assert row.execution == "refit"
+        assert row.cost == "expensive"
+
+        direct = truncation_curve(result, [0.05])
+        through_facade = result.diagnostics.truncation_curve([0.05])
+        assert len(direct) == len(result.estimates)
+        assert direct.equals(through_facade)
+
+    def test_a_missing_function_declaration_still_refuses_retargeting(
+        self, guarded_curve_results: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result = guarded_curve_results["live"]
+
+        def refuse() -> None:
+            raise CapabilityError("a fitted function has no known declaration")
+
+        monkeypatch.setattr(result.estimator, "_refuse_undeclared_functions", refuse)
+        assert not replayability(result).retarget_cached_nuisances
+        row = DiagnosticsFacade(result).capability("truncation_curve")
+        assert not row.available
+        with pytest.raises(CapabilityError, match="retargeting the cached nuisances"):
+            DiagnosticsFacade(result).truncation_curve([0.05])
+        with pytest.raises(CapabilityError, match="no known declaration"):
+            truncation_curve(result, [0.05])
+
+
 class TestEachReplayMutationRestoresADisagreement:
     """The agreement check sees a slot that ignores the preflight or a lost default."""
 
