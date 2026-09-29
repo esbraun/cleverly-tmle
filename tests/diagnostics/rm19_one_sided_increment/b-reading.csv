@@ -1,0 +1,142 @@
+part,scope,statistic,value,ci_lower,ci_upper,result
+B,Part A V1 cleverly rows,largest scaled difference,9.8879238130678e-17,,,holds over 7200
+B,Part A V2 drtmle-r rerun,largest scaled difference,9.606031248221569e-17,,,holds over 7200
+B,Part A V2 drtmle-r T0000 refit,largest scaled difference,0.0,,,holds over 2400
+B,"Part A V2 drtmle-r same round, tolIC draws",largest scaled difference,5.89345239276895e-12,,,holds over 2295
+B,"Part A V2 drtmle-r same round, maxIter draws",largest scaled difference,2.0810923944518563e-05,,,holds over 88
+B,Part A V2 drtmle-r rounding-sensitive tolIC draws,largest scaled difference,2.2036635294320206e-09,,,holds over 15
+B,Part A V2 drtmle-r round and exit status,largest scaled difference,7.573965222951173e-05,,,holds over 2
+B,Part A V2 drtmle-r excused draws,largest scaled difference,0.00125,,,holds over 2400
+B,Part A V3 initial estimates,largest scaled difference,6.106226635438361e-16,,,holds over 7200
+B,Part A V5 T1111 against C,largest scaled difference,0.0,,,holds over 7200
+B,V4 payload C refit,largest scaled difference,0.0,,,holds over 600
+B,V4 R T0000 refit,largest scaled difference,0.0,,,holds over 200
+B,"V4 R same round, tolIC draws",largest scaled difference,1.1333850524763989e-12,,,holds over 185
+B,"V4 R same round, maxIter draws",largest scaled difference,6.223111576442175e-06,,,holds over 11
+B,V4 R rounding-sensitive tolIC draws,largest scaled difference,5.658629120830483e-11,,,holds over 4
+B,V4 R round and exit status,largest scaled difference,0.0,,,holds over 0
+B,V4 R excused draws,largest scaled difference,0.0,,,holds over 200
+B,"treatment_correct, n = 3000",C - T0000,0.0005664021959310483,-2.2571629131993122e-05,0.0011553760209940898,no increment at the declared resolution
+B,"treatment_correct, n = 3000",C - T0000 half-width,0.0005889738250630414,,,
+B,"treatment_correct, n = 3000",guard events of T0000,531.0,,,G in the family
+B,"treatment_correct, n = 3000",main effect J,0.0012754199891421216,0.000832603624909596,0.0017182363533746472,level 0.998
+B,"treatment_correct, n = 3000",main effect P,-0.0005336140328669654,-0.0012982331406609549,0.00023100507492702395,level 0.998
+B,"treatment_correct, n = 3000",main effect S,5.627641092690278e-05,-0.00030509956384633765,0.0004176523857001432,level 0.998
+B,"treatment_correct, n = 3000",main effect K,3.2385730470580603e-06,-0.0003597168920149177,0.00036619403810903386,level 0.998
+B,"treatment_correct, n = 3000",main effect G,0.03447380825716883,0.02356075061665288,0.04538686589768478,level 0.998
+B,"treatment_correct, n = 3000",T1111 - C,0.0,0.0,0.0,bracket holds
+B,"treatment_correct, n = 3000",interaction JP,0.00013953954652218086,-0.00021928400041029418,0.0004983630934546558,supplementary
+B,"treatment_correct, n = 3000",interaction JS,0.00013718421630227163,-0.0001638335317040107,0.00043820196430855395,supplementary
+B,"treatment_correct, n = 3000",interaction JK,-0.00012062342851646834,-0.0004216200982956747,0.00018037324126273803,supplementary
+B,"treatment_correct, n = 3000",interaction PS,9.059633645932868e-05,-0.0002104887317167223,0.0003916814046353797,supplementary
+B,"treatment_correct, n = 3000",interaction PK,-8.274564966676858e-05,-0.00038497109946261323,0.00021947980012907608,supplementary
+B,"treatment_correct, n = 3000",interaction SK,-5.4180629401770346e-05,-0.0003552645989339769,0.00024690334013043616,supplementary
+B,"treatment_correct, n = 3000",localization,,,,nothing to localize
+B,"treatment_correct, n = 3000, C",bias,0.0036171281420339946,0.002457418092015124,0.004776838192052865,supplementary
+B,"treatment_correct, n = 3000, C",mean iterations,18.8445,,,"cap 37, tolerance 1963"
+B,"treatment_correct, n = 3000, C",mean closing steps,7.8545,,,
+B,"treatment_correct, n = 3000, C",guard events,0.0,,,
+B,"treatment_correct, n = 3000, C",rows at a mechanism bound,0.0,,,
+B,"treatment_correct, n = 3000, C",largest score,1.969775293986231e-10,,,
+B,"treatment_correct, n = 3000, T0000",bias,0.003050725946102946,0.0018873032639383886,0.004214148628267504,supplementary
+B,"treatment_correct, n = 3000, T0000",mean iterations,27.249,,,"cap 95, tolIC 1905"
+B,"treatment_correct, n = 3000, T0000",mean closing steps,0.0,,,
+B,"treatment_correct, n = 3000, T0000",guard events,531.0,,,
+B,"treatment_correct, n = 3000, T0000",rows at a mechanism bound,0.0,,,
+B,"treatment_correct, n = 3000, T0000",largest score,0.005831887919357821,,,
+B,"treatment_correct, n = 3000, T0001",bias,0.0030754459436035326,0.0019132431831157784,0.004237648704091287,supplementary
+B,"treatment_correct, n = 3000, T0001",mean iterations,25.357,,,"cap 78, tolIC 1922"
+B,"treatment_correct, n = 3000, T0001",mean closing steps,0.0,,,
+B,"treatment_correct, n = 3000, T0001",guard events,0.0,,,
+B,"treatment_correct, n = 3000, T0001",rows at a mechanism bound,0.0,,,
+B,"treatment_correct, n = 3000, T0001",largest score,3.4858934388040625e-05,,,
+B,"treatment_correct, n = 3000, T0010",bias,0.003001054897229195,0.0015302778686134705,0.00447183192584492,supplementary
+B,"treatment_correct, n = 3000, T0010",mean iterations,19.778,,,"cap 39, stall 3, tolerance 1958"
+B,"treatment_correct, n = 3000, T0010",mean closing steps,3.545,,,
+B,"treatment_correct, n = 3000, T0010",guard events,262.0,,,
+B,"treatment_correct, n = 3000, T0010",rows at a mechanism bound,0.0,,,
+B,"treatment_correct, n = 3000, T0010",largest score,0.5382339015958862,,,
+B,"treatment_correct, n = 3000, T0011",bias,0.003077083514016037,0.0019148398627968771,0.004239327165235197,supplementary
+B,"treatment_correct, n = 3000, T0011",mean iterations,18.4795,,,"cap 35, tolerance 1965"
+B,"treatment_correct, n = 3000, T0011",mean closing steps,11.7945,,,
+B,"treatment_correct, n = 3000, T0011",guard events,0.0,,,
+B,"treatment_correct, n = 3000, T0011",rows at a mechanism bound,0.0,,,
+B,"treatment_correct, n = 3000, T0011",largest score,9.997143675851324e-11,,,
+B,"treatment_correct, n = 3000, T0100",bias,0.002419909850357927,0.0012529661100716292,0.0035868535906442246,supplementary
+B,"treatment_correct, n = 3000, T0100",mean iterations,28.5375,,,"cap 114, tolIC 1886"
+B,"treatment_correct, n = 3000, T0100",mean closing steps,0.0,,,
+B,"treatment_correct, n = 3000, T0100",guard events,493.0,,,
+B,"treatment_correct, n = 3000, T0100",rows at a mechanism bound,0.0,,,
+B,"treatment_correct, n = 3000, T0100",largest score,0.006385488658375935,,,
+B,"treatment_correct, n = 3000, T0101",bias,0.0024737370128597503,0.001308042500294519,0.0036394315254249816,supplementary
+B,"treatment_correct, n = 3000, T0101",mean iterations,26.282,,,"cap 92, tolIC 1908"
+B,"treatment_correct, n = 3000, T0101",mean closing steps,0.0,,,
+B,"treatment_correct, n = 3000, T0101",guard events,0.0,,,
+B,"treatment_correct, n = 3000, T0101",rows at a mechanism bound,0.0,,,
+B,"treatment_correct, n = 3000, T0101",largest score,2.6137511516170164e-05,,,
+B,"treatment_correct, n = 3000, T0110",bias,0.002138588445356298,0.0005150345245845257,0.0037621423661280706,supplementary
+B,"treatment_correct, n = 3000, T0110",mean iterations,20.412,,,"cap 49, stall 2, tolerance 1949"
+B,"treatment_correct, n = 3000, T0110",mean closing steps,3.4985,,,
+B,"treatment_correct, n = 3000, T0110",guard events,364.0,,,
+B,"treatment_correct, n = 3000, T0110",rows at a mechanism bound,0.0,,,
+B,"treatment_correct, n = 3000, T0110",largest score,0.5482102967997156,,,
+B,"treatment_correct, n = 3000, T0111",bias,0.0024794606748211505,0.0013134809422054822,0.003645440407436819,supplementary
+B,"treatment_correct, n = 3000, T0111",mean iterations,18.7265,,,"cap 37, tolerance 1963"
+B,"treatment_correct, n = 3000, T0111",mean closing steps,11.176,,,
+B,"treatment_correct, n = 3000, T0111",guard events,0.0,,,
+B,"treatment_correct, n = 3000, T0111",rows at a mechanism bound,0.0,,,
+B,"treatment_correct, n = 3000, T0111",largest score,9.998747222776198e-11,,,
+B,"treatment_correct, n = 3000, T1000",bias,0.004168868472281151,0.0030108734165079382,0.0053268635280543635,supplementary
+B,"treatment_correct, n = 3000, T1000",mean iterations,27.3155,,,"cap 98, tolIC 1902"
+B,"treatment_correct, n = 3000, T1000",mean closing steps,0.0,,,
+B,"treatment_correct, n = 3000, T1000",guard events,1383.0,,,
+B,"treatment_correct, n = 3000, T1000",rows at a mechanism bound,0.0,,,
+B,"treatment_correct, n = 3000, T1000",largest score,0.0030012151547619817,,,
+B,"treatment_correct, n = 3000, T1001",bias,0.004249670675268815,0.00309291400677937,0.005406427343758261,supplementary
+B,"treatment_correct, n = 3000, T1001",mean iterations,25.3785,,,"cap 74, tolIC 1926"
+B,"treatment_correct, n = 3000, T1001",mean closing steps,0.0,,,
+B,"treatment_correct, n = 3000, T1001",guard events,0.0,,,
+B,"treatment_correct, n = 3000, T1001",rows at a mechanism bound,0.0,,,
+B,"treatment_correct, n = 3000, T1001",largest score,1.2873494806079577e-05,,,
+B,"treatment_correct, n = 3000, T1010",bias,0.004083453425150647,0.0023956563188333516,0.005771250531467943,supplementary
+B,"treatment_correct, n = 3000, T1010",mean iterations,19.3735,,,"cap 31, stall 12, tolerance 1957"
+B,"treatment_correct, n = 3000, T1010",mean closing steps,3.6965,,,
+B,"treatment_correct, n = 3000, T1010",guard events,447.0,,,
+B,"treatment_correct, n = 3000, T1010",rows at a mechanism bound,0.0,,,
+B,"treatment_correct, n = 3000, T1010",largest score,0.54102862084308,,,
+B,"treatment_correct, n = 3000, T1011",bias,0.00424583949873086,0.003089145805963176,0.005402533191498544,supplementary
+B,"treatment_correct, n = 3000, T1011",mean iterations,17.9685,,,"cap 21, stall 1, tolerance 1978"
+B,"treatment_correct, n = 3000, T1011",mean closing steps,7.8815,,,
+B,"treatment_correct, n = 3000, T1011",guard events,0.0,,,
+B,"treatment_correct, n = 3000, T1011",rows at a mechanism bound,0.0,,,
+B,"treatment_correct, n = 3000, T1011",largest score,9.985255407703637e-11,,,
+B,"treatment_correct, n = 3000, T1100",bias,0.003541947624964177,0.0023807146791616695,0.004703180570766684,supplementary
+B,"treatment_correct, n = 3000, T1100",mean iterations,28.606,,,"cap 121, tolIC 1879"
+B,"treatment_correct, n = 3000, T1100",mean closing steps,0.0,,,
+B,"treatment_correct, n = 3000, T1100",guard events,1050.0,,,
+B,"treatment_correct, n = 3000, T1100",rows at a mechanism bound,0.0,,,
+B,"treatment_correct, n = 3000, T1100",largest score,0.008561241903825517,,,
+B,"treatment_correct, n = 3000, T1101",bias,0.003612275071769415,0.0024529073751494352,0.004771642768389395,supplementary
+B,"treatment_correct, n = 3000, T1101",mean iterations,26.3315,,,"cap 90, tolIC 1910"
+B,"treatment_correct, n = 3000, T1101",mean closing steps,0.0,,,
+B,"treatment_correct, n = 3000, T1101",guard events,0.0,,,
+B,"treatment_correct, n = 3000, T1101",rows at a mechanism bound,0.0,,,
+B,"treatment_correct, n = 3000, T1101",largest score,7.290843398354063e-05,,,
+B,"treatment_correct, n = 3000, T1110",bias,0.004400183287284751,0.002521488134737338,0.006278878439832164,supplementary
+B,"treatment_correct, n = 3000, T1110",mean iterations,20.366,,,"cap 45, stall 7, tolerance 1948"
+B,"treatment_correct, n = 3000, T1110",mean closing steps,3.675,,,
+B,"treatment_correct, n = 3000, T1110",guard events,525.0,,,
+B,"treatment_correct, n = 3000, T1110",rows at a mechanism bound,0.0,,,
+B,"treatment_correct, n = 3000, T1110",largest score,0.543826721723482,,,
+B,"treatment_correct, n = 3000, T1111",bias,0.0036171281420339946,0.002457418092015124,0.004776838192052865,supplementary
+B,"treatment_correct, n = 3000, T1111",mean iterations,18.8445,,,"cap 37, tolerance 1963"
+B,"treatment_correct, n = 3000, T1111",mean closing steps,7.8545,,,
+B,"treatment_correct, n = 3000, T1111",guard events,0.0,,,
+B,"treatment_correct, n = 3000, T1111",rows at a mechanism bound,0.0,,,
+B,"treatment_correct, n = 3000, T1111",largest score,9.949218989409777e-11,,,
+B,"treatment_correct, n = 3000, T0000+G",bias,0.03752453420327177,0.028303269962244994,0.04674579844429855,supplementary
+B,"treatment_correct, n = 3000, T0000+G",mean iterations,34.593,,,"cap 303, tolIC 1697"
+B,"treatment_correct, n = 3000, T0000+G",mean closing steps,0.0,,,
+B,"treatment_correct, n = 3000, T0000+G",guard events,0.0,,,
+B,"treatment_correct, n = 3000, T0000+G",rows at a mechanism bound,0.0,,,
+B,"treatment_correct, n = 3000, T0000+G",largest score,0.5005005447116905,,,

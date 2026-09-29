@@ -796,9 +796,11 @@ is the only empirical witness for it.
   parametric delta method for a selected parametric mechanism model. Section 4.3 records random
   cross-validation over-selection and leaves its irregularity as an open area.
 - van der Laan (2014), [*Targeted estimation of nuisance parameters to obtain valid statistical
-  inference*](https://doi.org/10.1515/ijb-2012-0038), DOI 10.1515/ijb-2012-0038. Section 5.4
-  targets both nuisance estimators and solves extra score equations for a binary
-  treatment-specific mean. The shipped selector does not perform those targeting steps.
+  inference*](https://doi.org/10.1515/ijb-2012-0038), DOI 10.1515/ijb-2012-0038. It targets both
+  nuisance estimators and solves extra score equations for a binary treatment-specific mean. The
+  shipped selector does not perform those targeting steps. This entry gives no section locator,
+  because the RM19 review could not read the journal version, and the
+  [DR-TMLE entry](#doubly-robust-inference-drtmle) for the same article states why.
 - Gruber & van der Laan (2010), [*An application of collaborative targeted maximum likelihood
   estimation in causal inference and genomics*](https://pmc.ncbi.nlm.nih.gov/articles/PMC3126668/),
   DOI 10.2202/1557-4679.1182.
@@ -1697,11 +1699,14 @@ Two names are inverted between the papers and the `benkeser/drtmle` source. This
 transcribe backwards. No R enters this repository or its CI, so the pinned source is provenance
 rather than a comparison target.
 
-- van der Laan (2014), *Targeted estimation of nuisance parameters to obtain valid statistical
-  inference*, International Journal of Biostatistics 10(1):29–57. **Theorem 3** is the bivariate
-  construction's binary targeted recursion and asymptotic-linearity result; its proof supplies the
-  corrected influence function and product-remainder conditions. Read first-hand for the bivariate
-  implementation; the later univariate result remains the default.
+- van der Laan (2014), [*Targeted estimation of nuisance parameters to obtain valid statistical
+  inference*](https://doi.org/10.1515/ijb-2012-0038), International Journal of Biostatistics
+  10(1):29–57, DOI 10.1515/ijb-2012-0038. It gives the bivariate construction's binary targeted
+  recursion and its asymptotic-linearity result. Benkeser et al. (2017), Section 3.1, cites that
+  iterative algorithm as "Theorem 3 of van der Laan (2014)", with this journal version in its
+  reference list. The RM19 review could not read the journal version, which is not open access.
+  So this repository cites **Theorem 3** through Benkeser et al. (2017), Section 3.1, and gives no
+  page or section locator of its own. The later univariate result remains the default.
 - Benkeser, Carone, van der Laan & Gilbert (2016), *Doubly-robust Nonparametric Inference on the
   Average Treatment Effect*, U.C. Berkeley Division of Biostatistics Working Paper Series, paper
   356. Read first-hand. §3.1 and equation (2) are p. 9; §3.2, Theorem 1 and the recursive algorithm
@@ -1712,8 +1717,13 @@ rather than a comparison target.
   [*Doubly robust nonparametric inference on the average treatment effect*](https://pmc.ncbi.nlm.nih.gov/articles/PMC5793673/),
   *Biometrika* 104(4):863–880. The **published** version of the above, and authoritative wherever
   the two differ. Read first-hand. Theorem 1 states the score and remainder conditions for
-  asymptotic linearity. Section 4 supplies the binary simulation law and its three nuisance
-  scenarios.
+  asymptotic linearity. Section 3.2 gives Theorem 1 and the recursive algorithm, Steps 1 to 8.
+  Step 2 fluctuates the outcome regression before Step 3 fits any reduced regression. Appendix B
+  gives rates of $o_P(n^{-1/4})$ in $L^2(P_0)$ as one sufficient condition on the second-order
+  terms. The RM19 review read these locators in PMC5793673, formula images included.
+  Section 4 treats doubly robust inference by one-step estimation.
+  Section 5 is the simulation study.
+  Section 5.1 supplies the binary simulation law and its three nuisance scenarios.
 - Benkeser & Hejazi (2023), [*Doubly-Robust Inference in R using
   `drtmle`*](https://doi.org/10.1353/obs.2023.0017), *Observational Studies* 9(2):43–78, DOI
   10.1353/obs.2023.0017. Read first-hand. Multi-level treatments are §4.6, pp. 66–67;

@@ -1,0 +1,10 @@
+part,scope,statistic,value,ci_lower,ci_upper,result
+V4,V4 payload C refit,largest scaled difference,0.0,,,holds over 600
+V4,V4 R T0000 refit,largest scaled difference,0.0,,,holds over 200
+V4,"V4 R same round, tolIC draws",largest scaled difference,1.1333850524763989e-12,,,holds over 185
+V4,"V4 R same round, maxIter draws",largest scaled difference,6.223111576442175e-06,,,holds over 11
+V4,V4 R rounding-sensitive tolIC draws,largest scaled difference,5.658629120830483e-11,,,holds over 4
+V4,V4 R round and exit status,largest scaled difference,0.0,,,holds over 0
+V4,V4 R excused draws,largest scaled difference,0.0,,,holds over 200
+V4,11 maxIter draws,"T0000 - R, signed mean ate difference",5.609722562072686e-07,,,supplementary
+V4,0 excused draws,"T0000 - R, signed mean ate difference",,,,supplementary

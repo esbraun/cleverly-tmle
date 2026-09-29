@@ -66,11 +66,12 @@ A manifest's `configuration` block can also carry a descriptive string that no c
 When the study module corrects such a string, the manifest keeps the text written at generation
 time, for the same reason it keeps a recorded hash. Add a row to the table below for each such
 correction. The row states the correction and why it leaves every artifact unchanged. Remove the
-row when you regenerate the study. No correction is declared now, so the table has no rows. No
-test parses this table. The gated table above keeps its own header.
+row when you regenerate the study. No test parses this table. The gated table above keeps its own
+header.
 
 | study | manifest field | correction | judgement |
 | --- | --- | --- | --- |
+| `canonical-drtmle` | `configuration.source_law` | the manifest says `Benkeser et al. (2017), Section 4`. The study module now says `Section 5.1`, the section of the published article that states the simulation law. Section 4 of that article is doubly robust inference by one-step estimation | result-neutral: a descriptive string that no computation reads. The law is `draw_from_seed`, which did not change, so every artifact is unchanged. The manifest keeps the text written at generation time |
 
 ## Study module edits after a run
 
@@ -82,6 +83,7 @@ Remove the row when you regenerate the study. No test parses this table.
 | study | source | recorded | current | judgement |
 | --- | --- | --- | --- | --- |
 | `canonical-ltmle-crossfit` | `tests/studies/canonical_ltmle_crossfit.py` | `dd078bd6927a522b08157b7ba2bb9ca4388a8d221bf3d8520ebeef089310ef4d` | `7d4bca7ef858834474a3af2058650edcbdded468592b5de862bf1635b66ce032` | result-neutral: only the two comments above `quoted_decimals` and `publication_policy` changed. They described the SE-ratio breach that the pooled update removed. Python ignores comments, so every law, cell, margin, seed, and registry value is unchanged |
+| `canonical-drtmle` | `tests/studies/canonical_drtmle.py` | `b57a22979cee022c56f47a67ac3040224f891b7fcc1d991e8c4f27e312ff2543` | `e917c71315240d15192816a6973ac044b23877f13e617ff60d66a54a7c2a6885` | result-neutral: only the `source_law` string of `CONFIGURATION` changed, from Section 4 to Section 5.1. No computation reads it, and "Descriptive manifest text" above records the correction |
 | `weighted-ltmle-crossfit` | `tests/studies/canonical_ltmle_crossfit.py` | `dd078bd6927a522b08157b7ba2bb9ca4388a8d221bf3d8520ebeef089310ef4d` | `7d4bca7ef858834474a3af2058650edcbdded468592b5de862bf1635b66ce032` | result-neutral: only the two comments above `quoted_decimals` and `publication_policy` changed. Python ignores comments, so every name this study imports from the module is unchanged |
 | `canonical-ltmle-survival-crossfit` | `tests/studies/canonical_ltmle_crossfit.py` | `dd078bd6927a522b08157b7ba2bb9ca4388a8d221bf3d8520ebeef089310ef4d` | `7d4bca7ef858834474a3af2058650edcbdded468592b5de862bf1635b66ce032` | result-neutral: only the two comments above `quoted_decimals` and `publication_policy` changed. Python ignores comments, so every name this study imports from the module is unchanged |
 | `canonical-ltmle-competing-crossfit` | `tests/studies/canonical_ltmle_crossfit.py` | `dd078bd6927a522b08157b7ba2bb9ca4388a8d221bf3d8520ebeef089310ef4d` | `7d4bca7ef858834474a3af2058650edcbdded468592b5de862bf1635b66ce032` | result-neutral: only the two comments above `quoted_decimals` and `publication_policy` changed. Python ignores comments, so every name this study imports from the module is unchanged |

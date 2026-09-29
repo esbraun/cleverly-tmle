@@ -1,0 +1,11 @@
+part,check,compared,largest_difference,result
+B,Part A V1 cleverly rows,7200,9.8879238130678e-17,holds
+B,Part A V2 drtmle-r rerun,7200,9.606031248221569e-17,holds
+B,Part A V2 drtmle-r T0000 refit,2400,0.0,holds
+B,"Part A V2 drtmle-r same round, tolIC draws",2295,5.89345239276895e-12,holds
+B,"Part A V2 drtmle-r same round, maxIter draws",88,2.0810923944518563e-05,holds
+B,Part A V2 drtmle-r rounding-sensitive tolIC draws,15,2.2036635294320206e-09,holds
+B,Part A V2 drtmle-r round and exit status,2,7.573965222951173e-05,holds
+B,Part A V2 drtmle-r excused draws,2400,0.00125,holds
+B,Part A V3 initial estimates,7200,6.106226635438361e-16,holds
+B,Part A V5 T1111 against C,7200,0.0,holds

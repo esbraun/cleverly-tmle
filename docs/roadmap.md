@@ -42,7 +42,6 @@ delivered row that this roadmap still describes. Read a record with, for example
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
 | 0.51 | Red property cells after the fold, scale and law changes | keep each red verdict under `reporting` with its interval, and admit inference only when F18 or F19 supplies the exact result. The [red-cell ledger](technical-reference/method-evidence/red-cells.md) delivers this. Then run Design SL once, the last of the five declared RM18 follow-up designs | registered studies publish red verdicts after the fold, scale and law changes and the pooled update. The ledger lists each one and the ask that owns it. Four RM18 follow-up designs ran once, and no reading names a defect in `cleverly`. Design SL is declared and has not run | [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes) |
-| 0.52 | One-sided robustness bias increment in DR-TMLE | investigate the exploratory between-implementation increment on binary `treatment_correct`, under a design declared before it runs | the RM18 reading is `mixed` on that configuration. The unadjusted paired 99% interval of `cleverly` minus R `drtmle` runs 0.000068 to 0.001942, while the Bonferroni interval for that comparison covers zero. No implementation defect is established | [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) |
 | 0.61 | Learned-policy value evaluation | implement a typed learned-policy target with fold-local training and evaluation, using a published estimating and inference contract | fixed-rule paths refuse a rule learned from the analysis sample; published learned-policy methods give distinct targets and inference | [RM30](#rm30-learned-policy-value-evaluation) |
 
 Each row takes a tier by the harm that its defect does to a user today. The table gives the tiers,
@@ -56,7 +55,7 @@ depends on comes before that row.
 | c | a correct refusal that arrives late or as the wrong type | no open row |
 | d | a diagnostic or a warning that misleads | no open row |
 | e | a display or a message that misstates a fact that the fit records. By extension, an argument check or a capability row that misstates what a call accepts or needs, when no number moves and nothing raises that is not a refusal | no open row |
-| f | an investigation or a declared design that moves no verdict | RM18, RM19 |
+| f | an investigation or a declared design that moves no verdict | RM18 |
 | g | a published method needed to resolve a shipped refusal | RM30 |
 
 The table gives the reason for each place inside a tier.
@@ -64,17 +63,16 @@ The table gives the reason for each place inside a tier.
 | row | reason for its place |
 | --- | --- |
 | RM18 | one declared design that has not run, which reads two red rows in one study. Four designs ran, read 17 red rows in six studies, and moved no verdict. The ledger already publishes each of those verdicts |
-| RM19 | one configuration, which RM18 opened. Its Bonferroni interval covers zero, and it moves no verdict |
 | RM30 | a published learned-policy method can resolve the current refusal, but requires a distinct target, fold-local evaluation, and inference validation |
 
 No open row waits on another open row.
 
-Use two delivery groups for these three rows and the two investigations that RM18 waits on.
+Use two delivery groups for these two rows and the two investigations that RM18 waits on.
 Keep each item's acceptance criteria separate inside its group.
 
 | delivery group | items | shared boundary |
 | --- | --- | --- |
-| red property cells | RM18 and RM19, and the F18 and F19 derivations that RM18 waits on | the recorded rule that a red cell is reporting evidence, designs declared before their runs that move no verdict, and two exact derivations that would close the inferential gaps |
+| red property cells | RM18, and the F18 and F19 derivations that RM18 waits on | the recorded rule that a red cell is reporting evidence, designs declared before their runs that move no verdict, and two exact derivations that would close the inferential gaps |
 | learned-policy evaluation | RM30 | a typed target and a published fold-local learning, evaluation, and inference contract with validation |
 
 Each group holds consecutive priorities, so the group order is the priority order. Deliver the
@@ -87,9 +85,9 @@ queue. The RM IDs and their anchors never change, so a commit names a row by its
 row takes its priority with it, and the other rows keep theirs.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
-The queue holds three rows.
-RM18 has one follow-up design, Design SL, that is declared and has not run. RM19 has no
-declared design. RM30 holds the published learned-policy implementation.
+The queue holds two rows.
+RM18 has one follow-up design, Design SL, that is declared and has not run. RM30 holds the
+published learned-policy implementation.
 
 The F18 and F19 derivations do not block priority 1, because an item with no published theory does
 not enter the sequence. Their cells stay red under `reporting` until F18 or F19 meets its
@@ -463,8 +461,9 @@ designs ran, and "[What the five designs found](#what-the-five-designs-found)" g
 readings. Design SL has not run, and "What this row asks for" marks it `open`.
 
 The rows that F18 and F19 own stay red until F18 or F19 meets its acceptance.
-[RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) carries the one measured increment
-that the one-sided robustness reading opened.
+[RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) read the one measured increment
+that the one-sided robustness reading opened. On fresh draws it reads `no increment at the
+declared resolution`, and it moved no owner.
 
 #### What the earlier readings established
 
@@ -672,8 +671,13 @@ The `both_correct` paired interval covers zero, so neither binary reading is `un
 `outcome_correct`, the two implementations share the bias at this size. On `treatment_correct`,
 the unadjusted paired comparison finds a between-implementation increment of 0.001005 against the
 `cleverly` bias of 0.003102. The declaration adjusted for no multiplicity, so the signal is
-exploratory. [RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) gives the adjusted
-interval and carries the question of the step.
+exploratory.
+
+At the Bonferroni level of 1 - 0.01/3 over the three paired intervals, the
+`treatment_correct` interval runs from -0.000063 to 0.002073 and covers zero. It is a
+supplementary row of `readings.csv`.
+[RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) gives the reading of a declared
+design on fresh draws.
 
 No R comparator fits the multi-arm `treatment_correct` configuration. The declared multi-arm
 statistic (iv) is a Welch interval for the property-cell bias minus the primary bias at the same
@@ -1266,8 +1270,8 @@ reading follows its rule.
 The registered `double_robustness/treatment_correct` cell of
 `canonical-drtmle` judges this bias, in the same scenario at n = 1,500. `RM18-one-sided-bias` owns
 that cell. The fresh bias interval is supplementary, and it moves nothing.
-[RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) is related work, on paired rows at
-n = 3,000.
+[RM19](#rm19-one-sided-robustness-bias-increment-in-dr-tmle) is related work. It reads paired
+rows at n = 1,500, 3,000 and 6,000.
 
 `test_the_harness_rule_reproduces_each_registered_red_verdict` in
 `tests/unit/test_rm18_boundary_diagnostic.py` applies the harness rule to the committed registered
@@ -1379,54 +1383,114 @@ What CD does not show:
 
 ### RM19. One-sided robustness bias increment in DR-TMLE
 
-RM18's one-sided robustness reading opened this row, because its declared rule reads `mixed` on
-one configuration. On the binary `treatment_correct` configuration of `canonical-drtmle`, the
-treatment mechanism is correct and the outcome regression is not. `cleverly` and R `drtmle` fit
-the same 800 primary replications at n = 3,000.
+RM18's one-sided robustness reading opened this row. On the binary `treatment_correct`
+configuration of `canonical-drtmle`, the treatment mechanism is correct and the outcome
+regression is not. On the 800 committed primary replications at n = 3,000, the unadjusted paired
+99% interval of `cleverly` minus R `drtmle` ran from 0.000068 to 0.001942. The Bonferroni interval
+covered zero. "[What the one-sided reading found](#what-the-one-sided-reading-found)" gives each
+interval.
 
-| statistic | 99% interval | source |
+Pull request 246 delivered this row. The table gives what shipped.
+
+Commit `b7ca9460` holds the declaration, "The localization design, declared before it runs", with
+its amendments. They are
+"The rule by round and conditioning", "The amendment after the harness review" and "The amendment
+after the Part A validation failure". The subsection "Reads made before this declaration" lists
+every read before each run. Read them with `git show b7ca9460:docs/roadmap.md`. Commit `b51447cb`
+holds the Part A record under the first validation rule.
+
+| part | what shipped |
+| --- | --- |
+| diagnostic | [`tests/diagnostics/rm19_one_sided_increment/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm19_one_sided_increment) holds a transcription of the binary loop of R `drtmle` 1.1.2, the harness, the per-draw rows, the validation records and the readings. Its README gives each run, the checks V1 to V5 and the bias of each arm. `tests/unit/test_rm19_one_sided_increment_diagnostic.py` rebuilds each reading from the committed rows |
+| primary reading | Part B, 2,000 fresh draws at n = 3,000: `no increment at the declared resolution` |
+| localization | Part B: `nothing to localize`. Part A, on the committed draws: `committed-draw attribution: shared by J and G`, which confirms nothing |
+| Part C | the Part C rule labels `sqrt(n)` times `C - T(0, 0, 0, 0)` `increment` at n = 1,500, and gives no label at 3,000 and 6,000. No route reads a Part C label |
+| route | record, and close. No estimator changed. The three one-sided cells stay red under `reporting`, and `RM18-one-sided-bias` stays their owner |
+| documentation | "[The update order](technical-reference/dr-tmle/targeting.md#the-update-order)" names the prime step that R `drtmle` does not take. [Supported estimands](technical-reference/dr-tmle/supported-estimands.md) cites the J main effect and Part C. The [canonical DR-TMLE study page](technical-reference/method-evidence/canonical-dr-tmle.md) cites the reading. The `solve_with_reduction` docstring gives the settings of the registered R run. Theorem 3 of van der Laan (2014) is cited through Benkeser et al. (2017), Section 3.1 |
+
+(what-the-localization-design-found)=
+#### What the localization design found
+
+Every value below comes from a `*-reading.csv` file of the diagnostic directory. The arm `C` is
+the registered `cleverly` fit. The arm `T(j, p, s, k)` is the transcription with the factors J, P,
+S and K at the named levels. The factors are the tilt geometry, the priming step, the exit and the
+solver numerics. `T(0, 0, 0, 0)` is R. The arm `T0+G` is `T(0, 0, 0, 0)` without the step guards
+of R.
+
+Each interval is a Student interval over draws. Every check V1 to V5 of the harness holds, and
+the diagnostic README gives each one.
+
+Each declared part ran once. The step AV, which recomputes V2 for Part A, ran twice, and the
+README gives the reason. G entered the family in both parts, so each main effect has the
+Bonferroni level 1 - 0.01/5 = 0.998. The table gives each declared reading verbatim.
+
+| part | statistic | point | interval | reading |
+| --- | --- | ---: | --- | --- |
+| B | `C - T(0, 0, 0, 0)` | 0.000566 | -0.000023 to 0.001155, half-width 0.000589 | `no increment at the declared resolution` |
+| B | the bracket, `T(1, 1, 1, 1) - C` | 0 | 0 to 0 | `bracket holds` |
+| B | guard events of `T(0, 0, 0, 0)` | 531 | | `G in the family` |
+| B | main effect J | 0.001275 | 0.000833 to 0.001718 | level 0.998 |
+| B | main effects P, S and K | -0.000534, 0.000056, 0.000003 | each covers 0 | level 0.998 |
+| B | main effect G | 0.034474 | 0.023561 to 0.045387 | level 0.998 |
+| B | localization | | | `nothing to localize` |
+| A | `C - T(0, 0, 0, 0)` | 0.001005 | 0.000068 to 0.001942 | `committed-draw attribution: increment confirmed` |
+| A | the bracket | 0 | 0 to 0 | `committed-draw attribution: bracket holds` |
+| A | main effects J and G | 0.001224 and 0.029386 | 0.000614 to 0.001834, and 0.011343 to 0.047429 | level 0.998. P, S and K cover 0 |
+| A | localization | | | `committed-draw attribution: shared by J and G` |
+| A, `outcome_correct` | `T(1, 0, 0, 0) - T(0, 0, 0, 0)` | -0.000068 | -0.000272 to 0.000135. The SD is 0.002228, against a bound of 0.002223 | `P-ctrl fails` |
+| A, `both_correct` | the same | 0.000015 | -0.000055 to 0.000085. The SD is 0.000763, against a bound of 0.000869 | `P-ctrl holds` |
+| C, n = 1,500 | `sqrt(n)` times `C - T(0, 0, 0, 0)` | 0.0789 | 0.0389 to 0.1189, at the level 1 - 0.01/3 | `increment` |
+| C, n = 3,000 | the same, from the Part B rows | 0.0310 | -0.0057 to 0.0678 | no label |
+| C, n = 6,000 | the same | 0.0053 | -0.0274 to 0.0381 | no label |
+
+Each of the six two-way interactions covers 0 in both parts. No rule reads them.
+
+##### What each reading means
+
+The declared rules decide each meaning. The last column states what the reading does not show.
+Hn is the declared descriptive hypothesis of Part C: `sqrt(n)` times the mean paired difference is
+the same at n = 1,500, 3,000 and 6,000.
+
+| reading | meaning under the declared rules | what it does not show |
 | --- | --- | --- |
-| `cleverly` bias | 0.001284 to 0.004921 | `tests/diagnostics/rm18_one_sided_bias/readings.csv`, statistic (i) |
-| R `drtmle` bias | 0.000277 to 0.003917 | the same file, statistic (ii) |
-| `cleverly` minus R, paired by replication | 0.000068 to 0.001942 | the same file, statistic (iii). It equals the `ate` row of `tests/canonical/drtmle/equivalence.csv` |
-| `cleverly` minus R on `both_correct` | -0.000081 to 0.000078 | the same file |
-| `cleverly` minus R, at the Bonferroni level over the three paired intervals | -0.000063 to 0.002073 | the same file, a supplementary row |
+| `no increment at the declared resolution` | the fresh-draw interval covers 0, and its half-width of 0.000589 is below the declared 0.000598. The declared route reads: "record. The committed signal was a Monte Carlo excursion, and RM19 closes". The excursion clause is the wording of the declared route. The fresh-draw readings neither confirm nor rule out a small increment | that the increment is 0. The interval also covers the committed point of 0.001005. It excludes only a mean increment above 0.001155 at n = 3,000. Both `C` and `T(0, 0, 0, 0)` keep a bias above 0 on the fresh draws |
+| `nothing to localize`, beside a J and a G main effect that exclude 0 | the localization table is read from the top. The bracket holds, so `unexplained` does not apply. The next row, `nothing to localize`, needs only the primary reading. The factorial is reported, and no label and no route apply to J or G | that J and G have no effect. The primary difference compares the two corners of the design. In a 2^4 design, the corner difference equals the sum of the four main effects and the four three-way contrasts. So J can exclude 0 while the corner interval covers 0. The P main effect has the opposite sign |
+| the J main effect | averaged over the eight settings of P, S and K, the `cleverly` level of J raises `ate` by 0.000833 to 0.001718 on fresh draws | the effect of the geometry alone. At K = 0, J also changes three settings of the mechanism step of R: the `glm` tolerance, the offset trim and the guard. The harness README lists them |
+| the G main effect | G is `T0+G` minus `T(0, 0, 0, 0)`, so it reads R against R without its guards. `T(0, 0, 0, 0)` records 531 guard events on 232 of the 2,000 fresh draws. On those 232 draws, removing the guards moves `ate` by 0.30 on average. The unguarded loop often fails to converge: it reaches the cap on 303 draws, against 95 for `T(0, 0, 0, 0)` | a difference between `cleverly` and R. `cleverly` takes no guard, and at K = 1 no guard of R acts |
+| `committed-draw attribution: increment confirmed` and `shared by J and G` | Part A reads the 800 draws that produced the RM18 signal. V1 and V2 hold, so it reproduces the committed interval. The declaration states that Part A confirms nothing | evidence for the increment. Part A and Part B read different draws, and each interval covers the point estimate of the other |
+| `P-ctrl fails` on `outcome_correct` | P-ctrl is a prediction that the declaration at `b7ca9460` states. It is not a control of factor P. It reads the J contrast `T(1, 0, 0, 0) - T(0, 0, 0, 0)` on the two control scenarios. On `outcome_correct`, the mean interval covers 0, and the SD exceeds its bound by 0.24%. The standard error of an SD from 800 draws is about 2.5% of the SD, so the SD equals its bound within sampling error. The declaration gives neither prediction a route | a mean effect of J on `outcome_correct`, or a defect |
+| Part C | the point estimates of `sqrt(n)` times the increment fall with n: 0.0789, 0.0310 and 0.0053. Only the n = 1,500 interval lies above 0. There the increment is 0.0020 on the raw scale, from 0.0010 to 0.0031. The n = 1,500 and n = 6,000 intervals do not overlap: 0.0389 against 0.0381 | a proof of a rate. Three sizes cannot identify a rate. The adjacent intervals overlap. The intervals at 3,000 and 6,000 cover 0, and they reach 0.0678 and 0.0381. No rule reads Hn, and a gap between two intervals is not a declared test. Part C fits `C` and `T(0, 0, 0, 0)` alone, so it cannot name the factor that changes with n |
 
-Both implementations show a bias above zero, and the declared paired interval excludes zero.
-Three qualifications apply.
+So the Part C intervals agree with an increment that vanishes faster than `1/sqrt(n)`, and they
+do not prove it.
 
-| qualification | what it shows |
+Benkeser, Carone, van der Laan and Gilbert (2017), Section 3.2, Theorem 1, has three conditions.
+First, one nuisance limit is correct. Second, the score equations (5) are $o_P(n^{-1/2})$. Third,
+the second-order terms of Appendix B are $o_P(n^{-1/2})$. The estimator is then asymptotically
+linear with the influence function $D^{*\#}(Q, g)$, which depends on the nuisance limits and not
+on the route. Appendix B gives one sufficient condition: rates of $o_P(n^{-1/4})$ in the
+$L^2(P_0)$ norm.
+
+If both `C` and `T(0, 0, 0, 0)` met these conditions, their difference would be
+$o_P(n^{-1/2})$. That step follows from the definition of asymptotic linearity. Two statements
+that the step would need have no read source.
+
+| statement | status |
 | --- | --- |
-| no multiplicity adjustment | the declaration adjusted for none over its three paired intervals. At the Bonferroni level of 1 - 0.01/3, the `treatment_correct` interval runs -0.000063 to 0.002073 and covers zero |
-| the registered paired verdict | the same `ate` row of `tests/canonical/drtmle/equivalence.csv` concludes `equivalent`. Its point difference is 0.336 of its similarity margin of 0.002990, and its upper endpoint is 0.649 of it |
-| the other configurations | the `treatment_correct` paired differences exceed those of `outcome_correct` by 0.000138 to 0.002055, and those of `both_correct` by 0.000067 to 0.001947. Each is a Welch 99% interval, supplementary and unadjusted |
+| the registered GLM reduced regressions meet the conditions of Theorem 1 on this configuration. A derivation before the declaration found that a misspecified `Qr` leaves a term of order $n^{-1/2}$ in general | an unsourced derivation. No rule depends on it |
+| the two tilt geometries differ at second order. [Supported estimands](technical-reference/dr-tmle/supported-estimands.md) stated it before this row, and it now labels the statement unsourced | an unsourced derivation. Part C reads the whole increment and not J alone, so it does not test this statement |
 
-The unadjusted comparisons place the increment on this one-sided configuration. No result names
-its source.
+##### The route and the acceptance
 
-RM19 shares the red property cells group with RM18. The [Remediation](#remediation) section
-gives its priority and the reason for its place.
+The primary reading takes the declared route of `no increment at the declared resolution`:
+record, and RM19 closes.
 
-| question | state |
+| acceptance | state |
 | --- | --- |
-| does `cleverly` add bias over R `drtmle` on this configuration | measured by the declared unadjusted interval, which excludes zero. The Bonferroni interval covers zero |
-| which step of the `cleverly` fit produces the increment | open. No diagnostic has read it |
-| does the increment change with the sample size | open. The paired rows exist at n = 3,000 alone. RM18 design BD read the binary `treatment_correct` rung at n = 1,500 on fresh draws, for `cleverly` alone and unpaired. Its bias interval of 0.00774 to 0.00965 moves nothing ("[What design BD found](#what-design-bd-found)") |
-| the multi-arm `double_robustness/treatment_correct` excess | one stream reads `finite-sample excess detected`. The independent rung does not reproduce it, and the pooled comparison covers zero. The overall evidence is inconclusive. No comparator fits that configuration, so the source is not identified |
-
-Next action: declare a design that localizes the binary increment, before any run of it. The
-declaration names each step it tests, the statistic each step reads, and the rule that reads the
-result. It reads the committed paired rows as they stand.
-
-Acceptance:
-
-- The declared design runs once and publishes its reading, whichever way the reading falls.
-- The three one-sided cells stay red under `reporting`. `RM18-one-sided-bias` stays their ledger
-  owner, and this row moves no margin, budget or law.
-- A reading that names a defect in `cleverly` opens a separate fix. That fix needs a nonzero
-  witness that fails without it, and each affected study regenerates under the RM18 rule.
-- The declaration states whether its design can read the multi-arm excess. If it cannot, the row
-  records that, and the multi-arm cell keeps its owner.
+| the declared design runs once and publishes its reading, whichever way the reading falls | met. Parts A, B and C and the check V4 each ran once under the declaration as amended. The step AV ran twice. Part A read `harness not validated, no reading` under the first rule, and `b51447cb` keeps that record |
+| the three one-sided cells stay red under `reporting`, `RM18-one-sided-bias` stays their owner, and no margin, budget or law moves | met. The ledger and every registered artifact are unchanged |
+| a reading that names a defect in `cleverly` opens a separate fix | no reading names a defect, so no fix row opens. V5 reproduces `C` exactly from the choices J, P, S and K on 7,200 committed rows, and the bracket is 0 on the fresh draws. Each choice has a documented source. J is in [supported estimands](technical-reference/dr-tmle/supported-estimands.md). P is in the `solve_with_reduction` docstring (`prime:`) and in Step 2 of Benkeser et al. (2017), Section 3.2. S is in "[The update order](technical-reference/dr-tmle/targeting.md#the-update-order)". K is `submodel_alpha` of `Targeting` and "[The bound-inactive scope](technical-reference/dr-tmle/targeting.md#the-bound-inactive-scope)". "The update order" said that the `"drtmle"` order follows the R package and did not name the prime. That was an error in the text, and this row corrects it |
+| the declaration states whether its design can read the multi-arm excess | met. The design cannot read it, because no validated R comparator fits that configuration. On more than two arms, `cleverly` uses the armwise tilt of R, so factor J does not exist there. Part B does not read `attributed to J`, so the source stays open. The multi-arm cell keeps its owner |
 
 ### RM20. Intervals outside every claimed contract
 

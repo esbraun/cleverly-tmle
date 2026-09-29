@@ -570,6 +570,20 @@ THREAD_VARIABLES = (
 )
 
 
+#: Lines a part asks :func:`run_log` to record in its block, as ``note: <text>``.
+_NOTES: list[str] = []
+
+
+def note(text: str) -> None:
+    """Record one line in the ``run.log`` block of the running part."""
+    _NOTES.append(text)
+
+
+def notes() -> tuple[str, ...]:
+    """The lines :func:`note` has recorded since the running part's block opened."""
+    return tuple(_NOTES)
+
+
 @contextlib.contextmanager
 def run_log(output: Path, title: str) -> Iterator[None]:
     """Append one block to ``output/run.log``: the code, the runtime, the wall time, the exit.
@@ -601,11 +615,14 @@ def run_log(output: Path, title: str) -> Iterator[None]:
     ]
     clock = time.perf_counter()
     code = 1
+    _NOTES.clear()
     try:
         yield
         code = 0
     finally:
         finished = datetime.datetime.now(datetime.UTC)
+        lines += [f"note: {text}" for text in _NOTES]
+        _NOTES.clear()
         lines += [
             f"finished: {finished.isoformat(timespec='seconds')}",
             f"wall seconds: {time.perf_counter() - clock:.1f}",
@@ -641,6 +658,12 @@ def as_committed(frame: pd.DataFrame) -> pd.DataFrame:
 def budget(declared: int, cap: int | None) -> int:
     """The declared budget, or the smoke cap when one is given."""
     return declared if cap is None else min(declared, cap)
+
+
+def record_path(here: Path, name: str, output: Path, smoke: bool) -> Path:
+    """A file a later part reads: the committed record in ``here`` for a declared run, and the
+    run's own ``output`` for a smoke run."""
+    return (output if smoke else here) / name
 
 
 def part_paths(output: Path, part: str) -> tuple[Path, Path, Path]:

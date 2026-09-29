@@ -1,7 +1,7 @@
 # Canonical DR-TMLE
 
 This reporting study evaluates the binary complete-data DR-TMLE against the primary simulation
-law in Benkeser et al. (2017), Section 4, and against R
+law in Benkeser et al. (2017), Section 5.1, and against R
 [`drtmle`](https://github.com/benkeser/drtmle) 1.1.2 at pinned commit
 [`538a3a2`](https://github.com/benkeser/drtmle/tree/538a3a264c1ca984b6d88978ca7f96165f43152c).
 The truth and acceptance rules do not come from the R implementation: treatment-specific means
@@ -17,7 +17,7 @@ equivalence, coverage superiority, or an inconclusive result without selecting o
 
 | setting | `cleverly` | R `drtmle` |
 | --- | --- | --- |
-| data-generating law | binary complete-data law from Benkeser et al. (2017), Section 4 | identical realized rows |
+| data-generating law | binary complete-data law from Benkeser et al. (2017), Section 5.1 | identical realized rows |
 | nuisance regimes | outcome correct, treatment correct, and both correct | identical nuisance predictions supplied as `Qn` and `gn` |
 | cross-fitting | one deterministic unstratified ten-fold assignment, drawn by `random_partition` from the sample seed | the identical fold vector through the package's documented `cvFolds` route |
 | construction | pooled cross-fitted, univariate reductions, guards `Q` and `g`, R-package update order | native `drtmle()` with the corresponding univariate guards and two Q steps |
@@ -75,6 +75,14 @@ update orders disagree by about the same amount in the same cell**, with both ro
 three equations to about `1e-11`. The three equations do not pin down one answer on this law once
 the outcome regression is misspecified, and the route decides which answer is reached.
 [Targeting and cross-fitting](../dr-tmle/targeting.md#the-update-order) carries that measurement.
+
+RM19 read the mean of this disagreement on 2,000 fresh draws. Its reading is `no increment at
+the declared resolution`. Of the four named choices that the design moves from R to `cleverly`,
+only the two-arm tilt geometry has a main effect whose interval excludes 0: `0.000833` to
+`0.001718`, at the level 0.998. The step guards of R also move the estimate of R itself. The
+declared rule applies no localization label when the primary reading finds no
+increment. {ref}`What the localization design found <what-the-localization-design-found>` gives
+each interval.
 
 This is also what limits the paired calibration test in that regime. The published resolution of
 the calibration statistic tracks the disagreement exactly: `0.0032` to `0.0039` where both
@@ -234,9 +242,19 @@ is shared by these two implementations at this size; it does not identify the so
 exploratory between-implementation signal, not an established implementation defect: the interval
 carries no multiplicity adjustment, and the Bonferroni interval for this comparison covers zero.
 
-[RM19](../../roadmap.md#rm19-one-sided-robustness-bias-increment-in-dr-tmle) carries the
-increment. {ref}`What the one-sided reading found <what-the-one-sided-reading-found>` gives each
-interval.
+{ref}`What the one-sided reading found <what-the-one-sided-reading-found>` gives each
+interval. [RM19](../../roadmap.md#rm19-one-sided-robustness-bias-increment-in-dr-tmle) read the
+increment again on 2,000 fresh draws at `n = 3,000`, under a design declared before its runs. The
+99% interval of `cleverly` minus R runs from `-0.000023` to `0.001155`, and the declared reading is
+`no increment at the declared resolution`. That interval also covers the committed point of
+`0.001005`.
+
+At `n = 1,500`, the paired increment on fresh draws runs from `0.0010` to `0.0031`, at the level
+1 - 0.01/3. The Part C rule labels it `increment`, and no route reads the label. The three cells stay red, and their ledger owner
+did not change.
+{ref}`What the localization design found <what-the-localization-design-found>` gives each
+reading and what it does not show. The per-draw rows are in
+[`tests/diagnostics/rm19_one_sided_increment/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm19_one_sided_increment).
 
 One size cannot say what kind of failure that is. A second-order remainder that has not yet
 decayed and an inconsistent estimator look identical at one `n` and mean opposite things. The

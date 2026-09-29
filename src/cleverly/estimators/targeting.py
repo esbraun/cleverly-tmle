@@ -234,7 +234,9 @@ ReductionExit = Literal["tolerance", "stall", "cap"]
 #: on reading the paper and whose numerical half -- *do the two routes reach the same fixed
 #: point on real data* -- is a measurement, and needs the second route to exist here.
 #:
-#: ``"drtmle"`` is the canonical R package's loop and the default: equation (9), refit
+#: Both orders first prime :math:`\bar Q` with one equation-(8) step, which R ``drtmle``
+#: does not take and step 2 of Benkeser et al. (2017), Section 3.2, does (RM19).
+#: ``"drtmle"`` is the canonical R package's round order and the default: equation (9), refit
 #: the reduced mechanisms, equation (10), equation (8), refit :math:`Q_r`. ``"benkeser"``
 #: is the working paper's recursion, steps 2 to 6 -- equation (8), refit
 #: :math:`g_{r,1}` and :math:`g_{r,2}` at the **once-updated** outcome regression, equation
@@ -1335,8 +1337,10 @@ def solve_with_reduction(
     that covariate is nearly zero: observed at ``mean|h| = 1e-3``, ``|epsilon|`` reaching 280
     and a singular Hessian in a third of the rounds on one unseeded draw.  A fit that never
     gets past it exits at ``max_outer`` and reports ``failure = "max_iter_reached"``.
-    ``drtmle`` sidesteps the question entirely by capping at three iterations and never
-    claiming to converge. :attr:`ReductionFluctuation.ill_conditioned` retains its historical
+    ``drtmle``'s default sidesteps the question by capping at three iterations
+    (``maxIter = 3``). The registered comparison runs it at ``maxIter = 100`` with
+    ``tolIC = 1e-8``, and there R stops at its tolerance or at the cap.
+    :attr:`ReductionFluctuation.ill_conditioned` retains its historical
     name but counts any failed equation-(10) inner solve, including a full-rank solve that
     stops at working precision just above its relative tolerance. The final score check is
     what says whether that numerical event matters.
