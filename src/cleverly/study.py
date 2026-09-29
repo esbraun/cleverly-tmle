@@ -25,7 +25,7 @@ from .methods import (
     Runtime,
     TMLEMethod,
 )
-from .msm import MSM, MSMSet
+from .msm import MSM, MSMSet, refuse_continuous_msm_mechanisms
 from .protocol import StudyProtocol
 from .targets import TARGETS
 from .targets.base import (
@@ -2184,6 +2184,10 @@ class ExplicitAdjustmentProvider:
             raise CapabilityError(
                 "a design with intermediate= must identify ControlledDirectEffect explicitly"
             )
+        if isinstance(actual, MSMProjection):
+            refuse_continuous_msm_mechanisms(
+                data, subject="MSMProjection", missingness="PointTreatment(missingness=...)"
+            )
 
         functional = _point_functional(design, data, estimand)
         return IdentifiedEffect(
@@ -2322,8 +2326,8 @@ class CausalStudy:
         Raises
         ------
         CapabilityError
-            If the estimand type or its composition with the design is unsupported, or if
-            a typed estimand holds an intervention of another kind.
+            If the estimand type or its composition with the design or the data is
+            unsupported, or if a typed estimand holds an intervention of another kind.
         DataError
             If the estimand names a value that the data lack, or if the set of a point
             estimand is a mapping, an iterator, a string, or a single item.

@@ -157,7 +157,7 @@ from ..learners.crossfit import (
 )
 from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearner, resolve_learner
-from ..msm import MSM, MSMSet, refuse_msm_functions
+from ..msm import MSM, MSMSet, refuse_continuous_msm_mechanisms, refuse_msm_functions
 from ..provenance import data_fingerprint
 from ..provenance import record as provenance_record
 from ..targets import TargetContext, groups_for, parameter_stem, targets_for
@@ -404,6 +404,8 @@ class TMLE:
         With missing outcomes, a cross-fitted shift, incremental, regime, MSM, or
         controlled-direct-effect fit is refused before any learner is fitted, because no
         audited result covers it (F21 in ``docs/roadmap.md``). Fit it in sample.
+        A continuous-dose MSM with missing outcomes or ``intermediate=`` is refused at
+        every setting (X10 in ``docs/roadmap.md``).
     targeting_scheme:
         Where the fluctuation is fit, given cross-fitted nuisances.  ``"pooled"``
         (default) fits one common ``epsilon`` vector on the stacked out-of-fold rows.
@@ -1448,6 +1450,11 @@ class TMLE:
         <cleverly.msm.MSMSet.evaluate>` checks the model again, but a fit reaches it only
         after those refusals.
 
+        The refusal of a continuous-dose MSM with a missing outcome or an intermediate
+        variable, :func:`~cleverly.msm.refuse_continuous_msm_mechanisms`, runs next. It
+        holds at every ``cross_fit`` setting, so it runs before the cross-fitted refusal,
+        whose remedy is the in-sample fit.
+
         The natural-course contract runs next, because it resolves the target list the
         arm-indexed missing-outcome contract then reads.  The refusal of every other
         cross-fitted missing-outcome target follows them.  All three name a narrower
@@ -1463,6 +1470,8 @@ class TMLE:
         """
         self._refuse_fold_policy()
         self._refuse_undeclared_functions()
+        if self.msm is not None:
+            refuse_continuous_msm_mechanisms(data, subject="An MSM (msm=)", missingness="delta=")
         estimands = self._resolve_natural_course_contract(data)
         self._resolve_arm_indexed_missing_contract(data, estimands)
         self._refuse_cross_fitted_missing_off_contract(data, estimands)
@@ -2369,8 +2378,9 @@ class TMLE:
                 f"{data.treatment_name} was declared continuous, so it has no arms and "
                 "none of the arm-indexed estimands name a parameter it has. Say which "
                 "doses to compare with shifts=[Shift(delta, cap=...), ...]; "
-                "Shift(0.0, cap=None) is the natural course, whose mean is E[Y], or "
-                "declare an MSM with a dose integration grid."
+                "Shift(0.0, cap=None) is the natural course, whose mean is E[Y]. Or, "
+                "with every outcome observed and no intermediate=, declare an MSM with a "
+                "dose integration grid."
             )
 
     def _reference_arm(

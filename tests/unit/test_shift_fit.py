@@ -194,6 +194,22 @@ class TestTheRefusals:
         with pytest.raises(DataError, match=r"Shift\(0\.0, cap=None\) is the natural course"):
             estimator().fit(data)
 
+    def test_the_no_shift_refusal_offers_an_msm_only_with_complete_outcomes(self) -> None:
+        """The suggested MSM must fit: a continuous-dose MSM refuses a missing outcome and
+        ``intermediate=`` (RM32), so the message offers it only without them."""
+        data = CausalData.from_frame(
+            frame(),
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2", "W3"],
+            treatment_kind="continuous",
+        )
+        with pytest.raises(
+            DataError,
+            match=r"with every outcome observed and no intermediate=, declare an MSM",
+        ):
+            estimator().fit(data)
+
     def test_a_shift_fit_cannot_be_asked_for_an_arm_estimand(self) -> None:
         with pytest.raises(ValueError, match="indexed by treatment arm"):
             fit(shifts=SHIFTS, estimands=["ate"])
