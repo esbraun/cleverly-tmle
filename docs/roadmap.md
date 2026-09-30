@@ -40,8 +40,12 @@ or the commit that its detail section names, holds the full plan, probe and revi
 delivered row that this roadmap still describes. Read a record with, for example,
 `git show dea3297e:docs/roadmap.md`.
 
-The remediation queue holds no rows. Pull request 250 delivered
-[RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes), the last open row.
+Pull request 250 delivered [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes).
+Its review found reused simulation seeds at the expanded replication budget.
+
+| priority | item | next action | problem | details |
+| ---: | --- | --- | --- | --- |
+| 0.11 | RM33. Reused simulation seeds | repair the seed allocation and regenerate affected studies | repeated draws enter bootstrap intervals as separate observations | [contract](#rm33-reused-simulation-seeds) |
 
 Each row takes a tier by the harm that its defect does to a user today. The table gives the tiers,
 from the most harmful. Inside a tier, a row with a wider reach comes first. A row that another row
@@ -49,7 +53,7 @@ depends on comes before that row.
 
 | tier | reason | rows |
 | --- | --- | --- |
-| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | no open row |
+| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM33 |
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | no open row |
 | c | a correct refusal that arrives late or as the wrong type | no open row |
 | d | a diagnostic or a warning that misleads | no open row |
@@ -57,7 +61,7 @@ depends on comes before that row.
 | f | an investigation or a declared design that moves no verdict | no open row |
 | g | a published method needed to resolve a shipped refusal | no open row |
 
-No delivery group holds an open row. A delivery group joins rows that share a boundary. Each group
+The simulation group holds RM33. A delivery group joins rows that share a boundary. Each group
 holds consecutive priorities, so the group order is the priority order. Deliver the items inside a
 group in priority order. The first decimal digit of a priority names its group, and the second
 digit orders the rows inside that group. Each remediation priority is below 1, so it does not
@@ -68,7 +72,7 @@ queue. The RM IDs and their anchors never change, so a commit names a row by its
 row takes its priority with it, and the other rows keep theirs.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
-The queue holds no rows, so no remediation row blocks priority 1.
+RM33 blocks priority 1 until its acceptance checks pass.
 
 The F18 and F19 derivations do not block priority 1, because an item with no published theory does
 not enter the sequence. Their cells stay red under `reporting` until F18 or F19 meets its
@@ -1103,6 +1107,42 @@ probe table and the corrections. Read it with `git show e6111a2b:docs/roadmap.md
 `tests/unit/test_continuous_msm_mechanism_refusals.py` holds the witnesses and three mutation
 controls. The `build_submodel` guard in `src/cleverly/estimators/targeting.py` stays as a backstop
 for its internal callers.
+
+### RM33. Reused simulation seeds
+
+The review scope is September 29, 2026, in America/Los_Angeles. It contains merged pull request 250.
+Its expanded outer rungs contain 232 reused draws in 231 duplicate-seed groups.
+The six rungs contain 438,000 rows. These counts do not establish a changed slope verdict.
+
+`CoverageStudy.run` reads successive 32-bit words from one `SeedSequence` as replication seeds.
+Repeated words draw identical samples. Different rung roots also produce overlapping sample seeds.
+The slope bootstrap treats each recorded row as a separate observation.
+
+NumPy documents [spawning and independent streams](https://numpy.org/doc/stable/reference/random/parallel.html).
+Distinct PRNG inputs are the repair requirement. A seed audit does not prove mathematical independence.
+
+#### The amendment before regeneration
+
+This amendment supersedes the unchanged-seed condition for collided inputs in Design SL.
+It preserves the laws, learners, sample sizes, replication budgets, margins, and reading rules.
+It does not remove a replication or select a replacement by its fitted result.
+
+| part | declaration |
+| --- | --- |
+| allocation | consider replication indices in ascending order, then root seeds in sorted order |
+| original inputs | keep each original seed unless an earlier allocation already owns it |
+| pairing | cells that intentionally share a root share one seed vector |
+| replacement | derive deterministic 32-bit retry candidates from the root, index, and retry count; reject occupied candidates |
+| preflight | check uniqueness within each stream and disjointness between distinct roots before any fit |
+| explicit inputs | validate supplied replication seeds before estimator construction |
+| affected studies | audit every registered path that uses the changed allocator; regenerate each study with changed sample inputs |
+| execution | use the locked runtime and pinned references; run studies sequentially with one native thread and the available core budget |
+| publication | retain the old evidence in Git history; write complete regenerated artifacts and manifests; regenerate published tables |
+| reading | publish every resulting verdict, including a failed positive or control; keep each original acceptance margin |
+
+Acceptance requires prefix stability, intentional pairing, collision witnesses, and unchanged collision-free streams.
+Independent review must verify the corrected allocation and every changed artifact.
+The full fast suite, lint, formatting, types, documentation, and package checks must pass.
 
 ### P1. EP learner
 
