@@ -211,8 +211,8 @@ invalid schemas, non-finite estimates, or incomplete provenance. Existing studie
 Published studies retain `replicates.csv.gz`, `property-replicates.csv.gz`, `summary.csv`,
 `performance-tests.csv`, `equivalence.csv`, `properties.csv`, and a provenance- and hash-complete
 `manifest.json`. Run a disposable smoke study first, then the declared study without permitting
-failed replications or tuning margins after seeing the result. A regeneration expects the whole
-machine. Do not run the Python and R full-core phases concurrently. Do not run the fast tests
+failed replications or tuning margins after seeing the result. A regeneration owns its declared core budget.
+Do not run the Python and R full-core phases concurrently. Do not run the fast tests
 beside a study regeneration. Documentation quotes measured values through
 `tests/studies/evidence/claims.py` so tests can check them against the artifacts.
 
@@ -229,15 +229,15 @@ hashes, and each group answers a different question.
 
 | hash group | what it covers | what the fast tier does | what a difference means |
 | --- | --- | --- | --- |
-| `sha256` | the six published artifacts | refuses every difference | somebody edited the committed evidence |
+| `sha256` | every published artifact | refuses every difference | an artifact differs from the bytes its manifest records |
 | `reference_sha256` | Dockerfiles, R runners, shared R harnesses | refuses an undeclared difference | the comparator's source moved after the run |
 | `study_module_sha256` | the Python modules the record names | checks that the list is complete, and gates no hash | a Python source moved after the run |
 
 Ask one question of any change to a hashed source. Does it change what the study computes?
 
-A **result-determining** change makes the artifacts stale, so regenerate the study. Laws, margins,
-cells, seeds, learners, estimator arguments, the published schema, and package pins are all
-result-determining.
+A **result-determining** change makes the affected evidence stale. Regenerate that evidence under the
+[testing strategy](testing-strategy.md#targeted-reruns). Laws, margins, cells, seeds, learners,
+estimator arguments, the published schema, and package pins are all result-determining.
 
 A **result-neutral** change does not. A rename, a comment, a type annotation, an extracted helper,
 and a script moved from an image into a mount are all result-neutral. A regeneration would spend
@@ -245,7 +245,8 @@ hours to write identical bytes.
 
 No tool separates the two, so each hash group takes its own position.
 
-The published artifacts are the evidence itself. Any difference fails, and nothing is declarable.
+The published artifacts are the evidence itself. A difference from their recorded hashes fails.
+An approved regeneration records the hashes of its new artifacts. A targeted record also retains every baseline hash.
 
 Python module hashes are not gated. Selective regeneration keeps the artifacts honest, and a hash gate
 would mean regenerating twenty studies for a docstring. Refactor the shared machinery in
@@ -258,6 +259,28 @@ a reader cannot re-derive from this repository. Declare a result-neutral differe
 
 Do not rewrite a recorded hash. The manifest keeps the hash of the bytes that ran. A rewritten
 hash makes the manifest claim that bytes which did not exist produced the result.
+
+### Targeted regeneration record
+
+A targeted rerun combines inherited replications with new fits under one unchanged study design.
+Its manifest must identify both sources. It cannot describe every row as a new execution.
+
+| record | required contents |
+| --- | --- |
+| baseline | immutable artifact commit, original manifest and its hash, artifact hashes, source identification, runtime, and original clean-state flag |
+| selection | declared reason, complete affected replication keys, and old and new seeds for a seed repair |
+| replacement fits | source commit, clean-state flag, result-determining module hashes, runtime, command, and fit failures |
+| inherited evidence | preserved files and rows, their baseline attribution, and exact comparison results |
+| combined analysis | complete replication counts, analysis source and runtime, unchanged design, recomputed summaries, bootstrap intervals, controls, and verdicts |
+| final artifacts | hashes of every published artifact, including the replacement record and run log |
+
+Preserve the original manifest metadata, including an original dirty-worktree flag.
+Record replacement and analysis provenance separately. Do not overwrite historical module hashes with current hashes.
+The record must expose a runtime difference even when the published verdict stays unchanged.
+
+Derive the selection before fitting. Validate the complete combined key set and all dependent comparisons.
+Require an independent review of the reuse boundary and final artifacts.
+If verification fails, investigate the difference or use a complete rerun.
 
 A committed notebook follows the same rule under a different name. `scripts/execute_notebook.py`
 stamps it, and `tests/notebooks.py` splits the stamp in two.
