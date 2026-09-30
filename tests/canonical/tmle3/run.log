@@ -1,0 +1,40 @@
+{
+  "artifact_sha256": {
+    "equivalence.csv": "ec861f33e3b3f9337c12f0965c8ddaf9df6a3e0a2c479badb3199a608cf8514e",
+    "manifest.json": "c004fe4b63e06eec2bb5e9d030712ab6c4b97c6800aa722cad5818266b1d2144",
+    "performance-tests.csv": "27a40c3eb059893bff0024571199cac0e6d0600b9fcb01fd214dc1bb0db7ed0e",
+    "properties.csv": "becabc6bd5fd7190135ef408d5bc60ac22080ac22a80432e5c79e27109b54090",
+    "property-replicates.csv.gz": "fda6fb014e62d9d857fb09845707e1cfd5732f254503d9060e880fc9542c616f",
+    "replicates.csv.gz": "7db355cb7d248ac1c72c460a7a74ca6cfe08d6bd416149da8f476700f20c45e4",
+    "summary.csv": "65bb5241c08bd054a59bc7925e1dd877fee7321e5235c2199837bd8400e42fa3"
+  },
+  "command": [
+    "C:\\Users\\erics\\.codex\\worktrees\\review-20260929\\cleverly-tmle\\tests\\canonical\\repair_property_seeds.py",
+    "--plan",
+    "tests/canonical/seed-repair-plan.json",
+    "--study",
+    "canonical-tmle",
+    "--output",
+    "C:\\Users\\erics\\.codex\\review-runs\\20260929-01a0efbd-targeted\\canonical-tmle",
+    "--jobs",
+    "16"
+  ],
+  "exit_code": 0,
+  "finished": "2026-09-30T04:13:13.624964+00:00",
+  "old_seed_replays": 1,
+  "operation": "targeted_seed_repair",
+  "plan_sha256": "82c971bb9a8121f451c8a27a8c25ebb336398ffc0ef9fafcabab24b0308e8f97",
+  "publication_gate_passed": true,
+  "replacement_positions": 1,
+  "scientific_verdicts_passed": true,
+  "source_commit": "bbd4bdc93e61b97f986772662c0e0ef9d1534ad5",
+  "started": "2026-09-30T04:12:40.899553+00:00",
+  "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  },
+  "wall_seconds": 32.72540830000071
+}

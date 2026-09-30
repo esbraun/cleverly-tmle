@@ -42,10 +42,11 @@ delivered row that this roadmap still describes. Read a record with, for example
 
 Pull request 250 delivered [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes).
 Its review found reused simulation seeds at the expanded replication budget.
+[RM33](#rm33-reused-simulation-seeds) repairs the allocator and publishes audited targeted evidence.
+The remediation queue has no open row.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.11 | RM33. Reused simulation seeds | repair the seed allocation and regenerate affected studies | repeated draws enter bootstrap intervals as separate observations | [contract](#rm33-reused-simulation-seeds) |
 
 Each row takes a tier by the harm that its defect does to a user today. The table gives the tiers,
 from the most harmful. Inside a tier, a row with a wider reach comes first. A row that another row
@@ -53,7 +54,7 @@ depends on comes before that row.
 
 | tier | reason | rows |
 | --- | --- | --- |
-| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM33 |
+| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | no open row |
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | no open row |
 | c | a correct refusal that arrives late or as the wrong type | no open row |
 | d | a diagnostic or a warning that misleads | no open row |
@@ -61,7 +62,7 @@ depends on comes before that row.
 | f | an investigation or a declared design that moves no verdict | no open row |
 | g | a published method needed to resolve a shipped refusal | no open row |
 
-The simulation group holds RM33. A delivery group joins rows that share a boundary. Each group
+A delivery group joins rows that share a boundary. Each group
 holds consecutive priorities, so the group order is the priority order. Deliver the items inside a
 group in priority order. The first decimal digit of a priority names its group, and the second
 digit orders the rows inside that group. Each remediation priority is below 1, so it does not
@@ -72,7 +73,6 @@ queue. The RM IDs and their anchors never change, so a commit names a row by its
 row takes its priority with it, and the other rows keep theirs.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
-RM33 blocks priority 1 until its acceptance checks pass.
 
 The F18 and F19 derivations do not block priority 1, because an item with no published theory does
 not enter the sequence. Their cells stay red under `reporting` until F18 or F19 meets its
@@ -1190,7 +1190,7 @@ The completed outputs remain audit evidence. They do not replace the original pr
 
 Canonical CV-TMLE's complete rerun changes inspected subject results at floating-point roundoff scale.
 Its original Python 3.11 and SciPy 1.17 runtime differs from the rerun's Python 3.13 and SciPy 1.18 runtime.
-Targeted fits use each original runtime. The final audit must establish the actual preservation and replay results.
+Targeted fits use each original runtime. The audit below establishes preservation and replay results.
 
 The targeted runner uses `tests/canonical/seed-repair-plan.json` and separate empty outputs outside the repository.
 Each command uses `--jobs 16`. The five native thread variables remain `1`.
@@ -1203,6 +1203,30 @@ Each command uses `--jobs 16`. The five native thread variables remain `1`.
 | `fold-targeted-cvtmle` | `python -m tests.canonical.repair_property_seeds --plan tests/canonical/seed-repair-plan.json --study fold-targeted-cvtmle --output <output>` | 3.11.13 / 1.17.1 |
 | `repeated-crossfit-tmle` | `python -m tests.canonical.repair_property_seeds --plan tests/canonical/seed-repair-plan.json --study repeated-crossfit-tmle --output <output>` | 3.11.13 / 1.17.1 |
 | `canonical-multi-arm-drtmle` | `python -m tests.canonical.repair_property_seeds --plan tests/canonical/seed-repair-plan.json --study canonical-multi-arm-drtmle --output <output>` | 3.13.7 / 1.18.0 |
+
+#### Targeted repair evidence
+
+The six targeted runs start on September 30, 2026, at 04:12:39 UTC and finish at 04:18:47 UTC.
+They execute clean, pushed commit `bbd4bdc93e61b97f986772662c0e0ef9d1534ad5`.
+The committed plan has SHA256 `82c971bb9a8121f451c8a27a8c25ebb336398ffc0ef9fafcabab24b0308e8f97`.
+Each study's `run.log` records its entry point, arguments, output path, runtime attribution, duration, counts, hashes, and exit code.
+
+| verification | result |
+| --- | --- |
+| selected fits | 274 replacement fits and 274 old-seed replay fits complete; every old-seed truth, estimate, and standard error reproduces exactly |
+| property rows | exactly five calibration rows and 269 multi-arm rows change; every other raw CSV line stays identical |
+| primary and reference evidence | every inherited artifact stays byte-identical, including the multi-arm fit diagnostics |
+| budgets | every declared row remains present; every first-600 sample and fitted row stays identical |
+| analysis | complete property summaries, bootstrap intervals, controls, and verdicts recompute from combined rows |
+| independent checks | Astra verifies raw preservation, selection, replay, moments, Student and binomial intervals, and independently computes the slope bootstrap |
+| decisions | every Boolean verdict stays unchanged; both positive slope readings remain `contracts`, and the control passes |
+| negative evidence | the multi-arm study retains its four negative property cells under `reporting`; no margin or reading rule changes |
+| provenance | composite manifests retain the original producer facts and separately record the new fits and complete analysis |
+
+`tests/unit/test_rm18_slopes_reading.py` independently checks the current full-rung bias intervals and reading rules.
+The [method page](technical-reference/method-evidence/multi-arm-dr-tmle.md) contains the regenerated current slope table.
+The original Design SL record above stays pinned to pull request 250.
+Authoritative verification checks immutable Git blobs, complete analysis, run logs, and final committed artifact bytes.
 
 ### P1. EP learner
 
