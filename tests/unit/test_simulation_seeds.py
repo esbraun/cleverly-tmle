@@ -97,6 +97,24 @@ def test_coverage_study_records_and_uses_the_explicit_sample_seed_vector() -> No
     ]
 
 
+def test_sparse_replays_create_fresh_estimators_on_each_call() -> None:
+    estimators = []
+
+    def factory() -> _Estimator:
+        estimator = _Estimator()
+        estimators.append(estimator)
+        return estimator
+
+    study = CoverageStudy(_draw, factory, n=2, n_replicates=2000)
+    first = study.run_replication(1552, 7)
+    second = study.run_replication(1552, 11)
+    assert len(estimators) == 2 and estimators[0] is not estimators[1]
+    assert isinstance(first, tuple) and isinstance(second, tuple)
+    assert first[0].replicate == second[0].replicate == 1552
+    assert first[0].estimate == 7 / 2**32
+    assert second[0].estimate == 11 / 2**32
+
+
 def test_coverage_study_uses_distinct_seeds_on_its_default_path() -> None:
     candidates = np.random.SeedSequence(11_100).generate_state(2_400)
     assert len(set(candidates)) == 2_399

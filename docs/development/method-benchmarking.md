@@ -272,7 +272,7 @@ Its manifest must identify both sources. It cannot describe every row as a new e
 | replacement fits | source commit, clean-state flag, result-determining module hashes, runtime, command, and fit failures |
 | inherited evidence | preserved files and rows, their baseline attribution, and exact comparison results |
 | combined analysis | complete replication counts, analysis source and runtime, unchanged design, recomputed summaries, bootstrap intervals, controls, and verdicts |
-| final artifacts | hashes of every published artifact, including the replacement record and run log |
+| final artifacts | hashes of every data artifact and replacement record; the completed run log records the manifest hash |
 
 Preserve the original manifest metadata, including an original dirty-worktree flag.
 Record replacement and analysis provenance separately. Do not overwrite historical module hashes with current hashes.
@@ -281,6 +281,7 @@ The record must expose a runtime difference even when the published verdict stay
 Derive the selection before fitting. Validate the complete combined key set and all dependent comparisons.
 Require an independent review of the reuse boundary and final artifacts.
 If verification fails, investigate the difference or use a complete rerun.
+Verify the committed run log against the completed execution record.
 
 A committed notebook follows the same rule under a different name. `scripts/execute_notebook.py`
 stamps it, and `tests/notebooks.py` splits the stamp in two.

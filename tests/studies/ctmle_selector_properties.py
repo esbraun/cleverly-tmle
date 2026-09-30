@@ -28,7 +28,7 @@ from cleverly.estimators import CTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import bounded_cv_laws, canonical_properties
 from tests.studies.canonical_ctmle_selector import G_BOUNDS, STRATIFY_FOLDS, STUDY
-from tests.studies.evidence.properties import PropertyCell, run_cells
+from tests.studies.evidence.properties import PropertyBatch, PropertyCell
 from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
 
 SELECTOR_RMSE_RATIO = 0.50
@@ -161,8 +161,13 @@ def _estimator(cell: PropertyCell):  # type: ignore[no-untyped-def]
     )
 
 
+def sampling_batches() -> tuple[PropertyBatch, ...]:
+    """The actual sampling calls, shared by complete and targeted regeneration."""
+    return (PropertyBatch("properties", cells(), _estimator),)
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    return run_cells(cells(), _estimator, n_jobs=n_jobs)
+    return sampling_batches()[0].run(n_jobs=n_jobs)
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:

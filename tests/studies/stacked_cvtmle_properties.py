@@ -15,8 +15,8 @@ from tests.parallel import STUDY_JOBS
 from tests.studies import bounded_cv_laws
 from tests.studies.canonical_cvtmle import G_BOUNDS as CV_G_BOUNDS
 from tests.studies.canonical_cvtmle import STUDY
-from tests.studies.cvtmle_properties import cells, generate, summarize
-from tests.studies.evidence.properties import PropertyCell, run_cells
+from tests.studies.cvtmle_properties import cells, generate, sampling_batch, summarize
+from tests.studies.evidence.properties import PropertyBatch, PropertyCell
 from tests.studies.evidence.property_verdicts import finish, fold_policy_diagnostics
 
 #: The variant name the shared module labels this row's overfitting cell with.
@@ -46,13 +46,21 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return pd.concat(
         [
             generate(VARIANT, n_jobs=n_jobs),
-            run_cells(
-                bounded_cv_laws.fold_policy_cells(STUDY),
-                bounded_cv_laws.fold_policy_estimator(g_bounds=CV_G_BOUNDS),
-                n_jobs=n_jobs,
-            ),
+            sampling_batches()[1].run(n_jobs=n_jobs),
         ],
         ignore_index=True,
+    )
+
+
+def sampling_batches() -> tuple[PropertyBatch, ...]:
+    """Keep the shared and fold-policy calls separate for seed allocation."""
+    return (
+        sampling_batch(VARIANT),
+        PropertyBatch(
+            "fold_policy",
+            bounded_cv_laws.fold_policy_cells(STUDY),
+            bounded_cv_laws.fold_policy_estimator(g_bounds=CV_G_BOUNDS),
+        ),
     )
 
 

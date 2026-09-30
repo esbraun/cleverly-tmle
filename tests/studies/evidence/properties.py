@@ -198,6 +198,19 @@ class PropertyCell:
     fit_kwargs: dict[str, Any] = field(default_factory=lambda: {"outcome": "Y", "treatment": "A"})
 
 
+@dataclass(frozen=True)
+class PropertyBatch:
+    """One actual sampling call, including the factory shared by full and sparse runs."""
+
+    name: str
+    cells: tuple[PropertyCell, ...]
+    estimator: Callable[[PropertyCell], Callable[[], Any]]
+
+    def run(self, *, n_jobs: int) -> pd.DataFrame:
+        """Run the complete declared batch."""
+        return run_cells(self.cells, self.estimator, n_jobs=n_jobs)
+
+
 def run_cells(
     cells: Sequence[PropertyCell],
     estimator: Callable[[PropertyCell], Callable[[], Any]],

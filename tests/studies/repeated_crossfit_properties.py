@@ -20,9 +20,10 @@ from cleverly.learners.crossfit import CrossFitPlan
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_cvtmle import cv_fit
-from tests.studies.cvtmle_properties import cells, generate, summarize
+from tests.studies.cvtmle_properties import cells, generate, sampling_batch, summarize
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
+    PropertyBatch,
     PropertyCell,
     paired_spread_ratio_interval,
     replicate_row,
@@ -241,6 +242,11 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     )
     stability = generate_repeat_stability_rows(n_jobs=n_jobs)
     return pd.concat([inherited, stability], ignore_index=True)
+
+
+def sampling_batches() -> tuple[PropertyBatch, ...]:
+    """The allocated sample call; fixed-sample repeat stability is carried unchanged."""
+    return (sampling_batch(VARIANT, repeats=REPEATS, n_folds=N_FOLDS, include_overfitting=False),)
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
