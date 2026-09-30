@@ -32,7 +32,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
@@ -49,6 +49,7 @@ from ..estimators.direct_effect import check_level
 from ..inference.influence import spread_name
 from ..utils.parallel import map_parallel
 from ..utils.text import format_table
+from ._seeds import sample_seed_streams, validate_sample_seeds
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..datasets.synthetic import DGP
@@ -543,7 +544,10 @@ class CoverageStudy:
     fit_kwargs : mapping or None
         Passed to ``fit``.  Column names, ``delta=``, ``id=`` and so on.
     seed : int or None
-        Seed the per-replication seeds are spawned from.
+        Root of the distinct per-replication sample seeds.
+    sample_seeds : sequence of int or None
+        Explicit distinct uint32 sample seeds, one per replication.  Use these to coordinate
+        separate studies.  When supplied, these replace the sample stream from ``seed``.
     n_jobs : int
         Number of joblib workers across replications.
     truth_key : {"population", "sample"}
@@ -592,6 +596,7 @@ class CoverageStudy:
         estimands: Sequence[str] | None = None,
         fit_kwargs: dict[str, Any] | None = None,
         seed: int | None = None,
+        sample_seeds: Sequence[int] | None = None,
         n_jobs: int = 1,
         truth_key: str = "population",
         intermediate_value: float | None = None,
@@ -626,6 +631,9 @@ class CoverageStudy:
         self.estimands = estimands
         self.fit_kwargs = fit_kwargs or {"outcome": "Y", "treatment": "A"}
         self.seed = seed
+        self.sample_seeds = (
+            None if sample_seeds is None else validate_sample_seeds(sample_seeds, n_replicates)
+        )
         self.n_jobs = n_jobs
         self.truth_key = truth_key
         self.intermediate_value = intermediate_value
@@ -680,7 +688,13 @@ class CoverageStudy:
         """
         import warnings
 
-        seeds = np.random.SeedSequence(self.seed).generate_state(self.n_replicates)
+        if self.sample_seeds is None:
+            root = (
+                self.seed if self.seed is not None else cast(int, np.random.SeedSequence().entropy)
+            )
+            seeds = sample_seed_streams({root: self.n_replicates})[root]
+        else:
+            seeds = validate_sample_seeds(self.sample_seeds, self.n_replicates)
 
         def replicate(
             replicate_index: int,
@@ -744,7 +758,7 @@ class CoverageStudy:
                     message=str(error),
                 )
 
-        outcomes = map_parallel(replicate, list(enumerate(seeds.tolist())), n_jobs=self.n_jobs)
+        outcomes = map_parallel(replicate, list(enumerate(seeds)), n_jobs=self.n_jobs)
         failures = tuple(outcome for outcome in outcomes if isinstance(outcome, ReplicationFailure))
         records = tuple(
             record

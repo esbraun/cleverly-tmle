@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 
 from cleverly.validation import CoverageStudy, ReplicationRecord, summarize_replications
+from cleverly.validation._seeds import sample_seed_streams
 from tests.studies.evidence.inference import (
     Interval,
     clopper_pearson,
@@ -215,7 +216,15 @@ def run_cells(
     so one bad draw cannot kill a study -- and a dropped replication silently widens the
     Monte Carlo error of every cell it touches.  Recording the count is what lets the
     verdicts refuse to be computed on a study that quietly shrank.
+
+    Distinct root seeds receive distinct sample seeds across the cells.  Equal roots share
+    one prefix, including when their budgets differ, to retain intentionally paired draws.
+    Planning by replication index preserves the old prefix when a rung budget increases.
     """
+    budgets: dict[int, int] = {}
+    for cell in cells:
+        budgets[cell.seed] = max(budgets.get(cell.seed, 0), cell.replicates)
+    sample_seeds = sample_seed_streams(budgets)
     frames: list[pd.DataFrame] = []
     for cell in cells:
         result = CoverageStudy(
@@ -226,6 +235,7 @@ def run_cells(
             estimands=(cell.estimand,),
             fit_kwargs=dict(cell.fit_kwargs),
             seed=cell.seed,
+            sample_seeds=sample_seeds[cell.seed][: cell.replicates],
             n_jobs=n_jobs,
         ).run()
         records = tuple(

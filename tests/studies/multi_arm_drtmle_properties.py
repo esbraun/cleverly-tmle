@@ -153,9 +153,8 @@ def _contraction_cells() -> tuple[PropertyCell, ...]:
             *_nuisances(scenario),
             size,
             CONTRACTION_REPLICATES[size_index],
-            # One offset per rung, so no two rungs share a replication stream.  The ladder is
-            # fitted across sizes, and a shared stream would correlate the rungs and narrow
-            # the slope interval for a reason that has nothing to do with the estimator.
+            # Each rung declares its own stream root.  run_cells resolves candidate seed
+            # collisions across roots before any fit, preserving intentionally paired roots.
             24_000 + scenario_index * 300 + size_index * 100,
             role=control_role(scenario),
             estimand=multi_arm_properties.ESTIMAND,

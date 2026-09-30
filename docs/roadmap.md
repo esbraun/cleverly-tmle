@@ -215,9 +215,8 @@ the source audit that changed the default cross-fitted fit.
 The [red-cell ledger](technical-reference/method-evidence/red-cells.md) carries the property
 cells that went red when sixteen registered studies were regenerated under it.
 
-Replicate-weight designs are the next source-audit item in the main grid. Implement them only after
-that audit supports the planned variance construction. No remediation row blocks them. The
-source audit does.
+Replicate-weight designs are the next source-audit item in the main grid.
+Implement them after RM33 closes and the source audit supports the planned variance construction.
 
 Longitudinal sensitivity-bound estimation remains in
 [F16](#f16-longitudinal-sensitivity-bound-estimation).
@@ -1140,7 +1139,9 @@ It does not remove a replication or select a replacement by its fitted result.
 | publication | retain the old evidence in Git history; write complete regenerated artifacts and manifests; regenerate published tables |
 | reading | publish every resulting verdict, including a failed positive or control; keep each original acceptance margin |
 
-Acceptance requires prefix stability, intentional pairing, collision witnesses, and unchanged collision-free streams.
+For a fixed root set, budget extensions preserve allocations below the old common replication budget.
+An extension can change a longer stream's later tail when the shorter stream claims a colliding input.
+Acceptance requires this prefix stability, intentional pairing, collision witnesses, and unchanged collision-free streams.
 Independent review must verify the corrected allocation and every changed artifact.
 The full fast suite, lint, formatting, types, documentation, and package checks must pass.
 
