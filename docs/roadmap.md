@@ -1145,6 +1145,23 @@ Acceptance requires this prefix stability, intentional pairing, collision witnes
 Independent review must verify the corrected allocation and every changed artifact.
 The full fast suite, lint, formatting, types, documentation, and package checks must pass.
 
+The audit follows the actual `run_cells` batches, including separate fold-policy and repeat-stability paths.
+Five calibration cells replace replication 1,552. The multi-arm study replaces 269 outer-rung inputs.
+Every affected cell retains its first 600 inputs. No other registered sample input changes.
+
+| affected study | regeneration module |
+| --- | --- |
+| `canonical-tmle` | `python -m tests.canonical.tmle3.regenerate` |
+| `canonical-cvtmle` | `python -m tests.canonical.tmle3_cvtmle.regenerate` |
+| `fold-evaluated-cvtmle` | `python -m tests.canonical.cvtmle_fold.regenerate` |
+| `fold-targeted-cvtmle` | `python -m tests.canonical.zepid_cvtmle.regenerate` |
+| `repeated-crossfit-tmle` | `python -m tests.canonical.repeated_crossfit.regenerate` |
+| `canonical-multi-arm-drtmle` | `python -m tests.canonical.multi_arm_drtmle.regenerate` |
+
+Each command uses `--jobs 16` and a separate empty `--output` outside the repository.
+The multi-arm command uses its declared-run guard and publishes its own complete run record.
+The other commands use the shared regeneration driver and retain an external run log.
+
 ### P1. EP learner
 
 Van der Laan, Carone and Luedtke (2024), arXiv:2402.01972, govern this item. After first-hand
