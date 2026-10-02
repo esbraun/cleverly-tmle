@@ -7,9 +7,11 @@ Every node is binary and absorbing structure is kept:
     W -> L1 -> A1 -> C1 -> Y1 -> L2 -> A2 -> C2 -> Y2 -> ... -> Y4
 
 ``C_t = 1`` means the unit is still under observation after node ``t``, and ``Y_t = 1``
-is the event at node ``t``.  A censored or failed unit has no later node.  Every
-conditional probability lies in ``[0.2, 0.8]``, so positivity holds and no truncation
-binds.
+is the event at node ``t``.  A censored or failed unit has no later node.  Every treatment
+probability lies in ``[0.15, 0.95]``, and treatment persists: a unit treated at one node is
+treated at the next with probability of at least 0.75.  Censoring is light and the hazards lie in
+``[0.04, 0.26]``.  So at ``n = 1000`` the ``always`` and ``never`` regimens keep about a hundred
+followers at node 4, with events, and positivity holds without truncation.
 
 The law serves three uses.
 
@@ -76,17 +78,17 @@ def p_l(w: int, a_prev: int) -> float:
 
 def p_a(w: int, l_t: int, a_prev: int) -> float:
     """``P(A_t = 1 | W, L_t, A_{t-1})``."""
-    return 0.2 + 0.2 * w + 0.2 * l_t + 0.2 * a_prev
+    return 0.15 + 0.1 * w + 0.1 * l_t + 0.6 * a_prev
 
 
 def p_c(w: int, l_t: int, a_t: int) -> float:
     """``P(C_t = 1 | W, L_t, A_t)``, the probability of staying under observation."""
-    return 0.8 - 0.1 * l_t - 0.1 * a_t - 0.05 * w
+    return 0.95 - 0.03 * l_t - 0.03 * a_t - 0.02 * w
 
 
 def hazard(w: int, l_t: int, a_t: int, t: int) -> float:
     """``P(Y_t = 1 | W, L_t, A_t, C_t = 1, Y_{t-1} = 0)``."""
-    return 0.3 + 0.1 * w + 0.2 * l_t - 0.1 * a_t + 0.02 * (t - 1)
+    return 0.08 + 0.05 * w + 0.1 * l_t - 0.04 * a_t + 0.01 * (t - 1)
 
 
 def columns() -> tuple[str, ...]:
@@ -332,10 +334,10 @@ def sample(n: int, rng: np.random.Generator) -> pd.DataFrame:
     for t in range(1, K + 1):
         idx = np.flatnonzero(alive)
         wl = w[idx]
-        l_t = (rng.random(idx.size) < 0.2 + 0.3 * wl + 0.3 * a_prev[idx]).astype(int)
-        a_t = (rng.random(idx.size) < 0.2 + 0.2 * wl + 0.2 * l_t + 0.2 * a_prev[idx]).astype(int)
-        c_t = (rng.random(idx.size) < 0.8 - 0.1 * l_t - 0.1 * a_t - 0.05 * wl).astype(int)
-        h = 0.3 + 0.1 * wl + 0.2 * l_t - 0.1 * a_t + 0.02 * (t - 1)
+        l_t = (rng.random(idx.size) < p_l(wl, a_prev[idx])).astype(int)
+        a_t = (rng.random(idx.size) < p_a(wl, l_t, a_prev[idx])).astype(int)
+        c_t = (rng.random(idx.size) < p_c(wl, l_t, a_t)).astype(int)
+        h = hazard(wl, l_t, a_t, t)
         y_t = np.where(c_t == 1, (rng.random(idx.size) < h).astype(float), np.nan)
         out[f"L{t}"][idx] = l_t
         out[f"A{t}"][idx] = a_t
@@ -359,8 +361,8 @@ def simulate_event_times(regimen: str, n: int, rng: np.random.Generator) -> np.n
     a_prev = 0
     for t in range(1, K + 1):
         a_t = plan[t - 1]
-        l_t = (rng.random(n) < 0.2 + 0.3 * w + 0.3 * a_prev).astype(int)
-        h = 0.3 + 0.1 * w + 0.2 * l_t - 0.1 * a_t + 0.02 * (t - 1)
+        l_t = (rng.random(n) < p_l(w, a_prev)).astype(int)
+        h = hazard(w, l_t, a_t, t)
         event = alive & (rng.random(n) < h)
         times[event] = t
         alive &= ~event
