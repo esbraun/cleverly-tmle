@@ -627,19 +627,22 @@ estimator applies no bound to the ratio, and the first row is its behavior. The 
 3000 rows on seed 9000. The influence curve matched an independent recomputation to 5e-12 in
 every fit, so the cause is the ratio and not the formula.
 
-The table below gives the mean ratio at the observed dose under the true density. The capped row
-assumes a cap inside the dose support.
+The table gives the expected ratio at the observed dose under the true density.
+An upper cap alone does not preserve conditional support for negative shifts or support gaps.
 
-| shift | mean ratio under the true density |
+| policy condition | expected ratio under the true density |
 | --- | --- |
-| capped | 1 |
-| uncapped | $P(A + \delta \in \operatorname{supp} g(\cdot \mid W))$: 1 while the shifted dose stays inside the support, below 1 otherwise |
+| any capped or uncapped shift | $P(d(A,W) \in \operatorname{supp} g(\cdot \mid W))$ |
+| policy preserves conditional support | 1 |
 
 `diagnostics.support()` reports that mean as `mean_ratio` and its value on the rows each fold
 holds out as `fold_mean_ratio`. The `+1.0` probe shift is uncapped. The `make_shift_dose` dose is
 normal given the covariates, so the reference mean is 1. On seed 9000 the cross-fitted booster
-reads fold means 1.46, 1.20 and 1.87. The exact law reads 1.03, 0.98 and 1.07. A fold mean far
-from its reference value shows that the ratio, and so the standard error, is unreliable.
+reads fold means 1.46, 1.20 and 1.87. The exact law reads 1.03, 0.98 and 1.07.
+
+A fold mean far from its reference value can signal density estimation error, but sampling variation also affects it.
+Estimated zero densities at assigned doses flag model support failures.
+These diagnostics do not establish true conditional support or identification.
 
 No source here calibrates a threshold, so the report gives the number and no warning. No
 registered study covers an estimated or cross-fitted shift density.

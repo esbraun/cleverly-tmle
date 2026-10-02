@@ -116,10 +116,8 @@ def test_an_in_sample_fit_reports_one_fold_equal_to_the_overall_mean() -> None:
 
 
 def test_the_summary_states_the_reference_mean_for_each_shift_kind() -> None:
-    # Under the true density the mean ratio is 1 for a shift capped inside the support,
-    # but for an uncapped shift it is P(A + delta in the support), below 1 on a bounded
-    # dose.  A summary that prints "1" alone reads a correct ratio as mis-estimated
-    # (gate S6).
+    # The reference is supported policy mass for either sign and cap choice.
+    # Empirical means need not exactly equal the population expectation.
     from cleverly.interventions.shift import ShiftSupport
 
     row = ShiftSupport(
@@ -137,6 +135,8 @@ def test_the_summary_states_the_reference_mean_for_each_shift_kind() -> None:
         fold_mean_ratio=(0.9,),
     )
     line = row.summary().splitlines()[-1]
-    assert "1 for a shift capped inside the support" in line
-    assert "P(A + delta in the support) for an uncapped shift" in line
+    assert "P(d(A, W) in the conditional support)" in line
+    assert "1 when the policy preserves support" in line
+    assert "sampling and density estimation" in line
+    assert "do not establish true support or identification" in line
     assert "1 under the true density;" not in line

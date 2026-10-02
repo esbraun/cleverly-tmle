@@ -102,7 +102,7 @@ def check(namespace: dict[str, Any]) -> None:
     double_odds = namespace["incremental_truth"]["ate_ipsi[odds x2 vs natural course]"]
     assert double_odds == pytest.approx(0.024137, abs=2e-5)
     assert "positivity *for the shifted dose*" in namespace["shift_effect"].summary()
-    assert "A cap secures it only when the cap lies inside the conditional support" in (
+    assert "An upper cap alone does not ensure this for negative shifts or support gaps" in (
         namespace["shift_effect"].summary()
     )
     assert "*no positivity assumption*" in namespace["incremental_effect"].summary()
@@ -222,8 +222,15 @@ def check(namespace: dict[str, Any]) -> None:
     # shifts.
     assert 0.15 < support["+1.0 uncapped"].ess_ratio < np.exp(-1.0)
     assert support["+0.5 uncapped"].ess_ratio < np.exp(-0.25)
-    # "An empty list is not evidence of support."
-    assert not namespace["shift_assessment"].attention
+    # The histogram reports zeros at assigned doses outside its fitted bin range.
+    # These counts describe this seeded output, not population positivity.
+    assert {name: row.unsupported for name, row in support.items()} == {
+        "current practice": 0,
+        "+0.5 capped at 5": 0,
+        "+0.5 uncapped": 2,
+        "+1.0 uncapped": 3,
+    }
+    assert tuple(item.name for item in namespace["shift_assessment"].attention) == ("support",)
     # The mean ratio: reference 1 for every shift of a normal intensity. "The estimated ratio
     # runs 3% to 8% high on average, and most for +1.0." Current practice reads exactly 1
     # (control); each moving shift reads above it (nonzero witness). In sample the one
@@ -283,7 +290,11 @@ def check(namespace: dict[str, Any]) -> None:
         "diagnostics.refute",
         "sensitivity.simulated_confounding",
     ]
-    assert set(printed.loc["validation.support"]) == {"completed"}
+    assert printed.loc["validation.support"].to_dict() == {
+        "known regime": "completed",
+        "modified treatment policy": "warning",
+        "incremental intervention": "completed",
+    }
     assert set(printed.loc["validation.score_equations"]) == {"passed"}
     assert set(printed.loc["validation.nuisance_models"]) == {"completed"}
     assert set(printed.loc["sensitivity.simulated_confounding"]) == {"deferred"}

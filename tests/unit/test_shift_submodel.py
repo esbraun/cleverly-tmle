@@ -90,7 +90,7 @@ class TestTheCleverCovariate:
     def test_a_row_with_no_estimated_density_contributes_nothing(self) -> None:
         # A zero denominator is a support failure, not a large weight. Reporting infinity
         # would put a NaN through the Newton solve; zero is the honest value and
-        # check_shift_support counts the row.
+        # min_density reports the zero denominator.
         data, _, treatment = _setup()
         holed = np.tile(np.array([0.5, 0.5, 0.0, 0.0]), (N, 1))
         with warnings.catch_warnings():
@@ -100,7 +100,8 @@ class TestTheCleverCovariate:
             )
             support = check_shift_support(shifts, ConditionalDensity(holed, EDGES), treatment)
         assert np.all(np.isfinite(shifts.ratio))
-        assert support["+1"].unsupported == N // 2
+        assert support["+1"].min_density == 0.0
+        assert support["+1"].unsupported == 3 * N // 4
 
 
 class TestTheSubmodel:
@@ -289,7 +290,7 @@ class TestTheRefusalsAndWarnings:
 
     def test_a_cap_above_the_observed_doses_warns(self) -> None:
         # The doses are 0 to 3, so cap=4 lets the rows at 3 move to 4: a cap secures
-        # support only when it lies inside the support of the dose.
+        # the upper observed range in this positive-shift example.
         data, density, _ = _setup()
         with pytest.warns(PositivityWarning, match=r"cap=4, which lies above the largest dose"):
             ShiftSet.evaluate((Shift(1.0, cap=4.0),), data, density)
@@ -302,7 +303,8 @@ class TestTheRefusalsAndWarnings:
             for item in TARGETS["ey_shift"].identification.assumptions
             if item.startswith("positivity")
         )
-        assert "inside the conditional support of the dose" in positivity
+        assert "policy must preserve conditional treatment support" in positivity
+        assert "does not establish true conditional support or identification" in positivity
         assert "exactly what the cap is declared to secure" not in positivity
 
     def test_a_cap_inside_the_observed_doses_does_not_warn_about_the_range(self) -> None:
@@ -321,3 +323,62 @@ class TestTheRefusalsAndWarnings:
         assert Shift(0.0, cap=None).name == "natural course"
         assert Shift(0.5, cap=None).name == "+0.5"
         assert Shift(-1.0, cap=None).name == "-1"
+
+
+@pytest.mark.parametrize("cap", [None, 2.0])
+def test_negative_shifts_warn_about_lower_excursions(cap: float | None) -> None:
+    data, density, _ = _setup()
+    with pytest.warns(PositivityWarning, match="below the smallest one observed") as caught:
+        ShiftSet.evaluate((Shift(-1.0, cap=cap),), data, density)
+    warning = next(str(item.message) for item in caught if "below" in str(item.message))
+    assert "25.0%" in warning
+    assert "An upper cap cannot prevent" in warning
+    assert "Declare a cap=" not in warning
+
+
+@pytest.mark.parametrize(
+    ("gap", "delta", "cap", "unsupported", "mean"),
+    [
+        (False, 0.0, None, 0, 1.0),
+        (False, 0.25, None, 100, 0.75),
+        (False, -0.25, None, 100, 0.75),
+        (False, 0.25, 0.75, 0, 1.0),
+        (False, -0.25, 0.75, 100, 0.75),
+        (True, 0.0, 0.75, 0, 1.0),
+        (True, 0.25, None, 200, 1 / 3),
+        (True, -0.25, None, 200, 1 / 3),
+        (True, 0.25, 0.75, 100, 2 / 3),
+        (True, -0.25, 0.75, 200, 1 / 3),
+    ],
+)
+def test_exact_supported_mass_counts_assigned_doses(
+    gap: bool, delta: float, cap: float | None, unsupported: int, mean: float
+) -> None:
+    # Equal-width midpoint integration is exact for these piecewise-constant laws.
+    # The gap law has three equally likely quarters: [0,.25], [.5,.75], [.75,1].
+    # A positive quarter shift sends the first into the hole and the last out of range;
+    # cap=.75 retains the last. A negative quarter shift loses the first two quarters.
+    treatment = (np.arange(400) + 0.5) / 400
+    if gap:
+        treatment = treatment[(treatment < 0.25) | (treatment > 0.5)]
+    n = len(treatment)
+    probabilities = [1 / 3, 0, 1 / 3, 1 / 3] if gap else [0.25] * 4
+    density = ConditionalDensity(np.tile(probabilities, (n, 1)), np.linspace(0, 1, 5))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        data = CausalData.from_arrays(
+            np.arange(n) % 2, treatment, np.arange(n)[:, None], treatment_kind="continuous"
+        )
+        shifts = ShiftSet.evaluate((Shift(delta, cap=cap),), data, density)
+    before = tuple(array.copy() for array in (shifts.shifted, shifts.ratio, shifts.ratio_at))
+    row = check_shift_support(shifts, density, treatment)[shifts.names[0]]
+    assert row.unsupported == unsupported
+    assert row.min_density == pytest.approx(4 / 3 if gap else 1.0)
+    assert row.mean_ratio == pytest.approx(mean)
+    assert row.mean_ratio == pytest.approx(1 - unsupported / n)
+    assert row.cap == cap
+    assert shifts.subset(np.arange(10)).caps == (cap,)
+    for original, array in zip(
+        before, (shifts.shifted, shifts.ratio, shifts.ratio_at), strict=True
+    ):
+        np.testing.assert_array_equal(original, array)
