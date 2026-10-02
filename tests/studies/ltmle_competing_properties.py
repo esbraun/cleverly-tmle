@@ -1,4 +1,24 @@
-"""Independent repeated-sampling properties for competing-risk LTMLE."""
+"""Independent repeated-sampling properties for competing-risk LTMLE.
+
+The ordinary study (``joint_cells=True``) adds a ``simultaneous_coverage`` family.  The
+cross-fitted study shares :func:`generate_for` and :func:`summarize_for` and keeps
+``joint_cells=False``, so its fits and rows are unchanged.  Declared before any run:
+
+* ``all_reported`` reuses the ``interval_calibration/correctly_specified`` fits (n = 32,000,
+  R = 9,600, ``horizons=(2,)``), which alone pass ``simultaneous=True``.  The band covers all
+  ten reported parameters: six cumulative incidences and four contrasts at t = 2.  The band
+  draws from its own generator, so every pointwise number of those fits is unchanged;
+* ``curve_always`` is a dedicated batch: one-regimen fits of ``always`` with
+  ``horizons=(1, 2)`` and the calibration learners, n = 32,000 and R = 2,400 on the stream
+  ``stream_seed(STUDY, "property_sample", "simultaneous_coverage", "curve_always", r)``.  The
+  band covers both causes at both horizons;
+* every band uses the engine's defaults: 2000 rademacher draws seeded by ``random_state=0``.
+  The truth is ``law.TRUTH``;
+* each band passes when its 99% joint-coverage interval lies inside ``[0.92, 0.98]``, and each
+  pointwise control passes when the 99% upper endpoint of joint coverage is below 0.95;
+* a red cell is not repaired with a budget, a margin, a law, a learner, a size, a seed or a
+  multiplier setting.  It is diagnosed against the oracle band first.
+"""
 
 from __future__ import annotations
 
@@ -30,8 +50,10 @@ from tests.studies.evidence.property_verdicts import (
     crossfit_overfitting_verdicts,
     finish,
     necessity_verdicts,
+    simultaneous_coverage_verdicts,
 )
 from tests.studies.evidence.seeds import stream_seed
+from tests.studies.evidence.simultaneous import FAMILY, joint_coverage_rows
 
 DOUBLE_ROBUST_REPLICATES = 1_200
 DOUBLE_ROBUST_N = 4_000
@@ -61,6 +83,12 @@ TARGETING_DISPLACEMENT = 0.25
 #: to carry, so a control has to move the estimate by at least as much as the study is
 #: prepared to overlook.
 RECURSION_DISPLACEMENT = TARGETING_DISPLACEMENT
+
+#: The ordinary study's two joint cells.
+CURVE_LABEL = "curve_always"
+ALL_LABEL = "all_reported"
+CURVE_REPLICATES = 2_400
+CURVE_N = 32_000
 
 STUDY = canonical.STUDY
 REGIMENS = declared_regimens(law.REGIMEN_SPEC)
@@ -159,12 +187,20 @@ def _learners(configuration: str) -> tuple[Any, Any, Any, Any]:
     )
 
 
-def fit(frame: pd.DataFrame, configuration: str = "both_correct", *, n_folds: int = 1) -> Any:
+def fit(
+    frame: pd.DataFrame,
+    configuration: str = "both_correct",
+    *,
+    n_folds: int = 1,
+    simultaneous: bool = False,
+    regimens: Any = None,
+    horizons: tuple[int, ...] = (2,),
+) -> Any:
     outcome, pseudo, treatment, censoring = _learners(configuration)
     return LTMLE(
-        REGIMENS,
-        reference=REFERENCE,
-        horizons=(2,),
+        REGIMENS if regimens is None else regimens,
+        reference=REFERENCE if regimens is None else next(iter(regimens)),
+        horizons=horizons,
         outcome_learner=outcome,
         pseudo_learner=pseudo,
         treatment_learner=treatment,
@@ -172,7 +208,7 @@ def fit(frame: pd.DataFrame, configuration: str = "both_correct", *, n_folds: in
         n_folds=n_folds,
         learner_folds=5,
         g_bounds=canonical.G_BOUNDS,
-        simultaneous=False,
+        simultaneous=simultaneous,
         max_iter=100,
         tol=1e-10,
         random_state=0,
@@ -262,14 +298,18 @@ def _fit_replication(
     payload: tuple[str, str, int, int, int, int, str],
     *,
     study: Any,
-    fit_fn: Callable[[pd.DataFrame, str], Any],
+    fit_fn: Callable[..., Any],
+    joint_cells: bool = False,
 ) -> list[dict[str, Any]]:
     property_name, suffix, replicate, n, requested, seed, configuration = payload
     # The power cell samples the primary law, so it needs no branch of its own here; see
     # :data:`POWER_TRUTH` for why this study declares no separate alternative.
     probs = NULL_PROBS if property_name == "type_i_error" else law.PROBS
     frame = sample(probs, n, seed)
-    result = fit_fn(frame, configuration)
+    joint = joint_cells and property_name == "interval_calibration"
+    result = (
+        fit_fn(frame, configuration, simultaneous=True) if joint else fit_fn(frame, configuration)
+    )
     rows: list[dict[str, Any]] = []
     for label, name in CONTRASTS.items():
         truth = NULL_TRUTH[label] if property_name == "type_i_error" else float(law.TRUTH[name])
@@ -309,7 +349,52 @@ def _fit_replication(
                     critical=float(norm.ppf(1.0 - study.margins.alpha / 2.0)),
                 )
             )
+    if joint:
+        rows.extend(_joint(result, ALL_LABEL, replicate, n, requested, study=study))
     return rows
+
+
+def _joint(
+    result: Any, label: str, replicate: int, n: int, requested: int, *, study: Any
+) -> list[dict[str, Any]]:
+    """The band and pointwise-control rows over every parameter the fit reports."""
+    return joint_coverage_rows(
+        result,
+        {name: float(law.TRUTH[name]) for name in result.estimates},
+        tuple(result.estimates),
+        label=label,
+        replicate=replicate,
+        n=n,
+        requested=requested,
+        pointwise_critical=float(norm.ppf(1.0 - study.margins.alpha / 2.0)),
+    )
+
+
+def fit_curve(frame: pd.DataFrame) -> Any:
+    """The calibration learners on the ``always`` plan alone, at both horizons."""
+    return fit(
+        frame,
+        "both_correct",
+        simultaneous=True,
+        regimens={"always": REGIMENS["always"]},
+        horizons=(1, 2),
+    )
+
+
+def _curve_replication(payload: tuple[int, int]) -> list[dict[str, Any]]:
+    replicate, seed = payload
+    result = fit_curve(sample(law.PROBS, CURVE_N, seed))
+    return _joint(result, CURVE_LABEL, replicate, CURVE_N, CURVE_REPLICATES, study=STUDY)
+
+
+def curve_rows(*, n_jobs: int = STUDY_JOBS, replicates: int = CURVE_REPLICATES) -> pd.DataFrame:
+    """The ordinary study's dedicated curve batch."""
+    payloads = [
+        ((replicate, stream_seed(STUDY, "property_sample", FAMILY, CURVE_LABEL, replicate)),)
+        for replicate in range(replicates)
+    ]
+    outcomes = map_parallel(_curve_replication, payloads, n_jobs=n_jobs)
+    return pd.DataFrame([row for result in outcomes for row in result])
 
 
 def _recursion_replication(
@@ -416,12 +501,13 @@ def _payloads(study: Any) -> list[tuple[tuple[str, str, int, int, int, int, str]
 
 def generate_for(
     study: Any,
-    fit_fn: Callable[[pd.DataFrame, str], Any],
+    fit_fn: Callable[..., Any],
     *,
     n_jobs: int,
+    joint_cells: bool = False,
 ) -> pd.DataFrame:
     def runner(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
-        return _fit_replication(payload, study=study, fit_fn=fit_fn)
+        return _fit_replication(payload, study=study, fit_fn=fit_fn, joint_cells=joint_cells)
 
     outcomes = map_parallel(runner, _payloads(study), n_jobs=n_jobs)
     rows = pd.DataFrame([row for result in outcomes for row in result])
@@ -445,6 +531,7 @@ def generate_for(
         [
             rows,
             pd.DataFrame([row for result in recursion for row in result]),
+            *([curve_rows(n_jobs=n_jobs)] if joint_cells else []),
             calibration_controls(
                 rows,
                 study,
@@ -463,7 +550,12 @@ def generate_for(
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    return generate_for(STUDY, lambda frame, config: fit(frame, config), n_jobs=n_jobs)
+    return generate_for(
+        STUDY,
+        lambda frame, config, **options: fit(frame, config, **options),
+        n_jobs=n_jobs,
+        joint_cells=True,
+    )
 
 
 def summarize_for(
@@ -477,6 +569,8 @@ def summarize_for(
         efficiency_bounds=EFFICIENCY_SD,
     )
     calibration_verdicts(summary, margins=study.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
+    # A no-op for the cross-fitted study, which publishes no joint cell.
+    simultaneous_coverage_verdicts(summary, margins=study.margins)
 
     necessity_verdicts(
         summary,

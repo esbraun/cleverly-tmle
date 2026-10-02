@@ -92,6 +92,8 @@ STUDY = StudyRecord(
         # import from it.
         "tests/studies/canonical_ltmle.py",
         "tests/discrete_law_survival.py",
+        "tests/discrete_law_longitudinal.py",
+        "tests/studies/fractional_glm.py",
         "src/cleverly/datasets/longitudinal.py",
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/inference.py",
@@ -100,6 +102,7 @@ STUDY = StudyRecord(
         "tests/studies/evidence/property_verdicts.py",
         "tests/studies/evidence/schema.py",
         "tests/studies/evidence/seeds.py",
+        "tests/studies/evidence/simultaneous.py",
     ),
     runner_module="tests.studies.canonical_ltmle_survival",
     properties_module="tests.studies.ltmle_survival_properties",
@@ -136,6 +139,11 @@ STUDY = StudyRecord(
             "always_t2__survival",
             "always_t2__survivor_only",
         ),
+        "simultaneous_coverage": tuple(
+            f"{label}__{kind}"
+            for label in ("all_reported", "curve_always")
+            for kind in ("simultaneous_band", "pointwise_joint_control")
+        ),
     },
 )
 
@@ -153,6 +161,11 @@ CONFIGURATION = {
     "r_survival_outcome": True,
     "cross_fit": False,
     "simultaneous_intervals": False,
+    "band_cells": (
+        "all_reported reuses the interval_calibration fits, which declare simultaneous=True; "
+        "curve_always is a dedicated batch of one-regimen fits of always. Both use the "
+        "engine's default 2000 rademacher draws seeded by random_state=0"
+    ),
     "variance_method": "ic",
     "stratify": True,
     "g_bounds": list(G_BOUNDS),

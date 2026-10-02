@@ -234,7 +234,7 @@ def draw_scenario(scenario: str, n: int, replicate: int):  # type: ignore[no-unt
     return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
-def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
+def fit_cleverly(frame: pd.DataFrame, scenario: str, *, simultaneous: bool = False) -> Any:
     del scenario
     result = (
         FixedFoldDRTMLE(
@@ -248,7 +248,7 @@ def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
             stratify_folds=STRATIFY_FOLDS,
             estimands=("ey", "ate", "rr", "or"),
             reference=multi_arm_common.REFERENCE,
-            simultaneous=False,
+            simultaneous=simultaneous,
             g_bounds=multi_arm_common.G_BOUNDS,
             max_outer=MAX_OUTER,
             max_iter=100,

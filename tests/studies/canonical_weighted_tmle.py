@@ -151,6 +151,7 @@ def fit_cleverly(
     outcome_learner: Any = None,
     treatment_learner: Any = None,
     use_weights: bool = True,
+    simultaneous: bool = False,
 ) -> Any:
     """Fit this study's estimator configuration on one sample.
 
@@ -189,7 +190,7 @@ def fit_cleverly(
                 OracleTreatment(law) if treatment_learner is None else treatment_learner
             ),
             cross_fit=False,
-            simultaneous=False,
+            simultaneous=simultaneous,
             g_bounds=G_BOUNDS,
             max_iter=100,
             tol=1e-10,

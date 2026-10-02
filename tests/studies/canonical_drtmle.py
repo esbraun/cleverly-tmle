@@ -339,7 +339,11 @@ def _learners(scenario: str) -> tuple[ColumnLogistic, ColumnLogistic]:
 
 
 def fit_cleverly(
-    frame: pd.DataFrame, scenario: str, *, update_order: str = CONFIGURATION["update_order"]
+    frame: pd.DataFrame,
+    scenario: str,
+    *,
+    update_order: str = CONFIGURATION["update_order"],
+    simultaneous: bool = False,
 ) -> Any:
     """The registered fit, at one nuisance regime.
 
@@ -362,7 +366,7 @@ def fit_cleverly(
             n_folds=N_FOLDS,
             stratify_folds=STRATIFY_FOLDS,
             estimands=ESTIMANDS,
-            simultaneous=False,
+            simultaneous=simultaneous,
             g_bounds=G_BOUNDS,
             max_outer=MAX_OUTER,
             max_iter=CONFIGURATION["max_iter"],

@@ -693,7 +693,9 @@ class TestPublishedVerdicts:
                 and necessity["rmse_ratio"].iloc[0] <= study.properties().SELECTOR_RMSE_RATIO
             )
 
-        targeting = published.loc[published["property"] == "targeting_necessity"]
+        targeting = published.loc[
+            published["property"].isin({"targeting_necessity", "stratum_targeting_necessity"})
+        ]
         if not targeting.empty:
             # The displacement is a statement about the *pair* -- how far the fluctuation moved
             # the estimate -- so like the selector's RMSE ratio it belongs to neither row and
@@ -909,6 +911,7 @@ BIAS_GATED_PROPERTIES = frozenset(
         "competing_risk_recursion_necessity",
         "survival_recursion_necessity",
         "targeting_necessity",
+        "stratum_targeting_necessity",
         "fold_locality",
         "weight_necessity",
         "projection_necessity",
@@ -2357,7 +2360,7 @@ class TestTheQuantityVocabulary:
         if "selector_necessity" in study.property_cells:
             selector = study.properties()
             assert declared["margin:selector_rmse_ratio"] == selector.SELECTOR_RMSE_RATIO
-        if "targeting_necessity" in study.property_cells:
+        if {"targeting_necessity", "stratum_targeting_necessity"} & set(study.property_cells):
             assert (
                 declared["margin:targeting_displacement"]
                 == study.properties().TARGETING_DISPLACEMENT
