@@ -7,6 +7,7 @@ decimals are also compared against its stored outputs, and every decimal it writ
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import numpy as np
@@ -128,18 +129,22 @@ def check(namespace: dict[str, Any]) -> None:
     stored = stored_output(NOTEBOOK, "assessment")
     assert "Theorem 1 does not cover cross-fitting" in stored
     assert "condition (S) is open" in stored
-    summary = assessment.summary()
-    # "The omitted-variable rows are unavailable for a DR-TMLE fit."
+    # The status table prints only the rows that ran or run on request. The omitted-variable
+    # rows, which need a consistent assignment model, stay off the page; the E-value ran.
     ledger = assessment.to_frame().set_index(["surface", "check"])["status"]
     for operation in OMITTED_VARIABLE_OPERATIONS:
         assert str(ledger.loc[("sensitivity", operation)]) == "unavailable"
-    assert "sensitivity  evalue" in summary.split("Not run", 1)[0]
+        assert not re.search(rf"sensitivity\s+{operation}\b", stored)
+    assert "unavailable" not in stored and "not_applicable" not in stored
+    assert str(ledger.loc[("sensitivity", "evalue")]) == "completed"
+    assert re.search(r"sensitivity\s+evalue\s+completed", stored)
+    assert re.search(r"refute\s+deferred", stored)
 
     # "No row falls below the bound, which agrees with a law whose true propensity lies between
     # 5% and 95%."  The fitted model's own support report, and its smallest fitted value.
     support = assessment.report("support")
     assert support.truncated["count"] == 0
-    assert "maximum truncated fraction 0.0%" in summary
+    assert "maximum truncated fraction 0.0%" in stored
 
     nuisance = assessment.report("nuisance_models")
     assert "look reasonable" in nuisance.summary()
