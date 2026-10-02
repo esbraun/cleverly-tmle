@@ -1,0 +1,5 @@
+120 seeds, 9000 to 9119; cleverly C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\__init__.py
+boosted40: median seconds per fit 3.5
+quad40: median seconds per fit 2.8
+quad80: median seconds per fit 7.9
+quad80logit: median seconds per fit 3.5

@@ -1,0 +1,20 @@
+binary law: Monte Carlo, 40 chunks of 500000
+  ate                                          0.162857  (MC SE 1.4e-05)
+  screen                                       0.105459  (MC SE 2.5e-05)
+  ipsi x2 vs x1                                0.024137  (MC SE 2.4e-06)
+  min g                                        0.050001
+  max g                                        0.940773
+dose law: Monte Carlo, 40 chunks of 500000
+  +0.5 capped at 5                             0.776119  (MC SE 6.4e-05)
+  +0.5 uncapped                                0.812468  (MC SE 6.6e-05)
+  +1.0 uncapped                                1.749935  (MC SE 1.3e-04)
+  gap uncapped - capped                        0.036348  (MC SE 5.8e-05)
+  E[Y]                                         3.394476  (MC SE 6.1e-04)
+  P(A < 0)                                     0.055784  (MC SE 4.8e-05)
+  P(A + 0.5 > 5)                               0.023377  (MC SE 3.7e-05)
+  Kish fraction, true ratio, +0.5              0.778835  (MC SE 8.6e-05)
+  Kish fraction, true ratio, +1.0              0.367170  (MC SE 8.2e-04)
+  closed form, uncapped +0.5: 0.812500
+  closed form, Kish fraction exp(-delta^2), +0.5: 0.778801
+  closed form, uncapped +1.0: 1.750000
+  closed form, Kish fraction exp(-delta^2), +1.0: 0.367879
