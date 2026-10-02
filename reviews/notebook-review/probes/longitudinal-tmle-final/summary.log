@@ -1,0 +1,49 @@
+draws 400, seeds 1000 to 1399
+
+Step 3, day-seven shares within discharge strata
+  engaged minus not, no discharge navigation: mean 0.2174, median 0.2165, 5% 0.1903, 95% 0.2440, min 0.1711, max 0.2691
+  engaged minus not, discharge navigation:    mean 0.2039, median 0.2046, 5% 0.1694, 95% 0.2336, min 0.1493, max 0.2653
+  gap positive in both strata: 400 of 400 (1.000)
+  pooled gap: mean 0.2800, median 0.2796, 5% 0.2572, 95% 0.3011, min 0.2443, max 0.3155
+  engagement gap by discharge navigation > 0.5: 400 of 400 (1.000)
+
+Step 6, clustered in-sample interval of always vs never
+  coverage: 374 of 400 (0.935)
+  bias: -0.0005 (MC SE 0.0009)
+  empirical SD 0.0182; mean clustered SE 0.0176 (ratio 0.969); mean SE without teams 0.0157 (ratio 0.862)
+  coverage without teams: 362 of 400 (0.905)
+  |psi - truth| < SE: 278 of 400 (0.695)
+
+Step 7, shortcuts
+  adjusting for engagement below truth: 400 of 400 (1.000) mean -0.1249, median -0.1258, 5% -0.1611, 95% -0.0874, min -0.1891, max -0.0503
+  baseline only above truth: 395 of 400 (0.988) mean 0.0436, median 0.0437, 5% 0.0149, 95% 0.0751, min -0.0069, max 0.0876
+  opposite directions: 395 of 400 (0.988)
+
+Step 8, rule
+  rule vs never coverage: 380 of 400 (0.950)
+  rule vs always coverage: 385 of 400 (0.963)
+  rule vs always interval below zero: 399 of 400 (0.998)
+  rule share at node 2: mean 0.8064, median 0.8060, 5% 0.7864, 95% 0.8272, min 0.7589, max 0.8531
+
+Step 9, diagnostics
+  max weight: mean 30.1691, median 27.6821, 5% 20.5034, 95% 48.4516, min 15.6083, max 97.4509
+  no truncation at the default bound: 400 of 400 (1.000)
+  minimum Kish ratio: mean 0.7996, median 0.8028, 5% 0.7596, 95% 0.8346, min 0.6527, max 0.8562
+  truncation-curve movement in SE: mean 0.0827, median 0.0641, 5% 0.0101, 95% 0.2096, min 0.0024, max 0.6230
+  scores pass: 400 of 400 (1.000)
+  calibration slopes: 0.9935 to 1.0081
+  regression slopes: 1.0000 to 1.0669
+  censoring auc node 1: mean 0.5887, median 0.5883, 5% 0.5729, 95% 0.6046, min 0.5616, max 0.6193
+  censoring auc node 2: mean 0.5757, median 0.5753, 5% 0.5569, 95% 0.5954, min 0.5414, max 0.6170
+  both censoring auc below 0.65: 400 of 400 (1.000)
+  node 1 lower than node 2: 77 of 400 (0.193)
+  both censoring auc below every other auc: 400 of 400 (1.000)
+  lowest non-censoring auc: mean 0.6347, median 0.6347, 5% 0.6244, 95% 0.6451, min 0.6185, max 0.6512
+
+Step 10, covariate-drop moves in standard errors
+  move_age: mean 2.0530, median 2.0417, 5% 1.6643, 95% 2.4536, min 1.3914, max 2.9734 positive: 400 of 400 (1.000)
+  move_baseline_readiness: mean 1.1201, median 1.1051, 5% 0.6253, 95% 1.6089, min 0.3122, max 1.9828 positive: 400 of 400 (1.000)
+  move_engagement_day7: mean 2.6966, median 2.6976, 5% 2.2250, 95% 3.1731, min 1.7779, max 3.6038 positive: 400 of 400 (1.000)
+  engagement move largest: 378 of 400 (0.945)
+  baseline_readiness move smallest: 398 of 400 (0.995)
+  engagement move above age move: 378 of 400 (0.945)
