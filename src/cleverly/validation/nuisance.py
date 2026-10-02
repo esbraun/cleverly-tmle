@@ -1132,8 +1132,9 @@ def _recalibration(
 ) -> tuple[float, float, str | None]:
     r"""The calibration slope, its standard error, and the reason either is missing.
 
-    A weighted logistic regression of the label on one indicator per validation fold and on
-    :math:`\operatorname{logit} p`, with no other intercept.  The last coefficient is the slope.
+    A weighted logistic regression of the label on one indicator per validation fold with positive
+    weight and on :math:`\operatorname{logit} p`, with no other intercept.  The last coefficient is
+    the slope.  Rows with zero weight remain in the sandwich's row and cluster counts.
     Each fold is then a fixed prediction rule scored on rows it never saw, which is the setting
     of Cox (1958), and the folds share one slope.  One fold gives Cox's pooled recalibration.
 
@@ -1149,9 +1150,12 @@ def _recalibration(
     from ..fluctuation.iterative import _newton_logistic
 
     predictor = logit(predicted)
-    levels = np.unique(folds)
+    positive = weights > 0.0
+    levels = np.unique(folds[positive])
     members = [folds == level for level in levels]
-    if all(float(np.std(predictor[member])) <= _CONSTANT_LOGIT_SPREAD for member in members):
+    if all(
+        float(np.std(predictor[member & positive])) <= _CONSTANT_LOGIT_SPREAD for member in members
+    ):
         return float("nan"), float("nan"), CALIBRATION_CONSTANT_WITHIN_FOLDS
     if _separates(predictor, actual, weights, members):
         return float("nan"), float("nan"), CALIBRATION_SEPARATED
