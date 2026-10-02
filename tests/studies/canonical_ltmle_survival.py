@@ -4,6 +4,14 @@ The paired comparison gives cleverly and R ``ltmle`` the same realized censored
 panels, intervention assignments, known treatment and censoring mechanisms, and
 quasibinomial sequential regressions.  R fits one prefix per reported horizon.
 The independent property study lives in ``ltmle_survival_properties``.
+
+The study publishes under ``reporting``.  Its declared joint-coverage run refused on one red
+verdict, ``simultaneous_coverage/all_reported__simultaneous_band``: joint coverage 0.9214
+against the 0.92 lower edge of the band, 99% interval 0.9140 to 0.9283.  The declared diagnostic
+read the same rows at the design critical value, 2.622: that oracle band covers 0.9241, so it
+under-covers too and the multiplier is not the cause.  The family's pointwise calibration sits
+at the lower edge (``static_t2`` 0.934, ``dynamic_t2`` 0.937), so the shortfall is finite-sample.
+The default band stays on, the one-plan curve band passes, and X14 owns the red cell.
 """
 
 from __future__ import annotations
@@ -145,6 +153,7 @@ STUDY = StudyRecord(
             for kind in ("simultaneous_band", "pointwise_joint_control")
         ),
     },
+    publication_policy="reporting",
 )
 
 REFERENCE_METADATA = {

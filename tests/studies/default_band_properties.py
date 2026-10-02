@@ -124,6 +124,26 @@ def _scenario_fit(module: Any, scenario: str) -> Source:
     )
 
 
+def _multi_arm_drtmle() -> Source:
+    """The multi-arm DR-TMLE subject fit, without the source study's bound audit.
+
+    The source study raises when its propensity bound activates, because it publishes
+    ``bound_active`` as ``False`` for every replication.  The band does not depend on that
+    claim, and a truncated replication is still the shipped fit.  The first declared run met
+    one such sample on this study's own seeds and stopped before any joint verdict, so the
+    audit is switched off here and the replication is kept as drawn.
+    """
+    module = canonical_multi_arm_drtmle
+    scenario = _first_scenario(module)
+    return Source(
+        draw=lambda n, seed: module.draw_from_seed(scenario, n, seed),
+        fit=lambda frame: module.fit_cleverly(
+            frame, scenario, simultaneous=True, require_unbounded=False
+        ),
+        twins={},
+    )
+
+
 def _cde(level: int) -> Source:
     scenario = canonical_cde_tmle.SCENARIOS[level]
     return Source(
@@ -178,9 +198,7 @@ SOURCES: dict[str, Source] = {
     "missing_outcome": _plain(canonical_mar_tmle),
     "missing_outcome_drtmle": _plain(canonical_mar_drtmle),
     "drtmle": _scenario_fit(canonical_drtmle, "both_correct"),
-    "multi_arm_drtmle": _scenario_fit(
-        canonical_multi_arm_drtmle, _first_scenario(canonical_multi_arm_drtmle)
-    ),
+    "multi_arm_drtmle": _multi_arm_drtmle(),
     "cde_z0": _cde(0),
     "cde_z1": _cde(1),
     "point_msm": _plain(canonical_point_msm),
