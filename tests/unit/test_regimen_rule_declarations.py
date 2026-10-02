@@ -10,7 +10,7 @@ data-adaptive target.
 No code can inspect a closure, so the status of the rule is the declaration
 ``DynamicRegimen(rule_kind=...)``, which ``Rule`` shares.  A callable written inline in a
 ``regimens=`` mapping carries no declaration, so a fit refuses it.  RM28 in
-``docs/roadmap.md`` records the defect.  This module pins these things:
+``docs/roadmap.md`` at ``4ce96cda`` records the defect.  This module pins these things:
 
 * the declaration is required when a plan holds a callable node, ``"estimated"`` is refused,
   and a plan of labels alone is exempt, with their messages;
@@ -332,7 +332,7 @@ class TestAPlanIsReadOnce:
         assert NeverFit.calls == 0
 
     def test_a_zero_dimensional_array_plan_is_a_data_error_before_any_learner(self) -> None:
-        """The message names the sequence form and ``DynamicRegimen`` (roadmap row RM14)."""
+        """The message names the sequence form and ``DynamicRegimen``."""
         spec = {"thr": np.array(1)}
         fragments = (
             "regimen 'thr'",

@@ -1615,10 +1615,10 @@ class _Reported:
 def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
     """The one inference status of every estimate a longitudinal fit reports.
 
-    RM20's cluster rule applies to the prepared cluster labels and, on a weighted fit, to
-    the unit weights. It reads nothing fitted. ``LongitudinalData`` carries no baseline
-    strata, so the count is the number of clusters with positive weight mass in the whole
-    fit, and :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` is the threshold.
+    The point-treatment cluster rule applies to the prepared cluster labels and, on a weighted fit,
+    to the unit weights. It reads nothing fitted. ``LongitudinalData`` carries no baseline strata,
+    so the count is the number of clusters with positive weight mass in the whole fit, and
+    :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` is the threshold.
 
     ``LTMLE._refuse_cross_fitted_design`` refuses ``id=`` above one fold before this runs,
     so a fit can take ``"few_cluster_plugin"`` only. ``LTMLE.fit`` and the
@@ -1806,7 +1806,7 @@ class LTMLE:
         with a rule node is a :class:`~cleverly.longitudinal.DynamicRegimen` declared
         ``rule_kind="known"``, as a mapping value or an item of a sequence.  A callable
         written inline in a mapping carries no declaration, and :meth:`fit` refuses it
-        before any learner (roadmap row RM28).
+        before any learner.
     reference : str or None
         Which regimen contrasts are taken against; the first declared by default.
         Part of the estimand rather than a display setting -- ``ate_regimen[a vs b]``
@@ -2857,7 +2857,7 @@ def longitudinal_truncation_curve(
     It runs :func:`~cleverly.longitudinal.regimen.refuse_regimen_rules` on
     ``result.config.regimens`` first.  A regimen changed with ``object.__setattr__`` can
     carry a declaration this version refuses, and the replay would report a
-    recomputation for it (roadmap row RM28).
+    recomputation for it.
     """
     refuse_regimen_rules(result.config.regimens)
     refuse_evaluated_msm_functions(result.msm)

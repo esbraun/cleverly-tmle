@@ -835,7 +835,7 @@ class TestTheLongitudinalSplitReadsNoTreatment:
 class TestTheCommittedFirstNodeStratifiedSeam:
     """The retired longitudinal policy, committed so an attribution can be redrawn.
 
-    ``docs/roadmap.md`` RM18 attributes one red cell to the fold policy alone, and the
+    ``docs/roadmap.md`` at ``4ce96cda`` RM18 attributes one red cell to the fold policy alone, and the
     diagnostic behind it needed the retired arm. The arm is
     ``tests.studies.ltmle_crossfit_properties.FirstNodeStratifiedLTMLE`` rather than an edit
     to the shipped estimator, so the run is reproducible from this repository.

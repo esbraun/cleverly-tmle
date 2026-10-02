@@ -643,7 +643,7 @@ def test_an_estimand_the_caller_named_and_the_fit_never_reported_stays_unavailab
     assert item.status is AssessmentStatus.UNAVAILABLE
     if operation == "refute":
         # The refute row reads the predicate the call raises from, so the row refuses the
-        # name before the call, in the call's own sentence (RM23).
+        # name before the call, in the call's own sentence.
         assert item.detail == "estimand 'ate[nope vs low]' was not requested in this fit"
     else:
         assert "declined this request" in item.detail

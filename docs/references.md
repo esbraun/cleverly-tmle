@@ -494,7 +494,7 @@ previous reader had is not a citation; a page number is.
   uses $Y-\psi$ and requests no update nodes. It has no response score or respondent residual.
   Therefore, `tmle3` is a complete-data reduction comparator rather than RM8 derivation evidence.
 - Missing-outcome attributable-effect source audit (2026-09-12): no reviewed paper presents the
-  exact MAR PAR and PAF construction. [RM8](roadmap.md#rm8-missing-outcome-attributable-effects)
+  exact MAR PAR and PAF construction. [RM8](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm8-missing-outcome-attributable-effects)
   records this bounded conclusion. [F20](roadmap.md#f20-missing-outcome-attributable-effects)
   holds the missing published result.
 
@@ -530,7 +530,7 @@ previous reader had is not a citation; a page number is.
   Data*](https://doi.org/10.1515/em-2014-0012), *Epidemiologic Methods* 3(1):21–31,
   DOI 10.1515/em-2014-0012. Section 5 distinguishes the population-law intervention from a
   realized learned intervention. The latter defines a data-adaptive target and needs its own
-  inference conditions. [RM25](roadmap.md#rm25-declared-stochastic-regime-densities) uses this
+  inference conditions. [RM25](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm25-declared-stochastic-regime-densities) uses this
   distinction when interpreting its exact-law odds-tilt witness.
 - Nordland & Holst (2026), [*Policy Learning with the polle Package*](https://doi.org/10.18637/jss.v116.i04),
   *Journal of Statistical Software* 116(4):1–51, DOI 10.18637/jss.v116.i04. Read first-hand in the
@@ -538,9 +538,9 @@ previous reader had is not a citation; a page number is.
   learned policy, and it gives the influence function when the learned policy has a limiting policy.
   Algorithm 4 learns each policy on the rows outside a fold. It pools the doubly robust scores with
   weight $1/N$, and it centres the variance estimate at the pooled estimate. This is a method
-  distinct from the one that [RM30](roadmap.md#rm30-learned-policy-value-evaluation) implements, and
+  distinct from the one that [RM30](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm30-learned-policy-value-evaluation) implements, and
   [X11](roadmap.md#x11-learned-policy-follow-ups) part (e) holds it.
-  [RM28](roadmap.md#rm28-declared-densities-of-user-written-interventions) requires `Rule`, and a
+  [RM28](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm28-declared-densities-of-user-written-interventions) requires `Rule`, and a
   `DynamicRegimen` with a callable node, to declare `rule_kind="known"`. It refuses a rule
   declared `"estimated"`.
 - van der Laan & Luedtke (2015), [*Targeted Learning of the Mean Outcome under an Optimal Dynamic
@@ -557,7 +557,7 @@ previous reader had is not a citation; a page number is.
   fluctuation ε2 does not rely on j", with the loss of Equation (21). Section 8.1.1 treats the
   single time point as a special case. The manuscript's MathML prints $O_P$ where the context
   needs $o_P$. This is the governing method of
-  [RM30](roadmap.md#rm30-learned-policy-value-evaluation), with a target distinct from the current
+  [RM30](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm30-learned-policy-value-evaluation), with a target distinct from the current
   fixed-rule fit and from the value of one rule fitted on all rows. `LearnedRuleValue` implements
   Appendix B at one time point ([learned rules](technical-reference/point-treatment-tmle.md#learned-rules)).
 - Montoya, van der Laan, Luedtke, Skeem, Coyle & Petersen (2023), [*The optimal dynamic treatment
@@ -577,7 +577,7 @@ previous reader had is not a citation; a page number is.
   converge "to some fixed rule ... at any rate". Section 4.2 gives the variance
   $(1/V) \sum_v \sigma^2_{n,v}$, conservative with a correctly specified parametric treatment
   model. Section 5.4.3 reports 93.9% coverage for this target. The article supports the target
-  and the variance of [RM30](roadmap.md#rm30-learned-policy-value-evaluation), and
+  and the variance of [RM30](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm30-learned-policy-value-evaluation), and
   [X11](roadmap.md#x11-learned-policy-follow-ups) part (h) cites its fold-specific update.
 - Luedtke & van der Laan (2016), [*Super-learning of an optimal dynamic treatment
   rule*](https://doi.org/10.1515/ijb-2015-0052), *International Journal of Biostatistics*
@@ -598,7 +598,7 @@ previous reader had is not a citation; a page number is.
   for a tool that the paper applies to the optimal value only. A learned optimal rule does
   not always require a first-order rule-estimation term; non-unique optima can cause nonregularity.
   The package's generic `Rule` path does not implement this optimal-value analysis.
-  [RM28](roadmap.md#rm28-declared-densities-of-user-written-interventions) requires the
+  [RM28](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm28-declared-densities-of-user-written-interventions) requires the
   `rule_kind="known"` declaration instead. The rest of this entry gives the package's own
   reasoning for its threshold witness, not a result of the paper. The witness uses a continuous
   covariate. On finite support, a threshold between support points stays locally constant, so its

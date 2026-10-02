@@ -1,4 +1,4 @@
-"""Registered evidence for the calibration-slope warning rule (RM15).
+"""Registered evidence for the calibration-slope warning rule.
 
 The subject is not an estimator of a causal parameter but a diagnostic: the calibration slope
 that :func:`cleverly.validation.nuisance.nuisance_diagnostics` reports for a propensity model,
@@ -13,7 +13,7 @@ that known regression, so the outcome report is calibrated and each fit tests tw
 primary scenarios give the treatment learner the known propensity too, so the slope of each fold
 is Cox's recalibration of a fixed rule on rows it never saw, and its truth is 1.
 
-The RM15 plan in ``docs/roadmap.md`` declared this study, its laws, its budget, its verdicts and
+The RM15 plan in ``docs/roadmap.md`` at ``4ce96cda`` declared this study, its laws, its budget, its verdicts and
 its red-cell route before any run.
 """
 

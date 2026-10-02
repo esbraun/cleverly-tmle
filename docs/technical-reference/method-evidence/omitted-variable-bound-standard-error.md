@@ -27,7 +27,7 @@ equivalence artifact records the absence of a comparator.
 | control | the same fits, with the standard error from the curve of $\nu^2$ without the share term. That is the curve before RM22 |
 | Monte Carlo inference | 99% intervals around every declared endpoint |
 
-The RM22 plan in the [roadmap](../../roadmap.md#rm22-standard-error-of-the-omitted-variable-bound)
+The RM22 plan in the [roadmap](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm22-standard-error-of-the-omitted-variable-bound)
 fixed the law, the budget, the seeds, the margins and the red-cell route before any run.
 
 ## Accuracy against known truth

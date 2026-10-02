@@ -196,7 +196,7 @@ class TestTheRefusals:
 
     def test_the_no_shift_refusal_offers_an_msm_only_with_complete_outcomes(self) -> None:
         """The suggested MSM must fit: a continuous-dose MSM refuses a missing outcome and
-        ``intermediate=`` (RM32), so the message offers it only without them."""
+        ``intermediate=``, so the message offers it only without them."""
         data = CausalData.from_frame(
             frame(),
             outcome="Y",

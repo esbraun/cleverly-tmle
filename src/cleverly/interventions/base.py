@@ -40,16 +40,16 @@ implemented in its own module, under typed estimands and a ``TMLE`` keyword of i
   ``IncrementalMean`` and ``IncrementalEffect``, and ``TMLE(incremental=)``.
   The paragraph stays here rather than being deleted, because the thing to stop a reader
   doing is writing one as a :class:`Stochastic`.  A :class:`Stochastic` must declare
-  ``density_kind="known"``, and one declared ``"estimated"`` is refused (roadmap row RM25).
+  ``density_kind="known"``, and one declared ``"estimated"`` is refused.
   A :class:`Rule` declares ``rule_kind="known"``, and a user-written :class:`Intervention`
-  declares ``density_kind = "known"``, by the same three states (roadmap row RM28).
+  declares ``density_kind = "known"``, by the same three states.
 - A **modified treatment policy** reads the dose that a unit received and moves it, so
   it is not a conditional distribution over the arms.  It is a parameter axis of its own
   too: :mod:`cleverly.interventions.shift`, the typed estimands ``ModifiedTreatmentPolicy``
   and ``ModifiedTreatmentPolicyEffect``, and ``TMLE(shifts=)``.
 
 :func:`refuse_mixed_interventions` refuses either one in a set of regimes, and names the
-typed estimands that hold it (roadmap row RM14).
+typed estimands that hold it.
 """
 
 from __future__ import annotations
@@ -96,7 +96,7 @@ class Intervention(Protocol):
     declares ``density_kind``.  ``"known"`` says that ``density(data)`` returns a fixed
     function of the covariates, chosen independently of the analysis sample, and it is the
     one value a fit accepts.  :func:`refuse_regime_densities` refuses ``None`` and
-    ``"estimated"`` before any learner (roadmap row RM28).  A plain class attribute
+    ``"estimated"`` before any learner.  A plain class attribute
     ``density_kind = "known"`` satisfies the protocol.  :class:`Static`, :class:`Rule` and
     :class:`Stochastic` carry their own declarations.  A subclass of :class:`Static` can
     override ``density``, so it declares ``density_kind`` itself.
@@ -242,7 +242,7 @@ class Static:
 
         A level is not a function of the sample, so :class:`Static` needs no declaration.  A
         subclass can override :meth:`density`, so it reads as undeclared, by the exact-type
-        rule of roadmap row RM27, until it declares ``density_kind`` itself.
+        rule that ``MSM.linear`` also follows, until it declares ``density_kind`` itself.
         """
         return "known" if type(self) is Static else None
 
@@ -284,7 +284,7 @@ class Rule:
     estimate, such as a threshold at a sample mean, and no code can inspect a closure, so
     the declaration is the check.  :func:`refuse_regime_densities` refuses ``None`` and
     ``"estimated"`` when the rule is built, and ``TMLE`` refuses them again before any
-    learner (roadmap row RM28).
+    learner.
 
     Parameters
     ----------
@@ -513,11 +513,11 @@ def refuse_mixed_interventions(
     it names that kind's typed estimands and keyword, and F17 for a joint request.  In a set
     of regimes it also says why the item is not a regime.  A
     :class:`~cleverly.interventions.LearnedRule` is refused in every set, with the estimand
-    and the keyword that take it (roadmap row RM30).  A bare value in a shift or
+    and the keyword that take it.  A bare value in a shift or
     incremental set is not a regime the user meant, so its message shows the object to
     write instead.  ``CausalStudy.identify`` runs this on the set of each typed estimand,
     :func:`as_interventions` on ``interventions=``, and the ``TMLE`` constructor on
-    ``shifts=`` and ``incremental=`` (roadmap row RM14).
+    ``shifts=`` and ``incremental=``.
 
     Parameters
     ----------
@@ -540,7 +540,7 @@ def refuse_mixed_interventions(
     for position, item in enumerate(items, start=1):
         if isinstance(item, LearnedRule):
             # Not wrapped as a Static level: a learned rule has no fixed density, and its
-            # value is a target of its own (roadmap row RM30).
+            # value is a target of its own.
             raise CapabilityError(
                 f"{holder} accepts {text.accepts}, and item {position}, {item!r}, is a "
                 "learned rule. A learned rule has no fixed density, so it is not a regime, a "
@@ -572,11 +572,11 @@ def refuse_mixed_interventions(
 _ESTIMATED_DENSITY = (
     "a Stochastic regime with an estimated density is refused. For a population-law target "
     "whose g*(a | W) depends on P, the regime influence curve omits its pathwise derivative; "
-    "the RM25 odds-tilt witness understates that target's standard error. A realized learned "
+    "an exact-law odds-tilt witness understates that target's standard error. A realized learned "
     "density instead defines a data-adaptive target whose inference needs conditions this "
     "API does not check. "
     "docs/technical-reference/scope-and-refusals.md (Wrong by construction) records the "
-    "refusal, and RM25 in docs/roadmap.md records the reason. For the population odds tilt "
+    "refusal and its reason. For the population odds tilt "
     "of the treatment mechanism, declare cleverly.interventions.Incremental. "
     f"{_KIND_TEXT['incremental'].estimands} hold it in a CausalStudy, and "
     f"{_KIND_TEXT['incremental'].keyword} takes it on the estimator. Its curve carries that "
@@ -589,7 +589,8 @@ _UNDECLARED_DENSITY = (
     "when g*(a | W) is a fixed function of the covariates, chosen independently of the "
     "analysis sample. A sample-derived density is refused: the regime curve omits a term "
     "for a population-law-dependent policy, while inference for a realized learned policy "
-    "needs conditions this API does not check (RM25 in docs/roadmap.md)."
+    "needs conditions this API does not check (docs/technical-reference/scope-and-refusals.md, "
+    "Wrong by construction)."
 )
 
 #: The regime-density declaration: the field ``density_kind``, and the texts of its
@@ -611,8 +612,8 @@ _UNDECLARED_RULE = (
     "independently of the analysis sample: Rule(rule, name, rule_kind='known'), or "
     "DynamicRegimen(label, plan, rule_kind='known') from cleverly.longitudinal. A callable "
     "written inline in regimens= carries no declaration, so write that plan as a "
-    "DynamicRegimen. A rule learned from the analysis sample is refused (RM28 in "
-    "docs/roadmap.md)."
+    "DynamicRegimen. A rule learned from the analysis sample is refused ("
+    "docs/technical-reference/scope-and-refusals.md, Wrong by construction)."
 )
 
 #: Why a learned treatment rule is refused.  ``_RULE_DECLARATION`` reads it.
@@ -621,12 +622,13 @@ _ESTIMATED_RULE = (
     "defines a data-adaptive target, and inference for it needs conditions this API does "
     "not check. For a population-indexed rule, such as a threshold at a sample mean, the "
     "regime influence curve can omit a pathwise derivative through the learned statistic; "
-    "the RM28 threshold witness measures that gap. An optimal rule can also be nonregular "
+    "an exact-law threshold witness measures that gap. An optimal rule can also be nonregular "
     "at ties. docs/technical-reference/scope-and-refusals.md (Wrong by construction) "
-    "records the refusal, and RM28 in docs/roadmap.md records the reason. Fix the rule "
+    "records the refusal and its reason. Fix the rule "
     "before the fit, or learn it on data independent of the analysis sample, and declare "
     "rule_kind='known'. For a point treatment, LearnedRuleValue estimates the average value "
-    "of rules learned inside each training fold (RM30). A learned longitudinal regimen has "
+    "of rules learned inside each training fold (docs/technical-reference/point-treatment-tmle.md, "
+    "Learned rules). A learned longitudinal regimen has "
     "no supported path (X11 in docs/roadmap.md)."
 )
 
@@ -648,9 +650,9 @@ _UNDECLARED_INTERVENTION = (
     "a density_kind attribute of 'known' when density(data) returns a fixed function of the "
     "covariates, chosen independently of the analysis sample. density receives the data of "
     "the fit, so it can compute g*(a | W) from the analysis sample, and such a density is "
-    "refused (RM28 in docs/roadmap.md). Static, Rule and Stochastic carry their own "
-    "declarations. A subclass of Static can override density, so it declares density_kind "
-    "itself."
+    "refused (docs/technical-reference/scope-and-refusals.md, Wrong by construction). Static, "
+    "Rule and Stochastic carry their own declarations. A subclass of Static can override "
+    "density, so it declares density_kind itself."
 )
 
 #: Why a user-written intervention with an estimated density is refused.
@@ -658,11 +660,11 @@ _UNDECLARED_INTERVENTION = (
 _ESTIMATED_INTERVENTION = (
     "a user-written Intervention with an estimated density is refused. For a population-law "
     "target whose g*(a | W) depends on P, the regime influence curve omits its pathwise "
-    "derivative; on the RM25 witness law, a class that computes the sample-mechanism odds "
+    "derivative; on an exact witness law, a class that computes the sample-mechanism odds "
     "tilt reports 0.62 of that target's exact standard error. A realized learned density "
     "instead defines a data-adaptive target whose inference needs conditions this API does "
     "not check. docs/technical-reference/scope-and-refusals.md (Wrong by construction) "
-    "records the refusal, and RM28 in docs/roadmap.md records the reason. For the "
+    "records the refusal and its reason. For the "
     "population odds tilt of the treatment mechanism, declare "
     f"cleverly.interventions.Incremental. {_KIND_TEXT['incremental'].estimands} hold it in "
     f"a CausalStudy, and {_KIND_TEXT['incremental'].keyword} takes it on the estimator. "
@@ -696,15 +698,15 @@ def refuse_regime_densities(interventions: Iterable[object]) -> None:
     ============================  ==========================  ===================================
     item                          callable check              declaration
     ============================  ==========================  ===================================
-    a :class:`Stochastic`         ``density_fn``              ``density_kind`` (RM25)
-    a :class:`Rule`               ``rule``                    ``rule_kind`` (RM28)
+    a :class:`Stochastic`         ``density_fn``              ``density_kind``
+    a :class:`Rule`               ``rule``                    ``rule_kind``
     any other object              a ``density`` method        ``density_kind``, ``None`` if absent
     ============================  ==========================  ===================================
 
     The first two rows select by ``isinstance``, so a subclass that skips
     ``__post_init__`` still refuses at the fit.  :class:`Static` meets the last row, and its
     ``density_kind`` reads ``"known"`` by its exact type.  A user-written
-    :class:`Intervention` meets the last row too (roadmap row RM28).  The refusal of
+    :class:`Intervention` meets the last row too.  The refusal of
     ``"estimated"`` distinguishes a population-law target from a realized learned target.
 
     :class:`Stochastic` and :class:`Rule` run this when they are built.  ``TMLE`` runs it
@@ -712,8 +714,7 @@ def refuse_regime_densities(interventions: Iterable[object]) -> None:
     :meth:`Stochastic.density`, :meth:`Rule.density` and :meth:`RegimeSet.evaluate` run it
     before any regime function is evaluated, so a direct call and the simulated-confounding
     replay refuse before that function runs.  A regime changed with
-    ``object.__setattr__`` can carry a declaration this version refuses (roadmap rows RM25
-    and RM28).
+    ``object.__setattr__`` can carry a declaration this version refuses.
 
     Parameters
     ----------
@@ -973,10 +974,10 @@ def as_interventions(value: Any) -> tuple[Intervention, ...]:
 
     The second and third rows do not use the runtime :class:`Intervention` check.  That check
     requires ``density_kind``, and an object with no declaration must reach
-    :func:`refuse_regime_densities`, whose refusal says what to declare.  This function
-    checks no declaration, so a fit refuses an undeclared object before its first learner
-    (roadmap row RM28).  A callable is not a treatment level, and it carries no name and no
-    declaration, so the fourth row refuses it and names :class:`Rule`.
+    :func:`refuse_regime_densities`, whose refusal says what to declare.  This function checks no
+    declaration, so a fit refuses an undeclared object before its first learner. A callable is not a
+    treatment level, and it carries no name and no declaration, so the fourth row refuses it and
+    names :class:`Rule`.
 
     A :class:`~cleverly.interventions.Shift` or
     :class:`~cleverly.interventions.Incremental` is neither a level nor a regime, so

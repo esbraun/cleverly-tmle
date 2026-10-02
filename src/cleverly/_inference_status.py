@@ -53,8 +53,8 @@ InferenceStatus = Literal[
 # and Section 3.2.1, last paragraph, recommend t with J - 2 degrees of freedom at every
 # cluster count. Neither paper compares
 # the normal reference with t. The package keeps its normal reference and withholds the
-# interval below this count; roadmap row RM20 records the decision and F22 the reopen route.
-#: The cluster count below which a clustered fit reports no interval (RM20).
+# interval below this count; F22 in docs/roadmap.md holds the reopen route.
+#: The cluster count below which a clustered fit reports no interval.
 FEW_CLUSTER_THRESHOLD: Final[int] = 40
 
 #: Where ``q_bounds=None`` takes the scale of a continuous outcome from. Both outcome-scale

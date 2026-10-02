@@ -1,6 +1,6 @@
 """Each composition refusal of RM24 raises ``CapabilityError`` before any learner.
 
-Before RM24 in ``docs/roadmap.md``, a stratified incremental fit and a stratified log- or
+Before RM24 in ``docs/roadmap.md`` at ``4ce96cda``, a stratified incremental fit and a stratified log- or
 logit-link MSM fit raised ``NotImplementedError`` from the strata guard in
 ``TMLE._retarget_detailed`` after two learner fits.  A stratified ``DRTMLE`` fit at a non-empty
 ``guard`` raised there after eight, and ``DRTMLE`` with ``targeting="one_step"`` and

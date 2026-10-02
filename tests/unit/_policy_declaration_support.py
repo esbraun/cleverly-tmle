@@ -1,8 +1,8 @@
 r"""Builders for the tests of a declared treatment rule and a user-written intervention.
 
-``tests/unit/test_rule_and_intervention_declarations.py`` (RM28) tests the rule declaration
+``tests/unit/test_rule_and_intervention_declarations.py`` tests the rule declaration
 of ``Rule`` and the density declaration of a user-written ``Intervention``.
-``tests/unit/test_regimen_rule_declarations.py`` (RM28) tests the same rule declaration on
+``tests/unit/test_regimen_rule_declarations.py`` tests the same rule declaration on
 the callable nodes of a ``DynamicRegimen``.  ``tests/unit/test_stochastic_regime_densities.py``
 lists all three among the users of the shared check.  This module holds the builders of
 those files, and not all of them are shared:
@@ -27,7 +27,7 @@ value :math:`\psi(c) = 3/2 + c` has slope :math:`f(c)\{Q(1, c) - Q(0, c)\} = 1`,
 curve of the population-indexed rule carries the term :math:`T = W - c` that the
 fixed-rule curve :math:`D` omits.  The exact moments are :math:`E[D^2] = 3/8`,
 :math:`E[T^2] = 1/12` and :math:`E[DT] = 1/8`, so the reported standard error is
-:math:`3/\sqrt{17}` of the exact one.  RM28 in ``docs/roadmap.md`` declares these values.
+:math:`3/\sqrt{17}` of the exact one.  RM28 in ``docs/roadmap.md`` at ``4ce96cda`` declares these values.
 
 The sample is the midpoint grid :math:`W_j = (j - 1/2)/200`, with four rows at each point:
 :math:`A \in \{0, 1\}` and :math:`\varepsilon = \pm 1/4`.  Each :math:`(W, A)` cell balances
@@ -176,7 +176,7 @@ NOISE = 0.25
 GRID_W = (np.arange(1, GRID_SIZE + 1) - 0.5) / GRID_SIZE
 
 #: The exact ratio of the reported to the exact standard error, and its pin and bound.  The
-#: plan measured 0.7276058 before it chose them (RM28 in docs/roadmap.md).  A curve that
+#: plan measured 0.7276058 before it chose them (RM28 in docs/roadmap.md at 4ce96cda).  A curve that
 #: carried ``T`` would read 1.  The bound claims an understatement of more than 20 percent
 #: and pins no digit.  ``_tilt_law_support.UNDERSTATEMENT_BOUND`` is the bound of another
 #: witness, so this one carries the law in its name.

@@ -1,4 +1,4 @@
-"""Interval calibration of the omitted-variable bound's standard error (RM22).
+"""Interval calibration of the omitted-variable bound's standard error.
 
 One family, ``interval_calibration``, with a positive cell for each end of each bound and an
 ``inflated_se_control`` for each end of the ATT bound.  Every cell reads the same draws: one

@@ -1,12 +1,12 @@
 """Cross-fitted missing-outcome fits outside the two audited contracts are refused.
 
 Two stacked CV-TMLE contracts cover missing outcomes (``delta=``) under cross-fitting: the
-natural-course mean and the arm-indexed means and contrasts. A shift, incremental, regime,
-or MSM axis, or a declared intermediate, puts a fit outside both. Such a fit used to run and
-report an interval that no audit read a source for. A ``Static`` regime or a saturated MSM
-also reproduced the arm-indexed fit, and so escaped that contract's refusals of ``repeats``,
-fold targeting, ``cv_evaluation``, the linear fluctuation, and ``id=``. F21 in ``docs/roadmap.md`` holds the missing results, and RM20
-records the decision to refuse.
+natural-course mean and the arm-indexed means and contrasts. A shift, incremental, regime, or MSM
+axis, or a declared intermediate, puts a fit outside both. Such a fit used to run and report an
+interval that no audit read a source for. A ``Static`` regime or a saturated MSM also reproduced the
+arm-indexed fit, and so escaped that contract's refusals of ``repeats``, fold targeting,
+``cv_evaluation``, the linear fluctuation, and ``id=``. F21 in ``docs/roadmap.md`` holds the missing
+results.
 
 Every refusal here must run before any learner, which :class:`NeverFit` enforces. The
 controls show what the refusal leaves alone: the in-sample fit of each target, the

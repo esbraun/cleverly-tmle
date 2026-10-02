@@ -123,7 +123,7 @@ representer is $E[\alpha_W \mid A, V]$. That representer averages the full repre
 within each arm and each value of $V$. Its $\nu^2$ is therefore never larger, and a collaborative robustness value would overstate robustness for the declared
 adjustment set. The constant `_CTMLE_BOUND_REFUSAL` in `cleverly.sensitivity.omitted_variable`
 gives the full reason, and
-[RM11](../roadmap.md#rm11-sensitivity-bounds-outside-their-derivation) records the refusal.
+[RM11](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm11-sensitivity-bounds-outside-their-derivation) records the refusal.
 
 **A simulated common-cause surface reruns selection.** Binary complete-outcome fits accept fixed
 probability weights for this operation. The operation refuses estimated weights. Its clustered
@@ -203,7 +203,7 @@ reopens when it supplies the estimator's influence curve.
 **One configuration is refused more than it needs to be.** A `discrete` fit whose only candidate is
 the complete adjustment set selects nothing. It is bit-identical to a plain TMLE fit, and
 `tests/unit/test_ctmle.py` pins that identity. The package still refuses its interval, because the
-refusal keys on the strategy, as [RM12](../roadmap.md#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism)
+refusal keys on the strategy, as [RM12](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism)
 correction 2 and F18 both require. A key that read the fitted path instead would give inference
 back to a caller whose candidate list happened to collapse, which that caller cannot predict before
 fitting. The over-refusal is deliberate and it is the conservative direction. Use `TMLE` for that
@@ -241,7 +241,7 @@ The accessors, the reports, the five derived operations, and the two sweeps abov
 do on a selector path. The `summary()` column is `generated-design se`. For an interval, fit
 `TMLE`. [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) is the
 condition that reopens this path, and F18 holds the three selector paths.
-[RM20](../roadmap.md#rm20-intervals-outside-every-claimed-contract) records the decision.
+[RM20](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm20-intervals-outside-every-claimed-contract) records the decision.
 
 Benkeser, Cai and van der Laan (2020), Theorem 1, prove the ordinary adaptive-propensity curve
 without an extra first-order design term. The theorem covers one binary treatment-specific mean

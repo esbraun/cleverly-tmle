@@ -1,4 +1,4 @@
-r"""The variance of the learned-rule value at unequal folds (roadmap row RM30).
+r"""The variance of the learned-rule value at unequal folds.
 
 The reported estimate is the ``1/V`` average of fold plug-ins, and its variance is
 

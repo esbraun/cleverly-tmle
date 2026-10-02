@@ -1,4 +1,4 @@
-"""Repeated-sampling properties of the fold-local learned-rule value CV-TMLE (RM30).
+"""Repeated-sampling properties of the fold-local learned-rule value CV-TMLE.
 
 Four families, each on the ``non_exceptional`` law, in the order rule L3 reads them.
 

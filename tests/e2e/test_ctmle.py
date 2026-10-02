@@ -152,7 +152,7 @@ class TestTheFit:
     ) -> None:
         """The plug-in spread is the smaller number, and that is not a precision claim.
 
-        The old name for this test asserted the reading ``docs/roadmap.md`` RM12
+        The old name for this test asserted the reading ``docs/roadmap.md`` at ``4ce96cda`` RM12
         forbids: "a user reads the smaller standard error as a precision gain, and the
         interval undercovers". The package now refuses to call the collaborative number
         a standard error at all. What remains true, and is what this test pins, is the

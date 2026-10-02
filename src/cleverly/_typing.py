@@ -114,7 +114,7 @@ EstimandName = Literal[
 #: ``q_delta`` is built out of the estimated mechanism, so it carries an extra influence
 #: curve term and a second score equation.  That is why it is not a kind of ``"regime"``.
 #:
-#: ``"learned_rule"`` is the value of a rule learned inside each training fold (RM30).  It
+#: ``"learned_rule"`` is the value of a rule learned inside each training fold.  It
 #: reuses the regime fluctuation, but its target is data-adaptive, so every axis-keyed
 #: consumer decides it explicitly rather than reading it as a declared regime.
 ParameterAxis = Literal["arm", "regime", "learned_rule", "shift", "ipsi", "msm"]

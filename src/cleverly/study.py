@@ -2184,12 +2184,12 @@ class ExplicitAdjustmentProvider:
         if target not in TARGETS:
             raise CapabilityError(f"{type(estimand).__name__} is not an evidenced point estimand")
         if isinstance(actual, LearnedRuleValue):
-            # The rows of the RM30 refusal table that the data decide, before the generic
+            # The rows of the learned-rule refusal table that the data decide, before the generic
             # axis and design checks below: their sentences name other remedies.
             refuse_learned_rule_composition(data)
         # The kinds of the items are a property of the estimand, so they are checked before
         # the design.  Not in ``_point_functional``: the provenance matcher calls that inside
-        # a ``try`` that reads a refusal as a mismatch (roadmap row RM14).
+        # a ``try`` that reads a refusal as a mismatch.
         declared = _declared_interventions(actual)
         if declared is not None:
             field_name, kind = declared

@@ -35,9 +35,11 @@ RM19 measured the two routes on 2,000 fresh draws of the binary `treatment_corre
 transcription of the R loop took each of four named choices from R or from this package.
 Averaged over the other three choices, the two-arm tilt raised the mean `ate` by `0.000833` to
 `0.001718`, at the level 0.998. The whole difference from R reads `no increment at the declared
-resolution`. `sqrt(n)` times that difference falls from `0.0789` at `n = 1500` to `0.0053` at
+resolution`.
+
+`sqrt(n)` times that difference falls from `0.0789` at `n = 1500` to `0.0053` at
 `n = 6000`. Three sizes do not prove a rate, and that measurement does not isolate the tilt.
-{ref}`What the localization design found <what-the-localization-design-found>` gives each
+[What the localization design found](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#what-the-localization-design-found) gives each
 interval.
 
 ```python

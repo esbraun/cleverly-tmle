@@ -1,9 +1,9 @@
 """The MSM builders that the weight and design declaration tests share.
 
-``tests/unit/test_msm_projection_weights.py`` (RM13) tests ``MSM(weights_kind=...)``, and
-``tests/unit/test_msm_design_declaration.py`` (RM27) tests ``MSM(design_kind=...)``.  Both
+``tests/unit/test_msm_projection_weights.py`` tests ``MSM(weights_kind=...)``, and
+``tests/unit/test_msm_design_declaration.py`` tests ``MSM(design_kind=...)``.  Both
 build the same working models, fit them through the same entries, and replay the same fits,
-so those builders live here.  ``tests/unit/test_stochastic_regime_densities.py`` (RM25)
+so those builders live here.  ``tests/unit/test_stochastic_regime_densities.py``
 builds an MSM from here to test the declaration that all three share.  The parts that do
 not depend on the declared field, the two-node :func:`panel` among them, are in
 ``tests/unit/_declaration_support.py``.

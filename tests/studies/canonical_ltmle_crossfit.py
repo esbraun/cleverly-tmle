@@ -136,7 +136,7 @@ STUDY = StudyRecord(
     },
     # Under the pooled update ``crossfit_overfitting/cross_fitted_ltmle`` passes, at SE ratio
     # 1.016107 with a 99% interval from 0.996092 to 1.036997.  The study still publishes under
-    # ``reporting`` because the declaration written before that run (docs/roadmap.md, RM18,
+    # ``reporting`` because the declaration written before that run (docs/roadmap.md at 4ce96cda, RM18,
     # "The pooled update, declared before it runs") moves no study to ``gated``.  A move to
     # ``gated`` is a separate registry decision, not a consequence of one green cell.
     publication_policy="reporting",

@@ -1,6 +1,6 @@
 r"""The exact tilt law of the regime-density witness, shared by the declaration tests.
 
-``tests/unit/test_stochastic_regime_densities.py`` (RM25) measures on this law what a
+``tests/unit/test_stochastic_regime_densities.py`` measures on this law what a
 regime curve omits when the odds tilt :math:`g^\star` of the sample mechanism is declared
 known.  The law, the two tilts, and the closed-form curves live here, so a later test of a
 declared function can reuse the same law and its measured values.  The parts that do not

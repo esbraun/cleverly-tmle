@@ -1,12 +1,12 @@
 """Shared scaffolding for the tests of a declared known function.
 
-``tests/unit/test_msm_projection_weights.py`` (RM13),
-``tests/unit/test_stochastic_regime_densities.py`` (RM25) and
-``tests/unit/test_msm_design_declaration.py`` (RM27) test the three users of
+``tests/unit/test_msm_projection_weights.py``,
+``tests/unit/test_stochastic_regime_densities.py`` and
+``tests/unit/test_msm_design_declaration.py`` test the three users of
 :class:`cleverly._declarations.FunctionDeclaration`.  This module holds the parts that do
 not depend on which field is declared: the refusal checks, the modified states, a point or
-longitudinal result whose declaration is removed after the fit (RM28), the checks that its
-replay slots and rows agree with the calls they stand for (RM23), the fit entries, the
+longitudinal result whose declaration is removed after the fit, the checks that its
+replay slots and rows agree with the calls they stand for, the fit entries, the
 two-node :func:`panel` with its columns and ``NeverFit`` learners, and the exact-law oracle
 fit.  ``tests/unit/_msm_declaration_support.py``
 holds the MSM builders that the RM13 and RM27 files share, and
@@ -103,7 +103,7 @@ def modified_states(undeclared: str, estimated: str) -> dict[str, tuple[Any, tup
 
 
 def undeclared_copy(result: Any, field: str, select: Callable[[Any], list[Any]]) -> Any:
-    """A copy of ``result`` whose selected objects no longer declare ``field`` (RM28).
+    """A copy of ``result`` whose selected objects no longer declare ``field``.
 
     ``select`` maps the copy to the objects that carry ``field``.  A point result holds
     them on ``result.estimator``, and a longitudinal result holds its resolved regimens on

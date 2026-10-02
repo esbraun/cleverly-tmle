@@ -320,9 +320,9 @@ _ESTIMATED_WEIGHTS = (
     "a functional of P, so the efficient influence function carries a further term for "
     "the pathwise derivative through the estimated mechanism or arm shares, and the "
     "influence curve reported here does not have it. The reported standard error can "
-    "be too small, as the RM13 exact-law witness shows; its direction is not universal. "
+    "be too small, as an exact-law witness shows; its direction is not universal. "
     "docs/technical-reference/msm-projections.md (Variations) records the "
-    "refusal, and RM13 in docs/roadmap.md records the reason. Pass weights= as a known "
+    "refusal and its reason. Pass weights= as a known "
     "function of the arm and the covariates with weights_kind='known', or leave "
     "weights=None for uniform weights."
 )
@@ -332,8 +332,9 @@ _UNDECLARED_WEIGHTS = (
     "when h(a, V) is a fixed function of the arm and the covariates, chosen without "
     "reading the data. A weight computed from the sample, such as arm shares or a fitted "
     "mechanism, is estimated: h is then a functional of P, the reported influence curve "
-    "omits its pathwise derivative, so its standard error can be wrong (RM13 in "
-    "docs/roadmap.md). weights_kind='estimated' is refused for that reason."
+    "omits its pathwise derivative, so its standard error can be wrong "
+    "(docs/technical-reference/msm-projections.md, Variations). weights_kind='estimated' is "
+    "refused for that reason."
 )
 
 #: The projection-weight declaration: the field ``weights_kind``, and the texts of its
@@ -355,10 +356,10 @@ _ESTIMATED_DESIGN = (
     "covariate centred at its sample mean, can define a population-law target where phi "
     "is a functional of P. Its influence function can need a further term for the "
     "pathwise derivative through that statistic, which the reported influence curve lacks. "
-    "The standard error can be wrong in either direction; the RM27 exact-law witness "
+    "The standard error can be wrong in either direction; an exact-law witness "
     "shows one that is too small. A realized learned-design target instead needs inference "
     "conditions that this API does not establish. docs/technical-reference/msm-projections.md "
-    "(Variations) records the refusal, and RM27 in docs/roadmap.md records the reason. "
+    "(Variations) records the refusal and its reason. "
     "Choose any centre independently of the analysis sample, then pass design_kind='known'."
 )
 
@@ -368,7 +369,8 @@ _UNDECLARED_DESIGN = (
     "covariates, chosen without reading the data. A design computed from the sample, such "
     "as a covariate centred at its sample mean, is estimated. For a population-law target, "
     "phi is then a functional of P and the reported influence curve can omit its pathwise "
-    "derivative, so its standard error can be wrong (RM27 in docs/roadmap.md). A realized "
+    "derivative, so its standard error can be wrong "
+    "(docs/technical-reference/msm-projections.md, Variations). A realized "
     "learned-design target needs separate inference conditions that this API does not "
     "establish. design_kind='estimated' is refused for these reasons. MSM.linear needs no "
     "declaration: the design it builds is known by construction."
@@ -400,8 +402,8 @@ def refuse_continuous_msm_mechanisms(data: CausalData, *, subject: str, missingn
     the construction, not to the parameter: a weighted fluctuation, with regression weights
     :math:`\\Delta / (g \\pi)` and covariate :math:`\\varphi(a)`, needs the second mechanism
     at the observed dose only.  No targeting step or evidence for either route is written,
-    so the fit refuses at every ``cross_fit`` setting (RM32; X10 in ``docs/roadmap.md``
-    tracks the construction).  The rule keys on ``data.has_missing_outcome``, not on the
+    so the fit refuses at every ``cross_fit`` setting (X10 in ``docs/roadmap.md`` tracks the
+    construction).  The rule keys on ``data.has_missing_outcome``, not on the
     declaration, as the missing-outcome check of ``CausalStudy.identify`` does: a declared
     indicator with every outcome observed keeps its fit.
 
@@ -483,7 +485,7 @@ def refuse_msm_functions(model: MSM) -> None:
     before any learner: a model changed with ``object.__setattr__`` can carry a
     declaration this version refuses. ``TMLE`` also runs it at the start of every
     retarget, which each sensitivity sweep calls, so a result with such a model refuses
-    every recomputation (roadmap rows RM13, RM27 and RM28).
+    every recomputation.
     :meth:`MSMSet.evaluate` and :func:`cleverly.longitudinal.msm.evaluate_regimen_msm`
     run it before they call the design or the weight, so a direct call and the
     simulated-confounding replay refuse before any user function runs.  A longitudinal

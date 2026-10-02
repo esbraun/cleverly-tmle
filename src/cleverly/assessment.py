@@ -1324,8 +1324,8 @@ def _argument_resolved(
     """Resolve a row whose call refuses some values of one argument and not others.
 
     ``refusal`` is the predicate the call raises from, read at one value of ``argument``,
-    and ``None`` stands for the omitted argument.  The row follows one rule, which RM12 set
-    for ``tipping_gamma(use_ci=True)``.
+    and ``None`` stands for the omitted argument.  The row follows the one rule that
+    ``tipping_gamma(use_ci=True)`` follows.
 
     ======================================================= ===================================
     request                                                 row

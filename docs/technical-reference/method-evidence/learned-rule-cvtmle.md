@@ -51,7 +51,7 @@ cell therefore rests on Corollary 3 of van der Laan and Luedtke (2015), which gi
 interval. The Corollary 3 projection term predicts an SE ratio of 1.0002 there. The cell tests
 coverage, and it does not test conservativeness.
 
-The [RM30 record](../../roadmap.md#rm30-learned-policy-value-evaluation) names the commit that
+The [RM30 record](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm30-learned-policy-value-evaluation) names the commit that
 holds the declaration. That declaration fixed the laws, the learners, the budgets, the seeds, the
 truth rule, the failed-fit rule and the run form before any run.
 `tests/unit/test_learned_rule_study_constants.py` computes every constant of the law tables again

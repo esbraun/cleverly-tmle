@@ -564,17 +564,16 @@ class TMLE:
         and the sensitivity analyses follow the setting, so a truncation or missingness
         sweep perturbs the same fold-evaluated estimator the headline reports.
     learned_rule:
-        A :class:`~cleverly.interventions.LearnedRule` to estimate the fold-average value
-        of the rule learned inside each outer training fold (``ey_learned_rule``, roadmap
-        row RM30).  The fit needs ``cross_fit=True``, ``cv_evaluation=True``,
-        ``targeting_scheme="pooled"``, ``repeats=1`` and ``n_bootstrap=0``, and refuses
-        every other scheme before any learner, with that remedy.  It also refuses
-        ``interventions=``, ``shifts=``, ``incremental=``, ``msm=``, ``reference=`` and an
-        arm estimand beside it, and a continuous or multi-arm treatment, missing outcomes,
+        A :class:`~cleverly.interventions.LearnedRule` to estimate the fold-average value of the
+        rule learned inside each outer training fold (``ey_learned_rule``).  The learned-rule
+        contract of ``docs/technical-reference/point-treatment-tmle.md`` states it.  The fit needs
+        ``cross_fit=True``, ``cv_evaluation=True``, ``targeting_scheme="pooled"``, ``repeats=1`` and
+        ``n_bootstrap=0``, and refuses every other scheme before any learner, with that remedy.  It
+        also refuses ``interventions=``, ``shifts=``, ``incremental=``, ``msm=``, ``reference=`` and
+        an arm estimand beside it, and a continuous or multi-arm treatment, missing outcomes,
         ``intermediate=``, ``weights=``, ``id=`` and ``strata=``.
-        :func:`~cleverly.interventions.learned.refuse_learned_rule_composition` states the
-        order.  The result records the fold summaries under
-        ``result.extra["learned_rule"]``.
+        :func:`~cleverly.interventions.learned.refuse_learned_rule_composition` states the order.
+        The result records the fold summaries under ``result.extra["learned_rule"]``.
     n_folds, learner_folds:
         Outer cross-fitting folds, and the inner folds a Super Learner uses to score
         its candidates.
@@ -843,7 +842,7 @@ class TMLE:
                     "learned_rule= takes a cleverly.interventions.LearnedRule; got "
                     f"{type(self.learned_rule).__name__}"
                 )
-            # Rows 1 and 2 of the RM30 refusal table read the configuration alone, and
+            # Rows 1 and 2 of the learned-rule refusal table read the configuration alone, and
             # they come first in its order, so they refuse where they were written.  The
             # preflight asks them again for a copied or modified estimator.
             refusal = learned_rule_configuration_refusal(self)
@@ -962,12 +961,12 @@ class TMLE:
         # engine raises ValueError.  See ``_cross_fit_policy_refusal``.
         reason = self._cross_fit_policy_reason()
         if reason is not None:
-            # A learned-rule fit hears rows 10 to 14 of its refusal table before a shared
-            # policy sentence.  Their remedy is the configuration that fits, and the
-            # shared remedies (enable cross-fitting, or set repeats=1) meet one of those
-            # rows next.  The rows raise ``CapabilityError``, as every row of that table
-            # does.  A policy that passes the shared checks meets these rows in the
-            # preflight instead, after the data rows, as the RM24 order requires.
+            # A learned-rule fit hears rows 10 to 14 of its refusal table before a shared policy
+            # sentence.  Their remedy is the configuration that fits, and the shared remedies
+            # (enable cross-fitting, or set repeats=1) meet one of those rows next.  The rows raise
+            # ``CapabilityError``, as every row of that table does.  A policy that passes the shared
+            # checks meets these rows in the preflight instead, after the data rows, because a
+            # refusal that no setting repairs comes first.
             learned = None if self.learned_rule is None else learned_rule_scheme_refusal(self)
             if learned is not None:
                 raise CapabilityError(learned)
@@ -1506,12 +1505,12 @@ class TMLE:
             extra=extra if cv_detail is None else {**extra, "cv_tmle": cv_detail},
         )
 
-        # A simultaneous band is a joint confidence statement, so a fit that supplies no
-        # inference builds none.  Skipped rather than raised, because ``simultaneous``
-        # defaults to ``True``: raising would stop every default-configured selector-path
-        # collaborative fit over an output RM12 refuses to report anyway.  The omission is
-        # not silent -- ``summary()`` prints the reason, and ``simultaneous_bands()``
-        # called directly still refuses, because that is an explicit request.
+        # A simultaneous band is a joint confidence statement, so a fit that supplies no inference
+        # builds none.  Skipped rather than raised, because ``simultaneous`` defaults to ``True``:
+        # raising would stop every default-configured selector-path collaborative fit over an output
+        # that the selector status refuses to report anyway.  The omission is not silent --
+        # ``summary()`` prints the reason, and ``simultaneous_bands()`` called directly still
+        # refuses, because that is an explicit request.
         if self.simultaneous and len(estimates) > 1 and supplies_inference(result.inference_status):
             refuse_after_repeats(
                 self.repeats, operation="simultaneous=True", reason=_REPEATED_BANDS_REASON

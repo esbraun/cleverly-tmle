@@ -1,4 +1,4 @@
-"""The calibration-slope rule of RM15 in ``docs/roadmap.md``.
+"""The calibration-slope rule of RM15 in ``docs/roadmap.md`` at ``4ce96cda``.
 
 Before RM15, ``NuisanceDiagnostics.findings`` warned when a pooled one-intercept recalibration
 slope fell outside the fixed band [0.7, 1.4], and it said that the model "biases the weights".

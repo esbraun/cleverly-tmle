@@ -27,12 +27,11 @@ because under the regimen those are what the rule itself assigned, and passing t
 let a rule read the treatment of a unit that *deviated*.  The same restriction, enforced
 the same way, as :func:`cleverly.interventions.base._covariate_frame` at one time point.
 
-A rule can close over any estimate, such as a threshold at a sample mean, and no code can
-inspect a closure.  So a :class:`DynamicRegimen` declares ``rule_kind``, and
-:func:`refuse_regimen_rules` refuses a plan with a callable node unless it is ``"known"``
-(roadmap row RM28).  The declaration is the one that :class:`~cleverly.interventions.Rule`
-carries.  A callable written inline in a ``regimens=`` mapping carries no declaration, so a
-fit refuses it.
+A rule can close over any estimate, such as a threshold at a sample mean, and no code can inspect a
+closure.  So a :class:`DynamicRegimen` declares ``rule_kind``, and :func:`refuse_regimen_rules`
+refuses a plan with a callable node unless it is ``"known"``. The declaration is the one that
+:class:`~cleverly.interventions.Rule` carries.  A callable written inline in a ``regimens=`` mapping
+carries no declaration, so a fit refuses it.
 """
 
 from __future__ import annotations
@@ -123,7 +122,7 @@ class DynamicRegimen:
     different, data-adaptive target, and inference for it needs conditions this path does
     not check.  No code can inspect a closure, so the declaration is the check.
     :func:`refuse_regimen_rules` refuses ``None`` and ``"estimated"`` when the regimen is
-    built, and ``LTMLE.fit`` refuses them again before any learner (roadmap row RM28).
+    built, and ``LTMLE.fit`` refuses them again before any learner.
 
     .. code-block:: python
 
@@ -483,7 +482,7 @@ def resolve_regimens(spec: Any, n_times: int) -> tuple[RegimenSpec, ...]:
     A plan with a callable node must be a :class:`DynamicRegimen` declared
     ``rule_kind="known"``.  A callable written inline in a mapping, as one rule for every
     node or as a node of a sequence, carries no declaration.  Its regimen is built with
-    ``rule_kind=None``, and :func:`refuse_regimen_rules` refuses it (roadmap row RM28).
+    ``rule_kind=None``, and :func:`refuse_regimen_rules` refuses it.
     A resolved :class:`DynamicRegimen` keeps the ``rule_kind`` of the one it was given.
 
     A plan with no rule in it comes back a :class:`Regimen`, which is what keeps a static

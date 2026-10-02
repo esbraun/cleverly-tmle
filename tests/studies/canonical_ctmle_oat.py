@@ -168,8 +168,8 @@ def cleverly_rows(
     for name in SCENARIO_ESTIMANDS[scenario]:
         estimate = result[name]
         reference = float(truth[name])
-        # Status-aware: every ``oat`` estimate reports the generated-design diagnostic
-        # (RM20), and these are the same numbers the committed artifacts carry.
+        # Status-aware: every ``oat`` estimate reports the generated-design diagnostic, and these
+        # are the same numbers the committed artifacts carry.
         std_error, low, high = reported_inference(estimate)
         ratio = estimate.scale == "ratio"
         rows.append(

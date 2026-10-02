@@ -3,7 +3,7 @@
 The clever covariate that this package builds for a continuous-dose MSM divides by the treatment
 density at the observed dose and at each dose of the integration grid.  With a missing outcome or
 an intermediate variable, that construction must also divide by the second mechanism at each of
-those doses, and no targeting step for it is written.  Before RM32 in ``docs/roadmap.md``, the in-sample fit raised
+those doses, and no targeting step for it is written.  Before RM32 in ``docs/roadmap.md`` at ``4ce96cda``, the in-sample fit raised
 ``ValueError`` from the nuisance fit after two learner fits, and the cross-fitted fit met the
 F21 refusal, whose remedy is that in-sample fit.  X10 in ``docs/roadmap.md`` tracks the
 construction.  This module pins these things:

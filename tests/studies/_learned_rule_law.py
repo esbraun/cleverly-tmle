@@ -1,6 +1,6 @@
 """The laws, the fit, the truth harness and the oracle SE of the RM30 learned-rule studies.
 
-The RM30 section of ``docs/roadmap.md`` declares everything here before any run: "The laws, and
+The RM30 section of ``docs/roadmap.md`` at ``4ce96cda`` declares everything here before any run: "The laws, and
 the constants computed before the declaration", "The gated study", "Rules that both studies
 follow" and "The fold-partition seeds".  Two registered studies share this module.
 ``learned-rule-cvtmle`` is gated, and ``learned-rule-cvtmle-boundary`` reports.

@@ -56,15 +56,14 @@ from tests.studies.evidence.registry import ROOT, Margins, StudyRecord, register
 #: The published ledger.
 PAGE = ROOT / "docs" / "technical-reference" / "method-evidence" / "red-cells.md"
 
-#: The roadmap, and the header of the RM18 table whose ``id`` column names every owner.
+#: The roadmap, and the header of its "Red-cell owners" table, whose ``id`` column names every
+#: owner.
 ROADMAP = ROOT / "docs" / "roadmap.md"
 OWNER_TABLE = ("id", "work", "acceptance")
 
-#: Where a reader finds each owner.  ``F18``, ``F19`` and ``F27`` have rows of their own; every
-#: other owner is a row of RM18's "What this row asks for" table.  MyST anchors headings to level 3
-#: only, so that level-4 heading carries the explicit target ``(what-this-row-asks-for)=``,
-#: and another page reaches an explicit target through the ``{ref}`` role alone.
-_RM18 = "what-this-row-asks-for"
+#: Where a reader finds each owner.  ``F18``, ``F19`` and ``F27`` have sections of their own;
+#: every other owner is a row of the roadmap's "Red-cell owners" table.
+_OWNERS_SECTION = "red-cell-owners"
 _OWNER_ANCHORS = {
     "F18": "f18-selector-path-c-tmle-inference",
     "F19": "f19-outcome-adaptive-c-tmle-generated-design-inference",
@@ -129,7 +128,7 @@ def _keys(slug: str, kind: str, *keys: str) -> tuple[RedKey, ...]:
     return tuple(RedKey(slug, kind, key) for key in keys)
 
 
-#: The roadmap ask that owns each red row, by the ``id`` RM18 gives it.
+#: The roadmap ask that owns each red row, by its ``id`` in the "Red-cell owners" table.
 #:
 #: Written owner-first so a reader sees each ask's cells together, and flattened into
 #: :data:`OWNERS` below, which refuses a row claimed twice.  Every entry must be red and every
@@ -531,7 +530,7 @@ def verdict_count(tables: Mapping[str, pd.DataFrame]) -> int:
 
 
 def owner_ids(roadmap: Path = ROADMAP) -> list[str]:
-    """The owner names RM18's "What this row asks for" table declares.
+    """The owner names the roadmap's "Red-cell owners" table declares.
 
     Parameters
     ----------
@@ -601,9 +600,8 @@ def _link(record: StudyRecord) -> str:
 
 
 def _owner(owner: str) -> str:
-    if owner in _OWNER_ANCHORS:
-        return _markdown_link(f"`{owner}`", f"../../roadmap.md#{_OWNER_ANCHORS[owner]}")
-    return "".join(("{ref}`", owner, " <", _RM18, ">`"))
+    anchor = _OWNER_ANCHORS.get(owner, _OWNERS_SECTION)
+    return _markdown_link(f"`{owner}`", f"../../roadmap.md#{anchor}")
 
 
 def _ordered(

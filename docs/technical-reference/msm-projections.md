@@ -213,7 +213,7 @@ A weight computed from the sample and declared `"known"` still fits, because the
 your statement. `tests/unit/test_msm_projection_weights.py` measures the cost on an exact law, with
 the arm share as the weight. The reported curve is the efficient influence function of the
 fixed-weight coefficient. The table gives its standard error over that of the estimated-weight
-coefficient. [RM13](../roadmap.md#rm13-estimated-msm-projection-weights) records the defect.
+coefficient. [RM13](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm13-estimated-msm-projection-weights) records the defect.
 
 | coefficient | standard-error ratio |
 | --- | --- |
@@ -225,7 +225,7 @@ A design computed from the sample and declared `"known"` also still fits.
 `tests/unit/test_msm_design_declaration.py` measures the cost on an exact law with the design
 $[1, a, W-c]$. Here $c$ is the sample mean of $W$, which is 0.7. The reported curve is the efficient
 influence function of the fixed-centre coefficient. The table gives its standard error over that of
-the estimated-centre coefficient. [RM27](../roadmap.md#rm27-declared-msm-design-functions) records
+the estimated-centre coefficient. [RM27](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm27-declared-msm-design-functions) records
 the defect.
 
 | coefficient | standard-error ratio |

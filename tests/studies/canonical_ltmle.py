@@ -41,7 +41,7 @@ G_BOUNDS = (1e-8, 1.0)
 
 
 def declared_regimens(spec: Mapping[str, Any]) -> dict[str, Any]:
-    """``spec`` with each plan that holds a rule declared known (roadmap row RM28).
+    """``spec`` with each plan that holds a rule declared known.
 
     The oracles ``tests/discrete_law*.py`` state their plans without importing ``cleverly``,
     so a callable node there carries no declaration, and a fit refuses it.  Each such plan

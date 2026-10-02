@@ -231,7 +231,7 @@ with a literal `"known"`.
 A longitudinal MSM keeps evaluated arrays and a `functions_kind` marker. Its evaluator writes
 `"known"` only after the source design and weight declarations pass. A projection built by hand
 has no marker, and it refuses truncation replay.
-[RM28](roadmap.md#rm28-declared-densities-of-user-written-interventions) records the rule.
+[RM28](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm28-declared-densities-of-user-written-interventions) records the rule.
 
 A learned rule is not a declared rule. `TMLE(learned_rule=LearnedRule())` and `LearnedRuleValue`
 estimate its fold-average value on a parameter axis of their own, `"learned_rule"`, which every
@@ -245,7 +245,7 @@ axis-keyed consumer decides explicitly. The table gives the rules the fit keeps.
 | no row is refitted | `refute`, the full-refit bootstrap and `repeats` above 1 refuse, because a refit relearns the rules. Every sensitivity analysis refuses too, because no derivation for this target was reviewed |
 
 [Learned rules](technical-reference/point-treatment-tmle.md#learned-rules) states the contract, and
-[RM30](roadmap.md#rm30-learned-policy-value-evaluation) records its delivery. *Reconsider when* the
+[RM30](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm30-learned-policy-value-evaluation) records its delivery. *Reconsider when* the
 package adds another learned-policy target
 ([X11](roadmap.md#x11-learned-policy-follow-ups)) or a population-law-dependent intervention
 function.

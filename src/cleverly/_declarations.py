@@ -17,9 +17,9 @@ a function is a declaration with three states:
 The declaration is a three-state ``Literal`` and not a bool, because an undeclared function
 has to refuse and a bool default would declare it silently. :class:`FunctionDeclaration`
 holds the check and the texts of the refusals for one field, so each user refuses the same way.
-The MSM projection weight (roadmap row RM13) is the first user. The stochastic regime
-density (roadmap row RM25) is the second, and the MSM design (roadmap row RM27) is the third.
-RM28 adds two users: the rule declaration that :class:`~cleverly.interventions.Rule` and
+The MSM projection weight is the first user. The stochastic regime
+density is the second, and the MSM design is the third.
+Two further users follow: the rule declaration that :class:`~cleverly.interventions.Rule` and
 :class:`~cleverly.longitudinal.DynamicRegimen` share, and the density declaration of a
 user-written :class:`~cleverly.interventions.Intervention`.
 

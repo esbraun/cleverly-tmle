@@ -235,7 +235,7 @@ ReductionExit = Literal["tolerance", "stall", "cap"]
 #: point on real data* -- is a measurement, and needs the second route to exist here.
 #:
 #: Both orders first prime :math:`\bar Q` with one equation-(8) step, which R ``drtmle``
-#: does not take and step 2 of Benkeser et al. (2017), Section 3.2, does (RM19).
+#: does not take and step 2 of Benkeser et al. (2017), Section 3.2, does.
 #: ``"drtmle"`` is the canonical R package's round order and the default: equation (9), refit
 #: the reduced mechanisms, equation (10), equation (8), refit :math:`Q_r`. ``"benkeser"``
 #: is the working paper's recursion, steps 2 to 6 -- equation (8), refit

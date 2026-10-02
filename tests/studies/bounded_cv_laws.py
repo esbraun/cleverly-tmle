@@ -339,7 +339,7 @@ MINIMUM_BETA_SHAPE = 0.70
 #: ``root_n_and_efficiency/n_500`` the same law and the same seed ``12_100``, so the two
 #: publish bit-identical covariates.  That collision predates this module and no offset here
 #: can reach it.  ``test_the_registered_studies_do_not_share_their_samples`` iterates primary
-#: scenarios alone, so nothing refuses it either.  ``docs/roadmap.md`` RM18 records the gap.
+#: scenarios alone, so nothing refuses it either.  ``docs/roadmap.md`` at ``4ce96cda`` RM18 records the gap.
 INHERITED_SEED_OFFSETS: Mapping[str, int] = {
     "cvtmle_properties": 0,
     "ctmle_selector_properties": 4_000,

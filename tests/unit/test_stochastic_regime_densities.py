@@ -8,7 +8,7 @@ influence function then carries a further pathwise-derivative term that the regi
 lacks.  A realized learned density defines a different, data-adaptive target.
 
 A callable can close over any estimate, and no code can inspect a closure, so the status of
-the density is a declaration: ``Stochastic(density_kind=...)``.  RM25 in ``docs/roadmap.md``
+the density is a declaration: ``Stochastic(density_kind=...)``.  RM25 in ``docs/roadmap.md`` at ``4ce96cda``
 records the defect.  This module pins these things:
 
 * the declaration is required, ``"estimated"`` is refused, and a density that is not
@@ -425,10 +425,10 @@ class TestTheReplay:
     ) -> None:
         """The deliberate-mutation control: without the check the replay runs the density.
 
-        ``RegimeSet.evaluate`` and ``Stochastic.density`` read the module global, so the
-        mutation removes both.  Each frozen regime carries the source's ``None`` (roadmap row
-        RM28), and ``TMLE`` holds its own reference to the check, so the refit still refuses.
-        The refusal arrives after the density ran, which is what the check removes.
+        ``RegimeSet.evaluate`` and ``Stochastic.density`` read the module global, so the mutation
+        removes both.  Each frozen regime carries the source's ``None``, and ``TMLE`` holds its own
+        reference to the check, so the refit still refuses. The refusal arrives after the density
+        ran, which is what the check removes.
         """
         old, density = counted_fit()
         monkeypatch.setattr(base_module, "refuse_regime_densities", lambda interventions: None)

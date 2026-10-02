@@ -653,13 +653,13 @@ class CTMLE(TMLE):
     def _inference_status(self, data: CausalData) -> InferenceStatus:
         """Refuse inference on every strategy, and name the reason each one has.
 
-        Keyed on the strategy. The selector paths take the status that F18 and roadmap
-        row RM12 key on. A ``"discrete"`` fit with a single full-adjustment candidate is
-        refused too, even though it is bit-identical to a plain TMLE fit whose interval
-        the package does supply. That over-refusal is deliberate and
-        ``docs/technical-reference/collaborative-tmle.md`` records it.
+        Keyed on the strategy. The selector paths take the status that F18 keys on. A ``"discrete"``
+        fit with a single full-adjustment candidate is refused too, even though it is bit-identical
+        to a plain TMLE fit whose interval the package does supply. That over-refusal is deliberate
+        and ``docs/technical-reference/collaborative-tmle.md`` records it.
 
-        ``"oat"`` takes its own status on every fit, as roadmap row RM20 decides. Its
+        ``"oat"`` takes its own status on every fit, as the status table of
+        ``docs/technical-reference/inference.md`` states. Its
         mechanism is always fitted on the outcome predictions of every arm, whatever
         estimands are requested, so an ``ey1``-only fit is the joint fit, and a fit with
         ``delta=`` is outside the theorem too. F19 holds the result that would reopen it.
@@ -696,7 +696,7 @@ class CTMLE(TMLE):
         **kwargs: Any,
     ) -> None:
         if kwargs.get("learned_rule") is not None:
-            # Row 1 of the RM30 refusal table comes before the fold-evaluation refusal
+            # Row 1 of the learned-rule refusal table comes before the fold-evaluation refusal
             # below: its remedy, cv_evaluation=False, would meet this refusal next.
             raise CapabilityError(learned_rule_configuration_refusal(self) or "")
         if kwargs.get("cv_evaluation", False):
