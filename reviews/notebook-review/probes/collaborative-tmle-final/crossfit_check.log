@@ -1,0 +1,28 @@
+CrossFitting(enabled=False, n_folds=10, learner_folds=5, repeats=1, stratify_by='none', targeting_scheme='pooled', fold_evaluation=False, split_plan=None) 0.25 0.9549762524157668 0.04402370985874514 0.8808944188471157 0.06266567804831012
+Collaborative TMLE selection
+============================
+strategy = greedy; preorder = n/a; target = ate (ate); criterion = cross-validated penalized squared-error loss
+
+k  covariates in g  steps  risk     cv risk     
+-  ---------------  -----  -------  -------  ---
+0  (intercept)      1      1.21433  1.22634     
+1  W3               1      1.21433  1.22632  <--
+2  W3, W1           2      1.21458  1.22694     
+3  W3, W1, W2       3      1.21557  1.2299      
+
+selected g: W3
+left out: W1, W2. The selected candidate minimized targeted cross-validated penalized squared-error loss; this criterion does not determine why a covariate was left out
+CrossFitting(enabled=True, n_folds=5, learner_folds=5, repeats=1, stratify_by='none', targeting_scheme='pooled', fold_evaluation=False, split_plan=None) 0.24 0.9549497707211785 0.04424725134469625 0.8789027435210084 0.06479470196303666
+Collaborative TMLE selection
+============================
+strategy = greedy; preorder = n/a; target = ate (ate); criterion = cross-validated penalized squared-error loss
+
+k  covariates in g  steps  risk     cv risk     
+-  ---------------  -----  -------  -------  ---
+0  (intercept)      1      1.22544  1.22634     
+1  W3               1      1.22543  1.22632  <--
+2  W3, W1           2      1.22569  1.22694     
+3  W3, W1, W2       3      1.22696  1.2299      
+
+selected g: W3
+left out: W1, W2. The selected candidate minimized targeted cross-validated penalized squared-error loss; this criterion does not determine why a covariate was left out

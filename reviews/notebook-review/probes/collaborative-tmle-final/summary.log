@@ -1,0 +1,63 @@
+draws: 600, seeds 5000 to 5599, truth 1.0
+
+linear Q (Steps 6 to 8)
+C-TMLE selected g:
+  empty: 347 of 600 (0.578)
+  social_support alone: 162 of 600 (0.270)
+  contains baseline_readiness: 84 of 600 (0.140)
+  leaves out baseline_readiness: 516 of 600 (0.860)
+  contains queue_lottery_draw: 9 of 600 (0.015)
+  leaves out queue_lottery_draw: 591 of 600 (0.985)
+  contains social_support: 242 of 600 (0.403)
+  leaves out social_support: 358 of 600 (0.597)
+  set '': 347
+  set 'social_support': 162
+  set 'social_support|baseline_readiness': 67
+  set 'baseline_readiness|social_support': 8
+  set 'baseline_readiness': 7
+  set 'queue_lottery_draw': 4
+  set 'queue_lottery_draw|social_support': 3
+  set 'social_support|baseline_readiness|queue_lottery_draw': 2
+  |cv risk k=1 - k=0| < 1e-3: 382 of 600 (0.637)
+  first greedy step is social_support: 551 of 600 (0.918)
+  in-sample risk rises somewhere on the path: 598 of 600 (0.997)
+plain TMLE: bias +0.0004 (MC SE 0.0028), empirical SD 0.0694, RMSE 0.0694, mean SE 0.0638, SE/SD 0.919, coverage 0.925 (555 of 600)
+C-TMLE (plug-in diagnostic): bias +0.0017 (MC SE 0.0023), empirical SD 0.0554, RMSE 0.0554, mean SE 0.0451, SE/SD 0.813, coverage 0.887 (532 of 600)
+plain TMLE without queue_lottery_draw (probe only): bias +0.0020 (MC SE 0.0020), empirical SD 0.0479, RMSE 0.0479, mean SE 0.0466, SE/SD 0.973, coverage 0.953 (572 of 600)
+regression coefficient (HC0): bias +0.0013 (MC SE 0.0022), empirical SD 0.0547, RMSE 0.0546, mean SE 0.0541, SE/SD 0.989
+  HC0 SE over the empirical SD of the C-TMLE estimate: 0.976
+  plug-in SE below HC0 SE: 595 of 600 (0.992)
+  plug-in SE below plain SE: 598 of 600 (0.997)
+  |regression - C-TMLE| < 5e-4: 510 of 600 (0.850)
+  C-TMLE closer to the truth than plain TMLE: 380 of 600 (0.633)
+  plain g share below 0.1 above 0.05: 600 of 600 (1.000)
+  plain g share above 0.9 above 0.05: 600 of 600 (1.000)
+  empirical SD ratio, C-TMLE over plain: 0.798
+
+constant Q (Step 9)
+C-TMLE selected g:
+  empty: 1 of 600 (0.002)
+  social_support alone: 0 of 600 (0.000)
+  contains baseline_readiness: 599 of 600 (0.998)
+  leaves out baseline_readiness: 1 of 600 (0.002)
+  contains queue_lottery_draw: 35 of 600 (0.058)
+  leaves out queue_lottery_draw: 565 of 600 (0.942)
+  contains social_support: 593 of 600 (0.988)
+  leaves out social_support: 7 of 600 (0.012)
+  set 'baseline_readiness|social_support': 281
+  set 'social_support|baseline_readiness': 278
+  set 'social_support|baseline_readiness|queue_lottery_draw': 20
+  set 'baseline_readiness|social_support|queue_lottery_draw': 11
+  set 'baseline_readiness': 5
+  set 'queue_lottery_draw|social_support|baseline_readiness': 1
+  set '': 1
+  set 'social_support|queue_lottery_draw|baseline_readiness': 1
+  set 'queue_lottery_draw|baseline_readiness': 1
+  set 'baseline_readiness|queue_lottery_draw|social_support': 1
+plain TMLE: bias +0.1109 (MC SE 0.0082), empirical SD 0.2020, RMSE 0.2303, mean SE 0.2219, SE/SD 1.099, coverage 0.855 (513 of 600)
+C-TMLE (plug-in diagnostic): bias +0.0119 (MC SE 0.0027), empirical SD 0.0667, RMSE 0.0677, mean SE 0.0918, SE/SD 1.377, coverage 0.988 (593 of 600)
+  largest |C-TMLE error|: 0.756 (seed 5069)
+  median |error|, C-TMLE 0.0343, plain 0.1548
+  empirical SD ratio, C-TMLE over plain: 0.330
+  plug-in over plain SE below 0.5: 433 of 600 (0.722)
+  mean seconds per seed: 0.92

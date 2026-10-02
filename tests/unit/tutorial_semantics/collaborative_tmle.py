@@ -11,6 +11,8 @@ import re
 from itertools import pairwise
 from typing import Any
 
+import numpy as np
+
 from cleverly.datasets import navigation_protocol
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
@@ -22,6 +24,34 @@ from tests.unit.tutorial_semantics import (
 
 NOTEBOOK = EXAMPLES / "collaborative-tmle.ipynb"
 
+_PROBE = "reviews/notebook-review/probes/collaborative-tmle-final"
+_SELECTOR = "tests/canonical/ctmle_selector/properties.csv"
+_OAT = "tests/canonical/ctmle3_oat/properties.csv"
+
+#: Decimals the readings write that no stored output prints, each with its source.
+UNPRINTED_DECIMALS = {
+    "0.003": f"largest move of either estimate between in-sample and five-fold fits of this "
+    f"draw (0.0020, plain TMLE): {_PROBE}/crossfit_check.log",
+    "0.069": f"plain TMLE empirical SD (0.0694), 600 draws: {_PROBE}/summary.log",
+    "0.055": f"C-TMLE empirical SD (0.0554), 600 draws: {_PROBE}/summary.log",
+    "0.92": f"plain TMLE mean SE over empirical SD (0.919), 600 draws: {_PROBE}/summary.log; "
+    f"and coverage of crossfit_overfitting/cross_fitted_oat (0.9200): {_OAT}",
+    "0.81": f"C-TMLE mean plug-in SE over empirical SD (0.813), 600 draws: {_PROBE}/summary.log",
+    "0.1": f"constant-Q plain TMLE mean error (+0.1109), 600 draws: {_PROBE}/summary.log",
+    "0.98": f"mean HC0 SE over the empirical SD of the C-TMLE estimate (0.976), 600 draws: "
+    f"{_PROBE}/summary.log",
+    "0.241": f"rmse_ratio of selector_necessity/collaborative (0.241034): {_SELECTOR}",
+    "0.0037": f"bias_ci_upper of selector_necessity/collaborative (0.003711): {_SELECTOR}",
+    "0.0030": f"bias_margin of selector_necessity/collaborative (0.003007): {_SELECTOR}",
+    "0.80": f"se_ratio of selector_necessity/collaborative (0.801055): {_SELECTOR}",
+    "0.0495": f"bias_ci_lower of selector_necessity/empty_control (0.049506): {_SELECTOR}",
+    "0.0511": f"bias_ci_upper of selector_necessity/empty_control (0.051086): {_SELECTOR}",
+    "0.0022": f"bias_margin of selector_necessity/empty_control (0.002164): {_SELECTOR}",
+    "0.99": f"se_ratio of crossfit_overfitting/cross_fitted_oat (0.991589): {_OAT}",
+    "0.54": f"coverage of crossfit_overfitting/in_sample_control (0.54): {_OAT}",
+    "0.47": f"se_ratio of crossfit_overfitting/in_sample_control (0.472781): {_OAT}",
+}
+
 
 def check(namespace: dict[str, Any]) -> None:
     """A selector report describes its loss without assigning causal roles to omissions."""
@@ -30,8 +60,12 @@ def check(namespace: dict[str, Any]) -> None:
     assert truth["ate"] == truth["att"] == truth["atc"] == 1.0
 
     # The rename is load-bearing: a stale column name would make the exclusion vacuous.
-    covariates = set(namespace["frame"].columns)
-    assert {"baseline_readiness", "queue_lottery_draw", "social_support"} <= covariates
+    frame = namespace["frame"]
+    assert {"baseline_readiness", "queue_lottery_draw", "social_support"} <= set(frame.columns)
+    # "The score of this page has Gaussian noise, so it has no documented range": the draw
+    # leaves the program's share scale of 0 to 1 on both sides.
+    score = frame["transition_score"]
+    assert score.min() < 0.0 and score.max() > 1.0
 
     # "The arms differ before the offer" on both the confounder and the instrument.
     by_arm = namespace["by_arm"]
@@ -39,39 +73,43 @@ def check(namespace: dict[str, Any]) -> None:
     for column in ("baseline_readiness", "queue_lottery_draw"):
         assert by_arm.loc[1.0, column] > by_arm.loc[0.0, column] + 0.5
 
-    # The protocol step prints the record, and the collaborative fit carries its digest.
-    # The reading names the fields this page changes in the program protocol.
-    assert changed_fields(namespace["protocol"], navigation_protocol()) == {
+    # The protocol step prints the record, and every fit carries its digest.  "This page
+    # changes four fields": the outcome, the death rule, time zero, and the rationale.
+    base = navigation_protocol()
+    protocol = namespace["protocol"]
+    assert changed_fields(protocol, base) == {
         "outcome",
+        "intercurrent_event_handling",
         "time_zero",
         "assumption_rationale",
     }
-    # "A standardized score takes its scale from the data, so the analyst can declare no finite
-    # support for it": the page's own reason for fitting in sample, and the fit reports it.
+    assert "no documented range" in protocol.outcome
+    # Only the death entry changes, and it no longer presupposes a worst score.
+    assert protocol.intercurrent_event_handling[:2] == base.intercurrent_event_handling[:2]
+    assert "worst transition score" in base.intercurrent_event_handling[2]
+    assert "hypothetical strategy" in protocol.intercurrent_event_handling[2]
+    assert protocol.assumption_rationale[3:] == base.assumption_rationale[1:]
+    # "This score has no documented range to declare, so Step 6 fits in sample."
     assert not namespace["collaborative_method"].cross_fitting.enabled
     assert "in-sample nuisances" in namespace["collaborative"].summary()
     assert_protocol_recorded(
         NOTEBOOK,
         "protocol",
-        namespace["protocol"],
+        protocol,
         namespace["collaborative"],
         namespace["plain"],
         namespace["weak_plain"],
         namespace["weak_collaborative"],
     )
 
-    # "Two other methods are not available for the ATE, and each line prints the reason."
-    refused = [m for m in namespace["effect"].available_methods() if not m.available]
-    assert len(refused) == 2 and all(m.reason for m in refused)
-    # "For the ATT, the catalog refuses it with the reason ...".
-    att_collaborative = namespace["att_collaborative"]
-    assert att_collaborative.available is False
-    assert "no collaborative score is evidenced" in att_collaborative.reason
+    # "The last line lists `collaborative_tmle` beside `tmle` and `drtmle`."
+    assert namespace["available"] == ["tmle", "collaborative_tmle", "drtmle"]
+    assert "available=False" not in stored_output(NOTEBOOK, "identify")
 
     selection = namespace["selection"]
     assert selection.selected_covariates == ("social_support",)
     assert selection.path[-1] == ("social_support", "baseline_readiness", "queue_lottery_draw")
-    # "The search kept it, and it left out both the confounder and the instrument."
+    # "On this draw ... it left out both the confounder and the instrument."
     assert "baseline_readiness" not in selection.selected_covariates
     assert "queue_lottery_draw" not in selection.selected_covariates
     # "The first two candidates are nearly tied", and the second one wins by that margin.
@@ -88,20 +126,18 @@ def check(namespace: dict[str, Any]) -> None:
     for unsupported in ("bias", "variance", "confounder", "instrument"):
         assert not re.search(rf"\b{unsupported}\b", summary)
 
-    # Step 6: the greedy path reports no interval, and the page prints the refusal instead.
-    # "The estimate table has no interval column": the diagnostic column is named for what it
-    # is. A mutation that restored the Wald accessors would print an interval here again.
+    # Step 6: the greedy path reports a point estimate and a diagnostic pair.  "The estimate
+    # table has no interval column": the diagnostic column is named for what it is.  A
+    # mutation that restored the Wald accessors would print an interval here again.
     plain, collaborative = namespace["plain"]["ate"], namespace["collaborative"]["ate"]
     assert collaborative.inference == "working_mechanism_plugin"
     assert plain.inference == "influence_curve"
-    refusal = namespace["inference_refusal"]
-    assert ".ci is not defined here" in refusal
-    assert "no confidence interval, no p-value and no standard error" in refusal
-    assert "plugin_std_error" in refusal and "plugin_interval" in refusal
     estimate_table = stored_output(NOTEBOOK, "collaborative")
     assert "working-mechanism se" in estimate_table
     assert "95% CI" not in estimate_table.split("estimand  psi", 1)[1].split("\n\n", 1)[0]
-    # "Both ranges contain the true value", one as an interval and one as a diagnostic.
+    assert "refused" not in estimate_table
+    # "Both ranges contain the true value of 1.000 on this draw", one as the reported
+    # interval and one as a diagnostic.
     assert covers(plain, truth["ate"])
     assert covers(collaborative.plugin_interval, truth["ate"])
     assert collaborative.plugin_std_error < plain.std_error
@@ -120,13 +156,14 @@ def check(namespace: dict[str, Any]) -> None:
     assert tails.loc["control ESS / n", "collaborative TMLE"] > 0.99
     overall = namespace["plain"].diagnostics.support().propensity_quantiles["overall"]
     assert overall[0.05] < 0.1 and overall[0.95] > 0.9
-    # "The plain g has an AUC of 0.843, so it predicts the offer well."
+    # "The plain g has an AUC of 0.844, so it predicts the offer well."
     assert namespace["plain_auc"] > 0.8
 
     weak_selection = namespace["weak_selection"]
     assert weak_selection.selected_covariates == ("baseline_readiness", "social_support")
     weak_plain, weak_collaborative = namespace["weak_plain"], namespace["weak_collaborative"]
     assert weak_collaborative["ate"].plugin_std_error < 0.5 * weak_plain["ate"].std_error
+    # "The plain interval and the C-TMLE plug-in spread both contain 1.000 on this draw."
     assert covers(weak_plain["ate"], truth["ate"])
     assert covers(weak_collaborative["ate"].plugin_interval, truth["ate"])
     # Leaving out only the draw removes the tails; readiness still moves g.  The ESS ratios
@@ -154,26 +191,48 @@ def check(namespace: dict[str, Any]) -> None:
     metrics = namespace["nuisance"]["propensity"].metrics
     assert 0.45 < metrics["auc"] < 0.55
     assert 0.9 < metrics["calibration_slope"] < 1.1
+    # "`simulated_confounding`, listed here as `deferred`".
+    not_run = stored_output(NOTEBOOK, "assessment").split("Not run", 1)[1]
+    deferred = not_run.split("\ndeferred", 1)[1].split("\nunavailable", 1)[0]
+    assert "sensitivity.simulated_confounding" in deferred
 
-    # Step 11: the plain fit keeps its bound, and the collaborative fit is refused. The page
-    # states the Jensen argument in prose and cites the unit test that carries the number,
-    # because a documentation example is not statistical evidence.
+    # Step 11, plain fit: the omitted-variable bound of the declared adjustment set.
     plain_row = namespace["plain_row"]
     assert plain_row["nu2"] > 10.0
     assert 0.0 < plain_row["robustness value"] < 1.0
-    bound_refusal = namespace["bound_refusal"]
-    assert "'collaborative_tmle'" in bound_refusal
-    assert "cannot exceed the second moment" in bound_refusal
-    assert "optimistic by construction" in bound_refusal
-    # The refusal is the whole of Step 11's collaborative output: exactly one fit prints a
-    # second moment, and it is the plain one.
     sensitivity_output = stored_output(NOTEBOOK, "sensitivity")
     assert sensitivity_output.count("nu2") == 1
     assert f"{plain_row['nu2']:.3f}" in sensitivity_output
-    assert "refused on the collaborative fit" in sensitivity_output
+    assert "refused" not in sensitivity_output
+
+    # Step 11, collaborative fit: the stress surface starts from the C-TMLE estimate, and
+    # every cell returns.
+    point = namespace["collaborative"]["ate"]
+    surface = namespace["surface"]
+    cells = {(cell.treatment_strength, cell.outcome_strength): cell for cell in surface.cells}
+    assert set(cells) == {(0.0, 0.0), (0.0, 0.5), (0.1, 0.0), (0.1, 0.5)}
+    assert all(cell.failure is None for cell in cells.values())
+    assert cells[0.0, 0.0].estimate == point.psi and cells[0.0, 0.0].displacement == 0.0
+    # "The latent value is drawn independently of the data.  At treatment strength 0, its
+    # association of -0.0480 is therefore a chance correlation on this draw": the latent
+    # vector redrawn from its seed reproduces the printed association.  Nonzero witness: the
+    # association is not zero, which is what lets the outcome axis move the estimate.
+    latent = np.random.default_rng(surface.latent_seed).normal(size=len(frame))
+    chance = np.corrcoef(latent, frame["transition_navigation"])[0, 1]
+    association = cells[0.0, 0.0].induced_treatment_association
+    assert association is not None and abs(association - chance) < 1e-9
+    assert -0.06 < association < -0.03
+    # "The outcome strength alone moves the estimate by +0.068278 through that small
+    # correlation": the score loses 0.5 times a latent value that runs slightly against the
+    # offer, so the contrast rises.
+    assert cells[0.0, 0.5].displacement > 0.0 > association
+    # "The treatment flips move the estimate down by about a third."
+    for outcome in (0.0, 0.5):
+        share = -cells[0.1, outcome].displacement / point.psi
+        assert 0.25 < share < 0.4
+    assert "It is not a bound" in sensitivity_output
 
     # "The regression gives the same estimate" with a larger robust standard error on this
     # draw than the plug-in diagnostic of the selected fit.
-    point = namespace["collaborative"]["ate"]
     assert abs(namespace["coefficient"] - point.psi) < 5e-4
     assert namespace["robust_se"] > 1.1 * point.plugin_std_error
