@@ -85,3 +85,12 @@ for configuration, group in dose.groupby("configuration"):
     below = (group["one_ess"] < np.exp(-1.0)).mean()
     print(f"+1.0 estimated ESS share below exp(-1): {below:.3f}")
     print(f"PositivityWarnings per fit: {group['positivity_warnings'].value_counts().to_dict()}")
+    if "one_mean_ratio" in group and group["one_mean_ratio"].notna().all():
+        ratios = {label: group[f"{label}_mean_ratio"] for label in ("capped", "uncapped", "one")}
+        means = ", ".join(
+            f"{label} {value.mean():.3f} ({value.min():.3f} to {value.max():.3f})"
+            for label, value in ratios.items()
+        )
+        print(f"mean density ratio at the observed dose, mean (range): {means}")
+    attention = group["attention"].fillna("").ne("").sum()
+    print(f"fits with a needs-attention item: {attention}/{len(group)}")

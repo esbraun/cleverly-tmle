@@ -36,21 +36,41 @@ UNPRINTED_DECIMALS = {
     "1.07": f"regime offer-to-all mean SE over empirical SD, degree-2 logistic g: {_BINARY}",
     "1.10": f"regime screen mean SE over empirical SD, degree-2 logistic g: {_BINARY}",
     "5.6": f"the law's share of intensities below zero, 0.055784: {_PROBE}/truth.log",
-    "+0.0108": f"+0.5 capped mean error, boosted40: {_DOSE}",
-    "+0.0065": f"+0.5 uncapped mean error, boosted40 (+0.00654): {_DOSE}",
-    "-0.0155": f"+1.0 mean error, boosted40: {_DOSE}",
-    "0.81": f"+0.5 mean SE over empirical SD, boosted40: {_DOSE}",
-    "0.61": f"+1.0 mean SE over empirical SD, boosted40: {_DOSE}",
-    "+0.0005": f"+1.0 mean error, quad40 (+0.00047): {_DOSE}",
-    "0.042": f"+1.0 empirical SD, quad40 (0.04189): {_DOSE}",
-    "0.070": f"+1.0 empirical SD, quad80 (0.07001): {_DOSE}",
-    "0.024": f"+1.0 mean SE, quad40 and quad80 (0.02395, 0.02392): {_DOSE}",
-    "0.0043": f"cap-gap mean error, boosted40 (-0.00425): {_DOSE}",
+    # The shown dose configuration, quad_rboost40.
+    "-0.0004": f"+0.5 capped mean error, quad_rboost40 (-0.00040): {_DOSE}",
+    "+0.0002": f"+0.5 uncapped mean error, quad_rboost40 (+0.00020): {_DOSE}",
+    "-0.0005": f"+1.0 mean error, quad_rboost40 (-0.00052): {_DOSE}",
+    "0.0010": f"MC SE of the +0.5 mean errors, quad_rboost40 (0.00102, 0.00097): {_DOSE}",
+    "0.0025": f"MC SE of the +1.0 mean error, quad_rboost40 (0.00248): {_DOSE}",
+    "1.17": f"+0.5 capped mean SE over empirical SD, quad_rboost40: {_DOSE}",
+    "1.16": f"+0.5 uncapped mean SE over empirical SD, quad_rboost40: {_DOSE}",
+    "0.95": f"+1.0 mean SE over empirical SD, quad_rboost40: {_DOSE}",
+    "+0.0006": f"cap-gap mean error, quad_rboost40 (+0.00059): {_DOSE}",
+    "0.0005": f"MC SE of the cap-gap mean error, quad_rboost40 (0.00046): {_DOSE}",
+    "1.05": f"largest mean of the mean density ratio, quad_rboost40 (+1.0, 1.048): {_DOSE}",
+    # The density comparison, same quadratic Q.
+    "1.01": f"largest mean SE over empirical SD, quad_oracle320 (+0.5 uncapped): {_DOSE}",
+    "1.00": f"mean of the +0.5 capped mean density ratio, quad_oracle320 (1.002): {_DOSE}",
+    "0.57": f"+1.0 mean SE over empirical SD, quad40: {_DOSE}",
+    "0.73": f"+0.5 capped mean SE over empirical SD, quad40: {_DOSE}",
+    # The cross-fitted shift probe that the technical reference cites.
+    "3.91": (
+        "cross-fitted +1.0 mean SE over empirical SD, default booster density: "
+        "reviews/notebook-review/probes/iv-n3/summary_ic.log, point-treatment-tmle.md"
+    ),
+    "0.98": (
+        "cross-fitted +1.0 mean SE over empirical SD, exact density at 320 bins: "
+        "reviews/notebook-review/probes/iv-n3/summary_ic.log, point-treatment-tmle.md"
+    ),
     "0.024137": f"the double-odds incremental contrast by Monte Carlo: {_PROBE}/truth.log",
     "+0.00011": f"incremental mean error, degree-2 logistic g: {_BINARY}",
     "+0.00066": f"incremental mean error, shallow booster: {_BINARY}",
     "0.00008": f"Monte Carlo SE of each incremental mean error: {_BINARY}",
-    "0.93": f"median propensity calibration slope, degree-2 logistic g (0.929): {_BINARY}",
+    "0.93": (
+        f"median propensity calibration slope, degree-2 logistic g (0.929): {_BINARY}; "
+        f"smallest mean SE over empirical SD, quad_oracle320 (+0.5 capped), and the cap-gap "
+        f"ratio, quad_rboost40: {_DOSE}"
+    ),
     "0.94": f"median propensity calibration slope, shallow booster (0.939): {_BINARY}",
     "0.9525": "coverage of ate_regime[rule vs never]: tests/canonical/lmtp_regimes/summary.csv",
     "0.9625": (
@@ -182,31 +202,51 @@ def check(namespace: dict[str, Any]) -> None:
     assert support["current practice"].ess_ratio == pytest.approx(1.0)
     capped = support["+0.5 capped at 5"]
     assert 0.015 < capped.capped_fraction < 0.035
-    assert 0.55 < capped.ess_ratio < 0.70
+    assert 0.60 < capped.ess_ratio < 0.75
     # The printed widths: the +1.0 interval is wider than either +0.5 interval.
     frame = namespace["shift_result"].to_frame().set_index("estimand")
     width = frame["ci_upper"] - frame["ci_lower"]
     assert width[ONE] > max(width[CAPPED], width[UNCAPPED])
-    # "the one interval that excludes its population value, by a small margin".
+    # "On this draw each interval contains its population value."
     dose_truth = namespace["dose_truth"]
     shift_result = namespace["shift_result"]
-    assert not covers(shift_result[ONE], dose_truth[ONE])
-    assert 0.0 < shift_result[ONE].ci[0] - dose_truth[ONE] < 0.01
-    for name in (CAPPED, UNCAPPED):
+    for name in (CAPPED, UNCAPPED, ONE):
         assert covers(shift_result[name], dose_truth[name])
-    # The estimated density keeps less than the true density ratio, for both shifts.
+    # The shown fit is the quadratic Q and the regularized density booster of Step 9.
+    models = namespace["shift_method"].models
+    assert models.density_bins == 40
+    assert models.treatment_learner.get_params()["max_depth"] == 2
+    assert models.treatment_learner.get_params()["l2_regularization"] == 1.0
+    assert models.outcome_learner.get_params()["polynomialfeatures__degree"] == 2
+    # On this draw the estimated density keeps less than the true density ratio, for both
+    # shifts.
     assert 0.15 < support["+1.0 uncapped"].ess_ratio < np.exp(-1.0)
     assert support["+0.5 uncapped"].ess_ratio < np.exp(-0.25)
     # "An empty list is not evidence of support."
     assert not namespace["shift_assessment"].attention
+    # The mean ratio: reference 1 for every shift of a normal intensity. "The estimated ratio
+    # runs 3% to 8% high on average, and most for +1.0." Current practice reads exactly 1
+    # (control); each moving shift reads above it (nonzero witness). In sample the one
+    # per-fold value equals the overall mean.
+    assert support["current practice"].mean_ratio == pytest.approx(1.0)
+    means = {name: support[name].mean_ratio for name in ("+0.5 capped at 5", "+0.5 uncapped")}
+    means["+1.0 uncapped"] = support["+1.0 uncapped"].mean_ratio
+    assert all(1.02 < value < 1.09 for value in means.values())
+    assert means["+1.0 uncapped"] == max(means.values())
+    for name in support:
+        assert support[name].fold_mean_ratio == (support[name].mean_ratio,)
 
-    # The cap gap, read as a point contrast through the joint influence curve.
+    # The cap gap, read with its interval through the joint influence curve.
     population_gap = dose_truth[UNCAPPED] - dose_truth[CAPPED]
     assert 0.02 < population_gap < 0.06
     gap = namespace["gap"]
     assert gap.psi == pytest.approx(shift_result[UNCAPPED].psi - shift_result[CAPPED].psi)
     assert gap.psi > 0.0
-    assert "95% CI" not in stored_output(NOTEBOOK, "failure-mode")
+    # "The population gap lies within 1.96 standard errors of the estimate"; the interval
+    # also excludes zero, so the gap it covers is a nonzero one.
+    assert abs(gap.psi - population_gap) < 1.96 * gap.std_error
+    assert covers(gap, population_gap)
+    assert gap.ci[0] > 0.0
     # "below the standard error of each estimate": the correlation is load-bearing.
     assert gap.std_error < min(shift_result[CAPPED].std_error, shift_result[UNCAPPED].std_error)
     # "The count is 2 for +0.5 and 3 for +1.0."

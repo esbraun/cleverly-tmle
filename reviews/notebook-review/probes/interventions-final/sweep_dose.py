@@ -8,16 +8,26 @@ the page.
 | configuration | outcome learner | density learner | bins |
 | --- | --- | --- | --- |
 | ``boosted40`` | ``HistGradientBoostingRegressor`` | ``HistGradientBoostingClassifier`` | 40 |
-| ``quad40`` | degree-2 polynomial least squares | ``HistGradientBoostingClassifier`` | 40 |
-| ``quad80`` | degree-2 polynomial least squares | ``HistGradientBoostingClassifier`` | 80 |
-| ``quad80logit`` | degree-2 polynomial least squares | ``LogisticRegression`` (pooled hazard) | 80 |
+| ``quad40`` | degree-2 least squares | ``HistGradientBoostingClassifier`` | 40 |
+| ``quad80`` | degree-2 least squares | ``HistGradientBoostingClassifier`` | 80 |
+| ``quad80logit`` | degree-2 least squares | ``LogisticRegression`` (pooled hazard) | 80 |
+| ``quad_rboost40`` | degree-2 least squares | regularized booster (below) | 40 |
+| ``quad_oracle320`` | degree-2 least squares | ``OracleShiftDensity(shift_dgp())`` | 320 |
 
-``boosted40`` is the configuration the page showed before this review.  The degree-2 outcome
-model holds ``[a, a^2, W]`` and so represents the law's outcome mean exactly (``shift_dgp``).
+``boosted40`` is the configuration the page showed before gate N4.  ``quad_rboost40`` is the
+configuration the page shows after it: the regularized booster is
+``HistGradientBoostingClassifier(max_depth=2, learning_rate=0.05, max_iter=200,
+l2_regularization=1.0)``, the learner rule of ``docs/development/example-notebooks.md`` below
+10,000 rows.  ``quad_oracle320`` supplies the exact conditional density of the law over 320
+equal-mass bins, as the registered shift study does (probe only); it isolates the error the
+fitted density adds.  The degree-2 outcome model holds ``[a, a^2, W]`` and so represents the
+law's outcome mean exactly (``shift_dgp``).
 
 Usage: ``python sweep_dose.py <first seed> <count> <workers> <configuration> [...]``.  The page
-cites ``python sweep_dose.py 9000 120 12 boosted40 quad40 quad80 quad80logit``.  Outputs:
-``sweep_dose.csv`` and ``sweep_dose.log``, which ``summarize.py`` reads.
+cites ``python sweep_dose.py 9000 120 12 boosted40 quad40 quad80 quad80logit`` (log
+``sweep_dose.log``) and ``python sweep_dose.py 9000 120 12 quad_rboost40 quad_oracle320`` (log
+``sweep_dose_n4.log``).  Each run replaces the rows of the configurations it names in
+``sweep_dose.csv`` and keeps the others; ``summarize.py`` reads that file.
 """
 
 import os
@@ -48,7 +58,7 @@ UNCAPPED = "ate_shift[+0.5 uncapped vs current practice]"
 ONE = "ate_shift[+1.0 uncapped vs current practice]"
 
 
-def learners(configuration: str, seed: int):
+def learners(configuration: str, seed: int, dose):
     from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
     from sklearn.linear_model import LinearRegression, LogisticRegression
     from sklearn.pipeline import make_pipeline
@@ -67,6 +77,23 @@ def learners(configuration: str, seed: int):
         return quadratic, HistGradientBoostingClassifier(random_state=seed), 80
     if configuration == "quad80logit":
         return quadratic, LogisticRegression(C=1000.0, max_iter=5000), 80
+    if configuration == "quad_rboost40":
+        regularized = HistGradientBoostingClassifier(
+            max_depth=2,
+            learning_rate=0.05,
+            max_iter=200,
+            l2_regularization=1.0,
+            random_state=seed,
+        )
+        return quadratic, regularized, 40
+    if configuration == "quad_oracle320":
+        sys.path.insert(0, str(HERE.parents[3]))
+        from cleverly.datasets import shift_dgp
+        from cleverly.learners.density import bin_edges
+        from tests.studies.canonical_shift_policies import OracleShiftDensity
+
+        edges = tuple(float(value) for value in bin_edges(dose, 320))
+        return quadratic, OracleShiftDensity(shift_dgp(), edges), 320
     raise ValueError(configuration)
 
 
@@ -98,7 +125,7 @@ def one_seed(seed: int, configurations: tuple[str, ...]) -> list[dict]:
     rows = []
     for configuration in configurations:
         start = time.perf_counter()
-        outcome, density, bins = learners(configuration, seed)
+        outcome, density, bins = learners(configuration, seed, np.asarray(frame["A"], dtype=float))
         method = TMLEMethod(
             models=ModelSpec(outcome_learner=outcome, treatment_learner=density, density_bins=bins),
             cross_fitting=CrossFitting(enabled=False),
@@ -139,6 +166,7 @@ def one_seed(seed: int, configurations: tuple[str, ...]) -> list[dict]:
         ):
             row[f"{label}_ess"] = support[name].ess_ratio
             row[f"{label}_max_ratio"] = support[name].max_ratio
+            row[f"{label}_mean_ratio"] = support[name].mean_ratio
         row["seconds"] = time.perf_counter() - start
         rows.append(row)
     return rows
@@ -157,10 +185,17 @@ def main() -> None:
             for chunk in pool.map(partial(one_seed, configurations=configurations), seeds)
             for row in chunk
         ]
-    frame = pd.DataFrame(rows).sort_values(["configuration", "seed"])
-    frame.to_csv(HERE / "sweep_dose.csv", index=False, float_format="%.10g")
+    frame = pd.DataFrame(rows)
+    target = HERE / "sweep_dose.csv"
+    if target.exists():
+        kept = pd.read_csv(target, float_precision="round_trip")
+        frame = pd.concat([kept[~kept["configuration"].isin(configurations)], frame])
+    frame = frame.sort_values(["configuration", "seed"])
+    frame.to_csv(target, index=False, float_format="%.10g", lineterminator="\n")
     print(f"{count} seeds, {first} to {first + count - 1}; cleverly {cleverly.__file__}")
-    for configuration, group in frame.groupby("configuration"):
+    for configuration, group in frame[frame["configuration"].isin(configurations)].groupby(
+        "configuration"
+    ):
         print(f"{configuration}: median seconds per fit {np.median(group['seconds']):.1f}")
 
 
