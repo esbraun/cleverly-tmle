@@ -1519,8 +1519,8 @@ confounder. Clipping the draw back to the support is not that law, because clipp
 induced association by an amount the strength parameter no longer names.
 
 The treatment axis is unaffected, and the surface records the failure of each refused cell rather
-than abandoning the run. `docs/examples/interventions.ipynb` shows two refused cells and states
-this reason. The generated-outcome refutation refuses the same composition for the same reason, in
+than abandoning the run. `docs/examples/interventions.ipynb` runs a treatment-only grid and
+states this reason. The generated-outcome refutation refuses the same composition for the same reason, in
 `_validate_generated_eligibility` (`src/cleverly/validation/refute.py`).
 
 ### F25. E-value for a controlled direct effect
