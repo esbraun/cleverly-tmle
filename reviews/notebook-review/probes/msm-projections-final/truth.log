@@ -1,0 +1,13 @@
+counterfactual means: {'low': np.float64(0.0), 'medium': np.float64(0.6), 'high': np.float64(1.44)}
+per-contact projection, uniform weight: intercept -0.117143, slope 0.265714
+slope as -2, -1, 3 over 14 contrast: 0.265714
+per-contact projection, 1:10:1 weight: intercept 0.080000, slope 0.240000
+per-step projection, uniform weight: intercept -0.040000, slope 0.720000
+per-step line minus mean: [-0.04  0.08 -0.04]
+E[1/g(low)] = 4.0523
+E[1/g(medium)] = 7.2745
+E[1/g(high)] = 7.3432
+true g(low) over 2e6 patients: min 7.87e-03, share below 0.001 0.00000, share below 0.01 0.0000
+true g(medium) over 2e6 patients: min 1.68e-04, share below 0.001 0.00005, share below 0.01 0.0055
+true g(high) over 2e6 patients: min 1.11e-04, share below 0.001 0.00006, share below 0.01 0.0057
+Monte Carlo E[1/g]: {'low': np.float64(4.052), 'medium': np.float64(7.275), 'high': np.float64(7.357)}

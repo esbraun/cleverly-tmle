@@ -27,6 +27,40 @@ from tests.unit.tutorial_semantics import (
 
 NOTEBOOK = EXAMPLES / "msm-projections.ipynb"
 
+_PROBE = "reviews/notebook-review/probes/msm-projections-final"
+_STUDY = "tests/canonical/tmle3_msm"
+
+#: Decimals the readings write that no stored output prints, each with its source.
+UNPRINTED_DECIMALS = {
+    "0.9405": f"Step 7 slope coverage, fitted g (3762 of 4000), seeds 30000-33999; the same value "
+    f"for the 1:10:1 slope: {_PROBE}/sweep.log",
+    "0.9387": f"Step 7 slope coverage, true g (3755 of 4000): {_PROBE}/sweep.log",
+    "0.9455": f"Step 8 per-step slope coverage (3782 of 4000): {_PROBE}/sweep.log",
+    "0.984": f"Step 7 slope mean SE over empirical SD, fitted g: {_PROBE}/sweep.log",
+    "0.986": f"Step 7 slope mean SE over empirical SD, true g: {_PROBE}/sweep.log",
+    "0.997": f"Step 8 slope mean SE over empirical SD: {_PROBE}/sweep.log",
+    "0.0001": f"smallest true g(high) over 2e6 covariate draws (1.11e-04), g(medium) 1.68e-04: "
+    f"{_PROBE}/truth.log",
+    "0.01": "the study's fixed g_bounds (0.01, 0.99): tests/studies/canonical_point_msm.py G_BOUNDS",
+    "0.99": "the upper end of the same G_BOUNDS",
+    "0.25": "the smallest propensity of the study laws, tests/discrete_law.py G = (0.40, 0.60, 0.25)",
+    "0.6": "the largest propensity of the same G",
+    "0.9463": f"cleverly coverage of the primary msm[a] row: {_STUDY}/summary.csv",
+    "0.9969": f"cleverly SE ratio of the primary msm[a] row: {_STUDY}/summary.csv",
+    "0.9357": f"coverage_ci_lower of interval_calibration/a__correctly_specified: "
+    f"{_STUDY}/properties.csv",
+    "0.9641": f"coverage_ci_upper of the same cell: {_STUDY}/properties.csv",
+    "0.9537": f"se_ratio_ci_lower of the same cell: {_STUDY}/properties.csv",
+    "1.0430": f"se_ratio_ci_upper of the same cell: {_STUDY}/properties.csv",
+    "-0.000906": f"bias_ci_lower of projection_necessity/W__declared_weights: "
+    f"{_STUDY}/properties.csv",
+    "0.0018": f"bias_ci_upper of the same cell (0.00177): {_STUDY}/properties.csv",
+    "0.0045": f"bias_margin of the same cell (0.00449): {_STUDY}/properties.csv",
+    "-0.1150": f"bias_ci_lower of projection_necessity/W__uniform_weights: {_STUDY}/properties.csv",
+    "-0.1129": f"bias_ci_upper of the same cell: {_STUDY}/properties.csv",
+    "0.0035": f"bias_margin of the same cell (0.00346): {_STUDY}/properties.csv",
+}
+
 
 def _weighted_projection(design: np.ndarray, weights: np.ndarray, means: np.ndarray) -> np.ndarray:
     """Solve the weighted normal equations of the three-point projection."""
@@ -34,7 +68,7 @@ def _weighted_projection(design: np.ndarray, weights: np.ndarray, means: np.ndar
 
 
 def check(namespace: dict[str, Any]) -> None:
-    """The projection tutorial's protocol, failure mode, control, and refusal claims hold."""
+    """The projection tutorial's protocol, codings, failure mode, weights, and control hold."""
     effect = namespace["arm_means_effect"]
     fitted = namespace["arm_result"]
     study, method = namespace["study"], namespace["method"]
@@ -64,8 +98,12 @@ def check(namespace: dict[str, Any]) -> None:
         "intercurrent_event_handling",
         "assumption_rationale",
     }
-    # "A standardized score takes its scale from the data, so no finite support can be declared
-    # for it": the page's own reason for fitting in sample, and the fit reports it.
+    # "A score with no documented range has no range to declare as q_bounds": the page's own
+    # reason for fitting in sample, and the fit reports it. Death uses the hypothetical strategy.
+    protocol = namespace["protocol"]
+    assert "no documented range" in protocol.outcome
+    assert "standardized" not in protocol.outcome
+    assert "hypothetical strategy" in protocol.intercurrent_event_handling[2]
     assert not method.cross_fitting.enabled
     assert "in-sample nuisances" in fitted.summary()
     assert_protocol_recorded(
@@ -84,8 +122,8 @@ def check(namespace: dict[str, Any]) -> None:
     # "Each interval contains its true mean on this draw."
     for arm, target in zip(namespace["ARMS"], population, strict=True):
         assert covers(fitted[f"ey[{arm}]"], target)
-    # The page refuses text cadence labels. Only the MSM.linear refusal may satisfy it.
-    assert "reads the treatment level" in namespace["refusal"]
+    # "The labels have no order of their own. Sorted as text, they are high, low, and medium."
+    assert sorted(namespace["ARMS"]) == ["high", "low", "medium"]
 
     # "The identification assumptions line lists the four causal assumptions and adds two."
     trend_assumptions = namespace["trend_effect"].identification.assumptions
@@ -125,26 +163,25 @@ def check(namespace: dict[str, Any]) -> None:
     ).estimate(method=method)
     for name in names:
         assert explicit_uniform[name].psi == pytest.approx(trend[name].psi, rel=1e-12, abs=1e-12)
-    # (b) A fixed, strongly nonuniform weight moves the fitted slope to its own projection.
+    # (b) Step 10's fixed 1:10:1 weight moves the fitted slope to its own projection.
     # This fit's correctly specified Q witnesses the weighted Gram matrix.
-    fixed = {"low": 1.0, "medium": 10.0, "high": 1.0}
-    weighted = study.identify(
-        MSMProjection(
-            MSM(
-                design=contacts_design,
-                terms=terms,
-                weights=lambda arm, data: np.full(len(data), fixed[arm]),
-                weights_kind="known",
-                design_kind="known",
-            )
-        )
-    ).estimate(method=method)
+    fixed = namespace["FIXED_WEIGHT"]
+    assert fixed == {"low": 1.0, "medium": 10.0, "high": 1.0}
+    weighted = namespace["weighted_result"]
     fixed_target = _weighted_projection(
         design, np.array([fixed[arm] for arm in namespace["ARMS"]]), population
     )
-    assert covers(weighted["msm[assigned contacts]"], fixed_target[1])
-    assert not covers(trend["msm[assigned contacts]"], fixed_target[1])
-    assert not covers(weighted["msm[assigned contacts]"], projection[1])
+    np.testing.assert_allclose(namespace["fixed_projection"], fixed_target, rtol=1e-12)
+    assert f"{fixed_target[1]:.4f}" == "0.2400"
+    # "On this draw, each interval contains its own population slope and not the other."
+    uniform_slope = trend["msm[assigned contacts]"]
+    weighted_slope = weighted["msm[assigned contacts]"]
+    assert covers(weighted_slope, fixed_target[1])
+    assert not covers(uniform_slope, fixed_target[1])
+    assert not covers(weighted_slope, projection[1])
+    # "The shift is less than one standard error" of the Step 7 slope.
+    shift = abs(namespace["share_projection"][1] - projection[1])
+    assert 0.0 < shift < uniform_slope.std_error
     # (c) Deliberately misspecify Q while retaining the correctly specified multinomial g.
     # Targeting must now do the adjustment. Dropping h from its clever covariate moves the
     # slope back across the uniform target and outside the fixed-weight target's interval.
@@ -196,9 +233,23 @@ def check(namespace: dict[str, Any]) -> None:
     assert medium_misfit.psi == pytest.approx((hat @ means - means)[1], rel=1e-10, abs=1e-12)
     assert medium_misfit.ci[1] < 0.0
     assert covers(medium_misfit, residual[1])
-    # "Its estimate differs from the Step 7 miss in the fourth decimal."
+    # "Its estimate differs from the Step 7 miss by 0.0008 on this draw."
     step7_miss = namespace["estimated_line"][1] - means[1]
-    assert 0.0 < abs(medium_misfit.psi - step7_miss) < 0.005
+    assert f"{abs(medium_misfit.psi - step7_miss):.4f}" == "0.0008"
+
+    # Step 8: two known codings of the same means answer two questions. Each interval
+    # contains its own population slope on this draw, and not the other coding's.
+    step_values = np.array([namespace["CADENCE_STEP"][arm] for arm in namespace["ARMS"]])
+    np.testing.assert_array_equal(step_values, [0.0, 1.0, 2.0])
+    step_design = np.column_stack([np.ones(3), step_values])
+    step_target = np.linalg.solve(step_design.T @ step_design, step_design.T @ population)
+    assert f"{step_target[1]:.4f}" == "0.7200"
+    step_slope = namespace["step_result"]["msm[cadence step]"]
+    assert covers(step_slope, step_target[1])
+    assert covers(trend["msm[assigned contacts]"], projection[1])
+    assert not covers(step_slope, projection[1])
+    # "Neither line passes through the three means."
+    assert np.max(np.abs(step_design @ step_target - population)) > 0.05
 
     # The assessment names the support warning, and the slope barely moves along the curve
     # even where the largest bound clips most of the rows.
@@ -211,7 +262,7 @@ def check(namespace: dict[str, Any]) -> None:
     for operation in OMITTED_VARIABLE_OPERATIONS:
         assert str(ledger.loc[("sensitivity", operation)]) == "unavailable"
     support = namespace["support"]
-    # "The fit truncated 1.23% of the units, and the support report warns above 1%."
+    # "The fit truncated 1.20% of the units, and the support report warns above 1%."
     assert support.truncated["fraction"] > 0.01
     assert support.severity == "strain"
     ratios = {arm: row["ratio"] for arm, row in support.effective_sample_size.items()}
@@ -236,16 +287,10 @@ def check(namespace: dict[str, Any]) -> None:
     assert f"{slope_curve['delta_from_fitted'].abs().max():.4f}" == "0.0033"
     assert slope_curve["delta_from_fitted"].abs().max() < 0.005
 
-    # No omitted-variable bound is implemented for an MSM coefficient; the arm contrasts
-    # have one. The claim the message makes about the representer reversed: an MSM
-    # coefficient *has* one, so the bound is well posed and only the implementation is
-    # missing. The refusal must not send the reader to ``evalue``, which refuses an ``msm``
-    # target of its own.
-    refusal = namespace["sensitivity_refusal"]
-    assert "Riesz representer" in refusal
-    assert "well posed" in refusal
-    assert "evalue" not in refusal
+    # Step 13 reads the omitted-variable bound on the arm contrasts of the ATE fit, whose
+    # influence curves are those of the saturated coefficients (checked above).
     robustness = namespace["robustness"]
+    assert set(robustness) == {"ate[medium vs low]", "ate[high vs low]"}
     assert 0.0 < robustness["ate[medium vs low]"]["rv"] < robustness["ate[high vs low]"]["rv"]
     for values in robustness.values():
         assert 0.0 < values["rva"] < values["rv"] < 1.0
