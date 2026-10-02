@@ -608,8 +608,9 @@ The added term is a conditional variance, and it is positive wherever the shift 
 Delegating one to the other omits that term and reports a standard error that is too small.
 
 **The standard error reads the estimated density ratio.** When that ratio is far from the true
-ratio, the standard error does not describe the spread of the TMLE. A flexible density fitted out
-of fold overstates the spread. An overfit density fitted in sample understates it. The table gives
+ratio, the standard error does not describe the spread of the TMLE. In the probe below, a flexible
+density fitted out of fold overstates the spread. An overfit density fitted in sample understates
+it. The table gives
 the mean standard error over the empirical SD for the `+1.0` uncapped shift. The data are
 `make_shift_dose(n=3000)` on 60 seeds, with three folds when cross-fitted. The outcome learner is
 `HistGradientBoostingRegressor` in every row.
@@ -626,13 +627,22 @@ estimator applies no bound to the ratio, and the first row is its behavior. The 
 3000 rows on seed 9000. The influence curve matched an independent recomputation to 5e-12 in
 every fit, so the cause is the ratio and not the formula.
 
-Under the true density, the mean ratio at the observed dose is 1 while the shifted dose stays
-inside the support. `diagnostics.support()` reports that mean as `mean_ratio` and its value on the
-rows each fold holds out as `fold_mean_ratio`. On seed 9000 the cross-fitted booster reads fold
-means 1.46, 1.20 and 1.87. The exact law reads 1.03, 0.98 and 1.07. A fold mean far from 1 shows
-that the ratio, and so the standard error, is unreliable. No source here calibrates a threshold,
-so the report gives the number and no warning. No registered study covers an estimated or
-cross-fitted shift density.
+The table below gives the mean ratio at the observed dose under the true density. The capped row
+assumes a cap inside the dose support.
+
+| shift | mean ratio under the true density |
+| --- | --- |
+| capped | 1 |
+| uncapped | $P(A + \delta \in \operatorname{supp} g(\cdot \mid W))$: 1 while the shifted dose stays inside the support, below 1 otherwise |
+
+`diagnostics.support()` reports that mean as `mean_ratio` and its value on the rows each fold
+holds out as `fold_mean_ratio`. The `+1.0` probe shift is uncapped. The `make_shift_dose` dose is
+normal given the covariates, so the reference mean is 1. On seed 9000 the cross-fitted booster
+reads fold means 1.46, 1.20 and 1.87. The exact law reads 1.03, 0.98 and 1.07. A fold mean far
+from its reference value shows that the ratio, and so the standard error, is unreliable.
+
+No source here calibrates a threshold, so the report gives the number and no warning. No
+registered study covers an estimated or cross-fitted shift density.
 
 Evidence: the probe scripts and logs in `reviews/notebook-review/probes/iv-n3/` (`probe_ic.py`,
 `summary_ic.log`, `fold_check.log`), the analysis in

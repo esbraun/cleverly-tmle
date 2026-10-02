@@ -113,3 +113,30 @@ def test_an_in_sample_fit_reports_one_fold_equal_to_the_overall_mean() -> None:
     )
     # The natural course has ratio 1 at every row with positive density.
     assert result.diagnostics.support()["current practice"].mean_ratio == pytest.approx(1.0)
+
+
+def test_the_summary_states_the_reference_mean_for_each_shift_kind() -> None:
+    # Under the true density the mean ratio is 1 for a shift capped inside the support,
+    # but for an uncapped shift it is P(A + delta in the support), below 1 on a bounded
+    # dose.  A summary that prints "1" alone reads a correct ratio as mis-estimated
+    # (gate S6).
+    from cleverly.interventions.shift import ShiftSupport
+
+    row = ShiftSupport(
+        name="+1.0",
+        delta=1.0,
+        cap=None,
+        min_density=0.1,
+        ratio_quantiles={0.5: 1.0},
+        max_ratio=2.0,
+        effective_sample_size=900.0,
+        ess_ratio=0.9,
+        capped_fraction=0.0,
+        unsupported=0,
+        mean_ratio=0.9,
+        fold_mean_ratio=(0.9,),
+    )
+    line = row.summary().splitlines()[-1]
+    assert "1 for a shift capped inside the support" in line
+    assert "P(A + delta in the support) for an uncapped shift" in line
+    assert "1 under the true density;" not in line

@@ -470,14 +470,17 @@ class ShiftSupport:
         The parameter is not identified for those rows at all.
     mean_ratio : float
         Mean density ratio at the observed dose over every row.  The ratio is the
-        density of the shifted dose law with respect to the observed one, so under the
-        true density its mean is 1 while the shifted dose stays inside the support.
+        density of the shifted dose law with respect to the observed one.  Under the
+        true density its mean is 1 for a shift capped inside the dose support: the
+        indicator term restores the mass of the rows the cap holds at their own dose.
+        For an uncapped shift it is ``P(A + delta in the support of g(. | W))``, which
+        is 1 while the shifted dose stays inside the support and below 1 otherwise.
     fold_mean_ratio : tuple of float
         The same mean over the rows each cross-fitting fold holds out, in fold order.
         An in-sample fit has one fold, so the tuple holds :attr:`mean_ratio` alone.  A
-        fold mean far from 1 shows a mis-normalized held-out ratio, and the standard
-        error reads that ratio.  The mean is of the ratio alone, before any mechanism
-        divides it.
+        fold mean far from that reference value shows a mis-normalized held-out ratio,
+        and the standard error reads that ratio.  The mean is of the ratio alone,
+        before any mechanism divides it.
     min_mechanism : float or None
         Smallest product of the further mechanisms that divide the covariate beside
         the ratio, or ``None`` when the fit declared neither. When it is not ``None``
@@ -533,7 +536,9 @@ class ShiftSupport:
             f"capped={self.capped_fraction:.1%}, unsupported={self.unsupported}, {score}\n"
             f"    {label} quantiles -- {quantiles}\n"
             f"    mean ratio -- {self.mean_ratio:.3g} overall, per fold {folds} "
-            "(1 under the true density; a mean far from 1 marks a mis-estimated ratio, "
+            "(under the true density: 1 for a shift capped inside the support, "
+            "P(A + delta in the support) for an uncapped shift, below 1 when shifted doses "
+            "leave the support; a mean far from that marks a mis-estimated ratio, "
             "which the standard error reads)"
         )
 
@@ -581,7 +586,8 @@ def check_shift_support(
     equations : tuple of str
         Fitted score-equation names, in shift order.
     n_repeats : int
-        Number of stored cross-fitting draws. The retained weights describe draw 1.
+        Number of stored cross-fitting draws. The retained weights and the fold means
+        describe draw 1.
     folds : Folds or None
         The partition the density was cross-fitted over, which sets the rows of each
         :attr:`ShiftSupport.fold_mean_ratio` entry. ``None`` reads every row as one fold.
