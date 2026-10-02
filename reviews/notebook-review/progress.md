@@ -38,7 +38,7 @@ not `done`. Findings live in `findings/<stem>.md`, verification in `verification
 | N8 | longitudinal-survival | committed (5.8 s; --check 0) | 2692722c, fix aed3986b | PASS after fix (gate-N8.md) |
 | N9 | msm-projections | committed (5.4 s; --check 0) | 6927899e, fix cafb67af | PASS after fix (gate-N9.md) |
 | N10 | twins-causal-inference | committed (42 s, network; --check 0) | aaf4c484, fix 87fec724 | PASS after fixes (gate-N10.md) |
-| F | prose ledger, fast suite, docs build, final gate, PR, CI | fast suite 13512 passed; nox docs 0; ruff 0; mypy 0; final gate running | 4fc4b6c8 (F1); 92b24e4f d029b7a8 010be6ea 62e6e31c 87fec724 (F2) | |
+| F | prose ledger, fast suite, docs build, final gate, PR, CI | fast suite 13512 passed; nox docs 0; ruff 0; mypy 0; final gate PASS after fixes (ba80f0ae); docs rebuilt 0; PR opening | 4fc4b6c8 (F1); 92b24e4f d029b7a8 010be6ea 62e6e31c 87fec724 (F2) | |
 
 ## Log
 
@@ -87,3 +87,4 @@ not `done`. Findings live in `findings/<stem>.md`, verification in `verification
 - 2026-10-02: SN-N3 resolved (investigations/sn-step9.md): no library bug. The seed block 1001-1500 is low for the oracle too (463/500); 3000 draws give 0.946. The N6 fix must drop the Step 9 under-coverage claim and re-measure Step 6 on a larger, disjoint seed range before keeping its 0.92.
 - 2026-10-02: N8 committed 2692722c. Final shared pass adds index.md:20 ('a controlled direct effect only under exchangeability for death') and index.md:44 (death strategy). N7 markdown fix and gate N8 run in parallel.
 - 2026-10-02: Gate N10 surfaced a sibling pattern the per-page gates missed: five notebooks (collaborative, dr-tmle, msm, survey, twins) print the assessment summary with 'unavailable' rows and narrate them, against house rule 'print only the rows that run'. longitudinal-tmle filters correctly. Sweep fix F2 queued after F1, together with TWINS section 11 (truth coverage 55/60).
+- 2026-10-02: final gate passed after markdown fixes ba80f0ae; nox docs re-run exit 0. Branch pushed and PR opened.
