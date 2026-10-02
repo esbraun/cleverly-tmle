@@ -1011,9 +1011,8 @@ class LongitudinalData:
 #: default suggestion would send the reader to an argument that does not exist here.
 _TOO_MANY_LEVELS_REMEDY = (
     "Collapse the levels into the arms you actually want to report. A continuous "
-    "longitudinal dose is a different estimand -- the intervention is a shift of a "
-    "conditional density at every node rather than an assigned label -- and LTMLE does "
-    "not estimate it."
+    "longitudinal dose needs a modified treatment policy, with a conditional density of "
+    "the dose at every node, and LTMLE does not estimate it yet (docs/roadmap.md X12)."
 )
 
 
@@ -1059,8 +1058,8 @@ def _encode_node_treatment(values: Any, name: str) -> tuple[FloatArray, tuple[ob
             "it will be modelled as that many unordered arms, with one multinomial "
             "mechanism per node and one counterfactual mean per assigned sequence. If it "
             "is a dose whose spacing matters, collapse it into the arms you want to "
-            "contrast -- a continuous longitudinal dose is a different estimand and LTMLE "
-            "does not estimate it.",
+            "contrast -- LTMLE does not yet estimate a modified treatment policy on a "
+            "continuous longitudinal dose (docs/roadmap.md X12).",
             DataWarning,
             stacklevel=4,
         )

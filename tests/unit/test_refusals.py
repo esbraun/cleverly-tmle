@@ -50,11 +50,14 @@ import re
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 
 from cleverly.datasets import make_longitudinal
 from cleverly.longitudinal import LTMLE
 from cleverly.longitudinal.estimator import _REFUSED
+from tests.unit.test_pooled_longitudinal_targeting import _linear_settings
+from tests.unit.test_sequential_design import multivalue_panel
 
 ROOT = Path(__file__).resolve().parents[2]
 REFUSALS = ROOT / "docs" / "technical-reference" / "scope-and-refusals.md"
@@ -146,10 +149,15 @@ LEDGER: tuple[Row, ...] = (
     Row("event", REDIRECTION, lambda: _ltmle(event=1), instead="outcome"),
     Row("competing", REDIRECTION, lambda: _ltmle(competing=1), instead="outcome"),
     Row("intermediate", "a different question", lambda: _ltmle(intermediate=1)),
-    Row("interventions", "a different question", lambda: _ltmle(interventions=1)),
-    Row("shifts", "a different question", lambda: _ltmle(shifts=1)),
-    Row("incremental", "a different question", lambda: _ltmle(incremental=1)),
-    Row("delta", "a different question", lambda: _ltmle(delta=1)),
+    Row(
+        "interventions",
+        REDIRECTION,
+        lambda: _ltmle(interventions=1),
+        instead="regimens=",
+    ),
+    Row("shifts", "not written yet", lambda: _ltmle(shifts=1)),
+    Row("incremental", "not written yet", lambda: _ltmle(incremental=1)),
+    Row("delta", "wrong by construction", lambda: _ltmle(delta=1)),
     Row("eliminate", "a different question", lambda: _ltmle(eliminate=1)),
     Row("n_bootstrap", "not written yet", lambda: _ltmle(n_bootstrap=1)),
     Row("cross_fit", REDIRECTION, lambda: _ltmle(cross_fit=1), instead="n_folds"),
@@ -235,13 +243,49 @@ def test_a_real_refusal_says_what_the_derivation_would_need(row: Row) -> None:
     wrong thing.  A one-line refusal satisfies the
     letter of that and not the point of it.
     """
-    # The floor is 60 rather than a rounder number because ``shifts=`` sets it: "a shift
-    # moves a continuous dose, and a longitudinal fit takes a binary treatment at every
-    # node" is 94 characters and is a complete reason -- it names the mismatch and the
-    # thing that would have to change. A floor above that would be asking for words rather
-    # than for content, which is the failure mode of a length check.
+    # The floor is 60. The shortest reason that is not a redirection is ``n_bootstrap=``'s,
+    # at 163 characters, and it is a complete reason: it names the mismatch and the thing
+    # that would have to change. A floor near that length would ask for words rather than
+    # for content, which is the failure mode of a length check.
     reason = _REFUSED[row.keyword]
     assert len(reason) > 60, (
         f"{row.keyword}= is refused in {len(reason)} characters. Filed as {row.kind!r}, so "
         f"the message has to leave a reader able to tell that from the other two kinds"
     )
+
+
+def test_the_shift_refusal_names_the_nodes_ltmle_takes_and_x12() -> None:
+    """``shifts=`` names the categorical nodes ``LTMLE`` takes and the roadmap row.
+
+    The negative assertion is the witness for the text: the previous reason said a
+    longitudinal fit takes a binary treatment at every node, which the categorical fit
+    below contradicts.
+    """
+    with pytest.raises(TypeError) as raised:
+        LTMLE({"always": 1, "never": 0}, shifts=1)
+    message = str(raised.value)
+    for needed in ("categorical", "continuous dose", "Theorem 3", "X12"):
+        assert needed in message, (needed, message)
+    assert "binary treatment at every node" not in message, message
+
+
+def test_ltmle_fits_the_third_label_of_a_categorical_node() -> None:
+    """The fit the ``shifts=`` reason names: a regimen that assigns a node's third label."""
+    settings = _linear_settings(reference="never")
+    assert settings["n_folds"] == 3
+    frame = multivalue_panel(n=600, seed=8)
+    result = LTMLE({"third": (2, 0), "never": 0}, **settings).fit(
+        frame,
+        outcome="Y",
+        treatment=("A1", "A2"),
+        baseline=("W1",),
+        time_varying=((), ("L2",)),
+        censoring=("C1", "C2"),
+    )
+    diagnostics = result.diagnostics.support().to_frame()
+    keys = zip(diagnostics["regimen"], diagnostics["time"], strict=True)
+    shares = dict(zip(keys, diagnostics["assigned_shares"], strict=True))
+    entries = [entry.split("=") for entry in shares[("third", 1)].split(", ")]
+    assert len(entries) == 3, shares[("third", 1)]
+    assert entries[2][1] == "1", shares[("third", 1)]
+    assert np.isfinite(result["ey_regimen[third]"].psi)

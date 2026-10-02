@@ -45,8 +45,8 @@ clever covariate.
 
 What is refused rather than approximated is listed in
 ``docs/technical-reference/longitudinal-tmle.md``, under *Variations*; the short version is
-that this estimator answers for a regimen -- static or dynamic -- over a binary treatment
-at every node, for one end-of-study outcome or one absorbing event per cause, with
+that this estimator answers for a regimen -- static or dynamic -- over a binary or categorical
+treatment at every node, for one end-of-study outcome or one absorbing event per cause, with
 monotone censoring.  Every point-treatment keyword it does not take is accepted and
 rejected with what the derivation would need, rather than arriving as an ``unexpected
 keyword argument``; :data:`_REFUSED` is that table.
@@ -201,12 +201,17 @@ _REFUSED: dict[str, str] = {
         "h['L2'] > 0), rule_kind='known')], with DynamicRegimen from cleverly.longitudinal"
     ),
     "shifts": (
-        "a shift moves a continuous dose, and a longitudinal fit takes a binary "
-        "treatment at every node"
+        "a modified treatment policy on a continuous dose is not written yet for a "
+        "longitudinal fit. LTMLE takes binary and categorical nodes, and a regimen "
+        "assigns one label per unit at each node. A shift needs a conditional density of "
+        "the dose at every node, and each node's intervention density ratio enters the "
+        "cumulative product. Díaz, Williams, Hoffman and Schenck (2023), Theorem 3, "
+        "covers that target. docs/roadmap.md X12 tracks it"
     ),
     "incremental": (
         "a tilt of the mechanism is built out of g, so over time it needs the product "
-        "of tilted mechanisms and a mechanism submodel at every node"
+        "of tilted mechanisms and a mechanism submodel at every node. docs/roadmap.md "
+        "X19 tracks it"
     ),
     "delta": (
         "an outcome missing for a reason other than censoring is a further node in the "
