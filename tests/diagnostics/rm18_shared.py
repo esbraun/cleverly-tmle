@@ -153,7 +153,8 @@ def compare_rows(
     """Whether every refit row reproduces its committed row, the largest difference, the count.
 
     The two frames must hold the same keys, each once.  A structural miss raises, which ends
-    the run with a nonzero exit and no reading.
+    the run with a nonzero exit and no reading.  A non-finite compared field on either side
+    fails validation with an infinite difference.
     """
     left = refit.loc[:, [*keys, *columns]]
     right = committed.loc[:, [*keys, *columns]]
@@ -165,6 +166,9 @@ def compare_rows(
             f"the refit holds {len(left)} rows and the committed selection {len(right)}; "
             f"they share {len(left.merge(right, on=list(keys)))} keys"
         )
+    compared_columns = [*columns, *(f"{column}_committed" for column in columns)]
+    if not np.isfinite(merged.loc[:, compared_columns].to_numpy(dtype=float)).all():
+        return False, float("inf"), len(merged)
     largest = max(
         float(np.max(scaled_difference(merged[column], merged[f"{column}_committed"])))
         for column in columns
