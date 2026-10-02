@@ -1,0 +1,5 @@
+Var(EIF) from 4,000,000 rows: SD 1.15689; SD at n=4000: 0.018292; EIF skewness 0.88, kurtosis 20.6
+oracle: n 4000, draws 20000 (seeds 1001-21000): cover 18943 (0.9472; 0.9440-0.9503); emp SD 0.018409; mean SE 0.018285
+  covers per consecutive 500-seed block: min 460, max 485, blocks <= 461: 1 of 40
+eif: n 4000, draws 20000 (seeds 1001-21000): cover 18965 (0.9483; 0.9452-0.9513); emp SD 0.018378; mean SE 0.018310
+  covers per consecutive 500-seed block: min 459, max 488, blocks <= 461: 1 of 40

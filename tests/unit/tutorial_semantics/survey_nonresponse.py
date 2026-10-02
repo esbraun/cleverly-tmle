@@ -29,6 +29,8 @@ from tests.unit.tutorial_semantics import (
 NOTEBOOK = EXAMPLES / "survey-nonresponse.ipynb"
 
 _PROBE = "reviews/notebook-review/probes/survey-nonresponse-final"
+_STEP6 = "reviews/notebook-review/probes/sn-step6"
+_STEP9 = "reviews/notebook-review/probes/sn-step9"
 _MAR = "tests/canonical/tmle_mar/properties.csv"
 _ARM = "tests/canonical/tmle_mar_arm_indexed_cvtmle/properties.csv"
 
@@ -39,8 +41,11 @@ UNPRINTED_DECIMALS = {
     "0.011": f"mean complete-case estimate minus 1.427936 (+0.0111), 500 draws: "
     f"{_PROBE}/summary.log",
     "0.01": f"the same mean shift (+0.0111), rounded: {_PROBE}/summary.log",
-    "0.92": f"Step 6 coverage (460 of 500): {_PROBE}/summary.log",
-    "0.93": f"Step 6 mean SE over empirical SD (0.935), 500 draws: {_PROBE}/summary.log",
+    "0.951": f"Step 6 coverage (2854 of 3000), seeds 2000-4999: {_STEP6}/summary.log",
+    "0.99": f"Step 6 mean SE over empirical SD (0.989), seeds 2000-4999: {_STEP6}/summary.log",
+    "0.946": f"Step 9 coverage of the library fit (2837 of 3000), seeds 1001-4000: "
+    f"{_STEP9}/summary.log and {_STEP9}/summary-n4000b.log",
+    "0.947": f"oracle TMLE coverage (0.9472), 20000 draws: {_STEP9}/oracle-4000.log",
     "0.94": f"5th percentile of the tipping gamma (0.9421), 500 draws: {_PROBE}/summary.log",
     "1.45": f"95th percentile of the tipping gamma (1.4534), 500 draws: {_PROBE}/summary.log",
     "5.4": f"5th percentile of the largest shift in score units (5.3835): {_PROBE}/summary.log",
