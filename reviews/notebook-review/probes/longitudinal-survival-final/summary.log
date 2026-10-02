@@ -1,0 +1,216 @@
+=== sweep.csv: seeds 1000-1399, 400 draws
+Step 3: naive understates the benefit (population < naive < 0)
+  t=1 397 of 400 (0.993)
+  t=2 321 of 400 (0.802)
+Step 6-7: retention fit
+  coverage exit_always_t1         0.943
+  coverage exit_always_t2         0.955
+  coverage exit_never_t1          0.955
+  coverage exit_never_t2          0.953
+  coverage exit_diff_t1           0.960
+  coverage exit_diff_t2           0.958
+  diff t=1: mean SE / SD 0.993, bias -0.0002
+  diff t=2: mean SE / SD 1.050, bias +0.0002
+  60-day reduction larger: 379 of 400 (0.948)
+  both differences negative: 400 of 400 (1.000)
+  simultaneous bands cover all four: 384 of 400 (0.960)
+Step 8-9: competing fit with disenrollment censoring
+  disenrolled p1 range 411-537
+  coverage cif_always_readmission_t1    0.943
+  coverage cif_always_readmission_t2    0.958
+  coverage cif_always_death_t1          0.960
+  coverage cif_always_death_t2          0.938
+  coverage cif_never_readmission_t1     0.958
+  coverage cif_never_readmission_t2     0.940
+  coverage cif_never_death_t1           0.958
+  coverage cif_never_death_t2           0.920
+  coverage cifd_readmission_t1          0.953
+  coverage cifd_readmission_t2          0.950
+  coverage cifd_death_t1                0.963
+  coverage cifd_death_t2                0.938
+  coverage free_always_t1               0.943
+  coverage free_always_t2               0.950
+  coverage free_never_t1                0.955
+  coverage free_never_t2                0.925
+  diff readmission t=1: mean SE / SD 1.017
+  diff readmission t=2: mean SE / SD 1.016
+  diff death t=1: mean SE / SD 1.035
+  diff death t=2: mean SE / SD 0.966
+  misses per draw (of 12): mean 0.625
+  draws with no miss: 270 of 400 (0.675)
+  draws with at least one miss: 130 of 400 (0.325)
+  readmission diff t=1 negative: 398 of 400 (0.995)
+  readmission diff t=2 above t=1: 390 of 400 (0.975)
+  readmission diff t=2 positive: 208 of 400 (0.520)
+  death diff larger reduction at t=2: 400 of 400 (1.000)
+  death diff t=1 negative and t=2 negative: 400 of 400 (1.000)
+  max incidence-total excess is 0: 400 of 400 (1.000)
+  largest |epsilon| row, top 4:
+    {'never/death/2/2': 139, 'never/readmission/2/2': 126, 'always/death/2/2': 88, 'always/readmission/2/2': 32}
+Step 10: death as censoring, K_k = C_k (1 - D_k)
+  diff t=2: mean -0.0408 (functional -0.0403, bias -0.0006, MC SE 0.0011), mean SE / SD 0.963
+  CI covers the functional: 371 of 400 (0.927)
+  CI covers the total effect: 178 of 400 (0.445)
+  never level covers functional: 363 of 400 (0.907)
+  always level covers functional: 382 of 400 (0.955)
+  paired gap (censored minus competing): mean -0.0420, max -0.0236
+  censored diff below competing diff: 400 of 400 (1.000)
+  censored diff below competing diff - 0.01: 400 of 400 (1.000)
+  raises never more than always, always raised: 400 of 400 (1.000)
+Step 11: support
+  min ESS ratio range 0.634-0.876
+  weakest row never/2: 296 of 400 (0.740)
+  no truncation, both fits: 400 of 400 (1.000)
+  all converged, both fits: 400 of 400 (1.000)
+Step 12: covariate-drop benchmark, 60-day difference, move in SE
+  move_age: mean 1.68, positive 400 of 400 (1.000)
+  move_baseline_readiness: mean 1.11, positive 400 of 400 (1.000)
+  move_identified_needs: mean 1.31, positive 400 of 400 (1.000)
+  all three positive: 400 of 400 (1.000)
+  largest move by column: {'move_age': 326, 'move_identified_needs': 60, 'move_baseline_readiness': 14}
+  seconds per seed: mean 0.99
+
+=== sweep-confirm.csv: seeds 5000-5399, 400 draws
+Step 3: naive understates the benefit (population < naive < 0)
+  t=1 396 of 400 (0.990)
+  t=2 332 of 400 (0.830)
+Step 6-7: retention fit
+  coverage exit_always_t1         0.940
+  coverage exit_always_t2         0.948
+  coverage exit_never_t1          0.943
+  coverage exit_never_t2          0.943
+  coverage exit_diff_t1           0.945
+  coverage exit_diff_t2           0.950
+  diff t=1: mean SE / SD 0.971, bias +0.0001
+  diff t=2: mean SE / SD 1.001, bias +0.0006
+  60-day reduction larger: 370 of 400 (0.925)
+  both differences negative: 400 of 400 (1.000)
+  simultaneous bands cover all four: 378 of 400 (0.945)
+Step 8-9: competing fit with disenrollment censoring
+  disenrolled p1 range 431-528
+  coverage cif_always_readmission_t1    0.955
+  coverage cif_always_readmission_t2    0.935
+  coverage cif_always_death_t1          0.932
+  coverage cif_always_death_t2          0.943
+  coverage cif_never_readmission_t1     0.948
+  coverage cif_never_readmission_t2     0.930
+  coverage cif_never_death_t1           0.960
+  coverage cif_never_death_t2           0.960
+  coverage cifd_readmission_t1          0.945
+  coverage cifd_readmission_t2          0.927
+  coverage cifd_death_t1                0.960
+  coverage cifd_death_t2                0.955
+  coverage free_always_t1               0.940
+  coverage free_always_t2               0.955
+  coverage free_never_t1                0.943
+  coverage free_never_t2                0.958
+  diff readmission t=1: mean SE / SD 0.976
+  diff readmission t=2: mean SE / SD 0.941
+  diff death t=1: mean SE / SD 1.072
+  diff death t=2: mean SE / SD 1.073
+  misses per draw (of 12): mean 0.65
+  draws with no miss: 257 of 400 (0.642)
+  draws with at least one miss: 143 of 400 (0.357)
+  readmission diff t=1 negative: 398 of 400 (0.995)
+  readmission diff t=2 above t=1: 390 of 400 (0.975)
+  readmission diff t=2 positive: 230 of 400 (0.575)
+  death diff larger reduction at t=2: 400 of 400 (1.000)
+  death diff t=1 negative and t=2 negative: 400 of 400 (1.000)
+  max incidence-total excess is 0: 400 of 400 (1.000)
+  largest |epsilon| row, top 4:
+    {'never/readmission/2/2': 131, 'never/death/2/2': 112, 'always/death/2/2': 101, 'always/readmission/2/2': 30}
+Step 10: death as censoring, K_k = C_k (1 - D_k)
+  diff t=2: mean -0.0390 (functional -0.0403, bias +0.0013, MC SE 0.0011), mean SE / SD 0.912
+  CI covers the functional: 371 of 400 (0.927)
+  CI covers the total effect: 207 of 400 (0.517)
+  never level covers functional: 369 of 400 (0.922)
+  always level covers functional: 377 of 400 (0.943)
+  paired gap (censored minus competing): mean -0.0419, max -0.0248
+  censored diff below competing diff: 400 of 400 (1.000)
+  censored diff below competing diff - 0.01: 400 of 400 (1.000)
+  raises never more than always, always raised: 400 of 400 (1.000)
+Step 11: support
+  min ESS ratio range 0.645-0.879
+  weakest row never/2: 312 of 400 (0.780)
+  no truncation, both fits: 400 of 400 (1.000)
+  all converged, both fits: 400 of 400 (1.000)
+Step 12: covariate-drop benchmark, 60-day difference, move in SE
+  move_age: mean 1.71, positive 400 of 400 (1.000)
+  move_baseline_readiness: mean 1.13, positive 400 of 400 (1.000)
+  move_identified_needs: mean 1.33, positive 400 of 400 (1.000)
+  all three positive: 400 of 400 (1.000)
+  largest move by column: {'move_age': 325, 'move_identified_needs': 56, 'move_baseline_readiness': 19}
+  seconds per seed: mean 1.01
+
+=== pooled: seeds 1000-5399, 800 draws
+Step 3: naive understates the benefit (population < naive < 0)
+  t=1 793 of 800 (0.991)
+  t=2 653 of 800 (0.816)
+Step 6-7: retention fit
+  coverage exit_always_t1         0.941
+  coverage exit_always_t2         0.951
+  coverage exit_never_t1          0.949
+  coverage exit_never_t2          0.948
+  coverage exit_diff_t1           0.953
+  coverage exit_diff_t2           0.954
+  diff t=1: mean SE / SD 0.982, bias -0.0000
+  diff t=2: mean SE / SD 1.025, bias +0.0004
+  60-day reduction larger: 749 of 800 (0.936)
+  both differences negative: 800 of 800 (1.000)
+  simultaneous bands cover all four: 762 of 800 (0.953)
+Step 8-9: competing fit with disenrollment censoring
+  disenrolled p1 range 411-537
+  coverage cif_always_readmission_t1    0.949
+  coverage cif_always_readmission_t2    0.946
+  coverage cif_always_death_t1          0.946
+  coverage cif_always_death_t2          0.940
+  coverage cif_never_readmission_t1     0.953
+  coverage cif_never_readmission_t2     0.935
+  coverage cif_never_death_t1           0.959
+  coverage cif_never_death_t2           0.940
+  coverage cifd_readmission_t1          0.949
+  coverage cifd_readmission_t2          0.939
+  coverage cifd_death_t1                0.961
+  coverage cifd_death_t2                0.946
+  coverage free_always_t1               0.941
+  coverage free_always_t2               0.953
+  coverage free_never_t1                0.949
+  coverage free_never_t2                0.941
+  diff readmission t=1: mean SE / SD 0.997
+  diff readmission t=2: mean SE / SD 0.976
+  diff death t=1: mean SE / SD 1.053
+  diff death t=2: mean SE / SD 1.016
+  misses per draw (of 12): mean 0.638
+  draws with no miss: 527 of 800 (0.659)
+  draws with at least one miss: 273 of 800 (0.341)
+  readmission diff t=1 negative: 796 of 800 (0.995)
+  readmission diff t=2 above t=1: 780 of 800 (0.975)
+  readmission diff t=2 positive: 438 of 800 (0.547)
+  death diff larger reduction at t=2: 800 of 800 (1.000)
+  death diff t=1 negative and t=2 negative: 800 of 800 (1.000)
+  max incidence-total excess is 0: 800 of 800 (1.000)
+  largest |epsilon| row, top 4:
+    {'never/readmission/2/2': 257, 'never/death/2/2': 251, 'always/death/2/2': 189, 'always/readmission/2/2': 62}
+Step 10: death as censoring, K_k = C_k (1 - D_k)
+  diff t=2: mean -0.0399 (functional -0.0403, bias +0.0003, MC SE 0.0008), mean SE / SD 0.937
+  CI covers the functional: 742 of 800 (0.927)
+  CI covers the total effect: 385 of 800 (0.481)
+  never level covers functional: 732 of 800 (0.915)
+  always level covers functional: 759 of 800 (0.949)
+  paired gap (censored minus competing): mean -0.0419, max -0.0236
+  censored diff below competing diff: 800 of 800 (1.000)
+  censored diff below competing diff - 0.01: 800 of 800 (1.000)
+  raises never more than always, always raised: 800 of 800 (1.000)
+Step 11: support
+  min ESS ratio range 0.634-0.879
+  weakest row never/2: 608 of 800 (0.760)
+  no truncation, both fits: 800 of 800 (1.000)
+  all converged, both fits: 800 of 800 (1.000)
+Step 12: covariate-drop benchmark, 60-day difference, move in SE
+  move_age: mean 1.69, positive 800 of 800 (1.000)
+  move_baseline_readiness: mean 1.12, positive 800 of 800 (1.000)
+  move_identified_needs: mean 1.32, positive 800 of 800 (1.000)
+  all three positive: 800 of 800 (1.000)
+  largest move by column: {'move_age': 651, 'move_identified_needs': 116, 'move_baseline_readiness': 33}
+  seconds per seed: mean 1.00
+
