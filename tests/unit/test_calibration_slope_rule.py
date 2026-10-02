@@ -41,6 +41,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.datasets import make_linear_ate
 from cleverly.estimators import TMLE
+from cleverly.learners.crossfit import random_partition
 from cleverly.validation import nuisance as nuisance_module
 
 # ---------------------------------------------------------------------------- helpers
@@ -142,7 +143,7 @@ def _reference(
     ``ddof=1`` over ``G`` independent units carries.
     """
     lp = logit(predicted)
-    levels = np.unique(folds)
+    levels = np.unique(folds[weights > 0.0])
     columns = [np.ones_like(lp)] if pooled else [(folds == k).astype(float) for k in levels]
     x = np.column_stack([*columns, lp])
     beta = np.zeros(x.shape[1])
@@ -279,6 +280,96 @@ class TestTheStatistic:
         assert np.isnan(report.metrics["calibration_slope_se"])
         assert report.calibration_omission is not None
         assert "cluster" in report.calibration_omission
+
+    @pytest.mark.parametrize("clustered", [False, True])
+    def test_a_fold_with_zero_weight_keeps_the_active_slope_and_full_sandwich(
+        self, clustered: bool
+    ) -> None:
+        """An inactive fold adds no intercept, but its rows and clusters keep their count."""
+        sample = _sample()
+        weights = sample["weights"] * (sample["folds"] != 2)
+        cluster = sample["folds"] * 10 + np.arange(len(weights)) // 60 if clustered else None
+        slope, se = _reference(
+            sample["predicted"], sample["actual"], weights, sample["folds"], cluster
+        )
+        report = _report(sample, weights=weights, cluster=cluster)
+
+        assert report.calibration_omission is None
+        assert report.metrics["calibration_slope"] == pytest.approx(slope, rel=1e-10)
+        assert report.metrics["calibration_slope_se"] == pytest.approx(se, rel=1e-10)
+        active = weights > 0.0
+        _, subset_se = _reference(
+            sample["predicted"][active],
+            sample["actual"][active],
+            weights[active],
+            sample["folds"][active],
+            None if cluster is None else cluster[active],
+        )
+        assert abs(se - subset_se) > 1e-5
+
+    def test_a_zero_weight_fold_preserves_the_public_calibration_finding(self) -> None:
+        frame = _law(600, 2, (1.0, -0.5), seed=0)
+        frame["obs_weight"] = (random_partition(600, 3, seed=7).assignment != 2).astype(float)
+        result = (
+            TMLE(
+                outcome_learner=_logistic(),
+                treatment_learner=Tempered(0.5),
+                n_folds=3,
+                simultaneous=False,
+                estimands=("ate",),
+                random_state=7,
+            )
+            .fit(frame, outcome="Y", treatment="A", covariates=("W1", "W2"), weights="obs_weight")
+            .single()
+        )
+        report = result.diagnostics.nuisance_models()
+        predicted = np.clip(result.nuisance.propensity.arm(1.0), 1e-12, 1.0 - 1e-12)
+        slope, se = _reference(
+            predicted,
+            result.data.treatment,
+            result.data.weights,
+            np.asarray(result.nuisance.folds.assignment),
+        )
+
+        assert slope == pytest.approx(1.9781358, abs=1e-6)
+        assert report["propensity"].calibration_omission is None
+        assert report["propensity"].metrics["calibration_slope"] == pytest.approx(slope, rel=1e-10)
+        assert report["propensity"].metrics["calibration_slope_se"] == pytest.approx(se, rel=1e-10)
+        assert any(
+            "propensity:" in note and "more moderate" in note for note in _calibration_notes(report)
+        )
+
+    @pytest.mark.parametrize("omission", [None, "constant", "separated"])
+    def test_zero_weight_predictions_leave_the_calibration_and_omission_unchanged(
+        self, omission: str | None
+    ) -> None:
+        sample = _sample()
+        inactive = (sample["folds"] == 2) | (np.arange(len(sample["folds"])) % 6 == 0)
+        weights = sample["weights"] * ~inactive
+        predicted = sample["predicted"].copy()
+        actual = sample["actual"].copy()
+        if omission == "constant":
+            predicted[sample["folds"] == 0] = 0.25
+            predicted[sample["folds"] == 1] = 0.75
+        elif omission == "separated":
+            actual = (predicted > 0.5).astype(float)
+        baseline = nuisance_module._recalibration(
+            predicted, actual, weights, sample["folds"], sample["cluster"]
+        )
+        predicted[inactive] = expit(np.linspace(-8.0, 8.0, int(inactive.sum())))
+        changed = nuisance_module._recalibration(
+            predicted, actual, weights, sample["folds"], sample["cluster"]
+        )
+
+        np.testing.assert_allclose(
+            changed[:2], baseline[:2], rtol=1e-12, atol=1e-12, equal_nan=True
+        )
+        expected = {
+            None: None,
+            "constant": nuisance_module.CALIBRATION_CONSTANT_WITHIN_FOLDS,
+            "separated": nuisance_module.CALIBRATION_SEPARATED,
+        }[omission]
+        assert changed[2] == baseline[2] == expected
 
     @pytest.mark.parametrize("sign", [1.0, -1.0])
     def test_predictions_that_separate_the_labels_have_no_slope(self, sign: float) -> None:

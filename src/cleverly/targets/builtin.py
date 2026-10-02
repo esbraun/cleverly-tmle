@@ -165,8 +165,10 @@ _LEARNED_RULE_ID = Identification(
         "of the outcome learner is zero on a set of probability zero, and it fails at an "
         "exceptional law with a consistent learner, where the interval can under-cover",
         "C4, the remainder: the mean over the folds of the double-robust remainder along "
-        "each fold's rule is o_P(n^-1/2); or, by Corollary 3, g_nv is an asymptotically "
-        "linear estimator of g0, and the interval is then asymptotically conservative",
+        "each fold's rule is o_P(n^-1/2); alternatively, Corollary 3 requires Theorem 6 "
+        "with g = g0, a negligible remainder-replacement error, and the remainder "
+        "linearization in Equation (14). Under these conditions, a maximum-likelihood "
+        "mechanism fit in a correctly specified model gives a conservative interval",
         "C5: no Donsker condition is needed, so the learners may be flexible",
         "C6: iid rows, with no observation weights, clusters, missing outcomes or "
         "intermediate variable",
@@ -174,8 +176,10 @@ _LEARNED_RULE_ID = Identification(
     required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
     dr_condition=(
         "the remainder is the fold average of the product of the outcome-regression and "
-        "mechanism errors along each fold's learned rule (C4); a correctly specified "
-        "parametric mechanism alone keeps the interval conservative (Corollary 3)"
+        "mechanism errors along each fold's learned rule (C4); Corollary 3 requires "
+        "Theorem 6 with g = g0, negligible remainder replacement, and Equation (14)'s "
+        "linearization. Under these conditions, maximum-likelihood mechanism fits in "
+        "a correctly specified model give a conservative interval"
     ),
     references=(
         "van der Laan & Luedtke (2015)",
