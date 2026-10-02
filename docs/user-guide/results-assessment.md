@@ -115,6 +115,33 @@ needs error control.
 A contrast inherits the inference status of its inputs. On a fit whose status supplies no
 inference, the contrast refuses `ci` as its inputs do. The fit builds no simultaneous band.
 
+Use `ratio` for the risk ratio or the odds ratio of two levels. The interval is on the log scale.
+Use `wald_test(null=...)` to test an estimate against a value other than the default null. Pass
+`transform=` to `contrast` to compute the interval on the scale of a monotone map.
+
+```python
+from cleverly.inference import Transform
+
+risk_ratio = result.ratio("ey[1]", "ey[0]")
+test = risk_ratio.wald_test(null=1.5)
+logged = result.contrast(
+    lambda values: values[0] / values[1],
+    ["ey[1]", "ey[0]"],
+    transform=Transform.log(),
+)
+print(risk_ratio.ci, test.statistic, test.pvalue, logged.ci)
+```
+
+| call | what it reports | the null it tests by default |
+| --- | --- | --- |
+| `result.ratio(a, b)` | $\psi_a / \psi_b$, interval on the log scale | 1 |
+| `result.ratio(a, b, kind="or")` | the ratio of the two odds. The outcome must be binary | 1 |
+| `estimate.wald_test(null=c)` | the Wald statistic and its two-sided p-value at $c$ | the scale's default: 0, or 1 for a ratio |
+| `result.contrast(fn, names, transform=f)` | $fn$ of the estimates, with the interval $f^{-1}(f(\hat h) \pm z\,se)$ | $f(0)$, so pass `wald_test(null=...)` when 0 is outside the domain of $f$ |
+
+[Transformed parameters](../technical-reference/inference.md#transformed-parameters) gives the
+arithmetic.
+
 ## Diagnostics
 
 ```python

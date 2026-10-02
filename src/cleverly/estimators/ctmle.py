@@ -1985,7 +1985,7 @@ def logistic_plugin(result: TMLEResult) -> dict[str, LogisticPlugin]:
     R ``ctmle`` 0.1.2 at commit ``18de559`` reports ``var.psi`` and ``CI`` from
     ``calc_varIC(..., ICg = TRUE)`` at the selected candidate
     (``R/functions_discrete.R``, lines 200 and 201, and ``R/ctmle_discrete.R``, lines
-    183 to 196).  That variance adds to :math:`D^*` the term for the estimation of the
+    181 to 196).  That variance adds to :math:`D^*` the term for the estimation of the
     candidate's logistic propensity (``R/functions.R``, lines 39 to 60):
 
     .. math::

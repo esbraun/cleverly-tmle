@@ -68,7 +68,6 @@ Priorities 2 to 5 follow the beta.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.1 | Contrast and test conveniences | no new theory; delta method and linear functionals | shipped joint influence curves | [X20](#x20-contrast-and-test-conveniences) |
 | 1.2 | Natural-extension reviews | source audit, with the presumption that a part qualifies | the [Eligibility](#eligibility) conditions | [X18](#x18-natural-extension-reviews) |
 | 1.3 | Modified treatment policies beyond the additive point shift | published support; pending source read | shipped additive shift and categorical longitudinal nodes | [X12](#x12-modified-treatment-policies-beyond-the-additive-point-shift) |
 | 1.4 | Point-treatment survival and time-to-event input | published support; pending source read | shipped survival and competing-risk recursion | [X13](#x13-point-treatment-survival-and-time-to-event-input) |
@@ -279,25 +278,6 @@ Work:
 
 Acceptance: every family in the table has a registered cell or a recorded default change. The
 evidence manifest and the validation grid name each cell.
-
-### X20. Contrast and test conveniences
-
-One pull request delivers the six parts. Each part reads shipped influence curves, so none needs
-new theory. Each part is an exact delta-method or linear-functional computation.
-
-| part | what to add | comparator that ships it |
-| --- | --- | --- |
-| (a) ratio contrasts on a longitudinal fit | risk ratio and odds ratio of two regimens, and of two survival or cumulative-incidence values at a horizon, on the log scale. Today `contrast(fn, names, scale="ratio")` is the only route | `lmtp_contrast(type = "rr")` and `"or"` in `lmtp` 1.5.4; `RR` in `concrete` |
-| (b) a test at any null value | a `pvalue` and a Wald test against a declared null value. Today `pvalue` tests 0, or 1 for a ratio | `wald_test(null = )` in `drtmle` 1.1.2 |
-| (c) an interval on a declared transform | an interval computed on the scale of a user transform `f` and mapped back with its inverse, beside the shipped `contrast(fn, gradient=)` | `ci(contrast = list(f, f_inv, h, fh_grad))` in `drtmle` 1.1.2 |
-| (d) restricted mean survival time | RMST up to a declared horizon, as the linear contrast of the survival curve over the horizon grid, with its contrast between regimens | none of the comparators. It is a linear functional of reported estimates |
-| (e) the fixed-propensity interval of R `ctmle` | document `plugin_interval` on the greedy, ordered and discrete paths as the interval that R `ctmle` reports, with no coverage claim. Add the `calc_varIC(ICg = TRUE)` logistic-estimation term as an opt-in diagnostic under a `plugin_` name. The `working_mechanism_plugin` status does not change | `ctmle` 0.1.2, `R/functions.R`, lines 39 to 60, at `18de559` |
-| (f) the full-refit bootstrap on `LTMLE` | the `n_bootstrap=` option, which `LTMLE` refuses today. Write its resampling and replay contract first: what each replicate refits, how a cluster and a censored row resample, and which status a replicate carries | none of the pinned comparators |
-
-Acceptance: an exact-law test for each part, and a mutation control for each transform and
-gradient. Part (e) adds no status change. A test pins that `ci`, `pvalue` and `std_error` still
-refuse on those paths. Part (f) needs a registered coverage study before its interval is
-inferential.
 
 ### X18. Natural-extension reviews
 
