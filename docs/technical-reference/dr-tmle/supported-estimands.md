@@ -125,7 +125,7 @@ validity or weighted parity with the canonical implementation.
 Each row below is refused because the derivation read here does not cover it, or because no code
 path accepts the input. A refused row raises at construction or at `fit`. Its message names what a
 derivation would need. The missing-treatment row raises `DataError` from the data container, and
-its message reports the missing values.
+its message says that the column contains missing values.
 
 The `weights_estimated=` row does not raise. The fit runs and reports its point estimate under the
 `"estimated_weight_plugin"` status when its weights vary. Constant weights fit the unweighted
