@@ -58,13 +58,22 @@ Each code cell is followed by a markdown cell that starts with `**What this outp
 | 8 | one id per fit | code | each fit, with its method written out in full | `result.summary(protocol="fingerprint")` and the numbers the prose quotes |
 | 9 | `failure-mode` | code | the failure mode the [examples index](../examples/index.md#the-program) names for this tutorial | the numbers that show the failure |
 | 10 | `assessment` | code | `result.assess()` and the retained reports the page reads | the assessment summary and each report summary |
-| 11 | `sensitivity` | code | the sensitivity analysis that applies, or the refusal that explains why none does | the robustness value, the bounds, or the refusal message |
-| 12 | `trust` | markdown | "How far to trust this": the layer table and the registered study that covers the construction | none |
+| 11 | `sensitivity` | code | the sensitivity analysis that is derived for the fitted estimator and runs on this fit. [The sensitivity table](#sensitivity-analysis-for-each-kind-of-fit) names one for each kind of fit | the robustness value and the bounds, the E-value, the stress surface, the tipping point, or the benchmark refits |
+| 12 | `trust` | markdown | "How far to trust this": the layer table and the registered study that covers the construction. [The trust step](#the-trust-step) lists what each cited study row names | none |
 | 13 | `where-next` | markdown | the next tutorial and the related reference entries | none |
 
 A tutorial can add steps between rows 8 and 11, such as a second population or a truncation curve.
 Give each added step a heading, a code cell, and its reading. Keep every scientific claim of the
 Markdown tutorial. A claim the output cannot show moves into the reading as a stated condition.
+
+A tutorial notebook is an end-to-end example that works. Do not show a refusal as a lesson.
+
+| step | what to do |
+| --- | --- |
+| a step that would print a `CapabilityError`, a `DataError`, or a refusal message | change it to an analysis that `cleverly` supports, or remove it |
+| a step that prints a capability list with unavailable rows | print only the rows that run |
+| a statistical failure mode that runs and prints numbers, such as an interval that misses | keep it. Row 9 of the outline is for this step |
+| a limit that the reading must name | write the requirement in one sentence, such as "Declare `q_bounds` for a cross-fitted continuous outcome" |
 
 ### The data step
 
@@ -82,6 +91,8 @@ show the reader which columns the page uses. Name the generator in the reading.
 
 `StudyProtocol` in `src/cleverly/protocol.py` records the scientific design. Every result fitted
 from a study that carries it stores its fingerprint. Fill each field for the tutorial's question.
+Then check each field and each unit name against the structural equations of the generator. For
+example, do not call an outcome "standardized" when the generator draws it on its own scale.
 
 | field | what to write |
 | --- | --- |
@@ -133,6 +144,8 @@ where `base` is the protocol that `replace` received.
 | Give every code cell visible output. Print text rather than rely on a bare last expression | the reading needs an output to interpret, and `--check` compares text |
 | Print each number the prose quotes, rounded the way the prose writes it | the narration test compares prose decimals with stored outputs |
 | Pass explicit, cheap learners to every fit. Prefer linear and logistic models where the lesson allows | the default learner library costs 30 to 120 seconds per fit |
+| Do not pass a bare `HistGradientBoostingClassifier` as a treatment learner below 10,000 rows. Use a regularized or early-stopped booster, or a flexible parametric model, and check its calibration | scikit-learn stops the booster early only above 10,000 rows. Below that size, its default settings overfit the treatment model. The fitted propensities are then too extreme, so the standard error is too large and the default $\nu^2$ estimate can be negative |
+| Print a score check as pass or fail and the rounded ratio to its threshold. Never print a raw residual below 1e-8 | a residual below 1e-8 is machine noise. It changes between machines, and `--check` then fails |
 | Set every effective seed: the generator seed, `Runtime(random_state=...)`, and each learner's active `random_state` | a rerun must reproduce the stored outputs |
 | Set `n_jobs=1` in `Runtime` and where a learner still uses that parameter. Do not pass a deprecated parameter that the installed learner ignores | several notebooks execute on one machine at once, and deprecated settings add warning noise without limiting work |
 | Fit every learner through `cleverly`, and do not call `set_thread_limit`. Wrap any other fit in `with thread_limit():` from `cleverly.learners` | `HistGradientBoosting*` has no `n_jobs`, and its OpenMP pool uses every core. `cleverly` fits each learner under `thread_limit()`, which holds OpenMP and BLAS to one thread by default |
@@ -158,19 +171,13 @@ Each reading also follows these rules.
 | --- | --- |
 | Put a status word, a label, or a column name in backticks only when a stored output prints it. The assessment summary prints `Returned results`, not `completed` | the reader searches the output for the quoted token. No test catches this, because each program protocol prints "regardless of completed contacts" |
 | Do not write that one seeded draw shows or establishes a property of the method. Cite a registered study for the property | one draw is one sample. The callback pins it as a relation, and a relation certifies no method |
-| Explain an interval that misses the true value as sampling variation, and give the distance in standard errors. Name another cause only when a probe or a study supports it | a 95% interval misses on about one draw in 20 |
+| Before you call an interval that misses the true value sampling variation, run a seed sweep of the shown configuration with at least 60 draws. Use that explanation only when the sweep covers near the nominal level. Otherwise name the measured bias or under-coverage and the cause that a probe shows | a 95% interval misses on about one draw in 20 only when the configuration covers at the nominal level. A configuration with a bias can miss on most draws |
+| A sentence that holds on fewer than 90% of the swept draws says "on this draw". Alternatively, quote the printed numbers without a multiplier such as "about three times" | a relation of one seeded draw is a property of that draw. A multiplier reads as a property of the method |
+| Name the source of each repeated-draw number that a reading quotes: a committed probe script or a registered study. List the number in the callback's `UNPRINTED_DECIMALS` with that source | no stored output prints a sweep number, so the narration test needs the entry. The entry also tells the next author where to recompute it |
+| A support or calibration reading names the fitted model that it comes from. It also says what that model cannot see | a support report of a wrong treatment model describes that model, not the population. An in-sample calibration slope near 1 does not show that a model is correct |
 | Compare two estimates from one fit with `result.contrast(...)`, and read its interval. Do not compare their difference with the larger standard error | the two estimates share rows. `contrast` uses the joint influence curve, so it includes their correlation |
-| Read a sensitivity output as robustness only when the technical reference derives it for the fitted estimator. Otherwise print it, state which derivation is missing, and do not interpret the number | an underived bound can be too narrow. The next table gives the known cases |
-| Describe a refusal as what `cleverly` does not implement. Say that a quantity does not exist only when a source shows it | "not implemented" and "not defined" are two claims |
-
-The [omitted-variable bounds](../technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)
-are derived for the ordinary treatment model. `_elements_for` in
-`src/cleverly/sensitivity/omitted_variable.py` builds $\nu^2$ from the fit's own treatment model.
-
-| fitted estimator | why the bounds and the robustness value are not derived for it |
-| --- | --- |
-| DR-TMLE | the page doubts the treatment model. A wrong treatment model makes the estimate of $\nu^2$ too small, so the bounds read too narrow and the robustness value reads too large |
-| C-TMLE | $\nu^2$ comes from the selected working treatment model. By Jensen's inequality, a propensity on fewer covariates gives a $\nu^2$ no larger than the full set gives. The robustness value is then optimistic by construction |
+| Read a sensitivity output as robustness only when the technical reference derives it for the fitted estimator. Run the analysis that [the sensitivity table](#sensitivity-analysis-for-each-kind-of-fit) names for the fit | an underived bound can be too narrow |
+| Say that a quantity does not exist only when a source shows it | "not implemented" and "not defined" are two claims |
 
 Introduce each TMLE concept the first time the page uses it. Write one plain sentence, then link
 to the reference. The table gives a starting sentence and a link for the common concepts.
@@ -188,6 +195,37 @@ to the reference. The table gives a starting sentence and a link for the common 
 
 Link to a sibling tutorial by its notebook file name, such as `cross-fitting.ipynb`. A heading
 anchor in a notebook includes its step number, such as `#step-9-reuse-the-same-outer-split`.
+
+### Sensitivity analysis for each kind of fit
+
+Run the sensitivity analysis that the table gives for the fit of the page. Each analysis runs on
+that fit and returns numbers. The
+[sensitivity section](../technical-reference/validation-methods.md#sensitivity-to-untestable-assumptions)
+of the technical reference derives each one.
+
+| kind of fit | the sensitivity analysis to run | how to read it |
+| --- | --- | --- |
+| point-treatment TMLE or CV-TMLE, on a law whose true propensity stays away from 0 and 1 | `robustness_value()`, `benchmark()`, and `omitted_confounding()`, with the default $\nu^2$ estimator | a bound. $\nu^2$ is the second moment of the Riesz representer, and it is finite only when the inverse propensity has a finite mean |
+| DR-TMLE | `evalue()` | an approximate E-value. The output prints its conversion from the standardized difference to a risk ratio. The E-value reads only the estimate and its interval, so it does not test the doubted assignment model |
+| C-TMLE | `simulated_confounding()` on the collaborative fit. Read the omitted-variable bound and the interval on the plain TMLE fit of the declared adjustment set | the surface shows movement under one latent cause. It is not a bound |
+| MSM projection | the omitted-variable bound on the arm contrasts of the saturated fit | a bound on each arm contrast, not on the MSM coefficient |
+| a fit with missing outcomes | `missingness()` and `tipping_gamma()` | the tilt of the unobserved outcomes at which the estimate reaches its null |
+| longitudinal TMLE, with or without a time-to-event outcome | refit without one recorded covariate at a time, and print each move in standard errors | a benchmark, not a bound. Each move is signed and specific to the dropped covariate |
+| a regime, shift, or incremental intervention | `simulated_confounding()` with a treatment-only grid, such as `ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,))` | the surface shows movement under one latent cause. It is not a bound. A fit that declares `q_bounds` needs the treatment-only grid |
+
+### The trust step
+
+The `trust` cell cites the registered studies that cover the construction of the page. Each cited
+study row names the five items of the next table. A review sweep is not a registered study. Cite
+it as "a review probe", with its committed script.
+
+| item | the values to name |
+| --- | --- |
+| the law of the study | the law of the page, or another law |
+| the nuisance construction | supplied, oracle, or fitted |
+| the outcome type | binary, continuous, or time to event |
+| the fold layer | in sample or cross-fitted |
+| the role of the cited cell | a positive cell or a control |
 
 ## Write the callback
 

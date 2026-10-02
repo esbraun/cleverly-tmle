@@ -12,12 +12,12 @@ Start with [Point-treatment TMLE](point-treatment-tmle.ipynb).
 | --- | --- | --- | --- |
 | [Point-treatment TMLE](point-treatment-tmle.ipynb) | assignment to the standard navigation offer | [entry](../technical-reference/point-treatment-tmle.md) | one consistent nuisance gives a consistent point estimate. Two inconsistent nuisances have no general guarantee |
 | [CV-TMLE](cross-fitting.ipynb) | the same offer, with flexible learners and patients nested in navigator teams | [entry](../technical-reference/cv-tmle.md) | in-sample nuisance evaluation and ignored teams can understate uncertainty |
-| [Collaborative TMLE](collaborative-tmle.ipynb) | which approved baseline variables belong in the assignment model | [entry](../technical-reference/collaborative-tmle.md) | a queue lottery predicts assignment and confounds nothing |
+| [Collaborative TMLE](collaborative-tmle.ipynb) | which approved baseline variables belong in the assignment model | [entry](../technical-reference/collaborative-tmle.md) | a queue lottery that predicts assignment and confounds nothing makes the fitted propensities extreme. C-TMLE leaves it out of the assignment model |
 | [DR-TMLE](dr-tmle.ipynb) | a recorded assignment rule that is difficult to model | [entry](../technical-reference/dr-tmle/index.md) | solved score equations do not show that the nuisance or reduced regressions converge |
 | [Intervention axes](interventions.ipynb) | target by risk, raise assigned navigation intensity, or change assignment odds | [entry](../technical-reference/point-treatment-tmle.md#variations) | three policies define three estimands. The intensity policy uses its own continuous law |
 | [Survey non-response](survey-nonresponse.ipynb) | many patients do not return the 30-day transition survey | [entry](../technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects) | a complete-case fit estimates the effect standardized to the respondents' covariate distribution |
 | [Longitudinal TMLE](longitudinal-tmle.ipynb) | navigation at discharge and day seven | [entry](../technical-reference/longitudinal-tmle.md) | one regression cannot adjust for a time-varying confounder and preserve the causal path |
-| [Time-to-event outcomes](longitudinal-survival.ipynb) | plan exit, then readmission and death under repeated navigation | [entry](../technical-reference/longitudinal-tmle.md#survival-and-competing-risks) | coding death as censoring targets a controlled direct effect, not the reported total effect |
+| [Time-to-event outcomes](longitudinal-survival.ipynb) | plan exit, then readmission and death under repeated navigation | [entry](../technical-reference/longitudinal-tmle.md#survival-and-competing-risks) | coding death as censoring targets the risk under a hypothetical removal of death. That risk is a controlled direct effect only under exchangeability for death, and it is not the reported total effect |
 | [MSM projections](msm-projections.ipynb) | three navigation cadences summarized as one trend | [entry](../technical-reference/msm-projections.md) | a linear working model that misses the arm means still defines the parameter it reports |
 
 The tutorials use observational assignment. A randomized offer would identify the assignment
@@ -41,6 +41,8 @@ each assumption and explains why consistency requires a well-defined interventio
 | comparison | usual discharge support without access to the navigation protocol |
 | primary outcome | a 30-day patient-reported transition score. The protocol scores death before day 30 as the worst transition score (composite strategy) |
 | unreturned surveys | the composite score counts as observed. Only living patients who do not respond are missing |
+| death in the data | a death before day 30 enters the data as an observed outcome: the worst score, or not top box. Only living patients can be missing or censored |
+| missing at random | missing at random on the composite outcome holds only when no patient dies. With deaths, the analysis needs missing at random among survivors |
 | baseline adjustment | discharge risk, prior utilization, medication burden, age, and applicable site or calendar factors measured before assignment |
 | interference control | reserved navigator capacity and access controls prevent one assignment from changing another patient's protocol |
 | dependence | patients can share a navigator team. The [CV-TMLE tutorial](cross-fitting.ipynb) keeps each team intact in fitting and inference |
@@ -54,8 +56,9 @@ eligibility requires a live discharge.
 Only baseline information enters a point-treatment adjustment set. In particular, actual length of
 stay and completed contacts occur after assignment and cannot serve as baseline confounders.
 
-The synthetic laws standardize their baseline covariates to mean 0 and SD 1. Outcome scores are in
-synthetic units. The longitudinal tutorial uses a binary top-box outcome, and its protocol scores
+The synthetic laws draw each baseline covariate independently from a standard normal distribution.
+The laws do not standardize a sample. A negative value is below the population average. Real
+covariates would be correlated. Outcome scores are in synthetic units. The longitudinal tutorial uses a binary top-box outcome, and its protocol scores
 death before day 30 as not top box.
 
 The intervention is the **offer**. This choice fixes treatment versions despite different patient
