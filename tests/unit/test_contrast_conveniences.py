@@ -324,6 +324,36 @@ class TestInheritance:
             _ = ratio.ci
         assert ratio.plugin_interval[0] < ratio.psi < ratio.plugin_interval[1]
 
+    def test_a_drtmle_ratio_keeps_its_status(self) -> None:
+        from cleverly.datasets import make_binary_outcome
+        from cleverly.estimators import DRTMLE
+
+        frame, _ = make_binary_outcome(n=300, seed=4)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = (
+                DRTMLE(
+                    outcome_learner=LogisticRegression(max_iter=1000),
+                    treatment_learner=LogisticRegression(max_iter=1000),
+                    reduced_outcome_learner=LinearRegression(),
+                    reduced_treatment_learner=LogisticRegression(max_iter=1000),
+                    cross_fit=False,
+                    estimands=("ey1", "ey0"),
+                    simultaneous=False,
+                )
+                .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
+                .single()
+            )
+        ratio = result.ratio("ey1", "ey0")
+        assert ratio.inference == result["ey1"].inference
+        assert ratio.covariance_rule == result["ey1"].covariance_rule
+        np.testing.assert_allclose(
+            ratio.influence_curve,
+            result["ey1"].influence_curve / result["ey1"].psi
+            - result["ey0"].influence_curve / result["ey0"].psi,
+            **EXACT,
+        )
+
     def test_a_mixed_status_selection_is_refused(self) -> None:
         curve = np.array([0.1, -0.2, 0.3, -0.2])
         estimates = {
@@ -826,6 +856,28 @@ class TestRmst:
         with pytest.raises(ValueError, match="name one with cause="):
             competing_fit.rmtl("always", 3)
 
+    def test_a_versus_regimen_missing_a_horizon_is_named(self, survival_fit: Any) -> None:
+        """``versus=`` checks its own regimen's horizons, with the same message."""
+        from dataclasses import replace
+
+        with pytest.raises(KeyError, match="unknown regimen 'absent'"):
+            survival_fit.rmst("always", 3, versus="absent")
+        dropped = "risk_regimen[never @ t=1]"
+        narrowed = replace(
+            survival_fit,
+            estimates={k: v for k, v in survival_fit.estimates.items() if k != dropped},
+            parameter_index={k: v for k, v in survival_fit.parameter_index.items() if k != dropped},
+        )
+        narrowed.rmst("always", 3)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "RMST up to t=3 needs the risk at every horizon 1 to 2, and this fit reports "
+                "[2]. Refit with horizons=None or include [1]"
+            ),
+        ):
+            narrowed.rmst("always", 3, versus="never")
+
     def test_a_missing_horizon_is_named(self) -> None:
         result = LTMLE(
             declared_regimens(survival_law.REGIMEN_SPEC),
@@ -850,6 +902,22 @@ class TestRmst:
             result.rmst("always", 3)
 
 
+def test_the_ratio_refusals_name_the_inputs() -> None:
+    curve = np.array([0.1, -0.1, 0.2, -0.2])
+    estimates = {
+        "risk[a]": make_estimate("risk[a]", 1.0, curve, n=4, scale="level"),
+        "risk[b]": make_estimate("risk[b]", 0.5, curve, n=4, scale="level"),
+    }
+    with pytest.raises(
+        ValueError,
+        match=re.escape(
+            "the risk ratio needs both inputs strictly positive; got 1 - risk[a]=0 and "
+            "1 - risk[b]=0.5"
+        ),
+    ):
+        ratio_contrast(estimates, "risk[a]", "risk[b]", complement=True, n=4, name="r")
+
+
 def test_the_ratio_helpers_keep_their_domain_refusals() -> None:
     curve = np.array([0.1, -0.1, 0.2, -0.2])
     estimates = {
@@ -857,9 +925,9 @@ def test_the_ratio_helpers_keep_their_domain_refusals() -> None:
         "b": make_estimate("b", 0.5, curve, n=4, scale="level"),
         "c": make_estimate("c", 1.0, curve, n=4, scale="level"),
     }
-    with pytest.raises(ValueError, match="strictly positive"):
+    with pytest.raises(ValueError, match="strictly positive; got a=0"):
         ratio_contrast(estimates, "a", "b", n=4, name="rr")
-    with pytest.raises(ValueError, match=r"strictly inside \(0, 1\)"):
+    with pytest.raises(ValueError, match=r"strictly inside \(0, 1\); got c=1"):
         ratio_contrast(estimates, "c", "b", kind="or", n=4, name="or")
     assert log_odds_ratio_influence is not None
     assert smooth_contrast is not None

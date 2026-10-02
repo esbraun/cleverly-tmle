@@ -300,8 +300,14 @@ replicate refits the whole estimator. The
 [longitudinal bootstrap contract](longitudinal-tmle.md#the-full-refit-bootstrap) states what a
 replicate resamples and refits. The
 [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md)
-measures the percentile interval with correctly specified GLM nuisances at $n = 1000$. No result
-covers a data-adaptive nuisance.
+measures the percentile interval with correctly specified cell-mean nuisances on finite binary
+laws, at $n = 1000$, and at 1,500 rows in 60 clusters for the cluster bootstrap. No result covers
+a data-adaptive nuisance.
+
+An `LTMLE` bootstrap is licensed as inference only for a design kind
+in `LICENSED_BOOTSTRAP_DESIGNS`, which a kind enters after its registered cells are green. Every
+other `LTMLE` bootstrap prints as a diagnostic. `POINT_BOOTSTRAP_INFERENTIAL` in
+`estimators/tmle.py` holds the point-treatment rule.
 
 `simultaneous_bands` refuses an estimate that declares the `"second_moment"` covariance rule. The
 multiplier draws center each influence curve. Centering matches the raw second moment only on a

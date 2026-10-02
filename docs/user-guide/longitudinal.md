@@ -154,7 +154,10 @@ print(bootstrapped.summary())
 
 The [bootstrap contract](../technical-reference/longitudinal-tmle.md#the-full-refit-bootstrap)
 states what each replicate resamples and refits. The registered study measures the percentile
-interval with correctly specified GLM nuisances at $n = 1000$ only.
+interval with correctly specified cell-mean nuisances on finite binary laws, at $n = 1000$. A
+design is licensed as inference only after its cells are green. Until then the summary prints
+`bootstrap sd` and a percentile range, a diagnostic. `ratio` and `rmst` carry the bootstrap of
+their inputs.
 
 ## Competing risks
 

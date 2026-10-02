@@ -23,8 +23,8 @@ is van der Laan and Gruber (2010).
 The two variances differ by the term for estimating the selected candidate's logistic propensity.
 That term is close to zero at the correctly specified outcome regression of this study. The
 committed SE ratios of the discrete selector differ by about 0.001 (0.9437 against 0.9427,
-`summary.csv`). `logistic_plugin` reports R's variance, as
-[collaborative TMLE](../collaborative-tmle.md) states. No study regenerates for it.
+`summary.csv`). `logistic_plugin` reports R's `calc_varIC(ICg = TRUE)` variance at this fit's
+inputs, as [collaborative TMLE](../collaborative-tmle.md) states. No study regenerates for it.
 
 The fit is not cross-fitted, and it still draws a split. The selector scores its candidate path
 over five selection folds. That split reads no label here, and the fit asserts the realized

@@ -65,7 +65,7 @@ import warnings
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field, fields, is_dataclass, replace
-from typing import TYPE_CHECKING, Any, ClassVar, NoReturn
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NoReturn
 
 import numpy as np
 from sklearn.base import clone
@@ -98,13 +98,16 @@ from ..inference.results import (
     attach_bootstrap,
     estimate_covariance,
     estimate_curves,
+    linear_function,
     linear_functional,
     ratio_contrast,
+    ratio_function,
     refuse_odds_ratio,
     reported_status,
     select_estimates,
     smooth_contrast,
     sole_estimate,
+    with_derived_bootstrap,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -135,6 +138,7 @@ from .msm import (
 from .regimen import (
     DynamicRegimen,
     Plan,
+    Regimen,
     RegimenSpec,
     describe_plan,
     refuse_regimen_rules,
@@ -282,12 +286,13 @@ def _index(label: str, cause: str | None, horizon: int, survival: bool) -> str:
     return f"{stem}{HORIZON_INFIX}{horizon}"
 
 
-#: Whether a registered study licenses the longitudinal full-refit bootstrap's percentile
-#: interval as inference.  Read by :meth:`LTMLE.fit` into every
-#: :class:`~cleverly.inference.BootstrapSummary` it attaches.  The registered study
-#: ``full-refit-bootstrap-and-derived-contrasts`` measures it; its evidence page states
-#: the scope.
-LONGITUDINAL_BOOTSTRAP_INFERENTIAL = True
+#: The design kinds whose full-refit bootstrap percentile interval a registered study
+#: licenses as inference.  :func:`bootstrap_design_kind` names a fit's kind, and
+#: :meth:`LTMLE.fit` stamps ``inferential`` on every bootstrap summary from this set.  A
+#: kind enters only after its cells in ``full-refit-bootstrap-and-derived-contrasts`` are
+#: green, and a red cell removes only its own kind.  Until then every longitudinal bootstrap
+#: is a diagnostic: ``bootstrap sd`` and ``percentile range``.
+LICENSED_BOOTSTRAP_DESIGNS: frozenset[str] = frozenset()
 
 #: Why a fit with two or more causes has no survival view.  One text for
 #: :meth:`LongitudinalResult.curve` and :meth:`LongitudinalResult.ratio`.
@@ -956,7 +961,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             estimates, so on a fit that supplies no inference it reports the same
             diagnostic and no interval.
         """
-        return smooth_contrast(
+        derived = smooth_contrast(
             self.estimates,
             function,
             names,
@@ -968,6 +973,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             gradient=gradient,
             transform=transform,
         )
+        return with_derived_bootstrap(derived, self.estimates, self.bootstrap, names, function)
 
     def _levels(self) -> dict[tuple[str, str | None, int], str]:
         """``(regimen, cause, horizon) -> name`` of every reported level.
@@ -1000,7 +1006,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         denominator: str,
         *,
         kind: RatioKind = "rr",
-        view: str = "risk",
+        view: Literal["risk", "survival"] = "risk",
         name: str | None = None,
     ) -> ParameterEstimate:
         """The risk ratio or odds ratio of two regimen levels, with log-scale inference.
@@ -1089,7 +1095,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 raise ValueError(SURVIVAL_VIEW_COMPETING_REFUSAL)
         if kind == "or" and not survival:
             refuse_odds_ratio(self.config.family)
-        return ratio_contrast(
+        derived = ratio_contrast(
             self.estimates,
             numerator,
             denominator,
@@ -1099,6 +1105,13 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             cluster=self.data.cluster,
             alpha=self.config.alpha_sig,
             name=name or self._ratio_name(numerator, denominator, kind, view),
+        )
+        return with_derived_bootstrap(
+            derived,
+            self.estimates,
+            self.bootstrap,
+            (numerator, denominator),
+            ratio_function(kind, complement=view == "survival"),
         )
 
     def _ratio_name(self, numerator: str, denominator: str, kind: str, view: str) -> str:
@@ -1230,7 +1243,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             constant = 0.0
             label = f"{regimen} vs {versus}"
             scale = "difference"
-        return linear_functional(
+        derived = linear_functional(
             self.estimates,
             weights,
             constant=constant,
@@ -1240,6 +1253,13 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             name=name
             or parameter_name("rmst_regimen", arm=_index(label, None, int(horizon), True)),
             scale=scale,
+        )
+        return with_derived_bootstrap(
+            derived,
+            self.estimates,
+            self.bootstrap,
+            tuple(weights),
+            linear_function(tuple(weights.values()), constant),
         )
 
     def rmtl(
@@ -1341,7 +1361,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 weights[other] = weights.get(other, 0.0) - 1.0
             label = f"{regimen} vs {versus}"
             scale = "difference"
-        return linear_functional(
+        derived = linear_functional(
             self.estimates,
             weights,
             n=self.n,
@@ -1350,6 +1370,13 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             name=name
             or parameter_name("rmtl_regimen", arm=_index(label, chosen, int(horizon), True)),
             scale=scale,
+        )
+        return with_derived_bootstrap(
+            derived,
+            self.estimates,
+            self.bootstrap,
+            tuple(weights),
+            linear_function(tuple(weights.values())),
         )
 
     def _names(self, names: Sequence[str] | None) -> tuple[str, ...]:
@@ -2331,9 +2358,11 @@ class LTMLE:
         backward regression and fluctuation, and the working-model projection.  A failed
         replicate is dropped and counted, never redrawn.  The bootstrap stream is spawned
         from ``random_state`` and draws nothing the fit itself uses, so the fit's own
-        numbers do not move.  A truncation-curve replay does not rerun it.  The registered
-        study measures the percentile interval with correctly specified GLM nuisances at
-        ``n = 1000`` only.
+        numbers do not move.  A truncation-curve replay does not rerun it.  The percentile
+        interval is published as inference only for a design kind in
+        :data:`LICENSED_BOOTSTRAP_DESIGNS`, and as ``bootstrap sd`` and a percentile range
+        otherwise.  The registered study measures it with correctly specified cell-mean
+        nuisances on finite binary laws, at ``n = 1000``.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
     **refused : Any
@@ -2752,8 +2781,9 @@ class LTMLE:
                 random_state=self.random_state,
                 n_jobs=self.n_jobs,
             )
+            kind = bootstrap_design_kind(prepared, folds, regimens, model)
             result = attach_bootstrap(
-                result, bootstrap, inferential=LONGITUDINAL_BOOTSTRAP_INFERENTIAL
+                result, bootstrap, inferential=kind in LICENSED_BOOTSTRAP_DESIGNS
             )
         return result
 
@@ -3108,6 +3138,53 @@ class _BoundReplay:
     fits: dict[str, RegimenFit]
     msm_fits: tuple[MSMRegimenFit, ...]
     contributors: dict[str, tuple[RegimenFit, ...]]
+
+
+def bootstrap_design_kind(
+    data: LongitudinalData,
+    folds: Folds,
+    regimens: Sequence[RegimenSpec],
+    msm: Any,
+) -> str | None:
+    """The design kind a registered bootstrap study could license, or ``None``.
+
+    A kind is ``"<outcome>/<fit>"``: the outcome ``end_of_study`` or ``survival``, and the fit
+    ``in_sample``, ``cross_fit`` or ``cluster``.  Only a binary outcome, static regimens, one
+    event and no weights or working model have a kind; every other fit returns ``None``, which
+    no study licenses.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared data of the fit.
+    folds : Folds
+        The outer fold assignment of the fit.
+    regimens : sequence of RegimenSpec
+        The resolved regimens.
+    msm : object or None
+        The evaluated working model, or ``None``.
+
+    Returns
+    -------
+    str or None
+        The kind, or ``None`` for a design no study measures.
+    """
+    if (
+        msm is not None
+        or data.is_competing
+        or data.is_weighted
+        or data.family != "binomial"
+        or not all(isinstance(regimen, Regimen) for regimen in regimens)
+    ):
+        return None
+    outcome = "survival" if data.is_survival else "end_of_study"
+    if data.cluster is not None:
+        fit = "cluster"
+    elif folds.n_folds > 1:
+        fit = "cross_fit"
+    else:
+        fit = "in_sample"
+    return f"{outcome}/{fit}"
 
 
 def _refit_bound(

@@ -201,6 +201,51 @@ class TestTheFormula:
         )
 
 
+class TestTheOutcomeScale:
+    """The ``(b - a)`` factor, which a binary outcome cannot see."""
+
+    def test_a_continuous_outcome_is_the_unit_scale_formula_times_the_range(self) -> None:
+        from sklearn.linear_model import LinearRegression
+
+        from cleverly.datasets import make_linear_ate
+
+        class ConstantMean(LinearRegression):
+            def fit(self, X: Any, y: Any, sample_weight: Any = None) -> ConstantMean:
+                self.mean_ = float(np.mean(y))
+                return self
+
+            def predict(self, X: Any) -> np.ndarray:
+                return np.full(np.asarray(X).shape[0], self.mean_)
+
+        frame, _ = make_linear_ate(n=400, seed=3)
+        covariates = [c for c in frame.columns if c.startswith("W")]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = (
+                CTMLE(
+                    outcome_learner=ConstantMean(),
+                    treatment_learner=LogisticRegression(C=1e6, max_iter=2000),
+                    strategy="discrete",
+                    candidates=(tuple(covariates[:2]),),
+                    cross_fit=False,
+                    estimands=("ate",),
+                    simultaneous=False,
+                    g_bounds=(0.01, 0.99),
+                )
+                .fit(frame, outcome="Y", treatment="A", covariates=covariates)
+                .single()
+            )
+        scaler = result.nuisance.scaler
+        assert scaler.range > 2.0
+        frame_unit = inputs_of(result).assign(Y=scaler.scale(result.data.outcome))
+        _, var_ic = calc_varic(frame_unit)
+        diagnostic = logistic_plugin(result)["ate"]
+        assert diagnostic.correction_applied
+        assert diagnostic.plugin_logistic_std_error == pytest.approx(
+            scaler.range * np.sqrt(var_ic / result.data.n), rel=1e-10
+        )
+
+
 class TestTheRWitness:
     """R ``ctmle``'s own ``calc_varIC`` on the inputs of one fit, committed with hashes."""
 
@@ -215,7 +260,9 @@ class TestTheRWitness:
         committed = pd.read_csv(WITNESS / "inputs.csv", float_precision="round_trip")
         fresh = witness_inputs()
         assert list(fresh.columns) == list(committed.columns)
-        np.testing.assert_allclose(fresh.to_numpy(), committed.to_numpy(), atol=1e-12, rtol=0)
+        # A stated tolerance: the committed inputs come from an lbfgs fit on another
+        # platform, and a refit can move the last bits.
+        np.testing.assert_allclose(fresh.to_numpy(), committed.to_numpy(), rtol=1e-8, atol=1e-10)
 
     def test_the_diagnostic_is_r_s_variance(self) -> None:
         from tests.canonical.ctmle_logistic_plugin.regenerate import REPLICATE, SCENARIO
@@ -311,6 +358,36 @@ class TestRefusals:
                 .single()
             )
         self._refused(result, "carries observation weights")
+
+    def test_a_missing_outcome_fit(self) -> None:
+        frame, _ = make_binary_outcome(n=300, seed=1)
+        missing = np.random.default_rng(0).random(len(frame)) < 0.2
+        frame = frame.assign(Y=frame["Y"].mask(missing), Delta=(~missing).astype(float))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = (
+                CTMLE(
+                    outcome_learner=LogisticRegression(max_iter=1000),
+                    treatment_learner=LogisticRegression(max_iter=1000),
+                    strategy="discrete",
+                    candidates=(("W1",),),
+                    cross_fit=False,
+                    estimands=("ate",),
+                    simultaneous=False,
+                )
+                .fit(frame, outcome="Y", treatment="A", covariates=COVARIATES, delta="Delta")
+                .single()
+            )
+        self._refused(result, "has missing outcomes")
+
+    def test_an_intermediate_fit(self, correct: Any) -> None:
+        """``CTMLE`` refuses ``intermediate=`` at fit, so the branch is reached by a copy."""
+        from dataclasses import replace
+
+        self._refused(
+            replace(correct, intermediate_value=1.0),
+            "targets a level of an intermediate variable",
+        )
 
     def test_a_multi_arm_fit(self) -> None:
         frame, _ = make_multi_arm(n=300, seed=2, family="binomial")

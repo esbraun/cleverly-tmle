@@ -50,11 +50,13 @@ from ..inference.results import (
     estimate_covariance,
     estimate_curves,
     ratio_contrast,
+    ratio_function,
     refuse_odds_ratio,
     reported_status,
     select_estimates,
     smooth_contrast,
     sole_estimate,
+    with_derived_bootstrap,
 )
 from ..learners.crossfit import CrossFitPlan, SplitPlan
 from ..protocol import ProtocolDetail, protocol_summary_lines
@@ -970,7 +972,7 @@ class TMLEResult:
                 "one split."
             ),
         )
-        return smooth_contrast(
+        derived = smooth_contrast(
             self.estimates,
             function,
             names,
@@ -982,6 +984,7 @@ class TMLEResult:
             gradient=gradient,
             transform=transform,
         )
+        return with_derived_bootstrap(derived, self.estimates, self.bootstrap, names, function)
 
     def ratio(
         self,
@@ -1060,7 +1063,7 @@ class TMLEResult:
         )
         if kind == "or":
             refuse_odds_ratio(self.config.family)
-        return ratio_contrast(
+        derived = ratio_contrast(
             self.estimates,
             numerator,
             denominator,
@@ -1069,6 +1072,13 @@ class TMLEResult:
             cluster=self.data.cluster,
             alpha=self.config.alpha_sig,
             name=name or self._ratio_name(numerator, denominator, kind),
+        )
+        return with_derived_bootstrap(
+            derived,
+            self.estimates,
+            self.bootstrap,
+            (numerator, denominator),
+            ratio_function(kind, complement=False),
         )
 
     def _ratio_name(self, numerator: str, denominator: str, kind: str) -> str:

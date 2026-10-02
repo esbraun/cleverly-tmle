@@ -22,6 +22,7 @@ from .cluster import influence_covariance, stacked_second_moment_covariance
 from .delta import Transform, delta_method, log_odds_ratio_influence, log_ratio_influence
 from .influence import (
     _SECOND_MOMENT_CLUSTER_REFUSAL,
+    BootstrapSummary,
     CovarianceRule,
     ParameterEstimate,
     Scale,
@@ -31,6 +32,7 @@ from .influence import (
 __all__ = [
     "attach_bootstrap",
     "covariance_rule",
+    "derived_bootstrap",
     "estimate_covariance",
     "estimate_curves",
     "inference_status",
@@ -322,7 +324,17 @@ def ratio_contrast(
     if kind not in ("rr", "or"):
         raise ValueError(f"kind must be 'rr' or 'or'; got {kind!r}")
     influence = log_ratio_influence if kind == "rr" else log_odds_ratio_influence
-    log_psi, curve = influence(psi_a, ic_a, psi_b, ic_b)
+    try:
+        log_psi, curve = influence(psi_a, ic_a, psi_b, ic_b)
+    except ValueError:
+        # The helpers name EY1 and EY0, which is wrong for a regimen level or a survival
+        # view, so the refusal is restated with the caller's own inputs.
+        view = "1 - " if complement else ""
+        domain = "strictly positive" if kind == "rr" else "strictly inside (0, 1)"
+        raise ValueError(
+            f"the {'risk' if kind == 'rr' else 'odds'} ratio needs both inputs {domain}; got "
+            f"{view}{numerator}={psi_a:.6g} and {view}{denominator}={psi_b:.6g}"
+        ) from None
     return make_estimate(
         name,
         float(np.exp(log_psi)),
@@ -335,6 +347,97 @@ def ratio_contrast(
         covariance_rule=rule,
         inference=status,
     )
+
+
+def derived_bootstrap(
+    estimates: Mapping[str, ParameterEstimate],
+    bootstrap: BootstrapResult | None,
+    names: Sequence[str],
+    function: Callable[[FloatArray], float],
+    *,
+    alpha: float,
+) -> BootstrapSummary | None:
+    """The bootstrap summary of a derived estimate, from its inputs' replicate draws.
+
+    Each bootstrap replicate already holds a point estimate of every reported parameter, in
+    aligned rows of :attr:`BootstrapResult.draws`.  Applying ``function`` to each row gives
+    the replicate value of the derived estimate, so its percentile interval is the one the
+    full refit implies.  A replicate with a missing input gives a missing value.  The summary
+    is licensed as inference only when every input's summary is.
+
+    Parameters
+    ----------
+    estimates : Mapping of str to ParameterEstimate
+        The estimates of the fit.
+    bootstrap : BootstrapResult or None
+        The fit's replicate draws.
+    names : sequence of str
+        The inputs, in the order ``function`` reads them.
+    function : callable
+        The derived value as a function of the inputs.
+    alpha : float
+        Significance level of the percentile interval.
+
+    Returns
+    -------
+    BootstrapSummary or None
+        ``None`` when the fit carries no bootstrap, or an input has no draws.
+    """
+    if bootstrap is None or any(name not in bootstrap.draws for name in names):
+        return None
+    summaries = [estimates[name].bootstrap for name in names]
+    if any(summary is None for summary in summaries):
+        return None
+    matrix = np.column_stack([np.asarray(bootstrap.draws[name], dtype=float) for name in names])
+    values = np.array(
+        [float(function(row)) if np.all(np.isfinite(row)) else np.nan for row in matrix]
+    )
+    derived = BootstrapResult(
+        draws={"derived": values},
+        n_requested=bootstrap.n_requested,
+        n_failed=bootstrap.n_failed,
+        resampling=bootstrap.resampling,
+    ).summary("derived", alpha)
+    licensed = all(summary.inferential for summary in summaries if summary is not None)
+    return replace(derived, inferential=licensed)
+
+
+def with_derived_bootstrap(
+    derived: ParameterEstimate,
+    estimates: Mapping[str, ParameterEstimate],
+    bootstrap: BootstrapResult | None,
+    names: Sequence[str],
+    function: Callable[[FloatArray], float],
+) -> ParameterEstimate:
+    """``derived`` with the bootstrap summary :func:`derived_bootstrap` gives, if any."""
+    summary = derived_bootstrap(estimates, bootstrap, names, function, alpha=derived.alpha)
+    return derived if summary is None else derived.with_bootstrap(summary)
+
+
+def ratio_function(kind: RatioKind, complement: bool) -> Callable[[FloatArray], float]:
+    """The ratio of two levels as a function of the pair, for replicate draws."""
+
+    def value(pair: FloatArray) -> float:
+        a, b = float(pair[0]), float(pair[1])
+        if complement:
+            a, b = 1.0 - a, 1.0 - b
+        if kind == "rr":
+            return a / b
+        return (a / (1.0 - a)) / (b / (1.0 - b))
+
+    return value
+
+
+def linear_function(
+    weights: Sequence[float], constant: float = 0.0
+) -> Callable[[FloatArray], float]:
+    """``constant + weights . values``, for replicate draws."""
+    vector = np.asarray(weights, dtype=float)
+
+    def value(values: FloatArray) -> float:
+        return float(constant + vector @ np.asarray(values, dtype=float))
+
+    return value
 
 
 def linear_functional(

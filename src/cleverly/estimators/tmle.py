@@ -469,6 +469,13 @@ _REPEATED_BANDS_REASON = (
 )
 
 
+#: Whether the point-treatment full-refit bootstrap's percentile interval is published as
+#: inference.  It shipped as inference before the registered study
+#: ``full-refit-bootstrap-and-derived-contrasts`` measured it.  A red ``boot_ate_point_tmle``
+#: cell sets this to ``False``, so the interval then publishes as a diagnostic.
+POINT_BOOTSTRAP_INFERENTIAL = True
+
+
 class TMLE:
     """Targeted maximum likelihood estimator for a binary point treatment.
 
@@ -1534,7 +1541,7 @@ class TMLE:
                 random_state=self.random_state,
                 n_jobs=self.n_jobs,
             )
-            result = attach_bootstrap(result, bootstrap)
+            result = attach_bootstrap(result, bootstrap, inferential=POINT_BOOTSTRAP_INFERENTIAL)
 
         return result
 

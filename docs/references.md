@@ -1443,7 +1443,8 @@ is the only empirical witness for it.
   cause. Pending source read for the section locator.
 - The full-refit bootstrap of `LTMLE` has no source for this estimator. The registered
   [full-refit bootstrap study](technical-reference/method-evidence/full-refit-bootstrap-and-derived-contrasts.md)
-  measures its percentile interval with correctly specified GLM nuisances at $n = 1000$ only.
+  measures its percentile interval with correctly specified cell-mean nuisances on finite
+  binary laws, at $n = 1000$, and at 1,500 rows in 60 clusters for the cluster bootstrap.
   Cai & van der Laan (2020), in [collaborative TMLE](#collaborative-tmle), is the warning
   for a data-adaptive nuisance.
 
