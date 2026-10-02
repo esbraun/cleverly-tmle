@@ -7,6 +7,7 @@ decimals are also compared against its stored outputs, and every decimal it writ
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import numpy as np
@@ -277,16 +278,18 @@ def check(namespace: dict[str, Any]) -> None:
     assert "P(A=a,Delta=1|W)  0.0075" in assessment_output
     assert "max |clever covariate| (mean): 90.2" in assessment_output
     assert "nuisance fits look reasonable" in assessment_output
-    # "The unavailable rows are not implemented for a fit with a response mechanism": the
-    # omitted-variable rows and the E-value are unavailable, and no number for one appears in
-    # the returned results.  The missingness rows returned.
+    # The status table prints only the rows that ran or run on request. The omitted-variable
+    # rows and the E-value do not run for a fit with a response mechanism and stay off the page;
+    # "Both rows are `completed` in the status table" for the missingness tilt.
     ledger = namespace["assessment"].to_frame().set_index(["surface", "check"])
     for row in (*OMITTED_VARIABLE_OPERATIONS, "evalue"):
         assert str(ledger.loc[("sensitivity", row), "status"]) == "unavailable"
-        assert f"sensitivity  {row}" not in assessment_output.split("Not run", 1)[0]
-    returned = assessment_output.split("Checks", 1)[0]
-    assert "sensitivity  missingness" in returned
-    assert "sensitivity  tipping_gamma" in returned
+        assert not re.search(rf"sensitivity\s+{row}\b", assessment_output)
+    assert "unavailable" not in assessment_output and "not_applicable" not in assessment_output
+    for row in ("missingness", "tipping_gamma"):
+        assert str(ledger.loc[("sensitivity", row), "status"]) == "completed"
+        assert re.search(rf"sensitivity\s+{row}\s+completed", assessment_output)
+    assert re.search(r"refute\s+deferred", assessment_output)
 
     # "tipping gamma is 1.306", and "at most 0.315 of the score range" is the maximum over the
     # fitted [0, 1] mean of the logit move, reached at a mean of 0.658.
