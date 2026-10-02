@@ -1,0 +1,34 @@
+draws: 500, seeds 1000 to 1499
+
+Step 6 fit (missingness declared)
+  covers 1.2: 460 of 500 (0.920; Wald 95% 0.896 to 0.944)
+  bias -0.0045 (MC SE 0.0035); empirical SD 0.0793; mean SE 0.0741; SE/SD 0.935
+
+Step 7 complete-case fit
+  covers 1.2: 18 of 500 (0.036; Wald 95% 0.020 to 0.052)
+  covers 1.428 (population respondent-standardized target): 470 of 500 (0.940; Wald 95% 0.919 to 0.961)
+  covers the draw's respondent effect: 470 of 500 (0.940; Wald 95% 0.919 to 0.961)
+  mean estimate minus 1.427936: +0.0111 (MC SE 0.0028)
+  mean of estimate minus the draw's respondent effect: +0.0098
+  distance in SE from the draw's respondent effect: n 500, mean 0.1584, median 0.1447, 5% -1.4614, 95% 1.7969, min -3.1915, max 2.9881
+  |distance| >= 1.0 SE on 162 of 500
+  shift is most of the gap: 500 of 500 (1.000; Wald 95% 1.000 to 1.000)
+  empirical SD 0.0631; mean SE 0.0623; SE/SD 0.986
+
+Step 8 mild-law complete-case fit
+  covers 1.2: 474 of 500 (0.948; Wald 95% 0.929 to 0.967)
+
+Step 9 binary five-fold fits
+  ate covers: 461 of 500 (0.922; Wald 95% 0.898 to 0.946)
+  rr covers: 461 of 500 (0.922; Wald 95% 0.898 to 0.946)
+  or covers: 461 of 500 (0.922; Wald 95% 0.898 to 0.946)
+
+Step 11 tipping gamma, arm_gamma {0: 0, 1: -1}
+  point: n 500, mean 1.1846, median 1.1703, 5% 0.9421, 95% 1.4534, min 0.6743, max 1.6840
+  point, largest shift in score units: n 500, mean 6.4453, median 6.4266, 5% 5.3835, 95% 7.6110, min 4.8944, max 8.7085
+  point, shift / navigation-arm respondent SD: n 500, mean 3.6570, median 3.6287, 5% 3.0928, 95% 4.3164, min 2.8275, max 5.0671
+  use_ci=True: n 500, mean 1.0097, median 1.0016, 5% 0.8023, 95% 1.2471, min 0.5654, max 1.4457
+  use_ci=True, largest shift in score units: n 500, mean 5.5367, median 5.5043, 5% 4.6256, 95% 6.5645, min 3.8814, max 7.3237
+  scaler range: n 500, mean 22.6133, median 22.1728, 5% 19.1726, 95% 27.1251, min 17.6361, max 35.9594
+  corr(tip_point, scaler range) -0.594
+  CV of tip_point 0.131; CV of score-unit shift 0.104
