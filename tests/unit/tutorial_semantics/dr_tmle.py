@@ -25,15 +25,40 @@ NOTEBOOK = EXAMPLES / "dr-tmle.ipynb"
 
 COVARIATES = ("discharge_risk", "prior_utilization", "medication_burden", "age")
 
+_PROBE = "reviews/notebook-review/probes/dr-tmle-final"
+_STUDY = "tests/canonical/drtmle/properties.csv"
+
+#: Decimals the readings write that no stored output prints, each with its source.
+UNPRINTED_DECIMALS = {
+    "-0.0020": f"ordinary TMLE mean estimate minus the truth, 200 draws: {_PROBE}/summary.log",
+    "-0.0031": f"DR-TMLE mean estimate minus the truth, 200 draws: {_PROBE}/summary.log",
+    "0.0070": f"ordinary TMLE empirical SD, 200 draws: {_PROBE}/summary.log",
+    "0.0069": f"DR-TMLE empirical SD, 200 draws: {_PROBE}/summary.log",
+    "0.97": f"ordinary TMLE mean SE over empirical SD, 200 draws: {_PROBE}/summary.log",
+    "0.98": f"DR-TMLE mean SE over empirical SD, 200 draws: {_PROBE}/summary.log",
+    "0.0011": f"mean DR-TMLE minus ordinary estimate (-0.00113), 200 draws: {_PROBE}/summary.log",
+    "0.05": f"median |constant - ordinary| in ordinary SEs, 200 draws: {_PROBE}/summary.log",
+    "0.17": f"median |spline - ordinary| in ordinary SEs, 200 draws: {_PROBE}/summary.log",
+    "2.75": f"5% quantile of the E-value of the limit, 200 draws: {_PROBE}/summary.log",
+    "3.09": f"95% quantile of the E-value of the limit, 200 draws: {_PROBE}/summary.log",
+    "0.9475": f"coverage of double_robustness/outcome_correct: {_STUDY}",
+    "0.0026": f"lower 99% bias limit (0.002611) of double_robustness/outcome_correct: {_STUDY}",
+    "0.0075": f"upper 99% bias limit (0.007540) of double_robustness/outcome_correct: {_STUDY}",
+    "0.0067": f"bias margin (0.006749) of double_robustness/outcome_correct: {_STUDY}",
+    "0.945": f"coverage of double_robust_contraction/outcome_correct_n1500: {_STUDY}",
+    "0.94": f"coverage of double_robust_contraction/outcome_correct_n3000: {_STUDY}",
+    "0.94375": f"coverage of double_robust_contraction/outcome_correct_n6000: {_STUDY}",
+}
+
 
 def check(namespace: dict[str, Any]) -> None:
     """The DR-TMLE tutorial's seeded claims hold at the documented size.
 
     The page claims an exact reduction to the ordinary estimator, a close estimate and standard
     error on this draw, passing score and correction reports with no active truncation, score
-    checks that also pass for constant reductions that land near the ordinary TMLE, a
-    reduced-regression table whose g_r1 fits mostly favor the spline candidate, and a
-    sensitivity term nu2 that the doubted assignment model understates.
+    checks that also pass for constant reductions, a support report with no row below the bound,
+    a contract line that names the cross-fitting gap, a reduced-regression table in which the
+    fitted weights need not follow the lowest risk, and an approximate E-value on the DR-TMLE fit.
     """
     # The protocol step prints the record, and the guarded fit carries its digest.
     # "The changed field is `assumption rationale`, and only its first entry changes."
@@ -47,18 +72,18 @@ def check(namespace: dict[str, Any]) -> None:
     frame = namespace["frame"]
     assert list(frame.columns)[:2] == ["transition_score", "transition_navigation"]
 
+    # "the true propensity lies between 5% and 95%": the law's propensity on this draw's rows.
+    g0 = nonlinear_bounded_dgp().propensity(frame.loc[:, list(COVARIATES)].to_numpy(dtype=float))
+    assert g0.min() >= 0.05 and g0.max() <= 0.95
+
     # Step 3: the unadjusted arm difference exceeds the ATE, and the arms differ on risk.
     by_arm = namespace["by_arm"]
     unadjusted = namespace["unadjusted"]
-    # The margin is the retired Gaussian law's, scaled by the ratio of the two ATEs.
     assert unadjusted > namespace["truth"]["ate"] + 0.005
     assert by_arm.loc[1.0, "discharge_risk"] > by_arm.loc[0.0, "discharge_risk"] + 0.4
 
-    # "The catalog lists drtmle as available for this ATE. For the ATT it prints False."
-    catalog = {method.name: method for method in namespace["effect"].available_methods()}
-    assert catalog["drtmle"].available
-    att = namespace["att_catalog"]["drtmle"]
-    assert not att.available and att.reason
+    # "The last line lists drtmle among the methods available for this ATE."
+    assert "drtmle" in namespace["available"]
 
     ordinary = namespace["ordinary"]["ate"]
     empty_guard = namespace["empty_guard"]["ate"]
@@ -74,73 +99,75 @@ def check(namespace: dict[str, Any]) -> None:
     truth = namespace["truth"]["ate"]
     assert covers(guarded, truth)
 
-    # "On this draw it moves by -0.20 ordinary standard errors, less than one. The
-    # standard-error ratio is 0.99." The lower bound witnesses that the guarded estimate moves.
+    # "On this draw it moves by -0.03 ordinary standard errors, and the standard-error ratio is
+    # 1.00."  The nonzero witness: the guarded estimate does move, below the ordinary one.
     shift = (guarded.psi - ordinary.psi) / ordinary.std_error
-    assert -0.9 < shift < -0.1
-    assert 0.8 < guarded.std_error / ordinary.std_error < 1.25
+    assert -0.1 < shift < -0.01
+    assert 0.98 < guarded.std_error / ordinary.std_error < 1.02
 
-    # The failure mode: constant reductions pass every score check.
+    # The failure mode: constant reductions pass every score check, as the spline fit does.
     crude_fit = namespace["crude_fit"]
     assert crude_fit.diagnostics.score_equations().passed
     assert crude_fit.diagnostics.corrections().passed
     crude = crude_fit["ate"]
-    # "The constant fit is close to [the ordinary TMLE] on this draw, so the constant reductions
-    # change little." The witness that the reductions matter: the spline fit moves further.
-    assert abs(crude.psi - ordinary.psi) < abs(guarded.psi - ordinary.psi)
-    assert abs(crude.std_error / ordinary.std_error - 1) < abs(
-        guarded.std_error / ordinary.std_error - 1
-    )
-    assert abs(crude.psi - guarded.psi) > 0.1 * guarded.std_error
-    # "On this draw the spline fit lands nearer the true ATE ... than the constant fit does."
-    assert abs(guarded.psi - truth) < abs(crude.psi - truth)
+    # "On this draw the three estimates agree to three decimals."  The witness that the two
+    # reductions still differ: their estimates are not equal.
+    assert {round(x.psi, 3) for x in (crude, guarded, ordinary)} == {round(ordinary.psi, 3)}
+    assert crude.psi != guarded.psi
 
     assessment = namespace["assessment"]
     assert not assessment.attention  # "no row needs attention"
     corrections = assessment.report("corrections")
     assert corrections.passed
-    assert corrections.contract == "theorem"  # "no truncation was active"
+    assert corrections.contract == "theorem"  # "no truncation is active"
     assert assessment.report("score_equations").passed
+    # "It also states that Theorem 1 does not cover cross-fitting, and that condition (S) is open."
+    stored = stored_output(NOTEBOOK, "assessment")
+    assert "Theorem 1 does not cover cross-fitting" in stored
+    assert "condition (S) is open" in stored
     summary = assessment.summary()
-    # "Every omitted-variable operation is unavailable for this fit."
-    not_run = summary.split("Not run", 1)[1]
+    # "The omitted-variable rows are unavailable for a DR-TMLE fit."
+    ledger = assessment.to_frame().set_index(["surface", "check"])["status"]
     for operation in OMITTED_VARIABLE_OPERATIONS:
-        assert f"sensitivity.{operation}" in not_run
-    # "The evalue row of Step 9 still returns."
+        assert str(ledger.loc[("sensitivity", operation)]) == "unavailable"
     assert "sensitivity  evalue" in summary.split("Not run", 1)[0]
+
+    # "No row falls below the bound, which agrees with a law whose true propensity lies between
+    # 5% and 95%."  The fitted model's own support report, and its smallest fitted value.
+    support = assessment.report("support")
+    assert support.truncated["count"] == 0
+    assert "maximum truncated fraction 0.0%" in summary
 
     nuisance = assessment.report("nuisance_models")
     assert "look reasonable" in nuisance.summary()
 
     reduced = namespace["reduced"]
     assert set(reduced) == {"qr", "gr1", "gr2"}
-    # "the spline candidate has the lowest cross-validated risk in four of the six gr1 fits".
-    # Fails on a revert to plain linear reducers, which leave these diagnostics empty.
-    assert len(reduced["gr1"]) == 6
-    assert sum(fit.best == "spline" for fit in reduced["gr1"]) == 4
-    # "Each of the three families splits between its two candidates."
-    assert {fit.best for fit in reduced["gr1"]} == {"logistic", "spline"}
-    for family in ("qr", "gr2"):
-        assert {fit.best for fit in reduced[family]} == {"linear", "spline"}
+    # "The spline has the lowest cross-validated risk in three of the six gr1 fits, two of the six
+    # qr fits, and one of the six gr2 fits."  Fails on a revert to plain linear reducers, which
+    # leave these diagnostics empty.
+    for family, count in (("gr1", 3), ("qr", 2), ("gr2", 1)):
+        assert len(reduced[family]) == 6
+        assert sum(fit.best == "spline" for fit in reduced[family]) == count
 
-    # Step 10 shows the refusal, and the ledger marks every omitted-variable operation.
-    ledger = assessment.to_frame().set_index(["surface", "check"])["status"]
-    for operation in OMITTED_VARIABLE_OPERATIONS:
-        assert str(ledger.loc[("sensitivity", operation)]) == "unavailable"
-    # "The refusal names the fitted method, drtmle, and the quantity the package will not
-    # estimate for it."
-    refusal = namespace["bound_refusal"]
-    assert "'drtmle'" in refusal
-    assert "nu^2" in refusal
-    assert "does not assume a consistent treatment mechanism" in refusal
-    # The refusal keys on the estimator, so a term that vanishes needs its own witness: the
-    # ordinary fit of Step 7 shares this page's doubted assignment model, and the bound runs
-    # there. Its nu^2 is 4.316 where the sample second moment of the untruncated true ATE
-    # representer is 7.75. That gap is the optimism the DR-TMLE refusal prevents. The bounded
-    # law keeps nonlinear_dgp's propensity, so the representer survives the outcome family.
-    elements = namespace["ordinary"].sensitivity.elements(estimand="ate")
-    g0 = nonlinear_bounded_dgp().propensity(frame.loc[:, list(COVARIATES)].to_numpy(dtype=float))
-    true_nu2 = float(np.mean(1.0 / g0 + 1.0 / (1.0 - g0)))
-    assert round(true_nu2, 2) == 7.75
-    assert round(elements.nu2, 3) == 4.316
-    assert true_nu2 > 1.7 * elements.nu2
+    # "In the fourth qr fit the linear candidate has the lower risk, and the fitted weight on the
+    # spline is 1.0."  The witness that the fitted reduction is not the best candidate.
+    fourth = reduced["qr"][3]
+    assert fourth.best == "linear"
+    assert round(float(fourth.weights[list(fourth.names).index("spline")]), 2) == 1.0
+
+    # Step 10: the approximate E-value of the DR-TMLE fit, and the printed conversion chain.
+    evalue = namespace["evalue"]
+    assert evalue.approximate
+    assert evalue.point > evalue.limit > 1.0
+    printed = stored_output(NOTEBOOK, "sensitivity")
+    for words in (
+        "Standardised by sd(Y) = 0.2346",
+        "Chinn's log(OR) / 1.81 step",
+        "common-outcome square-root conversion",
+        "risk ratio 1.874",
+    ):
+        assert words in printed
+    # The chain the reading names: d = psi / sd(Y), log OR = 1.81 d, RR = sqrt(OR).
+    sd_y = float(np.std(frame["transition_score"], ddof=1))
+    assert np.isclose(np.sqrt(np.exp(1.81 * guarded.psi / sd_y)), evalue.risk_ratio, rtol=1e-3)
