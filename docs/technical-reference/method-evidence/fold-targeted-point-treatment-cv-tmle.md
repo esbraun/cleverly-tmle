@@ -74,8 +74,8 @@ both nuisances are correctly specified there.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `crossfit_overfitting` | `fold_targeted_cvtmle` | positive | fold-targeted CV-TMLE with a flexible learner | SE ratio clears the overfitting floor and stays inside the sanity band | SE ratio 0.9149 to 1.1134 | pass |
-| `crossfit_overfitting` | `in_sample_control` | control | the same flexible learner fitted in sample, with no cross-fitting | SE ratio must fall below the overfitting ceiling | SE ratio 0.4453 to 0.5399 | pass |
+| `crossfit_overfitting` | `fold_targeted_cvtmle` | positive | fold-targeted CV-TMLE with a flexible learner | SE ratio clears the overfitting floor and stays inside the sanity band | SE ratio 0.9224 to 1.1045 | pass |
+| `crossfit_overfitting` | `in_sample_control` | control | the same flexible learner fitted in sample, with no cross-fitting | SE ratio must fall below the overfitting ceiling | SE ratio 0.4534 to 0.5416 | pass |
 | `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000576 to 0.0011, margin 0.0029, SE ratio 0.9647 | pass |
 | `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias -0.0361 to -0.0337, margin 0.0041, SE ratio 0.9891 | pass |
 | `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000865 to 0.000707, margin 0.0026, SE ratio 1.0572 | pass |
@@ -119,11 +119,11 @@ committed results and is checked at the precision shown.
 | `properties[interval_calibration/correctly_specified]:se_ratio` | 0.9987 | SE calibration where both nuisances are correct |
 | `properties[type_i_error/sharp_null]:rejection_rate` | 0.0400 | rejection under the confounded sharp null |
 | `properties[power/alternative]:rejection_rate` | 1 | rejection under the positive control |
-| `properties[crossfit_overfitting/fold_targeted_cvtmle]:coverage` | 0.9175 | coverage with cross-fitted tree predictions |
-| `properties[crossfit_overfitting/fold_targeted_cvtmle]:se_ratio` | 1.0037 | SE calibration with cross-fitting |
-| `properties[crossfit_overfitting/in_sample_control]:coverage` | 0.4875 | coverage with the in-sample tree control |
-| `properties[crossfit_overfitting/in_sample_control]:se_ratio` | 0.4874 | SE calibration of that control |
-| `properties[crossfit_overfitting/fold_targeted_cvtmle]:coverage_gain_ci_lower` | 0.3575 | paired lower bound for coverage gained over the control |
+| `properties[crossfit_overfitting/fold_targeted_cvtmle]:coverage` | 0.9275 | coverage with cross-fitted tree predictions |
+| `properties[crossfit_overfitting/fold_targeted_cvtmle]:se_ratio` | 1.0033 | SE calibration with cross-fitting |
+| `properties[crossfit_overfitting/in_sample_control]:coverage` | 0.5225 | coverage with the in-sample tree control |
+| `properties[crossfit_overfitting/in_sample_control]:se_ratio` | 0.4916 | SE calibration of that control |
+| `properties[crossfit_overfitting/fold_targeted_cvtmle]:coverage_gain_ci_lower` | 0.3400 | paired lower bound for coverage gained over the control |
 | `margin:confidence_level` | 0.9900 | confidence level for Monte Carlo intervals |
 | `margin:alpha` | 0.0500 | nominal size of the estimator intervals |
 | `margin:nominal_coverage` | 0.9500 | nominal coverage of those intervals |

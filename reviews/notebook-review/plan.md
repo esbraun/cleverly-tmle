@@ -63,6 +63,44 @@ hashes.
 | evidence pages | `python -m tests.studies.evidence.document` and `python -m tests.studies.evidence.red_cells` regenerate the generated blocks. The hand-written measured values at `stacked-point-treatment-cv-tmle.md:243`, `fold-evaluated-point-treatment-cv-tmle.md:171`, `fold-targeted-point-treatment-cv-tmle.md:122-126`, and `outcome-adaptive-point-treatment-c-tmle.md:202` are rewritten against the new `properties.csv` in the S3 commit |
 | red-cell route | if a gated cell is red after the run, the orchestrator stops and reports to the user before any change. The fast suite requires a roadmap owner for every red row (`test_red_cell_ledger`), and the user has ruled out roadmap additions, so that conflict needs the user's decision. Margins, budgets, seeds, laws, learners, and `n` are never changed after a result is seen. `canonical-ctmle-oat` already publishes under `reporting`; a new red row there takes the same stop |
 
+### What the run found
+
+The four declared runs ran serially on 2026-10-01, as `.tmp/notebook-review/regen/status.txt`
+records.
+
+| order | study | exit | start | end | wall time |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `fold-evaluated-cvtmle` | 0 | 21:32:34 | 21:37:08 | 4 min 34 s |
+| 2 | `fold-targeted-cvtmle` | 0 | 21:37:08 | 21:42:25 | 5 min 17 s |
+| 3 | `canonical-ctmle-oat` | 0 | 21:42:25 | 21:46:11 | 3 min 46 s |
+| 4 | `canonical-cvtmle` | 0 | 21:46:11 | 21:51:53 | 5 min 42 s |
+
+| item | result |
+| --- | --- |
+| byte-identical witness | held. `replicates.csv.gz`, `summary.csv`, `equivalence.csv`, and `performance-tests.csv` are byte-identical to the committed files in all four studies. Only `properties.csv`, `property-replicates.csv.gz`, and `manifest.json` changed |
+| manifests | the three composites (`cvtmle_fold`, `zepid_cvtmle`, `tmle3_cvtmle`) are now plain manifests. Their `run.log` files described the superseded seed-repair run, so S3 deletes them. `seed-repair-plan.json` is unchanged |
+| recorded commit | the manifests record `cleverly_commit` d546049f, d546049f, a8661971, and 84d26a6b. Those commits landed during the runs and touch only `docs/development/example-notebooks.md`, `docs/examples/index.md`, and the tutorial narration harness, which no study imports. `5bc92b5e` (fix A) precedes all four |
+| moved cells | only `crossfit_overfitting` (all four studies) and `robustness_contract` (`canonical-ctmle-oat`), the cells that sample `nonlinear_dgp` |
+| verdicts | no `passed` or `property_passed` value changed. Every row of the four `properties.csv` files passes |
+| red cells | none new. `python -m tests.studies.evidence.red_cells` updated 0 blocks, so no gated cell turned red and the declared stop did not trigger |
+
+| study | cell | coverage | SE ratio | standardized bias | paired coverage-gain lower bound |
+| --- | --- | --- | --- | --- | --- |
+| `fold-evaluated-cvtmle` | `crossfit_overfitting/fold_evaluated_cvtmle` | 0.9325 -> 0.9450 | 1.0193 -> 0.9800 | -0.3535 -> -0.2921 | 0.3775 -> 0.3575 |
+| `fold-evaluated-cvtmle` | `crossfit_overfitting/in_sample_control` | 0.4875 -> 0.5225 | 0.4874 -> 0.4916 | -0.9041 -> -0.7909 | same pair |
+| `fold-targeted-cvtmle` | `crossfit_overfitting/fold_targeted_cvtmle` | 0.9175 -> 0.9275 | 1.0037 -> 1.0033 | -0.4261 -> -0.3937 | 0.3575 -> 0.3400 |
+| `fold-targeted-cvtmle` | `crossfit_overfitting/in_sample_control` | 0.4875 -> 0.5225 | 0.4874 -> 0.4916 | -0.9041 -> -0.7909 | same pair |
+| `canonical-ctmle-oat` | `crossfit_overfitting/cross_fitted_oat` | 0.9150 -> 0.9200 | 0.9699 -> 0.9916 | 0.3727 -> 0.3398 | 0.3400 -> 0.3050 |
+| `canonical-ctmle-oat` | `crossfit_overfitting/in_sample_control` | 0.4975 -> 0.5400 | 0.4563 -> 0.4728 | -0.7727 -> -0.7151 | same pair |
+| `canonical-ctmle-oat` | `robustness_contract/outcome_correct` | 0.9392 -> 0.9408 | 0.9834 -> 0.9850 | 0.0241 -> 0.0160 | not applicable |
+| `canonical-ctmle-oat` | `robustness_contract/outcome_wrong` | 0.6275 -> 0.7050 | 0.9947 -> 0.9977 | -1.6317 -> -1.4208 | not applicable |
+| `canonical-cvtmle` | `crossfit_overfitting/stacked_cvtmle` | 0.9325 -> 0.9450 | 1.0165 -> 0.9770 | -0.3535 -> -0.2921 | 0.3800 -> 0.3575 |
+| `canonical-cvtmle` | `crossfit_overfitting/in_sample_control` | 0.4875 -> 0.5225 | 0.4874 -> 0.4916 | -0.9041 -> -0.7909 | same pair |
+
+The coverage-gain upper bounds moved from 0.51, 0.4975, 0.4925, and 0.51 to 0.4875, 0.4725, 0.4525,
+and 0.49, in the table's study order. The in-sample control shares its seed with the cross-fitted
+arm, so its coverage and SE ratio match across the three CV-TMLE studies.
+
 ## Order of changes
 
 Each change is one subagent and one commit, run serially. After each commit a Fable gate reviews it,
