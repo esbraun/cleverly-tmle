@@ -1636,6 +1636,16 @@ probability. At $\gamma = 0$ it reproduces the missing-at-random estimate by con
 the control that says the tilt is wired in. `arm_gamma=` gives per-arm tilt directions and must
 name every arm. `tipping_gamma()` inverts the tilt for the value at which the conclusion changes.
 
+The tilt applies $\gamma$ on the logit of the outcome scale that the fit uses.
+A binary outcome uses that scale directly.
+A continuous outcome maps onto $[0, 1]$ through the declared `q_bounds`.
+Without `q_bounds`, `OutcomeScaler.from_outcome` takes the observed range and widens it by 10% on each side.
+Declare `q_bounds` to fix what one unit of $\gamma$ means for a continuous outcome.
+
+Away from $\gamma = 0$, the curve is a plug-in value.
+`_tilted_psi` reuses the targeted $\bar{Q}^*$ of the $\gamma = 0$ fit and does not target again at each $\gamma$.
+The accuracy of the curve away from $\gamma = 0$ therefore depends on the outcome model.
+
 This is a retarget operation and not a refit.
 
 `fit_wide_tilt_refusal` holds every refusal that no argument lifts. `missingness_tilt()` and

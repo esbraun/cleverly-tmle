@@ -38,7 +38,7 @@ not `done`. Findings live in `findings/<stem>.md`, verification in `verification
 | N8 | longitudinal-survival | committed (5.8 s; --check 0) | 2692722c, fix aed3986b | PASS after fix (gate-N8.md) |
 | N9 | msm-projections | committed (5.4 s; --check 0) | 6927899e, fix cafb67af | PASS after fix (gate-N9.md) |
 | N10 | twins-causal-inference | committed (42 s, network; --check 0) | aaf4c484, fix 87fec724 | PASS after fixes (gate-N10.md) |
-| F | prose ledger, fast suite, docs build, final gate, PR, CI | F1, F2 done; prose ledger current (0 undecided); fast suite running | 4fc4b6c8 (F1); 92b24e4f d029b7a8 010be6ea 62e6e31c 87fec724 (F2) | |
+| F | prose ledger, fast suite, docs build, final gate, PR, CI | fast suite 13512 passed; nox docs 0; ruff 0; mypy 0; final gate running | 4fc4b6c8 (F1); 92b24e4f d029b7a8 010be6ea 62e6e31c 87fec724 (F2) | |
 
 ## Log
 

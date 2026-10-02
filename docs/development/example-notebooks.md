@@ -5,8 +5,8 @@ step of a tutorial notebook shows its code, its output, and a plain reading of t
 reader is a practitioner who is new to TMLE and new to `cleverly`.
 
 Use [point-treatment TMLE](../examples/point-treatment-tmle.ipynb) as the reference. It follows
-every rule on this page. The [TWINS notebook](../examples/twins-causal-inference.ipynb) is the
-other published notebook, and it is not a program tutorial.
+every rule on this page. The [TWINS notebook](../examples/twins-causal-inference.ipynb) analyzes
+public data, and it is not a program tutorial.
 
 ## What a tutorial notebook consists of
 
@@ -149,7 +149,7 @@ where `base` is the protocol that `replace` received.
 | Set every effective seed: the generator seed, `Runtime(random_state=...)`, and each learner's active `random_state` | a rerun must reproduce the stored outputs |
 | Set `n_jobs=1` in `Runtime` and where a learner still uses that parameter. Do not pass a deprecated parameter that the installed learner ignores | several notebooks execute on one machine at once, and deprecated settings add warning noise without limiting work |
 | Fit every learner through `cleverly`, and do not call `set_thread_limit`. Wrap any other fit in `with thread_limit():` from `cleverly.learners` | `HistGradientBoosting*` has no `n_jobs`, and its OpenMP pool uses every core. `cleverly` fits each learner under `thread_limit()`, which holds OpenMP and BLAS to one thread by default |
-| Keep the whole notebook under 60 seconds with `scripts/execute_notebook.py` | the fast tier runs every tutorial. The reference notebook takes 12 seconds |
+| Keep the whole notebook under 60 seconds with `scripts/execute_notebook.py` | the fast tier runs every tutorial. The stored cell timestamps of the reference notebook span about 11 seconds |
 | Give each code cell a short, stable, kebab-case id. Never rename an id that a callback reads | `stored_output(path, cell_id)` finds a cell by its id |
 | Pair every figure with printed values | an image cannot enter the `--check` comparison |
 | Use no network, and write files only inside a `TemporaryDirectory` | the offline gate refuses a connection, and the kernel runs from the repository root |
