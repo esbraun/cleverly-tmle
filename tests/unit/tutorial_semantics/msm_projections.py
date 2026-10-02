@@ -39,9 +39,17 @@ UNPRINTED_DECIMALS = {
     "0.984": f"Step 7 slope mean SE over empirical SD, fitted g: {_PROBE}/sweep.log",
     "0.986": f"Step 7 slope mean SE over empirical SD, true g: {_PROBE}/sweep.log",
     "0.997": f"Step 8 slope mean SE over empirical SD: {_PROBE}/sweep.log",
-    "0.0001": f"smallest true g(high) over 2e6 covariate draws (1.11e-04), g(medium) 1.68e-04: "
-    f"{_PROBE}/truth.log",
-    "0.01": "the study's fixed g_bounds (0.01, 0.99): tests/studies/canonical_point_msm.py G_BOUNDS",
+    "0.946": f"2 Phi(1.96 x 0.984) - 1, the normal coverage at the fitted-g SE / SD ratio: "
+    f"{_PROBE}/shortfall.log",
+    "0.9327": f"Wilson 95% lower end of the Step 7 slope coverage: {_PROBE}/sweep.log",
+    "0.9474": f"Wilson 95% upper end of the same coverage: {_PROBE}/sweep.log",
+    "0.05": f"excess kurtosis of the Step 7 slope z-statistic over 4000 draws: {_PROBE}/shortfall.log",
+    "0.937": f"lowest Step 7 slope coverage over quartiles of the smallest fitted g: "
+    f"{_PROBE}/shortfall.log",
+    "0.945": f"highest Step 7 slope coverage over the same quartiles: {_PROBE}/shortfall.log",
+    "0.01": "the study's fixed g_bounds (0.01, 0.99): tests/studies/canonical_point_msm.py G_BOUNDS; "
+    f"also the true-g threshold, share below it 0.0112 for medium or high: {_PROBE}/shortfall.log",
+    "0.734": "half the stored ate[high vs low], 1.4681 / 2, checked in check()",
     "0.99": "the upper end of the same G_BOUNDS",
     "0.25": "the smallest propensity of the study laws, tests/discrete_law.py G = (0.40, 0.60, 0.25)",
     "0.6": "the largest propensity of the same G",
@@ -248,6 +256,11 @@ def check(namespace: dict[str, Any]) -> None:
     assert covers(step_slope, step_target[1])
     assert covers(trend["msm[assigned contacts]"], projection[1])
     assert not covers(step_slope, projection[1])
+    # "half of that is 0.734": the per-step slope is half the high-vs-low difference.
+    high_vs_low = namespace["saturated_result"]["msm[high vs low]"].psi
+    assert f"{high_vs_low / 2:.3f}" == "0.734"
+    assert abs(step_slope.psi - high_vs_low / 2) < 5e-4
+    assert step_target[1] == pytest.approx(population[2] / 2 - population[0] / 2)
     # "Neither line passes through the three means."
     assert np.max(np.abs(step_design @ step_target - population)) > 0.05
 
