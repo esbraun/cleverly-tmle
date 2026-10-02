@@ -9,18 +9,28 @@ nothing to select the estimator collapses onto a plain TMLE bit for bit.
 
 from __future__ import annotations
 
+import functools
 import importlib
+from dataclasses import dataclass, field
 from itertools import pairwise
 from typing import Any, ClassVar
 
 import numpy as np
 import pytest
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
+from sklearn.dummy import DummyRegressor
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 
 from cleverly._inference_status import NON_INFERENTIAL
-from cleverly.datasets import make_cde, make_instrument, make_linear_ate
+from cleverly.datasets import (
+    make_binary_outcome,
+    make_cde,
+    make_instrument,
+    make_linear_ate,
+    make_missing_outcome,
+    make_multi_arm,
+)
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators import ctmle as ctmle_module
 from cleverly.estimators._nuisance import Propensity, UnfittedPropensity
@@ -32,6 +42,8 @@ from cleverly.estimators.ctmle import (
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError
 from cleverly.learners.crossfit import SplitPlan, make_folds, random_partition
+from cleverly.sensitivity.omitted_variable import fit_wide_bound_refusal, sensitivity_elements
+from cleverly.variable_importance import variable_importance
 from tests import discrete_law as law
 from tests.conftest import FAST_KWARGS, linear_ctmle, mean_one_weights
 
@@ -47,6 +59,140 @@ TMLE_KWARGS = {**FAST_KWARGS, "estimands": ("ate",), "cross_fit": False}
 #: dominant cost in this file and the claims resolve identically either way.
 CTMLE_KWARGS = {**TMLE_KWARGS, "selection_folds": 3}
 tmle_module = importlib.import_module("cleverly.estimators.tmle")
+
+
+@functools.cache
+def _full_candidate_frame(kind: str) -> Any:
+    """One compact frame per data shape the full-candidate identity runs on."""
+    if kind == "linear":
+        return make_linear_ate(n=400, seed=21)[0]
+    if kind == "weighted":
+        frame = make_linear_ate(n=400, seed=21)[0].copy()
+        frame["w"] = np.asarray(mean_one_weights(len(frame)))
+        return frame
+    if kind == "binary":
+        return make_binary_outcome(n=400, seed=4)[0]
+    if kind == "multi_arm":
+        return make_multi_arm(n=450, seed=2, family="binomial")[0]
+    frame = make_missing_outcome(n=450, seed=3)[0].copy()
+    frame.loc[frame["Delta"] == 0, "Y"] = np.nan
+    return frame
+
+
+@dataclass(frozen=True)
+class FullCandidateCase:
+    """One accepted configuration of a ``discrete`` fit with one full candidate.
+
+    Parameters
+    ----------
+    name : str
+        The test id.
+    frame : str
+        The key of :func:`_full_candidate_frame`.
+    candidate : tuple of str
+        The one declared candidate. It holds every covariate, in any order.
+    settings : dict
+        Estimator settings shared by both fits.
+    fit : dict
+        Keyword arguments of both ``fit`` calls.
+    ctmle : dict
+        Settings only the collaborative fit takes.
+    band : bool
+        Whether the configuration builds a simultaneous band.
+    """
+
+    name: str
+    frame: str
+    candidate: tuple[str, ...]
+    settings: dict[str, Any]
+    fit: dict[str, Any] = field(default_factory=lambda: {"outcome": "Y", "treatment": "A"})
+    ctmle: dict[str, Any] = field(default_factory=dict)
+    band: bool = False
+
+    def fits(self) -> tuple[Any, Any]:
+        """The collaborative fit and the ``TMLE`` fit, on the same frame and settings."""
+        frame = _full_candidate_frame(self.frame)
+        settings = {**FAST_KWARGS, **self.settings}
+        collaborative = CTMLE(
+            **settings, **self.ctmle, strategy="discrete", candidates=[self.candidate]
+        )
+        plain = TMLE(**settings)
+        return (
+            collaborative.fit(frame, **self.fit).single(),
+            plain.fit(frame, **self.fit).single(),
+        )
+
+
+_W4 = ("W1", "W2", "W3", "W4")
+_W3 = ("W1", "W2", "W3")
+_IN_SAMPLE = {"cross_fit": False}
+_CROSS_FIT = {"cross_fit": True, "n_folds": 3, "random_state": 5}
+
+#: The configurations the identity test runs. Together they cover in-sample and
+#: cross-fitted fits, two and three arms, fixed weights, a missing outcome, each of
+#: ``ey``, ``ate``, ``rr`` and ``or``, a simultaneous band, ``repeats`` and the bootstrap.
+FULL_CANDIDATE_CASES: tuple[FullCandidateCase, ...] = (
+    FullCandidateCase("in_sample_ate", "linear", _W4, {**_IN_SAMPLE, "estimands": ("ate",)}),
+    FullCandidateCase(
+        "candidate_order_is_free",
+        "linear",
+        ("W4", "W2", "W3", "W1"),
+        {**_IN_SAMPLE, "estimands": ("ate",)},
+    ),
+    FullCandidateCase(
+        "fixed_weights",
+        "weighted",
+        _W4,
+        {**_IN_SAMPLE, "estimands": ("ate",)},
+        fit={"outcome": "Y", "treatment": "A", "weights": "w"},
+    ),
+    FullCandidateCase(
+        "ratio_band",
+        "binary",
+        _W3,
+        {**_IN_SAMPLE, "estimands": ("ate", "rr", "or"), "simultaneous": True, "random_state": 3},
+        band=True,
+    ),
+    FullCandidateCase(
+        "cross_fit_band",
+        "binary",
+        _W3,
+        {**_CROSS_FIT, "estimands": ("ate", "ey"), "simultaneous": True},
+        band=True,
+    ),
+    FullCandidateCase(
+        "repeats", "binary", _W3, {**_CROSS_FIT, "estimands": ("ate",), "repeats": 3}
+    ),
+    FullCandidateCase(
+        "bootstrap",
+        "binary",
+        _W3,
+        {**_IN_SAMPLE, "estimands": ("rr",), "n_bootstrap": 3, "random_state": 7},
+        ctmle={"ctmle_estimand": "rr"},
+    ),
+    FullCandidateCase(
+        "multi_arm_means",
+        "multi_arm",
+        _W3,
+        {**_IN_SAMPLE, "estimands": ("ey",), "simultaneous": True, "random_state": 3},
+        ctmle={"ctmle_estimand": "ey"},
+        band=True,
+    ),
+    FullCandidateCase(
+        "multi_arm_cross_fit",
+        "multi_arm",
+        _W3,
+        {**_CROSS_FIT, "estimands": ("or",), "reference": "low"},
+        ctmle={"ctmle_estimand": "or"},
+    ),
+    FullCandidateCase(
+        "missing_outcome",
+        "missing",
+        _W3,
+        {**_IN_SAMPLE, "estimands": ("ate",)},
+        fit={"outcome": "Y", "treatment": "A", "delta": "Delta"},
+    ),
+)
 
 
 @pytest.mark.parametrize(
@@ -778,42 +924,46 @@ class TestOutcomeAdaptiveCrossFitting:
 
 
 class TestEquivalenceWithPlainTmle:
-    def test_a_single_full_candidate_reproduces_tmle_exactly(self) -> None:
-        # With one candidate there is nothing to select, so C-TMLE is a plain TMLE
-        # with an extra bookkeeping step. Bit-for-bit equality is the sharpest
-        # available check that the selection layer does not perturb the estimator.
-        frame, _ = make_linear_ate(n=500, seed=21)
-        every = ("W1", "W2", "W3", "W4")
-        collaborative = (
-            CTMLE(**{**CTMLE_KWARGS, "strategy": "discrete", "candidates": [every]})
-            .fit(frame, outcome="Y", treatment="A")
-            .single()
-        )
-        plain = TMLE(**TMLE_KWARGS).fit(frame, outcome="Y", treatment="A").single()
+    @pytest.mark.parametrize("case", FULL_CANDIDATE_CASES, ids=lambda case: case.name)
+    def test_a_single_full_candidate_reproduces_tmle_exactly(self, case: FullCandidateCase) -> None:
+        """With one full candidate there is nothing to select, so C-TMLE is a plain TMLE.
 
-        assert collaborative.psi("ate") == pytest.approx(plain.psi("ate"), abs=1e-12)
-        # ``plugin_std_error`` reads the same body ``plain["ate"].std_error`` reads, so the
-        # bit-for-bit claim this test exists to make is preserved exactly, and sharpened:
-        # it now pins that the retained diagnostic *is* the ordinary curve's plug-in
-        # standard error.
-        assert collaborative["ate"].plugin_std_error == pytest.approx(
-            plain["ate"].std_error, abs=1e-12
-        )
-        assert np.allclose(
-            collaborative["ate"].influence_curve,
-            plain["ate"].influence_curve,
-            atol=1e-12,
-            rtol=0.0,
-        )
-        # The selection layer does not perturb the estimator, and the package still refuses
-        # to call the result inference: the refusal keys on the strategy, not on whether
-        # this path had anything to select. That is a deliberate over-refusal -- the
-        # package refuses an interval for a fit it can prove is bit-identical to one whose
-        # interval it does supply -- and it is the conservative direction. See
-        # docs/technical-reference/collaborative-tmle.md on the single-full-candidate case,
-        # whose workaround is TMLE.
-        with pytest.raises(CapabilityError):
-            _ = collaborative["ate"].ci
+        The fit takes the ordinary status, so its interval, p-value, standard error,
+        simultaneous band and bootstrap draws all equal those of the ``TMLE`` fit. Each
+        case is one configuration ``CTMLE`` accepts: the probe that chose them found every
+        accepted configuration identical to 1e-14, and the declared full candidate is
+        admitted on each. ``docs/technical-reference/collaborative-tmle.md`` states the
+        contract.
+        """
+        collaborative, plain = case.fits()
+        assert collaborative.inference_status == plain.inference_status == "influence_curve"
+        assert collaborative.extra["ctmle"].path == (tuple(case.candidate),)
+        assert set(collaborative.estimates) == set(plain.estimates)
+        for name, estimate in plain.estimates.items():
+            mine = collaborative[name]
+            assert mine.psi == pytest.approx(estimate.psi, abs=1e-12)
+            assert mine.std_error == pytest.approx(estimate.std_error, abs=1e-12)
+            assert mine.plugin_std_error == pytest.approx(estimate.std_error, abs=1e-12)
+            assert mine.pvalue == pytest.approx(estimate.pvalue, abs=1e-12)
+            np.testing.assert_allclose(mine.ci, estimate.ci, atol=1e-12, rtol=0.0)
+            np.testing.assert_allclose(
+                mine.influence_curve, estimate.influence_curve, atol=1e-12, rtol=0.0
+            )
+        assert (collaborative.simultaneous is None) == (plain.simultaneous is None)
+        assert (plain.simultaneous is not None) == case.band
+        if plain.simultaneous is not None:
+            assert collaborative.simultaneous is not None
+            for name, band in plain.simultaneous.bands.items():
+                np.testing.assert_allclose(
+                    collaborative.simultaneous.bands[name], band, atol=1e-12, rtol=0.0
+                )
+        assert (collaborative.bootstrap is None) == (plain.bootstrap is None)
+        if plain.bootstrap is not None:
+            assert collaborative.bootstrap is not None
+            for name, draws in plain.bootstrap.draws.items():
+                np.testing.assert_allclose(
+                    collaborative.bootstrap.draws[name], draws, atol=1e-12, rtol=0.0
+                )
 
     def test_the_selected_targeted_outcome_is_the_final_targeting_start(
         self, instrument_frame
@@ -839,6 +989,235 @@ class TestEquivalenceWithPlainTmle:
     def test_it_solves_the_score_equation(self, instrument_frame) -> None:
         result = CTMLE(**CTMLE_KWARGS).fit(instrument_frame, outcome="Y", treatment="A").single()
         assert result.diagnostics.score_equations().passed
+
+
+class TestOnlyTheDeclaredFullCandidateIsAdmitted:
+    """The controls that keep the full-candidate admission to the fit that selects nothing.
+
+    ``TestTheWorkingMechanismDiagnosticMissesTheExactVariance`` is the nonzero witness
+    that a single candidate short of the full set must keep refusing: its intercept-only
+    diagnostic is 0.6345 of the exact variance. The controls here cover the other ways
+    a fit can resemble the admitted one.
+    """
+
+    @staticmethod
+    def _fit(candidates: Any, **overrides: Any) -> Any:
+        frame, _ = make_linear_ate(n=300, seed=21)
+        return (
+            CTMLE(**{**CTMLE_KWARGS, **overrides, "strategy": "discrete", "candidates": candidates})
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+
+    @staticmethod
+    def _refuses(result: Any) -> None:
+        assert result.inference_status == "working_mechanism_plugin"
+        with pytest.raises(CapabilityError) as raised:
+            _ = result["ate"].ci
+        assert WORKING_MECHANISM.reason in str(raised.value)
+
+    @pytest.fixture(scope="class")
+    def stops_at_full(self) -> Any:
+        """Two candidates, and the search stops at the full set.
+
+        A constant outcome regression leaves all confounding to the mechanism, so the
+        cross-validated risk prefers the full set over ``W1`` alone on this sample.
+        """
+        return self._fit([("W1",), _W4], outcome_learner=DummyRegressor())
+
+    def test_a_single_partial_candidate_refuses(self) -> None:
+        self._refuses(self._fit([("W1", "W2", "W3")]))
+
+    def test_a_path_that_stops_at_the_full_set_refuses(self, stops_at_full: Any) -> None:
+        # The control is not vacuous: the search did select the full set.
+        assert stops_at_full.extra["ctmle"].selected_covariates == _W4
+        self._refuses(stops_at_full)
+
+    def test_a_repeated_full_candidate_counts_as_two(self) -> None:
+        self._refuses(self._fit([_W4, _W4]))
+
+    def test_a_repeated_name_is_not_the_full_set(self) -> None:
+        assert not ctmle_module.declares_full_adjustment_only(
+            "discrete", [("W1", "W1", "W2", "W3")], _W4
+        )
+        assert not ctmle_module.declares_full_adjustment_only("discrete", [(*_W4, "W4")], _W4)
+        assert ctmle_module.declares_full_adjustment_only(
+            "discrete", [("W4", "W3", "W2", "W1")], _W4
+        )
+
+    @pytest.mark.parametrize("strategy", ["greedy", "ordered", "oat"])
+    def test_other_strategies_are_never_admitted(self, strategy: str) -> None:
+        assert not ctmle_module.declares_full_adjustment_only(strategy, [_W4], _W4)
+
+    def test_the_status_reads_no_fitted_state(self) -> None:
+        """The status an unfitted estimator gives is the status the fit stamps."""
+        frame, _ = make_linear_ate(n=300, seed=21)
+        for candidates in ([_W4], [("W1",), _W4]):
+            estimator = CTMLE(**{**CTMLE_KWARGS, "strategy": "discrete", "candidates": candidates})
+            before = estimator._inference_status(_prepared(estimator, frame))
+            fitted = estimator.fit(frame, outcome="Y", treatment="A").single()
+            assert before == fitted.inference_status
+
+    def test_a_key_on_the_fitted_path_would_admit_the_stopping_control(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The mutation control of the status-source test above.
+
+        A key that reads the selected candidate admits the two-candidate fit whose path
+        stopped at the full set. That is the fit
+        :meth:`test_a_path_that_stops_at_the_full_set_refuses` refuses, so that control
+        fails under this mutation.
+        """
+        original = CTMLE._nuisances
+
+        def recording(self: CTMLE, *args: Any, **kwargs: Any) -> Any:
+            nuisance, extra = original(self, *args, **kwargs)
+            self._selected_for_mutation = extra["ctmle"].selected_covariates  # type: ignore[attr-defined]
+            return nuisance, extra
+
+        def path_keyed(self: CTMLE, data: Any) -> Any:
+            selected = getattr(self, "_selected_for_mutation", None)
+            if selected is not None and sorted(selected) == sorted(data.covariate_names):
+                return "influence_curve"
+            return "working_mechanism_plugin"
+
+        monkeypatch.setattr(CTMLE, "_nuisances", recording)
+        monkeypatch.setattr(CTMLE, "_inference_status", path_keyed)
+        mutated = self._fit([("W1",), _W4], outcome_learner=DummyRegressor())
+        assert mutated.extra["ctmle"].selected_covariates == _W4
+        assert mutated.inference_status == "influence_curve"
+        assert np.isfinite(mutated["ate"].ci).all()
+
+
+def _prepared(estimator: CTMLE, frame: Any) -> Any:
+    """The prepared data of a default ``fit(frame, outcome="Y", treatment="A")``."""
+    return estimator._prepare(
+        frame,
+        outcome="Y",
+        treatment="A",
+        covariates=None,
+        delta=None,
+        weights=None,
+        weights_type="probability",
+        weights_estimated=False,
+        id=None,
+        intermediate=None,
+    )
+
+
+class TestTheFullCandidateRefit:
+    """A refit of the admitted fit stays the ordinary TMLE refit, and keeps its status."""
+
+    @pytest.fixture(scope="class")
+    def pair(self) -> tuple[Any, Any]:
+        frame, _ = make_linear_ate(n=300, seed=21)
+        settings = {**TMLE_KWARGS, "random_state": 11}
+        collaborative = (
+            CTMLE(**settings, selection_folds=3, strategy="discrete", candidates=[_W4])
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        plain = TMLE(**settings).fit(frame, outcome="Y", treatment="A").single()
+        return collaborative, plain
+
+    def test_an_added_covariate_joins_the_one_candidate(self, pair: tuple[Any, Any]) -> None:
+        collaborative, plain = pair
+        noise = np.random.default_rng(0).normal(size=collaborative.data.n)
+        data = collaborative.data.with_extra_covariate(noise, "_noise_0")
+        refit = collaborative.estimator.refit(data, intermediate_value=None, random_state=11)
+        reference = plain.estimator.refit(data, intermediate_value=None, random_state=11)
+        assert refit.extra["ctmle"].path == ((*_W4, "_noise_0"),)
+        assert refit.inference_status == "influence_curve"
+        assert refit["ate"].psi == pytest.approx(reference["ate"].psi, abs=1e-12)
+        assert refit["ate"].std_error == pytest.approx(reference["ate"].std_error, abs=1e-12)
+        # The refit works on a copy, so the estimator the result holds keeps its list.
+        assert collaborative.estimator.candidates == [_W4]
+
+    def test_random_common_cause_matches_the_tmle_refutation(self, pair: tuple[Any, Any]) -> None:
+        collaborative, plain = pair
+        options = {"tests": ("random_common_cause",), "n_replicates": 2, "random_state": 5}
+        mine = collaborative.diagnostics.refute(**options).tests[0]
+        reference = plain.diagnostics.refute(**options).tests[0]
+        np.testing.assert_allclose(mine.values, reference.values, atol=1e-12, rtol=0.0)
+
+    def test_a_refit_without_an_added_covariate_keeps_each_candidate(self) -> None:
+        """A covariate the fit had, and no candidate names, is not taken as added."""
+        frame, _ = make_linear_ate(n=300, seed=21)
+        estimator = CTMLE(**{**CTMLE_KWARGS, "strategy": "discrete", "candidates": [("W1",)]})
+        data = _prepared(estimator, frame)
+        assert estimator._configured_for_refit(data) is estimator
+        assert estimator._configured_for_refit(data.subset(np.arange(200))) is estimator
+        extended = estimator._configured_for_refit(
+            data.with_extra_covariate(np.zeros(data.n), "_noise_0")
+        )
+        assert extended.candidates == [("W1", "_noise_0")]
+
+    def test_a_subset_refit_keeps_the_admitted_status(self, pair: tuple[Any, Any]) -> None:
+        collaborative, _ = pair
+        refit = collaborative.estimator.refit(
+            collaborative.data.subset(np.arange(220)), intermediate_value=None
+        )
+        assert refit.inference_status == "influence_curve"
+
+
+class TestTheAdmittedFitOnOtherSurfaces:
+    """The surfaces that read the fitted method, or the status, on the admitted fit."""
+
+    @pytest.fixture(scope="class")
+    def admitted(self) -> Any:
+        frame, _ = make_linear_ate(n=300, seed=21)
+        return (
+            CTMLE(**{**CTMLE_KWARGS, "strategy": "discrete", "candidates": [_W4]})
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+
+    def test_the_omitted_variable_bound_still_refuses_and_says_why(self, admitted: Any) -> None:
+        """The bound keys on the method, and its sentence fits a fit that selected nothing."""
+        reason = fit_wide_bound_refusal(admitted)
+        assert reason is not None
+        assert "selected" not in reason
+        assert "selects nothing" in reason
+        with pytest.raises(CapabilityError) as raised:
+            sensitivity_elements(admitted, "ate")
+        assert str(raised.value) == reason
+
+    def test_a_selecting_fit_keeps_the_selected_mechanism_sentence(self) -> None:
+        """The control: the new sentence is not given to a fit that does select."""
+        frame, _ = make_linear_ate(n=300, seed=21)
+        selecting = (
+            CTMLE(**{**CTMLE_KWARGS, "strategy": "discrete", "candidates": [("W1",), _W4]})
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        reason = fit_wide_bound_refusal(selecting)
+        assert reason is not None
+        assert "selected adjustment set" in reason
+
+    def test_variable_importance_runs_when_the_candidate_is_each_adjustment_set(self) -> None:
+        """One exposure whose adjustment set is the declared candidate is admitted."""
+        frame, _ = make_linear_ate(n=300, seed=21)
+        estimator = CTMLE(**{**CTMLE_KWARGS, "strategy": "discrete", "candidates": [_W4]})
+        importance = variable_importance(
+            frame, outcome="Y", candidates=["A"], covariates=list(_W4), estimator=estimator
+        )
+        (entry,) = importance.entries
+        assert np.isfinite(entry.estimate.pvalue)
+
+    def test_variable_importance_refuses_an_exposure_whose_set_differs(self) -> None:
+        """Each exposure's adjustment set differs, so one of them meets the selector status."""
+        frame, _ = make_linear_ate(n=300, seed=21)
+        frame = frame.assign(B=(frame["W4"] > 0).astype(float))
+        estimator = CTMLE(**{**CTMLE_KWARGS, "strategy": "discrete", "candidates": [_W4]})
+        with pytest.raises(CapabilityError) as raised:
+            variable_importance(
+                frame,
+                outcome="Y",
+                candidates=["A", "B"],
+                covariates=list(_W4),
+                estimator=estimator,
+            )
+        assert WORKING_MECHANISM.reason in str(raised.value)
 
 
 class TestReporting:
@@ -1188,3 +1567,7 @@ class TestTheWorkingMechanismDiagnosticMissesTheExactVariance:
         control = self._fit(law.frame(INSTRUMENT_COUNTS), (("W",),))["ate"]
         ratio = self._reported_variance(control) / exact_variance
         assert ratio == pytest.approx(1.0, abs=1e-10)
+        # Its one candidate is the full adjustment set, so the fit is admitted, and the
+        # standard error it reports is the one that reaches the exact variance.
+        assert control.inference == "influence_curve"
+        assert control.std_error == control.plugin_std_error

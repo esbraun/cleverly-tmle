@@ -95,6 +95,7 @@ from scipy import optimize, stats
 from .._inference_status import InferenceStatus, supplies_inference
 from .._typing import FloatArray
 from ..assessment import SENSITIVITY_ROUTES
+from ..estimators.ctmle import CTMLESelection, declares_full_adjustment_only
 from ..estimators.direct_effect import declares_intermediate
 from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, DataError, refuse_inference, repeats_refusal
@@ -196,6 +197,17 @@ _CTMLE_BOUND_REFUSAL = (
     "while sigma^2 still comes from a regression on every "
     "declared covariate. The product sigma^2 nu^2 belongs to no single conditioning set, "
     "and the collaborative robustness value is optimistic by construction. " + _NO_NU2_DERIVATION
+)
+
+#: The same refusal for the one collaborative fit that selects nothing. Its mechanism is
+#: fitted on every covariate, so the argument above does not apply to it, and the
+#: sentence names the scope rule instead.
+_CTMLE_FULL_CANDIDATE_BOUND_REFUSAL = (
+    "the omitted-variable bound is not offered on a 'collaborative_tmle' fit. This "
+    "strategy='discrete' fit declares one candidate, equal to the full adjustment set, so "
+    "it selects nothing and equals the ordinary TMLE fit. The bound reads the fitted method "
+    "and has no collaborative route. Fit the ordinary TMLE (TMLE, or TMLEMethod) on the "
+    "same data for the bound."
 )
 
 #: The clause the two well-posed mechanism refusals share: each functional is linear in
@@ -313,10 +325,18 @@ def _refuse_guarded_mechanism(result: Any) -> str | None:
 
 
 def _refuse_selected_mechanism(result: Any) -> str | None:
-    """Refuse a collaborative fit, whose representer comes from a selected working g."""
-    if result.fitted_method == "collaborative_tmle":
-        return _CTMLE_BOUND_REFUSAL
-    return None
+    """Refuse a collaborative fit, whose representer comes from a selected working g.
+
+    The fit that declares one full candidate selects nothing, and its sentence says so.
+    """
+    if result.fitted_method != "collaborative_tmle":
+        return None
+    selection = result.extra.get("ctmle")
+    if isinstance(selection, CTMLESelection) and declares_full_adjustment_only(
+        selection.strategy, selection.path, selection.covariates
+    ):
+        return _CTMLE_FULL_CANDIDATE_BOUND_REFUSAL
+    return _CTMLE_BOUND_REFUSAL
 
 
 def _refuse_response_mechanism(result: Any) -> str | None:

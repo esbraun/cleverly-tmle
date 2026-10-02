@@ -1176,7 +1176,8 @@ class TMLE:
 
         The refit first asks :meth:`_configured_for_refit` which estimator fits ``data``.
         This estimator answers itself.  A :class:`~cleverly.CTMLE` with an explicit
-        ``ordering=`` places an added covariate after the declared ordering, and a
+        ``ordering=`` places an added covariate after the declared ordering, a
+        ``"discrete"`` :class:`~cleverly.CTMLE` appends it to every candidate, and a
         :class:`~cleverly.DRTMLE` drops an ``evaluation=`` companion that lacks a covariate
         of ``data``.  Either answer is a copy, so this instance is not modified.
 

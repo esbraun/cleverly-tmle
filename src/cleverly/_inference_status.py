@@ -136,7 +136,8 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "estimate and the selection path stand. The plug-in standard error of that "
                 "curve remains as a diagnostic under plugin_std_error and plugin_interval. "
                 "F18 in docs/roadmap.md reopens this when it supplies the estimator's "
-                "influence curve."
+                "influence curve. A discrete fit that declares one candidate, equal to the "
+                "full adjustment set, selects nothing and takes the ordinary TMLE status."
             ),
             assessment_note=(
                 "the reported curve is a working-mechanism diagnostic: no confidence "
