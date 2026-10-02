@@ -217,6 +217,11 @@ __all__ = ["TMLE", "tmle"]
 #: protection against near-zero values.
 DEFAULT_NUISANCE_BOUND = 0.01
 
+#: Quantile at which targeting trims the shift density ratio.  R ``lmtp``'s default
+#: ``.trim`` (``lmtp_control``, lmtp 1.5.4), applied by the same rule: see
+#: :meth:`cleverly.interventions.ShiftSet.with_trim`.
+DEFAULT_SHIFT_TRIM = 0.999
+
 #: Warn when this fraction of the sample has a propensity outside the truncation
 #: bounds -- at that point the estimate rests on extrapolation, not on data.
 _TRUNCATION_WARN_FRACTION = 0.05
@@ -668,6 +673,12 @@ class TMLE:
         under weak overlap.  See :mod:`cleverly.inference.multiplier`.
     step_size, max_iter, tol:
         Targeting-step controls.
+    shift_trim:
+        Quantile at which targeting trims the shift density ratio, as R ``lmtp``'s
+        ``.trim`` does.  Every ratio above the quantile of the ratios at the observed dose
+        becomes that quantile, at the observed dose and at each shifted dose.  ``1``
+        trims nothing.  The support report reads the ratio before the trim and counts the
+        trimmed rows.
     run_id:
         An identifier of your own -- an experiment id, a ticket number -- recorded on
         :attr:`TMLEResult.provenance`.  The library records no git commit of its own:
@@ -768,6 +779,7 @@ class TMLE:
         msm: MSM | None = None,
         learned_rule: LearnedRule | None = None,
         density_bins: int = 20,
+        shift_trim: float = DEFAULT_SHIFT_TRIM,
         reference: Any = None,
         alpha_sig: float = 0.05,
         n_bootstrap: int = 0,
@@ -819,6 +831,7 @@ class TMLE:
         self.msm = msm
         self.learned_rule = learned_rule
         self.density_bins = density_bins
+        self.shift_trim = shift_trim
         self.reference = reference
         self.alpha_sig = alpha_sig
         self.n_bootstrap = n_bootstrap
@@ -956,6 +969,11 @@ class TMLE:
             raise ValueError(
                 f"density_bins must be at least 3; got {self.density_bins}. Two bins make "
                 "the density a single hazard, which cannot describe a dose-response."
+            )
+        if not 0.0 < float(self.shift_trim) <= 1.0:
+            raise ValueError(
+                f"shift_trim must lie in (0, 1]; got {self.shift_trim}. It is the quantile "
+                "of the shift density ratio above which targeting trims, and 1 trims nothing."
             )
         # One ordered message source for the declaration and the engine, under two
         # exception contracts: the declaration raises MethodConfigurationError and the
@@ -2783,7 +2801,11 @@ class TMLE:
         # so the truncation curve, the MNAR tilt, the omitted-variable bound -- targets
         # the regimes and the working model this fit declared, without re-running the
         # caller's rules or its design.
-        return replace(estimates, regimes=self._regimes(data, estimates), msm=msm)
+        # The shift ratio stays untruncated on the set; `with_trim` records the bound that
+        # `ShiftSet.design` applies at targeting time. The quantile reads every row's
+        # out-of-fold ratio, as lmtp's `cf_density_ratios` trims after recombining.
+        shifts = None if estimates.shifts is None else estimates.shifts.with_trim(self.shift_trim)
+        return replace(estimates, regimes=self._regimes(data, estimates), msm=msm, shifts=shifts)
 
     def _msm(self, data: CausalData) -> MSMSet | None:
         """The declared working model evaluated on ``data``, or ``None`` if none was."""

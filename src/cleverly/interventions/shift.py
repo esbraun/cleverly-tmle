@@ -188,8 +188,9 @@ class ShiftSet:
     ratio : ndarray
         ``(n, S)``, :math:`h_r(A_i, W_i)` -- the clever covariate at the *observed*
         treatment.  **Untruncated**, exactly as :attr:`Propensity.values
-        <cleverly.estimators._nuisance.Propensity.values>` is: the bound belongs to
-        targeting time so a truncation curve can sweep it without refitting.
+        <cleverly.estimators._nuisance.Propensity.values>` is: the bound is
+        :attr:`ceiling`, and :attr:`design` applies it at targeting time, so the support
+        report still reads what the data support.
     ratio_at : ndarray
         ``(n, S, S)``, :math:`h_r(d_s(A_i, W_i), W_i)` at ``[i, s, r]``.  The fluctuation
         updates :math:`\\bar Q` as a function of :math:`(a, W)`, so obtaining
@@ -200,6 +201,10 @@ class ShiftSet:
 
     reference : float
         Code of the shift contrasts are taken against.
+    ceiling : tuple of float or None
+        One bound per shift on :math:`h_r`, or ``None`` for no bound.  :meth:`with_trim`
+        sets it to a quantile of :attr:`ratio` over every row, which is R ``lmtp``'s
+        ``.trim`` rule.  :meth:`subset` keeps it, so a fold reads the full-sample bound.
     """
 
     names: tuple[str, ...]
@@ -209,6 +214,7 @@ class ShiftSet:
     ratio_at: FloatArray
     capped: BoolArray
     reference: float = 0.0
+    ceiling: tuple[float, ...] | None = None
 
     def __post_init__(self) -> None:
         s = len(self.names)
@@ -231,6 +237,8 @@ class ShiftSet:
             raise ValueError(
                 f"reference={self.reference} is not one of the shift codes {list(self.codes)}"
             )
+        if self.ceiling is not None and len(self.ceiling) != s:
+            raise ValueError(f"{s} shifts but {len(self.ceiling)} ratio ceilings")
 
     # ------------------------------------------------------------------ build
 
@@ -345,8 +353,60 @@ class ShiftSet:
         dispatches on the group name alone and every builder takes the same keyword-only
         signature; ``shifts=`` is that one keyword.  Row block ``0`` is the covariate at
         the observed treatment and block ``s + 1`` the covariate at :math:`d_s(A, W)`.
+
+        Every block is bounded above by :attr:`ceiling`, shift by shift.  The bound is a
+        function of the ratio's value alone, so the covariate at the observed dose and the
+        covariate at each shifted dose are the same bounded function of :math:`(a, W)`.
         """
-        return np.concatenate([self.ratio[:, None, :], self.ratio_at], axis=1)
+        stacked = np.concatenate([self.ratio[:, None, :], self.ratio_at], axis=1)
+        if self.ceiling is None:
+            return stacked
+        return np.minimum(stacked, np.asarray(self.ceiling, dtype=float)[None, None, :])
+
+    @property
+    def trimmed(self) -> tuple[int, ...]:
+        """Rows per shift whose ratio at the observed dose lies above :attr:`ceiling`."""
+        if self.ceiling is None:
+            return tuple(0 for _ in self.names)
+        return tuple(
+            int(np.sum(self.ratio[:, index] > bound)) for index, bound in enumerate(self.ceiling)
+        )
+
+    def with_trim(self, trim: float) -> ShiftSet:
+        """Bound each ratio at the ``trim`` quantile of its values at the observed dose.
+
+        This is R ``lmtp``'s rule: ``lmtp_control(.trim = 0.999)`` replaces every
+        density ratio above its 0.999 quantile with that quantile, and ``.trim = 1``
+        trims nothing (``trim()`` in ``R/utils.R``, called from ``cf_density_ratios()``
+        after the out-of-fold ratios are recombined).  The quantile is numpy's default,
+        which is R's ``quantile`` type 7.
+
+        Parameters
+        ----------
+        trim : float
+            Quantile in ``(0, 1]``.  ``1`` sets no bound.
+
+        Returns
+        -------
+        ShiftSet
+            The same policies with :attr:`ceiling` set.
+
+        Raises
+        ------
+        ValueError
+            If ``trim`` lies outside ``(0, 1]``.
+        """
+        level = float(trim)
+        if not 0.0 < level <= 1.0:
+            raise ValueError(f"shift_trim must lie in (0, 1]; got {trim}")
+        if level == 1.0:
+            return replace(self, ceiling=None)
+        return replace(
+            self,
+            ceiling=tuple(
+                float(np.quantile(self.ratio[:, index], level)) for index in range(self.n_shifts)
+            ),
+        )
 
     def subset(self, index: Any) -> ShiftSet:
         """The same policies on a row subset -- a fold, a bootstrap resample.
@@ -477,6 +537,12 @@ class ShiftSupport:
         ``top_5pct``, ``max_load``, ``zero_load``, ``reported_repeat`` and ``n_repeats``.
     score_load_omission : str or None
         Machine-readable reason why :attr:`score_load` is unavailable.
+    ceiling : float or None
+        The bound targeting applied to this shift's ratio, or ``None`` for no bound.
+        The quantiles, the maximum and the effective sample size above read the ratio
+        before this bound. The score load reads the covariate after it.
+    trimmed : int
+        Rows whose ratio at the observed dose lies above :attr:`ceiling`.
     """
 
     name: str
@@ -495,6 +561,8 @@ class ShiftSupport:
     min_mechanism: float | None = None
     score_load: _InterventionLoadRow | None = None
     score_load_omission: str | None = None
+    ceiling: float | None = None
+    trimmed: int = 0
 
     def summary(self) -> str:
         """Return a printable summary.
@@ -510,12 +578,18 @@ class ShiftSupport:
         )
         label = "ratio" if self.min_mechanism is None else "weight"
         score = format_score_load(self.score_load, style="inline")
+        trim = (
+            "ratio not trimmed"
+            if self.ceiling is None
+            else f"ratio trimmed at {self.ceiling:.3g} on {self.trimmed} rows"
+        )
         return (
             f"{self.name}: min g(A|W)={self.min_density:.3g}, max {label}={self.max_ratio:.3g}"
             f"{mechanism}, "
             f"ESS={self.effective_sample_size:.0f} ({self.ess_ratio:.1%} of n), "
             f"capped={self.capped_fraction:.1%}, unsupported={self.unsupported}, {score}\n"
-            f"    {label} quantiles -- {quantiles}"
+            f"    {label} quantiles -- {quantiles}\n"
+            f"    {trim}; the {label} columns read before the trim, the score load after it"
         )
 
 
@@ -578,6 +652,7 @@ def check_shift_support(
     score_loads, load_omission = _intervention_loads(
         labels, absolute_score_weights, equations, a.size, n_repeats
     )
+    trimmed = shifts.trimmed
     out: dict[str, ShiftSupport] = {}
     for index, name in enumerate(shifts.names):
         weight = shifts.ratio[:, index] / denominator
@@ -597,5 +672,7 @@ def check_shift_support(
             min_mechanism=float(denominator.min()) if at_observed else None,
             score_load=score_loads.get(name),
             score_load_omission=load_omission,
+            ceiling=None if shifts.ceiling is None else shifts.ceiling[index],
+            trimmed=trimmed[index],
         )
     return out
