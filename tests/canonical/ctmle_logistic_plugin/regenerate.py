@@ -98,7 +98,8 @@ def main() -> None:
         "n": len(inputs),
         "selected_covariates": [c for c in inputs.columns if c.startswith("W")],
         "sha256": {
-            name: _sha256(HERE / name) for name in ("inputs.csv", "output.csv", "calc_varic_witness.R")
+            name: _sha256(HERE / name)
+            for name in ("inputs.csv", "output.csv", "calc_varic_witness.R")
         },
     }
     (HERE / "manifest.json").write_text(
