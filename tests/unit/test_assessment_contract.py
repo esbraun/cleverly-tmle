@@ -1761,22 +1761,47 @@ class TestSupportDiagnosticsSeeAPerInterventionReport:
         support = extrapolating_shift.diagnostics.support()
         assert min(item.ess_ratio for item in support.values()) < 0.2
 
-    def test_validate_reports_the_ratio_rather_than_passing(self, extrapolating_shift) -> None:  # type: ignore[no-untyped-def]
-        """No pass on a fit this thin, and no invented threshold either.
-
-        This shift retains under 1% of its effective sample and truncates nothing. The
-        row therefore grades nothing, and says so: ``COMPLETED`` carries the ratio and
-        leaves the judgement to the reader. ``PASSED`` would read as a positivity
-        clearance that no threshold in this package is entitled to give.
-        """
+    def test_validate_warns_on_estimated_zero_support_and_discloses_the_ratio(
+        self, extrapolating_shift
+    ) -> None:  # type: ignore[no-untyped-def]
+        """Assigned doses with estimated zero density trigger the warning, not thin ESS."""
+        nuisance = extrapolating_shift.nuisance
+        report = extrapolating_shift.diagnostics.support()
+        for index, name in enumerate(nuisance.shifts.names):
+            expected = int(
+                (nuisance.density.density_at(nuisance.shifts.shifted[:, index]) == 0).sum()
+            )
+            assert expected > 0
+            assert report[name].unsupported == expected
         item = extrapolating_shift.validate()["support"]
-        assert item.status is AssessmentStatus.COMPLETED
-        assert item.status is not AssessmentStatus.PASSED
+        assert item.status is AssessmentStatus.WARNING
+        assert "estimated zero support" in item.detail
         assert "effective-sample-size ratio" in item.detail
 
     def test_the_combined_report_agrees_with_validate(self, extrapolating_shift) -> None:  # type: ignore[no-untyped-def]
         item = extrapolating_shift.diagnostics.run_all()["support"]
+        direct = extrapolating_shift.validate()["support"]
+        assert item.status is direct.status is AssessmentStatus.WARNING
+        assert item.detail == direct.detail
+        assert "estimated zero support" in item.detail
+        assert "effective-sample-size ratio" in item.detail
+
+    def test_thin_ess_without_estimated_zeros_has_no_graded_cutoff(
+        self, extrapolating_shift
+    ) -> None:  # type: ignore[no-untyped-def]
+        """Remove only the zero-support finding; keep the same thin fitted ratios."""
+        original = extrapolating_shift.diagnostics.support()
+        control = {name: dataclasses.replace(row, unsupported=0) for name, row in original.items()}
+        assert min(row.ess_ratio for row in control.values()) < 0.2
+        assert all(row.capped_fraction == 0.0 for row in control.values())
+        assert [row.ess_ratio for row in control.values()] == [
+            row.ess_ratio for row in original.values()
+        ]
+        item = INTERPRETERS["support"](control, extrapolating_shift, {})
         assert item.status is AssessmentStatus.COMPLETED
+        assert item.status is not AssessmentStatus.PASSED
+        assert "estimated zero support" not in item.detail
+        assert "effective-sample-size ratio" in item.detail
 
     def test_a_well_supported_tilt_does_not_warn(self) -> None:
         """The control: the new branch must not warn about every mapping it sees."""

@@ -223,11 +223,11 @@ _SHIFT_ID = Identification(
         "no unmeasured confounding: Y^a is independent of A given W",
         "positivity *for the shifted dose*: g(d(a, w) | w) > 0 wherever g(a | w) > 0, so "
         "the dose the policy assigns is one the data have seen at that covariate value. "
-        "This is weaker than positivity at every dose -- which no continuum satisfies. A "
-        "cap secures it only when the cap lies inside the conditional support of the dose "
-        "at every covariate value. The fit warns when a policy assigns a dose above the "
-        "largest one observed, and it does not check the conditional support, which "
-        "check_shift_support reports",
+        "The policy must preserve conditional treatment support. An upper cap alone "
+        "does not ensure this for negative shifts or support gaps. The fit warns when "
+        "assigned doses leave the observed range in either direction. "
+        "check_shift_support reports estimated zero density at assigned doses; "
+        "it does not establish true conditional support or identification",
         "the shift is a known function of (A, W): d does not depend on the observed-data "
         "law, so the influence function carries no term for estimating it. A cap fitted "
         "from the data would break this, which is why cap= is required rather than "

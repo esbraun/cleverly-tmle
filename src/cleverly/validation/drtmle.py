@@ -138,7 +138,7 @@ label -- :data:`MARGIN_ACTIVE` -- and the raw columns stay what they were.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -363,10 +363,11 @@ class CorrectionCheck:
     #: :meth:`to_frame` honours "results come back in the backend you passed in"
     #: without a caller having to thread the container back in by hand.
     backend: str | None = None
-    #: Whether any draw cross-fitted its nuisances. Theorem 1 covers the non-cross-fitted
+    #: Required declaration of whether any draw cross-fitted its nuisances.
+    #: Theorem 1 covers the non-cross-fitted
     #: estimator, so a cross-fitted fit uses the theorem's construction without its
     #: guarantee (docs/technical-reference/dr-tmle/targeting.md, condition (S)).
-    cross_fitted: bool = False
+    cross_fitted: bool = field(kw_only=True)
 
     @property
     def threshold(self) -> float:
@@ -480,7 +481,8 @@ class CorrectionCheck:
     def truncations_active(self) -> tuple[str, ...]:
         """Which of the relevant truncations bite on this fit, named.
 
-        Empty on a fit inside the theorem-backed contract.  Named rather than counted
+        Empty when the fit uses the theorem's construction without active bounds.
+        This does not establish coverage for cross-fitting. Named rather than counted
         because they are different objects with different standing: the mechanism ones are
         operations on something the theorem assumes bounded, and the last has no assumption
         in the theorem at all.

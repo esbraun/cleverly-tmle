@@ -530,6 +530,16 @@ class TestTheDiagnosticsMatchTheAxis:
         assert report["natural course"].ess_ratio == pytest.approx(1.0)
         assert report["+0.5"].max_ratio > 1.0
 
+    def test_declared_caps_survive_result_serialization(self) -> None:
+        from cleverly.estimators.serialize import dumps, loads
+
+        result = fit(shifts=SHIFTS)
+        restored = loads(dumps(result))
+        assert restored.nuisance.shifts.caps == (None, 5.0)
+        assert restored.diagnostics.support()["natural course"].cap is None
+        assert restored.diagnostics.support()["+0.5"].cap == 5.0
+        np.testing.assert_array_equal(restored.nuisance.shifts.ratio, result.nuisance.shifts.ratio)
+
     def test_support_dispatches_to_propensity_overlap_on_an_arm_fit(self) -> None:
         report = fit_binary().diagnostics.support()
         assert report.propensity_quantiles

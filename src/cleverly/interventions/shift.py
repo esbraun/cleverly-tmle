@@ -14,9 +14,9 @@ reads the treatment a unit actually received and moves it:
     \Psi_\delta = E\bigl[\bar Q\bigl(d_\delta(A, W), W\bigr)\bigr].
 
 "Everyone's exposure rises by :math:`\delta`, except where that would take them past what
-is achievable."  The cap is what makes the parameter well defined without a positivity
-assumption nobody can check: :math:`\bar Q` is never evaluated outside the range the data
-covers (Diaz & van der Laan 2018; Haneuse & Rotnitzky 2013).
+is achievable."  Identification requires the policy to preserve the conditional treatment support.
+An upper cap alone does not guarantee this: negative shifts can cross the lower boundary,
+and either sign can enter a support gap (Diaz & van der Laan 2018; Haneuse & Rotnitzky 2013).
 
 **The clever covariate.**  For the shift :math:`r`, evaluated at an arbitrary treatment
 value :math:`a`,
@@ -184,6 +184,8 @@ class ShiftSet:
         regime itself.  Two shifts could share a delta only by being different policies
         with different caps, and a float key derived from a user-supplied number is a
         worse dictionary key than an ordinal.
+    caps : tuple of float or None
+        The declared upper caps, in policy order.
     shifted : ndarray
         ``(n, S)``, :math:`d_r(A_i, W_i)`.
     ratio : ndarray
@@ -207,6 +209,7 @@ class ShiftSet:
 
     names: tuple[str, ...]
     deltas: tuple[float, ...]
+    caps: tuple[float | None, ...]
     shifted: FloatArray
     ratio: FloatArray
     ratio_at: FloatArray
@@ -217,6 +220,8 @@ class ShiftSet:
         s = len(self.names)
         if len(self.deltas) != s:
             raise ValueError(f"{s} shift names but {len(self.deltas)} deltas")
+        if len(self.caps) != s:
+            raise ValueError(f"{s} shift names but {len(self.caps)} caps")
         if len(set(self.names)) != s:
             raise ValueError(f"shift names must be distinct; got {list(self.names)}")
         n = self.shifted.shape[0]
@@ -301,7 +306,16 @@ class ShiftSet:
             if reference not in names:
                 raise DataError(f"reference={reference!r} is not one of the shifts {list(names)}")
             code = float(names.index(reference))
-        return cls(names, deltas, shifted, ratio, ratio_at, capped, code)
+        return cls(
+            names,
+            deltas,
+            tuple(shift.cap for shift in shifts),
+            shifted,
+            ratio,
+            ratio_at,
+            capped,
+            code,
+        )
 
     # ----------------------------------------------------------------- access
 
@@ -389,7 +403,7 @@ def _ratio(density: ConditionalDensity, values: FloatArray, shift: Shift) -> Flo
     # A row whose *observed* dose has zero estimated density cannot be reweighted at all;
     # it is a support failure rather than a large weight, and reporting it as an infinite
     # covariate would put a NaN through the Newton solve. Zero is the honest value: the
-    # row contributes nothing to the score, and check_shift_support counts it.
+    # ratio term contributes nothing to the score; min_density reports the denominator.
     safe = np.where(denominator > 0.0, denominator, 1.0)
     covariate = np.where(denominator > 0.0, numerator / safe, 0.0)
     if shift.cap is not None:
@@ -404,36 +418,38 @@ def _ratio(density: ConditionalDensity, values: FloatArray, shift: Shift) -> Flo
 
 
 def _warn_outside_support(shift: Shift, shifted: FloatArray, observed: FloatArray) -> None:
-    """A shift that assigns doses above the observed range extrapolates; say for how many.
-
-    An uncapped shift does this whenever ``delta > 0``.  A cap prevents it only when the
-    cap lies inside the observed doses: a cap above the largest one lets the rows near the
-    top move past it.  A cap inside the range still does not check the *conditional*
-    support of the dose, which :func:`check_shift_support` reports.
-    """
-    largest = float(np.max(observed))
-    beyond = float(np.mean(shifted > largest))
-    if beyond == 0.0:
-        return
-    if shift.cap is not None:
+    """Warn when assigned doses leave either end of the observed range."""
+    smallest, largest = float(np.min(observed)), float(np.max(observed))
+    excursions = (
+        ("below", smallest, float(np.mean(shifted < smallest))),
+        ("above", largest, float(np.mean(shifted > largest))),
+    )
+    for direction, boundary, fraction in excursions:
+        if not fraction:
+            continue
+        if direction == "below":
+            description = (
+                f"assigns {fraction:.1%} of rows a dose below the smallest one observed "
+                f"({boundary:.3g}). An upper cap cannot prevent lower-support excursions. "
+            )
+        elif shift.cap is not None:
+            description = (
+                f"has cap={float(shift.cap):g}, which lies above the largest dose "
+                f"observed ({boundary:.3g}), and {fraction:.1%} of rows are assigned "
+                "a dose above it. "
+            )
+        else:
+            description = (
+                f"has cap=None, and {fraction:.1%} of rows are assigned a dose above "
+                f"the largest one observed ({boundary:.3g}). "
+            )
         warnings.warn(
-            f"shift {shift.name!r} has cap={float(shift.cap):g}, which lies above the largest "
-            f"dose observed ({largest:.3g}), and {beyond:.1%} of rows are assigned a dose "
-            "above it. The outcome regression is extrapolating there. A cap secures support "
-            "only when it lies inside the conditional support of the dose.",
+            f"shift {shift.name!r} {description}"
+            "The outcome regression is extrapolating there. Identification requires the policy "
+            "to preserve conditional treatment support; a cap alone does not establish this.",
             PositivityWarning,
             stacklevel=4,
         )
-        return
-    warnings.warn(
-        f"shift {shift.name!r} has cap=None, and {beyond:.1%} of rows are assigned a "
-        f"dose above the largest one observed ({largest:.3g}). The "
-        "outcome regression is extrapolating there, and identification needs the "
-        "shifted dose to be supported. Declare a cap= if you know what dose is "
-        "achievable.",
-        PositivityWarning,
-        stacklevel=4,
-    )
 
 
 # ------------------------------------------------------------------ diagnostics
@@ -452,8 +468,8 @@ class ShiftSupport:
     cap : float or None
         The declared cap, or ``None`` for an uncapped policy.
     min_density : float
-        Smallest estimated density at a shifted dose, which is the denominator
-        the clever covariate divides by.
+        Smallest estimated density at an observed dose, the denominator of the
+        density ratio evaluated at the observed dose.
     ratio_quantiles : dict of float to float
         Quantiles of the density ratio at the observed dose.
     max_ratio : float
@@ -467,20 +483,20 @@ class ShiftSupport:
         policy leaves at its own dose.
     unsupported : int
         Rows whose shifted dose falls where the estimated density is exactly zero.
-        The parameter is not identified for those rows at all.
+        Estimated zeros flag model support failures, not proof of nonidentification.
     mean_ratio : float
         Mean density ratio at the observed dose over every row.  The ratio is the
-        density of the shifted dose law with respect to the observed one.  Under the
-        true density its mean is 1 for a shift capped inside the dose support: the
-        indicator term restores the mass of the rows the cap holds at their own dose.
-        For an uncapped shift it is ``P(A + delta in the support of g(. | W))``, which
-        is 1 while the shifted dose stays inside the support and below 1 otherwise.
+        density of the supported part of the shifted law relative to the observed law.
+        Under the true density its expectation is
+        ``P(d(A, W) in the conditional support of g(. | W))``, for capped and uncapped
+        policies. It equals 1 when the policy preserves conditional support. An upper
+        cap alone does not ensure this for negative shifts or support gaps.
     fold_mean_ratio : tuple of float
         The same mean over the rows each cross-fitting fold holds out, in fold order.
         An in-sample fit has one fold, so the tuple holds :attr:`mean_ratio` alone.  A
-        fold mean far from that reference value shows a mis-normalized held-out ratio,
-        and the standard error reads that ratio.  The mean is of the ratio alone,
-        before any mechanism divides it.
+        fold mean far from that reference value can signal density estimation error,
+        but sampling variation also affects it. The standard error reads that ratio.
+        The mean is of the ratio alone, before any mechanism divides it.
     min_mechanism : float or None
         Smallest product of the further mechanisms that divide the covariate beside
         the ratio, or ``None`` when the fit declared neither. When it is not ``None``
@@ -536,10 +552,11 @@ class ShiftSupport:
             f"capped={self.capped_fraction:.1%}, unsupported={self.unsupported}, {score}\n"
             f"    {label} quantiles -- {quantiles}\n"
             f"    mean ratio -- {self.mean_ratio:.3g} overall, per fold {folds} "
-            "(under the true density: 1 for a shift capped inside the support, "
-            "P(A + delta in the support) for an uncapped shift, below 1 when shifted doses "
-            "leave the support; a mean far from that marks a mis-estimated ratio, "
-            "which the standard error reads)"
+            "(under the true density: P(d(A, W) in the conditional support), "
+            "equal to 1 when the policy preserves support, for capped and uncapped shifts; "
+            "finite-sample means also vary with sampling and density estimation). "
+            "Unsupported counts refer to estimated zero density at assigned doses; "
+            "these diagnostics do not establish true support or identification."
         )
 
 
@@ -617,14 +634,14 @@ def check_shift_support(
         out[name] = ShiftSupport(
             name=name,
             delta=shifts.deltas[index],
-            cap=None,
+            cap=shifts.caps[index],
             min_density=float(observed_density.min()),
             ratio_quantiles={q: float(np.quantile(finite, q)) for q in _QUANTILES},
             max_ratio=float(finite.max()) if finite.size else 0.0,
             effective_sample_size=ess,
             ess_ratio=ess / a.size if a.size else 0.0,
             capped_fraction=float(np.mean(shifts.capped[:, index])),
-            unsupported=int(np.sum(observed_density <= 0.0)),
+            unsupported=int(np.sum(density.density_at(shifts.shifted[:, index]) <= 0.0)),
             mean_ratio=float(np.mean(ratio)),
             fold_mean_ratio=tuple(float(np.mean(ratio[rows])) for rows in held_out),
             min_mechanism=float(denominator.min()) if at_observed else None,
