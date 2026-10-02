@@ -7,6 +7,7 @@ decimals are also compared against its stored outputs, and every decimal it writ
 
 from __future__ import annotations
 
+import csv
 import re
 from typing import Any
 
@@ -44,9 +45,9 @@ UNPRINTED_DECIMALS = {
     "0.01": f"the same mean shift (+0.0111), rounded: {_PROBE}/summary.log",
     "0.951": f"Step 6 coverage (2854 of 3000), seeds 2000-4999: {_STEP6}/summary.log",
     "0.99": f"Step 6 mean SE over empirical SD (0.989), seeds 2000-4999: {_STEP6}/summary.log",
-    "0.946": f"Step 9 coverage of the library fit (2837 of 3000), seeds 1001-4000: "
+    "0.946": f"Step 9 ATE-only coverage of the library fit (2837 of 3000), seeds 1001-4000: "
     f"{_STEP9}/summary.log and {_STEP9}/summary-n4000b.log",
-    "0.947": f"oracle TMLE coverage (0.9472), 20000 draws: {_STEP9}/oracle-4000.log",
+    "0.947": f"oracle ATE TMLE coverage (0.9472), 20000 draws: {_STEP9}/oracle-4000.log",
     "0.94": f"5th percentile of the tipping gamma (0.9421), 500 draws: {_PROBE}/summary.log",
     "1.45": f"95th percentile of the tipping gamma (1.4534), 500 draws: {_PROBE}/summary.log",
     "5.4": f"5th percentile of the largest shift in score units (5.3835): {_PROBE}/summary.log",
@@ -75,6 +76,15 @@ def check(namespace: dict[str, Any]) -> None:
 
     The same documented-size run also witnesses the tutorial's interval and sensitivity claims.
     """
+    # The 500-draw probe measured each interval separately. Equal coverage totals do not
+    # imply equal covering draws, and the larger ATE-only probe supplies no ratio coverage.
+    with (EXAMPLES.parents[1] / _PROBE / "sweep.csv").open(encoding="utf-8", newline="") as stream:
+        probe_rows = list(csv.DictReader(stream))
+    assert len(probe_rows) == 500
+    for key in ("box_ate_covers", "box_rr_covers", "box_or_covers"):
+        assert sum(row[key] == "True" for row in probe_rows) == 461
+    assert sum(row["box_ate_covers"] != row["box_rr_covers"] for row in probe_rows) == 8
+
     effect = namespace["effect"]
     fitted = namespace["full"]
     expression = effect.functional.expression

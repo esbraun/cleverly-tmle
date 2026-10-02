@@ -189,9 +189,10 @@ def check(namespace: dict[str, Any]) -> None:
     assert covers(weighted_slope, fixed_target[1])
     assert not covers(uniform_slope, fixed_target[1])
     assert not covers(weighted_slope, projection[1])
-    # "The shift is less than one standard error" of the Step 7 slope.
+    # The share-weight illustration changes the target. One slope's marginal SE does not
+    # measure uncertainty in the difference between two fitted slopes.
     shift = abs(namespace["share_projection"][1] - projection[1])
-    assert 0.0 < shift < uniform_slope.std_error
+    assert f"{shift:.4f}" == "0.0065"
     # (c) Deliberately misspecify Q while retaining the correctly specified multinomial g.
     # Targeting must now do the adjustment. Dropping h from its clever covariate moves the
     # slope back across the uniform target and outside the fixed-weight target's interval.
