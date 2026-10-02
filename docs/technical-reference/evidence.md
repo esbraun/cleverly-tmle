@@ -105,6 +105,10 @@ registered repeated-sampling records for [ordinary TMLE](method-evidence/ordinar
 remains covered by the existing C-TMLE and DR-TMLE rows, which continue down their original
 branches.
 
+A `discrete` C-TMLE fit with one declared candidate, equal to the full adjustment set, is the
+ordinary TMLE. The `TMLE` studies are its evidence, and
+`tests/unit/test_ctmle.py::TestEquivalenceWithPlainTmle` pins the identity to `1e-12`.
+
 Complete-outcome cross-validated DR-TMLE is a construction over the same targets, not a registry
 addition. Its source audit maps the pinned R `cvFolds` path to
 `cross_fit=True, reduced_crossfit="pooled", targeting_scheme="pooled", cv_evaluation=False`.
