@@ -1,0 +1,31 @@
+surv always t1                   0.1496  (MC se 0.00018)
+surv always t2                   0.3170  (MC se 0.00023)
+cif relapse always t1            0.1187  (MC se 0.00016)
+cif relapse always t2            0.2466  (MC se 0.00022)
+cif death always t1              0.0309  (MC se 0.00009)
+cif death always t2              0.0704  (MC se 0.00013)
+surv never t1                    0.2577  (MC se 0.00022)
+surv never t2                    0.4552  (MC se 0.00025)
+cif relapse never t1             0.1452  (MC se 0.00018)
+cif relapse never t2             0.2444  (MC se 0.00021)
+cif death never t1               0.1126  (MC se 0.00016)
+cif death never t2               0.2107  (MC se 0.00020)
+diff surv a-n t1                 -0.1082
+diff surv a-n t2                 -0.1382
+diff cif relapse a-n t1          -0.0265
+diff cif relapse a-n t2          0.0022
+diff cif death a-n t1            -0.0817
+diff cif death a-n t2            -0.1404
+cde_dfirst always t1             0.1227
+cde_dfirst always t2             0.2646
+cde_rfirst always t2             0.2517
+quad cif relapse always t2       0.2467
+quad surv always t2              0.3172
+cde_dfirst never t1              0.1648
+cde_dfirst never t2              0.3049
+cde_rfirst never t2              0.2610
+quad cif relapse never t2        0.2443
+quad surv never t2               0.4552
+diff cde_dfirst a-n t1           -0.0421
+diff cde_dfirst a-n t2           -0.0403
+diff cde_rfirst a-n t2           -0.0093

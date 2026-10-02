@@ -218,8 +218,15 @@ class TestTheMechanismIsTheHalfThatMustBeRight:
     #: mechanism is a smaller absolute number than the retired Gaussian law's, because
     #: every mean here passes through ``expit`` and so is compressed towards (0, 1).
     #: ``test_a_misspecified_mechanism_biases_the_contrast`` needs the standard error
-    #: small enough to still call that bias significant; the fit costs under a second.
-    MISSPECIFIED_N = 10_000
+    #: small enough to still call that bias significant.
+    #:
+    #: Sized on the propensity bounded to ``[0.05, 0.95]``, which shrinks the bias.  At
+    #: ``n = 400,000`` (seed 11) the contrast bias is ``+0.0020``, or 21.3 standard errors,
+    #: and the ``ey_ipsi`` bias is 5.5.  Scaled by ``sqrt(n)``, ``n = 10,000`` expects 3.4
+    #: on the contrast, too close to the bar of 3: seeds 11 to 20 measured 1.75 to 4.75.
+    #: ``n = 30,000`` expects 5.8 on the contrast and 1.5 on the mean.  Seeds 11 to 20
+    #: measured 4.9 to 7.6 and 0.9 to 2.8.  Seed 11 measures 4.88 and 1.53.
+    MISSPECIFIED_N = 30_000
 
     @pytest.fixture(scope="class")
     def misspecified(self):

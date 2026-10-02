@@ -1,0 +1,46 @@
+seeds 8000 to 8199, 200 draws, n = 2000 each
+
+Steps 6, 7 and 8: each fit against the truth
+  ordinary TMLE
+    bias -0.00201 (MC SE 0.00050); empirical SD 0.00701; mean SE 0.00677; SE/SD 0.97; RMSE 0.00727
+    coverage 0.935 (MC SE 0.017; 187 of 200)
+  DR-TMLE, Super Learner reductions
+    bias -0.00313 (MC SE 0.00049); empirical SD 0.00692; mean SE 0.00677; SE/SD 0.98; RMSE 0.00758
+    coverage 0.910 (MC SE 0.020; 182 of 200)
+  DR-TMLE, constant reductions
+    bias -0.00198 (MC SE 0.00049); empirical SD 0.00700; mean SE 0.00677; SE/SD 0.97; RMSE 0.00725
+    coverage 0.930 (MC SE 0.018; 186 of 200)
+
+Paired comparison, DR-TMLE minus the ordinary TMLE
+  mean difference -0.00113 (MC SE 0.00009)
+  shift in ordinary SEs, 5% / 50% / 95%: [-0.48, -0.16, 0.11]
+  |shift| below one ordinary SE: 1.000 (MC SE 0.000; 200 of 200)
+  SE ratio DR / ordinary, 5% / 50% / 95%: [0.975, 0.997, 1.038]
+  DR-TMLE nearer the truth than the ordinary TMLE: 0.415 (MC SE 0.035; 83 of 200)
+  both intervals cover: 0.905 (MC SE 0.021; 181 of 200)
+  only DR-TMLE covers: 0.005 (MC SE 0.005; 1 of 200)
+  only the ordinary TMLE covers: 0.030 (MC SE 0.012; 6 of 200)
+
+Step 8: constant reductions
+  constant fit passes score and correction checks: 1.000 (MC SE 0.000; 200 of 200)
+  spline fit passes score and correction checks: 0.970 (MC SE 0.012; 194 of 200)
+  |constant - ordinary| in ordinary SEs, median 0.05
+  |spline - ordinary| in ordinary SEs, median 0.17
+  spline fit nearer the truth than the constant fit: 0.415 (MC SE 0.035; 83 of 200)
+
+Step 9: the assessment of the DR-TMLE fit
+  no attention row: 0.970 (MC SE 0.012; 194 of 200)
+  contract theorem: 0.900 (MC SE 0.021; 180 of 200)
+  nuisance report says look reasonable: 1.000 (MC SE 0.000; 200 of 200)
+  no unit truncated at the default bound 0.01471: 1.000 (MC SE 0.000; 200 of 200)
+  smallest fitted g, 5% / 50% / 95%: [0.0807, 0.1269, 0.1804]
+  smallest true g on the draw's rows, 5% / 50% / 95%: [0.0501, 0.0511, 0.0549]
+  smallest true g on the draw's rows below the bound: 0.000 (MC SE 0.000; 0 of 200)
+  qr: spline best in at least 4 of 6 fits: 0.010 (MC SE 0.007; 2 of 200)
+  gr1: spline best in at least 4 of 6 fits: 0.690 (MC SE 0.033; 138 of 200)
+  gr2: spline best in at least 4 of 6 fits: 0.045 (MC SE 0.015; 9 of 200)
+
+Step 10: E-value of the DR-TMLE fit
+  point, 5% / 50% / 95%: [2.94, 3.1, 3.28]
+  limit, 5% / 50% / 95%: [2.75, 2.91, 3.09]
+  limit above 2: 1.000 (MC SE 0.000; 200 of 200)

@@ -1,0 +1,6 @@
+a_hgb_default        navigation_data fit s: 2.25 2.32 2.38
+b_hgb_regularised    navigation_data fit s: 2.08 2.21 2.16
+c_hgb_early_stop     navigation_data fit s: 1.98 1.95 2.11
+d_logit_main         navigation_data fit s: 1.24 1.21 1.16
+e_logit_true         navigation_data fit s: 1.24 1.21 1.27
+e2_logit_poly2       strong law fit s:      1.18 1.17 1.31

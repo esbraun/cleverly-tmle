@@ -1,0 +1,145 @@
+## Regime and incremental axes (sweep_binary.csv)
+seeds 9000 to 9119, n = 3000, three folds
+
+### treatment learner: booster (120 draws)
+
+| contrast | coverage | mean error (MC SE) | empirical SD | mean SE | SE / SD |
+| --- | --- | --- | --- | --- | --- |
+| all | 115/120 = 0.958 | -0.00034 (0.00049) | 0.00534 | 0.00570 | 1.07 |
+| screen | 117/120 = 0.975 | -0.00037 (0.00035) | 0.00387 | 0.00430 | 1.11 |
+| ipsi | 110/120 = 0.917 | +0.00066 (0.00008) | 0.00085 | 0.00090 | 1.05 |
+
+nuisance_models in needs attention: 6/120
+calibration slope 5%, 50%, 95%: 0.879, 0.939, 1.011
+offer-to-all min g 5%, 50%, 95%: 2.18e-02, 3.66e-02, 6.06e-02
+draws whose fitted offer-to-all min g is below the law's floor 0.05: 0.842
+draws with the incremental estimate above its truth: 0.792
+warnings raised: {'none': 120}
+
+### treatment learner: poly2 (120 draws)
+
+| contrast | coverage | mean error (MC SE) | empirical SD | mean SE | SE / SD |
+| --- | --- | --- | --- | --- | --- |
+| all | 117/120 = 0.975 | -0.00029 (0.00054) | 0.00592 | 0.00635 | 1.07 |
+| screen | 117/120 = 0.975 | -0.00028 (0.00037) | 0.00410 | 0.00449 | 1.10 |
+| ipsi | 116/120 = 0.967 | +0.00011 (0.00008) | 0.00083 | 0.00090 | 1.08 |
+
+nuisance_models in needs attention: 4/120
+calibration slope 5%, 50%, 95%: 0.891, 0.929, 0.958
+offer-to-all min g 5%, 50%, 95%: 2.01e-04, 2.20e-03, 8.35e-03
+draws whose fitted offer-to-all min g is below the law's floor 0.05: 1.000
+draws with the incremental estimate above its truth: 0.558
+warnings raised: {'none': 120}
+
+## Modified-treatment-policy axis (sweep_dose.csv)
+seeds 9000 to 9119, n = 3000, in sample
+
+### configuration: boosted40 (120 draws)
+
+| contrast | coverage | mean error (MC SE) | empirical SD | mean SE | SE / SD |
+| --- | --- | --- | --- | --- | --- |
+| capped | 96/120 = 0.800 | +0.01079 (0.00135) | 0.01482 | 0.01197 | 0.81 |
+| uncapped | 103/120 = 0.858 | +0.00654 (0.00134) | 0.01469 | 0.01187 | 0.81 |
+| one | 84/120 = 0.700 | -0.01553 (0.00318) | 0.03480 | 0.02117 | 0.61 |
+| gap | 83/120 = 0.692 | -0.00425 (0.00072) | 0.00789 | 0.00498 | 0.63 |
+
++1.0 width / +0.5 uncapped width: mean 1.78, above 1.8 on 0.408
+gap interval excludes zero: 1.000
+gap estimate positive: 1.000
+gap SE below half of each contrast SE: 0.792
+mean estimated ESS share: +0.5 uncapped 0.597, +1.0 0.288
++1.0 estimated ESS share below exp(-1): 0.900
+PositivityWarnings per fit: {2: 120}
+fits with a needs-attention item: 0/120
+
+### configuration: quad40 (120 draws)
+
+| contrast | coverage | mean error (MC SE) | empirical SD | mean SE | SE / SD |
+| --- | --- | --- | --- | --- | --- |
+| capped | 104/120 = 0.867 | +0.00052 (0.00166) | 0.01814 | 0.01327 | 0.73 |
+| uncapped | 102/120 = 0.850 | +0.00118 (0.00162) | 0.01779 | 0.01252 | 0.70 |
+| one | 87/120 = 0.725 | +0.00047 (0.00382) | 0.04189 | 0.02395 | 0.57 |
+| gap | 111/120 = 0.925 | +0.00066 (0.00048) | 0.00525 | 0.00472 | 0.90 |
+
++1.0 width / +0.5 uncapped width: mean 1.91, above 1.8 on 0.733
+gap interval excludes zero: 1.000
+gap estimate positive: 1.000
+gap SE below half of each contrast SE: 0.942
+mean estimated ESS share: +0.5 uncapped 0.597, +1.0 0.288
++1.0 estimated ESS share below exp(-1): 0.900
+PositivityWarnings per fit: {2: 120}
+fits with a needs-attention item: 0/120
+
+### configuration: quad80 (120 draws)
+
+| contrast | coverage | mean error (MC SE) | empirical SD | mean SE | SE / SD |
+| --- | --- | --- | --- | --- | --- |
+| capped | 89/120 = 0.742 | -0.00253 (0.00203) | 0.02226 | 0.01272 | 0.57 |
+| uncapped | 93/120 = 0.775 | -0.00132 (0.00198) | 0.02165 | 0.01269 | 0.59 |
+| one | 57/120 = 0.475 | +0.00662 (0.00639) | 0.07001 | 0.02392 | 0.34 |
+| gap | 115/120 = 0.958 | +0.00121 (0.00055) | 0.00605 | 0.00571 | 0.94 |
+
++1.0 width / +0.5 uncapped width: mean 1.90, above 1.8 on 0.608
+gap interval excludes zero: 1.000
+gap estimate positive: 1.000
+gap SE below half of each contrast SE: 0.717
+mean estimated ESS share: +0.5 uncapped 0.556, +1.0 0.272
++1.0 estimated ESS share below exp(-1): 0.942
+PositivityWarnings per fit: {2: 120}
+fits with a needs-attention item: 0/120
+
+### configuration: quad80logit (120 draws)
+
+| contrast | coverage | mean error (MC SE) | empirical SD | mean SE | SE / SD |
+| --- | --- | --- | --- | --- | --- |
+| capped | 120/120 = 1.000 | -0.00093 (0.00103) | 0.01124 | 0.01669 | 1.49 |
+| uncapped | 120/120 = 1.000 | -0.00007 (0.00098) | 0.01071 | 0.01651 | 1.54 |
+| one | 119/120 = 0.992 | +0.00042 (0.00251) | 0.02750 | 0.07896 | 2.87 |
+| gap | 118/120 = 0.983 | +0.00087 (0.00047) | 0.00514 | 0.00581 | 1.13 |
+
++1.0 width / +0.5 uncapped width: mean 4.47, above 1.8 on 1.000
+gap interval excludes zero: 1.000
+gap estimate positive: 1.000
+gap SE below half of each contrast SE: 0.917
+mean estimated ESS share: +0.5 uncapped 0.399, +1.0 0.044
++1.0 estimated ESS share below exp(-1): 1.000
+PositivityWarnings per fit: {2: 120}
+fits with a needs-attention item: 0/120
+
+### configuration: quad_oracle320 (120 draws)
+
+| contrast | coverage | mean error (MC SE) | empirical SD | mean SE | SE / SD |
+| --- | --- | --- | --- | --- | --- |
+| capped | 111/120 = 0.925 | -0.00123 (0.00096) | 0.01054 | 0.00984 | 0.93 |
+| uncapped | 116/120 = 0.967 | -0.00071 (0.00091) | 0.00992 | 0.01001 | 1.01 |
+| one | 114/120 = 0.950 | -0.00202 (0.00208) | 0.02280 | 0.02271 | 1.00 |
+| gap | 116/120 = 0.967 | +0.00051 (0.00051) | 0.00564 | 0.00592 | 1.05 |
+
++1.0 width / +0.5 uncapped width: mean 2.26, above 1.8 on 1.000
+gap interval excludes zero: 1.000
+gap estimate positive: 1.000
+gap SE below half of each contrast SE: 0.058
+mean estimated ESS share: +0.5 uncapped 0.745, +1.0 0.329
++1.0 estimated ESS share below exp(-1): 0.700
+PositivityWarnings per fit: {2: 120}
+mean density ratio at the observed dose, mean (range): capped 1.002 (0.983 to 1.026), uncapped 1.006 (0.981 to 1.045), one 1.014 (0.949 to 1.113)
+fits with a needs-attention item: 0/120
+
+### configuration: quad_rboost40 (120 draws)
+
+| contrast | coverage | mean error (MC SE) | empirical SD | mean SE | SE / SD |
+| --- | --- | --- | --- | --- | --- |
+| capped | 117/120 = 0.975 | -0.00040 (0.00102) | 0.01116 | 0.01309 | 1.17 |
+| uncapped | 117/120 = 0.975 | +0.00020 (0.00097) | 0.01061 | 0.01229 | 1.16 |
+| one | 114/120 = 0.950 | -0.00052 (0.00248) | 0.02720 | 0.02573 | 0.95 |
+| gap | 112/120 = 0.933 | +0.00059 (0.00046) | 0.00509 | 0.00471 | 0.93 |
+
++1.0 width / +0.5 uncapped width: mean 2.10, above 1.8 on 0.975
+gap interval excludes zero: 1.000
+gap estimate positive: 1.000
+gap SE below half of each contrast SE: 0.925
+mean estimated ESS share: +0.5 uncapped 0.648, +1.0 0.297
++1.0 estimated ESS share below exp(-1): 0.867
+PositivityWarnings per fit: {2: 120}
+mean density ratio at the observed dose, mean (range): capped 1.045 (1.017 to 1.104), uncapped 1.031 (1.001 to 1.095), one 1.048 (0.979 to 1.183)
+fits with a needs-attention item: 0/120

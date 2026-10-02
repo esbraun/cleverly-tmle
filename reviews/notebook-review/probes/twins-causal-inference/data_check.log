@@ -1,0 +1,26 @@
+rows 71345 71345 71345
+T NaN {'dbirwt_0': 0, 'dbirwt_1': 0}
+Y NaN {'mort_0': 0, 'mort_1': 0}
+Y values [np.float64(0.0), np.float64(1.0)]
+twin0 lighter strictly: 1.0 equal: 0
+weight range {'Unnamed: 0': 0.0, 'dbirwt_0': 227.0, 'dbirwt_1': 234.0} {'Unnamed: 0': 71344.0, 'dbirwt_0': 4621.0, 'dbirwt_1': 6804.0}
+both < 2000g pairs: 11984
+csex unique [1 0]
+gestat10 NaN share 0.0
+mager8 NaN 0 levels [1, 2, 3, 4, 5, 6, 7, 8]
+meduc6 NaN 4339 levels [1.0, 2.0, 3.0, 4.0, 5.0]
+mrace NaN 0 levels [1, 2, 3, 4, 5, 6, 7, 8, 9]
+dmar NaN 0 levels [0, 1]
+mplbir_reg NaN 108 levels [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+data_year NaN 0 levels [89, 90, 91]
+diabetes NaN 4240 levels [0.0, 1.0]
+chyper NaN 4240 levels [0.0, 1.0]
+phyper NaN 4240 levels [0.0, 1.0]
+preterm NaN 7086 levels [0.0, 1.0]
+tobacco NaN 19254 levels [0.0, 1.0]
+alcohol NaN 17923 levels [0.0, 1.0]
+FULL: LBW share 0.5159 mort 0.0359 crude RD 0.0611
+FULL: discordant pairs 14870 of 71345 ; any disc where heavier is LBW and lighter not: 0
+FULL: within-discordant RD 0.0047
+SAMPLE: LBW 0.5145 mort 0.0359 r0 0.0043 r1 0.0658 crude 0.0615 disc 1290 paired 0.0085
+SWEEP 200 pair samples: n_disc mean 1249 range 1164-1321; paired RD mean 0.0051 sd 0.0037; boot CI excludes 0 in 0.24

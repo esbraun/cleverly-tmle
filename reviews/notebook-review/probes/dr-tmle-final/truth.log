@@ -1,0 +1,10 @@
+Monte Carlo, 20 chunks of 500000; truncation bound 0.01471
+  ey1                          0.567219  (MC SE 6.8e-05)
+  ey0                          0.404392  (MC SE 4.9e-05)
+  ate                          0.162827  (MC SE 2.3e-05)
+  nu2 = E[1/g + 1/(1-g)]       4.828314  (MC SE 6.5e-04)
+  share g < bound              0.000000  (MC SE 0.0e+00)
+  E|g* - g|                    0.091804  (MC SE 2.4e-05)
+  min g                        0.050001
+  max g                        0.937649
+main-effects logistic limit (intercept, W1..W4): [-0.171, 0.489, -0.001, -0.001, 0.097]

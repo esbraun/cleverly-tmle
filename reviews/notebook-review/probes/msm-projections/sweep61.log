@@ -1,0 +1,40 @@
+truth means [0.   0.6  1.44] mc [-8.0000e-04  5.9920e-01  1.4392e+00]
+projection [-0.11714286  0.26571429] contrast slope 0.26571428571428574
+P(A=a) [0.2777 0.3599 0.3625] share-weight projection with P(A=a) [-0.08694465  0.2600144 ]
+population miss at medium -0.18571428571428578
+min g by arm over 2e6 draws [0.00993366 0.00017549 0.00013798]
+{'seed': 61, 'slope': 0.26875257746256404, 'slope_se': 0.008593586870848562, 'slope_cov': np.True_, 'int_cov': np.True_, 'both_cov': np.True_, 'slope_cov_share_target': np.True_, 'arms_all_cov': True, 'mis_psi': -0.2083877843990525, 'mis_excl0': True, 'mis_cov': np.True_, 'step7': np.float64(-0.2091739562076772), 'mis_minus_step7': np.float64(0.0007861718086246972), 'obs_med_gt_high': np.True_, 'risk_med_gt_high': np.True_, 'age_high_gt_med': np.True_, 'attention': 'support', 'trunc_frac': 0.012, 'severity': 'strain', 'narrowest': 'high', 'curve_max_abs_delta': 0.00331581022410965, 'curve_min': 0.2654367672384544, 'curve_max': 0.27004402764484914, 'rv_med': 0.20392489882283668, 'rv_high': 0.419835954372619, 'share_slope_diff': np.float64(-0.00645112781954893), 'secs': 0.5563404560089111}
+
+                     count       mean  std        min        25%        50%        75%        max
+seed                   1.0  61.000000  NaN  61.000000  61.000000  61.000000  61.000000  61.000000
+slope                  1.0   0.268753  NaN   0.268753   0.268753   0.268753   0.268753   0.268753
+slope_se               1.0   0.008594  NaN   0.008594   0.008594   0.008594   0.008594   0.008594
+mis_psi                1.0  -0.208388  NaN  -0.208388  -0.208388  -0.208388  -0.208388  -0.208388
+step7                  1.0  -0.209174  NaN  -0.209174  -0.209174  -0.209174  -0.209174  -0.209174
+mis_minus_step7        1.0   0.000786  NaN   0.000786   0.000786   0.000786   0.000786   0.000786
+trunc_frac             1.0   0.012000  NaN   0.012000   0.012000   0.012000   0.012000   0.012000
+curve_max_abs_delta    1.0   0.003316  NaN   0.003316   0.003316   0.003316   0.003316   0.003316
+curve_min              1.0   0.265437  NaN   0.265437   0.265437   0.265437   0.265437   0.265437
+curve_max              1.0   0.270044  NaN   0.270044   0.270044   0.270044   0.270044   0.270044
+rv_med                 1.0   0.203925  NaN   0.203925   0.203925   0.203925   0.203925   0.203925
+rv_high                1.0   0.419836  NaN   0.419836   0.419836   0.419836   0.419836   0.419836
+share_slope_diff       1.0  -0.006451  NaN  -0.006451  -0.006451  -0.006451  -0.006451  -0.006451
+secs                   1.0   0.556340  NaN   0.556340   0.556340   0.556340   0.556340   0.556340
+slope_cov 1.0
+int_cov 1.0
+both_cov 1.0
+slope_cov_share_target 1.0
+arms_all_cov 1.0
+mis_excl0 1.0
+mis_cov 1.0
+obs_med_gt_high 1.0
+risk_med_gt_high 1.0
+age_high_gt_med 1.0
+attention {'support': 1}
+severity {'strain': 1}
+trunc>0.01 1.0
+narrowest {'high': 1}
+rv_med<rv_high 1.0
+|mis-step7|<0.0005 0.0 max 0.0007861718086246972
+|share diff|/slope_se mean 0.7506909415709347
+empirical SD slope nan mean SE 0.008593586870848562 bias 0.003038291748278299

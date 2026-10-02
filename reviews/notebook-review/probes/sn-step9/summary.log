@@ -1,0 +1,30 @@
+== n2000: n 2000, draws 1000, seeds 1001-2000
+  lib_cv  cover 957/1000 = 0.957 (0.944-0.970); bias -0.00003 (MC SE 0.00080); emp SD 0.02520; mean SE 0.02608; SE/SD 1.035; t-SD 0.964
+  lib_in  cover 961/1000 = 0.961 (0.949-0.973); bias +0.00004 (MC SE 0.00079); emp SD 0.02512; mean SE 0.02577; SE/SD 1.026; t-SD 0.973
+  own_cv  cover 961/1000 = 0.961 (0.949-0.973); bias +0.00001 (MC SE 0.00080); emp SD 0.02531; mean SE 0.02615; SE/SD 1.033; t-SD 0.966
+  own_in  cover 961/1000 = 0.961 (0.949-0.973); bias +0.00003 (MC SE 0.00079); emp SD 0.02514; mean SE 0.02582; SE/SD 1.027; t-SD 0.972
+  oracle  cover 956/1000 = 0.956 (0.943-0.969); bias +0.00017 (MC SE 0.00080); emp SD 0.02521; mean SE 0.02581; SE/SD 1.024; t-SD 0.978
+  oracle EIF at truth: mean SE 0.02587
+  lib_cv: max |IC - recomputed D| 7.11e-15; reported SE / recomputed SE mean 1.000250; min g*pi median 0.0129
+  lib_in: max |IC - recomputed D| 7.11e-15; reported SE / recomputed SE mean 1.000250; min g*pi median 0.0131
+  corr(lib_cv psi, own_cv psi) 0.995; corr(lib_cv, oracle) 0.993
+== n4000: n 4000, draws 1000, seeds 1001-2000
+  lib_cv  cover 936/1000 = 0.936 (0.921-0.951); bias -0.00031 (MC SE 0.00061); emp SD 0.01942; mean SE 0.01836; SE/SD 0.946; t-SD 1.058
+  lib_in  cover 937/1000 = 0.937 (0.922-0.952); bias -0.00027 (MC SE 0.00061); emp SD 0.01936; mean SE 0.01825; SE/SD 0.942; t-SD 1.061
+  own_cv  cover 939/1000 = 0.939 (0.924-0.954); bias -0.00021 (MC SE 0.00061); emp SD 0.01940; mean SE 0.01839; SE/SD 0.948; t-SD 1.056
+  own_in  cover 937/1000 = 0.937 (0.922-0.952); bias -0.00027 (MC SE 0.00061); emp SD 0.01936; mean SE 0.01826; SE/SD 0.943; t-SD 1.061
+  oracle  cover 937/1000 = 0.937 (0.922-0.952); bias -0.00024 (MC SE 0.00061); emp SD 0.01938; mean SE 0.01828; SE/SD 0.944; t-SD 1.062
+  oracle EIF at truth: mean SE 0.01830
+  lib_cv: max |IC - recomputed D| 7.11e-15; reported SE / recomputed SE mean 1.000125; min g*pi median 0.0103
+  lib_in: max |IC - recomputed D| 7.11e-15; reported SE / recomputed SE mean 1.000125; min g*pi median 0.0104
+  corr(lib_cv psi, own_cv psi) 0.998; corr(lib_cv, oracle) 0.997
+== n16000: n 16000, draws 500, seeds 1001-1500
+  lib_cv  cover 468/500 = 0.936 (0.915-0.957); bias -0.00022 (MC SE 0.00041); emp SD 0.00928; mean SE 0.00916; SE/SD 0.988; t-SD 1.014
+  lib_in  cover 468/500 = 0.936 (0.915-0.957); bias -0.00023 (MC SE 0.00042); emp SD 0.00928; mean SE 0.00915; SE/SD 0.986; t-SD 1.017
+  own_cv  cover 469/500 = 0.938 (0.917-0.959); bias -0.00025 (MC SE 0.00041); emp SD 0.00928; mean SE 0.00916; SE/SD 0.988; t-SD 1.014
+  own_in  cover 468/500 = 0.936 (0.915-0.957); bias -0.00023 (MC SE 0.00042); emp SD 0.00928; mean SE 0.00915; SE/SD 0.986; t-SD 1.017
+  oracle  cover 468/500 = 0.936 (0.915-0.957); bias -0.00024 (MC SE 0.00042); emp SD 0.00928; mean SE 0.00915; SE/SD 0.986; t-SD 1.017
+  oracle EIF at truth: mean SE 0.00915
+  lib_cv: max |IC - recomputed D| 7.11e-15; reported SE / recomputed SE mean 1.000031; min g*pi median 0.0066
+  lib_in: max |IC - recomputed D| 1.42e-14; reported SE / recomputed SE mean 1.000031; min g*pi median 0.0066
+  corr(lib_cv psi, own_cv psi) 0.999; corr(lib_cv, oracle) 0.999

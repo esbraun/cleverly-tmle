@@ -1,0 +1,5 @@
+{'seed': 2026, 'gmin': np.float64(0.27502936761928015), 'gmax': np.float64(0.9975106572114547), 'n_out01': 4, 'gap01': np.float64(-1.1295091177088157e-06), 'shift01': np.float64(0.000511365556209481), 'ratio01': np.float64(0.0022088095375084513), 'gappk': np.float64(-1.1351874326173683e-06), 'shiftpk': np.float64(0.0005113712345243895), 'ratiopk': np.float64(0.002219889105950926), 'sfin': np.float64(5.921189464667501e-19), 's0': np.float64(0.0005087504178504443), 'eps': np.float64(0.004228553909612998)}
+{'seed': 1, 'gmin': np.float64(0.09952610169894499), 'gmax': np.float64(0.9994522368296817), 'n_out01': 20, 'gap01': np.float64(-0.0015621462683595155), 'shift01': np.float64(-0.0003142711501869719), 'ratio01': np.float64(4.970695742928154), 'gappk': np.float64(-0.0015382123057636338), 'shiftpk': np.float64(-0.00033820511278285365), 'ratiopk': np.float64(4.548163962119789), 'sfin': np.float64(0.0), 's0': np.float64(-0.00029492455605531655), 'eps': np.float64(-0.002333008500073915)}
+assert fails (0.01 clip): 1 of 2
+assert fails (pkg bound): 1 of 2
+final score exactly 0: 1

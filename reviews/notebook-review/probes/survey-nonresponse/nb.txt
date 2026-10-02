@@ -1,0 +1,857 @@
+===== markdown title
+# Survey non-response: the patients who never answered
+
+This notebook asks the navigation question of the
+[point-treatment tutorial](point-treatment-tmle.ipynb) again, with one new fact. About a quarter of
+patients never return the 30-day transition survey. Each step shows its code, its output, and what
+the output tells you.
+[Missing outcomes](../technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects)
+gives the clever covariate and the identification argument.
+
+## The applied question
+
+The survey goes out 30 days after discharge and closes on day 45. The program sponsor still wants
+the average treatment effect (ATE) for **every eligible patient**, not only for respondents.
+Discharge risk and prior utilization affect response, and navigation can change willingness to
+reply.
+
+The response model conditions on the arm and the baseline adjustment set. A baseline predictor of
+response, such as language, must enter that set. Contact attempts after assignment cannot enter it,
+because navigation can change them. The protocol scores death before day 30 as the worst transition
+score (composite strategy). That score counts as observed, so only living patients who do not
+respond are missing.
+
+## What you will learn
+
+| after this notebook you can | the step that shows it |
+| --- | --- |
+| see how respondents differ from the eligible population | Step 3 |
+| record the response rule in the protocol and the design | Steps 4 and 5 |
+| fit TMLE with a response model, and read its interval | Step 6 |
+| say what a complete-case fit estimates, and when it agrees | Steps 7 and 8 |
+| report a top-box rate as a difference, a risk ratio, and an odds ratio | Step 9 |
+| recognize a refused composition | Step 10 |
+| read the support report and the missingness sensitivity curve | Steps 11 and 12 |
+===== markdown plan
+## Why this method
+
+| your situation | what this method buys | what it costs |
+| --- | --- | --- |
+| outcomes missing for reasons recorded at baseline | the full-population estimand, identified under missingness at random given the baseline variables and the arm | a response model on top of the assignment model |
+| response depends on the exposure | the two mechanisms compose into one factor in the clever covariate | identification needs the **product** of the two mechanisms to be positive |
+| you want double robustness | you keep it, in a different shape | it becomes "the outcome regression is right, **or** the product of the assignment and response mechanisms is right" |
+
+The table below defines the terms this notebook uses most. Each link goes to the canonical
+definition.
+
+| term | plain meaning |
+| --- | --- |
+| [estimand](../user-guide/estimands.md) | the number the question asks for, written before any model is chosen |
+| [nuisance](../technical-reference/point-treatment-tmle.md) | a model the estimate needs but the question does not ask about. Here, the outcome regression Q, the treatment mechanism g, and the response mechanism |
+| [missingness at random](../technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects) | among patients with the same arm and baseline profile, response says nothing more about the unobserved score |
+| [targeting](../user-guide/methods-learners.md#targeting-and-bounds) | a small update to Q, weighted by g and the response mechanism, that removes first-order bias |
+| [influence curve](../technical-reference/inference.md) | how much each row moves the estimate. Its variance gives the standard error |
+| [positivity](../user-guide/results-assessment.md#diagnostics) | every kind of patient has some chance of each arm. Here, also some chance of responding |
+| [double robustness](../technical-reference/point-treatment-tmle.md) | the point estimate stays consistent when either side of the "or" above is consistent |
+===== markdown setup-heading
+## Step 1: set up
+
+The setup imports the learners and prints the installed `cleverly` version. Every fit below passes
+its learners, fold count, and random seed explicitly, so a rerun reproduces the stored outputs.
+===== code setup
+import numpy as np
+import pandas as pd
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+import cleverly
+
+pd.set_option("display.width", 130)
+pd.set_option("display.max_columns", 20)
+print("cleverly", cleverly.__version__)
+--OUT--
+cleverly 0.1.2
+
+===== markdown setup-reading
+**What this output tells you.** The stored outputs in this notebook came from the version named
+above. A different version can print different numbers.
+===== markdown data-heading
+## Step 2: the data
+
+The code draws the data from `make_missing_outcome` and renames its columns to the program's names.
+A `strength` of 2 adds outcome curvature, an effect that varies with discharge risk, and a stronger
+link from discharge risk to response.
+===== code data
+from cleverly.datasets import make_missing_outcome
+
+program_names = {
+    "Y": "transition_score",
+    "A": "transition_navigation",
+    "W1": "discharge_risk",
+    "W2": "age",
+    "W3": "prior_utilization",
+    "Delta": "responded",
+}
+frame, truth = make_missing_outcome(n=4_000, seed=71, strength=2.0)
+frame = frame.rename(columns=program_names)
+print("rows and columns:", frame.shape)
+print(frame.head().round(3))
+print()
+print(f"response rate:            {frame['responded'].mean():.3f}")
+print(f"missing transition score: {int(frame['transition_score'].isna().sum())} rows")
+print(f"population ATE:           {truth['ate']:.3f}")
+--OUT--
+rows and columns: (4000, 6)
+
+--OUT--
+   transition_score  transition_navigation  discharge_risk    age  prior_utilization  responded
+0             2.476                    1.0           0.049  0.518             -0.110        1.0
+1             2.841                    1.0          -0.089  0.503              0.511        1.0
+2             2.195                    0.0           0.345 -1.421             -0.570        1.0
+3             3.693                    1.0          -0.307  0.740              0.045        1.0
+4               NaN                    0.0          -0.394  0.378              0.326        0.0
+
+response rate:            0.756
+missing transition score: 977 rows
+population ATE:           1.200
+
+===== markdown data-reading
+**What this output tells you.** Each row is one discharge. `responded` is 1 when the survey came
+back and 0 when it did not. Row 4 did not respond, so its `transition_score` is `NaN`.
+`CausalStudy` raises `DataError` for a missing outcome that carries no response indicator.
+
+The response rate is 0.756, so 977 of the 4000 scores are missing. The true ATE for every eligible
+patient is 1.200. Covariates are standardized (mean 0, SD 1), and scores are in synthetic units.
+
+| feature of the law | what it means for the survey |
+| --- | --- |
+| response falls as discharge risk rises, and rises with prior utilization | respondents are not a random slice of the eligible population |
+| response also depends on the arm | navigation changes who answers |
+| the effect shrinks as discharge risk rises | respondents, who have lower risk, have a larger average effect than the eligible population |
+| the outcome surface has curvature a main-effects model cannot reach | a linear regression fitted to respondents extrapolates the wrong shape |
+
+`missing_outcome_dgp` in `cleverly.datasets` defines each of these features. A real program has no
+`truth`. Every comparison against it below is a teaching device.
+===== markdown association-heading
+## Step 3: who answers the survey
+
+Before any model, compare respondents with the patients who did not answer. The code prints the
+mean of each baseline covariate by response status and the response rate in each arm. It then
+computes the naive difference in mean score among respondents.
+===== code association
+covariates = ["discharge_risk", "age", "prior_utilization"]
+by_response = frame.groupby("responded")[covariates].mean()
+print("mean baseline covariate by response status:")
+print(by_response.round(3))
+print()
+response_by_arm = frame.groupby("transition_navigation")["responded"].mean()
+print("response rate by arm:")
+print(response_by_arm.round(3).to_string())
+print()
+respondents_only = frame[frame["responded"] == 1]
+score_by_arm = respondents_only.groupby("transition_navigation")["transition_score"].mean()
+unadjusted = score_by_arm.loc[1.0] - score_by_arm.loc[0.0]
+print(f"unadjusted difference among respondents: {unadjusted:.3f}")
+print(f"population ATE:                          {truth['ate']:.3f}")
+--OUT--
+mean baseline covariate by response status:
+           discharge_risk    age  prior_utilization
+responded                                          
+0.0                 0.763  0.030             -0.150
+1.0                -0.232 -0.018              0.038
+
+response rate by arm:
+transition_navigation
+0.0    0.747
+1.0    0.764
+
+unadjusted difference among respondents: 1.768
+population ATE:                          1.200
+
+===== markdown association-reading
+**What this output tells you.** Patients who did not respond have a mean `discharge_risk` of
+0.763. Respondents have a mean of -0.232. The respondents are therefore a lower-risk group than the
+eligible population.
+
+The response rate is 0.747 under usual support and 0.764 under navigation. The marginal gap is
+small, but the law's response model still contains the arm. The marginal rates mix that arm term
+with the arms' different risk profiles.
+
+The naive difference among respondents is 1.768, and the true ATE is 1.200. Two problems are mixed
+in that gap. Discharge risk and age confound the offer, and response selects a lower-risk group.
+The next steps handle both.
+===== markdown protocol-heading
+## Step 4: write the protocol
+
+A `StudyProtocol` records the scientific design before any model runs. This page starts from
+`navigation_protocol()`, the protocol of the
+[shared study design](index.md#the-shared-study-design). `dataclasses.replace` changes three fields
+for the survey.
+
+| field | what changes here |
+| --- | --- |
+| `target_population` | it says explicitly that non-respondents belong to the population |
+| `outcome` | it names the survey that measures the score, sent on day 30 and closed on day 45 |
+| `assumption_rationale` | it adds the response rule: missingness at random, and no post-assignment contact attempts in the response model |
+===== code protocol
+from dataclasses import replace
+
+from cleverly.datasets import navigation_protocol
+
+program = navigation_protocol()
+protocol = replace(
+    program,
+    target_population=f"{program.target_population}, whether or not they return the survey",
+    outcome=(
+        "Patient-reported transition score, standardized to the baseline distribution, "
+        "from the survey sent on day 30 and closed on day 45"
+    ),
+    assumption_rationale=(
+        program.assumption_rationale[0],
+        "Given the arm and the baseline variables, survey response carries no further "
+        "information about the unobserved score (missingness at random)",
+        "Contact attempts after assignment stay out of the response model, "
+        "because navigation can change them",
+        *program.assumption_rationale[1:],
+    ),
+)
+print("\n".join(protocol.summary_lines()))
+--OUT--
+causal study protocol: schema 1; e3b16de5ab35d51b
+target population: Adults with a discharge-home order at a participating hospital during the enrollment period, whether or not they return the survey
+eligibility: ['Age 18 years or older', 'Discharge home ordered at a participating hospital']
+time zero: Discharge-home order, after baseline measurement and before the navigation offer
+treatment strategies: ['Offer standard transition navigation', 'Provide usual discharge support']
+treatment versions: ['Bedside transition plan and two scheduled navigator contacts within 30 days', 'No access to the transition-navigation offer']
+outcome: Patient-reported transition score, standardized to the baseline distribution, from the survey sent on day 30 and closed on day 45
+horizon: 30 days after discharge
+intercurrent-event handling: ['Use the transition score regardless of readmission', 'Analyze the offer regardless of completed contacts', 'The protocol scores death before day 30 as the worst transition score (composite strategy)']
+interference unit: Individual patient
+assumption rationale: ['The recorded baseline variables cover the measured common causes', 'Given the arm and the baseline variables, survey response carries no further information about the unobserved score (missingness at random)', 'Contact attempts after assignment stay out of the response model, because navigation can change them', 'The standardized offer and version records support consistency', 'Reserved navigator capacity and access controls support no interference']
+
+===== markdown protocol-reading
+**What this output tells you.** The first line gives the fingerprint `e3b16de5ab35d51b`. The fit in
+Step 6 carries the same fingerprint. The other lines repeat each field.
+
+The outcome field names the survey window and the scale. A standardized score takes its scale from
+the data, so the analyst can declare no finite support for it. Step 6 shows which fits that allows.
+
+Non-response is not an intercurrent event. It does not change what the score means. It hides a
+score that exists. `StudyProtocol` has no field for a missing-data rule, so this page records the
+rule in two places.
+
+| where | what it records |
+| --- | --- |
+| `assumption_rationale` | why missingness at random is defensible, in words |
+| `PointTreatment(missingness="responded")` in Step 5 | the column that marks an observed score, as a design role |
+
+The synthetic law has three baseline covariates. The program adjustment set also names medication
+burden and applicable site or calendar factors. A real protocol keeps them.
+
+===== markdown identify-heading
+## Step 5: design and identification
+
+The response indicator is a **design role**, like the outcome and the treatment. Declaring it tells
+the estimator that the rows with a missing score are part of the population.
+===== code identify
+from cleverly import ATE, CausalStudy, PointTreatment
+
+study = CausalStudy(
+    frame,
+    design=PointTreatment(
+        outcome="transition_score",
+        treatment="transition_navigation",
+        adjustment=tuple(covariates),
+        missingness="responded",
+    ),
+    protocol=protocol,
+)
+effect = study.identify(ATE(reference=0))
+
+print(effect.summary(protocol="fingerprint"))
+--OUT--
+average treatment effect, E[Y^a] - E[Y^reference]
+identified by explicit-adjustment: E_W[E(transition_score | transition_navigation=a, responded=1, W)] - E_W[E(transition_score | transition_navigation=0, responded=1, W)] for a in [1]
+adjustment/history: ['discharge_risk', 'age', 'prior_utilization']
+required nuisances: ['outcome_regression', 'treatment_mechanism', 'missingness_mechanism']
+assumptions:
+  - consistency: Y = Y^a when A = a
+  - no interference: one unit's potential outcome does not depend on other units' treatment assignments
+  - no unmeasured confounding: Y^a is independent of A given W
+  - positivity: P(transition_navigation = a | W) > 0 almost surely for every supported treatment level a in [0, 1]
+  - missingness at random for responded: transition_score is independent of responded given (transition_navigation, W)
+  - response positivity for responded: P(responded = 1 | transition_navigation = a, W) > 0 almost surely wherever the target functional evaluates arm a
+causal study protocol: schema 1; e3b16de5ab35d51b
+
+===== markdown identify-reading
+**What this output tells you.** The formula now conditions on `responded=1`. It fits the outcome
+regression among respondents, then averages it over **all** patients. The required nuisances add
+`missingness_mechanism` to the outcome regression and the treatment mechanism.
+
+The summary adds two assumptions to the four of the point-treatment tutorial.
+
+| assumption | what it means here | can the data check it? |
+| --- | --- | --- |
+| missingness at random | given the baseline adjustment set and the arm, response carries no further information about the unobserved score | no |
+| response positivity | within each arm and baseline profile, some patients respond. With the treatment positivity above, the product of the two probabilities is positive. Stable inference also needs it away from zero | partly, through the support report |
+
+Missingness at random is not testable. A patient who ignores the survey because navigation failed
+violates it directly. No diagnostic can detect that violation from the observed data. Step 12
+stresses one declared departure instead.
+===== markdown estimate-heading
+## Step 6: estimate the ATE
+
+The response model gets its own learner slot, `missingness_learner`.
+
+| setting | value | what it does |
+| --- | --- | --- |
+| `outcome_learner` | linear regression | fits Q among respondents. It is wrong for this law |
+| `treatment_learner` | main-effects logistic | fits g. It matches the law's assignment mechanism |
+| `missingness_learner` | main-effects logistic | fits the response probability given the arm and the covariates. It matches the law's response mechanism |
+| `CrossFitting(enabled=False)` | no outer folds | fits each nuisance with no held-out rows. A cross-fitted fit of a continuous outcome with missing outcomes needs `q_bounds` equal to the known outcome support, and `cleverly` refuses `q_bounds=None` there. Step 4 recorded a standardized score, which has no such support, so the fit stays in sample |
+| `Runtime(random_state=71, n_jobs=1)` | fixed seed, one process | makes the fit reproducible |
+
+These learners deliberately use the second route to double robustness. The outcome model is wrong,
+and the two mechanisms are right.
+
+===== code estimate
+from cleverly import CrossFitting, ModelSpec, Runtime, TMLEMethod
+
+method = TMLEMethod(
+    models=ModelSpec(
+        outcome_learner=LinearRegression(n_jobs=1),
+        treatment_learner=LogisticRegression(max_iter=1000, random_state=71),
+        missingness_learner=LogisticRegression(max_iter=1000, random_state=71),
+    ),
+    cross_fitting=CrossFitting(enabled=False),
+    runtime=Runtime(random_state=71, n_jobs=1),
+)
+full = effect.estimate(method=method)
+
+estimate = full["ate"]
+print(full.summary(protocol="fingerprint"))
+print()
+print(f"estimate:        {estimate.psi:.3f}")
+print(f"standard error:  {estimate.std_error:.3f}")
+print(f"95% CI:          ({estimate.ci[0]:.3f}, {estimate.ci[1]:.3f})")
+print(f"population ATE:  {truth['ate']:.3f}")
+--OUT--
+Targeted maximum likelihood estimation
+======================================
+n = 4000 (3023 with an observed outcome); covariates = 3; P(A=1) = 0.4993
+causal estimand: average treatment effect, E[Y^a] - E[Y^reference]
+identification: explicit-adjustment; E_W[E(transition_score | transition_navigation=a, responded=1, W)] - E_W[E(transition_score | transition_navigation=0, responded=1, W)] for a in [1]
+required nuisances: outcome_regression, treatment_mechanism, missingness_mechanism
+identification assumptions: consistency: Y = Y^a when A = a; no interference: one unit's potential outcome does not depend on other units' treatment assignments; no unmeasured confounding: Y^a is independent of A given W; positivity: P(transition_navigation = a | W) > 0 almost surely for every supported treatment level a in [0, 1]; missingness at random for responded: transition_score is independent of responded given (transition_navigation, W); response positivity for responded: P(responded = 1 | transition_navigation = a, W) > 0 almost surely wherever the target functional evaluates arm a
+causal study protocol: schema 1; e3b16de5ab35d51b
+outcome family: gaussian; fluctuation: logistic (iterative)
+TMLE (in-sample nuisances): nuisances fitted in-sample (cross_fit=False)
+propensity truncated to [0.009532, 0.9905]; ATT/ATC to [0.025, 0.975]
+P(Delta=1|A,W) truncated to [0.01, 1]
+outcome scaled from [-6.56, 13.49] to [0, 1]
+data 5c62f09d72c97df8 | folds 4dc224c385945072 | cleverly 0.1.2 | 2026-09-27T03:31:11+00:00
+
+estimand  psi     std_err  95% CI            p_value
+--------  ------  -------  ----------------  -------
+ate       1.1891  0.06788  [1.0561, 1.3222]  <1e-4  
+
+estimate:        1.189
+standard error:  0.068
+95% CI:          (1.056, 1.322)
+population ATE:  1.200
+
+===== markdown estimate-reading
+**What this output tells you.** The header reports 4000 rows, of which 3023 have an observed
+outcome. The line `TMLE (in-sample nuisances)` shows that no nuisance fit held out any row. The
+configuration lines show two truncation bounds. The propensity bound is
+[0.009532, 0.9905], and the response probability bound is [0.01, 1]. The estimator clips each fitted
+probability into its bound before it divides by that probability.
+
+The line `outcome scaled from [-6.56, 13.49] to [0, 1]` shows that the fit works on a [0, 1]
+version of the score. The logistic fluctuation needs that scale, and Step 12 tilts on it.
+
+The estimate is 1.189 with a standard error of 0.068. The 95% interval is (1.056, 1.322), and it
+contains the true ATE of 1.200. That is one draw. One covered interval is not evidence of coverage.
+===== markdown failure-heading
+## Step 7: the failure mode, complete cases estimate a different population
+
+Now do what the program office would do without thinking about it. Drop the patients who never
+answered, forget the indicator, and run the ordinary analysis with the same method. The code prints
+both fits beside the true ATE.
+
+The complete-case study carries no protocol. Its rows no longer match the protocol's target
+population.
+===== code failure-mode
+from cleverly.datasets import missing_outcome_dgp
+
+
+def complete_case_fit(data):
+    """Drop the non-respondents, forget the indicator, and fit the Step 6 method."""
+    kept = data[data["responded"] == 1].drop(columns=["responded"])
+    design = PointTreatment(
+        outcome="transition_score",
+        treatment="transition_navigation",
+        adjustment=tuple(covariates),
+    )
+    fit = CausalStudy(kept, design=design).identify(ATE(reference=0)).estimate(method=method)
+    return fit, kept
+
+
+def show(label, result, target):
+    point = result["ate"]
+    low, high = point.ci
+    covered = low <= target <= high
+    print(
+        f"{label:26s} psi={point.psi:6.3f}  se={point.std_error:6.4f}  "
+        f"CI=({low:.3f}, {high:.3f})  covers={covered}"
+    )
+
+
+complete_case, respondents = complete_case_fit(frame)
+show("complete cases only", complete_case, truth["ate"])
+show("missingness declared", full, truth["ate"])
+print(f"population ATE: {truth['ate']:.3f}")
+print("rows used by the complete-case fit:", len(respondents), "of", len(frame))
+
+# The law's outcome means give the true effect for each respondent's covariates.
+law = missing_outcome_dgp(strength=2.0)
+w = respondents[covariates].to_numpy()
+respondent_effect = float(np.mean(law.outcome_mean(w, 1.0, None) - law.outcome_mean(w, 0.0, None)))
+print(f"average effect among these respondents: {respondent_effect:.3f}")
+--OUT--
+complete cases only        psi= 1.467  se=0.0581  CI=(1.354, 1.581)  covers=False
+missingness declared       psi= 1.189  se=0.0679  CI=(1.056, 1.322)  covers=True
+population ATE: 1.200
+rows used by the complete-case fit: 3023 of 4000
+average effect among these respondents: 1.409
+
+===== markdown failure-reading
+**What this output tells you.** The complete-case fit uses 3023 of 4000 rows. Its estimate is
+1.467, above the population value of 1.200, and its interval (1.354, 1.581) excludes it. The fit
+that declares the response mechanism covers the population value.
+
+The complete-case fit averages over respondents only, so it targets the respondents' average
+effect. That effect is 1.409 on this draw, and the complete-case interval contains it. Respondents
+have lower discharge risk (Step 3), and the effect shrinks as discharge risk rises. Even correct
+nuisance models would target 1.409, not the population ATE. On this draw, that shift is most of
+the gap between 1.467 and 1.200.
+
+The nuisance models of the complete-case fit are also wrong among respondents.
+
+| nuisance | why it is wrong among respondents |
+| --- | --- |
+| outcome regression | the linear model misses the law's curvature |
+| treatment mechanism | response depends on the arm, so the probability of an offer among respondents is not a main-effects logistic function of the covariates |
+
+The estimate lies about one standard error above 1.409. One draw cannot separate that nuisance
+error from sampling variation. The fit solved its score equation, but it answers a question about
+a different population.
+===== markdown mild-heading
+## Step 8: a law where complete cases agree
+
+This demonstration does not show that complete-case analysis is always wrong. At `strength=1.0` the
+outcome is linear and the effect is constant. The code repeats the complete-case fit on that law.
+===== code mild-law
+mild_frame, mild_truth = make_missing_outcome(n=4_000, seed=71, strength=1.0)
+mild_frame = mild_frame.rename(columns=program_names)
+mild, _ = complete_case_fit(mild_frame)
+show("mild law, complete cases", mild, mild_truth["ate"])
+print(f"mild-law response rate:  {mild_frame['responded'].mean():.3f}")
+print(f"mild-law population ATE: {mild_truth['ate']:.3f}")
+--OUT--
+mild law, complete cases   psi= 1.223  se=0.0360  CI=(1.152, 1.294)  covers=True
+mild-law response rate:  0.797
+mild-law population ATE: 1.200
+
+===== markdown mild-reading
+**What this output tells you.** The complete-case estimate is 1.223, and its interval
+(1.152, 1.294) contains the mild-law ATE of 1.200. Both laws have the same population ATE. They
+differ in the curvature, in how the effect varies with discharge risk, and in how strongly
+discharge risk drives response.
+
+The mild-law response rate is 0.797, against 0.756 in Step 2. The response rate alone does not
+decide whether a complete-case fit is biased. On the mild law the effect is the same for every
+patient, so the respondents' average effect equals the population's. The linear outcome model is
+also correct.
+
+A correct outcome model fitted to respondents identifies the ATE only when its predictions are
+averaged over every patient. This complete-case fit averages over respondents, so it also needs the
+constant effect. Do not expect that agreement when effects vary with response predictors.
+===== markdown top-box-heading
+## Step 9: reading it as a top-box rate
+
+Program scorecards often report the share of patients above a declared transition threshold. They
+also compare that share as a ratio. One shipped law carries both a binary outcome and a response
+indicator, so the code checks those readings against a known truth.
+This study carries no protocol, because its outcome is not the protocol's transition score.
+
+A binary outcome already lies in the unit interval, so a cross-fitted fit of it declares no
+`q_bounds` and none is refused. This fit therefore uses five outer folds, where Step 6 fits in
+sample.
+
+The fold policy is the shipped default, `stratify_by="none"`, which draws a split that reads no
+column of the data. `cleverly` refuses `stratify_by="treatment"` on every fit that draws a split.
+Balancing the folds on
+the treatment makes the partition a function of the data the fit then conditions on. No shipped
+result covers that split.
+
+The code prints each estimate and its interval. It also prints the distance from the estimate to
+each interval limit, and the population value.
+
+===== code top-box
+from cleverly import OddsRatio, RiskRatio
+from cleverly.datasets import make_missing_outcome_binary
+
+box_frame, box_truth = make_missing_outcome_binary(n=4_000, seed=72)
+box_frame = box_frame.rename(columns={**program_names, "Y": "top_box"})
+box_study = CausalStudy(
+    box_frame,
+    design=PointTreatment(
+        outcome="top_box",
+        treatment="transition_navigation",
+        adjustment=tuple(covariates),
+        missingness="responded",
+    ),
+)
+box_method = TMLEMethod(
+    models=ModelSpec(
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=72),
+        treatment_learner=LogisticRegression(max_iter=1000, random_state=72),
+        missingness_learner=LogisticRegression(max_iter=1000, random_state=72),
+    ),
+    cross_fitting=CrossFitting(n_folds=5),
+    runtime=Runtime(random_state=72, n_jobs=1),
+)
+box_points = {}
+for estimand, key in (
+    (ATE(reference=0), "ate"),
+    (RiskRatio(reference=0), "rr"),
+    (OddsRatio(reference=0), "or"),
+):
+    point = box_study.identify(estimand).estimate(method=box_method)[key]
+    box_points[key] = point
+    low, high = point.ci
+    print(
+        f"{key}: {point.psi:6.4f}  CI=({low:.3f}, {high:.3f})  "
+        f"below={point.psi - low:.3f}  above={high - point.psi:.3f}  "
+        f"population {box_truth[key]:.4f}"
+    )
+print(f"population top-box share, usual support: {box_truth['ey0']:.3f}")
+print(f"population top-box share, navigation:    {box_truth['ey1']:.3f}")
+--OUT--
+ate: 0.1918  CI=(0.155, 0.228)  below=0.037  above=0.037  population 0.1862
+rr: 1.5139  CI=(1.388, 1.652)  below=0.126  above=0.138  population 1.4947
+or: 2.1817  CI=(1.871, 2.544)  below=0.311  above=0.363  population 2.1312
+population top-box share, usual support: 0.376
+population top-box share, navigation:    0.563
+
+===== markdown top-box-reading
+**What this output tells you.** The three rows are three readings of one comparison. Each interval
+contains its population value on this draw.
+
+| estimand | estimate | what it reports |
+| --- | --- | --- |
+| `ate` | 0.1918 | the difference in the top-box share, 19 percentage points |
+| `rr` | 1.5139 | the multiplicative version a program scorecard uses |
+| `or` | 2.1817 | the odds ratio, farther above one than the risk ratio |
+
+The population top-box share is 0.376 under usual support and 0.563 under navigation, so the
+outcome is common. For a common outcome, the gap between the odds ratio and the risk ratio is
+large. Reporting the odds ratio as a risk ratio would overstate the change.
+
+The ratio intervals are built on the log scale, so they are asymmetric. The `rr` interval reaches
+0.126 below the estimate and 0.138 above it. The `ate` interval reaches 0.037 on each side.
+===== markdown refusal-heading
+## Step 10: a refused composition
+
+`PopulationAttributableRisk` and `PopulationAttributableFraction` are refused under `missingness=`.
+The code asks for the fraction and prints the refusal.
+===== code refusal
+from cleverly import CapabilityError, PopulationAttributableFraction
+
+try:
+    box_study.identify(PopulationAttributableFraction(reference=0))
+except CapabilityError as error:
+    refusal = str(error)
+else:
+    raise AssertionError("the attributable fraction should be refused under missingness=")
+print("refused:", refusal)
+--OUT--
+refused: PopulationAttributableFraction does not yet support PointTreatment(missingness=...): under missingness at random the natural-course mean E[Y] needs an additional outcome/missingness score equation, and using complete cases would identify a different parameter. docs/roadmap.md F20 tracks this identification boundary.
+
+===== markdown refusal-reading
+**What this output tells you.** `identify` raises the refusal as a `CapabilityError`, before any
+method or learner is chosen. The message says that the natural-course mean needs an additional
+outcome and response score equation. It also says that complete cases would identify a different
+parameter.
+
+The natural-course mean is the average score under the treatment pattern the program actually
+delivered, with no intervention. The attributable fraction compares it with the mean under usual
+support, so it needs both means at once.
+
+The 2026-09-12 source audit found no published derivation of that construction.
+[RM8](../roadmap.md#rm8-missing-outcome-attributable-effects) records the audit, and
+[F20](../roadmap.md#f20-missing-outcome-attributable-effects) states what a derivation must supply.
+
+`NaturalCourseMean()` alone is supported under `missingness=`, but only under stricter method
+contracts. The table gives the result for each method on this page.
+
+| method | natural-course mean | reason |
+| --- | --- | --- |
+| `box_method` | fitted | it meets the cross-fitted contract: a binary outcome, `stratify_by="none"`, and five folds |
+| `method` | refused | the in-sample contract needs `q_bounds` for a continuous outcome, and the Step 2 score has no known finite support |
+
+[Missing-outcome natural-course contracts](../technical-reference/scope-and-refusals.md#missing-outcome-natural-course-contracts)
+lists every requirement and refusal.
+===== markdown assessment-heading
+## Step 11: diagnostics, what the fit can check
+
+The combined assessment of the Step 6 fit collects validation, diagnostics, and sensitivity in one
+object. The option `include_retargets=True` adds the operations that retarget cached nuisance
+predictions without a refit. The `arguments` mapping configures the two missingness operations,
+which Step 12 reads.
+
+The code prints the assessment summary and three retained reports: support, nuisance models, and
+score equations.
+===== code assessment
+assessment = full.assess(
+    include_retargets=True,
+    arguments={
+        "missingness": {
+            "gamma": (-2.0, -1.0, 0.0, 1.0, 2.0),
+            "arm_gamma": {0: 0.0, 1: -1.0},
+        },
+        "tipping_gamma": {
+            "arm_gamma": {0: 0.0, 1: -1.0},
+        },
+    },
+)
+print(assessment.summary())
+print("needs attention:", tuple(item.name for item in assessment.attention))
+
+support = assessment.report("support")
+nuisance = assessment.report("nuisance_models")
+scores = assessment.report("score_equations")
+print()
+print(support.summary())
+print()
+print(nuisance.summary())
+print()
+print(scores.summary())
+--OUT--
+Returned results
+----------------
+surface      operation         result                                                                                                                                                                                   
+-----------  ----------------  -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+validation   support           maximum truncated fraction 0.0%; minimum effective-sample-size ratio 76.8%; group load: mean:h0 999.1/3023 Kish-equivalent mask rows (33.0%; 25.0% all; draw 01 of 01); not estimator ESS
+validation   nuisance_models   3 nuisance model report(s) are available                                                                                                                                                 
+diagnostics  truncation_curve  1 parameter(s) over evaluated lower bounds [0.001, 0.2]; signed movement from the fitted estimate: ate [-0.0001565, 0]                                                                   
+sensitivity  missingness       gamma range [-2, 2]; 1 parameter(s); signed movement from the MAR estimate: ate [-1.602, 1.473]                                                                                          
+sensitivity  tipping_gamma     tipping gamma 1.306                                                                                                                                                                      
+
+Checks
+------
+status  count  operations                
+------  -----  --------------------------
+passed  1      validation.score_equations
+
+Not run
+-------
+status          count  operations                       
+--------------  -----  ---------------------------------
+deferred        1      diagnostics.refute               
+unavailable     7      sensitivity.omitted_confounding  
+                       sensitivity.robustness_value     
+                       sensitivity.elements             
+                       sensitivity.benchmark            
+                       sensitivity.simulated_confounding
+                       sensitivity.contour              
+                       sensitivity.evalue               
+not_applicable  1      diagnostics.corrections          
+
+Full ledger: call to_frame(). Next steps: call next_steps().
+Retained payloads: call report(...).
+needs attention: ()
+
+Positivity / overlap diagnostics
+--------------------------------
+n = 4000; propensity truncated to [0.009532, 0.9905]
+
+g(W) quantile  0%      1%      5%      25%     50%     75%     95%     99%     100%  
+-------------  ------  ------  ------  ------  ------  ------  ------  ------  ------
+overall        0.1826  0.2520  0.3117  0.4201  0.4998  0.5818  0.6828  0.7499  0.8240
+treated        0.1826  0.2658  0.3352  0.4500  0.5266  0.6027  0.7034  0.7717  0.8240
+control        0.2041  0.2424  0.2974  0.3975  0.4727  0.5482  0.6502  0.7207  0.8221
+
+arm      n     effective n  ESS / n  top 1% weight  top 5% weight
+-------  ----  -----------  -------  -------------  -------------
+treated  1997  1877.1       0.940    0.021          0.086        
+control  2003  1895.0       0.946    0.021          0.084        
+
+threshold  P(g < t)  P(g > 1-t)
+---------  --------  ----------
+0.01       0.0000    0.0000    
+0.025      0.0000    0.0000    
+0.05       0.0000    0.0000    
+0.1        0.0000    0.0000    
+
+truncated: 0 unit(s) (0.00%); most extreme untruncated g(W) = 0.17599
+
+group  equation  target rows  Kish-equivalent rows  Kish / target  Kish / total  top 1% load  top 5% load  max |w h|  zero load  g bound             clipped  
+-----  --------  -----------  --------------------  -------------  ------------  -----------  -----------  ---------  ---------  ------------------  ---------
+mean   h0        3023/4000    999.1                 0.330          0.250         0.095        0.251        27.87      1526       [0.009532, 0.9905]  0 (0.00%)
+(absolute residual-multiplier load from the fitted equation; Kish values describe residual-multiplier concentration, not residual contributions or estimator information, influence, or precision; target rows are score-mask rows and include structural zeros)
+max |clever covariate| (mean): 90.2
+
+mechanism         min     1%      5%      median  ESS / n  top 1% weight  top 5% weight  clipped  
+----------------  ------  ------  ------  ------  -------  -------------  -------------  ---------
+P(Delta=1|A,W)    0.0351  0.1326  0.2928  0.8167  0.822    0.044          0.122          0 (0.00%)
+P(A=a,Delta=1|W)  0.0075  0.0456  0.1239  0.3849  0.768    0.050          0.134          0 (0.00%)
+(P(Delta=1|A,W) truncated to [0.01, 1]; P(A=a,Delta=1|W) truncated to [0.009532, 0.9905] x [0.01, 1], factor by factor; each row counts both arms)
+
+VERDICT: no truncation-driven fragility detected (0.0% of units clipped at the marginal treatment-mechanism bound [0.009532, 0.9905]). The narrowest arm has a Kish-equivalent weight count of 94% of its nominal rows. This is concentration, not estimator information, and no threshold is applied because none is derived. Absolute-load concentration is greatest for group 'mean', equation 'h0': 999.1 Kish-equivalent rows out of 3023 score-mask rows (33%; 25% of 4000 total rows). This is a descriptive residual-multiplier concentration index. It excludes the residual and is not estimator effective sample size, information, actual influence, precision, or a positivity test.
+
+Nuisance model diagnostics
+----------------------------------------
+model        auc     brier   log_loss  r2      mse     cal_slope  cal_se  reg_slope
+-----------  ------  ------  --------  ------  ------  ---------  ------  ---------
+propensity   0.6296  0.2372  0.6671    -       -       1.0010     0.0724  -        
+missingness  0.8021  0.1416  0.4404    -       -       1.0037     0.0408  -        
+outcome      -       -       -         0.5056  0.0056  -          -       1.0000   
+Calibration slopes are in sample and carry no test. An unpenalized logistic model with an intercept has an in-sample slope of 1 by construction.
+
+VERDICT: nuisance fits look reasonable.
+
+Score-equation check
+--------------------
+target  kind             |score|    before     threshold  ratio     ok 
+------  ---------------  ---------  ---------  ---------  --------  ---
+mean    fluctuation      0.000e+00  1.094e-02  1.073e-06  0.00e+00  yes
+ate     influence curve  0.000e+00  -          1.073e-06  0.00e+00  yes
+
+PASS: the targeting step solved the estimated efficient score equation.
+
+===== markdown assessment-reading
+**What this output tells you.** Read the parts in order.
+
+| output part | what it shows on this draw |
+| --- | --- |
+| `Checks` and `needs attention` | no row needs attention, and the score-equation check passed |
+| positivity and overlap, first tables | the fitted treatment mechanism ranges from 0.1826 to 0.8240, and no unit is truncated |
+| the `mechanism` table | the fitted response probability has a minimum of 0.0351. The product of the arm and response probabilities has a minimum of 0.0075 and an ESS / n of 0.768 |
+| nuisance model diagnostics | in-sample calibration slopes near 1 for the propensity and response models, and an in-sample outcome `r2` of 0.5056 |
+| score-equation check | targeting solved the composed score equation |
+
+Positivity is now a statement about the product of two mechanisms. A patient with a middling chance
+of navigation and of response can still have a small product. The clever covariate divides by that
+product for the arm each respondent received. Its largest absolute value here is 90.2. The
+table minimum of 0.0075 also counts each patient's other arm, so it can lie below 1/90.2.
+
+The nuisance report prints "nuisance fits look reasonable", yet the outcome model is wrong by
+construction. Step 6 fits in sample, so these measures come from the rows each model saw.
+The report therefore tests no calibration slope. A fit measure does not show that a nuisance
+model is correctly specified, on held-out rows or in sample.
+
+Step 12 reads the `missingness` and `tipping_gamma` rows. The `omitted_confounding`,
+`robustness_value`, `elements`, `contour`, and `evalue` rows are `unavailable` for this fit, and
+the ledger gives a reason for each. The
+[omitted-variable bound](../technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)
+is stated for a confounder of the outcome regression and the treatment mechanism, and no
+derivation here covers a fit that also models response. The standardized E-value divides by the
+standard deviation of the observed scores, which the respondents alone supply. Under missingness at
+random that deviation estimates a different quantity from the population one. The missingness tilt
+of Step 12 is the sensitivity analysis this fit does support.
+===== markdown sensitivity-heading
+## Step 12: sensitivity, what the fit cannot check
+
+Missingness at random is not testable, so this step asks how far one stated departure must go to
+change the conclusion. The missingness curve is a pattern-mixture sensitivity analysis. Within each
+arm and covariate profile, it shifts the mean of the unobserved scores away from the respondents'
+mean. [Missingness tilt and tipping gamma](../technical-reference/validation-methods.md#missingness-tilt-and-tipping-gamma)
+defines both operations.
+
+| element | meaning |
+| --- | --- |
+| `gamma` | the shift added to the logit of the fitted respondents' mean. The result is the non-respondents' mean, on the [0, 1] scale that Step 6 prints |
+| `arm_gamma={0: 0.0, 1: -1.0}` | the control arm stays at missingness at random. Positive `gamma` lowers the unobserved navigation-arm mean |
+| `gamma=0` | reproduces the missingness-at-random estimate by construction |
+| tipping gamma | the `gamma` nearest zero at which the point estimate reaches zero |
+| `ci_lower`, `ci_upper` | reuse the standard error of the fit, so they ignore uncertainty about `gamma` |
+===== code sensitivity
+from scipy.special import expit
+
+missingness_curve = assessment.report("missingness")
+tipping_gamma = assessment.report("tipping_gamma")
+print(missingness_curve.round(4).to_string(index=False))
+print()
+print(f"tipping gamma: {tipping_gamma:.3f}")
+# A logit shift moves a mean most where the shifted mean equals one minus the original mean.
+peak_mean = expit(tipping_gamma / 2)
+largest_shift = 2 * peak_mean - 1
+score_range = full.nuisance.scaler.range
+print(f"largest shift of an unobserved navigation-arm mean: {largest_shift:.3f}")
+print(f"fitted [0, 1] mean at which that shift occurs:     {peak_mean:.3f}")
+print(f"that largest shift in score units:                 {largest_shift * score_range:.2f}")
+--OUT--
+ gamma estimand     psi  std_err  ci_lower  ci_upper  is_mar  gamma[0]  gamma[1]
+  -2.0      ate  2.6619   0.0679    2.5288    2.7949   False      -0.0       2.0
+  -1.0      ate  2.0928   0.0679    1.9597    2.2258   False      -0.0       1.0
+   0.0      ate  1.1891   0.0679    1.0561    1.3222    True       0.0      -0.0
+   1.0      ate  0.2387   0.0679    0.1057    0.3718   False       0.0      -1.0
+   2.0      ate -0.4125   0.0679   -0.5455   -0.2794   False       0.0      -2.0
+
+tipping gamma: 1.306
+largest shift of an unobserved navigation-arm mean: 0.315
+fitted [0, 1] mean at which that shift occurs:     0.658
+that largest shift in score units:                 6.32
+
+===== markdown sensitivity-reading
+**What this output tells you.** The `gamma` = 0 row reproduces the Step 6 estimate, 1.1891. At
+`gamma` = 1 the estimate falls to 0.2387, and at `gamma` = 2 it is -0.4125. Every row has the same
+standard error, 0.0679, because the curve reuses the fitted one.
+
+The tipping gamma is 1.306. At that tilt, the unobserved navigation-arm mean of one baseline
+profile moves by at most 0.315 of the score range. That is 6.32 score units. The largest move
+occurs where the fitted mean of that profile is 0.658 on the [0, 1] scale. A mean nearer 0 or 1
+moves less. The ATE moves less than 0.315 of the range, because respondents keep their observed
+scores.
+
+This curve does not detect why patients did not answer. It shows how far one stated departure must
+move before the conclusion changes. The review must decide whether a shift of that size is
+plausible for this survey.
+===== markdown trust
+## How far to trust this
+
+The [ordinary missing-outcome study](../technical-reference/method-evidence/ordinary-missing-outcome-tmle.md)
+validates ordinary, non-cross-fitted TMLE with missing outcomes, the estimator of Step 6. It
+uses supplied oracle nuisances on a binary law. It does not cover the continuous law or the linear
+learners on this page. The
+[stacked natural-course study](../technical-reference/method-evidence/stacked-missing-outcome-natural-course-cvtmle.md)
+covers a different target.
+
+The cross-fitted fit in Step 9 follows the audited
+[arm-indexed stacked contract](../technical-reference/point-treatment-tmle.md#stacked-cv-tmle-for-arm-indexed-targets). The
+[stacked arm-indexed missing-outcome study](../technical-reference/method-evidence/stacked-arm-indexed-missing-outcome-cvtmle.md)
+covers that contract on binary and bounded continuous laws with two and three arms. It uses
+ten folds and depth-five trees, not the five folds and logistic learners of Step 9.
+
+| layer | establishes | does not establish |
+| --- | --- | --- |
+| the support report | overlap for each fitted mechanism, plus joint ESS, concentration, and maximum leverage | that the response model is correct or missingness at random holds |
+| the nuisance report | in-sample fit and calibration measures for the treatment, response, and outcome models | that any nuisance model is correctly specified |
+| the score-equation check | the targeting solved the composed score | that missingness at random holds |
+| the missingness tilt and tipping gamma | estimate movement under one declared arm-specific departure | that the departure describes why patients did not respond |
+| the mild-law comparison | one draw on which the complete-case interval contains the ATE, on a law whose effect is constant and whose outcome model is linear | that complete cases agree in repeated samples, or on any law whose effect varies with response predictors |
+| the ordinary missing-outcome study | repeated-sampling truth, R `tmle` agreement, three-nuisance robustness, calibration, and a complete-case control for `ate`, `ey1`, and `ey0` | coverage for this continuous law, or the cross-fitted Step 9 fit |
+| the stacked arm-indexed study | repeated-sampling truth, R `tmle` agreement, calibration, a simultaneous band, three-nuisance robustness, and overfitting controls for arm means, `ate`, `rr`, and `or` under the cross-fitted contract | coverage on this page's law, fold count, or learners |
+
+The strongest assumption on this page remains untestable. A survey whose non-response is driven by
+the experience itself breaks missingness at random. The tilt shows consequences under one departure,
+but it cannot establish which departure is plausible. Treat the estimate as conditional on an
+argument about the mailing process.
+===== markdown where-next
+## Where to go next
+
+Plan exit is not a missing outcome. It is an event with its own risk over time. Read
+[time-to-event outcomes](longitudinal-survival.ipynb), where plan exit is the outcome.
+
+The [examples index](index.md#the-program) lists every tutorial in the program.

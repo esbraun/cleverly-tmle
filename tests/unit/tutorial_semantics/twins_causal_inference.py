@@ -20,10 +20,22 @@ from tests.unit.tutorial_semantics import EXAMPLES, markdown_text, notebook_code
 
 NOTEBOOK = EXAMPLES / "twins-causal-inference.ipynb"
 
+_PROBE = "reviews/notebook-review/probes/twins-causal-inference-final"
+
 #: Decimals the prose writes that no stored output prints, each with the reason.
 UNPRINTED_DECIMALS = {
     "4.3": "a section number of the cited Louizos et al. (2017) paper, not a result",
+    "4.091": f"smallest nu^2 over 31 pair samples, shallow booster: {_PROBE}/summary.log",
+    "4.224": f"largest nu^2 over 31 pair samples, shallow booster: {_PROBE}/summary.log",
+    "0.0019": f"largest benchmark cf_y over 31 pair samples: {_PROBE}/summary.log",
+    "0.0023": f"smallest benchmark cf_d over 31 pair samples: {_PROBE}/summary.log",
+    "0.0225": f"largest benchmark cf_d over 31 pair samples: {_PROBE}/summary.log",
+    "0.0163": f"mean naive-contrast error over 60 synthetic draws: {_PROBE}/summary.log",
+    "0.0134": f"mean LTMLE standard error over 60 synthetic draws: {_PROBE}/summary.log",
 }
+
+#: A printed residual such as 3.79e-13 is machine noise that changes between machines.
+_MACHINE_NOISE = re.compile(r"\d\.\d+e-(0[89]|[1-9]\d)")
 
 
 def _number(text: str, pattern: str) -> float:
@@ -66,41 +78,57 @@ def check_stored() -> None:
     assert "birth_order" not in code["load-data"]
     assert "birth_order" not in stored_output(NOTEBOOK, "identify")
     assert "encoded adjustment columns: 47" in load_text and "47 adjustment columns" in prose
-    assert "1,290 discordant pairs" in stored_output(NOTEBOOK, "association-stress-test")
+    # The source file removed equal-weight pairs; the eligibility and the readings say so.
+    assert "pairs in the source file:   71,345" in load_text and "71,345 pairs" in prose
+    assert "equal-weight source pairs:  0" in load_text
+    # The stress test needs no model, so it runs on every discordant pair of the full file.
+    association = stored_output(NOTEBOOK, "association-stress-test")
+    assert "14,870 pairs, full file" in association and "14,870" in prose
+    assert 'raw["T"]' in code["association-stress-test"]
 
     # Protocol: printed in its own step, and carried by the identified effect and the fit.
     protocol_text = stored_output(NOTEBOOK, "protocol")
     match = re.search(r"causal study protocol: schema \d+; ([0-9a-f]{16})", protocol_text)
     assert match, "the protocol step no longer prints its fingerprint"
     fingerprint = match.group(1)
+    assert "the source file removed equal-weight pairs" in protocol_text
     identify_text = stored_output(NOTEBOOK, "identify")
     assert f"causal study protocol: schema 1; {fingerprint}" in identify_text
     assert "causal study protocol: absent" not in identify_text
     # The later summaries print the fingerprint line of the record and none of its fields.
-    production_text = stored_output(NOTEBOOK, "production-fit")
-    assert f"causal study protocol: schema 1; {fingerprint}" in production_text
-    assert "assumption rationale:" not in identify_text + production_text
+    production = stored_output(NOTEBOOK, "production-fit")
+    assert f"causal study protocol: schema 1; {fingerprint}" in production
+    assert "assumption rationale:" not in identify_text + production
     assert f"`{fingerprint}`" in prose
 
-    # Hand-built TMLE: the nonzero witnesses the reading narrates stay asserted and printed.
+    # Hand-built TMLE: the package construction, with the nonzero witnesses the reading narrates.
     manual = code["manual-estimators"]
     assert "LogisticRegression(max_iter=3_000, random_state=SEED)" in manual
     assert manual.count("with thread_limit():") == 2
     assert "np.where(A == 1, q1_star, q0_star)" in manual
-    assert "abs(initial_score) > 1e-5" in manual
+    assert "H = np.column_stack([A / g1, (1 - A) / (1 - g1)])" in manual
+    assert "G_BOUND = 5 / (np.sqrt(n) * np.log(n))" in manual and "Q_BOUND = 0.0005" in manual
+    assert "np.abs(initial_scores).max() > 1e-5" in manual
     ladder = stored_output(NOTEBOOK, "manual-estimators")
-    before = _number(ladder, r"residual score before targeting\s+(\S+)")
-    after = _number(ladder, r"residual score after targeting\s+(\S+)")
-    epsilon = _number(ladder, r"fluctuation epsilon\s+(\S+)")
-    assert abs(before) > 1e-5 and abs(after) < 1e-10 and abs(epsilon) > 0
+    assert "g bound:  [0.004859, 0.9951]" in ladder and "Q bound:  [0.0005, 0.9995]" in ladder
+    assert _number(ladder, r"the Q bound raises: (\d+)") > 0
+    before = [_number(ladder, rf"score before targeting, arm {arm}:\s+(\S+)") for arm in (1, 0)]
+    epsilon = [_number(ladder, rf"fluctuation epsilon, arm {arm}:\s+(\S+)") for arm in (1, 0)]
+    assert max(abs(value) for value in before) > 1e-5 and min(map(abs, epsilon)) > 0
+    assert "both scores after targeting below 1e-10: True" in ladder
+    assert not _MACHINE_NOISE.search(ladder)
 
-    # Package agreement: the gap is far below the targeting move it would otherwise hide in.
-    production = stored_output(NOTEBOOK, "production-fit")
-    gap = _number(production, r"ordinary package TMLE minus hand-built TMLE:\s+(\S+)")
-    shift = _number(production, r"hand-built TMLE minus g-computation:\s+(\S+)")
-    assert abs(gap) < 0.1 * abs(shift), (gap, shift)
-    assert "0.1 * abs(targeting_shift)" in code["production-fit"]
+    # Package agreement: the gap is below a thousandth of the package standard error.
+    package = _number(production, r"ordinary package TMLE:\s+(\S+)")
+    hand = _number(production, r"hand-built TMLE:\s+(\S+)")
+    assert package == hand, (package, hand)
+    assert "|gap| / standard error below 0.001: True" in production
+    assert _number(production, r"\|gap\| / standard error, rounded:\s+(\S+)") < 1e-3
+    assert "assert gap_ratio < 1e-3" in code["production-fit"]
     assert "clusters = 6000 (cluster-robust variance)" in production
+    # The booster is regularized: scikit-learn stops it early only above 10,000 rows.
+    assert "max_depth=2" in code["production-fit"]
+    assert "l2_regularization=1.0" in code["production-fit"]
 
     ordinary_tmle_row = next(
         line
@@ -114,27 +142,43 @@ def check_stored() -> None:
     # Assessment: one assess() call, and the verdicts the readings quote.
     assert ".assess(" in code["diagnostics"] and "run_all" not in code["diagnostics"]
     diagnostics = stored_output(NOTEBOOK, "diagnostics")
-    assert "needs attention: ('nuisance_models',)" in diagnostics
-    assert "warning  1      validation.nuisance_models" in diagnostics
-    assert "passed   1      validation.score_equations" in diagnostics
-    # "The verdict flags both models", each with its own calibration-slope finding.
-    assert "propensity: the out-of-fold predictions are more extreme" in diagnostics
-    assert "outcome: the out-of-fold predictions are more extreme" in diagnostics
+    assert "needs attention: ()" in diagnostics
+    # The status table prints only the rows that ran or run on request.
+    assert re.search(r"validation\s+score_equations\s+passed", diagnostics)
+    assert re.search(r"sensitivity\s+benchmark\s+deferred", diagnostics)
+    assert "unavailable" not in diagnostics and "not_applicable" not in diagnostics
+    assert "simulated_confounding" not in diagnostics
+    # "The rule flags neither model on this pair sample."
+    assert "VERDICT: nuisance fits look reasonable." in diagnostics
+    assert "more extreme than the observed rates (" not in diagnostics
     assert "rm15-calibration-slope-warning-rule" in prose, (
         "the reading must send the calibration flag to the roadmap item that replaced the band"
     )
+    # The score check prints pass or fail and a rounded ratio, never a raw residual.
+    assert diagnostics.count("passed=True; |score| / threshold = 0.0000") == 2
+    assert not _MACHINE_NOISE.search(diagnostics)
     overlap = stored_output(NOTEBOOK, "overlap")
     assert "n = 12000; propensity truncated to [0.004859, 0.9951]" in overlap
     assert re.search(r"^0\.05\s+0\.0000\s+0\.0000\s*$", overlap, re.MULTILINE)
-    assert re.search(r"^0\.1\s+0\.0000\s+0\.0012\s*$", overlap, re.MULTILINE)
+    assert re.search(r"^0\.1\s+0\.0000\s+0\.0002\s*$", overlap, re.MULTILINE)
     assert "truncated: 0 unit(s) (0.00%)" in overlap
+    # "The maximum clever covariate is 1/(1 - g) for the largest control propensity."
+    largest_control = _number(overlap, r"(?m)^control(?:\s+\S+){8}\s+(\S+)\s*$")
+    clever = _number(overlap, r"max \|clever covariate\| \(mean\): (\S+)")
+    assert math.isclose(clever, 1 / (1 - largest_control), abs_tol=0.01), (clever, largest_control)
 
-    # Sensitivity: the sign survives, and the benchmark gives no outcome-side scale.
+    # Sensitivity: the bound runs on a nonnegative nu^2, the sign survives, and the benchmark
+    # gives no outcome-side scale.
     sensitivity = stored_output(NOTEBOOK, "sensitivity")
     assert "(the sign of the effect survives)" in sensitivity
-    assert _number(sensitivity, r"implied cf_y = (\S+),") == 0.0
+    assert _number(diagnostics, r"nu2=(\S+),") > 0
+    cf_y = _number(sensitivity, r"implied cf_y = (\S+),")
     cf_d = _number(sensitivity, r"implied cf_y = \S+, cf_d = (\S+),")
-    assert 3.5 < 0.05 / cf_d < 4.5, "the reading says cf_d = 0.05 is about four times the benchmark"
+    assert 0 <= cf_y < cf_d < 0.05, (cf_y, cf_d)
+    sigma = re.search(r"(?m)^sigma\^2\s+(\S+)\s+(\S+)\s*$", sensitivity)
+    assert sigma, "the benchmark no longer prints sigma^2 with and without the covariates"
+    assert 0 <= float(sigma.group(2)) - float(sigma.group(1)) < 1e-4
+    assert "about four times" not in prose
 
     # Scales: the ratio interval is symmetric on the log scale, and the E-value follows the ratio.
     scales = stored_output(NOTEBOOK, "effect-scales")
@@ -143,7 +187,7 @@ def check_stored() -> None:
     lower = _number(scales, r"to its lower limit: (\S+)")
     assert math.isclose(upper, lower, abs_tol=1e-4)
     ratio = _number(scales, r"risk ratio\s+(\S+)")
-    evalue = _number(diagnostics, r"evalue\s+point=(\S+),")
+    evalue = _number(diagnostics, r"evalue: point=(\S+),")
     assert math.isclose(ratio + math.sqrt(ratio * (ratio - 1)), evalue, abs_tol=0.1)
 
     # LTMLE: the seeded relations the reading states, printed so this module can read them.
@@ -151,5 +195,17 @@ def check_stored() -> None:
     assert "LTMLE interval contains the exact truth: True" in ltmle
     assert "LTMLE interval contains the naive contrast: True" in ltmle
     assert "method=sequential_method" in code["semisynthetic-fit"]
+    # "The interval contains the exact truth on 55 of the 60 draws and the naive contrast on 56
+    # of them": both counts come from the committed sweep summary.
+    sweep = (EXAMPLES.parents[1] / _PROBE / "summary.log").read_text(encoding="utf-8")
+    assert "interval contains the truth: 55/60" in sweep
+    assert "interval contains the naive contrast: 56/60" in sweep
+    assert re.search(r"exact truth on 55\s+of the 60 draws and the naive contrast on 56", prose)
     long_diagnostics = stored_output(NOTEBOOK, "ltmle-diagnostics")
     assert "1 role omission(s) are recorded" in long_diagnostics
+    # "The status table lists the four diagnostics that run."
+    long_status = long_diagnostics.split("\n\n", 1)[0]
+    assert len(re.findall(r"(?m)^\w+\s+(passed|completed|warning|deferred)\s*$", long_status)) == 4
+    assert "unavailable" not in long_diagnostics and "not_applicable" not in long_diagnostics
+    assert len(re.findall(r"solver\s+True\s+0\.0000", long_diagnostics)) == 4
+    assert not _MACHINE_NOISE.search(long_diagnostics)

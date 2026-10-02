@@ -750,6 +750,30 @@ def test_the_narration_check_reads_precision_and_refuses_a_moved_number() -> Non
     assert not narration_mismatches("A law value 0.73.", outputs, {"0.73": "a law parameter"})
 
 
+def test_the_narration_check_reads_scientific_notation_at_its_precision() -> None:
+    """A scientific literal matches an output that prints it at that precision, in either form.
+
+    The tolerance is half a unit in the mantissa's last place, scaled by the exponent.  A rounded
+    fixed-point output such as ``0.0005`` does not show ``5.0875e-04``, so the check refuses it.
+    """
+    outputs = "epsilon: 5.114e-04\nscore: 0.0005\nshift 0.0004227\ncoarse 4.2e-03\n"
+    assert narrated_decimals("The step is 5.114e-04 and 1.23E-04.") == ["5.114e-04", "1.23E-04"]
+    assert narration_mismatches("The step is 1.23e-04.", outputs) == ["1.23e-04"]
+    assert not narration_mismatches("The step is 5.114e-04.", outputs)
+    assert not narration_mismatches("The step is 5.114e-04.", "epsilon 0.0005114")
+    assert not narration_mismatches("The step is \N{MINUS SIGN}5.114e-04.", "eps -5.114e-04")
+    assert narration_mismatches("The step is 5.114e-04.", "eps -5.114e-04") == ["5.114e-04"]
+    assert narration_mismatches("The score is 5.0875e-04.", outputs) == ["5.0875e-04"]
+    assert narration_mismatches("The score is 2.9606e-19.", "score 0.0000") == ["2.9606e-19"]
+    assert not narration_mismatches("The shift is 4.227e-04.", outputs)
+    assert narration_mismatches("The shift is 4.228e-04.", outputs) == ["4.228e-04"]
+    assert narration_mismatches("The level is 4.20e-03.", outputs) == ["4.20e-03"]
+    assert not narration_mismatches("The level is 4.2e-03.", outputs)
+    assert narrated_decimals("Set `tol=1.5e-08` as in [a](https://e.org/2.1e-3).") == []
+    unprinted = {"5.0875e-04": "removed later"}
+    assert not narration_mismatches("The score is 5.0875e-04.", outputs, unprinted)
+
+
 def test_the_shared_callback_helpers_refuse_what_they_must(tmp_path: Path) -> None:
     """Each helper every callback leans on fails on the case a callback relies on it to catch.
 

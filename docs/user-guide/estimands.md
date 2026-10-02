@@ -219,7 +219,7 @@ the same rule for the outcome. Declare it from known support, and never from the
 from cleverly import ModifiedTreatmentPolicyEffect
 from cleverly.interventions import Shift
 
-policies = (Shift(0.0, cap=None), Shift(0.25, cap=5.0), Shift(0.5, cap=5.0))
+policies = (Shift(0.0, cap=None), Shift(0.25, cap=4.0), Shift(0.5, cap=4.0))
 result = dose_study.estimate(
     ModifiedTreatmentPolicyEffect(policies),
     method=quick,
@@ -227,6 +227,10 @@ result = dose_study.estimate(
     random_state=5,
 )
 ```
+
+A shifted dose above the cap holds the row at its own dose. The example cap of 4.0 lies inside
+the observed doses. The fit issues a `PositivityWarning` when a declared cap lies above the largest
+observed dose and the policy assigns a dose above that maximum.
 
 ## Incremental propensity-score interventions
 

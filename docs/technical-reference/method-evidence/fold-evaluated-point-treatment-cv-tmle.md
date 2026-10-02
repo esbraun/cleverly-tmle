@@ -79,8 +79,8 @@ both nuisances are correctly specified there.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `crossfit_overfitting` | `fold_evaluated_cvtmle` | positive | fold-evaluated CV-TMLE with a flexible learner | SE ratio clears the overfitting floor and stays inside the sanity band | SE ratio 0.9349 to 1.1226 | pass |
-| `crossfit_overfitting` | `in_sample_control` | control | the same flexible learner fitted in sample, with no cross-fitting | SE ratio must fall below the overfitting ceiling | SE ratio 0.4453 to 0.5382 | pass |
+| `crossfit_overfitting` | `fold_evaluated_cvtmle` | positive | fold-evaluated CV-TMLE with a flexible learner | SE ratio clears the overfitting floor and stays inside the sanity band | SE ratio 0.8957 to 1.0803 | pass |
+| `crossfit_overfitting` | `in_sample_control` | control | the same flexible learner fitted in sample, with no cross-fitting | SE ratio must fall below the overfitting ceiling | SE ratio 0.4520 to 0.5385 | pass |
 | `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000589 to 0.0011, margin 0.0029, SE ratio 0.9670 | pass |
 | `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias -0.0358 to -0.0335, margin 0.0040, SE ratio 1.0115 | pass |
 | `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000840 to 0.000725, margin 0.0026, SE ratio 1.0505 | pass |
@@ -129,11 +129,11 @@ the committed results and checked at the precision printed.
 | `properties[type_i_error/sharp_null]:rejection_rate` | 0.0400 | rejection under the confounded sharp null |
 | `properties[type_i_error/sharp_null]:rejection_ci_upper` | 0.0725 | its 99% upper endpoint, against 0.10 |
 | `properties[power/alternative]:rejection_rate` | 1 | rejection under the positive control |
-| `properties[crossfit_overfitting/fold_evaluated_cvtmle]:coverage` | 0.9325 | coverage with cross-fitted tree predictions |
-| `properties[crossfit_overfitting/fold_evaluated_cvtmle]:se_ratio` | 1.0193 | SE calibration with cross-fitting |
-| `properties[crossfit_overfitting/in_sample_control]:coverage` | 0.4875 | coverage with the deliberately in-sample tree |
-| `properties[crossfit_overfitting/in_sample_control]:se_ratio` | 0.4874 | SE calibration of that control |
-| `properties[crossfit_overfitting/fold_evaluated_cvtmle]:coverage_gain_ci_lower` | 0.3775 | paired 99% lower bound for coverage gained over the control |
+| `properties[crossfit_overfitting/fold_evaluated_cvtmle]:coverage` | 0.9450 | coverage with cross-fitted tree predictions |
+| `properties[crossfit_overfitting/fold_evaluated_cvtmle]:se_ratio` | 0.9800 | SE calibration with cross-fitting |
+| `properties[crossfit_overfitting/in_sample_control]:coverage` | 0.5225 | coverage with the deliberately in-sample tree |
+| `properties[crossfit_overfitting/in_sample_control]:se_ratio` | 0.4916 | SE calibration of that control |
+| `properties[crossfit_overfitting/fold_evaluated_cvtmle]:coverage_gain_ci_lower` | 0.3575 | paired 99% lower bound for coverage gained over the control |
 | `margin:confidence_level` | 0.9900 | confidence level of every Monte Carlo interval below |
 | `margin:alpha` | 0.0500 | nominal size of the estimator's own intervals |
 | `margin:nominal_coverage` | 0.9500 | nominal coverage those intervals claim |
@@ -168,7 +168,7 @@ the committed results and checked at the precision printed.
 | limitation | what it means for use |
 | --- | --- |
 | There is no cross-implementation evidence | The row rests on accuracy against known truth and on the theory properties. It is not parity evidence for stacked R CV-TMLE, and it does not inherit the stacked row's comparison |
-| The cross-fit overfitting cells are relative evidence | A fully grown regression tree is fitted on the nonlinear law twice, once with held-out predictions and once in sample, on the identical 400 samples of size 500. The cross-fitted cell's evidence is restored SE calibration and a load-bearing improvement over the control. The primary GLM study carries the absolute coverage gate |
+| The cross-fit overfitting cells are relative evidence | A fully grown regression tree is fitted on the nonlinear bounded law twice, once with held-out predictions and once in sample, on the identical 400 samples of size 500. The true propensity of that law lies in 0.05 to 0.95. The cross-fitted cell's evidence is restored SE calibration and a load-bearing improvement over the control. The primary GLM study carries the absolute coverage gate |
 | The continuous evidence needs a known outcome support | Every continuous cell here draws a proportion and declares `q_bounds` of 0 to 1. The row says nothing about a continuous outcome whose support the analyst does not know, because the package refuses that composition under cross-fitting |
 | The row is bounded to one unstratified ten-fold assignment per sample | It does not establish repeated or nested cross-fitting, a fold-specific targeting epsilon, simultaneous or bootstrap intervals, missing outcomes, weights, clusters, multi-valued treatment, ratio estimands, observed-risk functionals, or behaviour under severe practical-positivity violations |
 

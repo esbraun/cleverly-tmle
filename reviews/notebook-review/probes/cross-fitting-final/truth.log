@@ -1,0 +1,12 @@
+Monte Carlo, 20 chunks of 500000
+  navigation ate               0.162860  (MC SE 1.9e-05)
+  navigation nu2               4.828717  (MC SE 5.4e-04)
+  navigation share g < 0.10    0.018820  (MC SE 5.1e-05)
+  team ate                     0.104123  (MC SE 9.5e-05)
+
+Team law, quadrature over W1 and W2 at each value of the shared team factor u
+  team mean effect is negative for u below -0.1000
+  share of teams with a negative mean effect, P(u < -0.1000): 0.4602
+  team mean effect at the 5% quantile of u: -0.2150
+  team mean effect at the 50% quantile of u: +0.1834
+  team mean effect at the 95% quantile of u: +0.3671

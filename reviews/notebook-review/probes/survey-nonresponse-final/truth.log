@@ -1,0 +1,7 @@
+strength 1: EY1 2.200000, EY0 1.000000, ATE 1.200000
+strength 1: P(Delta = 1) 0.787640, P(Delta = 1 | A = 0) 0.765355, P(Delta = 1 | A = 1) 0.809925
+strength 1: E[W1 | Delta = 1] -0.141158, respondent-standardized effect 1.200000
+strength 2: EY1 3.000000, EY0 1.800000, ATE 1.200000
+strength 2: P(Delta = 1) 0.751736, P(Delta = 1 | A = 0) 0.746681, P(Delta = 1 | A = 1) 0.756791
+strength 2: E[W1 | Delta = 1] -0.253262, respondent-standardized effect 1.427936
+binary: ey0 0.376428, ey1 0.562653, ate 0.186224, rr 1.494714, or 2.131168

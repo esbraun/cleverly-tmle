@@ -1,0 +1,9 @@
+draws: 4000
+slope z-statistic: mean +0.000, SD 1.027, excess kurtosis 0.05, skewness +0.01
+mean SE / empirical SD 0.984; normal coverage at that ratio 2 Phi(1.96 x 0.984) - 1 = 0.946
+smallest fitted g Q1 (0.00003 to 0.00092): slope cover 0.941 over 1000 draws
+smallest fitted g Q2 (0.00092 to 0.00140): slope cover 0.939 over 1000 draws
+smallest fitted g Q3 (0.00140 to 0.00201): slope cover 0.945 over 1000 draws
+smallest fitted g Q4 (0.00201 to 0.00608): slope cover 0.937 over 1000 draws
+misses with smallest fitted g below the median: 0.504 of 238
+share with true g(medium) or g(high) below 0.01: 0.0112

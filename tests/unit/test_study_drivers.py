@@ -20,8 +20,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cleverly.datasets import nonlinear_dgp
-from cleverly.utils.bounds import expit, logit
+from cleverly.datasets import nonlinear_dgp, nonlinear_logit
+from cleverly.utils.bounds import expit
 from tests.studies import (
     bounded_cv_laws,
     canonical_cvtmle,
@@ -166,10 +166,10 @@ def test_the_bounded_mechanism_is_the_shipped_linear_predictor_squashed() -> Non
     ``DOUBLE_ROBUST_G_RANGE`` derivation, and the both-wrong control describing a law the
     study no longer runs.
 
-    The identity is exact rather than approximate: ``expit`` and ``logit`` are inverses on
-    the open interval, so composing them recovers the shipped predictor. The grid stays
-    inside two standard deviations, where no ``expit`` value saturates and ``logit`` is
-    finite.
+    The comparison reads the predictor from ``nonlinear_logit``, the function the shipped
+    propensity squeezes into ``[0.05, 0.95]``. It does not invert the shipped propensity,
+    because that squeeze belongs to ``nonlinear_dgp`` and not to this law. The grid stays
+    inside two standard deviations, where no ``expit`` value saturates.
     """
     scale = canonical_properties.DOUBLE_ROBUST_LOGIT_SCALE
     axis = np.linspace(-2.0, 2.0, 7)
@@ -178,16 +178,18 @@ def test_the_bounded_mechanism_is_the_shipped_linear_predictor_squashed() -> Non
     )
     assert grid.shape == (7**4, 4)
 
-    shipped = nonlinear_dgp().propensity(grid)
-    assert np.all((shipped > 0.0) & (shipped < 1.0))
-    expected = expit(scale * np.tanh(logit(shipped) / scale))
+    shipped = nonlinear_logit(grid)
+    np.testing.assert_allclose(
+        nonlinear_dgp().propensity(grid), 0.05 + 0.90 * expit(shipped), rtol=0.0, atol=1e-15
+    )
+    expected = expit(scale * np.tanh(shipped / scale))
 
     measured = canonical_properties.double_robustness_dgp().propensity(grid)
     np.testing.assert_allclose(measured, expected, rtol=0.0, atol=1e-12)
 
     # A deliberate-mutation control. The identity is only evidence if a changed predictor
     # breaks it, and a squashing map is flat enough in the middle to hide a small shift.
-    mutated = expit(scale * np.tanh((logit(shipped) + 0.05) / scale))
+    mutated = expit(scale * np.tanh((shipped + 0.05) / scale))
     assert np.max(np.abs(mutated - expected)) > 1e-3
 
 

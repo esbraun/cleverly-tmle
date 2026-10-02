@@ -5,7 +5,7 @@ the influence curve the package reports is the efficient influence function of
 :math:`\beta`.  When it is computed from the sample, such as the arm shares or a fitted
 mechanism, :math:`h` is a functional of :math:`P`.  The efficient influence function then
 carries a further term for the pathwise derivative of :math:`h`, the reported curve does not
-have it, and the reported standard error is too small.
+have it, and the reported standard error can be too small; its direction is not universal.
 
 A callable can close over any estimate, and no code can inspect a closure, so the status of
 the weight is a declaration: ``MSM(weights_kind=...)``.  RM13 in ``docs/roadmap.md`` records

@@ -7,25 +7,17 @@ decimals are also compared against its stored outputs, and every decimal it writ
 
 from __future__ import annotations
 
-from dataclasses import replace
+import re
 from typing import Any
 
 import numpy as np
 import pytest
 from scipy.special import expit
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly import (
-    ATE,
-    CapabilityError,
-    CausalStudy,
-    CrossFitting,
-    DataError,
-    MethodConfigurationError,
-    NaturalCourseMean,
-    PointTreatment,
-    PopulationAttributableFraction,
-)
+from cleverly import ATE, CrossFitting
 from cleverly.datasets import missing_outcome_dgp, navigation_protocol
+from cleverly.sensitivity import missingness_tilt
 from cleverly.sensitivity.omitted_variable import OMITTED_VARIABLE_OPERATIONS
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
@@ -36,6 +28,46 @@ from tests.unit.tutorial_semantics import (
 )
 
 NOTEBOOK = EXAMPLES / "survey-nonresponse.ipynb"
+
+_PROBE = "reviews/notebook-review/probes/survey-nonresponse-final"
+_STEP6 = "reviews/notebook-review/probes/sn-step6"
+_STEP9 = "reviews/notebook-review/probes/sn-step9"
+_MAR = "tests/canonical/tmle_mar/properties.csv"
+_ARM = "tests/canonical/tmle_mar_arm_indexed_cvtmle/properties.csv"
+
+#: Decimals the readings write that no stored output prints, each with its source.
+UNPRINTED_DECIMALS = {
+    "1.428": f"respondent-standardized effect of the strength-2 law (1.427936), by quadrature: "
+    f"{_PROBE}/truth.log",
+    "0.011": f"mean complete-case estimate minus 1.427936 (+0.0111), 500 draws: "
+    f"{_PROBE}/summary.log",
+    "0.01": f"the same mean shift (+0.0111), rounded: {_PROBE}/summary.log",
+    "0.951": f"Step 6 coverage (2854 of 3000), seeds 2000-4999: {_STEP6}/summary.log",
+    "0.99": f"Step 6 mean SE over empirical SD (0.989), seeds 2000-4999: {_STEP6}/summary.log",
+    "0.946": f"Step 9 coverage of the library fit (2837 of 3000), seeds 1001-4000: "
+    f"{_STEP9}/summary.log and {_STEP9}/summary-n4000b.log",
+    "0.947": f"oracle TMLE coverage (0.9472), 20000 draws: {_STEP9}/oracle-4000.log",
+    "0.94": f"5th percentile of the tipping gamma (0.9421), 500 draws: {_PROBE}/summary.log",
+    "1.45": f"95th percentile of the tipping gamma (1.4534), 500 draws: {_PROBE}/summary.log",
+    "5.4": f"5th percentile of the largest shift in score units (5.3835): {_PROBE}/summary.log",
+    "7.6": f"95th percentile of the largest shift in score units (7.6110): {_PROBE}/summary.log",
+    "-0.0039": f"bias_ci_lower of mar_robustness/mechanisms_correct (-0.003853): {_MAR}",
+    "0.0023": f"bias_ci_upper of mar_robustness/mechanisms_correct (0.002294): {_MAR}",
+    "0.0103": f"bias_margin of mar_robustness/mechanisms_correct (0.010316): {_MAR}",
+    "-0.1229": f"bias_ci_lower of missingness_necessity/ate__complete_case_control "
+    f"(-0.122939): {_MAR}",
+    "-0.1172": f"bias_ci_upper of missingness_necessity/ate__complete_case_control "
+    f"(-0.117198): {_MAR}",
+    "0.0096": f"bias_margin of missingness_necessity/ate__complete_case_control (0.009634): {_MAR}",
+    "0.9361": f"coverage_ci_lower of interval_calibration/l1_ate__learned_nuisances "
+    f"(0.936086): {_ARM}",
+    "0.9617": f"coverage_ci_upper of interval_calibration/l1_ate__learned_nuisances "
+    f"(0.961718): {_ARM}",
+    "0.9413": f"se_ratio_ci_lower of interval_calibration/l1_ate__learned_nuisances "
+    f"(0.941324): {_ARM}",
+    "1.0198": f"se_ratio_ci_upper of interval_calibration/l1_ate__learned_nuisances "
+    f"(1.019810): {_ARM}",
+}
 
 
 def check(namespace: dict[str, Any]) -> None:
@@ -58,30 +90,62 @@ def check(namespace: dict[str, Any]) -> None:
     assert expression in summary
     assert "missingness_mechanism" in summary
     assert "E_W[E(Y | A=a, W)] and the declared smooth contrast" not in summary
-    # Step 6 fits in sample: "TMLE (in-sample nuisances)" and no outer folds.
+    # Step 6 fits in sample: "TMLE (in-sample nuisances)" and no outer folds, with linear and
+    # logistic learners of few coefficients.
+    method = namespace["method"]
     assert "TMLE (in-sample nuisances)" in fitted.summary()
     assert "stacked CV-TMLE" not in fitted.summary()
-    assert not namespace["method"].cross_fitting.enabled
+    assert method.cross_fitting == CrossFitting(enabled=False)
+    assert isinstance(method.models.outcome_learner, LinearRegression)
+    assert isinstance(method.models.treatment_learner, LogisticRegression)
+    assert isinstance(method.models.missingness_learner, LogisticRegression)
 
     # The protocol step prints the record, and the fit carries its digest.
-    # The reading names the fields this page changes in the program protocol.
+    # The reading names the four fields this page changes in the program protocol.
     program = navigation_protocol()
     protocol = namespace["protocol"]
     assert changed_fields(protocol, program) == {
         "target_population",
         "outcome",
+        "intercurrent_event_handling",
         "assumption_rationale",
     }
-    # "It adds the response rule": every program rationale stays, and two entries are added.
+    # The hypothetical strategy replaces the program's composite rule for death; the other two
+    # intercurrent-event entries stay.  Nonzero witness: the program carries the composite rule.
+    events = protocol.intercurrent_event_handling
+    assert events[:2] == program.intercurrent_event_handling[:2]
+    assert len(events) == 3
+    assert "hypothetical strategy" in events[2]
+    assert "composite strategy" in program.intercurrent_event_handling[2]
+    assert "worst transition score" not in summary
+    assert "no documented range" in protocol.outcome
+    # "It adds missingness at random for response and for death": every program rationale
+    # stays, and two entries are added.
     rationale = protocol.assumption_rationale
     assert rationale[0] == program.assumption_rationale[0]
     assert rationale[3:] == program.assumption_rationale[1:]
     assert len(rationale) == len(program.assumption_rationale) + 2
+    assert "missingness at random" in rationale[1]
+    assert "death before day 30" in rationale[2]
     assert_protocol_recorded(NOTEBOOK, "protocol", protocol, fitted)
-    assert "scores death before day 30 as the worst transition score" in summary
+
+    # "This synthetic law draws no deaths", and the score has Gaussian noise with no range:
+    # the drawn frame has no death column, and the law is a Gaussian family.
+    frame = namespace["frame"]
+    law = missing_outcome_dgp(strength=2.0)
+    mild_law = missing_outcome_dgp(strength=1.0)
+    assert set(frame.columns) == {
+        "transition_score",
+        "transition_navigation",
+        "discharge_risk",
+        "age",
+        "prior_utilization",
+        "responded",
+    }
+    assert law.family == "gaussian"
+    assert law.noise_scale > 0.0
 
     # "About a quarter of patients never return the 30-day survey."
-    frame = namespace["frame"]
     assert 0.70 < float(frame["responded"].mean()) < 0.80
     assert int(frame["transition_score"].isna().sum()) == int((frame["responded"] == 0).sum())
 
@@ -95,8 +159,6 @@ def check(namespace: dict[str, Any]) -> None:
 
     # "Discharge risk and age confound the offer": each moves both the propensity and the
     # outcome mean of the strength-2 law.  Columns are (discharge_risk, age, prior_utilization).
-    law = missing_outcome_dgp(strength=2.0)
-    mild_law = missing_outcome_dgp(strength=1.0)
     base = np.zeros((1, 3))
     for column in (0, 1):
         shifted = base.copy()
@@ -111,17 +173,8 @@ def check(namespace: dict[str, Any]) -> None:
             > 0.3
         )
 
-    # "CausalStudy raises DataError for a missing outcome that carries no response indicator."
-    covariates = tuple(namespace["covariates"])
-    with pytest.raises(DataError, match="missing value"):
-        CausalStudy(
-            frame.drop(columns=["responded"]),
-            design=PointTreatment(
-                outcome="transition_score",
-                treatment="transition_navigation",
-                adjustment=covariates,
-            ),
-        )
+    # Step 5 declares the response indicator as a design role.
+    assert namespace["study"].design.missingness == "responded"
 
     # Step 6: the reading quotes the scaling line, and the scaler holds that range.
     estimate_output = stored_output(NOTEBOOK, "estimate")
@@ -131,24 +184,31 @@ def check(namespace: dict[str, Any]) -> None:
 
     complete_case = namespace["complete_case"]["ate"]
     full = fitted["ate"]
+    respondents = namespace["respondents"]
     assert complete_case.psi > truth
     assert not covers(complete_case, truth)
     assert covers(full, truth)
-    assert len(namespace["respondents"]) == int(frame["responded"].sum())
+    assert len(respondents) == int(frame["responded"].sum())
 
-    # "It targets the respondents' average effect", 1.409, which the complete-case interval
-    # contains.  Independent witness: the law's effect is 1.2 - 0.9 * W1, so its average over
-    # respondents follows from the Step 3 respondent mean of discharge risk.
+    # The complete-case fit targets the effect standardized to the respondents' covariates,
+    # 1.409 for this draw.  Independent witness: the law's effect is 1.2 - 0.9 * W1, so its
+    # average over respondents follows from the Step 3 respondent mean of discharge risk.
     respondent_effect = namespace["respondent_effect"]
     assert respondent_effect == pytest.approx(
         1.2 - 0.9 * float(by_response.loc[1.0, "discharge_risk"]), abs=1e-9
     )
     assert respondent_effect > truth + 0.1
     assert covers(complete_case, respondent_effect)
-    # "That shift is most of the gap", and "about one standard error above 1.409".
+    # The population target, 1.428, lies between the population ATE and the complete-case
+    # estimate of this draw.
+    assert truth < 1.428 < complete_case.psi
+    # "The move from 1.200 to 1.409 is most of the gap", and "1.0 standard error above".
     assert respondent_effect - truth > complete_case.psi - respondent_effect
-    distance = (complete_case.psi - respondent_effect) / complete_case.std_error
-    assert 0.5 < distance < 1.5
+    distance = namespace["distance"]
+    assert distance == pytest.approx(
+        (complete_case.psi - respondent_effect) / complete_case.std_error, rel=1e-12
+    )
+    assert f"{distance:.1f}" == "1.0"
 
     # "Both laws have the same population ATE", and the mild complete-case interval covers it.
     # The strength-2 interaction averages W1, whose mean is 0, so the laws share the ATE of 1.2;
@@ -185,8 +245,8 @@ def check(namespace: dict[str, Any]) -> None:
             < float(mild_law.missingness(high_risk, arm)[0]) - 0.05
         )
 
-    # "Each interval contains its population value", the odds ratio lies above the risk ratio,
-    # and the ratio intervals are asymmetric on the reported scale.
+    # "Each interval contains its population value on this draw", the odds ratio lies above
+    # the risk ratio, and the ratio intervals are asymmetric on the reported scale.
     box_points = namespace["box_points"]
     box_truth = namespace["box_truth"]
     for key, point in box_points.items():
@@ -199,46 +259,17 @@ def check(namespace: dict[str, Any]) -> None:
     assert box_truth["ey0"] > 0.3
     assert box_truth["ey1"] > box_truth["ey0"]
 
-    # The refusal is the attributable fraction's missing-outcome refusal, not another error,
-    # and "identify raises the refusal before any method or learner is chosen".
-    assert "does not yet support PointTreatment(missingness=...)" in namespace["refusal"]
+    # Step 9: "The fold policy is the shipped default, stratify_by='none'", with five folds and
+    # no declared q_bounds, and the fit is the stacked cross-fitted one.
     box_study = namespace["box_study"]
-    with pytest.raises(CapabilityError, match=r"does not yet support PointTreatment\(missingness"):
-        box_study.identify(PopulationAttributableFraction(reference=0))
-
-    # Step 6: "Step 4 recorded a standardized score, which has no such support, so the fit stays
-    # in sample". The refusal names q_bounds=None, and it comes from the arm-indexed contract.
-    study = namespace["study"]
-    method = namespace["method"]
     box_method = namespace["box_method"]
-    assert method.cross_fitting == CrossFitting(enabled=False)
-    with pytest.raises(CapabilityError, match="q_bounds=None"):
-        effect.estimate(method=replace(method, cross_fitting=CrossFitting(n_folds=5)))
-
-    # Step 9: "The fold policy is the shipped default, `stratify_by='none'`", so the binary fit
-    # names no policy and gets that one.
     assert box_method.cross_fitting == CrossFitting(n_folds=5, stratify_by="none")
     assert CrossFitting(n_folds=5).stratify_by == "none"
-    # "cleverly refuses stratify_by='treatment' on any fit", and it refuses at construction,
-    # before a study or a learner exists. The binary outcome is the nonzero witness that the
-    # q_bounds rule refuses nothing here: the same five folds fit without a declared support.
-    with pytest.raises(
-        MethodConfigurationError, match="requests stratification of the outer folds"
-    ):
-        CrossFitting(n_folds=5, stratify_by="treatment")
     assert box_method.targeting.q_bounds is None
     assert (
         "stacked CV-TMLE"
         in box_study.identify(ATE(reference=0)).estimate(method=box_method).summary()
     )
-
-    # Step 10: "box_method" fits the natural-course mean under the cross-fitted contract, and
-    # "method" is refused because the in-sample contract needs q_bounds for a continuous outcome.
-    natural = box_study.identify(NaturalCourseMean()).estimate(method=box_method)
-    assert list(natural.estimates) == ["ey_obs"]
-    assert "stacked CV-TMLE" in natural.summary()
-    with pytest.raises(CapabilityError, match="continuous outcomes require fixed"):
-        study.identify(NaturalCourseMean()).estimate(method=method)
 
     # "No row needs attention", the support report prints the joint mechanism row, and the
     # nuisance report prints the verdict the reading quotes.
@@ -247,14 +278,18 @@ def check(namespace: dict[str, Any]) -> None:
     assert "P(A=a,Delta=1|W)  0.0075" in assessment_output
     assert "max |clever covariate| (mean): 90.2" in assessment_output
     assert "nuisance fits look reasonable" in assessment_output
-    # "The omitted_confounding, robustness_value, elements, contour, and evalue rows are
-    # unavailable for this fit." No bound or standardized E-value is derived with a response
-    # mechanism, so no number for one may appear in the stored summary. The benchmark row
-    # shares the bound's refusal, so the shared tuple checks it too.
-    ledger = namespace["assessment"].to_frame().set_index(["surface", "check"])["status"]
+    # The status table prints only the rows that ran or run on request. The omitted-variable
+    # rows and the E-value do not run for a fit with a response mechanism and stay off the page;
+    # "Both rows are `completed` in the status table" for the missingness tilt.
+    ledger = namespace["assessment"].to_frame().set_index(["surface", "check"])
     for row in (*OMITTED_VARIABLE_OPERATIONS, "evalue"):
-        assert str(ledger.loc[("sensitivity", row)]) == "unavailable"
-        assert f"sensitivity  {row}" not in assessment_output.split("Not run", 1)[0]
+        assert str(ledger.loc[("sensitivity", row), "status"]) == "unavailable"
+        assert not re.search(rf"sensitivity\s+{row}\b", assessment_output)
+    assert "unavailable" not in assessment_output and "not_applicable" not in assessment_output
+    for row in ("missingness", "tipping_gamma"):
+        assert str(ledger.loc[("sensitivity", row), "status"]) == "completed"
+        assert re.search(rf"sensitivity\s+{row}\s+completed", assessment_output)
+    assert re.search(r"refute\s+deferred", assessment_output)
 
     # "tipping gamma is 1.306", and "at most 0.315 of the score range" is the maximum over the
     # fitted [0, 1] mean of the logit move, reached at a mean of 0.658.
@@ -267,9 +302,34 @@ def check(namespace: dict[str, Any]) -> None:
     # Witness: the mid-range move is strictly smaller, so the mid-range formula would fail.
     assert namespace["largest_shift"] > 0.5 - expit(-tipping) + 0.01
     # "That is 6.32 score units": the shift times the fitted scaling range.
-    assert namespace["largest_shift"] * (scaler.upper - scaler.lower) == pytest.approx(
-        6.32, abs=0.005
+    assert namespace["shift_units"] == pytest.approx(
+        namespace["largest_shift"] * (scaler.upper - scaler.lower), rel=1e-12
     )
+    assert f"{namespace['shift_units']:.2f}" == "6.32"
+
+    # "The interval reaches 0 earlier": the use_ci tipping gamma lies nearer zero, and the
+    # interval's lower limit reaches zero there.  Nonzero witness: slightly before it, the
+    # lower limit is still positive, so a wrong gamma fails.
+    ci_tipping = namespace["ci_tipping_gamma"]
+    assert f"{ci_tipping:.3f}" == "1.130"
+    assert 0.0 < ci_tipping < tipping
+    arm_gamma = {0: 0.0, 1: -1.0}
+    at_tip = missingness_tilt(fitted, [ci_tipping], estimands=["ate"], arm_gamma=arm_gamma)
+    before = missingness_tilt(fitted, [ci_tipping - 0.05], estimands=["ate"], arm_gamma=arm_gamma)
+    assert abs(float(at_tip["ci_lower"].iloc[0])) < 1e-4
+    assert float(before["ci_lower"].iloc[0]) > 0.01
+    assert f"{namespace['ci_shift_units']:.2f}" == "5.52"
+    # The reference SD is that of the navigation-arm respondent scores, 1.66.
+    navigation = frame[(frame["responded"] == 1) & (frame["transition_navigation"] == 1)]
+    assert namespace["navigation_sd"] == pytest.approx(
+        float(navigation["transition_score"].std()), rel=1e-12
+    )
+    assert f"{namespace['navigation_sd']:.2f}" == "1.66"
+    ratios = (
+        namespace["shift_units"] / namespace["navigation_sd"],
+        namespace["ci_shift_units"] / namespace["navigation_sd"],
+    )
+    assert tuple(f"{ratio:.1f}" for ratio in ratios) == ("3.8", "3.3")
 
     # The curve's gamma=0 row is the MAR estimate, and its interval reuses the MAR standard error.
     curve = namespace["missingness_curve"]

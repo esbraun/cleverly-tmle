@@ -1,0 +1,33 @@
+# Gate S1: commit 5bc92b5e, strong-positivity propensity
+
+Verdict: PASS. No required fixes. Two notes for the orchestrator, neither blocking.
+
+## Checks run
+
+| check | result |
+| --- | --- |
+| `pytest -n 2` on `tests/unit/test_datasets.py`, `test_study_drivers.py`, `test_drtmle_fit.py`, `tests/e2e/test_ipsi.py::TestTheMechanismIsTheHalfThatMustBeRight`, `test_documentation_links.py`, `test_documentation_prose.py` | 1744 passed, 64 s |
+| `pytest -n 2` on `test_documentation_api.py`, `test_documentation_examples.py`, `--doctest-modules src/cleverly/datasets` | 139 passed |
+| `python reviews/notebook-review/probes/cv-tmle-scale/probe.py new 0` against `new-law-seed0.txt` | byte-identical |
+| `git grep` for the old numbers (0.1791, 0.1493, 1.94626, 1.58590, 175.8265, old probe values) under `src`, `tests`, `docs` | none remain; only `reviews/` findings and unrelated CSV coincidences |
+
+## CONFIRMED-OK
+
+1. Generator change. `g = 0.05 + 0.90 expit(u)` with `u = nonlinear_logit(w)` unchanged. The docstring derivation is right: `E[exp(-u) | W2] = exp(0.4 W2^2) E[exp(-0.6 W1)] E[exp(-0.5 W2 W3)] c = const * exp(0.525 W2^2)`, and 0.525 > 0.5 beats the normal density, so `E[1/g]` was infinite. With the squeeze `1/g, 1/(1-g) <= 20`. The outcome law does not read `g`, so `ey1`, `ey0`, `ate` cannot move; `att`/`atc` must. `nonlinear_bounded_dgp` inherits the propensity by construction (no duplicate). `navigation.py` docstring states the bound.
+2. Failing-first tests are not tautological. `test_the_inverse_propensity_moments_are_finite_and_below_twenty` asserts the `|W2| <= 8` and `<= 32` windows agree to 1e-9 (old law: 13.8 vs 2.7e7) and pins `nu^2 = 4.829`. The interval test has a nonzero witness (both endpoints approached within 1e-4; a wrong-sided or tighter squeeze fails). `att`/`atc` are pinned at 1e-4 to values 1.8e-3 and 1.3e-3 away from the old ones. The ATE pin `0.1628580 +- 1e-7` and `1.7499995 +- 1e-7` is the plan's required invariance witness. The `W2` tail bound `40 P(|W2| > 8) ~ 5e-14` in the docstring is correct.
+3. Every updated expectation is a recomputation, not a loosening: golden fingerprint (`A` sum 27 -> 28, `Y` sum, `atc`), `test_study_drivers` identity now read off `nonlinear_logit` with the 0.05 mutation control kept and a new 1e-15 pin that the shipped propensity is the squeezed logit. `double_robustness_dgp` was not re-derived (plan constraint honoured); it keeps its own literal predictor and the test pins the two equal.
+4. `tests/unit/test_drtmle_fit.py` keeping the unbounded mechanism as its test-local law: legitimate. The module already owned a local law (own outcome mean, beta family); it now owns the propensity too, stated explicitly as `expit(nonlinear_logit(w))`. `TestTheReportedCurveIsCentredWhereTheBoundBinds` needs a draw whose tilted mechanism sits on the bound (margin < 1e-4 by assertion); with true `g` in [0.05, 0.95] the measured margin is 0.0755, so the fixture's precondition cannot be met on the shipped law. Nothing in the module tests `nonlinear_dgp` itself, and the shipped law is covered by `test_datasets`, `test_ipsi`, the e2e suites and the four studies, so no regression is hidden. No tolerance in the module changed.
+5. `tests/e2e/test_ipsi.py` `MISSPECIFIED_N` 10,000 -> 30,000: legitimate. The bars (3 SE, 2 SE, 3 SE) are unchanged; the bias shrank with the bounded law (+0.0020, 21.3 SE at n = 400k), so n was resized to keep the witness detectable at 5.8 expected SE instead of a marginal 3.4. Cost: the class-scoped fixture is under 1.7 s (not in the top-12 durations). The comment records the sweep (seeds 11-20) honestly.
+6. `validation/drtmle.py` comment: `c8bd43e4` exists ("Check the score a fit recorded against the term its curve carries", the correction_check commit) and is the right origin for the `1.3e-04` defect value. Dating the non-reproducible numbers rather than deleting them is the right call; the holding residual was re-measured on the shipped law.
+7. `docs/technical-reference/cv-tmle.md` citing `reviews/notebook-review/probes/cv-tmle-scale/probe.py`: acceptable. The path is a code span, not a link, so `test_every_repository_source_link_resolves` and Sphinx `-W` do not see it (confirmed: both docs tests pass; `nitpicky` is not set in `docs/conf.py`). `reviews/` is a tracked directory the plan (row 0) designates as the frozen evidence record and ruff excludes it on purpose. The previous text cited only a commit hash with no script, so this is strictly more reproducible. The record is verified: re-running the script reproduces `new-law-seed0.txt` byte for byte, and the table's `0.433 -> 0.142`, `-3.0e-4 (0.0017 SE)`, `+4.0e-4 (0.0026 SE)` match it.
+8. Other users of the law. `src`: `tmle.py:64`, `__init__.py:6`, `validation/simulation.py:573` doctests all pass; none prints a propensity-dependent number. `docs`: `dr-tmle/supported-estimands.md` and `example-notebooks.md` use the generators without quoting ATT/ATC. The notebooks `point-treatment-tmle`, `cross-fitting`, `dr-tmle`, `interventions` hold stale outputs (0.179 / 0.149 printed), which N1-N4 re-execute as planned; the four tutorial-semantics failures are the declared ones. `nonlinear_logit` has no API page, consistent with every other `*_dgp` export (the API test requires only `make_*`).
+9. Declared-rerun assumption holds. The four studies' primary scenarios come from `canonical_tmle.scenario_dgp` (`continuous_dgp`, propensity `expit(0.6 W1 - 0.3 W2)`, and `binary_outcome_dgp`), never `nonlinear_dgp`. `nonlinear_dgp` enters only property cells: the bounded twin via `bounded_cv_laws.nonlinear_dgp`, and directly as the Gaussian original in `cvtmle_properties` (overfit cells) and `ctmle_oat_properties` (`robustness_contract`, `crossfit_overfitting`). So `replicates.csv.gz`, `summary.csv`, `equivalence.csv`, `performance-tests.csv` should be byte-identical and only `properties.csv` / `property-replicates.csv.gz` move. Note: `canonical_properties.double_robustness_dgp` and its bounded twin are unaffected (own propensity), so `double_robustness` property cells should also be byte-identical; a change there would be a finding.
+
+## REQUIRED FIXES
+
+None.
+
+## Notes (non-blocking)
+
+- `cv-tmle.md:233-234` "was bounded" is passive voice (STE). Optional reword in S2/S5 if that page is touched again: "The first two probes ran again after S1 bounded the `make_nonlinear_ate` propensity to [0.05, 0.95]."
+- `probe.py` monkeypatches two private refusal hooks (`crossfit.fold_strata_refusal`, `TMLE._outcome_scale_refusal`). It is a frozen record and ruff-excluded, so that is tolerable, but it will rot if those names move. No action for S1.

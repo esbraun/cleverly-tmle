@@ -1,0 +1,20 @@
+draws: 4000, seeds 30000 to 33999
+slope_cover: 3762/4000 = 0.9405 (Wilson 95% 0.9327 to 0.9474)
+oracle_slope_cover: 3755/4000 = 0.9387 (Wilson 95% 0.9309 to 0.9458)
+intercept_cover: 3819/4000 = 0.9547 (Wilson 95% 0.9479 to 0.9608)
+step_slope_cover: 3782/4000 = 0.9455 (Wilson 95% 0.9380 to 0.9521)
+weighted_cover: 3762/4000 = 0.9405 (Wilson 95% 0.9327 to 0.9474)
+uniform_excludes_fixed: 3201/4000 = 0.8003 (Wilson 95% 0.7876 to 0.8123)
+weighted_excludes_uniform: 2884/4000 = 0.7210 (Wilson 95% 0.7069 to 0.7347)
+arms_cover: 3394/4000 = 0.8485 (Wilson 95% 0.8371 to 0.8593)
+miss_excludes_zero: 4000/4000 = 1.0000 (Wilson 95% 0.9990 to 1.0000)
+miss_covers_population: 3797/4000 = 0.9493 (Wilson 95% 0.9420 to 0.9556)
+per-contact slope, fitted g: mean SE / empirical SD 0.984, bias -0.00001
+per-contact slope, true g: mean SE / empirical SD 0.986, bias -0.00001
+per-step slope, fitted g: mean SE / empirical SD 0.997, bias +0.00003
+share-weight shift below one slope SE: 0.9960 (median ratio 0.635)
+|contrast miss - Step 7 miss|: median 0.00043, share below 0.0005 0.5510, share below 0.001 0.7615, max 0.00797
+block seeds 30000-30999: slope cover 0.9430, true-g slope cover 0.9410
+block seeds 31000-31999: slope cover 0.9360, true-g slope cover 0.9360
+block seeds 32000-32999: slope cover 0.9440, true-g slope cover 0.9440
+block seeds 33000-33999: slope cover 0.9390, true-g slope cover 0.9340

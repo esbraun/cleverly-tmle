@@ -10,7 +10,9 @@ Its callback is ``tests/unit/tutorial_semantics/<module>.py``, where ``<module>`
 with each hyphen replaced by an underscore.  The module defines ``check(namespace)``, which
 receives the namespace the tutorial's code built at its documented size.  A notebook's module may
 also define ``UNPRINTED_DECIMALS``, a mapping from a decimal the prose writes to the reason no
-stored output prints it.  :func:`narration_mismatches` reads that mapping.
+stored output prints it.  :func:`narration_mismatches` reads that mapping.  The check reads
+fixed-point and scientific decimals in prose, keyed by their written form, such as ``0.26`` or
+``5.114e-04``.  It does not read a decimal inside inline code.
 
 **What is not a tutorial.**  ``index`` is navigation.  The TWINS notebook downloads its data, so
 it cannot run in the offline fast tier.  :data:`NOT_TUTORIALS` names both, and the runtime module
@@ -42,7 +44,6 @@ __all__ = [
     "NOT_TUTORIALS",
     "PACKAGE",
     "STATIC_ONLY",
-    "assert_plugin_limits_refuse",
     "assert_protocol_recorded",
     "callback",
     "callback_module",
@@ -159,44 +160,6 @@ def assert_protocol_recorded(path: Path, cell_id: str, protocol: Any, *results: 
     return fingerprint
 
 
-def assert_plugin_limits_refuse(result: Any, bound: Any, namespace: Mapping[str, Any]) -> None:
-    """Assert that a tutorial's plug-in bound refused its limits, as RM22 decided.
-
-    The two tutorials that read the plug-in ``nu^2`` print the refusal of ``ci_lower`` into
-    ``limit_refusal`` and assert that ``robustness`` carries no ``rva``.  The bound itself
-    refuses the other limits too.  The nonzero witness is that the plug-in elements carry no
-    curve while their point ``nu^2`` is positive.
-
-    Parameters
-    ----------
-    result : Any
-        The fit the tutorial read the bound from.
-    bound : Any
-        The plug-in :class:`~cleverly.sensitivity.omitted_variable.SensitivityBounds`.
-    namespace : Mapping
-        The tutorial's namespace, holding ``limit_refusal`` and ``robustness``.
-    """
-    from cleverly import CapabilityError
-
-    refusal = namespace["limit_refusal"]
-    assert "F26" in refusal
-    assert "plug-in nu^2" in refusal
-    assert "nu2_estimator='plugin'" in refusal
-    assert "rva" not in namespace["robustness"]
-    assert namespace["robustness"]["nu2_estimator"] == "plugin"
-    assert bound.nu2_estimator == "plugin"
-    for accessor in ("ci_upper", "robustness_value_ci", "plugin_interval_lower"):
-        try:
-            getattr(bound, accessor)
-        except CapabilityError as error:
-            assert "F26" in str(error)
-        else:
-            raise AssertionError(f"the plug-in bound reported {accessor}")
-    elements = result.sensitivity.elements(estimand="ate", nu2_estimator="plugin")
-    assert elements.psi_nu2 is None and elements.psi_max_bias is None
-    assert elements.nu2 > 0.0
-
-
 def _notebook(path: Path) -> dict[str, Any]:
     notebook: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
     return notebook
@@ -248,23 +211,41 @@ def markdown_text(path: Path) -> str:
 #: learner argument such as ``alpha=0.05`` or a pinned version in a URL is not a reported number.
 _NOT_NARRATION = re.compile(r"```.*?```|`[^`\n]*`|\]\([^)]*\)|https?://\S+", re.DOTALL)
 
-#: A signed decimal written in prose. The lookarounds refuse a version such as ``1.5.4`` and a
-#: digit run glued to a word, and still accept a decimal that ends a sentence. Unicode minus is
-#: normalized because mathematical prose often uses it while stored Python output uses ASCII.
+#: A signed decimal written in prose, optionally in scientific notation such as ``5.114e-04``.
+#: The lookarounds refuse a version such as ``1.5.4`` and a digit run glued to a word, and still
+#: accept a decimal that ends a sentence. Unicode minus is normalized because mathematical prose
+#: often uses it while stored Python output uses ASCII.  A literal without a decimal point, such
+#: as the threshold ``1e-10``, is not read, in either form.
 _UNICODE_MINUS = "\N{MINUS SIGN}"
-_DECIMAL = re.compile(r"(?<![\w.])([+\-\N{MINUS SIGN}]?)(\d+)\.(\d+)(?!\w|\.\d)")
+_DECIMAL = re.compile(
+    r"(?<![\w.])([+\-\N{MINUS SIGN}]?)(\d+)\.(\d+)"
+    r"(?:([eE])([+\-\N{MINUS SIGN}]?\d+))?(?!\w|\.\d)"
+)
 
 #: Any number a stored output prints, including scientific notation.
 _OUTPUT_NUMBER = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
 
 
 def narrated_decimals(markdown: str) -> list[str]:
-    """Each decimal literal the prose of ``markdown`` writes, in order of appearance."""
+    """Each decimal literal the prose of ``markdown`` writes, in order of appearance.
+
+    A scientific literal keeps its written form, such as ``5.114e-04``, with a Unicode minus
+    read as ASCII.  Inline code is not narration and is not read, so a decimal inside backticks
+    is never checked.
+    """
     prose = _NOT_NARRATION.sub(" ", markdown)
     return [
-        f"{'-' if sign == _UNICODE_MINUS else sign}{whole}.{fraction}"
-        for sign, whole, fraction in _DECIMAL.findall(prose)
+        f"{sign}{whole}.{fraction}{marker}{exponent}".replace(_UNICODE_MINUS, "-")
+        for sign, whole, fraction, marker, exponent in _DECIMAL.findall(prose)
     ]
+
+
+def _resolution(literal: str) -> float:
+    """One unit in the last written place of ``literal``, scaled by its exponent if it has one."""
+    mantissa, _, exponent = literal.lower().partition("e")
+    places = len(mantissa.partition(".")[2])
+    # ``float`` saturates to infinity or zero where ``10.0 ** n`` would raise on stray text.
+    return float(f"1e{(int(exponent) if exponent else 0) - places}")
 
 
 def narration_mismatches(
@@ -277,23 +258,38 @@ def narration_mismatches(
     The check is static: it reads the committed outputs, so a platform difference in a fresh run
     cannot move it.  The execution stamp ties those outputs to the code, and this ties the prose to them.
 
+    A scientific literal such as ``5.114e-04`` has a tolerance of half a unit in the mantissa's
+    last place, times ten to its exponent.  An output matches it only if it also shows at least
+    that precision, in either notation: ``5.114e-04`` and ``0.0005114`` match, and ``0.0005``
+    and ``5.1e-04`` do not.  A fixed-point literal keeps the absolute tolerance above and puts no
+    precision condition on the output.
+
     A decimal the prose writes for another reason, such as a law's parameter, goes in the
-    module's ``UNPRINTED_DECIMALS`` with its reason.  Printing the number is the better repair.
+    module's ``UNPRINTED_DECIMALS`` with its reason, keyed by its written form.  Printing the
+    number is the better repair.
     """
     allowed = dict(unprinted or {})
     printed = []
     for token in _OUTPUT_NUMBER.findall(outputs):
         try:
-            printed.append(float(token))
+            printed.append((float(token), _resolution(token)))
         except ValueError:  # pragma: no cover - the pattern admits only numeric text
             continue
     missing = []
     for literal in narrated_decimals(markdown):
         if literal in allowed:
             continue
-        places = len(literal.split(".")[1])
         value = float(literal)
-        tolerance = 0.5 * 10.0**-places + 1e-12
-        if not any(abs(number - value) <= tolerance for number in printed):
+        unit = _resolution(literal)
+        if "e" in literal.lower():
+            slack = 1.0 + 1e-9
+            matched = any(
+                abs(number - value) <= 0.5 * unit * slack and resolution <= unit * slack
+                for number, resolution in printed
+            )
+        else:
+            tolerance = 0.5 * unit + 1e-12
+            matched = any(abs(number - value) <= tolerance for number, _ in printed)
+        if not matched:
             missing.append(literal)
     return missing

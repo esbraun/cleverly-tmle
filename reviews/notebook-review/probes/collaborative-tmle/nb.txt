@@ -1,0 +1,947 @@
+===== markdown title
+# Collaborative TMLE: which baseline variables belong in the assignment model?
+
+This notebook estimates one average treatment effect with collaborative TMLE (C-TMLE). Each step
+shows its code, its output, and what the output tells you.
+[Collaborative TMLE](../technical-reference/collaborative-tmle.md) gives the candidate paths, the
+selection loss, and the fold structure.
+
+## The applied question
+
+Clinical and operations staff approve three baseline variables for the navigation analysis. They
+confirm that each variable is measured before assignment and that none is a collider. The review
+cannot certify the causal role of each variable.
+
+The analysis team asks which approved variables belong in the assignment model. An assignment model
+that uses all three variables predicts assignment well, and Step 8 prints its AUC. Predictive
+accuracy is the wrong criterion for that model, and Step 8 shows why.
+
+## What you will learn
+
+| after this notebook you can | the step that shows it |
+| --- | --- |
+| write the protocol for a question with an approved baseline set | Step 4 |
+| check that a method is available before you fit it | Step 5 |
+| fit C-TMLE with explicit learners, and read its selection path | Steps 6 and 7 |
+| see what an instrument does to an assignment model | Step 8 |
+| tell a selector that discriminates from one that selects nothing | Step 9 |
+| say why this fit reports no confidence interval, and what it reports instead | Step 6 |
+| read the assessment of a selected working model | Steps 10 and 11 |
+===== markdown plan
+## Why this method
+
+| your situation | what this method buys | what it costs |
+| --- | --- | --- |
+| an approved baseline set | an assignment model selected by cross-validated loss on the targeted outcome regression, so an instrument can be left out | with `strategy="greedy"`, one assignment-model fit for each remaining variable at each stage, in each selection fold |
+| the outcome regression is already good | the empty assignment model is a legitimate candidate | selecting it is not evidence that the search discriminates |
+
+The selector chooses a nuisance model inside the approved set. It does not discover a causal
+adjustment set. The table below defines the terms this notebook uses most.
+
+| term | plain meaning | canonical definition |
+| --- | --- | --- |
+| estimand | the number the question asks for, written before any model is chosen | [estimands](../user-guide/estimands.md) |
+| nuisance | a model the estimate needs but the question does not ask about. Here, the outcome regression Q and the assignment model g | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
+| targeting | a small update to Q, weighted by g, that removes first-order bias | [targeting and bounds](../user-guide/methods-learners.md#targeting-and-bounds) |
+| influence curve | how much each row moves the estimate. Its variance gives the standard error | [inference](../technical-reference/inference.md) |
+| positivity | every kind of patient has some chance of each arm | [diagnostics](../user-guide/results-assessment.md#diagnostics) |
+| instrument | a variable that changes assignment and has no other path to the outcome | [collaborative TMLE](../technical-reference/collaborative-tmle.md#what-this-solves) |
+===== markdown setup-heading
+## Step 1: set up
+
+The setup imports the learners and prints the installed `cleverly` version. Every fit below passes
+its learners, fold counts, and random seed explicitly, so a rerun reproduces the stored outputs.
+
+===== code setup
+import pandas as pd
+from sklearn.dummy import DummyRegressor
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+import cleverly
+
+pd.set_option("display.width", 130)
+pd.set_option("display.max_columns", 20)
+print(f"cleverly {cleverly.__version__}")
+--OUT--
+cleverly 0.1.2
+
+===== markdown setup-reading
+**What this output tells you.** The stored outputs in this notebook came from the version named
+above. A different version can print different numbers.
+
+===== markdown data-heading
+## Step 2: the data
+
+The data come from a synthetic law with a known answer. The generator is `make_instrument`. The code
+renames its columns to the program's names, prints the first rows, and prints the true values of the
+law.
+
+===== code data
+from cleverly.datasets import make_instrument
+
+frame, truth = make_instrument(n=2_000, seed=44)
+frame = frame.rename(
+    columns={
+        "Y": "transition_score",
+        "A": "transition_navigation",
+        "W1": "baseline_readiness",
+        "W2": "queue_lottery_draw",
+        "W3": "social_support",
+    }
+)
+lines = [
+    f"rows and columns: {frame.shape}",
+    frame.head().round(3).to_string(),
+    "",
+    "known values of the synthetic law:",
+    *(f"  {key}: {truth[key]:.3f}" for key in ("ate", "att", "atc")),
+]
+print("\n".join(lines))
+--OUT--
+rows and columns: (2000, 5)
+   transition_score  transition_navigation  baseline_readiness  queue_lottery_draw  social_support
+0             3.472                    0.0               1.446               0.102           0.327
+1             2.981                    1.0               1.136               0.824           0.579
+2             2.604                    1.0              -0.379              -1.019           0.376
+3             1.199                    1.0              -0.512               0.827           0.211
+4             1.866                    1.0              -0.745               0.268           0.709
+
+known values of the synthetic law:
+  ate: 1.000
+  att: 1.000
+  atc: 1.000
+--OUT--
+
+
+===== markdown data-reading
+**What this output tells you.** Each row is one discharge. `transition_navigation` is 1 for an
+offer and 0 for usual support. The three baseline covariates are standardized (mean 0, SD 1), and
+the score is in synthetic units.
+
+The score of this page has no fixed maximum, unlike the share the rest of the program records.
+Step 6 returns to that difference, because it decides which fits `cleverly` allows here.
+
+The effect is constant in this law, so the population `ate`, `att`, and `atc` all equal 1.000. The
+three columns have separate roles in the law.
+
+| column | role in the law | what it is in the program |
+| --- | --- | --- |
+| `baseline_readiness` | confounder | navigators prioritize patients ready to engage, so higher readiness raises the chance of an offer and the transition score |
+| `queue_lottery_draw` | instrument | an encounter-ID hash sets a queue draw. A higher draw strongly raises the chance of an offer and has no other path to the score |
+| `social_support` | outcome predictor | it moves the transition score and does not move assignment |
+
+The queue draw is an instrument only under three conditions. The program fixes the hash before
+assignment, prevents staff overrides, and verifies that the draw changes no other service. The data
+cannot establish this exclusion restriction.
+
+A real program has no `truth`. Every comparison against it below is a teaching device.
+
+===== markdown association-heading
+## Step 3: association first
+
+A confounder changes both who receives the offer and the outcome. The code compares the two arms
+before any adjustment. It prints the mean score and the mean of each baseline covariate by arm.
+
+===== code association
+covariates = ["baseline_readiness", "queue_lottery_draw", "social_support"]
+by_arm = frame.groupby("transition_navigation")[["transition_score", *covariates]].mean()
+print(by_arm.round(3))
+print()
+print(f"share offered navigation: {frame['transition_navigation'].mean():.3f}")
+unadjusted = by_arm.loc[1.0, "transition_score"] - by_arm.loc[0.0, "transition_score"]
+print(f"unadjusted difference in mean score: {unadjusted:.3f}")
+print(f"population ATE:                      {truth['ate']:.3f}")
+--OUT--
+                       transition_score  baseline_readiness  queue_lottery_draw  social_support
+transition_navigation                                                                          
+0.0                               0.517              -0.288              -0.514          -0.035
+1.0                               2.494               0.321               0.476           0.042
+
+share offered navigation: 0.512
+unadjusted difference in mean score: 1.977
+population ATE:                      1.000
+
+===== markdown association-reading
+**What this output tells you.** The offered patients score 1.977 points higher on average, and the
+true effect is 1.000. The arms differ before the offer. The mean `baseline_readiness` is 0.321
+among offered patients and -0.288 among the others.
+
+The mean `queue_lottery_draw` also differs between the arms, 0.476 against -0.514. That gap does
+not bias the comparison, because the draw has no path to the score in this law. The readiness gap
+does bias it. Both gaps predict the offer. The data on assignment alone cannot show which gap also
+reaches the score.
+===== markdown protocol-heading
+## Step 4: write the protocol
+
+A `StudyProtocol` records the scientific design before any model runs. The record gets a
+fingerprint, and every result fitted from it carries that fingerprint. This page starts from
+`navigation_protocol()`, the protocol of the
+[shared study design](index.md#the-shared-study-design). `dataclasses.replace` adds the approved
+baseline review.
+===== code protocol
+from dataclasses import replace
+
+from cleverly.datasets import navigation_protocol
+
+program = navigation_protocol()
+protocol = replace(
+    program,
+    outcome="Patient-reported transition score, standardized to the baseline distribution",
+    time_zero=(
+        "Discharge-home order, after baseline measurement and the queue draw, "
+        "and before the navigation offer"
+    ),
+    assumption_rationale=(
+        "Clinical and operations review approved three baseline variables, each measured "
+        "before assignment and none a collider",
+        "The approved baseline variables cover the measured common causes of the offer "
+        "and the score",
+        "An encounter-ID hash fixes the queue draw before assignment, without staff overrides",
+        *program.assumption_rationale[1:],
+    ),
+)
+print("\n".join(protocol.summary_lines()))
+--OUT--
+causal study protocol: schema 1; eb50c4bbf2250f48
+target population: Adults with a discharge-home order at a participating hospital during the enrollment period
+eligibility: ['Age 18 years or older', 'Discharge home ordered at a participating hospital']
+time zero: Discharge-home order, after baseline measurement and the queue draw, and before the navigation offer
+treatment strategies: ['Offer standard transition navigation', 'Provide usual discharge support']
+treatment versions: ['Bedside transition plan and two scheduled navigator contacts within 30 days', 'No access to the transition-navigation offer']
+outcome: Patient-reported transition score, standardized to the baseline distribution
+horizon: 30 days after discharge
+intercurrent-event handling: ['Use the transition score regardless of readmission', 'Analyze the offer regardless of completed contacts', 'The protocol scores death before day 30 as the worst transition score (composite strategy)']
+interference unit: Individual patient
+assumption rationale: ['Clinical and operations review approved three baseline variables, each measured before assignment and none a collider', 'The approved baseline variables cover the measured common causes of the offer and the score', 'An encounter-ID hash fixes the queue draw before assignment, without staff overrides', 'The standardized offer and version records support consistency', 'Reserved navigator capacity and access controls support no interference']
+
+===== markdown protocol-reading
+**What this output tells you.** The first line gives the schema version and the fingerprint
+`eb50c4bbf2250f48`. The other lines repeat each field. This page changes three fields of
+`navigation_protocol()`, and [point-treatment TMLE](point-treatment-tmle.ipynb) reads the others.
+
+| protocol field | what this page adds |
+| --- | --- |
+| outcome | the score is standardized to the baseline distribution, so it has no fixed maximum |
+| time zero | the queue draw happens before the offer, so the draw is a baseline variable |
+| assumption rationale | the approved baseline review, and the hash that fixes the queue draw before assignment |
+
+The outcome field decides one estimation choice. A standardized score takes its scale from the
+data, so the analyst can declare no finite support for it. Step 6 shows what that costs.
+
+Two design choices have no `StudyProtocol` field. The candidate variables for g are the adjustment
+columns of the design in Step 5. The selection rule belongs to the method in Step 6. The exclusion
+restriction for the queue draw has no field either, and the data cannot verify it.
+
+===== markdown identify-heading
+## Step 5: design and identification
+
+The design holds all three approved baseline columns. In this synthetic law, `baseline_readiness`
+alone closes the common-cause path. C-TMLE selects terms for the assignment nuisance, and it does
+not revise that identification decision.
+
+The code identifies the ATE and prints its summary. It then lists the methods available for the
+ATE, and asks whether C-TMLE is available for the ATT.
+
+===== code identify
+from cleverly import ATE, ATT, CausalStudy, PointTreatment
+
+study = CausalStudy(
+    frame,
+    design=PointTreatment(
+        outcome="transition_score",
+        treatment="transition_navigation",
+        adjustment=("baseline_readiness", "queue_lottery_draw", "social_support"),
+    ),
+    protocol=protocol,
+)
+effect = study.identify(ATE(reference=0))
+att_methods = {
+    method.name: method for method in study.identify(ATT(reference=0)).available_methods()
+}
+att_collaborative = att_methods["collaborative_tmle"]
+print(effect.summary(protocol="fingerprint"))
+print()
+print("methods for the ATE:")
+for method in effect.available_methods():
+    print(f"  {method.name}: available={method.available} {method.reason or ''}")
+print()
+print(f"collaborative_tmle for the ATT: available={att_collaborative.available}")
+print(f"  reason: {att_collaborative.reason}")
+--OUT--
+average treatment effect, E[Y^a] - E[Y^reference]
+identified by explicit-adjustment: E_W[E(transition_score | transition_navigation=a, W)] - E_W[E(transition_score | transition_navigation=0, W)] for a in [1]
+adjustment/history: ['baseline_readiness', 'queue_lottery_draw', 'social_support']
+required nuisances: ['outcome_regression', 'treatment_mechanism']
+assumptions:
+  - consistency: Y = Y^a when A = a
+  - no interference: one unit's potential outcome does not depend on other units' treatment assignments
+  - no unmeasured confounding: Y^a is independent of A given W
+  - positivity: P(transition_navigation = a | W) > 0 almost surely for every supported treatment level a in [0, 1]
+causal study protocol: schema 1; eb50c4bbf2250f48
+
+methods for the ATE:
+  tmle: available=True 
+  collaborative_tmle: available=True 
+  drtmle: available=True 
+  riesz_tmle: available=False the direct-Riesz engine and intervention-state representer are not implemented
+  ep: available=False EP requires a conditional-contrast estimand and its distinct result family
+
+collaborative_tmle for the ATT: available=False
+  reason: no collaborative score is evidenced for this functional
+
+===== markdown identify-reading
+**What this output tells you.** The first lines show the ATE and its observed-data formula. The
+formula averages the outcome regression over all patients, once with the offer and once without.
+The required nuisances are the outcome regression Q and the treatment mechanism g. The summary then
+lists four assumptions and prints the fingerprint of the stored protocol.
+
+The four assumptions are those of
+[point-treatment TMLE](point-treatment-tmle.ipynb#step-5-design-and-identification), which reads
+each one for the program. Here no unmeasured confounding means that the three approved variables
+block every common cause of the offer and the score. The data cannot check it.
+
+The method list shows `collaborative_tmle` as available for the ATE. Two other methods are not
+available for the ATE, and each line prints the reason. This page does not need them. For the ATT,
+the catalog refuses it with the reason `no collaborative score is evidenced for this functional`.
+C-TMLE covers the point-treatment `ate`, `ey`, `ey1`, `ey0`, `rr`, and `or` targets only. The
+[technical entry](../technical-reference/collaborative-tmle.md#what-this-solves) states that scope.
+===== markdown estimate-heading
+## Step 6: estimate the ATE with C-TMLE
+
+The configuration is written out in full. Linear learners are enough here, because the outcome
+mean of this law is linear in the offer and the covariates.
+
+| setting | value | what it does |
+| --- | --- | --- |
+| `outcome_learner` | `LinearRegression(n_jobs=1)` | fits Q, the expected score given the offer and the covariates |
+| `treatment_learner` | `LogisticRegression(max_iter=1000, random_state=44)` | fits each candidate g on the covariates that candidate uses |
+| `CrossFitting(enabled=False)` | no outer folds | fits each nuisance on every row |
+| `strategy="greedy"` | greedy path | at each stage, adds to g the covariate whose targeted outcome regression has the smallest penalized loss |
+| `selection_folds=3` | three selection folds | cross-validates the loss that chooses the stopping point on the path |
+| `selection_inner_folds=2` | two inner folds | limits the extra fits inside each selection fold |
+| `Runtime(random_state=44, n_jobs=1)` | fixed seed, one process | makes the fit reproducible |
+
+The fit runs in sample, and the protocol is the reason. A cross-fitted fit of a continuous outcome
+must declare the outcome's support, because an undeclared scale is read from the held-out rows as
+well. This page's score is standardized, so it has no known finite support to declare, and
+`cleverly` refuses a cross-fitted fit of it. The subject of this page is which variables enter g,
+not how the rows are split. Fitting in sample is therefore the honest choice rather than a
+workaround.
+The [cross-fitting tutorial](cross-fitting.ipynb) shows the fold layer on a score whose support
+the program does record.
+
+The selection folds are a separate layer, and they stay. The
+[technical entry](../technical-reference/collaborative-tmle.md#the-algorithm-as-implemented)
+describes both layers. The plain TMLE fit in Step 8 uses the same learners and the same in-sample
+nuisances. Only the choice of assignment model differs. The code keeps the method as
+`collaborative_method`, so Step 9 can reuse it.
+
+===== code collaborative
+from cleverly import (
+    CapabilityError,
+    CollaborativeTMLEMethod,
+    CrossFitting,
+    ModelSpec,
+    Runtime,
+    TMLEMethod,
+)
+
+models = ModelSpec(
+    outcome_learner=LinearRegression(n_jobs=1),
+    treatment_learner=LogisticRegression(max_iter=1000, random_state=44),
+)
+folds = CrossFitting(enabled=False)
+runtime = Runtime(random_state=44, n_jobs=1)
+
+collaborative_method = CollaborativeTMLEMethod(
+    models=models,
+    cross_fitting=folds,
+    runtime=runtime,
+    strategy="greedy",
+    selection_folds=3,
+    selection_inner_folds=2,
+)
+collaborative = effect.estimate(method=collaborative_method)
+point = collaborative["ate"]
+print(collaborative.summary(protocol="fingerprint"))
+print()
+print(f"estimate:        {point.psi:.3f}")
+print(f"inference:       {point.inference}")
+try:
+    print(f"95% CI:          {point.ci}")
+except CapabilityError as error:
+    inference_refusal = str(error)
+    print(f"interval:        refused. {inference_refusal}")
+else:
+    raise AssertionError("the greedy path reported a confidence interval")
+plugin_low, plugin_high = point.plugin_interval
+print(f"plug-in standard error, a diagnostic:  {point.plugin_std_error:.4f}")
+print(f"plug-in interval, a diagnostic:        ({plugin_low:.3f}, {plugin_high:.3f})")
+print(f"population ATE:  {truth['ate']:.3f}")
+--OUT--
+Targeted maximum likelihood estimation
+======================================
+n = 2000; covariates = 3; P(A=1) = 0.512
+causal estimand: average treatment effect, E[Y^a] - E[Y^reference]
+identification: explicit-adjustment; E_W[E(transition_score | transition_navigation=a, W)] - E_W[E(transition_score | transition_navigation=0, W)] for a in [1]
+required nuisances: outcome_regression, treatment_mechanism
+identification assumptions: consistency: Y = Y^a when A = a; no interference: one unit's potential outcome does not depend on other units' treatment assignments; no unmeasured confounding: Y^a is independent of A given W; positivity: P(transition_navigation = a | W) > 0 almost surely for every supported treatment level a in [0, 1]
+causal study protocol: schema 1; eb50c4bbf2250f48
+outcome family: gaussian; fluctuation: logistic (iterative)
+TMLE (in-sample nuisances): nuisances fitted in-sample (cross_fit=False)
+propensity truncated to [0.01471, 0.9853]; ATT/ATC to [0.025, 0.975]
+outcome scaled from [-6.926, 10.28] to [0, 1]
+C-TMLE greedy selected candidate 2 of 4 for ate
+data 8bf4f66a00274ace | folds 50bd136f9fb931cb | cleverly 0.1.2 | 2026-09-27T03:30:53+00:00
+
+estimand  psi      working-mechanism se
+--------  -------  --------------------
+ate       0.95497  0.04402             
+
+The greedy, ordered and discrete collaborative paths report no confidence interval, no p-value and no standard error. The reported curve is the ordinary efficient influence curve at the candidate the search stopped at, and no result shows it is this estimator's influence curve when that working mechanism is not consistent for the treatment law. The point estimate and the selection path stand. The plug-in standard error of that curve remains as a diagnostic under plugin_std_error and plugin_interval. F18 in docs/roadmap.md reopens this when it supplies the estimator's influence curve. The "working-mechanism se" column above is that diagnostic, and it is not a standard error for this estimate.
+
+estimate:        0.955
+inference:       working_mechanism_plugin
+interval:        refused. .ci is not defined here. The greedy, ordered and discrete collaborative paths report no confidence interval, no p-value and no standard error. The reported curve is the ordinary efficient influence curve at the candidate the search stopped at, and no result shows it is this estimator's influence curve when that working mechanism is not consistent for the treatment law. The point estimate and the selection path stand. The plug-in standard error of that curve remains as a diagnostic under plugin_std_error and plugin_interval. F18 in docs/roadmap.md reopens this when it supplies the estimator's influence curve.
+plug-in standard error, a diagnostic:  0.0440
+plug-in interval, a diagnostic:        (0.869, 1.041)
+population ATE:  1.000
+
+===== markdown collaborative-reading
+**What this output tells you.** The summary repeats the estimand and the identification, and it
+prints the protocol fingerprint. It names the construction as `TMLE (in-sample nuisances)`, which is
+the ordinary point-treatment construction. The line `C-TMLE greedy selected candidate 2 of 4 for
+ate` names the selector. Step 7 reads the selection from the nuisance report.
+
+The estimate is 0.955, and the true ATE is 1.000. The estimate table has no interval column and no
+p-value column. It has a `working-mechanism se` column instead, and the paragraph under it says
+why.
+
+| what the fit reports | value | what it means |
+| --- | --- | --- |
+| `psi` | 0.955 | the point estimate. The selection path in Step 7 stands with it |
+| `inference` | `working_mechanism_plugin` | the fit declares that its reported curve is a diagnostic |
+| `.ci` | refused | `cleverly` raises rather than print an interval whose coverage no result establishes |
+| `plugin_std_error` | 0.0440 | the plug-in standard error of the reported curve, under a name that claims no coverage |
+| `plugin_interval` | (0.869, 1.041) | the Wald interval of that same curve, as a diagnostic |
+
+The refusal states the reason. The reported curve is the ordinary efficient influence curve at the
+candidate the search stopped at. No result shows that curve is this estimator's influence curve
+when the selected working mechanism is not consistent for the treatment law. The trust section
+gives the sources, and `F18` in the roadmap is the condition that reopens the interval.
+
+Read the plug-in pair as a spread of the curve the fit computed. Do not report it as a confidence
+interval. Step 11 compares it with a robust regression standard error on this draw.
+===== markdown selection-heading
+## Step 7: read the selection path
+
+The nuisance report retains the selection path. It lists the candidate assignment models in order
+and marks the one that the cross-validated loss chose.
+
+===== code selection-path
+selection = collaborative.diagnostics.nuisance_models().selection
+print(selection.summary())
+print()
+print(f"candidate path: {selection.path}")
+print(f"selected covariates: {selection.selected_covariates}")
+print(f"cv risk gap, k=1 minus k=0: {selection.cv_risk[1] - selection.cv_risk[0]:.5f}")
+--OUT--
+Collaborative TMLE selection
+============================
+strategy = greedy; preorder = n/a; target = ate (ate); criterion = cross-validated penalized squared-error loss
+
+k  covariates in g                                         steps  risk     cv risk     
+-  ------------------------------------------------------  -----  -------  -------  ---
+0  (intercept)                                             1      6.56613  6.63109     
+1  social_support                                          1      6.56613  6.63098  <--
+2  social_support, baseline_readiness                      2      6.56746  6.63428     
+3  social_support, baseline_readiness, queue_lottery_draw  3      6.57264  6.65024     
+
+selected g: social_support
+left out: baseline_readiness, queue_lottery_draw. The selected candidate minimized targeted cross-validated penalized squared-error loss; this criterion does not determine why a covariate was left out
+
+candidate path: ((), ('social_support',), ('social_support', 'baseline_readiness'), ('social_support', 'baseline_readiness', 'queue_lottery_draw'))
+selected covariates: ('social_support',)
+cv risk gap, k=1 minus k=0: -0.00011
+
+===== markdown selection-reading
+**What this output tells you.** The table lists four candidates for g. The greedy path starts
+with the intercept only. It then adds `social_support`, `baseline_readiness`, and
+`queue_lottery_draw`, in that order. The marker `<--` is on row 1, so the selected g holds
+`social_support` alone.
+
+The `cv risk` column decides the choice. The chosen candidate has the smallest value, 6.63098. The
+candidate with all three variables has the largest value, 6.65024. The footer names the loss that
+chose the candidate, and it says that this criterion does not determine why a covariate was left
+out.
+
+The first two candidates are nearly tied. The last line gives their `cv risk` gap, -0.00011. A
+correct outcome regression leaves g almost nothing to improve, so the loss barely changes along the
+path. A choice between near-tied candidates is fragile. The
+[technical entry](../technical-reference/collaborative-tmle.md#validation-issues-special-to-this-method)
+lists near-ties as an unresolved case for inference.
+
+The selected variable is the one that moves the score and not assignment. The search kept it, and
+it left out both the confounder and the instrument. The criterion is a loss on the targeted
+outcome regression, and the report says so rather than assigning a role to any omission.
+
+The other two columns describe the search. The `risk` column is the same penalized loss, computed
+in sample. The `steps` column counts the targeting steps the search took before it reached that
+candidate. When no added variable lowers the loss, the greedy search takes one more targeting step.
+It then adds the best remaining variable even if the loss does not fall, so `risk` can rise along
+the path. Only `cv risk` chooses the candidate.
+
+The linear outcome regression is correctly specified for this law. A g that carries almost no
+adjustment is then a legitimate choice. Step 9 explains why that choice alone does not test the
+selector.
+
+===== markdown failure-heading
+## Step 8: the failure mode, an instrument in the assignment model
+
+A plain TMLE fit puts all three approved variables into g. The code fits it with the same learners
+and the same in-sample nuisances, and it compares the fitted propensity tails of both fits. The
+support report describes how far the fitted propensities reach toward 0 and 1. The code then prints
+the AUC of the plain g and each ATE estimate.
+
+An instrument in g pushes propensity scores toward 0 and 1 without removing confounding, so
+precision falls. The clever covariate divides by the fitted propensity, so an extreme propensity
+makes it large. [Point-treatment TMLE](../technical-reference/point-treatment-tmle.md) defines it.
+
+The precision argument assumes exchangeability. If an unmeasured common cause remains, a strong
+instrument can also amplify residual bias. C-TMLE does not turn the queue draw into a design-based
+instrument estimator.
+
+===== code failure-mode
+plain_method = TMLEMethod(models=models, cross_fitting=folds, runtime=runtime)
+plain = effect.estimate(method=plain_method)
+
+
+def tails(result):
+    support = result.diagnostics.support()
+    return {
+        "share of g below 0.1": support.tail_mass[0.1]["below"],
+        "share of g above 0.9": support.tail_mass[0.1]["above"],
+        "truncated fraction": support.truncated["fraction"],
+        "treated ESS / n": support.effective_sample_size["treated"]["ratio"],
+        "control ESS / n": support.effective_sample_size["control"]["ratio"],
+        "max |clever covariate|": support.clever_covariate_max["mean"],
+    }
+
+
+tail_table = pd.DataFrame({"plain TMLE": tails(plain), "collaborative TMLE": tails(collaborative)})
+print(tail_table.round(4))
+plain_auc = plain.diagnostics.nuisance_models()["propensity"].metrics["auc"]
+print(f"plain TMLE propensity AUC: {plain_auc:.3f}")
+print()
+
+
+def show(label, result):
+    point = result["ate"]
+    if point.inference == "influence_curve":
+        low, high = point.ci
+        spread = f"se={point.std_error:6.4f}  CI=({low:.3f}, {high:.3f})"
+    else:
+        low, high = point.plugin_interval
+        spread = f"plug-in se={point.plugin_std_error:6.4f}  plug-in ({low:.3f}, {high:.3f})"
+    print(f"{label:22s} psi={point.psi:6.3f}  {spread}")
+
+
+show("plain TMLE", plain)
+show("collaborative TMLE", collaborative)
+print("the plug-in rows are diagnostics, not inference")
+print(f"population ATE: {truth['ate']:.3f}")
+--OUT--
+                        plain TMLE  collaborative TMLE
+share of g below 0.1        0.1040              0.0000
+share of g above 0.9        0.1140              0.0000
+truncated fraction          0.0160              0.0000
+treated ESS / n             0.4719              0.9985
+control ESS / n             0.4499              0.9984
+max |clever covariate|     43.7542              2.3819
+plain TMLE propensity AUC: 0.844
+
+plain TMLE             psi= 0.881  se=0.0626  CI=(0.758, 1.004)
+collaborative TMLE     psi= 0.955  plug-in se=0.0440  plug-in (0.869, 1.041)
+the plug-in rows are diagnostics, not inference
+population ATE: 1.000
+
+===== markdown failure-reading
+**What this output tells you.** In the plain fit, a share of 0.1040 of the fitted propensities
+lies below 0.1. A share of 0.1140 lies above 0.9. Its largest clever covariate is 43.7542. Its
+effective-sample ratios are 0.4719 in the treated arm and 0.4499 in the control arm. In this law
+the draw moves assignment more strongly than readiness does. Step 9 shows the tails that remain
+when only the draw is left out.
+
+The plain g has an AUC of 0.844, so it predicts the offer well. The draw adds to that accuracy and
+removes no confounding, because the draw has no path to the score in this law.
+
+The collaborative fit has no rows in either tail. Its effective-sample ratios are 0.9985 in the
+treated arm and 0.9984 in the control arm. Its g holds one variable that does not move assignment.
+Every fitted probability therefore sits near the offer share. Every row in an arm then carries
+nearly the same weight.
+
+The plain fit reports a standard error of 0.0626 and the interval (0.758, 1.004). The
+collaborative fit reports no standard error. Its plug-in diagnostic is 0.0440, with the plug-in
+spread (0.869, 1.041). Both ranges contain the true value of 1.000 on this draw.
+
+Do not read the smaller plug-in value as a precision gain. The selected g is not consistent for the
+assignment mechanism, so the curve behind that value can understate the spread of the estimator.
+That is the reason `cleverly` refuses the interval rather than printing it. Step 11 compares the
+plug-in value with a robust regression standard error. Step 9 explains why this comparison does not
+test the selector.
+
+===== markdown control-heading
+## Step 9: a control that discriminates
+
+With a correctly specified outcome model, Step 7 showed the selector stop at a variable that does
+not move assignment. That choice can minimize the targeted cross-validated loss. It does not show
+that the search can tell a confounder from an instrument. A selector that always chose an
+adjustment-free g would give the same result.
+
+Use a deliberate stress control where selecting nothing is wrong. The code reduces the outcome model
+to a constant with `DummyRegressor`, so the assignment model must carry the adjustment. This tests
+the selector. It is not a recommended production outcome model.
+
+`replace` keeps every setting of the Step 6 and Step 8 methods and changes only the learners. The
+code prints both estimates, the propensity tails of both fits, and the selection path.
+
+===== code stress-control
+weak_models = ModelSpec(
+    outcome_learner=DummyRegressor(),
+    treatment_learner=LogisticRegression(max_iter=1000, random_state=44),
+)
+weak_plain = effect.estimate(method=replace(plain_method, models=weak_models))
+weak_collaborative = effect.estimate(method=replace(collaborative_method, models=weak_models))
+weak_selection = weak_collaborative.diagnostics.nuisance_models().selection
+ratio = weak_collaborative["ate"].plugin_std_error / weak_plain["ate"].std_error
+show("constant Q, plain", weak_plain)
+show("constant Q, C-TMLE", weak_collaborative)
+print(f"plug-in over plain standard error: {ratio:.3f}")
+print(f"population ATE: {truth['ate']:.3f}")
+print()
+weak_tail_table = pd.DataFrame(
+    {"constant Q, plain": tails(weak_plain), "constant Q, C-TMLE": tails(weak_collaborative)}
+)
+print(weak_tail_table.round(4))
+print()
+print(weak_selection.summary())
+--OUT--
+constant Q, plain      psi= 1.077  se=0.2343  CI=(0.618, 1.537)
+constant Q, C-TMLE     psi= 1.017  plug-in se=0.0923  plug-in (0.836, 1.197)
+plug-in over plain standard error: 0.394
+population ATE: 1.000
+
+                        constant Q, plain  constant Q, C-TMLE
+share of g below 0.1               0.1040              0.0000
+share of g above 0.9               0.1140              0.0000
+truncated fraction                 0.0160              0.0000
+treated ESS / n                    0.4719              0.9030
+control ESS / n                    0.4499              0.8915
+max |clever covariate|            43.7542              6.3471
+
+Collaborative TMLE selection
+============================
+strategy = greedy; preorder = n/a; target = ate (ate); criterion = cross-validated penalized squared-error loss
+
+k  covariates in g                                         steps  risk     cv risk     
+-  ------------------------------------------------------  -----  -------  -------  ---
+0  (intercept)                                             1      26.255   26.2934     
+1  baseline_readiness                                      2      24.9517  24.9909     
+2  baseline_readiness, social_support                      2      24.8589  24.8761  <--
+3  baseline_readiness, social_support, queue_lottery_draw  3      24.9044  24.9728     
+
+selected g: baseline_readiness, social_support
+left out: queue_lottery_draw. The selected candidate minimized targeted cross-validated penalized squared-error loss; this criterion does not determine why a covariate was left out
+
+===== markdown control-reading
+**What this output tells you.** With a constant Q, the selected g is
+`baseline_readiness, social_support`. The footer lists `queue_lottery_draw` as left out. On this
+draw the selector keeps the confounder and leaves the instrument out.
+
+The path table shows the change in the loss. Adding `baseline_readiness` lowers the `cv risk` from
+26.2934 to 24.9909. Adding `queue_lottery_draw` to the other two raises it from 24.8761 to 24.9728.
+The search also keeps `social_support`, which lowers the `cv risk` from 24.9909 to 24.8761. It does
+not move assignment in this law, so it adds little to g.
+
+The tail table shows what leaving out only the draw does. The plain g has the Step 8 tails, because
+its assignment model is unchanged. The C-TMLE g has no rows in either tail. Its effective-sample
+ratios are 0.9030 and 0.8915, and its largest clever covariate is 6.3471. Readiness still moves
+this g, so the ratios are below 1.
+
+The C-TMLE plug-in standard error is 0.0923, and the plain standard error is 0.2343. The ratio is
+0.394, so the plug-in value of the selected fit is less than half the standard error of the plain
+fit. The selected g also leaves out a variable of the true assignment mechanism, so the trust
+section's limit applies to this ratio. A ratio below one is not a precision gain here, because the
+numerator carries no coverage claim. The plain interval and the C-TMLE plug-in spread both
+contain 1.000.
+
+In this known law, the search keeps the variable that the constant outcome model needs. It drops the
+pure assignment predictor. The selection result does not prove that either variable has its
+declared causal role.
+
+The
+[registered study](../technical-reference/method-evidence/selector-based-point-treatment-c-tmle.md)
+repeats this control over many draws. There, the bias of a selector forced to stop at the empty
+path lies entirely outside the equivalence margin, which is what that control requires. The free
+selector's root-mean-square error stays well below the forced one's, so the search does work on
+that law. The free selector's own bias interval reaches past its margin, and the study publishes
+that cell red.
+
+===== markdown assessment-heading
+## Step 10: diagnostics, what the fit can check
+
+Start with the combined assessment of the Step 6 fit. It presents validation, diagnostics, and
+sensitivity together. The code then prints the fitted range of g and the truncated fraction from the
+support report. It also prints the nuisance report, with the role that report gives to g.
+===== code assessment
+assessment = collaborative.assess()
+support = assessment.report("support")
+nuisance = assessment.report("nuisance_models")
+print(assessment.summary())
+print(f"needs attention: {tuple(item.name for item in assessment.attention)}")
+print()
+quantiles = support.propensity_quantiles["overall"]
+print(f"fitted g range: {quantiles[0.0]:.4f} to {quantiles[1.0]:.4f}")
+print(f"truncated fraction: {support.truncated['fraction']:.4f}")
+print()
+print(f"treatment role: {nuisance.treatment_role}")
+print(nuisance.summary())
+print()
+print(f"propensity AUC: {nuisance['propensity'].metrics['auc']:.3f}")
+print(f"selected covariates: {nuisance.selection.selected_covariates}")
+--OUT--
+Returned results
+----------------
+surface     operation        result                                                                                                                                                                                                                                                                
+----------  ---------------  ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+validation  support          maximum truncated fraction 0.0%; minimum effective-sample-size ratio 99.8%; group load: mean:h0 974.5/2000 Kish-equivalent mask rows (48.7%; 48.7% all; draw 01 of 01); not estimator ESS                                                                             
+validation  nuisance_models  2 nuisance model report(s) are available; C-TMLE greedy selected candidate 2 of 4 for ate; the reported curve is a working-mechanism diagnostic: no confidence interval or p-value is available for this path, and F18 in the roadmap is the condition that reopens it
+
+Checks
+------
+status  count  operations                
+------  -----  --------------------------
+passed  1      validation.score_equations
+
+Not run
+-------
+status          count  operations                       
+--------------  -----  ---------------------------------
+deferred        3      diagnostics.truncation_curve     
+                       diagnostics.refute               
+                       sensitivity.simulated_confounding
+unavailable     6      sensitivity.omitted_confounding  
+                       sensitivity.robustness_value     
+                       sensitivity.elements             
+                       sensitivity.benchmark            
+                       sensitivity.contour              
+                       sensitivity.evalue               
+not_applicable  3      diagnostics.corrections          
+                       sensitivity.missingness          
+                       sensitivity.tipping_gamma        
+
+Full ledger: call to_frame(). Next steps: call next_steps().
+Retained payloads: call report(...).
+needs attention: ()
+
+fitted g range: 0.4434 to 0.5814
+truncated fraction: 0.0000
+
+treatment role: collaborative_working_model
+Nuisance model diagnostics
+----------------------------------------
+model       auc     brier   log_loss  r2      mse     cal_slope  cal_se  reg_slope
+----------  ------  ------  --------  ------  ------  ---------  ------  ---------
+propensity  0.5158  0.2495  0.6921    -       -       1.0022     0.5704  -        
+outcome     -       -       -         0.8002  0.0033  -          -       1.0000   
+Calibration slopes are in sample and carry no test. An unpenalized logistic model with an intercept has an in-sample slope of 1 by construction.
+
+The propensity metrics describe the selected C-TMLE working mechanism.
+They do not describe treatment given the complete adjustment set.
+
+The reported curve is a working-mechanism diagnostic: no confidence interval or p-value is available for this path, and F18 in the roadmap is the condition that reopens it.
+C-TMLE greedy selected candidate 2 of 4 for ate
+
+VERDICT: C-TMLE working-model metrics are descriptive, and this fit reports no confidence interval and no p-value; inspect the selection and support reports.
+
+propensity AUC: 0.516
+selected covariates: ('social_support',)
+
+===== markdown assessment-reading
+**What this output tells you.** Read the four parts in order.
+
+| output part | what it shows on this draw |
+| --- | --- |
+| `Checks` and `needs attention` | the score-equation check passed, and nothing needs attention |
+| `Returned results` | the analyses that ran: `support` and `nuisance_models`. A row here means the calculation ran. It is not a pass |
+| `fitted g range` and `truncated fraction` | every fitted propensity lies between 0.4434 and 0.5814, and no row is truncated |
+| nuisance model diagnostics | the treatment role is `collaborative_working_model`, and the propensity AUC is 0.516 |
+
+Every omitted-variable row is `unavailable` here, and so is `evalue`. The bound reads the fitted
+representer, and this fit supplies the one from the selected working g. Step 11 shows the refusal
+and its reason. The `nuisance_models` row and the verdict both carry the label that this fit
+reports no confidence interval and no p-value.
+
+The selected model carries one variable that does not move assignment, so its AUC sits near 0.5 and
+its calibration slope near 1. This fit is in sample, so the report tests no slope, and the line
+under its table says so. Neither number describes assignment given the complete adjustment
+set. They describe the working denominator only.
+[Nuisance model quality](../technical-reference/validation-methods.md#nuisance-model-quality) lists
+the two claims that this role drops.
+
+The support report describes the selected denominator only. Compare it with the plain fit in Step 8
+to see the tails that selection removed. Neither report assigns a causal role to an omitted
+variable.
+===== markdown sensitivity-heading
+## Step 11: sensitivity, what the fit cannot check
+
+Sensitivity analysis asks how strong an unmeasured confounder would need to be to change the
+conclusion. The [results guide](../user-guide/results-assessment.md#sensitivity-analysis) introduces
+it. Sensitivity analysis cannot tell whether the selector chose a useful assignment model.
+
+The code prints the omitted-variable elements and the robustness value of the plain fit. It then
+asks for the same elements on the collaborative fit, which `cleverly` refuses. The reading gives
+the refusal's argument.
+
+The code also fits a linear regression of the score on the offer and all three covariates. That
+regression gives the offer coefficient and its robust (HC0) standard error. HC0 stays valid when
+the residual variance differs across rows. The code prints that standard error beside the plug-in
+diagnostic of the collaborative fit.
+===== code sensitivity
+from cleverly.learners import thread_limit
+
+plain_assessment = plain.assess()
+plain_elements = plain_assessment.report("elements")
+plain_robustness = plain_assessment.report("robustness_value")
+plain_row = pd.Series(
+    {
+        "estimate": plain["ate"].psi,
+        "sigma2": plain_elements.sigma2,
+        "nu2": plain_elements.nu2,
+        "robustness value": plain_robustness["rv"],
+        "confidence-limit value": plain_robustness["rva"],
+    },
+    name="plain TMLE",
+)
+print(plain_row.round(3).to_string())
+print()
+try:
+    collaborative.sensitivity.elements(estimand="ate")
+except CapabilityError as error:
+    bound_refusal = str(error)
+    print("refused on the collaborative fit:", bound_refusal)
+else:
+    raise AssertionError("the omitted-variable bound accepted a collaborative fit")
+print()
+
+offer, score = frame["transition_navigation"], frame["transition_score"]
+with thread_limit():
+    full = frame[["transition_navigation", *covariates]]
+    residual = score - LinearRegression(n_jobs=1).fit(full, score).predict(full)
+    offer_part = offer - LinearRegression(n_jobs=1).fit(frame[covariates], offer).predict(
+        frame[covariates]
+    )
+coefficient = (offer_part * score).sum() / (offer_part**2).sum()
+robust_se = (offer_part**2 * residual**2).sum() ** 0.5 / (offer_part**2).sum()
+print(
+    f"C-TMLE estimate and plug-in standard error: {collaborative['ate'].psi:.3f}, "
+    f"{collaborative['ate'].plugin_std_error:.4f}"
+)
+print(f"regression offer coefficient and HC0 error: {coefficient:.3f}, {robust_se:.4f}")
+--OUT--
+estimate                   0.881
+sigma2                     0.968
+nu2                       11.963
+robustness value           0.227
+confidence-limit value     0.204
+
+refused on the collaborative fit: sensitivity 'elements' is unavailable: the omitted-variable bound has no nu^2 estimate for a 'collaborative_tmle' fit. The working mechanism conditions on a function V of W: the selected adjustment set W_S on the greedy, ordered and discrete paths, and the fitted outcome regression under 'oat'. Where the working mechanism is P(A | V) in the limit, the representer is E[alpha_W | A, V], whose second moment cannot exceed the second moment of alpha_W, while sigma^2 still comes from a regression on every declared covariate. The product sigma^2 nu^2 belongs to no single conditioning set, and the collaborative robustness value is optimistic by construction. No derivation registered here gives nu^2, or the bound's standard error, for an estimator that does not assume a consistent treatment mechanism.
+
+C-TMLE estimate and plug-in standard error: 0.955, 0.0440
+regression offer coefficient and HC0 error: 0.955, 0.0545
+
+===== markdown sensitivity-reading
+**What this output tells you.** The plain fit reports a robustness value of 0.227 and a
+confidence-limit value of 0.204. Its residual variance `sigma2` is 0.968, and its `nu2` is 11.963.
+The
+[omitted-variable bounds](../technical-reference/validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours)
+define `nu2` from the Riesz representer given the adjustment set. The plain fit reads the
+representer of the declared adjustment set. Its value of 0.227 requires a consistent full
+assignment model, and that condition holds for this synthetic law, because its assignment logit is
+linear in the three declared covariates.
+
+`cleverly` refuses the same elements on the collaborative fit. The refusal gives the argument.
+
+On a collaborative fit the representer comes from the selected working g. Suppose that g converges
+to the assignment law given the selected set. The representer then averages the full
+representer within each arm and each value of the selected set. Here that set holds one variable
+that does not move assignment, so the result is close to the average within each arm. By Jensen's
+inequality, the second moment of an average is never larger than the second moment of what it
+averages. The collaborative `nu2` is therefore smaller by construction, the bound is narrower,
+and the robustness value reads higher.
+
+The refusal adds the second half of the argument. The residual variance still comes from a
+regression on every declared covariate, so the product `sigma2 nu2` belongs to no single
+conditioning set. The omitted-variable bias belongs to the estimand, not to the estimator, and a
+higher number from a smaller working model is not more robustness.
+
+This page shows the refusal rather than the two numbers, because a documentation example is not
+statistical evidence. The unit test `tests/unit/test_omitted_variable_refusals.py` carries the
+comparison on its own law. It computes the blocked collaborative value through a private helper and
+pins it below the plain value, so a change that removed the refusal would fail there.
+
+The last two lines show a second consequence of the selected working g. The plug-in diagnostic of
+the collaborative fit is 0.0440. The regression gives the same estimate, 0.955, with an HC0
+standard error of 0.0545. On this draw, the plug-in value is smaller than that robust value.
+Neither number is a confidence statement for this estimator, and no registered study measures this
+gap for a continuous outcome.
+===== markdown trust
+## How far to trust this
+
+Three limits belong in every report of a collaborative fit on this page.
+
+**This fit reports no confidence interval and no p-value.** The data chose the candidate model. The
+reported curve is the ordinary efficient influence curve at the selected candidate. No result shows
+that curve is this estimator's influence curve when the selected mechanism is not consistent for
+the treatment law. `cleverly` therefore refuses `.ci`, `.pvalue`, and `.std_error` on the greedy,
+ordered, and discrete paths. It keeps the point estimate, the selection path, and the two plug-in
+diagnostics.
+
+**The plug-in diagnostic can understate the spread.** The near-constant working model of Step 7 is
+the case the refusal names. Step 11 shows the plug-in value of 0.0440 beside the HC0 standard error
+of 0.0545 for the same coefficient. The
+[technical entry](../technical-reference/collaborative-tmle.md#validation-issues-special-to-this-method)
+records the limit and the sources. No diagnostic on the fit repairs it.
+
+**The nuisances here are fitted in sample.** Every fit on this page reuses each row for both
+fitting and prediction. The standardized score has no support to declare, so no fit here can
+hold rows out. The plain fit's interval therefore needs the data-reuse condition that
+[CV-TMLE](../technical-reference/cv-tmle.md#what-this-solves) states, and linear learners are what
+makes that condition plausible on this page.
+
+The
+[selector-based point-treatment C-TMLE study](../technical-reference/method-evidence/selector-based-point-treatment-c-tmle.md)
+validates the greedy selector against R `ctmle` with logistic GLMs. Its agreement rows use a
+binary-outcome law. No registered study in that entry covers the standardized score used here.
+
+| layer | establishes | does not establish |
+| --- | --- | --- |
+| the combined assessment | which cached checks need attention and which costly operations did not run | selection uncertainty or the causal role of a candidate variable |
+| the support report | how far the selected denominator reaches into the tails | that the selected model is the right one |
+| the nuisance report | selected-model metrics, model role, and the retained selection | whether low AUC means limited confounding after collaborative selection |
+| the retained selection path | which candidates the search considered and selected | calibrated inference for the selected candidate |
+| the plug-in standard error and interval | the spread of the curve this fit computed at the selected candidate | coverage for this estimator, which is why the fit reports them under their own names |
+| the sensitivity analysis | on the plain fit, a robustness value for the declared adjustment set when the full assignment model is consistent | any bound on the collaborative fit, which `cleverly` refuses, or a bound that accounts for an inconsistent full assignment model |
+| the registered study | on its own laws, the forced selector's bias lies outside the equivalence margin and the free selector's error stays well below it | that the free selector's own bias stays inside its margin, which that study publishes red, or that the selector discriminates on this page's score |
+===== markdown where-next
+## Where to go next
+
+Collaborative TMLE addresses *selection*. If your worry is the *inference* instead, because you
+expect one nuisance to be inconsistent however you choose it, read [DR-TMLE](dr-tmle.ipynb). If the
+adjustment set is small and you would include all of it, the plain
+[point-treatment TMLE](point-treatment-tmle.ipynb) is the right entry.
+
+The library refuses longitudinal and incremental-target C-TMLE. The
+[technical entry](../technical-reference/collaborative-tmle.md#variations) gives the reasons. The
+[examples index](index.md#the-program) lists every tutorial in the program.
+

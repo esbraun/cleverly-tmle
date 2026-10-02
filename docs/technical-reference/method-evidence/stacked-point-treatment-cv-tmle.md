@@ -135,8 +135,8 @@ separately, as `property_cells_reported`.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `crossfit_overfitting` | `in_sample_control` | control | the same flexible learner fitted in sample, with no cross-fitting | SE ratio must fall below the overfitting ceiling | SE ratio 0.4467 to 0.5377 | pass |
-| `crossfit_overfitting` | `stacked_cvtmle` | positive | stacked CV-TMLE with a flexible learner | SE ratio clears the overfitting floor and stays inside the sanity band | SE ratio 0.9322 to 1.1165 | pass |
+| `crossfit_overfitting` | `in_sample_control` | control | the same flexible learner fitted in sample, with no cross-fitting | SE ratio must fall below the overfitting ceiling | SE ratio 0.4535 to 0.5401 | pass |
+| `crossfit_overfitting` | `stacked_cvtmle` | positive | stacked CV-TMLE with a flexible learner | SE ratio clears the overfitting floor and stays inside the sanity band | SE ratio 0.8909 to 1.0819 | pass |
 | `double_robustness` | `both_correct` | positive | both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000589 to 0.0011, margin 0.0029, SE ratio 0.9687 | pass |
 | `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias -0.0358 to -0.0335, margin 0.0040, SE ratio 1.0108 | pass |
 | `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000840 to 0.000725, margin 0.0026, SE ratio 1.0523 | pass |
@@ -194,11 +194,11 @@ the committed results and checked at the precision printed.
 | `properties[type_i_error/sharp_null]:rejection_rate` | 0.0400 | rejection under the confounded sharp null |
 | `properties[type_i_error/sharp_null]:rejection_ci_upper` | 0.0725 | its 99% upper endpoint, against 0.10 |
 | `properties[power/alternative]:rejection_rate` | 1 | rejection under the positive control |
-| `properties[crossfit_overfitting/stacked_cvtmle]:coverage` | 0.9325 | coverage with cross-fitted tree predictions |
-| `properties[crossfit_overfitting/stacked_cvtmle]:se_ratio` | 1.0165 | SE calibration with cross-fitting |
-| `properties[crossfit_overfitting/in_sample_control]:coverage` | 0.4875 | coverage with the deliberately in-sample tree |
-| `properties[crossfit_overfitting/in_sample_control]:se_ratio` | 0.4874 | SE calibration of that control |
-| `properties[crossfit_overfitting/stacked_cvtmle]:coverage_gain_ci_lower` | 0.3800 | paired 99% lower bound for coverage gained over the control |
+| `properties[crossfit_overfitting/stacked_cvtmle]:coverage` | 0.9450 | coverage with cross-fitted tree predictions |
+| `properties[crossfit_overfitting/stacked_cvtmle]:se_ratio` | 0.9770 | SE calibration with cross-fitting |
+| `properties[crossfit_overfitting/in_sample_control]:coverage` | 0.5225 | coverage with the deliberately in-sample tree |
+| `properties[crossfit_overfitting/in_sample_control]:se_ratio` | 0.4916 | SE calibration of that control |
+| `properties[crossfit_overfitting/stacked_cvtmle]:coverage_gain_ci_lower` | 0.3575 | paired 99% lower bound for coverage gained over the control |
 | `properties[fold_policy/unstratified]:coverage` | 0.9425 | reported coverage of the split the package generates |
 | `properties[fold_policy/treatment_stratified]:coverage` | 0.9425 | reported coverage of the treatment-stratified split |
 | `properties[fold_policy/treatment_stratified]:coverage_gain_ci_lower` | -0.0063 | its paired 99% lower bound against the unstratified arm |
@@ -240,7 +240,7 @@ the committed results and checked at the precision printed.
 | limitation | what it means for use |
 | --- | --- |
 | PAF is compared on different native scales | `cleverly` reports its fraction-scale influence curve and `tmle3` transforms a negative-log-complement interval. Point performance and coverage are compared. Raw standard errors and finite-sample endpoints on those scales are not declared equivalent |
-| The cross-fit overfitting cells are relative evidence | Held-out predictions must restore the SE ratio to its band, the in-sample control's upper bound must stay below 0.75, and the paired coverage gain must clear its floor. The measured cross-fitted coverage is evidence of relative recovery and calibrated influence-curve scale. It is not a separate absolute coverage claim; the primary GLM study carries that gate |
+| The cross-fit overfitting cells are relative evidence | A fully grown regression tree is fitted twice on the nonlinear bounded law, whose true propensity lies in 0.05 to 0.95. Held-out predictions must restore the SE ratio to its band, the in-sample control's upper bound must stay below 0.75, and the paired coverage gain must clear its floor. The measured cross-fitted coverage is evidence of relative recovery and calibrated influence-curve scale. It is not a separate absolute coverage claim; the primary GLM study carries that gate |
 | Continuous-law ATT and ATC use the most similarity margin | Both stay inside the predeclared bound, and the RMSE, coverage, and calibration bounds stay well inside their non-inferiority margins. These are the finite-sample cells that use the most evidence budget, not tuned exceptions |
 | The continuous evidence needs a known outcome support | Every continuous cell here draws a proportion and declares `q_bounds` of 0 to 1. The row says nothing about a continuous outcome whose support the analyst does not know, because the package refuses that composition under cross-fitting |
 | The fold-policy cells report and do not gate | They publish three coverage intervals and two paired differences on one binary law at n = 500. A difference inside its own interval separates no policy from another. The family establishes no policy as valid, and the package refuses two of the three |

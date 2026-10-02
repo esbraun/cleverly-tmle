@@ -1,0 +1,10 @@
+== n4000b: n 4000, draws 2000, seeds 2001-4000
+  lib_cv  cover 1901/2000 = 0.951 (0.941-0.960); bias -0.00010 (MC SE 0.00041); emp SD 0.01848; mean SE 0.01840; SE/SD 0.996; t-SD 1.004
+  lib_in  cover 1900/2000 = 0.950 (0.940-0.960); bias -0.00009 (MC SE 0.00041); emp SD 0.01844; mean SE 0.01829; SE/SD 0.992; t-SD 1.008
+  own_cv  cover 1902/2000 = 0.951 (0.942-0.960); bias -0.00007 (MC SE 0.00041); emp SD 0.01849; mean SE 0.01843; SE/SD 0.997; t-SD 1.003
+  own_in  cover 1900/2000 = 0.950 (0.940-0.960); bias -0.00009 (MC SE 0.00041); emp SD 0.01844; mean SE 0.01831; SE/SD 0.993; t-SD 1.007
+  oracle  cover 1901/2000 = 0.951 (0.941-0.960); bias -0.00007 (MC SE 0.00041); emp SD 0.01846; mean SE 0.01829; SE/SD 0.991; t-SD 1.011
+  oracle EIF at truth: mean SE 0.01832
+  lib_cv: max |IC - recomputed D| 1.42e-14; reported SE / recomputed SE mean 1.000125; min g*pi median 0.0102
+  lib_in: max |IC - recomputed D| 7.11e-15; reported SE / recomputed SE mean 1.000125; min g*pi median 0.0103
+  corr(lib_cv psi, own_cv psi) 0.998; corr(lib_cv, oracle) 0.997

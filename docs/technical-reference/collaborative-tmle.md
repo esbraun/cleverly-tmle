@@ -151,9 +151,10 @@ mean-squared-error-minimising choice, and the ordered selector makes it on all f
 not evidence that the search discriminates between covariates.
 
 The claim that it does discriminate is therefore tested where selecting nothing is *wrong*. With
-the outcome model reduced to a constant, the search includes the confounder in every seed and still
-leaves the instrument out. A do-nothing selector has mean absolute error 0.696 there, against
-0.017.
+the outcome model reduced to a constant, the e2e test fits three seeds at `n = 1,500`. The search
+includes the confounder on each seed, and the test allows the instrument on at most one. A
+do-nothing selector has mean absolute error 0.695 there, against 0.036
+(`tests/e2e/test_ctmle.py::TestSelectionIsForcedWhenTheOutcomeModelCannotHelp`).
 
 **No R package implements the same complete selector.** `tmle3` is a design reference for the
 shared out-of-fold-nuisance and pooled-fluctuation architecture, and it localises the convention

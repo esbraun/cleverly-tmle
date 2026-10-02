@@ -1,0 +1,14 @@
+seed 5 psi 0.05627832825304045
+       surface                check     status                                                                  detail next_steps
+6  sensitivity  omitted_confounding  completed  cf_y=0.05, cf_d=0.05, rho=1; bias-adjusted interval [0.04698, 0.06557]           
+report OK:
+ Omitted-variable sensitivity for 'ate'
+--------------------------------------------
+estimate 0.056278; maximal bias sqrt(sigma^2 nu^2) = 0.18121
+assumed confounding: cf_y = 0.05, cf_d = 0.05, rho = 1 -> bias <= 0.0092961
+bias-adjusted bounds:  [0.046982, 0.065574]
+with 95% one-sided CIs: [0.027585, 0.085013] (the sign of the effect survives)
+
+robustness value RV   = 0.2661: a confounder explaining 26.6% of the residual variation in BOTH the outcome and treatment would move the estimate to 0.
+robustness value RVa  = 0.0983: the same, for the 95% confidence bound.
+benchmark RAISED CapabilityError the 'doubly_robust' estimator of nu^2 returned -10.3091 for 'ate', and a second moment cannot be negative. E[2 m(alpha_hat) - alpha_hat^2] equals nu_0^2 minus the squared error of the fitted representer, so this value reports a treatment mechanism the bound's derivation does not cover. The plug-in E[alpha_hat^2] squares that same fitted representer, so it is not a substitute. (nu2_estimator='auto'

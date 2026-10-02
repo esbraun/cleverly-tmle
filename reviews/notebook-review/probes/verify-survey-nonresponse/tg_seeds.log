@@ -1,0 +1,2 @@
+n=4000 60 seeds tg mean 1.182 median 1.167 p5 0.975 p95 1.442 min 0.915 max 1.458 frac>=1.306 0.233
+range mean 22.65 min 18.68 max 30.37 corr(tg,range) -0.45

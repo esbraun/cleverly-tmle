@@ -1,0 +1,7 @@
+seed 2026: pkg 0.0570027886 two-cov hand 0.0570028752 gap -8.661e-08 shift 5.103e-04 se 0.0039
+seed 0: pkg 0.0515097662 two-cov hand 0.0515112308 gap -1.465e-06 shift 2.302e-05 se 0.0038
+seed 1: pkg 0.0572742685 two-cov hand 0.0572742576 gap 1.090e-08 shift -1.876e-03 se 0.0041
+seed 3: pkg 0.0639944708 two-cov hand 0.0639944724 gap -1.552e-09 shift -1.228e-05 se 0.0041
+seed 10: pkg 0.0551784036 two-cov hand 0.0551782455 gap 1.581e-07 shift 5.131e-06 se 0.0040
+seed 14: pkg 0.0586897856 two-cov hand 0.0588385482 gap -1.488e-04 shift -3.531e-04 se 0.0041
+seed 24: pkg 0.0572569728 two-cov hand 0.0572560409 gap 9.319e-07 shift -2.150e-05 se 0.0039

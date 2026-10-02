@@ -16,7 +16,6 @@ from cleverly.datasets import navigation_protocol
 from cleverly.datasets.synthetic import nonlinear_bounded_dgp
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
-    assert_plugin_limits_refuse,
     assert_protocol_recorded,
     covers,
     stored_output,
@@ -34,8 +33,34 @@ def _untreated_selection_bias(n: int = 400_000) -> float:
     return float(np.average(untreated, weights=g) - np.average(untreated, weights=1.0 - g))
 
 
+def _law_moments(n: int = 400_000) -> dict[str, float]:
+    """``nu^2 = E[1 / {g (1 - g)}]`` and the share of true ``g`` below 0.1, by Monte Carlo."""
+    law = nonlinear_bounded_dgp()
+    g = law.propensity(np.random.default_rng(1).standard_normal((n, law.n_latent)))
+    return {"nu2": float(np.mean(1.0 / (g * (1.0 - g)))), "below_0.1": float(np.mean(g < 0.1))}
+
+
+_PROBE = "reviews/notebook-review/probes/point-treatment-tmle-final"
+_STUDY = "tests/canonical/tmle3_cvtmle/properties.csv"
+
+#: Decimals the readings write that no stored output prints, each with its source.
+UNPRINTED_DECIMALS = {
+    "0.98": f"mean SE over empirical SD of the Step 6 fit, 200 draws: {_PROBE}/summary.log",
+    "1.9": f"share (0.0188) of the law's true propensity below 0.1: {_PROBE}/truth.log",
+    "4.83": f"the law's nu^2 = E[1/(g(1-g))], 4.8286 by Monte Carlo: {_PROBE}/truth.log",
+    "0.456": f"largest implied cf_d of medication_burden over 200 draws: {_PROBE}/summary.log",
+    "4.48": f"mean doubly robust nu^2 over 200 draws, 4.479: {_PROBE}/summary.log",
+    "0.431": f"RV of the shown draw at the law's nu^2, by summarize.py: {_PROBE}/summary.log",
+    "0.142": f"lower bound of the shown draw at the law's nu^2, 0.1422: {_PROBE}/summary.log",
+    "0.025": "the study's propensity bounds: tests/studies/canonical_cvtmle.py G_BOUNDS",
+    "0.975": "the study's propensity bounds: tests/studies/canonical_cvtmle.py G_BOUNDS",
+    "0.945": f"coverage of crossfit_overfitting/stacked_cvtmle: {_STUDY}",
+    "0.5225": f"coverage of crossfit_overfitting/in_sample_control: {_STUDY}",
+}
+
+
 def check(namespace: dict[str, Any]) -> None:
-    """The ATE tutorial's protocol, failure mode, warnings, and sensitivity claims hold."""
+    """The ATE tutorial's protocol, failure mode, diagnostics, and sensitivity claims hold."""
     summary = namespace["effect"].summary()
     assert "Discharge-home order" in summary
     assert "scores death before day 30 as the worst transition score" in summary
@@ -86,17 +111,19 @@ def check(namespace: dict[str, Any]) -> None:
     for key, point in points.items():
         assert covers(point, spread_truth[key]), key
 
-    # Step 8: "misses ... by about three times either fit with one flexible learner"; 2.6x here.
+    # Step 6: the headline interval covers the truth on this draw.  The repeated-draw numbers
+    # the reading quotes (189 of 200, SE/SD 0.98) come from the committed probe.
     ate = truth["ate"]
+    assert covers(namespace["estimate"], ate)
+
+    # Step 8: "The both-linear fit ... excludes that value", and each fit with one flexible
+    # learner contains it.  The probe gives the repeated-draw counts.
     errors = {label: abs(point.psi - ate) for label, point in namespace["dr_points"].items()}
     one_flexible = max(errors["flexible Q, linear g"], errors["linear Q, flexible g"])
-    assert errors["both linear"] > 2.0 * one_flexible
-    # "each interval contains the true value", and the both-linear interval excludes it.  The
-    # coverage claim is the sharper half of the reading and holds on this draw for all three.
+    assert errors["both linear"] > one_flexible
     for label in ("flexible Q, linear g", "linear Q, flexible g"):
         assert covers(namespace["dr_points"][label], ate), label
     assert not covers(namespace["dr_points"]["both linear"], ate)
-    assert covers(namespace["estimate"], ate)
     # "The summary prints no `outcome scaled` line": the declared q_bounds are the score's own
     # support, so the scaler is the identity.  The outcome range is the nonzero witness that the
     # declared support really holds the data rather than being padded around it.
@@ -107,74 +134,85 @@ def check(namespace: dict[str, Any]) -> None:
     outcome = np.asarray(namespace["frame"]["transition_score"], dtype=float)
     assert scaler.lower < outcome.min() < outcome.max() < scaler.upper
 
-    # Step 9: exactly one warning, and the score-equation check passed.
+    # Step 9: no row needs attention, the score-equation check passed, and the shallow booster's
+    # calibration slope is near 1.  The verdict the reading quotes is the report's own.
     assessment = namespace["assessment"]
-    assert tuple(item.name for item in assessment.attention) == ("nuisance_models",)
+    assert tuple(item.name for item in assessment.attention) == ()
     ledger = assessment.to_frame()
-    rows = ledger[ledger["check"] == "nuisance_models"]
-    assert (
-        rows["detail"]
-        .str.contains("propensity: the out-of-fold predictions are more extreme", regex=False)
-        .any()
-    )
     assert set(ledger.loc[ledger["check"] == "score_equations", "status"]) == {"passed"}
-    # "a calibration slope below 1": the fitted propensities are more extreme than the rates.
+    assert "nuisance fits look reasonable" in namespace["nuisance"].summary()
     (propensity,) = (m for m in namespace["nuisance"].models if m.name == "propensity")
-    assert propensity.metrics["calibration_slope"] < 1.0
-    assert 0.0 < namespace["support"].truncated["fraction"] < 0.05
+    assert abs(propensity.metrics["calibration_slope"] - 1.0) < 0.1
+    # "no unit sits at the truncation bound", and the smallest fitted propensity lies above
+    # every bound up to 0.05 in the curve.
+    support = namespace["support"]
+    assert support.truncated["fraction"] == 0.0
+    assert support.truncated["most_extreme"] > 0.05
+    # "The fitted model puts a share of 0.0027 of the rows below 0.1 ... In the law, about 1.9%":
+    # the fitted tail is nonzero and thinner than the law's.
+    fitted_below = support.tail_mass[0.1]["below"]
+    law = _law_moments()
+    assert 0.0 < fitted_below < 0.5 * law["below_0.1"]
+    assert 0.018 < law["below_0.1"] < 0.020
 
-    # Step 9b: "From the fitted bound onward it falls at every step", "more than a quarter
-    # of the patients" at the largest bound, and the fitted bound comes from 5 / (sqrt(n) log n).
-    # The two margins are the retired Gaussian law's, scaled by the ratio of the two ATEs.
+    # Step 9b: the default bound clips no row on this law, and the two tight bounds do.  The
+    # fitted bound comes from 5 / (sqrt(n) log n), and a retarget there reproduces Step 6.
     curve = namespace["curve"]
     n = len(namespace["frame"])
     fitted_bound = 5.0 / (np.sqrt(n) * np.log(n))
-    position = int(curve.index.get_loc((curve["bound"] - fitted_bound).abs().idxmin()))
-    assert curve["std_err"].iloc[position:].is_monotonic_decreasing
-    assert curve["std_err"].iloc[0] > curve["std_err"].iloc[-1] + 0.003
-    assert float(np.ptp(curve["psi"].to_numpy())) > 0.001
-    assert np.all(np.diff(curve["truncated_fraction"].to_numpy()) > 0.0)
-    assert curve["truncated_fraction"].iloc[-1] > 0.25
     nearest = curve.loc[(curve["bound"] - fitted_bound).abs().idxmin()]
     assert abs(nearest["bound"] - fitted_bound) < 1e-12
-    # Nonzero witness: a retarget at the fitted bound reproduces the Step 6 estimate.
     assert abs(nearest["psi"] - namespace["estimate"].psi) < 1e-10
+    loose = curve[curve["bound"] <= 0.05 + 1e-12]
+    assert len(loose) >= 5
+    assert (loose["truncated_fraction"] == 0.0).all()
+    assert (loose["psi"] == namespace["estimate"].psi).all()
+    tight = {
+        round(float(row["bound"]), 4): row for _, row in curve.iterrows() if row["bound"] > 0.05
+    }
+    assert set(tight) == {0.1, 0.2}
+    assert tight[0.1]["truncated_fraction"] > 0.0
+    assert tight[0.2]["truncated_fraction"] > tight[0.1]["truncated_fraction"]
+    # Nonzero witness: "the estimate moves to 0.1674" at the tightest bound.
+    assert tight[0.2]["psi"] - namespace["estimate"].psi > 5e-4
 
-    # Step 10: the default estimator of nu^2 refuses on this fit, and the page says so before
-    # it names the plug-in. "The doubly robust estimator returned -7.96655", which the refusal
-    # prints. A mutation that restores the silent fallback returns a number here instead.
+    # Step 10: the default nu^2 estimator runs, so the robustness value carries its limit.
     result = namespace["result"]
-    refusal = namespace["nu2_refusal"]
-    assert "'doubly_robust'" in refusal
-    assert "-7.96655" in refusal
-    assert "not a substitute" in refusal
-    assert result.sensitivity.elements(estimand="ate", nu2_estimator="plugin").nu2 > 0.0
-    # "equal strengths of 0.233 move the point estimate to zero" at rho = 1.
     robustness = namespace["robustness"]
-    assert 0.2 < robustness["rv"] < 0.33
-    at_rv = result.sensitivity.omitted_confounding(
-        cf_y=robustness["rv"], cf_d=robustness["rv"], nu2_estimator="plugin"
-    )
+    assert "nu2_estimator" not in robustness
+    assert 0.0 < robustness["rva"] < robustness["rv"] < 1.0
+    elements = result.sensitivity.elements(estimand="ate")
+    assert elements.nu2_estimator == "doubly_robust"
+    # "below the law's 4.83": a positive estimate under the finite population value. The
+    # shortfall is the representer's squared error; "slightly" fails loudly above 10%.
+    assert 0.0 < elements.nu2 < law["nu2"]
+    assert elements.nu2 > 0.9 * law["nu2"]
+    assert abs(law["nu2"] - 4.83) < 0.02
+    # "equal strengths ... would move the point estimate to zero", and the 95% limit at rva.
+    at_rv = result.sensitivity.omitted_confounding(cf_y=robustness["rv"], cf_d=robustness["rv"])
     assert abs(at_rv.lower) < 1e-3
-    # "The implied cf_y reaches 1.0000 ... so this covariate calibrates no bound here": the
-    # refusal is the bound formula's own, and it is what sends the step to a second covariate.
+    at_rva = result.sensitivity.omitted_confounding(cf_y=robustness["rva"], cf_d=robustness["rva"])
+    assert abs(at_rva.ci_lower) < 1e-3
+    # "The residual outcome variance ... more than doubles", so the implied cf_y is a clip.
+    # "A bound needs a cf_y below 1" is the bound formula's own requirement.
     strong = namespace["strong"]
     assert strong.covariates == ("discharge_risk",)
+    assert strong.sigma2_short > 2.0 * strong.sigma2_long
     assert strong.cf_y == 1.0
     with pytest.raises(ValueError, match=r"cf_y must lie in \[0, 1\)"):
-        result.sensitivity.omitted_confounding(
-            cf_y=strong.cf_y, cf_d=strong.cf_d, rho=1.0, nu2_estimator="plugin"
-        )
+        result.sensitivity.omitted_confounding(cf_y=strong.cf_y, cf_d=strong.cf_d, rho=1.0)
+    # "Both lie below the robustness value", and the bounds stay worst-case at rho = 1.
     benchmark = namespace["benchmark"]
     assert benchmark.covariates == ("medication_burden",)
+    assert 0.0 < benchmark.cf_d < benchmark.cf_y < robustness["rv"]
     bounds = namespace["bounds"]
     assert (bounds.cf_y, bounds.cf_d, bounds.rho) == (benchmark.cf_y, benchmark.cf_d, 1.0)
-    # "little of the remaining outcome variation and much of the remaining treatment variation".
-    assert benchmark.cf_y < 0.2 < 0.4 < benchmark.cf_d
-    # "The range contains zero."
-    assert bounds.confounding_strength > at_rv.confounding_strength
-    assert bounds.lower < 0.0 < bounds.psi < bounds.upper
-    # "The last call refuses": the plug-in bound reports no limit and no confidence-limit
-    # value, and the page prints the F26 reason. A mutation that restores the plug-in limits
-    # returns a number at the page's ``ci_lower`` instead, and the page raises.
-    assert_plugin_limits_refuse(result, bounds, namespace)
+    assert bounds.confounding_strength < at_rv.confounding_strength
+    # "the sign of the effect survives": both one-sided limits exclude zero on this draw.
+    assert 0.0 < bounds.ci_lower < bounds.lower < bounds.psi < bounds.upper < bounds.ci_upper
+    summary = bounds.summary()
+    assert "the sign of the effect survives" in summary
+    assert "bias scale" in summary
+    # "the bias scale is 0.27859, and the strengths limit the bias to 0.023307": the factor is
+    # below 1 here, and the module's own example shows it can exceed 1.
+    assert 0.0 < bounds.bias < bounds.max_bias

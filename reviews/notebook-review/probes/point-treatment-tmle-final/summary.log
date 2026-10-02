@@ -1,0 +1,41 @@
+seeds 6000 to 6199, 200 draws
+
+Step 6, the headline fit
+  bias +0.0003 (MC SE 0.0004)
+  empirical SD 0.0057; mean SE 0.0056; SE/SD 0.98
+  coverage 0.945 (MC SE 0.016; 189 of 200)
+
+Step 8, the learner combinations
+  flex_q_lin_g  coverage 0.950 (MC SE 0.015; 190 of 200); mean |miss| 0.0044; bias -0.0006
+  lin_q_flex_g  coverage 0.975 (MC SE 0.011; 195 of 200); mean |miss| 0.0053; bias -0.0022
+  both_linear   coverage 0.150 (MC SE 0.025; 30 of 200); mean |miss| 0.0218; bias -0.0218
+  both-linear miss larger than either one-flexible miss: 0.960 (MC SE 0.014; 192 of 200)
+
+Step 9, the assessment and the truncation curve
+  no attention row: 1.000 (MC SE 0.000; 200 of 200)
+  propensity calibration slope, 5% / 50% / 95%: [0.91, 0.96, 1.02]
+  truncation at the default bound is zero: 1.000 (MC SE 0.000; 200 of 200)
+  bound 0.05: truncation positive 0.805 (MC SE 0.028; 161 of 200); median truncated share 0.0007; median |psi move| 0.00001, max 0.00146
+  bound 0.1: truncation positive 1.000 (MC SE 0.000; 200 of 200); median truncated share 0.0083; median |psi move| 0.00017, max 0.00214
+  bound 0.2: truncation positive 1.000 (MC SE 0.000; 200 of 200); median truncated share 0.0612; median |psi move| 0.00063, max 0.00298
+
+Step 10, the sensitivity analysis
+  rv 5% / 50% / 95%: [0.403, 0.427, 0.448]
+  nu^2 (doubly robust) mean 4.479, 5% / 95%: [4.17, 4.75]
+  nu^2 below the law's 4.83 (truth.py): 0.985 (MC SE 0.009; 197 of 200)
+  discharge_risk cf_y clipped at 1: 1.000 (MC SE 0.000; 200 of 200)
+  discharge_risk raw outcome gain, min / max: 1.138 / 1.500
+  medication_burden cf_y 5% / 50% / 95%: [0.081, 0.109, 0.143]
+  medication_burden cf_d 5% / 50% / 95%: [0.0, 0.043, 0.103], max 0.456
+  medication_burden cf_y > cf_d: 0.955 (MC SE 0.015; 191 of 200)
+  bias-adjusted bounds exclude zero: 1.000 (MC SE 0.000; 200 of 200)
+  95% limits of the bounds exclude zero: 1.000 (MC SE 0.000; 200 of 200)
+  bounds contain the truth: 0.930 (MC SE 0.018; 186 of 200)
+
+Step 3
+  unadjusted difference closer to the ATT: 1.000 (MC SE 0.000; 200 of 200)
+
+Step 10, the shown draw at the law's nu^2 (truth.py)
+  fitted nu^2 4.4183: bias scale 0.27859; bias <= 0.0233; lower bound 0.1433; rv 0.445
+  law    nu^2 4.8286: bias scale 0.29124; bias <= 0.0244; lower bound 0.1422; rv 0.431
+  mean doubly robust nu^2 over the draws 4.479: shortfall 0.072 in nu^2, 0.037 in the bias scale

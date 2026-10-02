@@ -89,6 +89,7 @@ from .._typing import BoolArray, FloatArray
 from ..data.causal_data import CausalData
 from ..data.weighting import effective_sample_size, format_score_load
 from ..exceptions import DataError, PositivityWarning
+from ..learners.crossfit import Folds
 from ..learners.density import ConditionalDensity, warn_if_unresolved
 from .support import _intervention_loads, _InterventionLoadRow
 
@@ -187,9 +188,11 @@ class ShiftSet:
         ``(n, S)``, :math:`d_r(A_i, W_i)`.
     ratio : ndarray
         ``(n, S)``, :math:`h_r(A_i, W_i)` -- the clever covariate at the *observed*
-        treatment.  **Untruncated**, exactly as :attr:`Propensity.values
-        <cleverly.estimators._nuisance.Propensity.values>` is: the bound belongs to
-        targeting time so a truncation curve can sweep it without refitting.
+        treatment.  **Untruncated**, and targeting applies no bound to it: the ``mtp``
+        covariate is this ratio divided only by the missingness and intermediate
+        mechanisms a fit declares.  Those mechanisms are bounded at targeting time, and
+        ``truncation_curve(mechanism=True)`` sweeps that bound.  No option bounds or
+        sweeps the ratio itself.
     ratio_at : ndarray
         ``(n, S, S)``, :math:`h_r(d_s(A_i, W_i), W_i)` at ``[i, s, r]``.  The fluctuation
         updates :math:`\\bar Q` as a function of :math:`(a, W)`, so obtaining
@@ -401,20 +404,36 @@ def _ratio(density: ConditionalDensity, values: FloatArray, shift: Shift) -> Flo
 
 
 def _warn_outside_support(shift: Shift, shifted: FloatArray, observed: FloatArray) -> None:
-    """An uncapped shift extrapolates; say how much of the sample it does that for."""
-    if shift.cap is not None:
+    """A shift that assigns doses above the observed range extrapolates; say for how many.
+
+    An uncapped shift does this whenever ``delta > 0``.  A cap prevents it only when the
+    cap lies inside the observed doses: a cap above the largest one lets the rows near the
+    top move past it.  A cap inside the range still does not check the *conditional*
+    support of the dose, which :func:`check_shift_support` reports.
+    """
+    largest = float(np.max(observed))
+    beyond = float(np.mean(shifted > largest))
+    if beyond == 0.0:
         return
-    beyond = float(np.mean(shifted > float(np.max(observed))))
-    if beyond > 0.0:
+    if shift.cap is not None:
         warnings.warn(
-            f"shift {shift.name!r} has cap=None, and {beyond:.1%} of rows are assigned a "
-            f"dose above the largest one observed ({float(np.max(observed)):.3g}). The "
-            "outcome regression is extrapolating there, and identification needs the "
-            "shifted dose to be supported. Declare a cap= if you know what dose is "
-            "achievable.",
+            f"shift {shift.name!r} has cap={float(shift.cap):g}, which lies above the largest "
+            f"dose observed ({largest:.3g}), and {beyond:.1%} of rows are assigned a dose "
+            "above it. The outcome regression is extrapolating there. A cap secures support "
+            "only when it lies inside the conditional support of the dose.",
             PositivityWarning,
             stacklevel=4,
         )
+        return
+    warnings.warn(
+        f"shift {shift.name!r} has cap=None, and {beyond:.1%} of rows are assigned a "
+        f"dose above the largest one observed ({largest:.3g}). The "
+        "outcome regression is extrapolating there, and identification needs the "
+        "shifted dose to be supported. Declare a cap= if you know what dose is "
+        "achievable.",
+        PositivityWarning,
+        stacklevel=4,
+    )
 
 
 # ------------------------------------------------------------------ diagnostics
@@ -449,6 +468,19 @@ class ShiftSupport:
     unsupported : int
         Rows whose shifted dose falls where the estimated density is exactly zero.
         The parameter is not identified for those rows at all.
+    mean_ratio : float
+        Mean density ratio at the observed dose over every row.  The ratio is the
+        density of the shifted dose law with respect to the observed one.  Under the
+        true density its mean is 1 for a shift capped inside the dose support: the
+        indicator term restores the mass of the rows the cap holds at their own dose.
+        For an uncapped shift it is ``P(A + delta in the support of g(. | W))``, which
+        is 1 while the shifted dose stays inside the support and below 1 otherwise.
+    fold_mean_ratio : tuple of float
+        The same mean over the rows each cross-fitting fold holds out, in fold order.
+        An in-sample fit has one fold, so the tuple holds :attr:`mean_ratio` alone.  A
+        fold mean far from that reference value shows a mis-normalized held-out ratio,
+        and the standard error reads that ratio.  The mean is of the ratio alone,
+        before any mechanism divides it.
     min_mechanism : float or None
         Smallest product of the further mechanisms that divide the covariate beside
         the ratio, or ``None`` when the fit declared neither. When it is not ``None``
@@ -473,6 +505,8 @@ class ShiftSupport:
     ess_ratio: float
     capped_fraction: float
     unsupported: int
+    mean_ratio: float
+    fold_mean_ratio: tuple[float, ...]
     #: Smallest :math:`\pi(A, W)\,q_z(A, W)` among the mechanisms that divide the
     #: covariate alongside the ratio, or ``None`` when the fit declared neither.  The
     #: quantiles and ESS above are of the *whole* weight when this is not ``None``.
@@ -494,12 +528,18 @@ class ShiftSupport:
         )
         label = "ratio" if self.min_mechanism is None else "weight"
         score = format_score_load(self.score_load, style="inline")
+        folds = ", ".join(f"{value:.3g}" for value in self.fold_mean_ratio)
         return (
             f"{self.name}: min g(A|W)={self.min_density:.3g}, max {label}={self.max_ratio:.3g}"
             f"{mechanism}, "
             f"ESS={self.effective_sample_size:.0f} ({self.ess_ratio:.1%} of n), "
             f"capped={self.capped_fraction:.1%}, unsupported={self.unsupported}, {score}\n"
-            f"    {label} quantiles -- {quantiles}"
+            f"    {label} quantiles -- {quantiles}\n"
+            f"    mean ratio -- {self.mean_ratio:.3g} overall, per fold {folds} "
+            "(under the true density: 1 for a shift capped inside the support, "
+            "P(A + delta in the support) for an uncapped shift, below 1 when shifted doses "
+            "leave the support; a mean far from that marks a mis-estimated ratio, "
+            "which the standard error reads)"
         )
 
 
@@ -512,6 +552,7 @@ def check_shift_support(
     absolute_score_weights: FloatArray | None = None,
     equations: tuple[str, ...] = (),
     n_repeats: int = 1,
+    folds: Folds | None = None,
 ) -> dict[str, ShiftSupport]:
     """Per-shift overlap, in the vocabulary :mod:`cleverly.interventions.support` uses.
 
@@ -545,7 +586,11 @@ def check_shift_support(
     equations : tuple of str
         Fitted score-equation names, in shift order.
     n_repeats : int
-        Number of stored cross-fitting draws. The retained weights describe draw 1.
+        Number of stored cross-fitting draws. The retained weights and the fold means
+        describe draw 1.
+    folds : Folds or None
+        The partition the density was cross-fitted over, which sets the rows of each
+        :attr:`ShiftSupport.fold_mean_ratio` entry. ``None`` reads every row as one fold.
 
     Returns
     -------
@@ -562,9 +607,11 @@ def check_shift_support(
     score_loads, load_omission = _intervention_loads(
         labels, absolute_score_weights, equations, a.size, n_repeats
     )
+    held_out = [np.arange(a.size)] if folds is None else [test for _, test in folds]
     out: dict[str, ShiftSupport] = {}
     for index, name in enumerate(shifts.names):
-        weight = shifts.ratio[:, index] / denominator
+        ratio = np.asarray(shifts.ratio[:, index], dtype=float)
+        weight = ratio / denominator
         finite = weight[np.isfinite(weight)]
         ess = effective_sample_size(finite, on_degenerate=0.0)
         out[name] = ShiftSupport(
@@ -578,6 +625,8 @@ def check_shift_support(
             ess_ratio=ess / a.size if a.size else 0.0,
             capped_fraction=float(np.mean(shifts.capped[:, index])),
             unsupported=int(np.sum(observed_density <= 0.0)),
+            mean_ratio=float(np.mean(ratio)),
+            fold_mean_ratio=tuple(float(np.mean(ratio[rows])) for rows in held_out),
             min_mechanism=float(denominator.min()) if at_observed else None,
             score_load=score_loads.get(name),
             score_load_omission=load_omission,

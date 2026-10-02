@@ -118,6 +118,9 @@ target-version = "py311"
 # it, `scripts/execute_notebook.py` has no `__init__.py` above it, so isort resolves its own
 # repository root and sorts `from tests.notebooks import ...` into the third-party block.
 src = [".", "src", "scripts", "tests"]
+# `reviews/` holds the frozen probe scripts that a review cites as its evidence record. They are
+# kept byte-for-byte as they ran, so lint and format do not rewrite them.
+extend-exclude = ["reviews"]
 
 [tool.ruff.lint]
 select = [

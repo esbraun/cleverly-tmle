@@ -1,0 +1,11 @@
+seeds 1000-1499 lib: covers 460 of 500 (0.920; Wald 95% 0.896 to 0.944); bias -0.0045 (MC SE 0.0035); emp SD 0.0793; mean SE 0.0741; SE/SD 0.935
+seeds 1000-1499 oracle: covers 469 of 500 (0.938; Wald 95% 0.917 to 0.959); bias +0.0026 (MC SE 0.0021); emp SD 0.0465; mean SE 0.0451; SE/SD 0.971
+seeds 1000-1499 corr(lib_psi, oracle_psi) 0.581
+seeds 2000-4999 lib: covers 2854 of 3000 (0.951; Wald 95% 0.944 to 0.959); bias -0.0056 (MC SE 0.0014); emp SD 0.0747; mean SE 0.0739; SE/SD 0.989
+seeds 2000-4999 oracle: covers 2859 of 3000 (0.953; Wald 95% 0.945 to 0.961); bias +0.0019 (MC SE 0.0008); emp SD 0.0449; mean SE 0.0452; SE/SD 1.007
+seeds 2000-4999 corr(lib_psi, oracle_psi) 0.583
+seeds 2000-4999 lib covers per 500-seed block: [474, 475, 484, 482, 468, 471]
+pooled 3500 lib: covers 3314 of 3500 (0.947; Wald 95% 0.939 to 0.954); bias -0.0055 (MC SE 0.0013); emp SD 0.0754; mean SE 0.0739; SE/SD 0.981
+pooled 3500 oracle: covers 3328 of 3500 (0.951; Wald 95% 0.944 to 0.958); bias +0.0020 (MC SE 0.0008); emp SD 0.0451; mean SE 0.0452; SE/SD 1.002
+pooled 3500 corr(lib_psi, oracle_psi) 0.582
+pooled 3500 lib covers per 500-seed block: [460, 474, 475, 484, 482, 468, 471]

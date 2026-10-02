@@ -1303,6 +1303,15 @@ def test_the_target_context_refusal_is_a_cleverly_error_and_still_a_value_error(
     assert "par and paf do not yet support delta=" in str(error)
 
 
+def test_the_target_context_refusal_names_an_evidence_gap_not_an_identification_one() -> None:
+    """F20 waits for a derivation and its validation; it is not a proof of non-identification."""
+    message = str(
+        population_intervention_refusal(POPULATION_INTERVENTION_TARGETS, declaration="delta=")
+    )
+    assert "docs/roadmap.md F20 tracks this unvalidated composition." in message
+    assert "identification boundary" not in message
+
+
 # ------------------------------------------------------------------ no silent fall-through
 
 

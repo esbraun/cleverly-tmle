@@ -1,0 +1,8 @@
+ey_regimen[always] 0.780426
+ey_regimen[never] 0.418856
+ey_regimen[early] 0.644081
+ey_regimen[late] 0.581144
+ate_regimen[always vs never] 0.361570
+ey_regimen[rule] 0.740038
+ate_regimen[rule vs never] 0.321181
+rule vs always -0.040389

@@ -22,6 +22,27 @@ from tests.unit.tutorial_semantics import (
 
 NOTEBOOK = EXAMPLES / "longitudinal-tmle.ipynb"
 
+_PROBE = "reviews/notebook-review/probes/longitudinal-tmle-final"
+_LTMLE = "tests/canonical/ltmle"
+
+#: Decimals the readings write that no stored output prints, each with its source.
+UNPRINTED_DECIMALS = {
+    "0.935": f"Step 6 clustered coverage (374 of 400), seeds 1000-1399: {_PROBE}/summary.log",
+    "0.97": f"mean clustered SE over empirical SD (0.969), 400 draws: {_PROBE}/summary.log",
+    "0.65": f"bound that both censoring auc values stayed below on 400 of 400 draws "
+    f"(maximum 0.6193): {_PROBE}/summary.log",
+    "0.9413": f"coverage of ate_regimen[always vs never], cleverly: {_LTMLE}/summary.csv",
+    "0.9890": f"se_ratio of ate_regimen[always vs never], cleverly: {_LTMLE}/summary.csv",
+    "-0.0036": f"bias_ci_lower of double_robustness/static__mechanism_correct (-0.003633): "
+    f"{_LTMLE}/properties.csv",
+    "0.0053": f"bias_ci_upper of double_robustness/static__mechanism_correct (0.005264): "
+    f"{_LTMLE}/properties.csv",
+    "0.0149": f"bias_margin of double_robustness/static__mechanism_correct (0.014934): "
+    f"{_LTMLE}/properties.csv",
+    "1.0132": f"se_ratio of double_robustness/static__mechanism_correct (1.013217): "
+    f"{_LTMLE}/properties.csv",
+}
+
 
 def check(namespace: dict[str, Any]) -> None:
     """The two-decision tutorial keeps its named roles and its seeded narrative."""
@@ -40,9 +61,16 @@ def check(namespace: dict[str, Any]) -> None:
             group.loc[high, "transition_top_box"].mean()
             > group.loc[~high, "transition_top_box"].mean()
         )
-    # "Among engaged patients, a share of ... received day-seven navigation" exceeds the others.
-    shares = tracked.groupby(tracked["engagement_day7"] > 0)["navigation_day7"].mean()
-    assert shares[True] > shares[False]
+    # "Each gap holds discharge navigation fixed, so engagement drives the second decision":
+    # within each discharge stratum, engaged patients receive day-seven navigation more often.
+    # The review probe found both gaps positive on 400 of 400 draws.
+    shares, gap = namespace["day7_shares"], namespace["engagement_gap"]
+    assert list(shares.index) == [0.0, 1.0] and list(gap.index) == [0.0, 1.0]
+    assert (gap > 0.1).all()
+    assert gap.round(3).tolist() == [0.212, 0.213]
+    # A nonzero witness that the strata differ: discharge navigation raises the day-seven share
+    # at both engagement levels, so a pooled comparison would mix the two decisions.
+    assert (shares.loc[1.0] - shares.loc[0.0] > 0.1).all()
     # "The 923 patients lost before day seven" and "In total, 1476 patients were lost before
     # day 30 and have no outcome": the subset's tracking loss is exactly the missing outcomes.
     lost = len(frame) - len(namespace["observed"])
@@ -140,25 +168,21 @@ def check(namespace: dict[str, Any]) -> None:
     support = namespace["support"]
     assert result.diagnostics.support().to_frame().equals(support)
 
-    assessment = namespace["assessment"]
-    sensitivity = assessment.sensitivity.items
-    assert sensitivity and all(item.status.value == "unavailable" for item in sensitivity)
-    # "Six report that no longitudinal derivation is registered. `simulated_confounding` has no
-    # time-indexed latent law. `missingness` and `tipping_gamma` have no longitudinal adapter."
-    details = {item.name: item.detail for item in sensitivity}
-    registered = {name for name, detail in details.items() if "derivation is registered" in detail}
-    assert len(registered) == 6
-    assert "time-indexed latent law" in details["simulated_confounding"]
-    for name in ("missingness", "tipping_gamma"):
-        assert "adapter is implemented" in details[name]
-    assert set(details) == registered | {"simulated_confounding", "missingness", "tipping_gamma"}
-    assert assessment.diagnostics["refute"].status.value == "unavailable"
-    assert assessment.diagnostics["corrections"].status.value == "not_applicable"
-    # "The `Returned results` section lists the support report."
-    assert "Returned results" in stored_output(NOTEBOOK, "assessment")
-    refused = {item.name for item in effect.available_methods() if not item.available}
-    assert {"collaborative_tmle", "drtmle"} <= refused
-    # "the bound replaces no row": the largest weight (measured 33.3) is well under the cap of 100.
+    # "The first table lists the four operations that ran on this fit. The score-equation check
+    # `passed`. The support report, the nuisance report, and the truncation curve are
+    # `completed`."
+    ran = namespace["ran"].set_index("check")["status"]
+    assert ran.to_dict() == {
+        "score_equations": "passed",
+        "support": "completed",
+        "nuisance_models": "completed",
+        "truncation_curve": "completed",
+    }
+    # "at least 79.5% of the followers, the minimum ratio printed under the table".
+    assert namespace["kish_ratio"] == pytest.approx(
+        (support["effective_n"] / support["n_followed"]).min()
+    )
+    # "the bound replaces no row": the largest weight (measured 35.2) is under the cap of 100.
     assert (support["share_truncated"] == 0.0).all()
     assert (support["max_weight"] < 60.0).all()
     assert (support["effective_n"] / support["n_followed"]).min() > 0.75
@@ -195,18 +219,37 @@ def check(namespace: dict[str, Any]) -> None:
     assert "kinds of score row: ['solver']" in stored_output(NOTEBOOK, "retained-reports")
     # "Every calibration slope here sits between 0.999 and 1.004, and each regression slope
     # sits between 1.007 and 1.023": each model is measured on the rows it was fitted on. A
-    # binary row carries the logistic slope and a pseudo-outcome row the linear one. The auc
-    # column still separates the models, and the lowest value is the censoring model at node
-    # 2, which "barely separates the patients who stay tracked".
+    # binary row carries the logistic slope and a pseudo-outcome row the linear one. "The two
+    # censoring models have the lowest values: 0.599 at node 1 and 0.557 at node 2." Which of
+    # the two is lower varies by draw (node 1 on 77 of 400 in the review probe), so the callback
+    # pins both below 0.65 and below every other auc, as on all 400 probe draws.
     nuisance = namespace["nuisance"]
     binary = nuisance["calibration_slope"].notna()
     assert (binary == nuisance["regression_slope"].isna()).all()
     assert nuisance.loc[binary, "calibration_slope"].round(3).between(0.999, 1.004).all()
     assert nuisance.loc[~binary, "regression_slope"].round(3).between(1.007, 1.023).all()
-    lowest = nuisance.loc[nuisance["auc"].idxmin()]
-    assert (lowest["role"], lowest["time"]) == ("censoring", 2)
-    assert lowest["auc"] < 0.6
+    censoring = nuisance[nuisance["role"] == "censoring"].set_index("time")["auc"]
+    assert censoring.round(3).to_dict() == {1: 0.599, 2: 0.557}
+    assert (censoring < 0.65).all()
+    others = nuisance.loc[nuisance["role"] != "censoring", "auc"].dropna()
+    assert censoring.max() < others.min()
     # "The pseudo-outcome rows have continuous targets, so they have no `auc`."
     assert nuisance.loc[nuisance["role"] == "pseudo_outcome", "auc"].isna().all()
     mechanisms = nuisance[nuisance["role"].isin(["treatment", "censoring"])]
     assert mechanisms["regimen"].isna().all()
+
+    # Step 10: "Each row drops one recorded covariate, refits, and divides the move by that
+    # standard error." The moves are 2.30, 0.68, and 2.76 standard errors on this draw, all
+    # positive, and dropping engagement moves the estimate most.
+    benchmark = namespace["benchmark"].set_index("dropped")
+    assert list(benchmark.index) == ["age", "baseline_readiness", "engagement_day7"]
+    assert benchmark["move_in_se"].tolist() == [2.30, 0.68, 2.76]
+    assert (benchmark["move"] > 0.0).all()
+    assert benchmark["move_in_se"].idxmax() == "engagement_day7"
+    assert ((benchmark["psi"] - benchmark["move"]) - sequential.psi).abs().max() < 2e-4
+    # Nonzero witness that each refit drops its covariate: the last refit has no time-varying
+    # history, and its estimate moves by more than two standard errors.
+    reduced = namespace["reduced"]
+    assert reduced.time_varying == ((), ())
+    assert reduced.baseline == ("age", "baseline_readiness")
+    assert namespace["full_design"].time_varying == ((), ("engagement_day7",))

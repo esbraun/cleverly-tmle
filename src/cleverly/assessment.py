@@ -2411,6 +2411,7 @@ class DiagnosticsFacade(_CapabilityFacade):
                     nuisance.density,
                     self._result.data.treatment,
                     mechanisms=mechanisms,
+                    folds=nuisance.folds,
                     **score_arguments("mtp"),
                 )
             if nuisance.incremental is not None:

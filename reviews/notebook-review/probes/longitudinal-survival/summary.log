@@ -1,0 +1,60 @@
+seeds: 200
+
+== retention fit (clustered) ==
+param                              truth    mean     bias  emp_sd mean_se  se/sd bias/sd  mean_z  cover
+exit_always_t1                    0.1496  0.1491  -0.0005  0.0085  0.0084   0.99   -0.06   -0.08  0.945
+exit_always_t2                    0.3170  0.3165  -0.0005  0.0132  0.0131   0.99   -0.04   -0.06  0.960
+exit_never_t1                     0.2577  0.2579   0.0002  0.0109  0.0108   0.99    0.02    0.00  0.950
+exit_never_t2                     0.4552  0.4549  -0.0003  0.0159  0.0172   1.08   -0.02   -0.03  0.955
+exit_diff_t1                     -0.1082 -0.1088  -0.0007  0.0134  0.0136   1.01   -0.05   -0.05  0.970
+exit_diff_t2                     -0.1382 -0.1384  -0.0002  0.0201  0.0215   1.07   -0.01   -0.01  0.965
+band all-cover fraction: 0.96
+
+== competing fit ==
+param                              truth    mean     bias  emp_sd mean_se  se/sd bias/sd  mean_z  cover
+cif_always_readmission_t1         0.1187  0.1190   0.0004  0.0075  0.0071   0.94    0.05    0.02  0.935
+cif_always_readmission_t2         0.2466  0.2471   0.0004  0.0102  0.0103   1.01    0.04    0.02  0.960
+cif_always_death_t1               0.0309  0.0308  -0.0001  0.0038  0.0039   1.03   -0.03   -0.09  0.975
+cif_always_death_t2               0.0704  0.0701  -0.0003  0.0055  0.0061   1.12   -0.05   -0.08  0.975
+cif_never_readmission_t1          0.1452  0.1449  -0.0003  0.0095  0.0084   0.89   -0.03   -0.06  0.935
+cif_never_readmission_t2          0.2444  0.2441  -0.0003  0.0143  0.0132   0.92   -0.02   -0.05  0.920
+cif_never_death_t1                0.1126  0.1129   0.0003  0.0072  0.0074   1.03    0.05    0.02  0.945
+cif_never_death_t2                0.2107  0.2114   0.0007  0.0138  0.0129   0.93    0.05    0.03  0.930
+cifd_readmission_t1              -0.0265 -0.0258   0.0007  0.0122  0.0109   0.89    0.05    0.06  0.930
+cifd_readmission_t2               0.0022  0.0030   0.0008  0.0171  0.0166   0.97    0.05    0.05  0.925
+cifd_death_t1                    -0.0817 -0.0821  -0.0004  0.0079  0.0084   1.06   -0.06   -0.04  0.975
+cifd_death_t2                    -0.1404 -0.1414  -0.0010  0.0147  0.0142   0.97   -0.07   -0.05  0.950
+
+== death-as-censoring fit vs CDE functional (death precedes readmission) ==
+param                              truth    mean     bias  emp_sd mean_se  se/sd bias/sd  mean_z  cover
+el_always_t1                      0.1227  0.1230   0.0003  0.0077  0.0073   0.94    0.04    0.01  0.930
+el_always_t2                      0.2646  0.2650   0.0004  0.0109  0.0110   1.01    0.03    0.02  0.955
+el_never_t1                       0.1648  0.1643  -0.0004  0.0106  0.0094   0.89   -0.04   -0.07  0.940
+el_never_t2                       0.3049  0.3050   0.0001  0.0182  0.0171   0.94    0.00   -0.01  0.915
+el_diff_t2                       -0.0403 -0.0400   0.0003  0.0203  0.0201   0.99    0.01    0.02  0.940
+== same fit vs total-effect CIF ==
+param                              truth    mean     bias  emp_sd mean_se  se/sd bias/sd  mean_z  cover
+el_always_t1                      0.1187  0.1230   0.0043  0.0077  0.0073   0.94    0.56    0.56  0.910
+el_always_t2                      0.2466  0.2650   0.0183  0.0109  0.0110   1.01    1.68    1.66  0.620
+el_never_t1                       0.1452  0.1643   0.0192  0.0106  0.0094   0.89    1.81    2.01  0.460
+el_never_t2                       0.2444  0.3050   0.0605  0.0182  0.0171   0.94    3.32    3.55  0.075
+el_diff_t2                        0.0022 -0.0400  -0.0422  0.0203  0.0201   0.99   -2.08   -2.10  0.405
+
+== claim fractions ==
+naive t1 understates benefit (pop < naive < 0)                                   0.990  (198/200)
+naive t2 understates benefit (pop < naive < 0)                                   0.815  (163/200)
+exit diffs both negative and t2 reduction larger                                 0.955  (191/200)
+both exit diff intervals cover                                                   0.940  (188/200)
+readmission diff negative at t1 and shrinks toward zero at t2                    0.840  (168/200)
+death diff negative both, larger at t2                                           1.000  (200/200)
+excess 0 every row                                                               1.000  (200/200)
+largest |epsilon| on never/death/t2/node2                                        0.410  (82/200)
+competing: mean misses of 12 intervals per draw: 0.645  P(>=2 misses): 0.185
+censored diff < total readmission diff - 0.01 (notebook claim 'larger reduction') 1.000  (200/200)
+raised never > raised always + 0.01 and raised always > 0                        1.000  (200/200)
+censored diff CI covers CDE functional                                           0.940  (188/200)
+censored diff CI covers total-effect truth                                       0.405  (81/200)
+censored diff CI covers BOTH                                                     0.365  (73/200)
+censored diff CI excludes zero                                                   0.565  (113/200)
+total readmission t2 CI includes zero                                            0.915  (183/200)
+min ESS ratio retention range: 0.6341181483731493 0.8699802053198344 max trunc 0.0

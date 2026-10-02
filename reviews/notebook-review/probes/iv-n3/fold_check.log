@@ -1,0 +1,16 @@
+seed 9000: bins 40, folds [1000, 1000, 1000]
+  test fold 0 vs model 0 (own fold): max|dP| 1.94e-16, corr log P 1.0000
+  test fold 0 vs model 1 (other fold): max|dP| 2.55e-01, corr log P 0.8655
+  test fold 0 vs model 2 (other fold): max|dP| 1.78e-01, corr log P 0.8521
+  test fold 1 vs model 0 (other fold): max|dP| 2.48e-01, corr log P 0.8635
+  test fold 1 vs model 1 (own fold): max|dP| 2.22e-16, corr log P 1.0000
+  test fold 1 vs model 2 (other fold): max|dP| 2.62e-01, corr log P 0.8537
+  test fold 2 vs model 0 (other fold): max|dP| 2.20e-01, corr log P 0.8406
+  test fold 2 vs model 1 (other fold): max|dP| 3.14e-01, corr log P 0.8199
+  test fold 2 vs model 2 (own fold): max|dP| 1.67e-16, corr log P 1.0000
+  current practice: max|ratio - lookup| 0.00e+00; max|ratio_at[:, r, r] - lookup at a+delta| 0.00e+00
+  +0.5 uncapped: max|ratio - lookup| 0.00e+00; max|ratio_at[:, r, r] - lookup at a+delta| 0.00e+00
+  +1.0 uncapped: max|ratio - lookup| 0.00e+00; max|ratio_at[:, r, r] - lookup at a+delta| 0.00e+00
+  score with trimmed h: [1.25825276e-18 2.41919838e-18 2.21565749e-18 2.19441616e-18]
+  score with raw h    : [ 1.25825276e-18 -1.33223176e-05 -1.33223176e-05  2.07840251e-04]
+  ceiling (1.0, 30.94589657110278, 29.94589657110278, 63.980297168201254) trimmed rows (0, 3, 3, 3)

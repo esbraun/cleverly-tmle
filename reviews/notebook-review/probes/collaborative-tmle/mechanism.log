@@ -1,0 +1,4 @@
+plain     bias -0.0048 sd 0.0728 rmse 0.0727
+g_W1W2W3  bias -0.0048 sd 0.0728 rmse 0.0727 mean plug-in se 0.0628
+g_W1W3    bias -0.0048 sd 0.0580 rmse 0.0580 mean plug-in se 0.0465
+g_W1      bias -0.0049 sd 0.0579 rmse 0.0579 mean plug-in se 0.0465

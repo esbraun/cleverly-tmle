@@ -713,6 +713,19 @@ class TestTheContractSeesTheObservationTruncations:
         assert check.observation_clip_share == 0.0
         assert check.observation_margin > MARGIN_ACTIVE
 
+    def test_an_in_sample_theorem_fit_is_called_the_theorems_estimator(
+        self, randomized_fit
+    ) -> None:
+        """The witness for the cross-fitted sentence in ``test_drtmle_fit.py``.
+
+        This fit has one fold, so Theorem 1's construction is the theorem's estimator.
+        """
+        assert randomized_fit.nuisance.folds.n_folds == 1
+        summary = randomized_fit.diagnostics.corrections().summary()
+
+        assert "this fit is Theorem 1's estimator" in summary
+        assert "does not cover cross-fitting" not in summary
+
     def test_a_pinched_observation_mechanism_is_bound_active(self, pinched_observation_fit) -> None:
         """The nonzero witness. Both observation truncations bite, and the label says so."""
         check = pinched_observation_fit.diagnostics.corrections()

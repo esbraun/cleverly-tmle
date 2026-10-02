@@ -1,0 +1,4 @@
+boxcal seeds 5000 5599 600 cv5 covers 557
+oracle on the boxcal draws: covers 557/600 = 0.928; emp SD 0.01918
+eif on the boxcal draws: covers 555/600 = 0.925; emp SD 0.01917
+corr(boxcal cv5 psi, oracle psi) 0.9973076345303482

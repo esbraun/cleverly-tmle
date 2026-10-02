@@ -1,0 +1,48 @@
+== one (+1.0 vs current practice), seeds=60
+config             cover     bias      SD  meanSE  SE/SD |   SDos   SEos SDos/SD | SEtrueh  SEeff | move tmle/os |    Eh    Eh2 Eh2true   maxh top1% | icdiff
+insample_boost     0.867  -0.0054  0.0270  0.0205   0.76 | 0.0249 0.0208    0.92 |  0.0271 0.0224 |        2.133 |  0.92   2.94    2.77   25.1  0.35 | 2.2e-13
+xfit_boost         1.000  -0.0161  0.0296  0.0729   2.46 | 0.1011 0.0816    3.42 |  0.0416 0.0224 |        0.182 |  1.66  32.29    2.77  170.4  0.82 | 1.2e-12
+xfit_boost_notrim  1.000  -0.0151  0.0280  0.1095   3.91 | 0.2936 0.1743   10.48 |  0.0418 0.0224 |        0.155 |  1.66  32.29    2.77  170.4  0.88 | 4.5e-12
+xfit_rboost        0.917  -0.0243  0.0289  0.0393   1.36 | 0.0523 0.0419    1.81 |  0.0413 0.0224 |        0.472 |  1.19   8.08    2.77   71.6  0.70 | 6.0e-13
+xfit_oracle        0.967  -0.0287  0.0290  0.0394   1.36 | 0.0429 0.0409    1.48 |  0.0411 0.0224 |        0.495 |  1.12   5.62    2.77   44.5  0.70 | 3.2e-13
+insample_oracle    0.933  +0.0004  0.0242  0.0248   1.02 | 0.0273 0.0251    1.13 |  0.0269 0.0224 |        0.519 |  1.12   5.62    2.77   44.5  0.50 | 3.8e-13
+insample_quad_oracle320 0.933  +0.0042  0.0231  0.0218   0.94 | 0.0224 0.0220    0.97 |  0.0220 0.0224 |        0.822 |  1.02   3.07    2.77   25.8  0.44 | 2.1e-13
+xfit_oracle320     0.933  -0.0196  0.0302  0.0295   0.98 | 0.0330 0.0310    1.09 |  0.0416 0.0224 |        1.049 |  1.02   3.07    2.77   25.8  0.53 | 1.8e-13
+xfit_quad_boost    1.000  +0.0042  0.0239  0.0580   2.43 | 0.0631 0.0605    2.65 |  0.0225 0.0224 |        0.189 |  1.66  32.29    2.77  170.4  0.82 | 1.2e-12
+xfit_quad_oracle320 0.950  +0.0044  0.0229  0.0221   0.96 | 0.0221 0.0223    0.97 |  0.0223 0.0224 |        0.986 |  1.02   3.07    2.77   25.8  0.45 | 2.2e-13
+  per-fold E_n[h] (xfit_boost): mean 1.656 range 1.188 4.812
+  per-fold E_n[h] (xfit_oracle): mean 1.123
+  one-step insample_boost     bias +0.0019 SD 0.0249 cover 0.900  plug-in SD 0.0243 bias +0.0096
+  one-step xfit_boost         bias -0.1490 SD 0.1011 cover 0.600  plug-in SD 0.0272 bias +0.0099
+  one-step xfit_boost_notrim  bias -0.2615 SD 0.2936 cover 0.750  plug-in SD 0.0272 bias +0.0099
+  one-step xfit_rboost        bias -0.0712 SD 0.0523 cover 0.617  plug-in SD 0.0272 bias +0.0099
+  one-step xfit_oracle        bias -0.0702 SD 0.0429 cover 0.567  plug-in SD 0.0272 bias +0.0099
+  one-step insample_oracle    bias -0.0072 SD 0.0273 cover 0.917  plug-in SD 0.0243 bias +0.0096
+  one-step insample_quad_oracle320 bias +0.0040 SD 0.0224 cover 0.983  plug-in SD 0.0221 bias +0.0033
+  one-step xfit_oracle320     bias -0.0153 SD 0.0330 cover 0.917  plug-in SD 0.0272 bias +0.0099
+  one-step xfit_quad_boost    bias +0.0065 SD 0.0631 cover 0.967  plug-in SD 0.0223 bias +0.0033
+  one-step xfit_quad_oracle320 bias +0.0042 SD 0.0221 cover 0.983  plug-in SD 0.0223 bias +0.0033
+== unc (+0.5 uncapped vs current practice), seeds=60
+config             cover     bias      SD  meanSE  SE/SD |   SDos   SEos SDos/SD | SEtrueh  SEeff | move tmle/os |    Eh    Eh2 Eh2true   maxh top1% | icdiff
+insample_boost     0.833  +0.0091  0.0145  0.0116   0.80 | 0.0121 0.0116    0.83 |  0.0111 0.0097 |        2.392 |  0.94   1.45    1.29   12.6  0.26 | 1.4e-13
+xfit_boost         1.000  -0.0016  0.0119  0.0252   2.11 | 0.0240 0.0258    2.01 |  0.0147 0.0097 |        0.252 |  1.22   3.76    1.29   31.3  0.62 | 2.1e-13
+xfit_boost_notrim  1.000  -0.0016  0.0114  0.0269   2.36 | 0.0379 0.0312    3.32 |  0.0148 0.0097 |        0.223 |  1.22   3.76    1.29   31.3  0.67 | 4.3e-13
+xfit_rboost        1.000  -0.0040  0.0115  0.0181   1.57 | 0.0171 0.0183    1.48 |  0.0146 0.0097 |        0.533 |  1.08   1.97    1.29   19.0  0.52 | 1.4e-13
+xfit_oracle        1.000  -0.0052  0.0122  0.0190   1.55 | 0.0168 0.0189    1.38 |  0.0145 0.0097 |        0.461 |  1.06   1.96    1.29   18.8  0.60 | 1.4e-13
+insample_oracle    0.950  +0.0015  0.0113  0.0123   1.09 | 0.0116 0.0123    1.02 |  0.0110 0.0097 |        0.509 |  1.06   1.96    1.29   18.8  0.38 | 2.0e-13
+insample_quad_oracle320 0.967  +0.0016  0.0096  0.0098   1.03 | 0.0093 0.0098    0.97 |  0.0096 0.0097 |        0.708 |  1.01   1.35    1.29    9.0  0.26 | 7.1e-14
+xfit_oracle320     0.967  -0.0062  0.0118  0.0136   1.15 | 0.0129 0.0139    1.10 |  0.0147 0.0097 |        1.062 |  1.01   1.35    1.29    9.0  0.31 | 4.6e-14
+xfit_quad_boost    1.000  +0.0022  0.0104  0.0197   1.90 | 0.0209 0.0202    2.02 |  0.0097 0.0097 |        0.239 |  1.22   3.76    1.29   31.3  0.62 | 2.3e-13
+xfit_quad_oracle320 0.967  +0.0017  0.0095  0.0099   1.04 | 0.0092 0.0099    0.97 |  0.0097 0.0097 |        0.810 |  1.01   1.35    1.29    9.0  0.27 | 6.8e-14
+  per-fold E_n[h] (xfit_boost): mean 1.225 range 1.094 1.415
+  per-fold E_n[h] (xfit_oracle): mean 1.06
+  one-step insample_boost     bias +0.0039 SD 0.0121 cover 0.933  plug-in SD 0.0114 bias +0.0031
+  one-step xfit_boost         bias -0.0282 SD 0.0240 cover 0.900  plug-in SD 0.0113 bias +0.0077
+  one-step xfit_boost_notrim  bias -0.0345 SD 0.0379 cover 0.933  plug-in SD 0.0113 bias +0.0077
+  one-step xfit_rboost        bias -0.0174 SD 0.0171 cover 0.900  plug-in SD 0.0113 bias +0.0077
+  one-step xfit_oracle        bias -0.0205 SD 0.0168 cover 0.833  plug-in SD 0.0113 bias +0.0077
+  one-step insample_oracle    bias +0.0021 SD 0.0116 cover 0.967  plug-in SD 0.0114 bias +0.0031
+  one-step insample_quad_oracle320 bias +0.0015 SD 0.0093 cover 0.983  plug-in SD 0.0096 bias +0.0017
+  one-step xfit_oracle320     bias -0.0042 SD 0.0129 cover 0.950  plug-in SD 0.0113 bias +0.0077
+  one-step xfit_quad_boost    bias +0.0038 SD 0.0209 cover 0.983  plug-in SD 0.0097 bias +0.0017
+  one-step xfit_quad_oracle320 bias +0.0016 SD 0.0092 cover 0.983  plug-in SD 0.0097 bias +0.0017
