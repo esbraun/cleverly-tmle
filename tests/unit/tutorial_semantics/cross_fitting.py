@@ -13,25 +13,50 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from cleverly import DataError
 from cleverly.datasets import navigation_protocol
+from cleverly.datasets.synthetic import nonlinear_bounded_dgp
 from cleverly.inference import median_estimates
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
-    assert_plugin_limits_refuse,
     assert_protocol_recorded,
+    changed_fields,
     covers,
     stored_output,
 )
 
 NOTEBOOK = EXAMPLES / "cross-fitting.ipynb"
 
+_PROBE = "reviews/notebook-review/probes/cross-fitting-final"
+_STUDY = "tests/canonical/tmle3_cvtmle/properties.csv"
+_CLUSTERED = "tests/canonical/lmtp_clustered_tmle/properties.csv"
+
+#: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
-    "48.8": "the registered stacked CV-TMLE study's in-sample control coverage, 0.4875 in "
-    "tests/canonical/tmle3_cvtmle/properties.csv and 0.4875 on its linked evidence page",
-    "93.3": "the registered stacked CV-TMLE study's cross-fitted coverage, 0.9325 in "
-    "tests/canonical/tmle3_cvtmle/properties.csv and 0.9325 on its linked evidence page",
+    "0.93": f"cross-fitted mean SE over empirical SD, 200 draws: {_PROBE}/summary.log",
+    "0.70": f"in-sample mean SE over empirical SD, 200 draws: {_PROBE}/summary.log",
+    "-0.0024": f"in-sample mean estimate minus the truth, 200 draws: {_PROBE}/summary.log",
+    "0.0003": f"cross-fitted mean estimate minus the truth, 200 draws: {_PROBE}/summary.log",
+    "0.68": f"5% quantile of the in-sample/cross-fitted SE ratio: {_PROBE}/summary.log",
+    "0.90": f"5% quantile of the propensity calibration slope: {_PROBE}/summary.log",
+    "1.01": f"95% quantile of the propensity calibration slope: {_PROBE}/summary.log",
+    "1.9": f"share (0.0188) of the law's true propensity below 0.1: {_PROBE}/truth.log",
+    "4.83": f"the law's nu^2 = E[1/(g(1-g))], 4.8287 by Monte Carlo: {_PROBE}/truth.log",
+    "4.50": f"mean doubly robust nu^2 over 200 draws, 4.504: {_PROBE}/summary.log",
+    "0.409": f"RV of the shown draw at the law's nu^2, by summarize.py: {_PROBE}/summary.log",
+    "0.1483": f"lower bound of the shown draw at the law's nu^2: {_PROBE}/summary.log",
+    "0.1663": f"upper bound of the shown draw at the law's nu^2: {_PROBE}/summary.log",
+    "0.945": f"coverage of crossfit_overfitting/stacked_cvtmle: {_STUDY}",
+    "0.5225": f"coverage of crossfit_overfitting/in_sample_control: {_STUDY}",
+    "0.9475": f"coverage of clustered_inference/cluster_robust: {_CLUSTERED}",
+    "0.84125": f"coverage of clustered_inference/iid_control: {_CLUSTERED}",
 }
+
+
+def _law_nu2(n: int = 400_000) -> float:
+    """``nu^2 = E[1 / {g (1 - g)}]`` of the law behind ``navigation_data``, by Monte Carlo."""
+    law = nonlinear_bounded_dgp()
+    g = law.propensity(np.random.default_rng(1).standard_normal((n, law.n_latent)))
+    return float(np.mean(1.0 / (g * (1.0 - g))))
 
 
 def _teams_spanned(result: Any, teams: pd.Series) -> int:
@@ -71,18 +96,28 @@ def check(namespace: dict[str, Any]) -> None:
     )
     assert covers(cross_fitted, truth)
 
-    # Step 6: "close" points, "less than a third" (0.27), and a miss of 2.5 standard errors.
-    # The point-distance margin is the retired Gaussian law's, scaled by the ratio of the two
-    # ATEs (0.1629 against 1.750); the miss window brackets the narrated single decimal.
+    # Step 6: "close" points; the in-sample SE is 0.73 times the cross-fitted one; both cover,
+    # and the truth lies 1.9 in-sample and 1.0 cross-fitted standard errors away.  Each window
+    # brackets the narrated decimal.  The coverage claims are the probe's, not this draw's.
     assert "in-sample nuisances" in namespace["in_sample"].summary()
     assert abs(in_sample.psi - cross_fitted.psi) < 0.01
-    assert in_sample.std_error < cross_fitted.std_error / 3
-    assert not covers(in_sample, truth)
-    assert 2.45 <= abs(truth - in_sample.psi) / in_sample.std_error < 2.55
+    assert 0.725 <= in_sample.std_error / cross_fitted.std_error < 0.735
+    assert covers(in_sample, truth)
+    assert 1.85 <= abs(truth - in_sample.psi) / in_sample.std_error < 1.95
+    assert 0.95 <= abs(truth - cross_fitted.psi) / cross_fitted.std_error < 1.05
 
     # Step 7: "nearly identical" points that differ because the folds regroup; "1.54 times larger".
-    # The law is the binary clustered one: a binary outcome needs no declared support, so the
-    # team fits keep cross-fitting and Step 8 still has a split to read.
+    # The law is the binary clustered one: its outcome support is known, so the team fits
+    # cross-fit without a declared support and Step 8 still has a split to read.  The team
+    # protocol changes only the outcome field, and the cell prints its fingerprint.
+    assert changed_fields(namespace["team_protocol"], namespace["protocol"]) == {"outcome"}
+    assert_protocol_recorded(
+        NOTEBOOK,
+        "team-clusters",
+        namespace["team_protocol"],
+        namespace["ignoring"],
+        namespace["clustered"],
+    )
     ignoring = namespace["ignoring"]
     clustered = namespace["clustered"]
     team_truth = namespace["team_truth"]["ate"]
@@ -105,12 +140,10 @@ def check(namespace: dict[str, Any]) -> None:
     few = namespace["few"]
     assert few.data.n_clusters == 4
     assert few.split_plan.n_folds == 4
-    # "Four teams are fewer than 40, so this fit reports a point estimate and no interval."
-    assert few.inference_status == "few_cluster_plugin"
     assert any("only 4 clusters" in str(warning.message) for warning in namespace["caught"])
 
     # Step 9: a new seed draws new folds; the plan reproduces the folds, the point, and the curve;
-    # the plan is refused, live, on data with another fingerprint.
+    # the logistic treatment learner runs on the same folds, and the two "agree to three decimals".
     redrawn = namespace["redrawn"]
     reused = namespace["reused"]
     plan = namespace["plan"]
@@ -120,9 +153,11 @@ def check(namespace: dict[str, Any]) -> None:
     assert reused.provenance.fold_fingerprint == first.provenance.fold_fingerprint
     assert reused["ate"].psi == cross_fitted.psi
     assert np.array_equal(reused["ate"].influence_curve, cross_fitted.influence_curve)
-    refusal = namespace["refusal"]
-    assert isinstance(refusal, DataError)
-    assert first.provenance.data_fingerprint in str(refusal)
+    assert f"source={first.provenance.data_fingerprint}" in str(plan)
+    logistic_g = namespace["logistic_g"]
+    assert logistic_g.provenance.fold_fingerprint == first.provenance.fold_fingerprint
+    assert logistic_g["ate"].psi != cross_fitted.psi
+    assert round(logistic_g["ate"].psi, 3) == round(cross_fitted.psi, 3)
 
     # Step 10: equal-size folds make the fold-evaluated point the stacked point; only the variance
     # formula differs. The fold-targeted fit differs in both point and standard error.
@@ -134,31 +169,32 @@ def check(namespace: dict[str, Any]) -> None:
     assert set(np.unique(plan.assignments[0], return_counts=True)[1]) == {600}
     assert abs(evaluated.psi - cross_fitted.psi) < 1e-10
     assert tuple(evaluated.ci) != tuple(cross_fitted.ci)
-    # "Its estimate moves in the fourth decimal, and its standard error is smaller."
-    assert targeted.psi != cross_fitted.psi
-    assert 1e-5 < abs(targeted.psi - cross_fitted.psi) < 1e-3
-    assert targeted.std_error < cross_fitted.std_error - 1e-4
+    # "its estimate and its standard error differ from the stacked ones in the fifth decimal."
+    assert 1e-6 < abs(targeted.psi - cross_fitted.psi) < 1e-4
+    assert 1e-6 < abs(targeted.std_error - cross_fitted.std_error) < 1e-4
 
-    # Step 11: "one warning, nuisance_models"; slope 0.49 below 1; small g(W); 16 units (0.53%)
-    # truncated; the treated arm has the 22.9% ratio; the in-sample ratio is 91.6%.
+    # Step 11: no attention row; slope 0.9611 near 1; no unit truncated; the treated arm has the
+    # smaller ratio (82.5%); the fitted share below 0.1 (0.0063) is under the law's 1.9%; the
+    # in-sample minimum ratio (89.6%) exceeds the cross-fitted one.
     assessment = namespace["assessment"]
-    warned = [item.name for item in assessment.attention if item.status.value == "warning"]
-    assert warned == ["nuisance_models"]
+    assert tuple(assessment.attention) == ()
     assert assessment.validation["score_equations"].status.value == "passed"
     nuisance = assessment.report("nuisance_models")
     assert nuisance is namespace["nuisance"]
     assert assessment.report("score_equations") is namespace["scores"]
-    assert nuisance["propensity"].metrics["calibration_slope"] < 0.6
+    assert 0.9 < nuisance["propensity"].metrics["calibration_slope"] < 1.1
+    assert "nuisance fits look reasonable" in stored_output(NOTEBOOK, "assessment")
     support = namespace["support"]
     assert assessment.report("support") is support
-    assert support.propensity_quantiles["overall"][0.0] < 0.01
-    assert support.truncated["count"] == 16
+    assert 0.0 < support.propensity_quantiles["overall"][0.0] < 0.05
+    assert support.truncated["count"] == 0
+    assert 0.0 < support.tail_mass[0.1]["below"] < 0.0188
     ess = support.effective_sample_size
     assert min(ess, key=lambda arm: ess[arm]["ratio"]) == "treated"
-    assert 0.2 < ess["treated"]["ratio"] < 0.3
+    assert 0.82 < ess["treated"]["ratio"] < 0.83
     in_sample_support = namespace["in_sample"].diagnostics.support()
     in_sample_ratios = [row["ratio"] for row in in_sample_support.effective_sample_size.values()]
-    assert min(in_sample_ratios) > 0.85
+    assert min(in_sample_ratios) > ess["treated"]["ratio"]
 
     # Step 12: reconstruct the median and its within-plus-between variance from the three retained
     # draws. This seed gives nonzero displacement even though the median happens to equal the
@@ -204,8 +240,6 @@ def check(namespace: dict[str, Any]) -> None:
         atol=1e-15,
     )
     assert mutation_witness.variance != draw_estimates[0].variance
-    assert repeated["ate"].std_error < cross_fitted.std_error
-    assert redrawn["ate"].std_error < cross_fitted.std_error
     spread = namespace["repeated_nuisance"].repeat_spread
     assert [row.n_repeats for row in spread] == [3]
     assert np.isclose(spread[0].standard_deviation, np.std(points, ddof=1))
@@ -214,27 +248,30 @@ def check(namespace: dict[str, Any]) -> None:
         spread[0].ratio_to_standard_error,
         spread[0].standard_deviation / repeated["ate"].std_error,
     )
-    assert spread[0].standard_deviation < spread[0].reported_standard_error
-    # "about a third of this standard deviation" between the Step 5 and Step 9 fold draws.
-    assert 0.2 < abs(redrawn["ate"].psi - cross_fitted.psi) / spread[0].standard_deviation < 0.4
+    # "Across these three draws, the estimate moved much less than its standard error."
+    assert spread[0].standard_deviation < 0.1 * spread[0].reported_standard_error
 
-    # Step 13: the default estimator of nu^2 refuses on this fit, and the page prints the
-    # refusal before it names the plug-in. "The doubly robust estimator returned -9.03194."
-    # A mutation that restores the silent fallback returns a number here instead.
-    refusal_text = namespace["nu2_refusal"]
-    assert "'doubly_robust'" in refusal_text
-    assert "-9.03194" in refusal_text
-    assert "not a substitute" in refusal_text
-    # The page then reads the plug-in bound, which the reading qualifies.
+    # Step 13: the default (doubly robust) nu^2 runs with no refusal; it is positive, below the
+    # law's 4.83, and within 10% of it.  Then the robustness values and the default-strength
+    # bounds.  The law's nu^2 is recomputed here, so a drift in the law fails loudly.
+    elements = namespace["elements"]
     robustness = namespace["robustness"]
-    confounding = namespace["confounding"]
-    assert 0.15 < robustness["rv"] < 0.35
-    assert (confounding.cf_y, confounding.cf_d, confounding.rho) == (0.03, 0.03, 1.0)
-    assert confounding.lower < cross_fitted.psi < confounding.upper
-    # "The page reports no one-sided limit": the plug-in bound refuses its limits with the
-    # F26 reason, which the page prints.
-    assert_plugin_limits_refuse(first, confounding, namespace)
+    bounds = namespace["bounds"]
+    law_nu2 = _law_nu2()
+    assert abs(law_nu2 - 4.83) < 0.01
+    assert elements.nu2_estimator == "doubly_robust"
+    assert 0.9 * law_nu2 < elements.nu2 < law_nu2
+    assert robustness["rva"] < robustness["rv"]
+    assert 0.40 < robustness["rv"] < 0.45
+    assert (bounds.cf_y, bounds.cf_d, bounds.rho) == (0.03, 0.03, 1.0)
+    assert 0.0 < bounds.ci_lower < bounds.lower < cross_fitted.psi < bounds.upper < bounds.ci_upper
+    # "the law's nu^2 gives a robustness value of 0.409 rather than 0.419": a larger nu^2 gives a
+    # larger bias scale, so a smaller robustness value.  The formula is the one the fit used,
+    # since it reproduces the printed value at the fitted nu^2 (the nonzero witness).
+    for nu2, expected in ((elements.nu2, robustness["rv"]), (law_nu2, 0.409)):
+        t2 = cross_fitted.psi**2 / (elements.sigma2 * nu2)
+        assert abs((np.sqrt(t2**2 + 4.0 * t2) - t2) / 2.0 - expected) < 5e-4
     at_rv = first.sensitivity.omitted_confounding(
-        cf_y=robustness["rv"], cf_d=robustness["rv"], rho=1.0, nu2_estimator="plugin"
+        cf_y=robustness["rv"], cf_d=robustness["rv"], rho=1.0
     )
     assert abs(at_rv.lower) < 1e-3

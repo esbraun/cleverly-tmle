@@ -1,0 +1,38 @@
+seeds 7000 to 7199, 200 draws
+
+Steps 5 and 6, the cross-fitted and the in-sample fit
+  cross-fitted
+    bias +0.0003 (MC SE 0.0004); empirical SD 0.0060; mean SE 0.0056; SE/SD 0.93
+    coverage 0.940 (MC SE 0.017; 188 of 200)
+  in-sample
+    bias -0.0024 (MC SE 0.0004); empirical SD 0.0057; mean SE 0.0040; SE/SD 0.70
+    coverage 0.765 (MC SE 0.030; 153 of 200)
+  in-sample SE / cross-fitted SE, 5% / 50% / 95%: [0.68, 0.71, 0.73]
+  in-sample SE / cross-fitted SE below 1/3: 0.000 (MC SE 0.000; 0 of 200)
+  in-sample SE smaller than cross-fitted SE: 1.000 (MC SE 0.000; 200 of 200)
+  |in-sample psi - cross-fitted psi| < 0.01: 1.000 (MC SE 0.000; 200 of 200)
+  in-sample miss in its SEs exceeds the cross-fitted miss in its SEs: 0.675 (MC SE 0.033; 135 of 200)
+
+Step 11, the assessment of the cross-fitted fit
+  no attention row: 0.995 (MC SE 0.005; 199 of 200)
+  propensity calibration slope, 5% / 50% / 95%: [0.9, 0.96, 1.01]
+  no unit truncated at the default bound: 1.000 (MC SE 0.000; 200 of 200)
+  smallest fitted g, 5% / 50% / 95%: [0.0184, 0.0375, 0.0629]
+  fitted share of g below 0.1, 5% / 50% / 95%: [0.0033, 0.0082, 0.0177]
+  treated ESS ratio, 5% / 50% / 95%: [0.747, 0.827, 0.875]
+  treated is the smaller ESS ratio: 0.995 (MC SE 0.005; 199 of 200)
+  in-sample minimum ESS ratio above the cross-fitted one: 1.000 (MC SE 0.000; 200 of 200)
+
+Step 13, the sensitivity analysis of the cross-fitted fit
+  rv 5% / 50% / 95%: [0.4, 0.426, 0.449]
+  rva 5% / 50% / 95%: [0.379, 0.404, 0.424]
+  nu^2 (doubly robust) mean 4.504, 5% / 95%: [4.19, 4.78]
+  nu^2 below the law's 4.8287 (truth.py): 0.975 (MC SE 0.011; 195 of 200)
+  mean shortfall 0.067 in nu^2, 0.034 in the bias scale
+  default bias-adjusted bounds exclude zero: 1.000 (MC SE 0.000; 200 of 200)
+  their 95% limits exclude zero: 1.000 (MC SE 0.000; 200 of 200)
+  fitted share of g below 0.1 under the law's share, 0.0188 (truth.py): 0.980 (MC SE 0.010; 196 of 200)
+
+Step 13, the shown draw (seed 34) at the law's nu^2 (truth.py)
+  fitted nu^2 4.5363: bias scale 0.28649; bias <= 0.00873; bounds (0.1486, 0.1660); rv 0.419
+  law    nu^2 4.8287: bias scale 0.29558; bias <= 0.00900; bounds (0.1483, 0.1663); rv 0.409
