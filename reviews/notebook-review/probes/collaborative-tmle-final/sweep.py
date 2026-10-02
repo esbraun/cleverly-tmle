@@ -5,9 +5,10 @@ Each seed ``s`` draws ``make_instrument(n=2000, seed=s)`` and runs the notebook'
 (plain TMLE with the same learners), its Step 9 constant-Q pair (``DummyRegressor`` outcome
 model, plain and C-TMLE), and its Step 11 regression with the HC0 standard error.  Every
 ``random_state`` is set to ``s``.  The code of each fit is the notebook's, with ``44`` replaced
-by ``s``.  One fit is the probe's own: plain TMLE on the design that leaves out
-``queue_lottery_draw`` (``p_ni_*``), which isolates what the instrument in g does to the plain
-interval.  The true ATE of this law is 1 (``truth.py``).
+by ``s``.  The page's reported fit is plain TMLE on the design-based set that leaves out
+``queue_lottery_draw`` (``p_ni_*``), with its Step 11 omitted-variable elements and robustness
+value beside those of the all-three plain fit (``p_rv`` and its siblings).  The true ATE of this
+law is 1 (``truth.py``).
 
 Usage: ``python sweep.py <first seed> <count> <workers>``.  The page cites
 ``python sweep.py 5000 600 12``.  Outputs: ``sweep.csv`` (one row per seed) and ``sweep.log``,
@@ -99,8 +100,19 @@ def one_seed(seed: int) -> dict:
             adjustment=("baseline_readiness", "social_support"),
         ),
     ).identify(ATE(reference=0))
-    no_instrument_point = no_instrument.estimate(method=plain_method)["ate"]
+    no_instrument_fit = no_instrument.estimate(method=plain_method)
+    no_instrument_point = no_instrument_fit["ate"]
     ni_low, ni_high = no_instrument_point.ci
+    # The notebook's Step 11 omitted-variable rows, on both plain fits.
+    bounds = {}
+    for key, result in (("p", plain), ("p_ni", no_instrument_fit)):
+        assessment = result.assess()
+        elements = assessment.report("elements")
+        robustness = assessment.report("robustness_value")
+        bounds[f"{key}_nu2"] = elements.nu2
+        bounds[f"{key}_sigma2"] = elements.sigma2
+        bounds[f"{key}_rv"] = robustness["rv"]
+        bounds[f"{key}_rva"] = robustness["rva"]
     selection = collaborative.diagnostics.nuisance_models().selection
     weak_selection = weak_collaborative.diagnostics.nuisance_models().selection
 
@@ -139,6 +151,9 @@ def one_seed(seed: int) -> dict:
         "p_ni_psi": no_instrument_point.psi,
         "p_ni_se": no_instrument_point.std_error,
         "p_ni_covers": ni_low <= truth["ate"] <= ni_high,
+        "p_ni_low": ni_low,
+        "p_ni_high": ni_high,
+        **bounds,
         "wp_psi": weak_plain_point.psi,
         "wp_se": weak_plain_point.std_error,
         "wp_covers": weak_plain_low <= truth["ate"] <= weak_plain_high,

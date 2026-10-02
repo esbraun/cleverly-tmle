@@ -23,7 +23,13 @@ C-TMLE selected g:
   in-sample risk rises somewhere on the path: 598 of 600 (0.997)
 plain TMLE: bias +0.0004 (MC SE 0.0028), empirical SD 0.0694, RMSE 0.0694, mean SE 0.0638, SE/SD 0.919, coverage 0.925 (555 of 600)
 C-TMLE (plug-in diagnostic): bias +0.0017 (MC SE 0.0023), empirical SD 0.0554, RMSE 0.0554, mean SE 0.0451, SE/SD 0.813, coverage 0.887 (532 of 600)
-plain TMLE without queue_lottery_draw (probe only): bias +0.0020 (MC SE 0.0020), empirical SD 0.0479, RMSE 0.0479, mean SE 0.0466, SE/SD 0.973, coverage 0.953 (572 of 600)
+design-based plain TMLE, without queue_lottery_draw (the reported fit): bias +0.0020 (MC SE 0.0020), empirical SD 0.0479, RMSE 0.0479, mean SE 0.0466, SE/SD 0.973, coverage 0.953 (572 of 600)
+  C-TMLE estimate inside the design-based interval: 598 of 600 (0.997)
+  empirical SD ratio, C-TMLE over design-based: 1.157
+  all-three plain TMLE omitted-variable rows, mean (min to max): nu2 9.981 (3.311 to 15.896), sigma2 0.997 (0.906 to 1.097), rv 0.274 (0.199 to 0.407), rva 0.234 (0.172 to 0.289)
+  design-based plain TMLE omitted-variable rows, mean (min to max): nu2 4.367 (4.164 to 4.702), sigma2 0.998 (0.906 to 1.098), rv 0.378 (0.331 to 0.421), rva 0.354 (0.306 to 0.399)
+  robustness value larger on the design-based fit: 596 of 600 (0.993)
+  nu2 smaller on the design-based fit: 598 of 600 (0.997)
 regression coefficient (HC0): bias +0.0013 (MC SE 0.0022), empirical SD 0.0547, RMSE 0.0546, mean SE 0.0541, SE/SD 0.989
   HC0 SE over the empirical SD of the C-TMLE estimate: 0.976
   plug-in SE below HC0 SE: 595 of 600 (0.992)
@@ -60,4 +66,4 @@ C-TMLE (plug-in diagnostic): bias +0.0119 (MC SE 0.0027), empirical SD 0.0667, R
   median |error|, C-TMLE 0.0343, plain 0.1548
   empirical SD ratio, C-TMLE over plain: 0.330
   plug-in over plain SE below 0.5: 433 of 600 (0.722)
-  mean seconds per seed: 0.92
+  mean seconds per seed: 0.95

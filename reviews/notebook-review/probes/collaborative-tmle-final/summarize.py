@@ -53,11 +53,39 @@ lines.append("")
 lines.append("linear Q (Steps 6 to 8)")
 selection("C-TMLE", "c_selected")
 lines.append(f"  |cv risk k=1 - k=0| < 1e-3: {share(rows['c_gap10'].abs() < 1e-3)}")
-lines.append(f"  first greedy step is social_support: {share(rows['c_first_step'] == 'social_support')}")
-lines.append(f"  in-sample risk rises somewhere on the path: {share(rows['c_risk_rises'].astype(bool))}")
+lines.append(
+    f"  first greedy step is social_support: {share(rows['c_first_step'] == 'social_support')}"
+)
+lines.append(
+    f"  in-sample risk rises somewhere on the path: {share(rows['c_risk_rises'].astype(bool))}"
+)
 spread("plain TMLE", "p_psi", "p_se", "p_covers")
 spread("C-TMLE (plug-in diagnostic)", "c_psi", "c_pse", "c_plugin_covers")
-spread("plain TMLE without queue_lottery_draw (probe only)", "p_ni_psi", "p_ni_se", "p_ni_covers")
+spread(
+    "design-based plain TMLE, without queue_lottery_draw (the reported fit)",
+    "p_ni_psi",
+    "p_ni_se",
+    "p_ni_covers",
+)
+inside = (rows["c_psi"] >= rows["p_ni_low"]) & (rows["c_psi"] <= rows["p_ni_high"])
+lines.append(f"  C-TMLE estimate inside the design-based interval: {share(inside)}")
+lines.append(
+    f"  empirical SD ratio, C-TMLE over design-based: "
+    f"{rows['c_psi'].std(ddof=1) / rows['p_ni_psi'].std(ddof=1):.3f}"
+)
+for key, label in (("p", "all-three plain TMLE"), ("p_ni", "design-based plain TMLE")):
+    lines.append(
+        f"  {label} omitted-variable rows, mean (min to max): "
+        + ", ".join(
+            f"{name} {rows[f'{key}_{name}'].mean():.3f} "
+            f"({rows[f'{key}_{name}'].min():.3f} to {rows[f'{key}_{name}'].max():.3f})"
+            for name in ("nu2", "sigma2", "rv", "rva")
+        )
+    )
+lines.append(
+    f"  robustness value larger on the design-based fit: {share(rows['p_ni_rv'] > rows['p_rv'])}"
+)
+lines.append(f"  nu2 smaller on the design-based fit: {share(rows['p_ni_nu2'] < rows['p_nu2'])}")
 spread("regression coefficient (HC0)", "ols", "hc0")
 lines.append(
     f"  HC0 SE over the empirical SD of the C-TMLE estimate: "
@@ -81,7 +109,9 @@ selection("C-TMLE", "wc_selected")
 spread("plain TMLE", "wp_psi", "wp_se", "wp_covers")
 spread("C-TMLE (plug-in diagnostic)", "wc_psi", "wc_pse", "wc_plugin_covers")
 large = (rows["wc_psi"] - truth).abs()
-lines.append(f"  largest |C-TMLE error|: {large.max():.3f} (seed {rows.loc[large.idxmax(), 'seed']})")
+lines.append(
+    f"  largest |C-TMLE error|: {large.max():.3f} (seed {rows.loc[large.idxmax(), 'seed']})"
+)
 lines.append(
     f"  median |error|, C-TMLE {large.median():.4f}, plain {(rows['wp_psi'] - truth).abs().median():.4f}"
 )

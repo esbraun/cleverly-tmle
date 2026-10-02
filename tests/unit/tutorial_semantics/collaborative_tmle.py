@@ -32,9 +32,15 @@ _OAT = "tests/canonical/ctmle3_oat/properties.csv"
 UNPRINTED_DECIMALS = {
     "0.003": f"largest move of either estimate between in-sample and five-fold fits of this "
     f"draw (0.0020, plain TMLE): {_PROBE}/crossfit_check.log",
-    "0.069": f"plain TMLE empirical SD (0.0694), 600 draws: {_PROBE}/summary.log",
+    "0.048": f"design-based plain TMLE empirical SD (0.0479), 600 draws: {_PROBE}/summary.log",
+    "0.97": f"design-based plain TMLE mean SE over empirical SD (0.973), 600 draws: "
+    f"{_PROBE}/summary.log",
+    "4.357": f"population nu2 of the design-based set, by quadrature: {_PROBE}/truth.log",
+    "4.164": f"smallest design-based nu2 over 600 draws: {_PROBE}/summary.log",
+    "4.702": f"largest design-based nu2 over 600 draws: {_PROBE}/summary.log",
+    "0.069": f"all-three plain TMLE empirical SD (0.0694), 600 draws: {_PROBE}/summary.log",
     "0.055": f"C-TMLE empirical SD (0.0554), 600 draws: {_PROBE}/summary.log",
-    "0.92": f"plain TMLE mean SE over empirical SD (0.919), 600 draws: {_PROBE}/summary.log; "
+    "0.92": f"all-three plain TMLE mean SE over empirical SD (0.919), 600 draws: {_PROBE}/summary.log; "
     f"and coverage of crossfit_overfitting/cross_fitted_oat (0.9200): {_OAT}",
     "0.81": f"C-TMLE mean plug-in SE over empirical SD (0.813), 600 draws: {_PROBE}/summary.log",
     "0.1": f"constant-Q plain TMLE mean error (+0.1109), 600 draws: {_PROBE}/summary.log",
@@ -97,10 +103,15 @@ def check(namespace: dict[str, Any]) -> None:
         "protocol",
         protocol,
         namespace["collaborative"],
+        namespace["reported"],
         namespace["plain"],
         namespace["weak_plain"],
         namespace["weak_collaborative"],
     )
+
+    # The reported design leaves the queue draw out by design; C-TMLE searches all three.
+    assert namespace["design_set"] == ("baseline_readiness", "social_support")
+    assert set(namespace["approved_set"]) == set(namespace["covariates"])
 
     # "The last line lists `collaborative_tmle` beside `tmle` and `drtmle`."
     assert namespace["available"] == ["tmle", "collaborative_tmle", "drtmle"]
@@ -130,22 +141,34 @@ def check(namespace: dict[str, Any]) -> None:
     # table has no interval column": the diagnostic column is named for what it is.  A
     # mutation that restored the Wald accessors would print an interval here again.
     plain, collaborative = namespace["plain"]["ate"], namespace["collaborative"]["ate"]
+    reported = namespace["reported"]["ate"]
     assert collaborative.inference == "working_mechanism_plugin"
-    assert plain.inference == "influence_curve"
+    assert plain.inference == "influence_curve" and reported.inference == "influence_curve"
     estimate_table = stored_output(NOTEBOOK, "collaborative")
     assert "working-mechanism se" in estimate_table
     assert "95% CI" not in estimate_table.split("estimand  psi", 1)[1].split("\n\n", 1)[0]
     assert "refused" not in estimate_table
-    # "Both ranges contain the true value of 1.000 on this draw", one as the reported
-    # interval and one as a diagnostic.
+    # "The interval contains the true value of 1.000 on this draw", and "Its estimate of 0.955
+    # lies inside the reported interval": the C-TMLE check agrees with the design-based fit.
+    assert covers(reported, truth["ate"])
+    assert covers(reported, collaborative.psi)
     assert covers(plain, truth["ate"])
     assert covers(collaborative.plugin_interval, truth["ate"])
     assert collaborative.plugin_std_error < plain.std_error
+    # The instrument in g costs precision on this draw.
+    assert reported.std_error < plain.std_error
 
-    # The plain fit's tails against the collaborative fit's none.
+    # The all-three fit's tails against none in the design-based and collaborative fits.
     tails = namespace["tail_table"]
-    assert tails.loc["share of g below 0.1", "plain TMLE"] > 0.05
-    assert tails.loc["share of g above 0.9", "plain TMLE"] > 0.05
+    assert tails.loc["share of g below 0.1", "all-three TMLE"] > 0.05
+    assert tails.loc["share of g above 0.9", "all-three TMLE"] > 0.05
+    for column in ("design-based TMLE", "collaborative TMLE"):
+        assert tails.loc["share of g below 0.1", column] == 0.0
+        assert tails.loc["share of g above 0.9", column] == 0.0
+    # "because readiness still moves this g": nonzero witness that the design-based g is not
+    # an empty g, and that its ratios sit between the all-three fit and the flat C-TMLE g.
+    for arm in ("treated ESS / n", "control ESS / n"):
+        assert tails.loc[arm, "all-three TMLE"] < tails.loc[arm, "design-based TMLE"] < 0.95
     assert tails.loc["share of g below 0.1", "collaborative TMLE"] == 0.0
     assert tails.loc["share of g above 0.9", "collaborative TMLE"] == 0.0
     assert tails.loc["truncated fraction", "collaborative TMLE"] == 0.0
@@ -172,7 +195,7 @@ def check(namespace: dict[str, Any]) -> None:
     weak_tails = namespace["weak_tail_table"]
     plain_column, collaborative_column = "constant Q, plain", "constant Q, C-TMLE"
     for tail in ("share of g below 0.1", "share of g above 0.9"):
-        assert weak_tails.loc[tail, plain_column] == tails.loc[tail, "plain TMLE"]
+        assert weak_tails.loc[tail, plain_column] == tails.loc[tail, "all-three TMLE"]
         assert weak_tails.loc[tail, collaborative_column] == 0.0
     for arm in ("treated ESS / n", "control ESS / n"):
         assert weak_tails.loc[arm, collaborative_column] < 0.95
@@ -196,13 +219,19 @@ def check(namespace: dict[str, Any]) -> None:
     deferred = not_run.split("\ndeferred", 1)[1].split("\nunavailable", 1)[0]
     assert "sensitivity.simulated_confounding" in deferred
 
-    # Step 11, plain fit: the omitted-variable bound of the declared adjustment set.
-    plain_row = namespace["plain_row"]
-    assert plain_row["nu2"] > 10.0
-    assert 0.0 < plain_row["robustness value"] < 1.0
+    # Step 11: the omitted-variable bound on the reported fit, beside the all-three fit.
+    # "`nu2` explains the difference": the draw in g inflates nu2 and lowers the robustness
+    # value; sigma2 barely moves, so the witness is the nu2 gap itself.
+    bounds = namespace["bound_table"]
+    reported_bounds, plain_bounds = bounds["design-based TMLE"], bounds["all-three TMLE"]
+    assert plain_bounds["nu2"] > 10.0 and reported_bounds["nu2"] < 0.5 * plain_bounds["nu2"]
+    assert abs(reported_bounds["sigma2"] - plain_bounds["sigma2"]) < 0.05
+    assert 0.0 < plain_bounds["robustness value"] < reported_bounds["robustness value"] < 1.0
+    assert plain_bounds["confidence-limit value"] < reported_bounds["confidence-limit value"]
     sensitivity_output = stored_output(NOTEBOOK, "sensitivity")
     assert sensitivity_output.count("nu2") == 1
-    assert f"{plain_row['nu2']:.3f}" in sensitivity_output
+    for column in (reported_bounds, plain_bounds):
+        assert f"{column['nu2']:.3f}" in sensitivity_output
     assert "refused" not in sensitivity_output
 
     # Step 11, collaborative fit: the stress surface starts from the C-TMLE estimate, and

@@ -3,3 +3,5 @@ ate: 1.000000
 att: 1.000000
 atc: 1.000000
 observed score mean 1.501, SD 2.128, min -9.25, max 12.53
+population nu2, all three covariates: 10.480
+population nu2, design-based set (W1, W3): 4.357
