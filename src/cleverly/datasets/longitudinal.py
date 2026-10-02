@@ -265,8 +265,8 @@ def _check_step_rule(
     lower, upper = panel
     if arm not in (0.0, 1.0):
         raise ValueError(
-            f"the rule returned {arm!r} at l2={0.5 * (lower + upper)!r}; a longitudinal "
-            "fit takes a binary treatment at every node, so d_2 must return 0 or 1"
+            f"the rule returned {arm!r} at l2={0.5 * (lower + upper)!r}; this law's "
+            "treatment is binary at every node, so d_2 must return 0 or 1"
         )
     arms = np.asarray(rule2(np.asarray(grid)), dtype=float).reshape(-1)
     if arms.shape[0] != np.asarray(grid).shape[0]:

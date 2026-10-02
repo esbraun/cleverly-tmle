@@ -10,7 +10,7 @@ import pytest
 import sklearn.linear_model
 from sklearn.base import BaseEstimator
 
-from cleverly import AssessmentStatus, CapabilityError, PositivityWarning, load
+from cleverly import AssessmentStatus, CapabilityError, DataError, PositivityWarning, load
 from cleverly.estimators import DRTMLE
 from cleverly.estimators._nuisance import Propensity
 from cleverly.estimators.reduced import MissingOutcomeReducedSet
@@ -878,3 +878,56 @@ class TestTheJointRowCountsTheTruncationTheEstimatorApplies:
         assert "P(A=a,Delta=1|W) truncated to" in text
         assert f"[{report.bounds[0]:.4g}, {report.bounds[1]:.4g}] x " in text
         assert f"[{report.nuisance_bound:.4g}, 1], factor by factor" in text
+
+
+def _missing_treatment_frame(column: str) -> pd.DataFrame:
+    """A complete 100-row frame with a binary treatment stored as ``column``."""
+    rng = np.random.default_rng(29)
+    w1 = rng.normal(size=100)
+    a = rng.binomial(1, 0.5, size=100)
+    y = rng.binomial(1, 1.0 / (1.0 + np.exp(-(0.2 + 0.8 * a + 0.4 * w1)))).astype(float)
+    treatment: np.ndarray = (
+        a.astype(float) if column == "float" else np.where(a == 1, "t", "c").astype(object)
+    )
+    return pd.DataFrame({"W1": w1, "A": treatment, "Y": y})
+
+
+_MISSING_TREATMENT_CASES = [
+    pytest.param("float", np.nan, "missing or non-finite", id="numeric"),
+    pytest.param("object", None, "contains missing values and is not numeric", id="labels"),
+]
+
+
+def _missing_treatment_fit(frame: pd.DataFrame) -> None:
+    NeverFit.calls = 0
+    DRTMLE(
+        cross_fit=False,
+        estimands=("ate",),
+        simultaneous=False,
+        **never_fit_learners(),
+        reduced_outcome_learner=NeverFit(),
+        reduced_treatment_learner=NeverFit(),
+    ).fit(frame, outcome="Y", treatment="A", covariates=["W1"])
+
+
+@pytest.mark.parametrize(("column", "missing", "match"), _MISSING_TREATMENT_CASES)
+def test_a_missing_treatment_value_is_refused_before_any_learner(
+    column: str, missing: object, match: str
+) -> None:
+    """No keyword declares a missing treatment, so the data container refuses it."""
+    frame = _missing_treatment_frame(column)
+    frame.loc[3, "A"] = missing
+    with pytest.raises(DataError, match=match):
+        _missing_treatment_fit(frame)
+    assert NeverFit.calls == 0
+
+
+@pytest.mark.parametrize(("column", "missing", "match"), _MISSING_TREATMENT_CASES)
+def test_a_complete_treatment_reaches_the_learners(
+    column: str, missing: object, match: str
+) -> None:
+    """The control: the same frame without the missing value reaches a learner fit."""
+    frame = _missing_treatment_frame(column)
+    with pytest.raises(AssertionError, match="before any learner is fitted"):
+        _missing_treatment_fit(frame)
+    assert NeverFit.calls > 0

@@ -138,7 +138,7 @@ class TestTheQuadratureIsRight:
         claim in the longitudinal section is checked against this function, that number
         would move the reference rather than the estimate, and both sides would agree.
         """
-        with pytest.raises(ValueError, match=r"split|binary treatment"):
+        with pytest.raises(ValueError, match=r"split|binary at every node"):
             longitudinal_rule_truth(1.0, rule)
 
     def test_the_check_does_not_move_the_answer(self) -> None:
