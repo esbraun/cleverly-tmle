@@ -33,7 +33,7 @@ zero-row equivalence artifact records the absence of a comparator.
 At `exceptional` the truth of every replication is 0.512179, because the effect is zero for every
 unit. At `weak_blip` the truth varies with the fitted rules.
 
-The [RM30 record](../../roadmap.md#rm30-learned-policy-value-evaluation) names the commit that
+The [RM30 record](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm30-learned-policy-value-evaluation) names the commit that
 holds the declaration. That declaration fixed the laws, the budget, the seeds and the reading
 table before any run.
 

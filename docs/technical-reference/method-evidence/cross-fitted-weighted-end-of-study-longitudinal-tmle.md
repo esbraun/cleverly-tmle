@@ -170,7 +170,7 @@ weights, clustering, or other longitudinal weight laws. The
 `double_robustness/static__both_wrong` control was red before the update and stays red, because its
 bias interval overlaps the discrimination boundary. The study therefore fails five verdicts. Two
 are property cells, and three are the regimen-mean comparisons that conclude underpowered.
-[RM18](../../roadmap.md#rm18-red-property-cells-after-the-fold-scale-and-law-changes) records each
+[RM18](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm18-red-property-cells-after-the-fold-scale-and-law-changes) records each
 one. The [red-cell ledger](red-cells.md) lists each red cell of this study with the roadmap ask that
 owns it.
 

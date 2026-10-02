@@ -136,7 +136,7 @@ RM19 measured the prime against R on 2,000 fresh draws of the binary `treatment_
 from this package. Averaged over the settings of the other three factors, the prime moved the mean `ate` by
 `-0.000534`. Its interval at the level 0.998 runs from `-0.001298` to `0.000231`. The whole
 difference between this package and R reads `no increment at the declared resolution`.
-{ref}`What the localization design found <what-the-localization-design-found>` gives each
+[What the localization design found](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#what-the-localization-design-found) gives each
 reading.
 
 ## How many rounds

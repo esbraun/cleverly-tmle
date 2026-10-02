@@ -123,7 +123,7 @@ outcome scaler is already the identity.
 
 These cells now measure a diagnostic that the package does not publish as inference. Every
 `strategy="oat"` fit takes the `"generated_design_plugin"` status, which
-[RM20](../../roadmap.md#rm20-intervals-outside-every-claimed-contract) decides. `ci`, `pvalue`,
+[RM20](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm20-intervals-outside-every-claimed-contract) decides. `ci`, `pvalue`,
 and `std_error` refuse, and the fit reports `plugin_std_error` and `plugin_interval` instead.
 
 The `std_error`, `ci_lower`, `ci_upper`, and `covered` columns of this study read those two

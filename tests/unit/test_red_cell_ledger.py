@@ -88,7 +88,7 @@ def test_every_owner_is_an_id_the_roadmap_lists() -> None:
     ids = owner_ids()
     assert len(ids) == len(set(ids)), f"the roadmap's id column repeats a name: {ids}"
     unknown = sorted(set(OWNERS.values()) - set(ids))
-    assert unknown == [], f"these owners are not in RM18's id column: {unknown}"
+    assert unknown == [], f"these owners are not in the roadmap's id column: {unknown}"
 
 
 def test_the_ledger_has_no_findings(rows: list[RedRow]) -> None:

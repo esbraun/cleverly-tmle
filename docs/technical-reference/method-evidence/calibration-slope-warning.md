@@ -29,7 +29,7 @@ zero-row equivalence artifact records the absence of a comparator.
 | `power` laws | an unpenalized logistic model on $W_1, W_2$ with its logit doubled, at $\operatorname{logit} g_0 = 0.4 W_1 - 0.2 W_2$, and the same model with its logit halved, at $\operatorname{logit} g_0 = W_1 - 0.5 W_2$. Their limit slopes are 1/2 and 2 |
 | Monte Carlo inference | exact 99% intervals around every rate, and 99% intervals around every primary endpoint |
 
-The RM15 plan in the [roadmap](../../roadmap.md#rm15-calibration-slope-warning-rule) fixed the
+The RM15 plan in the [roadmap](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm15-calibration-slope-warning-rule) fixed the
 laws, the budget, the seeds, the margins and the red-cell route before any run.
 
 ## Accuracy against known truth

@@ -156,11 +156,11 @@ The ladder's n = 2,000 rung is the other sample of the same regime, and it does 
 excess. Its difference from the primary rows runs -0.002581 to 0.004917, and the pooled comparison
 covers zero. The overall evidence is inconclusive. These rows establish neither an added bias nor
 its absence.
-{ref}`What the one-sided reading found <what-the-one-sided-reading-found>` gives each interval.
+[What the one-sided reading found](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#what-the-one-sided-reading-found) gives each interval.
 
 RM18 design SL ran the two outer rungs of each regime at 73,000 replications.
 A declaration before the run fixed that budget and the reading rule.
-[RM33](../../roadmap.md#rm33-reused-simulation-seeds) replaces collided sample seeds through audited targeted reruns.
+[RM33](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm33-reused-simulation-seeds) replaces collided sample seeds through audited targeted reruns.
 The current artifacts retain every unaffected row and recompute the complete analysis.
 
 The 99% interval of each fitted slope lies below zero, and both slope rows pass.
@@ -175,7 +175,7 @@ the noise floor`. Both labels take the same route in the ledger.
 
 The both-wrong control's slope interval covers zero, and the control passes. Each rung's coverage
 verdict stays at 600 replications. A slope below zero shows the direction of the change, and it
-does not identify the exponent. {ref}`What design SL found <what-design-sl-found>` gives each
+does not identify the exponent. [What design SL found](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#what-design-sl-found) gives each
 original interval and what the readings do not show.
 `tests/unit/test_rm18_slopes_reading.py` independently computes the current full-rung bias intervals and checks each reading.
 The composite manifests separate inherited evidence from the replacement fits and complete analysis.

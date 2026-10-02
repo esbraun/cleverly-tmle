@@ -81,7 +81,7 @@ the declared resolution`. Of the four named choices that the design moves from R
 only the two-arm tilt geometry has a main effect whose interval excludes 0: `0.000833` to
 `0.001718`, at the level 0.998. The step guards of R also move the estimate of R itself. The
 declared rule applies no localization label when the primary reading finds no
-increment. {ref}`What the localization design found <what-the-localization-design-found>` gives
+increment. [What the localization design found](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#what-the-localization-design-found) gives
 each interval.
 
 This is also what limits the paired calibration test in that regime. The published resolution of
@@ -242,8 +242,8 @@ is shared by these two implementations at this size; it does not identify the so
 exploratory between-implementation signal, not an established implementation defect: the interval
 carries no multiplicity adjustment, and the Bonferroni interval for this comparison covers zero.
 
-{ref}`What the one-sided reading found <what-the-one-sided-reading-found>` gives each
-interval. [RM19](../../roadmap.md#rm19-one-sided-robustness-bias-increment-in-dr-tmle) read the
+[What the one-sided reading found](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#what-the-one-sided-reading-found) gives each
+interval. [RM19](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm19-one-sided-robustness-bias-increment-in-dr-tmle) read the
 increment again on 2,000 fresh draws at `n = 3,000`, under a design declared before its runs. The
 99% interval of `cleverly` minus R runs from `-0.000023` to `0.001155`, and the declared reading is
 `no increment at the declared resolution`. That interval also covers the committed point of
@@ -252,7 +252,7 @@ increment again on 2,000 fresh draws at `n = 3,000`, under a design declared bef
 At `n = 1,500`, the paired increment on fresh draws runs from `0.0010` to `0.0031`, at the level
 1 - 0.01/3. The Part C rule labels it `increment`, and no route reads the label. The three cells stay red, and their ledger owner
 did not change.
-{ref}`What the localization design found <what-the-localization-design-found>` gives each
+[What the localization design found](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#what-the-localization-design-found) gives each
 reading and what it does not show. The per-draw rows are in
 [`tests/diagnostics/rm19_one_sided_increment/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm19_one_sided_increment).
 

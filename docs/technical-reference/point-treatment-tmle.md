@@ -444,7 +444,7 @@ exact standard error on one exact law.
 A user-written `Intervention` class declares `density_kind = "known"` as an attribute. `TMLE`
 refuses the class before any learner when that attribute is missing, `None`, or `"estimated"`.
 Code cannot inspect a closure, so a false `"known"` declaration on a rule or a class still fits.
-[RM28](../roadmap.md#rm28-declared-densities-of-user-written-interventions) records the decision.
+[RM28](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm28-declared-densities-of-user-written-interventions) records the decision.
 
 `Stochastic` asks for this condition as a declaration: pass `density_kind="known"`. The package
 refuses an undeclared density, and a density declared `"estimated"`, when the regime is built.
@@ -520,7 +520,7 @@ no full-refit bootstrap. `refuse_learned_rule_composition` in
 [`interventions/learned.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/learned.py)
 refuses every other composition before any learner, in the order that the table gives. A refusal
 that no setting repairs comes before a refusal whose remedy is a setting, as the
-[RM24](../roadmap.md#rm24-refusals-after-the-nuisance-fit) order rule requires. For
+[RM24](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm24-refusals-after-the-nuisance-fit) order rule requires. For
 `LearnedRuleValue`, `CausalStudy.identify` runs the rows that the data decide, and
 `IdentifiedEffect.estimate` runs the rows that the settings decide.
 
