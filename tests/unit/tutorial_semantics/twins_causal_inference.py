@@ -143,7 +143,11 @@ def check_stored() -> None:
     assert ".assess(" in code["diagnostics"] and "run_all" not in code["diagnostics"]
     diagnostics = stored_output(NOTEBOOK, "diagnostics")
     assert "needs attention: ()" in diagnostics
-    assert "passed  1      validation.score_equations" in diagnostics
+    # The status table prints only the rows that ran or run on request.
+    assert re.search(r"validation\s+score_equations\s+passed", diagnostics)
+    assert re.search(r"sensitivity\s+benchmark\s+deferred", diagnostics)
+    assert "unavailable" not in diagnostics and "not_applicable" not in diagnostics
+    assert "simulated_confounding" not in diagnostics
     # "The rule flags neither model on this pair sample."
     assert "VERDICT: nuisance fits look reasonable." in diagnostics
     assert "more extreme than the observed rates (" not in diagnostics
@@ -183,7 +187,7 @@ def check_stored() -> None:
     lower = _number(scales, r"to its lower limit: (\S+)")
     assert math.isclose(upper, lower, abs_tol=1e-4)
     ratio = _number(scales, r"risk ratio\s+(\S+)")
-    evalue = _number(diagnostics, r"evalue\s+point=(\S+),")
+    evalue = _number(diagnostics, r"evalue: point=(\S+),")
     assert math.isclose(ratio + math.sqrt(ratio * (ratio - 1)), evalue, abs_tol=0.1)
 
     # LTMLE: the seeded relations the reading states, printed so this module can read them.
@@ -191,7 +195,17 @@ def check_stored() -> None:
     assert "LTMLE interval contains the exact truth: True" in ltmle
     assert "LTMLE interval contains the naive contrast: True" in ltmle
     assert "method=sequential_method" in code["semisynthetic-fit"]
+    # "The interval contains the exact truth on 55 of the 60 draws and the naive contrast on 56
+    # of them": both counts come from the committed sweep summary.
+    sweep = (EXAMPLES.parents[1] / _PROBE / "summary.log").read_text(encoding="utf-8")
+    assert "interval contains the truth: 55/60" in sweep
+    assert "interval contains the naive contrast: 56/60" in sweep
+    assert re.search(r"exact truth on 55\s+of the 60 draws and the naive contrast on 56", prose)
     long_diagnostics = stored_output(NOTEBOOK, "ltmle-diagnostics")
     assert "1 role omission(s) are recorded" in long_diagnostics
+    # "The status table lists the four diagnostics that run."
+    long_status = long_diagnostics.split("\n\n", 1)[0]
+    assert len(re.findall(r"(?m)^\w+\s+(passed|completed|warning|deferred)\s*$", long_status)) == 4
+    assert "unavailable" not in long_diagnostics and "not_applicable" not in long_diagnostics
     assert len(re.findall(r"solver\s+True\s+0\.0000", long_diagnostics)) == 4
     assert not _MACHINE_NOISE.search(long_diagnostics)
