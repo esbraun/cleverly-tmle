@@ -201,14 +201,14 @@ anchor in a notebook includes its step number, such as `#step-9-reuse-the-same-o
 Run the sensitivity analysis that the table gives for the fit of the page. Each analysis runs on
 that fit and returns numbers. The
 [sensitivity section](../technical-reference/validation-methods.md#sensitivity-to-untestable-assumptions)
-of the technical reference derives each one.
+of the technical reference describes each one and says which of them is a bound.
 
 | kind of fit | the sensitivity analysis to run | how to read it |
 | --- | --- | --- |
-| point-treatment TMLE or CV-TMLE, on a law whose true propensity stays away from 0 and 1 | `robustness_value()`, `benchmark()`, and `omitted_confounding()`, with the default $\nu^2$ estimator | a bound. $\nu^2$ is the second moment of the Riesz representer, and it is finite only when the inverse propensity has a finite mean |
-| DR-TMLE | `evalue()` | an approximate E-value. The output prints its conversion from the standardized difference to a risk ratio. The E-value reads only the estimate and its interval, so it does not test the doubted assignment model |
+| point-treatment TMLE or CV-TMLE, on a law whose true propensity stays away from 0 and 1 | `robustness_value()`, `benchmark()`, and `omitted_confounding()`, with the default $\nu^2$ estimator | a bound. $\nu^2$ is the second moment of the Riesz representer, and it is finite only when $1/g$ and $1/(1 - g)$ both have finite means |
+| DR-TMLE | `evalue()` | an approximate E-value. The output prints its chain: the standardized mean difference, Chinn's step to an odds ratio, and the common-outcome square root to a risk ratio. The E-value reads only the estimate and its interval, so it does not test the doubted assignment model |
 | C-TMLE | `simulated_confounding()` on the collaborative fit. Read the omitted-variable bound and the interval on the plain TMLE fit of the declared adjustment set | the surface shows movement under one latent cause. It is not a bound |
-| MSM projection | the omitted-variable bound on the arm contrasts of the saturated fit | a bound on each arm contrast, not on the MSM coefficient |
+| MSM projection | `robustness_value(estimand="ate[medium vs low]")` and its sibling on the multi-arm `ATE(reference="low")` fit, whose contrasts share the influence curves of the saturated MSM coefficients | a bound on each arm contrast, not on the MSM coefficient. The `msm` axis itself is refused |
 | a fit with missing outcomes | `missingness()` and `tipping_gamma()` | the tilt of the unobserved outcomes at which the estimate reaches its null |
 | longitudinal TMLE, with or without a time-to-event outcome | refit without one recorded covariate at a time, and print each move in standard errors | a benchmark, not a bound. Each move is signed and specific to the dropped covariate |
 | a regime, shift, or incremental intervention | `simulated_confounding()` with a treatment-only grid, such as `ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,))` | the surface shows movement under one latent cause. It is not a bound. A fit that declares `q_bounds` needs the treatment-only grid |
