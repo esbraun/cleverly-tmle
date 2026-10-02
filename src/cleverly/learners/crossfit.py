@@ -102,7 +102,7 @@ _IN_SAMPLE_REMEDY = "fit in sample with cross_fit=False on the engine (CrossFitt
 #: The sentence that ends each method-layer fold-policy refusal that offers an in-sample
 #: fit. :class:`~cleverly.CrossFitting` and :class:`~cleverly.TMLEMethod` refuse at
 #: construction, before they see the estimand, so they cannot drop that offer for the one
-#: estimand that has no in-sample fit (roadmap row RM30). This sentence names its remedy.
+#: estimand that has no in-sample fit. This sentence names its remedy.
 _LEARNED_RULE_METHOD_CLAUSE = (
     "LearnedRuleValue has no in-sample fit (X11 (a) in docs/roadmap.md), so for it use "
     "CrossFitting(enabled=True, fold_evaluation=True) with n_folds of at least 2"
@@ -276,11 +276,10 @@ def _cross_fit_policy_refusal(
         The caller's spelling of the cross-fitting switch, ``"enabled"`` on
         :class:`~cleverly.CrossFitting` and ``"cross_fit"`` on the engine.
     learned_rule : bool or None, default=None
-        Whether the fit estimates the learned-rule value, which has no in-sample fit
-        (roadmap row RM30). The engine knows and passes a bool, and ``True`` drops every
-        in-sample alternative. The two method-layer callers cannot see the estimand and
-        leave ``None``, so each reason that offers an in-sample fit ends with the
-        learned-rule remedy.
+        Whether the fit estimates the learned-rule value, which has no in-sample fit. The engine
+        knows and passes a bool, and ``True`` drops every in-sample alternative. The two
+        method-layer callers cannot see the estimand and leave ``None``, so each reason that offers
+        an in-sample fit ends with the learned-rule remedy.
 
     Returns
     -------

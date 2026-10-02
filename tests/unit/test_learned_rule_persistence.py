@@ -1,4 +1,4 @@
-"""A learned-rule fit keeps its rule, its record and its estimate (roadmap row RM30).
+"""A learned-rule fit keeps its rule, its record and its estimate.
 
 The realized rule of each row, the per-fold summaries, the folds and the seeds survive
 ``save`` and ``cleverly.load``.  ``retarget`` reads the saved rule rather than learning

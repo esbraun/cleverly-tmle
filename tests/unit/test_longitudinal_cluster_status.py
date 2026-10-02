@@ -1,6 +1,6 @@
 """An in-sample clustered ``LTMLE`` fit withholds its interval below 40 clusters.
 
-Roadmap row RM26 applies the RM20 few-cluster decision to the longitudinal path. A fit
+The point-treatment few-cluster status applies to the longitudinal path too. A fit
 with fewer than :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters with
 positive weight mass stamps ``"few_cluster_plugin"`` on every mean, contrast and MSM
 coefficient, and F22 holds the route that reopens it. ``LTMLE`` refuses ``id=`` above one

@@ -568,7 +568,7 @@ KINDS: dict[str, Kind] = {
     "ctmle_oat": _kind(fit_ctmle_oat, *_LIVE),
     "msm": _kind(fit_msm, *_LIVE),
     "regime": _kind(fit_regime, *_LIVE),
-    # A refit relearns the rules, so no refutation or bound row answers (RM30).
+    # A refit relearns the rules, so no refutation or bound row answers.
     "learned_rule": _kind(fit_learned_rule, *_READ, "truncation_curve"),
     "weighted": _kind(fit_weighted, *_ARM),
     "stratified": _kind(fit_stratified, *_ARM),

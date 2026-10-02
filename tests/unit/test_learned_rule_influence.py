@@ -1,4 +1,4 @@
-r"""The influence curve of the learned-rule value, row by row (roadmap row RM30).
+r"""The influence curve of the learned-rule value, row by row.
 
 Montoya, van der Laan, Skeem and Petersen (2023), Section 4.2, centre each fold's working
 curve at that fold's own estimate:

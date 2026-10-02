@@ -118,7 +118,7 @@ CONTRACTION_REPLICATES = (2_400, 800, 2_400)
 #: :data:`CONTRACTION_REPLICATES` carries a rule written before the run, which reads the law's
 #: bias scale and the control's spread and names what it refuses to read.  The coverage budget
 #: rose as a side effect nobody declared, and an undeclared budget cannot be told apart from one
-#: chosen after reading the verdict.  ``docs/roadmap.md`` RM18 refuses that.  So the extra draws
+#: chosen after reading the verdict.  ``docs/roadmap.md`` at ``4ce96cda`` RM18 refuses that.  So the extra draws
 #: serve the slope alone, and a future change to :data:`CONTRACTION_REPLICATES` must leave this
 #: number where it is unless it means to restate the rungs' coverage claims.
 CONTRACTION_VERDICT_REPLICATES = 800

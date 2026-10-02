@@ -1,4 +1,4 @@
-"""A compact law, learners and fits for the learned-rule witnesses (roadmap row RM30).
+"""A compact law, learners and fits for the learned-rule witnesses.
 
 The law is the ``non_exceptional`` law that the RM30 declaration names:
 ``W1 ~ U(-1, 1)``, ``W2 ~ Bernoulli(0.5)``, ``logit g0 = 0.3 W1 - 0.2 W2`` and

@@ -10,7 +10,7 @@ defines a data-adaptive target.
 
 A callable can close over any estimate, and no code can inspect a closure, so the status of
 the function is a declaration: ``Rule(rule_kind=...)``, or a ``density_kind`` attribute on a
-user-written class.  RM28 in ``docs/roadmap.md`` records the defect.  This module pins these
+user-written class.  RM28 in ``docs/roadmap.md`` at ``4ce96cda`` records the defect.  This module pins these
 things:
 
 * the rule declaration is required, ``"estimated"`` is refused, and a rule that is not
@@ -142,7 +142,7 @@ ESTIMATED_RULE = _ESTIMATED_RULE
 #: ``DynamicRegimen`` share the text, so both refusals carry both sentences.
 ROUTES = (
     "For a point treatment, LearnedRuleValue estimates the average value of rules learned "
-    "inside each training fold (RM30).",
+    "inside each training fold (docs/technical-reference/point-treatment-tmle.md, Learned rules).",
     "A learned longitudinal regimen has no supported path (X11 in docs/roadmap.md).",
 )
 UNDECLARED_CLASS = _UNDECLARED_INTERVENTION

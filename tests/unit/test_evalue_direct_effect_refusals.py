@@ -1,4 +1,4 @@
-"""Every E-value request on a controlled-direct-effect fit refuses (roadmap row RM21).
+"""Every E-value request on a controlled-direct-effect fit refuses.
 
 A controlled direct effect is identified under two assumptions of no unmeasured confounding: one
 for the treatment and the outcome, and one for the intermediate variable and the outcome. This

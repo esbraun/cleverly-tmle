@@ -8,7 +8,7 @@ carries a further term for the pathwise derivative of :math:`h`, the reported cu
 have it, and the reported standard error can be too small; its direction is not universal.
 
 A callable can close over any estimate, and no code can inspect a closure, so the status of
-the weight is a declaration: ``MSM(weights_kind=...)``.  RM13 in ``docs/roadmap.md`` records
+the weight is a declaration: ``MSM(weights_kind=...)``.  RM13 in ``docs/roadmap.md`` at ``4ce96cda`` records
 the defect.  This module pins seven things:
 
 * the declaration is required, and ``"estimated"`` is refused, with their messages;
@@ -184,7 +184,7 @@ class TestTheDeclarationIsRequired:
 class TestThePositionalOrderIsUnchanged:
     """The declarations are the last fields, so ``link`` stays the fourth positional argument.
 
-    ``weights_kind`` follows ``doses``, and ``design_kind`` (RM27) follows ``weights_kind``.
+    ``weights_kind`` follows ``doses``, and ``design_kind`` follows ``weights_kind``.
     """
 
     def test_the_declaration_is_the_last_field(self) -> None:

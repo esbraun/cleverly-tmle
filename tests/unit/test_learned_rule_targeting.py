@@ -1,4 +1,4 @@
-r"""The pooled update of the learned-rule value, against its longhand (roadmap row RM30).
+r"""The pooled update of the learned-rule value, against its longhand.
 
 Van der Laan and Luedtke (2015), Appendix B, fit one :math:`\varepsilon` on the pooled
 validation rows, with the clever covariate :math:`\mathbb 1\{A = d_{nv}(W)\} / g_{nv}(A \mid W)`

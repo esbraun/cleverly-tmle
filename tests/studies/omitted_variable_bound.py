@@ -1,4 +1,4 @@
-"""Registered evidence for the standard error of the omitted-variable bound (RM22).
+"""Registered evidence for the standard error of the omitted-variable bound.
 
 The subject is not an estimator of a causal parameter but the one-sided limits of the
 bias-adjusted bounds of Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026), Theorem 4.
@@ -12,7 +12,7 @@ is a closed form: ``E[g / (1 - g)] = E[exp(eta)] = exp(0.07)`` for the linear in
 variance 0.14, and ``P(A = 1) = 1/2`` by symmetry, so ``nu^2`` is ``4 exp(0.07)`` for the ATT and
 the ATC and ``2 + 2 exp(0.07)`` for the ATE, and ``sigma^2 = 1``.
 
-The RM22 plan in ``docs/roadmap.md`` declared this study, its margins, its budget and its
+The RM22 plan in ``docs/roadmap.md`` at ``4ce96cda`` declared this study, its margins, its budget and its
 red-cell route before any run.
 """
 

@@ -9,7 +9,7 @@ curve does not have it.
 
 A callable can close over any estimate, and no code can inspect a closure, so the status of
 the design is a declaration: ``MSM(design_kind=...)``.  ``MSM.linear`` writes none: the
-exact type of the design it builds reads as known.  RM27 in ``docs/roadmap.md`` records the
+exact type of the design it builds reads as known.  RM27 in ``docs/roadmap.md`` at ``4ce96cda`` records the
 defect.  This module pins these things:
 
 * the declaration is required, ``"estimated"`` is refused, and a design that is not callable
@@ -712,7 +712,7 @@ def centre_fit() -> Any:
 
 
 #: The reported SE over the exact estimated-centre SE for the intercept must stay below
-#: this.  The plan measured 0.8927 before it chose the bound (RM27 in docs/roadmap.md).  A
+#: this.  The plan measured 0.8927 before it chose the bound (RM27 in docs/roadmap.md at 4ce96cda).  A
 #: reported curve that carried the centre term would give 1.  The bound claims an
 #: understatement of more than 5 percent and pins no digit; the approx line records the
 #: measured value.

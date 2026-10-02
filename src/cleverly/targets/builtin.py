@@ -143,7 +143,7 @@ _REGIME_ID = Identification(
 )
 
 
-#: The learned-rule value (RM30).  Its assumptions are the conditions C1 to C6 of the
+#: The learned-rule value.  Its assumptions are the conditions C1 to C6 of the
 #: contract in ``docs/roadmap.md`` and ``docs/technical-reference/point-treatment-tmle.md``.
 #: The data cannot confirm C2 to C4.  No assumption opens with the two-arm positivity
 #: prefix, because a study binds that sentence to an arm scope and this target has none.

@@ -587,7 +587,7 @@ class TestRegimens:
         ``Regimen`` -- so which class ``resolve_regimens`` returns *is* the statement
         about whether the followers are a fixed slice or a set this sample determines.
         A bare callable is no longer broadcast: it carries no declaration, and
-        ``tests/unit/test_regimen_rule_declarations.py`` pins its refusal (RM28).
+        ``tests/unit/test_regimen_rule_declarations.py`` pins its refusal.
         """
         rule = DynamicRegimen("dynamic", (lambda history: history["W"],) * 2, rule_kind="known")
         resolved = resolve_regimens({"dynamic": rule}, 2)

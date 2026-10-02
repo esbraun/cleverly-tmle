@@ -3,7 +3,7 @@
 ``RegimeMean`` and ``RegimeContrast`` hold treatment levels and regimes,
 ``ModifiedTreatmentPolicy`` and ``ModifiedTreatmentPolicyEffect`` hold ``Shift`` objects, and
 ``IncrementalMean`` and ``IncrementalEffect`` hold ``Incremental`` objects.  Before RM14 in
-``docs/roadmap.md``, no field checked its items.  A mixed request passed ``identify``, and
+``docs/roadmap.md`` at ``4ce96cda``, no field checked its items.  A mixed request passed ``identify``, and
 ``estimate`` refused it, crashed with ``AttributeError`` after a learner fit, or read a
 ``Shift`` in ``IncrementalEffect`` as an odds multiplier and reported a number.  This module
 pins these things:

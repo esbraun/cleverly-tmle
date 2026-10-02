@@ -712,7 +712,7 @@ class TestOneInputEarnsOneReasonAtBothLayers:
     cross-fitting switch ``cross_fit`` and the declaration spells it ``enabled``; the
     reason names the spelling its caller wrote and is otherwise identical.  The one
     other difference: the declaration cannot see the estimand, so a reason that offers
-    an in-sample fit ends there with the learned-rule clause (roadmap row RM30).
+    an in-sample fit ends there with the learned-rule clause.
     """
 
     @pytest.mark.parametrize(

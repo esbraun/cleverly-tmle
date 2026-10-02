@@ -1,7 +1,7 @@
 """Clustered fits withhold their interval at unequal cross-fitted sizes and with few clusters.
 
-Roadmap row RM20 decides two clustered statuses for ``TMLE`` and ``DRTMLE``, and F22 holds
-the route that reopens each one.
+The status table of ``docs/technical-reference/inference.md`` gives two clustered statuses for
+``TMLE`` and ``DRTMLE``, and F22 holds the route that reopens each one.
 
 ``"unequal_cluster_plugin"``
     A cross-fitted fit whose clusters hold different numbers of rows or, on a weighted

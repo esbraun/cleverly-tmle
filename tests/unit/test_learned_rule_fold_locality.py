@@ -1,4 +1,4 @@
-"""No learned rule at a row comes from a fit that saw that row (roadmap row RM30).
+"""No learned rule at a row comes from a fit that saw that row.
 
 The rule of fold ``v`` is the plug-in rule of the outcome regression fitted on the
 training complement of ``v``.  A row spy records the training rows of every outcome fit,

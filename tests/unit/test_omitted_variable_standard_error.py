@@ -1,4 +1,4 @@
-r"""The standard error of the omitted-variable bound, on the exact finite laws (RM22).
+r"""The standard error of the omitted-variable bound, on the exact finite laws.
 
 The bound's one-sided limits read the curve of :math:`\hat\nu^2` through ``psi_max_bias``.
 For the ATT and the ATC, the representer and :math:`m(O, \alpha)` both divide by the share

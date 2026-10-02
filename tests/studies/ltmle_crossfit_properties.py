@@ -252,7 +252,7 @@ class FirstNodeStratifiedLTMLE(LTMLE):
     and it used to stratify on the first treatment node.
 
     Nothing in a registered run reaches this class, and no committed row was produced by it.
-    It exists so the attribution in ``docs/roadmap.md`` RM18 is reproducible from this
+    It exists so the attribution in ``docs/roadmap.md`` at ``4ce96cda`` RM18 is reproducible from this
     repository: the ``crossfit_overfitting/cross_fitted_ltmle`` 2x2 needs the retired arm,
     and a diagnostic whose second arm came from an uncommitted edit is a number a reader
     cannot redraw.

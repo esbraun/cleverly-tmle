@@ -1,7 +1,7 @@
-r"""The value of a treatment rule learned inside each training fold (roadmap row RM30).
+r"""The value of a treatment rule learned inside each training fold.
 
 A :class:`~cleverly.interventions.Rule` is a *known* function of the covariates, and a rule
-learned from the analysis sample is refused there (roadmap row RM28).  This module holds
+learned from the analysis sample is refused there.  This module holds
 the one learned-rule target the package estimates instead.  The target is data-adaptive:
 
 .. math::
@@ -480,12 +480,12 @@ def learned_rule_scheme_refusal(estimator: Any) -> str | None:
 
 
 def refuse_learned_rule_composition(data: CausalData, estimator: Any = None) -> None:
-    """Refuse a learned-rule request that the RM30 contract does not cover.
+    """Refuse a learned-rule request that the learned-rule contract does not cover.
 
     The checks follow the refusal table of the learned-rule contract in
-    ``docs/technical-reference/point-treatment-tmle.md``.  A refusal that no
-    setting repairs comes before a refusal whose remedy is a setting, as the RM24 order rule
-    requires.  So a caller who follows one remedy never meets an earlier refusal next.
+    ``docs/technical-reference/point-treatment-tmle.md``.  A refusal that no setting repairs comes
+    before a refusal whose remedy is a setting.  So a caller who follows one remedy never meets an
+    earlier refusal next.
 
     ======  ===================================================  ===================
     order   request                                              item

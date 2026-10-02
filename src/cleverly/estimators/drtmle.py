@@ -547,16 +547,16 @@ class DRTMLE(TMLE):
     def _inference_status(self, data: CausalData) -> InferenceStatus:
         """Withhold inference on a guarded fit whose weights are declared estimated.
 
-        The argument that an interval conditions on the weights concerns the efficient
-        influence curve, and no result read here gives the reduced-dimension regressions
-        of an estimated weight. So a fit with a non-empty ``guard`` and weights declared
-        estimated takes the ``"estimated_weight_plugin"`` status, as roadmap row RM20
-        decides. ``guard=()`` fits the ordinary TMLE, whose interval conditions on the
-        weights, so it keeps the ordinary status. The flag changes no number, so a status
-        and not a refusal records what it declares. The ordinary estimator's status is
-        resolved with this one through
-        :func:`~cleverly._inference_status.precedent_status`, so the order of the two
-        lives in the table.
+        The argument that an interval conditions on the weights concerns the efficient influence
+        curve, and no result read here gives the reduced-dimension regressions of an estimated
+        weight. So a fit with a non-empty ``guard`` and weights declared estimated takes the
+        ``"estimated_weight_plugin"`` status, as the status table of
+        ``docs/technical-reference/inference.md`` states. ``guard=()`` fits the ordinary TMLE, whose
+        interval conditions on the weights, so it keeps the ordinary status. The flag changes no
+        number, so a status and not a refusal records what it declares. The ordinary estimator's
+        status is resolved with this one through
+        :func:`~cleverly._inference_status.precedent_status`, so the order of the two lives in the
+        table.
 
         Parameters
         ----------

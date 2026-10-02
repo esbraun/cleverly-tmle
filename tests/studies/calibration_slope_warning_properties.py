@@ -1,4 +1,4 @@
-"""False-warning and detection rates of the calibration-slope rule (RM15).
+"""False-warning and detection rates of the calibration-slope rule.
 
 Two families.  ``warning_rate`` holds the laws on which a calibration warning is false: the
 known propensity at a weak and a strong signal, a correct unpenalized logistic model at a weak

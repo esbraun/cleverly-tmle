@@ -34,7 +34,7 @@ INFERENCE_PAGE = ROOT / "docs" / "technical-reference" / "inference.md"
 ROADMAP = ROOT / "docs" / "roadmap.md"
 
 #: The precedence order, written out. A fit that meets more than one status takes the first one
-#: here. The order is the one the roadmap's RM20 precedence table gives: the two collaborative
+#: here. The order is the row order of the status table in ``inference.md``: the two collaborative
 #: statuses, the estimated weight of a guarded DR-TMLE fit, and then the two cluster statuses.
 PRECEDENCE = (
     "working_mechanism_plugin",

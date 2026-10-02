@@ -1,6 +1,6 @@
 """The controlled-direct-effect fits that the sensitivity refusal tests share.
 
-Every sensitivity surface refuses a fit with an intermediate variable: the E-value (RM21), the
+Every sensitivity surface refuses a fit with an intermediate variable: the E-value, the
 omitted-variable bound, and the simulated-confounding replay. Their tests fit one law, the RM21
 probe law, and build the two results that only ``dataclasses.replace`` can make: a level with no
 intermediate column, and a column with no level. They live here once, so the surfaces are tested

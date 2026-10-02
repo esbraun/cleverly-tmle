@@ -1,4 +1,4 @@
-"""A guarded DR-TMLE fit with weights declared estimated withholds its interval (RM20).
+"""A guarded DR-TMLE fit with weights declared estimated withholds its interval.
 
 The argument that an interval conditions on the weights concerns the efficient influence
 curve. No result read here gives the reduced-dimension regressions of an estimated weight,

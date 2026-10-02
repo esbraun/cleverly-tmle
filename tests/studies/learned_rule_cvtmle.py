@@ -11,7 +11,7 @@ that is wrong, beside a correct treatment model, so its limit rule differs from 
 and the cell rests on Corollary 3 of that article.  The exceptional and weak-blip laws are the
 reporting study :mod:`tests.studies.learned_rule_cvtmle_boundary`.
 
-The RM30 section of ``docs/roadmap.md`` declares every quantity here before any run.
+The RM30 section of ``docs/roadmap.md`` at ``4ce96cda`` declares every quantity here before any run.
 :mod:`tests.studies._learned_rule_law` holds the laws, the fit and the truth harness that both
 studies share.
 """

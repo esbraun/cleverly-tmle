@@ -67,7 +67,7 @@ MISSPECIFIED_TREATMENT_COLUMNS = (1, 2)
 #: control that must fail to contract.  The ladder starts at the size the level cell is judged
 #: at and doubles twice, so its first rung reproduces that regime rather than a milder one.
 #:
-#: **The rung budgets.**  ``docs/roadmap.md`` RM18, "Design SL", declared them before the run
+#: **The rung budgets.**  ``docs/roadmap.md`` at ``4ce96cda`` RM18, "Design SL", declared them before the run
 #: (commit ``ebd3d1b9``).  The outer rungs of all three scenarios run 73,000 and the middle rung
 #: runs 600.  The rule is the one ``CONTRACTION_REPLICATES`` in ``drtmle_properties.py``
 #: declares, as ``tests/diagnostics/rm18_rung_cost/cost.csv`` evaluates it: the smallest

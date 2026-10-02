@@ -94,7 +94,7 @@ def test_preflight_keeps_subclass_estimand_override(
 def test_an_implementation_error_in_the_chain_propagates(
     rr_result: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The chain fits nothing, so only a ``ValueError`` of it is a refusal (RM24).
+    """The chain fits nothing, so only a ``ValueError`` of it is a refusal.
 
     A ``NotImplementedError`` is a defect in the chain, so it propagates rather than read
     as a refusal in the replay slot.

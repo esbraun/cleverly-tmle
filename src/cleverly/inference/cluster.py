@@ -539,8 +539,9 @@ def cluster_inference_status(
 ) -> InferenceStatus:
     """The inference status the fit's cluster labels, strata, and weights determine.
 
-    Two clustered settings report no interval, as roadmap row RM20 decides, and F22 holds
-    the route that reopens each one.
+    Two clustered settings report no interval, as the status table of
+    ``docs/technical-reference/inference.md`` states, and F22 holds the route that reopens each
+    one.
 
     ``"unequal_cluster_plugin"``
         A cross-fitted fit whose clusters hold different numbers of rows, or, when the

@@ -1,6 +1,6 @@
 """RM16: summaries, messages and argument checks that state what a fit records or a call needs.
 
-RM16 in ``docs/roadmap.md`` lists surfaces that misstated a recorded fact or what a call
+RM16 in ``docs/roadmap.md`` at ``4ce96cda`` lists surfaces that misstated a recorded fact or what a call
 accepts. This module holds the witnesses of the rows that RM16a corrects:
 
 * the missing-outcome ``DataError`` and its two sensitivity siblings name ``missingness=`` on
