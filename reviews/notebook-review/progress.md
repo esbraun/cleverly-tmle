@@ -21,13 +21,13 @@ not `done`. Findings live in `findings/<stem>.md`, verification in `verification
 
 | order | change | status | commit | gate |
 | --- | --- | --- | --- | --- |
-| 0 | plan commit and push | pending | | gate 2 done (7 required changes applied) |
-| S1 | fix A: strong-positivity propensity | pending | | |
-| S2 | library strings and docstrings | pending | | |
-| S3 | study regeneration (four studies) | pending | | |
-| S4 | narration harness | pending | | |
-| S5 | house rules and shared design | pending | | |
-| N1 | point-treatment-tmle | pending | | |
+| 0 | plan commit and push | done, pushed | 0893e590 (pre-registration) | gate 2 done (7 required changes applied) |
+| S1 | fix A: strong-positivity propensity | committed | 5bc92b5e | PASS (gate-S1.md) |
+| S2 | library strings and docstrings | committed | d0fc2e45, fix 753c9992 | PASS after fix (gate-S2.md) |
+| S3 | study regeneration (four studies) | committed (no red cell; primaries byte-identical) | 1f9cf969 | PASS (gate-S3.md) |
+| S4 | narration harness | committed | d546049f | PASS (gate-S4.md) |
+| S5 | house rules and shared design | committed | a8661971, fixes 84d26a6b | PASS after fixes (gate-S5.md) |
+| N1 | point-treatment-tmle | running | | |
 | N2 | cross-fitting | pending | | |
 | N3 | dr-tmle | pending | | |
 | N4 | interventions | pending | | |
@@ -69,3 +69,7 @@ not `done`. Findings live in `findings/<stem>.md`, verification in `verification
   ATT/ATC truth moves, the IPSI re-sweep on the new law, new PT truncation and DR support lessons,
   the reporting policy before regeneration, the pinned tests, and the four evidence pages.
 - 2026-10-01: Gate 2 required seven plan changes (S3 commands, red-cell route = stop and ask the user, pre-registration checklist, PT truncation witness, CF probe, IV-02 decision, probes directory); all applied. Plan committed and pushed as the pre-registration.
+- 2026-10-01: S1 committed 5bc92b5e (fast suite: 13494 passed, 4 expected tutorial failures). Smoke run (fold-evaluated, --replicates 10, outside the repo) wrote all seven artifacts; it exits 1 on underpowered performance gates, as expected at 10 replicates. Gate S1 running.
+- 2026-10-01: Gate S1 PASS. S3 declared runs started (serial, outputs outside the repo). S2 waits until S3 ends because manifests hash module sources; S4 runs now (tests only).
+- 2026-10-01: S3 committed 1f9cf969: four runs exit 0, primary artifacts byte-identical, only property cells moved, no red cell (declared stop not triggered). Cross-fitting notebook must update 48.8%/93.3% to the regenerated values. Gate S3 and S2 run concurrently (disjoint files).
+- 2026-10-01: S2 committed d0fc2e45 (fast suite 13502 passed, 4 expected tutorial failures). Stored outputs that now print changed strings: twins (maximal bias, BOTH), dr-tmle (contract line), survey-nonresponse (F20, deleted step), interventions (identification text); longitudinal-tmle prose quotes 'clustered and evidenced'.

@@ -1,0 +1,36 @@
+# Gate S2: commit d0fc2e45, library strings, docstrings, one warning
+
+Verdict: PASS with one small required fix (a user-guide example now emits the new warning next to text that contradicts it). Nothing numeric moved.
+
+## Checks run
+
+| check | result |
+| --- | --- |
+| `pytest -n 2` on `test_shift_submodel.py`, `test_omitted_variable_boundaries.py`, `test_drtmle_fit.py`, `test_drtmle_missing.py`, `test_causal_study.py`, `test_fold_policy_rules.py`, `test_diagnostic_summary_stability.py`, `test_msm_projection_weights.py` | 413 passed, 59 s |
+| `pytest -n 2` on `test_documentation_prose.py`, `test_documentation_api.py` (numpydoc) | 135 passed |
+| `pytest -n 2 -k "estimands or shift or policy"` on `test_documentation_runtime.py` | 2 passed, 2 new `PositivityWarning`s (see REQUIRED FIXES) |
+| `ruff check src tests docs`, `ruff format --check .` | clean |
+| `python -m tests.prose --path` on the three edited pages | only pre-existing advisories, none on a changed line |
+| `git grep` for the old strings (`maximal bias`, `residual variation in BOTH`, `residual treatment variation`, `identification boundary`, `clustered and evidenced`, `declared to secure`) under `src`, `docs/*.md`, `README.md` | none remain |
+| `git show d0fc2e45 -- src/cleverly/sensitivity/omitted_variable.py` | every hunk is a docstring, a comment, or an f-string literal |
+
+## CONFIRMED-OK
+
+1. **Omitted-variable statements are true of the code and the source.** By Cauchy-Schwarz on `bias = E[(g - g_s)(alpha - alpha_s)]`, `E[(g-g_s)^2] = sigma_s^2 cf_y` and `E[(alpha-alpha_s)^2] = nu_s^2 cf_d/(1-cf_d)` with `cf_d = (nu^2 - nu_s^2)/nu^2`, so `S = sqrt(sigma^2 nu^2)` is a scale multiplied by `|rho| sqrt(cf_y cf_d/(1-cf_d))`; `sqrt(0.81/0.1) = 2.846` at 0.9/0.9. `cf_d` as "the share of the Riesz representer's second moment that only the confounder adds" is exactly `1 - nu_s^2/nu^2`. The benchmark docstrings match `omitted_variable.py:1700-1705`: `cf_y = clip((r2_long - r2_short)/(1 - r2_long))`, `cf_d = clip((1 - r2_riesz)/r2_riesz)` with `r2_riesz = nu2_short/nu2_long`, which is `(nu2_long - nu2_short)/nu2_short`; the docstring correctly says this gain form is not the `cf_d` the bound takes. The summary line changes are literal only. `test_the_summary_names_the_bias_scale...` has a nonzero witness (`strong.bias > strong.max_bias` at 0.9/0.9) and asserts the exact RV phrasing.
+2. **No numeric computation changed in `omitted_variable.py`.** Confirmed hunk by hunk; `_confounding_strength`, `sensitivity_elements`, the benchmark, and all curves are untouched. The 413 passing tests include the pinned boundary tests.
+3. **`CorrectionCheck.cross_fitted` is set on every library path.** `CorrectionCheck(` is constructed in exactly one library place, `validation/drtmle.py:832`, where `cross_fitted = any(repeat.nuisance.folds.n_folds > 1 for repeat in result.repeats)`. Refits and `loads()` artifacts reach the check only through `fit.diagnostics.corrections()`, which recomputes from `result.repeats`, so no stored field can go stale and serialization has nothing to carry (`serialize.py` never names the class). The in-sample witness (`test_an_in_sample_theorem_fit_is_called_the_theorems_estimator`, `n_folds == 1`) and the cross-fitted test (`n_folds > 1`) both pass; the pair makes a wrong default or an inverted condition fail. The default `False` is only exercised by the hand-built check in `test_diagnostic_summary_stability.py`, which asserts nothing about the contract sentence.
+4. **Theorem 1 claim.** Benkeser, Carone, van der Laan and Gilbert (2017) Theorem 1 rests on Donsker-class conditions on the nuisance estimators and has no sample splitting, so "does not cover cross-fitting" is correct, and `targeting.md:210-213` does name (S) as the open condition for the cross-fitted construction.
+5. **Cap warning in `interventions/shift.py`.** `Shift.apply` holds a row at its own dose when `a + delta > cap`, so `shifted <= max(a, cap)`. Hence the warning cannot fire when `cap <= max(observed)` (the no-warning control at `cap=3.0` on doses 0..3) and fires exactly when some row is assigned a dose above the largest observed (`cap=4.0` moves the dose-3 rows to 4; nonzero witness). Class is `PositivityWarning`, same as the uncapped branch; `stacklevel=4` is unchanged. Interventions notebook: `cap=5.0` against a maximum of 7.11, so by the inequality above it cannot fire; the two `cap=None` warnings in its stored output pre-date this commit. `delta == 0` is skipped before the call, so the natural course never warns.
+6. **Tests are meaningful and none weakened.** Each new test asserts the new sentence and the absence of the old one; the cross-fitted drtmle test additionally asserts `contract == "theorem"` so the relabel is not a downgrade. The longitudinal refusal test keeps its original `match=` and adds two assertions. No tolerance, seed, or sample size moved.
+7. **Docstrings and docs.** `name : type` everywhere; `test_documentation_api.py` passes. `ShiftDGP.shifted` and the class docstring now state the hold-at-own-dose rule, matching `Shift.apply`. The ctmle numbers (`0.036` vs `0.695`, `N = 1500`, three seeds) match `tests/e2e/test_ctmle.py:734-742`. The three edited pages pass `tests.prose` on their changed lines.
+
+## REQUIRED FIXES
+
+1. **`docs/user-guide/estimands.md:218-226` now emits the new warning under text that says the opposite.** The documentation prelude (`test_documentation_runtime.py:_FRAME`) draws `dose ~ N(2, 1)` with maximum 4.61, so `Shift(0.25, cap=5.0)` and `Shift(0.5, cap=5.0)` each warn `cap=5, which lies above the largest dose observed (4.61), and 0.5% of rows are assigned a dose above it`. The paragraph directly above says "Declare it from known support, and never from the observed range". A reader who follows the page gets a warning that reads as a correction of the page. Fix either way: add one sentence after the block saying the fit warns when a declared cap exceeds the sample maximum and that the warning reports extrapolation rather than a refusal, or lower the example cap to one the prelude's doses stay under (for example `cap=4.0`) and say why. The same warning now fires in `test_fold_policy_rules.py` fixtures (`cap=5` over 4.91); harmless, but worth a `filterwarnings` or a smaller cap if the suite's warning count is watched.
+
+## Notes (non-blocking)
+
+- The locator "Appendix E.5, Remark 8" for the benchmark convention could not be verified offline. The published (2026) and arXiv versions renumber appendices; check the published one before the handoff.
+- "For the ATE it is the gain in precision of the treatment model" is right only in the sense that `nu^2 = E[1/(pi(1-pi))]` is a mean inverse conditional variance. Consider "mean precision (inverse conditional variance) of the treatment" to prevent a reader from hearing "prediction accuracy".
+- `omitted_variable.py:1705` sets `cf_d = 1.0` when `r2_riesz <= 0`; the new `BenchmarkResult.cf_d` docstring describes only the clipped gain. Minor.
+- `CorrectionCheck.cross_fitted` defaults to `False`. Library code never relies on the default, but a required keyword would remove the one way a hand-built check could print "is Theorem 1's estimator" for a cross-fitted fit.
