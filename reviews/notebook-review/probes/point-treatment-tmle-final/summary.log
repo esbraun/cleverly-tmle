@@ -34,3 +34,8 @@ Step 10, the sensitivity analysis
 
 Step 3
   unadjusted difference closer to the ATT: 1.000 (MC SE 0.000; 200 of 200)
+
+Step 10, the shown draw at the law's nu^2 (truth.py)
+  fitted nu^2 4.4183: bias scale 0.27859; bias <= 0.0233; lower bound 0.1433; rv 0.445
+  law    nu^2 4.8286: bias scale 0.29124; bias <= 0.0244; lower bound 0.1422; rv 0.431
+  mean doubly robust nu^2 over the draws 4.479: shortfall 0.072 in nu^2, 0.037 in the bias scale

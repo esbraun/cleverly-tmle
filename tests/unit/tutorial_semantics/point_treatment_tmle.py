@@ -49,6 +49,9 @@ UNPRINTED_DECIMALS = {
     "1.9": f"share (0.0188) of the law's true propensity below 0.1: {_PROBE}/truth.log",
     "4.83": f"the law's nu^2 = E[1/(g(1-g))], 4.8286 by Monte Carlo: {_PROBE}/truth.log",
     "0.456": f"largest implied cf_d of medication_burden over 200 draws: {_PROBE}/summary.log",
+    "4.48": f"mean doubly robust nu^2 over 200 draws, 4.479: {_PROBE}/summary.log",
+    "0.431": f"RV of the shown draw at the law's nu^2, by summarize.py: {_PROBE}/summary.log",
+    "0.142": f"lower bound of the shown draw at the law's nu^2, 0.1422: {_PROBE}/summary.log",
     "0.025": "the study's propensity bounds: tests/studies/canonical_cvtmle.py G_BOUNDS",
     "0.975": "the study's propensity bounds: tests/studies/canonical_cvtmle.py G_BOUNDS",
     "0.945": f"coverage of crossfit_overfitting/stacked_cvtmle: {_STUDY}",
@@ -180,8 +183,10 @@ def check(namespace: dict[str, Any]) -> None:
     assert 0.0 < robustness["rva"] < robustness["rv"] < 1.0
     elements = result.sensitivity.elements(estimand="ate")
     assert elements.nu2_estimator == "doubly_robust"
-    # "below the law's 4.83": a positive estimate under the finite population value.
+    # "below the law's 4.83": a positive estimate under the finite population value. The
+    # shortfall is the representer's squared error; "slightly" fails loudly above 10%.
     assert 0.0 < elements.nu2 < law["nu2"]
+    assert elements.nu2 > 0.9 * law["nu2"]
     assert abs(law["nu2"] - 4.83) < 0.02
     # "equal strengths ... would move the point estimate to zero", and the 95% limit at rva.
     at_rv = result.sensitivity.omitted_confounding(cf_y=robustness["rv"], cf_d=robustness["rv"])
