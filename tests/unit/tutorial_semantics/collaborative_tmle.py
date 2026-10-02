@@ -214,10 +214,16 @@ def check(namespace: dict[str, Any]) -> None:
     metrics = namespace["nuisance"]["propensity"].metrics
     assert 0.45 < metrics["auc"] < 0.55
     assert 0.9 < metrics["calibration_slope"] < 1.1
-    # "`simulated_confounding`, listed here as `deferred`".
-    not_run = stored_output(NOTEBOOK, "assessment").split("Not run", 1)[1]
-    deferred = not_run.split("\ndeferred", 1)[1].split("\nunavailable", 1)[0]
-    assert "sensitivity.simulated_confounding" in deferred
+    # The status table prints only the rows that ran or run on request:
+    # "`simulated_confounding`, a `deferred` row here".
+    ledger = assessment.to_frame().set_index(["surface", "check"])["status"]
+    assert ledger[("validation", "score_equations")] == "passed"
+    assert ledger[("validation", "support")] == "completed"
+    assert ledger[("validation", "nuisance_models")] == "completed"
+    assert ledger[("sensitivity", "simulated_confounding")] == "deferred"
+    stored = stored_output(NOTEBOOK, "assessment")
+    assert "unavailable" not in stored and "not_applicable" not in stored
+    assert re.search(r"simulated_confounding\s+deferred", stored)
 
     # Step 11: the omitted-variable bound on the reported fit, beside the all-three fit.
     # "`nu2` explains the difference": the draw in g inflates nu2 and lowers the robustness
