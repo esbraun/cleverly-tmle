@@ -5,7 +5,7 @@ options(digits = 17)
 # inputs a cleverly selector fit used: the targeted outcome regression, the bounded
 # propensity of the selected candidate and that candidate's covariates.
 args <- commandArgs(trailingOnly = TRUE)
-if (length(args) != 2) stop("usage: run_calc_varic.R INPUTS.csv OUTPUT.csv")
+if (length(args) != 2) stop("usage: calc_varic_witness.R INPUTS.csv OUTPUT.csv")
 frame <- read.csv(args[[1]], stringsAsFactors = FALSE)
 selected <- grep("^W", names(frame), value = TRUE)
 Q <- cbind(QAW = frame$QAW, Q0W = frame$Q0W, Q1W = frame$Q1W)

@@ -589,6 +589,7 @@ def test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment(
     result_fields = {field.name for field in dataclasses.fields(original)}
     assert result_fields == {
         "assessment_cache",
+        "bootstrap",
         "config",
         "data",
         "estimates",

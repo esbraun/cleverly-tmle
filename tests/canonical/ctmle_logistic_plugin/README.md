@@ -6,7 +6,7 @@ This directory holds one construction-matched comparison. It is not a registered
 (`tests/studies/canonical_ctmle_selector.py`) and writes the inputs of R `ctmle`'s
 `calc_varIC` to `inputs.csv`: the outcome, the treatment, the targeted outcome regression,
 the bounded propensity of the selected candidate, and that candidate's covariates. The
-pinned image `cleverly-ctmle-reference:18de559` runs `run_calc_varic.R`, which calls
+pinned image `cleverly-ctmle-reference:18de559` runs `calc_varic_witness.R`, which calls
 `ctmle:::calc_varIC(..., ICg = TRUE)` on those rows and writes `output.csv`.
 `manifest.json` records the image id and the SHA-256 of each file.
 

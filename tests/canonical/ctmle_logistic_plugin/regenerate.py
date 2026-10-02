@@ -81,7 +81,7 @@ def main() -> None:
             "-v",
             f"{HERE}:/work",
             IMAGE,
-            "/work/run_calc_varic.R",
+            "/work/calc_varic_witness.R",
             "/work/inputs.csv",
             "/work/output.csv",
         ],
@@ -98,7 +98,7 @@ def main() -> None:
         "n": len(inputs),
         "selected_covariates": [c for c in inputs.columns if c.startswith("W")],
         "sha256": {
-            name: _sha256(HERE / name) for name in ("inputs.csv", "output.csv", "run_calc_varic.R")
+            name: _sha256(HERE / name) for name in ("inputs.csv", "output.csv", "calc_varic_witness.R")
         },
     }
     (HERE / "manifest.json").write_text(

@@ -10,8 +10,8 @@
     "W2"
   ],
   "sha256": {
+    "calc_varic_witness.R": "2152a8ab12d663b3a54954673f926eea087b7fe688e91124c4be247beacda129",
     "inputs.csv": "615f850e3be500d50cca3bd1a273533501cf11eff260486ac2788d43adffb2de",
-    "output.csv": "bded2e0c6943fdcf3de69d171eb885224673c9ebd43338e280bc0b21ec1b20dc",
-    "run_calc_varic.R": "288988ceec00b4842c5514facbd3497ce026d54dc0159a8ba2e1fa7983d370ca"
+    "output.csv": "bded2e0c6943fdcf3de69d171eb885224673c9ebd43338e280bc0b21ec1b20dc"
   }
 }
