@@ -7,6 +7,7 @@ decimals are also compared against its stored outputs, and every decimal it writ
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from typing import Any
 
@@ -23,6 +24,7 @@ from tests.unit.tutorial_semantics import (
     assert_protocol_recorded,
     changed_fields,
     covers,
+    stored_output,
 )
 
 NOTEBOOK = EXAMPLES / "msm-projections.ipynb"
@@ -270,10 +272,17 @@ def check(namespace: dict[str, Any]) -> None:
     attention = {item.name for item in assessment.attention}
     assert attention == {"support"}
     assert namespace["scores"].passed
-    # "the omitted-variable operations are unavailable for this fit"
+    # The status table prints only the rows that ran or run on request. The omitted-variable
+    # operations, which Step 13 runs on the arm contrasts instead, stay off the page.
     ledger = assessment.to_frame().set_index(["surface", "check"])["status"]
+    stored = stored_output(NOTEBOOK, "assessment")
     for operation in OMITTED_VARIABLE_OPERATIONS:
         assert str(ledger.loc[("sensitivity", operation)]) == "unavailable"
+        assert not re.search(rf"sensitivity\s+{operation}\b", stored)
+    assert "unavailable" not in stored and "not_applicable" not in stored
+    assert str(ledger.loc[("validation", "support")]) == "warning"
+    assert re.search(r"support\s+warning", stored)
+    assert re.search(r"refute\s+deferred", stored)
     support = namespace["support"]
     # "The fit truncated 1.20% of the units, and the support report warns above 1%."
     assert support.truncated["fraction"] > 0.01
