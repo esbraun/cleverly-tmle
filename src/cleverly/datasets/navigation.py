@@ -78,6 +78,10 @@ def navigation_data(
     The transition score is a share of the maximum score, so every value lies in ``(0, 1)``.  A
     cross-fitted fit of it declares ``q_bounds=(0.0, 1.0)``.
 
+    Each patient's true probability of navigation lies in ``[0.05, 0.95]``, as in
+    :func:`~cleverly.datasets.nonlinear_dgp`.  This bound gives strong positivity, so the ATE has
+    a finite efficiency bound.
+
     ========= =======================
     generator program
     ========= =======================

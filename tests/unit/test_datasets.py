@@ -43,6 +43,7 @@ from cleverly.datasets import (
     navigation_data,
     nonlinear_bounded_dgp,
     nonlinear_dgp,
+    nonlinear_logit,
     weak_overlap_dgp,
 )
 from cleverly.estimators import TMLE
@@ -555,6 +556,116 @@ def test_the_program_data_renames_the_nonlinear_draw_and_changes_nothing_else(
     assert truth == raw_truth
 
 
+def _inverse_propensity_moment(propensity: Any, radius: float, arm: int) -> float:
+    r"""``E[1 / g(W)]`` (``arm=1``) or ``E[1 / (1 - g(W))]`` (``arm=0``) over ``|W2| <= radius``.
+
+    A deterministic product rule, so a growing integral is the integrand's tail and not a
+    sampling draw. ``W1`` and ``W3`` use 40-point Gauss-Hermite nodes for the standard normal.
+    ``W4`` enters the law only through ``1(W4 > 0)``, so two points of weight one half are
+    exact. ``W2`` uses 400 Gauss-Legendre nodes on ``[-radius, radius]`` against the normal
+    density, which keeps the window explicit: the full integral is the limit in ``radius``.
+    """
+    nodes, weights = np.polynomial.hermite_e.hermegauss(40)
+    weights = weights / np.sqrt(2.0 * np.pi)
+    unit, unit_weights = np.polynomial.legendre.leggauss(400)
+    w2 = radius * unit
+    w2_weights = radius * unit_weights * np.exp(-0.5 * w2**2) / np.sqrt(2.0 * np.pi)
+    w1, w2_grid, w3, w4 = np.meshgrid(nodes, w2, nodes, np.array([-1.0, 1.0]), indexing="ij")
+    weight = np.broadcast_to(
+        weights[:, None, None, None]
+        * w2_weights[None, :, None, None]
+        * weights[None, None, :, None]
+        * 0.5,
+        w1.shape,
+    ).ravel()
+    grid = np.stack([w1.ravel(), w2_grid.ravel(), w3.ravel(), w4.ravel()], axis=1)
+    g = np.asarray(propensity(grid), dtype=float)
+    integrand = 1.0 / g if arm == 1 else 1.0 / (1.0 - g)
+    return float(np.sum(weight * integrand))
+
+
+class TestTheNonlinearLawIsStronglyPositive:
+    r"""``nonlinear_dgp``'s propensity lies in ``[0.05, 0.95]``, so ``E[1/g]`` is finite.
+
+    The raw logit ``0.6 W1 - 0.4 W2^2 + 0.5 W2 W3 + 0.3 1(W4 > 0)`` is unbounded below
+    along ``|W2|``. With ``g = expit(logit)`` the conditional mean of ``exp(-logit)`` given
+    ``W2`` grows like ``exp(0.525 W2^2)``, faster than the normal density decays, so
+    ``E[1/g]``, the ATE efficiency bound, and the Riesz second moment ``nu^2`` are infinite.
+    The squeeze ``0.05 + 0.90 expit(logit)`` bounds ``1/g`` by 20 pointwise.
+    """
+
+    #: Extreme covariate rows: every sign of W1 and W3, both W4 indicators, and |W2| out to
+    #: 30, where the old propensity underflows to about 1e-157.
+    _EXTREME = np.array(
+        [
+            [w1, w2, w3, w4]
+            for w1 in (-10.0, 0.0, 10.0)
+            for w2 in (-30.0, -10.0, -6.0, 0.0, 6.0, 10.0, 30.0)
+            for w3 in (-10.0, 0.0, 10.0)
+            for w4 in (-1.0, 1.0)
+        ]
+    )
+
+    def test_the_propensity_lies_in_the_declared_interval_at_extreme_covariates(self) -> None:
+        """The bound holds where the raw logit is largest in absolute value.
+
+        The nonzero witness is that both endpoints are approached to within 1e-4. A tighter
+        squeeze, or one bound applied on the wrong side, fails it.
+        """
+        for law in (nonlinear_dgp(), nonlinear_bounded_dgp()):
+            g = law.propensity(self._EXTREME)
+            assert float(g.min()) >= 0.05
+            assert float(g.max()) <= 0.95
+            assert float(g.min()) < 0.05 + 1e-4
+            assert float(g.max()) > 0.95 - 1e-4
+
+    def test_the_propensity_lies_in_the_declared_interval_on_a_large_draw(self) -> None:
+        latent = np.random.default_rng(20261001).normal(size=(400_000, 4))
+        g = nonlinear_dgp().propensity(latent)
+        assert float(g.min()) >= 0.05
+        assert float(g.max()) <= 0.95
+
+    def test_the_inverse_propensity_moments_are_finite_and_below_twenty(self) -> None:
+        """Widening the ``W2`` window from 8 to 32 must not move either moment.
+
+        On the old law the treated-arm integral is 13.8 at ``|W2| <= 8`` and 2.7e7 at 32.
+        The bound ``1/g <= 20`` makes the tail beyond 8 contribute below ``40 P(|W2| > 8)``,
+        which is about 5e-14.
+        """
+        g = nonlinear_dgp().propensity
+        for arm in (1, 0):
+            near = _inverse_propensity_moment(g, 8.0, arm)
+            far = _inverse_propensity_moment(g, 32.0, arm)
+            assert far == pytest.approx(near, abs=1e-9)
+            assert 1.0 < far < 20.0
+        # nu^2 = E[1/g + 1/(1 - g)], the Riesz second moment of the ATE: 2.7526 + 2.0763.
+        nu_squared = _inverse_propensity_moment(g, 32.0, 1) + _inverse_propensity_moment(g, 32.0, 0)
+        assert nu_squared == pytest.approx(4.829, abs=1e-3)
+
+    def test_only_the_assignment_contrasts_moved_with_the_propensity(self) -> None:
+        """The outcome law is unchanged, so ``ey1``, ``ey0`` and ``ate`` are the old values.
+
+        ``att`` and ``atc`` weight the conditional effect by ``g`` and ``1 - g``, so they
+        are the witnesses that the propensity in the truth integral is the bounded one.
+        """
+        truth = nonlinear_bounded_dgp().truth()
+        assert truth["ate"] == pytest.approx(0.1628580, abs=1e-7)
+        assert truth["ey1"] == pytest.approx(0.5672858, abs=1e-7)
+        assert truth["ey0"] == pytest.approx(0.4044277, abs=1e-7)
+        assert truth["att"] == pytest.approx(0.1773, abs=1e-4)
+        assert truth["atc"] == pytest.approx(0.1505, abs=1e-4)
+        unbounded = nonlinear_dgp().truth()
+        assert unbounded["ate"] == pytest.approx(1.7499995, abs=1e-7)
+
+    def test_the_propensity_is_the_shipped_logit_squeezed(self) -> None:
+        """The exposed predictor is the one the propensity squeezes, bit for bit."""
+        latent = np.random.default_rng(7).normal(size=(10_000, 4))
+        expected = 0.05 + 0.90 * (1.0 / (1.0 + np.exp(-nonlinear_logit(latent))))
+        np.testing.assert_allclose(
+            nonlinear_dgp().propensity(latent), expected, rtol=0.0, atol=1e-15
+        )
+
+
 class TestTheBetaFamily:
     r"""``DGP(family="beta")`` and :func:`make_nonlinear_bounded`.
 
@@ -847,15 +958,17 @@ _BASE_LAW_FINGERPRINTS: dict[str, dict[str, Any]] = {
         "W3": (-0.0709405048572203, 0.7561908692170293, -7.0616491183288606, 0),
         "truth": ("ate[low vs high]", -0.21297209783239207),
     },
+    # Re-pinned when the propensity was bounded to [0.05, 0.95]: the treatment draw moved
+    # one row (A sum 27 to 28), so the Y sum and the atc truth moved with it.
     "nonlinear_ate": {
         "rows": 64,
-        "Y": (0.2048688473980358, 1.688310169368083, 175.82659175869975, 0),
-        "A": (0.0, 0.0, 27.0, 0),
+        "Y": (0.2048688473980358, 1.688310169368083, 177.7707712718119, 0),
+        "A": (0.0, 0.0, 28.0, 0),
         "W1": (-0.39496352977016624, -0.8732666471911562, -4.7648449284817485, 0),
         "W2": (-0.8704762306213993, 1.6387912297813598, 5.236705104917342, 0),
         "W3": (-0.0709405048572203, -0.1924254377796503, 1.0821042746943768, 0),
         "W4": (-0.593897222035972, -1.351140716157383, -10.524045352071877, 0),
-        "truth": ("atc", 1.585907730113686),
+        "truth": ("atc", 1.6010963471754853),
     },
     "shift_dose": {
         "rows": 64,

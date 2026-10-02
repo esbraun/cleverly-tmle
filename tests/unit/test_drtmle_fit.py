@@ -24,7 +24,7 @@ from scipy.special import expit
 
 from cleverly import AssessmentStatus, CapabilityError
 from cleverly.data import CausalData
-from cleverly.datasets import DGP, nonlinear_dgp
+from cleverly.datasets import DGP, nonlinear_dgp, nonlinear_logit
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.estimators._nuisance import Propensity
 from cleverly.estimators.serialize import load
@@ -54,7 +54,7 @@ SETTINGS = {**FAST_KWARGS, "estimands": ESTIMANDS, "q_bounds": (0.0, 1.0)}
 
 
 def _bounded_nonlinear_dgp() -> DGP:
-    """``nonlinear_dgp``'s propensity and shape, with the outcome mapped into (0, 1).
+    """``nonlinear_dgp``'s predictor and shape, with the outcome mapped into (0, 1).
 
     DR-TMLE refuses ``cross_fit=False`` for its reduced regressions at several settings
     this module exercises (``reduced_crossfit='nested'``, and every ``n_folds<3``), so
@@ -63,8 +63,21 @@ def _bounded_nonlinear_dgp() -> DGP:
     one (the fold and outcome-scale rules). The nonlinear, heterogeneous, interacted shape is what several tests here
     need a GLM to misspecify, so it is kept and only the scale changes: ``expit`` maps the
     same baseline-plus-effect combination into the open interval a beta law needs.
+
+    The propensity is ``expit(nonlinear_logit(W))``, which has no lower bound above zero.
+    The shipped ``nonlinear_dgp`` squeezes the same predictor into ``[0.05, 0.95]``.  This
+    module keeps the unsqueezed mechanism on purpose.
+    ``TestTheReportedCurveIsCentredWhereTheBoundBinds`` needs a draw whose targeted mechanism
+    sits on the nuisance bound, and a mechanism held inside ``[0.05, 0.95]`` gives margins of
+    ``0.07`` or more on that draw (measured at ``concentration=80``, ``n=600``, seed 3).  The
+    draw-specific readings of ``TestBothUpdateOrdersReachTheTheoremsExit`` were measured on
+    this mechanism too.  Every check in this module is a numerical identity or a fit
+    property on one draw, so none needs the finite efficiency bound the squeeze buys.
     """
     base = nonlinear_dgp()
+
+    def propensity(w: np.ndarray) -> np.ndarray:
+        return expit(nonlinear_logit(w))
 
     def outcome_mean(w: np.ndarray, a: float, z: float | None) -> np.ndarray:
         del z
@@ -81,6 +94,7 @@ def _bounded_nonlinear_dgp() -> DGP:
     return replace(
         base,
         name="bounded_nonlinear_ate",
+        propensity=propensity,
         outcome_mean=outcome_mean,
         family="beta",
         concentration=20.0,

@@ -227,13 +227,18 @@ observational TMLE/LTMLE fits.
 
 ### What the probes measured
 
-Three probes ran at commit `1cf6628`. Each fits a complete-outcome ATE with ten folds and a
+Three probes measured the two rules. Each fits a complete-outcome ATE with ten folds and a
 logistic treatment learner. They measure sensitivity. They do not measure coverage.
+
+The fold-strata probe ran at commit `1cf6628`. The first two probes ran again after the
+`make_nonlinear_ate` propensity was bounded to [0.05, 0.95]. The script
+`reviews/notebook-review/probes/cv-tmle-scale/probe.py` gives their setup, with fold seed 0. It
+bypasses the two refusals that this section states, so that it can fit what they refuse.
 
 | probe | setup | result |
 | --- | --- | --- |
-| held-out scale | `make_nonlinear_ate(n=400, seed=11)`, `LinearRegression`, treatment strata; one outcome raised by five times the range | the scale moves from (-3.37, 10.39) to (-9.11, 73.49). In one validation fold, a `LinearRegression` trained with that row removed by hand moves its mean scaled validation prediction from 0.450 to 0.145 |
-| scale only | the unmodified draw and the same folds; the scale fixed at the moved-row range against `q_bounds=None` | the ATE moves by -1.7e-4 (0.0009 SE) with `LinearRegression`, and by +3.2e-4 (0.0021 SE) with a random forest of 50 trees and `min_samples_leaf=5` |
+| held-out scale | `make_nonlinear_ate(n=400, seed=11)`, `LinearRegression`, treatment strata; one outcome raised by five times the range | the scale moves from (-3.37, 10.39) to (-9.11, 73.49). In one validation fold, a `LinearRegression` trained with that row removed by hand moves its mean scaled validation prediction from 0.433 to 0.142 |
+| scale only | the unmodified draw and the same folds; the scale fixed at the moved-row range against `q_bounds=None` | the ATE moves by -3.0e-4 (0.0017 SE) with `LinearRegression`, and by +4.0e-4 (0.0026 SE) with a random forest of 50 trees and `min_samples_leaf=5` |
 | fold strata | one `make_linear_ate(n, seed=5)` draw at each size, 25 fold seeds, treatment strata against unstratified folds through a probe subclass | the standard deviation of the paired difference is 0.114 SE at n = 300 and 0.077 SE at n = 1200. The mean differences are -0.0035 and 0.0003 in outcome units, against Monte Carlo standard errors of 0.0027 and 0.0009, so both lie within two Monte Carlo standard errors of zero |
 
 The first probe shows that a held-out outcome reaches a training fit through the scale. The second

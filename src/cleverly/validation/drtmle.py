@@ -159,9 +159,12 @@ __all__ = [
 
 #: How far a state identity may miss before it is called a defect, on the outcome's scale.
 #: A number rather than a judgement, and the gap either side of it is what makes it one:
-#: measured on ``nonlinear_dgp`` at ``n = 400``, the residual is ``2e-19`` on a draw where
-#: the identity holds and ``1.3e-04`` on one where it does not, with the smallest observed
-#: real failure at ``7e-08``.  So this sits seven orders above the arithmetic and four
+#: the residual is at most ``3.3e-19`` on ``make_nonlinear_bounded`` at ``n = 400``, seeds 0
+#: to 4, where the identity holds.  The defect this check was written for (commit
+#: ``c8bd43e4``) left ``1.3e-04`` on a ``nonlinear_dgp`` draw at ``n = 400``, before that law's
+#: propensity was bounded to ``[0.05, 0.95]``, and its smallest observed real failure was
+#: ``7e-08``.  The current targeting no longer produces the defect, so those two values are
+#: not re-measurable.  So this sits seven orders above the arithmetic and four
 #: below the defect, and it is deliberately *not* expressed relative to the score: the
 #: quantity is a difference of two evaluations of one expression, and its right value is
 #: zero rather than something small compared with anything.

@@ -59,6 +59,7 @@ __all__ = [
     "make_nonlinear_bounded",
     "make_shift_dose",
     "make_weak_overlap",
+    "nonlinear_logit",
 ]
 
 #: Sobol points used for the population estimands: 2**18 = 262144, which puts the
@@ -600,13 +601,41 @@ def make_linear_ate(
     return _make(linear_dgp(effect), n, seed, backend)
 
 
+def nonlinear_logit(w: FloatArray) -> FloatArray:
+    r"""Return the linear predictor that :func:`nonlinear_dgp` squeezes into its propensity.
+
+    The predictor is ``0.6 W1 - 0.4 W2^2 + 0.5 W2 W3 + 0.3 1(W4 > 0)``.  It is not bounded
+    below, because ``-0.4 W2^2`` falls without limit as ``|W2|`` grows.
+
+    Parameters
+    ----------
+    w : ndarray of shape (n, 4)
+        The covariates ``W1`` to ``W4`` in that column order.
+
+    Returns
+    -------
+    ndarray of shape (n,)
+        The predictor at each row.
+    """
+    return 0.6 * w[:, 0] - 0.4 * w[:, 1] ** 2 + 0.5 * w[:, 1] * w[:, 2] + 0.3 * (w[:, 3] > 0)
+
+
 def nonlinear_dgp() -> DGP:
-    """Nonlinear, heterogeneous, and interacted -- a GLM is misspecified for both."""
+    r"""Nonlinear, heterogeneous, and interacted -- a GLM is misspecified for both.
+
+    The propensity is ``g(W) = 0.05 + 0.90 expit(u(W))``, with ``u`` from
+    :func:`nonlinear_logit`, so ``g`` lies in ``[0.05, 0.95]``.  The bound gives strong
+    positivity: ``1/g`` and ``1/(1 - g)`` are at most 20, so the ATE efficiency bound and
+    the Riesz second moment ``nu^2 = E[1/g + 1/(1 - g)]`` are finite.  With
+    ``g = expit(u)`` they are infinite.  The mean of ``exp(-u)`` given ``W2`` grows like
+    ``exp(0.525 W2^2)``, which the normal density of ``W2`` does not offset.
+
+    The outcome law does not involve ``g``.  ``ey1``, ``ey0`` and ``ate`` therefore do not
+    depend on the bound.  ``att`` and ``atc`` weight the effect by ``g`` and ``1 - g``.
+    """
 
     def propensity(w: FloatArray) -> FloatArray:
-        return expit(
-            0.6 * w[:, 0] - 0.4 * w[:, 1] ** 2 + 0.5 * w[:, 1] * w[:, 2] + 0.3 * (w[:, 3] > 0)
-        )
+        return 0.05 + 0.90 * expit(nonlinear_logit(w))
 
     def outcome_mean(w: FloatArray, a: float, z: float | None) -> FloatArray:
         del z
@@ -642,6 +671,9 @@ def make_nonlinear_ate(
     ``att`` and ``atc`` all differ.  An estimator that quietly assumes a constant effect
     will fail here.
 
+    The propensity lies in ``[0.05, 0.95]`` (strong positivity), so the ATE has a finite
+    efficiency bound.  :func:`nonlinear_dgp` states the law and why the bound is needed.
+
     Parameters
     ----------
     n : int
@@ -664,7 +696,8 @@ def make_nonlinear_ate(
 def nonlinear_bounded_dgp(concentration: float = 12.0) -> DGP:
     r"""The law behind :func:`make_nonlinear_bounded`: a proportion with a nonlinear mean.
 
-    The propensity is :func:`nonlinear_dgp`'s.  The outcome mean is the expit of a
+    The propensity is :func:`nonlinear_dgp`'s, so it lies in ``[0.05, 0.95]`` and the ATE has
+    a finite efficiency bound.  The outcome mean is the expit of a
     predictor with the same four kinds of term as :func:`nonlinear_dgp`'s outcome: a sine,
     a square, an interaction and an absolute value, and an effect that varies with ``W1``
     and ``W2``.  Each unbounded term passes through ``tanh``, so the predictor lies in
@@ -738,6 +771,10 @@ def make_nonlinear_bounded(
     :func:`nonlinear_bounded_dgp` gives its terms. A linear model is misspecified for the
     propensity and for the outcome mean. The effect varies with ``W1`` and ``W2``, so
     ``ate``, ``att``, and ``atc`` differ.
+
+    The propensity is ``0.05 + 0.90 expit(u(W))``, so it lies in ``[0.05, 0.95]``. This
+    strong positivity keeps the ATE efficiency bound finite. :func:`nonlinear_dgp` gives
+    ``u`` and the reason.
 
     The truth holds ``ey1``, ``ey0``, ``ate``, ``att``, and ``atc``. It holds no ``rr`` or
     ``or``, because a fit treats a proportion as a continuous outcome and refuses those
