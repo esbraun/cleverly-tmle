@@ -1,0 +1,11 @@
+cleverly at C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\__init__.py
+LT-02 notebook form W1 W2 A1 L2 A2     default C=1  in-sample slope 1.0011
+LT-02 notebook form W1 W2 A1 L2 A2     unpenalized  in-sample slope 1.0000
+LT-02 wrong: W1 only                   default C=1  in-sample slope 1.0009
+LT-02 wrong: W1 only                   unpenalized  in-sample slope 1.0000
+LT-02 wrong: A2 only                   default C=1  in-sample slope 1.0029
+LT-02 wrong: A2 only                   unpenalized  in-sample slope 1.0000
+LT-01 check Y probability formula: mean |y-p_true| residual mean -0.0004995032255961871
+LT-01 main-term logistic vs truth: max |p - p_true| 0.09120565266913647  RMS 0.015026376361432657
+LT-01 with tanh(L2) term: coef [ 0.294 -0.201  0.492  0.411  0.8    0.474] intercept [-0.399]
+LT-01 node-1 pseudo-outcome (always): R2 linear 0.4574  R2 quadratic 0.4875

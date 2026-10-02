@@ -1,0 +1,9 @@
+censored by t1: 451  by t2: 233
+cif_regimen[always, relapse @ t=1] 0.1192 0.0076 truth 0.1187
+cif_regimen[always, relapse @ t=2] 0.2508 0.0116 truth 0.2467
+cif_regimen[always, death @ t=1] 0.0303 0.0042 truth 0.031
+cif_regimen[always, death @ t=2] 0.0722 0.007 truth 0.0705
+cif_regimen[never, relapse @ t=1] 0.1364 0.0084 truth 0.1452
+cif_regimen[never, relapse @ t=2] 0.2285 0.0141 truth 0.2443
+cif_regimen[never, death @ t=1] 0.1113 0.0076 truth 0.1127
+cif_regimen[never, death @ t=2] 0.2098 0.014 truth 0.2109

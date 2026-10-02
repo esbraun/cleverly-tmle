@@ -1,0 +1,3 @@
+truth from library (for reference only) 0.18622448650952744
+cv5: n=600 bias=-0.00068 (mcse 0.00078) empSD=0.01914 meanSE=0.01837 ratio=0.960 coverage=0.928
+insample: n=600 bias=-0.00062 (mcse 0.00078) empSD=0.01912 meanSE=0.01826 ratio=0.955 coverage=0.925

@@ -1,0 +1,27 @@
+hand g range 0.09952610169894499 0.9994522368296817  q1 range 0.00034606323874797806 0.6150963437389566  q0 range 2.7054623191245443e-05 0.11102666515496983
+hand gcomp 0.05915068591754364
+pkg ate 0.05727426849899715
+['arms', 'at_level', 'bounded_missingness', 'bounded_propensity', 'companion', 'density', 'diagnostics', 'fits_treatment', 'folds', 'incremental', 'inner', 'intermediate', 'intermediate_density', 'missingness', 'missingness_at_realised_arm', 'msm', 'n', 'outcome', 'outcome_by_level', 'outcome_task', 'propensity', 'reduced', 'regimes', 'retilted', 'scaler', 'shifts', 'targeting_outcome', 'treatment_covariates']
+pkg g range 0.09952610169893991 0.999452236829681  max |g - hand g| 7.494005416219807e-15
+outcome <class 'cleverly.fluctuation.iterative.InitialFit'>
+outcome_by_level <class 'dict'>
+outcome_task <class 'str'>
+targeting_outcome <class 'NoneType'>
+['arms', 'levels', 'map_arms', 'n', 'observed', 'shrunk']
+Targeted maximum likelihood estimation
+======================================
+n = 12000; covariates = 47; P(A=1) = 0.5205
+causal estimand: average treatment effect, E[Y^a] - E[Y^reference]
+identification: explicit-adjustment; E_W[E(mortality_1y | low_birth_weight=a, W)] - E_W[E(mortality_1y | low_birth_weight=0, W)] for a in [1]
+required nuisances: outcome_regression, treatment_mechanism
+identification assumptions: consistency: Y = Y^a when A = a; no interference: one unit's potential outcome does not depend on other units' treatment assignments; no unmeasured confounding: Y^a is independent of A given W; positivity: P(low_birth_weight = a | W) > 0 almost surely for every supported treatment level a in [0, 1]
+causal study protocol: absent
+clusters = 6000 (cluster-robust variance)
+outcome family: binomial; fluctuation: logistic (iterative)
+TMLE (in-sample nuisances): nuisances fitted in-sample (cross_fit=False)
+propensity truncated to [0.004859, 0.9951]; ATT/ATC to [0.025, 0.975]
+data 27c4f2c9ac7e0399 | folds e164adc5b18945b3 | cleverly 0.1.2 | 2026-10-02T02:29:42+00:00
+
+estimand  psi       std_err   95% CI                p_value
+--------  --------  --------  --------------------  -------
+ate       0.057274  0.004102  [0.049235, 0.065314]  <1e-4  

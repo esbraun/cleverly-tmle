@@ -1,0 +1,1052 @@
+===== title markdown
+# Time-to-event TMLE: does repeated navigation keep patients enrolled?
+
+This notebook estimates the risk of an event at two horizons with longitudinal targeted maximum
+likelihood estimation (TMLE). Each step shows its code, its output, and what the output tells you.
+The [technical entry](../technical-reference/longitudinal-tmle.md#survival-and-competing-risks)
+gives the event-process recursion.
+
+## The applied question
+
+A patient who leaves the plan is not a patient with a missing outcome. The plan's retention team
+asks two questions about repeated navigation.
+
+| question | the outcome | the step that answers it |
+| --- | --- | --- |
+| does navigation in each period keep more patients enrolled at 30 and 60 days? | plan exit for any reason, including death | Steps 6 and 7 |
+| how does navigation change readmission, when death can end the time at risk first? | readmission and death as competing events | Steps 8 and 9 |
+
+Time zero is hospital discharge, and each period is 30 days. The program offers navigation at the
+start of each period. The second decision is therefore on day 31, not on day seven. This page
+reuses the design vocabulary of [longitudinal TMLE](longitudinal-tmle.ipynb), which introduces the
+sequential regression.
+
+## What you will learn
+
+| after this notebook you can | the step that shows it |
+| --- | --- |
+| say why a comparison of plan followers is not a causal effect | Step 3 |
+| write a protocol for an event outcome | Step 4 |
+| declare an absorbing event, loss of tracking, and navigator teams | Step 5 |
+| read one cumulative risk per plan per horizon | Step 6 |
+| compare two plans from one fit, and read the survival view | Step 7 |
+| declare two competing events and read each cause's incidence | Steps 8 and 9 |
+| see why death coded as censoring answers a different question | Step 10 |
+| read what the assessment reports for a longitudinal fit | Steps 11 and 12 |
+===== plan markdown
+## Why this method
+
+After a patient exits, the later navigation offer and needs measurement do not exist. A plan can
+therefore intervene only on patients who are still at risk. Each horizon is its own parameter, and
+each node's regression uses the patients at risk entering that node.
+
+| your situation | what this method buys | what it costs |
+| --- | --- | --- |
+| the outcome is an event that can happen at more than one time | one cumulative risk per horizon, each on its own risk set | one regression per node per horizon |
+| patients can experience one of two competing events | a cause-specific cumulative incidence, with the competing cause left in the history | one backward pass per cause. The estimated incidences are not constrained to sum to the all-cause risk |
+| you want the retention scale rather than the risk scale | `curve(scale="survival")`, which mirrors each level and its interval | nothing. It is the same fit read the other way |
+
+The table below defines the terms this notebook uses most. Each step links to the full definition
+where the term first matters.
+
+| term | plain meaning |
+| --- | --- |
+| node | one time in the sequence at which a column is recorded, such as the day-31 offer |
+| cumulative risk | the probability that the event has happened by a horizon, under a plan |
+| absorbing event | an event after which the patient stays in that state, such as plan exit |
+| risk set | the patients who have not had the event and are still tracked when a node starts |
+| censoring | the plan loses track of a patient before it can see whether the event happened |
+| competing event | an event that makes the event of interest impossible afterwards, such as death before readmission |
+| cause-specific cumulative incidence | the probability that one cause has ended the time at risk by a horizon |
+| influence curve | how much each row moves the estimate. Its variance gives the standard error |
+===== setup-heading markdown
+## Step 1: set up
+
+The setup imports the learners and prints the installed `cleverly` version. Every fit below passes
+its learners and random seed explicitly, so a rerun reproduces the stored outputs.
+===== setup code
+import pandas as pd
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+import cleverly
+
+pd.set_option("display.width", 160)
+pd.set_option("display.max_columns", 20)
+print("cleverly", cleverly.__version__)
+--OUT--
+cleverly 0.1.2
+
+===== setup-reading markdown
+**What this output tells you.** The stored outputs in this notebook came from the version named
+above. A different version can print different numbers.
+===== data-heading markdown
+## Step 2: the data
+
+The data come from a synthetic law with a known answer. The code renames the generator's columns
+to the program's names. It prints the first rows, counts the patients who leave each risk set, and
+prints the true risks of the law.
+===== data code
+from cleverly.datasets import make_longitudinal_survival
+
+exit_frame, exit_truth = make_longitudinal_survival(n=4_000, seed=52, cluster_size=20)
+exit_frame = exit_frame.rename(
+    columns={
+        "W1": "age",
+        "W2": "baseline_readiness",
+        "A1": "navigation_p1",
+        "C1": "tracked_p1",
+        "Y1": "plan_exit_p1",
+        "L2": "identified_needs",
+        "A2": "navigation_p2",
+        "C2": "tracked_p2",
+        "Y2": "plan_exit_p2",
+        "id": "navigator_team",
+    }
+)
+print("rows and columns:", exit_frame.shape)
+print(exit_frame.head().round(3).to_string())
+print()
+print("navigator teams:              ", exit_frame["navigator_team"].nunique())
+print("lost to tracking in period 1: ", int(exit_frame["tracked_p1"].eq(0).sum()))
+print("exited in period 1:           ", int(exit_frame["plan_exit_p1"].eq(1).sum()))
+print("at risk entering period 2:    ", int(exit_frame["plan_exit_p1"].eq(0).sum()))
+print("lost to tracking in period 2: ", int(exit_frame["tracked_p2"].eq(0).sum()))
+print()
+print("known values of the synthetic law, cumulative risk of plan exit:")
+for key in (
+    "risk_regimen[never @ t=1]",
+    "risk_regimen[never @ t=2]",
+    "risk_regimen[always @ t=1]",
+    "risk_regimen[always @ t=2]",
+    "ate_regimen[always vs never @ t=1]",
+    "ate_regimen[always vs never @ t=2]",
+):
+    print(f"  {key:36s} {exit_truth[key]:.4f}")
+--OUT--
+rows and columns: (4000, 10)
+     age  baseline_readiness  navigation_p1  tracked_p1  plan_exit_p1  identified_needs  navigation_p2  tracked_p2  plan_exit_p2  navigator_team
+0 -0.826               0.743            0.0         1.0           1.0               NaN            NaN         NaN           1.0             0.0
+1  0.243               1.038            0.0         1.0           1.0               NaN            NaN         NaN           1.0             0.0
+2 -0.064              -0.118            0.0         1.0           0.0             1.003            0.0         1.0           0.0             0.0
+3 -0.094               0.063            1.0         1.0           0.0             2.693            1.0         1.0           0.0             0.0
+4  0.323              -1.698            0.0         1.0           1.0               NaN            NaN         NaN           1.0             0.0
+
+navigator teams:               200
+lost to tracking in period 1:  463
+exited in period 1:            739
+at risk entering period 2:     2798
+lost to tracking in period 2:  210
+
+known values of the synthetic law, cumulative risk of plan exit:
+  risk_regimen[never @ t=1]            0.2579
+  risk_regimen[never @ t=2]            0.4552
+  risk_regimen[always @ t=1]           0.1497
+  risk_regimen[always @ t=2]           0.3172
+  ate_regimen[always vs never @ t=1]   -0.1082
+  ate_regimen[always vs never @ t=2]   -0.1380
+
+===== data-reading markdown
+**What this output tells you.** Each row is one patient, and 20 patients share each of the 200
+navigator teams. The generator is `make_longitudinal_survival`. The columns are in time order.
+
+| column | node | role |
+| --- | --- | --- |
+| `age`, `baseline_readiness` | before discharge | standardized baseline covariates (mean 0, SD 1) |
+| `navigation_p1`, `navigation_p2` | start of each period | the navigation offer |
+| `tracked_p1`, `tracked_p2` | during each period | 1 if the plan can observe exit in that period |
+| `plan_exit_p1`, `plan_exit_p2` | end of each period | the absorbing event, carried forward after exit |
+| `identified_needs` | end of period 1, among patients at risk | raised by navigation, raises day-31 navigation and the exit hazard |
+| `navigator_team` | fixed | the cluster |
+
+Rows 0, 1, and 4 exited in period 1. Their period-2 nodes are `NaN` because those nodes do not
+exist, and `plan_exit_p2` carries the 1 forward. The counts show the two ways to leave the first
+risk set: 463 patients were lost to tracking and 739 exited. That leaves 2798 patients at risk
+entering period 2.
+
+In this synthetic law, 26% of patients would exit within 30 days and 46% within 60 days under no
+navigation. The true risk differences of always against never are -0.1082 and -0.1380. The law
+sets high exit rates, so each fit has many events to model. A real program has no `truth`, and
+every comparison against it below is a teaching device.
+===== association-heading markdown
+## Step 3: association first
+
+A confounder changes both who receives navigation and the outcome. Here confounding happens at
+both decisions. The code compares the groups at each decision. It then compares the observed exit
+share of patients whose recorded offers followed each plan.
+===== association code
+print("baseline means by the discharge offer:")
+print(exit_frame.groupby("navigation_p1")[["age", "baseline_readiness"]].mean().round(3))
+print()
+at_risk_p2 = exit_frame["plan_exit_p1"].eq(0)
+needs = exit_frame.loc[at_risk_p2].groupby("navigation_p2")["identified_needs"].mean()
+print("mean identified_needs by the day-31 offer, among patients at risk:")
+print(needs.round(3))
+print()
+
+# A follower's recorded offers match the plan in every period the patient was at risk.
+first = {
+    "always": exit_frame["navigation_p1"].eq(1),
+    "never": exit_frame["navigation_p1"].eq(0),
+}
+second = {
+    "always": ~exit_frame["navigation_p2"].eq(0),
+    "never": ~exit_frame["navigation_p2"].eq(1),
+}
+followers = {1: first, 2: {plan: first[plan] & second[plan] for plan in first}}
+naive_differences = {}
+print("observed exit share among tracked plan followers:")
+for horizon in (1, 2):
+    outcome = exit_frame[f"plan_exit_p{horizon}"]
+    shares = {
+        plan: float(outcome[rows & outcome.notna()].mean())
+        for plan, rows in followers[horizon].items()
+    }
+    naive_differences[horizon] = shares["always"] - shares["never"]
+    population = exit_truth[f"ate_regimen[always vs never @ t={horizon}]"]
+    print(
+        f"  t={horizon}: always {shares['always']:.4f}, never {shares['never']:.4f}, "
+        f"difference {naive_differences[horizon]:.4f}, population {population:.4f}"
+    )
+--OUT--
+baseline means by the discharge offer:
+                 age  baseline_readiness
+navigation_p1                           
+0.0           -0.143               0.202
+1.0            0.151              -0.206
+
+mean identified_needs by the day-31 offer, among patients at risk:
+navigation_p2
+0.0   -0.059
+1.0    0.825
+Name: identified_needs, dtype: float64
+
+observed exit share among tracked plan followers:
+  t=1: always 0.1696, never 0.2489, difference -0.0793, population -0.1082
+  t=2: always 0.4232, never 0.5483, difference -0.1251, population -0.1380
+
+===== association-reading markdown
+**What this output tells you.** The groups differ before each offer.
+
+| comparison | offered | not offered | what it means |
+| --- | --- | --- | --- |
+| mean `age` at the discharge offer | 0.151 | -0.143 | offered patients are older |
+| mean `baseline_readiness` at the discharge offer | -0.206 | 0.202 | offered patients are less ready |
+| mean `identified_needs` at the day-31 offer | 0.825 | -0.059 | the day-31 offer goes to patients with more needs |
+
+In this law, older age, lower readiness, and more identified needs all raise the exit hazard. The
+offered patients therefore start at higher risk. The follower comparison gives -0.0793 at 30 days
+and -0.1251 at 60 days. The true differences are -0.1082 and -0.1380, so the naive comparison
+understates the benefit on this draw. It also drops every patient the plan lost track of.
+
+`identified_needs` is a time-varying confounder. Navigation raises it, and it drives the next
+offer. [Longitudinal TMLE](longitudinal-tmle.ipynb#step-7-the-failure-mode-a-point-treatment-analysis-of-the-same-data)
+shows why one regression cannot adjust for it. The next steps state the question, and the
+assumptions that make a causal comparison possible.
+===== protocol-heading markdown
+## Step 4: write the protocol
+
+A `StudyProtocol` records the scientific design before any model runs.
+[Point-treatment TMLE](point-treatment-tmle.ipynb#step-4-write-the-protocol) introduces its
+fields and its fingerprint. The code starts from `longitudinal_navigation_protocol()`, the
+two-decision program of the [shared study design](index.md#the-shared-study-design). It then
+replaces only the fields that an event outcome with 30-day periods changes.
+===== protocol code
+from dataclasses import replace
+
+from cleverly.datasets import longitudinal_navigation_protocol
+
+program = longitudinal_navigation_protocol()
+exit_protocol = replace(
+    program,
+    eligibility=(*program.eligibility, "Enrolled in the health plan at discharge"),
+    treatment_strategies=(
+        "Offer navigation at the start of each 30-day period while enrolled",
+        program.treatment_strategies[1],
+    ),
+    treatment_versions=(
+        "The declared navigation contacts at discharge and on day 31",
+        program.treatment_versions[1],
+    ),
+    outcome="Plan exit for any reason, recorded at the end of each 30-day period",
+    horizon="30 and 60 days after discharge",
+    intercurrent_event_handling=(
+        "Count death as plan exit (composite strategy)",
+        "Make no navigation decision after plan exit",
+        program.intercurrent_event_handling[2],
+    ),
+    assumption_rationale=(
+        "Recorded history covers the measured common causes of navigation, loss of "
+        "tracking, and plan exit in each period",
+        *program.assumption_rationale[1:],
+    ),
+)
+print("\n".join(exit_protocol.summary_lines()))
+--OUT--
+causal study protocol: schema 1; 67439090fc4bcdb0
+target population: Adults discharged home from a participating hospital during the enrollment period
+eligibility: ['Age 18 years or older', 'Discharged alive', 'Discharged home from a participating hospital', 'Enrolled in the health plan at discharge']
+time zero: Hospital discharge, after baseline measurement and before first assignment
+treatment strategies: ['Offer navigation at the start of each 30-day period while enrolled', 'Offer no navigation at either decision']
+treatment versions: ['The declared navigation contacts at discharge and on day 31', 'Usual discharge support without navigation contacts']
+outcome: Plan exit for any reason, recorded at the end of each 30-day period
+horizon: 30 and 60 days after discharge
+intercurrent-event handling: ['Count death as plan exit (composite strategy)', 'Make no navigation decision after plan exit', 'Analyze each navigation offer regardless of completed contacts']
+interference unit: Individual patient
+assumption rationale: ['Recorded history covers the measured common causes of navigation, loss of tracking, and plan exit in each period', 'Version records support consistency at both navigation decisions', 'Reserved navigator capacity supports no interference between patients']
+
+===== protocol-reading markdown
+**What this output tells you.** The first line gives the schema version and the fingerprint
+`67439090fc4bcdb0`. The other lines repeat each field. The code changes seven fields of the
+program protocol and keeps three.
+
+| protocol field | what this page writes, and why |
+| --- | --- |
+| target population, time zero, interference unit | unchanged. Discharge aligns eligibility, the first offer, and follow-up |
+| eligibility | adds enrollment in the health plan at discharge, because only an enrolled patient can exit |
+| treatment strategies and versions | "always" offers navigation at the start of each 30-day period while the patient stays enrolled. The second offer is on day 31 |
+| outcome and horizon | plan exit at the end of each 30-day period, read at 30 and 60 days |
+| intercurrent-event handling | death counts as plan exit, and no decision exists after exit |
+| assumption rationale | the first entry names loss of tracking and plan exit in each period |
+
+Three design choices have no protocol field. The `censoring=` role in the next step declares loss
+of tracking. The `cluster=` role declares the navigator teams, which are dependence, not
+interference. The typed estimand declares the plans and the horizons.
+===== identify-heading markdown
+## Step 5: design and identification
+
+The design places every column at its node. The `outcome=` role carries the event. One outcome
+column per time point declares an absorbing event. The `censoring=` role carries whether the plan
+could observe the patient in that period. A patient the plan lost track of is censored. A patient
+who left the plan had the event.
+
+The code keeps the treatment and history nodes in `navigation_nodes`, because every design on this
+page reuses them. `RegimeMean` asks for the cumulative risk under each plan. The
+[estimands guide](../user-guide/estimands.md) defines an estimand: the number the question asks
+for, written before any model is chosen.
+===== identify code
+from cleverly import CausalStudy, LongitudinalTreatment, RegimeMean
+
+# Every design on this page declares the same navigation offers and the same history.
+navigation_nodes = {
+    "treatment": ("navigation_p1", "navigation_p2"),
+    "baseline": ("age", "baseline_readiness"),
+    "time_varying": ((), ("identified_needs",)),
+}
+plans = {"always": 1, "never": 0}
+levels_by_plan = RegimeMean(plans, reference="never", horizons=(1, 2))
+exit_study = CausalStudy(
+    exit_frame,
+    design=LongitudinalTreatment(
+        outcome=("plan_exit_p1", "plan_exit_p2"),
+        censoring=("tracked_p1", "tracked_p2"),
+        cluster="navigator_team",
+        **navigation_nodes,
+    ),
+    protocol=exit_protocol,
+)
+exit_effect = exit_study.identify(levels_by_plan)
+print(exit_effect.summary(protocol="fingerprint"))
+--OUT--
+mean outcome under each declared regime
+identified by explicit-adjustment: sequential g-formula under the declared treatment regimen
+history at navigation_p1: ['age', 'baseline_readiness']
+history at navigation_p2: ['age', 'baseline_readiness', 'identified_needs', 'navigation_p1']
+required nuisances: ['sequential_outcome_regressions', 'treatment_and_censoring_mechanisms']
+assumptions:
+  - consistency: each observed history equals the potential history under its realized regimen
+  - no interference: one unit's potential history does not depend on other units' regimens
+  - sequential exchangeability given the recorded history at every node
+  - sequential positivity for treatment and remaining under observation
+causal study protocol: schema 1; 67439090fc4bcdb0
+
+===== identify-reading markdown
+**What this output tells you.** The first lines name the estimand and its identification, the
+sequential g-formula. The summary then prints the fingerprint of the stored protocol.
+
+The two `history at` lines give the history at each navigation node. Each line lists the
+covariates first and the earlier offers last. The second node adds `identified_needs`, which
+`time_varying=` places before that node, and the first offer.
+
+The required nuisances are the sequential outcome regressions and the treatment-and-censoring
+mechanisms. A nuisance is a model the estimate needs but the question does not ask about.
+[Point-treatment TMLE](../technical-reference/point-treatment-tmle.md) introduces the term.
+
+The four assumptions change shape for an event outcome.
+
+| assumption | what it becomes here | can the data check it? |
+| --- | --- | --- |
+| exchangeability | sequential. At every node, navigation and remaining tracked are independent of the potential outcomes, given the recorded history | no |
+| positivity | sequential, and per horizon. A later horizon passes through every earlier node, so its cumulative product has more factors | partly, through the support report |
+| consistency | each period uses the declared protocol version, and the recorded event is the event under that protocol | no |
+| no interference | one patient's assignments do not change another patient's protocol or outcome | no |
+
+Positivity means that every kind of patient has some chance of following each plan.
+[Diagnostics](../user-guide/results-assessment.md#diagnostics) describes what the support report
+can show about it.
+===== estimate-heading markdown
+## Step 6: estimate the cumulative risks
+
+Every fit on this page uses the same parametric learners, fitted on all rows without
+cross-fitting.
+
+| setting | value | what it does |
+| --- | --- | --- |
+| `outcome_learner` | logistic regression | fits the regression whose outcome is the recorded event |
+| `pseudo_learner` | linear regression | fits the intermediate regressions, whose outcome is a bounded prediction |
+| `treatment_learner` | logistic regression | fits the probability of each navigation offer |
+| `censoring_learner` | logistic regression | fits the probability of remaining tracked |
+| `CrossFitting(enabled=False)` | in-sample | fits each nuisance on all rows |
+| `Runtime(random_state=41, n_jobs=1)` | fixed seed, one process | makes the fit reproducible |
+
+Parametric GLM learners satisfy the Donsker condition. That condition limits how flexible a
+learner can be when it predicts the rows it was fitted on. The in-sample fits therefore keep
+influence-curve inference valid under the
+[remaining conditions](../technical-reference/cv-tmle.md#what-this-solves). Cross-fitting, where
+each row's prediction comes from models fit without that row, is the alternative for flexible
+learners.
+
+Targeting then updates each regression. The clever covariate uses the inverse of the cumulative
+product of the probabilities of following the plan and staying tracked through that node.
+[The longitudinal algorithm](../technical-reference/longitudinal-tmle.md#the-algorithm-as-implemented)
+defines that covariate; [targeting and bounds](../user-guide/methods-learners.md#targeting-and-bounds)
+gives the configuration options.
+The code also asks for a third horizon that the data do not have.
+===== estimate-retention code
+from cleverly import CrossFitting, ModelSpec, Runtime, TMLEMethod
+
+sequential = TMLEMethod(
+    models=ModelSpec(
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=41),
+        pseudo_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000, random_state=41),
+        censoring_learner=LogisticRegression(max_iter=1000, random_state=41),
+    ),
+    cross_fitting=CrossFitting(enabled=False),
+    runtime=Runtime(random_state=41, n_jobs=1),
+)
+exit_result = exit_effect.estimate(method=sequential)
+print(exit_result.summary(protocol="fingerprint"))
+print()
+try:
+    exit_study.identify(RegimeMean(plans, horizons=(1, 3))).estimate(method=sequential)
+except ValueError as refusal:
+    print("horizons=(1, 3) refused:", refusal)
+--OUT--
+Longitudinal TMLE (2 time points, n = 4000)
+
+parameter                   estimate  std. error  95% CI            p-value
+--------------------------  --------  ----------  ----------------  -------
+risk_regimen[always @ t=1]  0.1526    0.0086      [0.1357, 0.1695]  <1e-4  
+risk_regimen[always @ t=2]  0.3278    0.0135      [0.3013, 0.3544]  <1e-4  
+risk_regimen[never @ t=1]   0.2673    0.0112      [0.2453, 0.2894]  <1e-4  
+risk_regimen[never @ t=2]   0.4854    0.0180      [0.4500, 0.5207]  <1e-4  
+
+  time points: 2
+  outcome: survival, event indicator at plan_exit_p1, plan_exit_p2
+  horizons reported: t = 1, 2
+  outcome family: binomial
+  regimens: always=(1/1), never=(0/0)
+  cross-fitting: none -- nuisances fitted in sample
+  g_bounds: fixed [0.01, 1] on each cumulative treatment-and-censoring probability (package default; R ltmle-compatible heuristic -- inspect truncation diagnostics)
+  confidence level: 95%
+  random_state: 41
+  causal estimand: mean outcome under each declared regime
+  identification: explicit-adjustment; sequential g-formula under the declared treatment regimen
+  required nuisances: sequential_outcome_regressions, treatment_and_censoring_mechanisms
+  identification assumptions: consistency: each observed history equals the potential history under its realized regimen; no interference: one unit's potential history does not depend on other units' regimens; sequential exchangeability given the recorded history at every node; sequential positivity for treatment and remaining under observation
+  causal study protocol: schema 1; 67439090fc4bcdb0
+  clusters = 200 (navigator_team, cluster-robust variance)
+  data 0bbe7c1365fa0af5 | folds 4dc224c385945072 | cleverly 0.1.2 | 2026-09-27T04:02:54+00:00
+  always: 1007 of 4000 units followed it throughout; max weight 22.2, effective n 833; max truncated share 0.0% at t=1
+  never: 608 of 4000 units followed it throughout; max weight 27.4, effective n 473; max truncated share 0.0% at t=1
+
+  simultaneous 95% bands (multiplier bootstrap, critical value 2.424 vs 1.960 pointwise):
+    risk_regimen[always @ t=1]  [0.1318, 0.1735]
+    risk_regimen[always @ t=2]  [0.2950, 0.3607]
+    risk_regimen[never @ t=1]  [0.2401, 0.2946]
+    risk_regimen[never @ t=2]  [0.4417, 0.5291]
+
+horizons=(1, 3) refused: horizons= names [3], which is outside 1..2; a horizon is one of the fit's own time points
+
+===== estimate-reading markdown
+**What this output tells you.** The table has one row per plan per horizon.
+
+| plan | risk by 30 days | risk by 60 days | population value at 60 days |
+| --- | --- | --- | --- |
+| always | 0.1526 | 0.3278 | 0.3172 |
+| never | 0.2673 | 0.4854 | 0.4552 |
+
+The summary below the table is long. These lines matter most for this fit.
+
+| summary line | what it says |
+| --- | --- |
+| `regimens: always=(1/1), never=(0/0)` | the arm each plan assigns at the two nodes |
+| `cross-fitting: none` | the in-sample construction |
+| `g_bounds: fixed [0.01, 1]` | the bound on each cumulative probability of following the plan and staying tracked |
+| `clusters = 200` | the navigator teams, with a cluster-robust variance |
+| `always: 1007 of 4000 units followed it throughout` | the followers of each plan: 1007 for always and 608 for never. The largest weights are 22.2 and 27.4 |
+
+The summary prints no `reference` line, because a `RegimeMean` fit reports no contrast. Step 7
+computes the always-minus-never contrasts from this fit.
+
+The simultaneous bands are built to hold all four parameters at once with 95% probability. Their
+critical value is 2.424 against 1.960, so they are wider than the pointwise intervals. The last
+line is a refusal. **Horizons are the fit's own time points, not days.** The fit refuses a horizon
+outside `1..2` rather than interpolating it.
+
+The generator includes a nonlinear second-period hazard. These compact learners are therefore not a
+claim that each nuisance regression is correctly specified.
+===== curve-heading markdown
+## Step 7: the retention curve and the plan difference
+
+A retention team reads the share still enrolled, not the share that left. The code reads the same
+fit on the survival scale.
+
+The code then compares the plans at each horizon with the delta method. That method uses the
+influence curves the fit already holds, which the
+[inference entry](../technical-reference/inference.md) defines.
+===== retention-curve code
+survival_curve = exit_result.curve(scale="survival")
+columns = ["estimand", "parameter", "time", "psi", "ci_lower", "ci_upper"]
+print(survival_curve[columns].round(4).to_string(index=False))
+print()
+
+
+def difference(result, first, second):
+    """Delta-method difference of two estimates that one fit already holds."""
+    return result.contrast(lambda psi: psi[0] - psi[1], [first, second], name=f"{first} - {second}")
+
+
+exit_differences = {
+    horizon: difference(
+        exit_result, f"risk_regimen[always @ t={horizon}]", f"risk_regimen[never @ t={horizon}]"
+    )
+    for horizon in (1, 2)
+}
+print("always minus never, cumulative risk of plan exit:")
+for horizon, estimate in exit_differences.items():
+    low, high = estimate.ci
+    population = exit_truth[f"ate_regimen[always vs never @ t={horizon}]"]
+    print(
+        f"  t={horizon}: {estimate.psi:.4f}  SE={estimate.std_error:.4f}  "
+        f"CI=({low:.4f}, {high:.4f})  population {population:.4f}"
+    )
+--OUT--
+                      estimand                  parameter  time    psi  ci_lower  ci_upper
+survival_regimen[always @ t=1] risk_regimen[always @ t=1]     1 0.8474    0.8305    0.8643
+survival_regimen[always @ t=2] risk_regimen[always @ t=2]     2 0.6722    0.6456    0.6987
+ survival_regimen[never @ t=1]  risk_regimen[never @ t=1]     1 0.7327    0.7106    0.7547
+ survival_regimen[never @ t=2]  risk_regimen[never @ t=2]     2 0.5146    0.4793    0.5500
+
+always minus never, cumulative risk of plan exit:
+  t=1: -0.1147  SE=0.0140  CI=(-0.1423, -0.0872)  population -0.1082
+  t=2: -0.1576  SE=0.0227  CI=(-0.2020, -0.1131)  population -0.1380
+
+===== curve-reading markdown
+**What this output tells you.** `curve()` returns one row per plan per horizon, with a `time`
+column. On the survival scale a level row reports one minus the risk, $1 - F$, and its interval
+bounds swap. For example, the always plan keeps 0.6722 of patients enrolled at 60 days, with the
+interval (0.6456, 0.6987). The `estimand` column names the survival quantity, and the `parameter`
+column names the risk estimate behind it.
+
+| horizon | always minus never | 95% interval | population value |
+| --- | --- | --- | --- |
+| 30 days | -0.1147 | (-0.1423, -0.0872) | -0.1082 |
+| 60 days | -0.1576 | (-0.2020, -0.1131) | -0.1380 |
+
+On this draw both risk differences are negative, and the 60-day reduction is larger. Under the
+always plan, more of the population would remain enrolled at both horizons. The population values
+have the same pattern, and each interval contains its population value. That is one draw, not a
+coverage result.
+
+`difference()` gives the same estimate and standard error as a separate `RegimeContrast` fit,
+without a second backward recursion. The semantic test for this page checks that equality.
+===== competing-heading markdown
+## Step 8: two competing clinical events
+
+A patient can be readmitted, or can die before readmission. Either event ends the patient's time at
+risk for the other. The two causes are mutually exclusive and absorbing.
+
+| cause | what it is | can the program move it? |
+| --- | --- | --- |
+| readmission | the first unplanned readmission after discharge | possibly. Navigation can change access and adherence |
+| death | death before a recorded readmission | possibly. Any claim needs a plausible pathway and the same identification review |
+
+A mapping of cause to one indicator column per time point declares competing risks. Only the
+outcome role changes, and the design reuses `navigation_nodes`. The code copies the protocol and
+prints only the fields it replaces.
+===== competing-events code
+from cleverly.datasets import make_longitudinal_competing
+
+event_frame, event_truth = make_longitudinal_competing(n=4_000, seed=53, censoring=False)
+event_frame = event_frame.rename(
+    columns={
+        "W1": "age",
+        "W2": "baseline_readiness",
+        "A1": "navigation_p1",
+        "L2": "identified_needs",
+        "A2": "navigation_p2",
+        "D1": "death_p1",
+        "D2": "death_p2",
+        "R1": "readmission_p1",
+        "R2": "readmission_p2",
+    }
+)
+event_protocol = replace(
+    exit_protocol,
+    treatment_strategies=(
+        "Offer navigation at the start of each 30-day period until readmission or death",
+        exit_protocol.treatment_strategies[1],
+    ),
+    outcome=(
+        "First unplanned readmission, and death before a recorded readmission, "
+        "recorded at the end of each 30-day period"
+    ),
+    intercurrent_event_handling=(
+        "Treat death before readmission as a competing event that stays in the history",
+        "Make no navigation decision after either event",
+        exit_protocol.intercurrent_event_handling[2],
+    ),
+    assumption_rationale=(
+        "Recorded history covers the measured common causes of navigation, readmission, "
+        "and death in each period",
+        *exit_protocol.assumption_rationale[1:],
+    ),
+)
+event_study = CausalStudy(
+    event_frame,
+    design=LongitudinalTreatment(
+        outcome={
+            "readmission": ("readmission_p1", "readmission_p2"),
+            "death": ("death_p1", "death_p2"),
+        },
+        **navigation_nodes,
+    ),
+    protocol=event_protocol,
+)
+event_effect = event_study.identify(levels_by_plan)
+print("rows and columns:", event_frame.shape)
+print()
+print("\n".join(event_effect.summary().splitlines()[:2]))
+print()
+print("causal study protocol:", event_protocol.fingerprint)
+for field in (
+    "treatment_strategies",
+    "outcome",
+    "intercurrent_event_handling",
+    "assumption_rationale",
+):
+    print(f"{field}: {getattr(event_protocol, field)}")
+print()
+print("known values of the synthetic law, cumulative incidence of death:")
+for key in ("cif_regimen[never, death @ t=2]", "cif_regimen[always, death @ t=2]"):
+    print(f"  {key:34s} {event_truth[key]:.4f}")
+--OUT--
+rows and columns: (4000, 9)
+
+mean outcome under each declared regime
+identified by explicit-adjustment: sequential g-formula under the declared treatment regimen
+
+causal study protocol: 9085a579217af08d
+treatment_strategies: ('Offer navigation at the start of each 30-day period until readmission or death', 'Offer no navigation at either decision')
+outcome: First unplanned readmission, and death before a recorded readmission, recorded at the end of each 30-day period
+intercurrent_event_handling: ('Treat death before readmission as a competing event that stays in the history', 'Make no navigation decision after either event', 'Analyze each navigation offer regardless of completed contacts')
+assumption_rationale: ('Recorded history covers the measured common causes of navigation, readmission, and death in each period', 'Version records support consistency at both navigation decisions', 'Reserved navigator capacity supports no interference between patients')
+
+known values of the synthetic law, cumulative incidence of death:
+  cif_regimen[never, death @ t=2]    0.2109
+  cif_regimen[always, death @ t=2]   0.0705
+
+===== competing-reading markdown
+**What this output tells you.** The identification is the same sequential g-formula. The protocol
+now has the fingerprint `9085a579217af08d`. Four fields changed: the treatment strategies, the
+outcome, the intercurrent-event handling, and the assumption rationale. The strategy now stops at
+readmission or death. The protocol names death before readmission as a competing event that stays
+in the history.
+
+This section runs without censoring, so the causes are the only way to leave the risk set. The
+generator is `make_longitudinal_competing`. It has no cluster option, so this study declares no
+navigator teams. In this synthetic law, 60-day death risk is 21% under no navigation and 7% under
+navigation at both periods.
+===== competing-estimate-heading markdown
+## Step 9: estimate the cause-specific incidences
+
+The fit reuses the method from Step 6. It reports one cumulative incidence per plan, per cause, per
+horizon. The first table puts each estimate beside its population value. Its `distance_in_se`
+column is the gap between the two, in standard errors. The code then compares the plans for each
+cause, sums the causes, and asks for the survival view.
+===== estimate-competing code
+event_levels = event_effect.estimate(method=sequential)
+
+# The generator names readmission "relapse", so its truth keys use that word.
+generator_cause = {"readmission": "relapse", "death": "death"}
+level_columns = ["estimand", "psi", "std_err", "ci_lower", "ci_upper"]
+level_table = event_levels.to_frame()[level_columns].copy()
+level_table["population"] = [
+    event_truth[name.replace("readmission", "relapse")] for name in level_table["estimand"]
+]
+level_table["distance_in_se"] = (level_table["psi"] - level_table["population"]) / level_table[
+    "std_err"
+]
+print(level_table.round(4).round({"distance_in_se": 1}).to_string(index=False))
+print()
+
+event_differences = {}
+print("always minus never, cause-specific cumulative incidence:")
+for cause, source in generator_cause.items():
+    for horizon in (1, 2):
+        estimate = difference(
+            event_levels,
+            f"cif_regimen[always, {cause} @ t={horizon}]",
+            f"cif_regimen[never, {cause} @ t={horizon}]",
+        )
+        event_differences[cause, horizon] = estimate
+        low, high = estimate.ci
+        population = event_truth[f"ate_regimen[always vs never, {source} @ t={horizon}]"]
+        distance = (estimate.psi - population) / estimate.std_error
+        print(
+            f"  {cause:11s} t={horizon}: {estimate.psi:.4f}  SE={estimate.std_error:.4f}  "
+            f"CI=({low:.4f}, {high:.4f})  population {population:.4f}  "
+            f"distance {distance:.1f} SE"
+        )
+print()
+incidence_totals = event_levels.incidence_total()
+print(incidence_totals[["regimen", "time", "total", "std_err", "excess"]].round(4))
+print()
+try:
+    event_levels.curve(scale="survival")
+except ValueError as refusal:
+    print("curve(scale='survival') refused:", refusal)
+--OUT--
+                              estimand    psi  std_err  ci_lower  ci_upper  population  distance_in_se
+cif_regimen[always, readmission @ t=1] 0.1115   0.0071    0.0976    0.1254      0.1187            -1.0
+cif_regimen[always, readmission @ t=2] 0.2316   0.0103    0.2113    0.2518      0.2467            -1.5
+      cif_regimen[always, death @ t=1] 0.0293   0.0038    0.0218    0.0368      0.0310            -0.4
+      cif_regimen[always, death @ t=2] 0.0664   0.0061    0.0545    0.0783      0.0705            -0.7
+ cif_regimen[never, readmission @ t=1] 0.1477   0.0083    0.1314    0.1640      0.1452             0.3
+ cif_regimen[never, readmission @ t=2] 0.2391   0.0136    0.2125    0.2657      0.2443            -0.4
+       cif_regimen[never, death @ t=1] 0.0997   0.0068    0.0864    0.1130      0.1127            -1.9
+       cif_regimen[never, death @ t=2] 0.1755   0.0124    0.1511    0.1998      0.2109            -2.9
+
+always minus never, cause-specific cumulative incidence:
+  readmission t=1: -0.0362  SE=0.0109  CI=(-0.0575, -0.0149)  population -0.0265  distance -0.9 SE
+  readmission t=2: -0.0075  SE=0.0169  CI=(-0.0406, 0.0256)  population 0.0024  distance -0.6 SE
+  death       t=1: -0.0704  SE=0.0078  CI=(-0.0856, -0.0551)  population -0.0817  distance 1.5 SE
+  death       t=2: -0.1090  SE=0.0138  CI=(-0.1361, -0.0820)  population -0.1404  distance 2.3 SE
+
+  regimen  time   total  std_err  excess
+0  always     1  0.1408   0.0079     0.0
+1  always     2  0.2980   0.0112     0.0
+2   never     1  0.2474   0.0100     0.0
+3   never     2  0.4145   0.0165     0.0
+
+curve(scale='survival') refused: a competing-risk fit reports one cumulative incidence per cause, and 1 - one cause's incidence is not all-cause survival. Event-free survival is 1 - the sum of the cause-specific incidences; use incidence_total() to inspect that sum
+
+===== competing-estimate-reading markdown
+**What this output tells you.** Read the differences first.
+
+| cause | 30 days | 60 days | population values |
+| --- | --- | --- | --- |
+| readmission | -0.0362 | -0.0075 | -0.0265 and 0.0024 |
+| death | -0.0704 | -0.1090 | -0.0817 and -0.1404 |
+
+On this draw the readmission difference is negative at 30 days and shrinks toward zero by 60 days.
+The death difference is negative at both horizons, and the reduction is larger at 60 days. The
+population readmission difference crosses zero between the two horizons.
+
+Two intervals miss their population values on this draw.
+
+| estimate | interval | population value | signed distance |
+| --- | --- | --- | --- |
+| never-plan death incidence at 60 days | (0.1511, 0.1998) | 0.2109 | -2.9 standard errors |
+| always minus never, death at 60 days | (-0.1361, -0.0820) | -0.1404 | 2.3 standard errors |
+
+Both misses come from one estimate. The never-plan death incidence sits below its population value,
+and the difference inherits that gap. Read both misses as sampling variation. A 95% interval misses
+on about one draw in 20, and this page prints 12 intervals from one fit.
+
+The page's learners model
+the treatment mechanism correctly. TMLE is then consistent although the outcome regressions are
+misspecified. The
+[competing-risk study](../technical-reference/method-evidence/ordinary-competing-risk-longitudinal-tmle.md)
+measures that property and the coverage of this contrast over repeated draws on its own law.
+
+Navigation lowers death risk in this law, so more navigated patients remain at risk of readmission.
+The readmission difference therefore includes a pathway through death. It is not a negative
+control.
+
+`incidence_total()` sums the causes per plan per horizon. It does not renormalize them, because
+each cause solves its own score equation. At 60 days the totals are 0.2980 for always and 0.4145
+for never. The `excess` column is how far a total rises above one, and it is 0.0 in every row.
+Event-free survival is one minus that **sum**. The last line shows that a fit with two or more
+causes therefore refuses `curve(scale="survival")`.
+===== failure-heading markdown
+## Step 10: the failure mode, coding death as censoring
+
+The estimates above are total effects in the sense of Young and colleagues (2020). Each readmission
+incidence counts every pathway from navigation, including the pathway through death.
+
+A common shortcut codes death as a censoring event. The fit then runs without a refusal, but it
+targets a different estimand. The code fits that shortcut and writes the protocol it implies.
+===== failure-mode code
+alive_through_p1 = event_frame["death_p1"].eq(0) & event_frame["readmission_p1"].eq(0)
+death_as_censoring = event_frame.assign(
+    alive_p1=1.0 - event_frame["death_p1"],
+    alive_p2=(1.0 - event_frame["death_p2"]).where(alive_through_p1),
+    readmission_p1=event_frame["readmission_p1"].where(event_frame["death_p1"].eq(0)),
+    readmission_p2=event_frame["readmission_p2"].where(event_frame["death_p2"].eq(0)),
+)
+eliminated_protocol = replace(
+    event_protocol,
+    outcome="First unplanned readmission, recorded at the end of each 30-day period",
+    intercurrent_event_handling=(
+        "Treat death as censoring, so the target is readmission risk if death were "
+        "prevented (hypothetical strategy)",
+        "Make no navigation decision after readmission or death",
+        event_protocol.intercurrent_event_handling[2],
+    ),
+    assumption_rationale=(
+        "Recorded history covers the measured common causes of navigation, readmission, "
+        "and death in each period, including every common cause of death and readmission",
+        *event_protocol.assumption_rationale[1:],
+    ),
+)
+eliminated = (
+    CausalStudy(
+        death_as_censoring,
+        design=LongitudinalTreatment(
+            outcome=("readmission_p1", "readmission_p2"),
+            censoring=("alive_p1", "alive_p2"),
+            **navigation_nodes,
+        ),
+        protocol=eliminated_protocol,
+    )
+    .identify(levels_by_plan)
+    .estimate(method=sequential)
+)
+eliminated_t2 = difference(eliminated, "risk_regimen[always @ t=2]", "risk_regimen[never @ t=2]")
+print("protocol fingerprint, death as a competing event:", event_protocol.fingerprint)
+print("protocol fingerprint, death as censoring:        ", eliminated_protocol.fingerprint)
+print()
+print("readmission risk at t=2      never  always  always - never")
+rows = (
+    (
+        "death as a competing event",
+        event_levels["cif_regimen[never, readmission @ t=2]"].psi,
+        event_levels["cif_regimen[always, readmission @ t=2]"].psi,
+        event_differences["readmission", 2].psi,
+    ),
+    (
+        "death as censoring",
+        eliminated["risk_regimen[never @ t=2]"].psi,
+        eliminated["risk_regimen[always @ t=2]"].psi,
+        eliminated_t2.psi,
+    ),
+)
+for label, never, always, contrast in rows:
+    print(f"{label:28s} {never:.4f}  {always:.4f}  {contrast:.4f}")
+--OUT--
+protocol fingerprint, death as a competing event: 9085a579217af08d
+protocol fingerprint, death as censoring:         00508bbe316f3d6a
+
+readmission risk at t=2      never  always  always - never
+death as a competing event   0.2391  0.2316  -0.0075
+death as censoring           0.2773  0.2477  -0.0296
+
+===== failure-reading markdown
+**What this output tells you.** The two analyses carry different protocol fingerprints,
+`9085a579217af08d` and `00508bbe316f3d6a`. The death-as-censoring protocol changes three fields:
+the outcome, the intercurrent-event handling, and the assumption rationale. The code accepted
+both designs, and only the protocol records that the question changed.
+
+| analysis | estimand | 60-day difference | what it needs |
+| --- | --- | --- | --- |
+| death as a competing event | the total effect on the cumulative incidence of readmission | -0.0075 | the assumptions in Step 5 |
+| death as censoring | the controlled direct effect: readmission risk if death were eliminated | -0.0296 | exchangeability and positivity for death as an intervened node, and a well-defined intervention that prevents death |
+
+On this draw the censored analysis reports a larger reduction in readmission. More patients die
+under the never plan. Eliminating death returns them to the risk set, which raises readmission risk
+most under that plan. Here the never-plan risk rises from 0.2391 to 0.2773, and the always-plan
+risk rises from 0.2316 to 0.2477.
+
+`cleverly` refuses a direct request to eliminate a competing event. The
+[refusal table](../technical-reference/longitudinal-tmle.md#cross-fitting-the-recursion) gives the
+reason. The recoding bypasses that refusal, because no design check can see the intent. In this
+recoded fit the learners specify neither the death mechanism nor the readmission regression
+correctly. No registered study covers the construction. Do not read -0.0296 as an estimate of the
+controlled direct effect.
+
+The generator returns no population value for this estimand, because it defines no world without
+death. [Young et al. (2020)](https://doi.org/10.1002/sim.8471) define both estimands and their
+identifying conditions.
+===== assessment-heading markdown
+## Step 11: diagnostics, what the fit can check
+
+Assess the retention and competing-risk fits separately, because their risk sets have different
+shapes. The code prints the retention assessment and both support reports.
+===== assessment code
+exit_assessment = exit_result.assess()
+event_assessment = event_levels.assess()
+print(exit_assessment.summary())
+print("needs attention, retention fit:", tuple(item.name for item in exit_assessment.attention))
+print("needs attention, competing fit:", tuple(item.name for item in event_assessment.attention))
+print()
+print("retention support:")
+print(exit_assessment.report("support").to_frame().round(4).to_string(index=False))
+print()
+print("competing-event support:")
+print(event_assessment.report("support").to_frame().round(4).to_string(index=False))
+--OUT--
+Returned results
+----------------
+surface     operation        result                                                                    
+----------  ---------------  --------------------------------------------------------------------------
+validation  support          maximum truncated fraction 0.0%; minimum effective-sample-size ratio 77.8%
+validation  nuisance_models  10 longitudinal nuisance loss value(s) are available                      
+
+Checks
+------
+status  count  operations                
+------  -----  --------------------------
+passed  1      validation.score_equations
+
+Not run
+-------
+status          count  operations                       
+--------------  -----  ---------------------------------
+deferred        1      diagnostics.truncation_curve     
+unavailable     10     diagnostics.refute               
+                       sensitivity.omitted_confounding  
+                       sensitivity.robustness_value     
+                       sensitivity.elements             
+                       sensitivity.benchmark            
+                       sensitivity.simulated_confounding
+                       sensitivity.contour              
+                       sensitivity.evalue               
+                       sensitivity.missingness          
+                       sensitivity.tipping_gamma        
+not_applicable  1      diagnostics.corrections          
+
+Full ledger: call to_frame(). Next steps: call next_steps().
+Retained payloads: call report(...).
+needs attention, retention fit: ()
+needs attention, competing fit: ()
+
+retention support:
+regimen  horizon  time  n_followed  share_assigned_1  max_weight  effective_n  share_truncated  epsilon  converged
+ always        1     1        1781               1.0      8.7247    1628.0127              0.0   0.0003       True
+ always        2     1        1781               1.0      8.7247    1628.0127              0.0   0.0075       True
+ always        2     2        1007               1.0     22.1663     833.3060              0.0  -0.0058       True
+  never        1     1        1756               0.0      6.2591    1646.9331              0.0  -0.0017       True
+  never        2     1        1756               0.0      6.2591    1646.9331              0.0   0.0013       True
+  never        2     2         608               0.0     27.3928     472.9593              0.0   0.0393       True
+
+competing-event support:
+regimen       cause  horizon  time  n_followed  share_assigned_1  max_weig
+===== assessment-reading markdown
+**What this output tells you.** Neither fit has a row that needs attention.
+
+| summary section | what it shows for the retention fit |
+| --- | --- |
+| `Checks` | the score-equation check `passed` |
+| `Returned results` | the support and nuisance-model reports ran. A returned result is not a pass |
+| `Not run` | the truncation curve is `deferred`, and ten operations are `unavailable`. Step 12 reads their reasons |
+
+The support line reports a minimum effective-sample-size ratio of 77.8%. That is the never plan at
+the second node: an effective sample of about 473 from 608 followers.
+
+| support column | what it shows on this draw |
+| --- | --- |
+| `horizon` and `time` | the parameter's horizon, and the node whose weights the row describes |
+| `n_followed` | the patients whose offers match the plan through that node. The never plan keeps 608 at the second node |
+| `max_weight` and `effective_n` | the largest weight, 27.4 for never at the second node, and an effective sample of about 473 |
+| `share_truncated` | no row reached the bound on either fit |
+| `epsilon` | the targeting coefficient. The largest, -0.1324, is on the never-plan death row at the second node, where the initial regression moved most |
+| `converged` | targeting converged for every row |
+
+The competing-event table adds a `cause` column, which names the cause each row targets. The
+[longitudinal TMLE tutorial](longitudinal-tmle.ipynb#step-9-diagnostics-what-the-fit-can-check)
+explains the support columns and shows the truncation curve.
+
+These reports describe weights and fitted equations. They do not establish sequential
+exchangeability or correct nuisance models.
+===== sensitivity-heading markdown
+## Step 12: sensitivity, what the fit cannot check
+
+A sensitivity analysis asks how strong an unmeasured confounder would need to be to change the
+conclusion. [Sensitivity analysis](../user-guide/results-assessment.md#sensitivity-analysis)
+describes the point-treatment operations. The code lists each operation's status for the
+retention fit, and then calls one directly.
+===== sensitivity code
+from cleverly import CapabilityError
+
+for item in exit_assessment.sensitivity.items:
+    print(f"{item.name:22s} {item.status.value:12s} {item.detail}")
+refute = exit_assessment.diagnostics["refute"]
+print(f"{'refute':22s} {refute.status.value:12s} {refute.detail}")
+print()
+try:
+    exit_result.sensitivity.robustness_value()
+except CapabilityError as refusal:
+    print("refused:", refusal)
+--OUT--
+omitted_confounding    unavailable  no longitudinal sensitivity derivation is registered
+robustness_value       unavailable  no longitudinal sensitivity derivation is registered
+elements               unavailable  no longitudinal sensitivity derivation is registered
+benchmark              unavailable  no longitudinal benchmarking derivation is registered
+simulated_confounding  unavailable  simulated_confounding has no time-indexed latent law for longitudinal treatments, censoring, histories, outcomes, and contrasts; docs/roadmap.md F13 tracks this stop
+contour                unavailable  no longitudinal sensitivity derivation is registered
+evalue                 unavailable  no longitudinal sensitivity derivation is registered for an E-value
+missingness            unavailable  no longitudinal missingness-tilt adapter is implemented
+tipping_gamma          unavailable  no longitudinal missingness-tilt adapter is implemented
+refute                 unavailable  no evidence-backed longitudinal perturbation/refit adapter is implemented
+
+refused: sensitivity 'robustness_value' is unavailable: no longitudinal sensitivity derivation is registered
+
+===== sensitivity-reading markdown
+**What this output tells you.** Every sensitivity operation and the refutation are `unavailable`
+for a longitudinal fit. Each row gives the reason. A direct call raises `CapabilityError` with the
+same reason.
+
+No sensitivity analysis on this page can say how strong a confounder of any navigation decision
+would need to be. The causal reading rests on the recorded history and the causal review alone.
+The refusal table in the
+[technical entry](../technical-reference/longitudinal-tmle.md#cross-fitting-the-recursion) lists
+longitudinal sensitivity-bound estimation as not written yet.
+===== trust markdown
+## How far to trust this
+
+Two registered studies cover parts of the constructions on this page. The
+[ordinary survival-curve study](../technical-reference/method-evidence/ordinary-survival-curve-longitudinal-tmle.md)
+compares the retention construction against R `ltmle`. The
+[ordinary competing-risk study](../technical-reference/method-evidence/ordinary-competing-risk-longitudinal-tmle.md)
+compares the competing-event construction against R `lmtp`.
+
+| layer | establishes | does not establish |
+| --- | --- | --- |
+| assessment overview | which stored checks need attention, and which operations did not run | the detail needed to interpret each retained report |
+| retained diagnostics | that targeting converged, and how concentrated the fitted weights are | that the nuisance models are right |
+| sensitivity analysis | nothing for a longitudinal fit. Every operation is unavailable | how strong an unmeasured confounder would need to be |
+| the registered studies | the implementation recovers known truths and matches the R reference with supplied mechanisms | that your identification assumptions hold on your data |
+
+Each study page lists its limits. The competing-risk study excludes clustering and eliminated
+competing events. The survival study validates pointwise inference only, so it does not cover the
+simultaneous bands. Its page does not describe clustered data. Both studies fix or supply the
+mechanisms, and this page learns them.
+
+The survival study also measures a reported standard error slightly below the sampling spread at
+the second horizon. Read each 60-day interval as slightly too narrow. No study covers the
+death-as-censoring fit in Step 10.
+
+The [technical entry](../technical-reference/longitudinal-tmle.md#validation-issues-special-to-this-method)
+lists the survival and competing-risk evidence and its limits. Nothing in this list validates the
+causal reading. That rests on consistency, sequential exchangeability, and no interference, which
+are arguments about the program rather than about the fit.
+===== where-next markdown
+## Where to go next
+
+This page reported one parameter per plan per horizon, and then one per cause as well. A program
+comparing many navigation plans wants a summary instead. That is
+[MSM projections](msm-projections.ipynb), and the same projection works over regimens and horizons.
+
+The [examples index](index.md#the-program) lists every tutorial in the program.

@@ -1,0 +1,37 @@
+{'seed': 2026, 'gcomp': np.float64(0.05649255256273622), 'ipw': np.float64(0.057139885895710896), 'hand_tmle': np.float64(0.0570039181189457), 's0': np.float64(0.0005087504178504443), 'final_score': np.float64(5.921189464667501e-19), 'eps': np.float64(0.004228553909612998), 'pkg': 0.05700278860982799, 'gap_over_shift': np.float64(0.0022088095375084513), 'move_over_s0': np.float64(1.005140316876959), 'cv': 0.05776642460600415, 'lo': 0.04991919639858992, 'hi': 0.06561365281341838, 'att': 'nuisance_models', 'flag_prop': True, 'flag_out': True, 'sign_survives': True, 'rv': 0.142, 'cf_y': 0.0, 'cf_d': 0.0139, 'gmin': 0.2384, 'trunc': 0.0, 'secs': 41.32173204421997}
+{'seed': 0, 'gcomp': np.float64(0.051488215195822105), 'ipw': np.float64(0.05154680230697245), 'hand_tmle': np.float64(0.051513836150072496), 's0': np.float64(2.5550328179164695e-05), 'final_score': np.float64(-5.921189464667501e-19), 'eps': np.float64(0.0002285126091523464), 'pkg': 0.0515097662309376, 'gap_over_shift': np.float64(0.15885119247006418), 'move_over_s0': np.float64(1.0027641942886634), 'cv': 0.0516497259310181, 'lo': 0.04410321076767269, 'hi': 0.059196241094363514, 'att': 'nuisance_models', 'flag_prop': True, 'flag_out': True, 'sign_survives': True, 'rv': 0.1346, 'cf_y': 0.0, 'cf_d': 0.0733, 'gmin': 0.2604, 'trunc': 0.0, 'secs': 51.021684885025024}
+{'seed': 1, 'gcomp': np.float64(0.05915068591754364), 'ipw': np.float64(0.05889218836390221), 'hand_tmle': np.float64(0.05883641476735667), 's0': np.float64(-0.00029492455605531655), 'final_score': np.float64(0.0), 'eps': np.float64(-0.002333008500073915), 'pkg': 0.05727426849899715, 'gap_over_shift': np.float64(4.970695742928154), 'move_over_s0': np.float64(1.065598451313856), 'cv': 0.05866325044420681, 'lo': 0.050518883570010574, 'hi': 0.06680761731840304, 'att': 'nuisance_models', 'flag_prop': True, 'flag_out': True, 'sign_survives': True, 'rv': 0.1382, 'cf_y': 0.0, 'cf_d': 0.013, 'gmin': 0.0872, 'trunc': 0.0, 'secs': 56.263628244400024}
+{'seed': 2, 'gcomp': np.float64(0.057303105608494095), 'ipw': np.float64(0.05758598295306267), 'hand_tmle': np.float64(0.05759202826158163), 's0': np.float64(0.0002891248184227327), 'final_score': np.float64(-2.9605947323337507e-19), 'eps': np.float64(0.002400321330568408), 'pkg': 0.0575915316310978, 'gap_over_shift': np.float64(0.0017189046221204956), 'move_over_s0': np.float64(0.9993007679648425), 'cv': 0.0584171720360955, 'lo': 0.05046663602518428, 'hi': 0.06636770804700672, 'att': 'nuisance_models', 'flag_prop': True, 'flag_out': True, 'sign_survives': True, 'rv': 0.1717, 'cf_y': 0.0, 'cf_d': 0.0144, 'gmin': 0.0608, 'trunc': 0.0, 'secs': 44.269471168518066}
+{'seed': 3, 'gcomp': np.float64(0.06400675359040775), 'ipw': np.float64(0.06414465712366181), 'hand_tmle': np.float64(0.06399243171752006), 's0': np.float64(-1.4305650646672922e-05), 'final_score': np.float64(-1.3322676295501879e-18), 'eps': np.float64(-0.00010697341095586365), 'pkg': 0.06399447084950878, 'gap_over_shift': np.float64(0.14237886376393444), 'move_over_s0': np.float64(1.0011339743586727), 'cv': 0.06342540571906954, 'lo': 0.05515781587930484, 'hi': 0.07169299555883424, 'att': 'nuisance_models', 'flag_prop': True, 'flag_out': True, 'sign_survives': True, 'rv': 0.1526, 'cf_y': 0.001, 'cf_d': 0.0, 'gmin': 0.1335, 'trunc': 0.0, 'secs': 44.028876543045044}
+{'seed': 4, 'gcomp': np.float64(0.05693642450813124), 'ipw': np.float64(0.05708415701957654), 'hand_tmle': np.float64(0.05713555543736424), 's0': np.float64(0.00019899137988691615), 'final_score': np.float64(0.0), 'eps': np.float64(0.0016841250381968312), 'pkg': 0.057129821462773164, 'gap_over_shift': np.float64(0.028794997407791154), 'move_over_s0': np.float64(1.0007012833730031), 'cv': 0.05747073628308212, 'lo': 0.049755219071386574, 'hi': 0.06518625349477768, 'att': 'nuisance_models', 'flag_prop': True, 'flag_out': True, 'sign_survives': True, 'rv': 0.1453, 'cf_y': 0.001, 'cf_d': 0.016, 'gmin': 0.2643, 'trunc': 0.0, 'secs': 43.61646628379822}
+Traceback (most recent call last):
+  File "C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\.tmp\notebook-review\twins-causal-inference\point_sweep.py", line 98, in <module>
+    t0 = time.time(); r = run(s); r["secs"] = time.time() - t0; recs.append(r); print(r); sys.stdout.flush()
+                          ^^^^^^
+  File "C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\.tmp\notebook-review\twins-causal-inference\point_sweep.py", line 83, in run
+    bm = fr.sensitivity.benchmark(covariates=("preterm", "tobacco"), estimand="ate", random_state=seed).summary()
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\assessment.py", line 4148, in benchmark
+    return self._dispatch("benchmark", args, kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\assessment.py", line 4257, in _dispatch
+    return self._invoke(operation, args, kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\assessment.py", line 2043, in _invoke
+    report = _cached(self._result, f"{self._attribute}.{operation}", (), effective, compute)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\_assessment_cache.py", line 107, in _cached
+    value = compute()
+            ^^^^^^^^^
+  File "C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\assessment.py", line 2033, in compute
+    return function(*bound.args, **bound.kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\sensitivity\omitted_variable.py", line 1683, in benchmark
+    short_elements = sensitivity_elements(short_result, estimand, nu2_estimator=nu2_estimator)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\sensitivity\omitted_variable.py", line 562, in sensitivity_elements
+    return _elements_for(result, result.repeats[0], parameter, nu2_estimator)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\sensitivity\omitted_variable.py", line 699, in _elements_for
+    raise CapabilityError(
+cleverly.exceptions.CapabilityError: the 'doubly_robust' estimator of nu^2 returned -10.3091 for 'ate', and a second moment cannot be negative. E[2 m(alpha_hat) - alpha_hat^2] equals nu_0^2 minus the squared error of the fitted representer, so this value reports a treatment mechanism the bound's derivation does not cover. The plug-in E[alpha_hat^2] squares that same fitted representer, so it is not a substitute. (nu2_estimator='auto' resolved to 'doubly_robust'.)

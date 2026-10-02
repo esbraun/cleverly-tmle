@@ -1,0 +1,15 @@
+(1) tilted plug-in vs population tilted ATE on the same scale
+  seed 2000 [0.03961312523237403, -0.6343612926715432] [0.20294490659625156, -0.4411195438544047]
+  gamma=1.0: mean(est - pop tilted)=-0.0201  sd=0.0823  mcse=0.0130
+  gamma=2.0: mean(est - pop tilted)=-0.0491  sd=0.0942  mcse=0.0149
+  seed 71 scale: pop tilted ATE at gamma=1,2: 0.2359749561398156 -0.41097588574682303
+  population tipping gamma on seed-71 scale: 1.3031599470319726
+(2) tipping gamma and scale range vs n
+  n=1000: mean range=17.98  mean tipping gamma=1.301  sd=0.172  pop tipping on mean range=1.370
+  n=4000: mean range=22.25  mean tipping gamma=1.231  sd=0.209  pop tipping on mean range=1.077
+  n=16000: mean range=25.28  mean tipping gamma=1.076  sd=0.094  pop tipping on mean range=0.938
+  n=64000: mean range=29.32  mean tipping gamma=0.933  sd=0.073  pop tipping on mean range=0.801
+(3) composite death scored worst and counted as observed
+  a=0: P(death)=0.0387  true E[Y^a]=1.4140  declared functional=0.9458  bias=-0.4681
+  a=1: P(death)=0.0241  true E[Y^a]=2.7464  declared functional=2.5324  bias=-0.2140
+  ATE truth=1.3324  declared functional=1.5866  bias=0.2542

@@ -1,0 +1,13 @@
+C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\__init__.py
+MC ATE 1.0 ATT 1.0
+P(A=1) 0.500294 Y mean 1.4970035282370653 Y sd 2.1345302493701586
+EIC sd, full g (truncated): 0.06897290235471346
+EIC sd, constant g (plug-in at intercept): 0.044721367281068666
+OLS coef sd (homoskedastic, sigma=1): 0.05421277153608262
+unadjusted expected 1.8016368832713319
+logistic TMLEMethod REFUSED CapabilityError a cross-fitted fit of a continuous outcome (Y, family='gaussian') needs a declared q_bounds. With q_bounds=None the outcome scale is taken from every observed outcome, held-out rows included, so each fold's nuisance is fitted on a scale the rows it predicts helped set, and no shipped result covers t
+logistic CollaborativeTMLEMethod REFUSED CapabilityError a cross-fitted fit of a continuous outcome (Y, family='gaussian') needs a declared q_bounds. With q_bounds=None the outcome scale is taken from every observed outcome, held-out rows included, so each fold's nuisance is fitted on a scale the rows it predicts helped set, and no shipped result covers t
+linear TMLEMethod REFUSED CapabilityError a cross-fitted fit of a continuous outcome (Y, family='gaussian') needs a declared q_bounds. With q_bounds=None the outcome scale is taken from every observed outcome, held-out rows included, so each fold's nuisance is fitted on a scale the rows it predicts helped set, and no shipped result covers t
+linear CollaborativeTMLEMethod REFUSED CapabilityError a cross-fitted fit of a continuous outcome (Y, family='gaussian') needs a declared q_bounds. With q_bounds=None the outcome scale is taken from every observed outcome, held-out rows included, so each fold's nuisance is fitted on a scale the rows it predicts helped set, and no shipped result covers t
+in-sample logistic 0.9549679238301123 ('W3',)
+in-sample linear 0.9549694468947887 ('W3',)

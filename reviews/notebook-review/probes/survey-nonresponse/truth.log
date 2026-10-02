@@ -1,0 +1,7 @@
+strength 1.0: ATE=1.2000  P(Delta=1)=0.7877  E[W1|D=1]=-0.1416  respondent-standardized effect=1.2000  EY1=2.1995 EY0=0.9995
+  P(Delta=1|A=0)= 0.7654010913741783  P(Delta=1|A=1)= 0.8099436502487964
+  1st pct of P(Delta=1|A,W): 0.3813460415951777
+strength 2.0: ATE=1.2004  P(Delta=1)=0.7518  E[W1|D=1]=-0.2538  respondent-standardized effect=1.4284  EY1=2.9998 EY0=1.7994
+  P(Delta=1|A=0)= 0.7467521444116461  P(Delta=1|A=1)= 0.7568102082727051
+  1st pct of P(Delta=1|A,W): 0.14465962165915291
+binary: ey1=0.5626 ey0=0.3764 ate=0.1862 rr=1.4946 or=2.1309

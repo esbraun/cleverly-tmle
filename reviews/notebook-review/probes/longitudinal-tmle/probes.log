@@ -1,0 +1,15 @@
+in-sample calibration slope, wrong form (W only, no A, no L2), default C=1: 1.0009  auc 0.698
+in-sample calibration slope, wrong form, unpenalized: 0.9999  auc 0.698
+in-sample calibration slope, notebook form (W, A1, A2, L2), default C=1: 1.0009  auc 0.811
+oracle AUC of true P(tracked_day30 | history) among tracked at day 7: 0.5728
+oracle AUC of true P(tracked_day7 | history): 0.5884
+share A2=1 by (A1, L2>0) on seed 41:
+A1   L2   
+0.0  False    0.381
+     True     0.593
+1.0  False    0.557
+     True     0.770
+share of A1=1 among L2>0 vs L2<=0: {False: 0.26, True: 0.633}
+cross-fit + cluster refused: LongitudinalError cross-fitted longitudinal TMLE has no clustered result. A grouped draw keeps each cluster whole, and what has not been established for the sequential recursion is the cluster-robust variance of its targeted estimate under one; docs/roadmap.md F22 tracks this stop. Fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine), which is clustered and evidenced, or drop id= from fit.
+cross-fitted (no cluster) score kinds: ['solver'] all passed: True
+cross-fitted psi 0.3677

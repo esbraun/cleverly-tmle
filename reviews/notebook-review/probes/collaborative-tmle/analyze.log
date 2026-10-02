@@ -1,0 +1,64 @@
+seeds 300
+
+== correct-Q C-TMLE selection ==
+c_sel
+(empty)     166
+W3           75
+W3|W1        44
+W1            6
+W2            3
+W2|W3         2
+W1|W2         1
+W3|W1|W2      1
+W1|W3         1
+W2|W1         1
+Name: count, dtype: int64
+share selecting W1 (confounder): 0.18
+share selecting W2 (instrument): 0.02666666666666667
+share selecting exactly W3: 0.25
+share selecting empty: 0.5533333333333333
+share where W1 and W2 both excluded: 0.8033333333333333
+first path step: {'W3': 274, 'W1': 14, 'W2': 12}
+|gap k1-k0| < 1e-3: 0.6466666666666666  gap<0: 0.36
+train risk rises somewhere: 0.9933333333333333
+
+== constant-Q C-TMLE selection ==
+wc_sel
+W1|W3       136
+W3|W1       136
+W3|W1|W2     11
+W1|W3|W2      9
+W3|W2|W1      2
+W1            2
+W2|W1         1
+W3            1
+W2|W1|W3      1
+W2|W3|W1      1
+Name: count, dtype: int64
+share W1 kept: 0.9966666666666667  W2 left out: 0.9166666666666666  W3 kept: 0.99
+
+== point estimates, truth 1 ==
+c_psi   bias -0.0011 (mcse 0.0031)  emp sd 0.0534  rmse 0.0533
+p_psi   bias -0.0029 (mcse 0.0039)  emp sd 0.0682  rmse 0.0681
+wp_psi  bias +0.1037 (mcse 0.0117)  emp sd 0.2024  rmse 0.2271
+wc_psi  bias +0.0160 (mcse 0.0044)  emp sd 0.0757  rmse 0.0773
+ols     bias -0.0009 (mcse 0.0031)  emp sd 0.0535  rmse 0.0534
+
+== spreads ==
+c_psi   with c_pse : mean se 0.0452, emp sd 0.0534, ratio 0.847, coverage 0.893
+p_psi   with p_se  : mean se 0.0632, emp sd 0.0682, ratio 0.927, coverage 0.933
+wp_psi  with wp_se : mean se 0.2237, emp sd 0.2024, ratio 1.105, coverage 0.887
+wc_psi  with wc_pse: mean se 0.0925, emp sd 0.0757, ratio 1.221, coverage 0.977
+c_psi   with hc0   : mean se 0.0542, emp sd 0.0534, ratio 1.014, coverage 0.950
+ols     with hc0   : mean se 0.0542, emp sd 0.0535, ratio 1.012, coverage 0.953
+
+plug-in < plain se: 0.9933333333333333
+weak plug-in < 0.5 * weak plain se: 0.7666666666666667  ratio mean 0.4329667531356672
+c plug-in < hc0: 0.9866666666666667   hc0 > 1.1 plug-in: 0.9733333333333334
+|ols - c_psi| < 5e-4: 0.8166666666666667  when sel==W3: 1.0
+|c - truth| < |plain - truth|: 0.6366666666666667
+plain AUC range 0.8067922039785888 0.8609378110273869
+c tails both zero: 0.9233333333333333  c ESS>0.99: 0.8033333333333333
+plain tails >0.05 both: 1.0
+
+when C-TMLE (correct Q) includes W2: n 8  mean plug-in se 0.05530190628481231  c tails 0.0591875 0.06375

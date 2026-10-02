@@ -1,0 +1,34 @@
+seeds 400
+
+[lin] selected-set shares:
+lin_sel
+            0.592
+W3          0.262
+W1+W3       0.120
+W1          0.012
+W2          0.008
+W1+W2+W3    0.002
+W2+W3       0.002
+ contains W1: 0.135  contains W2: 0.012  contains W3: 0.388  empty: 0.592
+ |gap10|<1e-3: 0.618
+ C: bias -0.0051 (mcse 0.0026) empSD 0.0517 meanSE 0.0451 ratio 0.871 cov 0.917 rmse 0.0519
+ plain: bias -0.0063 (mcse 0.0034) empSD 0.0683 meanSE 0.0633 ratio 0.927 cov 0.930 rmse 0.0685
+ C plugse < plain se share: 1.0
+ ratio plug/plain mean: 0.723
+
+[const] selected-set shares:
+const_sel
+W1+W3       0.925
+W1+W2+W3    0.062
+W1+W2       0.008
+W1          0.005
+ contains W1: 1.0  contains W2: 0.07  contains W3: 0.988  empty: 0.0
+ |gap10|<1e-3: 0.0
+ C: bias +0.0075 (mcse 0.0029) empSD 0.0582 meanSE 0.0924 ratio 1.586 cov 0.993 rmse 0.0586
+ plain: bias +0.1109 (mcse 0.0104) empSD 0.2079 meanSE 0.2199 ratio 1.057 cov 0.865 rmse 0.2354
+ C plugse < plain se share: 1.0
+ ratio plug/plain mean: 0.442
+
+HC0 vs C-TMLE(lin): ratio 1.046 cov 0.96
+plugse < hc0 share: 0.998
+|ols - C| < 5e-4: 0.862

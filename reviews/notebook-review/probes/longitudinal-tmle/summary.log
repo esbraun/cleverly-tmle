@@ -1,0 +1,25 @@
+seeds 400 1000 1399
+coverage always-vs-never (clustered CI) 0.935 (374/400)
+coverage with iid SE 0.905 (362/400)
+mean bias -0.0005 mcse 0.0009
+empirical SD psi 0.0182 mean clustered SE 0.0176 mean iid SE 0.0157
+coverage rule-vs-never 0.950 (380/400) bias -0.0006 SD 0.0187 meanSE 0.0187
+coverage rule-vs-always 0.963 (385/400) bias -0.0
+rule-vs-always CI excludes zero 0.998 (399/400)
+|seq - truth| < SE 0.695 (278/400)
+crude > truth 1.000 (400/400) mean crude-T 0.119
+adjusted below truth 1.000 (400/400) mean -0.1249 range -0.189 -0.05
+adjusted CI excludes truth (upper<T) 0.998 (399/400)
+baseline above truth 0.988 (395/400) mean 0.0436 range -0.007 0.088
+baseline CI excludes truth (lower>T) 0.685 (274/400)
+opposite directions 0.988 (395/400)
+eng gap >0.5 1.000 (400/400) share engaged>not 1.000 (400/400)
+max weight: max 97.5 median 27.7 <100 1.000 (400/400)
+share truncated at 0.01 is 0 1.000 (400/400)
+min eff ratio: min 0.653 median 0.803
+curve move in SE: max 0.623 median 0.064 <0.3 0.985 (394/400)
+cal slope range 0.9935 1.0081
+reg slope range 1.0 1.0669
+lowest auc role counts {'censoring@2': 323, 'censoring@1': 77} lowest auc max 0.599
+scores pass 1.000 (400/400)
+rule share t2 range 0.759 0.853

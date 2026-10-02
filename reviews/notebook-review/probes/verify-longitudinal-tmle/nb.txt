@@ -1,0 +1,915 @@
+===== markdown title
+# Longitudinal TMLE: navigation at two decisions
+
+Navigation assigned twice is not one assignment with extra columns. This notebook estimates the
+effect of a two-decision navigation plan with longitudinal TMLE. It then shows why a
+point-treatment analysis of the same data fails. Each step shows its code, its output, and what the
+output tells you. [Longitudinal TMLE](../technical-reference/longitudinal-tmle.md) gives the
+sequential regression, the influence curve, and the algorithm.
+
+## The applied question
+
+The plan offers navigation at discharge and again on day seven. Before the second decision, the
+program records an engagement score from attendance, medication pickup, and portal activity.
+Patients lost from outcome tracking are censored.
+
+The program sponsor asks one question. What share would report a top-box transition score if every
+patient received both offers, compared with neither? That question compares two treatment plans.
+It is not the effect of either offer alone.
+
+## What you will learn
+
+| after this notebook you can | the step that shows it |
+| --- | --- |
+| recognize a confounder that responds to an earlier decision | the association step |
+| write a protocol for a plan with two decisions | the protocol step |
+| place each column at its node, and read the sequential assumptions | the design and identification step |
+| fit longitudinal TMLE with an explicit learner for each nuisance kind | the estimation step |
+| explain why one regression cannot analyze two decisions | the failure mode |
+| estimate a dynamic rule that reads the history, and compare it with a plan | the rule step |
+| read cumulative support, a truncation curve, and the refusals | Steps 9 and 10 |
+===== markdown plan
+## Why this method
+
+Engagement is a time-varying confounder affected by prior treatment. No single outcome regression
+handles it.
+
+| engagement in this law | what one regression does with it |
+| --- | --- |
+| discharge navigation raises it, and it raises the top-box probability | adjusting for it blocks the part of the discharge effect that runs through engagement |
+| it raises day-seven navigation | leaving it out leaves day-seven navigation confounded |
+| an unmeasured cause of engagement and the score would make it a collider | adjusting for it would link discharge navigation to that cause (Hernán and Robins, *What If*, chapter 20). This law has no such cause |
+
+Sequential regression works backward from the outcome. Each node's regression conditions on the
+history available *at that node*. The recursion then averages that history under the plan, which
+evaluates the g-formula. The table defines the terms this notebook uses most. Each step links to
+the reference where the term first matters.
+
+| term | plain meaning |
+| --- | --- |
+| node | one decision time. Here, discharge and day seven |
+| history | every column recorded before the decision at a node |
+| plan | one arm or one rule for each node. `always` offers both, and `never` offers neither |
+| nuisance | a model the estimate needs but the question does not ask about. Here, the outcome, pseudo-outcome, treatment, and censoring models |
+| targeting | a small update to each node's regression, weighted by one over the cumulative probability of following the plan and staying tracked, that removes first-order bias |
+| influence curve | how much each patient moves the estimate. Its variance gives the standard error |
+| sequential positivity | at every node, each history that the plan can reach has some chance of the plan's arm and of staying tracked |
+===== markdown setup-heading
+## Step 1: set up
+
+The setup imports the learners and prints the installed `cleverly` version. Every fit below passes
+its learners, fold count, and random seed explicitly, so a rerun reproduces the stored outputs.
+===== code setup
+import pandas as pd
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+import cleverly
+
+pd.set_option("display.width", 130)
+pd.set_option("display.max_columns", 20)
+print("cleverly", cleverly.__version__)
+--OUT--
+cleverly 0.1.2
+
+===== markdown setup-reading
+**What this output tells you.** The stored outputs in this notebook came from the version named
+above. A different version can print different numbers.
+===== markdown data-heading
+## Step 2: the data
+
+The generator `make_longitudinal` returns a wide frame with one row per patient. Its columns follow
+the node order. `cluster_size` puts patients into navigator teams, and each team shares part of the
+engagement noise. The code renames the columns to the program's names and counts the missing
+values. It also prints the true values of the synthetic law.
+===== code data
+from cleverly.datasets import make_longitudinal
+
+frame, truth = make_longitudinal(n=8_000, seed=41, cluster_size=20)
+frame = frame.rename(
+    columns={
+        "W1": "age",
+        "W2": "baseline_readiness",
+        "A1": "navigation_discharge",
+        "C1": "tracked_day7",
+        "L2": "engagement_day7",
+        "A2": "navigation_day7",
+        "C2": "tracked_day30",
+        "Y": "transition_top_box",
+        "id": "navigator_team",
+    }
+)
+print("rows and columns:", frame.shape)
+print(frame.head().round(3))
+print()
+print("missing values per column:")
+print(frame.isna().sum().to_string())
+print()
+print("known values of the synthetic law:")
+for name, value in truth.items():
+    print(f"  {name:52s} {value:.4f}")
+--OUT--
+rows and columns:
+--OUT--
+ (8000, 9)
+     age  baseline_readiness  navigation_discharge  tracked_day7  engagement_day7  navigation_day7  tracked_day30  \
+0 -1.232               1.680                   0.0           1.0           -0.894              0.0            0.0   
+1  0.267               0.392                   0.0           1.0            0.488              1.0            1.0   
+2 -0.007              -0.439                   0.0           1.0           -0.162              0.0            1.0   
+3  0.502              -0.966                   0.0           1.0            0.435              1.0            1.0   
+4 -1.327              -1.001                   1.0           1.0            0.357              1.0            1.0   
+
+   transition_top_box  navigator_team  
+0                 NaN             0.0  
+1                 1.0             0.0  
+2                 0.0             0.0  
+3                 1.0             0.0  
+4                 1.0             0.0  
+
+missing values per column:
+age                        0
+baseline_readiness         0
+navigation_discharge       0
+tracked_day7               0
+engagement_day7          923
+navigation_day7          923
+tracked_day30            923
+transition_top_box      1476
+navigator_team             0
+
+known values of the synthetic law:
+  ey_regimen[always]                                   0.7804
+  ey_regimen[never]                                    0.4189
+  ey_regimen[early]                                    0.6441
+  ey_regimen[late]                                     0.5811
+  ate_regimen[always vs never]                         0.3616
+  ey_regimen[treat then continue if l2 positive]       0.7400
+  ate_regimen[treat then continue if l2 positive vs never] 0.3212
+
+===== markdown data-reading
+**What this output tells you.** Each row is one patient, and the columns follow the node order.
+
+| column | node | role |
+| --- | --- | --- |
+| `age`, `baseline_readiness` | before discharge | baseline covariates, standardized (mean 0, SD 1) |
+| `navigation_discharge` | discharge | the first navigation assignment |
+| `tracked_day7` | after discharge | 1 if the patient remains observable at day seven |
+| `engagement_day7` | day seven, before the decision | responds to `navigation_discharge`, and drives `navigation_day7` |
+| `navigation_day7` | day seven | the second navigation assignment |
+| `tracked_day30` | after day seven | 1 if the transition outcome remains observable |
+| `transition_top_box` | day 30 | the survey outcome |
+| `navigator_team` | fixed | the cluster |
+
+The missing-value counts show loss to tracking. The 923 patients lost before day seven have no
+later node. In total, 1476 patients were lost before day 30 and have no outcome. The estimator
+expects that shape. A complete-case frame would discard those patients before any model
+sees them.
+
+The known top-box share is 0.4189 with no navigation and 0.7804 with both offers. The true contrast
+is 0.3616. A real program has no `truth`. Every comparison against it
+below is a teaching device.
+===== markdown association-heading
+## Step 3: association first
+
+A confounder is a variable that changes both who receives an offer and the outcome. Here the
+confounder of the second decision also responds to the first decision. The code checks both halves
+of that pattern among patients tracked at day seven. It then compares patients who received both
+offers with patients who received neither, among those tracked to day 30.
+===== code association
+tracked = frame[frame["tracked_day7"] == 1]
+by_discharge = tracked.groupby("navigation_discharge")["engagement_day7"].mean()
+print("mean day-seven engagement by discharge navigation:")
+print(by_discharge.round(3).to_string())
+print()
+engaged = (tracked["engagement_day7"] > 0).rename("engagement_day7 > 0")
+print("share offered day-seven navigation by engagement:")
+print(tracked.groupby(engaged)["navigation_day7"].mean().round(3).to_string())
+print()
+complete = frame.dropna(subset=["transition_top_box"])
+arms = complete.groupby(["navigation_discharge", "navigation_day7"])["transition_top_box"]
+both = arms.mean().loc[(1.0, 1.0)]
+neither = arms.mean().loc[(0.0, 0.0)]
+crude = both - neither
+print(f"top-box share, both offers:    {both:.3f}")
+print(f"top-box share, neither offer:  {neither:.3f}")
+print(f"crude difference:              {crude:.3f}")
+print(f"population contrast:           {truth['ate_regimen[always vs never]']:.3f}")
+--OUT--
+mean day-seven engagement by discharge navigation:
+navigation_discharge
+0.0   -0.147
+1.0    0.980
+
+share offered day-seven navigation by engagement:
+engagement_day7 > 0
+False    0.427
+True     0.705
+
+top-box share, both offers:    0.820
+top-box share, neither offer:  0.331
+crude difference:              0.489
+population contrast:           0.362
+
+===== markdown association-reading
+**What this output tells you.** Mean day-seven engagement is 0.980 after discharge navigation and
+-0.147 without it. Among engaged patients, a share of 0.705 received day-seven navigation. Among the
+others, the share is 0.427. Engagement therefore responds to the first decision and drives the
+second. The generator also lets engagement raise the top-box probability.
+
+The crude difference between both offers and neither is 0.489, and the true contrast is 0.362. The
+crude comparison adjusts for nothing, and it uses only patients tracked to day 30. The next steps
+state the comparison the question needs, and the assumptions that make it possible.
+===== markdown protocol-heading
+## Step 4: write the protocol
+
+A `StudyProtocol` records the scientific design before any model runs.
+[Point-treatment TMLE](point-treatment-tmle.ipynb#step-4-write-the-protocol) introduces its
+fields and its fingerprint. The [shared study design](index.md#the-shared-study-design) gives the
+program values. `longitudinal_navigation_protocol()` returns them for navigation at discharge and
+day seven, with time zero at the discharge. It names the two static plans.
+
+Step 8 also reports a dynamic rule. The code names that rule as a third strategy now, before any
+model runs. It appends the rule to the strategies and its version to the versions.
+===== code protocol
+from dataclasses import replace
+
+from cleverly.datasets import longitudinal_navigation_protocol
+
+program = longitudinal_navigation_protocol()
+protocol = replace(
+    program,
+    treatment_strategies=(
+        *program.treatment_strategies,
+        "Offer navigation at discharge, then on day seven only if engagement is positive",
+    ),
+    treatment_versions=(
+        *program.treatment_versions,
+        "The declared discharge contact, and the day-seven contact when the rule assigns it",
+    ),
+)
+print("\n".join(protocol.summary_lines()))
+--OUT--
+causal study protocol: schema 1; 4be9fae43366d287
+target population: Adults discharged home from a participating hospital during the enrollment period
+eligibility: ['Age 18 years or older', 'Discharged alive', 'Discharged home from a participating hospital']
+time zero: Hospital discharge, after baseline measurement and before first assignment
+treatment strategies: ['Offer navigation at discharge and day seven', 'Offer no navigation at either decision', 'Offer navigation at discharge, then on day seven only if engagement is positive']
+treatment versions: ['The declared discharge and day-seven navigation contacts', 'Usual discharge support without navigation contacts', 'The declared discharge contact, and the day-seven contact when the rule assigns it']
+outcome: Top-box patient-reported transition score
+horizon: 30 days after discharge
+intercurrent-event handling: ['Use the transition score regardless of readmission', 'The protocol scores death before day 30 as not top box (composite strategy)', 'Analyze each navigation offer regardless of completed contacts']
+interference unit: Individual patient
+assumption rationale: ['Recorded history covers the measured common causes at each decision', 'Version records support consistency at both navigation decisions', 'Reserved navigator capacity supports no interference between patients']
+
+===== markdown protocol-reading
+**What this output tells you.** The first line gives the schema version and the fingerprint
+`4be9fae43366d287`. The other lines repeat each field. Read them as a checklist.
+
+The code changes two fields of the program protocol: the treatment strategies and the treatment
+versions. Each field gains the rule as its third entry. Every other field keeps the program value.
+
+| protocol field | the question it answers for this program |
+| --- | --- |
+| target population and eligibility | who the effect is about. Eligibility requires a live discharge, because time zero is the discharge |
+| time zero | when follow-up starts. Here, the discharge, before the first assignment |
+| treatment strategies and versions | the three plans the analysis reports, each named before any model runs. Each estimand selects the plans it compares |
+| outcome and horizon | the top-box score at day 30 |
+| intercurrent-event handling | what happens to readmission, death before day 30, and incomplete contacts |
+| interference unit | whose assignment can affect whose outcome |
+| assumption rationale | why the design supports each assumption at each decision |
+
+Two parts of this design have no protocol field.
+
+| design part | where it lives instead |
+| --- | --- |
+| the day-seven decision time and the engagement measurement before it | the strategy text, and the node placement in the next step |
+| loss to tracking | the `censoring=` role of the design. It hides the outcome and does not change its meaning, so it is not an intercurrent event |
+===== markdown identify-heading
+## Step 5: design and identification
+
+The design places every column at its node. `time_varying` has one entry per treatment node. The
+empty first entry says no time-varying covariate precedes discharge. The `censoring=` role models
+observation at each node, and `cluster=` names the navigator team.
+
+The typed `RegimeContrast` owns the comparison between the two plans. An integer entry gives the
+same arm at every node. `reference="never"` names the plan that `always` is compared with. The
+[estimands guide](../user-guide/estimands.md) defines an estimand: the number the question asks for,
+written before any model is chosen.
+===== code identify
+from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
+
+study = CausalStudy(
+    frame,
+    design=LongitudinalTreatment(
+        outcome="transition_top_box",
+        treatment=("navigation_discharge", "navigation_day7"),
+        baseline=("age", "baseline_readiness"),
+        time_varying=((), ("engagement_day7",)),
+        censoring=("tracked_day7", "tracked_day30"),
+        cluster="navigator_team",
+    ),
+    protocol=protocol,
+)
+plan = RegimeContrast({"always": 1, "never": 0}, reference="never")
+effect = study.identify(plan)
+print(effect.summary(protocol="fingerprint"))
+--OUT--
+contrast of each regime against the reference
+identified by explicit-adjustment: sequential g-formula under the declared treatment regimen
+history at navigation_discharge: ['age', 'baseline_readiness']
+history at navigation_day7: ['age', 'baseline_readiness', 'engagement_day7', 'navigation_discharge']
+required nuisances: ['sequential_outcome_regressions', 'treatment_and_censoring_mechanisms']
+assumptions:
+  - consistency: each observed history equals the potential history under its realized regimen
+  - no interference: one unit's potential history does not depend on other units' regimens
+  - sequential exchangeability given the recorded history at every node
+  - sequential positivity for treatment and remaining under observation
+causal study protocol: schema 1; 4be9fae43366d287
+
+===== markdown identify-reading
+**What this output tells you.** The first two lines name the estimand and its identification, the
+sequential g-formula under the declared plan. The required nuisances are the sequential outcome
+regressions and the treatment and censoring mechanisms. The summary then lists four assumptions and
+prints the fingerprint of the stored protocol.
+
+The two `history at` lines give the history at each navigation node. Each line lists the
+covariates first and the earlier offers last. The design's
+`time_varying=((), ("engagement_day7",))` adds engagement to the history of the day-seven
+decision.
+
+The assumptions change shape from the point-treatment case.
+
+| assumption | what it becomes here | can the data check it? |
+| --- | --- | --- |
+| sequential exchangeability | at every node, navigation and remaining tracked are independent of the potential outcomes, given the recorded history | no |
+| sequential positivity | at every node, each history that the plan can reach has a positive probability of the plan's arm and of remaining tracked | partly, through the support report in Step 9 |
+| consistency | each decision uses the declared protocol version, and later treatment remains defined under maintained follow-up | no |
+| no interference | one patient's assignments do not change another patient's protocol or outcome | no |
+
+The placement of `engagement_day7` is the scientific decision on this page. It is time-varying at
+the second node. The estimator therefore conditions on it when it models day-seven navigation. It
+averages over it when it carries the discharge effect backward.
+
+Observation enters the same cumulative product as navigation. Identification needs each conditional
+probability to be positive. Estimation divides by their product. That product can be small when no
+single factor is small, which is a practical positivity problem.
+===== markdown estimate-heading
+## Step 6: estimate the plan contrast
+
+The configuration is written out in full, so you see every choice. Four learner slots correspond to
+four kinds of nuisance.
+
+| setting | value | what it does |
+| --- | --- | --- |
+| `outcome_learner` | logistic regression | fits the regression of the binary outcome at the last node |
+| `pseudo_learner` | linear regression | fits the intermediate regressions. Their targets are continuous even when the outcome is binary, and the recursion clips their predictions to the unit interval |
+| `treatment_learner` | logistic regression | fits the probability of navigation at each node, given the history |
+| `censoring_learner` | logistic regression | fits the probability of remaining tracked at each node, given the history |
+| `CrossFitting(enabled=False)` | no outer folds | fits each nuisance on every row |
+| `Runtime(random_state=41, n_jobs=1)` | fixed seed, one process | makes the fit reproducible |
+
+The fit runs in sample, and the navigator teams are the reason. A cross-fitted longitudinal fit has
+no clustered result. A grouped draw keeps each team whole. No result establishes the
+cluster-robust variance of a targeted estimate under such a draw. `cleverly` refuses that
+composition, and it names the in-sample fit, which is clustered and evidenced. The subject
+of this page is the sequential regression, not the fold layer, and the
+[cross-fitting tutorial](cross-fitting.ipynb) covers the fold layer at one decision.
+
+Targeting updates each node's regression, weighted by one over the cumulative probability of
+following the plan and staying tracked.
+[Targeting and bounds](../user-guide/methods-learners.md#targeting-and-bounds)
+gives the options.
+
+===== code estimate
+from cleverly import CrossFitting, ModelSpec, Runtime, TMLEMethod
+
+logistic = LogisticRegression(max_iter=1000, random_state=41)
+sequential = TMLEMethod(
+    models=ModelSpec(
+        outcome_learner=logistic,
+        pseudo_learner=LinearRegression(),
+        treatment_learner=logistic,
+        censoring_learner=logistic,
+    ),
+    cross_fitting=CrossFitting(enabled=False),
+    runtime=Runtime(random_state=41, n_jobs=1),
+)
+result = effect.estimate(method=sequential)
+estimate = result["ate_regimen[always vs never]"]
+target = truth["ate_regimen[always vs never]"]
+print(result.summary(protocol="fingerprint"))
+print()
+for alias, key in result.parameter_keys.items():
+    print(alias, "|", key.value, "vs", key.reference, "| horizon:", key.horizon)
+print()
+print(f"estimate:            {estimate.psi:.3f}")
+print(f"standard error:      {estimate.std_error:.3f}")
+print(f"95% CI:              ({estimate.ci[0]:.3f}, {estimate.ci[1]:.3f})")
+print(f"population contrast: {target:.3f}")
+--OUT--
+Longitudinal TMLE (2 time points, n = 8000)
+
+parameter                     estimate  std. error  95% CI            p-value
+----------------------------  --------  ----------  ----------------  -------
+ate_regimen[always vs never]  0.3689    0.0172      [0.3352, 0.4025]  <1e-4  
+
+  time points: 2
+  outcome family: binomial
+  regimens: always=(1/1), never=(0/0)
+  reference: never
+  cross-fitting: none -- nuisances fitted in sample
+  g_bounds: fixed [0.01, 1] on each cumulative treatment-and-censoring probability (package default; R ltmle-compatible heuristic -- inspect truncation diagnostics)
+  confidence level: 95%
+  random_state: 41
+  causal estimand: contrast of each regime against the reference
+  identification: explicit-adjustment; sequential g-formula under the declared treatment regimen
+  required nuisances: sequential_outcome_regressions, treatment_and_censoring_mechanisms
+  identification assumptions: consistency: each observed history equals the potential history under its realized regimen; no interference: one unit's potential history does not depend on other units' regimens; sequential exchangeability given the recorded history at every node; sequential positivity for treatment and remaining under observation
+  causal study protocol: schema 1; 4be9fae43366d287
+  clusters = 400 (navigator_team, cluster-robust variance)
+  data 36279c90301ba172 | folds 5056a5995497225f | cleverly 0.1.2 | 2026-09-27T04:02:49+00:00
+  always: 2362 of 8000 units followed it throughout; max weight 28.1, effective n 1965; max truncated share 0.0% at t=1
+  never: 1736 of 8000 units followed it throughout; max weight 35.2, effective n 1380; max truncated share 0.0% at t=1
+
+ate_regimen[always vs never] | always vs never | horizon: 2
+
+estimate:            0.369
+standard error:      0.017
+95% CI:              (0.335, 0.403)
+population contrast: 0.362
+
+===== markdown estimate-reading
+**What this output tells you.** The table at the top reports one parameter,
+`ate_regimen[always vs never]`. The estimate is 0.369 with a standard error of 0.017. The 95%
+interval is (0.335, 0.403), and it contains the true contrast of 0.362. That is one draw, not a
+coverage result.
+
+| summary line | what it says on this fit |
+| --- | --- |
+| `cross-fitting` | `none -- nuisances fitted in sample`, which the configuration above explains |
+| `g_bounds` | each cumulative treatment-and-censoring probability is bounded below by 0.01, the package default |
+| `clusters` | 400 navigator teams, with a cluster-robust variance |
+| `causal study protocol` | the fingerprint `4be9fae43366d287` from Step 4 |
+| `always` and `never` | 2362 and 1736 patients followed each plan throughout. The largest weights are 28.1 and 35.2 |
+
+The interval comes from the influence curve.
+[Validation issues](../technical-reference/longitudinal-tmle.md#validation-issues-special-to-this-method)
+states what this plug-in variance does not absorb.
+
+The line under the summary prints the structured key of each parameter. Use the key rather than
+parsing the alias, because the analyst chooses each regimen name. The value `horizon: 2` counts
+nodes. It means the second decision node, and the outcome at day 30 follows that node.
+
+===== markdown failure-heading
+## Step 7: the failure mode, a point-treatment analysis of the same data
+
+Now do it the wrong way, twice. Keep patients observed through day 30, keep those whose two
+assignments agreed, and treat "received navigation at both decisions" as one exposure. The first
+cell builds that subset and counts the patients it discards.
+===== code failure-sample
+observed = frame[(frame["tracked_day7"] == 1) & (frame["tracked_day30"] == 1)]
+consistent = observed[observed["navigation_discharge"] == observed["navigation_day7"]].copy()
+consistent = consistent.rename(columns={"navigation_discharge": "navigation_throughout"})
+print("patients in the frame:           ", len(frame))
+print("lost from tracking before day 30:", len(frame) - len(observed))
+print("tracked, assignments differed:   ", len(observed) - len(consistent))
+print("patients kept:                   ", len(consistent))
+--OUT--
+patients in the frame:            8000
+lost from tracking before day 30: 1476
+tracked, assignments differed:    2426
+patients kept:                    4098
+
+===== markdown failure-sample-reading
+**What this output tells you.** The subset keeps 4098 of 8000 patients. It discards the 1476
+patients with missing follow-up rather than modeling them. It also discards the 2426 tracked
+patients whose assignments differed, because a point treatment has no place for them.
+
+The next cell fits point-treatment TMLE on that subset twice, with the folds and seed of Step 6.
+The first fit adjusts for engagement. The second fit adjusts for the baseline covariates only. The
+cell prints each estimate beside the sequential regression from Step 6.
+===== code failure-mode
+from cleverly import ATE, PointTreatment
+
+point_method = replace(
+    sequential, models=ModelSpec(outcome_learner=logistic, treatment_learner=logistic)
+)
+
+
+def naive(adjustment):
+    naive_study = CausalStudy(
+        consistent,
+        design=PointTreatment(
+            outcome="transition_top_box",
+            treatment="navigation_throughout",
+            adjustment=adjustment,
+            cluster="navigator_team",
+        ),
+    )
+    return naive_study.identify(ATE(reference=0)).estimate(method=point_method)["ate"]
+
+
+adjusted = naive(("age", "baseline_readiness", "engagement_day7"))
+baseline_only = naive(("age", "baseline_readiness"))
+for label, point in (
+    ("adjusting for engagement", adjusted),
+    ("baseline only", baseline_only),
+    ("sequential regression", estimate),
+):
+    low, high = point.ci
+    print(
+        f"{label:26s} psi={point.psi:6.3f}  se={point.std_error:.3f}  "
+        f"CI=({low:.3f}, {high:.3f})  minus population={point.psi - target:+.3f}"
+    )
+print(f"population contrast: {target:.3f}")
+adjusted_gap_magnitude = abs(adjusted.psi - target)
+print(f"absolute adjusting-for-engagement gap: {adjusted_gap_magnitude:.3f}")
+--OUT--
+adjusting for engagement   psi= 0.225  se=0.020  CI=(0.186, 0.264)  minus population=-0.137
+baseline only              psi= 0.413  se=0.017  CI=(0.380, 0.446)  minus population=+0.051
+sequential regression      psi= 0.369  se=0.017  CI=(0.335, 0.403)  minus population=+0.007
+population contrast: 0.362
+absolute adjusting-for-engagement gap: 0.137
+
+===== markdown failure-reading
+**What this output tells you.** On this draw the two shortcuts miss the population value of 0.362
+in opposite directions. This is one draw, so the sizes of the misses are not general. The
+structural problems in the table come from the law.
+
+| analysis | result on this draw | structural problem |
+| --- | --- | --- |
+| adjusting for engagement | 0.225, which is 0.137 below the population value | the regression conditions on a post-discharge variable and blocks the path through engagement |
+| baseline only | 0.413, which is 0.051 above the population value | the regression omits a cause of day-seven navigation |
+| sequential regression | 0.369, which is 0.007 above the population value, within one standard error of 0.017 | each node conditions on its own history, and the recursion averages that history under the plan |
+
+The shortcut also conditions on agreement between the two assignments. Agreement depends on the
+time-varying history, so the selected sample is not the target population. The two point fits
+therefore do not isolate a pure mediator bias from a pure confounding bias.
+
+===== markdown rule-heading
+## Step 8: a rule instead of a plan
+
+A dynamic rule reads the history available at its node. This rule assigns navigation at discharge.
+It then continues day-seven navigation only for patients with a positive engagement score.
+
+A plan has one entry per node. An entry is an arm for everybody, or a callable that receives the
+history frame of that node. A plan with a callable is a `DynamicRegimen` declared
+`rule_kind="known"`. The declaration states that the rule is a fixed function of each patient's
+own history, chosen before the fit. The fit refuses an undeclared rule, and a callable written
+inline in the mapping.
+
+The code fits the rule and `always` against `never` in one fit. It then
+compares the rule with `always` through `result.contrast(...)`. That contrast uses the joint
+influence curve, so it includes the correlation of the two estimates. The code reuses the study, so
+the result carries the Step 4 protocol.
+===== code rule
+from cleverly.datasets import RULE_LABEL
+from cleverly.longitudinal import DynamicRegimen
+
+rule_result = study.identify(
+    RegimeContrast(
+        {
+            "always": 1,
+            "never": 0,
+            "continue if engaged": DynamicRegimen(
+                "continue if engaged",
+                (1, lambda history: (history["engagement_day7"] > 0).astype(float)),
+                rule_kind="known",
+            ),
+        },
+        reference="never",
+    )
+).estimate(method=sequential)
+rule_support = rule_result.diagnostics.support().to_frame()
+print(rule_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]].round(3))
+print()
+print(rule_support[["regimen", "time", "share_assigned_1"]].round(3))
+print()
+rule_vs_always = rule_result.contrast(
+    lambda values: values[0] - values[1],
+    ["ate_regimen[continue if engaged vs never]", "ate_regimen[always vs never]"],
+    name="continue if engaged vs always",
+)
+low, high = rule_vs_always.ci
+rule_truth = truth[f"ate_regimen[{RULE_LABEL} vs never]"]
+print(f"rule minus always:           {rule_vs_always.psi:.3f}  95% CI ({low:.3f}, {high:.3f})")
+print(f"population, rule vs never:   {rule_truth:.3f}")
+print(f"population, rule vs always:  {rule_truth - target:.3f}")
+print("protocol fingerprint:", rule_result.provenance.protocol_fingerprint)
+--OUT--
+                                    estimand    psi  ci_lower  ci_upper
+0               ate_regimen[always vs never]  0.369     0.335     0.403
+1  ate_regimen[continue if engaged vs never]  0.331     0.294     0.368
+
+               regimen  time  share_assigned_1
+0               always     1             1.000
+1               always     2             1.000
+2                never     1             0.000
+3                never     2             0.000
+4  continue if engaged     1             1.000
+5  continue if engaged     2             0.799
+
+rule minus always:           -0.038  95% CI (-0.057, -0.018)
+population, rule vs never:   0.321
+population, rule vs always:  -0.040
+protocol fingerprint: 4be9fae43366d287
+
+===== markdown rule-reading
+**What this output tells you.** The fit reports two contrasts against `never`. The `always` row
+gives 0.369 and the interval (0.335, 0.403), the same as Step 6. The rule's contrast is 0.331, with
+a 95% interval of (0.294, 0.368). The true contrast is 0.321, inside the interval on this draw.
+
+The `share_assigned_1` column gives the share of patients at risk at each node whom each plan
+treats. The rule treats a share of 1.000 at discharge. At day seven it treats a share of 0.799 of
+the patients who received discharge navigation and stayed tracked.
+
+The `rule minus always` line is -0.038, with a 95% interval of (-0.057, -0.018). The true
+difference is -0.040. On this draw the interval excludes zero. The rule gives up some top-box share
+and saves the day-seven contacts of patients who are not engaged. A program with scarce navigator
+time weighs that loss against the saved contacts. Each rule is its own estimand, so a comparison of
+two plans needs a contrast between them.
+
+`result.diagnostics.support()` returns the same support report that `assessment.report("support")`
+retains in Step 9.
+
+The protocol fingerprint is `4be9fae43366d287`, the same as Step 4. The protocol named this rule before any
+model ran, so the result carries an accurate record. Each estimand selects the plans its contrasts
+compare, and the protocol does not store that choice.
+
+===== markdown assessment-heading
+## Step 9: diagnostics, what the fit can check
+
+Start with the combined assessment of the Step 6 fit. This call adds a truncation curve, which
+refits the recursion at each cumulative bound.
+
+The [diagnostics guide](../user-guide/results-assessment.md#diagnostics) describes the support
+report. Here it shows sequential positivity, as the terms table defines it, at each node of each
+plan.
+===== code assessment
+assessment = result.assess(
+    include_refits=True,
+    arguments={"truncation_curve": {"bounds": [0.01, 0.05, 0.1]}},
+)
+support = assessment.report("support").to_frame()
+curve = assessment.report("truncation_curve")
+print(assessment.summary())
+columns = ["regimen", "time", "n_followed", "max_weight", "effective_n", "share_truncated"]
+print()
+print(support[columns].round(3))
+print()
+curve_columns = ["lower_bound", "psi", "delta_from_fitted"]
+print(curve[[*curve_columns, "truncated_score_cells", "evaluated_score_cells"]].round(4))
+movement = float(curve["delta_from_fitted"].abs().max())
+print(f"largest movement in standard errors: {movement / estimate.std_error:.2f}")
+--OUT--
+Returned results
+----------------
+surface      operation         result                                                                                                                                                                     
+-----------  ----------------  ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+validation   support           maximum truncated fraction 0.0%; minimum effective-sample-size ratio 79.5%                                                                                                 
+validation   nuisance_models   8 longitudinal nuisance loss value(s) are available                                                                                                                        
+diagnostics  truncation_curve  1 parameter(s) over evaluated cumulative bound pairs [(0.01, 1), (0.05, 1), (0.1, 1)]; signed movement from the fitted estimate: ate_regimen[always vs never] [0, 0.001858]
+
+Checks
+------
+status  count  operations                
+------  -----  --------------------------
+passed  1      validation.score_equations
+
+Not run
+-------
+status          count  operations                       
+--------------  -----  ---------------------------------
+unavailable     10     diagnostics.refute               
+                       sensitivity.omitted_confounding  
+                       sensitivity.robustness_value     
+                       sensitivity.elements             
+                       sensitivity.benchmark            
+                       sensitivity.simulated_confounding
+                       sensitivity.contour              
+                       sensitivity.evalue               
+                       sensitivity.missingness          
+                       sensitivity.tipping_gamma        
+not_applicable  1      diagnostics.corrections          
+
+Full ledger: call to_frame(). Next steps: call next_steps().
+Retained payloads: call report(...).
+--OUT--
+
+
+  regimen  time  n_followed  max_weight  effective_n  share_truncated
+0  always     1        3478       7.367     3237.847              0.0
+1  always     2        2362      28.067     1964.881              0.0
+2   never     1        3599       5.927     3416.311              0.0
+3   never     2        1736      35.239     1380.454              0.0
+
+   lower_bound     psi  delta_from_fitted  truncated_score_cells  evaluated_score_cells
+0         0.01  0.3689             0.0000                      0                  11175
+1         0.05  0.3695             0.0006                      6                  11175
+2         0.10  0.3707             0.0019                     75                  11175
+largest movement in standard errors: 0.11
+
+===== markdown assessment-reading
+**What this output tells you.** The `Checks` section has one row, and the score-equation check
+passed. The `Returned results` section lists the support report. A returned result means the
+calculation ran. It is not a pass. The `Not run` section lists ten `unavailable` operations and one
+`not_applicable` operation. Step 10 reads their reasons.
+
+The support table shows cumulative positivity. A weight is one over the cumulative probability of
+following the plan and staying tracked.
+
+| column | what it says | on this fit |
+| --- | --- | --- |
+| `n_followed` | how many patients followed the plan and stayed tracked through that node | 2362 for `always` and 1736 for `never` at node 2 |
+| `max_weight` | the largest weight among those patients | at most 35.239 |
+| `effective_n` | the Kish effective sample size of those weights | at least 79.5% of the followers, the minimum ratio the summary reports |
+| `share_truncated` | the share of scored rows whose cumulative probability the bound replaced | 0.0 in every row |
+
+The fit uses the default cumulative bound `(0.01, 1)`, which caps each weight at 100. On this draw
+the bound replaces no row. A lower bound of 0.1 truncates 75 of 11175 score cells. A score cell is
+one followed patient at one node of one plan. An in-sample fit scores each such cell once, so the
+total is the sum of the `n_followed` column. That bound moves the estimate by 0.0019, which is 0.11
+standard errors.
+
+The curve is descriptive and carries no interval. The
+[truncation stability](../technical-reference/validation-methods.md#truncation-stability) section
+defines its columns.
+
+===== markdown reports-heading
+### The retained score and nuisance reports
+
+The assessment keeps the score-equation report and the nuisance report. The code prints one row per
+node for each.
+===== code retained-reports
+score_report = assessment.report("score_equations")
+scores = score_report.to_frame()
+score_columns = ["regimen", "time", "kind", "relative_score", "passed"]
+score_display = scores[score_columns].copy()
+solver_display_floor = score_report.tolerance * 1e-6
+negligible_solver = (score_display["kind"] == "solver") & (
+    score_display["relative_score"].abs() < solver_display_floor
+)
+score_display.loc[negligible_solver, "relative_score"] = 0.0
+print(score_display.to_string(index=False, float_format=lambda value: f"{value:.2g}"))
+score_kinds = sorted(scores["kind"].unique())
+print("kinds of score row:", score_kinds)
+print()
+nuisance = assessment.report("nuisance_models").to_frame()
+nuisance_columns = [
+    "role",
+    "regimen",
+    "time",
+    "n",
+    "loss_name",
+    "loss",
+    "auc",
+    "calibration_slope",
+    "regression_slope",
+]
+print(nuisance[nuisance_columns].round(3).to_string(index=False))
+--OUT--
+regimen  time   kind  relative_score  passed
+ always     1 solver               0    True
+ always     2 solver               0    True
+  never     1 solver               0    True
+  never     2 solver               0    True
+kinds of score row: ['solver']
+
+          role regimen  time    n loss_name  loss   auc  calibration_slope  regression_slope
+     treatment     NaN     1 8000  log_loss 0.667 0.630              1.000               NaN
+     censoring     NaN     1 8000  log_loss 0.351 0.599              1.004               NaN
+     treatment     NaN     2 7077  log_loss 0.604 0.712              1.001               NaN
+     censoring     NaN     2 7077  log_loss 0.273 0.557              0.999               NaN
+pseudo_outcome  always     1 3478       mse 0.010   NaN                NaN             1.023
+       outcome  always     2 2362     brier 0.130 0.728              1.003               NaN
+pseudo_outcome   never     1 3599       mse 0.019   NaN                NaN             1.007
+       outcome   never     2 1736     brier 0.185 0.737              1.003               NaN
+
+===== markdown reports-reading
+**What this output tells you.** Every score row passed, and every row is of one kind.
+
+| row kind | the question | on this fit |
+| --- | --- | --- |
+| `solver` | did the fluctuation at that node reach the root of its equation? | every residual is far below the report tolerance, so the display renders it as zero |
+
+A cross-fitted fit also reports `solver` rows only. Its one pooled fluctuation per node solves that
+node's score over every follower, as the single-fold fit here does. The `kinds of score row` line
+prints what the fit produced.
+
+The nuisance table gives one row per fitted model. The treatment and censoring rows have no
+regimen, because both plans share one mechanism model at each node. The outcome and pseudo-outcome
+rows belong to one plan each. The pseudo-outcome rows have continuous targets, so they have no
+`auc` and no `calibration_slope`. Their `regression_slope` comes from a linear regression rather
+than a logistic one. For both slopes, 1 is ideal.
+
+Every calibration slope here sits between 0.999 and 1.004, and each regression slope sits between
+1.007 and 1.023. Read that agreement as a property of the fit
+rather than as evidence about the models. Each model is measured on the rows it was fitted on, and
+a maximum-likelihood fit of the correct form reproduces those rows by construction. A cross-fitted
+fit measures each model on rows it did not see, which is what makes the same number informative.
+
+The `auc` column still separates the models. The lowest value is 0.557, for the censoring model at
+node 2, so that model barely separates the patients who stay tracked. In `make_longitudinal`, the
+chance of staying tracked to day 30 depends only on engagement, through a small coefficient. The
+true chances therefore vary little, and an `auc` near 0.5 is what a correct model gives here.
+
+No weight was truncated at the fitted bound. Raising the cumulative treatment-and-censoring lower
+bound to 0.1 moved the estimate by 0.11 standard errors. That curve shows stability to this
+joint truncation choice; it does not isolate the censoring model's effect or validate that model.
+The longitudinal report applies no calibration threshold.
+
+===== markdown sensitivity-heading
+## Step 10: sensitivity, and what the library refuses
+
+A sensitivity analysis asks how strong an unmeasured confounder would need to be to change the
+conclusion. The [sensitivity guide](../user-guide/results-assessment.md#sensitivity-analysis)
+describes the point-treatment operations. The code prints the status and reason of every
+sensitivity operation for this fit. It then lists the methods that can estimate this contrast.
+===== code sensitivity
+for item in assessment.sensitivity.items:
+    print(f"sensitivity.{item.name}: {item.status.value}")
+    print(f"  {item.detail}")
+for name in ("refute", "corrections"):
+    item = assessment.diagnostics[name]
+    print(f"diagnostics.{name}: {item.status.value}")
+    print(f"  {item.detail}")
+print()
+for availability in effect.available_methods():
+    reason = availability.reason or ""
+    print(f"{availability.name:20s} available={availability.available}  {reason}")
+--OUT--
+sensitivity.omitted_confounding: unavailable
+  no longitudinal sensitivity derivation is registered
+sensitivity.robustness_value: unavailable
+  no longitudinal sensitivity derivation is registered
+sensitivity.elements: unavailable
+  no longitudinal sensitivity derivation is registered
+sensitivity.benchmark: unavailable
+  no longitudinal benchmarking derivation is registered
+sensitivity.simulated_confounding: unavailable
+  simulated_confounding has no time-indexed latent law for longitudinal treatments, censoring, histories, outcomes, and contrasts; docs/roadmap.md F13 tracks this stop
+sensitivity.contour: unavailable
+  no longitudinal sensitivity derivation is registered
+sensitivity.evalue: unavailable
+  no longitudinal sensitivity derivation is registered for an E-value
+sensitivity.missingness: unavailable
+  no longitudinal missingness-tilt adapter is implemented
+sensitivity.tipping_gamma: unavailable
+  no longitudinal missingness-tilt adapter is implemented
+diagnostics.refute: unavailable
+  no evidence-backed longitudinal perturbation/refit adapter is implemented
+diagnostics.corrections: not_applicable
+  longitudinal targeting does not use the point-treatment correction system
+
+tmle                 available=True  
+collaborative_tmle   available=False  C-TMLE has no clustered result: the search draws selection and nested folds of its own, and no reviewed result covers a grouped draw of them
+drtmle               available=False  no reduced-dimension correction is evidenced for this functional
+riesz_tmle           available=False  the direct-Riesz engine and intervention-state representer are not implemented
+ep                   available=False  EP requires a conditional-contrast estimand and its distinct result family
+
+===== markdown sensitivity-reading
+**What this output tells you.** Every sensitivity operation is `unavailable`. Six report that no
+longitudinal derivation is registered. `simulated_confounding` has no time-indexed latent law. `missingness` and
+`tipping_gamma` have no longitudinal adapter. Refutation is also `unavailable`, and
+corrections are `not_applicable`. The library refuses rather than report a point-treatment bound
+for a different estimand.
+
+No output here measures how strong an unrecorded cause of engagement and the score would need to
+be. No output measures how far loss to tracking could depend on the unrecorded outcome either. The argument for sequential exchangeability must come from the protocol and the causal review.
+
+The method list shows the same boundary. [Collaborative TMLE](collaborative-tmle.ipynb) and
+[DR-TMLE](dr-tmle.ipynb) both refuse this contrast, and `available_methods()` says so before any
+model is fitted.
+===== markdown trust
+## How far to trust this
+
+No registered study covers clustered fits with estimated mechanisms. The
+[cross-fitted end-of-study study](../technical-reference/method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md)
+is the closest. It supplies the mechanisms rather than estimating them, and it has no clusters.
+[Validation issues](../technical-reference/longitudinal-tmle.md#validation-issues-special-to-this-method)
+lists the evidence and its limits.
+
+| layer | establishes | does not establish |
+| --- | --- | --- |
+| the support report and the truncation curve | how many patients followed each plan, how heavy the weights are, and how far a bound moves the estimate | that sequential exchangeability holds at every node |
+| the score-equation report | each node solved its equation | that the node regressions are correctly specified |
+| the nuisance report | retained loss and calibration for each fitted nuisance role | that any nuisance model is correct, or that causal identification holds. These models are measured on their own rows |
+| the registered studies | the implementation recovers known truths under their declared conditions | that your sequential assumptions hold on your data |
+
+The nuisances here are fitted in sample, because the team declaration and cross-fitting do not
+compose. The interval therefore also needs the data-reuse condition that
+[CV-TMLE](../technical-reference/cv-tmle.md#what-this-solves) states. Logistic and linear learners
+of the law's own form are what makes that condition plausible on this page.
+
+Nothing in this list validates the causal reading. That rests on sequential exchangeability,
+consistency, and no interference. All three are arguments about the program rather than about the
+fit.
+
+===== markdown where-next
+## Where to go next
+
+This page reported a contrast against `never` for each plan, and one contrast between the rule and
+`always`. The transition score was the outcome, and loss to tracking was a nuisance.
+[Time-to-event outcomes](longitudinal-survival.ipynb) makes an event the outcome. It reports a
+cumulative risk per horizon and then splits the risk by cause.
+
+The [examples index](index.md#the-program) lists every tutorial in the program.

@@ -1,0 +1,39 @@
+== counterfactual means, 1e7 draws (RB mean, MC se, Bernoulli-sim mean) ==
+  always  0.78043  se 0.000050  bernoulli 0.78054
+  never   0.41888  se 0.000066  bernoulli 0.41893
+  early   0.64408  se 0.000061  bernoulli 0.64414
+  late    0.58115  se 0.000066  bernoulli 0.58085
+  rule    0.74002  se 0.000070  bernoulli 0.74011
+  always-never 0.36154
+  rule-never   0.32114
+  rule-always  -0.04041
+
+== failure-mode limits (true conditional means; no learner error) ==
+  notebook law
+     truth                    +0.3614
+     adjusted_limit_S         +0.2376
+     adjusted_contrast_pop    +0.2448
+     baseline_limit_S         +0.4061
+     share_S                  +0.5120
+     adjusted bias -0.1238   baseline bias +0.0447
+  A1->L2 removed (l2_a1=0)
+     truth                    +0.2583
+     adjusted_limit_S         +0.2562
+     adjusted_contrast_pop    +0.2585
+     baseline_limit_S         +0.3133
+     share_S                  +0.4711
+     adjusted bias -0.0020   baseline bias +0.0550
+  L2->A2 removed (g2_l2=0)
+     truth                    +0.3615
+     adjusted_limit_S         +0.2414
+     adjusted_contrast_pop    +0.2449
+     baseline_limit_S         +0.3580
+     share_S                  +0.4732
+     adjusted bias -0.1201   baseline bias -0.0035
+  L2->A2 and L2->C2 removed
+     truth                    +0.3617
+     adjusted_limit_S         +0.2418
+     adjusted_contrast_pop    +0.2450
+     baseline_limit_S         +0.3593
+     share_S                  +0.4685
+     adjusted bias -0.1199   baseline bias -0.0024
