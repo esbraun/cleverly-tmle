@@ -26,7 +26,7 @@ from cleverly.estimators import DRTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import multi_arm_common, multi_arm_properties
 from tests.studies.canonical_multi_arm_drtmle import STRATIFY_FOLDS, STUDY
-from tests.studies.evidence.properties import PropertyCell, run_cells
+from tests.studies.evidence.properties import PropertyBatch, PropertyCell
 from tests.studies.evidence.property_verdicts import (
     CONTRACTION_SCENARIOS,
     FOLD_POLICY_FAMILY,
@@ -153,9 +153,8 @@ def _contraction_cells() -> tuple[PropertyCell, ...]:
             *_nuisances(scenario),
             size,
             CONTRACTION_REPLICATES[size_index],
-            # One offset per rung, so no two rungs share a replication stream.  The ladder is
-            # fitted across sizes, and a shared stream would correlate the rungs and narrow
-            # the slope interval for a reason that has nothing to do with the estimator.
+            # Each rung declares its own stream root.  run_cells resolves candidate seed
+            # collisions across roots before any fit, preserving intentionally paired roots.
             24_000 + scenario_index * 300 + size_index * 100,
             role=control_role(scenario),
             estimand=multi_arm_properties.ESTIMAND,
@@ -245,8 +244,13 @@ def _estimator(cell: PropertyCell):  # type: ignore[no-untyped-def]
     return lambda: DRTMLE(**_settings(cell))
 
 
+def sampling_batches() -> tuple[PropertyBatch, ...]:
+    """The actual sampling calls, shared by complete and targeted regeneration."""
+    return (PropertyBatch("properties", cells(), _estimator),)
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    return run_cells(cells(), _estimator, n_jobs=n_jobs)
+    return sampling_batches()[0].run(n_jobs=n_jobs)
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:

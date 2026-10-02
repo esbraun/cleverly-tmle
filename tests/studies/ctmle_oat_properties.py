@@ -35,8 +35,8 @@ from tests.studies import bounded_cv_laws, canonical_properties, cvtmle_properti
 from tests.studies.canonical_ctmle_oat import G_BOUNDS, STRATIFY_FOLDS, STUDY
 from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.properties import (
+    PropertyBatch,
     PropertyCell,
-    run_cells,
     se_ratio_deficit_interval,
     se_ratio_interval,
 )
@@ -230,10 +230,16 @@ def assert_unit_outcome_scale(declared: tuple[PropertyCell, ...]) -> None:
     bounded_cv_laws.assert_unit_outcome_scaler(result)
 
 
+def sampling_batches() -> tuple[PropertyBatch, ...]:
+    """The actual sampling calls, shared by complete and targeted regeneration."""
+    return (PropertyBatch("properties", cells(), _estimator),)
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    declared = cells()
+    batch = sampling_batches()[0]
+    declared = batch.cells
     assert_unit_outcome_scale(declared)
-    return run_cells(declared, _estimator, n_jobs=n_jobs)
+    return batch.run(n_jobs=n_jobs)
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:

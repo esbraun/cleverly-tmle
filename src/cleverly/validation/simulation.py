@@ -32,7 +32,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
@@ -49,6 +49,7 @@ from ..estimators.direct_effect import check_level
 from ..inference.influence import spread_name
 from ..utils.parallel import map_parallel
 from ..utils.text import format_table
+from ._seeds import sample_seed_streams, validate_sample_seeds
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..datasets.synthetic import DGP
@@ -543,7 +544,10 @@ class CoverageStudy:
     fit_kwargs : mapping or None
         Passed to ``fit``.  Column names, ``delta=``, ``id=`` and so on.
     seed : int or None
-        Seed the per-replication seeds are spawned from.
+        Root of the distinct per-replication sample seeds.
+    sample_seeds : sequence of int or None
+        Explicit distinct uint32 sample seeds, one per replication.  Use these to coordinate
+        separate studies.  When supplied, these replace the sample stream from ``seed``.
     n_jobs : int
         Number of joblib workers across replications.
     truth_key : {"population", "sample"}
@@ -592,6 +596,7 @@ class CoverageStudy:
         estimands: Sequence[str] | None = None,
         fit_kwargs: dict[str, Any] | None = None,
         seed: int | None = None,
+        sample_seeds: Sequence[int] | None = None,
         n_jobs: int = 1,
         truth_key: str = "population",
         intermediate_value: float | None = None,
@@ -626,6 +631,9 @@ class CoverageStudy:
         self.estimands = estimands
         self.fit_kwargs = fit_kwargs or {"outcome": "Y", "treatment": "A"}
         self.seed = seed
+        self.sample_seeds = (
+            None if sample_seeds is None else validate_sample_seeds(sample_seeds, n_replicates)
+        )
         self.n_jobs = n_jobs
         self.truth_key = truth_key
         self.intermediate_value = intermediate_value
@@ -670,6 +678,95 @@ class CoverageStudy:
             return result
         return result[self.intermediate_value]
 
+    def run_replication(
+        self,
+        replicate_index: int,
+        seed: int,
+    ) -> tuple[ReplicationRecord, ...] | ReplicationFailure:
+        """Fit one declared replication from an explicit sample seed.
+
+        A fresh estimator is created for every call. Failures remain explicit records;
+        this method does not aggregate a sampling distribution or change the study budget.
+
+        Parameters
+        ----------
+        replicate_index : int
+            Original replication index within the declared budget.
+        seed : int
+            Explicit uint32 seed supplied to the data generator.
+
+        Returns
+        -------
+        tuple of ReplicationRecord or ReplicationFailure
+            One record per estimand on success, or the fit's explicit failure record.
+        """
+        import warnings
+
+        if (
+            isinstance(replicate_index, bool)
+            or not isinstance(replicate_index, int)
+            or not 0 <= replicate_index < self.n_replicates
+        ):
+            raise ValueError("replicate_index must be an integer within the declared budget")
+        seed = validate_sample_seeds((seed,), 1)[0]
+        try:
+            frame, truth = self._draw(int(seed))
+            with warnings.catch_warnings():
+                # Individual replications routinely trip positivity warnings; the
+                # aggregate coverage is the diagnostic here, not the per-fit warnings.
+                warnings.simplefilter("ignore")
+                fitted = self.estimator().fit(frame, **self.fit_kwargs)
+            result = self._select(fitted)
+            names = self.estimands or tuple(result.estimates)
+            out: list[ReplicationRecord] = []
+            for name in names:
+                estimate = result[name]
+                prefix = "" if self.truth_key == "population" else "sample_"
+                reference = truth[f"{prefix}{name}"]
+                # This class is the instrument that *measures* the calibration of
+                # whatever a fit reports, so it reads the retained diagnostic when the
+                # estimator supplies no inference.  Refusing here would make it
+                # impossible to measure the diagnostic the package deliberately keeps,
+                # and, worse, the `except Exception` below would convert the refusal
+                # into a `ReplicationFailure`: every replication of every selector cell
+                # would be dropped silently and the cell would publish on a shrunken
+                # budget.  `inference` on the record says which one was measured.
+                # No branch on the status: the plug-in accessors read the private
+                # bodies ``ci`` and ``std_error`` read, and ``_plugin_pvalue`` is the
+                # body ``pvalue`` returns, so an inferential estimate gives the numbers
+                # it always gave and a diagnostic one gives the refused properties'
+                # arithmetic rather than a second rule that could disagree with it.
+                low, high = estimate.plugin_interval
+                error = estimate.plugin_std_error
+                probability = estimate._plugin_pvalue()
+                # The fifth entry is the estimate on the scale `std_error` is on, which is
+                # the log scale for a ratio -- taken off `log_psi`, the same field `ci`
+                # builds the interval from, rather than re-derived here. `se_ratio` is the
+                # only consumer, and it is the only summary that has to compare the two.
+                out.append(
+                    ReplicationRecord(
+                        replicate=replicate_index,
+                        seed=int(seed),
+                        estimand=name,
+                        truth=float(reference),
+                        estimate=float(estimate.psi),
+                        std_error=float(error),
+                        covered=bool(low <= reference <= high),
+                        rejected=bool(probability < estimate.alpha),
+                        inference_estimate=estimate.inference_value,
+                        alpha=float(estimate.alpha),
+                        inference=estimate.inference,
+                    )
+                )
+            return tuple(out)
+        except Exception as error:
+            return ReplicationFailure(
+                replicate=replicate_index,
+                seed=int(seed),
+                error_type=type(error).__name__,
+                message=str(error),
+            )
+
     def run(self) -> StudyResult:
         """Execute the study.
 
@@ -678,73 +775,15 @@ class CoverageStudy:
         StudyResult
             Per-replication records, per-estimand summaries, and the failures.
         """
-        import warnings
+        if self.sample_seeds is None:
+            root = (
+                self.seed if self.seed is not None else cast(int, np.random.SeedSequence().entropy)
+            )
+            seeds = sample_seed_streams({root: self.n_replicates})[root]
+        else:
+            seeds = validate_sample_seeds(self.sample_seeds, self.n_replicates)
 
-        seeds = np.random.SeedSequence(self.seed).generate_state(self.n_replicates)
-
-        def replicate(
-            replicate_index: int,
-            seed: int,
-        ) -> tuple[ReplicationRecord, ...] | ReplicationFailure:
-            try:
-                frame, truth = self._draw(int(seed))
-                with warnings.catch_warnings():
-                    # Individual replications routinely trip positivity warnings; the
-                    # aggregate coverage is the diagnostic here, not the per-fit warnings.
-                    warnings.simplefilter("ignore")
-                    fitted = self.estimator().fit(frame, **self.fit_kwargs)
-                result = self._select(fitted)
-                names = self.estimands or tuple(result.estimates)
-                out: list[ReplicationRecord] = []
-                for name in names:
-                    estimate = result[name]
-                    prefix = "" if self.truth_key == "population" else "sample_"
-                    reference = truth[f"{prefix}{name}"]
-                    # This class is the instrument that *measures* the calibration of
-                    # whatever a fit reports, so it reads the retained diagnostic when the
-                    # estimator supplies no inference.  Refusing here would make it
-                    # impossible to measure the diagnostic the package deliberately keeps,
-                    # and, worse, the `except Exception` below would convert the refusal
-                    # into a `ReplicationFailure`: every replication of every selector cell
-                    # would be dropped silently and the cell would publish on a shrunken
-                    # budget.  `inference` on the record says which one was measured.
-                    # No branch on the status: the plug-in accessors read the private
-                    # bodies ``ci`` and ``std_error`` read, and ``_plugin_pvalue`` is the
-                    # body ``pvalue`` returns, so an inferential estimate gives the numbers
-                    # it always gave and a diagnostic one gives the refused properties'
-                    # arithmetic rather than a second rule that could disagree with it.
-                    low, high = estimate.plugin_interval
-                    error = estimate.plugin_std_error
-                    probability = estimate._plugin_pvalue()
-                    # The fifth entry is the estimate on the scale `std_error` is on, which is
-                    # the log scale for a ratio -- taken off `log_psi`, the same field `ci`
-                    # builds the interval from, rather than re-derived here. `se_ratio` is the
-                    # only consumer, and it is the only summary that has to compare the two.
-                    out.append(
-                        ReplicationRecord(
-                            replicate=replicate_index,
-                            seed=int(seed),
-                            estimand=name,
-                            truth=float(reference),
-                            estimate=float(estimate.psi),
-                            std_error=float(error),
-                            covered=bool(low <= reference <= high),
-                            rejected=bool(probability < estimate.alpha),
-                            inference_estimate=estimate.inference_value,
-                            alpha=float(estimate.alpha),
-                            inference=estimate.inference,
-                        )
-                    )
-                return tuple(out)
-            except Exception as error:
-                return ReplicationFailure(
-                    replicate=replicate_index,
-                    seed=int(seed),
-                    error_type=type(error).__name__,
-                    message=str(error),
-                )
-
-        outcomes = map_parallel(replicate, list(enumerate(seeds.tolist())), n_jobs=self.n_jobs)
+        outcomes = map_parallel(self.run_replication, list(enumerate(seeds)), n_jobs=self.n_jobs)
         failures = tuple(outcome for outcome in outcomes if isinstance(outcome, ReplicationFailure))
         records = tuple(
             record

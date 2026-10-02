@@ -20,8 +20,8 @@ from tests.studies import multi_arm_common, multi_arm_properties
 from tests.studies.canonical_multi_arm_ctmle_oat import STRATIFY_FOLDS, STUDY
 from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.properties import (
+    PropertyBatch,
     PropertyCell,
-    run_cells,
     se_ratio_deficit_interval,
     se_ratio_interval,
 )
@@ -80,8 +80,13 @@ def _estimator(cell: PropertyCell):  # type: ignore[no-untyped-def]
     )
 
 
+def sampling_batches() -> tuple[PropertyBatch, ...]:
+    """The actual sampling calls, shared by complete and targeted regeneration."""
+    return (PropertyBatch("properties", cells(), _estimator),)
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    return run_cells(cells(), _estimator, n_jobs=n_jobs)
+    return sampling_batches()[0].run(n_jobs=n_jobs)
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:

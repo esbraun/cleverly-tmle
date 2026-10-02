@@ -25,7 +25,7 @@ from tests.conftest import OracleOutcomeContinuous, OracleTreatment
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_cvtmle
 from tests.studies.canonical_tmle import G_BOUNDS, STUDY
-from tests.studies.evidence.properties import PropertyCell, run_cells
+from tests.studies.evidence.properties import PropertyBatch, PropertyCell
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     control_role,
@@ -491,11 +491,17 @@ def run_double_robustness_preflight(
     return result
 
 
+def sampling_batches() -> tuple[PropertyBatch, ...]:
+    """The actual sampling calls, shared by complete and targeted regeneration."""
+    return (PropertyBatch("properties", cells(), _estimator),)
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     """Run every property cell and return the per-replication rows."""
-    declared = cells()
+    batch = sampling_batches()[0]
+    declared = batch.cells
     run_double_robustness_preflight(declared, _estimator, g_bounds=G_BOUNDS)
-    return run_cells(declared, _estimator, n_jobs=n_jobs)
+    return batch.run(n_jobs=n_jobs)
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:

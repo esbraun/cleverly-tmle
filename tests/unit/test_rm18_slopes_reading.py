@@ -6,6 +6,7 @@ intervals come from ``properties.csv``. The declaration does not name the budget
 n = 2,000 bias interval. RM18 resolved it after the run, first at 600 and after review at the
 slope's own inputs, all 73,000 rows of the rung. The 99% Student interval over the first 600
 rows is supplementary.
+The current snapshots describe the RM33 targeted seed repair under the unchanged reading rule.
 """
 
 from __future__ import annotations
@@ -79,7 +80,7 @@ def test_the_outer_rungs_ran_the_declared_budget(rungs: dict[str, pd.DataFrame])
     for scenario in (*POSITIVES, "both_wrong"):
         for n in (2_000, 8_000):
             assert list(rungs[f"{scenario}_n{n}"]["replicate"]) == list(range(OUTER_BUDGET))
-        assert len(rungs[f"{scenario}_n4000"]) == VERDICT_BUDGET
+        assert list(rungs[f"{scenario}_n4000"]["replicate"]) == list(range(VERDICT_BUDGET))
 
 
 def test_the_longhand_interval_is_the_published_one_at_the_verdict_budget(
@@ -91,32 +92,50 @@ def test_the_longhand_interval_is_the_published_one_at_the_verdict_budget(
         assert high == pytest.approx(properties.loc[cell, "bias_ci_upper"], rel=1e-9, abs=1e-15)
 
 
-def test_each_positive_arm_reads_the_declared_label(
+def test_each_positive_arm_reads_the_current_observed_label(
     properties: pd.DataFrame, rungs: dict[str, pd.DataFrame]
 ) -> None:
     """The reading uses the n = 2,000 interval over the slope's own inputs, all 73,000 rows."""
     published = {
-        "outcome_correct": ((-1.069362, -0.665233), (0.001748, 0.001495, 0.002001)),
-        "treatment_correct": ((-1.023461, -0.740296), (0.002539, 0.002285, 0.002793)),
+        "outcome_correct": (
+            -0.859924,
+            (-1.071846, -0.666566),
+            (0.001750, 0.001497, 0.002004),
+            "contracts",
+        ),
+        "treatment_correct": (
+            -0.874310,
+            (-1.023958, -0.740786),
+            (0.002538, 0.002284, 0.002792),
+            "contracts",
+        ),
     }
     for scenario in POSITIVES:
         slope = _slope(properties, scenario)
         point, low, high = _bias(rungs, f"{scenario}_n2000", OUTER_BUDGET)
-        assert slope == pytest.approx(published[scenario][0], abs=5e-7)
-        assert (point, low, high) == pytest.approx(published[scenario][1], abs=5e-7)
-        assert reading(slope, (low, high)) == "contracts"
+        assert properties.loc[f"rate_{scenario}", "slope"] == pytest.approx(
+            published[scenario][0], abs=5e-7
+        )
+        assert slope == pytest.approx(published[scenario][1], abs=5e-7)
+        assert (point, low, high) == pytest.approx(published[scenario][2], abs=5e-7)
+        assert reading(slope, (low, high)) == published[scenario][3]
         assert bool(properties.loc[f"rate_{scenario}", "passed"])
+        assert bool(properties.loc[f"rate_{scenario}", "passed"]) == (slope[1] < 0.0)
 
 
-def test_the_n_8000_bias_excludes_zero(rungs: dict[str, pd.DataFrame]) -> None:
-    """The other outer rung, reported beside the reading; no rule reads it."""
+def test_the_current_full_outer_rung_bias_intervals(rungs: dict[str, pd.DataFrame]) -> None:
+    """All six outer-rung intervals; only the positive n = 2,000 intervals set the reading."""
     published = {
-        "outcome_correct": (0.000532, 0.000405, 0.000658),
-        "treatment_correct": (0.000756, 0.000630, 0.000882),
+        "outcome_correct_n2000": (0.001750, 0.001497, 0.002004),
+        "outcome_correct_n8000": (0.000531, 0.000405, 0.000658),
+        "treatment_correct_n2000": (0.002538, 0.002284, 0.002792),
+        "treatment_correct_n8000": (0.000755, 0.000629, 0.000881),
+        "both_wrong_n2000": (0.049149, 0.048898, 0.049400),
+        "both_wrong_n8000": (0.049276, 0.049151, 0.049401),
     }
-    for scenario in POSITIVES:
-        point, low, high = _bias(rungs, f"{scenario}_n8000", OUTER_BUDGET)
-        assert (point, low, high) == pytest.approx(published[scenario], abs=5e-7)
+    for cell, expected in published.items():
+        point, low, high = _bias(rungs, cell, OUTER_BUDGET)
+        assert (point, low, high) == pytest.approx(expected, abs=5e-7)
         assert low > 0.0
 
 
@@ -138,12 +157,16 @@ def test_the_supplementary_verdict_budget_interval_covers_zero(
 
 def test_the_control_passes_and_meets_its_prediction(properties: pd.DataFrame) -> None:
     slope = _slope(properties, "both_wrong")
+    assert properties.loc["rate_both_wrong", "slope"] == pytest.approx(0.001866, abs=5e-7)
+    assert slope == pytest.approx((-0.002220, 0.006014), abs=5e-7)
     assert control_reading(slope) == "passes"
     assert bool(properties.loc["rate_both_wrong", "passed"])
+    assert bool(properties.loc["rate_both_wrong", "passed"]) == (slope[1] >= 0.0)
     # The declared prediction: the half-width shrinks by about sqrt(73,000 / 600) from 0.0438,
     # to about 0.0040, within 15%.
     predicted = 0.0438 / math.sqrt(OUTER_BUDGET / VERDICT_BUDGET)
     half_width = (slope[1] - slope[0]) / 2
+    assert half_width == pytest.approx(0.004117, abs=5e-7)
     assert abs(half_width / predicted - 1) <= 0.15
 
 

@@ -144,7 +144,7 @@ separately, as `property_cells_reported`.
 | `fold_policy` | `treatment_outcome_stratified` | diagnostic | each split is balanced on the treatment crossed with the outcome, which the package refuses | reported, not gated: the coverage interval and its paired difference from the unstratified arm are published and no margin is applied | coverage 0.9252 to 0.9667, paired coverage difference -0.0025 to 0.0163 | reported |
 | `fold_policy` | `treatment_stratified` | diagnostic | each split is balanced on the treatment, which the package refuses | reported, not gated: the coverage interval and its paired difference from the unstratified arm are published and no margin is applied | coverage 0.9179 to 0.9616, paired coverage difference -0.0063 to 0.0063 | reported |
 | `fold_policy` | `unstratified` | diagnostic | each split is drawn without reading the treatment or the outcome | reported, not gated: the coverage interval is published and no margin is applied | coverage 0.9179 to 0.9616 | reported |
-| `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9346 to 0.9585, SE ratio 0.9671 to 1.0400 | pass |
+| `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9346 to 0.9585, SE ratio 0.9672 to 1.0404 | pass |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
 | `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000046, coverage 0.9121 to 0.9575, SE ratio 0.9709 | pass |
 | `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias -0.000300, coverage 0.9401 to 0.9767, SE ratio 1.0193 | pass |
@@ -187,9 +187,9 @@ the committed results and checked at the precision printed.
 | `properties[root_n_rate/empirical_sd]:slope_ci_lower` | -0.5331 | its 99% lower endpoint |
 | `properties[root_n_rate/empirical_sd]:slope_ci_upper` | -0.4697 | its 99% upper endpoint |
 | `properties[root_n_rate/reported_se]:slope` | -0.5081 | fitted reported-SE rate |
-| `properties[interval_calibration/correctly_specified]:se_ratio` | 1.0019 | SE calibration where both nuisances are correct |
-| `properties[interval_calibration/correctly_specified]:se_ratio_ci_lower` | 0.9671 | its 99% lower endpoint, against a band of 0.93--1.07 |
-| `properties[interval_calibration/correctly_specified]:se_ratio_ci_upper` | 1.0400 | its 99% upper endpoint |
+| `properties[interval_calibration/correctly_specified]:se_ratio` | 1.0023 | SE calibration where both nuisances are correct |
+| `properties[interval_calibration/correctly_specified]:se_ratio_ci_lower` | 0.9672 | its 99% lower endpoint, against a band of 0.93--1.07 |
+| `properties[interval_calibration/correctly_specified]:se_ratio_ci_upper` | 1.0404 | its 99% upper endpoint |
 | `properties[interval_calibration/correctly_specified]:coverage` | 0.9475 | coverage of the same cell |
 | `properties[type_i_error/sharp_null]:rejection_rate` | 0.0400 | rejection under the confounded sharp null |
 | `properties[type_i_error/sharp_null]:rejection_ci_upper` | 0.0725 | its 99% upper endpoint, against 0.10 |

@@ -145,6 +145,42 @@ def _cheap(study: StudyRecord) -> StudyRecord:
 
 
 class TestArtifacts:
+    def test_targeted_composites_attribute_carried_and_replaced_evidence(
+        self, study: StudyRecord
+    ) -> None:
+        """A partial run may not overwrite a historical producer with its new source."""
+        import gzip
+
+        from tests.studies.evidence.seed_repair import (
+            PLAN_PATH,
+            carried_rows_sha256,
+            digest,
+            validate_composite_manifest,
+        )
+
+        manifest = json.loads(study.artifact("manifest.json").read_bytes())
+        if "generation_mode" not in manifest:
+            assert "composite" not in manifest, "composite provenance has lost its generation mode"
+            if PLAN_PATH.exists():
+                planned = json.loads(PLAN_PATH.read_bytes())["studies"].get(study.slug)
+                if (
+                    planned is not None
+                    and manifest["generated_with"] == planned["baseline_generated_with"]
+                ):
+                    assert manifest["sha256"] == planned["artifact_sha256"], (
+                        "changed artifacts still name only their historical producer; composite provenance is required"
+                    )
+            return
+        plan_raw = PLAN_PATH.read_bytes()
+        validate_composite_manifest(manifest, plan_raw)
+        raw = gzip.decompress(study.artifact("property-replicates.csv.gz").read_bytes())
+        assert digest(raw) == manifest["composite"]["composite_property_csv_sha256"]
+        positions = json.loads(plan_raw)["changes"][study.slug]
+        assert (
+            carried_rows_sha256(raw, positions)
+            == manifest["composite"]["carried_property_rows_sha256"]
+        )
+
     def test_the_manifest_hashes_every_published_result(self, study: StudyRecord) -> None:
         manifest = json.loads(study.artifact("manifest.json").read_text(encoding="utf-8"))
         assert set(manifest["sha256"]) == {

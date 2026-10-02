@@ -26,7 +26,7 @@ from tests.parallel import STUDY_JOBS
 from tests.studies import bounded_cv_laws, canonical_properties
 from tests.studies.canonical_cvtmle import G_BOUNDS as CV_G_BOUNDS
 from tests.studies.canonical_cvtmle import STRATIFY_FOLDS
-from tests.studies.evidence.properties import PropertyCell, run_cells
+from tests.studies.evidence.properties import PropertyBatch, PropertyCell
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     crossfit_overfitting_verdicts,
@@ -190,7 +190,15 @@ def generate(
     include_overfitting: bool = True,
     n_jobs: int = STUDY_JOBS,
 ) -> pd.DataFrame:
-    declared = cells(variant, include_overfitting=include_overfitting)
+    batch = sampling_batch(
+        variant,
+        repeats=repeats,
+        n_folds=n_folds,
+        targeting_scheme=targeting_scheme,
+        cv_evaluation=cv_evaluation,
+        include_overfitting=include_overfitting,
+    )
+    declared = batch.cells
     assert_double_robustness_preflight(
         variant,
         declared,
@@ -199,8 +207,22 @@ def generate(
         targeting_scheme=targeting_scheme,
         cv_evaluation=cv_evaluation,
     )
-    return run_cells(
-        declared,
+    return batch.run(n_jobs=n_jobs)
+
+
+def sampling_batch(
+    variant: str,
+    *,
+    repeats: int = 1,
+    n_folds: int = 10,
+    targeting_scheme: str = "pooled",
+    cv_evaluation: bool | None = None,
+    include_overfitting: bool = True,
+) -> PropertyBatch:
+    """The shared CV sampling call, with the same factory on either execution path."""
+    return PropertyBatch(
+        "shared",
+        cells(variant, include_overfitting=include_overfitting),
         estimator(
             variant,
             repeats=repeats,
@@ -208,7 +230,6 @@ def generate(
             targeting_scheme=targeting_scheme,
             cv_evaluation=cv_evaluation,
         ),
-        n_jobs=n_jobs,
     )
 
 

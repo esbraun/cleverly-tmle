@@ -85,7 +85,7 @@ both nuisances are correctly specified there.
 | `double_robustness` | `both_wrong` | control | both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias -0.0358 to -0.0335, margin 0.0040, SE ratio 1.0115 | pass |
 | `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000840 to 0.000725, margin 0.0026, SE ratio 1.0505 | pass |
 | `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000825 to 0.000659, margin 0.0025, SE ratio 0.9719 | pass |
-| `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9346 to 0.9585, SE ratio 0.9660 to 1.0419 | pass |
+| `interval_calibration` | `correctly_specified` | positive | both nuisances are correctly specified | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9346 to 0.9585, SE ratio 0.9663 to 1.0422 | pass |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 1, 0.9868 to 1 | pass |
 | `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000046, coverage 0.9121 to 0.9575, SE ratio 0.9712 | pass |
 | `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias -0.000300, coverage 0.9401 to 0.9767, SE ratio 1.0205 | pass |
@@ -122,9 +122,9 @@ the committed results and checked at the precision printed.
 | `properties[root_n_rate/empirical_sd]:slope_ci_lower` | -0.5330 | its 99% lower endpoint |
 | `properties[root_n_rate/empirical_sd]:slope_ci_upper` | -0.4702 | its 99% upper endpoint |
 | `properties[root_n_rate/reported_se]:slope` | -0.5085 | fitted reported-SE rate |
-| `properties[interval_calibration/correctly_specified]:se_ratio` | 1.0022 | SE calibration where both nuisances are correct |
-| `properties[interval_calibration/correctly_specified]:se_ratio_ci_lower` | 0.9660 | its 99% lower endpoint, against a band of 0.93--1.07 |
-| `properties[interval_calibration/correctly_specified]:se_ratio_ci_upper` | 1.0419 | its 99% upper endpoint |
+| `properties[interval_calibration/correctly_specified]:se_ratio` | 1.0025 | SE calibration where both nuisances are correct |
+| `properties[interval_calibration/correctly_specified]:se_ratio_ci_lower` | 0.9663 | its 99% lower endpoint, against a band of 0.93--1.07 |
+| `properties[interval_calibration/correctly_specified]:se_ratio_ci_upper` | 1.0422 | its 99% upper endpoint |
 | `properties[interval_calibration/correctly_specified]:coverage` | 0.9475 | coverage of the same cell |
 | `properties[type_i_error/sharp_null]:rejection_rate` | 0.0400 | rejection under the confounded sharp null |
 | `properties[type_i_error/sharp_null]:rejection_ci_upper` | 0.0725 | its 99% upper endpoint, against 0.10 |

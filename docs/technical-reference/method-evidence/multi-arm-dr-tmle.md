@@ -64,9 +64,9 @@ and solver status for every replication.
 | `double_robust_contraction` | `outcome_correct_n2000` | positive | only the outcome regression is correctly specified, at n = 2,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.9245 to 0.9714, bias 0.0011 | pass |
 | `double_robust_contraction` | `outcome_correct_n4000` | positive | only the outcome regression is correctly specified, at n = 4,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.8988 to 0.9542, bias 0.000900 | **fail** |
 | `double_robust_contraction` | `outcome_correct_n8000` | positive | only the outcome regression is correctly specified, at n = 8,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.9165 to 0.9662, bias 0.0017 | pass |
-| `double_robust_contraction` | `rate_both_wrong` | control | the same regression with both nuisances misspecified | slope interval must not establish contraction | slope -0.0021 to 0.0061 | pass |
-| `double_robust_contraction` | `rate_outcome_correct` | positive | log absolute bias regressed on log n across three sizes, outcome regression correct, over every replication each rung ran | slope interval entirely below zero, so the bias contracts | slope -1.0694 to -0.6652 | pass |
-| `double_robust_contraction` | `rate_treatment_correct` | positive | the same regression with only the treatment mechanism correct | slope interval entirely below zero, so the bias contracts | slope -1.0235 to -0.7403 | pass |
+| `double_robust_contraction` | `rate_both_wrong` | control | the same regression with both nuisances misspecified | slope interval must not establish contraction | slope -0.0022 to 0.0060 | pass |
+| `double_robust_contraction` | `rate_outcome_correct` | positive | log absolute bias regressed on log n across three sizes, outcome regression correct, over every replication each rung ran | slope interval entirely below zero, so the bias contracts | slope -1.0718 to -0.6666 | pass |
+| `double_robust_contraction` | `rate_treatment_correct` | positive | the same regression with only the treatment mechanism correct | slope interval entirely below zero, so the bias contracts | slope -1.0240 to -0.7408 | pass |
 | `double_robust_contraction` | `treatment_correct_n2000` | positive | only the treatment mechanism is correctly specified, at n = 2,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.9204 to 0.9688, bias 0.000585 | pass |
 | `double_robust_contraction` | `treatment_correct_n4000` | positive | only the treatment mechanism is correctly specified, at n = 4,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.9224 to 0.9701, bias -0.000437 | pass |
 | `double_robust_contraction` | `treatment_correct_n8000` | positive | only the treatment mechanism is correctly specified, at n = 8,000 | the exact coverage interval clears the declared floor, over the replications this rung declares its own verdict at | coverage 0.9285 to 0.9740, bias 0.000830 | pass |
@@ -158,9 +158,13 @@ covers zero. The overall evidence is inconclusive. These rows establish neither 
 its absence.
 {ref}`What the one-sided reading found <what-the-one-sided-reading-found>` gives each interval.
 
-RM18 design SL ran the two outer rungs of each regime at 73,000 replications. A declaration
-written before the run fixed that budget and the reading rule. The 99% interval of each fitted
-slope now lies below zero, and both slope rows pass. Over the 73,000 replications of each outer
+RM18 design SL ran the two outer rungs of each regime at 73,000 replications.
+A declaration before the run fixed that budget and the reading rule.
+[RM33](../../roadmap.md#rm33-reused-simulation-seeds) replaces collided sample seeds through audited targeted reruns.
+The current artifacts retain every unaffected row and recompute the complete analysis.
+
+The 99% interval of each fitted slope lies below zero, and both slope rows pass.
+Over the 73,000 replications of each outer
 rung, the bias interval of each one-correct regime excludes zero at n = 2,000 and at n = 8,000.
 The declared reading of both slopes is therefore `contracts`.
 
@@ -172,7 +176,9 @@ the noise floor`. Both labels take the same route in the ledger.
 The both-wrong control's slope interval covers zero, and the control passes. Each rung's coverage
 verdict stays at 600 replications. A slope below zero shows the direction of the change, and it
 does not identify the exponent. {ref}`What design SL found <what-design-sl-found>` gives each
-interval and what the readings do not show.
+original interval and what the readings do not show.
+`tests/unit/test_rm18_slopes_reading.py` independently computes the current full-rung bias intervals and checks each reading.
+The composite manifests separate inherited evidence from the replacement fits and complete analysis.
 
 The three remaining red cells are red on their own terms, and each misses by less than the width
 of its own last printed digit. Four property rows are red in all: these three and the

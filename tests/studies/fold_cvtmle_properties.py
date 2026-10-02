@@ -10,8 +10,8 @@ from __future__ import annotations
 import pandas as pd
 
 from tests.parallel import STUDY_JOBS
-from tests.studies.cvtmle_properties import cells, generate, summarize
-from tests.studies.evidence.properties import PropertyCell
+from tests.studies.cvtmle_properties import cells, generate, sampling_batch, summarize
+from tests.studies.evidence.properties import PropertyBatch, PropertyCell
 from tests.studies.fold_evaluated_cvtmle import STUDY
 
 #: The variant name the shared module labels this row's overfitting cell with.
@@ -31,6 +31,11 @@ def declared_cells() -> tuple[PropertyCell, ...]:
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return generate(VARIANT, n_jobs=n_jobs)
+
+
+def sampling_batches() -> tuple[PropertyBatch, ...]:
+    """The one actual shared sampling call."""
+    return (sampling_batch(VARIANT),)
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:

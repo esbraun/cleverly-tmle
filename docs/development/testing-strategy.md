@@ -15,11 +15,11 @@ Run the fast tests before every pull request. They recompute every published ver
 control from committed study artifacts. They do not refit committed study replications.
 
 Run a registered study only when a result-determining change can affect what that study computes.
-The study regeneration draws every declared sample, fits both implementations, regenerates its
-property cells, validates every gate, and writes a complete manifest.
+Choose a complete rerun or an audited targeted rerun under the conditions below.
+Both routes retain every declared replication and recompute each affected summary and verdict.
 
-The repository has no pytest slow tier. Partial re-execution duplicated study work and could not
-replace regeneration. The registered studies also replace the deprecated repeated-sampling tests.
+The repository has no pytest slow tier. Registered studies replace the deprecated repeated-sampling tests.
+An unrecorded partial probe cannot replace published study evidence.
 
 ## What belongs in the fast suite
 
@@ -46,7 +46,7 @@ include these changes:
 | change | action |
 | --- | --- |
 | an estimand, influence curve, variance, clustering, targeting, cross-fitting, nuisance prediction, or randomization path | regenerate every registered row that evaluates the path |
-| a study law, margin, cell, seed, learner, estimator argument, schema, package pin, or reference runner | regenerate that study |
+| a study law, margin, cell, seed, learner, estimator argument, schema, package pin, or reference runner | regenerate the affected evidence; use a targeted rerun only when its eligibility conditions hold |
 | documentation, formatting, comments, type annotations, or presentation that preserves fitted arrays | run fast tests only |
 | validation that exits before estimator construction | run fast tests only |
 
@@ -56,6 +56,45 @@ evaluate the changed path, regenerate each one.
 
 Record the selected study names and commands in the pull request. For regenerated evidence, also
 name the artifacts that moved and those that stayed byte-identical.
+
+## Targeted reruns
+
+Use a targeted rerun when an audit identifies every affected replication before fitting replacement samples.
+A seed collision repair can meet this condition without refitting samples whose seeds stay unchanged.
+When the conditions below hold, the study can reuse unchanged fits.
+
+| condition | required evidence |
+| --- | --- |
+| bounded change | identify affected replication keys from inputs or code, before reading replacement outcomes |
+| fixed design | preserve the laws, learners, sample sizes, budgets, margins, pairing, and reading rules |
+| reusable evidence | pin the original artifact commit and verify every inherited artifact hash |
+| unchanged path | show that inherited samples and fitted quantities retain their result-determining inputs and code |
+| independent fits | construct fresh estimators and learners for each replication; exclude shared training state and execution-order dependence |
+| runtime | match the original runtime for replacement fits; independently investigate any unexplained replay difference |
+| complete accounting | replace every affected key exactly once; retain every unaffected row and all declared counts |
+| dependent fits | rerun both sides of an affected paired comparison and every dependent fit |
+| analysis | recompute all affected summaries, bootstrap intervals, controls, and verdicts from the complete combined rows |
+| provenance | distinguish inherited evidence from replacement fits and recomputed analyses in the manifest |
+| verification | independently check the selection, preserved evidence, replacement fits, complete analysis, and manifest |
+
+Select replacement seeds from the declared allocation rule. Do not select samples from their fitted results.
+
+Keep an unchanged replay witness when it can test the claimed reuse boundary.
+A replay witness supports the code audit. It does not establish that every inherited fit is unchanged.
+Declare any numerical replay tolerance before fitting. Require exact agreement for keys, counts, and discrete decisions.
+Passing a tolerance alone does not explain a runtime or source difference.
+
+Retain primary and reference files as exact bytes when the change cannot affect them.
+Retain unaffected replication rows exactly, even when recompressing their complete file changes its hash.
+Publish failed or unresolved verdicts under the original acceptance rules.
+Do not repair a failed fit by dropping its row or drawing a more favorable sample.
+
+Use a complete rerun when the audit cannot bound the change or verify the inherited evidence.
+Estimator changes that affect every fit usually require this route.
+Changing a runtime, learner, law, or reference can also invalidate the claimed reuse boundary.
+
+[Method benchmarking](method-benchmarking.md#targeted-regeneration-record) defines the provenance record.
+Record the targeted command, selected keys, baseline, preserved artifacts, and validation in the pull request.
 
 ## Result-neutral study edits
 

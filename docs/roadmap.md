@@ -40,8 +40,13 @@ or the commit that its detail section names, holds the full plan, probe and revi
 delivered row that this roadmap still describes. Read a record with, for example,
 `git show dea3297e:docs/roadmap.md`.
 
-The remediation queue holds no rows. Pull request 250 delivered
-[RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes), the last open row.
+Pull request 250 delivered [RM18](#rm18-red-property-cells-after-the-fold-scale-and-law-changes).
+Its review found reused simulation seeds at the expanded replication budget.
+[RM33](#rm33-reused-simulation-seeds) repairs the allocator and publishes audited targeted evidence.
+The remediation queue has no open row.
+
+| priority | item | next action | problem | details |
+| ---: | --- | --- | --- | --- |
 
 Each row takes a tier by the harm that its defect does to a user today. The table gives the tiers,
 from the most harmful. Inside a tier, a row with a wider reach comes first. A row that another row
@@ -57,7 +62,7 @@ depends on comes before that row.
 | f | an investigation or a declared design that moves no verdict | no open row |
 | g | a published method needed to resolve a shipped refusal | no open row |
 
-No delivery group holds an open row. A delivery group joins rows that share a boundary. Each group
+A delivery group joins rows that share a boundary. Each group
 holds consecutive priorities, so the group order is the priority order. Deliver the items inside a
 group in priority order. The first decimal digit of a priority names its group, and the second
 digit orders the rows inside that group. Each remediation priority is below 1, so it does not
@@ -68,7 +73,6 @@ queue. The RM IDs and their anchors never change, so a commit names a row by its
 row takes its priority with it, and the other rows keep theirs.
 
 Main-roadmap priority 1 waits until every remediation row is complete, as the rule above states.
-The queue holds no rows, so no remediation row blocks priority 1.
 
 The F18 and F19 derivations do not block priority 1, because an item with no published theory does
 not enter the sequence. Their cells stay red under `reporting` until F18 or F19 meets its
@@ -211,9 +215,8 @@ the source audit that changed the default cross-fitted fit.
 The [red-cell ledger](technical-reference/method-evidence/red-cells.md) carries the property
 cells that went red when sixteen registered studies were regenerated under it.
 
-Replicate-weight designs are the next source-audit item in the main grid. Implement them only after
-that audit supports the planned variance construction. No remediation row blocks them. The
-source audit does.
+Replicate-weight designs are the next source-audit item in the main grid.
+Implement them after RM33 closes and the source audit supports the planned variance construction.
 
 Longitudinal sensitivity-bound estimation remains in
 [F16](#f16-longitudinal-sensitivity-bound-estimation).
@@ -455,7 +458,7 @@ declaration came before any run.
 | Design OW | [`tests/diagnostics/rm18_ordinary_weighted/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_ordinary_weighted). OW-A reads `finite-sample, contracting`, and OW-B reads `resolved within gate`. OW-C reads `control underpowered by design` and `family resolved` |
 | Design BD | [`tests/diagnostics/rm18_boundary/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_boundary), which also holds FW-B. The six re-read cells read `resolved: truth satisfies the gate`, and the two paired rows read `comparator SE convention` |
 | Design CD | [`tests/diagnostics/rm18_comparator_density/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_comparator_density). The paired shift row reads `cleverly density representation` |
-| Design SL | the regeneration of `canonical-multi-arm-drtmle` at 73,000 replications on each outer rung. Both positive slopes read `contracts`. "[What design SL found](#what-design-sl-found)" gives the numbers |
+| Design SL | the original regeneration of `canonical-multi-arm-drtmle` at 73,000 replications on each outer rung. Both original positive slopes read `contracts`. "[What design SL found](#what-design-sl-found)" records that run. [RM33](#rm33-reused-simulation-seeds) repairs its reused sample seeds |
 | routes | no reading names a defect in `cleverly`, so no reading opened a new row. The two slope cells pass under the registered rule, and the ledger no longer lists them. Every other cell keeps its owner and stays red under `reporting` |
 
 The four `tests/unit/test_rm18_*_diagnostic.py` files of designs FW, OW, BD and CD rebuild each
@@ -498,7 +501,7 @@ gives the cells of each owner and the reason for each assignment.
 | `RM18-attribution` | an attribution of the verdicts that changed with the pooled update | delivered for the end-of-study and weighted studies. A declared code-by-runtime diagnostic reads the two weighted cells and the end-of-study overfitting cell as code changes. "What the runtime isolation found", in commit `985849c6`, gives the numbers. The weighted cells stay red as finite-sample reporting evidence |
 | `RM18-fixed-weights` | a fixed-known-weight follow-up for the two weighted cross-fitted cells that went red with the pooled update | delivered. Design FW ran once. FW-A reads `finite-sample, contracting`, and FW-B reads `equivalent at the declared budget`. "What design FW found", in commit `985849c6`, gives the numbers. The two cells stay red under `reporting` at their registered budgets |
 | `RM18-one-sided-bias` | a reading of the three one-sided-robustness bias rows | delivered. The reading that "The one-sided robustness reading, declared before it is computed", in commit `dea3297e`, declares ran once. "[What the one-sided reading found](#what-the-one-sided-reading-found)" gives its result. The three cells stay red under `reporting` |
-| `RM18-slopes` | a reading of the two multi-arm DR-TMLE contraction slopes | delivered. Design SL ran once. Both slopes read `contracts`, and both rate cells pass under the registered rule. "[What design SL found](#what-design-sl-found)" gives the numbers |
+| `RM18-slopes` | a reading of the two multi-arm DR-TMLE contraction slopes | delivered. The original Design SL run reads `contracts` for both slopes. Both original rate cells pass under the registered rule. "[What design SL found](#what-design-sl-found)" records those numbers. [RM33](#rm33-reused-simulation-seeds) corrects the reused sample seeds |
 | `RM18-ordinary-weighted` | an owner for the six red rows of the ordinary weighted longitudinal study | delivered. Design OW ran once. OW-A reads `finite-sample, contracting`, OW-B reads `resolved within gate`, and OW-C reads `control underpowered by design` and `family resolved`. "What design OW found", in commit `985849c6`, gives the numbers. The six rows stay red under `reporting` |
 | `RM18-learner-weight-se` | a diagnostic for the standard-error explosions in the cross-fitted `learner_weight_necessity` rows | delivered. A complete review declaration was pushed before a clean rerun that reproduced the refit table. "What the learner-weight diagnostic found", in commit `dea3297e`, gives its reading. This row owns no red cell |
 | `RM18-boundary` | an owner for the red cells that sit at a finite-budget boundary | delivered. Design BD ran once. The six re-read cells read `resolved: truth satisfies the gate`, and the two paired rows read `comparator SE convention`. "What design BD found", in commit `985849c6`, gives the numbers. Each cell stays red under `reporting` at its declared budget |
@@ -649,13 +652,18 @@ ledger keeps `RM18-one-sided-bias` as their owner.
 (what-design-sl-found)=
 #### What design SL found
 
+This subsection records the original results in [pull request 250](https://github.com/esbraun/cleverly-tmle/pull/250).
+Its [immutable artifact snapshot](https://github.com/esbraun/cleverly-tmle/tree/17179f2fe7026c06d242dd1f29368725742a0e76/tests/canonical/multi_arm_drtmle) preserves these measurements.
+[RM33](#rm33-reused-simulation-seeds) records the corrective seed repair. The method page describes the current evidence.
+
 Design SL ran once, under its declaration in `ebd3d1b9` and the amendments in `7e65bea7`,
 `03fe89f1`, `bbbb887e` and `985849c6`. Commit `985849c6` holds all of them.
+
 The regeneration ran from the clean pushed commit `67deae8e` into a scratch directory. It started
 at 14:36 UTC on 2026-09-28. It ran for 70,427 seconds and ended with exit code 0. The runtime was
 Python 3.13.7 with SciPy 1.18.0, and `cleverly` came from the tree's `src`.
-`tests/canonical/multi_arm_drtmle/run.log` records the commit, the versions, the thread limits
-and the SHA-256 of each file.
+The [original run log](https://github.com/esbraun/cleverly-tmle/blob/17179f2fe7026c06d242dd1f29368725742a0e76/tests/canonical/multi_arm_drtmle/run.log)
+records the commit, the versions, the thread limits and each file's SHA-256.
 
 Each check that the declaration names held after the run.
 
@@ -1103,6 +1111,122 @@ probe table and the corrections. Read it with `git show e6111a2b:docs/roadmap.md
 `tests/unit/test_continuous_msm_mechanism_refusals.py` holds the witnesses and three mutation
 controls. The `build_submodel` guard in `src/cleverly/estimators/targeting.py` stays as a backstop
 for its internal callers.
+
+### RM33. Reused simulation seeds
+
+The review scope is September 29, 2026, in America/Los_Angeles. It contains merged pull request 250.
+Its expanded outer rungs contain 232 reused draws in 231 duplicate-seed groups.
+The six rungs contain 438,000 rows. These counts do not establish a changed slope verdict.
+
+`CoverageStudy.run` reads successive 32-bit words from one `SeedSequence` as replication seeds.
+Repeated words draw identical samples. Different rung roots also produce overlapping sample seeds.
+The slope bootstrap treats each recorded row as a separate observation.
+
+NumPy documents [spawning and independent streams](https://numpy.org/doc/stable/reference/random/parallel.html).
+Distinct PRNG inputs are the repair requirement. A seed audit does not prove mathematical independence.
+
+#### The amendment before regeneration
+
+This amendment supersedes the unchanged-seed condition for collided inputs in Design SL.
+It preserves the laws, learners, sample sizes, replication budgets, margins, and reading rules.
+It does not remove a replication or select a replacement by its fitted result.
+
+| part | declaration |
+| --- | --- |
+| allocation | consider replication indices in ascending order, then root seeds in sorted order |
+| original inputs | keep each original seed unless an earlier allocation already owns it |
+| pairing | cells that intentionally share a root share one seed vector |
+| replacement | derive deterministic 32-bit retry candidates from the root, index, and retry count; reject occupied candidates |
+| preflight | check uniqueness within each stream and disjointness between distinct roots before any fit |
+| explicit inputs | validate supplied replication seeds before estimator construction |
+| affected studies | audit every registered path that uses the changed allocator; regenerate each study with changed sample inputs |
+| execution | use audited targeted reruns under the amendment below; match each original runtime and retain pinned reference evidence |
+| publication | retain the old evidence in Git history; write complete combined artifacts and composite manifests; regenerate published tables |
+| reading | publish every resulting verdict, including a failed positive or control; keep each original acceptance margin |
+
+For a fixed root set, budget extensions preserve allocations below the old common replication budget.
+An extension can change a longer stream's later tail when the shorter stream claims a colliding input.
+Acceptance requires this prefix stability, intentional pairing, collision witnesses, and unchanged collision-free streams.
+Independent review must verify the corrected allocation and every changed artifact.
+The full fast suite, lint, formatting, types, documentation, and package checks must pass.
+
+The audit follows the actual `run_cells` batches, including separate fold-policy and repeat-stability paths.
+Five calibration cells replace replication 1,552. The multi-arm study replaces 269 outer-rung inputs.
+Every affected cell retains its first 600 inputs. No other registered sample input changes.
+
+| affected study | complete-rerun fallback module |
+| --- | --- |
+| `canonical-tmle` | `python -m tests.canonical.tmle3.regenerate` |
+| `canonical-cvtmle` | `python -m tests.canonical.tmle3_cvtmle.regenerate` |
+| `fold-evaluated-cvtmle` | `python -m tests.canonical.cvtmle_fold.regenerate` |
+| `fold-targeted-cvtmle` | `python -m tests.canonical.zepid_cvtmle.regenerate` |
+| `repeated-crossfit-tmle` | `python -m tests.canonical.repeated_crossfit.regenerate` |
+| `canonical-multi-arm-drtmle` | `python -m tests.canonical.multi_arm_drtmle.regenerate` |
+
+The complete-rerun commands use `--jobs 16` and separate empty outputs outside the repository.
+The multi-arm command uses its declared-run guard. The shared driver runs the other studies.
+
+#### Targeted execution amendment
+
+The user requests targeted reruns for this seed repair before the corrected multi-arm study starts.
+This amendment changes execution and provenance. It preserves the allocation amendment and every scientific acceptance rule.
+The [targeted-rerun protocol](development/testing-strategy.md#targeted-reruns) governs reuse.
+
+| part | declaration |
+| --- | --- |
+| baseline | inherit artifacts from immutable commit `1a6de6ae9141ce65936a47efc3147ff36672dd6a`; verify the original manifests and hashes |
+| selection | replace the five calibration inputs and 269 multi-arm inputs identified by the allocation audit before fitting |
+| preservation | copy primary and reference files as exact bytes; retain every unaffected property row exactly |
+| fits | refit each selected sample under its new seed, using the original law, learners, configuration, and runtime |
+| replay | refit unchanged witness samples under their original seeds to test the claimed reuse boundary |
+| analysis | recompute complete property summaries, bootstrap intervals, controls, and verdicts from all combined rows |
+| provenance | retain original source, hashes, runtime, and clean-state facts; record replacement and analysis execution separately |
+| review | independently verify the complete selection, inherited evidence, replay, replacement fits, analysis, and publication |
+| fallback | investigate an unexplained replay difference; use complete regeneration if the reuse boundary cannot be established |
+
+The initial complete-run pipeline finishes four studies before the protocol changes.
+It stops during repeated-crossfit regeneration. The 20-hour multi-arm rerun never starts.
+The completed outputs remain audit evidence. They do not replace the original primary artifacts in targeted publication.
+
+Canonical CV-TMLE's complete rerun changes inspected subject results at floating-point roundoff scale.
+Its original Python 3.11 and SciPy 1.17 runtime differs from the rerun's Python 3.13 and SciPy 1.18 runtime.
+Targeted fits use each original runtime. The audit below establishes preservation and replay results.
+
+The targeted runner uses `tests/canonical/seed-repair-plan.json` and separate empty outputs outside the repository.
+Each command uses `--jobs 16`. The five native thread variables remain `1`.
+
+| study | targeted command | Python / SciPy |
+| --- | --- | --- |
+| `canonical-tmle` | `python -m tests.canonical.repair_property_seeds --plan tests/canonical/seed-repair-plan.json --study canonical-tmle --output <output>` | 3.13.7 / 1.18.0 |
+| `canonical-cvtmle` | `python -m tests.canonical.repair_property_seeds --plan tests/canonical/seed-repair-plan.json --study canonical-cvtmle --output <output>` | 3.11.13 / 1.17.1 |
+| `fold-evaluated-cvtmle` | `python -m tests.canonical.repair_property_seeds --plan tests/canonical/seed-repair-plan.json --study fold-evaluated-cvtmle --output <output>` | 3.11.13 / 1.17.1 |
+| `fold-targeted-cvtmle` | `python -m tests.canonical.repair_property_seeds --plan tests/canonical/seed-repair-plan.json --study fold-targeted-cvtmle --output <output>` | 3.11.13 / 1.17.1 |
+| `repeated-crossfit-tmle` | `python -m tests.canonical.repair_property_seeds --plan tests/canonical/seed-repair-plan.json --study repeated-crossfit-tmle --output <output>` | 3.11.13 / 1.17.1 |
+| `canonical-multi-arm-drtmle` | `python -m tests.canonical.repair_property_seeds --plan tests/canonical/seed-repair-plan.json --study canonical-multi-arm-drtmle --output <output>` | 3.13.7 / 1.18.0 |
+
+#### Targeted repair evidence
+
+The six targeted runs start on September 30, 2026, at 04:12:39 UTC and finish at 04:18:47 UTC.
+They execute clean, pushed commit `bbd4bdc93e61b97f986772662c0e0ef9d1534ad5`.
+The committed plan has SHA256 `82c971bb9a8121f451c8a27a8c25ebb336398ffc0ef9fafcabab24b0308e8f97`.
+Each study's `run.log` records its entry point, arguments, output path, runtime attribution, duration, counts, hashes, and exit code.
+
+| verification | result |
+| --- | --- |
+| selected fits | 274 replacement fits and 274 old-seed replay fits complete; every old-seed truth, estimate, and standard error reproduces exactly |
+| property rows | exactly five calibration rows and 269 multi-arm rows change; every other raw CSV line stays identical |
+| primary and reference evidence | every inherited artifact stays byte-identical, including the multi-arm fit diagnostics |
+| budgets | every declared row remains present; every first-600 sample and fitted row stays identical |
+| analysis | complete property summaries, bootstrap intervals, controls, and verdicts recompute from combined rows |
+| independent checks | Astra verifies raw preservation, selection, replay, moments, Student and binomial intervals, and independently computes the slope bootstrap |
+| decisions | every Boolean verdict stays unchanged; both positive slope readings remain `contracts`, and the control passes |
+| negative evidence | the multi-arm study retains its four negative property cells under `reporting`; no margin or reading rule changes |
+| provenance | composite manifests retain the original producer facts and separately record the new fits and complete analysis |
+
+`tests/unit/test_rm18_slopes_reading.py` independently checks the current full-rung bias intervals and reading rules.
+The [method page](technical-reference/method-evidence/multi-arm-dr-tmle.md) contains the regenerated current slope table.
+The original Design SL record above stays pinned to pull request 250.
+Authoritative verification checks immutable Git blobs, complete analysis, run logs, and final committed artifact bytes.
 
 ### P1. EP learner
 
