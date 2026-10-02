@@ -21,8 +21,9 @@ Laan (2020) is the warning for that case.
 | primary scenario | the log risk ratio and log odds ratio of always versus never on the two-node end-of-study law, 1,000 replications at $n = 2000$ |
 | laws | the two-node end-of-study law of `tests/discrete_law_longitudinal.py`, the four-node survival law of `tests/studies/survival_grid_law.py`, a clustered draw of the end-of-study law, and the point law of `tests/discrete_law.py` |
 | learners | saturated cell means on the end-of-study and point laws. On the four-node law, cell means over the columns each true conditional reads. Every learner is correctly specified |
-| bootstrap | 400 full-refit replicates per study replicate, two-sided percentile interval, `n_jobs=1` inside each fit |
+| bootstrap | 200 full-refit replicates per study replicate. Each cell reads the shipped `estimate.bootstrap.ci` and `estimate.bootstrap.std_error`, and the RMST cell reads `result.rmst(...).bootstrap`. Each fit runs with `n_jobs=1` |
 | clustered draw | 60 clusters of 25 rows. A cluster's latent sign moves the outcome probability by $\pm 0.1 (A_1 + A_2 - 1)$, which leaves every regimen mean unchanged |
+| replications | 4,000 per property cell, chosen before the run so that a cell whose reported standard error is 2% short passes the calibration rule with probability of at least 0.95 (`calibration_pass_probability`). At 1,000 that probability is about 0.3 |
 | verdicts | every cell is an `interval_calibration` cell under the shared margins. A positive cell needs its SE-ratio and coverage intervals inside the calibration bands. A shrunken control multiplies the standard error, or the percentile interval about its median, by 0.70 and must fall below the band |
 | failed-replicate cap | a bootstrap cell whose mean failed share of bootstrap replicates exceeds 1% reports `bootstrap_conditional` and claims no coverage |
 
@@ -30,13 +31,17 @@ The cells and their sizes are the table.
 
 | cells | law | folds | n | replications |
 | --- | --- | ---: | ---: | ---: |
-| log risk and odds ratio, end of study | end of study | 1 | 2,000 | 2,400 |
-| log risk ratio and log survival ratio at t = 4, RMST and RMST contrast up to t = 5 | four-node survival | 1 | 2,000 | 2,400 |
-| RMST and RMST contrast up to t = 5 | four-node survival | 5 | 2,000 | 1,200 |
-| bootstrap of the always mean and the contrast | end of study | 1 and 5 | 1,000 | 1,000 each |
-| bootstrap of the risks at t = 2 and 4 and the RMST | four-node survival | 1 | 1,000 | 1,000 |
-| cluster bootstrap of the always mean and the contrast | clustered | 1 | 1,500 | 1,000 |
-| bootstrap of the point ATE | point | 1 | 1,000 | 1,000 |
+| log risk and odds ratio, end of study | end of study | 1 | 2,000 | 4,000 |
+| log risk ratio and log survival ratio at t = 4, RMST and RMST contrast up to t = 5 | four-node survival | 1 | 2,000 | 4,000 |
+| RMST and RMST contrast up to t = 5 | four-node survival | 5 | 2,000 | 4,000 |
+| bootstrap of the always mean and the contrast | end of study | 1 and 5 | 1,000 | 4,000 each |
+| bootstrap of the risks at t = 2 and 4 and the RMST | four-node survival | 1 | 1,000 | 4,000 |
+| cluster bootstrap of the always mean and the contrast | clustered | 1 | 1,500 | 4,000 |
+| bootstrap of the point ATE | point | 1 | 1,000 | 4,000 |
+
+The end-of-study ratios appear twice. The primary table measures bias and coverage against the
+shared floor at 1,000 replications. The property cells measure calibration at 4,000. The grid row
+cites the property cells for the calibration claim.
 
 ## Red-cell policy
 
@@ -47,7 +52,7 @@ The policy was declared before the run, in `RED_CELL_POLICY` of
 | --- | --- | --- |
 | 1 | always | the study publishes under `reporting`. No budget, margin, law or learner changes after a verdict is seen |
 | 2 | a red ratio or RMST cell | the exact-law tests are checked first. A defect is fixed and the study is regenerated once. A red cell that the exact tests cannot explain is published red with owner `X20-derived` |
-| 3 | a red longitudinal bootstrap cell | `LONGITUDINAL_BOOTSTRAP_INFERENTIAL` becomes `False`, so the percentile interval ships as a diagnostic, with owner `X20-bootstrap` |
+| 3 | a longitudinal bootstrap cell | a design kind enters `LICENSED_BOOTSTRAP_DESIGNS` only when all its bootstrap cells are green. A red cell keeps its own kind a diagnostic, with owner `X20-bootstrap`, and moves no other kind |
 | 4 | a red point-TMLE bootstrap cell | the cell is published red with owner `X20-point-bootstrap`, and rule 3 applies to `TMLEResult` |
 | 5 | a control that does not fail | the control is reported as underpowered by design, and its positive cell claims no verdict |
 
@@ -66,7 +71,8 @@ The policy was declared before the run, in `RED_CELL_POLICY` of
 | limit | what it means |
 | --- | --- |
 | correctly specified nuisances only | the bootstrap interval is measured with known-form learners. No result covers a data-adaptive nuisance |
-| one size per cell | each bootstrap cell runs at one $n$. The percentile interval is not licensed at other sizes |
+| one size per cell | each bootstrap cell runs at one $n$. A licensed kind is licensed by design, and the study does not measure it at other sizes |
+| unmeasured compositions | a working model, competing risks, weights, a dynamic rule, a Gaussian outcome and a cross-fitted survival fit have no licensed kind, so their bootstrap prints as a diagnostic |
 | finite laws | every law has binary nodes and finite support |
 | static regimens | the study fits never and always. A dynamic rule is not measured by these cells |
 | node units | RMST is measured in node units on an equal grid |

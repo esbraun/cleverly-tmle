@@ -226,19 +226,19 @@ def _wald_rows(
 
 
 def _bootstrap_rows(
-    spec: dict[str, Any],
-    replicate: int,
-    truth: float,
-    value: float,
-    draws: np.ndarray,
-    failed: int,
+    spec: dict[str, Any], replicate: int, truth: float, estimate: Any, failed: int
 ) -> list[dict[str, Any]]:
-    """A positive percentile row, and its shrunken control when declared."""
-    finite = draws[np.isfinite(draws)]
-    alpha = STUDY.margins.alpha
-    low, high = np.quantile(finite, [alpha / 2.0, 1.0 - alpha / 2.0])
-    median = float(np.median(finite))
-    sd = float(np.std(finite, ddof=1))
+    """A positive row read off the shipped bootstrap summary, and its shrunken control.
+
+    The positive row records ``estimate.bootstrap.std_error`` and whether
+    ``estimate.bootstrap.ci`` covers the truth, so the cell measures what a user reads.  The
+    control shrinks that interval about the median of the shipped draws.
+    """
+    summary = estimate.bootstrap
+    if summary is None:
+        raise RuntimeError(f"{estimate.name} carries no bootstrap summary")
+    low, high = summary.ci
+    median = float(np.median(summary.draws))
     rows = []
     for factor, suffix, role in ((1.0, "correctly_specified", "positive"),) + (
         ((SHRUNKEN_SE_FACTOR, "shrunken_se_control", "control"),) if spec["control"] else ()
@@ -249,8 +249,8 @@ def _bootstrap_rows(
         row.update(
             cell=f"{spec['label']}__{suffix}",
             role=role,
-            estimate=value,
-            std_error=sd * factor,
+            estimate=float(estimate.psi),
+            std_error=float(summary.std_error) * factor,
             covered=int(lo <= truth <= hi),
             rejected=int(not lo <= 0.0 <= hi),
             bootstrap_failed=failed,
@@ -312,10 +312,8 @@ def _rows(spec: dict[str, Any], result: Any, replicate: int) -> list[dict[str, A
         return _wald_rows(spec, replicate, truth, rmst.psi, rmst.plugin_std_error)
     failed = result.bootstrap.n_failed
     if label == "boot_rmst_survival":
-        draws = result.bootstrap.draws
-        risks = sum(draws[f"risk_regimen[always @ t={t}]"] for t in range(1, GRID_HORIZON + 1))
-        value = result.rmst("always", RMST_HORIZON).psi
-        return _bootstrap_rows(spec, replicate, truth, value, RMST_HORIZON - risks, failed)
+        # The shipped RMST carries the bootstrap its replicate risks imply.
+        return _bootstrap_rows(spec, replicate, truth, result.rmst("always", RMST_HORIZON), failed)
     names = {
         "boot_risk2_survival": "risk_regimen[always @ t=2]",
         "boot_risk4_survival": a,
@@ -324,8 +322,7 @@ def _rows(spec: dict[str, Any], result: Any, replicate: int) -> list[dict[str, A
     name = names.get(label) or (
         "ey_regimen[always]" if "_ey_" in label else "ate_regimen[always vs never]"
     )
-    estimate = result[name]
-    return _bootstrap_rows(spec, replicate, truth, estimate.psi, estimate.bootstrap.draws, failed)
+    return _bootstrap_rows(spec, replicate, truth, result[name], failed)
 
 
 def _measure(group: str, replicate: int) -> list[dict[str, Any]]:
