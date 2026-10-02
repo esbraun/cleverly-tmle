@@ -502,7 +502,7 @@ The conditions come from JCI, Theorem 6 and Corollary 3. The data cannot confirm
 | C1 | a bounded outcome: a binary outcome, or a continuous outcome with a declared `q_bounds` |
 | C2 | strong positivity. `g_bounds` regularizes the fitted denominator only |
 | C3 | a limiting rule: the fold curves converge to the curve of one fixed rule |
-| C4 | a remainder of order $o_P(n^{-1/2})$ along each fold's rule. Or, by Corollary 3, a correct parametric treatment model, and the interval is then conservative |
+| C4 | the fold-average remainder is $o_P(n^{-1/2})$. Alternatively, Corollary 3 requires Theorem 6 with $g=g_0$, negligible remainder replacement, and the linearization in Equation (14). Under these conditions, each fold's maximum-likelihood mechanism fit in a correct model gives a conservative interval |
 | C5 | no Donsker condition, so the learners can be flexible |
 | C6 | iid rows, with no weights, clusters, missing outcomes or intermediate variable |
 
