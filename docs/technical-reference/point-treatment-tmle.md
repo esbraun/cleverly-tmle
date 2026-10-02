@@ -592,18 +592,6 @@ dose, and evaluates it at $d(A,W)$. Missingness and intermediate mechanisms mult
 ratio when those roles are declared. The estimator is doubly robust in the outcome regression and
 the complete density-and-mechanism product.
 
-Targeting trims the density ratio at a quantile of its values at the observed dose. The trim
-applies the same bound at the observed dose and at each shifted dose.
-
-| setting | value | rule |
-| --- | --- | --- |
-| `shift_trim` default | 0.999 | R `lmtp`'s `.trim` default (`lmtp_control`, lmtp 1.5.4) |
-| `shift_trim=1` | no trim | R `lmtp`'s `.trim = 1` |
-| quantile rows | every row, after cross-fitting | `lmtp`'s `cf_density_ratios` trims the recombined out-of-fold ratios |
-
-The trim moves the remainder, not the parameter. `ShiftSet.ratio` keeps the untrimmed ratio. The
-support report reads that ratio and counts the trimmed rows.
-
 **A modified treatment policy is not the stochastic regime it induces.** The shift $d$ induces
 $g^d(b \mid W) = \sum_{a: d(a,W)=b} g(a \mid W)$, and a `Stochastic` regime at that density has the
 same mean *and* the same clever covariate, entry for entry. The influence curves differ anyway. A

@@ -241,9 +241,6 @@ class Targeting:
         Maximum targeting iterations.
     tol : float, default=1e-10
         Score-equation convergence tolerance.
-    shift_trim : float, default=0.999
-        Quantile at which targeting trims the shift density ratio, as R ``lmtp``'s
-        ``.trim`` does. ``1`` trims nothing.
 
     See Also
     --------
@@ -273,7 +270,6 @@ class Targeting:
     step_size: float = 1e-3
     max_iter: int = 20
     tol: float = 1e-10
-    shift_trim: float = 0.999
 
 
 @dataclass(frozen=True)
@@ -475,7 +471,6 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "step_size": "step_size",
         "max_iter": "max_iter",
         "tol": "tol",
-        "shift_trim": "shift_trim",
     },
     "inference": {
         "alpha": "alpha",
@@ -496,7 +491,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
 #: Point-engine settings with no longitudinal implementation. The public names are kept beside
 #: their normalized fields so an error names the declaration the caller wrote. ``cross_fit`` is
 #: deliberately absent: the longitudinal translation supports it by resolving ``False`` to
-#: ``n_folds=1``. All 19 settings below must either acquire a longitudinal derivation or remain
+#: ``n_folds=1``. All 18 settings below must either acquire a longitudinal derivation or remain
 #: explicit refusals; dropping one from the translation is never a supported interpretation.
 _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("models", "missingness_learner", "missingness_learner"),
@@ -515,7 +510,6 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("targeting", "nuisance_bound", "nuisance_bound"),
     ("targeting", "target_weights", "target_weights"),
     ("targeting", "step_size", "step_size"),
-    ("targeting", "shift_trim", "shift_trim"),
     ("inference", "n_bootstrap", "n_bootstrap"),
     ("inference", "bootstrap_resampling", "bootstrap_resampling"),
 )
@@ -742,7 +736,6 @@ class TMLEMethod:
                 "nuisance_bound": targeting.nuisance_bound,
                 "target_weights": targeting.target_weights,
                 "step_size": targeting.step_size,
-                "shift_trim": targeting.shift_trim,
                 "n_bootstrap": inference.n_bootstrap,
                 "bootstrap_resampling": inference.bootstrap_resampling,
             }
