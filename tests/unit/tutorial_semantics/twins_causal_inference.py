@@ -23,6 +23,9 @@ NOTEBOOK = EXAMPLES / "twins-causal-inference.ipynb"
 #: Decimals the prose writes that no stored output prints, each with the reason.
 UNPRINTED_DECIMALS = {
     "4.3": "a section number of the cited Louizos et al. (2017) paper, not a result",
+    "5.0875e-04": "removed in N10; the stored table prints 0.0005",
+    "2.9606e-19": "removed in N10; the stored table prints 0.0000",
+    "4.2286e-03": "removed in N10; the stored table prints 0.0042",
 }
 
 
