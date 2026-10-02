@@ -295,22 +295,24 @@ The engine keeps a fold-fluctuated working-model path for that identity. Its fol
 own fluctuation, so its score report adds a `stitching` row per node. The public estimator refuses
 the path above one fold.
 
-Seventeen point-treatment keywords are refused **by name** on a longitudinal design, each with its
-own reason. The list is in `_REFUSED` in
-[`longitudinal/estimator.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/longitudinal/estimator.py).
-The refusals that are statements about the *question* rather than about coverage are these.
+`LTMLE` refuses each point-treatment keyword in `_REFUSED` in
+[`longitudinal/estimator.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/longitudinal/estimator.py)
+by name, with its own reason. Some keywords redirect to the argument that does the work.
+`interventions=` redirects to `regimens=`. The table gives the refusals that are statements about
+the question, the construction, or coverage.
 
 | refused | kind | what it would need |
 | --- | --- | --- |
 | eliminating the competing events | a different question | what is reported is the cause-specific cumulative incidence with the competing causes *left alone*, so a competing event is part of the history. Removing it makes it an intervened node: a further factor per node in the denominator, and its own no-unmeasured-confounding and positivity assumptions |
 | `intermediate=` | a different question | a controlled direct effect fixes a mediator at one time point. Over a sequence, with mediators that are themselves time-varying, that is a different identification rather than a further column |
-| a **stochastic** categorical policy at a node | a different question | a deterministic rule assigns one label per unit, and the clever covariate selects that label's probability. A policy that assigns a *distribution* replaces the intervention density itself, so the cumulative product carries a ratio rather than a selected column |
-| a **continuous dose** at a node | a different question | there is no label to assign, so the intervention is a shift along a conditional density at every node. A numeric node with coarse support is accepted, and warns that its values became unordered arms |
+| a **stochastic** categorical policy at a node | a different question | a deterministic rule assigns one label per unit, and the clever covariate selects that label's probability. A policy that assigns a *distribution* replaces the intervention density itself, so the cumulative product carries a ratio rather than a selected column. [X18](../roadmap.md#x18-natural-extension-reviews) part (c) reviews it |
 | `mechanism=True` on `truncation_curve()` | a different question | a longitudinal fit holds one cumulative treatment-and-censoring bound, and it fits no separate observation mechanism to sweep. The option names a point-treatment axis, so the call raises `CapabilityError` rather than sweeping the cumulative bound under another name |
 | a callable node that is not declared `"known"`, or that is declared `"estimated"` | wrong by construction | the fit treats each rule as fixed. A rule learned from the analysis sample needs a learned-policy estimand and its own inference. `LTMLE.fit` raises `CapabilityError` before any learner. Declare a rule fixed before the fit with `DynamicRegimen(label, plan, rule_kind="known")` |
 | a callable written inline in a `regimens=` mapping | wrong by construction | an inline callable carries no declaration, so the fit refuses it before any learner. Write the plan as a `DynamicRegimen` declared `rule_kind="known"`, with `(rule,) * T` for one rule at every node |
 | an outcome missing for a reason other than censoring | wrong by construction | left as it is, the probability of observing it is silently taken to be one. Encode it as a final censoring column, so it is estimated and enters the cumulative product |
 | the full-refit bootstrap and longitudinal sensitivity-bound estimation | not written yet | the bootstrap needs a resampling and replay contract. Sensitivity-bound estimation needs a sample estimator and sampling theory for its bound functionals |
+| a **continuous dose** at a node, and `shifts=` | not written yet | Díaz, Williams, Hoffman and Schenck (2023), Theorem 3, journal page 853, covers a fixed modified treatment policy $d(a_t, h_t)$ on a continuous dose. The fit needs a conditional density of the dose at every node, and each node's density ratio enters the cumulative product. `LTMLE` estimates no such density, so it refuses `shifts=` by name. It reads a numeric node as unordered arms. It warns at 10 or more distinct values, and it raises `DataError` above 20. [X12](../roadmap.md#x12-modified-treatment-policies-beyond-the-additive-point-shift) part (b) holds the work |
+| `incremental=` | not written yet | Kennedy (2019), *Journal of the American Statistical Association* 114(526), treats incremental interventions on a time-varying treatment. The tilt is built from the mechanism, so it needs the product of tilted mechanisms and a mechanism submodel at every node. [X19](../roadmap.md#x19-incremental-interventions-over-time) holds the work |
 | `id=` above one fold | not written yet | a grouped draw keeps each cluster whole, and the cluster-robust variance of the targeted sequential recursion under one is not established. The package permits the in-sample clustered fit. Below 40 clusters with positive weight mass it takes `"few_cluster_plugin"` and reports no interval ([clusters](inference.md#clusters)) |
 | a continuous outcome with `q_bounds=None` above one fold | not written yet | with `q_bounds=None` the scale comes from every observed outcome, held-out rows included, and no shipped result covers that scale |
 

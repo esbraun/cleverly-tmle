@@ -122,12 +122,16 @@ validity or weighted parity with the canonical implementation.
 
 ## Refused by name
 
-Each because the derivation read here does not cover it, not because the loop would not run. Every
-row raises at construction or at `fit`, with a message naming what a derivation would need. The
-`weights_estimated=` row is the one exception. The fit runs and reports its point estimate under
-the `"estimated_weight_plugin"` status when its weights vary. Constant weights fit the unweighted
-estimator, so a constant column declared estimated keeps its interval. Its `ci`, `pvalue`, and `std_error` raise
-`CapabilityError`, and `plugin_std_error` and `plugin_interval` report the retained diagnostic.
+Each row below is refused because the derivation read here does not cover it, or because no code
+path accepts the input. A refused row raises at construction or at `fit`. Its message names what a
+derivation would need. The missing-treatment row raises `DataError` from the data container, and
+its message reports the missing values.
+
+The `weights_estimated=` row does not raise. The fit runs and reports its point estimate under the
+`"estimated_weight_plugin"` status when its weights vary. Constant weights fit the unweighted
+estimator, so a constant column declared estimated keeps its interval. Its `ci`, `pvalue`, and
+`std_error` raise `CapabilityError`, and `plugin_std_error` and `plugin_interval` report the
+retained diagnostic.
 
 | refused | why |
 | --- | --- |
@@ -136,7 +140,7 @@ estimator, so a constant column declared estimated keeps its interval. Its `ci`,
 | `att` / `atc` | a different score equation with no reduced-dimension derivation |
 | `interventions=`, `shifts=`, `incremental=`, `msm=` | as above |
 | observational treatment with `delta=` | Díaz & van der Laan (2017) derives the construction for randomized trials; the canonical package accepting observational treatment is implementation provenance, not a theorem for that composition |
-| missing treatment (`treatment_delta=`) | reserved for a future published construction. Canonical missing-`A` smoke tests do not supply this package's required identification, corrected curve, remainder, and rate conditions |
+| a missing treatment value | no keyword declares a missing treatment. The data container raises `DataError` before any learner: `src/cleverly/data/validate.py` for a numeric column, and `src/cleverly/data/causal_data.py` for any other column. [X18](../../roadmap.md#x18-natural-extension-reviews) part (b) reviews the indicator reduction to $\Delta_A \cdot \Delta_Y \cdot 1\{A = a\}$ |
 | `treatment_probabilities=` with `n_bootstrap=`, **whatever `guard=` is** | the array is row-aligned to the data as passed, and a replicate refits on resampled rows it cannot be reindexed to. An n-out-of-n resample passes the length check, so the misalignment would be silent; `randomized=True` estimates the mechanism inside each replicate instead. Unconditional on the guard, because the array is row-aligned however few equations are being solved |
 | `treatment_probabilities=` without `delta=` | it replaces the treatment learner outright, and nothing read here states a complete-data construction that reads a known design mechanism differently from a fitted one |
 | `intermediate=` | the reduced equations carry no controlled-intermediate factor |

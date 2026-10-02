@@ -32,7 +32,6 @@ A new capability still needs its own contract and evidence, even in this queue.
 
 | priority | item | next action | problem | details |
 | ---: | --- | --- | --- | --- |
-| 0.1 | Refusal texts that misstate their reason | correct the longitudinal continuous-dose refusal, its two labels, and the missing-treatment entry | the refusal says a longitudinal fit takes a binary treatment. Two pages call a published target "a different question". A page names a keyword that no code accepts | [RM37](#rm37-refusal-texts-that-misstate-their-reason) |
 | 0.2 | Shipped inference outputs without a registered study | add joint-coverage cells for the default simultaneous bands, and a registered study for `strata=` | `TMLE` and `LTMLE` build simultaneous bands by default, and one registered study measures their joint coverage. No registered study fits `strata=` | [RM36](#rm36-shipped-inference-outputs-without-a-registered-study) |
 
 Each row takes a tier by the harm that its defect does to a user today. The table gives the tiers,
@@ -45,7 +44,7 @@ depends on comes before that row.
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | no open row |
 | c | a correct refusal that arrives late or as the wrong type | no open row |
 | d | a diagnostic or a warning that misleads | no open row |
-| e | a display or a message that misstates a fact that the fit records. By extension, an argument check or a capability row that misstates what a call accepts or needs, when no number moves and nothing raises that is not a refusal | RM37 |
+| e | a display or a message that misstates a fact that the fit records. By extension, an argument check or a capability row that misstates what a call accepts or needs, when no number moves and nothing raises that is not a refusal | no open row |
 | f | an investigation, a declared design that moves no verdict, or a shipped output that no registered study measures | RM36 |
 | g | a published method needed to resolve a shipped refusal | no open row |
 
@@ -71,7 +70,7 @@ Priorities 2 to 5 follow the beta.
 | ---: | --- | --- | --- | --- |
 | 1.1 | Contrast and test conveniences | no new theory; delta method and linear functionals | shipped joint influence curves | [X20](#x20-contrast-and-test-conveniences) |
 | 1.2 | Natural-extension reviews | source audit, with the presumption that a part qualifies | the [Eligibility](#eligibility) conditions | [X18](#x18-natural-extension-reviews) |
-| 1.3 | Modified treatment policies beyond the additive point shift | published support; pending source read | shipped additive shift and categorical longitudinal nodes; RM37 | [X12](#x12-modified-treatment-policies-beyond-the-additive-point-shift) |
+| 1.3 | Modified treatment policies beyond the additive point shift | published support; pending source read | shipped additive shift and categorical longitudinal nodes | [X12](#x12-modified-treatment-policies-beyond-the-additive-point-shift) |
 | 1.4 | Point-treatment survival and time-to-event input | published support; pending source read | shipped survival and competing-risk recursion | [X13](#x13-point-treatment-survival-and-time-to-event-input) |
 | 1.5 | Known treatment mechanism | source audit | shipped `treatment_probabilities=` on `DRTMLE` | [X15](#x15-known-treatment-mechanism) |
 | 1.6 | Outcome-adaptive C-TMLE intervals from per-arm scalar designs | published support for one mean; natural extension for every arm and contrast | shipped `strategy="oat"` | [X17](#x17-outcome-adaptive-c-tmle-intervals-from-per-arm-scalar-designs) |
@@ -237,32 +236,6 @@ defect in `cleverly`.
 The sections below give one contract for each open item. Their physical order does not override
 the main grid.
 
-### RM37. Refusal texts that misstate their reason
-
-Three texts state a reason that the code or the sources contradict. No number moves, and each
-refusal stays in place. Only its text changes.
-
-| text | what it states | what is true |
-| --- | --- | --- |
-| the `shifts` entry of the longitudinal refusal table in `src/cleverly/longitudinal/estimator.py` | "a longitudinal fit takes a binary treatment at every node" | `LTMLE` accepts categorical nodes, and the [categorical study](technical-reference/method-evidence/cross-fitted-categorical-longitudinal-tmle.md) registers them |
-| the "a continuous dose at a node" row of [Longitudinal TMLE](technical-reference/longitudinal-tmle.md), and the longitudinal row of [Scope and refusals](technical-reference/scope-and-refusals.md) | the label "a different question" | Díaz, Williams, Hoffman and Schenck (2023), Theorem 3, covers a fixed modified treatment policy $d(a_t, h_t)$ on a continuous dose. The same page cites that theorem for categorical rules. The target is well posed and not written yet |
-| the missing-treatment row of [DR-TMLE supported estimands](technical-reference/dr-tmle/supported-estimands.md) | a keyword `treatment_delta=` | no code accepts that keyword. A missing treatment value raises `DataError` in `src/cleverly/data/validate.py` before any learner |
-
-Work:
-
-1. Rewrite the `shifts` refusal. Name the categorical nodes that the fit accepts, state that a
-   continuous dose needs an intervention density at every node, and cite
-   [X12](#x12-modified-treatment-policies-beyond-the-additive-point-shift).
-2. Move the continuous-dose row to "not written yet" on both pages, with the Theorem 3 locator
-   and a link to X12. The scope page joins it with stochastic categorical policies in one row, so
-   split that row. Keep the stochastic categorical policy under its current label until
-   [X18](#x18-natural-extension-reviews) part (c) decides it.
-3. Replace the `treatment_delta=` row with the behavior that ships. Link
-   [X18](#x18-natural-extension-reviews) part (b).
-
-Acceptance: a refusal test pins the new `shifts` text, and the two pages agree with the refusal
-taxonomy. `python -m tests.prose` reports no unjudged finding.
-
 ### RM36. Shipped inference outputs without a registered study
 
 Two shipped outputs publish intervals that no registered study measures.
@@ -340,7 +313,7 @@ part that fails stays in the future investigations grid, and its row states the 
 | part | refusal today | base result | standard steps | what the review checks |
 | --- | --- | --- | --- | --- |
 | (a) DR-TMLE with an observational missing outcome | `DRTMLE` with `delta=` refuses unless `randomized=True` or `treatment_probabilities=` (`src/cleverly/estimators/drtmle.py`) | Benkeser, Carone, van der Laan and Gilbert (2017), Section 3.2, Theorem 1 | an indicator reduction to $\Delta \cdot 1\{A = a\}$ | identification of the arm mean under the composite indicator. `drtmle` 1.1.2 uses that indicator |
-| (b) a missing treatment | a missing treatment value raises `DataError` (`src/cleverly/data/validate.py`) | the same theorem | an indicator reduction to $\Delta_A \cdot \Delta_Y \cdot 1\{A = a\}$ | identification under a missing-at-random treatment indicator |
+| (b) a missing treatment | a missing treatment value raises `DataError` (`src/cleverly/data/validate.py` for a numeric column, `src/cleverly/data/causal_data.py` for any other column) | the same theorem | an indicator reduction to $\Delta_A \cdot \Delta_Y \cdot 1\{A = a\}$ | identification under a missing-at-random treatment indicator |
 | (c) stochastic categorical policies at a longitudinal node | [F1](#f1-stochastic-categorical-policies-at-a-longitudinal-node) | Díaz, Williams, Hoffman and Schenck (2023), Theorem 3 | none if Section 2 admits a randomized policy $d(a_t, h_t, \varepsilon_t)$ | whether Section 2 states policies that depend on a randomizer |
 | (d) multi-arm missing-outcome DR-TMLE | [F4](#f4-multi-arm-missing-outcome-dr-tmle) | Díaz and van der Laan (2017), Theorem 2, page 20 | an indicator reduction for each arm, with its own observation and treatment mechanisms, as the shipped complete-data multi-arm `DRTMLE` already does; a fixed-dimension stack; the delta method for contrasts | that each arm's tilt needs only its own indicator mechanism, so no single multinomial must stay compatible with every tilt |
 | (e) missing-outcome PAR and PAF | [F20](#f20-missing-outcome-attributable-effects) | Díaz, Carone and van der Laan (2016) for the natural-course mean; the shipped missing-outcome arm-mean contract for the reference arm | a fixed-dimension stack of the two means on the same rows; linearity for PAR; the delta method for PAF | that both means are covered on one observational law, and the PAF denominator rule |
@@ -382,7 +355,8 @@ Acceptance:
 - registered ordinary and cross-fitted studies against the pinned `lmtp` 1.5.4, with identical
   folds and exact density inputs where the comparator accepts them;
 - a re-read of the `RM18-comparator-density` paired row if the density representation changes;
-- an update of the RM37 refusal texts, which then point to the shipped fit.
+- an update of the `shifts` refusal in `_REFUSED`, and of the continuous-dose rows of the
+  longitudinal and scope pages, which then point to the shipped fit.
 
 ### X13. Point-treatment survival and time-to-event input
 
