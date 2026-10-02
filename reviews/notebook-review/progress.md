@@ -32,13 +32,13 @@ not `done`. Findings live in `findings/<stem>.md`, verification in `verification
 | N2 | cross-fitting | committed (25 s; --check 0) | 5d5e08a0, fix bf2ce120 | PASS after fix (gate-N2.md) |
 | N3 | dr-tmle | committed (15 s; --check 0) | 215545d2, fix 91b5f0ef | PASS after fix (gate-N3.md) |
 | N4 | interventions | committed (10.5 s; --check 0) | f62ed489, fix 99cb68d0 | PASS after fix (gate-N4.md re-check) |
-| N5 | collaborative-tmle | running | | |
-| N6 | survey-nonresponse | pending | | |
-| N7 | longitudinal-tmle | pending | | |
-| N8 | longitudinal-survival | pending | | |
-| N9 | msm-projections | pending | | |
-| N10 | twins-causal-inference | pending | | |
-| F | prose ledger, fast suite, docs build, final gate, PR, CI | pending | | |
+| N5 | collaborative-tmle | committed (6 s; --check 0) | 5f85da29, fix 29bf0bc1 | PASS after fix (gate-N5.md re-check) |
+| N6 | survey-nonresponse | committed (--check 0) | 198c79a5, fix f28f0b6b | PASS after fixes (gate-N6.md); Step 6 and 9 near nominal on 3000 draws |
+| N7 | longitudinal-tmle | committed (6 s; --check 0) | 6714262d, fix 4d4d5816 | PASS after fix (gate-N7.md) |
+| N8 | longitudinal-survival | committed (5.8 s; --check 0) | 2692722c, fix aed3986b | PASS after fix (gate-N8.md) |
+| N9 | msm-projections | committed (5.4 s; --check 0) | 6927899e, fix cafb67af | PASS after fix (gate-N9.md) |
+| N10 | twins-causal-inference | committed (42 s, network; --check 0) | aaf4c484, fix 87fec724 | PASS after fixes (gate-N10.md) |
+| F | prose ledger, fast suite, docs build, final gate, PR, CI | F1, F2 done; prose ledger current (0 undecided); fast suite running | 4fc4b6c8 (F1); 92b24e4f d029b7a8 010be6ea 62e6e31c 87fec724 (F2) | |
 
 ## Log
 
@@ -81,3 +81,9 @@ not `done`. Findings live in `findings/<stem>.md`, verification in `verification
 - 2026-10-02: Gate N4: regime and incremental axes pass; dose axis must adopt quadratic Q plus a regularized booster density; IV-N3 is a library defect (shift density ratio never bounded at targeting time). New change S6 fixes it test-first; study impact decides any pre-registered rerun.
 - 2026-10-02: S6 committed cd2a1452 (0.999-quantile trim, lmtp convention; default on). It moves lmtp_shift primary rows and properties, and the rm18 comparator density fixture. Decision: comparator fits run shift_trim=1.0 to match the R adapter's .trim=1; the property study is pre-registered and regenerated under the default. The SE/SD 2.68 that remains is under root-cause investigation first.
 - 2026-10-02: IV-N3 root cause (investigations/iv-n3.md): a poor held-out density ratio from the bare-booster density learner; the influence curve is correct, and cross-fitting with an exact density gives SE/SD 0.98. Decision reversed: revert the trim, fix the ShiftSet.ratio docstring, add a per-fold mean-ratio diagnostic, document the finding. No study moves.
+- 2026-10-02: N5 committed 5f85da29. New finding: the reported plain TMLE interval under-covers (555/600) because the lottery instrument is in its assignment model. Gate N5 judges a design-based exclusion workflow.
+- 2026-10-02: N6 committed 198c79a5. New finding SN-N3: the Step 9 cross-fitted stacked fit covers 0.922 over 500 draws with bias near 0 (SE too small); root-cause investigation running beside gate N6.
+- 2026-10-02: Gate N6 passes with two fixes (trust lead names Steps 6 and 9; Step 9 cause after SN-N3). Final shared pass must reconcile index.md:44 with the hypothetical death strategy on the collaborative and survey pages. N7 runs beside the SN-N3 investigation (4 workers).
+- 2026-10-02: SN-N3 resolved (investigations/sn-step9.md): no library bug. The seed block 1001-1500 is low for the oracle too (463/500); 3000 draws give 0.946. The N6 fix must drop the Step 9 under-coverage claim and re-measure Step 6 on a larger, disjoint seed range before keeping its 0.92.
+- 2026-10-02: N8 committed 2692722c. Final shared pass adds index.md:20 ('a controlled direct effect only under exchangeability for death') and index.md:44 (death strategy). N7 markdown fix and gate N8 run in parallel.
+- 2026-10-02: Gate N10 surfaced a sibling pattern the per-page gates missed: five notebooks (collaborative, dr-tmle, msm, survey, twins) print the assessment summary with 'unavailable' rows and narrate them, against house rule 'print only the rows that run'. longitudinal-tmle filters correctly. Sweep fix F2 queued after F1, together with TWINS section 11 (truth coverage 55/60).
