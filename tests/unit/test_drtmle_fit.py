@@ -1450,7 +1450,11 @@ class TestTheContractSaysWhichEstimator:
     """
 
     def test_an_ordinary_fit_is_the_theorems_estimator(self, fit) -> None:
-        """No truncation active, so Theorem 1 applies as written and the label says so."""
+        """No truncation active, so the label reads ``"theorem"``.
+
+        This fit is cross-fitted, so its summary says it uses Theorem 1's construction;
+        see the cross-fitted test below.
+        """
         check = fit.diagnostics.corrections()
 
         assert check.contract == "theorem"
@@ -1507,6 +1511,22 @@ class TestTheContractSaysWhichEstimator:
         assert "contract: bound-active" in summary
         assert "outside Theorem 1" in summary
         assert {"initial_clipped", "gr1_margin"} <= set(frame.columns)
+
+    def test_a_cross_fitted_theorem_fit_is_not_called_the_theorems_estimator(self, fit) -> None:
+        """Theorem 1 covers the non-cross-fitted estimator; cross-fitting adds condition (S).
+
+        ``docs/technical-reference/dr-tmle/targeting.md`` states that cross-fitting is not in
+        the theorem, so the summary of a cross-fitted fit names the construction and the gap.
+        ``test_drtmle_missing.py`` holds the in-sample witness that keeps the old sentence.
+        """
+        assert fit.nuisance.folds.n_folds > 1
+        check = fit.diagnostics.corrections()
+        summary = check.summary()
+
+        assert check.contract == "theorem"
+        assert "this fit is Theorem 1's estimator" not in summary
+        assert "uses Theorem 1's construction" in summary
+        assert "Theorem 1 does not cover cross-fitting" in summary
 
     def test_a_plain_tmle_has_no_contract_to_report(self, ordinary) -> None:
         """No corrections, no mechanism tilt, nothing for the label to be about."""

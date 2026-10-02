@@ -2552,8 +2552,8 @@ class LTMLE:
                 "sequential recursion is the cluster-robust variance of its targeted "
                 "estimate under one; docs/roadmap.md F22 tracks this stop. "
                 "Fit in sample (CrossFitting(enabled=False), or "
-                "n_folds=1 on the engine), which is clustered and evidenced, or drop id= "
-                "from fit."
+                "n_folds=1 on the engine), which reports a cluster-robust variance, or "
+                "drop id= from fit."
             )
         if data.family != "binomial" and self.q_bounds is None:
             raise LongitudinalError(

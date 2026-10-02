@@ -401,20 +401,36 @@ def _ratio(density: ConditionalDensity, values: FloatArray, shift: Shift) -> Flo
 
 
 def _warn_outside_support(shift: Shift, shifted: FloatArray, observed: FloatArray) -> None:
-    """An uncapped shift extrapolates; say how much of the sample it does that for."""
-    if shift.cap is not None:
+    """A shift that assigns doses above the observed range extrapolates; say for how many.
+
+    An uncapped shift does this whenever ``delta > 0``.  A cap prevents it only when the
+    cap lies inside the observed doses: a cap above the largest one lets the rows near the
+    top move past it.  A cap inside the range still does not check the *conditional*
+    support of the dose, which :func:`check_shift_support` reports.
+    """
+    largest = float(np.max(observed))
+    beyond = float(np.mean(shifted > largest))
+    if beyond == 0.0:
         return
-    beyond = float(np.mean(shifted > float(np.max(observed))))
-    if beyond > 0.0:
+    if shift.cap is not None:
         warnings.warn(
-            f"shift {shift.name!r} has cap=None, and {beyond:.1%} of rows are assigned a "
-            f"dose above the largest one observed ({float(np.max(observed)):.3g}). The "
-            "outcome regression is extrapolating there, and identification needs the "
-            "shifted dose to be supported. Declare a cap= if you know what dose is "
-            "achievable.",
+            f"shift {shift.name!r} has cap={float(shift.cap):g}, which lies above the largest "
+            f"dose observed ({largest:.3g}), and {beyond:.1%} of rows are assigned a dose "
+            "above it. The outcome regression is extrapolating there. A cap secures support "
+            "only when it lies inside the conditional support of the dose.",
             PositivityWarning,
             stacklevel=4,
         )
+        return
+    warnings.warn(
+        f"shift {shift.name!r} has cap=None, and {beyond:.1%} of rows are assigned a "
+        f"dose above the largest one observed ({largest:.3g}). The "
+        "outcome regression is extrapolating there, and identification needs the "
+        "shifted dose to be supported. Declare a cap= if you know what dose is "
+        "achievable.",
+        PositivityWarning,
+        stacklevel=4,
+    )
 
 
 # ------------------------------------------------------------------ diagnostics

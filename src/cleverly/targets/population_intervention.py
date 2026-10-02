@@ -112,7 +112,7 @@ POPULATION_INTERVENTION_TARGETS = frozenset(_ORDERED)
 _ROADMAP_ROW = {"par": "F20", "paf": "F20"}
 
 _ROADMAP_SENTENCE: dict[tuple[str, ...], str] = {
-    ("F20",): "docs/roadmap.md F20 tracks this identification boundary."
+    ("F20",): "docs/roadmap.md F20 tracks this unvalidated composition."
 }
 
 

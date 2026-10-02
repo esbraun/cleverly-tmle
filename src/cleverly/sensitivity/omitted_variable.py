@@ -11,7 +11,7 @@ linear functional, and Equation (14) in their Section 4 gives the bounds:
 .. math::
 
     |\mathrm{bias}| \le |\rho| \sqrt{\frac{c_D^2}{1 - c_D^2}}\; c_Y\;
-                       \underbrace{\sqrt{\sigma^2 \nu^2}}_{\text{max bias}}
+                       \underbrace{\sqrt{\sigma^2 \nu^2}}_{\text{bias scale}}
 
 where, writing :math:`\alpha` for the Riesz representer of the target parameter,
 
@@ -19,9 +19,13 @@ where, writing :math:`\alpha` for the Riesz representer of the target parameter,
 * :math:`\nu^2 = E[\alpha(A, W)^2]` -- how hard the estimand has to work to
   extrapolate (it is large exactly when overlap is poor),
 * ``cf_y`` -- the share of *residual* outcome variance the confounder would explain,
-* ``cf_d`` -- the corresponding gain in the Riesz representer, i.e. how much the
-  confounder would improve prediction of treatment,
+* ``cf_d`` -- the share of the Riesz representer's second moment that only the
+  confounder adds; for the ATE, the gain in precision of the treatment model,
 * ``rho`` -- how adversarially aligned those two are; ``rho = 1`` is the worst case.
+
+:math:`\sqrt{\sigma^2 \nu^2}` is a scale, not the largest bias: the multiplier
+``|rho| sqrt(cf_y cf_d / (1 - cf_d))`` exceeds 1 for strong confounders (about 2.85 at
+``cf_y = cf_d = 0.9``).  The field that holds it keeps DoubleML's name, ``max_bias``.
 
 Two things make this useful rather than merely formal.  First, the *robustness
 value* :func:`robustness_value` inverts the bound: it reports the single number
@@ -480,8 +484,9 @@ class SensitivityElements:
     nu2 : float
         :math:`E[\alpha(A, W)^2]`, the second moment of the Riesz representer.
     max_bias : float
-        :math:`\sqrt{\sigma^2 \nu^2}` -- the largest bias any confounder could produce
-        if it explained *all* the residual variation on both sides.
+        :math:`\sqrt{\sigma^2 \nu^2}`, the bias scale. The bound multiplies it by
+        ``|rho| sqrt(cf_y cf_d / (1 - cf_d))``, which can exceed 1, so it is not the
+        largest bias. The name follows DoubleML.
     psi_sigma2 : ndarray
         Influence curve of ``sigma2``.
     psi_nu2 : ndarray or None
@@ -517,7 +522,7 @@ def sensitivity_elements(
     *,
     nu2_estimator: str = "auto",
 ) -> SensitivityElements:
-    r"""Compute :math:`\sigma^2`, :math:`\nu^2` and the maximal bias for one estimand.
+    r"""Compute :math:`\sigma^2`, :math:`\nu^2` and the bias scale for one estimand.
 
     This is where every entry point in this module meets
     :data:`_FIT_WIDE_BOUND_RULES`, so :func:`omitted_variable_bounds`,
@@ -541,7 +546,7 @@ def sensitivity_elements(
     Returns
     -------
     SensitivityElements
-        The residual outcome variance, the Riesz second moment, the maximal bias, and
+        The residual outcome variance, the Riesz second moment, the bias scale, and
         the influence curve of each.
 
     Raises
@@ -906,13 +911,15 @@ class SensitivityBounds:
     cf_y : float
         Share of the residual outcome variation the assumed confounder explains.
     cf_d : float
-        Share of the residual treatment variation the assumed confounder explains.
+        Share of the Riesz representer's second moment that only the assumed confounder
+        adds. For the ATE it is the gain in precision of the treatment model.
     rho : float
         How adversarially the two are aligned. ``1.0`` is the worst case.
     confounding_strength : float
-        The product those three imply.
+        The product those three imply, ``|rho| sqrt(cf_y cf_d / (1 - cf_d))``.
     max_bias : float
-        Largest bias a confounder of that strength could produce.
+        The bias scale ``sqrt(sigma^2 nu^2)``. :attr:`bias` multiplies it by
+        ``confounding_strength``, which can exceed 1. The name follows DoubleML.
     lower : float
         Bias-adjusted lower bound on the estimate.
     upper : float
@@ -1142,7 +1149,7 @@ class SensitivityBounds:
         header = [
             f"Omitted-variable sensitivity for {self.estimand!r}",
             "-" * 44,
-            f"estimate {self.psi:.5g}; maximal bias sqrt(sigma^2 nu^2) = {self.max_bias:.5g}",
+            f"estimate {self.psi:.5g}; bias scale sqrt(sigma^2 nu^2) = {self.max_bias:.5g}",
             f"assumed confounding: cf_y = {self.cf_y:.3g}, cf_d = {self.cf_d:.3g}, "
             f"rho = {self.rho:.3g}"
             f" -> bias <= {self.bias:.5g}",
@@ -1151,9 +1158,10 @@ class SensitivityBounds:
             rv_line = f"robustness value RV   = unavailable: {_UNREACHABLE_RV}."
         else:
             rv_line = (
-                f"robustness value RV   = {self.robustness_value:.4f}: a confounder explaining "
-                f"{self.robustness_value:.1%} of the residual variation in BOTH the outcome and "
-                f"treatment would move the estimate to {self.null_hypothesis:g}."
+                f"robustness value RV   = {self.robustness_value:.4f}: a confounder with "
+                f"cf_y = cf_d = {self.robustness_value:.1%} (the share of the residual outcome "
+                "variation it explains, and the share of the Riesz representer's second moment "
+                f"only it adds) would move the estimate to {self.null_hypothesis:g}."
             )
         reason = self._limit_reason()
         if reason is not None:
@@ -1193,7 +1201,7 @@ class SensitivityBounds:
 
 
 def _confounding_strength(cf_y: float, cf_d: float, rho: float) -> float:
-    """``|rho| sqrt(cf_y cf_d / (1 - cf_d))``, the multiplier on the maximal bias."""
+    """``|rho| sqrt(cf_y cf_d / (1 - cf_d))``, the multiplier on the bias scale."""
     for name, value in (("cf_y", cf_y), ("cf_d", cf_d)):
         if not 0.0 <= value < 1.0:
             raise ValueError(f"{name} must lie in [0, 1); got {value}")
@@ -1222,8 +1230,8 @@ def omitted_variable_bounds(
 ) -> SensitivityBounds:
     """Bias-adjusted bounds and robustness values for one estimand.
 
-    Defaults follow the convention of assuming a confounder that explains 3% of the
-    residual variation on each side, with worst-case alignment (``rho = 1``).  Prefer
+    Defaults follow the convention of assuming a confounder with ``cf_y = cf_d = 0.03``,
+    with worst-case alignment (``rho = 1``).  Prefer
     reading :attr:`SensitivityBounds.robustness_value`, which needs no assumption at
     all.
 
@@ -1236,7 +1244,8 @@ def omitted_variable_bounds(
     cf_y : float
         Assumed share of residual outcome variation the confounder explains.
     cf_d : float
-        Assumed share of residual treatment variation it explains.
+        Assumed share of the Riesz representer's second moment that only the confounder
+        adds. For the ATE it is the gain in precision of the treatment model.
     rho : float
         How adversarially the two are aligned. ``1.0`` is the worst case.
     level : float
@@ -1253,7 +1262,7 @@ def omitted_variable_bounds(
         ``nu2_estimator="plugin"`` the bounds, ``max_bias`` and the point robustness value
         are reported, and the one-sided limits and the confidence-limit robustness value
         refuse when read, because no derivation in a source this package cites gives their
-        standard error (docs/roadmap.md F26). A zero maximal bias also leaves the point
+        standard error (docs/roadmap.md F26). A zero bias scale also leaves the point
         bounds available but refuses the limits, whose square-root derivative is undefined.
         An unreachable robustness threshold is ``None``.
 
@@ -1409,9 +1418,14 @@ class BenchmarkResult:
     covariates : tuple of str
         The observed covariates the strength is calibrated against.
     cf_y : float
-        Share of residual outcome variation those covariates explain.
+        Gain in explained outcome variation from adjusting for those covariates,
+        ``(R^2_long - R^2_short) / (1 - R^2_long)``, clipped to ``[0, 1]``.
     cf_d : float
-        Share of residual treatment variation those covariates explain.
+        Gain in the Riesz representer's second moment from adjusting for those
+        covariates, ``(nu2_long - nu2_short) / nu2_short``, clipped to ``[0, 1]``. This
+        gain form is the benchmark convention of Chernozhukov et al. (Appendix E.5,
+        Remark 8) and of DoubleML. It is not the share that
+        :func:`omitted_variable_bounds` takes as ``cf_d``.
     rho : float
         The implied alignment of the two.
     delta_psi : float

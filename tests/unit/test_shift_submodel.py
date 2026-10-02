@@ -287,6 +287,31 @@ class TestTheRefusalsAndWarnings:
         with pytest.warns(PositivityWarning, match="above the largest one observed"):
             ShiftSet.evaluate((Shift(1.0, cap=None),), data, density)
 
+    def test_a_cap_above_the_observed_doses_warns(self) -> None:
+        # The doses are 0 to 3, so cap=4 lets the rows at 3 move to 4: a cap secures
+        # support only when it lies inside the support of the dose.
+        data, density, _ = _setup()
+        with pytest.warns(PositivityWarning, match=r"cap=4, which lies above the largest dose"):
+            ShiftSet.evaluate((Shift(1.0, cap=4.0),), data, density)
+
+    def test_the_identification_text_limits_what_a_cap_secures(self) -> None:
+        from cleverly.targets import TARGETS
+
+        positivity = next(
+            item
+            for item in TARGETS["ey_shift"].identification.assumptions
+            if item.startswith("positivity")
+        )
+        assert "inside the conditional support of the dose" in positivity
+        assert "exactly what the cap is declared to secure" not in positivity
+
+    def test_a_cap_inside_the_observed_doses_does_not_warn_about_the_range(self) -> None:
+        data, density, _ = _setup()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            ShiftSet.evaluate((Shift(1.0, cap=3.0),), data, density)
+        assert not [w for w in caught if "largest" in str(w.message)]
+
     def test_at_least_one_shift_is_required(self) -> None:
         data, density, _ = _setup()
         with pytest.raises(DataError, match="at least one shift"):

@@ -1746,7 +1746,9 @@ class ShiftDGP:
     :class:`MultiArmDGP` gives: ``DGP`` is binary all the way down, ``MultiArmDGP`` is
     categorical, and a dose is neither.  Here the mechanism is a conditional *density*
     :math:`A \mid W \sim N(\mu(W), \sigma^2)` and the parameter is
-    :math:`E[Y^{d}] = E[\bar Q(d(A, W), W)]` for :math:`d(a, w) = \min(a + \delta, u)`.
+    :math:`E[Y^{d}] = E[\bar Q(d(A, W), W)]` for :math:`d(a, w) = a + \delta` when
+    :math:`a + \delta \le u` and :math:`d(a, w) = a` otherwise: a unit the shift would take
+    past the cap :math:`u` stays at its own dose.
 
     **The dose response has to be non-linear, and that is the whole design.**  If
     :math:`\bar Q` were linear in ``a`` -- say :math:`\beta a + h(w)` -- then an uncapped
@@ -1779,7 +1781,7 @@ class ShiftDGP:
     noise_scale: float = 1.0
 
     def shifted(self, dose: FloatArray, delta: float, cap: float | None) -> FloatArray:
-        """``d(a, w) = min(a + delta, cap)``, holding a unit at its own dose past the cap.
+        """``d(a, w) = a + delta`` if ``a + delta <= cap``, else ``a``: no unit moves past the cap.
 
         Written here as well as in :class:`~cleverly.interventions.Shift` on purpose: an
         oracle that imported the estimator's own policy would agree with it by

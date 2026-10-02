@@ -796,7 +796,7 @@ class CollaborativeTMLEMethod(TMLEMethod):
     :class:`~cleverly.exceptions.CapabilityError` from ``std_error``, ``ci`` and
     ``pvalue``. Each estimate keeps ``plugin_std_error`` and ``plugin_interval`` as a
     diagnostic, which is not a confidence statement. For an interval, use
-    ``strategy="oat"`` or :class:`TMLEMethod`.
+    :class:`TMLEMethod`.
 
     Examples
     --------

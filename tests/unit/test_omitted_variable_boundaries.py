@@ -124,3 +124,20 @@ def test_an_invalid_one_sided_level_is_refused(exact_fit: Any, level: float) -> 
         omitted_variable_bounds(exact_fit, level=level)
     with pytest.raises(ValueError, match="level must lie in"):
         robustness_value(exact_fit, level=level)
+
+
+def test_the_summary_names_the_bias_scale_and_the_robustness_value_by_definition(
+    exact_fit: Any,
+) -> None:
+    # sqrt(sigma^2 nu^2) is a scale: at cf_y = cf_d = 0.9 and rho = 1 the multiplier is
+    # sqrt(0.81 / 0.1), about 2.85, so the bias can exceed it. The robustness value is the
+    # equal strength cf_y = cf_d, and cf_d is not a share of treatment variation.
+    bound = omitted_variable_bounds(exact_fit)
+    assert bound.robustness_value is not None
+    summary = bound.summary()
+    assert "bias scale sqrt(sigma^2 nu^2)" in summary
+    assert "maximal bias" not in summary
+    assert "BOTH" not in summary
+    assert f"cf_y = cf_d = {bound.robustness_value:.1%}" in summary
+    strong = omitted_variable_bounds(exact_fit, cf_y=0.9, cf_d=0.9)
+    assert strong.bias > strong.max_bias

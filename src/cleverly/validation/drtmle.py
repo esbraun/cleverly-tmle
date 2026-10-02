@@ -89,11 +89,13 @@ Which estimator the fit is, which is a different question
 Everything above asks whether a fit solved what it reports.  :attr:`CorrectionCheck.contract`
 asks something no other column here answers: **which estimator the numbers are evidence
 about.** Truncation is not in
-Theorem 1's algorithm, so the theorem-backed guarantee is claimed for a fit whose truncations
-are *inactive*, and a fit where one binds is reported as empirically supported and outside the
-theorem.  **Three** truncations have to be inactive for that on a complete-data fit, not one,
-and **five** on a randomized missing-outcome one -- which divides by two mechanisms, truncated
-separately at two different bounds:
+Theorem 1's algorithm, so the theorem-backed guarantee is claimed for an in-sample fit whose
+truncations are *inactive*, and a fit where one binds is reported as empirically supported and
+outside the theorem.  Cross-fitting is not in the theorem either, so the summary of a
+cross-fitted fit with no active truncation says it uses Theorem 1's construction and names
+the open condition (S).  **Three** truncations have to be inactive for that on a
+complete-data fit, not one, and **five** on a randomized missing-outcome one -- which
+divides by two mechanisms, truncated separately at two different bounds:
 
 =========================  ========================================  ===================
 truncation                 witness                                   in the assumptions
@@ -361,6 +363,10 @@ class CorrectionCheck:
     #: :meth:`to_frame` honours "results come back in the backend you passed in"
     #: without a caller having to thread the container back in by hand.
     backend: str | None = None
+    #: Whether any draw cross-fitted its nuisances. Theorem 1 covers the non-cross-fitted
+    #: estimator, so a cross-fitted fit uses the theorem's construction without its
+    #: guarantee (docs/technical-reference/dr-tmle/targeting.md, condition (S)).
+    cross_fitted: bool = False
 
     @property
     def threshold(self) -> float:
@@ -507,7 +513,11 @@ class CorrectionCheck:
 
         ``"theorem"`` where none of the relevant truncations is active, in which case
         :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism` returned the
-        unconstrained solve bit for bit and the fit **is** Theorem 1's estimator;
+        unconstrained solve bit for bit and the fit uses Theorem 1's construction.  An
+        in-sample fit then **is** Theorem 1's estimator.  A cross-fitted fit is not
+        covered: the theorem has no cross-fitting, and condition (S) of
+        ``docs/technical-reference/dr-tmle/targeting.md`` is open for a reduction that
+        selects structure from the data (:attr:`cross_fitted`).
         ``"bound-active"`` otherwise, which is *empirically supported and outside the
         theorem* rather than wrong -- see this module's docstring.  ``"none"`` for a fit that
         reports no corrections and so has no mechanism tilt to ask about.
@@ -600,7 +610,14 @@ class CorrectionCheck:
                 "wrong; it is not a failure and the verdict below does not read it"
                 if self.truncations_active
                 else f" -- none of the {self._truncation_count} truncations is active, so "
-                "this fit is Theorem 1's estimator: clip share 0 at the initial "
+                + (
+                    "this fit uses Theorem 1's construction, but Theorem 1 does not cover "
+                    "cross-fitting (condition (S) is open for a reduction that selects "
+                    "structure from the data; docs/technical-reference/dr-tmle/targeting.md)"
+                    if self.cross_fitted
+                    else "this fit is Theorem 1's estimator"
+                )
+                + ": clip share 0 at the initial "
                 f"mechanism{'s' if self.has_observation_mechanism else ''}, and margins "
                 + (
                     f"{self.margin:.2g} (g*), {self.observation_margin:.2g} (pi*) and "
@@ -820,6 +837,7 @@ def correction_check(
         std_error=reference,
         scale=float(result.nuisance.scaler.range),
         backend=result.data.backend,
+        cross_fitted=any(repeat.nuisance.folds.n_folds > 1 for repeat in result.repeats),
     )
 
 

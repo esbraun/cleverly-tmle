@@ -893,8 +893,12 @@ class TestTheLongitudinalRefusals:
 
     def test_clusters_are_refused_under_cross_fitting(self) -> None:
         frame = longitudinal_frame(n=400, cluster_size=5)
-        with pytest.raises(LongitudinalError, match="has no clustered result"):
+        with pytest.raises(LongitudinalError, match="has no clustered result") as raised:
             sequential().fit(frame, id="id", **LONGITUDINAL_COLUMNS)
+        # No registered study fits a clustered longitudinal model, so the message names
+        # what the in-sample fit reports rather than calling it evidenced.
+        assert "which reports a cluster-robust variance" in str(raised.value)
+        assert "evidenced" not in str(raised.value)
 
     def test_the_same_clusters_fit_in_sample(self) -> None:
         frame = longitudinal_frame(n=400, cluster_size=5)

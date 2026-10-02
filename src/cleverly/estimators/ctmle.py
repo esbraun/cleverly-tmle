@@ -219,10 +219,11 @@ added to catch exactly this.
 
 The claim that the search selects what it needs is therefore made where selecting nothing
 is *wrong*.  Reduce the outcome learner to a constant, so every bit of adjustment has to
-come through ``g``, and on the same instrument process the greedy search includes the
-confounder ``W1`` in every seed, never selects the empty model, and still leaves the
-instrument out -- while a selector restricted to the empty candidate has mean absolute
-error 0.696 against the collaborative fit's 0.017. See
+come through ``g``.  On the same instrument process, over the test's three seeds at
+``n = 1,500``, the greedy search includes the confounder ``W1`` and never selects the
+empty model; the test allows the instrument on at most one seed.  A selector restricted
+to the empty candidate has mean absolute error 0.695 there, against the collaborative
+fit's 0.036. See
 ``tests/e2e/test_ctmle.py::TestSelectionIsForcedWhenTheOutcomeModelCannotHelp``.
 
 The ``tmle3`` source is used as a reference for the shared construction -- out-of-fold

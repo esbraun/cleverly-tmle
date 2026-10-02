@@ -731,7 +731,7 @@ movement, which is additive for a difference and logarithmic for a ratio.
 
 | instrument | the assumption it stresses | the number it reports | what it assumes to report it |
 | --- | --- | --- | --- |
-| omitted-variable bounds | no unmeasured confounding | the largest bias an unmeasured confounder of declared strength can produce | the confounder acts through the outcome regression and the treatment mechanism, with declared partial-$R^2$ strength in each |
+| omitted-variable bounds | no unmeasured confounding | the largest bias an unmeasured confounder of declared strength can produce | the confounder acts through the outcome regression and the Riesz representer. `cf_y` is its share of the residual outcome variation, and `cf_d` is its share of the representer's second moment |
 | robustness value | no unmeasured confounding | the single strength at which the conclusion flips | that the two strengths are equal |
 | benchmark | no unmeasured confounding | the strength of a confounder "as strong as" a named observed covariate | that dropping the covariate and refitting calibrates the scale |
 | simulated common cause | no unmeasured confounding | estimate displacement across a declared strength grid, on the additive scale or the log scale | a supported latent perturbation family and plausible declared strengths |
@@ -830,13 +830,14 @@ keeps its `covariates` argument. `TestTheBenchmarkRowResolvesEachRequest` in
 
 Each bound has a one-sided confidence limit on each end. Theorem 4 in Section 4 of Chernozhukov,
 Cinelli, Newey, Sharma and Syrgkanis (2026) gives them. The curve of a limit is the curve of the
-estimate plus or minus the strength times the curve of the maximal bias. The standard error is the
+estimate plus or minus the strength times the curve of the bias scale. The standard error is the
 square root of `influence_variance` of that curve, which sums the rows of each cluster on a
 clustered fit. The table gives each curve per row, with weights $w$ of mean one.
 
 Theorem 4 inherits Lemma 3's DML conditions. They include cross-fitting, the cited DML
 assumptions, and $o_P(n^{-1/4})$ $L^2$ rates for the outcome regression and representer. The
-maximal-bias scale $S = \sqrt{\sigma^2\nu^2}$ must be positive. An in-sample TMLE also needs
+bias scale $S = \sqrt{\sigma^2\nu^2}$ must be positive. $S$ is a scale and not the largest bias,
+because the strength that multiplies it can exceed 1. An in-sample TMLE also needs
 conditions that control the empirical-process remainder. The registered study checks correct GLMs
 on its declared law; it does not establish coverage for arbitrary learners.
 
@@ -853,7 +854,7 @@ includes the null, its robustness threshold is zero.
 | estimate | the estimate's own influence curve. For the ATT and the ATC it includes the share term of $\theta_s$ | Online Appendix A, "Statistical Inference", Equation (15) |
 | $\sigma^2$ | $w ((Y - \bar Q^*)^2 - \sigma^2)$ | Lemma 3 |
 | $\nu^2$, doubly robust | $w (2 m(O, \alpha) - \alpha^2 - \nu^2) - 2 \nu^2 w (1\{A = c\} - p) / p$ | Lemma 3 for the first term. The second term is this package's derivation |
-| maximal bias | $(\sigma^2 \psi_{\nu^2} + \nu^2 \psi_{\sigma^2}) / (2 \sqrt{\sigma^2 \nu^2})$ | Theorem 4 |
+| bias scale $S$ | $(\sigma^2 \psi_{\nu^2} + \nu^2 \psi_{\sigma^2}) / (2 \sqrt{\sigma^2 \nu^2})$ | Theorem 4 |
 
 The second term of the $\nu^2$ curve applies to the ATT and the ATC only. Here $c$ is the arm the
 parameter conditions on: the contrast arm for an ATT and the reference for an ATC. With more than
