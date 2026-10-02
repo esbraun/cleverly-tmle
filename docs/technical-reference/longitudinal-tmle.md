@@ -233,7 +233,9 @@ Let $T$ be the node of the first event, with $T = K + 1$ for a unit that is even
 node $K$. Then $\mathrm{RMST}_d(\tau) = E[\min(T^d, \tau)]$ for $2 \le \tau \le K + 1$. The
 restricted mean time lost to cause $j$ is $E[(\tau - \min(T^d, \tau))\,\mathbb 1\{J = j\}]$.
 Royston and Parmar (2013) define the RMST. Andersen, Hansen and Klein (2004) define the time lost
-to one cause. The unit is the node index. For nodes $\Delta$ apart, the RMST in calendar time is
+to one cause.
+
+The unit is the node index. For nodes $\Delta$ apart, the RMST in calendar time is
 $\Delta \times \mathrm{RMST}$. On a competing-risk fit, $F_d$ is the sum of the cause-specific
 incidences, so `rmst` needs every declared cause. `rmst` refuses a fit that omits a horizon below
 $\tau$, an end-of-study fit, and a working-model fit.
