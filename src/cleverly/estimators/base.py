@@ -36,16 +36,21 @@ from ..inference.cluster import (
     positive_mass_clause,
     unequal_cluster_sizes,
 )
+from ..inference.delta import Transform
 from ..inference.influence import (
     ParameterEstimate,
     Scale,
+    bootstrap_line,
     spread_name,
     stamp_inference,
 )
 from ..inference.multiplier import SimultaneousBands
 from ..inference.results import (
+    RatioKind,
     estimate_covariance,
     estimate_curves,
+    ratio_contrast,
+    refuse_odds_ratio,
     reported_status,
     select_estimates,
     smooth_contrast,
@@ -55,6 +60,7 @@ from ..learners.crossfit import CrossFitPlan, SplitPlan
 from ..protocol import ProtocolDetail, protocol_summary_lines
 from ..provenance import Provenance
 from ..targets import TARGETS, all_names, resolve_estimands
+from ..targets.base import arm_alias, parameter_name
 from ..utils.frames import emit_frame
 from ..utils.memos import without_memos
 from ..utils.text import format_pvalue, format_table
@@ -909,6 +915,7 @@ class TMLEResult:
         name: str | None = None,
         scale: Scale = "difference",
         gradient: Callable[[FloatArray], FloatArray] | None = None,
+        transform: Transform | None = None,
     ) -> ParameterEstimate:
         r"""A smooth function of several estimands, with correct inference.
 
@@ -927,6 +934,11 @@ class TMLEResult:
         It inherits the inference status of the estimates it reads, so a contrast of
         non-inferential estimates refuses an interval exactly as they do.
 
+        ``scale="ratio"`` reports a positive contrast with its interval on the log scale.
+        ``transform=`` computes the interval and the test on the scale of a declared
+        monotone map and maps the interval back with the inverse, as
+        ``ci(contrast = list(f, f_inv, h, fh_grad))`` in R ``drtmle`` 1.1.2 does.
+
         Parameters
         ----------
         function : callable
@@ -936,9 +948,13 @@ class TMLEResult:
         name : str or None
             Alias for the derived estimate.
         scale : str
-            Reported scale of the derived estimate.
+            Reported scale of the derived estimate. With ``transform=`` it must be
+            ``"level"`` or ``"difference"``.
         gradient : callable or None
             Analytic gradient. ``None`` uses central differences.
+        transform : Transform or None
+            The map the interval and the test are computed on. ``None`` computes them on
+            the reported scale, or on the log scale for ``scale="ratio"``.
 
         Returns
         -------
@@ -964,6 +980,125 @@ class TMLEResult:
             name=name,
             scale=scale,
             gradient=gradient,
+            transform=transform,
+        )
+
+    def ratio(
+        self,
+        numerator: str,
+        denominator: str,
+        *,
+        kind: RatioKind = "rr",
+        name: str | None = None,
+    ) -> ParameterEstimate:
+        """The risk ratio or odds ratio of two level estimates of this fit.
+
+        The interval is computed on the log scale and exponentiated, as
+        ``lmtp_contrast(type = "rr")`` and ``type = "or"`` in R ``lmtp`` 1.5.4 compute
+        it. The p-value tests a ratio of one. :meth:`ParameterEstimate.wald_test` tests
+        any positive null. The ratio inherits the inference status of its inputs.
+
+        Parameters
+        ----------
+        numerator : str
+            The name of the level in the numerator, such as ``"ey1"``.
+        denominator : str
+            The name of the level in the denominator, such as ``"ey0"``.
+        kind : {"rr", "or"}, default="rr"
+            A ratio of the levels, or a ratio of their odds. ``"or"`` needs a binary
+            outcome.
+        name : str or None, default=None
+            The name of the derived estimate. ``None`` gives the registered name when
+            the inputs are an arm and the reference arm, such as ``"rr"`` for
+            ``ratio("ey[1]", "ey[0]")`` on a two-armed fit. Otherwise it gives
+            ``"rr[<numerator> vs <denominator>]"``.
+
+        Returns
+        -------
+        ParameterEstimate
+            The ratio, on the ``"ratio"`` scale.
+
+        Raises
+        ------
+        CapabilityError
+            When ``kind="or"`` and the outcome is not binary.
+        ValueError
+            When an input is not a level, or a level is outside the domain of the log.
+
+        See Also
+        --------
+        cleverly.inference.ParameterEstimate.wald_test : Test the ratio at a null.
+
+        Examples
+        --------
+        >>> from sklearn.linear_model import LogisticRegression
+        >>> from cleverly import CausalStudy, CounterfactualMean, PointTreatment
+        >>> from cleverly.datasets import make_binary_outcome
+        >>> frame, _ = make_binary_outcome(n=200, seed=0)
+        >>> study = CausalStudy(
+        ...     frame,
+        ...     design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2")),
+        ... )
+        >>> result = study.identify(CounterfactualMean()).estimate(
+        ...     outcome_learner=LogisticRegression(max_iter=1000),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     cross_fit=False,
+        ...     random_state=0,
+        ... )
+        >>> rr = result.ratio("ey[1]", "ey[0]")
+        >>> rr.name, rr.scale, rr.psi > 0
+        ('rr', 'ratio', True)
+        """
+        refuse_after_repeats(
+            self.n_repeats,
+            operation="ratio()",
+            reason=(
+                "A coordinatewise median does not preserve algebraic identities across "
+                "estimands. Request the contrast as an estimand before fitting, or fit "
+                "one split."
+            ),
+        )
+        if kind == "or":
+            refuse_odds_ratio(self.config.family)
+        return ratio_contrast(
+            self.estimates,
+            numerator,
+            denominator,
+            kind=kind,
+            n=self.n,
+            cluster=self.data.cluster,
+            alpha=self.config.alpha_sig,
+            name=name or self._ratio_name(numerator, denominator, kind),
+        )
+
+    def _ratio_name(self, numerator: str, denominator: str, kind: str) -> str:
+        """The registered name of an arm ratio, or the generic one.
+
+        Built forward from the arm labels, never parsed out of the inputs. The registered
+        name is used when the inputs are the registered level names of two arms. On a
+        two-armed fit, where the registered name drops the arms, the denominator must
+        also be the reference arm.
+        """
+        generic = f"{kind}[{numerator} vs {denominator}]"
+        data = self.data
+        if self.config.parameter_axis != "arm" or data.is_continuous_treatment:
+            return generic
+        collapse = data.is_binary_treatment
+        # The ``ey`` target names every level ``ey[<label>]``. A two-armed fit also
+        # names them ``ey1`` and ``ey0`` by arm code.
+        level_of = {parameter_name("ey", arm=data.arm_label(code)): code for code in data.arm_codes}
+        if collapse:
+            level_of.update({"ey1": 1.0, "ey0": 0.0})
+        top, bottom = level_of.get(numerator), level_of.get(denominator)
+        if top is None or bottom is None or top == bottom:
+            return generic
+        if collapse and bottom != self.config.reference_arm:
+            return generic
+        return arm_alias(
+            kind,
+            arm=data.arm_label(top),
+            versus=data.arm_label(bottom),
+            collapse=collapse,
         )
 
     def _names(self, names: Sequence[str] | None) -> tuple[str, ...]:
@@ -1449,22 +1584,7 @@ class TMLEResult:
                 if estimate.bootstrap is None:
                     continue
                 low, high = estimate.bootstrap.ci
-                spread = (
-                    f"  {name:<5s} {spread_name('bootstrap se', estimate.inference)} "
-                    f"{estimate.bootstrap.std_error:.4g}  "
-                )
-                # A percentile interval is a confidence interval, and this fit reports
-                # none.  The same two numbers are printed as a range under the diagnostic
-                # framing, rather than the bootstrap being refused outright: the refit
-                # bootstrap reruns the selection, which is a genuine diagnostic, and no
-                # reviewed result validates its coverage for this path.
-                if not estimate.supplies_inference:
-                    parts.append(
-                        f"{spread}percentile range [{low:.5g}, {high:.5g}] "
-                        f"({status_record(estimate.inference).bootstrap_note})"
-                    )
-                    continue
-                parts.append(f"{spread}percentile CI [{low:.5g}, {high:.5g}]")
+                parts.append(f"  {name:<5s} {bootstrap_line(estimate)}")
         # Last, and only when it failed. An interval whose score equation is unsolved is
         # not a wider interval, it is one the theory does not license, and until now the
         # only way to find that out was to know that `validation.score_check()` existed --
@@ -1689,17 +1809,3 @@ def _arm_shares(data: CausalData) -> str:
         for arm in data.arm_codes
     ]
     return f"arm shares: {', '.join(shares)}"
-
-
-def attach_bootstrap(result: TMLEResult, bootstrap: BootstrapResult) -> TMLEResult:
-    """Return a copy of ``result`` with bootstrap summaries attached."""
-    alpha = result.config.alpha_sig
-    estimates = {
-        name: (
-            estimate.with_bootstrap(bootstrap.summary(name, alpha))
-            if name in bootstrap.draws
-            else estimate
-        )
-        for name, estimate in result.estimates.items()
-    }
-    return replace(result, estimates=estimates, bootstrap=bootstrap)

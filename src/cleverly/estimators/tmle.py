@@ -142,6 +142,7 @@ from ..inference.influence import (
     stamp_inference,
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
+from ..inference.results import attach_bootstrap
 from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as_interventions
 from ..interventions.base import refuse_mixed_interventions, refuse_regime_densities
 from ..interventions.incremental import refuse_multi_arm_tilt
@@ -192,7 +193,6 @@ from .base import (
     TMLEConfig,
     TMLEResult,
     TMLEResultSet,
-    attach_bootstrap,
     resolve_estimands,
 )
 from .targeting import (
