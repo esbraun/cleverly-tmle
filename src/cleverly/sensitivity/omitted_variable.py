@@ -1423,8 +1423,8 @@ class BenchmarkResult:
     cf_d : float
         Gain in the Riesz representer's second moment from adjusting for those
         covariates, ``(nu2_long - nu2_short) / nu2_short``, clipped to ``[0, 1]``. This
-        gain form is the benchmark convention of Chernozhukov et al. (Appendix E.5,
-        Remark 8) and of DoubleML. It is not the share that
+        gain form is the benchmark convention of Chernozhukov et al.
+        (arXiv:2112.13398v6, Appendix E.5, Remark 8) and of DoubleML. It is not the share that
         :func:`omitted_variable_bounds` takes as ``cf_d``.
     rho : float
         The implied alignment of the two.
