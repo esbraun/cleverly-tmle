@@ -1813,12 +1813,12 @@ The [TWINS notebook](examples/twins-causal-inference.ipynb) cites these two sour
 and for the reading of its association.
 
 - Almond, Chay & Lee (2005), [*The costs of low birth weight*](https://doi.org/10.1162/003355305774268228),
-  *Quarterly Journal of Economics* 120(3):1031-1083, DOI 10.1162/003355305774268228. The
-  notebook links the NBER working paper w10552.
+  *Quarterly Journal of Economics* 120(3):1031-1083, DOI 10.1162/003355305774268228.
 - Louizos, Shalit, Mooij, Sontag, Zemel & Welling (2017), [*Causal effect inference with deep
-  latent-variable models*](https://arxiv.org/abs/1705.08821), NIPS 2017, arXiv:1705.08821. In
-  arXiv v2, Section 4.3 describes the TWINS benchmark. It keeps pairs in which both twins weigh
-  less than 2 kg, and it defines treatment as being the heavier twin.
+  latent-variable models*](https://proceedings.neurips.cc/paper/2017/hash/94b5bde6de888ddf9cde6748ad2523d1-Abstract.html),
+  *Advances in Neural Information Processing Systems* 30 (NIPS 2017). Section 4.3 describes the
+  TWINS benchmark. It keeps pairs in which both twins weigh less than 2 kg, and it defines
+  treatment as being the heavier twin.
 
 The notebook also cites two sources for its sensitivity analysis. Their entries are under
 [sensitivity analysis](#sensitivity-analysis).

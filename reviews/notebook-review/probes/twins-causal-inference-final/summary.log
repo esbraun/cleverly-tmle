@@ -1,0 +1,36 @@
+== booster shallow: 31 pair samples (seeds [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 2026])
+sensitivity section ran without an exception: 31/31
+max |gap| / package SE: 1.01e-04; below 0.001 on 31/31
+max |score after targeting| (hand-built): 3.9e-18
+nu2 range (ran): 4.091 to 4.224
+min cross-fitted g: 0.2208
+benchmark cf_y max: 0.0019
+benchmark cf_d range: 0.0023 to 0.0225
+RV range: 0.1286 to 0.1558
+propensity calibration slope range: 0.8388 to 0.9946
+outcome calibration slope range: 0.8145 to 0.9894
+samples with at least one calibration flag: 14/31
+
+== booster current: 31 pair samples (seeds [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 2026])
+sensitivity section ran without an exception: 29/31
+failures:
+ seed  cf_g_min                                                                                                                                                                                                                                                                                                                         error
+    5  0.017632 CapabilityError: the 'doubly_robust' estimator of nu^2 returned -10.3091 for 'ate', and a second moment cannot be negative. E[2 m(alpha_hat) - alpha_hat^2] equals nu_0^2 minus the squared error of the fitted representer, so this value reports a treatment mechanism the bound's derivation does not cover. The plug-in E
+   11  0.001287                                                                                                                                                                                                                                                            KeyError: "assessment operation 'omitted_confounding' did not run"
+max |gap| / package SE: 1.01e-04; below 0.001 on 31/31
+max |score after targeting| (hand-built): 3.9e-18
+nu2 range (ran): 2.604 to 4.347
+min cross-fitted g: 0.0013
+benchmark cf_y max: 0.0019
+benchmark cf_d range: 0.0000 to 0.5276
+RV range: 0.1346 to 0.1774
+propensity calibration slope range: 0.7118 to 0.8724
+outcome calibration slope range: 0.6250 to 0.8154
+samples with at least one calibration flag: 31/31
+
+== LTMLE: 60 synthetic draws
+interval contains the truth: 55/60
+interval contains the naive contrast: 56/60
+first 40 draws, contains the naive contrast: 36/40
+mean naive - truth: 0.0163
+mean standard error: 0.0134
