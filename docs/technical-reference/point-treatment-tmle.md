@@ -607,6 +607,37 @@ so a modified treatment policy has variance at least as large as the regime indu
 The added term is a conditional variance, and it is positive wherever the shift moves the dose.
 Delegating one to the other omits that term and reports a standard error that is too small.
 
+**The standard error reads the estimated density ratio.** When that ratio is far from the true
+ratio, the standard error does not describe the spread of the TMLE. A flexible density fitted out
+of fold overstates the spread. An overfit density fitted in sample understates it. The table gives
+the mean standard error over the empirical SD for the `+1.0` uncapped shift. The data are
+`make_shift_dose(n=3000)` on 60 seeds, with three folds when cross-fitted. The outcome learner is
+`HistGradientBoostingRegressor` in every row.
+
+| density learner | bins | fit | mean SE / empirical SD |
+| --- | --- | --- | --- |
+| `HistGradientBoostingClassifier`, default settings | 40 | cross-fitted | 3.91 |
+| `HistGradientBoostingClassifier`, default settings | 40 | cross-fitted, ratio trimmed at its 0.999 quantile | 2.46 |
+| `HistGradientBoostingClassifier`, default settings | 40 | in sample | 0.76 |
+| exact law | 320 | cross-fitted | 0.98 |
+
+The probe build trimmed the ratio at its 0.999 quantile in the last three rows. The shipped
+estimator applies no bound to the ratio, and the first row is its behavior. The trim bound 3 of
+3000 rows on seed 9000. The influence curve matched an independent recomputation to 5e-12 in
+every fit, so the cause is the ratio and not the formula.
+
+Under the true density, the mean ratio at the observed dose is 1 while the shifted dose stays
+inside the support. `diagnostics.support()` reports that mean as `mean_ratio` and its value on the
+rows each fold holds out as `fold_mean_ratio`. On seed 9000 the cross-fitted booster reads fold
+means 1.46, 1.20 and 1.87. The exact law reads 1.03, 0.98 and 1.07. A fold mean far from 1 shows
+that the ratio, and so the standard error, is unreliable. No source here calibrates a threshold,
+so the report gives the number and no warning. No registered study covers an estimated or
+cross-fitted shift density.
+
+Evidence: the probe scripts and logs in `reviews/notebook-review/probes/iv-n3/` (`probe_ic.py`,
+`summary_ic.log`, `fold_check.log`), the analysis in
+`reviews/notebook-review/investigations/iv-n3.md`, and `tests/unit/test_shift_ratio_mean.py`.
+
 Theory: Díaz Muñoz and van der Laan (2012), Haneuse and Rotnitzky (2013), and Díaz, Williams,
 Hoffman and Schenck (2023). Implementation:
 [`interventions/shift.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/shift.py),

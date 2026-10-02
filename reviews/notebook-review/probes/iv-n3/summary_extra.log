@@ -1,0 +1,28 @@
+config                 insample_boost  insample_oracle  insample_quad_oracle320  xfit_boost  xfit_boost_notrim  xfit_oracle  xfit_oracle320  xfit_quad_boost  xfit_quad_oracle320  xfit_rboost
+one_kappa                      0.8168           0.6244                   0.9798      0.2398             0.1470       0.6244          0.9798           0.2398               0.9798       0.5998
+one_tmle_move                 -0.0133          -0.0079                   0.0001     -0.0265            -0.0245      -0.0373         -0.0292           0.0012               0.0007      -0.0354
+one_os_move                   -0.0059          -0.0145                   0.0009     -0.1435            -0.1638      -0.0773         -0.0263           0.0061               0.0008      -0.0655
+one_se_trueh                   0.0226           0.0222                   0.0215      0.0344             0.0346       0.0338          0.0348           0.0221               0.0219       0.0341
+one_se_trueh_init              0.0229           0.0229                   0.0218      0.0357             0.0357       0.0357          0.0357           0.0221               0.0221       0.0357
+one_resid_init_sd              0.6028           0.6028                   0.7968      0.8899             0.8899       0.8899          0.8899           0.8018               0.8018       0.8899
+one_resid_star_sd              0.6025           0.6026                   0.7965      0.8880             0.8882       0.8878          0.8881           0.8016               0.8015       0.8877
+one_resid_init_top_sd          0.5819           0.5695                   0.7608      1.0098             1.0098       1.0682          1.2324           0.7766               0.7860       1.0670
+one_resid_star_top_sd          0.5656           0.5334                   0.7505      0.9772             0.9778       1.0088          1.1103           0.7650               0.7704       1.0101
+one_qmove_top1pct              0.0612           0.1116                   0.0908      0.2899             0.2481       0.3361          0.2864           0.0953               0.0945       0.3283
+one_qmove_rest                 0.0064           0.0074                   0.0049      0.0130             0.0122       0.0154          0.0225           0.0070               0.0053       0.0157
+one_mse_h                      1.2665           2.0749                   0.3009     24.9117            24.9117       2.0749          0.3009          24.9117               0.3009       4.2862
+one_var_resid                  0.5943           1.0617                   0.9860     13.0614            22.3333       3.3423          1.8496           9.6961               1.0245       3.4923
+one_var_resid_trueh            0.9790           0.9670                   0.9903      3.0892             3.0405       2.9354          2.9924           1.0568               1.0386       2.9556
+one_var_plug                   0.5910           0.5803                   0.4009      0.6307             0.6364       0.5883          0.6587           0.3987               0.4026       0.6103
+q_rmse                         0.3481           0.3481                   0.0590      0.3841             0.3841       0.3841          0.3841           0.0711               0.0711       0.3841
+one_mean_h_at_d                4.3578           3.1774                   2.7741      4.9534             4.9534       3.1774          2.7741           4.9534               2.7741       3.3290
+insample_boost           corr(tmle_move, kappa*os_move) 0.92; SD(psi - plugin) 0.0163 SD(os_move) 0.0094
+insample_oracle          corr(tmle_move, kappa*os_move) 0.80; SD(psi - plugin) 0.0068 SD(os_move) 0.0142
+insample_quad_oracle320  corr(tmle_move, kappa*os_move) 0.79; SD(psi - plugin) 0.0073 SD(os_move) 0.0067
+xfit_boost               corr(tmle_move, kappa*os_move) 0.76; SD(psi - plugin) 0.0106 SD(os_move) 0.0964
+xfit_boost_notrim        corr(tmle_move, kappa*os_move) 0.68; SD(psi - plugin) 0.0114 SD(os_move) 0.2901
+xfit_oracle              corr(tmle_move, kappa*os_move) 0.82; SD(psi - plugin) 0.0156 SD(os_move) 0.0356
+xfit_oracle320           corr(tmle_move, kappa*os_move) 0.83; SD(psi - plugin) 0.0163 SD(os_move) 0.0195
+xfit_quad_boost          corr(tmle_move, kappa*os_move) 0.87; SD(psi - plugin) 0.0093 SD(os_move) 0.0573
+xfit_quad_oracle320      corr(tmle_move, kappa*os_move) 0.79; SD(psi - plugin) 0.0076 SD(os_move) 0.0069
+xfit_rboost              corr(tmle_move, kappa*os_move) 0.85; SD(psi - plugin) 0.0130 SD(os_move) 0.0443
