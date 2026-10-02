@@ -1151,6 +1151,16 @@ class TestTheFullCandidateRefit:
             data.with_extra_covariate(np.zeros(data.n), "_noise_0")
         )
         assert extended.candidates == [("W1", "_noise_0")]
+        # Each candidate gains an added covariate unless it already names it.
+        twice = data.with_extra_covariate(np.zeros(data.n), "_noise_0")
+        twice = twice.with_extra_covariate(np.ones(twice.n), "_noise_1")
+        several = CTMLE(
+            **{**CTMLE_KWARGS, "strategy": "discrete", "candidates": [(), ("W1", "_noise_0")]}
+        )
+        assert several._configured_for_refit(twice).candidates == [
+            ("_noise_0", "_noise_1"),
+            ("W1", "_noise_0", "_noise_1"),
+        ]
 
     def test_a_subset_refit_keeps_the_admitted_status(self, pair: tuple[Any, Any]) -> None:
         collaborative, _ = pair

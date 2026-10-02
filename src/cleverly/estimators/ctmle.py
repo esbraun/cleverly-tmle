@@ -1214,8 +1214,8 @@ class CTMLE(TMLE):
 
         A ``"discrete"`` fit takes the same rule for each candidate. The copy appends each
         covariate that ``data`` records as added
-        (:attr:`~cleverly.data.CausalData.added_covariates`), and that no candidate names,
-        to every candidate, in the order ``data`` holds them. A covariate the fit already
+        (:attr:`~cleverly.data.CausalData.added_covariates`) to each candidate that does
+        not already name it, in the order ``data`` holds them. A covariate the fit already
         had keeps its place, named or not. So a refit of a fit whose one candidate is the
         full adjustment set keeps one full candidate, and keeps the status of the fit it
         refits.
@@ -1233,15 +1233,18 @@ class CTMLE(TMLE):
             or the extended candidates.
         """
         if self.strategy == "discrete" and self.candidates is not None:
-            named = {name for candidate in self.candidates for name in candidate}
             recorded = set(data.added_covariates)
-            added = tuple(
-                name for name in data.covariate_names if name in recorded and name not in named
-            )
-            if not added:
+            added = tuple(name for name in data.covariate_names if name in recorded)
+            extended = [
+                (*candidate, *(name for name in added if name not in candidate))
+                for candidate in self.candidates
+            ]
+            if all(
+                len(new) == len(old) for new, old in zip(extended, self.candidates, strict=True)
+            ):
                 return self
             configured = copy.copy(self)
-            configured.candidates = [(*candidate, *added) for candidate in self.candidates]
+            configured.candidates = extended
             return configured
         if self.ordering is None:
             return self

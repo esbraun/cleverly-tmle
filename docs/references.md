@@ -496,7 +496,8 @@ previous reader had is not a citation; a page number is.
 - Missing-outcome attributable-effect source audit (2026-09-12): no reviewed paper presents the
   exact MAR PAR and PAF construction. [RM8](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm8-missing-outcome-attributable-effects)
   records this bounded conclusion. [F20](roadmap.md#f20-missing-outcome-attributable-effects)
-  holds the missing published result.
+  holds the work. The [natural-extension verdicts](technical-reference/natural-extension-verdicts.md)
+  record part (e), a stack of the two shipped parents, as a natural extension.
 
   Díaz, Carone and van der Laan give the MAR natural-course parent, its remainder, and its rates.
   Hubbard and van der Laan give the complete-data reference parent and attributable transforms.
