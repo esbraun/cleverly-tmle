@@ -5,15 +5,18 @@ The other strata refusals each have a pre-fit test already:
 =====================================================  =======================================
 refusal                                                pinning test
 =====================================================  =======================================
-``cv_evaluation=True`` or ``targeting_scheme="fold"``  ``test_natural_course_crossfit.py``,
-                                                       ``test_a_complete_outcome_fit_with_
-                                                       strata_meets_the_generic_strata_gate``
-an incremental target, a non-identity MSM link, a      ``test_refusals_before_the_nuisance_fit.py``
-continuous-dose MSM, or a ``DRTMLE`` guard
+``cv_evaluation=True`` or ``targeting_scheme="fold"``  ``test_natural_course_crossfit.py`` and
+                                                       ``test_refusals_before_the_nuisance_
+                                                       fit.py``
+a DR-TMLE stratum with no trainable rows               ``test_refusals_before_the_nuisance_
+                                                       fit.py``
+an incremental stratum without a treatment arm         ``test_stratified_incremental_exact.py``
+a working model singular inside a stratum              ``test_stratified_msm_exact.py``
 the stratum alias in a sensitivity analysis            ``test_stratified_targets.py``
 =====================================================  =======================================
 
-The two below are the missing-outcome contracts' own strata refusals.
+The two below are the missing-outcome contracts' own strata refusals.  The in-sample
+natural-course mean fits strata.
 """
 
 from __future__ import annotations
@@ -54,13 +57,13 @@ def test_the_cross_fitted_arm_indexed_contract_refuses_strata() -> None:
     assert NeverFit.calls == 0
 
 
-@pytest.mark.parametrize("cross_fit", [False, True], ids=("in-sample", "cross-fitted"))
-def test_the_natural_course_contract_refuses_strata(cross_fit: bool) -> None:
-    with pytest.raises(CapabilityError) as caught:
-        _fit(cross_fit=cross_fit, estimands=("ey_obs",))
-    assert str(caught.value) == (
-        "NaturalCourseMean, PAR and PAF with missing outcomes currently support ordinary TMLE "
-        "under their audited implementation contracts; baseline strata need a "
-        "stratum-indexed natural-course fluctuation (X8 in docs/roadmap.md)"
-    )
-    assert NeverFit.calls == 0
+def test_the_cross_fitted_natural_course_fits_strata() -> None:
+    with pytest.raises(AssertionError, match="before any learner is fitted"):
+        _fit(cross_fit=True, estimands=("ey_obs",))
+    assert NeverFit.calls > 0
+
+
+def test_the_in_sample_natural_course_fits_strata() -> None:
+    with pytest.raises(AssertionError, match="before any learner is fitted"):
+        _fit(cross_fit=False, estimands=("ey_obs",))
+    assert NeverFit.calls > 0

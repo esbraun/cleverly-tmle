@@ -240,3 +240,30 @@ def test_each_gating_rule_is_reachable(rule: str) -> None:
             for _, line in lines
         )
         assert matched, f"{rule} matched nothing in its own sample"
+
+
+#: C0 control characters other than tab, line feed and carriage return.  A backslash escape
+#: that a shell heredoc collapsed leaves one behind: ``\beta`` becomes a backspace and ``eta``.
+_CONTROL = re.compile("[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f]")
+
+
+def _control_characters(text: str) -> list[int]:
+    # ``str.splitlines`` splits on a vertical tab and a form feed, so it would hide them.
+    return [number for number, line in enumerate(text.split("\n"), 1) if _CONTROL.search(line)]
+
+
+def test_no_source_holds_a_control_character() -> None:
+    """A collapsed escape renders as broken math, and Sphinx does not warn about it."""
+    sources = [*READER_FACING, *ROOT.glob("src/**/*.py"), *ROOT.glob("tests/**/*.py")]
+    found = {
+        str(path.relative_to(ROOT)): lines
+        for path in sources
+        if (lines := _control_characters(path.read_text(encoding="utf-8")))
+    }
+    assert not found, f"control characters at these lines: {found}"
+
+
+def test_the_control_character_scan_sees_a_collapsed_escape() -> None:
+    """The scan must find the defect it exists for."""
+    assert _control_characters("$\x08eta_s$") == [1]
+    assert _control_characters("$\\beta_s$\tand a tab") == []

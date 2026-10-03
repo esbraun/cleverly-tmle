@@ -35,12 +35,11 @@ ROADMAP = ROOT / "docs" / "roadmap.md"
 
 #: The precedence order, written out. A fit that meets more than one status takes the first one
 #: here. The order is the row order of the status table in ``inference.md``: the two collaborative
-#: statuses, the estimated weight of a guarded DR-TMLE fit, and then the two cluster statuses.
+#: statuses, the estimated weight of a guarded DR-TMLE fit, and then the cluster status.
 PRECEDENCE = (
     "working_mechanism_plugin",
     "generated_design_plugin",
     "estimated_weight_plugin",
-    "unequal_cluster_plugin",
     "few_cluster_plugin",
 )
 
@@ -177,25 +176,44 @@ class TestThePrecedence:
 
 
 class TestTheFewClusterThreshold:
-    """The one constant holds the threshold, and the text is formatted from it."""
+    """The two constants hold the threshold and the floor, and the text is formatted from them."""
 
     def test_the_threshold_is_the_sourced_count(self) -> None:
         # Nugent et al. (2024), Section 2.2: "fewer than 40 clusters randomized (N < 40)".
         assert _inference_status.FEW_CLUSTER_THRESHOLD == 40
 
-    def test_the_reason_states_the_threshold_it_applies(self) -> None:
-        threshold = _inference_status.FEW_CLUSTER_THRESHOLD
-        reason = NON_INFERENTIAL["few_cluster_plugin"].reason
-        assert (
-            f"when it has fewer than {threshold} clusters with positive weight mass, "
-            "or when one baseline stratum"
-        ) in reason
-        assert f"below {threshold} clusters" in reason
-        assert f"at least {threshold} of them" in NON_INFERENTIAL["unequal_cluster_plugin"].reason
+    def test_the_floor_is_the_smallest_measured_count(self) -> None:
+        # clustered-few-cluster-tmle measures 10, 20 and 30 clusters.
+        from tests.studies.clustered_few_cluster_tmle import CLUSTER_COUNTS
 
-    def test_no_threshold_is_written_by_hand_in_the_module(self) -> None:
-        """The literal appears once, on the constant, so the text cannot drift from it."""
+        assert _inference_status.MINIMUM_INTERVAL_CLUSTERS == min(CLUSTER_COUNTS) == 10
+
+    def test_the_reason_states_the_floor_and_the_threshold_it_applies(self) -> None:
+        threshold = _inference_status.FEW_CLUSTER_THRESHOLD
+        floor = _inference_status.MINIMUM_INTERVAL_CLUSTERS
+        reason = NON_INFERENTIAL["few_cluster_plugin"].reason
+        cross_fitted = _inference_status.MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS
+        assert (
+            "when it reads fewer clusters with positive weight mass, in the fit or in one "
+            "reported baseline stratum, than the smallest count its registered study measures: "
+            f"{floor} for TMLE, DR-TMLE and in-sample LTMLE, and {cross_fitted} for "
+            "cross-fitted LTMLE"
+        ) in reason
+        assert f"From the floor to {threshold - 1} such clusters" in reason
+        assert "No registered study measures an interval below the floor of its fit" in reason
+        assert f"fewer than {threshold}" in _inference_status.T_REFERENCE_NOTE
+        assert f"fewer than {threshold}" in _inference_status.NO_T_REFERENCE_BANDS
+
+    @pytest.mark.parametrize(
+        ("literal", "constant"),
+        [
+            ("40", "FEW_CLUSTER_THRESHOLD: Final[int] = 40"),
+            ("10", "MINIMUM_INTERVAL_CLUSTERS: Final[int] = 10"),
+        ],
+    )
+    def test_no_count_is_written_by_hand_in_the_module(self, literal: str, constant: str) -> None:
+        """Each literal appears once, on its constant, so the text cannot drift from it."""
         source = Path(_inference_status.__file__).read_text(encoding="utf-8")
         code = [line for line in source.splitlines() if not line.lstrip().startswith("#")]
-        written = [line for line in code if re.search(r"\b40\b", line)]
-        assert written == ["FEW_CLUSTER_THRESHOLD: Final[int] = 40"]
+        written = [line for line in code if re.search(rf"\b{literal}\b", line)]
+        assert written == [constant]

@@ -993,13 +993,12 @@ One latent vector spans all rows and all strata. The operation never subsets row
 fitting and never draws a new latent vector for each stratum. Two calls with the same seed and
 different stratum aliases use the same perturbed datasets.
 
-Ordinary TMLE supports conditional binary arm means, ATE, ratios, PAR, PAF, ATT, ATC, regime
-parameters, and identity-link MSM coefficients. It also supports conditional modified-policy
-means and contrasts. MSM strata require binary treatment and the identity link. Binary C-TMLE supports conditional arm means, ATE, and
-ratios. These paths retain fixed observation weights and estimator-owned repeat aggregation.
+Ordinary TMLE supports conditional binary arm means, ATE, ratios, PAR, PAF, ATT, ATC, and regime
+parameters. It also supports conditional incremental means and contrasts, MSM coefficients under
+every built-in link, and modified-policy means and contrasts. Binary C-TMLE and DR-TMLE support
+conditional arm means, ATE, and ratios. These paths retain fixed observation weights and estimator-owned repeat aggregation.
 
-A DR-TMLE fit at a non-empty `guard` refuses `strata=` before any learner. A `guard=()` fit is the
-ordinary TMLE and fits strata. The surface refuses a requested stratum on every `DRTMLE` result.
+A DR-TMLE fit replays a requested stratum at every `guard`, through a complete refit.
 
 ATT and ATC condition on the arm that the structured key names. Each cell recomputes that group's
 membership from its perturbed treatment. Displacement combines changes in the fitted outcome
@@ -1117,11 +1116,11 @@ Risk ratios, odds ratios, and PAF require a binomial outcome. The other rows sup
 | binary | one explicitly named marginal `ey1`, `ey0`, or `ey[...]` counterfactual mean | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
 | binary | marginal `rr` risk ratio or `or` odds ratio | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
 | binary | marginal or baseline-stratum `par` population attributable risk or `paf` population attributable fraction | exact ordinary TMLE |
-| binary | baseline-stratum arm mean, ATE, risk ratio, or odds ratio | ordinary TMLE or collaborative TMLE |
+| binary | baseline-stratum arm mean, ATE, risk ratio, or odds ratio | ordinary TMLE, collaborative TMLE, or complete-outcome DR-TMLE |
 | binary | marginal or baseline-stratum ATT or ATC | exact ordinary TMLE |
 | binary | marginal or baseline-stratum `ey_regime[...]` mean or `ate_regime[...]` contrast | exact ordinary TMLE; fixed `Static`, `Rule`, or `Stochastic` intervention |
-| binary or continuous | marginal `msm[...]` coefficient; baseline strata for binary identity-link MSMs only | exact ordinary TMLE; built-in identity, log, or logit link with fixed projection measure |
-| binary | marginal `ey_ipsi[...]` mean or `ate_ipsi[...]` contrast | exact ordinary TMLE; fixed odds multipliers with a refitted mechanism |
+| binary or continuous | marginal or baseline-stratum `msm[...]` coefficient | exact ordinary TMLE; built-in identity, log, or logit link with fixed projection measure |
+| binary | marginal or baseline-stratum `ey_ipsi[...]` mean or `ate_ipsi[...]` contrast | exact ordinary TMLE; fixed odds multipliers with a refitted mechanism |
 | continuous | one explicitly named marginal or baseline-stratum `ey_shift[...]` policy mean | exact ordinary TMLE |
 | continuous | one explicitly named marginal or baseline-stratum `ate_shift[...]` contrast | exact ordinary TMLE |
 
@@ -1209,8 +1208,11 @@ Outcome diagnostics remain available; integration-grid positions never become tr
 
 These are deterministic diagnostic checks, not new repeated-sampling or interval claims.
 The registered incremental and point-MSM artifacts remain unchanged.
-The estimator refuses baseline strata for incremental targets and nonlinear or continuous MSMs.
-Roadmap item X8 tracks those targeting extensions before any replay audit.
+Stratified incremental, linked-MSM and continuous-MSM fits replay too, as do stratified
+DR-TMLE fits at every `guard`. Every replay is a complete refit, which targets the stratum blocks
+as the fit did. `tests/unit/test_simulated_confounding_strata.py` checks that the zero-strength
+cell of a stratum alias equals the fit's own stratum estimate, and that every other cell equals
+the manual refit of its replaced data.
 The point-MSM study covers identity-link finite-arm estimation; it supplies no nonlinear or continuous-MSM interval validation.
 
 For `repeats > 1`, each non-anchor cell calls the replay estimator once. The estimator owns all
@@ -1438,8 +1440,6 @@ surface refuses. The
 | a clustered fit | waiting on published theory | no source chooses a row-level, cluster-level, or mixed latent cause. See [F9](../roadmap.md#f9-clustered-simulated-confounding-stress-surface) |
 | identification other than a backdoor mean contrast with explicit adjustment | not written yet | the surface reads registered explicit-adjustment provenance |
 | ATT or ATC under C-TMLE or DR-TMLE | not written yet | `CTMLE` and `DRTMLE` refuse these functionals when they estimate, so no such fitted result exists |
-| a requested baseline stratum under DR-TMLE | not written yet | a DR-TMLE fit at a non-empty `guard` refuses `strata=` before any learner. A `guard=()` fit is the ordinary TMLE and fits strata. The surface still refuses a requested stratum on every `DRTMLE` result, because its DR-TMLE contract covers marginal targets only. The guard keys on the requested stratum, not on `data.has_strata`. See [X8](../roadmap.md#x8-stratified-incremental-and-msm-targeting) |
-| baseline strata with an incremental target or nonlinear or continuous MSM | not written yet | ordinary TMLE lacks stratified alternating equations or continuous-dose targeting for these groups. See [X8](../roadmap.md#x8-stratified-incremental-and-msm-targeting) |
 | a custom MSM link | not written yet | only built-in identity, log, and logit links have a replay audit |
 | a custom intervention type | not written yet | only exact `Static`, `Rule`, `Stochastic`, and `Incremental` declarations have an audited baseline-input contract |
 | a regime, incremental target, or MSM under C-TMLE or DR-TMLE | not written yet | the method catalog lacks the corresponding collaborative score or reduced-dimension correction. See [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
@@ -1465,7 +1465,6 @@ the ordinary TMLE, which `guard=()` is.
 | --- | --- | --- | --- |
 | ATT or ATC under C-TMLE or DR-TMLE | the identified effect's method catalog | `estimate()` | `method 'collaborative_tmle' cannot estimate ATT: no collaborative score is evidenced for this functional`. `DRTMLE` names its reduced-dimension correction instead |
 | a modified-treatment policy under C-TMLE or DR-TMLE | the identified effect's method catalog | `estimate()` | `method 'drtmle' cannot estimate ModifiedTreatmentPolicy: no reduced-dimension correction is evidenced for this functional` |
-| a baseline stratum under DR-TMLE at a non-empty `guard` | `DRTMLE._check_drtmle`, before any learner | the fit starts | `baseline strata are not yet combined with the 'mean' group's alternating targeting equations. Fit the marginal parameter, or pass guard=(), which is the ordinary TMLE and accepts strata=.` |
 | PAR or PAF under C-TMLE or DR-TMLE | the identified effect's method catalog | `estimate()` | `method 'collaborative_tmle' cannot estimate PopulationAttributableRisk: no collaborative score is evidenced for this functional`. DR-TMLE names its reduced-dimension correction; PAF names its own type |
 | regime or MSM under C-TMLE | the identified effect's method catalog | `estimate()` | `method 'collaborative_tmle' cannot estimate RegimeMean: no collaborative score is evidenced for this functional`. Other targets name their own type |
 | regime or MSM under DR-TMLE | the identified effect's method catalog | `estimate()` | `method 'drtmle' cannot estimate RegimeMean: no reduced-dimension correction is evidenced for this functional`. Other targets name their own type |
@@ -1550,7 +1549,7 @@ The selected path depends on the reported contrast and retained artifacts.
 | Gaussian ATE, ATT, or ATC on a fit with a response mechanism | report `unavailable`. The conversion divides by `sd(Y)` from the observed rows alone, and under missing at random the respondents' standard deviation estimates a different quantity from the population standard deviation. The refusal is on this path only, so a ratio E-value on the same fit stays available |
 | binomial ATT or ATC | refuse because the conditional baseline risk and conditional ratio target are absent |
 | level or non-arm parameter | report `not_applicable` because no supported two-arm contrast exists |
-| two-arm contrast on a fit whose status supplies no inference: a collaborative fit at any `strategy`, a `DRTMLE` fit with a `guard` and varying weights declared estimated, or a clustered fit under `"unequal_cluster_plugin"` or `"few_cluster_plugin"` | report `unavailable`. Each branch reads the estimate's interval or the reference arm's standard error, and this fit supplies neither. The reason of the status follows |
+| two-arm contrast on a fit whose status supplies no inference: a collaborative fit at any `strategy`, a `DRTMLE` fit with a `guard` and varying weights declared estimated, or a clustered fit under `"few_cluster_plugin"` | report `unavailable`. Each branch reads the estimate's interval or the reference arm's standard error, and this fit supplies neither. The reason of the status follows |
 | any request on a learned-rule fit | report `unavailable` before the estimand is resolved. No sensitivity derivation for the learned-rule value was reviewed. See [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
 | any request on a controlled-direct-effect fit with a discrete treatment, which is such a fit with `intermediate=` | report `unavailable` before the estimand is resolved. This package has no implemented E-value bound for the fitted controlled direct effect and its confounding model. [F25](../roadmap.md#f25-e-value-for-a-controlled-direct-effect) tracks the support gap |
 | binomial ATE without exact retarget support or a usable reported baseline | report `unavailable` and name the missing evidence, artifact, or target |
@@ -1581,7 +1580,7 @@ Such a difference implies a nonpositive risk in the contrast arm, and no risk ra
 Both refusals report `unavailable` and name the two reported numbers.
 
 The conversion is affine, so the lower interval bound can leave the parameter space while the point ratio stays inside it.
-Only the lower bound can leave it. `normal_ci` gives `high >= psi`, and the refusals above force `baseline.psi > 0` and `baseline.psi + psi > 0`.
+Only the lower bound can leave it. `wald_ci` gives `high >= psi`, and the refusals above force `baseline.psi > 0` and `baseline.psi + psi > 0`.
 The report truncates the lower bound at 0, records the untruncated value in `truncated_bound`, and repeats it in the note.
 The `to_dict` mapping and the battery row both carry that value, so no surface presents the 0 as a converted confidence limit.
 
@@ -2011,7 +2010,7 @@ follows.
 | `verdict()` with no finding | coverage and bias are consistent with a correctly working estimator | bias is consistent, and the coverage column certifies no confidence interval |
 
 A clustered status depends on the draw, so the replicates of one study can take different
-statuses. A cluster count that straddles 40 gives that mix. Every record measures the plug-in
+statuses. A cluster count that straddles 4 gives that mix. Every record measures the plug-in
 numbers, and on an inferential fit those numbers equal `ci` and `std_error`. So
 `summarize_replications` summarizes a mix under the status that `precedent_status` gives. The
 table gives what the summary adds.
@@ -2022,7 +2021,7 @@ table gives what the summary adds.
 | `to_dict()` and `to_frame()` | a `mixed_statuses` column, for example `few_cluster_plugin in 4, influence_curve in 4` |
 | `summary()` | the line above the table says that the estimator "supplies no interval on some replicates". One more line per mixed estimand names its statuses and counts |
 
-`tests/unit/test_simulation_summary.py` runs a study whose cluster count straddles 40. It holds
+`tests/unit/test_simulation_summary.py` runs a study whose cluster count straddles 4. It holds
 the mixed witness, a mutation that labels the mix `influence_curve`, and a uniform control.
 
 The generators live in
@@ -2046,7 +2045,7 @@ and it introduces no new influence function.
 An estimator whose status supplies no inference is refused with `CapabilityError` before the
 first fit. That includes a collaborative estimator at any `strategy`, and a `DRTMLE` with a
 `guard` and varying weights declared estimated. It also includes a clustered `TMLE` or `DRTMLE`
-under `"unequal_cluster_plugin"` or `"few_cluster_plugin"`. The procedure adjusts one p-value per candidate with
+under `"few_cluster_plugin"`. The procedure adjusts one p-value per candidate with
 Benjamini and Hochberg, and those fits report no p-value. The check prepares each candidate's data
 and asks the estimator's own `_inference_status()`, which is the status its estimates carry.
 

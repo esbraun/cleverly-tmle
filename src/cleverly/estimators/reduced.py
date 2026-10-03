@@ -82,6 +82,7 @@ from ._nuisance import (
     cross_fit_companion,
     fit_on_rows,
 )
+from ._strata import companion_stratum_codes
 
 __all__ = [
     "REDUCED_CROSSFITS",
@@ -610,6 +611,11 @@ def fit_reduced(
             "companion reduced set per outer fold so omitted families can be carried forward"
         )
     scaled = nuisance.scaler.scale(data.outcome)
+    companion_strata = (
+        None
+        if companion is None or data.strata is None
+        else companion_stratum_codes(data, companion.data)
+    )
     names = selected
     diagnostics: dict[str, list[SuperLearnerDiagnostics]] = {name: [] for name in names}
     columns: dict[str, list[FloatArray]] = {name: [] for name in names}
@@ -694,6 +700,7 @@ def fit_reduced(
                 clip=spec.clip,
                 n_jobs=n_jobs,
                 diagnostics=diagnostics[name],
+                companion_strata=companion_strata,
             )
             columns[name].append(values)
             if at_companion is not None:
@@ -828,6 +835,7 @@ def _reduced_column(
     clip: tuple[float, float] | None,
     n_jobs: int,
     diagnostics: list[SuperLearnerDiagnostics],
+    companion_strata: IntArray | None = None,
 ) -> tuple[FloatArray, FloatArray | None]:
     """One reduced regression, out of fold, on a one- or two-column design.
 
@@ -843,7 +851,120 @@ def _reduced_column(
 
     ``companion`` is one design per outer fold at the evaluation rows, predicted at by that
     fold's model and returned as a ``(K, m)`` slab beside the ``(n,)`` production column.
+
+    With baseline strata on ``data``, the regression is fitted inside each stratum: on the
+    fitting rows of stratum ``s`` with the shipped folds, predicted at stratum ``s``'s rows
+    and at its companion rows (``companion_strata``), and stitched.  A stratum's equations
+    (9) and (10) then condition on ``(g_n(W), S)``, so they separate by stratum as the
+    blocks that solve them do.  Without strata the path is the pooled one, unchanged.
     """
+    if data.strata is not None:
+        return _stratified_column(
+            learner,
+            design=design,
+            target=target,
+            training=training,
+            companion=companion,
+            fit_mask=fit_mask,
+            data=data,
+            nuisance=nuisance,
+            task=task,
+            clip=clip,
+            n_jobs=n_jobs,
+            diagnostics=diagnostics,
+            companion_strata=companion_strata,
+        )
+    return _pooled_column(
+        learner,
+        design=design,
+        target=target,
+        training=training,
+        companion=companion,
+        fit_mask=fit_mask,
+        data=data,
+        nuisance=nuisance,
+        task=task,
+        clip=clip,
+        n_jobs=n_jobs,
+        diagnostics=diagnostics,
+    )
+
+
+def _stratified_column(
+    learner: Learner,
+    *,
+    design: FloatArray,
+    target: FloatArray,
+    training: list[tuple[FloatArray, FloatArray]] | None,
+    companion: list[FloatArray] | None,
+    fit_mask: BoolArray | None,
+    data: CausalData,
+    nuisance: NuisanceEstimates,
+    task: Task,
+    clip: tuple[float, float] | None,
+    n_jobs: int,
+    diagnostics: list[SuperLearnerDiagnostics],
+    companion_strata: IntArray | None,
+) -> tuple[FloatArray, FloatArray | None]:
+    """:func:`_reduced_column` fitted inside each baseline stratum, then stitched."""
+    assert data.strata is not None
+    strata = np.asarray(data.strata)
+    if companion is not None and companion_strata is None:
+        raise ValueError("a stratified reduced regression needs the companion rows' strata")
+    mask = (
+        np.ones(strata.size, dtype=bool) if fit_mask is None else np.asarray(fit_mask, dtype=bool)
+    )
+    out = np.empty(strata.size, dtype=float)
+    slab: FloatArray | None = None
+    for code in range(data.n_strata):
+        inside = strata == code
+        try:
+            values, at_companion = _pooled_column(
+                learner,
+                design=design,
+                target=target,
+                training=training,
+                companion=companion,
+                fit_mask=mask & inside,
+                data=data,
+                nuisance=nuisance,
+                task=task,
+                clip=clip,
+                n_jobs=n_jobs,
+                diagnostics=diagnostics,
+            )
+        except ValueError as error:
+            # The preflight checks the outer training complements only.  A nested fold inside
+            # one of them can still hold no trainable row of the stratum, so name the stratum.
+            raise ValueError(
+                f"inside baseline stratum {data.stratum_label(code)}: {error}"
+            ) from error
+        out[inside] = values[inside]
+        if at_companion is not None:
+            assert companion_strata is not None
+            if slab is None:
+                slab = np.empty_like(at_companion)
+            here = np.asarray(companion_strata) == code
+            slab[:, here] = at_companion[:, here]
+    return out, slab
+
+
+def _pooled_column(
+    learner: Learner,
+    *,
+    design: FloatArray,
+    target: FloatArray,
+    training: list[tuple[FloatArray, FloatArray]] | None,
+    companion: list[FloatArray] | None,
+    fit_mask: BoolArray | None,
+    data: CausalData,
+    nuisance: NuisanceEstimates,
+    task: Task,
+    clip: tuple[float, float] | None,
+    n_jobs: int,
+    diagnostics: list[SuperLearnerDiagnostics],
+) -> tuple[FloatArray, FloatArray | None]:
+    """:func:`_reduced_column` on every fitting row, without strata."""
     matrix = _as_reduced_design(design)
     elsewhere = None if companion is None else [_as_reduced_design(each) for each in companion]
     if training is not None:

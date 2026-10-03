@@ -1,27 +1,24 @@
-"""Clustered fits withhold their interval at unequal cross-fitted sizes and with few clusters.
+"""Clustered fits withhold their interval below 10 clusters, and only there.
 
-The status table of ``docs/technical-reference/inference.md`` gives two clustered statuses for
-``TMLE`` and ``DRTMLE``, and X24 holds the route that reopens each one.
+The status table of ``docs/technical-reference/inference.md`` gives one clustered status for
+``TMLE`` and ``DRTMLE``, and F28 in the roadmap records its floor.
 
-``"unequal_cluster_plugin"``
-    A cross-fitted fit whose clusters hold different numbers of rows or, on a weighted
-    fit, different weight mass, overall or within a reported stratum. The point target
-    remains row weighted; its interval lacks validation for this setting.
-    ``cv_evaluation=True`` and fold targeting carry the status too.
 ``"few_cluster_plugin"``
-    A fit with fewer than :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD`
-    contributing clusters, in sample or cross-fitted, overall or in a stratum.
-    The package keeps its normal reference, and
-    Nugent et al. (2024), Section 2.2, recommend a t reference below 40 clusters.
+    A fit with fewer than :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS`
+    contributing clusters, in sample or cross-fitted, overall or in a stratum. 10 is the
+    smallest count a registered study measures. From 10 to 39 such clusters every estimate
+    keeps its interval on a Student t reference with ``J - 2`` degrees of freedom, which
+    ``tests/unit/test_few_cluster_reference.py`` checks.
 
-The unequal fit is the RM20 probe: ``make_clustered(n=400, cluster_size=10, seed=7)`` with
-rows removed from half the clusters, which leaves 315 rows in 40 clusters of 2 to 10 rows.
-Forty clusters keep the few-cluster status out of it. The few-cluster fits use 39 equal
-clusters, and the boundary control uses 40.
+The cluster sizes do not enter the status. The cluster total of the curve is
+``A_j - N_j psi``, the delta-method curve of the row-weighted mean, so unequal sizes keep the
+interval in sample and cross-fitted. ``tests/unit/test_cluster_ratio_variance.py`` checks that
+algebra. The unequal fit here is the RM20 probe: ``make_clustered(n=400, cluster_size=10,
+seed=7)`` with rows removed from half the clusters, which leaves 315 rows in 40 clusters of 2
+to 10 rows. It was the witness of the deleted unequal-size status, and it is now a control.
 
-The controls keep their interval: equal sizes cross-fitted, and the unequal clusters fitted
-in sample. Each mutation in :class:`TestTheStatusIsTheHooksToWithhold` must fail the check
-its surface passes.
+Each mutation in :class:`TestTheStatusIsTheHooksToWithhold` must fail the check its surface
+passes.
 """
 
 from __future__ import annotations
@@ -43,7 +40,7 @@ from cleverly import (
     Runtime,
     TMLEMethod,
 )
-from cleverly._inference_status import FEW_CLUSTER_THRESHOLD
+from cleverly._inference_status import MINIMUM_INTERVAL_CLUSTERS
 from cleverly.datasets import make_clustered
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.inference import cluster as cluster_module
@@ -53,13 +50,12 @@ from tests.unit._inference_status_support import (
     ROUTES,
     assert_assessment_note,
     assert_evalue_unavailable,
-    assert_fold_report_withholds,
     assert_keeps_inference,
     assert_round_trips,
     assert_variable_importance_refuses,
     assert_withholds,
     at_or_below,
-    stamp_headline_only,
+    restore,
 )
 from tests.unit._natural_course_support import never_fit_learners
 
@@ -69,7 +65,6 @@ pytestmark = pytest.mark.xdist_group("cluster_status")
 #: re-exports a function named ``tmle``, so the module is imported by its path.
 tmle_module = importlib.import_module("cleverly.estimators.tmle")
 
-UNEQUAL = "unequal_cluster_plugin"
 FEW = "few_cluster_plugin"
 
 #: A cross-fitted continuous outcome needs its declared range, so every cross-fitted fit
@@ -131,18 +126,17 @@ def unequal_frame(equal_frame: Any) -> Any:
 
 @pytest.fixture(scope="module")
 def few_frame() -> Any:
-    """39 clusters of 10 rows, one below the threshold."""
-    frame = make_clustered(n=390, cluster_size=10, seed=7)[0]
-    assert sizes(frame) == (FEW_CLUSTER_THRESHOLD - 1, 10, 10)
+    """9 clusters of 40 rows, one below the floor."""
+    frame = make_clustered(n=360, cluster_size=40, seed=7)[0]
+    assert sizes(frame) == (MINIMUM_INTERVAL_CLUSTERS - 1, 40, 40)
     return frame
 
 
 @pytest.fixture(scope="module")
-def few_unequal_frame(unequal_frame: Any) -> Any:
-    """The unequal frame without its last cluster: 39 clusters, sizes still 2 to 10."""
-    last = unequal_frame["cluster"].max()
-    frame = unequal_frame[unequal_frame["cluster"] != last].reset_index(drop=True)
-    assert sizes(frame) == (FEW_CLUSTER_THRESHOLD - 1, 2, 10)
+def floor_frame() -> Any:
+    """10 clusters of 40 rows, at the floor."""
+    frame = make_clustered(n=400, cluster_size=40, seed=7)[0]
+    assert sizes(frame) == (MINIMUM_INTERVAL_CLUSTERS, 40, 40)
     return frame
 
 
@@ -151,47 +145,39 @@ def unequal_result(request: pytest.FixtureRequest, unequal_frame: Any) -> Any:
     return fit(unequal_frame, estimator=request.param, **CROSS_FITTED)
 
 
-class TestUnequalCrossFittedClustersReportNoInterval:
-    def test_the_estimates_withhold_their_inference(self, unequal_result: Any) -> None:
-        assert_withholds(unequal_result, UNEQUAL)
+class TestUnequalCrossFittedClustersKeepTheInterval:
+    """The RM20 probe, cross-fitted: once the witness of a status, now a control."""
+
+    def test_the_estimates_keep_their_inference(self, unequal_result: Any) -> None:
+        assert_keeps_inference(unequal_result)
+        # Forty clusters: the normal reference.
+        assert {e.reference_df for e in unequal_result.estimates.values()} == {None}
 
     def test_the_summary_states_the_sizes_it_read(self, unequal_result: Any) -> None:
         assert "clusters = 40, sizes 2 to 10 (cluster-robust variance)" in (
             unequal_result.summary()
         )
 
-    def test_the_nuisance_report_and_the_assessment_carry_the_note(
-        self, unequal_result: Any
-    ) -> None:
-        assert_assessment_note(unequal_result, UNEQUAL)
-
-    def test_the_evalue_is_unavailable_with_the_reason(self, unequal_result: Any) -> None:
-        assert_evalue_unavailable(unequal_result, UNEQUAL)
-
-
-class TestTheFoldReportIsStamped:
-    """``cv_evaluation=True`` and fold targeting publish a fold-level report as well."""
+    def test_the_evalue_is_available(self, unequal_result: Any) -> None:
+        assert unequal_result.sensitivity.capability("evalue").available
 
     @pytest.mark.parametrize(
         "scheme",
         [
             pytest.param({"cv_evaluation": True}, id="cv_evaluation"),
             pytest.param({"targeting_scheme": "fold"}, id="fold targeting"),
+            pytest.param({"repeats": 2, "simultaneous": False}, id="repeats"),
         ],
     )
-    def test_the_fold_report_withholds(self, unequal_frame: Any, scheme: dict[str, Any]) -> None:
-        result = fit(unequal_frame, **CROSS_FITTED, **scheme)
-        assert result.inference_status == UNEQUAL
-        assert_fold_report_withholds(result, UNEQUAL)
-
-    def test_a_stamp_that_skips_the_fold_reports_fails_the_check(
-        self, unequal_frame: Any, monkeypatch: pytest.MonkeyPatch
+    def test_every_cross_fitted_scheme_keeps_the_interval(
+        self, unequal_frame: Any, scheme: dict[str, Any]
     ) -> None:
-        stamp_headline_only(monkeypatch)
-        mutant = fit(unequal_frame, **CROSS_FITTED, cv_evaluation=True)
-        assert mutant.inference_status == UNEQUAL
-        with pytest.raises(AssertionError):
-            assert_fold_report_withholds(mutant, UNEQUAL)
+        result = fit(unequal_frame, **{**CROSS_FITTED, **scheme})
+        assert_keeps_inference(result)
+        report = getattr(result, "cv_targeting", None)
+        if report is not None:
+            assert report.inference == "influence_curve"
+            assert np.all(np.isfinite(list(report.std_error.values())))
 
 
 class TestTheNeighbouringFitsKeepTheirInterval:
@@ -209,13 +195,19 @@ class TestTheNeighbouringFitsKeepTheirInterval:
     ) -> None:
         result = fit(unequal_frame, estimator=estimator, **IN_SAMPLE)
         assert_keeps_inference(result)
-        # The nonzero witness for the E-value row above: it is available here.
         assert result.sensitivity.capability("evalue").available
 
-    def test_forty_clusters_in_sample_keep_the_interval(self, equal_frame: Any) -> None:
-        """The boundary: a count equal to the threshold is not below it."""
-        assert sizes(equal_frame)[0] == FEW_CLUSTER_THRESHOLD
-        assert_keeps_inference(fit(equal_frame, **IN_SAMPLE))
+    @pytest.mark.parametrize(
+        "settings",
+        [pytest.param(IN_SAMPLE, id="in sample"), pytest.param(CROSS_FITTED, id="cross-fitted")],
+    )
+    def test_ten_clusters_keep_the_interval(
+        self, floor_frame: Any, settings: dict[str, Any]
+    ) -> None:
+        """The boundary: a count equal to the floor is not below it."""
+        result = fit(floor_frame, **settings)
+        assert_keeps_inference(result)
+        assert {e.reference_df for e in result.estimates.values()} == {8}
 
 
 class TestFewClustersReportNoInterval:
@@ -230,16 +222,13 @@ class TestFewClustersReportNoInterval:
     def test_the_estimates_withhold_their_inference(
         self, few_frame: Any, estimator: type, settings: dict[str, Any]
     ) -> None:
-        assert_withholds(fit(few_frame, estimator=estimator, **settings), FEW)
+        result = fit(few_frame, estimator=estimator, **settings)
+        assert_withholds(result, FEW)
+        # The diagnostic keeps the normal reference.
+        assert {e.reference_df for e in result.estimates.values()} == {None}
 
-    @pytest.mark.parametrize(
-        "settings",
-        [pytest.param(IN_SAMPLE, id="in sample"), pytest.param(CROSS_FITTED, id="cross-fitted")],
-    )
-    def test_the_nuisance_report_and_the_assessment_carry_the_note(
-        self, few_frame: Any, settings: dict[str, Any]
-    ) -> None:
-        assert_assessment_note(fit(few_frame, **settings), FEW)
+    def test_the_nuisance_report_and_the_assessment_carry_the_note(self, few_frame: Any) -> None:
+        assert_assessment_note(fit(few_frame, **IN_SAMPLE), FEW)
 
     def test_the_evalue_is_unavailable_with_the_reason(self, few_frame: Any) -> None:
         assert_evalue_unavailable(fit(few_frame, **IN_SAMPLE), FEW)
@@ -282,36 +271,42 @@ def fit_stratified(frame: Any, **settings: Any) -> Any:
 
 @pytest.fixture(scope="module")
 def few_stratum_frame() -> Any:
-    """50 clusters, 6 of them in the stratum ``S = "small"``: the R1 review's probe."""
-    frame = stratified_frame(50, small=6)
+    """50 clusters, 3 of them in the stratum ``S = "small"``."""
+    frame = stratified_frame(50, small=3)
     assert sizes(frame) == (50, 10, 10)
-    assert frame.loc[frame["S"] == "small", "cluster"].nunique() == 6
+    assert frame.loc[frame["S"] == "small", "cluster"].nunique() == 3
     return frame
 
 
 class TestAStratumWithFewClustersReportsNoInterval:
     """Each stratum's estimate reads only its own clusters, so the count holds per stratum.
 
-    The fit keeps one status, so a stratum of 6 clusters inside a fit of 50 withholds
+    The fit keeps one status, so a stratum of 3 clusters inside a fit of 50 withholds
     every estimate's interval.
     """
 
-    def test_a_six_cluster_stratum_withholds_every_estimate(self, few_stratum_frame: Any) -> None:
+    def test_a_three_cluster_stratum_withholds_every_estimate(self, few_stratum_frame: Any) -> None:
         result = fit_stratified(few_stratum_frame)
         assert set(result.estimates) == {"ate", "ate[S='small']", "ate[S='big']"}
         assert_withholds(result, FEW)
-        assert "clusters = 50, fewest in one stratum 6 (cluster-robust variance)" in (
+        assert "clusters = 50, fewest in one stratum 3 (cluster-robust variance)" in (
             result.summary()
         )
 
-    def test_strata_of_forty_clusters_each_keep_the_interval(self) -> None:
-        """The control: 80 clusters split 40 and 40, each stratum at the threshold."""
-        frame = stratified_frame(80, small=FEW_CLUSTER_THRESHOLD)
+    def test_a_stratum_at_the_floor_keeps_the_interval(self) -> None:
+        """The control: 50 clusters split 10 and 40, the small stratum at the floor."""
+        frame = stratified_frame(50, small=MINIMUM_INTERVAL_CLUSTERS)
         result = fit_stratified(frame)
         assert_keeps_inference(result)
-        assert "clusters = 80, fewest in one stratum 40 (cluster-robust variance)" in (
-            result.summary()
-        )
+        assert result["ate[S='small']"].reference_df == 8
+
+    def test_a_count_that_ignores_the_strata_fails_the_check(
+        self, few_stratum_frame: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(cluster_module, "fewest_clusters", whole_fit_count)
+        # The forced status reaches the stratum's t reference, which refuses 3 clusters.
+        with pytest.raises((AssertionError, ValueError)):
+            assert_withholds(fit_stratified(few_stratum_frame), FEW)
 
 
 def within_cluster_strata(frame: Any, first: int, second: int) -> Any:
@@ -326,62 +321,13 @@ def within_cluster_strata(frame: Any, first: int, second: int) -> Any:
     return frame.assign(S=labels.astype(int))
 
 
-def unequal_mass_inside_strata(frame: Any) -> Any:
-    """Keep ten weight units per cluster but swap each stratum's share."""
-    frame = within_cluster_strata(frame, 5, 5)
-    low_mass = (frame["cluster"] < 20) == (frame["S"] == 0)
-    return frame.assign(w=np.where(low_mass, 0.5, 1.5))
-
-
-class TestUnequalSizesInsideAReportedStratum:
-    def test_cross_fitted_fit_withholds(self, equal_frame: Any) -> None:
+class TestUnequalSizesInsideAReportedStratumKeepTheInterval:
+    def test_cross_fitted_fit_keeps_the_interval(self, equal_frame: Any) -> None:
         frame = within_cluster_strata(equal_frame, 3, 7)
         result = fit_stratified(frame, **CROSS_FITTED)
         assert sizes(frame) == (40, 10, 10)
-        assert all(frame.loc[frame["S"] == level, "cluster"].nunique() == 40 for level in (0, 1))
-        assert_withholds(result, UNEQUAL)
-        assert "within-stratum sizes 3 to 7" in result.summary()
-
-    def test_equal_sizes_inside_each_stratum_keep_the_interval(self, equal_frame: Any) -> None:
-        frame = within_cluster_strata(equal_frame, 5, 5)
-        result = fit_stratified(frame, **CROSS_FITTED)
         assert_keeps_inference(result)
-
-    def test_equal_whole_mass_but_unequal_stratum_mass_withholds(self, equal_frame: Any) -> None:
-        frame = unequal_mass_inside_strata(equal_frame)
-        assert set(frame.groupby("cluster")["w"].sum()) == {10.0}
-        result = fit_stratified(frame, **CROSS_FITTED)
-        assert_withholds(result, UNEQUAL)
-        assert "within-stratum weight mass" in result.summary()
-
-    def test_equal_mass_inside_each_stratum_keeps_interval(self, equal_frame: Any) -> None:
-        frame = within_cluster_strata(equal_frame, 5, 5)
-        frame = frame.assign(w=np.tile([0.5, 1.5], len(frame) // 2))
-        assert_keeps_inference(fit_stratified(frame, **CROSS_FITTED))
-
-    @pytest.mark.parametrize("probe", ["rows", "mass"])
-    def test_ignoring_stratum_sizes_or_mass_fails(
-        self, equal_frame: Any, monkeypatch: pytest.MonkeyPatch, probe: str
-    ) -> None:
-        frame = (
-            within_cluster_strata(equal_frame, 3, 7)
-            if probe == "rows"
-            else unequal_mass_inside_strata(equal_frame)
-        )
-
-        def whole_fit_only(cluster: Any, *, cross_fit: bool, weights: Any = None, **_: Any) -> str:
-            return cluster_inference_status(cluster, cross_fit=cross_fit, weights=weights)
-
-        monkeypatch.setattr(tmle_module, "cluster_inference_status", whole_fit_only)
-        with pytest.raises(AssertionError):
-            assert_withholds(fit_stratified(frame, **CROSS_FITTED), UNEQUAL)
-
-    def test_a_count_that_ignores_the_strata_fails_the_check(
-        self, few_stratum_frame: Any, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(cluster_module, "fewest_clusters", whole_fit_count)
-        with pytest.raises(AssertionError):
-            assert_withholds(fit_stratified(few_stratum_frame), FEW)
+        assert "within-stratum sizes 3 to 7" in result.summary()
 
 
 def fit_weighted(frame: Any, **settings: Any) -> Any:
@@ -392,84 +338,23 @@ def fit_weighted(frame: Any, **settings: Any) -> Any:
     )
 
 
-@pytest.fixture(scope="module")
-def unequal_mass_frame(equal_frame: Any) -> Any:
-    """40 clusters of 10 rows, with weight 0.5 in the even clusters and 2 in the odd ones.
-
-    The R1 review's probe: equal row counts, and cluster weight mass 5 or 20.
-    """
-    frame = equal_frame.assign(w=np.where(equal_frame["cluster"] % 2 == 0, 0.5, 2.0))
-    assert sizes(frame) == (40, 10, 10)
-    assert set(frame.groupby("cluster")["w"].sum()) == {5.0, 20.0}
-    return frame
-
-
-class TestUnequalWeightMassIsAnUnequalSize:
-    """A weighted fit targets the weight-weighted mean, so weight mass is a cluster size."""
-
-    def test_equal_rows_and_unequal_mass_cross_fitted_withhold(
-        self, unequal_mass_frame: Any
+class TestUnequalWeightMassKeepsTheInterval:
+    def test_equal_rows_and_unequal_mass_cross_fitted_keep_the_interval(
+        self, equal_frame: Any
     ) -> None:
-        result = fit_weighted(unequal_mass_frame, **CROSS_FITTED)
-        assert_withholds(result, UNEQUAL)
+        frame = equal_frame.assign(w=np.where(equal_frame["cluster"] % 2 == 0, 0.5, 2.0))
+        assert set(frame.groupby("cluster")["w"].sum()) == {5.0, 20.0}
+        result = fit_weighted(frame, **CROSS_FITTED)
+        assert_keeps_inference(result)
         # Weights are normalised to mean one, so the masses 5 and 20 print as 4 and 16.
         assert "clusters = 40, weight mass 4 to 16 (cluster-robust variance)" in (result.summary())
 
-    def test_equal_mass_weighted_cross_fitted_keeps_the_interval(self, equal_frame: Any) -> None:
-        """The control: the weights vary inside each cluster, and every cluster sums to 10."""
-        frame = equal_frame.assign(w=np.tile([0.5, 1.5], len(equal_frame) // 2))
-        assert set(frame.groupby("cluster")["w"].sum()) == {10.0}
-        result = fit_weighted(frame, **CROSS_FITTED)
-        assert_keeps_inference(result)
-        assert "clusters = 40 (cluster-robust variance)" in result.summary()
-
-    def test_unequal_mass_in_sample_keeps_the_interval(self, unequal_mass_frame: Any) -> None:
-        assert_keeps_inference(fit_weighted(unequal_mass_frame, **IN_SAMPLE))
-
-    def test_a_rule_that_ignores_the_weights_fails_the_check(
-        self, unequal_mass_frame: Any, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(cluster_module, "unequal_cluster_sizes", rows_only)
-        with pytest.raises(AssertionError):
-            assert_withholds(fit_weighted(unequal_mass_frame, **CROSS_FITTED), UNEQUAL)
-
-    def test_the_same_weights_summed_in_another_order_are_equal(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The tolerance absorbs rounding: each cluster holds the same ten weights, permuted.
-
-        The nonzero witness is that the sums differ in the last place, so an exact
-        comparison, the mutation, calls the clusters unequal.
-        """
-        rng = np.random.default_rng(0)
-        base = rng.uniform(0.1, 3.0, 10)
-        weights = np.concatenate([rng.permutation(base) for _ in range(40)])
-        cluster = np.repeat(np.arange(40), 10)
-        assert np.ptp(cluster_module.cluster_weight_mass(cluster, weights)) > 0
-        assert not cluster_module.unequal_cluster_sizes(cluster, weights)
-        monkeypatch.setattr(cluster_module, "WEIGHT_MASS_RTOL", 0.0)
-        assert cluster_module.unequal_cluster_sizes(cluster, weights)
-
 
 class TestThePrecedence:
-    """A fit that meets several statuses takes the first in the table."""
-
-    def test_unequal_and_few_cross_fitted_take_the_unequal_status(
-        self, few_unequal_frame: Any
-    ) -> None:
-        result = fit(few_unequal_frame, **CROSS_FITTED)
-        assert_withholds(result, UNEQUAL)
-        # The nonzero witness: the same clusters in sample meet only the few-cluster status.
-        assert fit(few_unequal_frame, **IN_SAMPLE).inference_status == FEW
-
-    def test_estimated_weights_come_before_both_clustered_statuses(
-        self, few_unequal_frame: Any
-    ) -> None:
-        frame = few_unequal_frame.assign(
-            w=np.random.default_rng(3).uniform(0.5, 2.0, len(few_unequal_frame))
-        )
+    def test_estimated_weights_come_before_the_few_cluster_status(self, few_frame: Any) -> None:
+        frame = few_frame.assign(w=np.random.default_rng(3).uniform(0.5, 2.0, len(few_frame)))
         result = (
-            DRTMLE(**linear_in_sample(estimands=ESTIMANDS, **CROSS_FITTED))
+            DRTMLE(**linear_in_sample(estimands=ESTIMANDS, **IN_SAMPLE))
             .fit(
                 frame,
                 outcome="Y",
@@ -481,25 +366,8 @@ class TestThePrecedence:
             .single()
         )
         assert_withholds(result, "estimated_weight_plugin")
-        # The witness that both clustered statuses apply to this data on their own.
-        assert cluster_inference_status(result.data.cluster, cross_fit=True) == UNEQUAL
-        assert cluster_inference_status(result.data.cluster, cross_fit=False) == FEW
-
-
-def ignores_sizes(cluster: Any, *, cross_fit: bool, **settings: Any) -> str:
-    """The mutant that never reads the row counts: only the cluster count decides."""
-    few = np.unique(cluster).size < FEW_CLUSTER_THRESHOLD
-    return FEW if few else "influence_curve"
-
-
-def ignores_cross_fit(cluster: Any, *, cross_fit: bool, **settings: Any) -> str:
-    """The mutant that treats every fit as cross-fitted."""
-    return cluster_inference_status(cluster, cross_fit=True, **settings)
-
-
-def rows_only(cluster: Any, weights: Any = None) -> bool:
-    """The mutant that compares row counts and never reads the weight mass."""
-    return bool(np.ptp(np.unique(cluster, return_counts=True)[1]) > 0)
+        # The witness that the few-cluster status applies to this data on its own.
+        assert cluster_inference_status(result.data.cluster) == FEW
 
 
 def whole_fit_count(cluster: Any, strata: Any = None, weights: Any = None) -> int:
@@ -507,9 +375,17 @@ def whole_fit_count(cluster: Any, strata: Any = None, weights: Any = None) -> in
     return int(np.unique(cluster).size)
 
 
+def withholds_unequal_sizes(cluster: Any, **settings: Any) -> str:
+    """The deleted size branch: withhold every fit whose clusters differ in row count."""
+    counts = np.unique(cluster, return_counts=True)[1]
+    if counts.min() != counts.max():
+        return FEW
+    return cluster_inference_status(cluster, **settings)
+
+
 class TestZeroWeightClusters:
     def test_only_positive_mass_clusters_count(self, equal_frame: Any) -> None:
-        frame = equal_frame.assign(w=(equal_frame["cluster"] < 6).astype(float))
+        frame = equal_frame.assign(w=(equal_frame["cluster"] < 3).astype(float))
         result = (
             TMLE(**linear_in_sample(estimands=("ate",), **IN_SAMPLE))
             .fit(
@@ -524,7 +400,7 @@ class TestZeroWeightClusters:
         )
         assert result.data.n_clusters == 40
         assert_withholds(result, FEW)
-        assert "positive weight mass in 6" in result.summary()
+        assert "positive weight mass in 3" in result.summary()
 
     def test_all_positive_clusters_keep_the_interval(self, equal_frame: Any) -> None:
         frame = equal_frame.assign(w=np.ones(len(equal_frame)))
@@ -533,9 +409,9 @@ class TestZeroWeightClusters:
     def test_counting_zero_mass_clusters_fails(
         self, equal_frame: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        frame = equal_frame.assign(w=(equal_frame["cluster"] < 6).astype(float))
+        frame = equal_frame.assign(w=(equal_frame["cluster"] < 3).astype(float))
         monkeypatch.setattr(cluster_module, "fewest_clusters", whole_fit_count)
-        with pytest.raises(AssertionError):
+        with pytest.raises((AssertionError, ValueError)):
             assert_withholds(
                 TMLE(**linear_in_sample(estimands=("ate",), **IN_SAMPLE))
                 .fit(
@@ -554,46 +430,35 @@ class TestZeroWeightClusters:
 class TestTheStatusIsTheHooksToWithhold:
     """The mutation controls: each wrong rule fails the check its surface passes."""
 
-    def test_a_rule_that_ignores_the_sizes_fails_the_unequal_check(
+    def test_restoring_the_size_branch_fails_the_unequal_control(
         self, unequal_frame: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(tmle_module, "cluster_inference_status", ignores_sizes)
+        monkeypatch.setattr(tmle_module, "cluster_inference_status", withholds_unequal_sizes)
         with pytest.raises(AssertionError):
-            assert_withholds(fit(unequal_frame, **CROSS_FITTED), UNEQUAL)
+            assert_keeps_inference(fit(unequal_frame, **CROSS_FITTED))
 
-    def test_a_rule_that_ignores_cross_fit_fails_the_in_sample_control(
-        self, unequal_frame: Any, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(tmle_module, "cluster_inference_status", ignores_cross_fit)
-        # The mutant still passes the status fit, so only the control can catch it.
-        assert_withholds(fit(unequal_frame, **CROSS_FITTED), UNEQUAL)
-        with pytest.raises(AssertionError):
-            assert_keeps_inference(fit(unequal_frame, **IN_SAMPLE))
-
-    def test_a_threshold_of_zero_fails_the_few_cluster_check(
+    def test_a_floor_of_zero_fails_the_few_cluster_check(
         self, few_frame: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The rule's own module compares against a threshold of zero."""
-        monkeypatch.setattr(cluster_module, "FEW_CLUSTER_THRESHOLD", 0)
-        result = fit(few_frame, **IN_SAMPLE)
-        for check in (assert_withholds, assert_assessment_note, assert_evalue_unavailable):
-            with pytest.raises(AssertionError):
-                check(result, FEW)
+        """The rule's own module compares against a floor of zero."""
+        monkeypatch.setattr(cluster_module, "MINIMUM_INTERVAL_CLUSTERS", 0)
+        with pytest.raises((AssertionError, ValueError)):
+            assert_withholds(fit(few_frame, **IN_SAMPLE), FEW)
 
     def test_an_at_or_below_comparison_fails_the_boundary_control(
-        self, few_frame: Any, equal_frame: Any, monkeypatch: pytest.MonkeyPatch
+        self, few_frame: Any, floor_frame: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(tmle_module, "cluster_inference_status", at_or_below)
         assert_withholds(fit(few_frame, **IN_SAMPLE), FEW)
         with pytest.raises(AssertionError):
-            assert_keeps_inference(fit(equal_frame, **IN_SAMPLE))
+            assert_keeps_inference(fit(floor_frame, **IN_SAMPLE))
 
 
 class TestTheWorkflowPageRunsOnUnequalClusters:
     """``docs/workflow.md`` fits a cross-fitted weighted clustered TMLE and assesses it.
 
-    Its households differ in size, so the fit takes the unequal status. Every call the
-    page makes after the fit must still answer.
+    Its households differ in size, and the fit keeps its interval. Every call the page makes
+    after the fit must answer.
     """
 
     def test_the_page_calls_answer(self, tmp_path: Any) -> None:
@@ -620,7 +485,7 @@ class TestTheWorkflowPageRunsOnUnequalClusters:
             runtime=Runtime(random_state=17, n_jobs=1),
         )
         result = study.identify(ATE(reference=0)).estimate(method=method)
-        assert result.inference_status == UNEQUAL
+        assert result.inference_status == "influence_curve"
         for report in (
             result.diagnostics.support(),
             result.diagnostics.nuisance_models(),
@@ -633,10 +498,18 @@ class TestTheWorkflowPageRunsOnUnequalClusters:
 
 class TestASavedResultLoadsAsSaved:
     @pytest.mark.parametrize("route", ROUTES)
-    def test_a_cv_evaluation_fit_keeps_its_status(self, unequal_frame: Any, route: str) -> None:
+    def test_a_cv_evaluation_fit_keeps_its_interval(self, unequal_frame: Any, route: str) -> None:
         result = fit(unequal_frame, **CROSS_FITTED, cv_evaluation=True)
-        assert_round_trips(result, UNEQUAL, route)
+        assert_round_trips(result, "influence_curve", route)
 
     @pytest.mark.parametrize("route", ROUTES)
     def test_a_few_cluster_fit_keeps_its_status(self, few_frame: Any, route: str) -> None:
         assert_round_trips(fit(few_frame, **IN_SAMPLE), FEW, route)
+
+    @pytest.mark.parametrize("route", ROUTES)
+    def test_a_t_reference_round_trips(self, floor_frame: Any, route: str) -> None:
+        result = fit(floor_frame, **IN_SAMPLE)
+        restored = restore(result, route)
+        for name, estimate in restored.estimates.items():
+            assert estimate.reference_df == result[name].reference_df == 8
+            assert estimate.ci == result[name].ci

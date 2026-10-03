@@ -345,13 +345,23 @@ class TestCrossValidatedVariance:
         with pytest.raises(ValueError, match="must be integers"):
             cross_validated_variance(ic, [np.arange(5, dtype=float), np.arange(5, 10)])
 
-    def test_singleton_clusters_agree_with_the_unclustered_form(self) -> None:
+    def test_singleton_clusters_centre_the_rows_of_each_fold(self) -> None:
+        """Singleton clusters give each fold's centred row variance, not the row branch.
+
+        The cluster branch centres the cluster totals inside each fold, and with one row per
+        cluster those totals are the rows. The row branch keeps the uncentred second moment.
+        On a curve already centred inside each fold, the two differ by ``n_v / (n_v - 1)``.
+        """
         rng = np.random.default_rng(5)
         ic = rng.normal(size=40)
         index = [np.arange(40)[k::4] for k in range(4)]
         cluster = np.arange(40)
+        centred = sum(float(np.var(ic[test], ddof=1)) / test.size for test in index) / 16
+        assert cross_validated_variance(ic, index, cluster) == pytest.approx(centred, rel=1e-12)
+        for test in index:
+            ic[test] -= ic[test].mean()
         assert cross_validated_variance(ic, index, cluster) == pytest.approx(
-            cross_validated_variance(ic, index), rel=1e-12
+            10 / 9 * cross_validated_variance(ic, index), rel=1e-12
         )
 
     def test_unequal_folds_weight_each_fold_equally_not_each_row(self) -> None:
@@ -377,9 +387,10 @@ class TestCrossValidatedVariance:
     def test_it_matches_a_longhand_cluster_aware_loop(self) -> None:
         """Real clusters, not the singleton degenerate case.
 
-        With several observations per cluster the fold contribution uses squared
-        *cluster sums* rather than squared rows. The singleton test above cannot see that
-        distinction because both reduce to the same expression with one row per cluster.
+        With several observations per cluster the fold contribution uses the centred
+        variance of the *cluster sums* rather than of the rows. The singleton test above
+        cannot see that distinction because both reduce to the same expression with one row
+        per cluster.
         """
         rng = np.random.default_rng(23)
         cluster = np.repeat(np.arange(10), 4)
@@ -392,17 +403,19 @@ class TestCrossValidatedVariance:
         for test in index:
             codes = cluster[test]
             sums = [ic[test][codes == code].sum() for code in np.unique(codes)]
-            contributions.append(float(np.sum(np.square(sums))) / test.size**2)
+            contributions.append(len(sums) * float(np.var(sums, ddof=1)) / test.size**2)
         expected = float(np.sum(contributions)) / len(index) ** 2
         assert cross_validated_variance(ic, index, cluster) == pytest.approx(expected, rel=1e-12)
 
     def test_ignoring_real_clusters_understates_the_variance(self) -> None:
         # Teeth for the test above: if the clustered and unclustered forms happened to
-        # agree on this input, matching the longhand loop would prove very little.
+        # agree on this input, matching the longhand loop would prove very little. Two
+        # folds of five clusters each, so each fold's centred cluster variance reads five
+        # cluster totals rather than two.
         rng = np.random.default_rng(24)
         cluster = np.repeat(np.arange(10), 4)
         ic = np.repeat(rng.normal(size=10), 4) + 0.3 * rng.normal(size=40)
-        index = [np.arange(40).reshape(10, 4)[k::5].reshape(-1) for k in range(5)]
+        index = [np.arange(40).reshape(10, 4)[k::2].reshape(-1) for k in range(2)]
         clustered = cross_validated_variance(ic, index, cluster)
         naive = cross_validated_variance(ic, index)
         assert clustered > 2.0 * naive

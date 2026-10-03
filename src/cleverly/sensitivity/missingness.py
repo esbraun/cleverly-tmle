@@ -68,7 +68,7 @@ import numpy as np
 from .._typing import FloatArray
 from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..exceptions import CapabilityError, refuse_inference
-from ..inference.delta import normal_ci
+from ..inference.delta import wald_ci
 from ..inference.influence import spread_name
 from ..interventions.learned import LEARNED_RULE_SENSITIVITY_REFUSAL
 from ..targets.population_intervention import (
@@ -376,7 +376,9 @@ def missingness_tilt(
             # from ``spread_name``.
             status = result[name].inference
             std_error = result[name].plugin_std_error
-            low, high = normal_ci(psi, std_error, result.config.alpha_sig)
+            low, high = wald_ci(
+                psi, std_error, result.config.alpha_sig, df=result[name].reference_df
+            )
             rows.append(
                 {
                     "gamma": value,

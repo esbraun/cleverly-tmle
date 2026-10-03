@@ -769,9 +769,14 @@ article as the copy this project read.
   mean $\mu_I(a) = E\{\sum_{j=1}^{N_i} Y_{ij}(a)\}/E(N_i)$, which is a ratio of two cluster-level
   means. Assumption 3 lets the observed cluster size depend on the arm and on the cluster
   attributes. Section 4.2, Equation (2), estimates $\mu_I(a)$ by a ratio of cluster sums. The
-  Section 5 simulation multiplies the variance by $m/(m-5)$ and uses a $t$ reference with $m-5$
-  degrees of freedom. Remark 3 recommends machine learning only "when the number of clusters is
-  sufficiently large, e.g., m = 100". The
+  Section 5.1 simulation design, in the paragraph after the method list, multiplies the variance by
+  $m/(m-5)$ and uses a $t$ reference with $m-5$ degrees of freedom, "where 5 is the number of
+  adjusted baseline covariates" of its parametric working models. Remark 3, in Section 4.2 after
+  Theorem 4, recommends machine learning only "when the number of clusters is sufficiently large,
+  e.g., m = 100". It adds: "With a small number of clusters, e.g., m = 20, we caution against
+  using complex working nuisance models, and instead recommend parsimonious parametric nuisance
+  models". The Discussion points to "Remark 3" for the identifiability of the cluster-average
+  effect, and that content is in Remark 4. This project cites the remarks by their content. The
   [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) use these
   locators for part (g).
 - Chiang, Kato, Ma & Sasaki (2022), [*Multiway Cluster Robust Double/Debiased Machine
@@ -801,7 +806,10 @@ article as the copy this project read.
   splits by independent cluster and aggregates cluster influence curves for a participant-weighted
   TMLE. It names R `ltmle` with `id=` as one variance implementation. The trial has partial
   clustering and point treatment. It does not derive this package's cross-fitted longitudinal
-  recursion or its variance.
+  recursion or its variance. The
+  [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) and
+  [longitudinal clusters](technical-reference/longitudinal-tmle.md#clusters) state the step the
+  package takes.
 - Balkus, Laith & Hejazi (2026), [*On the use of cross-fitting in causal machine learning with
   correlated units*](https://arxiv.org/abs/2601.10899v3), arXiv:2601.10899v3. The paper shows
   that splitting correlated units across folds can still remove a key empirical-process term
@@ -869,8 +877,11 @@ article as the copy this project read.
   which reproduces the journal text. Section 3.4.1 gives a clustered longitudinal TMLE with a
   sandwich variance and no sample splitting. There is no cross-fitting theorem.
 
-No source above covers treatment-stratified grouped folds for an observational estimator. None
-covers cross-fitted longitudinal TMLE with whole-cluster folds. The package refuses both.
+No source above covers treatment-stratified grouped folds for an observational estimator, and the
+package refuses them. None covers cross-fitted longitudinal TMLE with whole-cluster folds
+directly. The package ships it as a natural extension of Díaz, Williams, Hoffman and Schenck
+(2023), Theorem 3, with the cluster as the unit
+([longitudinal clusters](technical-reference/longitudinal-tmle.md#clusters)).
 
 The grouped point-treatment split rests on Wang et al. (2024) for the partition, and on the
 package's own estimating-equation argument for the rest. The
@@ -878,6 +889,21 @@ package's own estimating-equation argument for the rest. The
 that argument with its four conditions. The registered
 [clustered point-treatment CV-TMLE study](technical-reference/method-evidence/clustered-point-treatment-cv-tmle.md)
 is the only empirical witness for it.
+
+The pinned comparators aggregate a clustered curve in two ways at unequal cluster sizes. Each
+locator below is in the source tarball or commit that the repository's Dockerfiles pin.
+
+| comparator | locator | aggregation and reference |
+| --- | --- | --- |
+| R `ltmle` 1.3-0 | `R/ltmle.R`, lines 1025 to 1032 (`HouseholdIC`), 1063 and 1356; lines 1442 to 1448 (`GetPValue`) and 1608 to 1616 (`GetCI`) | the cluster sum of the curve times $J/n$, with variance over $J$. That equals this package's variance. A Student $t$ reference with $J-1$ degrees of freedom below 100 clusters, normal above |
+| R `tmle` 2.1.1 | `R/tmle.R`, lines 1555 to 1568 | `by(IC, id, mean)`, the cluster mean of the curve, with variance over $J$, and `qnorm` |
+| R `tmle3` at `ed72f8a` | `R/utils.R`, lines 44 to 48 and 59 | `by(IC, task$id, colMeans)`, the cluster mean, and a normal reference |
+| R `lmtp` 1.5.4 with `ife` 0.2.3 | the `ife` entry under longitudinal models | the cluster mean, and a normal reference |
+| R `drtmle` 1.1.2 at `538a3a2` | no cluster argument | not applicable |
+
+At equal cluster sizes the cluster mean and the cluster sum give the same variance. At unequal
+sizes only the cluster sum is the delta-method variance of the row mean
+([unequal cluster sizes](technical-reference/inference.md#unequal-cluster-sizes)).
 
 ## Collaborative TMLE
 
@@ -1478,7 +1504,10 @@ is the only empirical witness for it.
   10.1016/j.jspi.2005.12.008.
 - Rosenblum & van der Laan (2010), [*Targeted Maximum Likelihood Estimation of the
   Parameter of a Marginal Structural Model*](https://doi.org/10.2202/1557-4679.1238),
-  DOI 10.2202/1557-4679.1238.
+  DOI 10.2202/1557-4679.1238. The package cites it for the TMLE argument of a working model with
+  baseline modifiers, which a stratified fit applies inside each stratum. Its projection uses the
+  binomial deviance, so it does not define the package's least-squares parameter, which
+  [MSM projections](technical-reference/msm-projections.md) defines.
 - Martin, Santacatterina & Díaz (2024), [*Non-parametric efficient estimation of marginal
   structural models with multi-valued time-varying treatments*](https://arxiv.org/html/2409.18782v1),
   arXiv:2409.18782v1. Definition 1 fixes a user-given transformation and projection distribution.
@@ -1525,7 +1554,13 @@ is the only empirical witness for it.
   Statistical Association* 114(526):645–656, DOI 10.1080/01621459.2017.1422737.
   [The arXiv manuscript](https://arxiv.org/html/1704.00211v3), Section 3.3 and Appendix
   Corollary 2, derives the extra mechanism term for a population-law odds tilt. It does not
-  establish inference for the realized learned-density target.
+  establish inference for the realized learned-density target. With baseline strata the package
+  inherits Theorem 2's influence function and Theorem 3's conditions inside each stratum
+  (manuscript Sections 3.3 and 4.3). The package's incremental estimator is its own TMLE
+  construction, not the manuscript's estimating-equation estimator. Manuscript Section 6 lists
+  effect modification by covariates as future work. That is a conditional curve, and a fixed
+  finite partition is not one. The locators refer to arXiv v3. The published version's
+  locators were not read.
 - de Aguas (2026), [*Interpolated Stochastic Interventions Based on Propensity Scores, Target
   Policies and Treatment-Specific Costs*](https://arxiv.org/html/2511.11353),
   arXiv:2511.11353v3. The preprint constructs scalar-parameter categorical propensity policies

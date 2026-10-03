@@ -180,14 +180,14 @@ def test_the_undercoverage_verdict_names_the_spread_by_its_status(
 
 
 def _straddling_dgp(n: int, seed: int) -> tuple[object, dict[str, float]]:
-    """A clustered law whose cluster count is drawn from 38 to 42, around the threshold."""
-    j = int(np.random.default_rng(seed).integers(38, 43))
-    frame, truth = make_clustered(n=10 * j, cluster_size=10, seed=int(seed))
+    """A clustered law whose cluster count is drawn from 8 to 12, around the floor of 10."""
+    j = int(np.random.default_rng(seed).integers(8, 13))
+    frame, truth = make_clustered(n=40 * j, cluster_size=40, seed=int(seed))
     return frame, truth
 
 
 def _straddling_study() -> StudyResult:
-    """The R1 review's probe: eight in-sample clustered fits, four on each side of 40."""
+    """Eight in-sample clustered fits, on both sides of the floor of 10 clusters."""
     return CoverageStudy(
         dgp=_straddling_dgp,
         estimator=lambda: TMLE(**linear_in_sample(estimands=("ate",))),
@@ -245,8 +245,8 @@ class TestAStudyWhoseReplicatesMixStatuses:
     def test_two_diagnostic_statuses_keep_their_distinct_names(self) -> None:
         summary = _summary(
             estimand="ate",
-            inference="unequal_cluster_plugin",
-            status_counts=(("unequal_cluster_plugin", 2), (FEW, 2)),
+            inference="estimated_weight_plugin",
+            status_counts=(("estimated_weight_plugin", 2), (FEW, 2)),
         )
         study = StudyResult(
             summaries={"ate": summary},
@@ -261,4 +261,4 @@ class TestAStudyWhoseReplicatesMixStatuses:
         assert "measuring a plug-in diagnostic" in text
         assert "every column reads them as the plug-in diagnostic" in text
         assert "on some replicates" not in text
-        assert "unequal_cluster_plugin in 2, few_cluster_plugin in 2" in text
+        assert "estimated_weight_plugin in 2, few_cluster_plugin in 2" in text

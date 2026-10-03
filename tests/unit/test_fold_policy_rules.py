@@ -874,7 +874,7 @@ class TestTheCommittedFirstNodeStratifiedSeam:
 
 
 class TestTheLongitudinalRefusals:
-    """The two cross-fitted longitudinal designs with no shipped result."""
+    """The cross-fitted longitudinal design with no shipped result, and the clustered one."""
 
     def test_a_continuous_outcome_needs_a_declared_support(self) -> None:
         frame = longitudinal_frame()
@@ -891,14 +891,15 @@ class TestTheLongitudinalRefusals:
         )
         assert result.folds.is_single
 
-    def test_clusters_are_refused_under_cross_fitting(self) -> None:
+    def test_clusters_cross_fit_with_whole_cluster_folds(self) -> None:
         frame = longitudinal_frame(n=400, cluster_size=5)
-        with pytest.raises(LongitudinalError, match="has no clustered result") as raised:
-            sequential().fit(frame, id="id", **LONGITUDINAL_COLUMNS)
-        # No registered study fits a clustered longitudinal model, so the message names
-        # what the in-sample fit reports rather than calling it evidenced.
-        assert "which reports a cluster-robust variance" in str(raised.value)
-        assert "evidenced" not in str(raised.value)
+        result = sequential().fit(frame, id="id", **LONGITUDINAL_COLUMNS)
+        assert result.folds.origin is not None
+        assert result.folds.origin.scheme == "grouped"
+        assignment = np.asarray(result.folds.assignment)
+        clusters = frame["id"].to_numpy()
+        for code in np.unique(clusters):
+            assert np.unique(assignment[clusters == code]).size == 1
 
     def test_the_same_clusters_fit_in_sample(self) -> None:
         frame = longitudinal_frame(n=400, cluster_size=5)
@@ -1765,13 +1766,13 @@ class TestVariableImportanceRefusesBeforeItsFirstFit:
     def test_the_scale_refusal_precedes_the_status_refusal(self) -> None:
         """The scale call isolates itself against a status that supplies no inference.
 
-        Twelve clusters, below the few-cluster threshold, give the candidate a status that
+        Three clusters, below the few-cluster floor, give the candidate a status that
         ``variable_importance`` refuses. ``fit`` refuses the undeclared scale first and
         names its remedy. Without the per-candidate scale call, the status refusal would
         arrive first and name no remedy.
         """
         frame, _ = make_linear_ate(n=240, seed=2)
-        frame["cluster"] = np.arange(len(frame)) % 12
+        frame["cluster"] = np.arange(len(frame)) % 3
         estimator = TMLE(**linear_in_sample(cross_fit=True, n_folds=2, **never_fit_learners()))
         ranked, fitted = self.refusal_of(estimator, frame, id="cluster")
         assert ranked == fitted
@@ -1780,7 +1781,7 @@ class TestVariableImportanceRefusesBeforeItsFirstFit:
     def test_a_declared_scale_meets_the_status_refusal(self) -> None:
         """The control: with the scale declared, the same clusters meet the status refusal."""
         frame, _ = make_linear_ate(n=240, seed=2)
-        frame["cluster"] = np.arange(len(frame)) % 12
+        frame["cluster"] = np.arange(len(frame)) % 3
         bounds = (float(frame["Y"].min()) - 1.0, float(frame["Y"].max()) + 1.0)
         estimator = TMLE(
             **linear_in_sample(cross_fit=True, n_folds=2, q_bounds=bounds, **never_fit_learners())
@@ -1791,5 +1792,5 @@ class TestVariableImportanceRefusesBeforeItsFirstFit:
                 estimator=estimator, id="cluster",
             )  # fmt: skip
         assert str(raised.value).startswith("variable_importance() is not defined here.")
-        assert "fewer than 40 clusters" in str(raised.value)
+        assert "10 for TMLE, DR-TMLE and in-sample LTMLE" in str(raised.value)
         assert NeverFit.calls == 0

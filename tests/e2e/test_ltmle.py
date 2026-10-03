@@ -647,10 +647,9 @@ def test_cluster_variance_is_reported_at_the_cluster() -> None:
     Over i.i.d. rows carrying an ``id`` column the two variances agree by construction,
     which is why counting the clusters is not a test of anything.
     """
-    # Cross-fitted longitudinal TMLE has no clustered result (the fold and outcome-scale rules): keeping a cluster
-    # whole inside a fold is not established for the sequential recursion's cluster-robust
-    # variance. This test's subject is that variance, not cross-fitting, so both fits are
-    # in sample: n_folds=1 (LTMLE's spelling of cross_fit=False).
+    # This test's subject is the cluster-robust variance, not cross-fitting, so both fits
+    # are in sample: n_folds=1 (LTMLE's spelling of cross_fit=False). The cross-fitted
+    # clustered fit is tested in tests/unit/test_clustered_cross_fitted_ltmle.py.
     frame, _ = make_longitudinal(n=2000, seed=9, cluster_size=20)
     independent = run(frame, n_folds=1)
     clustered = LTMLE({"always": 1, "never": 0}, **{**FAST, "n_folds": 1}).fit(
@@ -1633,9 +1632,8 @@ class TestCompetingRisks:
         )
 
     def test_the_incidence_total_uses_the_cluster_joint_influence_covariance(self) -> None:
-        # Cross-fitted longitudinal TMLE has no clustered result (the fold and outcome-scale rules). This test's
-        # subject is the cluster-robust variance formula, not cross-fitting, so it fits in
-        # sample: n_folds=1 (LTMLE's spelling of cross_fit=False).
+        # This test's subject is the cluster-robust variance formula, not cross-fitting, so
+        # it fits in sample: n_folds=1 (LTMLE's spelling of cross_fit=False).
         clustered = LTMLE(
             {"always": 1, "never": 0}, reference="never", **{**FAST, "n_folds": 1}
         ).fit(
@@ -1755,8 +1753,8 @@ class TestCompetingRisks:
         # Matched on the clause that survives a reworded sentence: the fold is named, and
         # the reader is told to fit in sample rather than to search for a fold count that
         # happens to work (the fold and outcome-scale rules: no refusal drawn after a split names a repartition
-        # remedy, since the split reads none of the data a remedy could legitimately
-        # react to).
+        # remedy, since the split reads no treatment, outcome or covariate a remedy could
+        # legitimately react to).
         message = str(caught.value)
         assert "the same frame can be estimable at n_folds=1" in message
         assert (

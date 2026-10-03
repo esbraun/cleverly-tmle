@@ -29,7 +29,7 @@ import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import variable_importance
-from cleverly._inference_status import FEW_CLUSTER_THRESHOLD, NON_INFERENTIAL
+from cleverly._inference_status import MINIMUM_INTERVAL_CLUSTERS, NON_INFERENTIAL
 from cleverly.assessment import AssessmentStatus
 from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
@@ -253,10 +253,10 @@ def stamp_headline_only(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(TMLE, "_retarget_detailed", headline_only)
 
 
-def at_or_below(cluster: Any, *, cross_fit: bool, **settings: Any) -> str:
+def at_or_below(cluster: Any, **settings: Any) -> str:
     """The mutant that compares the cluster count with ``<=`` rather than ``<``."""
-    status = cluster_inference_status(cluster, cross_fit=cross_fit, **settings)
-    at_threshold = np.unique(cluster).size == FEW_CLUSTER_THRESHOLD
+    status = cluster_inference_status(cluster, **settings)
+    at_threshold = np.unique(cluster).size == MINIMUM_INTERVAL_CLUSTERS
     return "few_cluster_plugin" if status == "influence_curve" and at_threshold else status
 
 

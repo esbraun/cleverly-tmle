@@ -290,7 +290,7 @@ from ..exceptions import CapabilityError
 from ..fluctuation.iterative import InitialFit, apply_logistic, check_matching_arms
 from ..fluctuation.submodel import Submodel, restrict, weighted_form
 from ..inference.cluster import influence_variance
-from ..inference.delta import log_odds_ratio_influence, log_ratio_influence, normal_ci
+from ..inference.delta import log_odds_ratio_influence, log_ratio_influence, wald_ci
 from ..inference.influence import counterfactual_means
 from ..interventions.learned import learned_rule_configuration_refusal
 from ..learners._fitting import Task, predict_mean, predict_probabilities
@@ -2151,7 +2151,7 @@ def logistic_plugin(result: TMLEResult) -> dict[str, LogisticPlugin]:
             psi=estimate.psi,
             influence_curve=curve,
             plugin_logistic_std_error=std_error,
-            plugin_logistic_interval=normal_ci(estimate.psi, std_error, result.config.alpha_sig),
+            plugin_logistic_interval=wald_ci(estimate.psi, std_error, result.config.alpha_sig),
             correction_applied=corrected and projection is not None,
         )
     return out

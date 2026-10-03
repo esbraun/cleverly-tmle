@@ -607,6 +607,29 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
                     ),
                 )
             )
+            # A linked working model with baseline strata solves its stratum blocks in a
+            # nested fluctuation at the stratum coefficients.  The stratum estimates are
+            # read from it, so its score is checked on its own row.
+            nested = fluctuation.stratified
+            if nested is not None:
+                score = nested.score_norm
+                stem = f"{group} (strata)"
+                rows.append(
+                    ScoreCheckRow(
+                        name=stem if result.n_repeats == 1 else f"{stem}[draw {index}]",
+                        kind="fluctuation",
+                        score=score,
+                        threshold=float(threshold),
+                        std_error=float(reference_se),
+                        passed=bool(score <= threshold),
+                        converged=nested.converged,
+                        n_iter=nested.n_iter,
+                        method=nested.method,
+                        score_initial=nested.initial_score_norm,
+                        failure=nested.failure or "",
+                        hessian_condition=nested.hessian_condition,
+                    )
+                )
             # A group whose parameter is defined through the mechanism solves *two*
             # equations, and the per-estimand rows below check only their sum -- the
             # influence curve contains both terms, so its mean cannot be zero unless

@@ -71,7 +71,10 @@ import numpy as np
 from sklearn.base import clone
 
 from .._inference_status import (
+    MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS,
     NO_SIMULTANEOUS_BANDS,
+    NO_T_REFERENCE_BANDS,
+    T_REFERENCE_NOTE,
     InferenceStatus,
     status_record,
     supplies_inference,
@@ -81,6 +84,8 @@ from ..exceptions import CapabilityError, LongitudinalError, PositivityWarning
 from ..inference.bootstrap import BootstrapResult, Resampling, run_bootstrap
 from ..inference.cluster import (
     cluster_inference_status,
+    cluster_reference_df,
+    fewest_clusters,
     influence_covariance,
     positive_mass_clause,
 )
@@ -89,7 +94,9 @@ from ..inference.influence import (
     ParameterEstimate,
     Scale,
     bootstrap_line,
+    has_t_reference,
     make_estimate,
+    reference_label,
     spread_name,
 )
 from ..inference.multiplier import SimultaneousBands, simultaneous_bands
@@ -112,7 +119,7 @@ from ..inference.results import (
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..assessment import AssessmentReport
-from ..learners.crossfit import Folds, _fresh_seed, random_partition
+from ..learners.crossfit import Folds, _fresh_seed, check_integrity, random_partition
 from ..learners.library import _validate_learner
 from ..learners.super_learner import resolve_learner
 from ..msm import MSM, refuse_msm_functions
@@ -1816,6 +1823,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         # is never half refused.
         status = self.inference_status
         record = None if supplies_inference(status) else status_record(status)
+        t_reference = has_t_reference(self.estimates)
         rows = []
         if record is not None:
             # The whole interval column is refused, so it is not printed with a dash under
@@ -1833,10 +1841,19 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                         f"{estimate.std_error:.4f}",
                         f"[{low:.4f}, {high:.4f}]",
                         format_pvalue(estimate.pvalue),
+                        *([reference_label(estimate)] if t_reference else []),
                     ]
                 )
             table = format_table(
-                ["parameter", "estimate", "std. error", f"{level} CI", "p-value"], rows
+                [
+                    "parameter",
+                    "estimate",
+                    "std. error",
+                    f"{level} CI",
+                    "p-value",
+                    *(["df"] if t_reference else []),
+                ],
+                rows,
             )
         # ``"level"`` is the scale of every mean, the rule ``to_frame`` reads as well.
         contrast = any(estimate.scale != "level" for estimate in self.estimates.values())
@@ -1871,6 +1888,22 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             table,
             # The refusal's own reason, as ``TMLEResult.summary`` prints it.
             *(["", record.summary_note()] if record is not None else []),
+            *(
+                [
+                    "",
+                    T_REFERENCE_NOTE.format(
+                        clusters=(
+                            positive_count := fewest_clusters(
+                                self.data.cluster,
+                                weights=self.data.weights if self.data.is_weighted else None,
+                            )
+                        ),
+                        fewest=positive_count,
+                    ),
+                ]
+                if t_reference and self.data.cluster is not None
+                else []
+            ),
             "",
             *(f"  {line}" for line in facts),
         ]
@@ -1893,6 +1926,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             # by default, so a reader would otherwise have to guess why none are here.
             lines.append("")
             lines.append(f"  {NO_SIMULTANEOUS_BANDS}")
+        elif self.simultaneous is None and t_reference and len(self.estimates) > 1:
+            lines.append("")
+            lines.append(f"  {NO_T_REFERENCE_BANDS}")
         if self.simultaneous is not None:
             lines.append("")
             lines.append(
@@ -2077,12 +2113,17 @@ def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
     The point-treatment cluster rule applies to the prepared cluster labels and, on a weighted fit,
     to the unit weights. It reads nothing fitted. ``LongitudinalData`` carries no baseline strata,
     so the count is the number of clusters with positive weight mass in the whole fit, and
-    :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` is the threshold.
+    :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS` is the threshold.
 
-    ``LTMLE._refuse_cross_fitted_design`` refuses ``id=`` above one fold before this runs,
-    so a fit can take ``"few_cluster_plugin"`` only. ``LTMLE.fit`` and the
+    The targeting pools every follower, so the curve is centred at the pooled estimate and
+    the folds do not enter the degrees of freedom.  A cross-fitted fit needs
+    :data:`~cleverly._inference_status.MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS` clusters,
+    the smallest count its registered study measures; an in-sample fit needs
+    :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS`.  A fit can take
+    ``"few_cluster_plugin"`` only. ``LTMLE.fit`` and the
     truncation-curve replay ``_refit_bound`` pass the status to :func:`_estimates` or
-    :func:`_msm_estimates`.
+    :func:`_msm_estimates`, which also set the Student t reference of an inferential fit
+    with fewer than :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters.
 
     Parameters
     ----------
@@ -2099,9 +2140,33 @@ def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
     """
     return cluster_inference_status(
         data.cluster,
-        cross_fit=folds.n_folds > 1,
         weights=data.weights if data.is_weighted else None,
+        minimum=MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS if folds.n_folds > 1 else None,
     )
+
+
+def _reference_df(data: LongitudinalData, inference: InferenceStatus) -> int | None:
+    """The Student t degrees of freedom of every estimate of a longitudinal fit.
+
+    ``LongitudinalData`` carries no baseline strata, so every estimate reads every unit.
+    ``None`` on an unclustered fit, on a fit whose status supplies no inference, and at
+    :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters or more.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared data of the fit.
+    inference : str
+        The status the fit stamps on its estimates.
+
+    Returns
+    -------
+    int or None
+        :func:`~cleverly.inference.cluster.cluster_reference_df` of the fit, or ``None``.
+    """
+    if data.cluster is None or not supplies_inference(inference):
+        return None
+    return cluster_reference_df(data.cluster, data.weights if data.is_weighted else None)
 
 
 def _estimates(
@@ -2147,6 +2212,7 @@ def _estimates(
     # dict keyed by name is where that would stop being a distinction without a
     # difference.
     head = _level_head(survival=survival, competing=data.is_competing, complement=False)
+    reference_df = _reference_df(data, inference)
     estimates: dict[str, ParameterEstimate] = {}
     # ``name -> (regimen, cause, horizon)``, composed forward here and never parsed
     # back out of the name.  ``curve()`` reads it: with a cause beside the horizon
@@ -2167,6 +2233,7 @@ def _estimates(
             scale="level",
             alpha=alpha_sig,
             inference=inference,
+            reference_df=reference_df,
         )
     for fit in fits.values():
         if fit.regimen.label == reference.label:
@@ -2188,6 +2255,7 @@ def _estimates(
             scale="difference",
             alpha=alpha_sig,
             inference=inference,
+            reference_df=reference_df,
         )
     return _Reported(estimates=estimates, index=index, contributors=contributors)
 
@@ -2232,6 +2300,7 @@ def _msm_estimates(
     """
     estimates: dict[str, ParameterEstimate] = {}
     contributors: dict[str, tuple[RegimenFit, ...]] = {}
+    reference_df = _reference_df(data, inference)
     for msm_fit in msm_fits:
         for column, term in enumerate(msm_fit.model.terms):
             # Composed forward, as every other name here is: a term may contain a
@@ -2250,6 +2319,7 @@ def _msm_estimates(
                 scale="level",
                 alpha=alpha_sig,
                 inference=inference,
+                reference_df=reference_df,
             )
     return _Reported(estimates=estimates, index=None, contributors=contributors)
 
@@ -2487,8 +2557,9 @@ class LTMLE:
             raise ValueError(
                 "msm= with n_folds > 1 is not supported. Cross-fitted longitudinal MSM "
                 "coefficient inference needs a dedicated unsaturated projection property "
-                "and repeated-sampling study before it can be reported. Pass n_folds=1 "
-                "for the evidenced in-sample longitudinal MSM construction."
+                "and repeated-sampling study before it can be reported; docs/roadmap.md "
+                "X27 tracks this work. Pass n_folds=1 for the evidenced in-sample "
+                "longitudinal MSM construction."
             )
 
     @staticmethod
@@ -2539,11 +2610,17 @@ class LTMLE:
         ``(w / E[w]) D*(P_w)``.  See :mod:`cleverly.data.weighting`.
 
         ``id=`` names a cluster column, and the variance is then cluster robust.  A fit
-        with fewer than :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters
-        with positive weight mass reports no interval, p-value or standard error: every
-        estimate takes the ``"few_cluster_plugin"`` status, as a point-treatment fit does.
+        with fewer than :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS`
+        clusters with positive weight mass reports no interval, p-value or standard error:
+        every estimate takes the ``"few_cluster_plugin"`` status, as a point-treatment fit
+        does.  From that count up to
+        :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` it reports Student t
+        intervals with ``J - 2`` degrees of freedom.  A cross-fitted fit needs
+        :data:`~cleverly._inference_status.MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS`
+        clusters, the smallest count its registered study measures.
         The point estimate stands.  The inference reference, section *Clusters*, gives
-        the reason.  ``id=`` is taken in sample only.
+        the reason.  Under cross-fitting the outer split is drawn whole-cluster and the
+        Super Learner folds inside each regression are grouped on the same labels.
 
         Parameters
         ----------
@@ -2631,12 +2708,17 @@ class LTMLE:
         # mechanism was evaluated at cannot disagree about what the regimen assigned.
         plans = resolve_plans(regimens, prepared)
 
-        self._refuse_cross_fitted_design(prepared)
+        self._refuse_unbounded_cross_fitted_scale(prepared)
         if self.n_bootstrap and self.bootstrap_resampling == "cluster" and prepared.cluster is None:
             # The refusal ``run_bootstrap`` would raise after the fit, raised before any
             # learner.
             raise ValueError("resampling='cluster' requires the data to carry cluster ids")
         folds = self._folds(prepared)
+        # Checked at the call site rather than inside ``_folds``, so that a subclass that
+        # draws its own split is held to the same rule: a cluster split across folds puts a
+        # unit's own cluster in the training fold of the rows it predicts.  A no-op without
+        # clusters.
+        check_integrity(folds, cluster=prepared.cluster)
         scaler = self._scaler(prepared)
         # A cumulative path probability is not a point-treatment propensity.  There is no
         # automatic rule here: the constructor default is the visible fixed R ``ltmle``
@@ -2993,6 +3075,10 @@ class LTMLE:
             return None
         if not supplies_inference(status):
             return None
+        # No source gives a t-calibrated joint band, so a fit whose estimates carry a
+        # Student t reference builds none either, and the summary says so.
+        if has_t_reference(estimates):
+            return None
         return simultaneous_bands(
             estimates,
             alpha=self.alpha_sig,
@@ -3067,30 +3153,19 @@ class LTMLE:
             f"{[regimen.label for regimen in regimens]}"
         )
 
-    def _refuse_cross_fitted_design(self, data: LongitudinalData) -> None:
-        """Refuse the cross-fitted designs this package has no result for.
+    def _refuse_unbounded_cross_fitted_scale(self, data: LongitudinalData) -> None:
+        """Refuse a cross-fitted continuous outcome without a declared ``q_bounds``.
 
-        Both facts are about the data rather than the declaration, so neither can be
-        asked at construction: ``family`` may be inferred from the outcome, and ``id=``
-        is named when ``fit`` is called. Both are asked before the split is drawn, so a
-        refused design pays for no fold generation and no learner.
+        The family is a fact about the data rather than the declaration, so it cannot be
+        asked at construction: ``family`` may be inferred from the outcome. It is asked
+        before the split is drawn, so a refused design pays for no fold generation and no
+        learner.
 
-        A single-fold fit is left alone in each case. It trains on every row, so there is
-        no held-out row whose outcome sets the scale it is scored on, and no fold boundary
-        for a cluster to be split across.
+        A single-fold fit is left alone. It trains on every row, so there is no held-out
+        row whose outcome sets the scale it is scored on.
         """
         if self.n_folds <= 1:
             return
-        if data.cluster is not None:
-            raise LongitudinalError(
-                "cross-fitted longitudinal TMLE has no clustered result. A grouped draw "
-                "keeps each cluster whole, and the package has not written the "
-                "cluster-summed variance of the targeted recursion under one; "
-                "docs/roadmap.md X25 tracks this work. "
-                "Fit in sample (CrossFitting(enabled=False), or "
-                "n_folds=1 on the engine), which reports a cluster-robust variance, or "
-                "drop id= from fit."
-            )
         if data.family != "binomial" and self.q_bounds is None:
             raise LongitudinalError(
                 f"a cross-fitted longitudinal fit of a continuous outcome "
@@ -3107,7 +3182,9 @@ class LTMLE:
     def _folds(self, data: LongitudinalData) -> Folds:
         """One unstratified draw of the outer split, or the in-sample single fold.
 
-        The split reads ``n`` and the seed and nothing else.  It used to be stratified on
+        The split reads ``n``, the seed and, with ``id=``, the cluster labels, and nothing
+        else.  With ``id=`` the draw is grouped: every cluster lands whole in one fold, so a
+        validation fold shares no cluster with its training complement.  It used to be stratified on
         the first treatment node, which made the assignment a function of the treatment
         the fit then conditions on; what that stratification bought -- every training
         complement carrying every first-node arm -- is now *checked* on the realized draw
@@ -3155,9 +3232,10 @@ def bootstrap_design_kind(
     """The design kind a registered bootstrap study could license, or ``None``.
 
     A kind is ``"<outcome>/<fit>"``: the outcome ``end_of_study`` or ``survival``, and the fit
-    ``in_sample``, ``cross_fit`` or ``cluster``.  Only a binary outcome, static regimens, one
-    event and no weights or working model have a kind; every other fit returns ``None``, which
-    no study licenses.
+    ``in_sample``, ``cross_fit``, ``cluster`` (clustered, in sample) or ``cluster_cross_fit``
+    (clustered, cross-fitted, whose replicates redraw a grouped split).  Only a binary outcome,
+    static regimens, one event and no weights or working model have a kind; every other fit
+    returns ``None``, which no study licenses.
 
     Parameters
     ----------
@@ -3185,7 +3263,7 @@ def bootstrap_design_kind(
         return None
     outcome = "survival" if data.is_survival else "end_of_study"
     if data.cluster is not None:
-        fit = "cluster"
+        fit = "cluster_cross_fit" if folds.n_folds > 1 else "cluster"
     elif folds.n_folds > 1:
         fit = "cross_fit"
     else:

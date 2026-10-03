@@ -125,6 +125,10 @@ ARMS: dict[str, str] = {
     "cde_z1": "the controlled direct-effect fit at intermediate level one",
     "point_msm": "the three terms of the point-treatment MSM projection",
     "clustered": "grouped cross-fitted TMLE with cluster multipliers",
+    "clustered_regimens": (
+        "the three regimen means and two contrasts of the cross-fitted clustered LTMLE, with "
+        "cluster multipliers"
+    ),
     "shift_grid": "three shift policies and their two contrasts",
     "incremental_grid": "three incremental odds multipliers and their two contrasts",
     "stochastic_regimes": "a static and a known stochastic regime and their contrast",
@@ -156,6 +160,65 @@ ARMS: dict[str, str] = {
         )
         for stratum in (0, 1, 2)
     },
+    # The stratified incremental and MSM study: incremental labels ``v<s>_<parameter>``,
+    # linked-MSM labels ``logit_<scope>_<term>``, dose labels ``continuous_<link>_<scope>_<term>``.
+    **{
+        f"v{stratum}_{key}": f"{words} in stratum V = {stratum}"
+        for stratum in (0, 1, 2)
+        for key, words in (
+            ("ey_natural", "incremental mean at odds multiplier 1"),
+            ("ey_x2", "incremental mean at odds multiplier 2"),
+            ("ey_x05", "incremental mean at odds multiplier 0.5"),
+            ("ate_x2", "incremental contrast of multiplier 2 against 1"),
+            ("ate_x05", "incremental contrast of multiplier 0.5 against 1"),
+            ("a", "treatment coefficient of the logit MSM (1, a, W)"),
+            ("a_arm", "treatment coefficient of the logit MSM (1, a)"),
+        )
+    },
+    **{
+        f"natural_{scope}": f"cross-fitted natural-course mean with a missing outcome, {where}"
+        for scope, where in (
+            ("marginal", "marginal"),
+            *((f"v{stratum}", f"in stratum V = {stratum}") for stratum in (0, 1, 2)),
+        )
+    },
+    "marginal_ate": "average treatment effect over every stratum, from the stratified fit",
+    **{
+        f"logit_{scope}_{key}": f"{words} of the logit MSM (1, a, W), {where}"
+        for scope, where in (
+            ("marginal", "marginal"),
+            *((f"v{stratum}", f"in stratum V = {stratum}") for stratum in (0, 1, 2)),
+        )
+        for key, words in (
+            ("intercept", "intercept coefficient"),
+            ("a", "treatment coefficient"),
+            ("w", "baseline-covariate coefficient"),
+        )
+    },
+    **{
+        f"continuous_{link}_{scope}_{key}": (
+            f"{words} of the {link}-link dose MSM (1, a) over the grid, {where}"
+        )
+        for link in ("identity", "logit")
+        for scope, where in (
+            ("marginal", "marginal"),
+            *((f"v{stratum}", f"in stratum V = {stratum}") for stratum in (0, 1, 2)),
+        )
+        for key, words in (("intercept", "intercept coefficient"), ("a", "dose coefficient"))
+    },
+    **{
+        f"identity_{scope}_{key}": f"{words} of the identity MSM (1, a, W), {where}"
+        for scope, where in (
+            ("marginal", "marginal"),
+            *((f"v{stratum}", f"in stratum V = {stratum}") for stratum in (0, 1, 2)),
+        )
+        for key, words in (
+            ("intercept", "intercept coefficient"),
+            ("a", "treatment coefficient"),
+            ("w", "baseline-covariate coefficient"),
+        )
+    },
+    "ipsi_strata": "the five marginal and fifteen stratum incremental parameters of one fit",
     # The composite-indicator missing-data study: the corrected-inference contrasts,
     # the joint-coverage labels and the correction cycle.
     "composite_observational_ate": "the ATE of the two-arm law with an observational MAR outcome",
@@ -265,6 +328,13 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-cde-tmle": "`cleverly` controlled direct-effect TMLE",
     "cleverly-ltmle-derived": "`cleverly` LTMLE ratio contrast",
     "cleverly-clustered-cvtmle": "`cleverly` clustered point-treatment CV-TMLE",
+    "cleverly-clustered-cross-fitted-ltmle": "`cleverly` clustered cross-fitted LTMLE",
+    "cleverly-few-cluster-cross-fitted-ltmle": (
+        "`cleverly` clustered cross-fitted LTMLE on a t reference at few clusters"
+    ),
+    "cleverly-clustered-unequal-cvtmle": (
+        "`cleverly` clustered point-treatment CV-TMLE at unequal cluster sizes"
+    ),
     "cleverly-cross-fitted-categorical-ltmle": "`cleverly` cross-fitted categorical LTMLE",
     "cleverly-cross-fitted-ltmle": "`cleverly` cross-fitted LTMLE",
     "cleverly-cross-fitted-ltmle-survival": "`cleverly` cross-fitted survival LTMLE",
@@ -278,6 +348,12 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-omitted-variable-bound": "`cleverly` omitted-variable bound",
     "cleverly-calibration-slope-rule": "`cleverly` calibration-slope rule",
     "cleverly-default-bands": "`cleverly` shipped TMLE() default fit",
+    "cleverly-stratified-incremental": "`cleverly` incremental TMLE with baseline strata",
+    "npcausal-stratified": "R `npcausal` `ipsi`, once per stratum subset and on every row",
+    "cleverly-stratified-msm": "`cleverly` identity-link MSM TMLE with baseline strata",
+    "tmle3-msm-stratified": "R `tmle3` `Param_MSM`, once per stratum subset",
+    "cleverly-stratified-drtmle": "`cleverly` DR-TMLE with baseline strata",
+    "drtmle-r-stratified": "R `drtmle`, once per stratum subset",
     "cleverly-stratified-tmle": "`cleverly` ordinary TMLE with baseline strata",
     "cleverly-mar-drtmle": "`cleverly` randomized missing-outcome DR-TMLE",
     "cleverly-composite-drtmle": "`cleverly` composite-indicator missing-data DR-TMLE",
@@ -341,6 +417,36 @@ IMPLEMENTATIONS: dict[str, str] = {
 
 SCENARIOS: dict[str, str] = {
     "binary": "binary-outcome law",
+    "clustered_end_of_study": (
+        "100 clusters of 40 rows, a mean-zero cluster component on the final outcome, censored "
+        "two-node panel"
+    ),
+    "few_equal_j20": (
+        "20 clusters of 40 rows, a scaled mean-zero cluster component on the final outcome"
+    ),
+    "unequal_noninformative": (
+        "200 clusters of size uniform on 2 to 18, the size absent from the outcome"
+    ),
+    "unequal_informative": (
+        "200 clusters of size uniform on 2 to 18, the size in the outcome; truth the "
+        "row-weighted mean"
+    ),
+    "unequal_informative_cluster_average": (
+        "the informative samples weighted by one over the cluster size; truth the "
+        "cluster-average mean"
+    ),
+    "few_unequal_informative_j20": (
+        "20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node"
+    ),
+    "stratified_msm_identity": (
+        "baseline-strata law with a bounded outcome Y ~ Beta(24 Q, 24 (1 - Q))"
+    ),
+    "stratified_both_correct": (
+        "Benkeser et al. (2017) binary law with three baseline strata, correct GLM nuisances"
+    ),
+    "stratified_incremental": (
+        "binary law with three unequal baseline strata, three incremental odds multipliers"
+    ),
     "end_of_study_ratio": "two-node end-of-study law, saturated cell-mean learners",
     "linear": "linear Gaussian-outcome law with a constant effect, `make_linear_ate`",
     "calibrated_weak": "known propensity, logit g0 = 0.15 W1",
@@ -538,6 +644,19 @@ PROPERTIES: dict[str, str] = {
     "crossfit_overfitting": (
         "cross-fitting removes the optimism a flexible learner puts into an in-sample fit"
     ),
+    "cluster_aggregation_rule": (
+        "the same curve aggregated by cluster sums and by cluster means, reported rather than "
+        "gated, because only the cluster sum is the variance of the row-weighted mean at "
+        "unequal sizes"
+    ),
+    "estimand_weighting": (
+        "the unweighted fit targets the row-weighted mean, and weights of one over the cluster "
+        "size target the cluster-average mean"
+    ),
+    "few_cluster_reference": (
+        "measures the coverage of the t reference that clustered fits take below 40 clusters, "
+        "with parametric nuisance learners, reported rather than gated"
+    ),
     "corrected_mar_inference": (
         "randomized missing-outcome DR-TMLE retains valid inference when either the outcome "
         "regression or observation mechanism is correct"
@@ -680,6 +799,87 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("clustered_inference", "iid_control"): (
         "the identical rows, point estimates, and influence curves treated as independent",
         "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
+    ),
+    ("clustered_inference", "cluster_robust_fold_evaluated"): (
+        "fold-evaluated CV-TMLE at unequal cluster sizes, centered cluster variance per fold",
+        "SE-ratio and coverage intervals both stay inside their calibration bands",
+    ),
+    ("clustered_inference", "iid_control_fold_evaluated"): (
+        "the fold-evaluated fit's curve treated as independent rows",
+        "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
+    ),
+    ("clustered_inference", "cluster_robust_drtmle"): (
+        "cross-fitted DR-TMLE at unequal cluster sizes with cluster-robust inference",
+        "SE-ratio and coverage intervals both stay inside their calibration bands",
+    ),
+    ("clustered_inference", "iid_control_drtmle"): (
+        "the DR-TMLE curve treated as independent rows",
+        "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
+    ),
+    ("clustered_inference", "cluster_robust_static"): (
+        "cross-fitted clustered LTMLE, ate_regimen[always vs never], 100 clusters of 40 rows",
+        "SE-ratio and coverage intervals both stay inside their calibration bands",
+    ),
+    ("clustered_inference", "iid_control_static"): (
+        "the static LTMLE contrast's curve treated as independent rows",
+        "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
+    ),
+    ("clustered_inference", "cluster_robust_dynamic"): (
+        "cross-fitted clustered LTMLE, the dynamic rule against never, on the primary fits",
+        "SE-ratio and coverage intervals both stay inside their calibration bands",
+    ),
+    ("clustered_inference", "iid_control_dynamic"): (
+        "the dynamic contrast's curve treated as independent rows",
+        "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
+    ),
+    ("clustered_inference", "cluster_robust_unequal"): (
+        "cross-fitted clustered LTMLE at cluster sizes uniform on 10 to 70",
+        "SE-ratio and coverage intervals both stay inside their calibration bands",
+    ),
+    ("clustered_inference", "iid_control_unequal"): (
+        "the unequal-size contrast's curve treated as independent rows",
+        "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
+    ),
+    ("clustered_inference", "cluster_robust_survival"): (
+        "cross-fitted clustered survival LTMLE, the risk contrast at t=2",
+        "SE-ratio and coverage intervals both stay inside their calibration bands",
+    ),
+    ("clustered_inference", "iid_control_survival"): (
+        "the survival contrast's curve treated as independent rows",
+        "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
+    ),
+    ("clustered_inference", "cluster_robust_fold_evaluated_cluster_covariate"): (
+        "fold-evaluated CV-TMLE of the treated mean, 40 clusters in 10 folds, a covariate "
+        "shared within a cluster",
+        "SE-ratio and coverage intervals both stay inside their calibration bands",
+    ),
+    ("clustered_inference", "iid_control_fold_evaluated_cluster_covariate"): (
+        "the same fold-evaluated curve treated as independent rows",
+        "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
+    ),
+    ("estimand_weighting", "individual_average"): (
+        "the unweighted interval against the row-weighted mean",
+        "exact coverage lower bound clears the floor",
+    ),
+    ("estimand_weighting", "cluster_average_truth"): (
+        "the unweighted interval against the cluster-average mean",
+        "exact coverage upper bound falls below 0.50",
+    ),
+    ("estimand_weighting", "cluster_average_weights"): (
+        "the interval with weights of one over the cluster size against the cluster-average mean",
+        "exact coverage lower bound clears the floor",
+    ),
+    ("estimand_weighting", "individual_average_truth"): (
+        "the weighted interval against the row-weighted mean",
+        "exact coverage upper bound falls below 0.50",
+    ),
+    ("cluster_aggregation_rule", "cluster_sum"): (
+        "the cluster sum of the curve, as this package and R ltmle aggregate it",
+        "reported only",
+    ),
+    ("cluster_aggregation_rule", "cluster_mean"): (
+        "the cluster mean of the curve, as R tmle 2.1.1 and tmle3 aggregate it",
+        "reported only",
     ),
     ("weight_necessity", "weighted"): (
         "the selected sample analyzed with its fixed inverse-selection weights",
@@ -1054,6 +1254,16 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the identical working model is projected under uniform weights",
         "bias interval must fall entirely outside the margin",
     ),
+    ("projection_necessity", "stratified"): (
+        "the stratified logit-MSM fit with an outcome regression that omits the stratum, so "
+        "the per-stratum score blocks do all the adjusting",
+        "bias interval inside the equivalence margin",
+    ),
+    ("projection_necessity", "marginal_fluctuation"): (
+        "the same outcome regression with the marginal MSM fluctuation, its targeted "
+        "regression projected on the stratum's rows",
+        "bias interval must fall entirely outside the margin",
+    ),
     ("rule_necessity", "declared"): (
         "the declared covariate-dependent rule assigns both treatment arms",
         "bias interval inside the equivalence margin",
@@ -1281,6 +1491,16 @@ ARM_CELLS: dict[tuple[str, str, str], tuple[str, str]] = {
     for family in ("interval_calibration",)
     for arm in ("att_lower", "att_upper")
 }
+ARM_CELLS.update(
+    {
+        ("stratum_targeting_necessity", f"v{stratum}_ey_x2", "marginal_fluctuation"): (
+            "the same outcome regression in the unstratified incremental fit, its targeted "
+            "mixture averaged inside the stratum",
+            "bias interval must fall entirely outside the margin",
+        )
+        for stratum in (0, 2)
+    }
+)
 ARM_CELLS.update(
     {
         ("interval_calibration", arm, "inflated_se_control"): (
@@ -1579,3 +1799,79 @@ def cell(
     if term is not None:
         tested = f"{TERMS[term.group('term')]}: {tested}"
     return tested, required
+
+
+#: The ``few_cluster_reference`` cells of ``clustered-few-cluster-tmle``: one entry per fit,
+#: size law, cluster count and arm, composed forward from the four parts.
+#: Mirrored from ``tests.studies.clustered_few_cluster_tmle.CLUSTER_COUNTS``, which this module
+#: cannot import (descriptions stay out of every study's hashed module list).
+#: ``tests/unit/test_clustered_unequal_study.py`` pins the two equal.
+_FEW_CLUSTER_COUNTS = (10, 20, 30)
+_FEW_CLUSTER_FITS = {
+    "tmle_crossfit": "stacked CV-TMLE",
+    "tmle_cv_evaluation": "fold-evaluated CV-TMLE",
+    "tmle_in_sample": "in-sample TMLE",
+    "drtmle_crossfit": "cross-fitted DR-TMLE",
+    "ltmle_in_sample": "in-sample LTMLE on one node",
+}
+_FEW_CLUSTER_SIZES = {
+    "equal10": "clusters of 10 rows",
+    "unequal_informative": "clusters of size uniform on 2 to 18, the size in the outcome",
+}
+_FEW_CLUSTER_ARMS = {
+    "t_reference": (
+        "the reported interval, t with J - 2 degrees of freedom, or min(J - 2, J - V) for the "
+        "fold-evaluated fit",
+        "exact coverage lower bound clears the floor, bias inside the margin",
+    ),
+    "iid_t_control": (
+        "the same point and t quantile with the IID row standard error",
+        "the SE-ratio upper endpoint falls below 0.80",
+    ),
+    "normal_reference": (
+        "the cluster-robust standard error with the normal quantile",
+        "reported only",
+    ),
+    "t_j_minus_2_reference": (
+        "the fold-evaluated standard error with t at J - 2 degrees of freedom",
+        "reported only",
+    ),
+}
+CELLS.update(
+    {
+        (
+            "few_cluster_reference",
+            f"{fit}__{sizes}__j{clusters}__{arm}",
+        ): (
+            f"{fit_text}, {clusters} {size_text}: {arm_text}",
+            required,
+        )
+        for fit, fit_text in _FEW_CLUSTER_FITS.items()
+        for sizes, size_text in _FEW_CLUSTER_SIZES.items()
+        for clusters in _FEW_CLUSTER_COUNTS
+        for arm, (arm_text, required) in _FEW_CLUSTER_ARMS.items()
+        if arm != "t_j_minus_2_reference" or fit == "tmle_cv_evaluation"
+    }
+)
+
+
+#: The ``few_cluster_reference`` cells of ``few-cluster-cross-fitted-ltmle``. Mirrored from
+#: ``tests.studies.few_cluster_crossfit_ltmle``; ``tests/unit/test_clustered_crossfit_ltmle_design.py``
+#: pins the two equal.
+_CROSSFIT_FEW_CLUSTER_COUNTS = (20, 30)
+_CROSSFIT_FEW_CLUSTER_SIZES = {
+    "equal40": "clusters of 40 rows",
+    "unequal40": "clusters of size uniform on 10 to 70",
+}
+CELLS.update(
+    {
+        ("few_cluster_reference", f"ltmle_crossfit__{sizes}__j{clusters}__{arm}"): (
+            f"cross-fitted clustered LTMLE, {clusters} {size_text}: {arm_text}",
+            required,
+        )
+        for sizes, size_text in _CROSSFIT_FEW_CLUSTER_SIZES.items()
+        for clusters in _CROSSFIT_FEW_CLUSTER_COUNTS
+        for arm, (arm_text, required) in _FEW_CLUSTER_ARMS.items()
+        if arm != "t_j_minus_2_reference"
+    }
+)

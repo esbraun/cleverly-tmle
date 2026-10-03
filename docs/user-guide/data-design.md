@@ -39,16 +39,20 @@ study = CausalStudy(
 - `cluster` selects cluster-robust inference, and it selects a grouped fold draw that keeps each
   cluster whole. It is not another adjustment variable. A cluster is then the independent unit a
   cross-fitted fit counts, so each treatment arm must appear in at least two clusters. C-TMLE
-  refuses `cluster=` at every setting, and longitudinal TMLE refuses it above one fold.
+  refuses `cluster=` at every setting. Longitudinal TMLE cross-fits with whole-cluster folds.
 
-  A TMLE, DR-TMLE, or longitudinal TMLE fit reports no interval when it has fewer than 40
-  clusters with positive weight mass. For TMLE and DR-TMLE, this also applies to one reported
-  stratum. A cross-fitted fit reports none when its clusters differ in rows or, on a weighted
-  fit, weight mass, overall or within a reported stratum
+  Clusters may differ in size. A TMLE, DR-TMLE, or longitudinal TMLE fit with fewer than 40
+  clusters with positive weight mass reports a Student t interval with the cluster count minus 2
+  degrees of freedom. Below 10 such clusters it reports no interval, and a cross-fitted
+  longitudinal TMLE fit reports no interval below 20. For TMLE and DR-TMLE, both
+  rules also apply to one reported stratum
   ([clusters](../technical-reference/inference.md#clusters)).
 - `strata` requests subgroup parameters and preserves the stratum in structured parameter keys.
   A stratum variable must also appear in `adjustment`: it conditions the reported parameter, so a
   design that stratified on a variable it did not adjust for is refused rather than fitted.
+  Arm, regime, shift, incremental, MSM and natural-course targets fit strata, and so does
+  DR-TMLE at every `guard`. Fold targeting and fold evaluation refuse them
+  ([weights, strata, and clusters](../technical-reference/point-treatment-tmle.md#weights-strata-and-clusters)).
 - `intermediate` and explicit missingness roles activate supported controlled-direct-effect and
   missing-outcome compositions. The next section gives the two missingness roles.
 

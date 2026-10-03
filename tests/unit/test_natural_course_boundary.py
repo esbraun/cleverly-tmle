@@ -88,6 +88,9 @@ REQUESTS = [
     pytest.param(("ey_obs", "ey0", "paf"), id="joint"),
 ]
 
+#: The roles of a fit with a baseline stratum.
+STRATA_ROLES = {"outcome": "Y", "treatment": "A", "covariates": ("W", "stratum"), "delta": "Delta"}
+
 #: The subject every natural-course contract refusal opens with.
 SUBJECT = (
     "NaturalCourseMean, PAR and PAF with missing outcomes currently support ordinary TMLE "
@@ -199,15 +202,8 @@ ESTIMATORS = [
 @pytest.mark.parametrize("build", ESTIMATORS)
 @pytest.mark.parametrize(
     ("fit_roles", "message"),
-    [
-        (
-            {"strata": ("stratum",)},
-            "baseline strata need a stratum-indexed natural-course fluctuation "
-            "(X8 in docs/roadmap.md)",
-        ),
-        ({"intermediate": "Z"}, "intermediate= is not implemented"),
-    ],
-    ids=("strata", "intermediate"),
+    [({"intermediate": "Z"}, "intermediate= is not implemented")],
+    ids=("intermediate",),
 )
 def test_unsupported_data_compositions_refuse_before_fitting(
     estimands: tuple[str, ...], build: Any, fit_roles: dict[str, Any], message: str
@@ -224,6 +220,41 @@ def test_unsupported_data_compositions_refuse_before_fitting(
             **fit_roles,
         )
     assert str(caught.value) == SUBJECT + message
+    assert NeverFit.calls == 0
+
+
+@pytest.mark.parametrize("estimands", REQUESTS)
+def test_strata_fit_in_sample(estimands: tuple[str, ...]) -> None:
+    """The in-sample fit targets one block per stratum, so it reaches a learner."""
+    with pytest.raises(AssertionError, match="before any learner is fitted"):
+        in_sample_tmle(**never_fit_learners(), estimands=estimands).fit(
+            _frame(), strata=("stratum",), **STRATA_ROLES
+        )
+    assert NeverFit.calls > 0
+
+
+def test_the_stacked_natural_course_mean_fits_strata() -> None:
+    """The stacked scalar fit solves one block per stratum on the out-of-fold predictions."""
+    with pytest.raises(AssertionError, match="before any learner is fitted"):
+        stacked_tmle(**never_fit_learners(), estimands=("ey_obs",)).fit(
+            _frame(), strata=("stratum",), **STRATA_ROLES
+        )
+    assert NeverFit.calls > 0
+
+
+@pytest.mark.parametrize("estimands", [request for request in REQUESTS if request.id != "ey_obs"])
+def test_a_stacked_attributable_fit_meets_the_arm_indexed_strata_refusal(
+    estimands: tuple[str, ...],
+) -> None:
+    """PAR, PAF and a joint fit read the arm-indexed contract, which refuses strata."""
+    with pytest.raises(CapabilityError) as caught:
+        stacked_tmle(**never_fit_learners(), estimands=estimands).fit(
+            _frame(), strata=("stratum",), **STRATA_ROLES
+        )
+    assert str(caught.value).endswith(
+        "no audited result covers baseline strata. Drop strata= from fit "
+        "(PointTreatment(strata=()))"
+    )
     assert NeverFit.calls == 0
 
 

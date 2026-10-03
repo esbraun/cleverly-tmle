@@ -127,6 +127,21 @@ alone would make `truncation_curve()` refuse.
 | `variable_importance` | none. It raises the fold-policy refusal first. On each candidate's prepared data it raises the outcome-scale refusal, then asks the hook. It refuses before the first fit. A cross-fitted run of a continuous outcome with no `q_bounds` meets the scale refusal first in two cases. With `delta=`, its fit would raise the arm-indexed refusal first. With a `CTMLE` template, the hook would give its collaborative status |
 | a longitudinal estimator | `cluster_inference_status` on the prepared cluster labels and weights. The fit and the truncation-curve replay pass it through `_estimates` and `_msm_estimates` to each `make_estimate` call. The replay computes the status again from the data and folds of the result, so the replay at the fitted bound equals the fit in every field that `_fitted_replay_matches` compares |
 
+The same stamp sets the Student $t$ reference of a clustered fit. A builder records the rows an
+estimate reads, and not its degrees of freedom: `_stratum_estimates` returns the stratum code of
+each stratum estimate. `stamp_inference` turns that record into `reference_df`, and it does so
+only when the fit's status supplies inference. A fit at `"few_cluster_plugin"` therefore keeps
+`reference_df=None` on every estimate, and no stratum count below the floor reaches
+`cluster_reference_df`.
+
+A derived estimate takes the smallest `reference_df` of its inputs at its own `make_estimate`
+call. Every interval, p-value and sensitivity limit reads the reference
+through `wald_ci`, `wald_statistic`, `reference_quantile` or `one_sided_quantile` in
+`cleverly.inference.delta`, and `tests/unit/test_few_cluster_reference.py` scans the package for
+a second normal quantile. A future fold-evaluated report with baseline strata must carry each
+stratum's row set into `_average_over_folds`, or its stratum estimates read the fit's cluster count.
+*Reconsider when* a source gives a reference that is not a function of the cluster count.
+
 One fit has one status. When more than one non-inferential status applies, the fit takes the
 first one in `NON_INFERENTIAL` (`src/cleverly/_inference_status.py`). An override that finds more
 than one status passes them to `precedent_status`, so the order lives in the table.
@@ -192,9 +207,10 @@ and no fold count, because a split that happens to fit was chosen by reading the
 must not read. *Reconsider when* a split law that reads the treatment acquires a reviewed result.
 
 A composition the package cannot support is refused by name before it costs a learner. Collaborative
-TMLE refuses declared clusters at every setting, and cross-fitted longitudinal TMLE refuses them
-above one fold, because no reviewed result covers a grouped draw of those splits.
-*Reconsider when* a cluster-level result covers the selection path or the sequential recursion.
+TMLE refuses declared clusters at every setting, because no reviewed result covers a grouped draw
+of its selection splits. *Reconsider when* a cluster-level result covers the selection path. Every
+outer split of a clustered fit, point treatment or longitudinal, is whole-cluster. `make_folds`
+checks it for point treatment, and `LTMLE.fit` checks it with `check_integrity` after the draw.
 
 An MSM projection weight, an MSM design, and a `Stochastic` density are user-supplied functions
 that the reported influence curve treats as fixed. Each carries a declaration with `"known"`,

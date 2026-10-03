@@ -350,6 +350,13 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_point_msm import STUDY as CANONICAL_POINT_MSM
     from tests.studies.canonical_shift_policies import STUDY as CANONICAL_SHIFT_POLICIES
     from tests.studies.canonical_stochastic_regimes import STUDY as CANONICAL_STOCHASTIC_REGIMES
+    from tests.studies.canonical_stratified_drtmle import STUDY as CANONICAL_STRATIFIED_DRTMLE
+    from tests.studies.canonical_stratified_incremental_msm import (
+        STUDY as CANONICAL_STRATIFIED_INCREMENTAL_MSM,
+    )
+    from tests.studies.canonical_stratified_msm_identity import (
+        STUDY as CANONICAL_STRATIFIED_MSM_IDENTITY,
+    )
     from tests.studies.canonical_stratified_tmle import STUDY as CANONICAL_STRATIFIED_TMLE
     from tests.studies.canonical_tmle import STUDY as CANONICAL_TMLE
     from tests.studies.canonical_weighted_ltmle import STUDY as CANONICAL_WEIGHTED_LTMLE
@@ -357,7 +364,11 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as CANONICAL_WEIGHTED_LTMLE_CROSSFIT,
     )
     from tests.studies.canonical_weighted_tmle import STUDY as CANONICAL_WEIGHTED_TMLE
+    from tests.studies.clustered_crossfit_ltmle import STUDY as CLUSTERED_CROSSFIT_LTMLE
+    from tests.studies.clustered_few_cluster_tmle import STUDY as CLUSTERED_FEW_CLUSTER_TMLE
+    from tests.studies.clustered_unequal_cvtmle import STUDY as CLUSTERED_UNEQUAL_CVTMLE
     from tests.studies.default_bands import STUDY as DEFAULT_SIMULTANEOUS_BANDS
+    from tests.studies.few_cluster_crossfit_ltmle import STUDY as FEW_CLUSTER_CROSSFIT_LTMLE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
     from tests.studies.fold_targeted_cvtmle import STUDY as FOLD_TARGETED_CVTMLE
     from tests.studies.learned_rule_cvtmle import STUDY as LEARNED_RULE_CVTMLE
@@ -371,8 +382,15 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_LEARNED_WEIGHTED_TMLE,
         CANONICAL_MULTI_ARM_TMLE,
         CANONICAL_STRATIFIED_TMLE,
+        CANONICAL_STRATIFIED_INCREMENTAL_MSM,
+        CANONICAL_STRATIFIED_MSM_IDENTITY,
+        CANONICAL_STRATIFIED_DRTMLE,
         CANONICAL_CVTMLE,
         CANONICAL_CLUSTERED_TMLE,
+        CLUSTERED_UNEQUAL_CVTMLE,
+        CLUSTERED_FEW_CLUSTER_TMLE,
+        CLUSTERED_CROSSFIT_LTMLE,
+        FEW_CLUSTER_CROSSFIT_LTMLE,
         FOLD_EVALUATED_CVTMLE,
         FOLD_TARGETED_CVTMLE,
         REPEATED_CROSSFIT_TMLE,

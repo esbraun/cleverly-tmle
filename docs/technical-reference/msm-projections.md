@@ -112,6 +112,7 @@ realises exactly, no step is taken at all and the agreement is exact. Elsewhere 
 **The longitudinal projection requires `n_folds=1`.** The saturated identity holds for that
 supported construction. Cross-fitted unsaturated coefficient inference needs a dedicated property
 and repeated-sampling study. The package refuses it until that evidence exists.
+[X27](../roadmap.md#x27-cross-fitted-longitudinal-msm-targeting) holds the work.
 
 **Under a link, one round of the alternation is a whole backward pass.** The coefficient enters the
 covariate through the derivative of the inverse link, so each targeted regression moves with it. A
@@ -137,9 +138,37 @@ scale, because a coefficient vector has no single scale to map back with.
 | `link="identity"` | the clever covariate is free of the coefficient, and a correct mechanism drives the remainder to exactly zero |
 | `link="log"`, `link="logit"` | the covariate reads the coefficient, so the fluctuation and the projection alternate. `res.coefficients(scale="ratio")` exponentiates them |
 | `MSM.linear` | a model linear in the arm. **Refused on non-numeric labels**, because it would read the sort order as a dose scale nobody chose |
-| longitudinal `msm=` | the same projection over regimen, horizon, and cause cells, with rank checked on the actual realized design. It requires `n_folds=1` |
+| longitudinal `msm=` | the same projection over regimen, horizon, and cause cells, with rank checked on the actual realized design. It requires `n_folds=1`, and [X27](../roadmap.md#x27-cross-fitted-longitudinal-msm-targeting) holds the cross-fitted projection |
 | `targeting_scheme="fold"` | each fold solves its own coefficient, since the coefficient is something the covariate reads. This removes coupling *between* folds, and the rows inside a fold still fit both the coefficient and the fluctuation used for that fold. The pooled score is exactly zero because each fold's is zero at its own coefficient. This is a package extension and not the common-update CV-TMLE of Zheng and van der Laan |
-| point-treatment `"fold"` against longitudinal `n_folds` | point-treatment fold targeting is supported. Cross-fitted longitudinal MSM coefficient inference is refused pending separate evidence |
+| point-treatment `"fold"` against longitudinal `n_folds` | point-treatment fold targeting is supported. Cross-fitted longitudinal MSM coefficient inference is refused pending separate evidence, which [X27](../roadmap.md#x27-cross-fitted-longitudinal-msm-targeting) holds |
+
+### Baseline strata
+
+With `strata=`, a stratum's coefficients $\beta_s$ are the projection on the law given $S=s$.
+The projection loss separates by stratum, so $(\beta_s)_s$ are the coefficients of one working
+model with the expanded design $(I(S=s)\varphi)_s$. The table gives where each estimate comes
+from.
+
+| link | stratum coefficients | marginal coefficients |
+| --- | --- | --- |
+| identity, finite arms or a dose grid | one block $I(S=s)H/P_n(S=s)$ per stratum, in one pooled fluctuation | the same fluctuation; its score is the weighted sum of the blocks |
+| log, logit | a nested fluctuation of the blocks $I(S=s)H(\beta_s)/P_n(S=s)$, alternating with the projection on each stratum's rows, recorded on `Fluctuation.stratified` | the unstratified alternation, unchanged |
+
+The two links differ because a linked block reads its own stratum's coefficients. One
+fluctuation cannot be the stratum fluctuation for every stratum and the marginal fluctuation at
+once, so a linked fit carries two. Each estimate is asymptotically linear with its own curve, so
+the stacked-curve covariance of any marginal and stratum coefficients stays valid.
+
+Before any learner, the fit restricts the evaluated design to each stratum's rows and reruns the
+shipped rank rule. A design singular inside a stratum refuses with the stratum named first. A
+term that is constant there, such as the stratum column itself, and a term that copies another
+there, such as `a:S` in stratum `S = 1`, are both singular. A link does not change the rank,
+because $dm/d\eta>0$.
+
+`tests/unit/test_stratified_msm_exact.py` checks the linked coefficients and curves against the
+expanded-design fit, and the curve against a complex-step Gateaux derivative of $\beta_s$.
+`tests/unit/test_stratified_continuous_msm_exact.py` checks the dose case against the expanded
+design under the identity and logit links.
 
 The package cannot inspect a callable, so it reads the declarations of the design and of the
 projection weight. The table gives each place that checks both declarations.

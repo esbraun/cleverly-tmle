@@ -131,10 +131,19 @@ from typing import Literal
 
 import numpy as np
 
+from .._inference_status import FEW_CLUSTER_THRESHOLD
 from .._typing import BoolArray, FloatArray, IntArray
-from ..exceptions import refuse_inference
+from ..exceptions import CapabilityError, refuse_inference
 from .cluster import cluster_sums
 from .influence import ParameterEstimate
+
+#: Why no band covers an estimate with a Student t reference.
+T_REFERENCE_BAND_REFUSAL = (
+    "simultaneous_bands() has no joint result for an estimate with a Student t reference. "
+    f"The fit reads fewer than {FEW_CLUSTER_THRESHOLD} clusters with positive weight mass, "
+    "and no source read here gives a simultaneous band at that count. Report the pointwise "
+    "intervals, which use the t reference."
+)
 
 __all__ = ["SimultaneousBands", "multiplier_critical_value", "simultaneous_bands"]
 
@@ -441,7 +450,9 @@ def simultaneous_bands(
     CapabilityError
         If any estimate's ``supplies_inference`` is ``False``. A simultaneous band is
         a confidence statement, and the package supplies no inference for such an
-        estimate.
+        estimate. Also if any estimate carries a Student t reference
+        (:attr:`~cleverly.inference.ParameterEstimate.reference_df`), because no source
+        gives a t-calibrated band.
     """
     items = (
         list(estimates.items())
@@ -455,6 +466,8 @@ def simultaneous_bands(
     # raise out of ``estimate.std_error`` below under an accessor the caller never wrote.
     for _, estimate in items:
         refuse_inference(estimate.inference, operation="simultaneous_bands()")
+    if any(estimate.reference_df is not None for _, estimate in items):
+        raise CapabilityError(T_REFERENCE_BAND_REFUSAL)
     second_moment = [
         name for name, estimate in items if estimate.covariance_rule == "second_moment"
     ]

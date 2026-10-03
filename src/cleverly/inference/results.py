@@ -27,6 +27,7 @@ from .influence import (
     ParameterEstimate,
     Scale,
     make_estimate,
+    minimum_reference_df,
 )
 
 __all__ = [
@@ -185,7 +186,8 @@ def smooth_contrast(
 
     It inherits the inference status of its inputs too. A contrast of estimates the
     package supplies no inference for is itself refused, rather than becoming an
-    interval that its inputs do not have.
+    interval that its inputs do not have. Its Student t reference takes the smallest
+    degrees of freedom of its inputs (:func:`~cleverly.inference.influence.minimum_reference_df`).
 
     With ``scale="ratio"`` the value must be positive. The estimate stores
     ``log_psi = log(value)`` and the curve divided by the value, which is the chain rule
@@ -245,6 +247,7 @@ def smooth_contrast(
         log_psi=log_psi,
         covariance_rule=rule,
         inference=status,
+        reference_df=minimum_reference_df([estimates[key] for key in chosen]),
     )
     return estimate if transform is None else replace(estimate, transform=transform)
 
@@ -270,8 +273,8 @@ def ratio_contrast(
     ``complement=True`` each level is mapped to :math:`1 - \psi` and its curve to
     :math:`-IC` first, which gives the ratio of two survival probabilities.
 
-    The derived estimate inherits the covariance rule and the inference status of its
-    inputs, as :func:`smooth_contrast` does.
+    The derived estimate inherits the covariance rule, the inference status and the
+    smallest reference degrees of freedom of its inputs, as :func:`smooth_contrast` does.
 
     Parameters
     ----------
@@ -346,6 +349,7 @@ def ratio_contrast(
         log_psi=log_psi,
         covariance_rule=rule,
         inference=status,
+        reference_df=minimum_reference_df([estimates[key] for key in chosen]),
     )
 
 

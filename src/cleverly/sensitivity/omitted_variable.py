@@ -90,7 +90,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ParamSpec
 
 import numpy as np
-from scipy import optimize, stats
+from scipy import optimize
 
 from .._inference_status import InferenceStatus, supplies_inference
 from .._typing import FloatArray
@@ -100,6 +100,7 @@ from ..estimators.direct_effect import declares_intermediate
 from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, DataError, refuse_inference, repeats_refusal
 from ..inference.cluster import influence_variance
+from ..inference.delta import one_sided_quantile
 from ..inference.influence import spread_name
 from ..interventions.learned import LEARNED_RULE_SENSITIVITY_REFUSAL
 from ..targets import parameter_stem
@@ -1271,11 +1272,15 @@ def _confounding_strength(cf_y: float, cf_d: float, rho: float) -> float:
     return float(abs(rho) * np.sqrt(cf_y * cf_d / (1.0 - cf_d)))
 
 
-def _one_sided_quantile(level: float) -> float:
-    """Validate the one-sided coverage level before computing its normal quantile."""
+def _one_sided_quantile(level: float, df: int | None = None) -> float:
+    """Validate the one-sided coverage level before computing its reference quantile.
+
+    ``df`` is the Student t degrees of freedom of the bounded estimate, or ``None`` for the
+    normal reference.
+    """
     if not 0.5 <= level < 1.0:
         raise ValueError(f"level must lie in [0.5, 1); got {level}")
-    return float(stats.norm.ppf(level))
+    return one_sided_quantile(level, df)
 
 
 def omitted_variable_bounds(
@@ -1338,9 +1343,10 @@ def omitted_variable_bounds(
         refuses, an estimand the bound does not cover, or a doubly robust estimate of
         ``nu^2`` that is not positive.
     """
-    quantile = _one_sided_quantile(level)
+    _one_sided_quantile(level)
     elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
     estimate = result[estimand]
+    quantile = _one_sided_quantile(level, estimate.reference_df)
     strength = _confounding_strength(cf_y, cf_d, rho)
 
     lower = estimate.psi - strength * elements.max_bias
@@ -1358,7 +1364,9 @@ def omitted_variable_bounds(
         ci_lower = lower - quantile * se_lower
         ci_upper = upper + quantile * se_upper
 
-    rv, rva = _robustness_values(result, elements, estimate.psi, rho, level, null_hypothesis)
+    rv, rva = _robustness_values(
+        result, elements, estimate.psi, rho, level, null_hypothesis, estimate.reference_df
+    )
     return SensitivityBounds(
         estimand=estimand,
         psi=estimate.psi,
@@ -1393,6 +1401,7 @@ def _robustness_values(
     rho: float,
     level: float,
     null_hypothesis: float,
+    df: int | None = None,
 ) -> tuple[float | None, float | None]:
     """Solve for ``cf_y = cf_d = v`` at which a bound reaches the null.
 
@@ -1405,7 +1414,7 @@ def _robustness_values(
     alignment = abs(rho)
     if not 0.0 <= alignment <= 1.0:
         raise ValueError(f"|rho| must lie in [0, 1]; got {rho}")
-    quantile = _one_sided_quantile(level)
+    quantile = _one_sided_quantile(level, df)
 
     def equal_share(strength: float) -> float:
         assert alignment > 0.0
@@ -1855,7 +1864,9 @@ def robustness_value(
     """
     elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
     estimate = result[estimand]
-    rv, rva = _robustness_values(result, elements, estimate.psi, rho, level, null_hypothesis)
+    rv, rva = _robustness_values(
+        result, elements, estimate.psi, rho, level, null_hypothesis, estimate.reference_df
+    )
     status = estimate.inference
     values: dict[str, Any] = {} if supplies_inference(status) else {"inference": status}
     if elements.psi_max_bias is None:
