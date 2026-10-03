@@ -33,6 +33,9 @@ weighted-point-treatment-tmle
 learned-weighted-point-treatment-tmle
 ordinary-multi-arm-tmle
 stratified-point-treatment-tmle
+stratified-incremental-msm
+stratified-msm-identity
+stratified-dr-tmle
 stacked-point-treatment-cv-tmle
 clustered-point-treatment-cv-tmle
 fold-evaluated-point-treatment-cv-tmle

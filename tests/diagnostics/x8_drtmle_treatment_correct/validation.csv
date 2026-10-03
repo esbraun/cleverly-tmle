@@ -1,0 +1,5 @@
+estimand,replicates,max_abs_estimate_difference
+ate,400,0.0
+ate[V=0],400,0.0
+ate[V=1],400,0.0
+ate[V=2],400,0.0

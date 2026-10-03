@@ -224,3 +224,55 @@ def test_the_identity_msm_smallest_stratum() -> None:
     assert abs(float(row["mean_difference"])) < 1e-5
     assert round(float(row["calibration_excess_upper"]), 4) == 0.0523
     assert row["comparison_conclusion"] == "inconclusive"
+
+
+def _bias(rows: pd.DataFrame) -> dict[tuple[str, str], float]:
+    return {
+        (str(estimand), str(arm)): round(float((group["estimate"] - group["truth"]).mean()), 4)
+        for (estimand, arm), group in rows.groupby(["estimand", "arm"])
+    }
+
+
+def test_the_stratified_drtmle_treatment_correct_bias() -> None:
+    """The ``X8-drtmle-one-sided-bias`` reading, rebuilt from the committed diagnostic rows.
+
+    Arm ``C`` reproduces the committed cells exactly.  Inside each stratum the shipped
+    unstratified fit (``S``) and R ``drtmle`` with the same arrays (``R``) carry the same
+    positive bias.  The stratified marginal inherits it and contracts faster than its spread.
+    """
+    here = ROOT / "tests" / "diagnostics" / "x8_drtmle_treatment_correct"
+    validation = pd.read_csv(here / "validation.csv")
+    assert (validation["replicates"] == 400).all()
+    assert (validation["max_abs_estimate_difference"] == 0.0).all()
+    bias = _bias(pd.read_csv(here / "rows.csv.gz", float_precision="round_trip"))
+    for s in (0, 1, 2):
+        name = f"ate[V={s}]"
+        assert min(bias[(name, arm)] for arm in "CRS") > 0.009, name
+    assert bias[("ate", "C")] == 0.0151
+    assert bias[("ate", "M")] == 0.0029
+    contraction = pd.read_csv(here / "contraction-rows.csv.gz", float_precision="round_trip")
+    assert _bias(contraction)[("ate", "C")] == 0.0058
+    spread = contraction.loc[
+        (contraction["arm"] == "C") & (contraction["estimand"] == "ate"), "estimate"
+    ].std(ddof=1)
+    assert round(float(spread), 4) == 0.0135
+
+
+def test_the_stratified_drtmle_smallest_stratum() -> None:
+    """The ``X8-drtmle-small-stratum`` reading: R drtmle shares each shortfall on the same draws."""
+    here = ROOT / "tests" / "canonical" / "drtmle_stratified"
+    summary = pd.read_csv(here / "summary.csv", float_precision="round_trip").set_index(
+        ["estimand", "implementation"]
+    )
+    coverage = summary["coverage"].round(4)
+    assert coverage[("ey[1][V=2]", "cleverly-stratified-drtmle")] == 0.9
+    assert coverage[("ey[1][V=2]", "drtmle-r-stratified")] == 0.8925
+    ratio = summary["se_ratio"].round(3)
+    assert ratio[("ate[V=2]", "cleverly-stratified-drtmle")] == 0.985
+    assert ratio[("ate[V=2]", "drtmle-r-stratified")] == 0.973
+    paired = pd.read_csv(here / "equivalence.csv", float_precision="round_trip").set_index(
+        "estimand"
+    )
+    assert abs(float(paired.loc["ey[1][V=2]", "mean_difference"])) < 1e-4
+    cells = pd.read_csv(here / "properties.csv", float_precision="round_trip").set_index("cell")
+    assert round(float(cells.loc["v2_ate__correctly_specified", "se_ratio_ci_lower"]), 4) == 0.9294
