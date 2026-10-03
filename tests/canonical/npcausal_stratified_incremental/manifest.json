@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly-stratified-incremental",
       "cleverly_version": "0.1.2",
-      "cleverly_commit": "003448e79943623683703fff16fc053fb63d7ed1",
+      "cleverly_commit": "51c9a6ea3a345dc55c0f61753480ca165fdd354a",
       "cleverly_worktree_clean": true,
       "python": "3.13.7",
       "numpy": "2.5.3",
@@ -99,7 +99,7 @@
   },
   "study_module_sha256": {
     "tests/studies/canonical_stratified_incremental_msm.py": "2cb0889983ad3090695c71ff870b2c47dead73366a6c02f506388ee032fb75e3",
-    "tests/studies/stratified_incremental_msm_properties.py": "dbad0d6041bb2b7b45cb83b15ffb96fabd4318e484931914a090fb6630a83807",
+    "tests/studies/stratified_incremental_msm_properties.py": "542825a5d1b3d0e52894ee1a2aec43d30490e0c4d973b89cd906f82e3fc4db59",
     "tests/studies/stratified_alternating_law.py": "19d62e110b376ee2fa83832101d57f32414e49d3eff8381b3889b0accd7150fe",
     "tests/studies/stratified_law.py": "0a2d419c24c5011d1e42ebce01dd65da5e405faac088a8ad02bbd5c8c18db828",
     "tests/discrete_law.py": "781827e6225aec7451e8b1bd2232873abfccd0e8ae56b85e1cc90f658f55eaeb",
@@ -124,6 +124,6 @@
     "equivalence.csv": "4264ff2aab78642a2ef4f5f2f10f84e25a07d12a356b2e120898970555a9a175",
     "performance-tests.csv": "c68bcc3193b2cca7a929d2f556214d766a3cd6c815d44f56712c0f979e1f4d17",
     "property-replicates.csv.gz": "19f10c661c4e46d8eef54eda002064840fad6682671beaefd243d3e9500fc8d9",
-    "properties.csv": "b714b2001e295610bddcb491b17fd4b09ab4004e4d72e590b8fa842bd53a773e"
+    "properties.csv": "2b89b9ec18b445b70172defa32f3d9a421c4996abebd5009dc7b419a31cf79f3"
   }
 }
