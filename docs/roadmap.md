@@ -66,7 +66,6 @@ Priorities 2 to 5 follow the beta.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.1 | Contrast and test conveniences | no new theory; delta method and linear functionals | shipped joint influence curves | [X20](#x20-contrast-and-test-conveniences) |
 | 1.2 | Natural-extension reviews | source audit, with the presumption that a part qualifies | the [Eligibility](#eligibility) conditions | [X18](#x18-natural-extension-reviews) |
 | 1.3 | Modified treatment policies beyond the additive point shift | published support; pending source read | shipped additive shift and categorical longitudinal nodes | [X12](#x12-modified-treatment-policies-beyond-the-additive-point-shift) |
 | 1.4 | Point-treatment survival and time-to-event input | published support; pending source read | shipped survival and competing-risk recursion | [X13](#x13-point-treatment-survival-and-time-to-event-input) |
@@ -223,6 +222,9 @@ cells that a declared oracle-band diagnostic read as finite-sample.
 `tests/unit/test_band_shortfall_reading.py` rebuilds each reading from the committed rows. Like
 the `RM18-` owners, they are standing records of a reading. They do not gate the beta release.
 
+The `X20-bootstrap` owner holds the bootstrap kinds that stay diagnostic. It does not gate the
+beta release either.
+
 | id | work | acceptance |
 | --- | --- | --- |
 | `F18` | an inference result for the shipped selector path | an influence curve derived after the stopping-index selection, and a registered study whose `selector_necessity` and `type_i_error` cells pass their existing margins at their existing budgets. The multi-arm `interval_calibration/correctly_specified` cell must also pass its band, because its standard-error ratio interval, 0.8987 to 0.9862, measures the fixed-candidate covariance that F18 replaces |
@@ -235,30 +237,12 @@ the `RM18-` owners, they are standing records of a reading. They do not gate the
 | `RM18-comparator-density` | the paired `ate_shift[+0.25 vs natural course]` row of `shift-policies` | reading `cleverly density representation` ([`tests/diagnostics/rm18_comparator_density/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_comparator_density)). The calibration leg fails with a 99% upper endpoint of 0.065856 against a margin of 0.05, so the conclusion is `inconclusive`. If X12 changes the density representation, it re-reads this row |
 | `strata-boundary-mean` | the two primary truth rows of `ey[1][V=2]` and the `interval_calibration/v2_ey1__correctly_specified`, `simultaneous_coverage/strata__simultaneous_band` and `simultaneous_coverage/crossfit_strata__simultaneous_band` cells of `canonical-stratified-tmle` | reading `finite-sample Wald interval`: the treated mean of stratum V = 2 is 0.9358, and at n = 2,000 the stratum holds about 157 treated rows and about 9 expected non-events. R `tmle3` shows the same coverage on the same draws, the bias is inside its margin, and the oracle band at the exact critical value also under-covers ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). The owner closes when a re-declared cell, with its law or size declared before its run, or a small-sample interval correction with its own registered study passes. Until then each cell stays published red under `reporting` |
 | `band-finite-sample` | the `simultaneous_coverage/all_reported__simultaneous_band` cell of `canonical-ltmle-survival`, and the `categorical_ltmle__simultaneous_band`, `categorical_ltmle_crossfit__simultaneous_band` and `cde_z0__simultaneous_band` cells of `default-simultaneous-bands` | reading `finite-sample, pointwise shortfall inherited`: the oracle band at the design critical value also covers below 0.95, and the source study's pointwise calibration of the same parameters sits near the lower edge of its band. The package critical value averages a little below the design one, so the multiplier explains a small part of each shortfall ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). The owner closes when a re-declared cell, with its law or size declared before its run, or a small-sample interval correction with its own registered study passes. Until then each cell stays published red under `reporting` |
+| `X20-bootstrap` | the `interval_calibration` cells `boot_ey_crossfit__correctly_specified`, `boot_ate_crossfit__correctly_specified` and `boot_ate_clustered__correctly_specified` of `full-refit-bootstrap-and-derived-contrasts` | the declared rule 3 keeps the `end_of_study/cross_fit` and `end_of_study/cluster` kinds out of `LICENSED_BOOTSTRAP_DESIGNS`, so their bootstrap prints as a diagnostic. A diagnostic reading, not a registered result: on this cell the cross-fitted estimator is heavy-tailed. Its 4,000 committed estimates have excess kurtosis 6.7, and about 5% of them lie at the probability boundary, because `g_bounds=(1e-8, 1)` with saturated cell means leaves sparse training cells unbounded. A bootstrap resample holds about 63% unique units, so more replicates reach the boundary and the replicate spread exceeds the sampling spread (SE ratios 1.23 and 1.27). A probe that kept each unit's copies in one fold raised the SE ratio to about 1.65, so the split of copies across folds is not the cause. The cluster contrast covers 0.924 with a calibrated SE ratio (0.977), a finite-sample shortfall of the percentile interval at 60 clusters. The owner closes when a re-declared cell for the kind, with its law, size, nuisance bounds or resampling scheme declared before its run, passes a registered cell |
 
 ## Detailed implementation contracts
 
 The sections below give one contract for each open item. Their physical order does not override
 the main grid.
-
-### X20. Contrast and test conveniences
-
-One pull request delivers the six parts. Each part reads shipped influence curves, so none needs
-new theory. Each part is an exact delta-method or linear-functional computation.
-
-| part | what to add | comparator that ships it |
-| --- | --- | --- |
-| (a) ratio contrasts on a longitudinal fit | risk ratio and odds ratio of two regimens, and of two survival or cumulative-incidence values at a horizon, on the log scale. Today `contrast(fn, names, scale="ratio")` is the only route | `lmtp_contrast(type = "rr")` and `"or"` in `lmtp` 1.5.4; `RR` in `concrete` |
-| (b) a test at any null value | a `pvalue` and a Wald test against a declared null value. Today `pvalue` tests 0, or 1 for a ratio | `wald_test(null = )` in `drtmle` 1.1.2 |
-| (c) an interval on a declared transform | an interval computed on the scale of a user transform `f` and mapped back with its inverse, beside the shipped `contrast(fn, gradient=)` | `ci(contrast = list(f, f_inv, h, fh_grad))` in `drtmle` 1.1.2 |
-| (d) restricted mean survival time | RMST up to a declared horizon, as the linear contrast of the survival curve over the horizon grid, with its contrast between regimens | none of the comparators. It is a linear functional of reported estimates |
-| (e) the fixed-propensity interval of R `ctmle` | document `plugin_interval` on the greedy, ordered and discrete paths as the interval that R `ctmle` reports, with no coverage claim. Add the `calc_varIC(ICg = TRUE)` logistic-estimation term as an opt-in diagnostic under a `plugin_` name. The `working_mechanism_plugin` status does not change | `ctmle` 0.1.2, `R/functions.R`, lines 39 to 60, at `18de559` |
-| (f) the full-refit bootstrap on `LTMLE` | the `n_bootstrap=` option, which `LTMLE` refuses today. Write its resampling and replay contract first: what each replicate refits, how a cluster and a censored row resample, and which status a replicate carries | none of the pinned comparators |
-
-Acceptance: an exact-law test for each part, and a mutation control for each transform and
-gradient. Part (e) adds no status change. A test pins that `ci`, `pvalue` and `std_error` still
-refuse on those paths. Part (f) needs a registered coverage study before its interval is
-inferential.
 
 ### X18. Natural-extension reviews
 

@@ -10,15 +10,18 @@ from .cluster import (
     influence_variance,
 )
 from .delta import (
+    Transform,
     delta_method,
     log_odds_ratio_influence,
     log_ratio_influence,
     normal_ci,
     two_sided_pvalue,
+    wald_statistic,
 )
 from .influence import (
     BootstrapSummary,
     ParameterEstimate,
+    WaldTest,
     atc_estimate,
     att_estimate,
     counterfactual_means,
@@ -37,6 +40,8 @@ __all__ = [
     "BootstrapSummary",
     "ParameterEstimate",
     "SimultaneousBands",
+    "Transform",
+    "WaldTest",
     "atc_estimate",
     "att_estimate",
     "bootstrap_indices",
@@ -61,4 +66,5 @@ __all__ = [
     "simultaneous_bands",
     "two_sided_pvalue",
     "unscale",
+    "wald_statistic",
 ]

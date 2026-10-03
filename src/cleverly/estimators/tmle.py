@@ -144,6 +144,7 @@ from ..inference.influence import (
     stamp_inference,
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
+from ..inference.results import attach_bootstrap
 from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as_interventions
 from ..interventions.base import refuse_mixed_interventions, refuse_regime_densities
 from ..interventions.incremental import refuse_multi_arm_tilt
@@ -193,7 +194,6 @@ from .base import (
     TMLEConfig,
     TMLEResult,
     TMLEResultSet,
-    attach_bootstrap,
     resolve_estimands,
 )
 from .composite import (
@@ -513,6 +513,13 @@ _REPEATED_BANDS_REASON = (
     "split-adjusted median estimator. Set simultaneous=False, report one estimate, "
     "or fit one split."
 )
+
+
+#: Whether the point-treatment full-refit bootstrap's percentile interval is published as
+#: inference.  It shipped as inference before the registered study
+#: ``full-refit-bootstrap-and-derived-contrasts`` measured it.  A red ``boot_ate_point_tmle``
+#: cell sets this to ``False``, so the interval then publishes as a diagnostic.
+POINT_BOOTSTRAP_INFERENTIAL = True
 
 
 class TMLE:
@@ -1602,7 +1609,7 @@ class TMLE:
                 random_state=self.random_state,
                 n_jobs=self.n_jobs,
             )
-            result = attach_bootstrap(result, bootstrap)
+            result = attach_bootstrap(result, bootstrap, inferential=POINT_BOOTSTRAP_INFERENTIAL)
 
         return result
 

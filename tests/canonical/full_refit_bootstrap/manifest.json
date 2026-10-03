@@ -1,0 +1,103 @@
+{
+  "schema_version": 2,
+  "study": "full-refit bootstrap and derived contrasts",
+  "slug": "full-refit-bootstrap-and-derived-contrasts",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-ltmle-derived",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "b25fa6172c63d99501066c31eafa87d75bcdb8d2",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 2000,
+    "seed": 20261013,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "end_of_study_ratio": [
+        "rr_regimen[always vs never]",
+        "or_regimen[always vs never]"
+      ]
+    },
+    "regimens": "never (reference) and always; the end-of-study law also fits treat_if_l2",
+    "g_bounds": [
+      1e-08,
+      1.0
+    ],
+    "learners": "saturated cell means on the end-of-study and point laws; on the four-node survival law, cell means over the columns each true conditional reads",
+    "simultaneous_intervals": false,
+    "fit_jobs": 1,
+    "bootstrap_replicates": 200,
+    "bootstrap_interval": "two-sided percentile",
+    "failed_replicate_cap": 0.01,
+    "shrunken_se_factor": 0.7,
+    "clustered_draw": {
+      "clusters": 60,
+      "cluster_size": 25,
+      "latent_shift": 0.1
+    },
+    "red_cell_policy": [
+      "1. The study policy is reporting. No budget, margin, law or learner changes after a verdict is seen.",
+      "2. A red ratio or RMST cell is first checked against the exact-law tests of tests/unit/test_contrast_conveniences.py. A defect found there is fixed, and the study is regenerated once and declared in tests/canonical/provenance-revisions.md. A red cell the exact tests cannot explain is published red with owner X20-derived, and the ratio and rmst docstrings and the evidence page name the shortfall.",
+      "3. The longitudinal bootstrap is licensed per design kind. A kind enters LICENSED_BOOTSTRAP_DESIGNS only when every bootstrap cell of that kind is green. A red cell keeps its own kind a diagnostic, named through bootstrap_column, with owner X20-bootstrap, and moves no other kind. The kinds measured are end_of_study/in_sample, end_of_study/cross_fit, end_of_study/cluster and survival/in_sample.",
+      "4. A red point-TMLE bootstrap cell is published under reporting with owner X20-point-bootstrap, and rule 3 applies to TMLEResult.",
+      "5. A control that does not fail means the instrument cannot see the defect; the study then reports the control as underpowered by design and claims no positive verdict for its cell."
+    ],
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_full_refit_bootstrap.py": "e9fe8814aea70d27428eea71d5c9339d2e65917a24a61b6b2864d63ccf6e3090",
+    "tests/studies/full_refit_bootstrap_properties.py": "118b5a4edef88456c120e21aad4a7537812d4e3c486568e1493e266cfb13a2ff",
+    "tests/studies/survival_grid_law.py": "336948d24c00714797bb7f075a096202c703d6bbd58fddb20fa0c20f03b4c0ca",
+    "tests/studies/canonical_ltmle.py": "db44a0fabb57fc19f37e94b9229f1f425de28745d6b109d4d1600eb60d0678f1",
+    "tests/discrete_law_longitudinal.py": "acc9eaaf056050dae69e7bdbe203797e0dc6fe2502423c15369f69dbcc41d59c",
+    "tests/discrete_law.py": "781827e6225aec7451e8b1bd2232873abfccd0e8ae56b85e1cc90f658f55eaeb",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "9c8e6a923bb16fd6637dbec77492c43aef29d9a5f825799a20ce5002ca5e9590",
+    "tests/studies/evidence/property_verdicts.py": "6bddb3468d8135bc663df0d92fc52aadea539efdee0cd1ed84ef0e3e12658076",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "1b93bfdc771ffba0d900d8fe7d1cdae3ff63b541ad54a67bb42e64b4a2dca446",
+    "summary.csv": "2b3d6218207880d296471ea0b7f64785562f098ac1febc3575e68166e9314272",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "0ad53c789548aedbdc52b910fa5da93c56b0d2ffcf6c15607a012d200f826867",
+    "property-replicates.csv.gz": "3fdce164bce0bd9aa3b01c159abc20804102cfa41c86d7d4e3eb25ff16f9744b",
+    "properties.csv": "30ce1a227695bb4ba5c21124eb6ab1959455a9b9c8d70f3e196c619faf5a4b19"
+  }
+}

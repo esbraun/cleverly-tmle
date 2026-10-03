@@ -1004,7 +1004,6 @@ class TestItRefusesByName:
             # missing feature: eliminating the competing events makes them intervened
             # nodes with their own identification.
             ("eliminate", "different estimand"),
-            ("n_bootstrap", "whole backward recursion"),
             ("cross_fit", "n_folds=1"),
         ],
     )
@@ -1109,21 +1108,6 @@ class TestTheSharedAssessmentContract:
                 restored[name].influence_curve,
                 result[name].influence_curve,
             )
-
-    def test_the_bootstrap_blames_the_missing_method_not_positivity(
-        self, fitted: tuple[LongitudinalResult, dict[str, float]]
-    ) -> None:
-        """It used to report "the fit is too unstable to bootstrap".
-
-        Every replicate died on a missing ``subset`` inside the loop's blanket
-        ``except Exception``, so a structural gap came out as a statistical diagnosis
-        recommending ``res.diagnostics.support()`` -- itself unavailable here.
-        """
-        from cleverly.inference.bootstrap import run_bootstrap
-
-        result, _ = fitted
-        with pytest.raises(TypeError, match="needs a subset\\(\\) on the data container"):
-            run_bootstrap(result.data, lambda data: {}, n_replicates=5)  # type: ignore[arg-type]
 
 
 class TestASurvivalOutcome:

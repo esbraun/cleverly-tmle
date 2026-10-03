@@ -511,8 +511,6 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("targeting", "nuisance_bound", "nuisance_bound"),
     ("targeting", "target_weights", "target_weights"),
     ("targeting", "step_size", "step_size"),
-    ("inference", "n_bootstrap", "n_bootstrap"),
-    ("inference", "bootstrap_resampling", "bootstrap_resampling"),
 )
 
 
@@ -706,6 +704,8 @@ class TMLEMethod:
                     "pseudo_learner": models.pseudo_learner,
                     "treatment_learner": models.treatment_learner,
                     "censoring_learner": models.censoring_learner,
+                    "n_bootstrap": inference.n_bootstrap,
+                    "bootstrap_resampling": inference.bootstrap_resampling,
                 }
             )
             # Longitudinal cumulative bounds have a fixed-pair contract. ``auto`` is a

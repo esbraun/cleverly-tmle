@@ -18,6 +18,8 @@ from .ctmle import (
     CTMLEPreorder,
     CTMLESelection,
     CTMLEStrategy,
+    LogisticPlugin,
+    logistic_plugin,
 )
 from .drtmle import DRTMLE, ReducedFit
 from .tmle import TMLE, tmle
@@ -33,11 +35,13 @@ __all__ = [
     "CTMLESelection",
     "CTMLEStrategy",
     "CVTargeting",
+    "LogisticPlugin",
     "NuisanceEstimates",
     "ReducedFit",
     "TMLEConfig",
     "TMLEResult",
     "TMLEResultSet",
+    "logistic_plugin",
     "resolve_estimands",
     "tmle",
 ]

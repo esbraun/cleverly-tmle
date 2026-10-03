@@ -30,19 +30,133 @@ a ratio of ATTs, a percentage change, a contrast across subgroups.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 
 import numpy as np
 from scipy import stats
+from scipy.special import expit
+from scipy.special import logit as _logit
 
 from .._typing import FloatArray
 
 __all__ = [
+    "Transform",
     "delta_method",
     "log_odds_ratio_influence",
     "log_ratio_influence",
     "normal_ci",
     "two_sided_pvalue",
+    "wald_statistic",
 ]
+
+
+def _log(value: float) -> float:
+    return float(np.log(value))
+
+
+def _exp(value: float) -> float:
+    return float(np.exp(value))
+
+
+def _log_derivative(value: float) -> float:
+    return 1.0 / value
+
+
+def _logit_scalar(value: float) -> float:
+    return float(_logit(value))
+
+
+def _expit_scalar(value: float) -> float:
+    return float(expit(value))
+
+
+def _logit_derivative(value: float) -> float:
+    return 1.0 / (value * (1.0 - value))
+
+
+@dataclass(frozen=True)
+class Transform:
+    r"""A monotone map that a contrast's interval and test are computed on.
+
+    The interval is :math:`f^{-1}(f(\hat h) \pm z \cdot se)`, with
+    :math:`se` the standard error of :math:`f(\hat h)` by the chain rule. This is the
+    ``contrast = list(f, f_inv, h, fh_grad)`` form of R ``drtmle`` 1.1.2 ``ci()``
+    (``R/confint.R``, lines 146 to 167). The limits are sorted after the inverse map, so
+    a decreasing ``f`` gives an ordered interval.
+
+    A transform built from lambdas does not pickle. :meth:`log` and :meth:`logit` use
+    module-level functions and pickle. A fitted result never stores a transformed
+    estimate, so ``result.save()`` does not depend on this.
+
+    Parameters
+    ----------
+    name : str
+        A label for the transform, which ``to_dict`` reports.
+    forward : callable
+        The map :math:`f`, from the scale of the contrast to the inference scale.
+    inverse : callable
+        The inverse map :math:`f^{-1}`.
+    derivative : callable or None, default=None
+        The derivative :math:`f'`. ``None`` takes a central difference.
+
+    See Also
+    --------
+    cleverly.estimators.TMLEResult.contrast : Takes ``transform=``.
+
+    Examples
+    --------
+    >>> from cleverly.inference import Transform
+    >>> log = Transform.log()
+    >>> log.name, round(log.forward(1.0), 6), round(log.inverse(0.0), 6)
+    ('log', 0.0, 1.0)
+    """
+
+    name: str
+    forward: Callable[[float], float]
+    inverse: Callable[[float], float]
+    derivative: Callable[[float], float] | None = None
+
+    @classmethod
+    def log(cls) -> Transform:
+        """The natural log, with ``exp`` as its inverse.
+
+        Returns
+        -------
+        Transform
+            The log transform, for a positive contrast such as a ratio.
+        """
+        return cls("log", _log, _exp, _log_derivative)
+
+    @classmethod
+    def logit(cls) -> Transform:
+        """The logit, with the logistic function as its inverse.
+
+        Returns
+        -------
+        Transform
+            The logit transform, for a contrast inside ``(0, 1)`` such as a probability.
+        """
+        return cls("logit", _logit_scalar, _expit_scalar, _logit_derivative)
+
+    def slope(self, value: float, *, step: float = 1e-6) -> float:
+        """The derivative of :attr:`forward` at ``value``.
+
+        Parameters
+        ----------
+        value : float
+            The point on the scale of the contrast.
+        step : float, default=1e-6
+            Relative step of the central difference when :attr:`derivative` is ``None``.
+
+        Returns
+        -------
+        float
+            :math:`f'(value)`.
+        """
+        if self.derivative is not None:
+            return float(self.derivative(value))
+        h = step * max(1.0, abs(value))
+        return (float(self.forward(value + h)) - float(self.forward(value - h))) / (2.0 * h)
 
 
 def normal_ci(estimate: float, std_error: float, alpha: float = 0.05) -> tuple[float, float]:
@@ -55,12 +169,34 @@ def normal_ci(estimate: float, std_error: float, alpha: float = 0.05) -> tuple[f
     return (estimate - z * std_error, estimate + z * std_error)
 
 
+def wald_statistic(value: float, null: float, std_error: float) -> tuple[float, float]:
+    """The Wald statistic and its two-sided normal p-value.
+
+    Parameters
+    ----------
+    value : float
+        The estimate on its inference scale.
+    null : float
+        The null value on the same scale.
+    std_error : float
+        The standard error on that scale.
+
+    Returns
+    -------
+    statistic : float
+        ``(value - null) / std_error``, ``nan`` when the standard error is not positive.
+    pvalue : float
+        ``2 * Phi(-|statistic|)``.
+    """
+    if not np.isfinite(std_error) or std_error <= 0:
+        return float("nan"), float("nan")
+    z = (value - null) / std_error
+    return float(z), float(2.0 * stats.norm.sf(abs(z)))
+
+
 def two_sided_pvalue(estimate: float, std_error: float) -> float:
     """Two-sided p-value for ``H0: estimate = 0``."""
-    if not np.isfinite(std_error) or std_error <= 0:
-        return float("nan")
-    z = estimate / std_error
-    return float(2.0 * stats.norm.sf(abs(z)))
+    return wald_statistic(estimate, 0.0, std_error)[1]
 
 
 def log_ratio_influence(
