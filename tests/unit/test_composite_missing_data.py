@@ -1148,7 +1148,9 @@ def test_e21_a_nuisance_fit_refuses_the_composite_view() -> None:
 #: ``float.hex`` of each estimate and standard error, taken before the composite route existed, on
 #: ``make_missing_outcome(n=400, seed=4)`` with the learners of :func:`_pinned`.  The
 #: shipped missing-outcome TMLE, ``DRTMLE(guard=())`` with an observational ``delta=``,
-#: and ``DRTMLE(randomized=True)`` must not move.
+#: and ``DRTMLE(randomized=True)`` must not move.  The values are exact on the Windows machine
+#: that recorded them.  The relative tolerance of 1e-12 allows the last-ulp differences of
+#: another platform's BLAS, libm or solver path, as the K = 2 pin of F4 does.
 PINNED = {
     "missing_outcome": {
         "ate": ("0x1.1c1481f05746cp+0", "0x1.b500ad823e9e2p-4"),
@@ -1198,15 +1200,20 @@ def test_the_shipped_missing_outcome_routes_did_not_move(
     result = build()
     assert result.extra["missing_data"] == route, label
     for name, (psi, std_error) in PINNED[route].items():
-        assert float(result.estimates[name].psi).hex() == psi, (label, name)
-        assert float(result.estimates[name].std_error).hex() == std_error, (label, name)
+        estimate = result.estimates[name]
+        assert estimate.psi == pytest.approx(float.fromhex(psi), rel=1e-12, abs=0.0), (label, name)
+        assert estimate.std_error == pytest.approx(float.fromhex(std_error), rel=1e-12, abs=0.0), (
+            label,
+            name,
+        )
 
 
 def test_the_observational_guarded_fit_is_composite_and_moves() -> None:
     """The control of the pins: the guarded observational fit is the new route."""
     result = _pinned(DRTMLE)
     assert result.extra["missing_data"] == "composite"
-    assert float(result.estimates["ate"].psi).hex() != PINNED["missing_outcome"]["ate"][0]
+    pinned = float.fromhex(PINNED["missing_outcome"]["ate"][0])
+    assert abs(result.estimates["ate"].psi - pinned) > 1e-6 * abs(pinned)
 
 
 def test_a_complete_fit_is_the_complete_route() -> None:
