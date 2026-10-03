@@ -8,7 +8,8 @@ given its training rows, which covers that construction.  It does not cover the 
 package shipped before: a training-fold fluctuation whose targeted prediction is carried
 into the fold's next regression.  ``lmtp`` 1.5.4 has that shape, with out-of-fold density
 ratios on the training rows.  Mutation M3 below is the previous ``cleverly`` longhand,
-which read fold ``k``'s own mechanism slab instead.
+which read fold ``k``'s own mechanism model instead.  The mechanism keeps no per-fold
+prediction, so :func:`refit_fold_mechanism` refits fold ``k``'s model inside the test.
 
 Every check here reads a fit whose outcome learners are deliberately misspecified, so each
 node's ``epsilon`` is far from zero.  An exact-law check is blind to a term that vanishes at
@@ -21,22 +22,19 @@ claim  what fails it
 T1     each node's pooled score, read from the step's own arrays, is solved; mutations M1
        (epsilon fitted on fold 0's training rows only) and M1b (loss weights dropped) break it
 T2     ``clever`` is exactly ``1 / cumulative`` from a longhand out-of-fold product; mutation
-       M2 (fold 0's slab read as the out-of-fold pair) breaks it
+       M2 (fold 0's refit mechanism read as the out-of-fold pair) breaks it
 T3     ``initial`` is the longhand stitch of untargeted fold recursions on end-of-study,
        survival, competing-risk and categorical dynamic-rule fits; the previous
        fold-targeted carry (M3) differs from it; ``initial`` ignores ``g_bounds``
 T4     a misplaced fold fails T3's equality while the pooled solver row still passes
 T5     the nuisance diagnostic scores ``initial`` against ``regression_target``
 T6     one fold still carries targeted values and never enters the cross-fit path
-T7     ``warn_on_fold_convergence`` still reports the engine-level fold solves it serves
 =====  ======================================================================================
 """
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import replace
-from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -51,7 +49,9 @@ from cleverly.datasets import (
     make_longitudinal_survival,
     make_longitudinal_weighted,
 )
-from cleverly.exceptions import ConvergenceWarning, PositivityWarning
+from cleverly.estimators._nuisance import fit_on_rows
+from cleverly.exceptions import PositivityWarning
+from cleverly.learners._fitting import predict_mean, predict_probabilities
 from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalResult, sequential
 from cleverly.longitudinal.sequential import Mechanism, RegimenFit
 from cleverly.validation.longitudinal import _longitudinal_nuisances, _longitudinal_scores
@@ -180,25 +180,107 @@ def _relative_scores(result: LongitudinalResult) -> list[float]:
     return scores
 
 
+def refit_fold_mechanism(result: LongitudinalResult, fold: int, learner: Any = None) -> Mechanism:
+    """Fold ``fold``'s treatment and censoring models, refit and evaluated at every row.
+
+    The mechanism a fit keeps is the out-of-fold pair alone.  A test that needs what fold
+    ``k``'s own model says about its *training* rows refits that model here: the same
+    learner, design, target, weights and fit mask that
+    :func:`~cleverly.longitudinal.sequential.fit_mechanism` uses, on fold ``k``'s training
+    complement.  :func:`test_a_refit_fold_mechanism_is_the_out_of_fold_one_on_its_held_out_rows`
+    pins that the refit reproduces the production predictions on the held-out rows.
+
+    Parameters
+    ----------
+    result : LongitudinalResult
+        A cross-fitted fit.
+    fold : int
+        The zero-based outer fold whose model to refit.
+    learner : estimator or None
+        The treatment and censoring learner.  ``None`` is the logistic regression every
+        fit in this module uses.
+
+    Returns
+    -------
+    Mechanism
+        The refit model's probabilities at each regimen, on every row.
+    """
+    learner = LogisticRegression(max_iter=1000) if learner is None else learner
+    data = result.data
+    training = np.asarray(result.folds.assignment != fold)
+    masks = data.regimen_masks(data.treatment)
+    every = np.arange(data.n)
+    plans = {
+        fit.regimen.label: np.asarray(fit.assignment, dtype=float) for fit in result.fits.values()
+    }
+    treatment: list[dict[str, np.ndarray]] = []
+    censoring: list[dict[str, np.ndarray]] = []
+    for time in range(1, data.n_times + 1):
+        at_risk = masks.uncensored[:, time - 1] & masks.event_free[:, time - 1]
+        rows = np.flatnonzero(at_risk & training)
+        classes = tuple(float(code) for code in range(len(data.treatment_levels[time - 1])))
+        arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
+        model = fit_on_rows(
+            learner, data.history_design(time), arm, data.weights, rows, "classification", None
+        )
+        treatment.append(
+            {
+                label: np.clip(
+                    predict_probabilities(
+                        model, data.history_design(time, treatment=values), classes
+                    ),
+                    0.0,
+                    1.0,
+                )[every, values[:, time - 1].astype(np.int64)]
+                for label, values in plans.items()
+            }
+        )
+        if not data.censoring_names:
+            censoring.append({label: np.ones(data.n) for label in plans})
+            continue
+        stayed = np.where(at_risk, data.uncensored[:, time - 1].astype(float), 0.0)
+        model = fit_on_rows(
+            learner,
+            data.history_design(time, include_current=True),
+            stayed,
+            data.weights,
+            rows,
+            "classification",
+            None,
+        )
+        censoring.append(
+            {
+                label: np.clip(
+                    predict_mean(
+                        model,
+                        data.history_design(time, treatment=values, include_current=True),
+                        "classification",
+                    ),
+                    0.0,
+                    1.0,
+                )
+                for label, values in plans.items()
+            }
+        )
+    return Mechanism(tuple(treatment), tuple(censoring))
+
+
 def _longhand_cumulative(
-    result: LongitudinalResult, fit: RegimenFit, *, fold: int | None = None
+    result: LongitudinalResult, fit: RegimenFit, mechanism: Mechanism | None = None
 ) -> tuple[np.ndarray, np.ndarray]:
     """The raw and bounded cumulative mechanism, from the stored factors alone.
 
     ``np.cumprod`` over the interleaved factors rather than the production loop, and
     ``np.clip`` rather than :func:`~cleverly.utils.bounds.bound`.  The multiplication
-    order is the same, so the two agree to the last bit.
+    order is the same, so the two agree to the last bit.  ``mechanism`` defaults to the
+    fit's own out-of-fold one.
     """
-    mechanism = result.mechanism
+    mechanism = result.mechanism if mechanism is None else mechanism
     label = fit.regimen.label
     factors = []
     for time in range(result.data.n_times):
-        if fold is None:
-            treatment = mechanism.treatment[time][label]
-            censoring = mechanism.censoring[time][label]
-        else:
-            treatment = mechanism.treatment_by_fold[time][label][fold]
-            censoring = mechanism.censoring_by_fold[time][label][fold]
+        treatment = mechanism.treatment[time][label]
+        censoring = mechanism.censoring[time][label]
         factors.append(treatment)
         factors.append(censoring if result.data.censoring_names else np.ones(result.data.n))
     raw = np.cumprod(np.column_stack(factors), axis=1)[:, 1::2]
@@ -309,13 +391,14 @@ def _assert_clever_is_the_out_of_fold_reciprocal(result: LongitudinalResult) -> 
             np.testing.assert_array_equal(step.clever, expected)
 
 
-def _fold_slabs_differ_on_training_rows(result: LongitudinalResult) -> float:
-    """How far a fold's own slab sits from the out-of-fold pair on its training rows."""
+def _fold_models_differ_on_training_rows(result: LongitudinalResult) -> float:
+    """How far a fold's own refit model sits from the out-of-fold pair on its training rows."""
     largest = 0.0
+    refits = [refit_fold_mechanism(result, fold) for fold in range(result.folds.n_folds)]
     for fit in result.fits.values():
         _, bounded = _longhand_cumulative(result, fit)
         for fold, (train, _) in enumerate(result.folds):
-            _, slab = _longhand_cumulative(result, fit, fold=fold)
+            _, slab = _longhand_cumulative(result, fit, refits[fold])
             for step in fit.steps:
                 rows = train[step.trained_on[train]]
                 column = step.time - 1
@@ -329,9 +412,31 @@ def _fold_slabs_differ_on_training_rows(result: LongitudinalResult) -> float:
 def test_clever_is_the_reciprocal_of_the_out_of_fold_cumulative(
     pooled: LongitudinalResult,
 ) -> None:
-    """T2, with the witness that a fold slab would have given a different covariate."""
+    """T2, with the witness that a fold's own model would have given a different covariate."""
     _assert_clever_is_the_out_of_fold_reciprocal(pooled)
-    assert _fold_slabs_differ_on_training_rows(pooled) > 1e-6
+    assert _fold_models_differ_on_training_rows(pooled) > 1e-6
+
+
+def test_a_refit_fold_mechanism_is_the_out_of_fold_one_on_its_held_out_rows(
+    pooled: LongitudinalResult,
+) -> None:
+    """The anchor for :func:`refit_fold_mechanism`: on held-out rows it is production."""
+    for fold, (_, test) in enumerate(pooled.folds):
+        refit = refit_fold_mechanism(pooled, fold)
+        for time in range(pooled.data.n_times):
+            for label in refit.treatment[time]:
+                np.testing.assert_allclose(
+                    refit.treatment[time][label][test],
+                    pooled.mechanism.treatment[time][label][test],
+                    rtol=0.0,
+                    atol=1e-12,
+                )
+                np.testing.assert_allclose(
+                    refit.censoring[time][label][test],
+                    pooled.mechanism.censoring[time][label][test],
+                    rtol=0.0,
+                    atol=1e-12,
+                )
 
 
 def test_clever_is_the_out_of_fold_reciprocal_under_an_active_bound() -> None:
@@ -357,13 +462,14 @@ def test_clever_is_the_out_of_fold_reciprocal_under_an_active_bound() -> None:
 def test_m2_a_fold_slab_read_as_the_out_of_fold_pair_fails_t2(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """M2: dividing by fold 0's slab everywhere is what T2 exists to catch."""
+    """M2: dividing by fold 0's refit model everywhere is what T2 exists to catch."""
+    fold_zero = refit_fold_mechanism(fit_end_of_study(), 0)
     real = Mechanism.cumulative_with_unbounded
 
-    def slab(self: Mechanism, data: Any, plan: Any, bounds: Any, *, fold: int | None = None):  # type: ignore[no-untyped-def]
-        return real(self, data, plan, bounds, fold=0 if fold is None else fold)
+    def fold_model(self: Mechanism, data: Any, plan: Any, bounds: Any):  # type: ignore[no-untyped-def]
+        return real(fold_zero, data, plan, bounds)
 
-    monkeypatch.setattr(Mechanism, "cumulative_with_unbounded", slab)
+    monkeypatch.setattr(Mechanism, "cumulative_with_unbounded", fold_model)
     mutated = fit_end_of_study()
     monkeypatch.undo()
     with pytest.raises(AssertionError):
@@ -477,7 +583,7 @@ def _longhand_recursion(
     ``fold_targeted=False`` is the Section 5.2 recursion: fold ``k`` carries its own
     untargeted prediction to the earlier node.  ``fold_targeted=True`` is the previous
     ``cleverly`` construction, mutation M3: fold ``k`` first fluctuates on its training
-    followers with its own mechanism slab, and carries that targeted prediction.
+    followers with its own refit mechanism, and carries that targeted prediction.
     """
     data = result.data
     weights = np.asarray(data.weights, dtype=float)
@@ -486,7 +592,8 @@ def _longhand_recursion(
     for fold in range(result.folds.n_folds):
         held_out = result.folds.assignment == fold
         training = ~held_out
-        _, slab = _longhand_cumulative(result, fit, fold=fold)
+        if fold_targeted:
+            _, slab = _longhand_cumulative(result, fit, refit_fold_mechanism(result, fold))
         carried = _longhand_seed(result)
         for time in range(fit.horizon, 0, -1):
             at_risk, following = _longhand_masks(result, fit, time)
@@ -781,48 +888,3 @@ def test_the_pooled_pass_carries_its_own_targeted_values() -> None:
     """Step 3 of the Section 5.2 construction: the pooled outcome is the later targeted fit."""
     result = fit_end_of_study()
     _assert_pseudo_outcome_carries_targeted(result)
-
-
-# --------------------------------------------------------------------------------------
-# T7: the fold-convergence warning the engine-level working model still relies on.
-# --------------------------------------------------------------------------------------
-
-
-def _node(converged_folds: list[bool], failure: str | None = None) -> Any:
-    records = tuple(SimpleNamespace(converged=flag) for flag in converged_folds)
-    return SimpleNamespace(
-        folds=records,
-        converged=all(converged_folds),
-        failure=None if all(converged_folds) else failure,
-    )
-
-
-def test_fold_convergence_is_silent_when_every_fold_converged() -> None:
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        sequential.warn_on_fold_convergence([(1, _node([True, True])), (2, _node([True]))], "msm")
-
-
-def test_fold_convergence_failures_are_reported_once_with_count_nodes_and_modes() -> None:
-    nodes = [
-        (2, _node([False, True, False], "max_iter_reached")),
-        (1, _node([True, False], "diverged")),
-        (3, _node([True, True])),
-    ]
-    with pytest.warns(ConvergenceWarning) as caught:
-        sequential.warn_on_fold_convergence(nodes, "msm")
-    assert len(caught) == 1
-    message = str(caught[0].message)
-    assert "3 outer-fold targeting solve(s) did not converge for 'msm'" in message
-    assert "at node(s) [1, 2]" in message
-    assert "(diverged, max_iter_reached)" in message
-
-
-def test_a_pooled_fit_hands_the_fold_warning_nothing() -> None:
-    """The per-regimen path hands the warning nothing, so it cannot speak for that path."""
-    result = fit_end_of_study()
-    nodes = [(step.time, step.fluctuation) for fit in result.fits.values() for step in fit.steps]
-    assert all(fluctuation.folds == () for _, fluctuation in nodes)
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        sequential.warn_on_fold_convergence(nodes, "always")

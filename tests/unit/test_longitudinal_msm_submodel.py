@@ -58,11 +58,9 @@ def setup(folds: Any = None) -> tuple[LongitudinalData, Any, Any, dict[str, Any]
     ``folds`` defaults to a **single** outer fold, and that is a statement about what this
     file tests rather than an economy. Every claim below is array-level and about the node
     arithmetic -- what rank a block has, which columns are zero, which array is the loss
-    weight -- and that arithmetic is the same in every outer fold. Above one fold the
-    module runs one complete alternation per fold, so the same claims would be restated
-    ``K`` times and the "deepest node first" ordering ``calls_of`` documents would become
-    fold-major. What *is* about folds is checked once, in
-    :class:`TestEachOuterFoldGetsItsOwnPass`, against the mask that actually changes.
+    weight -- and that arithmetic is the same at every fold count, because above one fold
+    the same pooled pass runs over the stitched initial fit. What *is* about folds is
+    checked once, in :class:`TestNoFoldSolvesAFluctuation`.
     """
     frame, _ = make_longitudinal(n=N, seed=0)
     data = LongitudinalData.from_frame(
@@ -195,51 +193,74 @@ class TestASaturatedModelIsBlockDiagonal:
                 )
 
 
-class TestEachOuterFoldGetsItsOwnPass:
-    """What changes above one fold, and the only thing that does at this level.
+class TestNoFoldSolvesAFluctuation:
+    """What changes above one fold: each fold runs an untargeted recursion, and only that.
 
-    The node arithmetic is fold-invariant, so the claims above are checked once. What is
-    not fold-invariant is *which rows the score is taken over*: each outer fold fits its
-    fluctuation on the followers in its own training complement, and stitching the wrong
-    mask into the wrong fold is a defect no array-shape claim can see.
+    The pooled pass solves one fluctuation per node, in the parent, over every follower of
+    every live cell.  A fold that solved its own fluctuation over its training followers is
+    the fold-local construction that no published result covers, and these checks fail it.
     """
 
-    def test_one_complete_pass_per_fold_each_fitted_on_its_own_training_rows(
+    def test_one_pooled_solve_per_node_over_every_follower(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         folds = make_folds(N, n_folds=2, random_state=0)
+        recursing = [False]
+        original = longitudinal_msm.untargeted_fold_recursions
+
+        def flagged(*args: Any, **kwargs: Any) -> Any:
+            recursing[0] = True
+            try:
+                return original(*args, **kwargs)
+            finally:
+                recursing[0] = False
+
+        solved_inside: list[bool] = []
+        real = longitudinal_msm.solve_fluctuation
+
+        def watch(*args: Any, **kwargs: Any) -> Any:
+            solved_inside.append(recursing[0])
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(longitudinal_msm, "untargeted_fold_recursions", flagged)
+        monkeypatch.setattr(longitudinal_msm, "solve_fluctuation", watch)
         data, plans, _, _, seen = calls_of(saturated_design, LABELS, monkeypatch, folds)
         masks = {plan.label: data.regimen_masks(plan.values) for plan in plans}
-        # One pass per fold, each a full backward sweep: the identity link alternates once.
-        assert len(seen) == folds.n_folds * data.n_times
-
-        for position, (_, _, mask) in enumerate(seen):
-            fold, depth = divmod(position, data.n_times)
+        # The identity link alternates once, so there is one solve per node.
+        assert len(seen) == data.n_times
+        assert solved_inside == [False] * data.n_times
+        for depth, (_, _, mask) in enumerate(seen):
             time = data.n_times - depth
-            training = np.ones(data.n, dtype=bool)
-            training[list(folds)[fold][1]] = False
             for index, label in enumerate(LABELS):
                 block = np.split(mask, len(LABELS))[index]
-                np.testing.assert_array_equal(block, masks[label].following(time) & training)
+                np.testing.assert_array_equal(block, masks[label].following(time))
 
-    def test_the_folds_between_them_cover_every_follower(
+    def test_each_fold_regression_is_fitted_on_its_own_training_rows(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The nonzero witness for the masks above: each is a strict subset, and their
-        union is the population the single-fold pass fits on."""
+        """The nonzero witness: each fold's rows are a strict subset, and they cover the data."""
+        from cleverly.longitudinal import sequential
+
         folds = make_folds(N, n_folds=2, random_state=0)
-        data, plans, _, _, seen = calls_of(saturated_design, LABELS, monkeypatch, folds)
-        masks = {plan.label: data.regimen_masks(plan.values) for plan in plans}
-        deepest = [
-            mask for position, (_, _, mask) in enumerate(seen) if position % data.n_times == 0
-        ]
-        for index, label in enumerate(LABELS):
-            followers = masks[label].following(data.n_times)
-            blocks = [np.split(mask, len(LABELS))[index] for mask in deepest]
-            for block in blocks:
-                assert block.sum() < followers.sum()
-            union = np.logical_or.reduce(blocks)
-            np.testing.assert_array_equal(union, followers)
+        seen: list[np.ndarray] = []
+        real = sequential._fit_node_regression
+
+        def spy(*args: Any, **kwargs: Any) -> Any:
+            seen.append(np.asarray(kwargs["fit_rows"]))
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(sequential, "_fit_node_regression", spy)
+        data, _, _, _, _ = calls_of(saturated_design, LABELS, monkeypatch, folds)
+        # One regression per fold, cell and node.
+        assert len(seen) == folds.n_folds * len(LABELS) * data.n_times
+        per_fold = len(LABELS) * data.n_times
+        for fold, (train, _) in enumerate(folds):
+            expected = np.zeros(data.n, dtype=bool)
+            expected[train] = True
+            for rows in seen[fold * per_fold : (fold + 1) * per_fold]:
+                np.testing.assert_array_equal(rows, expected)
+            assert expected.sum() < data.n
+        np.testing.assert_array_equal(np.logical_or.reduce(seen), np.ones(data.n, dtype=bool))
 
 
 class TestTheLossWeightsMultiply:
@@ -282,12 +303,10 @@ class TestTheLossWeightsMultiply:
 
 
 class TestTheCrossFittedPassRetainsItsLearnerDiagnostics:
-    """The stitched fold diagnostics, checked where the public estimator cannot reach them.
+    """The stitched fold diagnostics: one record per cell, node and outer fold.
 
-    ``LTMLE`` refuses ``msm=`` above one outer fold, so ``_crossfit_msm`` is reachable only
-    from :func:`fit_regimens_msm` directly. Its diagnostics are stitched per cell and per
-    node exactly as the per-regimen recursion stitches its own, and without a check here
-    that stitch is code no test executes.
+    The fold recursions of every cell run inside one job per fold, and their diagnostics are
+    stitched per cell and per node exactly as the per-regimen recursion stitches its own.
     """
 
     @staticmethod

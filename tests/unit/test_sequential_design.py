@@ -95,27 +95,23 @@ def designs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, np.ndarray]]:
 
     Recorded at the two helpers the module calls, rather than through a learner: a learner
     is cloned per fold and reached only after the call, so spying there would pin what
-    scikit-learn received instead of what this module passed.  The mechanism goes through
-    ``cross_fit_companion``, because it retains each fold model's predictions on every row.
-    The outcome recursion goes through ``cross_fit_predictions`` at every node, on one fold
-    or on many -- an outer fold's model is a one-fold split with that fold's training rows
-    as the fit mask, which is why the cross-fitted recursion needs no second call site.
+    scikit-learn received instead of what this module passed.  Both the mechanism and the
+    outcome recursion go through ``cross_fit_predictions``, on one fold or on many -- an
+    outer fold's outcome model is a one-fold split with that fold's training rows as the
+    fit mask, which is why the cross-fitted recursion needs no second call site.  The
+    outcome recursion alone predicts at one design named ``"history"``, which is how the
+    spy tells the two apart.
     """
     from cleverly.longitudinal import sequential
 
-    original_companion = sequential.cross_fit_companion
     original_predictions = sequential.cross_fit_predictions
     recorded: list[tuple[str, np.ndarray]] = []
 
-    def companion_spy(learner: Any, design: Any, *args: Any, **kwargs: Any) -> Any:
-        recorded.append(("mechanism", np.array(design)))
-        return original_companion(learner, design, *args, **kwargs)
-
     def predictions_spy(learner: Any, design: Any, *args: Any, **kwargs: Any) -> Any:
-        recorded.append(("outcome", np.array(design)))
+        kind = "outcome" if set(kwargs["predict_designs"]) == {"history"} else "mechanism"
+        recorded.append((kind, np.array(design)))
         return original_predictions(learner, design, *args, **kwargs)
 
-    monkeypatch.setattr(sequential, "cross_fit_companion", companion_spy)
     monkeypatch.setattr(sequential, "cross_fit_predictions", predictions_spy)
     return recorded
 
@@ -262,8 +258,8 @@ def test_a_pooled_node_that_does_not_converge_is_reported_on_the_fit() -> None:
     assert not result.converged
 
 
-def test_fold_artifacts_cover_each_row_and_match_the_stitched_mechanism() -> None:
-    """One pooled solve per node, and fold slabs whose held-out rows are the OOF mechanism."""
+def test_fold_artifacts_cover_each_row_with_one_pooled_solve_per_node() -> None:
+    """One pooled solve per node, a finite stitched initial fit, and no fold slab."""
     result = _crossfit_result(panel())
     fit = result.fits["never"]
     for step in fit.steps:
@@ -271,11 +267,10 @@ def test_fold_artifacts_cover_each_row_and_match_the_stitched_mechanism() -> Non
         assert step.fluctuation.n_solver_calls == 1
         assert step.regression_target is not None
         assert np.isfinite(step.initial).all()
-
-    for time, node in enumerate(result.mechanism.treatment):
-        slabs = result.mechanism.treatment_by_fold[time]["never"]
-        stitched = slabs[result.folds.assignment, np.arange(result.n)]
-        np.testing.assert_allclose(stitched, node["never"], rtol=0.0, atol=0.0)
+    # The mechanism keeps the out-of-fold probabilities and nothing per fold.
+    assert {field.name for field in dataclasses.fields(result.mechanism)}.isdisjoint(
+        {"treatment_by_fold", "censoring_by_fold"}
+    )
 
 
 def test_a_held_out_terminal_event_cannot_enter_its_survival_recursion() -> None:

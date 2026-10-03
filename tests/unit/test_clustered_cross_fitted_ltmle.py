@@ -487,12 +487,22 @@ def _weighted(clusters: int, **settings: Any) -> Any:
     return subject(**settings).fit(frame, outcome="Y", id="id", weights="w", **NODES)
 
 
+def _msm(clusters: int, **settings: Any) -> Any:
+    """A cross-fitted working model over three regimens: ``msm_regimen[...]`` names."""
+    frame, _ = law.draw_end_of_study(clusters, "equal40", SEED)
+    regimens = {"always": 1, "never": 0, "early": (1, 0)}
+    return subject(regimens, reference=None, msm=DOSE, **settings).fit(
+        frame, outcome="Y", id="id", **NODES
+    )
+
+
 KINDS = {
     "end of study, static and dynamic": _end_of_study,
     "end of study, categorical": _categorical,
     "survival": _survival,
     "competing risks": _competing,
     "weighted": _weighted,
+    "msm_regimen": _msm,
 }
 
 
@@ -501,6 +511,9 @@ def derived(result: Any) -> dict[str, Any]:
     out: dict[str, Any] = {}
     levels = [name for name, e in result.estimates.items() if e.scale == "level"]
     out["contrast"] = result.contrast(lambda psi: psi[0] - psi[1], levels[:2])
+    if result.msm is not None:
+        # A working model reports coefficients, so no regimen ratio or survival summary.
+        return out
     if result.data.is_survival:
         index = result.parameter_index
         horizon = max(h for _, _, h in index.values())
@@ -686,15 +699,6 @@ class TestTheIncidenceTotalIsClustered:
         monkeypatch.setattr(longitudinal_estimator, "influence_covariance", unclustered)
         with pytest.raises(AssertionError):
             assert_incidence_total_clustered(_competing(FEW_CLUSTER_THRESHOLD))
-
-
-class TestTheWorkingModelStaysRefused:
-    def test_msm_above_one_fold_is_refused_at_construction(self) -> None:
-        with pytest.raises(ValueError) as raised:
-            LTMLE({"always": 1, "never": 0}, msm=DOSE, n_folds=5)
-        message = str(raised.value)
-        assert "docs/roadmap.md X27 tracks this work" in message
-        assert "cluster" not in message
 
 
 class TestTheTruncationReplayKeepsTheClusters:
