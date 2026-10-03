@@ -247,9 +247,12 @@ the fit records it under `result.extra["missing_data"]`.
 **What the data do not identify.** The conditions let `Delta_A` depend on `A`. Then
 `P(A = a | W)` is not identified, and only `P(A = a | Delta_A = 1, W)` is. A target or a clever
 covariate that reads the treatment law of every row is therefore not identified with a missing
-treatment. That covers `att`, `atc`, `ey_obs`, `par`, `paf`, `incremental=`, `shifts=` and
-`msm=`. The shared preflight refuses each one by name, and the refusals cite this paragraph. No
-observed-data check can detect a violation of the treatment condition.
+treatment. That covers `att`, `atc`, `ey_obs`, `par`, `paf`, `incremental=` and `shifts=`. The
+shared preflight refuses each one by name, and each refusal repeats this statement. A regime mean
+and an arm-indexed `msm=` coefficient read only the outcome regression and the law of `W`, so the
+composite identifies them.
+
+No observed-data check can detect a violation of the treatment condition.
 
 **The carrier.** `g_c,0 + g_c,1 < 1` whenever a row can be unrecorded, so the composite is not a
 distribution over the arms. It always travels as an `(n, K)` mechanism off the simplex. Every site
@@ -261,8 +264,9 @@ every arm count, two included. No fluctuation parameter is shared across arms.
 treatment factor by `g_bounds`, and each observation factor below by `nuisance_bound`. The
 composite is then tilted and clipped inside `[g_lo · nb^k, g_hi]`, where `k` counts the
 observation factors. That floor is the smallest product of the bounded factors, so the initial
-clip moves no value. At the defaults with both indicators it is `0.01 · 0.01² = 1e−6`, against
-`1e−4` on a missing outcome alone. The positivity report adds the composite row with its minimum
+clip moves no value. At `g_bounds=(0.01, 0.99)` and `nuisance_bound=0.01` with both indicators,
+the floor is `0.01 · 0.01² = 1e−6`, against `1e−4` on a missing outcome alone. The default
+`g_bounds="auto"` sets `g_lo = 5 / (sqrt(n) ln n)` instead. The positivity report adds the composite row with its minimum
 and the share of unit-arm cells below `g_lo`.
 
 The rejected alternative floors the composite at `g_lo` after the tilt, as R `drtmle`'s `tolg`

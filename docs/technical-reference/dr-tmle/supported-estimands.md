@@ -84,7 +84,7 @@ guard is a plain `TMLE`, bit for bit.
 | --- | --- |
 | `delta=`, randomized | `randomized=True` or `treatment_probabilities=` selects Díaz & van der Laan (2017)'s missing-outcome construction, at any number of arms. Above two arms, the fit applies the construction to each arm indicator and stacks the arm estimators. The conditions are below. |
 | `delta=`, observational | without `randomized=` or `treatment_probabilities=`, a non-empty `guard` selects the [composite indicator](theorem.md#observational-missing-data-the-composite-indicator), at any number of arms |
-| `treatment_delta=` | a declared missing treatment, with or without `delta=`, selects the composite indicator at every `guard`. `guard=()` is the composite TMLE. The arm means and their contrasts (`ey`, `ate`, `rr`, `or`) only; the table below gives the compositions |
+| `treatment_delta=` | a declared missing treatment, with or without `delta=`, selects the composite indicator at every `guard`. `guard=()` is the composite TMLE. The arm means and their contrasts (`ey`, `ate`, `rr`, `or`) at every `guard`, and regime means and arm-indexed `msm=` coefficients on `TMLE`; the table below gives the compositions |
 | `weights=` | **fixed analysis weights only.** The estimand is the parameter of the tilted law `dP_w = w dP / E[w]`. The transport argument is below. |
 | `repeats=` | supported; varies exactly one thing, the **primary split**. Each draw fits its own reductions and runs its own alternation; the report uses the median point and split-adjusted median variance. `result.extra["drtmle"]` describes **draw 0 only**. |
 | `reduction="bivariate"` | supported for complete outcomes and discrete treatment. It fits one reduced probability on the two-column `(Qbar-hat(a,W), g-hat(a|W))` design and uses van der Laan's distinct `D_Y`, once per arm as the pinned R implementation does; univariate remains the default because its reduced regressions can converge faster. The cited theorem is binary, so the multi-arm case is an implementation-backed armwise extension rather than a claim about that theorem's literal scope. |
@@ -106,6 +106,8 @@ that both of its parents take. Each row has evidence in `tests/unit/test_composi
 | `n_bootstrap=` | yes; a replicate resamples rows with their `Delta_A` | yes |
 | `screen_treatment=True` | yes, screened on the recorded rows | yes |
 | `evaluation=`, `reduced_crossfit="nested"` | not applicable | refused: both constructions carry one fold-free treatment mechanism, and the composite has up to three factors |
+| `interventions=` (static and known `W`-dependent rules) | yes; the covariate is the arm covariate at the arm the rule assigns | refused, as on complete data |
+| `msm=` over the arms | yes; each coefficient projects the identified arm means | refused, as on complete data |
 | `cross_fit=True` | refused ([F21](../../roadmap.md#f21-other-missing-outcome-cv-tmle-variants)) | refused |
 
 The fit is in sample, `cross_fit=False`. Each nuisance factor is fitted on the rows it conditions on.
@@ -171,8 +173,9 @@ retained diagnostic.
 | `att` / `atc` | a different score equation with no reduced-dimension derivation |
 | `interventions=`, `shifts=`, `incremental=`, `msm=` | as above |
 | an undeclared missing treatment value | the package does not infer a missing treatment from a missing value. The data container raises `DataError` before any learner and names `treatment_delta=` for a numeric column. A label column meets the null-label check of `src/cleverly/data/causal_data.py` first |
-| a missing treatment with `att`, `atc`, `ey_obs`, `par`, `paf`, `incremental=`, `shifts=` or `msm=` | when the recording may depend on the treatment, `P(A = a \| W)` is not identified, and each of these reads the treatment law of every row. See [what the data do not identify](theorem.md#observational-missing-data-the-composite-indicator) |
-| a missing treatment with `interventions=`, `learned_rule=` or `intermediate=` | each evaluates a rule or a mechanism at the row's recorded treatment, which an unrecorded row lacks |
+| a missing treatment with `att`, `atc`, `ey_obs`, `par`, `paf`, `incremental=` or `shifts=` | when the recording may depend on the treatment, `P(A = a \| W)` is not identified, and each of these reads the treatment law of every row. See [what the data do not identify](theorem.md#observational-missing-data-the-composite-indicator) |
+| a missing treatment with `learned_rule=` | the composite conditions identify the value of a fixed rule. No composite derivation for a rule learned from the fit is written, and the value is cross-fitted. See [F27](../../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
+| a missing treatment with `intermediate=` | no derivation of the composite indicator for a controlled direct effect is written, and the condition that ties `Z` to the recording of the treatment is not stated |
 | a missing treatment with `randomized=True` or `treatment_probabilities=` | those select Díaz & van der Laan's construction, which observes the treatment on every row |
 | a missing treatment with `CTMLE` | no collaborative score is derived for the composite indicator ([F5](../../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions)) |
 | `treatment_probabilities=` with `n_bootstrap=`, **whatever `guard=` is** | the array is row-aligned to the data as passed, and a replicate refits on resampled rows it cannot be reindexed to. An n-out-of-n resample passes the length check, so the misalignment would be silent; `randomized=True` estimates the mechanism inside each replicate instead. Unconditional on the guard, because the array is row-aligned however few equations are being solved |

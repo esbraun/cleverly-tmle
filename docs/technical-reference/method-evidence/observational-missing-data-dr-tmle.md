@@ -1,6 +1,6 @@
 # Observational missing-data DR-TMLE
 
-This study validates the composite-indicator construction for an observational missing outcome
+This study tests the composite-indicator construction for an observational missing outcome
 and a missing treatment. The [contract](../dr-tmle/theorem.md#observational-missing-data-the-composite-indicator)
 gives the construction and its conditions. For arm $a$ the fit targets
 $C_a = \Delta_A \Delta 1\{A = a\}$ with the mechanism
@@ -49,14 +49,19 @@ policy is `reporting`: a red cell stays red at its budget and margin, and the
 
 | family | what it tests |
 | --- | --- |
-| `corrected_mar_inference` | each contrast with both nuisances correct, the outcome regression wrong, the composite mechanism wrong, and both wrong. The outcome drift is the constant regression $\bar Q = 0.5$. The mechanism drift replaces $g(a \mid \Delta_A = 1, W)$ and, where the treatment can be missing, $P(\Delta_A = 1 \mid W)$. The both-wrong control must clear a declared floor of half its large-sample bias |
-| `ordinary_targeting` | the composite TMLE, `guard=()`, on the two missing-treatment scenarios |
+| `corrected_mar_inference` | each contrast with both nuisances correct, the outcome regression wrong, the composite mechanism wrong, and both wrong. The outcome drift is the constant regression $\bar Q = 0.5$. The mechanism drift replaces $g(a \mid \Delta_A = 1, W)$ and, where the treatment can be missing, $P(\Delta_A = 1 \mid W)$. The both-wrong control must clear a declared floor of half its large-sample bias. Under the shared drifts the three-arm `low` contrast moves by at most 0.010, inside the margin. Its control therefore runs under its own drift: the outcome table's arm columns rolled, a uniform treatment factor, and the wrong observation factor |
+| `ordinary_targeting` | the composite TMLE, `guard=()`, on the two missing-treatment scenarios. Two further cells fit the binary missing-treatment scenario: the mean of a known `W`-dependent regime, and the slope of the linear arm MSM |
 | `root_n_and_efficiency`, `root_n_rate` | the `ate` of the binary missing-treatment scenario at n = 500, 2,000 and 8,000, and the efficiency ratio against the exact EIF SD |
 | `interval_calibration` | the same `ate` against the calibration bands, with a shrunken-SE and a noise control |
 | `simultaneous_coverage` | the default band over every reported name of each scenario, and its pointwise joint control |
 | `type_i_error`, `power` | the `ate` at a sharp null, and at n = 1,000 |
 | `correction_necessity` | the extra scores of every arm after and before the correction cycle, under the outcome drift |
 | `treatment_complete_case` | a control that drops the rows with an unrecorded treatment. It must miss the truth |
+
+Each property row and each package primary row records how the fit's DR-TMLE outer loop ended,
+in `exit_reason` and `rounds`. `fit-exits.csv` publishes the primary fits' records. A composite
+TMLE fit has no outer loop and records `none`. A fit that reaches `max_outer=100` rounds records
+`cap`. It counts as it is when its scores pass. The study does not raise `max_outer` after a result.
 
 The power cell runs at n = 1,000, not at the plan's n = 500. At n = 500 the planned power of the
 two-sided test is 0.738, and at n = 1,000 it is 0.957. The design of the band cells is in
@@ -99,8 +104,10 @@ and control power 1.0 at 2,400 replications.
   reductions and a weight. The [weighted](weighted-point-treatment-tmle.md) and
   [clustered](clustered-point-treatment-cv-tmle.md) studies cover the weight and cluster algebra,
   which the composite does not change.
-- The composite is tilted inside $[10^{-6}, 0.99]$ at the defaults with both indicators, against
-  $10^{-4}$ with a missing outcome alone. No scenario reaches that floor.
+- The composite is tilted inside $[10^{-6}, 0.99]$ at `g_bounds=(0.01, 0.99)` and
+  `nuisance_bound=0.01` with both indicators, against $10^{-4}$ with a missing outcome alone.
+  The default `g_bounds="auto"` floors the treatment factor at $5 / (\sqrt{n} \ln n)$ instead.
+  No scenario reaches that floor.
 - No instrument here can detect a violation of the treatment condition, $Y(a)$ independent of
   $\Delta_A$ given $(A, W)$.
 

@@ -55,7 +55,8 @@ row `P(A=a,Delta_A=1,Delta=1|W)`, or `P(A=a,Delta_A=1|W)` without `delta=`. The 
 response factors are read on the rows whose treatment is recorded. The composite row also reports
 two numbers: its minimum, and the share of unit-arm cells below the propensity floor `g_lo`. That
 floor is the scale at which R `drtmle`'s `tolg` floors the same product. The fit itself tilts the
-composite inside the product of the factor floors, `1e-6` at the defaults, as
+composite inside the product of the factor floors. That product is `1e-6` at
+`g_bounds=(0.01, 0.99)` and `nuisance_bound=0.01`, as
 [the composite contract](dr-tmle/theorem.md#observational-missing-data-the-composite-indicator)
 states.
 
@@ -776,7 +777,7 @@ matching capability row therefore carry one reason.
 | a `drtmle` fit | an estimate of $\nu^2$ for an estimator that does not assume a consistent treatment mechanism. $E[2 m(\hat\alpha) - \hat\alpha^2]$ equals $\nu_0^2 - \lVert \hat\alpha - \alpha_0 \rVert^2$, so it falls where that mechanism is wrong |
 | a `collaborative_tmle` fit | the same estimate. The working mechanism conditions on a function $V$ of the covariates. $V$ is the selected set $W_S$ on the greedy, ordered, and discrete paths, and the fitted outcome regression under `strategy="oat"`. Where the working mechanism is $P(A \mid V)$ in the limit, the representer is $E[\alpha_W \mid A, V]$. Its second moment cannot exceed that of $\alpha_W$, while $\sigma^2$ reads every declared covariate |
 | a fit with a response mechanism | an implementation. The identified mean is a linear functional of the regression of $\Delta Y$ on $(A, \Delta, W)$, so Theorem 2 of the cited paper covers it. The implemented representer omits $\Delta$. $\sigma^2$ averages the respondents, and the theorem needs $E[\Delta (Y - \bar{Q})^2]$. $c_D$ would combine the treatment and response mechanisms. The missingness tilt remains the sensitivity analysis for response |
-| a fit with a declared missing treatment | a derivation. The representer of the implemented bound is derived for a recorded treatment. This fit divides by the composite mechanism $P(A = a, \Delta_A = 1 \mid W)$, and no representer or confounding strength is derived for it |
+| a fit with a declared missing treatment | a derivation. The representer of the implemented bound is derived for a recorded treatment. This fit divides by the composite mechanism $P(A = a, \Delta_A = 1 \mid W)$, or $P(A = a, \Delta_A = 1, \Delta = 1 \mid W)$ with `delta=`, and no representer or confounding strength is derived for it. See [X9](../roadmap.md#x9-omitted-variable-bounds-on-the-other-linear-functionals) |
 | a fit with an intermediate variable | an implementation. Each estimand at the level $z$ is a linear functional of the regression of $Y$ on $(A, Z, W)$, so Theorem 2 covers it. The representer carries the weight $1\{Z = z\} / P(Z = z \mid A, W)$, so $c_D$ would combine the treatment and intermediate mechanisms |
 | a longitudinal fit | any registered longitudinal derivation. See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) |
 | a `regime`, `shift`, or `msm` parameter axis | an implementation. Each of these parameters is a linear functional of the outcome regression and has a Riesz representer, so the bound is well posed here |
@@ -1390,7 +1391,8 @@ boundary that neither the requested estimand nor the strength grid can move. `_f
 walks that table and returns the first reason that applies. Eight missing-science stops apply
 in this order: longitudinal, learned-rule, multi-arm, missing-outcome, missing-treatment,
 intermediate, estimated-weight, and clustered fits. Each one has a row in the refusal table below,
-and each one except the missing-treatment stop carries a roadmap item.
+and each one carries a roadmap item. F12 tracks the missing-treatment stop with the
+missing-outcome stop.
 
 Twelve provenance and shape stops read the object you hold rather than the state of the science.
 The `result_type` stop runs second, before the learned-rule stop, because every later rule reads a
@@ -1430,7 +1432,7 @@ surface refuses. The
 | a learned-rule fit | waiting on published theory | a replay relearns the rules, so each draw has a different target, and no reviewed source gives a perturbation law for this target. See [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
 | multi-arm treatment | waiting on published theory | no source-backed category-valued perturbation defines the contrast. See [F8](../roadmap.md#f8-multi-arm-simulated-confounding-stress-surface) |
 | a missing outcome | waiting on published theory | no joint observation, treatment, and outcome perturbation law has identified refit semantics. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
-| a declared missing treatment | waiting on published theory | no joint treatment-observation, treatment, and outcome perturbation law has identified refit semantics, for the reason of the missing-outcome row |
+| a declared missing treatment | waiting on published theory | no joint treatment-observation, treatment, and outcome perturbation law has identified refit semantics, for the reason of the missing-outcome row. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
 | a controlled direct effect, or any fit that carries an intermediate variable | waiting on published theory | no ordered treatment, intermediate, observation, and outcome law has a controlled contrast contract. See [F15](../roadmap.md#f15-controlled-direct-effect-simulated-confounding-replay) |
 | estimated observation weights | waiting on published theory | replay lacks stored model provenance, target-population semantics, and a regeneration rule. See [F11](../roadmap.md#f11-estimated-weight-simulated-confounding-replay) |
 | a clustered fit | waiting on published theory | no source chooses a row-level, cluster-level, or mixed latent cause. See [F9](../roadmap.md#f9-clustered-simulated-confounding-stress-surface) |

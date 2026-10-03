@@ -36,6 +36,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
+from cleverly.interventions import Rule
+from cleverly.msm import MSM
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import mar_arm_indexed_laws as laws
@@ -47,6 +49,7 @@ from tests.studies.canonical_composite_drtmle import (
     STUDY,
     THREE_ARM,
     fit_cleverly,
+    fit_exit,
 )
 from tests.studies.evidence.properties import control_row, replicate_row
 from tests.studies.evidence.property_verdicts import (
@@ -107,14 +110,13 @@ CONTRASTS: dict[str, tuple[str, str]] = {
     "composite_three_arm_ate_mid": (THREE_ARM, "ate[mid vs high]"),
 }
 CONFIGURATIONS = ("both_correct", "outcome_drift", "mechanism_drift", "both_wrong")
-#: Every cell of the family: each contrast at each configuration, except the both-wrong control
-#: of the three-arm ``low`` contrast, which :data:`BOTH_WRONG_BIAS_FLOOR` says cannot
-#: discriminate.
+#: The three-arm ``low`` contrast's both-wrong control runs under a drift of its own, in a fit
+#: of its own.  :data:`LOW_CONTROL_DRIFT` says why.
+LOW_PREFIX = "composite_three_arm_ate_low"
+LOW_CONTROL = "both_wrong_low"
+#: Every cell of the family: each contrast at each configuration.
 CORRECTED_CELLS = tuple(
-    f"{prefix}__{configuration}"
-    for prefix in CONTRASTS
-    for configuration in CONFIGURATIONS
-    if (prefix, configuration) != ("composite_three_arm_ate_low", "both_wrong")
+    f"{prefix}__{configuration}" for prefix in CONTRASTS for configuration in CONFIGURATIONS
 )
 
 #: The drifts.  The outcome drift is the constant regression ``Q = 0.5``, the coarsened drift of
@@ -125,10 +127,14 @@ CORRECTED_CELLS = tuple(
 #:
 #: Declared before the run, and not ``Q -> 1 - Q``.  At the three-arm law that drift left the
 #: both-wrong limit of ``ate[mid vs high]`` near 0.004 on a frame of 40,000 rows, inside the
-#: shared discrimination margin.  A search over three outcome drifts (``1 - Q``, ``0.5``, a
-#: column roll) and three treatment-factor drifts (``WRONG_G_THREE``, uniform, a column roll),
-#: with and without a wrong recording vector, found no pair that moves both three-arm contrasts
-#: by 0.02.  The constant regression moves ``ate[mid vs high]`` most.
+#: shared discrimination margin.  A search on one frame of 40,000 rows tried three outcome
+#: drifts (``1 - Q``, ``0.5``, a column roll) and three treatment-factor drifts
+#: (``WRONG_G_THREE``, uniform, a column roll), with and without a wrong recording vector.
+#: Among the pairs it tried, the constant regression with ``WRONG_G_THREE`` and the wrong
+#: recording vector moved ``ate[mid vs high]`` most, by 0.089.  The search is noisy: four
+#: pairs moved ``ate[low vs high]`` by 0.020 to 0.026 on that frame, and one of them moved
+#: ``ate[mid vs high]`` by 0.025 too.  No pair moved both contrasts by the 0.04 the declared
+#: drift gives ``mid``, so ``low`` takes the dedicated control below.
 WRONG_MU = 0.5
 WRONG_RECORDED = np.array([0.70, 0.95, 0.60])
 WRONG_G = {
@@ -148,16 +154,34 @@ WRONG_G = {
 #: ``composite_observational_ate``   -0.069           -0.082           0.035
 #: ``composite_binary_ate``          -0.051           -0.052           0.025
 #: ``composite_three_arm_ate_mid``   -0.093           -0.079           0.040
-#: ``composite_three_arm_ate_low``   +0.002           +0.010           none
+#: ``composite_three_arm_ate_low``   +0.026           +0.026           0.013
 #: ================================  ===============  ===============  =====
 #:
-#: The one-wrong cells moved by at most 0.002 at both seeds.  The three-arm ``low`` contrast
-#: has no both-wrong control: its limit is inside the shared discrimination margin (about
-#: 0.012 at n = 2,000), so the cell could not discriminate.  Its positive cells stay.
+#: The one-wrong cells moved by at most 0.002 at both seeds.  Under the shared drift the
+#: three-arm ``low`` contrast moved by +0.002 and +0.010, inside the shared discrimination
+#: margin (about 0.012 at n = 2,000), so its control runs under :data:`LOW_CONTROL_DRIFT`.
+#: Its row above is that drift's.
 BOTH_WRONG_BIAS_FLOOR: dict[str, float] = {
     "composite_observational_ate": 0.035,
     "composite_binary_ate": 0.025,
     "composite_three_arm_ate_mid": 0.040,
+    LOW_PREFIX: 0.013,
+}
+
+#: The three-arm ``low`` contrast's both-wrong drift: the outcome table's arm columns rolled
+#: by one, a uniform ``P(A | Delta_A = 1, W)``, and the wrong recording vector.  Declared
+#: before the run from one frame of 100,000 rows at seeds 7 and 8, as the difference from the
+#: both-correct fit: ``ate[low vs high]`` moved by +0.0264 and +0.0260.  Of the two drifts
+#: measured, the other (both tables rolled) moved it by +0.015 and -0.003, so it was dropped.
+#: The rolled outcome alone moved ``low`` by at most 0.0017, and the rolled mechanism alone by
+#: at most 0.0001, at both seeds.  The seed-8 fit ran to ``max_outer``; it counts as it is.
+#: A 40-replicate smoke at n = 2,000, run before any verdict, gave a mean bias of +0.010 with a
+#: Monte Carlo SE of 0.008.  The cell may therefore stay below its floor at n = 2,000; the floor
+#: is not lowered for that, and under the reporting policy such a cell stays red.
+LOW_CONTROL_DRIFT: dict[str, Any] = {
+    "mu": np.roll(LAWS[THREE_ARM].mu, 1, axis=1),
+    "g": np.full_like(LAWS[THREE_ARM].conditional_g, 1.0 / LAWS[THREE_ARM].arms),
+    "recorded": WRONG_RECORDED,
 }
 
 #: The sharp null for ``ate``: the arm-1 column of the outcome table is the arm-0 column.
@@ -177,8 +201,38 @@ COMPLETE_CASE_BIAS = float(
 )
 
 
+def treat_unless_w_is_two(covariates: pd.DataFrame) -> np.ndarray:
+    """The regime cell's known rule: arm 1 where ``W`` is 0 or 1, arm 0 where it is 2."""
+    return np.where(covariates["W"].to_numpy(dtype=float) <= 1.0, 1.0, 0.0)
+
+
+#: The regime cell's rule.  A regime mean reads only the outcome regression and the law of
+#: ``W``, so the composite conditions identify it.
+REGIME = Rule(treat_unless_w_is_two, name="treat_unless_w_is_two", rule_kind="known")
+#: ``E[Qbar(d(W), W)]`` on the binary law, ``0.5 * 0.8 + 0.3 * 0.5 + 0.2 * 0.6 = 0.67``.
+REGIME_TRUTH = float(
+    LAWS[BINARY].p_w
+    @ LAWS[BINARY].mu[np.arange(3), [LAWS[BINARY].column(int(code)) for code in (1, 1, 0)]]
+)
+REGIME_NAME = "ey_regime[treat_unless_w_is_two]"
+#: The two-arm linear MSM's slope is the ATE, so the MSM cell shares the ATE's truth.
+MSM_NAME = "msm[a]"
+
+
+def _reports(prefix: str, configuration: str) -> bool:
+    """Whether a corrected-inference fit at ``configuration`` reports the contrast ``prefix``.
+
+    The three-arm both-wrong fit reports ``mid`` only, and the dedicated fit ``low`` only.
+    """
+    if configuration == LOW_CONTROL:
+        return prefix == LOW_PREFIX
+    return not (prefix == LOW_PREFIX and configuration == "both_wrong")
+
+
 def _tables(scenario: str, configuration: str) -> dict[str, Any]:
     law = LAWS[scenario]
+    if configuration == LOW_CONTROL:
+        return dict(LOW_CONTROL_DRIFT)
     tables: dict[str, Any] = {}
     if configuration in {"outcome_drift", "both_wrong"}:
         tables["mu"] = np.full_like(law.mu, WRONG_MU)
@@ -268,7 +322,7 @@ def _band_rows(
 Payload = tuple[str, str, int, int, int, int, str]
 
 
-def _fit_replication(payload: Payload) -> list[dict[str, Any]]:
+def _fit_rows(payload: Payload) -> tuple[list[dict[str, Any]], Any]:
     property_name, cell, replicate, n, requested, seed, configuration = payload
     if property_name == "type_i_error":
         frame = laws.sample(NULL_LAW, n, seed)
@@ -284,12 +338,12 @@ def _fit_replication(payload: Payload) -> list[dict[str, Any]]:
                 NULL_TRUTHS[TARGET],
                 result[TARGET],
             )
-        ]
+        ], result
     if property_name == "simultaneous_coverage":
         scenario = BAND_LABELS[cell]
         frame = laws.sample(LAWS[scenario], n, seed)
         result = fit_cleverly(frame, LAWS[scenario], simultaneous=True)
-        return _band_rows(result, scenario, cell, replicate, n, requested)
+        return _band_rows(result, scenario, cell, replicate, n, requested), result
     if property_name == "corrected_mar_inference":
         # One fit per scenario and configuration; a scenario reports each of its contrasts.
         scenario = cell
@@ -297,11 +351,12 @@ def _fit_replication(payload: Payload) -> list[dict[str, Any]]:
         result = fit_cleverly(
             frame, LAWS[scenario], simultaneous=False, **_tables(scenario, configuration)
         )
-        role = "control" if configuration == "both_wrong" else "positive"
+        reported = "both_wrong" if configuration == LOW_CONTROL else configuration
+        role = "control" if reported == "both_wrong" else "positive"
         return [
             _row(
                 property_name,
-                f"{prefix}__{configuration}",
+                f"{prefix}__{reported}",
                 role,
                 replicate,
                 n,
@@ -310,8 +365,33 @@ def _fit_replication(payload: Payload) -> list[dict[str, Any]]:
                 result[name],
             )
             for prefix, (owner, name) in CONTRASTS.items()
-            if owner == scenario and f"{prefix}__{configuration}" in CORRECTED_CELLS
-        ]
+            if owner == scenario and _reports(prefix, configuration)
+        ], result
+    if property_name == "ordinary_targeting" and cell in ("binary_regime", "binary_msm"):
+        frame = laws.sample(LAWS[BINARY], n, seed)
+        if cell == "binary_regime":
+            result = fit_cleverly(
+                frame,
+                LAWS[BINARY],
+                guard=(),
+                request=("ey_regime",),
+                simultaneous=False,
+                interventions=[REGIME],
+            )
+            name, truth = REGIME_NAME, REGIME_TRUTH
+        else:
+            result = fit_cleverly(
+                frame,
+                LAWS[BINARY],
+                guard=(),
+                request=("msm",),
+                simultaneous=False,
+                msm=MSM.linear(),
+            )
+            name, truth = MSM_NAME, TRUTHS[BINARY][TARGET]
+        return [
+            _row(property_name, cell, "positive", replicate, n, requested, truth, result[name])
+        ], result
     if property_name == "ordinary_targeting":
         scenario = BINARY if cell == "binary" else THREE_ARM
         name = TARGET if cell == "binary" else THREE_ARM_TARGET
@@ -328,7 +408,7 @@ def _fit_replication(payload: Payload) -> list[dict[str, Any]]:
                 TRUTHS[scenario][name],
                 result[name],
             )
-        ]
+        ], result
     if property_name == "treatment_complete_case":
         law = LAWS[BINARY]
         frame = laws.sample(law, n, seed)
@@ -348,7 +428,7 @@ def _fit_replication(payload: Payload) -> list[dict[str, Any]]:
                 TRUTHS[BINARY][TARGET],
                 result[TARGET],
             )
-        ]
+        ], result
     law = LAWS[BINARY]
     frame = laws.sample(law, n, seed)
     if property_name == "interval_calibration":
@@ -365,12 +445,12 @@ def _fit_replication(payload: Payload) -> list[dict[str, Any]]:
                 result[TARGET],
             ),
             *_band_rows(result, BINARY, "composite_binary", replicate, n, requested),
-        ]
+        ], result
     result = fit_cleverly(
         frame, law, request=("ate",), simultaneous=False, **_tables(BINARY, configuration)
     )
     if property_name == "correction_necessity":
-        return _necessity_rows(result, property_name, replicate, n, requested)
+        return _necessity_rows(result, property_name, replicate, n, requested), result
     role = "positive"
     if property_name == "root_n_and_efficiency" and n == min(RATE_SIZES):
         role = "control"
@@ -385,7 +465,13 @@ def _fit_replication(payload: Payload) -> list[dict[str, Any]]:
             TRUTHS[BINARY][TARGET],
             result[TARGET],
         )
-    ]
+    ], result
+
+
+def _fit_replication(payload: Payload) -> list[dict[str, Any]]:
+    """One replication's rows, each with its fit's outer-loop exit reason and round count."""
+    rows, result = _fit_rows(payload)
+    return [{**row, **fit_exit(result)} for row in rows]
 
 
 def _specs() -> list[tuple[str, str, int, int, str]]:
@@ -394,9 +480,12 @@ def _specs() -> list[tuple[str, str, int, int, str]]:
         for scenario in LAWS
         for configuration in CONFIGURATIONS
     ]
+    specs.append(
+        ("corrected_mar_inference", THREE_ARM, ROBUSTNESS_N, ROBUSTNESS_REPLICATES, LOW_CONTROL)
+    )
     specs += [
         ("ordinary_targeting", cell, ORDINARY_N, ORDINARY_REPLICATES, "both_correct")
-        for cell in ("binary", "three_arm")
+        for cell in ("binary", "three_arm", "binary_regime", "binary_msm")
     ]
     specs += [
         ("root_n_and_efficiency", f"n_{size}", size, RATE_REPLICATES, "both_correct")

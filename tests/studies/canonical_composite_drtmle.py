@@ -120,6 +120,7 @@ STUDY = StudyRecord(
     implementation="cleverly-composite-drtmle",
     reference="drtmle-r-composite",
     publication_policy="reporting",
+    extra_artifacts=("fit-exits.csv",),
     modules=(
         "tests/studies/canonical_composite_drtmle.py",
         "tests/studies/composite_drtmle_properties.py",
@@ -139,9 +140,9 @@ STUDY = StudyRecord(
     runner_module="tests.studies.canonical_composite_drtmle",
     properties_module="tests.studies.composite_drtmle_properties",
     property_cells={
-        "ordinary_targeting": ("binary", "three_arm"),
-        # The three-arm ``low`` contrast has no both-wrong control; the properties module says
-        # why, and ``CORRECTED_CELLS`` there is checked equal to this tuple.
+        "ordinary_targeting": ("binary", "three_arm", "binary_regime", "binary_msm"),
+        # The three-arm ``low`` contrast's both-wrong control runs under a drift of its own;
+        # the properties module says why.
         "corrected_mar_inference": tuple(
             f"{prefix}__{configuration}"
             for prefix in (
@@ -151,7 +152,6 @@ STUDY = StudyRecord(
                 "composite_three_arm_ate_mid",
             )
             for configuration in ("both_correct", "outcome_drift", "mechanism_drift", "both_wrong")
-            if (prefix, configuration) != ("composite_three_arm_ate_low", "both_wrong")
         ),
         "root_n_and_efficiency": ("n_500", "n_2000", "n_8000"),
         "root_n_rate": ("empirical_sd", "reported_se"),
@@ -226,12 +226,14 @@ def fit_cleverly(
     guard: tuple[str, ...] = ("Q", "g"),
     request: tuple[Any, ...] | None = None,
     simultaneous: bool = True,
+    interventions: Any = None,
+    msm: Any = None,
 ) -> Any:
     """One fit with law-table primaries.
 
     ``mu``, ``g`` and ``recorded`` declare a misspecified outcome regression, conditional
     treatment table ``P(A | Delta_A = 1, W)`` and treatment observation vector.
-    ``guard=()`` fits the composite TMLE.
+    ``guard=()`` fits the composite TMLE, which alone takes ``interventions=`` and ``msm=``.
     """
     settings: dict[str, Any] = {
         "cross_fit": False,
@@ -247,6 +249,10 @@ def fit_cleverly(
         "tol": 1e-10,
         "random_state": 0,
     }
+    if interventions is not None:
+        settings["interventions"] = interventions
+    if msm is not None:
+        settings["msm"] = msm
     estimator: Any
     if guard:
         estimator = DRTMLE(
@@ -263,6 +269,18 @@ def fit_cleverly(
     if law.pi_treatment is not None:
         roles["treatment_delta"] = "DeltaA"
     return estimator.fit(frame, outcome="Y", treatment="A", covariates=["W"], **roles).single()
+
+
+def fit_exit(result: Any) -> dict[str, Any]:
+    """How the DR-TMLE outer loop of ``result`` ended, and after how many rounds.
+
+    A composite TMLE fit has no outer loop, so it records ``"none"`` and 0.  A capped fit
+    counts as it is when its scores pass; the record lets a reader find the capped fits.
+    """
+    reduction = getattr(result.repeats[0].fluctuations.get("mean"), "reduction", None)
+    if reduction is None:
+        return {"exit_reason": "none", "rounds": 0}
+    return {"exit_reason": str(reduction.exit_reason), "rounds": int(reduction.rounds)}
 
 
 def _key(law: laws.Law) -> str:
@@ -296,6 +314,7 @@ def cleverly_rows(
         estimands=laws.ESTIMANDS[LAW_KEYS[scenario]],
         initials=initial_estimates(result, law),
     )
+    rows = [{**row, **fit_exit(result)} for row in rows]
     if scenario in TMLE_NAMES:
         name, source = TMLE_NAMES[scenario]
         tmle = fit_cleverly(frame, law, guard=(), request=("ate",), simultaneous=False)
@@ -309,8 +328,22 @@ def cleverly_rows(
             estimands=(source,),
             initials={source: initials[source]},
         )
-        rows.append({**row, "estimand": name})
+        rows.append({**row, "estimand": name, **fit_exit(tmle)})
     return rows
+
+
+#: The columns of ``fit-exits.csv``: each package fit's outer-loop exit, by estimand.
+FIT_EXIT_COLUMNS = ("scenario", "replicate", "estimand", "exit_reason", "rounds")
+
+
+def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """``fit-exits.csv``: the exit reason and round count of every package primary fit."""
+    package = rows.loc[rows["implementation"].eq(STUDY.implementation), list(FIT_EXIT_COLUMNS)]
+    return {
+        "fit-exits.csv": package.sort_values(
+            ["scenario", "replicate", "estimand"], ignore_index=True
+        )
+    }
 
 
 def comparator_columns(frame: pd.DataFrame, law: laws.Law) -> pd.DataFrame:

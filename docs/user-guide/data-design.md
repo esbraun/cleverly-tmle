@@ -73,7 +73,7 @@ refused rather than analyzed.
 | treatment recorded | `treatment_missingness=` | `treatment_delta=` | `DeltaA=` |
 
 A declared missing treatment supports the arm means and their contrasts on in-sample `TMLE` and
-`DRTMLE` fits. Each arm uses the composite indicator: the treatment and the outcome are recorded,
+`DRTMLE` fits. In-sample `TMLE` fits also support regime means and arm-indexed `msm=` coefficients. Each arm uses the composite indicator: the treatment and the outcome are recorded,
 and the treatment is that arm. The recording of the treatment may depend on the treatment, so the
 ATT, the ATC and the population-intervention targets are not identified and are refused.
 

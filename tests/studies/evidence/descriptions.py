@@ -681,6 +681,18 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "bias interval inside the margin, coverage lower bound at least 0.90, SE ratio inside "
         "(0.80, 1.20)",
     ),
+    ("ordinary_targeting", "binary_regime"): (
+        "the composite TMLE of a known W-dependent regime mean on the two-arm law with a MAR "
+        "outcome and treatment",
+        "bias interval inside the margin, coverage lower bound at least 0.90, SE ratio inside "
+        "(0.80, 1.20)",
+    ),
+    ("ordinary_targeting", "binary_msm"): (
+        "the composite TMLE of the linear arm MSM slope on the two-arm law with a MAR outcome "
+        "and treatment",
+        "bias interval inside the margin, coverage lower bound at least 0.90, SE ratio inside "
+        "(0.80, 1.20)",
+    ),
     ("treatment_complete_case", "drop_unrecorded__control"): (
         "the rows with an unrecorded treatment dropped, and the rest fitted with delta= alone",
         "bias interval must fall entirely outside the margin",
@@ -1234,6 +1246,12 @@ ARM_CELLS.update(
         )
         for configuration in ("both_correct", "outcome_drift", "mechanism_drift", "both_wrong")
     }
+)
+ARM_CELLS[("corrected_mar_inference", "composite_three_arm_ate_low", "both_wrong")] = (
+    "the outcome table's arm columns rolled, a uniform treatment factor, and a wrong treatment "
+    "observation factor: a drift of this contrast's own",
+    "bias interval must fall entirely outside the margin, and its distance from zero must "
+    "clear the declared floor",
 )
 ARM_CELLS.update(
     {
