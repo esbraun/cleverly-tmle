@@ -280,6 +280,13 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "interval_calibration/boot_ate_crossfit__correctly_specified",
         "interval_calibration/boot_ate_clustered__correctly_specified",
     ),
+    # The smallest-composite arm of the composite study, red in both implementations alike.
+    "composite-high-arm": _keys(
+        "composite-missing-drtmle",
+        "truth",
+        "cleverly-composite-drtmle/three_arm_mar_outcome_and_treatment/ey[high]",
+        "drtmle-r-composite/three_arm_mar_outcome_and_treatment/ey[high]",
+    ),
     # The two laws of the RM30 reporting study.  F27 states, row by row, that the
     # ``exceptional`` cell has no published result and that the ``weak_blip`` cell has one.
     "F27": _keys(

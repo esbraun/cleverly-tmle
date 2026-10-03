@@ -912,6 +912,7 @@ BIAS_GATED_PROPERTIES = frozenset(
         "survival_recursion_necessity",
         "targeting_necessity",
         "stratum_targeting_necessity",
+        "treatment_complete_case",
         "fold_locality",
         "weight_necessity",
         "projection_necessity",
@@ -946,6 +947,8 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         "generated_design",
         "interval_calibration",
         "natural_course_identity",
+        # The composite TMLE's cells: bias inside the margin, a coverage floor and an SE band.
+        "ordinary_targeting",
         "power",
         "repeat_stability",
         "root_n_and_efficiency",
