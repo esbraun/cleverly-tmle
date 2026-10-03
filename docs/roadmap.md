@@ -68,8 +68,7 @@ Priorities 2 to 5 follow the beta.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.1 | Multi-arm missing-outcome DR-TMLE | [published support; armwise extension](technical-reference/natural-extension-verdicts.md) | none | [F4](#f4-multi-arm-missing-outcome-dr-tmle) |
-| 1.2 | Composite-indicator missing-data DR-TMLE | [published support; indicator-reduction extension](technical-reference/natural-extension-verdicts.md) | F4 for the multi-arm missing-outcome path | [X23](#x23-composite-indicator-missing-data-dr-tmle) |
+| 1.2 | Composite-indicator missing-data DR-TMLE | [published support; indicator-reduction extension](technical-reference/natural-extension-verdicts.md) | none; reuse the shipped multi-arm missing-outcome path and its study helpers | [X23](#x23-composite-indicator-missing-data-dr-tmle) |
 | 1.3 | Missing-outcome attributable effects | [published support; stack extension](technical-reference/natural-extension-verdicts.md) | the shipped missing-outcome natural-course and arm means | [F20](#f20-missing-outcome-attributable-effects) |
 | 1.4 | Stratified incremental and MSM targeting | [published support; finite-partition extension](technical-reference/natural-extension-verdicts.md) | implemented pooled stratified fluctuation, and marginal incremental and MSM targeting; the [baseline-strata study](technical-reference/method-evidence/stratified-point-treatment-tmle.md) | [X8](#x8-stratified-incremental-and-msm-targeting) |
 | 1.5 | Clustered intervals at unequal cluster sizes and at few clusters | [published support; cluster-as-unit extension](technical-reference/natural-extension-verdicts.md) | the shipped grouped point-treatment split | [X24](#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters) |
@@ -249,29 +248,6 @@ beta release either.
 
 The sections below give one contract for each open item. Their physical order does not override
 the main grid.
-
-### F4. Multi-arm missing-outcome DR-TMLE
-
-`delta=` under `guard=("Q", "g")` refuses more than two treatment arms
-(`src/cleverly/estimators/drtmle.py`, the multi-level check in `DRTMLE._check_drtmle`). This item
-implements the armwise form. The [natural-extension verdicts](technical-reference/natural-extension-verdicts.md)
-record the review as part (d).
-
-| item | contract |
-| --- | --- |
-| base result | Díaz and van der Laan (2017), Theorem 2, page 20 of the arXiv v1 manuscript. It is a scalar result for one arm indicator. Their application estimates each arm mean with its own indicator (Figure 1, pages 9–10) |
-| steps | an indicator reduction to $1\{A = a\}$ for each arm, with that arm's own $g_A(a \mid W)$, $g_\Delta(a, W)$ and five reductions. Theorem 2 then applies to each arm as stated. A fixed-dimension stack of the arm curves on the same rows gives the joint curve. Linearity gives each difference, and the delta method gives each ratio |
-| objection search | the paper gives no joint inference across arms, which is an absence and not an objection. A separate logistic tilt of $P(A = a \mid W)$ for each arm (Step 3, page 19) need not stay compatible with one multinomial mechanism, because each arm's Theorem 2 reads only its own column. The shipped complete-data multi-arm `DRTMLE` tilts each column on its own (`src/cleverly/fluctuation/mechanism.py`), as `drtmle` `R/fluctuate.R` does. Page 26 concerns cross-fitting, not arms |
-| inherited conditions | randomized treatment or `treatment_probabilities=`; an outcome missing at random given $(A, W)$; positivity of each arm and of observation; the Theorem 2 rate conditions for each arm |
-| scope | in sample, at `guard=("Q", "g")`. At two arms the shipped binary estimator stays unchanged, so the registered binary study still covers two arms. The armwise tilts apply at three or more arms only. An observational fit goes to [X23](#x23-composite-indicator-missing-data-dr-tmle). The cross-fitted fit stays refused under [F21](#f21-other-missing-outcome-cv-tmle-variants) |
-
-Acceptance:
-
-- an exact-law witness for each arm on a three-arm law with a missing outcome;
-- a mutation control that feeds another arm's column to an arm's tilt and fails;
-- a test that the two-arm fit is bit-identical to the shipped binary estimator;
-- a registered study on a three-arm randomized law with a missing outcome, with coverage,
-  standard-error calibration, joint-coverage and null-size cells.
 
 ### X23. Composite-indicator missing-data DR-TMLE
 
