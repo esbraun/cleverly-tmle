@@ -1413,10 +1413,10 @@ replay receives its own audit only after the estimator can fit the target.
 TMLE ships ([PAR and PAF with missing outcomes](technical-reference/point-treatment-tmle.md#par-and-paf-with-missing-outcomes))
 needs a DR-TMLE natural-course mean, and none exists.
 
-The composite construction is per arm: it
-evaluates the regression and the mechanism with the arm set on every row. The natural-course mean
-needs them at the realised arm. Benkeser et al. (2017), Theorem 1, applied with $\Delta$ as the
-treatment and $(A, W)$ as the covariates, supplies the parent. The work has four steps.
+The composite construction is per arm: it evaluates the regression and the mechanism with the
+arm set on every row. The natural-course mean needs them at the realised arm. Benkeser et al.
+(2017), Theorem 1, applied with $\Delta$ as the treatment and $(A, W)$ as the covariates, supplies
+the parent. The work has four steps.
 
 | step | work |
 | --- | --- |
