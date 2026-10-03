@@ -141,6 +141,34 @@ scale, because a coefficient vector has no single scale to map back with.
 | `targeting_scheme="fold"` | each fold solves its own coefficient, since the coefficient is something the covariate reads. This removes coupling *between* folds, and the rows inside a fold still fit both the coefficient and the fluctuation used for that fold. The pooled score is exactly zero because each fold's is zero at its own coefficient. This is a package extension and not the common-update CV-TMLE of Zheng and van der Laan |
 | point-treatment `"fold"` against longitudinal `n_folds` | point-treatment fold targeting is supported. Cross-fitted longitudinal MSM coefficient inference is refused pending separate evidence |
 
+### Baseline strata
+
+With `strata=`, a stratum's coefficients $eta_s$ are the projection on the law given $S=s$.
+The projection loss separates by stratum, so $(eta_s)_s$ are the coefficients of one working
+model with the expanded design $(I(S=s)arphi)_s$. The table gives where each estimate comes
+from.
+
+| link | stratum coefficients | marginal coefficients |
+| --- | --- | --- |
+| identity, finite arms or a dose grid | one block $I(S=s)H/P_n(S=s)$ per stratum, in one pooled fluctuation | the same fluctuation; its score is the weighted sum of the blocks |
+| log, logit | a nested fluctuation of the blocks $I(S=s)H(eta_s)/P_n(S=s)$, alternating with the projection on each stratum's rows, recorded on `Fluctuation.stratified` | the unstratified alternation, unchanged |
+
+The two links differ because a linked block reads its own stratum's coefficients. One
+fluctuation cannot be the stratum fluctuation for every stratum and the marginal fluctuation at
+once, so a linked fit carries two. Each estimate is asymptotically linear with its own curve, so
+the stacked-curve covariance of any marginal and stratum coefficients stays valid.
+
+Before any learner, the fit restricts the evaluated design to each stratum's rows and reruns the
+shipped rank rule. A design singular inside a stratum refuses with the stratum named first. A
+term that is constant there, such as the stratum column itself, and a term that copies another
+there, such as `a:S` in stratum `S = 1`, are both singular. A link does not change the rank,
+because $dm/d\eta>0$.
+
+`tests/unit/test_stratified_msm_exact.py` checks the linked coefficients and curves against the
+expanded-design fit, and the curve against a complex-step Gateaux derivative of $eta_s$.
+`tests/unit/test_stratified_continuous_msm_exact.py` checks the dose case against the expanded
+design under the identity and logit links.
+
 The package cannot inspect a callable, so it reads the declarations of the design and of the
 projection weight. The table gives each place that checks both declarations.
 

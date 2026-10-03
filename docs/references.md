@@ -1449,7 +1449,10 @@ is the only empirical witness for it.
   10.1016/j.jspi.2005.12.008.
 - Rosenblum & van der Laan (2010), [*Targeted Maximum Likelihood Estimation of the
   Parameter of a Marginal Structural Model*](https://doi.org/10.2202/1557-4679.1238),
-  DOI 10.2202/1557-4679.1238.
+  DOI 10.2202/1557-4679.1238. The package cites it for the TMLE argument of a working model with
+  baseline modifiers, which a stratified fit applies inside each stratum. Its projection uses the
+  binomial deviance, so it does not define the package's least-squares parameter, which
+  [MSM projections](technical-reference/msm-projections.md) defines.
 - Martin, Santacatterina & Díaz (2024), [*Non-parametric efficient estimation of marginal
   structural models with multi-valued time-varying treatments*](https://arxiv.org/html/2409.18782v1),
   arXiv:2409.18782v1. Definition 1 fixes a user-given transformation and projection distribution.
@@ -1496,7 +1499,13 @@ is the only empirical witness for it.
   Statistical Association* 114(526):645–656, DOI 10.1080/01621459.2017.1422737.
   [The arXiv manuscript](https://arxiv.org/html/1704.00211v3), Section 3.3 and Appendix
   Corollary 2, derives the extra mechanism term for a population-law odds tilt. It does not
-  establish inference for the realized learned-density target.
+  establish inference for the realized learned-density target. With baseline strata the package
+  inherits Theorem 2's influence function and Theorem 3's conditions inside each stratum
+  (manuscript Sections 3.3 and 4.3). The package's incremental estimator is its own TMLE
+  construction, not the manuscript's estimating-equation estimator. Manuscript Section 6 lists
+  effect modification by covariates as future work. That is a conditional curve, and a fixed
+  finite partition is not one. The locators refer to arXiv v3. The published version's
+  locators were not read.
 - de Aguas (2026), [*Interpolated Stochastic Interventions Based on Propensity Scores, Target
   Policies and Treatment-Specific Costs*](https://arxiv.org/html/2511.11353),
   arXiv:2511.11353v3. The preprint constructs scalar-parameter categorical propensity policies

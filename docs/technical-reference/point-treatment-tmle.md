@@ -342,7 +342,7 @@ fluctuation, so it is a named request. The refusals keep their reasons:
 | composition | reason |
 | --- | --- |
 | `DRTMLE`, `CTMLE` | no DR-TMLE or collaborative natural-course mean ships. `DRTMLE(guard=())` is the ordinary TMLE, and the message says to use `TMLE`. [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) tracks the refused DR-TMLE compositions |
-| baseline strata | a stratum natural course needs a stratum-indexed fluctuation ([X8](../roadmap.md#x8-stratified-incremental-and-msm-targeting)) |
+| stacked baseline strata | the second-moment variance term of the stacked estimator has no stratum form ([F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants)). The in-sample fit admits strata |
 | `n_bootstrap > 0` | no audited bootstrap result covers this fit ([F2](../roadmap.md#f2-targeted-bootstrap-inference)) |
 | stacked `weights=` or `id=`, stacked continuous outcome, fold targeting, fold evaluation, repeats | the stacked contracts cover unweighted iid rows and a binary outcome ([F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants)) |
 
@@ -505,13 +505,48 @@ also fits both nuisance regressions with those weights. Its learner-only control
 target and selected plug-ins, while weighted targeting repairs the control under a correct
 treatment mechanism.
 
-`strata=` produces stratum-specific parameters. One pooled fluctuation carries one score block
-$I(S=s) H_s / P_n(S=s)$ for each stratum, and each stratum curve is $I(S=s) D_s / P_n(S=s)$. The
-[baseline-strata study](method-evidence/stratified-point-treatment-tmle.md) measures the stratum
-arm means, contrasts, ATT, ATC and PAR against an exact law, and pairs the arm means and contrasts
-with R `tmle3` `tmle_stratified`. The package refuses baseline strata beside
-incremental targets, non-identity-link or continuous-dose MSMs, and `DRTMLE` at a non-empty `guard`
-([X8](../roadmap.md#x8-stratified-incremental-and-msm-targeting)).
+`strata=` produces stratum-specific parameters. A stratum parameter is the marginal parameter of
+the law given $S=s$, for a fixed partition $S$ of the adjustment columns with $P(S=s)>0$. Every
+target group solves one score block $I(S=s) H_s / P_n(S=s)$ for each equation of its targeting.
+Each stratum curve is $I(S=s) D_s / P_n(S=s)$. The table gives the construction of each group.
+
+| target group | stratum construction |
+| --- | --- |
+| arm means and contrasts, ATT, ATC, PAR, regimes, shifts, identity-link MSMs, the in-sample natural-course mean | the blocks in one pooled fluctuation |
+| incremental interventions (`incremental=`) | outcome blocks and treatment-mechanism blocks, alternating until both settle |
+| MSMs with a log or logit link | the marginal coefficients from the unstratified solve, and the stratum coefficients from a nested fluctuation of the blocks at each stratum's coefficients, recorded on `Fluctuation.stratified` |
+| continuous-dose MSMs | as the identity or linked MSM above; a dose has no arm share |
+| `DRTMLE` at a non-empty `guard` | every equation and tilt in blocks, with every reduced regression fitted inside each stratum |
+
+The marginal estimate of an alternating group is the $P_n(S=s)$-weighted mixture of the stratum
+estimates. A linked MSM is the exception: its marginal coefficients come from their own
+fluctuation, because each stratum block reads that stratum's coefficients. The stratum
+coefficients are the coefficients of one MSM with the expanded design $(I(S=s)\varphi)_s$, whose
+projection loss separates by stratum. The marginal estimate of a stratified `DRTMLE` fit reduces
+on $(g_n(W), S)$, so it differs from the unstratified fit. The
+[DR-TMLE estimands page](dr-tmle/supported-estimands.md) states why it stays valid.
+
+The extension is the finite-partition step of each base result: Kennedy (2019), Theorem 2, for
+the incremental curve; the package's least-squares projection for MSMs; Díaz, Carone and van der
+Laan (2016) for the natural course; Benkeser et al. (2017), Theorem 1, for DR-TMLE. Each stratum
+inherits the base result's conditions inside the stratum. The
+[baseline-strata study](method-evidence/stratified-point-treatment-tmle.md) measures the arm
+targets against an exact law and pairs them with R `tmle3` `tmle_stratified`. Exact-law tests pin
+each new construction: `tests/unit/test_stratified_incremental_exact.py`,
+`tests/unit/test_stratified_msm_exact.py`, `tests/unit/test_stratified_continuous_msm_exact.py`,
+`tests/unit/test_stratified_natural_course_exact.py` and
+`tests/unit/test_stratified_drtmle_exact.py`.
+
+These requests with `strata=` refuse before any learner:
+
+| request | reason |
+| --- | --- |
+| `targeting_scheme="fold"` | each stratum would need a fold-local update, and no published result covers one |
+| `cv_evaluation=True` | the fold-evaluated estimate needs stratum shares and a stratum-indexed fold average in each validation fold ([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)) |
+| an incremental target with a stratum that lacks a treatment arm | the stratum's treatment-mechanism equation has no finite root |
+| an MSM whose design is singular inside a stratum | the stratum projection is not one coefficient vector; the shipped rank rule decides |
+| a `DRTMLE` stratum with no trainable rows of an arm in some training complement | its reduced regressions cannot be fitted inside the stratum |
+| the stacked natural-course mean | its second-moment variance term has no stratum form ([F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants)) |
 
 `cluster=` changes the independent unit for covariance and fold construction, and it does not
 change the estimand.
@@ -817,6 +852,14 @@ matters more here than elsewhere. There is no doubly-robust fallback.
 With `delta=` the guarantee *tightens* rather than weakening: $\hat g$ right **and** one of
 $\hat\pi$, $Q$ right, because the squared mechanism-error term is free of $\pi$ and survives
 everything else.
+
+With `strata=`, the outcome and mechanism equations each take one block per stratum, so each
+stratum's mechanism is tilted along its own covariate. A stratum that holds no row of some arm
+refuses before any learner, because its mechanism equation then has no finite root. Kennedy (2019),
+Section 6, lists "how mean outcomes under different interventions vary with covariates" as future
+work. That is a conditional curve in the covariates. A fixed finite partition is the marginal
+result applied inside each stratum, so the passage records no objection to it.
+`tests/unit/test_stratified_incremental_exact.py` checks each stratum curve against Theorem 2.
 
 Kennedy (2019) is the primary theory reference. Implementation:
 [`interventions/incremental.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/incremental.py)

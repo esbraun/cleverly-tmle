@@ -644,8 +644,8 @@ movement and preserves fixed observation weights and baseline strata. It checks 
 stored inputs before the first draw. Continuous MSMs reevaluate observed-dose functions after perturbation.
 They preserve the integration grid and apply quadrature once. Log and logit MSMs report coefficient differences without exponentiation.
 
-Incremental targets and nonlinear or continuous MSMs require marginal fits because their estimator refuses baseline strata.
-Binary identity-link MSMs retain baseline-stratum support.
+Incremental targets and MSMs under every built-in link keep baseline-stratum support, because each
+replay is a complete refit that targets the stratum blocks as the fit did.
 Continuous MSM assessments mark the unimplemented dose-grid support diagnostic as unavailable and continue to the requested surface.
 
 This example compares a known stochastic assignment with never treating.

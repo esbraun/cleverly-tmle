@@ -49,6 +49,9 @@ study = CausalStudy(
 - `strata` requests subgroup parameters and preserves the stratum in structured parameter keys.
   A stratum variable must also appear in `adjustment`: it conditions the reported parameter, so a
   design that stratified on a variable it did not adjust for is refused rather than fitted.
+  Arm, regime, shift, incremental, MSM and natural-course targets fit strata, and so does
+  DR-TMLE at every `guard`. Fold targeting and fold evaluation refuse them
+  ([weights, strata, and clusters](../technical-reference/point-treatment-tmle.md#weights-strata-and-clusters)).
 - `intermediate` and explicit missingness roles activate supported controlled-direct-effect and
   missing-outcome compositions. The next section gives the two missingness roles.
 
