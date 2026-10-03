@@ -202,6 +202,10 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-ltmle-derived",
     reference=None,
+    # ``tests/studies/fractional_glm.py`` is imported through ``canonical_ltmle`` and no fit
+    # calls it. The recorded manifest omits it, and tests/canonical/provenance-revisions.md
+    # declares the gap. Add it here at the next regeneration, not before: the manifest must
+    # list the modules that ran.
     modules=(
         "tests/studies/canonical_full_refit_bootstrap.py",
         "tests/studies/full_refit_bootstrap_properties.py",

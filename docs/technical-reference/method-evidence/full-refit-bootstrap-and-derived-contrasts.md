@@ -103,11 +103,20 @@ in-sample end-of-study, in-sample survival and point-treatment bootstrap cells p
 `POINT_BOOTSTRAP_INFERENTIAL` stays `True`.
 
 Three cells are red, and rule 3 applies to each. The two cross-fitted end-of-study cells
-over-cover, with SE ratios near 1.25. Two copies of one unit can fall in different folds of a
-replicate, which the bootstrap contract states, and the replicates then spread wider than the
-estimator. The cluster contrast covers 0.924, with a 99% interval below the band, while the
-cluster mean passes. So `end_of_study/cross_fit` and `end_of_study/cluster` stay diagnostic,
-and the roadmap owner `X20-bootstrap` holds the three cells.
+over-cover, with SE ratios near 1.25. The cluster contrast covers 0.924, with a 99% interval below
+the band, while the cluster mean passes. So `end_of_study/cross_fit` and `end_of_study/cluster`
+stay diagnostic, and the roadmap owner `X20-bootstrap` holds the three cells.
+
+A diagnostic reading, which is not a registered result, explains the cross-fitted cells. On this
+cell the cross-fitted estimator is heavy-tailed. Its 4,000 committed estimates have excess kurtosis
+6.7, against 0.1 in sample. About 5% of them lie at the probability boundary, because
+`g_bounds=(1e-8, 1)` with saturated cell means leaves sparse training cells unbounded. A bootstrap
+resample holds about 63% unique units, so more replicates reach the boundary, and the replicate
+spread exceeds the sampling spread. A probe that kept each unit's copies in one fold raised the SE
+ratio to about 1.65, so the split of copies across folds is not the cause.
+
+The cluster contrast has a calibrated SE ratio of 0.977, so its shortfall reads as a finite-sample
+limit of the percentile interval at 60 clusters.
 
 ## Measured values
 
