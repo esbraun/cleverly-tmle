@@ -135,3 +135,29 @@ def test_the_untargeted_control_is_displaced() -> None:
     moved = (psi_obs - psi_ref) - TRUTH["par"]
     assert moved == pytest.approx(-0.228, abs=1e-9)
     assert abs(moved) / _per_replication_sd("par") > 15.0
+
+
+def test_the_declared_cells_are_the_cells_a_run_publishes() -> None:
+    """Pre-run guard for the truth-binding gate of ``tests/unit/test_method_evidence.py``.
+
+    That gate needs the published ``(property, cell)`` set to equal the declared set, and each
+    published truth to be the declared law's own.  A two-replication run of every cell shows
+    both before the declared run, rather than after it.
+    """
+    declared = {(cell.property, cell.cell): cell for cell in properties.declared_cells()}
+    rows = properties.generate_property_rows(n_jobs=1, budget=2)
+    published = {tuple(key) for key in rows.groupby(["property", "cell"]).groups}
+    assert published == set(declared)
+    assert set(declared) == {
+        (family, cell) for family, cells in study.STUDY.property_cells.items() for cell in cells
+    } - {("root_n_rate", "empirical_sd"), ("root_n_rate", "reported_se")}
+    for (family, name), cell in declared.items():
+        truth = rows.loc[(rows["property"] == family) & (rows["cell"] == name), "truth"]
+        np.testing.assert_allclose(truth, cell.dgp.truth()[cell.estimand], rtol=1e-12, atol=0)
+
+
+def test_no_two_families_share_a_declared_stream() -> None:
+    streams: dict[tuple[str, int], set[str]] = {}
+    for cell in properties.declared_cells():
+        streams.setdefault((cell.dgp.name, cell.seed), set()).add(cell.property)
+    assert all(len(families) == 1 for families in streams.values())

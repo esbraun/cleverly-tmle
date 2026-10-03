@@ -9,7 +9,8 @@ targeted stack (:func:`tests.studies.canonical_mar_attributable.stack_limit`), a
     The MAR parent's family and keys.  ``both_correct``, ``outcome_correct`` (wrong ``g`` and
     ``pi``) and ``mechanisms_correct`` (wrong ``Q``) are positive.  ``treatment_wrong``
     (``Q`` and ``g`` wrong) is the reference-path control.  ``observation_wrong`` (``Q`` and
-    ``pi`` wrong) is both-wrong for the natural-course coordinate.  ``product_only`` (``Q``
+    ``pi`` wrong) is both-wrong for the natural-course coordinate, but that coordinate moves
+    by only -0.014 at its limit; the cell's displacement is carried by the reference arm.  ``product_only`` (``Q``
     wrong; ``g pi`` correct at the reference arm with ``pi`` wrong) shows that a correct
     product rescues the reference arm and not the natural course.  Exact targeted limits of
     the PAR bias: -0.1354, -0.1968 and -0.1243, that is 9.0, 13.1 and 8.3 per-replication
@@ -31,10 +32,11 @@ targeted stack (:func:`tests.studies.canonical_mar_attributable.stack_limit`), a
     Limiting complete-case displacements: -0.0295 (1.96 per-replication SDs) and -0.0574
     (1.79 SDs).
 ``simultaneous_coverage``
-    The default band of three joint fits at 2,400 replications each: in-sample L1 (``ey_obs``,
+    The default band of five joint fits at 2,400 replications each: in-sample L1 (``ey_obs``,
     ``ey0``, ``par``, ``paf``), in-sample L3 (``ey_obs``, three arm means, ``par[low]``,
-    ``paf[low]``) and stacked L1.  ``tests/unit/test_simultaneous_cell_design.py`` holds each
-    cell's design from the exact efficient influence covariance.
+    ``paf[low]``), stacked L1, and the weighted and clustered in-sample L1 fits.
+    ``tests/unit/test_simultaneous_cell_design.py`` holds each cell's design from the exact
+    covariance, and maps the stacked L3 shape to the L3 design.
 
 Declared before any run: the study is ``gated``.  A red cell is diagnosed from the committed
 rows; a defect in ``cleverly`` is fixed and the study regenerated, and otherwise a
@@ -45,7 +47,6 @@ before one re-run with the same seeds.
 from __future__ import annotations
 
 import dataclasses
-from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -59,11 +60,13 @@ from tests.studies import mar_arm_indexed_laws as laws
 from tests.studies.canonical_mar_attributable import (
     BINARY,
     BINARY_CV,
+    CLUSTERED,
     EFFICIENCY_SD,
     NAMES,
     STUDY,
     THREE_ARM,
     TRUTHS,
+    WEIGHTED,
     fit_cleverly,
     initial_estimates,
     oracle_learners,
@@ -85,7 +88,7 @@ from tests.studies.evidence.property_verdicts import (
     robustness_verdicts,
     simultaneous_coverage_verdicts,
 )
-from tests.studies.evidence.simultaneous import joint_coverage_rows
+from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_property_cells
 from tests.studies.missing_outcome_study_helpers import WRONG_PI, WRONG_Q
 
 ROBUSTNESS_REPLICATES = 1_200
@@ -129,6 +132,8 @@ BAND_SCENARIOS = {
     "attributable_binary": BINARY,
     "attributable_three_arm": THREE_ARM,
     "attributable_binary_cvtmle": BINARY_CV,
+    "attributable_weighted": WEIGHTED,
+    "attributable_clustered": CLUSTERED,
 }
 
 Payload = tuple[str, str, int, int, int, int, str]
@@ -325,26 +330,83 @@ def _payloads(budget: int | None = None) -> list[tuple[Payload]]:
     return [payload for payload in payloads if payload[0][2] < budget]
 
 
+@dataclasses.dataclass(frozen=True)
+class DeclaredLaw:
+    """The law a declared cell reads: its name, and its exact truth for every estimand.
+
+    Every non-band family samples L1 in sample, so each one reads the binary scenario's
+    truths.  The name carries the nuisance configuration, so two families never share a
+    ``(name, seed)`` stream in the collision gate.
+
+    Parameters
+    ----------
+    name : str
+        The law and configuration, such as ``"L1:both_correct"``.
+    """
+
+    name: str
+
+    def truth(self) -> dict[str, float]:
+        """The exact value of every name the binary scenario reports."""
+        return dict(TRUTHS[BINARY])
+
+
+#: The published cells of each non-band family that one replication spec emits, with the
+#: estimand each one reports and its role.  The spec's own cell name is the stream key.
+_EMITTED: dict[str, tuple[tuple[str, str, str], ...]] = {
+    "interval_calibration": (
+        ("par__correctly_specified", "par", "positive"),
+        ("paf__correctly_specified", "paf", "positive"),
+        ("par__inflated_se_control", "par", "control"),
+        ("paf__inflated_se_control", "paf", "control"),
+        ("par__shrunken_se_control", "par", "control"),
+        ("par__noise_control", "par", "control"),
+    ),
+    "targeting_necessity": (
+        ("par__targeted", "par", "positive"),
+        ("par__untargeted", "par", "control"),
+    ),
+    "missingness_necessity": (
+        ("par__declared", "par", "positive"),
+        ("par__complete_case_control", "par", "control"),
+        ("paf__complete_case_control", "paf", "control"),
+    ),
+}
+
+
 def declared_cells() -> tuple[PropertyCell, ...]:
-    """Every sampled cell, with the law and the first seed of its stream."""
-    out = []
+    """Every published cell, with its law, its estimand and the root of its stream."""
+    out: list[PropertyCell] = []
     for spec in _specs():
-        scenario = BAND_SCENARIOS.get(spec.cell, BINARY)
-        first = replication_payloads(STUDY, [dataclasses.replace(spec, replicates=1)])
-        out.append(
-            PropertyCell(
-                property=spec.property,
-                cell=spec.cell,
-                dgp=SimpleNamespace(name=f"{scenario}:{spec.configuration}"),
-                outcome_learner=lambda: None,
-                treatment_learner=lambda: None,
-                n=spec.n,
-                replicates=spec.replicates,
-                seed=first[0][0][5],
-                role="control" if spec.configuration in CONTROLS else "positive",
-                estimand=TARGET,
+        seed = replication_payloads(STUDY, [dataclasses.replace(spec, replicates=1)])[0][0][5]
+        if spec.property == "simultaneous_coverage":
+            out.extend(
+                joint_property_cells(spec.cell, n=spec.n, replicates=spec.replicates, seed=seed)
             )
+            continue
+        role = property_role(
+            spec.configuration,
+            controls=CONTROLS,
+            property_name=spec.property,
+            n=spec.n,
+            rate_sizes=RATE_SIZES,
         )
+        emitted = _EMITTED.get(spec.property, ((spec.cell, TARGET, role),))
+        for cell, estimand, kind in emitted:
+            out.append(
+                PropertyCell(
+                    property=spec.property,
+                    cell=cell,
+                    dgp=DeclaredLaw(f"L1:{spec.configuration}"),
+                    outcome_learner=lambda: None,
+                    treatment_learner=lambda: None,
+                    n=spec.n,
+                    replicates=spec.replicates,
+                    seed=seed,
+                    role=kind,
+                    estimand=estimand,
+                )
+            )
     return tuple(out)
 
 

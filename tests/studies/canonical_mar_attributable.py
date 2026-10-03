@@ -281,6 +281,39 @@ TRUTHS: dict[str, dict[str, float]] = {
 EFFICIENCY_SD = {name: efficiency_sd(L1, name) for name in ("par", "paf")}
 
 
+def weighted_covariance() -> np.ndarray:
+    """Exact covariance of the weighted fit's curves on L1, in ``BINARY_NAMES`` order.
+
+    The curves are the Gateaux derivatives of the tilted functional, taken under the sampling
+    law, so the covariance is their second moment under that law.
+    """
+    curves = [mar.weighted_eif(name, WEIGHT_CELLS) for name in BINARY_NAMES]
+    mass = mar.PROBS.reshape(-1)
+    return np.array([[float(np.sum(mass * left * right)) for right in curves] for left in curves])
+
+
+def clustered_covariance(size: int | None = None) -> np.ndarray:
+    r"""Exact covariance of the cluster sums of the curves, per cluster, in ``BINARY_NAMES`` order.
+
+    The clustered sampler draws ``W`` once per cluster and every other column per row, so
+    within a cluster the rows are independent given ``W``.  For a cluster of ``m`` rows,
+    :math:`\operatorname{Cov}(S_i,S_j)=mE[D_iD_j]+m(m-1)E\{E(D_i\mid W)E(D_j\mid W)\}`.
+    """
+    m = CLUSTER_SIZE if size is None else size
+    curves = np.array([mar.eif(name) for name in BINARY_NAMES])
+    mass = mar.PROBS.reshape(-1)
+    levels = np.array([w for w, _, _ in mar.SUPPORT])
+    within = (curves * mass) @ curves.T
+    conditional = np.array(
+        [
+            [float(np.sum(mass[levels == w] * curve[levels == w])) / mar.P_W[w] for w in range(3)]
+            for curve in curves
+        ]
+    )
+    between = (conditional * mar.P_W) @ conditional.T
+    return np.asarray(m * within + m * (m - 1) * between, dtype=float)
+
+
 # ------------------------------------------------------------------------------ the record
 
 STUDY = StudyRecord(
@@ -358,6 +391,10 @@ STUDY = StudyRecord(
             "attributable_three_arm__pointwise_joint_control",
             "attributable_binary_cvtmle__simultaneous_band",
             "attributable_binary_cvtmle__pointwise_joint_control",
+            "attributable_weighted__simultaneous_band",
+            "attributable_weighted__pointwise_joint_control",
+            "attributable_clustered__simultaneous_band",
+            "attributable_clustered__pointwise_joint_control",
         ),
     },
     efficiency_bounds=EFFICIENCY_SD,

@@ -56,6 +56,12 @@ ARMS: dict[str, str] = {
     "attributable_binary_cvtmle": (
         "L1: ey_obs, ey0, par and paf with MAR outcomes, stacked CV-TMLE with depth-five trees"
     ),
+    "attributable_weighted": (
+        "L1 with fixed weights 0.6, 1.0 and 1.8 by W: ey_obs, ey0, par and paf, in sample"
+    ),
+    "attributable_clustered": (
+        "L1 rows in 100 clusters of 20 that share W: ey_obs, ey0, par and paf, in sample with id="
+    ),
     "third_arm": "third-arm static plan",
     "static_t1": "static plan at horizon one",
     "static_t2": "static plan at horizon two",
