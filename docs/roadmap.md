@@ -71,7 +71,6 @@ Priorities 2 to 5 follow the beta.
 | 1.1 | Multi-arm missing-outcome DR-TMLE | [published support; armwise extension](technical-reference/natural-extension-verdicts.md) | none | [F4](#f4-multi-arm-missing-outcome-dr-tmle) |
 | 1.2 | Composite-indicator missing-data DR-TMLE | [published support; indicator-reduction extension](technical-reference/natural-extension-verdicts.md) | F4 for the multi-arm missing-outcome path | [X23](#x23-composite-indicator-missing-data-dr-tmle) |
 | 1.3 | Missing-outcome attributable effects | [published support; stack extension](technical-reference/natural-extension-verdicts.md) | the shipped missing-outcome natural-course and arm means | [F20](#f20-missing-outcome-attributable-effects) |
-| 1.4 | Stratified incremental and MSM targeting | [published support; finite-partition extension](technical-reference/natural-extension-verdicts.md) | implemented pooled stratified fluctuation, and marginal incremental and MSM targeting; the [baseline-strata study](technical-reference/method-evidence/stratified-point-treatment-tmle.md) | [X8](#x8-stratified-incremental-and-msm-targeting) |
 | 1.5 | Clustered intervals at unequal cluster sizes and at few clusters | [published support; cluster-as-unit extension](technical-reference/natural-extension-verdicts.md) | the shipped grouped point-treatment split | [X24](#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters) |
 | 1.6 | Cross-fitted clustered longitudinal TMLE | [published support; cluster-as-unit extension](technical-reference/natural-extension-verdicts.md) | X24 | [X25](#x25-cross-fitted-clustered-longitudinal-tmle) |
 | 1.7 | Known stochastic categorical policies at a longitudinal node | [published support; known-weight extension](technical-reference/natural-extension-verdicts.md) | shipped categorical longitudinal nodes | [F1](#f1-stochastic-categorical-policies-at-a-longitudinal-node) |
@@ -93,6 +92,7 @@ Priorities 2 to 5 follow the beta.
 | 3.4 | Omitted-variable bounds on the other linear functionals | published support; pending source read | the shipped arm-axis bound | [X9](#x9-omitted-variable-bounds-on-the-other-linear-functionals) |
 | 3.5 | Continuous-dose MSM with a second mechanism | source audit | implemented continuous-dose MSM targeting, missing-outcome arm targeting, and controlled-direct-effect targeting | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) |
 | 3.6 | Learned-policy follow-ups | published support for parts (g) and (h); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c) and (d) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
+| 3.7 | Fold-evaluated CV-TMLE with baseline strata | no new theory; the pooled update is unchanged | the shipped fold-evaluated estimate and the shipped stratified fluctuation | [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) |
 | 4 | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
 | 5.1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | 5.2 | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -347,33 +347,6 @@ Acceptance:
 - a registered study on both attributable scales;
 - an audit of every post-fit capability, which keeps each unsupported assessment unavailable with
   a target-specific reason.
-
-### X8. Stratified incremental and MSM targeting
-
-Ordinary TMLE refuses stratified incremental targets and stratified nonlinear or continuous MSMs.
-DR-TMLE refuses a baseline stratum at a non-empty `guard`, because its reduced regressions add a
-second targeting equation for the `mean` group. Each refusal raises `CapabilityError` before any
-learner, and `CausalStudy.identify` refuses the incremental and MSM compositions. The refusal
-taxonomy records these refusals as
-[not written yet](technical-reference/scope-and-refusals.md#not-written-yet). The
-[natural-extension verdicts](technical-reference/natural-extension-verdicts.md) record the review
-as part (i).
-
-| item | contract |
-| --- | --- |
-| base results | Kennedy (2019), *Journal of the American Statistical Association* 114(526), Section 3.1, Equation (1), and Corollaries 1 and 2, for the incremental curve. The shipped [MSM projection](technical-reference/msm-projections.md) contract. Benkeser, Carone, van der Laan and Gilbert (2017), Theorem 1, for DR-TMLE |
-| step | a finite partition. Restrict each marginal result to $1\{S = s\}$ for a fixed number of baseline strata. The stratum parameter is $\psi_s = E[1\{S = s\}\varphi]/P(S = s)$, so its curve follows by the delta method. The fluctuation uses stratum-indexed coefficients $1\{S = s\} H$, the construction that the package ships for arm, regime and shift targets. The strata stack |
-| objection search | the earlier note on "dose-indexed strata semantics" for continuous MSMs is a design note: baseline strata are not dose strata. It is not a theory gap |
-| inherited conditions | the conditions of each marginal result inside each stratum; positivity inside each stratum; a fixed number of strata |
-
-Acceptance:
-
-- the stratum-indexed fluctuation for incremental, nonlinear MSM and continuous MSM targets, and
-  stratum-restricted reduced regressions for `DRTMLE`;
-- `CausalStudy.identify` admits each composition;
-- an exact witness for each stratum, and a mutation control that pools the strata and fails;
-- a registered study that reuses the strata cell design of the [baseline-strata study](technical-reference/method-evidence/stratified-point-treatment-tmle.md). Complete
-  simulated-confounding replay receives its own audit last.
 
 ### X24. Clustered intervals at unequal cluster sizes and at few clusters
 
@@ -854,6 +827,26 @@ before it ships, as the learned-rule value did.
 Part (h) is not the training-fold update that the [Eligibility](#eligibility) section names as new
 theory. Montoya and co-authors fit the update on the validation rows, and the package already ships
 that update for arm targets.
+
+### X28. Fold-evaluated CV-TMLE with baseline strata
+
+`cv_evaluation=True` refuses `strata=` before any learner (`src/cleverly/estimators/tmle.py`).
+The fold-evaluated estimate needs the stratum shares $P_n(S=s)$ and a stratum-indexed fold
+average inside each validation fold. The pooled stratified update is unchanged, so the item needs
+no new theory.
+
+| item | contract |
+| --- | --- |
+| base results | the shipped fold-evaluated estimate ([CV-TMLE](technical-reference/cv-tmle.md)) and the shipped stratified fluctuation ([point-treatment TMLE](technical-reference/point-treatment-tmle.md#weights-strata-and-clusters)) |
+| step | a finite partition. Each stratum estimate is the fold average of the stratum plug-ins of the validation folds. Each stratum curve is $I(S=s) D_s / P_n(S=s)$ |
+| inherited conditions | the conditions of the fold-evaluated estimate inside each stratum; positivity inside each stratum; a fixed number of strata |
+
+Acceptance:
+
+- a fold-evaluated stratified fit whose stratum estimates equal the fold average of the per-fold
+  stratum plug-ins;
+- an exact-law test of each stratum curve;
+- a registered calibration cell.
 
 ### P1. EP learner
 
@@ -1419,7 +1412,7 @@ target needs its own source audit and contract. An in-sample C-TMLE fit with mis
 takes the status of its path, which [F18](#f18-selector-path-c-tmle-inference) and
 [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) hold.
 
-The stacked contracts have three follow-ups outside this hard stop. The
+The stacked contracts have four follow-ups outside this hard stop. The
 [natural-course contract](technical-reference/cv-tmle.md#missing-outcome-natural-course-mean) and
 the [arm-indexed contract](technical-reference/cv-tmle.md#missing-outcome-arm-indexed-means-and-contrasts)
 refuse each one today. Each needs its own contract and registered evidence. Do not use the evidence
@@ -1430,6 +1423,7 @@ of one extension for another.
 | fold-evaluated construction, for the natural-course mean and the arm-indexed means and contrasts | it has published support in Zheng and van der Laan (2011), Sections 2 and 2.1; it needs an implementation review of its fold plug-in and variance law, which define a separate estimator |
 | supplied split plans | an audit of their balance and weighting requirements. Every cross-fitted fit refuses a plan that carries no package generator record, which the [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules) state |
 | bounded-continuous stacked natural-course mean | an exact contract for scaling the fluctuation, score, point, and influence curve |
+| stacked natural-course mean with baseline strata | a stratum form of the second-moment variance term. The in-sample fit admits `strata=` |
 
 No admitted fit reaches the multi-draw branch of `missingness_tilt`
 (`src/cleverly/sensitivity/missingness.py`), because no admitted composition fits repeated draws
