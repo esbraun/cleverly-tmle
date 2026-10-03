@@ -59,7 +59,7 @@ with the same seeds, and the [red-cell ledger](red-cells.md) records the cell.
 | `interval_calibration` | PAR and PAF against the calibration bands. A shrunken-SE and a noise control derive from the PAR rows. Two inflated-SE controls drop the cross-covariance of the two parent curves |
 | `targeting_necessity` | PAR with a wrong outcome regression, against its untargeted plug-in |
 | `missingness_necessity` | PAR with the response declared, against complete-case fits of PAR and PAF |
-| `simultaneous_coverage` | the default band of the in-sample L1 fit, the in-sample L3 fit and the stacked L1 fit, each with its pointwise joint control |
+| `simultaneous_coverage` | the default band of five fits, each with its pointwise joint control: in-sample L1, in-sample L3, stacked L1, and the weighted and clustered in-sample L1 fits |
 
 The table gives the exact large-sample limits that size each control. `tests/unit/test_mar_attributable_design.py`
 recomputes them. One per-replication SD of PAR at n = 2,000 is $0.67359/\sqrt{2000}=0.0151$.
@@ -77,9 +77,18 @@ recomputes them. One per-replication SD of PAR at n = 2,000 is $0.67359/\sqrt{20
 
 In `treatment_wrong` the natural course stays exact and the reference arm carries the bias. In
 `product_only` the reference arm stays exact and the natural course carries it. The band design is
-in `tests/unit/test_simultaneous_cell_design.py`. Pointwise joint coverage is 0.8849 on L1 and
-0.8148 on L3, and the control power is 1.0 at 2,400 replications. The stacked L1 cell has the
-in-sample limit, so it reads the L1 design.
+in `tests/unit/test_simultaneous_cell_design.py`. The table gives the limiting pointwise joint
+coverage of each cell. The control power is 1.0 at 2,400 replications in each cell.
+
+| cell | covariance | pointwise joint coverage |
+| --- | --- | ---: |
+| `attributable_binary`, `attributable_binary_cvtmle` | exact efficient influence covariance on L1. The stacked fit has the in-sample limit | 0.8849 |
+| `attributable_three_arm` | exact efficient influence covariance on L3 | 0.8148 |
+| `attributable_weighted` | the tilted functional's curves under the sampling law | 0.8829 |
+| `attributable_clustered` | the covariance of the cluster sums of 20 rows that share $W$ | 0.8855 |
+
+The stacked three-arm fit creates one more band shape. It has the in-sample three-arm limit, and
+the stacked binary cell measures its construction, so the gate maps it to those two cells.
 
 ## Measured values and declared margins
 

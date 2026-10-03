@@ -1674,7 +1674,7 @@ ordered, and each rule assumes that the rules above it passed.
 | 4 | `missing_outcome` | a fit with no missing outcome | `not_applicable` |
 | 5 | `continuous` | a continuous dose | `unavailable` |
 | 6 | `incremental` | an incremental fit | `unavailable` |
-| 7 | `tiltable_parameters` | a fit that reports no arm-indexed mean and no linear contrast, such as a regime, MSM, or ratio-only fit | `unavailable` |
+| 7 | `tiltable_parameters` | a fit that reports no arm-indexed mean and no linear contrast, such as a regime, MSM, ratio-only, or PAR-and-PAF-only fit. On the last kind the sentence names the natural-course targets | `unavailable` |
 
 On a composite fit with a missing treatment and a missing outcome, the tilt re-mixes the targeted
 regression with the response mechanism $\pi(a, W) = P(\Delta = 1 \mid A = a, \Delta_A = 1, W)$.
@@ -1689,7 +1689,7 @@ table, and three rules keep the natural-course targets out of the tilt:
 | --- | --- |
 | `missingness_tilt(estimands=...)` that names `ey_obs`, `par` or `paf` | `CapabilityError` that names those targets and the arm-mean remedy |
 | the default sweep | the arm means and contrasts only. The capability row's interpretation names the skipped targets |
-| a bare `tipping_gamma()` whose default would fall to the one reported arm mean | the same `CapabilityError`, rather than a silent switch to the arm mean |
+| a bare `tipping_gamma()` whose default would fall to the one reported arm mean | the row reads `deferred` and requires `estimand`. The call raises the row's reason, which names the natural-course targets and the arm mean to choose, rather than a silent switch to the arm mean |
 
 A fit that reports PAR or PAF and no arm mean meets rule 7. `tests/unit/test_attributable_mar_capabilities.py`
 checks each row.
