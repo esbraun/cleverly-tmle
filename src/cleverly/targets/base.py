@@ -52,10 +52,6 @@ from ..inference.influence import (
     unscale,
 )
 from ..utils.bounds import OutcomeScaler
-from .population_intervention import (
-    POPULATION_INTERVENTION_TARGETS,
-    population_intervention_refusal,
-)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     pass
@@ -416,6 +412,11 @@ class TargetContext:
     #: :func:`~cleverly.inference.influence.make_estimate` maps it to the stored variance.
     #: ``"second_moment"`` belongs to the stacked cross-fitted natural-course mean alone.
     covariance_rule: CovarianceRule = "centered"
+    #: The natural-course mean a joint missing-outcome fit solved with its own
+    #: fluctuation, for the ``mean`` context that reports ``ey_obs``, ``par`` and
+    #: ``paf`` beside the arm means.  ``None`` on every other fit.  Any estimator whose
+    #: natural-course fluctuation returns an :class:`ArmMean` uses this one hook.
+    natural_course: ArmMean | None = None
 
     @cached_property
     def observed_mean(self) -> ArmMean:
@@ -423,8 +424,9 @@ class TargetContext:
 
         Complete outcomes retain the empirical construction exactly.  Under MAR, the
         dedicated ``natural_course`` fluctuation supplies the response-weighted residual
-        score without introducing a treatment mechanism.  The ordinary ``mean`` group
-        remains refused there so PAR/PAF cannot silently become complete-case parameters.
+        score without introducing a treatment mechanism.  A joint fit solves that
+        fluctuation separately and passes its mean in as :attr:`natural_course`, so the
+        ``mean`` context never forms a complete-case mean.
         """
         if not np.all(self.observed):
             if self.submodel.group == "natural_course":
@@ -435,8 +437,11 @@ class TargetContext:
                     self.weights,
                     self.observed,
                 )
-            raise population_intervention_refusal(
-                POPULATION_INTERVENTION_TARGETS, declaration="delta="
+            if self.natural_course is not None:
+                return self.natural_course
+            raise ValueError(
+                "observed_mean needs the natural-course fluctuation's ArmMean when "
+                "outcomes are missing"
             )
         y = np.asarray(self.scaled, dtype=float)
         w = np.asarray(self.weights, dtype=float)

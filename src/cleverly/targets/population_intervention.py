@@ -1,44 +1,28 @@
-"""The attributable population-intervention estimands and their shared refusal.
+"""The natural-course mean, the attributable estimands, and the predicates that read them.
 
 ``par`` and ``paf`` contain both the natural-course mean and a reference-intervention
-mean.  Their joint missing-outcome construction remains outside the implemented surface
-and is tracked by ``docs/roadmap.md`` F20.  The scalar natural-course mean itself has its
-own missing-outcome score equation and therefore no longer belongs to this refusal.
+mean.  With missing outcomes the estimator stacks the shipped natural-course fluctuation
+and the shipped ``mean`` fluctuation on the same rows.  ``ey_obs`` beside any arm target
+is the same stack.  The estimator spells that composition once, before any nuisance
+exists, as ``_is_joint_natural_course``.
 
-Three modules that do not import one another reach this refusal: the target context that
-would compute the mean, the estimator that resolves an estimand list, and the study that
-identifies a typed question.  Written three times it was three sentences, three copies of
-the estimand set, three copies of the roadmap mapping, and three exception types, only one
-of which derived from :class:`~cleverly.CleverlyError`.  This module holds the one set,
-the one sentence and the one type.  It imports only :mod:`cleverly.exceptions`, so any of
-the three callers can reach it.
-
-Each caller keeps its own condition, because the three conditions are genuinely
-different: an observation mask, a requested estimand list, and one identified target.
-What they share is the message, so this module builds the error and the caller raises it.
-
-The natural-course mean's own name, its fit predicate and the two refusals that name it
-live here for the same reason.  Three modules import them -- :mod:`cleverly.assessment`,
+The names, the post-fit predicates and the two refusals that name the natural-course mean
+live here because three modules import them -- :mod:`cleverly.assessment`,
 :mod:`cleverly.sensitivity.positivity` and :mod:`cleverly.sensitivity.missingness` --
-and they sit in three different subpackages.  This module imports only
-:mod:`cleverly.exceptions`, so each one reaches it at module scope, which the previous
-home under :mod:`cleverly.sensitivity` could not offer: that package's ``__init__``
-imports :mod:`cleverly.assessment`, so an assessment-side import had to be written three
-times inside functions to break the cycle.
+and they sit in three different subpackages.  This module imports nothing from the
+package, so each one reaches it at module scope.
 
-Two readers deliberately do not import from here.  The estimator asks
-``_is_natural_course`` before any nuisance exists, and the nuisance diagnostics ask
+Two predicates read a finished result.  :func:`is_natural_course_fit` is the scalar
+missing-outcome natural-course fit, which fits no treatment mechanism.
+:func:`reads_natural_course_mean` is any missing-outcome fit that reports a target read
+from the natural-course mean, scalar or joint.  The estimator asks ``_is_natural_course``
+before any nuisance exists, and the nuisance diagnostics ask
 :attr:`~cleverly.estimators._nuisance.NuisanceEstimates.fits_treatment` after the fit.
-Those are the same question at two times, and neither can be answered by a predicate
-that reads a finished result.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from typing import Any
-
-from ..exceptions import CapabilityError
 
 __all__ = [
     "NATURAL_COURSE_SUPPORT_REFUSAL",
@@ -46,7 +30,9 @@ __all__ = [
     "NATURAL_COURSE_TILT_REFUSAL",
     "POPULATION_INTERVENTION_TARGETS",
     "is_natural_course_fit",
-    "population_intervention_refusal",
+    "natural_course_names",
+    "natural_course_tilt_refusal",
+    "reads_natural_course_mean",
 ]
 
 #: The natural-course mean's estimand name, for the modules that test for it rather
@@ -102,71 +88,82 @@ def is_natural_course_fit(result: Any) -> bool:
     return bool(estimates) and set(estimates) == {NATURAL_COURSE_TARGET}
 
 
-#: The attributable estimands whose missing-outcome construction remains open, in report order.
-_ORDERED = ("par", "paf")
-
-#: The estimands whose functional reads the natural-course mean ``E[Y]``.
-POPULATION_INTERVENTION_TARGETS = frozenset(_ORDERED)
-
-#: The roadmap row that tracks each one.
-_ROADMAP_ROW = {"par": "F20", "paf": "F20"}
-
-_ROADMAP_SENTENCE: dict[tuple[str, ...], str] = {
-    ("F20",): "docs/roadmap.md F20 tracks this unvalidated composition."
-}
+#: The attributable estimands, whose functional reads the natural-course mean ``E[Y]``.
+POPULATION_INTERVENTION_TARGETS = frozenset({"par", "paf"})
 
 
-def _name_phrase(refused: tuple[str, ...]) -> str:
-    """Join the refused estimand names the way a sentence reads them."""
-    if len(refused) == 1:
-        return refused[0]
-    return f"{', '.join(refused[:-1])} and {refused[-1]}"
+#: The estimand stems whose functional reads the natural-course mean.
+NATURAL_COURSE_READERS = frozenset({NATURAL_COURSE_TARGET, *POPULATION_INTERVENTION_TARGETS})
 
 
-def population_intervention_refusal(
-    targets: Iterable[str],
-    *,
-    declaration: str,
-    subject: str | None = None,
-) -> CapabilityError:
-    """Build the refusal a population-intervention estimand earns on a missing outcome.
+def natural_course_names(names: Any) -> list[str]:
+    """The names in ``names`` whose functional reads the natural-course mean, sorted.
 
     Parameters
     ----------
-    targets : iterable of str
-        The estimand names the caller is refusing. Names outside
-        :data:`POPULATION_INTERVENTION_TARGETS` are ignored, and an iterable naming none
-        of them is read as both, which is the shared-context case.
-    declaration : str
-        How the caller's own API spells the missingness declaration, so the message
-        names the keyword the reader wrote.
-    subject : str or None
-        The noun phrase the sentence opens with, for a caller that knows the typed
-        estimand the user asked for. Defaults to the refused estimand names.
+    names : iterable of str
+        Reported parameter names, such as ``"par[low]"``.
 
     Returns
     -------
-    CapabilityError
-        The error to raise. It states what the derivation is missing and cites the
-        roadmap row that tracks each refused estimand.
+    list of str
+        Each name whose stem, the text before ``[``, is ``ey_obs``, ``par`` or ``paf``.
+    """
+    return sorted(name for name in names if name.split("[", 1)[0] in NATURAL_COURSE_READERS)
+
+
+def reads_natural_course_mean(result: Any) -> bool:
+    """Whether a missing-outcome ``result`` reports a target read from the natural course.
+
+    True for the scalar natural-course fit and for a joint fit that reports ``ey_obs``,
+    ``par`` or ``paf`` beside arm targets.  The post-fit rules that a natural-course
+    mean defeats read this one predicate.
+
+    Parameters
+    ----------
+    result : object
+        A fitted result. Read through :func:`getattr` so this module keeps importing
+        nothing from the package.
+
+    Returns
+    -------
+    bool
+        True when the fit declared an observation mask with missing outcomes and some
+        reported parameter is ``ey_obs``, ``par`` or ``paf``.
+    """
+    data = getattr(result, "data", None)
+    if not getattr(data, "has_missing_outcome", False):
+        return False
+    keys = getattr(result, "parameter_keys", {})
+    if keys:
+        return any(
+            getattr(key, "estimand", None) in NATURAL_COURSE_READERS for key in keys.values()
+        )
+    return bool(natural_course_names(getattr(result, "estimates", {})))
+
+
+def natural_course_tilt_refusal(names: Any) -> str:
+    """The sentence a tilt request for a natural-course target raises on a joint fit.
+
+    Parameters
+    ----------
+    names : iterable of str
+        The requested names that read the natural-course mean.
+
+    Returns
+    -------
+    str
+        The refusal, which names the targets and the arm-mean remedy.
 
     Examples
     --------
-    >>> from cleverly.targets.population_intervention import population_intervention_refusal
-    >>> error = population_intervention_refusal(("par",), declaration="delta=")
-    >>> print(str(error).split(":")[0])
-    par does not yet support delta=
+    >>> from cleverly.targets.population_intervention import natural_course_tilt_refusal
+    >>> print(natural_course_tilt_refusal(["par"]).split(";")[0])
+    the implemented missingness tilt is arm-specific
     """
-    named_targets = set(targets)
-    refused = tuple(name for name in _ORDERED if name in named_targets)
-    if not refused:
-        refused = _ORDERED
-    rows = tuple(sorted({_ROADMAP_ROW[name] for name in refused}))
-    verb = "does" if len(refused) == 1 else "do"
-    named = _name_phrase(refused) if subject is None else subject
-    return CapabilityError(
-        f"{named} {verb} not yet support {declaration}: under missingness at random "
-        "the natural-course mean E[Y] needs an additional outcome/missingness score "
-        "equation, and using complete cases would identify a different parameter. "
-        f"{_ROADMAP_SENTENCE[rows]}"
+    return (
+        "the implemented missingness tilt is arm-specific; "
+        f"{sorted(names)} read the natural-course mean, which needs a natural-course "
+        "sensitivity parameter that is not implemented. Request the arm means by name "
+        "with estimands="
     )

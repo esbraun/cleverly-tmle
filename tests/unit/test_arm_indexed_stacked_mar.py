@@ -301,7 +301,10 @@ def test_att_and_atc_are_refused_by_name_in_every_request_form() -> None:
             _engine_fit(None, estimands=estimands, stratify="none")
         message = str(caught.value)
         assert BY_ID["att-atc"].fragment in message
-        assert "Request estimands from ['ate', 'ey', 'ey1', 'ey0', 'rr', 'or']" in message
+        assert (
+            "Request estimands from ['ate', 'ey', 'ey1', 'ey0', 'ey_obs', 'par', 'paf', 'rr', 'or']"
+            in message
+        )
         requested = "['att']" if estimands == ("att",) else "['att', 'atc']"
         assert f"no audited result covers {requested}" in message
         assert NeverFit.calls == 0
@@ -353,7 +356,9 @@ def test_the_att_refusal_names_the_admitted_list_for_three_arms() -> None:
 
     with pytest.raises(CapabilityError) as caught:
         estimator.fit(frame, outcome="Y", treatment="A", covariates=("W1",), delta="Delta")
-    assert "Request estimands from ['ate', 'ey', 'rr', 'or']" in str(caught.value)
+    assert "Request estimands from ['ate', 'ey', 'ey_obs', 'par', 'paf', 'rr', 'or']" in str(
+        caught.value
+    )
     assert NeverFit.calls == 0
 
 

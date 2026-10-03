@@ -37,6 +37,9 @@ from .inference.influence import spread_name
 from .targets.population_intervention import (
     NATURAL_COURSE_SUPPORT_REFUSAL,
     is_natural_course_fit,
+    natural_course_names,
+    natural_course_tilt_refusal,
+    reads_natural_course_mean,
 )
 from .utils.frames import emit_frame
 from .utils.memos import without_memos
@@ -3750,6 +3753,12 @@ class SensitivityFacade(_CapabilityFacade):
             """
             if tilt_rule is None:
                 status = AssessmentStatus.PASSED
+                skipped = natural_course_names(self._result.estimates)
+                if skipped and reads_natural_course_mean(self._result):
+                    interpretation = (
+                        f"{interpretation}; the default sweep skips {skipped}, which read "
+                        "the natural-course mean and have no tilt"
+                    )
             elif tilt_rule[0] == "missing_outcome":
                 status = AssessmentStatus.NOT_APPLICABLE
             else:
@@ -4313,6 +4322,11 @@ class SensitivityFacade(_CapabilityFacade):
         candidates = self._estimand_candidates(operation)
         if len(candidates) != 1:
             return args, kwargs
+        if operation == "tipping_gamma" and reads_natural_course_mean(self._result):
+            # The one arm candidate is not what a fit that reads the natural-course mean
+            # was asked about, so the facade names the gap instead of substituting it.
+            natural = natural_course_names(self._result.estimates)
+            raise CapabilityError(natural_course_tilt_refusal(natural))
         if positional:
             return (candidates[0], *args), kwargs
         return args, {**kwargs, "estimand": candidates[0]}
