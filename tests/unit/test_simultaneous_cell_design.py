@@ -36,6 +36,7 @@ from tests import discrete_law_competing as competing
 from tests import discrete_law_longitudinal as longitudinal
 from tests import discrete_law_survival as survival
 from tests.studies import (
+    composite_drtmle_properties,
     default_band_properties,
     ltmle_competing_properties,
     ltmle_properties,
@@ -149,6 +150,22 @@ EXACT: dict[str, tuple[np.ndarray, int, tuple[float, float]]] = {
         multi_arm_mar_drtmle_properties.CALIBRATION_REPLICATES,
         (0.8223, 2.508),
     ),
+    # The composite study: each scenario's reported names on the inference scale, from
+    # the exact efficient influence covariance, whose arm terms divide by g_c = g pi_A pi.
+    **{
+        f"composite-missing-drtmle/{label}": (
+            _from_covariance(
+                arm_indexed_laws.influence_covariance(composite_drtmle_properties._keyed(scenario))
+            ),
+            composite_drtmle_properties.CALIBRATION_REPLICATES,
+            declared,
+        )
+        for label, scenario, declared in (
+            ("composite_observational", composite_drtmle_properties.OBSERVATIONAL, (0.8832, 2.326)),
+            ("composite_binary", composite_drtmle_properties.BINARY, (0.8835, 2.324)),
+            ("composite_three_arm", composite_drtmle_properties.THREE_ARM, (0.8220, 2.508)),
+        )
+    },
 }
 
 

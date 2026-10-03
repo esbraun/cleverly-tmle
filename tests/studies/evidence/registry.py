@@ -298,6 +298,7 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_cde_tmle import STUDY as CANONICAL_CDE_TMLE
     from tests.studies.canonical_clustered_tmle import STUDY as CANONICAL_CLUSTERED_TMLE
+    from tests.studies.canonical_composite_drtmle import STUDY as CANONICAL_COMPOSITE_DRTMLE
     from tests.studies.canonical_ctmle_oat import STUDY as CANONICAL_CTMLE_OAT
     from tests.studies.canonical_ctmle_selector import STUDY as CANONICAL_CTMLE_SELECTOR
     from tests.studies.canonical_cvtmle import STUDY as CANONICAL_CVTMLE
@@ -386,6 +387,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_CDE_TMLE,
         CANONICAL_MAR_DRTMLE,
         CANONICAL_MULTI_ARM_MAR_DRTMLE,
+        CANONICAL_COMPOSITE_DRTMLE,
         CANONICAL_POINT_MSM,
         CANONICAL_DETERMINISTIC_REGIMES,
         LEARNED_RULE_CVTMLE,
