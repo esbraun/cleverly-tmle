@@ -512,10 +512,10 @@ previous reader had is not a citation; a page number is.
   Therefore, `tmle3` is a complete-data reduction comparator rather than RM8 derivation evidence.
 - Missing-outcome attributable-effect source audit (2026-09-12): no reviewed paper presents the
   exact MAR PAR and PAF construction. [RM8](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm8-missing-outcome-attributable-effects)
-  records this bounded conclusion. The implementation record that follows states the
-  construction the package ships.
-  The [natural-extension verdicts](technical-reference/natural-extension-verdicts.md)
-  record part (e), a stack of the two shipped parents, as a natural extension.
+  records this bounded conclusion. The
+  [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) record part (e),
+  a stack of the two shipped parents, as a natural extension. The implementation record that
+  follows states the construction the package ships.
 
   Díaz, Carone and van der Laan give the MAR natural-course parent, its remainder, and its rates.
   Hubbard and van der Laan give the complete-data reference parent and attributable transforms.
@@ -1953,8 +1953,16 @@ The source locators are these.
 | [`R/estimate.R`, lines 1117-1150](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/estimate.R#L1117-L1150) | the `SL_Qr` branch of `estimateQrn` filters on `trainDeltaA == 1` |
 | [`R/estimate.R`, lines 1176-1178](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/estimate.R#L1176-L1178) | the `glm_Qr` branch filters on `trainDeltaY == 1 & trainDeltaY == 1`, so `DeltaA` is absent there. With `NA` coding the `Aeqa` line removes every unrecorded row, so the slip has no effect. The package masks by `Delta_A` directly, and `tests/unit/test_composite_missing_data.py` (E12) pins that a coded treatment on an unrecorded row changes nothing |
 
-The [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) use these
-locators for parts (a) and (b).
+The same commit codes a missing outcome and a missing treatment as one composite indicator.
+`R/drtmle.R` line 207 sets `DeltaA = as.numeric(!is.na(A))`. `R/fluctuate.R` line 28 builds the
+clever covariate from `A == a & DeltaA == 1 & DeltaY == 1`, and lines 98 and 169-171 use the same
+indicator. `R/estimate.R` factorizes the composite mechanism as
+$P(\Delta_A=1\mid W)\,P(A=a\mid\Delta_A=1,W)\,P(\Delta_Y=1\mid\Delta_A=1,A=a,W)$. In the
+`glm_Qr` branch of `estimateQrn`, `R/estimate.R` lines 1177-1178 filter on
+`trainDeltaY == 1 & trainDeltaY == 1`, so `DeltaA` is absent from that subset. A missing `A` is
+coded `NA`, and `Aeqa[is.na(Aeqa)] <- FALSE` already drops those rows, so the effect is nil under
+that coding. The [natural-extension verdicts](technical-reference/natural-extension-verdicts.md)
+use these locators for parts (a) and (b).
 
 The same snapshot fixes two post-fit conveniences. [`R/confint.R`, lines
 146-167](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/confint.R#L146-L167) forms `ci(contrast = list(f, f_inv, h, fh_grad))` as

@@ -68,9 +68,6 @@ Priorities 2 to 5 follow the beta.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.1 | Multi-arm missing-outcome DR-TMLE | [published support; armwise extension](technical-reference/natural-extension-verdicts.md) | none | [F4](#f4-multi-arm-missing-outcome-dr-tmle) |
-| 1.2 | Composite-indicator missing-data DR-TMLE | [published support; indicator-reduction extension](technical-reference/natural-extension-verdicts.md) | F4 for the multi-arm missing-outcome path | [X23](#x23-composite-indicator-missing-data-dr-tmle) |
-| 1.3 | Missing-outcome attributable effects | [published support; stack extension](technical-reference/natural-extension-verdicts.md) | the shipped missing-outcome natural-course and arm means | [F20](#f20-missing-outcome-attributable-effects) |
 | 1.5 | Clustered intervals at unequal cluster sizes and at few clusters | [published support; cluster-as-unit extension](technical-reference/natural-extension-verdicts.md) | the shipped grouped point-treatment split | [X24](#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters) |
 | 1.6 | Cross-fitted clustered longitudinal TMLE | [published support; cluster-as-unit extension](technical-reference/natural-extension-verdicts.md) | X24 | [X25](#x25-cross-fitted-clustered-longitudinal-tmle) |
 | 1.7 | Known stochastic categorical policies at a longitudinal node | [published support; known-weight extension](technical-reference/natural-extension-verdicts.md) | shipped categorical longitudinal nodes | [F1](#f1-stochastic-categorical-policies-at-a-longitudinal-node) |
@@ -119,10 +116,10 @@ the current boundary, and the refusal that keeps it.
 | Targeted bootstrap inference | a construction that defines what is fixed, resampled, refitted, and retargeted, plus the sampling law of the interval | existing bootstrap inference is not this procedure | [F2](#f2-targeted-bootstrap-inference) |
 | Longitudinal sensitivity-bound estimation | sample estimation of the bound functionals, a specialized algorithm, and sampling inference | no sensitivity bound on a longitudinal fit | [F16](#f16-longitudinal-sensitivity-bound-estimation) |
 | Additional longitudinal estimands | target-specific identification, influence function, targeting construction, and inference conditions | existing end-of-study, survival, competing-risk, and MSM targets only | [F3](#f3-additional-longitudinal-estimands) |
-| Other refused C-TMLE and DR-TMLE compositions | composition-specific score, reduced regressions, correction, remainder, and rate conditions. An observational missing outcome and a missing treatment on `DRTMLE` moved to [X23](#x23-composite-indicator-missing-data-dr-tmle) | named pre-fit refusals. A `DRTMLE` fit with a non-empty `guard` and estimated weights reports its point estimate under the `estimated_weight_plugin` status, and no interval | [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
+| Other refused C-TMLE and DR-TMLE compositions | composition-specific score, reduced regressions, correction, remainder, and rate conditions. An observational missing outcome and a missing treatment on `DRTMLE` ship through the [composite indicator](technical-reference/dr-tmle/theorem.md#observational-missing-data-the-composite-indicator). On the composite, `evaluation=` and `reduced_crossfit="nested"` stay refused | named pre-fit refusals. `DRTMLE` refuses `NaturalCourseMean`, PAR and PAF with missing outcomes, because no DR-TMLE natural-course mean ships. A `DRTMLE` fit with a non-empty `guard` and estimated weights reports its point estimate under the `estimated_weight_plugin` status, and no interval | [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
 | Selector-path C-TMLE inference | an influence function and covariance after the shipped data-adaptive stopping-index selection | point estimates and path diagnostics only. The greedy, ordered, and discrete paths refuse `ci`, `pvalue`, and `std_error`, except a `discrete` fit whose one declared candidate is the full adjustment set, and report a named working-mechanism plug-in diagnostic | [F18](#f18-selector-path-c-tmle-inference) |
 | Outcome-adaptive C-TMLE generated-design inference | exact scalar expansions for the shipped joint binary fit and a multi-arm vector extension of the paper-backed fold-local construction | point estimates only. Every `strategy="oat"` fit refuses `ci`, `pvalue`, and `std_error` under the `generated_design_plugin` status, and reports a named generated-design plug-in diagnostic. X17 builds the per-arm scalar construction that Theorem 1 proves and its stack | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) |
-| Other missing-outcome CV-TMLE variants | a direct interval result for fold-specific targeting and for the fixed-repeat median and split-dispersion report after CV-TMLE targeting | the package supports the ordinary natural-course estimator, the stacked natural-course estimator for a binary outcome, and the stacked arm-indexed means and contrasts. Each stacked estimator uses one repeat and pooled targeting. Shift, incremental, regime, MSM, and controlled-direct-effect targets refuse a cross-fitted fit with missing outcomes before any learner | [F21](#f21-other-missing-outcome-cv-tmle-variants) |
+| Other missing-outcome CV-TMLE variants | a direct interval result for fold-specific targeting and for the fixed-repeat median and split-dispersion report after CV-TMLE targeting | the package supports the ordinary natural-course estimator, the stacked natural-course estimator for a binary outcome, the stacked arm-indexed means and contrasts, and their stacked PAR and PAF for a binary outcome. Each stacked estimator uses one repeat and pooled targeting. Shift, incremental, regime, MSM, and controlled-direct-effect targets refuse a cross-fitted fit with missing outcomes before any learner | [F21](#f21-other-missing-outcome-cv-tmle-variants) |
 | Grouped cross-fitting beyond point-treatment TMLE | a split law and a cluster-robust variance for the C-TMLE selection folds and the candidate the search stops at | whole-cluster outer folds for cross-fitted point-treatment TMLE and DR-TMLE only. A cross-fitted fit at unequal cluster sizes, in rows or in weight mass, overall or within a reported stratum, takes the `unequal_cluster_plugin` status. A fit with fewer than 40 positive-mass clusters, in total or in one reported stratum, takes `few_cluster_plugin`. Neither reports an interval. The point-treatment boundaries moved to [X24](#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters), and the longitudinal row to [X25](#x25-cross-fitted-clustered-longitudinal-tmle) | [F22](#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
 | MNAR and incremental-intermediate compositions | identification and influence-function results for the exact compositions | point-treatment sensitivity and implemented interventions remain separate | [F6](#f6-mnar-and-incremental-intermediate-compositions) |
 | Joint point-treatment parameter axes | a targeting and inference result for one fit that carries an MSM projection together with a regime, shift, or incremental intervention, including its joint score and covariance | single-axis point-treatment fits only | [F17](#f17-joint-point-treatment-parameter-axes) |
@@ -231,6 +228,14 @@ the `RM18-` owners, they are standing records of a reading. They do not gate the
 The `X20-bootstrap` owner holds the bootstrap kinds that stay diagnostic. It does not gate the
 beta release either.
 
+The `composite-high-arm` owner holds one truth row of the composite missing-data study, red in the
+package and in R `drtmle` alike. It is a standing record of a reading, and it does not gate the
+beta release.
+
+The `F4-calibration-draws` owner holds two cells that read one draw set of the multi-arm
+missing-outcome DR-TMLE study. It is a standing record of a reading, and it does not gate the
+beta release.
+
 | id | work | acceptance |
 | --- | --- | --- |
 | `F18` | an inference result for the shipped selector path | an influence curve derived after the stopping-index selection, and a registered study whose `selector_necessity` and `type_i_error` cells pass their existing margins at their existing budgets. The multi-arm `interval_calibration/correctly_specified` cell must also pass its band, because its standard-error ratio interval, 0.8987 to 0.9862, measures the fixed-candidate covariance that F18 replaces |
@@ -243,6 +248,8 @@ beta release either.
 | `RM18-comparator-density` | the paired `ate_shift[+0.25 vs natural course]` row of `shift-policies` | reading `cleverly density representation` ([`tests/diagnostics/rm18_comparator_density/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_comparator_density)). The calibration leg fails with a 99% upper endpoint of 0.065856 against a margin of 0.05, so the conclusion is `inconclusive`. If X12 changes the density representation, it re-reads this row |
 | `strata-boundary-mean` | the two primary truth rows of `ey[1][V=2]` and the `interval_calibration/v2_ey1__correctly_specified`, `simultaneous_coverage/strata__simultaneous_band` and `simultaneous_coverage/crossfit_strata__simultaneous_band` cells of `canonical-stratified-tmle` | reading `finite-sample Wald interval`: the treated mean of stratum V = 2 is 0.9358, and at n = 2,000 the stratum holds about 157 treated rows and about 9 expected non-events. R `tmle3` shows the same coverage on the same draws, the bias is inside its margin, and the oracle band at the exact critical value also under-covers ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). The owner closes when a re-declared cell, with its law or size declared before its run, or a small-sample interval correction with its own registered study passes. Until then each cell stays published red under `reporting` |
 | `band-finite-sample` | the `simultaneous_coverage/all_reported__simultaneous_band` cell of `canonical-ltmle-survival`, and the `categorical_ltmle__simultaneous_band`, `categorical_ltmle_crossfit__simultaneous_band` and `cde_z0__simultaneous_band` cells of `default-simultaneous-bands` | reading `finite-sample, pointwise shortfall inherited`: the oracle band at the design critical value also covers below 0.95, and the source study's pointwise calibration of the same parameters sits near the lower edge of its band. The package critical value averages a little below the design one, so the multiplier explains a small part of each shortfall ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). The owner closes when a re-declared cell, with its law or size declared before its run, or a small-sample interval correction with its own registered study passes. Until then each cell stays published red under `reporting` |
+| `F4-calibration-draws` | the `interval_calibration/ate__correctly_specified` and `simultaneous_coverage/arms__simultaneous_band` cells of `multi-arm-mar-drtmle`, which read one set of 2,400 fits | reading `finite-sample, one draw set`. The SE-ratio interval ends at 0.9294 against a floor of 0.93, and the joint-coverage interval at 0.9196 against 0.92. The calibration fits have an empirical SD 1.037 times their mean standard error. The same configuration gives 0.997 at `n_2000` and 0.989 at `l3_ate_low__both_correct`, on independent draws. `simultaneous=True` changes no estimate and no standard error. The band critical value averages 2.500 against the oracle 2.508, and the oracle band covers 0.9342 against the package's 0.9337, so the band construction explains none of the shortfall ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). Pooled over the 4,400 independent both-correct fits of `ate[low vs high]` at n = 2,000, the spread is 1.020 times the mean standard error (bootstrap 99% interval 0.991 to 1.047), and a Bartlett test across the three cells gives p = 0.20, so the draw set differs from its siblings by no more than chance. No defect was found in the K-arm code. The owner closes when a re-declared cell, with its law or size declared before its run, or a small-sample interval correction with its own registered study passes. Until then both cells stay published red under `reporting` |
+| `composite-high-arm` | the `ey[high]` truth rows of `cleverly-composite-drtmle` and `drtmle-r-composite` on the three-arm scenario of `composite-missing-drtmle` | reading `finite-sample, shared with the comparator`. Coverage is 0.9225 in the package and 0.9237 in R `drtmle`, and the 99% intervals end at 0.8949 and 0.8963 against a floor of 0.90. The paired mean difference is 4e-6, and the SE-ratio intervals are 0.873 to 1.005 and 0.875 to 1.005. The empirical SD of the estimates is 0.0367 against a mean standard error of 0.0342. `high` has the smallest composite mechanism of the law, 0.070 where `W = 0`, which holds half the mass. Every other arm and contrast of the scenario passes. The owner closes when a re-declared cell, with its law or size declared before its run, passes, or when a small-sample interval correction with its own registered study does. Until then both rows stay published red under `reporting` |
 | `X20-bootstrap` | the `interval_calibration` cells `boot_ey_crossfit__correctly_specified`, `boot_ate_crossfit__correctly_specified` and `boot_ate_clustered__correctly_specified` of `full-refit-bootstrap-and-derived-contrasts` | the declared rule 3 keeps the `end_of_study/cross_fit` and `end_of_study/cluster` kinds out of `LICENSED_BOOTSTRAP_DESIGNS`, so their bootstrap prints as a diagnostic. A diagnostic reading, not a registered result: on this cell the cross-fitted estimator is heavy-tailed. Its 4,000 committed estimates have excess kurtosis 6.7, and about 5% of them lie at the probability boundary, because `g_bounds=(1e-8, 1)` with saturated cell means leaves sparse training cells unbounded. A bootstrap resample holds about 63% unique units, so more replicates reach the boundary and the replicate spread exceeds the sampling spread (SE ratios 1.23 and 1.27). A probe that kept each unit's copies in one fold raised the SE ratio to about 1.65, so the split of copies across folds is not the cause. The cluster contrast covers 0.924 with a calibrated SE ratio (0.977), a finite-sample shortfall of the percentile interval at 60 clusters. The owner closes when a re-declared cell for the kind, with its law, size, nuisance bounds or resampling scheme declared before its run, passes a registered cell |
 
 ## Detailed implementation contracts
@@ -250,103 +257,6 @@ beta release either.
 The sections below give one contract for each open item. Their physical order does not override
 the main grid.
 
-### F4. Multi-arm missing-outcome DR-TMLE
-
-`delta=` under `guard=("Q", "g")` refuses more than two treatment arms
-(`src/cleverly/estimators/drtmle.py`, the multi-level check in `DRTMLE._check_drtmle`). This item
-implements the armwise form. The [natural-extension verdicts](technical-reference/natural-extension-verdicts.md)
-record the review as part (d).
-
-| item | contract |
-| --- | --- |
-| base result | Díaz and van der Laan (2017), Theorem 2, page 20 of the arXiv v1 manuscript. It is a scalar result for one arm indicator. Their application estimates each arm mean with its own indicator (Figure 1, pages 9–10) |
-| steps | an indicator reduction to $1\{A = a\}$ for each arm, with that arm's own $g_A(a \mid W)$, $g_\Delta(a, W)$ and five reductions. Theorem 2 then applies to each arm as stated. A fixed-dimension stack of the arm curves on the same rows gives the joint curve. Linearity gives each difference, and the delta method gives each ratio |
-| objection search | the paper gives no joint inference across arms, which is an absence and not an objection. A separate logistic tilt of $P(A = a \mid W)$ for each arm (Step 3, page 19) need not stay compatible with one multinomial mechanism, because each arm's Theorem 2 reads only its own column. The shipped complete-data multi-arm `DRTMLE` tilts each column on its own (`src/cleverly/fluctuation/mechanism.py`), as `drtmle` `R/fluctuate.R` does. Page 26 concerns cross-fitting, not arms |
-| inherited conditions | randomized treatment or `treatment_probabilities=`; an outcome missing at random given $(A, W)$; positivity of each arm and of observation; the Theorem 2 rate conditions for each arm |
-| scope | in sample, at `guard=("Q", "g")`. At two arms the shipped binary estimator stays unchanged, so the registered binary study still covers two arms. The armwise tilts apply at three or more arms only. An observational fit goes to [X23](#x23-composite-indicator-missing-data-dr-tmle). The cross-fitted fit stays refused under [F21](#f21-other-missing-outcome-cv-tmle-variants) |
-
-Acceptance:
-
-- an exact-law witness for each arm on a three-arm law with a missing outcome;
-- a mutation control that feeds another arm's column to an arm's tilt and fails;
-- a test that the two-arm fit is bit-identical to the shipped binary estimator;
-- a registered study on a three-arm randomized law with a missing outcome, with coverage,
-  standard-error calibration, joint-coverage and null-size cells.
-
-### X23. Composite-indicator missing-data DR-TMLE
-
-An observational `DRTMLE` fit with `delta=` refuses unless `randomized=True` or
-`treatment_probabilities=` (`src/cleverly/estimators/drtmle.py`). A missing treatment value raises
-`DataError` (`src/cleverly/data/validate.py` for a numeric column, `src/cleverly/data/causal_data.py`
-for any other column). This item covers both with one construction. The
-[natural-extension verdicts](technical-reference/natural-extension-verdicts.md) record the review
-as parts (a) and (b).
-
-| item | contract |
-| --- | --- |
-| base result | Benkeser, Carone, van der Laan and Gilbert (2017), *Biometrika* 104(4), Section 3.2, Theorem 1. It is a result for $\psi = E\{\bar Q(1, W)\}$ on $O = (W, A, Y)$ with a binary $A$ (Section 2.1) |
-| step | an indicator reduction. Replace $A$ by the composite $C_a = \Delta_A \Delta_Y 1\{A = a\}$ and use $O' = (W, C_a, C_a Y)$. Theorem 1 then applies as stated. The mechanism is $g_a(W) = P(C_a = 1 \mid W)$, and double robustness holds between $\bar Q$ and $g_a$ |
-| identification | $E\{Y(a)\} = E[E\{Y \mid A = a, \Delta_A = 1, \Delta_Y = 1, W\}]$ under consistency, $Y(a) \perp A \mid W$, $Y(a) \perp \Delta_A \mid A, W$ and $Y \perp \Delta_Y \mid A, \Delta_A = 1, W$. The missingness of $A$ may depend on $A$ and $W$, because the fit regresses the composite mechanism directly |
-| objection search | Benkeser et al. (2017) mention no missing data and no caveat about coarsening. Díaz and van der Laan (2017) do not establish the observational composition, which is an absence. `drtmle` 1.1.2 uses the same indicator (`R/fluctuate.R` line 28) |
-| inherited conditions | the three independence conditions above; composite positivity $P(C_a = 1 \mid W) > \delta$; `W` complete on every row; the Theorem 1 rate conditions |
-
-The construction:
-
-- one binary mechanism regression for each arm on $C_a$, or the `drtmle` factorization
-  $P(\Delta_A \mid W)\,P(A = a \mid \Delta_A = 1, W)\,P(\Delta_Y \mid \Delta_A = 1, A = a, W)$;
-- no multinomial and no renormalization. The composites of the arms do not partition the rows. A
-  row with $\Delta_A \Delta_Y = 0$ belongs to no arm, so $\sum_a P(C_a = 1 \mid W) < 1$, and the
-  shipped shared categorical mechanism does not apply;
-- an outcome regression on the rows with $C_a = 1$;
-- reduced regressions conditioned on the composite $g_a$;
-- a missing treatment coded as a missing value, as `drtmle` `R/drtmle.R` line 207 codes it.
-
-| fit | construction |
-| --- | --- |
-| `delta=` with `randomized=True` or `treatment_probabilities=`, and an observed treatment | Díaz and van der Laan (2017), unchanged |
-| `randomized=True` or `treatment_probabilities=` with a missing treatment | `CapabilityError` by name, because Díaz and van der Laan observe the treatment on every row |
-| an observational fit with `delta=`, a missing treatment, or both | the composite construction |
-
-The fit is in sample only. The cross-fitted missing-outcome DR-TMLE stays refused under
-[F21](#f21-other-missing-outcome-cv-tmle-variants). The data layer admits a missing treatment only
-for targets that read the arm indicator: arm means and contrasts on `DRTMLE` at every `guard`, and
-on `TMLE`. ATT, ATC, PAR, PAF, shift, incremental, regime, MSM, controlled-direct-effect,
-C-TMLE, cross-fitted and `LTMLE` fits refuse a missing treatment by name.
-
-Acceptance:
-
-- a nonzero witness for each of $\Delta_A$ and $\Delta_Y$, on an exact law where each mechanism
-  moves the estimate;
-- a regression test that a row with $\Delta_A = 0$ and a coded treatment never enters a reduced
-  regression. `drtmle` `R/estimate.R` lines 1177-1178 filter on `trainDeltaY` twice, so `DeltaA`
-  is absent from that subset;
-- a mutation control that renormalizes the composite mechanisms over the arms and fails;
-- a registered truth-based study with an observational outcome and a treatment, each missing at
-  random. A `drtmle` comparison is optional.
-
-### F20. Missing-outcome attributable effects
-
-PAR and PAF refuse a missing outcome (`population_intervention_refusal` in
-`src/cleverly/targets/population_intervention.py`, raised from `tmle.py` and `study.py`). The
-[natural-extension verdicts](technical-reference/natural-extension-verdicts.md) record the review
-as part (e).
-
-| item | contract |
-| --- | --- |
-| base results | Díaz, Carone and van der Laan (2016), for the natural-course mean with an outcome missing at random. It ships as `ey_obs`, and Equation (3) gives its remainder. The shipped observational missing-outcome arm mean, with Díaz and van der Laan (2017), Section 2.1 and Equation (1), and Gruber and van der Laan (2012), Section 2.3 |
-| steps | a fixed-dimension stack of $\hat\psi_{\mathrm{obs}}$ and $\hat\psi_{a_0}$ on the same rows. Linearity gives $\mathrm{PAR} = \psi_{\mathrm{obs}} - \psi_{a_0}$. The delta method gives $\mathrm{PAF} = \mathrm{PAR}/\psi_{\mathrm{obs}}$, with the shipped complete-data denominator rule. Joint targeting is one pooled fluctuation with both clever covariates, $\Delta/\pi(A, W)$ and $\Delta 1\{A = a_0\}/(g\,\pi)$. Separate targeting of each parent is valid too, because the stack needs only that each parent is asymptotically linear |
-| objection search | the earlier text of this item said not to infer the construction from existing results. That was a policy sentence and not a recorded objection. No read source records a defect |
-| inherited conditions | the conditions of both parents on one observational law, with one outcome regression $E(Y \mid A, W, \Delta = 1)$; treatment and response positivity; a PAF denominator bounded away from zero |
-| scope | in sample first. The cross-fitted form is admitted only where both cross-fitted parents ship: the binary-outcome stacked natural course and the stacked arm-indexed contract. Otherwise [F21](#f21-other-missing-outcome-cv-tmle-variants) keeps the refusal |
-
-Acceptance:
-
-- an exact reduction to complete-data PAR and PAF when $\Delta \equiv 1$;
-- nonzero response-score witnesses on the natural-course and the reference paths;
-- covariance and denominator mutation controls;
-- a registered study on both attributable scales;
-- an audit of every post-fit capability, which keeps each unsupported assessment unavailable with
-  a target-specific reason.
 
 ### X24. Clustered intervals at unequal cluster sizes and at few clusters
 
@@ -1394,8 +1304,8 @@ result there identifies a first-order term.
 
 ### F21. Other missing-outcome CV-TMLE variants
 
-Keep fold-targeted and repeated-split missing-outcome fits refused. The natural-course mean and the
-arm-indexed means and contrasts refuse both variants before any learner call. No read source gives
+Keep fold-targeted and repeated-split missing-outcome fits refused. The natural-course mean, PAR, PAF,
+and the arm-indexed means and contrasts refuse both variants before any learner call. No read source gives
 a direct interval result for either composition.
 
 A fold-targeted extension needs a theorem for one response-weighted fluctuation coefficient in
@@ -1406,6 +1316,10 @@ The fixed-repeat result in Chernozhukov et al. (2018) applies to the paper's DML
 its DML assumptions. No read result transports its coordinatewise median and split-dispersion
 variance to the targeted MAR plug-in. A future result must cover the dependence created by
 targeting before it can justify the package's repeated report for this target.
+
+A cross-fitted fit with a missing treatment, and a cross-fitted composite fit with an observational
+missing outcome, stay refused at every target. Each needs a fold-local composite mechanism and a
+direct interval result for it.
 
 Shift, incremental, regime, MSM and controlled-direct-effect targets, cross-fitted with missing
 outcomes, raise `CapabilityError` before any learner. The message names F21, and its remedy is the
@@ -1478,8 +1392,12 @@ None supplies a split law or a variance for the clustered C-TMLE search.
 Continue pre-fit refusals for ATT, ATC, PAR, PAF, regimes, incremental interventions, shifts, MSMs,
 mediation, and a missing treatment on `CTMLE`, where each variant lacks evidence. Ordinary-TMLE
 implementations do not establish collaborative or doubly robust inference for these compositions.
-An observational missing outcome and a missing treatment on `DRTMLE` moved to
-[X23](#x23-composite-indicator-missing-data-dr-tmle), which reduces each to a composite indicator.
+An observational missing outcome and a missing treatment on `DRTMLE` ship through the
+[composite indicator](technical-reference/dr-tmle/theorem.md#observational-missing-data-the-composite-indicator).
+On the composite, `evaluation=` and `reduced_crossfit="nested"` stay refused here. Both carry one
+fold-free treatment mechanism, and the composite has up to three factors. A composite `DRTMLE`
+fits `strata=` with one block per stratum, as every `DRTMLE` route does
+([baseline strata](technical-reference/dr-tmle/supported-estimands.md#baseline-strata)).
 
 C-TMLE with cross-fitted arm-indexed missing outcomes is refused before any learner call.
 In-sample C-TMLE with missing outcomes still fits, and it reports no interval: a selector path
@@ -1489,6 +1407,22 @@ Each C-TMLE extension needs its target-specific collaborative score and selectio
 Each DR-TMLE extension needs reduced regressions, a correction, a remainder, and rate conditions.
 PAR and PAF also need the joint observed-mean curve and covariance. Complete simulated-confounding
 replay receives its own audit only after the estimator can fit the target.
+
+`DRTMLE` refuses `NaturalCourseMean`, PAR and PAF with missing outcomes. The stack that ordinary
+TMLE ships ([PAR and PAF with missing outcomes](technical-reference/point-treatment-tmle.md#par-and-paf-with-missing-outcomes))
+needs a DR-TMLE natural-course mean, and none exists.
+
+The composite construction is per arm: it
+evaluates the regression and the mechanism with the arm set on every row. The natural-course mean
+needs them at the realised arm. Benkeser et al. (2017), Theorem 1, applied with $\Delta$ as the
+treatment and $(A, W)$ as the covariates, supplies the parent. The work has four steps.
+
+| step | work |
+| --- | --- |
+| 1 | a realised-arm composite view in `estimators/composite.py`, with the indicator $\Delta$ and the covariates $(A, W)$, and reduced regressions over $\bar m(A, W)$ and $\pi(A, W)$ |
+| 2 | the DR-TMLE natural-course mean `ey_obs` at each guard and reduction, with Gateaux and remainder witnesses for the corrected curve $D^*-D^*_Q-D^*_g$, and its post-fit readers (correction check, truncation, retarget, nuisance diagnostics) |
+| 3 | PAR and PAF through the shipped `TargetContext.natural_course` hook, with no second spelling |
+| 4 | a registered study with one-wrong and both-wrong coverage cells, paired with `drtmle` 1.1.2 through the constant-treatment form (`A = rep(1, n)`, `W = cbind(A, W)`, `DeltaY = !is.na(Y)`), after a probe confirms that `drtmle` accepts a one-level `A` |
 
 Omitted-variable bounds on a DR-TMLE or C-TMLE fit are refused. A bound on either fit needs an
 estimate of $\nu^2$ that stays valid when the estimator does not assume a consistent treatment

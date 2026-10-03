@@ -40,7 +40,7 @@ targeted stack (:func:`tests.studies.canonical_mar_attributable.stack_limit`), a
 
 Declared before any run: the study is ``gated``.  A red cell is diagnosed from the committed
 rows; a defect in ``cleverly`` is fixed and the study regenerated, and otherwise a
-declaration switches the study to ``reporting`` with a red-cell owner row (id ``F20``)
+declaration switches the study to ``reporting`` with a red-cell owner row (id ``PAR-PAF-MAR``)
 before one re-run with the same seeds.
 """
 

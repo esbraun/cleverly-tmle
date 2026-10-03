@@ -1,0 +1,21 @@
+=== multi-arm-mar-drtmle declared run
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle-beta-f4\.venv\Scripts\python.exe' 'C:\Users\erics\Documents\Projects\cleverly-tmle-beta-f4\tests\canonical\drtmle_mar_multi_arm\regenerate.py' --output C:/Users/erics/f4-run/out --jobs 16
+commit: 5a2e400e3586fd7f2c564b71154e5e71caccfdfa; upstream 5a2e400e3586fd7f2c564b71154e5e71caccfdfa
+clean tree: True
+cleverly 0.1.2 from C:\Users\erics\Documents\Projects\cleverly-tmle-beta-f4\src\cleverly\__init__.py
+python 3.13.7; numpy 2.5.3; scipy 1.18.1; pandas 3.0.6; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 130, sha256 02442616648e069a8be69029a4cb1de94317308e3c852f6f46e6834df53d5f62
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 16
+started: 2026-10-03T10:29:35+00:00
+finished: 2026-10-03T12:09:14+00:00
+wall seconds: 5979.3
+exit code: 0
+sha256 equivalence.csv: acc8bf23d4eb5e71eb9af4b66bf8de7f7875345986d7b3607820027ae0045ef0
+sha256 manifest.json: 79662d889ef6fd2160beb12b8512d1d9f8e3b666d2089d948fd608c5d71b0955
+sha256 performance-tests.csv: 99ec1b25cb956c3d9037165351b3bedd846cf440a749fbfe3d360bf37a05893e
+sha256 properties.csv: 94699089d39d8b9a81f223cd62cf14d30ead76cd5d4e982dbc8e148311cdfe73
+sha256 property-replicates.csv.gz: c9f291dc32a158612b24edbc596545409c45c6555daac61fea20969cdf5a442e
+sha256 replicates.csv.gz: dcc5b06ce428c6684b21695952abe08698beeb408e0431b83a5eec058ce5117b
+sha256 summary.csv: 056f6a0432a2c8af5caf2dced599a2ed22ab53477322aa7d0729dbb6af088c9b
+
