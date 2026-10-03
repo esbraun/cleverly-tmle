@@ -1388,9 +1388,7 @@ def _rule(law: dl.CompositeLaw) -> tuple[Any, np.ndarray]:
     from cleverly.interventions import Rule
 
     high, low = law.codes[1], law.codes[0]
-    rule = Rule(
-        lambda w: np.where(w["W"] >= 1, high, low), name="rule", rule_kind="known"
-    )
+    rule = Rule(lambda w: np.where(w["W"] >= 1, high, low), name="rule", rule_kind="known")
     columns = np.array([law.labels.index(high if w >= 1 else low) for w in range(3)])
     return rule, columns
 
