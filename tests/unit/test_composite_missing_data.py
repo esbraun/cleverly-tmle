@@ -1139,7 +1139,7 @@ def test_e21_a_nuisance_fit_refuses_the_composite_view() -> None:
 
 # ------------------------------------------------------- 3.2: the route stamps
 
-#: ``float.hex`` of each estimate and standard error, taken on the tree before X23 on
+#: ``float.hex`` of each estimate and standard error, taken before the composite route existed, on
 #: ``make_missing_outcome(n=400, seed=4)`` with the learners of :func:`_pinned`.  The
 #: shipped missing-outcome TMLE, ``DRTMLE(guard=())`` with an observational ``delta=``,
 #: and ``DRTMLE(randomized=True)`` must not move.
@@ -1353,3 +1353,22 @@ def test_estimated_weights_on_a_guarded_composite_fit_withhold_the_interval(
     )
     result = _engine(guard, **_settings(**_fitted_learners(), estimands=("ate",))).fit(data)
     assert result.single().inference_status == status
+
+
+@pytest.mark.parametrize("key", LAWS)
+def test_the_positivity_report_reads_the_composite_covariate(key: str) -> None:
+    """The report rebuilds the clever covariate a fit was fluctuated along: ``C_a / g_c``.
+
+    Rebuilt from the raw data instead, it would divide by ``g pi`` alone and miss the
+    treatment observation factor, so its largest value would be smaller.
+    """
+    from cleverly.sensitivity.positivity import _max_abs_covariate
+
+    law = dl.LAWS[key]
+    result = _oracle_fit(key, guard=None)
+    expected = float(np.max(1.0 / law.composite))
+    assert _max_abs_covariate(result, "mean") == pytest.approx(expected, rel=1e-12)
+    raw = build_submodel(
+        result.data, result.nuisance, "mean", bounds=G_BOUNDS, nuisance_bound=NUISANCE_BOUND
+    )
+    assert raw.max_abs < expected - 1.0

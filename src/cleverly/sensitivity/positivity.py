@@ -55,6 +55,7 @@ from ..data.weighting import (
     top_weight_share,
     validate_score_loads,
 )
+from ..estimators.composite import composite_state
 from ..estimators.direct_effect import targeted_rows
 from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, DataError
@@ -1194,9 +1195,18 @@ def _group_submodel(result: TMLEResult, group: str) -> Submodel:
     if each caller rebuilt the submodel with bounds and a reference arm of its own.
     """
     bounds = g_bounds_for(group, result.config.g_bounds, result.config.g_bounds_conditional)
+    data, nuisance = result.data, result.nuisance
+    if result.extra.get("missing_data") == "composite":
+        # A composite fit was fluctuated along C_a / g_c, built at the derivation site at the
+        # fit's own bounds.  Rebuilt here from the raw data, the covariate would omit the
+        # treatment observation factor and read the codes of rows that are not C_a = 1.
+        state = composite_state(
+            data, nuisance, g_bounds=bounds, nuisance_bound=result.config.missingness_bound
+        )
+        data, nuisance, bounds = state.data, state.nuisance, state.bounds
     return build_submodel(
-        result.data,
-        result.nuisance,
+        data,
+        nuisance,
         group,
         bounds=bounds,
         nuisance_bound=result.config.missingness_bound,
