@@ -709,6 +709,13 @@ previous reader had is not a citation; a page number is.
   shipped one. [X4](roadmap.md#x4-sequential-doubly-robust-longitudinal-estimation) plans
   `lmtp_sdr`, and no SDR path ships today.
 
+  The cross-fitted longitudinal MSM projection runs Steps 1 to 4 for every regimen and horizon
+  cell at once. Its stacked fluctuation solves the projected equations rather than each cell's own
+  score, so the [longitudinal projection](technical-reference/msm-projections.md#the-longitudinal-projection)
+  states the remainder argument. The
+  [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) record it as
+  part (l).
+
   [arXiv v4](https://arxiv.org/abs/2006.01366v4) matches these algorithm details. It has Sections
   5.2 and 5.3, the all-row pooling clause, the influence-function average, and Lemma 4. The
   published article supplies the journal page locators above.

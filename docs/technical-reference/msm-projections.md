@@ -16,7 +16,7 @@ working model fits.
 | many arms, or many regimens | one coefficient vector instead of one mean per level | the coefficients mean what the working model says they mean. Read them as a projection |
 | a dose you want to summarise as a trend | a slope, with an influence curve and an interval | a model linear in the arm reads the arm as a dose, so non-numeric labels are refused |
 | effect modification by a baseline variable | an interaction term in the working design | the design must be full rank on the *realized* cells |
-| repeated treatment over time | the same projection over regimen and horizon cells | the node fluctuations are pooled, and under a link one round of the alternation is a whole backward pass |
+| repeated treatment over time | the same projection over regimen and horizon cells | the node fluctuations are pooled. Under a link, one in-sample round of the alternation is a whole backward pass |
 
 The projection is a fourth parameter axis. `msm=` cannot be combined with `interventions=` or
 `shifts=`, because one fluctuation solves one set of score equations, and a fit reporting
@@ -109,17 +109,46 @@ carries the loss weight the plain recursion uses. The pooled Newton convergence 
 are taken over all the stacked rows, so the two can stop on different iterates. On a law the sample
 realises exactly, no step is taken at all and the agreement is exact. Elsewhere it is `1e-11`.
 
-**The longitudinal projection requires `n_folds=1`.** The saturated identity holds for that
-supported construction. Cross-fitted unsaturated coefficient inference needs a dedicated property
-and repeated-sampling study. The package refuses it until that evidence exists.
-[X27](../roadmap.md#x27-cross-fitted-longitudinal-msm-targeting) holds the work.
+**Cross-fitting pools the update.** Above one fold, each outer fold runs the untargeted backward
+recursion of every regimen and horizon cell on its training rows. The fit stitches the held-out
+predictions into one out-of-fold initial fit per node and cell. One stacked fluctuation per node
+then targets every follower of every live cell. Its loss weight carries the out-of-fold cumulative
+mechanism and the projection weight. No fold solves a fluctuation, and no fold computes a
+coefficient.
 
-**Under a link, one round of the alternation is a whole backward pass.** The coefficient enters the
-covariate through the derivative of the inverse link, so each targeted regression moves with it. A
-targeted regression is the previous node's regression *target*, so every earlier node's learner is
-refit. There is no fixed initial state to restart from, and the fixed point is stated over the whole
-pass. It costs four or five passes in practice. The mechanism is free of the coefficient and is
-fitted once.
+The base result is the cross-fitted construction of Díaz, Williams, Hoffman and Schenck (2023),
+Section 5.2, page 852, with Theorem 3, page 853, for each cell. The arXiv v4 algorithm fits the
+tilting model "using all the data points in the sample", with the cross-fitted initial nuisances.
+The stacked solve does not solve each cell's own score, so no cell estimate is a Section 5.2 TMLE
+on its own. The coefficient error has three parts: the delta-method image of each cell's stitched
+second-order remainder, the mean of the coefficient's curve, and an empirical-process term. Each
+cell remainder has the product-rate form of Theorem 3.
+
+Each fold's initial fit is fixed given its training rows, and that controls the empirical-process
+term. The targeted fit adds a fixed-dimension index: one fluctuation coefficient per term at each
+node, and the projection coefficients. This is the fixed-dimension stack of the
+[natural-extension verdicts](natural-extension-verdicts.md). The inherited conditions are the
+Theorem 3 rates and bounded density ratios in every cell, a fixed number of cells, and a full-rank
+realized design. With `id=`, the [cluster rules](longitudinal-tmle.md#clusters) apply as well.
+
+| evidence | what it shows |
+| --- | --- |
+| `tests/unit/test_cross_fitted_longitudinal_msm.py` | a saturated model reproduces the cross-fitted per-regimen report on survival, competing-risk, dynamic and three-level grids. The coefficient curve is the stacked delta-method curve. Every node's stacked score is solved. Eight mutations fail, including a fold-local fluctuation |
+| `tests/e2e/test_ltmle_msm.py` | the saturated reduction at one and five folds, under the identity and the logit link |
+| the registered study `cross-fitted-longitudinal-msm` | repeated-sampling properties on the projection law of `longitudinal-msm`, paired with a projection of four cross-fitted R `lmtp` regimen fits |
+
+Survival, competing-risk, weighted and clustered projections have the fast-tier exact identities
+only. The paired `lmtp` fits differ from this construction twice. `lmtp` 1.5.4 fluctuates on each
+training fold, and it targets each regimen with its own scalar fluctuation. Upstream commit
+`9996b04` classifies that training-fold update as a bug, so the paired verdicts validate neither
+fold-local update.
+
+**Under a link, one in-sample round of the alternation is a whole backward pass.** The coefficient
+enters the covariate through the derivative of the inverse link, so each targeted regression moves
+with it. A targeted regression is the previous node's regression *target*, so every earlier node's
+learner is refit. The fixed point is stated over the whole pass, and it costs four or five passes
+in practice. The mechanism is free of the coefficient and is fitted once. Above one fold, a round
+re-solves the pooled update only, because the stitched initial fit carries no coefficient.
 
 **The projection weight and the observation weight are different objects and must stay so.** The
 first says how the regimens are traded off inside the projection. The second tilts the *population*
@@ -138,9 +167,9 @@ scale, because a coefficient vector has no single scale to map back with.
 | `link="identity"` | the clever covariate is free of the coefficient, and a correct mechanism drives the remainder to exactly zero |
 | `link="log"`, `link="logit"` | the covariate reads the coefficient, so the fluctuation and the projection alternate. `res.coefficients(scale="ratio")` exponentiates them |
 | `MSM.linear` | a model linear in the arm. **Refused on non-numeric labels**, because it would read the sort order as a dose scale nobody chose |
-| longitudinal `msm=` | the same projection over regimen, horizon, and cause cells, with rank checked on the actual realized design. It requires `n_folds=1`, and [X27](../roadmap.md#x27-cross-fitted-longitudinal-msm-targeting) holds the cross-fitted projection |
+| longitudinal `msm=` | the same projection over regimen, horizon, and cause cells, with rank checked on the actual realized design. Above one fold, the fold recursions stay untargeted and one stacked fluctuation per node pools the update |
 | `targeting_scheme="fold"` | each fold solves its own coefficient, since the coefficient is something the covariate reads. This removes coupling *between* folds, and the rows inside a fold still fit both the coefficient and the fluctuation used for that fold. The pooled score is exactly zero because each fold's is zero at its own coefficient. This is a package extension and not the common-update CV-TMLE of Zheng and van der Laan |
-| point-treatment `"fold"` against longitudinal `n_folds` | point-treatment fold targeting is supported. Cross-fitted longitudinal MSM coefficient inference is refused pending separate evidence, which [X27](../roadmap.md#x27-cross-fitted-longitudinal-msm-targeting) holds |
+| point-treatment `"fold"` against longitudinal `n_folds` | point-treatment fold targeting is supported. A longitudinal fit never targets inside a fold: above one fold it pools the update over every follower |
 
 ### Baseline strata
 
