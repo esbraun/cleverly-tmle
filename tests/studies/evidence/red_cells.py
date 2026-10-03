@@ -339,6 +339,9 @@ EXCLUDED_HOOKS: dict[str, str] = {
         "the score audit of both implementations and the subject's solver flag"
     ),
     "mar-natural-course-tmle": "the exact-equality probe of the scale workaround",
+    "mar-attributable-tmle": (
+        "the exact-equality probe of the scale workaround on both R paths"
+    ),
     "stacked-mar-arm-indexed-cvtmle": "the exact-equality probe of the scale workaround",
 }
 
