@@ -71,25 +71,25 @@ stratified_summary <- function(fit) {
 }
 
 rows_from <- function(tab, data, estimand, truth, scenario, replicate) {
-  out <- data.frame(
+  reference <- unname(truth[estimand])
+  stopifnot(!anyNA(reference))
+  data.frame(
     implementation = "tmle3-stratified",
     scenario = scenario,
     replicate = replicate,
     n = nrow(data),
     estimand = estimand,
+    truth = reference,
+    estimate = tab$tmle_est,
+    inference_estimate = tab$tmle_est,
+    std_error = tab$se,
+    ci_lower = tab$lower,
+    ci_upper = tab$upper,
+    inference_scale = "identity",
+    covered = as.integer(tab$lower <= reference & reference <= tab$upper),
+    initial_estimate = tab$init_est,
     stringsAsFactors = FALSE
   )
-  out$truth <- unname(truth[out$estimand])
-  stopifnot(!anyNA(out$truth))
-  out$estimate <- tab$tmle_est
-  out$inference_estimate <- tab$tmle_est
-  out$std_error <- tab$se
-  out$ci_lower <- tab$lower
-  out$ci_upper <- tab$upper
-  out$inference_scale <- "identity"
-  out$covered <- as.integer(out$ci_lower <= out$truth & out$truth <= out$ci_upper)
-  out$initial_estimate <- tab$init_est
-  out
 }
 
 fit_one <- function(frame) {
