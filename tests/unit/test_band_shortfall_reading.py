@@ -190,3 +190,37 @@ def test_the_logit_slope_shortfall_in_the_smallest_stratum() -> None:
         ("pooled", 8000): 1.006,
         ("subset", 8000): 0.997,
     }
+
+
+def test_the_identity_msm_smallest_stratum() -> None:
+    """The ``X8-identity-small-stratum`` reading, rebuilt from the committed rows.
+
+    The calibration cell reads 0.964, while the primary draws give 0.983 and 0.985 for the same
+    coefficient in the two implementations.  The paired ``msm[W][V=2]`` estimates agree to 6e-6
+    with the same spread, and R reports 2.2% above its own spread.
+    """
+    here = ROOT / "tests" / "canonical" / "tmle3_stratified_msm"
+    cells = pd.read_csv(here / "properties.csv", float_precision="round_trip").set_index("cell")
+    assert round(float(cells.loc["identity_v2_a__correctly_specified", "se_ratio"]), 3) == 0.964
+    summary = pd.read_csv(here / "summary.csv", float_precision="round_trip").set_index(
+        ["estimand", "implementation"]
+    )
+    ratio = summary["se_ratio"].round(3)
+    assert ratio[("msm[a][V=2]", "cleverly-stratified-msm")] == 0.983
+    assert ratio[("msm[a][V=2]", "tmle3-msm-stratified")] == 0.985
+    assert ratio[("msm[W][V=2]", "tmle3-msm-stratified")] == 1.022
+    spread = summary["empirical_se"]
+    assert (
+        abs(
+            spread[("msm[W][V=2]", "cleverly-stratified-msm")]
+            - spread[("msm[W][V=2]", "tmle3-msm-stratified")]
+        )
+        < 2e-5
+    )
+    paired = pd.read_csv(here / "equivalence.csv", float_precision="round_trip").set_index(
+        "estimand"
+    )
+    row = paired.loc["msm[W][V=2]"]
+    assert abs(float(row["mean_difference"])) < 1e-5
+    assert round(float(row["calibration_excess_upper"]), 4) == 0.0523
+    assert row["comparison_conclusion"] == "inconclusive"
