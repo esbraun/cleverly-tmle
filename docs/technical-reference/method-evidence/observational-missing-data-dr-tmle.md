@@ -80,7 +80,10 @@ a binary outcome is the fit the composite TMLE reaches. It pairs with the compos
 One arm mean is red in both implementations: `ey[high]` of the three-arm scenario. Its coverage
 is 0.9225 in the package and 0.9237 in R `drtmle`, and each 99% interval ends below the 0.90
 floor. The two implementations differ by 4e-6 on average. `high` has the smallest composite
-mechanism of the law, 0.070 where `W = 0`. The roadmap owner
+mechanism of the law, 0.070 where `W = 0`. The mean standard error, 0.0342, is on the efficiency
+bound, 0.0344. The capped fits cover at 0.957.
+
+The roadmap owner
 [`composite-high-arm`](../../roadmap.md#red-cell-owners) records the reading. The row stays red
 under the `reporting` policy.
 
@@ -177,8 +180,9 @@ Each property row and each package primary row records how the fit's DR-TMLE out
 in `exit_reason` and `rounds`. `fit-exits.csv` publishes the primary fits' records. A composite
 TMLE fit has no outer loop and records `none`. A fit that reaches `max_outer=100` rounds records
 `cap`. It counts as it is when its scores pass. The study does not raise `max_outer` after a result.
-Of the 2,400 primary DR-TMLE fits, 49 reached the cap and 9 stalled, 47 and 8 of them on the
-three-arm scenario.
+Of the 2,400 primary DR-TMLE fits, 48 reached the cap and 9 stalled, 47 and 8 of them on the
+three-arm scenario. `tests/unit/test_composite_high_arm_reading.py` recomputes these counts from
+`fit-exits.csv`.
 
 The power cell runs at n = 1,000, not at the plan's n = 500. At n = 500 the planned power of the
 two-sided test is 0.738, and at n = 1,000 it is 0.957. The design of the band cells is in
