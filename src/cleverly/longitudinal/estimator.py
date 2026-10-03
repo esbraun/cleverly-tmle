@@ -292,7 +292,13 @@ def _index(label: str, cause: str | None, horizon: int, survival: bool) -> str:
 #: kind enters only after its cells in ``full-refit-bootstrap-and-derived-contrasts`` are
 #: green, and a red cell removes only its own kind.  Until then every longitudinal bootstrap
 #: is a diagnostic: ``bootstrap sd`` and ``percentile range``.
-LICENSED_BOOTSTRAP_DESIGNS: frozenset[str] = frozenset()
+#:
+#: The registered run licensed the in-sample end-of-study and single-cause survival kinds.
+#: The cross-fitted end-of-study cells over-cover (SE ratio about 1.25) and one cluster
+#: cell under-covers, so those kinds stay diagnostic (roadmap owner ``X20-bootstrap``).
+LICENSED_BOOTSTRAP_DESIGNS: frozenset[str] = frozenset(
+    {"end_of_study/in_sample", "survival/in_sample"}
+)
 
 #: Why a fit with two or more causes has no survival view.  One text for
 #: :meth:`LongitudinalResult.curve` and :meth:`LongitudinalResult.ratio`.

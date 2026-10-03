@@ -232,18 +232,30 @@ class TestTheReplicates:
 
 
 class TestReporting:
-    def test_an_unlicensed_kind_is_a_diagnostic(self, bootstrapped: Any) -> None:
-        """No kind is licensed before its registered cells are green."""
-        assert frozenset() == estimator_module.LICENSED_BOOTSTRAP_DESIGNS
-        text = bootstrapped.summary()
+    def test_the_licensed_kinds_are_the_green_ones(self) -> None:
+        """The registered run licensed these two kinds and no other."""
+        assert (
+            frozenset({"end_of_study/in_sample", "survival/in_sample"})
+            == estimator_module.LICENSED_BOOTSTRAP_DESIGNS
+        )
+
+    def test_an_unlicensed_kind_is_a_diagnostic(
+        self, survival_frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(estimator_module, "LICENSED_BOOTSTRAP_DESIGNS", frozenset())
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = _estimator(n_bootstrap=4).fit(survival_frame, **COLUMNS)
+        text = result.summary()
         assert "full-refit bootstrap (iid resampling, 4 usable replicates, 0 failed)" in text
         assert "bootstrap sd" in text and "percentile range" in text
         assert "percentile CI" not in text
-        row = next(iter(bootstrapped.estimates.values())).to_dict()
+        row = next(iter(result.estimates.values())).to_dict()
         assert {"bootstrap_sd", "bootstrap_range_lower", "bootstrap_range_upper"} <= set(row)
         assert "bootstrap_ci_lower" not in row
         # The analytic columns keep their names: the status still supplies inference.
         assert "std_err" in row
+        assert result.rmst("always", 3).bootstrap.inferential is False
 
     def test_a_licensed_kind_publishes_the_interval(
         self, survival_frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
@@ -374,8 +386,8 @@ class TestDerivedBootstrap:
 
     def test_the_licence_is_inherited(self, bootstrapped: Any) -> None:
         derived = bootstrapped.rmst("always", 3)
-        assert derived.bootstrap.inferential is False
-        assert "bootstrap_sd" in derived.to_dict()
+        assert derived.bootstrap.inferential is True
+        assert "bootstrap_ci_lower" in derived.to_dict()
 
     def test_a_fit_without_a_bootstrap_attaches_none(self, plain: Any) -> None:
         assert plain.rmst("always", 3).bootstrap is None

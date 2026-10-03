@@ -10,7 +10,7 @@ Read the pages in this order.
 
 | page | what it gives you |
 | --- | --- |
-| [Implementation validation grid](validation-grid.md) | the forty-two validation studies in one table, with the counts and the declared limits |
+| [Implementation validation grid](validation-grid.md) | the forty-three validation studies in one table, with the counts and the declared limits |
 | [How to read these studies](how-to-read.md) | the three questions, the verdict rules, and the terms every study below applies |
 | [The red-cell ledger](red-cells.md) | every red verdict the studies publish, and the roadmap ask that owns each one |
 | the forty-four study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
