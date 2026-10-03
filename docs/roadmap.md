@@ -1414,8 +1414,7 @@ implementations do not establish collaborative or doubly robust inference for th
 An observational missing outcome and a missing treatment on `DRTMLE` ship through the
 [composite indicator](technical-reference/dr-tmle/theorem.md#observational-missing-data-the-composite-indicator).
 On the composite, `evaluation=` and `reduced_crossfit="nested"` stay refused here. Both carry one
-fold-free treatment mechanism, and the composite has up to three factors. `strata=` on a composite
-`DRTMLE` stays with [X8](#x8-stratified-incremental-and-msm-targeting).
+fold-free treatment mechanism, and the composite has up to three factors.
 
 C-TMLE with cross-fitted arm-indexed missing outcomes is refused before any learner call.
 In-sample C-TMLE with missing outcomes still fits, and it reports no interval: a selector path
