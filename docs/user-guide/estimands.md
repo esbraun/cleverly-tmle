@@ -72,8 +72,41 @@ stacked_mar = TMLEMethod(
 ```
 
 Pass `stacked_mar` when you estimate `NaturalCourseMean()` from a study with `missingness=`. The
-fit generates one near-balanced outer partition. Both configurations require binary treatment,
-unweighted iid rows, and iterative unweighted logistic targeting.
+fit generates one near-balanced outer partition. Both configurations require iterative unweighted
+logistic targeting. The treatment can have two or more arms. The ordinary fit also accepts fixed
+weights and clusters. The stacked fit requires unweighted iid rows.
+
+`PopulationAttributableRisk` and `PopulationAttributableFraction` accept `missingness=` too. The
+fit stacks the natural-course mean and the reference-arm mean on the same rows, so it also uses a
+treatment model:
+
+```python
+import numpy as np
+
+from cleverly import CausalStudy, PointTreatment, PopulationAttributableRisk
+
+rng = np.random.default_rng(7)
+observed = frame.assign(Delta=(rng.random(len(frame)) < 0.85).astype(int))
+observed.loc[observed["Delta"] == 0, "Y"] = np.nan
+mar_study = CausalStudy(
+    observed,
+    design=PointTreatment(
+        outcome="Y", treatment="A", adjustment=("W1", "W2", "W3"), missingness="Delta"
+    ),
+)
+in_sample_mar = TMLEMethod(
+    models=ModelSpec(
+        outcome_learner=LogisticRegression(max_iter=1000),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        missingness_learner=LogisticRegression(max_iter=1000),
+    ),
+    cross_fitting=CrossFitting(enabled=False),
+)
+attributable = mar_study.estimate(PopulationAttributableRisk(reference=0), method=in_sample_mar)
+```
+
+The [PAR and PAF contract](../technical-reference/point-treatment-tmle.md#par-and-paf-with-missing-outcomes)
+gives the stack, its conditions, and the compositions it refuses.
 
 [Missing-outcome natural-course contracts](../technical-reference/scope-and-refusals.md#missing-outcome-natural-course-contracts)
 lists every refused composition for both configurations. See the

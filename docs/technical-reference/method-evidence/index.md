@@ -48,6 +48,7 @@ ordinary-missing-outcome-tmle
 ordinary-missing-outcome-natural-course-tmle
 stacked-missing-outcome-natural-course-cvtmle
 stacked-arm-indexed-missing-outcome-cvtmle
+missing-outcome-attributable-effects-tmle
 controlled-direct-effect-tmle
 randomized-missing-outcome-dr-tmle
 observational-missing-data-dr-tmle

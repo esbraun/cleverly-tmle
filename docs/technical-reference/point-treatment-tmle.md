@@ -91,8 +91,10 @@ $$
 
 The intervention mean uses the targeted arm mean. With complete outcomes, the natural-course mean
 uses the empirical distribution. PAF is undefined when the observed outcome risk is zero. The
-complete-data construction follows Díaz Muñoz and van der Laan (2012); the missing-outcome
-natural-course construction is stated below.
+complete-data construction follows Díaz Muñoz and van der Laan (2012). Hubbard and van der Laan
+(2008), Equation (2), give the two transforms. The missing-outcome natural-course construction is
+stated below, and [PAR and PAF with missing outcomes](#par-and-paf-with-missing-outcomes) gives the
+attributable stack.
 
 ### Missing outcomes and controlled direct effects
 
@@ -197,8 +199,15 @@ training-complement nuisance construction and the untargeted empirical-distribut
 Their Theorem 2 gives the partial-targeting expansion and its conditions. The
 [CV-TMLE reference](cv-tmle.md) gives the fold-weighting boundary.
 
-No treatment mechanism enters either implementation. Both fits require one scalar `ey_obs`,
-binary treatment, unweighted iid rows, and iterative unweighted logistic targeting.
+No treatment mechanism enters either implementation of the scalar `ey_obs`. Both fits require
+iterative unweighted logistic targeting. The treatment may have two or more arms. The covariate of
+the natural course is $(A,W)$, so the number of arms changes nothing in the derivation.
+
+The in-sample fit admits fixed analysis weights (`weights=`) and clusters (`id=`), with the rules of
+[weights, strata, and clusters](#weights-strata-and-clusters). The stacked fit covers unweighted
+iid rows. With three or more arms, the stacked fit also needs two respondents in each arm in the
+sample and one in each training complement. It checks this before any learner and raises
+`DataError` otherwise.
 
 | fit | outcome | cross-fitting declaration |
 | --- | --- | --- |
@@ -211,7 +220,8 @@ when the declaration is constructed, with `MethodConfigurationError`. The engine
 stacked contract and its second-moment covariance rule.
 
 [Missing-outcome natural-course contracts](scope-and-refusals.md#missing-outcome-natural-course-contracts)
-lists every refusal for both fits. The source for the ordinary fit is
+lists every refusal for both fits. The same refusals apply to a fit that reports `ey_obs`, PAR
+or PAF beside arm targets. The source for the ordinary fit is
 Díaz, Carone and van der Laan (2016), Section 2 and Equations (1)–(5). The registered
 [ordinary missing-outcome natural-course TMLE study](method-evidence/ordinary-missing-outcome-natural-course-tmle.md)
 checks both robustness halves, targeting, complete-case controls, root-$n$ behavior, efficiency,
@@ -266,6 +276,81 @@ composite construction is in
 [Stacked CV-TMLE for arm-indexed targets](#stacked-cv-tmle-for-arm-indexed-targets) states the
 cross-fitted contract and its evidence.
 
+### PAR and PAF with missing outcomes
+
+With missing outcomes, PAR and PAF compare two parameters of one observed law. The reference arm is
+$a_0$, and $g(a\mid W)=P(A=a\mid W)$:
+
+$$
+\psi_{\mathrm{obs}}=E\{m(A,W)\},\qquad \psi_{a_0}=E\{m(a_0,W)\},\qquad
+\operatorname{PAR}=\psi_{\mathrm{obs}}-\psi_{a_0},\qquad
+\operatorname{PAF}=1-\psi_{a_0}/\psi_{\mathrm{obs}}.
+$$
+
+Each parent is a shipped estimator. The natural-course mean is the estimator above. The arm mean
+is the missing-outcome arm mean of the previous section, with the clever covariate
+$1\{A=a_0\}/\{g(a_0\mid W)\pi(a_0,W)\}$. The fit solves the two fluctuations separately, from
+one initial fit. It then reports every estimate from one stack on the same rows. The table gives
+each step.
+
+| step | statement |
+| --- | --- |
+| stack | both parents are asymptotically linear on the same rows, with curves $D_{\mathrm{obs}}$ and $D_{a_0}$, so the pair is jointly normal with the covariance of the same-row curves |
+| PAR | linearity: $D_{\mathrm{PAR}}=D_{\mathrm{obs}}-D_{a_0}$ |
+| PAF | the delta method: $D_{\mathrm{PAF}}=-D_{a_0}/\psi_{\mathrm{obs}}+\psi_{a_0}D_{\mathrm{obs}}/\psi_{\mathrm{obs}}^2$ |
+| targeting | each parent keeps its own fluctuation. The stack needs only that each parent is asymptotically linear, so separate targeting is valid |
+| weights | a fixed weight defines a tilted law, and both curves carry the weight |
+| clusters | the cluster is the unit, and both curves are summed within each cluster |
+
+The two points are plug-ins of two different targeted regressions. The report is therefore not one
+substitution estimator, and $\hat\psi_{\mathrm{obs}}$ need not equal
+$\sum_aP_n[1\{A=a\}\hat m^\star_{\mathrm{mean}}(a,W)]$. Validity does not depend on that
+equality. Each coordinate is the shipped estimator: the joint `ey_obs` equals the scalar fit, and
+each arm mean equals the arm-only fit (`tests/unit/test_attributable_mar_stack.py`). The
+covariance, a contrast and the default band read the cross-covariance of the two curves. On the
+registered law their correlation is 0.775.
+
+| condition | from |
+| --- | --- |
+| iid rows, or independent clusters as the units, with optional fixed analysis weights; one outcome regression $m$ fitted on respondents; $\pi(A,W)$ and $g$ fitted on all rows | both parents |
+| missing at random, $Y\perp\Delta\mid A,W$; consistency and $Y(a_0)\perp A\mid W$ for the reference arm | both parents. The natural course needs no treatment exchangeability |
+| response positivity $\pi(A,W)>0$, and product positivity $g(a_0\mid W)\pi(a_0,W)>0$ | the natural course; the reference arm |
+| each parent's remainder is $o_P(n^{-1/2})$: $E_0[(1-\pi_0/\hat\pi)(\hat m-m_0)]$ and $E_0[(1-g_0\pi_0/(\hat g\hat\pi))(\hat Q-Q_0)(a_0,\cdot)]$ | Díaz, Carone and van der Laan (2016), Equation (3); the arm-mean remainder |
+| in sample, the Donsker conditions of each parent. Stacked, each parent's stacked remainder | the parents |
+| PAF: a binary outcome, and $\psi_{\mathrm{obs}}$ bounded away from zero | the delta method |
+
+PAR and PAF are consistent if $m$ is consistent, or if both $\hat\pi$ and the product
+$\hat g\hat\pi$ at $a_0$ are consistent. A correct product with a wrong $\hat\pi$ rescues the
+reference arm and not the natural course. `tests/unit/test_remainder_attributable_mar.py` checks
+this case on an exact law. The PAF uses the shipped denominator rule. It raises when
+$\hat\psi_{\mathrm{obs}}\le0$, and no other guard is added. For a log-scale interval of
+$1-\operatorname{PAF}=\psi_{a_0}/\psi_{\mathrm{obs}}$, take the ratio of the two reported means
+with the same-row curves.
+
+The table gives the admitted fits. Each fit is `TMLE` or `TMLEMethod`. A request that reads the
+natural course beside arm targets takes this route: `par`, `paf`, or `ey_obs` beside any arm mean,
+contrast, or, in sample, the ATT and the ATC.
+
+| fit | admitted |
+| --- | --- |
+| in sample | two or more arms; binary outcome, or PAR with a continuous outcome and fixed `q_bounds`; fixed `weights=` and `id=` |
+| stacked | the binary outcome, two or more arms, unweighted iid rows, and both stacked contracts: this one and the [arm-indexed contract](#stacked-cv-tmle-for-arm-indexed-targets) |
+
+`estimands="all"` keeps its arm-only target list with missing outcomes. A joint fit adds a second
+fluctuation, so it is a named request. The refusals keep their reasons:
+
+| composition | reason |
+| --- | --- |
+| `DRTMLE`, `CTMLE` | no DR-TMLE or collaborative natural-course mean ships. `DRTMLE(guard=())` is the ordinary TMLE, and the message says to use `TMLE`. [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) tracks the refused DR-TMLE compositions |
+| baseline strata | a stratum natural course needs a stratum-indexed fluctuation ([X8](../roadmap.md#x8-stratified-incremental-and-msm-targeting)) |
+| `n_bootstrap > 0` | no audited bootstrap result covers this fit ([F2](../roadmap.md#f2-targeted-bootstrap-inference)) |
+| stacked `weights=` or `id=`, stacked continuous outcome, fold targeting, fold evaluation, repeats | the stacked contracts cover unweighted iid rows and a binary outcome ([F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants)) |
+
+The registered
+[missing-outcome attributable-effect TMLE study](method-evidence/missing-outcome-attributable-effects-tmle.md)
+checks the stack on two laws, both robustness halves, the product-only case, calibration of PAR and
+PAF, the default band, and fixed weights and clusters. It pairs every scenario with R `tmle` 2.1.1.
+
 ### Stacked CV-TMLE for arm-indexed targets
 
 Ordinary TMLE cross-fits arm-indexed means and contrasts with missing outcomes under one stacked
@@ -276,10 +361,11 @@ CV-TMLE contract. The contract applies to a fit when all of the conditions below
 - `CrossFitting(enabled=True)`;
 - the parameters are indexed by the arms of a discrete treatment;
 - the design declares no intermediate; and
-- the request contains no `NaturalCourseMean`, PAR, or PAF.
+- the request is not the scalar `NaturalCourseMean`.
 
 The shift, incremental, regime, MSM, and controlled-direct-effect fits are outside this contract.
-The natural-course mean has its own contract above. PAR and PAF keep their own refusal.
+The scalar natural-course mean has its own contract above. A fit that reports `ey_obs`, PAR or PAF
+beside arm targets meets both contracts, and it may also request `ey_obs`, `par` and `paf`.
 
 The table gives the admitted settings. Before fold generation, the fit refuses a departure from
 each row except the band settings in the inference row. The table leaves other settings open, for

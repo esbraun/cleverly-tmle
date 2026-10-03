@@ -30,7 +30,7 @@ inherits the rule of its inputs.
 | rule | declared by | covariance entry $(j,k)$ | stored `variance` |
 | --- | --- | --- | --- |
 | `"centered"` | every estimate except the one below. This is the default | the sample covariance of the curves above, at the observation or cluster unit | the same centered value, except on a fold-evaluated fit or a repeated fit |
-| `"second_moment"` | the stacked cross-fitted missing-outcome `NaturalCourseMean` | $n^{-2}\sum_i D_{ij}D_{ik}$, the raw second moment | the same raw second moment |
+| `"second_moment"` | the stacked cross-fitted missing-outcome `NaturalCourseMean`, requested alone | $n^{-2}\sum_i D_{ij}D_{ik}$, the raw second moment | the same raw second moment |
 
 The stacked natural-course estimator reports $P_nD^2/n$ as its variance. Its curve has mean zero to
 targeting tolerance, for two reasons:
@@ -47,7 +47,9 @@ times $(n-1)/n$. The two rules therefore have the same limit and differ only by 
 registered [stacked study](method-evidence/stacked-missing-outcome-natural-course-cvtmle.md)
 validates the second-moment rule, and its R `tmle` comparator reports the centered rule.
 `tests/unit/test_natural_course_crossfit.py::test_the_stacked_curve_is_mean_zero_so_the_rules_differ_by_n_minus_one_over_n`
-checks the zero mean and the factor at two and three folds.
+checks the zero mean and the factor at two and three folds. A stacked fit that reports
+`ey_obs` beside arm targets declares the centered rule for every estimate, so one fit never mixes
+the two rules ([CV-TMLE](cv-tmle.md#missing-outcome-natural-course-mean)).
 
 The [point-treatment reference](point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects)
 defines the curve. The estimator is scalar, so its rule applies to a one-name `covariance()` and

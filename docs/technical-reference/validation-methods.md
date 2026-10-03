@@ -1670,7 +1670,7 @@ ordered, and each rule assumes that the rules above it passed.
 | --- | --- | --- | --- |
 | 1 | `longitudinal` | a longitudinal result | `unavailable` |
 | 2 | `learned_rule` | a learned-rule fit, which refuses missing outcomes before any learner. [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) holds the derivation | `unavailable` |
-| 3 | `natural_course` | a missing-outcome `NaturalCourseMean` fit | `unavailable` |
+| 3 | `natural_course` | a missing-outcome `NaturalCourseMean` fit that reports `ey_obs` alone | `unavailable` |
 | 4 | `missing_outcome` | a fit with no missing outcome | `not_applicable` |
 | 5 | `continuous` | a continuous dose | `unavailable` |
 | 6 | `incremental` | an incremental fit | `unavailable` |
@@ -1682,8 +1682,21 @@ Both are defined there, so the formula does not change. The tilt holds the treat
 condition fixed: it moves the outcome's recording away from missing at random and leaves the
 treatment's recording at it.
 
+The tilt is arm-specific. A fit that reports `ey_obs`, PAR or PAF beside arm means passes the
+table, and three rules keep the natural-course targets out of the tilt:
+
+| request | result |
+| --- | --- |
+| `missingness_tilt(estimands=...)` that names `ey_obs`, `par` or `paf` | `CapabilityError` that names those targets and the arm-mean remedy |
+| the default sweep | the arm means and contrasts only. The capability row's interpretation names the skipped targets |
+| a bare `tipping_gamma()` whose default would fall to the one reported arm mean | the same `CapabilityError`, rather than a silent switch to the arm mean |
+
+A fit that reports PAR or PAF and no arm mean meets rule 7. `tests/unit/test_attributable_mar_capabilities.py`
+checks each row.
+
 The omitted-variable bound refuses a fit with a response mechanism. Its sentence points at the tilt
-only when this table admits the fit. `TestTheTiltRowsReadTheCallsPredicate` and
+only when this table admits the fit. On a fit that reports `ey_obs`, PAR or PAF, the pointer names
+the arm means, and a bound request for PAR or PAF carries no pointer. `TestTheTiltRowsReadTheCallsPredicate` and
 `TestTheBoundPointsAtTheTiltOnlyWhereItRuns` in `tests/unit/test_capability_row_predicates.py`
 check the rows and the pointer.
 

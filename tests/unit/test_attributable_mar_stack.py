@@ -1,6 +1,6 @@
 r"""The joint natural-course fit is the stack of the two shipped parents, bit for bit.
 
-Decision D1 of the F20 contract targets each parent separately from one initial fit: the
+The joint fit targets each parent separately from one initial fit: the
 shipped natural-course fluctuation and the shipped ``mean`` fluctuation.  Each coordinate
 of the stack is then the shipped estimator, so a joint fit must report the scalar
 ``ey_obs`` fit's point and curve and the arm-only fit's arm means exactly.  The learners

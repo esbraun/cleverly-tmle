@@ -42,7 +42,7 @@ rather than implying the request was ill-posed.
 
 | refused | where |
 | --- | --- |
-| missing-outcome `NaturalCourseMean` outside its two scalar TMLE contracts | [missing-outcome natural-course contracts](#missing-outcome-natural-course-contracts) lists every refusal. [Observed-data extensions](point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects) defines both estimators |
+| missing-outcome `NaturalCourseMean`, PAR or PAF outside their two TMLE contracts | [missing-outcome natural-course contracts](#missing-outcome-natural-course-contracts) lists every refusal. [Observed-data extensions](point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects) defines both estimators, and [PAR and PAF with missing outcomes](point-treatment-tmle.md#par-and-paf-with-missing-outcomes) defines the stack |
 | cross-fitted arm-indexed means and contrasts with missing outcomes outside the stacked CV-TMLE contract | [missing-outcome arm-indexed contract](#missing-outcome-arm-indexed-contract) lists every refusal. [Stacked CV-TMLE for arm-indexed targets](point-treatment-tmle.md#stacked-cv-tmle-for-arm-indexed-targets) defines the estimator |
 | a cross-fitted shift, incremental, regime, MSM, or controlled-direct-effect fit with missing outcomes (`delta=`) | [the refusals a caller can meet](cv-tmle.md#the-refusals-a-caller-can-meet). No audit read a source for these fits. The fit raises `CapabilityError` before any learner is fitted. The in-sample fit with `delta=` remains available, except for a continuous-dose MSM, which the next row refuses. [F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants) reopens it |
 | a continuous-dose MSM with missing outcomes (`delta=`, or `PointTreatment(missingness=...)`) or with `intermediate=`, in sample or cross-fitted | [MSM projections](msm-projections.md#variations). The clever covariate that the package builds divides by the treatment density at each grid dose. In that construction, this composition also needs the response or intermediate mechanism at each grid dose, and the package does not write it. `TMLE` raises `CapabilityError` before any learner. `CausalStudy.identify` raises it for `MSMProjection` with a missing outcome. `tests/unit/test_continuous_msm_mechanism_refusals.py` checks both. [X10](../roadmap.md#x10-continuous-dose-msm-with-a-second-mechanism) reopens it |
@@ -50,7 +50,7 @@ rather than implying the request was ill-posed.
 | a declared missing treatment (`treatment_delta=`) with `att`, `atc`, `ey_obs`, `par`, `paf`, `incremental=`, `shifts=`, `learned_rule=`, `intermediate=`, `cross_fit=True`, `randomized=True`, `treatment_probabilities=`, or `CTMLE` | [the composite indicator](dr-tmle/theorem.md#observational-missing-data-the-composite-indicator). The recording may depend on the treatment, so `P(A = a \| W)` is not identified, and the first seven read it. No composite derivation is written for a learned rule ([F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions)) or a controlled direct effect. One gate in the shared preflight refuses each one by name before any learner. `tests/unit/test_refusals_before_the_nuisance_fit.py` pins each refusal and a mutation that removes the gate. Cross-fitting waits on [F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants), and C-TMLE on [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
 | an undeclared missing treatment value | the package does not infer a missing treatment from a missing value. `CausalData` raises `DataError` before any learner and names the declaration |
 | baseline strata (`strata=`) with an incremental target, an MSM with a link other than the identity, a continuous-dose MSM, or a `DRTMLE` fit at a non-empty `guard` | [weights, strata, and clusters](point-treatment-tmle.md#weights-strata-and-clusters). The targeting of each has a second equation, or a dose index, and the package fluctuates baseline strata in one pooled outcome step only. `TMLE` and `DRTMLE` raise `CapabilityError` before any learner. `CausalStudy.identify` raises it for `IncrementalMean`, `IncrementalEffect` and those `MSMProjection` requests. `tests/unit/test_refusals_before_the_nuisance_fit.py` checks each estimator and `identify`. A `DRTMLE` fit at `guard=()` is the ordinary TMLE and fits strata. [X8](../roadmap.md#x8-stratified-incremental-and-msm-targeting) reopens it |
-| the MNAR tilt, `missingness_tilt()` and `tipping_gamma()`, on a shift, incremental, regime, MSM, or ratio-only fit with missing outcomes | [missingness tilt and tipping gamma](validation-methods.md#missingness-tilt-and-tipping-gamma). The tilt re-mixes the arm-indexed means and their linear contrasts. No derivation here covers the tilt of these parameters. Both entry points raise the sentence of `fit_wide_tilt_refusal`. Both capability rows read `unavailable` with that sentence before any call. `TestTheTiltRowsReadTheCallsPredicate` in `tests/unit/test_capability_row_predicates.py` checks each kind |
+| the MNAR tilt, `missingness_tilt()` and `tipping_gamma()`, on a shift, incremental, regime, MSM, ratio-only, or PAR-and-PAF-only fit with missing outcomes | [missingness tilt and tipping gamma](validation-methods.md#missingness-tilt-and-tipping-gamma). The tilt re-mixes the arm-indexed means and their linear contrasts. No derivation here covers the tilt of these parameters. Both entry points raise the sentence of `fit_wide_tilt_refusal`. Both capability rows read `unavailable` with that sentence before any call. `TestTheTiltRowsReadTheCallsPredicate` in `tests/unit/test_capability_row_predicates.py` checks each kind |
 | a learned-rule value from an in-sample or one-fold fit, the stacked report, fold-specific targeting, a categorical treatment, or a contrast with a known regime or an arm, `reference=` included | [learned rules](point-treatment-tmle.md#learned-rules). Each request has a published source and no implementation here. `TMLE` raises `CapabilityError` before any learner. `CausalStudy.identify` raises it for a categorical treatment, and `IdentifiedEffect.estimate` for a setting. `CrossFitting(n_folds=1)` raises `MethodConfigurationError` at construction, before the estimand is known. [The refusals a caller can meet](cv-tmle.md#the-refusals-a-caller-can-meet) quotes each remedy. [X11](../roadmap.md#x11-learned-policy-follow-ups) reopens them |
 | a learned-rule value with a continuous treatment, `intermediate=`, `weights=`, `id=`, `strata=`, `repeats` above 1, the full-refit bootstrap, `CTMLE` or `DRTMLE`; and every refutation and sensitivity analysis on a learned-rule fit | [learned rules](point-treatment-tmle.md#learned-rules). No reviewed source gives the result. The fit refuses before any learner. `refute` reads `unavailable` because a refit relearns the rules, and each sensitivity row reads `unavailable` because no derivation for this target was reviewed. A learned-rule fit with missing outcomes refuses too, and [F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants) holds it. [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) holds the rest |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [incremental interventions](../user-guide/estimands.md#incremental-propensity-score-interventions) |
@@ -73,7 +73,7 @@ rather than implying the request was ill-posed.
 | replicate weights (BRR, jackknife) | [observation weights](../user-guide/data-design.md#observation-weights-are-not-estimand-weights). These are a set of designs rather than one weight vector, so the shape they want is a refit per replicate outside the estimator |
 | omitted-variable sensitivity after `repeats=` | [validation and sensitivity methods](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours). The median bound needs an influence function; a coordinatewise median of per-draw influence terms is not one. The five omitted-variable capability rows declare this refusal as `unavailable` before any call, and `test_the_five_declared_rows_carry_that_same_reason` checks them |
 | omitted-variable sensitivity on a `DRTMLE` or `CTMLE` fit | [validation and sensitivity methods](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours). Neither estimator assumes a consistent treatment mechanism, and no derivation gives $\nu^2$ or the bound's standard error without that assumption |
-| omitted-variable sensitivity on a fit with a response mechanism | [validation and sensitivity methods](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours). The bound is well posed, and the implementation is missing. The implemented representer omits the response indicator, and $\sigma^2$ averages the respondents only. Use the missingness tilt for response |
+| omitted-variable sensitivity on a fit with a response mechanism | [validation and sensitivity methods](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours). The bound is well posed, and the implementation is missing. The implemented representer omits the response indicator, and $\sigma^2$ averages the respondents only. Use the missingness tilt for response on the arm means. The tilt does not cover `ey_obs`, PAR or PAF. An explicit tilt request that names one of them, and a bare `tipping_gamma()` on a fit that reports one, raise a sentence that names them. The default tilt sweep skips them |
 | omitted-variable sensitivity on a fit with a declared missing treatment | [validation and sensitivity methods](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours). The Riesz representer of the bound is derived for a recorded treatment. This fit divides by the composite mechanism, whose representer and confounding strengths are not derived |
 | omitted-variable sensitivity on a fit with an intermediate variable | [validation and sensitivity methods](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours). The bound is well posed, and the implementation is missing. The representer carries the intermediate weight, so the treatment strength $c_D$ would also measure the intermediate mechanism |
 | omitted-variable sensitivity on a `regime`, `shift`, or `msm` parameter axis | [validation and sensitivity methods](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours). Each parameter has a Riesz representer, so the bound is well posed. Only the implementation is missing |
@@ -100,9 +100,9 @@ nodes. It supports multi-valued selector-based C-TMLE, outcome-adaptive C-TMLE, 
 and `ATC`. `LTMLE` supports observation weights and a working model over regimens. Shift fits
 support `intermediate=` and weights. They support `delta=` in sample. `cleverly` also supports multi-arm
 omitted-variable and MNAR sensitivity analyses. TMLE supports the scalar missing-outcome
-natural-course mean with ordinary fitting or one generated split of stacked CV-TMLE.
-[Missing-outcome natural-course contracts](#missing-outcome-natural-course-contracts) gives the
-boundaries of each path.
+natural-course mean, and PAR and PAF, with ordinary fitting or one generated split of stacked
+CV-TMLE. [Missing-outcome natural-course contracts](#missing-outcome-natural-course-contracts) gives
+the boundaries of each path.
 
 TMLE also cross-fits arm-indexed means and contrasts with missing outcomes under one stacked CV-TMLE
 contract.
@@ -114,21 +114,23 @@ must establish whether the tilted parameter is still the shift parameter.
 
 ### Missing-outcome natural-course contracts
 
-`NaturalCourseMean()` with `missingness=` and at least one missing outcome has two TMLE contracts.
+`NaturalCourseMean()`, `PopulationAttributableRisk()` and `PopulationAttributableFraction()` with
+`missingness=` and at least one missing outcome have two TMLE contracts. A request that reads the
+natural course beside arm targets meets the same contracts.
 `CrossFitting(enabled=...)` selects the contract. The table gives each requirement and the
 compositions that each contract refuses.
 
 | requirement | ordinary TMLE, `enabled=False` | stacked CV-TMLE, `enabled=True` |
 | --- | --- | --- |
-| target | `ey_obs` alone. A joint request is refused | `ey_obs` alone. A joint request is refused |
-| estimator | `TMLE`. `CTMLE` and `DRTMLE` are refused | `TMLE`. `CTMLE` and `DRTMLE` are refused |
-| treatment | two arms. A multi-valued treatment is refused | two arms. A multi-valued treatment is refused |
+| target | `ey_obs`, `par`, `paf`, or `ey_obs` beside arm means, contrasts, ATT and ATC. `estimands="all"` keeps its arm-only list | the same, without ATT and ATC, which the arm-indexed contract refuses |
+| estimator | `TMLE`. `CTMLE` and `DRTMLE` are refused. `DRTMLE(guard=())` is the ordinary TMLE, and the message names `TMLE` | the same |
+| treatment | two or more arms | two or more arms. With three or more, the scalar `ey_obs` also needs two respondents in each arm |
 | outcome | binary, or continuous with declared `q_bounds`. A continuous outcome without `q_bounds` is refused | binary. A continuous outcome is refused |
 | outer folds | one fold | package-generated folds with `stratify_by="none"` and `n_folds` of at least 2. One fold, stratified folds, and `split_plan=` are refused |
 | repeats | `repeats=1`. A larger value fails when `CrossFitting` is constructed, because no split exists to repeat | `repeats=1`. A larger value is refused when the fit starts |
 | targeting | `Targeting(fluctuation="logistic", algorithm="iterative", target_weights=False)`. A linear fluctuation, one-step targeting, and weighted targeting are refused | the same, with `targeting_scheme="pooled"` and `fold_evaluation=False`. Fold targeting and fold evaluation are refused |
-| inference | influence-curve Wald interval. `n_bootstrap > 0` is refused | influence-curve Wald interval. `n_bootstrap > 0` is refused |
-| rows | observation weights, clusters, baseline strata, and `intermediate=` are refused | observation weights, clusters, baseline strata, and `intermediate=` are refused |
+| inference | influence-curve Wald interval. `n_bootstrap > 0` is refused ([F2](../roadmap.md#f2-targeted-bootstrap-inference)) | the same |
+| rows | fixed `weights=` and `id=` are admitted. Baseline strata ([X8](../roadmap.md#x8-stratified-incremental-and-msm-targeting)) and `intermediate=` are refused | unweighted iid rows. Weights, clusters, baseline strata, and `intermediate=` are refused |
 | response support | no added check | at least two respondents and two nonrespondents in the sample, and one of each in every training complement |
 
 Three checks enforce the two contracts. Each check runs at a different time and raises a different
@@ -184,7 +186,10 @@ refusal and the message each layer raises.
 The contract covers the arm-indexed mean group `ey`, `ey0`, `ey1`, `ate`, `rr`, `or`, `att`, and
 `atc` under cross-fitting with at least one missing outcome. It applies to an ordinary TMLE or
 C-TMLE fit under three conditions. The parameters are indexed by the arms of a discrete treatment.
-The design declares no intermediate. The request contains no `NaturalCourseMean`, PAR, or PAF.
+The design declares no intermediate. The request is not the scalar `NaturalCourseMean`.
+
+A request that reports `ey_obs`, PAR or PAF beside arm targets meets this contract and the
+natural-course contract, and its admitted list includes `ey_obs`, `par` and `paf`.
 [Stacked CV-TMLE for arm-indexed targets](point-treatment-tmle.md#stacked-cv-tmle-for-arm-indexed-targets)
 defines the estimator, its preflight, and its evidence.
 
