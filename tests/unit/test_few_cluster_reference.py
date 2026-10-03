@@ -409,12 +409,6 @@ def _drtmle(k: int) -> Any:
     )
 
 
-def _cv_evaluation(k: int) -> Any:
-    return _binary(
-        k, cross_fit=True, n_folds=3, cv_evaluation=True, estimands=("ey0", "ey1", "ate")
-    )
-
-
 def _ltmle_end_of_study(k: int) -> Any:
     frame = multivalue_panel(n=LONGITUDINAL_N, seed=43).assign(cluster=labels(LONGITUDINAL_N, k))
     return LTMLE({"never": 0, "always": 1}, reference="never", **longitudinal_learners()).fit(
@@ -445,7 +439,6 @@ SWEEP = {
     "natural course": lambda k: _missing_binary(k, estimands=("ey_obs", "ey0", "par", "paf")),
     "multi-arm": _multi_arm,
     "DRTMLE": _drtmle,
-    "cv_evaluation": _cv_evaluation,
     "LTMLE end of study": _ltmle_end_of_study,
     "LTMLE working model": _ltmle_msm,
 }
@@ -483,6 +476,81 @@ class TestEveryEstimateCarriesItsReference:
         assert len(curve) == len(result.estimates)
 
 
+class TestTheFoldEvaluatedReference:
+    """A fold-evaluated estimate over V folds takes min(J - 2, J - V).
+
+    The fold-evaluated variance centres the cluster totals inside each fold, so it estimates
+    one mean per fold and has J - V degrees of freedom, the pooled within-group count. The
+    stacked report beside it keeps J - 2.
+    """
+
+    @pytest.mark.parametrize(
+        ("clusters", "folds", "expected"), [(10, 5, 5), (12, 3, 9), (20, 4, 16), (30, 10, 20)]
+    )
+    def test_the_fold_evaluated_report_reads_j_minus_v(
+        self, clusters: int, folds: int, expected: int
+    ) -> None:
+        result = _binary(
+            clusters, cross_fit=True, n_folds=folds, cv_evaluation=True, estimands=("ey1", "ate")
+        )
+        assert set(reference_dfs(result).values()) == {expected}
+        report = result.cv_targeting
+        assert {e.reference_df for e in report.fold_evaluated.values()} == {expected}
+        assert {e.reference_df for e in report.pooled.values()} == {clusters - 2}
+
+    def test_two_folds_keep_j_minus_2(self) -> None:
+        result = _binary(12, cross_fit=True, n_folds=2, cv_evaluation=True, estimands=("ate",))
+        assert result["ate"].reference_df == 10
+
+    def test_fold_targeting_keeps_j_minus_2_on_its_headline(self) -> None:
+        result = _binary(
+            12, cross_fit=True, n_folds=3, targeting_scheme="fold", estimands=("ey1", "ate")
+        )
+        assert set(reference_dfs(result).values()) == {10}
+        assert {e.reference_df for e in result.cv_targeting.fold_evaluated.values()} == {9}
+
+    def test_forty_clusters_keep_the_normal_reference(self) -> None:
+        result = _binary(40, cross_fit=True, n_folds=5, cv_evaluation=True, estimands=("ate",))
+        assert result["ate"].reference_df is None
+
+    def test_dropping_the_fold_rule_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            influence_module.ClusterReference,
+            "with_fold_evaluated",
+            lambda self, names, folds: self,
+        )
+        with pytest.raises(AssertionError):
+            self.test_the_fold_evaluated_report_reads_j_minus_v(10, 5, 5)
+
+
+class TestTheSummaryNamesEachCount:
+    def test_a_small_stratum_inside_a_large_fit(self) -> None:
+        """44 clusters, 12 in one stratum: the note names both counts."""
+        result = fit_strata(stratified(44, small=12))
+        text = result.summary()
+        assert T_REFERENCE_NOTE.format(clusters=44, fewest=12) in text
+        assert NO_T_REFERENCE_BANDS in text
+        assert "the fit reads 44 clusters with positive weight mass, fewer than" not in text
+
+
+class TestTheLongitudinalDerivedEstimates:
+    def test_rmst_contrast_and_ratio_take_ten(self) -> None:
+        from cleverly.datasets import make_longitudinal_survival
+
+        frame, _ = make_longitudinal_survival(n=LONGITUDINAL_N, seed=2)
+        frame = frame.assign(cluster=labels(LONGITUDINAL_N, 12))
+        result = LTMLE({"always": 1, "never": 0}, reference="never", **longitudinal_learners()).fit(
+            frame, outcome=["Y1", "Y2"], **LONGITUDINAL_NODES, id="cluster"
+        )
+        assert set(reference_dfs(result).values()) == {10}
+        assert result.rmst("always", 2).reference_df == 10
+        assert result.rmst("always", 2, versus="never").reference_df == 10
+        names = [name for name in result.estimates if name.startswith("risk_regimen[")][:2]
+        assert result.contrast(lambda p: p[0] - p[1], names).reference_df == 10
+        risks = sorted(n for n in result.estimates if n.startswith("risk_regimen[") and "t=2" in n)
+        assert result.ratio(risks[0], risks[1]).reference_df == 10
+
+
 class TestBandsRefuseTheTReference:
     def test_the_default_band_is_skipped_and_named(self) -> None:
         result = _binary(12, estimands=("ey0", "ey1", "ate"), simultaneous=True)
@@ -511,7 +579,7 @@ class TestTheBootstrapIsADiagnosticBelow40:
         assert {"bootstrap_sd", "bootstrap_range_lower", "bootstrap_range_upper"} <= set(row)
         assert "bootstrap_ci_lower" not in row
         # The t note and the df column appear with the table.
-        assert T_REFERENCE_NOTE.format(clusters=12) in text
+        assert T_REFERENCE_NOTE.format(clusters=12, fewest=12) in text
         assert "p_value  df" in text
 
     def test_forty_clusters_keep_the_percentile_interval(self) -> None:

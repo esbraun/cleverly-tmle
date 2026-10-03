@@ -130,4 +130,10 @@ class TestTheDraws:
         frame = few_properties.draw("unequal_informative", 10, 11)
         for fit in few_study.FITS:
             estimate = few_properties.fit_estimate(fit, frame, 10)
-            assert estimate.reference_df == 8, fit
+            expected = 5 if fit == "tmle_cv_evaluation" else 8
+            assert estimate.reference_df == expected == few_study.expected_reference_df(fit, 10)
+
+    def test_the_descriptions_mirror_the_grid(self) -> None:
+        from tests.studies.evidence import descriptions
+
+        assert descriptions._FEW_CLUSTER_COUNTS == few_study.CLUSTER_COUNTS

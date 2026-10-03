@@ -16,7 +16,8 @@ Mutation controls, each proved to fail the named test:
 
 * restore the uncentred cluster sum in ``cross_validated_variance``:
   :class:`TestTheFoldEvaluatedClusterVariance` and :class:`TestTheFitVarianceCalibrates`;
-* drop the fit's fold check: :class:`TestOneClusterFoldsAreRefused` reads a bare ``ValueError``.
+* drop the fit's fold check: :class:`TestOneClusterFoldsAreRefused` reads a bare ``ValueError``,
+  under ``cv_evaluation=True`` and under ``targeting_scheme="fold"``.
 """
 
 from __future__ import annotations
@@ -106,22 +107,25 @@ class TestTheFoldEvaluatedClusterVariance:
 
 
 class TestTheRowBranchIsUnchanged:
-    """``cluster=None`` keeps the pre-fix arithmetic, pinned as hexadecimal floats."""
+    """``cluster=None`` keeps the pre-fix arithmetic, bit for bit.
 
-    @pytest.mark.parametrize(
-        ("seed", "n", "n_folds", "pinned"),
-        [
-            (101, 30, 3, "0x1.2bd119d11f00ep-5"),
-            (102, 47, 4, "0x1.156a92641887ap-5"),
-            (103, 100, 10, "0x1.546e2e392db98p-7"),
-        ],
-    )
-    def test_the_row_variance_is_bit_identical(
-        self, seed: int, n: int, n_folds: int, pinned: str
-    ) -> None:
+    The reference is an inline copy of the pre-fix row branch, evaluated on the same machine,
+    so the check does not depend on how a platform's SIMD reduction rounds the last bits.
+    """
+
+    @staticmethod
+    def pre_fix(curve: Any, indices: Any) -> float:
+        """The row branch of ``cross_validated_variance`` as it stood before the fix."""
+        return float(
+            sum(float(np.sum(curve[index] ** 2)) / index.size**2 for index in indices)
+            / len(indices) ** 2
+        )
+
+    @pytest.mark.parametrize(("seed", "n", "n_folds"), [(101, 30, 3), (102, 47, 4), (103, 100, 10)])
+    def test_the_row_variance_is_bit_identical(self, seed: int, n: int, n_folds: int) -> None:
         curve = np.random.default_rng(seed).normal(size=n) + 0.2
         indices = [np.arange(n)[k::n_folds] for k in range(n_folds)]
-        assert cross_validated_variance(curve, indices) == float.fromhex(pinned)
+        assert cross_validated_variance(curve, indices) == self.pre_fix(curve, indices)
 
 
 def clustered_frame(n_clusters: int, rows: int = 5, seed: int = 0) -> pd.DataFrame:
@@ -179,6 +183,23 @@ class TestOneClusterFoldsAreRefused:
             )
         assert NeverFit.calls == 0
         assert f"fold {counts.index(1)} holds 1." in str(caught.value)
+
+    @pytest.mark.parametrize(("n_clusters", "n_folds"), [(12, 10), (5, 5)])
+    def test_fold_targeting_is_refused_before_any_learner(
+        self, n_clusters: int, n_folds: int
+    ) -> None:
+        """Fold targeting builds each fold's clustered variance, so it needs 2 clusters too."""
+        frame = clustered_frame(n_clusters)
+        learners = never_fit_learners()
+        with pytest.raises(CapabilityError) as caught:
+            fold_evaluated(
+                cv_evaluation=False, targeting_scheme="fold", n_folds=n_folds, **learners
+            ).fit(frame, outcome="Y", treatment="A", id="cluster")
+        assert NeverFit.calls == 0
+        message = str(caught.value)
+        assert message.startswith('targeting_scheme="fold" needs at least 2 clusters')
+        assert f"Request at most {n_clusters // 2} folds" in message
+        assert 'targeting_scheme="pooled"' in message
 
     def test_two_clusters_per_fold_fit(self) -> None:
         estimate = (

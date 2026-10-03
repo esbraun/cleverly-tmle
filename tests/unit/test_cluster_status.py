@@ -201,7 +201,7 @@ class TestTheNeighbouringFitsKeepTheirInterval:
         "settings",
         [pytest.param(IN_SAMPLE, id="in sample"), pytest.param(CROSS_FITTED, id="cross-fitted")],
     )
-    def test_four_clusters_keep_the_interval(
+    def test_ten_clusters_keep_the_interval(
         self, floor_frame: Any, settings: dict[str, Any]
     ) -> None:
         """The boundary: a count equal to the floor is not below it."""

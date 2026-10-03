@@ -241,6 +241,7 @@ normal reference.
 | --- | --- |
 | a marginal estimate of the fit | $J-2$, with $J$ the positive-mass cluster count of the fit |
 | a baseline-stratum estimate | $J_s-2$, with $J_s$ the positive-mass cluster count of the stratum |
+| a fold-evaluated estimate over $V$ validation folds: the `cv_evaluation=True` report and the `fold_evaluated` report of `cv_targeting` | $\min(J-2, J-V)$. Its variance centers the cluster totals in each fold, so it estimates one mean per fold and keeps $J-V$ degrees of freedom, the pooled within-group count |
 | a derived estimate: `contrast()`, `ratio()`, and the median over `repeats` | the smallest `reference_df` of its inputs. `None` counts as infinite |
 | an in-fit `rr` or `or` | the value of the arm means it reads |
 | every estimate of a `"few_cluster_plugin"` fit | `None`. The diagnostic keeps the normal reference |
@@ -259,7 +260,11 @@ missingness tilt and the omitted-variable limits read it through `wald_ci` and
 $J-2$ is the rule that Nugent et al. (2024) and Benitez et al. (2023), Sections 3.1.2 and 3.2.1,
 state for cluster-randomized trials. An arm mean of this package is a one-sample mean of $J$
 cluster totals, whose classical reference has $J-1$ degrees of freedom. R `ltmle` uses $J-1$. So
-$J-2$ is conservative by one degree of freedom here.
+$J-2$ is conservative by one degree of freedom on the in-sample and stacked reports.
+
+A fold-evaluated report has fewer degrees of freedom, $J-V$, and takes $\min(J-2, J-V)$. An
+implementation review measured the difference at 2 clusters per fold: at $J=10$ and $V=5$,
+$t_{J-2}$ covered 0.935 and $t_{J-V}$ covered 0.955 over 1,500 draws.
 
 Wang et al. (2024), Remark 3, caution against complex nuisance learners at about 20 clusters. The
 registered few-cluster evidence uses parametric nuisance learners only.
@@ -294,7 +299,7 @@ when some have zero mass, and the fewest contributing clusters in one stratum.
 positive weight mass when some clusters have zero mass.
 
 `FEW_CLUSTER_THRESHOLD` and `MINIMUM_INTERVAL_CLUSTERS` in `cleverly._inference_status` hold
-the counts 40 and 4. `tests/unit/test_cluster_status.py`,
+the counts 40 and 10. `tests/unit/test_cluster_status.py`,
 `tests/unit/test_longitudinal_cluster_status.py` and `tests/unit/test_few_cluster_reference.py`
 hold a witness, a control, and a mutation for each rule.
 [References](../references.md#grouped-folds-and-clustered-cross-fitting) gives the sources.

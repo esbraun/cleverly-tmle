@@ -1891,10 +1891,13 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 [
                     "",
                     T_REFERENCE_NOTE.format(
-                        clusters=fewest_clusters(
-                            self.data.cluster,
-                            weights=self.data.weights if self.data.is_weighted else None,
-                        )
+                        clusters=(
+                            positive_count := fewest_clusters(
+                                self.data.cluster,
+                                weights=self.data.weights if self.data.is_weighted else None,
+                            )
+                        ),
+                        fewest=positive_count,
                     ),
                 ]
                 if t_reference and self.data.cluster is not None
@@ -2603,9 +2606,12 @@ class LTMLE:
         ``(w / E[w]) D*(P_w)``.  See :mod:`cleverly.data.weighting`.
 
         ``id=`` names a cluster column, and the variance is then cluster robust.  A fit
-        with fewer than :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS` clusters
-        with positive weight mass reports no interval, p-value or standard error: every
-        estimate takes the ``"few_cluster_plugin"`` status, as a point-treatment fit does.
+        with fewer than :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS`
+        clusters with positive weight mass reports no interval, p-value or standard error:
+        every estimate takes the ``"few_cluster_plugin"`` status, as a point-treatment fit
+        does.  From that count up to
+        :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` it reports Student t
+        intervals with ``J - 2`` degrees of freedom.
         The point estimate stands.  The inference reference, section *Clusters*, gives
         the reason.  Under cross-fitting the outer split is drawn whole-cluster and the
         Super Learner folds inside each regression are grouped on the same labels.
