@@ -44,7 +44,8 @@ from tests.studies.evidence.registry import ROOT, Margins, registered
 pytestmark = pytest.mark.xdist_group("stochastic_categorical_ltmle_design")
 
 RUNNER = ROOT / "tests" / "canonical" / "stochastic_categorical_ltmle_runner.R"
-#: The pre-declaration failure-only probe on streams 0 to 199: zero failures in every fit set.
+#: A record, not a check: the pre-declaration failure-only probe on streams 0 to 199 under the
+#: declared seeds found zero failures in every fit set (``_f1_failure200b.log`` beside the plan).
 FAILURE_PROBE_200 = dict.fromkeys(
     (f"{family}/{label}" for family, label, *_ in properties.FIT_SETS), 0
 )
@@ -140,13 +141,6 @@ def test_the_study_draws_from_its_own_seeds() -> None:
 
 def test_the_band_budget_meets_the_control_power_rule() -> None:
     assert control_power(BAND_P0 + 0.005, properties.BAND_REPLICATES) >= MINIMUM_CONTROL_POWER
-
-
-def test_the_failure_probe_found_no_failure() -> None:
-    assert set(FAILURE_PROBE_200) == {
-        f"{family}/{label}" for family, label, *_ in properties.FIT_SETS
-    }
-    assert not any(FAILURE_PROBE_200.values())
 
 
 # ------------------------------------------------------------------ exact-law separations

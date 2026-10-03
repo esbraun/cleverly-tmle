@@ -26,6 +26,7 @@ from cleverly.utils.bounds import bound, expit, logit, shrink_probabilities
 from .. import discrete_law_longitudinal as binary_law
 from .. import discrete_law_longitudinal_multivalue as law
 from .. import discrete_law_longitudinal_policy as policy
+from .. import discrete_law_survival as survival
 from .. import longitudinal_policies as policies
 from ..studies.canonical_ltmle import QuasiBinomialGLM
 
@@ -174,3 +175,69 @@ def test_m8_an_initial_carry_breaks_the_saturated_reproduction(
     projected = _fit(frame, _saturated(), **_misspecified(n_folds=folds))
     gap = abs(projected.psi("msm_regimen[mix]") - separate.psi("ey_regimen[mix]"))
     assert gap > 1e-4
+
+
+def _saturated_logit() -> MSM:
+    return MSM(
+        design=lambda label, horizon, w: np.column_stack(
+            [np.full(len(w), float(label == item)) for item in LABELS]
+        ),
+        terms=LABELS,
+        design_kind="known",
+        link="logit",
+    )
+
+
+@pytest.mark.parametrize("folds", [1, 5])
+def test_a_saturated_logit_projection_reproduces_the_policy_fits(folds: int) -> None:
+    """Under a link the stacked solve alternates; a saturated design still reduces to the cells."""
+    frame = law.sample(law.PROBS, 900, 7)
+    projected = _fit(frame, _saturated_logit(), **_misspecified(n_folds=folds))
+    separate = _fit(frame, None, **_misspecified(n_folds=folds))
+    for label in LABELS:
+        coefficient = projected.psi(f"msm_regimen[{label}]")
+        assert expit(coefficient) == pytest.approx(separate.psi(f"ey_regimen[{label}]"), abs=1e-10)
+
+
+def test_a_saturated_survival_projection_over_policy_cells_is_the_per_cell_report() -> None:
+    """Regimen-and-horizon cells of a survival policy fit, on the exact censored law."""
+    cells = [(label, horizon) for label in ("never", "draw") for horizon in (1, 2)]
+    model = MSM(
+        design=lambda label, horizon, w: np.column_stack(
+            [np.full(len(w), float((label, horizon) == cell)) for cell in cells]
+        ),
+        terms=tuple(f"{label}_{horizon}" for label, horizon in cells),
+        design_kind="known",
+    )
+
+    def run(msm: MSM | None) -> Any:
+        settings: dict[str, Any] = {
+            "outcome_learner": survival.CellMeans(),
+            "pseudo_learner": survival.CellMeans(),
+            "treatment_learner": survival.CellMeans(),
+            "censoring_learner": survival.CellMeans(),
+            "n_folds": 1,
+            "g_bounds": (1e-8, 1.0 - 1e-8),
+            "simultaneous": False,
+        }
+        if msm is not None:
+            settings["msm"] = msm
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return LTMLE({"never": 0, "draw": policies.survival_regimen()}, **settings).fit(
+                survival.frame(),
+                outcome=["Y1", "Y2"],
+                treatment=["A1", "A2"],
+                censoring=["C1", "C2"],
+                baseline=["W"],
+                time_varying=[[], ["L2"]],
+            )
+
+    separate, projected = run(None), run(model)
+    for label, horizon in cells:
+        term = f"msm_regimen[{label}_{horizon}]"
+        cell = f"risk_regimen[{label} @ t={horizon}]"
+        assert projected.psi(term) == pytest.approx(separate.psi(cell), abs=1e-12)
+        np.testing.assert_allclose(
+            projected.influence_curves[term], separate.influence_curves[cell], atol=1e-12
+        )

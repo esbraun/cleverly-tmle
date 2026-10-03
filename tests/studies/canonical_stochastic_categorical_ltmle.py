@@ -20,7 +20,9 @@ quarter) and supplies the exact per-node ratio ``q / g`` at the natural arm.  Fo
 designs span the same columns and the learners match, so the paired difference is an
 exactness witness: a pre-declaration smoke run requires it below ``1e-6``.  For ``taper`` this
 package stratifies the second node on the first-node label and ``lmtp`` pools over it, so
-that pair is read under the default margins.  ``low`` runs through the shared
+that pair is read under the default margins.  ``low`` differs the same way, so ``low`` and both
+contrasts pair only to about ``9e-3`` at n = 2,000 in the smoke run, and none of the three is
+an exactness witness.  The study page states this limit.  ``low`` runs through the shared
 ``lmtp_tmle_with_folds`` exactly as ``canonical-categorical-ltmle`` runs it.
 
 **Properties.** ``tests.studies.stochastic_categorical_ltmle_properties`` declares every

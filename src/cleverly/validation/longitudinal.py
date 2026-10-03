@@ -109,7 +109,9 @@ class LongitudinalDiagnostics:
 
     ``node_kind`` says what decided the node's arm: ``"label"``, ``"rule"`` or
     ``"policy"``.  The column is present when some node is a policy node, as ``cause`` is
-    present on a competing-risk fit only.  At a ``"policy"`` node the assignment columns
+    present on a competing-risk fit only.  So a policy that is one-hot on one sample, and so
+    resolves as a rule, and not on another changes which columns the report has.  At a
+    ``"policy"`` node the assignment columns
     report the mean policy probability of each level over the units at risk, which is what
     the policy would draw, and not the shares of the observed arms the fit is evaluated at.
     At such a node

@@ -258,7 +258,7 @@ estimator at the two kinds of node.
 | --- | --- | --- |
 | $\pi_t(a \mid h)$ | $1\{a = d_t(h)\}$ | $q_t(a \mid h)$ |
 | rows that stay on the plan | the rows whose observed arm is the assigned arm | the rows whose observed arm has $q_t > 0$ |
-| node regression | covariate history, on the rows that stay on the plan | one fit with the current arm and the arms of earlier policy nodes as columns, predicted at every level |
+| node regression | covariate history, plus the arms of earlier policy nodes, on the rows that stay on the plan | one fit with the current arm and the arms of earlier policy nodes as columns, predicted at every level |
 | value carried to node $t - 1$ | $Q^*_t(H_t)$ | $\sum_j q_t(j \mid H_t)\, Q^*_t(j, H_t)$ |
 | clever covariate | $1 / \operatorname{bound}(\prod_{s \le t} g_s c_s)$ | $\prod_{s \le t} \pi_s(A_s \mid H_s) / \operatorname{bound}(\prod_{s \le t} g_s c_s)$ |
 | fluctuation | intercept, offset $Q_t$ at the observed arm, loss weight $w R_t$ | the same, and every level's prediction moves by the same $\epsilon_t$ |
@@ -296,12 +296,12 @@ its evidence.
 
 | composition | what changes | evidence |
 | --- | --- | --- |
-| cross-fitting | each fold's untargeted recursion carries the fold's policy mean. The parent stitches the held-out per-level predictions, and the pooled fluctuation moves them | `tests/unit/test_pooled_longitudinal_policy_targeting.py` recomputes the stitch by hand and holds three mutations |
+| cross-fitting | each fold's untargeted recursion carries the fold's policy mean. The parent stitches the held-out per-level predictions, and the pooled fluctuation moves them | `tests/unit/test_pooled_longitudinal_policy_targeting.py` recomputes the stitch by hand. Three mutations fail it or the pooled score: a per-fold fluctuation, an observed-arm carry in the fold recursion, and per-level blocks moved to other rows |
 | censoring, survival, competing risks | the pseudo-outcome is unchanged and composes the carried policy mean | exact-law curves on the survival and competing-risk laws in `tests/unit/test_influence_gateaux_longitudinal_policy.py` |
 | observation weights | the weight enters every regression and the loss weight, never $R_t$ | the weighted exact law in the same file |
 | clusters | the split, the inner groups, the cluster-summed curve and the status are target-agnostic | `tests/e2e/test_ltmle_multivalue.py` |
-| `msm=` over policy cells, in sample and cross-fitted | the stacked fluctuation moves each policy cell's per-level predictions along that cell's block of the design | `tests/unit/test_longitudinal_policy_msm.py`, at one and at five folds |
-| contrasts, bands, `longitudinal_truncation_curve` | none; they read the stacked curves and the frozen plans | `tests/unit/test_longitudinal_policy_plumbing.py` replays a policy fit |
+| `msm=` over policy cells, in sample and cross-fitted | the stacked fluctuation moves each policy cell's per-level predictions along that cell's block of the design | `tests/unit/test_longitudinal_policy_msm.py`, at one and at five folds, under the identity and logit links, and over survival cells |
+| contrasts, bands, `longitudinal_truncation_curve` | none; they read the stacked curves and the frozen plans | `tests/unit/test_longitudinal_policy_plumbing.py` replays a policy fit under truncation. The `simultaneous_coverage` cell of the registered study measures the band, and its run is pending |
 
 A level that the policy can draw at an at-risk row must also appear among the rows the node is
 fitted on. Otherwise its design column is all zero, and the regression extrapolates where no
@@ -322,18 +322,21 @@ Two neighbouring targets are outside this section. The table names the owner of 
 `tests/unit/test_influence_gateaux_longitudinal_policy.py` holds the exact-law evidence. The point
 estimate and the curve equal the g-formula of
 `tests/discrete_law_longitudinal_policy.py` and its Gateaux derivative to $10^{-10}$, on mixed
-plans in both orders and on a partial-support policy. Mutations M1 to M9 each move the estimate
-or the curve by more than $10^{-4}$. A misspecified initial fit gives every node a coefficient above
-0.05 and pins the per-level update. A one-hot policy is its rule bit for bit. On an augmented law
-that records a uniform randomizer, the integrated curve is the mean of the recorded curve over the
-randomizer, and its variance is smaller.
+plans in both orders and on a partial-support policy.
+
+Mutations M1 to M7 each move the estimate or the curve away from the oracle by more than
+$10^{-4}$. M8 and M9 each fail the targeting witness by more than $10^{-4}$: the carried mean
+against its longhand, and the solved score. A misspecified initial fit gives every node a
+coefficient above 0.05 and pins the per-level update. A one-hot policy is its rule bit for bit.
+On an augmented law that records a uniform randomizer, the integrated curve is the mean of the
+recorded curve over the randomizer, and its variance is smaller.
 
 The registered study `stochastic-categorical-ltmle` pairs the in-sample fit with R `lmtp` 1.5.4.
 `lmtp` takes one shifted value per unit, so `tests/canonical/lmtp_policy_adapter.R` realises each
 policy by copying every unit four times. Copy $c$ takes its shifted arm from row $c$ of the node's
 allocation table, and every policy probability is a multiple of one quarter. The pre-declaration
-smoke run paired the policy mean to within $2 \times 10^{-10}$ on three replicates. The gate is
-$10^{-6}$.
+smoke run, which is not committed, must pair the policy mean to within the declared gate of
+$10^{-6}$. The study's committed primary rows will carry the measured pairs.
 
 ## Functionals of a fitted result
 

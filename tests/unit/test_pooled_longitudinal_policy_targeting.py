@@ -3,7 +3,7 @@ pooled update per node that moves every arm.
 
 The per-regimen construction is the one ``tests/unit/test_pooled_longitudinal_targeting.py``
 pins for deterministic plans (Díaz, Williams, Hoffman and Schenck 2023, Section 5.2).  A
-policy node adds three things, and each has a longhand and a mutation here:
+policy node adds three things, and the longhand stitch and two production mutations check them:
 
 * each fold's untargeted recursion carries the fold's policy-weighted mean of its per-arm
   predictions to the earlier node, and the parent stitches the held-out per-arm predictions;
@@ -18,6 +18,7 @@ score cannot pass by vanishing.
 
 from __future__ import annotations
 
+import dataclasses
 import warnings
 from typing import Any
 
@@ -161,48 +162,58 @@ def test_a_per_fold_fluctuation_leaves_the_pooled_score_unsolved(
     assert _score(_fit()) > CAUGHT
 
 
-def test_an_in_fold_targeted_carry_moves_the_stitched_fit(
-    result: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Mutation: a fold carries its own fluctuated policy mean to the earlier node."""
-    original = sequential._untargeted_recursion_in_fold
-
-    def targeted(data: Any, cell: Any, **kwargs: Any) -> Any:
-        outputs = original(data, cell, **kwargs)
-        if not cell.plan.has_policy:
-            return outputs
-        held, target, diagnostics, arms = outputs[1]
-        return {
-            **outputs,
-            1: (held + 0.01, target, diagnostics, None if arms is None else arms + 0.01),
-        }
-
-    monkeypatch.setattr(sequential, "_untargeted_recursion_in_fold", targeted)
-    mutated = _fit()
+def _stitch_gap(result: Any) -> float:
+    """How far the fit's stitched per-arm predictions sit from the independent longhand."""
     longhand = _longhand_stitch(result)
-    worst = max(
+    return max(
         float(np.max(np.abs(step.initial_by_arm - longhand[step.time])))
-        for step in mutated.fits["mix"].steps
+        for step in result.fits["mix"].steps
     )
-    assert worst > CAUGHT
 
 
-def test_a_misaligned_observed_arm_column_breaks_the_stitch(
+def test_a_fold_that_carries_the_observed_arm_fails_the_longhand_stitch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Mutation: the stitched observed-arm prediction comes from another row's fold."""
+    """Mutation: a fold's untargeted recursion carries the observed-arm prediction, not the mean.
+
+    The policy carry inside the fold recursion is the step this file exists for.  The longhand
+    stitch rebuilds every fold's recursion from the data and the policy, so it reads nothing the
+    mutation writes.
+    """
+    original = sequential._fit_node_regression
+
+    def observed_carry(*args: Any, **kwargs: Any) -> Any:
+        node = original(*args, **kwargs)
+        if node.initial_marginal is None or kwargs.get("fit_rows") is None:
+            return node
+        return dataclasses.replace(node, initial_marginal=node.initial)
+
+    monkeypatch.setattr(sequential, "_fit_node_regression", observed_carry)
+    assert _stitch_gap(_fit()) > CAUGHT
+
+
+def test_a_per_arm_block_from_other_rows_fails_the_longhand_stitch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mutation: each row's stitched per-arm block is another fold's row, kept self-consistent.
+
+    The observed-arm column is re-selected from the moved block, so the stitch agrees with
+    itself and the pooled score is still solved.  Only the independent longhand sees it.
+    """
     original = sequential.untargeted_fold_recursions
 
-    def misaligned(*args: Any, **kwargs: Any) -> Any:
-        stitched = original(*args, **kwargs)
+    def moved(data: Any, *args: Any, **kwargs: Any) -> Any:
+        stitched = original(data, *args, **kwargs)
+        shift = data.n // 3
         for item in stitched:
-            for time in item.initial_by_arm:
-                item.initial[time] = np.roll(item.initial[time], 1)
+            for time, block in item.initial_by_arm.items():
+                rolled = np.roll(block, shift, axis=0)
+                item.initial_by_arm[time] = rolled
+                codes = np.nan_to_num(data.treatment[:, time - 1], nan=0.0).astype(int)
+                item.initial[time] = rolled[np.arange(data.n), codes]
         return stitched
 
-    monkeypatch.setattr(sequential, "untargeted_fold_recursions", misaligned)
+    monkeypatch.setattr(sequential, "untargeted_fold_recursions", moved)
     mutated = _fit()
-    step = mutated.fits["mix"].steps[1]
-    codes = mutated.fits["mix"].assignment[:, 1].astype(int)
-    selected = step.initial_by_arm[np.arange(mutated.data.n), codes]
-    assert float(np.max(np.abs(step.initial - selected)[step.at_risk])) > CAUGHT
+    assert _score(mutated) < 1e-10
+    assert _stitch_gap(mutated) > CAUGHT
