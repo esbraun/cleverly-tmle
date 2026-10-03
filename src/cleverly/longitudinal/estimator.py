@@ -2381,7 +2381,9 @@ class LTMLE:
         with a rule node is a :class:`~cleverly.longitudinal.DynamicRegimen` declared
         ``rule_kind="known"``, as a mapping value or an item of a sequence.  A callable
         written inline in a mapping carries no declaration, and :meth:`fit` refuses it
-        before any learner.
+        before any learner.  A node that draws its arm from a known policy is a
+        :class:`~cleverly.interventions.Stochastic` node declared ``density_kind="known"``,
+        inside a :class:`~cleverly.longitudinal.DynamicRegimen` or as a mapping value.
     reference : str or None
         Which regimen contrasts are taken against; the first declared by default.
         Part of the estimand rather than a display setting -- ``ate_regimen[a vs b]``

@@ -909,9 +909,12 @@ def resolve_regimens(spec: Any, n_times: int) -> tuple[RegimenSpec, ...]:
     node or as a node of a sequence, carries no declaration.  Its regimen is built with
     ``rule_kind=None``, and :func:`refuse_regimen_rules` refuses it.
     A resolved :class:`DynamicRegimen` keeps the ``rule_kind`` of the one it was given.
+    A :class:`~cleverly.interventions.Stochastic` node is a known policy at its node, and a
+    mapping value that is one such node is that policy at every node.  Each one carries its own
+    ``density_kind``, which :func:`refuse_regimen_rules` checks.
 
-    A plan with no rule in it comes back a :class:`Regimen`, which is what keeps a static
-    fit on exactly the code path it was on before rules existed.
+    A plan with no rule and no policy in it comes back a :class:`Regimen`, which is what keeps
+    a static fit on exactly the code path it was on before rules existed.
 
     Order is preserved, because the first regimen is the one contrasts are taken
     against by default and so is part of what the fit reports.

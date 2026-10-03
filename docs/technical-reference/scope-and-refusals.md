@@ -21,7 +21,9 @@ problem is, and there are three places it can be.
 A fourth group needs no taxonomy. A fit whose *data* cannot support what you declared is refused
 where the problem arises. Examples are a horizon at which no event was observed among a regimen's
 followers, a cause with no events, a regimen nobody followed, and two absorbing causes firing at
-one node. Those are statements about the sample.
+one node. A known policy that can draw a level no fitted row of its node received is another, and
+[known stochastic policies](longitudinal-tmle.md#known-stochastic-policies) states why. Those are
+statements about the sample.
 
 Cross-fitting narrows what the sample supports. Each outer fold fits its regressions and its
 mechanism on its training rows alone, so every fold must carry enough events for each declared
@@ -410,7 +412,7 @@ the [roadmap's eligibility rules](../roadmap.md#eligibility).
 | simulated common-cause sensitivity | supported for binary and continuous treatment; named theory stops cover the remaining fit-wide gaps | The binary surface accepts marginal and baseline-stratum arm means, ATE, and ratios under ordinary TMLE and C-TMLE. Ordinary TMLE also accepts ATT and ATC with perturbed group membership. Ordinary TMLE alone accepts marginal and baseline-stratum PAR, PAF, fixed-regime parameters, and identity-link MSM coefficients. It also accepts marginal incremental targets and nonlinear MSM coefficients. Complete-outcome DR-TMLE supports marginal arm means, ATE, and ratios only. The continuous surface accepts marginal and baseline-stratum modified-policy means and contrasts under ordinary TMLE. Continuous MSMs require marginal fits. Every listed row accepts fixed probability weights. Longitudinal, multi-arm, missing-outcome, intermediate, estimated-weight, and clustered fits report unavailable before work begins. Each of those six waits on published theory, and so does logical categorical calibration. `NaturalCourseMean`, the zero-delta policy mean, and the multiplier-one incremental mean remain refused. See the [population contract and refusal table](validation-methods.md#simulated-common-cause-stress-surface) |
 | `ey1` / `ey0` and the incremental estimands, on a multi-arm fit | wrong by construction | they *name* one of exactly two arms, so on five arms they would report a contrast of arms `0` and `1` under the name of a parameter about all of them. Declared by `requires_binary_treatment`. The multi-arm path reports per-arm `ey` instead |
 | `incremental=` itself, above two arms | a different question | an odds multiplier names two arms. One odds per contrast is well posed, and it is a *different intervention* with a different influence function rather than a generalisation of this one |
-| stochastic categorical policies at a longitudinal node | not written yet | Díaz, Williams, Hoffman and Schenck (2023), Section 2, journal page 849, admit a regime with a randomizer of known law, and Theorem 3, page 853, covers it. `LTMLE` has no node that holds a known policy density, because a `DynamicRegimen` node returns one label per row. [F1](../roadmap.md#f1-stochastic-categorical-policies-at-a-longitudinal-node) holds the work, and the [natural-extension verdicts](natural-extension-verdicts.md) record the review |
+| `LTMLE`: known stochastic categorical policies at a node | supported | [known stochastic policies](longitudinal-tmle.md#known-stochastic-policies). A node holds a policy density fixed before the fit. The recursion carries the policy mean of the per-level predictions, and the clever covariate is the ratio of the policy to the bounded mechanism |
 | a continuous dose at a longitudinal node | not written yet | Díaz, Williams, Hoffman and Schenck (2023), Theorem 3, journal page 853, covers a fixed modified treatment policy $d(a_t, h_t)$ on a continuous dose. `LTMLE` estimates no conditional density of the dose at a node, and it refuses `shifts=` by name. [X12](../roadmap.md#x12-modified-treatment-policies-beyond-the-additive-point-shift) part (b) holds the work |
 
 A source could close one entry as it stands. It is the multi-arm part of the simulated
@@ -419,5 +421,5 @@ would answer it, with its own derivation, oracle law, and evidence.
 
 The continuous-dose row needs no new source. It needs the implementation that
 [X12](../roadmap.md#x12-modified-treatment-policies-beyond-the-additive-point-shift) part (b) holds.
-The stochastic-policy row and the `DRTMLE` row need no new source either. Each one needs the
-implementation that its roadmap row holds.
+The `DRTMLE` row needs no new source either. It needs the implementation that its roadmap row
+holds.
