@@ -178,7 +178,7 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
     return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
-def fit_cleverly(frame: pd.DataFrame) -> Any:
+def fit_cleverly(frame: pd.DataFrame, *, simultaneous: bool = False) -> Any:
     dgp = primary_law()
     return (
         TMLE(
@@ -186,7 +186,7 @@ def fit_cleverly(frame: pd.DataFrame) -> Any:
             outcome_learner=OracleOutcomeContinuous(dgp),
             treatment_learner=OracleTreatment(dgp),
             cross_fit=False,
-            simultaneous=False,
+            simultaneous=simultaneous,
             g_bounds=G_BOUNDS,
             max_iter=100,
             tol=1e-10,

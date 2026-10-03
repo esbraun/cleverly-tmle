@@ -129,4 +129,4 @@ power controls, both targeting equations, the treatment-score term, and the natu
   that `?ipsi` documents selects an empty training set and is not usable.
 - Only pointwise Wald inference is validated for either implementation.
 - The study covers ordinary, non-cross-fitted `cleverly` targeting and three fixed odds multipliers.
-- It excludes missing outcomes, weights, clusters, simultaneous bands, flexible learners, multinomial treatment, and longitudinal interventions.
+- It excludes missing outcomes, weights, clusters, simultaneous bands, flexible learners, multinomial treatment, and longitudinal interventions. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit.

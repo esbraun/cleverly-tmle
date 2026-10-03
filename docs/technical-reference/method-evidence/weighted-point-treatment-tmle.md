@@ -162,7 +162,7 @@ a valid estimator of another population from an arbitrary failure.
 - The study covers one set of strictly positive, moderately unequal weights; it does not cover
   near-zero inclusion, trimming, normalization choices, calibration weights, or replicate weights.
 - The comparison is ordinary, pointwise inference for five marginal parameters. It excludes ATT,
-  ATC, missing outcomes, multiple treatment levels, clusters, strata, and simultaneous bands.
+  ATC, missing outcomes, multiple treatment levels, clusters, strata, and simultaneous bands. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit.
 - This point-treatment row does not establish weighted longitudinal targeting or covariance.
 
 ## Reproduction

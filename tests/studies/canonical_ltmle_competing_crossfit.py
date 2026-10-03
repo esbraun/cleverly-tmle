@@ -82,8 +82,8 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
     return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
-def fit_cleverly(frame: pd.DataFrame) -> Any:
-    return ordinary.fit_cleverly(frame, n_folds=5)
+def fit_cleverly(frame: pd.DataFrame, *, simultaneous: bool = False) -> Any:
+    return ordinary.fit_cleverly(frame, n_folds=5, simultaneous=simultaneous)
 
 
 def cleverly_rows(

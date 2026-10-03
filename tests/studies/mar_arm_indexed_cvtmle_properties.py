@@ -43,7 +43,6 @@ from tests.studies.canonical_mar_arm_indexed_cvtmle import (
     STUDY,
     fit_cleverly,
 )
-from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.properties import (
     ReplicationSpec,
     control_row,
@@ -55,8 +54,9 @@ from tests.studies.evidence.property_verdicts import (
     crossfit_overfitting_verdicts,
     finish,
     robustness_verdicts,
+    simultaneous_coverage_verdicts,
 )
-from tests.studies.evidence.registry import Margins
+from tests.studies.evidence.simultaneous import joint_coverage_rows
 
 ROBUSTNESS_REPLICATES = 1_200
 ROBUSTNESS_N = 2_000
@@ -153,58 +153,6 @@ def _estimand_row(
     )
 
 
-def _joint_rows(
-    law: laws.Law,
-    result: Any,
-    truth: dict[str, float],
-    *,
-    replicate: int,
-    n: int,
-    requested: int,
-) -> list[dict[str, Any]]:
-    """The band row and its pointwise control, from one fit's estimates.
-
-    A joint cell has no scalar estimand, so its row records the max-t statistic instead:
-    ``estimate`` is the largest standardized deviation from the truth over the law's
-    estimands, ``truth`` is zero, and ``std_error`` is the critical value the intervals
-    used.  Only ``covered`` and ``rejected`` carry a verdict.  ``covered`` reads the
-    package's own band and the package's own pointwise intervals, and ``rejected`` is its
-    complement.
-    """
-    bands = result.simultaneous
-    if bands is None:  # pragma: no cover - the calibration fit declares a band
-        raise AssertionError("the calibration fit reported no simultaneous band")
-    names = laws.ESTIMANDS[law.key]
-    if set(bands.bands) != set(names):
-        raise AssertionError(f"the band covers {sorted(bands.bands)}, not {sorted(names)}")
-    deviations = []
-    for name in names:
-        target, point, _, _ = _inference_scale(name, truth[name], result[name])
-        deviations.append(abs(point - target) / float(result[name].std_error))
-    statistic = float(max(deviations))
-    band = all(bands.bands[name][0] <= truth[name] <= bands.bands[name][1] for name in names)
-    pointwise = all(result[name].ci[0] <= truth[name] <= result[name].ci[1] for name in names)
-    return [
-        _row(
-            property_name="simultaneous_coverage",
-            cell=f"{law.key}__{kind}",
-            role=role,
-            replicate=replicate,
-            n=n,
-            requested=requested,
-            truth=0.0,
-            estimate=statistic,
-            std_error=critical,
-            covered=covered,
-            rejected=not covered,
-        )
-        for kind, role, critical, covered in (
-            ("simultaneous_band", "positive", float(bands.critical_value), band),
-            ("pointwise_joint_control", "control", CRITICAL, pointwise),
-        )
-    ]
-
-
 def _robustness_learners(law: laws.Law, configuration: str) -> dict[str, Any]:
     wrong = laws.wrong_tables(law)
     mu = wrong["mu"] if configuration in {"only_outcome_wrong", CONTROL} else None
@@ -253,7 +201,18 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
                     critical=CRITICAL,
                 )
             )
-        rows.extend(_joint_rows(law, result, truth, replicate=replicate, n=n, requested=requested))
+        rows.extend(
+            joint_coverage_rows(
+                result,
+                truth,
+                laws.ESTIMANDS[law.key],
+                label=law.key,
+                replicate=replicate,
+                n=n,
+                requested=requested,
+                pointwise_critical=CRITICAL,
+            )
+        )
         return rows
 
     if property_name == "mar_robustness":
@@ -369,27 +328,6 @@ def generate_smoke_property_rows(*, n_jobs: int = 1) -> pd.DataFrame:
     """Fit one declared replication of every property cell without summarizing it."""
     outcomes = map_parallel(_fit_replication, _payloads(replicates=1), n_jobs=n_jobs)
     return pd.DataFrame([row for result in outcomes for row in result])
-
-
-def simultaneous_coverage_verdicts(summary: pd.DataFrame, *, margins: Margins) -> None:
-    """Read each joint-coverage cell against the rule its role answers to.
-
-    The band must hold its exact joint-coverage interval inside the two-sided calibration
-    coverage band, the rule every calibrated pointwise cell answers to.  The pointwise
-    control must establish joint coverage below the nominal rate, which is what shows the
-    band's wider critical value does work on these laws.
-    """
-    joint = summary["property"] == "simultaneous_coverage"
-    for index in summary.index[joint]:
-        coverage = Interval(
-            float(summary.loc[index, "coverage_ci_lower"]),
-            float(summary.loc[index, "coverage_ci_upper"]),
-        )
-        if summary.loc[index, "role"] == "control":
-            passed = coverage.high < 1.0 - margins.alpha
-        else:
-            passed = coverage.within(*margins.calibration_coverage)
-        summary.loc[index, "passed"] = bool(passed)
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:

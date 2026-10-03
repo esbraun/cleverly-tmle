@@ -354,7 +354,7 @@ declared GLMs. It does not establish missing-outcome, multi-arm, weighted, clust
 simultaneous-inference, broad machine-learning, or practical-positivity parity. Supplying the
 same initial nuisance predictions isolates the corrected construction; it does not compare the
 two projects' learner wrappers. The study measures finite-sample behavior at its declared sizes
-and cannot verify the theorem's unobservable second-order remainder condition for a future fit.
+and cannot verify the theorem's unobservable second-order remainder condition for a future fit. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit.
 
 The contraction family fits three points, so it establishes a direction rather than an exponent.
 Both positive slope intervals now exclude zero. The outcome-correct interval still covers `-1` and

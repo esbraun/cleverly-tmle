@@ -207,7 +207,7 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
     return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
-def fit_cleverly(frame: pd.DataFrame) -> Any:
+def fit_cleverly(frame: pd.DataFrame, *, simultaneous: bool = False) -> Any:
     dgp = shift_dgp(curvature=PRIMARY_CURVATURE)
     edges = tuple(float(value) for value in bin_edges(np.asarray(frame["A"]), PRIMARY_DENSITY_BINS))
     estimator = TMLE(
@@ -215,7 +215,7 @@ def fit_cleverly(frame: pd.DataFrame) -> Any:
         outcome_learner=QuadraticShiftOutcome(),
         treatment_learner=OracleShiftDensity(dgp, edges),
         cross_fit=False,
-        simultaneous=False,
+        simultaneous=simultaneous,
         density_bins=PRIMARY_DENSITY_BINS,
         max_iter=100,
         tol=1e-10,

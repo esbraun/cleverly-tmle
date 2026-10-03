@@ -119,14 +119,14 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
     return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
-def fit_cleverly(frame: pd.DataFrame) -> Any:
+def fit_cleverly(frame: pd.DataFrame, *, simultaneous: bool = False) -> Any:
     return (
         TMLE(
             incremental=incrementals.interventions(),
             outcome_learner=saturated_discrete_outcome(),
             treatment_learner=OracleTreatment(law.DiscreteLaw()),
             cross_fit=False,
-            simultaneous=False,
+            simultaneous=simultaneous,
             max_iter=100,
             tol=1e-10,
             random_state=0,
