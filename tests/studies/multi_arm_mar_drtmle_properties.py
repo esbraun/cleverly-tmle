@@ -5,8 +5,20 @@ Every fit uses law-table primaries and the binary study's GLM reductions. The la
 :mod:`tests.studies.mar_drtmle_properties` at three arms, and adds a size and a power cell for
 the contrast ``ate[mid vs high]``.
 
-The simultaneous-band cells read the shared joint-coverage helper of
-``tests/studies/evidence/simultaneous.py``. They are added when that module is on the branch.
+The ``simultaneous_coverage`` family measures the default band at three arms. This study is
+the only evidence for the K-arm band: ``default-simultaneous-bands`` measures the binary
+missing-outcome DR-TMLE band alone. Declared before any run:
+
+* the cells read the interval-calibration fits themselves. Each requests all nine estimands
+  with ``simultaneous=True`` and the defaults (1000 rademacher draws, ``random_state=0``), and
+  the calibration row reads ``ate[low vs high]`` of the same fit;
+* the band cell ``arms__simultaneous_band`` passes when its 99% joint-coverage interval lies
+  inside ``[0.92, 0.98]``. Its control ``arms__pointwise_joint_control`` passes when the 99%
+  upper endpoint of joint pointwise coverage is below 0.95;
+* the design, from the exact inference-scale covariance of L3
+  (``tests/unit/test_simultaneous_cell_design.py``): asymptotic pointwise joint coverage
+  ``p0 = 0.8223``, oracle band critical value 2.508, and control power 1.0 at 2,400
+  replications.
 """
 
 from __future__ import annotations
@@ -21,7 +33,7 @@ from scipy.stats import norm
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import mar_arm_indexed_laws as laws
-from tests.studies.canonical_multi_arm_mar_drtmle import LAW, STUDY, fit_cleverly
+from tests.studies.canonical_multi_arm_mar_drtmle import ESTIMANDS, LAW, STUDY, fit_cleverly
 from tests.studies.evidence.properties import control_row, replicate_row
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
@@ -29,8 +41,10 @@ from tests.studies.evidence.property_verdicts import (
     calibration_verdicts,
     finish,
     robustness_verdicts,
+    simultaneous_coverage_verdicts,
 )
 from tests.studies.evidence.seeds import stream_seed
+from tests.studies.evidence.simultaneous import joint_coverage_rows
 
 ROBUSTNESS_REPLICATES = 800
 ROBUSTNESS_N = 2_000
@@ -96,8 +110,14 @@ def _tables(configuration: str) -> dict[str, np.ndarray | None]:
     }
 
 
-def _fit(frame: pd.DataFrame, configuration: str, *, law: laws.Law = LAW) -> Any:
-    return fit_cleverly(frame, law=law, simultaneous=False, **_tables(configuration))
+#: The joint cell's label. Its two cells read the calibration fits.
+JOINT_LABEL = "arms"
+
+
+def _fit(
+    frame: pd.DataFrame, configuration: str, *, law: laws.Law = LAW, simultaneous: bool = False
+) -> Any:
+    return fit_cleverly(frame, law=law, simultaneous=simultaneous, **_tables(configuration))
 
 
 def _row(
@@ -168,6 +188,30 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
             )
         ]
     frame = laws.sample(LAW, n, seed)
+    if property_name == "interval_calibration":
+        result = _fit(frame, configuration, simultaneous=True)
+        return [
+            _row(
+                property_name,
+                cell,
+                "positive",
+                replicate,
+                n,
+                requested,
+                TRUTHS[TARGET],
+                result[TARGET],
+            ),
+            *joint_coverage_rows(
+                result,
+                TRUTHS,
+                ESTIMANDS,
+                label=JOINT_LABEL,
+                replicate=replicate,
+                n=n,
+                requested=requested,
+                pointwise_critical=CRITICAL,
+            ),
+        ]
     result = _fit(frame, configuration)
     if property_name == "corrected_mar_inference":
         role = "control" if configuration == "both_wrong" else "positive"
@@ -291,6 +335,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         cleared = max(low, -high) >= BOTH_WRONG_BIAS_FLOOR[prefix]
         summary.loc[index, "passed"] = bool(summary.loc[index, "passed"]) and cleared
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
+    simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
 
     correction = summary["property"] == "correction_necessity"
     initial = summary.loc[

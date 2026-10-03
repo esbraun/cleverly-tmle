@@ -94,6 +94,7 @@ STUDY = StudyRecord(
         "tests/studies/evidence/property_verdicts.py",
         "tests/studies/evidence/schema.py",
         "tests/studies/evidence/seeds.py",
+        "tests/studies/evidence/simultaneous.py",
     ),
     runner_module="tests.studies.canonical_multi_arm_mar_drtmle",
     properties_module="tests.studies.multi_arm_mar_drtmle_properties",
@@ -123,6 +124,7 @@ STUDY = StudyRecord(
             "five_reduction_cycle__closed_score",
             "five_reduction_cycle__initial_score_control",
         ),
+        "simultaneous_coverage": ("arms__simultaneous_band", "arms__pointwise_joint_control"),
     },
 )
 
