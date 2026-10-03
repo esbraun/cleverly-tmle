@@ -1204,6 +1204,13 @@ class TestTheAdmittedFitOnOtherSurfaces:
         assert reason is not None
         assert "selected adjustment set" in reason
 
+    def test_the_logistic_plugin_stays_a_diagnostic(self, admitted: Any) -> None:
+        """R ``ctmle``'s logistic term is reported, and the admitted status does not move."""
+        diagnostic = ctmle_module.logistic_plugin(admitted)["ate"]
+        assert np.isfinite(diagnostic.plugin_logistic_std_error)
+        assert admitted.inference_status == "influence_curve"
+        assert admitted["ate"].std_error == admitted["ate"].plugin_std_error
+
     def test_variable_importance_runs_when_the_candidate_is_each_adjustment_set(self) -> None:
         """One exposure whose adjustment set is the declared candidate is admitted."""
         frame, _ = make_linear_ate(n=300, seed=21)

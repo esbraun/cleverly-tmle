@@ -228,7 +228,8 @@ _PLUGIN_LIMITS_REFUSAL = (
     "no term for that fit. Lemma 3 and Theorem 4 of Chernozhukov, Cinelli, Newey, Sharma and "
     "Syrgkanis (2026) give the limits for the doubly robust estimator only. The bias-adjusted "
     "bounds, rv, max_bias, benchmark() and contour() remain available. docs/roadmap.md F26 "
-    "tracks this stop"
+    "tracks this stop, and docs/roadmap.md X26 tracks the limits for a fit whose own "
+    "treatment learner is a declared unpenalized logistic or multinomial model"
 )
 
 #: The estimators of nu^2 whose bounds refuse their limits, and why.  The doubly robust

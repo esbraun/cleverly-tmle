@@ -53,7 +53,7 @@ InferenceStatus = Literal[
 # and Section 3.2.1, last paragraph, recommend t with J - 2 degrees of freedom at every
 # cluster count. Neither paper compares
 # the normal reference with t. The package keeps its normal reference and withholds the
-# interval below this count; F22 in docs/roadmap.md holds the reopen route.
+# interval below this count; X24 in docs/roadmap.md holds the reopen route.
 #: The cluster count below which a clustered fit reports no interval.
 FEW_CLUSTER_THRESHOLD: Final[int] = 40
 
@@ -219,12 +219,12 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 f"there are at least {FEW_CLUSTER_THRESHOLD} of them in the fit and in each "
                 "reported stratum with positive weight mass. Benitez et al. (2023), "
                 "Section 3.2.1, give cluster-sum aggregation for a row-weighted estimand "
-                "but no result for this cross-fitted construction. F22 in "
-                "docs/roadmap.md reopens this when a result covers unequal cluster sizes."
+                "but no result for this cross-fitted construction. X24 in "
+                "docs/roadmap.md holds the work that reopens this."
             ),
             assessment_note=(
                 "the reported curve is an unequal-cluster diagnostic: no confidence interval "
-                "or p-value is available for this fit, and F22 in the roadmap is the "
+                "or p-value is available for this fit, and X24 in the roadmap is the "
                 "condition that reopens it"
             ),
             summary_label="cluster-robust plug-in se",
@@ -233,7 +233,7 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "fit at unequal cluster sizes"
             ),
             diagnostic_noun="unequal-cluster plug-in diagnostic",
-            reopened_by="F22",
+            reopened_by="X24",
         ),
         "few_cluster_plugin": StatusRecord(
             reason=(
@@ -248,12 +248,12 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "inference, and Section 3.2.1, last paragraph. No registered study covers a "
                 "clustered fit with few clusters. The point estimate stands. The plug-in "
                 "standard error of the reported curve remains as a diagnostic under "
-                "plugin_std_error and plugin_interval. F22 in docs/roadmap.md reopens this "
+                "plugin_std_error and plugin_interval. X24 in docs/roadmap.md reopens this "
                 "with a t reference and a registered study at few clusters."
             ),
             assessment_note=(
                 "the reported curve is a few-cluster diagnostic: no confidence interval or "
-                "p-value is available for this fit, and F22 in the roadmap is the condition "
+                "p-value is available for this fit, and X24 in the roadmap is the condition "
                 "that reopens it"
             ),
             summary_label="normal-reference se",
@@ -262,7 +262,7 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "with few clusters"
             ),
             diagnostic_noun="few-cluster plug-in diagnostic",
-            reopened_by="F22",
+            reopened_by="X24",
         ),
     }
 )

@@ -1159,16 +1159,18 @@ class DRTMLE(TMLE):
         if data.has_missing_outcome and self.guard:
             if data.n_arms != 2:
                 raise CapabilityError(
-                    "missing-outcome DRTMLE currently supports a binary randomized treatment; "
-                    "the per-arm multi-level assembly has not been certified against the "
-                    "published missing-data theorem"
+                    "missing-outcome DRTMLE supports two treatment arms. The armwise assembly "
+                    "for three or more arms applies Theorem 2 of Diaz and van der Laan "
+                    "(2017) to each arm, and it is not written yet; docs/roadmap.md F4 "
+                    "tracks this work"
                 )
             if not self.randomized and self._treatment_probabilities is None:
                 raise CapabilityError(
                     "DRTMLE with delta= is supported only for a randomized trial. Pass "
                     "randomized=True to estimate the treatment mechanism for chance-imbalance "
-                    "adjustment, or pass treatment_probabilities= to fit(). Observational "
-                    "treatment remains unsupported by the published theorem."
+                    "adjustment, or pass treatment_probabilities= to fit(). An observational "
+                    "treatment needs the composite-indicator construction, which is not "
+                    "written yet; docs/roadmap.md X23 tracks this work."
                 )
             if set(self.guard) != {"Q", "g"}:
                 raise CapabilityError(

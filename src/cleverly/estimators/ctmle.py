@@ -1994,9 +1994,10 @@ _LOGISTIC_PLUGIN_SCOPE = (
 class LogisticPlugin:
     """The plug-in variance R ``ctmle`` reports for a selector C-TMLE fit.
 
-    A diagnostic.  The fit's status stays ``"working_mechanism_plugin"``, and no
-    registered study measures the coverage of this interval.  The ``plugin_logistic_``
-    prefix makes no coverage claim.
+    A diagnostic.  The fit's status does not change: a selecting fit keeps
+    ``"working_mechanism_plugin"``, and a ``"discrete"`` fit with one full candidate keeps
+    the TMLE status.  No registered study measures the coverage of this interval.  The
+    ``plugin_logistic_`` prefix makes no coverage claim.
 
     Parameters
     ----------
