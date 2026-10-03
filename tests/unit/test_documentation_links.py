@@ -347,7 +347,7 @@ def test_the_plugin_limit_refusal_cites_a_roadmap_item_that_exists() -> None:
     from cleverly.sensitivity.omitted_variable import _PLUGIN_LIMITS_REFUSAL
 
     cited = ROADMAP_CITATION.findall(_PLUGIN_LIMITS_REFUSAL)
-    assert cited == ["F26"]
+    assert cited == ["F26", "X26"]
     assert set(cited) <= set(ROADMAP_ITEMS)
 
 

@@ -3084,9 +3084,9 @@ class LTMLE:
         if data.cluster is not None:
             raise LongitudinalError(
                 "cross-fitted longitudinal TMLE has no clustered result. A grouped draw "
-                "keeps each cluster whole, and what has not been established for the "
-                "sequential recursion is the cluster-robust variance of its targeted "
-                "estimate under one; docs/roadmap.md F22 tracks this stop. "
+                "keeps each cluster whole, and the package has not written the "
+                "cluster-summed variance of the targeted recursion under one; "
+                "docs/roadmap.md X25 tracks this work. "
                 "Fit in sample (CrossFitting(enabled=False), or "
                 "n_folds=1 on the engine), which reports a cluster-robust variance, or "
                 "drop id= from fit."

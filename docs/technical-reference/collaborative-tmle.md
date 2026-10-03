@@ -167,7 +167,8 @@ studies. It is not accepted on numerical R parity.
 checked by a mutation that scores only the first contrast. It changes the penalty by more than 100.
 
 **The selector paths publish no inference.** The greedy, ordered, and discrete paths refuse
-`ci`, `pvalue`, and `std_error`. Each accessor raises `CapabilityError`. The refusal says that the
+`ci`, `pvalue`, and `std_error`. Each accessor raises `CapabilityError`. One `discrete` fit is the
+exception, and the paragraph on a declared full candidate below states it. The refusal says that the
 reported curve is the ordinary efficient influence curve at the candidate the search stopped at,
 and that no result shows it is this estimator's influence curve when that working mechanism is not
 consistent for the treatment law.
@@ -200,14 +201,27 @@ the point estimate, and it answers for these paths.
 [F18](../roadmap.md#f18-selector-path-c-tmle-inference) is the condition that reopens this. It
 reopens when it supplies the estimator's influence curve.
 
-**One configuration is refused more than it needs to be.** A `discrete` fit whose only candidate is
-the complete adjustment set selects nothing. It is bit-identical to a plain TMLE fit, and
-`tests/unit/test_ctmle.py` pins that identity. The package still refuses its interval, because the
-refusal keys on the strategy, as [RM12](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm12-collaborative-intervals-at-an-inconsistent-working-mechanism)
-correction 2 and F18 both require. A key that read the fitted path instead would give inference
-back to a caller whose candidate list happened to collapse, which that caller cannot predict before
-fitting. The over-refusal is deliberate and it is the conservative direction. Use `TMLE` for that
-configuration.
+**A declared full candidate is the ordinary TMLE.** A `discrete` fit whose declared list holds one
+candidate, equal to the full adjustment set, takes the ordinary TMLE status. It reports `ci`,
+`pvalue`, `std_error`, a simultaneous band, and every derived operation that the TMLE fit reports.
+The [natural-extension verdicts](natural-extension-verdicts.md) record this as part (j).
+
+| item | content |
+| --- | --- |
+| base result | the TMLE interval result that [point-treatment TMLE](point-treatment-tmle.md) cites |
+| argument | the search has one candidate, so it selects nothing. The candidate is the full set, so the mechanism is the TMLE mechanism, and the estimator is the TMLE estimator |
+| key | `declares_full_adjustment_only` in `src/cleverly/estimators/ctmle.py`. It reads the strategy, the declared list, and the prepared covariate names. It never reads the fitted path |
+| match rule | one candidate that holds each prepared covariate name once, in any order. A repeated candidate counts as two candidates. A repeated name is not the full set |
+| admitted configurations | every configuration that `CTMLE` accepts: in sample and cross-fitted, two or more arms, fixed weights, `delta=` in sample, `ey`, `ate`, `rr`, `or`, a simultaneous band, `repeats`, and `n_bootstrap` |
+| refit rule | a refit appends each covariate that `CausalData.with_extra_covariate` recorded to every candidate. So the `random_common_cause` refit of an admitted fit is the TMLE refit, and it keeps the status |
+| still refused | the omitted-variable bound. It keys on the fitted method, and its sentence tells the caller to fit `TMLE` |
+| evidence | `tests/unit/test_ctmle.py::TestEquivalenceWithPlainTmle` pins point, curve, standard error, interval, p-value, band, and bootstrap draws against `TMLE` to `1e-12` on ten configurations. The registered `TMLE` studies cover the identical estimator |
+
+The key reads the declaration, so a caller knows the status before the fit. A key on the fitted path
+would admit a fit whose candidate list happened to stop at the full set. The caller cannot predict
+that stop. `TestOnlyTheDeclaredFullCandidateIsAdmitted` holds the controls. A single partial
+candidate, a two-candidate path that stops at the full set, and `[full, full]` all refuse. A
+mutation that keys on the fitted path admits the stopping control, and so fails it.
 
 Van der Laan and Gruber (2010), Theorem 2, establishes the population mean-zero identity that
 supports collaborative consistency when the outcome regression is correct. It does not establish

@@ -512,7 +512,8 @@ previous reader had is not a citation; a page number is.
 - Missing-outcome attributable-effect source audit (2026-09-12): no reviewed paper presents the
   exact MAR PAR and PAF construction. [RM8](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm8-missing-outcome-attributable-effects)
   records this bounded conclusion. [F20](roadmap.md#f20-missing-outcome-attributable-effects)
-  holds the missing published result.
+  holds the work. The [natural-extension verdicts](technical-reference/natural-extension-verdicts.md)
+  record part (e), a stack of the two shipped parents, as a natural extension.
 
   Díaz, Carone and van der Laan give the MAR natural-course parent, its remainder, and its rates.
   Hubbard and van der Laan give the complete-data reference parent and attributable transforms.
@@ -651,6 +652,15 @@ previous reader had is not a citation; a page number is.
   Neither upstream version runs the pooled update, so agreement with 1.5.4 compares two
   constructions under the registered paired margins.
 
+  Section 2, journal page 849, allows a random regime $d(a_t, h_t, \varepsilon_t)$ with a
+  randomizer that is "(i) drawn independently across units and independently of U, and (ii) its
+  distribution does not depend on P". The section then places the randomizer in $L_t$ "without
+  loss of generality". Section 4, journal page 850, says "Efficiency theory in this paper focuses
+  on functions d that do not depend on P (recall that the function is deterministic but allowed
+  to take a randomizer as argument)". The
+  [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) use these
+  locators for part (c).
+
   The same article gives a second estimator in Section 5.3, journal page 854. The section is
   titled "Sequential Regression Estimator Using SDR Unbiased Transformations". The locators below
   come from it.
@@ -727,7 +737,17 @@ article as the copy this project read.
   cluster-level treatment under cluster randomization, and not a TMLE with a row-level treatment.
   Remark 5 says a stratified cluster randomization needs treatment balance within each stratum of
   each fold, and it defers that construction to Rafi (2023). This source supports the split law.
-  It does not prove the package's estimator.
+  It does not prove the package's estimator. Section 2, Assumption 1(b), reads "The source
+  population size $N_i$ follows an unknown distribution $\mathcal P_N$ over a finite support". So
+  the cluster size is a bounded random cluster attribute. Section 2 defines the individual-average
+  mean $\mu_I(a) = E\{\sum_{j=1}^{N_i} Y_{ij}(a)\}/E(N_i)$, which is a ratio of two cluster-level
+  means. Assumption 3 lets the observed cluster size depend on the arm and on the cluster
+  attributes. Section 4.2, Equation (2), estimates $\mu_I(a)$ by a ratio of cluster sums. The
+  Section 5 simulation multiplies the variance by $m/(m-5)$ and uses a $t$ reference with $m-5$
+  degrees of freedom. Remark 3 recommends machine learning only "when the number of clusters is
+  sufficiently large, e.g., m = 100". The
+  [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) use these
+  locators for part (g).
 - Chiang, Kato, Ma & Sasaki (2022), [*Multiway Cluster Robust Double/Debiased Machine
   Learning*](https://doi.org/10.1080/07350015.2021.1895815), *Journal of Business and Economic
   Statistics* 40(3):1046-1056, DOI 10.1080/07350015.2021.1895815. Read first-hand in the Taylor and
@@ -967,6 +987,14 @@ is the only empirical witness for it.
   inference. The published article and supplement are open, and this audit checked Theorem 1.
   The article points to Appendix G for the conditions while Supplement A labels that material
   Appendix F; this appears to be an internal cross-reference error.
+  The author preprint (arXiv:1901.05056), Appendix D, subsection "Cross-validated CTMLE", printed
+  page 26, was read first-hand. It fits $\bar Q^0_{n,v}$ and $\bar G^0_{n,v}(\cdot\mid\bar Q^0_{n,v})$
+  in each training sample. It finds one $\epsilon_n$ "by pooling over the validation samples". It
+  states that sample splitting can "avoid the Donsker class condition in regularity condition
+  (iv)". It calls the proof "completely analogous to" the CV-TMLE proof of Zheng and van der Laan
+  (2011), combined with its own appendix proof. The
+  [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) use this locator
+  for part (k).
 - van der Vaart, Dudoit & van der Laan (2006), [*Oracle inequalities for multi-fold cross
   validation*](https://doi.org/10.1524/stnd.2006.24.3.351), *Statistics & Decisions*
   24(3):351-371, DOI 10.1524/stnd.2006.24.3.351. The paper bounds the risk of a cross-validation
@@ -1845,6 +1873,17 @@ registered study asks those questions separately. The inspected source is pinned
 [`538a3a2`](https://github.com/benkeser/drtmle/tree/538a3a264c1ca984b6d88978ca7f96165f43152c):
 `R/estimate.R` loops the reductions over treatment levels and constructs a compatible initial
 mechanism; `R/fluctuate.R` applies independent one-vs-rest mechanism fluctuations.
+
+The same commit codes a missing outcome and a missing treatment as one composite indicator.
+`R/drtmle.R` line 207 sets `DeltaA = as.numeric(!is.na(A))`. `R/fluctuate.R` line 28 builds the
+clever covariate from `A == a & DeltaA == 1 & DeltaY == 1`, and lines 98 and 169-171 use the same
+indicator. `R/estimate.R` factorizes the composite mechanism as
+$P(\Delta_A=1\mid W)\,P(A=a\mid\Delta_A=1,W)\,P(\Delta_Y=1\mid\Delta_A=1,A=a,W)$. In the
+`glm_Qr` branch of `estimateQrn`, `R/estimate.R` lines 1177-1178 filter on
+`trainDeltaY == 1 & trainDeltaY == 1`, so `DeltaA` is absent from that subset. A missing `A` is
+coded `NA`, and `Aeqa[is.na(Aeqa)] <- FALSE` already drops those rows, so the effect is nil under
+that coding. The [natural-extension verdicts](technical-reference/natural-extension-verdicts.md)
+use these locators for parts (a) and (b).
 
 The same snapshot fixes two post-fit conveniences. [`R/confint.R`, lines
 146-167](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/confint.R#L146-L167) forms `ci(contrast = list(f, f_inv, h, fh_grad))` as

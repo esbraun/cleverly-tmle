@@ -520,7 +520,7 @@ MOVED: dict[str, tuple[Callable[[], Any], str]] = {
     ),
     "DRTMLE missing outcomes, three arms": (
         lambda: _missing_drtmle(_three_arms())(),
-        "missing-outcome DRTMLE currently supports a binary randomized treatment",
+        "missing-outcome DRTMLE supports two treatment arms",
     ),
     "DRTMLE missing outcomes, weighted": (
         lambda: _missing_drtmle(_trial(120).assign(wt=np.linspace(0.5, 1.5, 120)), weights="wt")(),

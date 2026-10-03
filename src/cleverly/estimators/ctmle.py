@@ -69,7 +69,9 @@ reported curve is this estimator's influence curve when the selected working mec
 not consistent for the treatment law.  The point estimate, the selection path and the
 curve remain, and ``plugin_std_error`` and ``plugin_interval`` report the retained
 diagnostic under names that make no coverage claim.  F18 in ``docs/roadmap.md`` is the
-condition that reopens this.
+condition that reopens this.  One ``"discrete"`` fit is the exception.  When the declared
+list holds one candidate and that candidate is the full adjustment set, nothing is
+selected, the estimator is the ordinary TMLE, and the fit takes the ordinary TMLE status.
 
 ``strategy="oat"``
     The outcome-adaptive treatment mechanism from ``ctmle3::LF_oat``.  **The package
@@ -177,7 +179,9 @@ path makes the estimate, influence curve, score check and sensitivity analyses a
 The initial Qbar is retained separately for nuisance diagnostics.
 
 The reported curve is the ordinary cross-fitted EIF plug-in curve, and on every strategy the
-package reports its spread as a diagnostic and not as inference. The selector calculation
+package reports its spread as a diagnostic and not as inference. The one exception is the
+``"discrete"`` fit whose one declared candidate is the full adjustment set, which is the
+ordinary TMLE. The selector calculation
 treats the selected candidate as fixed but makes no conditional-on-selection coverage claim.
 The outcome-adaptive calculation uses the fold-local nuisance construction of Benkeser, Cai and
 van der Laan (2020). Their theorem proves the ordinary adaptive-propensity curve for one binary
@@ -345,6 +349,39 @@ def is_selector_strategy(strategy: str | None) -> bool:
         broadens the Literal does not silently acquire a refusal it never declared.
     """
     return strategy in CTMLE_SELECTOR_STRATEGIES
+
+
+def declares_full_adjustment_only(
+    strategy: str | None,
+    candidates: Sequence[Sequence[str]] | None,
+    covariate_names: Sequence[str],
+) -> bool:
+    """Whether a ``"discrete"`` fit declares one candidate, and that candidate is every covariate.
+
+    Such a fit has nothing to select. Its treatment mechanism is fitted on the full
+    adjustment set, so the estimator is the ordinary TMLE. The key reads the declared list
+    and the prepared covariate names only, and never the fitted path, so a caller can know
+    the answer before the fit.
+
+    Parameters
+    ----------
+    strategy : str or None
+        The collaborative strategy.
+    candidates : sequence of sequence of str or None
+        The declared ``candidates=`` list.
+    covariate_names : sequence of str
+        The prepared covariate names, :attr:`~cleverly.data.CausalData.covariate_names`.
+
+    Returns
+    -------
+    bool
+        ``True`` when the strategy is ``"discrete"``, the list has exactly one entry, and
+        that entry holds each covariate name exactly once, in any order. A repeated
+        candidate counts as two candidates, and a repeated name is not the full set.
+    """
+    if strategy != "discrete" or candidates is None or len(candidates) != 1:
+        return False
+    return len(covariate_names) > 0 and sorted(candidates[0]) == sorted(covariate_names)
 
 
 #: Floor applied to targeted predictions before taking a logarithm in the loss.
@@ -601,7 +638,9 @@ class CTMLE(TMLE):
     simultaneous band and every E-value branch refuse for the same reason.  The selector
     strategies and ``strategy="oat"`` give different reasons, and F18 and F19 in the
     roadmap hold them.  For an interval, fit :class:`~cleverly.TMLE`.  See the module
-    docstring.
+    docstring.  The exception is a ``"discrete"`` fit whose one declared candidate is the
+    full adjustment set: it selects nothing, equals the ordinary TMLE, and reports its
+    interval.
 
     Parameters
     ----------
@@ -657,12 +696,14 @@ class CTMLE(TMLE):
     _assessment_method = "collaborative_tmle"
 
     def _inference_status(self, data: CausalData) -> InferenceStatus:
-        """Refuse inference on every strategy, and name the reason each one has.
+        """Name the status of each strategy, and admit the one fit that selects nothing.
 
-        Keyed on the strategy. The selector paths take the status that F18 keys on. A ``"discrete"``
-        fit with a single full-adjustment candidate is refused too, even though it is bit-identical
-        to a plain TMLE fit whose interval the package does supply. That over-refusal is deliberate
-        and ``docs/technical-reference/collaborative-tmle.md`` records it.
+        Keyed on the strategy. The selector paths take the status that F18 keys on, with one
+        exception. A ``"discrete"`` fit that declares one candidate, equal to the full adjustment
+        set, selects nothing and is the ordinary TMLE, so it takes the status of
+        :class:`~cleverly.TMLE`. :func:`declares_full_adjustment_only` is the key. It reads the
+        declared list and the prepared covariate names, and never the fitted path.
+        ``docs/technical-reference/collaborative-tmle.md`` states the contract.
 
         ``"oat"`` takes its own status on every fit, as the status table of
         ``docs/technical-reference/inference.md`` states. Its
@@ -673,16 +714,19 @@ class CTMLE(TMLE):
         Parameters
         ----------
         data : CausalData
-            The prepared data. Not read: collaborative TMLE refuses ``id=`` at every
-            setting, so no data-dependent status applies to it.
+            The prepared data. Only its covariate names are read here. The admitted
+            ``"discrete"`` fit passes ``data`` to the :class:`~cleverly.TMLE` status.
 
         Returns
         -------
         str
-            One of :data:`~cleverly.inference.influence.InferenceStatus`:
-            ``"working_mechanism_plugin"`` for ``"greedy"``, ``"ordered"`` and
-            ``"discrete"``, and ``"generated_design_plugin"`` for ``"oat"``.
+            One of :data:`~cleverly.inference.influence.InferenceStatus`: the
+            :class:`~cleverly.TMLE` status for the admitted ``"discrete"`` fit,
+            ``"working_mechanism_plugin"`` for every other ``"greedy"``, ``"ordered"`` and
+            ``"discrete"`` fit, and ``"generated_design_plugin"`` for ``"oat"``.
         """
+        if declares_full_adjustment_only(self.strategy, self.candidates, data.covariate_names):
+            return super()._inference_status(data)
         if is_selector_strategy(self.strategy):
             return "working_mechanism_plugin"
         return "generated_design_plugin"
@@ -1174,6 +1218,14 @@ class CTMLE(TMLE):
         the same way.  A refit that drops a covariate keeps the refusal of an ordering
         that names an unknown covariate.
 
+        A ``"discrete"`` fit takes the same rule for each candidate. The copy appends each
+        covariate that ``data`` records as added
+        (:attr:`~cleverly.data.CausalData.added_covariates`) to each candidate that does
+        not already name it, in the order ``data`` holds them. A covariate the fit already
+        had keeps its place, named or not. So a refit of a fit whose one candidate is the
+        full adjustment set keeps one full candidate, and keeps the status of the fit it
+        refits.
+
         Parameters
         ----------
         data : CausalData
@@ -1182,9 +1234,24 @@ class CTMLE(TMLE):
         Returns
         -------
         CTMLE
-            This estimator when it has no explicit ordering or its ordering covers every
-            covariate of ``data``, and otherwise a copy with the extended ordering.
+            This estimator when it declares no ordering and no candidates, or when they
+            cover every covariate of ``data``. Otherwise a copy with the extended ordering
+            or the extended candidates.
         """
+        if self.strategy == "discrete" and self.candidates is not None:
+            recorded = set(data.added_covariates)
+            added = tuple(name for name in data.covariate_names if name in recorded)
+            extended = [
+                (*candidate, *(name for name in added if name not in candidate))
+                for candidate in self.candidates
+            ]
+            if all(
+                len(new) == len(old) for new, old in zip(extended, self.candidates, strict=True)
+            ):
+                return self
+            configured = copy.copy(self)
+            configured.candidates = extended
+            return configured
         if self.ordering is None:
             return self
         declared = tuple(self.ordering)
@@ -1927,9 +1994,10 @@ _LOGISTIC_PLUGIN_SCOPE = (
 class LogisticPlugin:
     """The plug-in variance R ``ctmle`` reports for a selector C-TMLE fit.
 
-    A diagnostic.  The fit's status stays ``"working_mechanism_plugin"``, and no
-    registered study measures the coverage of this interval.  The ``plugin_logistic_``
-    prefix makes no coverage claim.
+    A diagnostic.  The fit's status does not change: a selecting fit keeps
+    ``"working_mechanism_plugin"``, and a ``"discrete"`` fit with one full candidate keeps
+    the TMLE status.  No registered study measures the coverage of this interval.  The
+    ``plugin_logistic_`` prefix makes no coverage claim.
 
     Parameters
     ----------

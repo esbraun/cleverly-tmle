@@ -173,6 +173,11 @@ class CausalData:
     weights_name: str | None = None
     weight_spec: WeightSpec = field(default_factory=WeightSpec)
     dropped_covariates: tuple[str, ...] = ()
+    #: Covariates that :meth:`with_extra_covariate` appended to this data, in order. A
+    #: refit reads them to tell an added column from a column the fit already had, which
+    #: a configuration that names covariates needs, such as a ``"discrete"``
+    #: :class:`~cleverly.CTMLE` candidate list.
+    added_covariates: tuple[str, ...] = ()
     encodings: tuple[CategoricalEncoding, ...] = ()
     #: Optional finite baseline partition used for conditional target parameters.  Codes
     #: are ``0..S-1`` and :attr:`strata_levels` maps them back to the caller's labels.
@@ -1098,7 +1103,7 @@ class CausalData:
                 )
 
     def with_extra_covariate(self, values: FloatArray, name: str) -> CausalData:
-        """A copy with one extra covariate column appended."""
+        """A copy with one extra covariate column appended, and recorded as added."""
         column = np.asarray(values, dtype=float).reshape(-1, 1)
         if column.shape[0] != self.n:
             raise DataError(f"extra covariate has length {column.shape[0]}, expected {self.n}")
@@ -1108,6 +1113,7 @@ class CausalData:
             self,
             covariates=np.hstack([self.covariates, column]),
             covariate_names=(*self.covariate_names, name),
+            added_covariates=(*self.added_covariates, name),
         )
 
     def without_covariates(self, names: Sequence[str]) -> CausalData:
