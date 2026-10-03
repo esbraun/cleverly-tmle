@@ -324,6 +324,9 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-cde-tmle": "`cleverly` controlled direct-effect TMLE",
     "cleverly-ltmle-derived": "`cleverly` LTMLE ratio contrast",
     "cleverly-clustered-cvtmle": "`cleverly` clustered point-treatment CV-TMLE",
+    "cleverly-clustered-unequal-cvtmle": (
+        "`cleverly` clustered point-treatment CV-TMLE at unequal cluster sizes"
+    ),
     "cleverly-cross-fitted-categorical-ltmle": "`cleverly` cross-fitted categorical LTMLE",
     "cleverly-cross-fitted-ltmle": "`cleverly` cross-fitted LTMLE",
     "cleverly-cross-fitted-ltmle-survival": "`cleverly` cross-fitted survival LTMLE",
@@ -406,6 +409,20 @@ IMPLEMENTATIONS: dict[str, str] = {
 
 SCENARIOS: dict[str, str] = {
     "binary": "binary-outcome law",
+    "unequal_noninformative": (
+        "200 clusters of size uniform on 2 to 18, the size absent from the outcome"
+    ),
+    "unequal_informative": (
+        "200 clusters of size uniform on 2 to 18, the size in the outcome; truth the "
+        "row-weighted mean"
+    ),
+    "unequal_informative_cluster_average": (
+        "the informative samples weighted by one over the cluster size; truth the "
+        "cluster-average mean"
+    ),
+    "few_unequal_informative_j20": (
+        "20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node"
+    ),
     "stratified_msm_identity": (
         "baseline-strata law with a bounded outcome Y ~ Beta(24 Q, 24 (1 - Q))"
     ),
@@ -612,6 +629,19 @@ PROPERTIES: dict[str, str] = {
     "crossfit_overfitting": (
         "cross-fitting removes the optimism a flexible learner puts into an in-sample fit"
     ),
+    "cluster_aggregation_rule": (
+        "the same curve aggregated by cluster sums and by cluster means, reported rather than "
+        "gated, because only the cluster sum is the variance of the row-weighted mean at "
+        "unequal sizes"
+    ),
+    "estimand_weighting": (
+        "the unweighted fit targets the row-weighted mean, and weights of one over the cluster "
+        "size target the cluster-average mean"
+    ),
+    "few_cluster_reference": (
+        "below 40 clusters a t reference with J - 2 degrees of freedom keeps coverage, measured "
+        "with parametric nuisance learners and reported rather than gated"
+    ),
     "corrected_mar_inference": (
         "randomized missing-outcome DR-TMLE retains valid inference when either the outcome "
         "regression or observation mechanism is correct"
@@ -754,6 +784,55 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("clustered_inference", "iid_control"): (
         "the identical rows, point estimates, and influence curves treated as independent",
         "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
+    ),
+    ("clustered_inference", "cluster_robust_fold_evaluated"): (
+        "fold-evaluated CV-TMLE at unequal cluster sizes, centered cluster variance per fold",
+        "SE-ratio and coverage intervals both stay inside their calibration bands",
+    ),
+    ("clustered_inference", "iid_control_fold_evaluated"): (
+        "the fold-evaluated fit's curve treated as independent rows",
+        "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
+    ),
+    ("clustered_inference", "cluster_robust_drtmle"): (
+        "cross-fitted DR-TMLE at unequal cluster sizes with cluster-robust inference",
+        "SE-ratio and coverage intervals both stay inside their calibration bands",
+    ),
+    ("clustered_inference", "iid_control_drtmle"): (
+        "the DR-TMLE curve treated as independent rows",
+        "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
+    ),
+    ("clustered_inference", "cluster_robust_fold_evaluated_cluster_covariate"): (
+        "fold-evaluated CV-TMLE of the treated mean, 40 clusters in 10 folds, a covariate "
+        "shared within a cluster",
+        "SE-ratio and coverage intervals both stay inside their calibration bands",
+    ),
+    ("clustered_inference", "iid_control_fold_evaluated_cluster_covariate"): (
+        "the same fold-evaluated curve treated as independent rows",
+        "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
+    ),
+    ("estimand_weighting", "individual_average"): (
+        "the unweighted interval against the row-weighted mean",
+        "exact coverage lower bound clears the floor",
+    ),
+    ("estimand_weighting", "cluster_average_truth"): (
+        "the unweighted interval against the cluster-average mean",
+        "exact coverage upper bound falls below 0.50",
+    ),
+    ("estimand_weighting", "cluster_average_weights"): (
+        "the interval with weights of one over the cluster size against the cluster-average mean",
+        "exact coverage lower bound clears the floor",
+    ),
+    ("estimand_weighting", "individual_average_truth"): (
+        "the weighted interval against the row-weighted mean",
+        "exact coverage upper bound falls below 0.50",
+    ),
+    ("cluster_aggregation_rule", "cluster_sum"): (
+        "the cluster sum of the curve, as this package and R ltmle aggregate it",
+        "reported only",
+    ),
+    ("cluster_aggregation_rule", "cluster_mean"): (
+        "the cluster mean of the curve, as R tmle 2.1.1 and tmle3 aggregate it",
+        "reported only",
     ),
     ("weight_necessity", "weighted"): (
         "the selected sample analyzed with its fixed inverse-selection weights",
@@ -1669,3 +1748,47 @@ def cell(
     if term is not None:
         tested = f"{TERMS[term.group('term')]}: {tested}"
     return tested, required
+
+
+#: The ``few_cluster_reference`` cells of ``clustered-few-cluster-tmle``: one entry per fit,
+#: size law, cluster count and arm, composed forward from the four parts.
+_FEW_CLUSTER_FITS = {
+    "tmle_crossfit": "stacked CV-TMLE",
+    "tmle_cv_evaluation": "fold-evaluated CV-TMLE",
+    "tmle_in_sample": "in-sample TMLE",
+    "drtmle_crossfit": "cross-fitted DR-TMLE",
+    "ltmle_in_sample": "in-sample LTMLE on one node",
+}
+_FEW_CLUSTER_SIZES = {
+    "equal10": "clusters of 10 rows",
+    "unequal_informative": "clusters of size uniform on 2 to 18, the size in the outcome",
+}
+_FEW_CLUSTER_ARMS = {
+    "t_reference": (
+        "the reported interval, t with J - 2 degrees of freedom",
+        "exact coverage lower bound clears the floor, bias inside the margin",
+    ),
+    "iid_t_control": (
+        "the same point and t quantile with the IID row standard error",
+        "the SE-ratio upper endpoint falls below 0.80",
+    ),
+    "normal_reference": (
+        "the cluster-robust standard error with the normal quantile",
+        "reported only",
+    ),
+}
+CELLS.update(
+    {
+        (
+            "few_cluster_reference",
+            f"{fit}__{sizes}__j{clusters}__{arm}",
+        ): (
+            f"{fit_text}, {clusters} {size_text}: {arm_text}",
+            required,
+        )
+        for fit, fit_text in _FEW_CLUSTER_FITS.items()
+        for sizes, size_text in _FEW_CLUSTER_SIZES.items()
+        for clusters in (10, 20, 30)
+        for arm, (arm_text, required) in _FEW_CLUSTER_ARMS.items()
+    }
+)

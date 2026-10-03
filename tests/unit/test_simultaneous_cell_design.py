@@ -225,6 +225,26 @@ MAPPED: dict[str, tuple[str, str]] = {
 }
 
 
+#: Default-band shapes mapped to a measured shape of ``default-simultaneous-bands``, with the
+#: reason. X24 removed the unequal-size status, so a cross-fitted clustered fit at unequal
+#: cluster sizes with 40 or more clusters now builds the default band.
+MAPPED_TO_DEFAULT_BANDS: dict[str, tuple[str, str]] = {
+    "clustered-unequal-cvtmle/unequal_sizes": (
+        "clustered",
+        "the band draws one multiplier per cluster and reads the cluster sums of the curves, "
+        "as at equal sizes; the sizes enter only through the cluster-sum covariance the "
+        "multiplier bootstrap estimates. Below 40 clusters no default band is built",
+    ),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(MAPPED_TO_DEFAULT_BANDS))
+def test_each_shape_mapped_to_the_default_band_study_names_a_measured_shape(shape: str) -> None:
+    target, reason = MAPPED_TO_DEFAULT_BANDS[shape]
+    assert target in {measured.label for measured in SHAPES}
+    assert reason
+
+
 @pytest.mark.parametrize("shape", sorted(MAPPED))
 def test_each_mapped_shape_names_a_measured_cell(shape: str) -> None:
     target, reason = MAPPED[shape]

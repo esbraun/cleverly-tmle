@@ -1497,6 +1497,7 @@ declared floor, because $t_1$ has no finite mean. It is not a missing theorem.
 | --- | --- |
 | an interval below 4 clusters | none. The floor is declared, and it stays at 4 |
 | a small-sample reference other than $t_{J-2}$ | a correction or reference derived for the cluster-summed TMLE curve. Nugent et al. (2024), Section 2.2, and Benitez et al. (2023), Sections 3.1.2 and 3.2.1, state $t_{J-2}$ for cluster-randomized trials. No source derives it for a row-level treatment |
+| an interval at 4 to 9 clusters | a measurement. The registered few-cluster study starts at 10 clusters. At 4 clusters a pre-run probe found 0.25% to 9% of draws on which a fit cannot run, because the outcome does not vary among one plan's followers or a training fold lacks an outcome class |
 | the fold-evaluated variance at few clusters per fold | a calibration result for the centered fold cluster variance. The package measures it and requires 2 clusters per fold |
 | complex nuisance learners at about 20 clusters | none for parametric learners. Wang, Park, Small and Li (2024), Remark 3, caution against complex working models at $m = 20$. The registered few-cluster evidence uses parametric nuisance learners only |
 
