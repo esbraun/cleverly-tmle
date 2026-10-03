@@ -1131,8 +1131,6 @@ def test_the_interval_level_and_the_submodel_bound_are_reachable_separately() ->
         {"nuisance_bound": 0.02},
         {"target_weights": True},
         {"step_size": 0.002},
-        {"n_bootstrap": 500},
-        {"bootstrap_resampling": "iid"},
     ],
     ids=lambda option: next(iter(option)),
 )
@@ -1141,9 +1139,8 @@ def test_every_point_only_option_is_refused_by_longitudinal_translation(
 ) -> None:
     """A normalized declaration must reach the engine or fail before construction.
 
-    These are the 18 point-only fields in the shared configuration. Sixteen used to be
-    accepted and omitted from the longitudinal kwargs; ``repeats`` alone had a bespoke
-    refusal. Pinning the whole list prevents a future field from disappearing just because
+    These are the 16 point-only fields in the shared configuration. ``n_bootstrap`` and
+    ``bootstrap_resampling`` reach ``LTMLE`` and are not in the list. Pinning the whole list prevents a future field from disappearing just because
     the two engine signatures differ.
 
     ``stratify_folds`` is refused earlier than the rest: :class:`CrossFitting` now checks
@@ -1184,8 +1181,8 @@ def test_a_longitudinal_option_refuses_before_engine_construction(monkeypatch) -
     )
     effect = study.identify(RegimeMean({"always": 1}))
     monkeypatch.setattr("cleverly.study.LTMLE", _MustNotConstruct)
-    with pytest.raises(MethodConfigurationError, match="n_bootstrap"):
-        effect.estimate(n_bootstrap=500)
+    with pytest.raises(MethodConfigurationError, match="repeats"):
+        effect.estimate(repeats=2)
 
 
 def test_estimation_options_cannot_reassign_study_roles() -> None:

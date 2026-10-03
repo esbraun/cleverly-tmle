@@ -800,9 +800,7 @@ MISSING_TREATMENT_ROWS: dict[str, tuple[Callable[[], Any], tuple[str, ...]]] = {
     [
         pytest.param(lambda: TMLE(**_never(msm=MSM.linear())), id="msm"),
         pytest.param(
-            lambda: TMLE(
-                **_never(interventions=[Static(1.0, name="on"), Static(0.0, name="off")])
-            ),
+            lambda: TMLE(**_never(interventions=[Static(1.0, name="on"), Static(0.0, name="off")])),
             id="interventions",
         ),
     ],

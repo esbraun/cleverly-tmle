@@ -234,6 +234,25 @@ class CausalResult(Protocol):
         """
         ...
 
+    def ratio(self, numerator: str, denominator: str, **kwargs: Any) -> Any:
+        """Return the risk ratio or odds ratio of two level estimates.
+
+        Parameters
+        ----------
+        numerator : str
+            Alias of the level in the numerator.
+        denominator : str
+            Alias of the level in the denominator.
+        **kwargs : Any
+            Options forwarded to the concrete result implementation.
+
+        Returns
+        -------
+        ParameterEstimate
+            The ratio, with its interval on the log scale.
+        """
+        ...
+
     def summary(self, *, protocol: ProtocolDetail = "full") -> str:
         """Return a printable fit summary.
 
@@ -3051,6 +3070,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             estimates=estimates,
             parameter_index=index,
             simultaneous=_narrow_bands(raw, estimates, method),
+            bootstrap=_narrow_bootstrap(raw.bootstrap, estimates),
         )
         return replace(
             raw,

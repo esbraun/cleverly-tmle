@@ -34,7 +34,7 @@ from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import mar_arm_indexed_laws as laws
 from tests.studies.canonical_multi_arm_mar_drtmle import ESTIMANDS, LAW, STUDY, fit_cleverly
-from tests.studies.evidence.properties import control_row, replicate_row
+from tests.studies.evidence.properties import PropertyCell, control_row, replicate_row
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
@@ -44,7 +44,7 @@ from tests.studies.evidence.property_verdicts import (
     simultaneous_coverage_verdicts,
 )
 from tests.studies.evidence.seeds import stream_seed
-from tests.studies.evidence.simultaneous import joint_coverage_rows
+from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_property_cells
 
 ROBUSTNESS_REPLICATES = 800
 ROBUSTNESS_N = 2_000
@@ -298,6 +298,122 @@ def _payloads(
             seed = stream_seed(STUDY, "property_sample", property_name, cell, replicate)
             out.append(((property_name, cell, replicate, n, replicates, seed, configuration),))
     return out
+
+
+@dataclasses.dataclass(frozen=True)
+class CellLaw:
+    """The law a declared cell samples from, read back by the truth-binding check.
+
+    Parameters
+    ----------
+    name : str
+        The law's name, unique per sampling law.
+    values : dict of str to float
+        The truth of each estimand a cell of this law publishes.
+    """
+
+    name: str
+    values: dict[str, float]
+
+    def truth(self) -> dict[str, float]:
+        """The truth of each estimand, on the scale the rows publish."""
+        return dict(self.values)
+
+
+#: The statistic a correction-necessity row publishes, against the zero of a solved score.
+NECESSITY_ESTIMAND = "max_extra_score"
+_L3 = CellLaw(LAW.scenario, {**TRUTHS, NECESSITY_ESTIMAND: 0.0})
+_NULL = CellLaw(NULL_LAW.scenario, dict(NULL_TRUTHS))
+
+
+def _no_learner() -> None:
+    return None
+
+
+def _cell(
+    property_name: str,
+    cell: str,
+    law: CellLaw,
+    n: int,
+    replicates: int,
+    seed: int,
+    role: str,
+    estimand: str,
+) -> PropertyCell:
+    return PropertyCell(
+        property=property_name,
+        cell=cell,
+        dgp=law,
+        outcome_learner=_no_learner,
+        treatment_learner=_no_learner,
+        n=n,
+        replicates=replicates,
+        seed=seed,
+        role=role,
+        estimand=estimand,
+    )
+
+
+def declared_cells() -> tuple[PropertyCell, ...]:
+    """Every ``(property, cell)`` pair the replication rows publish, with the law it samples.
+
+    ``tests/unit/test_method_evidence.py`` reads every committed truth back against these
+    laws. The derived calibration controls and the joint pair are here too, because they
+    reach the replication file. The ``root_n_rate`` rows do not: the summary derives them.
+    ``tests/unit/test_drtmle_missing_multi_arm_study.py`` checks, before any run, that this
+    tuple is exactly what :func:`_fit_replication` and :func:`calibration_controls` publish.
+
+    Returns
+    -------
+    tuple of PropertyCell
+        One entry per published pair, with its role, estimand and stream root.
+    """
+    out: list[PropertyCell] = []
+    for property_name, cell, n, replicates, configuration in _specs():
+        seed = stream_seed(STUDY, "property_sample", property_name, cell, 0)
+        if property_name == "corrected_mar_inference":
+            role = "control" if configuration == "both_wrong" else "positive"
+            out += [
+                _cell(property_name, f"{prefix}__{cell}", _L3, n, replicates, seed, role, name)
+                for prefix, name in CONTRASTS.items()
+            ]
+        elif property_name == "interval_calibration":
+            out += [
+                _cell(property_name, cell, _L3, n, replicates, seed, "positive", TARGET),
+                *(
+                    _cell(
+                        property_name, f"ate__{kind}", _L3, n, replicates, seed, "control", TARGET
+                    )
+                    for kind in ("shrunken_se_control", "noise_control")
+                ),
+                *joint_property_cells(JOINT_LABEL, n=n, replicates=replicates, seed=seed),
+            ]
+        elif property_name == "correction_necessity":
+            out += [
+                _cell(
+                    property_name,
+                    f"{cell}__{kind}",
+                    _L3,
+                    n,
+                    replicates,
+                    seed,
+                    role,
+                    NECESSITY_ESTIMAND,
+                )
+                for kind, role in (
+                    ("closed_score", "positive"),
+                    ("initial_score_control", "control"),
+                )
+            ]
+        elif property_name == "type_i_error":
+            out.append(
+                _cell(property_name, cell, _NULL, n, replicates, seed, "positive", TEST_TARGET)
+            )
+        else:
+            target = TEST_TARGET if property_name == "power" else TARGET
+            role = "control" if n == min(RATE_SIZES) and property_name != "power" else "positive"
+            out.append(_cell(property_name, cell, _L3, n, replicates, seed, role, target))
+    return tuple(out)
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:

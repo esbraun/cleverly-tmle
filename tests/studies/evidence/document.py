@@ -353,7 +353,7 @@ def measured(row: Any) -> str:
             "paired coverage gain "
             f"{_interval(row.coverage_gain_ci_lower, row.coverage_gain_ci_upper)}"
         )
-    if family == "corrected_mar_inference":
+    if family in {"corrected_mar_inference", "ordinary_targeting"}:
         return (
             f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
@@ -410,6 +410,7 @@ _BIAS_GATED = frozenset(
         "stratum_targeting_necessity",
         "survival_recursion_necessity",
         "targeting_necessity",
+        "treatment_complete_case",
         "weight_necessity",
     }
 )

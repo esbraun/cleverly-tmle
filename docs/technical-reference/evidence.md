@@ -105,6 +105,10 @@ registered repeated-sampling records for [ordinary TMLE](method-evidence/ordinar
 remains covered by the existing C-TMLE and DR-TMLE rows, which continue down their original
 branches.
 
+A `discrete` C-TMLE fit with one declared candidate, equal to the full adjustment set, is the
+ordinary TMLE. The `TMLE` studies are its evidence, and
+`tests/unit/test_ctmle.py::TestEquivalenceWithPlainTmle` pins the identity to `1e-12`.
+
 Complete-outcome cross-validated DR-TMLE is a construction over the same targets, not a registry
 addition. Its source audit maps the pinned R `cvFolds` path to
 `cross_fit=True, reduced_crossfit="pooled", targeting_scheme="pooled", cv_evaluation=False`.
@@ -211,7 +215,7 @@ stacked. The instruments are in the table. The column at the right says what eac
 | outcome and observation drifts on that law | each block is nonzero at every arm, the estimate stays exact, and the stored scores equal the reported corrections | a mutation on the treatment side, because the oracle `g` solves every `W`-measurable treatment equation |
 | mutation controls on a finite-sample fit | a rolled arm mechanism, a swapped response, and rolled observation and outcome-drift columns each fail the correction check | a sign error in the curve, because a solved block has mean zero either way |
 | independent one-indicator reference | each arm's estimate and curve equal a test-local implementation of Steps 1 to 5, under live drift | the two-arm route, which takes one shared tilt |
-| the multi-arm missing-outcome study, `multi-arm-mar-drtmle` | repeated-sampling coverage, size, power and the simultaneous band at three arms | the five-reduction construction in the R pairing, which uses the composite mechanism of Díaz and van der Laan's page 25; and the estimated-mechanism route `randomized=True`, because every study fit passes known probabilities. The unit tests cover that route |
+| [multi-arm missing-outcome study](method-evidence/randomized-multi-arm-missing-outcome-dr-tmle.md) | repeated-sampling coverage, size, power and the simultaneous band at three arms | the five-reduction construction in the R pairing, which uses the composite mechanism of Díaz and van der Laan's page 25; and the estimated-mechanism route `randomized=True`, because every study fit passes known probabilities. The unit tests cover that route |
 
 All of these are in `tests/unit/test_drtmle_missing_multi_arm.py` except the study. The R pairing
 covers the both-correct limit only.
@@ -335,6 +339,22 @@ Learner.
 Those tests do not establish interval coverage, a preferred bound, positivity clearance, or
 external implementation parity under active truncation. The registered rows above remain evidence
 for their fixed-bound point estimates and stated inference regimes only.
+
+## Post-fit functionals of reported estimates
+
+These outputs are computed from the influence curves of a fitted result. None is a `Target`, so
+none enters the registry-gated table. Each is an exact delta-method or linear-functional
+computation, and each row names the instruments that check it.
+
+| functional | built from | instruments | nonzero or mutation witness | not covered |
+| --- | --- | --- | --- | --- |
+| ratio contrasts, point treatment: `ratio`, and `contrast(scale="ratio")` | two level estimates of a `TMLEResult` | `tests/unit/test_contrast_conveniences.py`: bit identity with the registered `rr` and `or` on the exact binary and three-arm laws | swapped arms give $1/\psi$ and $-IC$; an odds ratio built with the risk-ratio derivative fails; dropping the $1/v$ factor of the ratio-scale contrast fails | a ratio of two contrasts, and a numeric reference |
+| ratio contrasts, longitudinal: `LongitudinalResult.ratio` | two `ey_regimen`, `risk_regimen` or `cif_regimen` levels | `tests/unit/test_contrast_conveniences.py` on the end-of-study, survival and competing exact laws; the ratio cells of the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) | a survival view that forgot the complement; a cause swap; the survival odds ratio as the reciprocal of the risk odds ratio | a ratio as a fit-time estimand, and bands over derived ratios |
+| Wald test at a declared null: `wald_test` | one estimate and its standard error | `tests/unit/test_contrast_conveniences.py` against the longhand statistic on every scale; `wald_test().pvalue == pvalue` on every estimate | a ratio-scale test that does not log the null | one-sided tests, and a joint chi-square test |
+| transformed contrast: `contrast(transform=)` | a smooth function of estimates and a monotone map | `tests/unit/test_contrast_conveniences.py` against the `drtmle` 1.1.2 list-contrast arithmetic, and bit identity of `Transform.log()` with `scale="ratio"` | a dropped slope; an interval mapped back with the forward map; a decreasing map without the sort; a band without the inverse map | the coverage of a user transform. The user's transform defines that estimand |
+| RMST and RMTL: `rmst`, `rmtl` | the risks or cause-specific incidences below the horizon | the enumeration truth of `tests/studies/survival_grid_law.py` on its weighted support, and the two-node survival and competing laws, in `tests/unit/test_contrast_conveniences.py`; the RMST cells of the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) | off-by-one horizon ranges; a dropped cause in the competing RMST | calendar time on an unequal grid |
+| C-TMLE logistic plug-in diagnostic: `logistic_plugin` | a selector `CTMLE` fit | `tests/unit/test_ctmle_logistic_plugin.py`: a numpy transcription of `calc_varIC`, and R `ctmle`'s own `calc_varIC` on one fit's inputs in `tests/canonical/ctmle_logistic_plugin` | the term at a constant-outcome fit against the complex-step derivative; a flipped sign, a dropped inverse and a dropped intercept | a coverage claim. The status stays `working_mechanism_plugin` |
+| `LTMLE` full-refit bootstrap: `n_bootstrap=` | a full refit of the estimator per resample | `tests/unit/test_ltmle_bootstrap.py`: the subset round trip by field name, a replicate as a plain fit on its resample, a committed `canonical-ltmle` row refitted at `n_bootstrap=0` and 2, the per-kind licence, and the replicate draws of `ratio`, `rmst` and `contrast`; the bootstrap cells of the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) | a refit-count witness that fails when a replicate reuses the fit's mechanism; a shrunken percentile interval that the study's control must fail | a data-adaptive nuisance, and any law or size the study does not run |
 
 ## A simulated law is an instrument too, and it can be wrong the same way
 

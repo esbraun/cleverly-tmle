@@ -159,7 +159,6 @@ LEDGER: tuple[Row, ...] = (
     Row("incremental", "not written yet", lambda: _ltmle(incremental=1)),
     Row("delta", "wrong by construction", lambda: _ltmle(delta=1)),
     Row("eliminate", "a different question", lambda: _ltmle(eliminate=1)),
-    Row("n_bootstrap", "not written yet", lambda: _ltmle(n_bootstrap=1)),
     Row("cross_fit", REDIRECTION, lambda: _ltmle(cross_fit=1), instead="n_folds"),
 )
 
@@ -243,10 +242,10 @@ def test_a_real_refusal_says_what_the_derivation_would_need(row: Row) -> None:
     wrong thing.  A one-line refusal satisfies the
     letter of that and not the point of it.
     """
-    # The floor is 60. The shortest reason that is not a redirection is ``n_bootstrap=``'s,
-    # at 163 characters, and it is a complete reason: it names the mismatch and the thing
-    # that would have to change. A floor near that length would ask for words rather than
-    # for content, which is the failure mode of a length check.
+    # The floor is 60. A complete reason names the mismatch and the thing that would have
+    # to change, and every reason in the table runs well past the floor. A floor near
+    # their length would ask for words rather than for content, which is the failure
+    # mode of a length check.
     reason = _REFUSED[row.keyword]
     assert len(reason) > 60, (
         f"{row.keyword}= is refused in {len(reason)} characters. Filed as {row.kind!r}, so "

@@ -263,6 +263,30 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "simultaneous_coverage/cde_z0__simultaneous_band",
         ),
     ),
+    # The calibration draws of the multi-arm missing-outcome DR-TMLE study, and the band read
+    # off the same fits.  ``tests/unit/test_band_shortfall_reading.py`` rebuilds the reading.
+    "F4-calibration-draws": _keys(
+        "multi-arm-mar-drtmle",
+        "property",
+        "interval_calibration/ate__correctly_specified",
+        "simultaneous_coverage/arms__simultaneous_band",
+    ),
+    # The two longitudinal bootstrap kinds the X20 study measured red.  Rule 3 of the
+    # study keeps each kind out of ``LICENSED_BOOTSTRAP_DESIGNS``.
+    "X20-bootstrap": _keys(
+        "full-refit-bootstrap-and-derived-contrasts",
+        "property",
+        "interval_calibration/boot_ey_crossfit__correctly_specified",
+        "interval_calibration/boot_ate_crossfit__correctly_specified",
+        "interval_calibration/boot_ate_clustered__correctly_specified",
+    ),
+    # The smallest-composite arm of the composite study, red in both implementations alike.
+    "composite-high-arm": _keys(
+        "composite-missing-drtmle",
+        "truth",
+        "cleverly-composite-drtmle/three_arm_mar_outcome_and_treatment/ey[high]",
+        "drtmle-r-composite/three_arm_mar_outcome_and_treatment/ey[high]",
+    ),
     # The two laws of the RM30 reporting study.  F27 states, row by row, that the
     # ``exceptional`` cell has no published result and that the ``weak_blip`` cell has one.
     "F27": _keys(

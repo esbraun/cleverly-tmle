@@ -205,6 +205,28 @@ ARMS: dict[str, str] = {
     "l4_ey_mid": "L4 mean under arm mid",
     "l4_ate_low": "L4 difference, low versus high",
     "l4_ate_mid": "L4 difference, mid versus high",
+    # The full-refit bootstrap and derived-contrast study.  Each label names the quantity,
+    # the law and the fit; a ``boot_`` label reads the percentile interval of the bootstrap.
+    "rr_end_of_study": "log risk ratio of always versus never, end-of-study law",
+    "or_end_of_study": "log odds ratio of always versus never, end-of-study law",
+    "rr_survival": "log risk ratio of always versus never at t = 4, four-node survival law",
+    "survival_rr_survival": (
+        "log ratio of the survival probabilities of always versus never at t = 4, four-node law"
+    ),
+    "rmst_survival": "RMST of always up to t = 5, four-node survival law",
+    "rmst_contrast_survival": "RMST contrast of always versus never up to t = 5, four-node law",
+    "rmst_crossfit": "RMST of always up to t = 5, four-node law, five folds",
+    "rmst_contrast_crossfit": "RMST contrast up to t = 5, four-node law, five folds",
+    "boot_ey_end_of_study": "bootstrap percentile interval of the always mean, end-of-study law",
+    "boot_ate_end_of_study": "bootstrap percentile interval of the always-never contrast",
+    "boot_ey_crossfit": "bootstrap percentile interval of the always mean, five folds",
+    "boot_ate_crossfit": "bootstrap percentile interval of the contrast, five folds",
+    "boot_risk2_survival": "bootstrap percentile interval of the always risk at t = 2",
+    "boot_risk4_survival": "bootstrap percentile interval of the always risk at t = 4",
+    "boot_rmst_survival": "bootstrap percentile interval of the always RMST up to t = 5",
+    "boot_ey_clustered": "cluster-bootstrap percentile interval of the always mean, 60 clusters",
+    "boot_ate_clustered": "cluster-bootstrap percentile interval of the contrast, 60 clusters",
+    "boot_ate_point_tmle": "bootstrap percentile interval of the point-treatment ATE",
 }
 
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
@@ -241,6 +263,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly": "`cleverly`",
     "cleverly-categorical-ltmle": "`cleverly` ordinary categorical LTMLE",
     "cleverly-cde-tmle": "`cleverly` controlled direct-effect TMLE",
+    "cleverly-ltmle-derived": "`cleverly` LTMLE ratio contrast",
     "cleverly-clustered-cvtmle": "`cleverly` clustered point-treatment CV-TMLE",
     "cleverly-cross-fitted-categorical-ltmle": "`cleverly` cross-fitted categorical LTMLE",
     "cleverly-cross-fitted-ltmle": "`cleverly` cross-fitted LTMLE",
@@ -318,6 +341,7 @@ IMPLEMENTATIONS: dict[str, str] = {
 
 SCENARIOS: dict[str, str] = {
     "binary": "binary-outcome law",
+    "end_of_study_ratio": "two-node end-of-study law, saturated cell-mean learners",
     "linear": "linear Gaussian-outcome law with a constant effect, `make_linear_ate`",
     "calibrated_weak": "known propensity, logit g0 = 0.15 W1",
     # The four learned-rule laws of RM30, by their blip b(W) on the logit scale.
@@ -487,6 +511,8 @@ PARAMETERISED: dict[str, str] = {
     "ey_regimen": "mean outcome under the plan",
     "ate_regimen": "difference in mean outcome between the plans",
     "risk_regimen": "cumulative risk under the plan",
+    "rr_regimen": "risk ratio, with inference on the log scale, between the plans",
+    "or_regimen": "odds ratio, with inference on the log scale, between the plans",
     "ate_ipsi": "difference in means under the incremental interventions",
     "ate_regime": "difference in means under the regimes",
     "ate_shift": "difference in means under the modified treatment policies",
@@ -993,6 +1019,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("power", "randomized_alternative"): (
         "the same test applied to the randomized law's own nonzero contrast",
+        "rejection lower bound clears the minimum power",
+    ),
+    ("power", "ate"): (
+        "the same test applied to the binary missing-treatment law's ATE of 0.21, at n = 1,000",
         "rejection lower bound clears the minimum power",
     ),
     ("power", "alternative"): (
