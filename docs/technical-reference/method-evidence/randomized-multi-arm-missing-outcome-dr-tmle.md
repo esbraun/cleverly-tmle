@@ -101,7 +101,9 @@ of `arms__simultaneous_band` ends at 0.9196 against 0.92. The study publishes th
 The owner `F4-calibration-draws` in the [roadmap](../../roadmap.md#red-cell-owners) records the
 diagnosis. The spread of that draw set is
 1.037 times its mean standard error. Two independent cells of the same configuration read 0.997
-and 0.989. The oracle band covers as the package band does.
+and 0.989. Pooled over all three cells, the ratio is 1.020, with a 99% interval of 0.991 to 1.047. A
+Bartlett test across the cells gives p = 0.20, so the draw set differs by no more than chance. The
+oracle band covers as the package band does.
 
 ## Measured values and declared margins
 

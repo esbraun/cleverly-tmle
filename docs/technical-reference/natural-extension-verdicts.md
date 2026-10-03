@@ -8,7 +8,7 @@ theorem is an objection too.
 
 A verdict is not a capability. "Qualifies for implementation" means that the owning roadmap row may
 implement the part. The part ships only when that row delivers its contract, its nonzero witnesses,
-and its registered study. Part (j) is the only part that ships now.
+and its registered study. Parts (d) and (j) ship now.
 
 The roadmap held this review as one row until the review was complete.
 [The roadmap at commit `6a55f038`](https://github.com/esbraun/cleverly-tmle/blob/6a55f0388b703765eab79c78efec82474e67ab8e/docs/roadmap.md#x18-natural-extension-reviews)
