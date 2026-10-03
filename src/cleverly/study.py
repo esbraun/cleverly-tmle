@@ -12,8 +12,8 @@ from ._typing import Family
 from .data import CausalData
 from .data.validate import RANDOMIZED_INTERCEPT
 from .estimators import CTMLE, DRTMLE, TMLE, TMLEResult
+from .estimators._strata import check_stratified_targets
 from .estimators.composite import missing_treatment_design_refusal
-from .estimators.tmle import refuse_stratified_targeting
 from .exceptions import CapabilityError, CleverlyError, DataError, MethodConfigurationError
 from .inference.multiplier import SimultaneousBands, simultaneous_bands
 from .interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet
@@ -405,9 +405,9 @@ class PointTreatment:
     strata : sequence of str
         Baseline strata columns, each also an adjustment column.  They define
         stratum-specific parameters, such as ``ate[S=1]``, reported beside the marginal
-        ones.  :meth:`CausalStudy.identify` refuses them beside an incremental estimand and
-        an ``MSMProjection`` with a link other than the identity or with a continuous dose
-        (X8 in ``docs/roadmap.md``).
+        ones.  :meth:`CausalStudy.identify` refuses a stratum that lacks a treatment arm
+        beside an incremental estimand, and an ``MSMProjection`` whose design is singular
+        inside a stratum.
     treatment_kind : {"discrete", "continuous"}
         Treatment support used to select supported estimands.
     outcome_family : {"auto", "gaussian", "binomial"}
@@ -2361,9 +2361,8 @@ class ExplicitAdjustmentProvider:
             refuse_continuous_msm_mechanisms(
                 data, subject="MSMProjection", missingness="PointTreatment(missingness=...)"
             )
-        # The estimand and the design decide these, so they refuse here.  A stratified
-        # DR-TMLE fit depends on the method, and the estimator refuses it before any learner.
-        refuse_stratified_targeting(
+        # The estimand and the design decide these data conditions, so they refuse here.
+        check_stratified_targets(
             data,
             incremental=isinstance(actual, (IncrementalMean, IncrementalEffect)),
             msm=actual.model if isinstance(actual, MSMProjection) else None,
@@ -2662,9 +2661,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         raises :class:`CapabilityError` before nuisance fitting starts.
 
         ``available`` is per method name. A configuration of an available method can still
-        refuse before any learner: on a design with ``strata=``, the default
-        ``DRTMLEMethod()`` refuses (X8 in ``docs/roadmap.md``), and
-        ``DRTMLEMethod(guard=())`` fits.  For :class:`LearnedRuleValue`, the default
+        refuse before any learner.  For :class:`LearnedRuleValue`, the default
         ``TMLEMethod()`` refuses (X11 (e) in ``docs/roadmap.md``), and
         ``TMLEMethod(cross_fitting=CrossFitting(fold_evaluation=True))`` fits.
         """

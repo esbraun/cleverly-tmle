@@ -723,23 +723,6 @@ def test_unsupported_conditional_population_estimators_refuse_before_draws(
         )
 
 
-def test_stratified_drtmle_refuses_before_draws(monkeypatch: pytest.MonkeyPatch) -> None:
-    result = _fit_population("ate")
-    estimator = DRTMLE()
-    result = replace(result, estimator=estimator)
-    module = importlib.import_module("cleverly.sensitivity.simulated_confounding")
-    monkeypatch.setattr(module, "_latent_child_seed", lambda *_: pytest.fail("drew before refusal"))
-    monkeypatch.setattr(
-        estimator, "refit", lambda *_args, **_kwargs: pytest.fail("refit before refusal")
-    )
-    with pytest.raises(CapabilityError, match="stratified reduced-regression targeting"):
-        simulated_confounding(
-            result,
-            _alias(result, "ate", ("small",)),
-            grid=ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0,)),
-        )
-
-
 def test_unavailable_policy_alias_excludes_conditional_natural_course_means() -> None:
     result = _fit_population("ey_shift")
     supported = [alias for alias, key in result.parameter_keys.items() if key.value == "up"]
@@ -804,15 +787,15 @@ def test_the_eligible_alias_set_drops_what_the_replay_guard_would_refuse() -> No
     assert _eligible_binary_parameter_names(conditional) == tuple(conditional.estimates)
     assert _eligible_binary_parameter_names(marginal_mean) == tuple(marginal_mean.estimates)
     # C-TMLE leaves the mean family, so no ATT alias survives.  DR-TMLE keeps the mean
-    # family but cannot replay a requested stratum, so only the marginal alias survives.
+    # family and replays every stratum by a complete refit, so every alias survives.
     assert _eligible_binary_parameter_names(collaborative) == ()
-    assert _eligible_binary_parameter_names(reduced) == ("ey1",)
+    assert _eligible_binary_parameter_names(reduced) == tuple(marginal_mean.estimates)
     assert len(marginal_mean.estimates) == 3
 
     row = "simulated_confounding"
     assert conditional.sensitivity.capability(row).requires_arguments == ("grid", "estimand")
     assert collaborative.sensitivity.capability(row).requires_arguments == ("grid",)
-    assert reduced.sensitivity.capability(row).requires_arguments == ("grid",)
+    assert reduced.sensitivity.capability(row).requires_arguments == ("grid", "estimand")
 
 
 def test_the_facade_refuses_a_conditional_alias_it_never_advertised(

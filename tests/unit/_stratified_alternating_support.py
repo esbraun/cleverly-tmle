@@ -18,9 +18,12 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from scipy.special import expit, logit
+from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.estimators import DRTMLE, TMLE
+from cleverly.fluctuation.submodel import Submodel
 from cleverly.interventions import Incremental, Shift, Static
 from cleverly.msm import MSM
 from tests.studies import stratified_law as law
@@ -30,6 +33,97 @@ N = 400
 SEED = 20261101
 #: The doses of the continuous working models.
 GRID = (-1.0, -0.5, 0.0, 0.5, 1.0)
+
+
+def _stratum_column(values: np.ndarray, column: int, stratum: int | None) -> np.ndarray:
+    """``V`` from the design, or the declared stratum where a subset fit dropped it."""
+    if stratum is None:
+        return values[:, column]
+    return np.full(values.shape[0], float(stratum))
+
+
+class PerturbedTreatment(BaseEstimator, ClassifierMixin):
+    """The law's propensity, shifted on the logit scale by an amount that depends on ``V``.
+
+    ``stratum`` names the stratum of a subset fit, whose design drops the constant ``V``.
+    """
+
+    def __init__(self, stratum: int | None = None) -> None:
+        self.stratum = stratum
+
+    def fit(self, design: Any, target: Any, sample_weight: Any = None) -> PerturbedTreatment:
+        self.classes_ = np.array([0.0, 1.0])
+        return self
+
+    def predict_proba(self, design: Any) -> np.ndarray:
+        values = np.asarray(design, dtype=float)
+        v = _stratum_column(values, 1, self.stratum)
+        p = expit(logit(law.propensity(values[:, 0], v)) + 0.3 - 0.25 * v)
+        return np.column_stack([1.0 - p, p])
+
+
+class PerturbedOutcome(BaseEstimator, ClassifierMixin):
+    """The law's outcome regression, shifted on the logit scale by ``(A, V)``.
+
+    The same shift as :class:`tests.unit.test_stratified_influence_exact.PerturbedOutcome`,
+    with the subset ``stratum`` of :class:`PerturbedTreatment`.
+    """
+
+    def __init__(self, stratum: int | None = None) -> None:
+        self.stratum = stratum
+
+    def fit(self, design: Any, target: Any, sample_weight: Any = None) -> PerturbedOutcome:
+        self.classes_ = np.array([0.0, 1.0])
+        return self
+
+    def predict_proba(self, design: Any) -> np.ndarray:
+        values = np.asarray(design, dtype=float)
+        a, w = values[:, 0], values[:, 1]
+        v = _stratum_column(values, 2, self.stratum)
+        p = expit(logit(law.outcome(a, w, v)) + 0.35 + 0.3 * a - 0.25 * v)
+        return np.column_stack([1.0 - p, p])
+
+
+def marginal_blocks(pieces: Any, strata: Any, probabilities: Any, labels: Any) -> Submodel:
+    """Mutation of :func:`~cleverly.fluctuation.submodel.stratify`: one marginal column.
+
+    The first stratum's covariate on every row, and every other block zero.
+    """
+    first = pieces[0]
+    k = len(pieces)
+
+    def widen(values: np.ndarray) -> np.ndarray:
+        return np.hstack([values, np.zeros((values.shape[0], values.shape[1] * (k - 1)))])
+
+    return Submodel(
+        widen(first.observed),
+        {arm: widen(values) for arm, values in first.arms.items()},
+        tuple(f"{name} | {label}" for label in labels for name in first.names),
+        first.group,
+    )
+
+
+def expanded_msm(base: MSM, strata: tuple[int, ...] = law.STRATA) -> MSM:
+    """The working model with the expanded design ``(I(V = s) phi)_s``, one block per stratum.
+
+    Its projection loss separates by stratum, so its coefficients are the stratum
+    coefficients of ``base``.  An unstratified fit of it is the independent oracle of a
+    stratified fit of ``base``.  ``base`` must be a :meth:`~cleverly.msm.MSM.linear` model
+    with uniform weights, and the covariate frame must hold ``V``.
+    """
+
+    def design(level: Any, covariates: Any) -> np.ndarray:
+        phi = np.asarray(base.design(level, covariates), dtype=float)
+        v = np.asarray(covariates["V"], dtype=float)
+        return np.hstack([(v == s).astype(float)[:, None] * phi for s in strata])
+
+    return MSM(
+        design=design,
+        terms=tuple(f"{term}|{s}" for s in strata for term in base.terms),
+        link=base.link,
+        doses=base.doses,
+        design_kind="known",
+    )
 
 
 def logistic() -> LogisticRegression:

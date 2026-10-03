@@ -153,6 +153,7 @@ from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import OutcomeScaler
 from ..utils.frames import as_frame
 from ._nuisance import NuisanceEstimates, Propensity, fit_inner_designs
+from ._strata import refuse_untrainable_stratum_folds
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .composite import (
     COMPOSITE_NESTED_REFUSAL,
@@ -178,7 +179,7 @@ from .targeting import (
     ReductionOrder,
     ReductionSpec,
 )
-from .tmle import TMLE, refuse_stratified_targeting
+from .tmle import TMLE
 
 __all__ = ["DRTMLE", "ReducedFit"]
 
@@ -449,10 +450,6 @@ class DRTMLE(TMLE):
     * ``targeting_scheme="fold"`` -- each fold would need its own reduced regressions and
       alternation; and ``cv_evaluation=True`` -- the common-update construction would need
       the corrected parameter and curve derived under fold-wise evaluation;
-    * baseline strata (``strata=``) at a non-empty ``guard``.  The reduced regressions add a
-      second targeting equation for the ``mean`` group, and the package fluctuates baseline
-      strata in one pooled outcome step only (X8 in ``docs/roadmap.md``).  ``guard=()`` is
-      the ordinary TMLE and accepts ``strata=``;
     * ``targeting="one_step"`` with ``reduced_crossfit="nested"`` at a non-empty ``guard``,
       on cost rather than on derivation: the nested designs would move by each of the
       one-step walk's adaptive steps;
@@ -797,6 +794,10 @@ class DRTMLE(TMLE):
         ``folds`` off it.
         """
         self._check_drtmle(data)
+        if self.guard:
+            # After the fold draw and before any learner: each stratum's reduced
+            # regressions train inside the stratum, on every training complement.
+            refuse_untrainable_stratum_folds(data, folds)
         route = missing_data_route(self, data)
         known = self._known_treatment_probabilities(data)
         base = self._fit_nuisances(
@@ -1064,7 +1065,9 @@ class DRTMLE(TMLE):
             weights=None,
             id=None,
             intermediate=None,
-            strata=None,
+            # A stratified fit fits its reduced regressions inside each stratum, so the
+            # companion rows carry the strata that say which stratum's models predict there.
+            strata=list(data.strata_names) if data.has_strata else None,
             treatment_kind="discrete",
         )
 
@@ -1292,7 +1295,3 @@ class DRTMLE(TMLE):
                 "a different score equation with its own reductions to derive. Request them "
                 f"from a plain TMLE, or set estimands={sorted(MEAN_GROUP_ESTIMANDS)!r}."
             )
-        # Last.  Its remedy is ``guard=()``, so each refusal of this method that also holds
-        # at ``guard=()``, such as the estimand check and the cross-fitted missing-outcome
-        # check, comes first.  Otherwise the remedy would name a request that is refused too.
-        refuse_stratified_targeting(data, reduced=bool(self.guard))

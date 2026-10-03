@@ -15,7 +15,6 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import PolynomialFeatures
 
 from cleverly import AssessmentStatus, CausalStudy, MSMProjection, PointTreatment
-from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.msm import LINKS, MSM, MSMSet
@@ -179,15 +178,6 @@ def test_continuous_grid_uses_raw_weights_once_in_trapezoid_measure() -> None:
     np.testing.assert_allclose(state.clever_weights, raw_h)
     np.testing.assert_allclose(state.weights, raw_h * quadrature)
     assert not np.allclose(state.weights, state.clever_weights)
-
-
-@pytest.mark.parametrize("link", ["identity", "log", "logit"])
-def test_continuous_msm_strata_refuse_before_nuisance_fitting(
-    link: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(TMLE, "_scaler", lambda *_: pytest.fail("fit reached nuisance preparation"))
-    with pytest.raises(CapabilityError, match="continuous MSMs do not yet support baseline strata"):
-        _fit_continuous(link, strata=True)
 
 
 @pytest.mark.parametrize(

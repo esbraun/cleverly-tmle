@@ -1,34 +1,23 @@
-"""Each composition refusal of RM24 raises ``CapabilityError`` before any learner.
+"""Each composition refusal raises ``CapabilityError`` or ``DataError`` before any learner.
 
-Before RM24 in ``docs/roadmap.md`` at ``4ce96cda``, a stratified incremental fit and a stratified log- or
-logit-link MSM fit raised ``NotImplementedError`` from the strata guard in
-``TMLE._retarget_detailed`` after two learner fits.  A stratified ``DRTMLE`` fit at a non-empty
-``guard`` raised there after eight, and ``DRTMLE`` with ``targeting="one_step"`` and
-``reduced_crossfit="nested"`` raised from ``solve_submodel`` after 42.  The other composition
-refusals of ``src/cleverly/estimators/`` raised ``ValueError`` or ``NotImplementedError`` before
-any learner, and the refit replay slot read both as refusals.  X8 in ``docs/roadmap.md`` tracks the
-stratified targeting, and F6 tracks the incremental-intermediate composition.  This module pins
-these things:
+Before RM24 in ``docs/roadmap.md`` at ``4ce96cda``, a stratified incremental fit and a stratified
+log- or logit-link MSM fit raised ``NotImplementedError`` after two learner fits, and the other
+composition refusals of ``src/cleverly/estimators/`` raised ``ValueError`` or
+``NotImplementedError``.  The stratified incremental, linked, continuous-dose and DR-TMLE fits now
+target one block per stratum, so this module pins these things:
 
-* each stratified request refuses with ``CapabilityError`` before any learner and cites X8, and
-  the ``DRTMLE`` message names ``guard=()`` rather than an arm, regime or shift target;
+* each formerly refused stratified request reaches a learner, on the estimator, on
+  ``CausalStudy.identify`` and ``estimate``, and through the refit replay slot;
+* each stratified refusal that remains refuses before any learner with its own reason: fold-wise
+  targeting, fold evaluation, and a DR-TMLE stratum with no trainable rows in some training
+  complement.  The incremental and MSM data refusals are pinned in their exact-law modules;
 * a stratified ``DRTMLE`` request that ``guard=()`` does not repair, with ``att`` or with a
-  cross-fitted ``delta=``, meets that refusal first, so no remedy names a refused request;
-* ``CausalStudy.identify`` refuses the stratified incremental and MSM estimands, and
-  ``estimate`` fits no learner, for those estimands and for ``DRTMLE``;
-* the refit replay slot reads the stratified ``DRTMLE`` refusal on a copied estimator, and
-  ``refit`` raises the same sentence before any learner;
-* ``simulated_confounding`` refuses a stratum of a ``guard=()`` result, which fits strata, with
-  the reason that holds for it: the surface covers marginal DR-TMLE targets only;
+  cross-fitted ``delta=``, meets its own refusal;
+* ``simulated_confounding`` replays a stratum of a ``guard=()`` result;
 * the one-step nested composition refuses before any learner, on a copied estimator as well;
 * each other moved refusal is a ``CapabilityError``, and the incremental-intermediate refusal
   cites F6;
-* stratified arm, regime and shift targets, an identity-link MSM and a ``DRTMLE`` fit at
-  ``guard=()`` still fit;
-* a mutation that removes the estimator check lets a learner fit, and the targeting-loop
-  backstop then refuses after the learners.  A mutation that removes the identification check
-  moves the study refusal to ``estimate``, and removing both lets a learner fit.  A mutation that
-  removes the ``DRTMLE`` check fails the ``DRTMLE`` witnesses.
+* a mutation that removes a stratified data check lets a learner fit.
 """
 
 from __future__ import annotations
@@ -44,7 +33,6 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
-import cleverly.study as study_module
 from cleverly import (
     ATE,
     CausalStudy,
@@ -54,7 +42,7 @@ from cleverly import (
     MSMProjection,
     PointTreatment,
 )
-from cleverly.assessment import POINT_REPLAY_REFIT_CONFIGURATION, replayability
+from cleverly.assessment import replayability
 from cleverly.datasets import make_cde, make_linear_ate
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.estimators.reduced import refuse_unsupported
@@ -64,15 +52,10 @@ from cleverly.msm import MSM
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from tests.conftest import linear_in_sample
 from tests.unit._declaration_support import (
-    assert_every_witness_fails,
-    assert_refused,
     assert_refused_before_any_call,
     tmle_module,
 )
 from tests.unit._natural_course_support import (
-    Counting,
-    CountingLinear,
-    CountingLogistic,
     NeverFit,
     never_fit_learners,
 )
@@ -80,18 +63,14 @@ from tests.unit.test_drtmle_missing import _binary_trial, _trial
 
 drtmle_module = importlib.import_module("cleverly.estimators.drtmle")
 
-X8 = "docs/roadmap.md X8"
 F6 = "docs/roadmap.md F6"
 COVARIATES = ["W1", "W2", "W3", "W4", "S"]
 DOSES = (-1.0, 0.0, 1.0, 2.0)
-IPSI = "the 'ipsi' group's alternating targeting equations"
-MSM_GROUP = "the 'msm' group's alternating targeting equations"
-MEAN = "the 'mean' group's alternating targeting equations"
-CONTINUOUS = "continuous MSMs do not yet support baseline strata"
-GUARD_REMEDY = "pass guard=(), which is the ordinary TMLE and accepts strata="
 NESTED = "targeting='one_step' and reduced_crossfit='nested' are not combined"
 #: Every non-empty ``guard``, each of which gives the ``mean`` group reduced regressions.
 GUARDS = [("Q", "g"), ("Q",), ("g",)]
+#: What a ``NeverFit`` learner raises when a request reaches it.
+REACHED = "before any learner is fitted"
 
 
 def strata_frame(n: int = 200) -> pd.DataFrame:
@@ -152,61 +131,53 @@ TILTS = IncrementalEffect(
     (Incremental(1.0, name="one"), Incremental(2.0, name="two")), reference="one"
 )
 
-#: A stratified ``TMLE`` fit, built from its learner settings, and the fragments of its refusal.
-TMLE_ROWS: dict[str, tuple[Callable[[dict[str, Any]], Any], tuple[str, ...]]] = {
-    "incremental, in sample": (
-        lambda s: fit(TMLE(incremental=[Incremental(2.0)], **s), strata_frame(), treatment="A"),
-        (IPSI, "use an arm/regime/shift target", X8),
+#: Each stratified ``TMLE`` request that refused before the stratum targeting existed.
+TMLE_ROWS: dict[str, Callable[[dict[str, Any]], Any]] = {
+    "incremental, in sample": lambda s: fit(
+        TMLE(incremental=[Incremental(2.0)], **s), strata_frame(), treatment="A"
     ),
-    "incremental, cross-fitted": (
-        lambda s: fit(
-            TMLE(
-                incremental=[Incremental(2.0)],
-                **{**s, "cross_fit": True, "n_folds": 2, "q_bounds": (-30.0, 30.0)},
-            ),
-            strata_frame(),
-            treatment="A",
+    "incremental, cross-fitted": lambda s: fit(
+        TMLE(
+            incremental=[Incremental(2.0)],
+            **{**s, "cross_fit": True, "n_folds": 2, "q_bounds": (-30.0, 30.0)},
         ),
-        (IPSI, X8),
+        strata_frame(),
+        treatment="A",
     ),
-    "log-link MSM": (
-        lambda s: fit(
-            TMLE(msm=MSM.linear(link="log"), **s), positive_strata_frame(), treatment="A"
-        ),
-        (MSM_GROUP, "use an arm/regime/shift target", X8),
+    "log-link MSM": lambda s: fit(
+        TMLE(msm=MSM.linear(link="log"), **s), positive_strata_frame(), treatment="A"
     ),
-    "logit-link MSM": (
-        lambda s: fit(
-            TMLE(msm=MSM.linear(link="logit"), **s), binary_strata_frame(), treatment="A"
-        ),
-        (MSM_GROUP, "use an arm/regime/shift target", X8),
+    "logit-link MSM": lambda s: fit(
+        TMLE(msm=MSM.linear(link="logit"), **s), binary_strata_frame(), treatment="A"
     ),
-    "continuous-dose MSM": (
-        lambda s: fit_dose(TMLE(msm=MSM.linear(doses=DOSES), density_bins=6, **s)),
-        (CONTINUOUS, "Fit the marginal MSM projection", X8),
+    "continuous-dose MSM": lambda s: fit_dose(
+        TMLE(msm=MSM.linear(doses=DOSES), density_bins=6, **s)
     ),
 }
 
 
+def reaches_a_learner(build: Callable[[], Any]) -> None:
+    """``build`` passes every preflight and fails in the first ``NeverFit`` learner."""
+    NeverFit.calls = 0
+    with pytest.raises(AssertionError, match=REACHED):
+        build()
+    assert NeverFit.calls > 0
+
+
 def tmle_witness(name: str) -> None:
-    build, fragments = TMLE_ROWS[name]
-    assert_refused_before_any_call(lambda: build(spies()), None, "", *fragments)
+    reaches_a_learner(lambda: TMLE_ROWS[name](spies()))
 
 
 def drtmle_witness(guard: tuple[str, ...]) -> None:
-    """The ``DRTMLE`` message names ``guard=()``, and no target that ``DRTMLE`` refuses."""
     estimator = DRTMLE(guard=guard, estimands=("ate",), **drtmle_spies())
-    raised = assert_refused_before_any_call(
-        lambda: fit(estimator, strata_frame(), treatment="A"), None, "", MEAN, GUARD_REMEDY, X8
-    )
-    assert "arm/regime/shift" not in str(raised)
+    reaches_a_learner(lambda: fit(estimator, strata_frame(), treatment="A"))
 
 
 def _stratified_trial() -> pd.DataFrame:
     return _binary_trial(100).assign(S=lambda f: (f["W1"] > 0).astype(int))
 
 
-#: A stratified ``DRTMLE`` request that ``guard=()`` does not repair, and its refusal.
+#: A stratified ``DRTMLE`` request refused for a reason unrelated to the strata.
 GUARD_INDEPENDENT: dict[str, tuple[Callable[[], Any], str]] = {
     "att": (
         lambda: fit(
@@ -230,82 +201,37 @@ GUARD_INDEPENDENT: dict[str, tuple[Callable[[], Any], str]] = {
 }
 
 
-def guard_independent_witness(name: str) -> None:
-    """The refusal that also holds at ``guard=()`` comes before the strata refusal.
-
-    The strata refusal names ``guard=()`` as the remedy, and this request is refused there too.
-    """
-    build, fragment = GUARD_INDEPENDENT[name]
-    raised = assert_refused_before_any_call(build, None, "", fragment)
-    assert "guard=()" not in str(raised)
-
-
-IDENTIFY_ROWS: dict[str, tuple[Callable[[], CausalStudy], Any, str]] = {
-    "incremental": (study, TILTS, IPSI),
-    "incremental mean": (study, IncrementalMean((Incremental(2.0, name="two"),)), IPSI),
+IDENTIFY_ROWS: dict[str, tuple[Callable[[], CausalStudy], Any]] = {
+    "incremental": (study, TILTS),
+    "incremental mean": (study, IncrementalMean((Incremental(2.0, name="two"),))),
     "log-link MSM": (
         lambda: study(positive_strata_frame()),
         MSMProjection(MSM.linear(link="log")),
-        MSM_GROUP,
     ),
     "logit-link MSM": (
         lambda: study(binary_strata_frame()),
         MSMProjection(MSM.linear(link="logit")),
-        MSM_GROUP,
     ),
-    "continuous-dose MSM": (dose_study, MSMProjection(MSM.linear(doses=DOSES)), CONTINUOUS),
+    "continuous-dose MSM": (dose_study, MSMProjection(MSM.linear(doses=DOSES))),
 }
 
-
-def identify_witness(name: str) -> None:
-    build, estimand, fragment = IDENTIFY_ROWS[name]
-    assert_refused(lambda: build().identify(estimand), CapabilityError, fragment, X8)
-
-
-ESTIMATE_ROWS: dict[str, tuple[Any, str, str]] = {
-    "incremental": (TILTS, "tmle", IPSI),
-    "DR-TMLE": (ATE(), "drtmle", MEAN),
+ESTIMATE_ROWS: dict[str, tuple[Any, Any]] = {
+    "incremental": (TILTS, "tmle"),
+    "DR-TMLE": (ATE(), "drtmle"),
 }
 
 
 def estimate_witness(name: str) -> None:
-    """The study refuses before any learner, whichever check raises."""
-    estimand, method, fragment = ESTIMATE_ROWS[name]
-    assert_refused_before_any_call(
+    estimand, method = ESTIMATE_ROWS[name]
+    reaches_a_learner(
         lambda: study().estimate(
             estimand, method, cross_fit=False, simultaneous=False, **never_fit_learners()
-        ),
-        None,
-        "",
-        fragment,
-        X8,
+        )
     )
 
 
 def _never(*args: Any, **kwargs: Any) -> Any:
     raise AssertionError("a learner was reached before the configuration refusal")
-
-
-def refit_slot_witness(result: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A ``guard=()`` fit whose copied estimator is set to ``guard=("Q", "g")``.
-
-    Before RM24 the slot read ``True``, and the refit raised after its learners.
-    """
-    estimator = copy.copy(result.estimator)
-    estimator.guard = ("Q", "g")
-    reconfigured = replace(result, estimator=estimator)
-    monkeypatch.setattr(estimator, "_nuisances", _never)
-    reason = estimator._refit_configuration_refusal(reconfigured.data)
-    assert reason is not None and MEAN in reason and X8 in reason, reason
-    replay = replayability(reconfigured)
-    assert not replay.refit_nuisances
-    assert replay.unreconstructible == (POINT_REPLAY_REFIT_CONFIGURATION,)
-    try:
-        estimator.refit(reconfigured.data)
-    except CapabilityError as raised:
-        assert str(raised) == reason
-    else:
-        raise AssertionError("the refit ran")
 
 
 @pytest.fixture(scope="module")
@@ -316,44 +242,40 @@ def unguarded_result() -> Any:
     ).single()
 
 
-class TestAStratifiedRequestRefusesBeforeAnyLearner:
+class TestAFormerlyRefusedStratifiedRequestFits:
     @pytest.mark.parametrize("name", list(TMLE_ROWS))
-    def test_the_fit_names_x8(self, name: str) -> None:
+    def test_the_fit_reaches_a_learner(self, name: str) -> None:
         tmle_witness(name)
 
     @pytest.mark.parametrize("guard", GUARDS)
-    def test_the_drtmle_fit_names_x8_and_the_empty_guard(self, guard: tuple[str, ...]) -> None:
+    def test_the_drtmle_fit_reaches_a_learner(self, guard: tuple[str, ...]) -> None:
         drtmle_witness(guard)
 
     @pytest.mark.parametrize("name", list(GUARD_INDEPENDENT))
-    def test_a_refusal_that_guard_repairs_comes_last(self, name: str) -> None:
-        guard_independent_witness(name)
+    def test_an_unrelated_refusal_still_holds(self, name: str) -> None:
+        build, fragment = GUARD_INDEPENDENT[name]
+        assert_refused_before_any_call(build, None, "", fragment)
 
-
-class TestTheStudyRefusesAtIdentify:
     @pytest.mark.parametrize("name", list(IDENTIFY_ROWS))
-    def test_identify_names_x8(self, name: str) -> None:
-        identify_witness(name)
+    def test_identify_admits_it(self, name: str) -> None:
+        build, estimand = IDENTIFY_ROWS[name]
+        build().identify(estimand)
 
     @pytest.mark.parametrize("name", list(ESTIMATE_ROWS))
-    def test_estimate_fits_no_learner(self, name: str) -> None:
+    def test_estimate_reaches_a_learner(self, name: str) -> None:
         estimate_witness(name)
 
-
-class TestTheRefitSlotReadsTheStratifiedRefusal:
-    def test_a_reconfigured_drtmle_refit_is_refused_before_any_learner(
+    def test_the_refit_slot_admits_a_guarded_drtmle(
         self, unguarded_result: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        refit_slot_witness(unguarded_result, monkeypatch)
+        """A ``guard=()`` fit whose copied estimator is set to ``guard=("Q", "g")`` refits."""
+        estimator = copy.copy(unguarded_result.estimator)
+        estimator.guard = ("Q", "g")
+        reconfigured = replace(unguarded_result, estimator=estimator)
+        assert estimator._refit_configuration_refusal(reconfigured.data) is None
+        assert replayability(reconfigured).refit_nuisances
 
-
-class TestTheSurfaceRefusesAStratumOfAnUnguardedFit:
-    def test_the_reason_is_the_marginal_contract(self) -> None:
-        """The surface guard is the only refusal of this request, so its reason must hold.
-
-        The fit has no reduced regressions, so the reason is not stratified reduced-regression
-        targeting.  The marginal alias of the same result replays.
-        """
+    def test_the_surface_replays_a_stratum_of_an_unguarded_fit(self) -> None:
         result = study().estimate(
             ATE(),
             DRTMLEMethod(guard=()),
@@ -363,13 +285,66 @@ class TestTheSurfaceRefusesAStratumOfAnUnguardedFit:
             treatment_learner=LogisticRegression(max_iter=1000),
         )
         grid = ConfounderStrengthGrid(treatment=(0.0, 0.3), outcome=(0.0, 0.02))
-        with pytest.raises(CapabilityError) as raised:
-            simulated_confounding(result, estimand="ate[S=1]", grid=grid, random_state=3)
-        message = str(raised.value)
-        assert "covers marginal arm means, ATE and ratios only" in message
-        assert "fit it with TMLE" in message
-        assert "reduced-regression" not in message
-        simulated_confounding(result, estimand="ate", grid=grid, random_state=3)
+        simulated_confounding(result, estimand="ate[S=1]", grid=grid, random_state=3)
+
+
+#: Each stratified refusal that remains, its request and the fragments of its reason.
+REMAINING: dict[str, tuple[Callable[[], Any], tuple[str, ...], type[Exception]]] = {
+    "fold-wise targeting": (
+        lambda: fit(
+            TMLE(
+                **spies(cross_fit=True, n_folds=2, targeting_scheme="fold", q_bounds=(-30.0, 30.0))
+            ),
+            strata_frame(),
+            treatment="A",
+        ),
+        ("targeting_scheme='fold'", "fold-local update"),
+        CapabilityError,
+    ),
+    "fold evaluation": (
+        lambda: fit(
+            TMLE(**spies(cross_fit=True, n_folds=2, cv_evaluation=True, q_bounds=(-30.0, 30.0))),
+            strata_frame(),
+            treatment="A",
+        ),
+        ("cv_evaluation=True", "stratum-indexed fold average", "docs/roadmap.md X28"),
+        CapabilityError,
+    ),
+    "a DR-TMLE stratum with no trainable rows": (
+        lambda: fit(
+            DRTMLE(estimands=("ate",), **drtmle_spies()),
+            strata_frame().assign(A=lambda f: np.where(f["S"] == 1, 0, f["A"])),
+            treatment="A",
+        ),
+        ("inside baseline stratum S=1", "no trainable rows for a reduced regression"),
+        ValueError,
+    ),
+}
+
+
+class TestEachRemainingStratifiedRefusal:
+    @pytest.mark.parametrize("name", list(REMAINING))
+    def test_it_refuses_before_any_learner(self, name: str) -> None:
+        build, fragments, error = REMAINING[name]
+        NeverFit.calls = 0
+        assert_refused_before_any_call(build, None, "", *fragments, error=error)
+
+    def test_removing_the_drtmle_fold_check_lets_a_learner_fit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(drtmle_module, "refuse_untrainable_stratum_folds", lambda *a, **k: None)
+        build, _, _ = REMAINING["a DR-TMLE stratum with no trainable rows"]
+        reaches_a_learner(build)
+
+    def test_removing_the_stratified_data_check_lets_a_learner_fit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An all-control stratum beside an incremental target reaches a learner."""
+        monkeypatch.setattr(tmle_module, "check_stratified_targets", lambda *a, **k: None)
+        frame = strata_frame().assign(A=lambda f: np.where(f["S"] == 1, 0, f["A"]))
+        reaches_a_learner(
+            lambda: fit(TMLE(incremental=[Incremental(2.0)], **spies()), frame, treatment="A")
+        )
 
 
 class TestTheOneStepNestedComposition:
@@ -585,13 +560,11 @@ class TestSupportedNeighboursStillFit:
         return list(result.single().estimates)
 
     def test_arm_targets(self) -> None:
-        """The check keys on the group, not on ``strata=`` alone."""
         assert "ate[S=1]" in self.names(
             fit(TMLE(**linear_in_sample()), strata_frame(), treatment="A")
         )
 
     def test_an_identity_link_msm(self) -> None:
-        """A check keyed on ``msm is not None`` refuses this fit."""
         result = fit(TMLE(msm=MSM.linear(), **linear_in_sample()), strata_frame(), treatment="A")
         assert "msm[a][S=1]" in self.names(result)
 
@@ -602,12 +575,10 @@ class TestSupportedNeighboursStillFit:
         )
 
     def test_shifts(self) -> None:
-        """The continuous branch keys on ``msm=``, not on a continuous dose."""
         estimator = TMLE(shifts=[Shift(0.5, cap=None)], density_bins=6, **linear_in_sample())
         assert "ey_shift[+0.5][S=1]" in self.names(fit_dose(estimator))
 
     def test_an_empty_drtmle_guard(self, unguarded_result: Any) -> None:
-        """A check keyed on ``guard is not None`` refuses this fit."""
         assert "ate[S=1]" in unguarded_result.estimates
 
     def test_the_one_step_nested_fit_at_an_empty_guard(self) -> None:
@@ -627,65 +598,6 @@ class TestSupportedNeighboursStillFit:
         estimator = TMLE(incremental=[Incremental(2.0)], **linear_in_sample())
         result = estimator.fit(strata_frame(), outcome="Y", treatment="A", covariates=COVARIATES)
         assert any(name.startswith("ey_ipsi") for name in self.names(result))
-
-
-class TestTheWitnessesHaveTeeth:
-    @staticmethod
-    def remove(monkeypatch: pytest.MonkeyPatch, *modules: Any) -> None:
-        for module in modules:
-            monkeypatch.setattr(module, "refuse_stratified_targeting", lambda *a, **k: None)
-
-    def test_removing_the_estimator_check_lets_a_learner_fit(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Each ``TMLE`` row reaches ``NeverFit.fit``.  The identify check still refuses."""
-        self.remove(monkeypatch, tmle_module)
-        for name in TMLE_ROWS:
-            assert_every_witness_fails([lambda name=name: tmle_witness(name)])
-            assert NeverFit.calls > 0, f"{name} failed before any learner"
-        for name in IDENTIFY_ROWS:
-            identify_witness(name)
-
-    def test_the_backstop_refuses_after_the_learners(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The targeting-loop guard raises the same refusal, and only a spy catches its timing."""
-        self.remove(monkeypatch, tmle_module)
-        Counting.calls = 0
-        estimator = TMLE(
-            incremental=[Incremental(2.0)],
-            **linear_in_sample(
-                outcome_learner=CountingLinear(), treatment_learner=CountingLogistic(max_iter=1000)
-            ),
-        )
-        with pytest.raises(CapabilityError) as raised:
-            fit(estimator, strata_frame(), treatment="A")
-        assert IPSI in str(raised.value) and X8 in str(raised.value)
-        assert Counting.calls == 2
-
-    def test_removing_the_identify_check_moves_the_refusal_to_estimate(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        self.remove(monkeypatch, study_module)
-        assert_every_witness_fails(
-            [lambda name=name: identify_witness(name) for name in IDENTIFY_ROWS]
-        )
-        estimate_witness("incremental")
-
-    def test_removing_both_checks_lets_a_learner_fit(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        self.remove(monkeypatch, study_module, tmle_module)
-        assert_every_witness_fails([lambda: estimate_witness("incremental")])
-        assert NeverFit.calls > 0
-
-    def test_removing_the_drtmle_check_fails_the_drtmle_witnesses(
-        self, unguarded_result: Any, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        self.remove(monkeypatch, drtmle_module)
-        assert_every_witness_fails(
-            [
-                *(lambda guard=guard: drtmle_witness(guard) for guard in GUARDS),
-                lambda: estimate_witness("DR-TMLE"),
-                lambda: refit_slot_witness(unguarded_result, monkeypatch),
-            ]
-        )
 
 
 # ------------------------------------------------------ a declared missing treatment
@@ -800,9 +712,7 @@ MISSING_TREATMENT_ROWS: dict[str, tuple[Callable[[], Any], tuple[str, ...]]] = {
     [
         pytest.param(lambda: TMLE(**_never(msm=MSM.linear())), id="msm"),
         pytest.param(
-            lambda: TMLE(
-                **_never(interventions=[Static(1.0, name="on"), Static(0.0, name="off")])
-            ),
+            lambda: TMLE(**_never(interventions=[Static(1.0, name="on"), Static(0.0, name="off")])),
             id="interventions",
         ),
     ],
@@ -831,13 +741,9 @@ def test_a_missing_treatment_with_a_dose_is_refused_by_the_container() -> None:
     )
 
 
-def test_a_missing_treatment_beside_strata_at_a_guard_meets_x8() -> None:
-    assert_refused_before_any_call(
-        lambda: _fit_missing_treatment(_never_drtmle(estimands=("ate",)), strata=["S"]),
-        None,
-        "learner",
-        MEAN,
-        X8,
+def test_a_missing_treatment_beside_strata_at_a_guard_reaches_a_learner() -> None:
+    reaches_a_learner(
+        lambda: _fit_missing_treatment(_never_drtmle(estimands=("ate",)), strata=["S"])
     )
 
 

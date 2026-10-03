@@ -1438,3 +1438,68 @@ def stitch(pieces: Sequence[tuple[IntArray, Submodel]], n: int) -> Submodel:
             "needs a partition of the sample, which is what the validation folds are"
         )
     return replace(first, observed=observed, arms=arms)
+
+
+def stratum_multipliers(strata: IntArray, probabilities: Sequence[float]) -> list[FloatArray]:
+    r"""``I(S = s) / P_n(S = s)`` for each stratum code ``s``, in code order.
+
+    The multiplier that turns a marginal score column into stratum ``s``'s block.  The blocks
+    have disjoint support, so the marginal score is their ``P_n(S = s)``-weighted sum, and
+    scaling a block by a constant moves its coefficient but not the targeted fit.
+    """
+    codes = np.asarray(strata)
+    return [
+        (codes == code).astype(float) / float(probability)
+        for code, probability in enumerate(probabilities)
+    ]
+
+
+def stratify_columns(
+    matrix: FloatArray, strata: IntArray, probabilities: Sequence[float]
+) -> FloatArray:
+    """``(n, k S)``: the columns of ``matrix`` times each stratum's multiplier, stratum-major.
+
+    Stratum ``s``'s block holds columns ``s k`` to ``(s + 1) k - 1``.  Every score equation
+    with a row-wise covariate takes its stratum form through this function: the outcome
+    blocks of :func:`stratify`, the treatment-mechanism blocks of the incremental tilt, and
+    the blocks of the DR-TMLE equations.
+    """
+    values = np.asarray(matrix, dtype=float)
+    if values.ndim == 1:
+        values = values[:, None]
+    return np.hstack(
+        [values * multiplier[:, None] for multiplier in stratum_multipliers(strata, probabilities)]
+    )
+
+
+def stratify(
+    pieces: Sequence[Submodel],
+    strata: IntArray,
+    probabilities: Sequence[float],
+    labels: Sequence[str],
+) -> Submodel:
+    r"""One disjoint score block per baseline stratum, ``I(S = s) H_s / P_n(S = s)``.
+
+    ``pieces[s]`` is stratum ``s``'s marginal submodel ``H_s``.  It differs from the others
+    only where the covariate reads a stratum quantity, such as the within-stratum arm share
+    of an ATT.  The returned submodel holds no marginal column, because the marginal score
+    is the weighted sum of the blocks.
+    """
+    if not (len(pieces) == len(probabilities) == len(labels)):
+        raise ValueError("stratify needs one submodel, one probability and one label per stratum")
+    multipliers = stratum_multipliers(strata, probabilities)
+    blocks = [
+        Submodel(
+            piece.observed * multiplier[:, None],
+            {arm: values * multiplier[:, None] for arm, values in piece.arms.items()},
+            tuple(f"{name} | {label}" for name in piece.names),
+            piece.group,
+        )
+        for piece, multiplier, label in zip(pieces, multipliers, labels, strict=True)
+    ]
+    return Submodel(
+        np.hstack([block.observed for block in blocks]),
+        {arm: np.hstack([block.arms[arm] for block in blocks]) for arm in blocks[0].arms},
+        tuple(name for block in blocks for name in block.names),
+        blocks[0].group,
+    )

@@ -438,7 +438,7 @@ def _fit_wide_refusal(result: Any) -> str | None:
     return None
 
 
-def _replay_refusal(estimator: Any, estimand: str, stratum: tuple[Any, ...] | None) -> str | None:
+def _replay_refusal(estimator: Any, estimand: str) -> str | None:
     """Say why this estimator cannot replay this request, or ``None`` when it can.
 
     The estimator-capability boundary of the surface, stated once. The eligibility filter
@@ -457,13 +457,10 @@ def _replay_refusal(estimator: Any, estimand: str, stratum: tuple[Any, ...] | No
     reject an estimand outside ``MEAN_GROUP_ESTIMANDS`` when they estimate, which stops
     ``att`` and ``atc`` a second time; ``par`` and ``paf`` are *inside* that set, so this
     filter does not stop them, and their result instead carries no identification metadata,
-    which :func:`_validate_request` refuses earlier than this function. Stratified
-    reduced-regression targeting is rejected before ``DRTMLE`` fits any learner, so at a
-    non-empty ``guard`` the stratum branch defends stored provenance too. A ``guard=()``
-    fit has no reduced regressions and fits strata. Its stratified result reaches this
-    function, and the stratum branch is the only refusal of that request: the surface's
-    DR-TMLE contract covers marginal targets only. The branch keys on the **requested**
-    stratum rather than on whether the data carry strata.
+    which :func:`_validate_request` refuses earlier than this function.
+
+    A requested baseline stratum is no boundary: every replay is a complete refit, and
+    every estimator here targets the stratum blocks as the fit did.
 
     Parameters
     ----------
@@ -471,32 +468,18 @@ def _replay_refusal(estimator: Any, estimand: str, stratum: tuple[Any, ...] | No
         Replay estimator stored on the fitted result.
     estimand : str
         Registered target that the requested alias names.
-    stratum : tuple or None
-        Baseline stratum the requested alias conditions on. ``None`` is marginal.
 
     Returns
     -------
     str or None
         Refusal message, or ``None`` when the estimator can replay the request.
     """
-    from ..estimators.drtmle import DRTMLE
     from ..estimators.tmle import TMLE
 
     fixed_refusal = fixed_replay_refusal(estimator, estimand)
     if fixed_refusal is not None:
         return fixed_refusal
-    if estimand == "msm" and stratum is not None:
-        if estimator.msm.doses:
-            return (
-                "simulated_confounding cannot replay baseline strata for continuous MSMs; "
-                "stratified continuous-dose targeting is unsupported"
-            )
-        if estimator.msm.link != "identity":
-            return (
-                "simulated_confounding cannot replay baseline strata for nonlinear MSMs; "
-                "stratified alternating targeting is unsupported"
-            )
-    incremental_refusal = incremental_replay_refusal(estimator, estimand, stratum)
+    incremental_refusal = incremental_replay_refusal(estimator, estimand)
     if incremental_refusal is not None:
         return incremental_refusal
     if estimand in _CONDITIONAL_TARGETS and type(estimator) is not TMLE:
@@ -506,18 +489,6 @@ def _replay_refusal(estimator: Any, estimand: str, stratum: tuple[Any, ...] | No
             "simulated_confounding supports PAR and PAF under exact ordinary TMLE only; "
             "the identified effect's method catalog evidences no collaborative score and "
             "no reduced-dimension correction for these observed-law contrasts"
-        )
-    if stratum is not None and type(estimator) is DRTMLE:
-        if estimator.guard:
-            return (
-                "simulated_confounding cannot replay a requested baseline stratum under "
-                "DR-TMLE; stratified reduced-regression targeting is unsupported"
-            )
-        return (
-            "simulated_confounding cannot replay a requested baseline stratum under "
-            "DR-TMLE; its DR-TMLE contract covers marginal arm means, ATE and ratios only. "
-            "A guard=() fit is the ordinary TMLE, so fit it with TMLE to replay a baseline "
-            "stratum"
         )
     return None
 
@@ -543,7 +514,7 @@ def _eligible_binary_parameter_names(result: Any) -> tuple[str, ...]:
             or fixed_key_axis(key) is not None
             or (key.estimand in INCREMENTAL_TARGETS and key.axis == "ipsi")
         )
-        and _replay_refusal(result.estimator, key.estimand, key.stratum) is None
+        and _replay_refusal(result.estimator, key.estimand) is None
     )
 
 
@@ -1077,7 +1048,7 @@ def _validated_parameter(
             f"simulated_confounding needs a structured parameter key for {estimand!r}"
         )
     baseline_mask = _baseline_population(result, key, identified)
-    refusal = _replay_refusal(estimator, key.estimand, key.stratum)
+    refusal = _replay_refusal(estimator, key.estimand)
     if refusal is not None:
         raise CapabilityError(refusal)
     if fixed_axis(key.estimand) is not None:
