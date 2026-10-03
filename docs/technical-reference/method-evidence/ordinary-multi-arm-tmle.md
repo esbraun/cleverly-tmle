@@ -67,8 +67,16 @@ reports every arm mean plus two ATEs, risk ratios, and odds ratios against the `
 | `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000034, coverage 0.9212 to 0.9774, SE ratio 1.0184 | pass |
 | `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5520 to -0.4533 | pass |
 | `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5031 to -0.4996 | pass |
+| `simultaneous_coverage` | `arms__pointwise_joint_control` | control | the multi-arm fit's three arm means, two differences, two risk ratios and two odds ratios: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.7938 to 0.8350 | pass |
+| `simultaneous_coverage` | `arms__simultaneous_band` | positive | the multi-arm fit's three arm means, two differences, two risk ratios and two odds ratios: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9314 to 0.9559 | pass |
 | `type_i_error` | `sharp_null` | positive | a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0425, 0.0208 to 0.0757 | pass |
 <!-- /generated -->
+
+The `simultaneous_coverage` pair reads the default band of a dedicated batch of in-sample fits.
+Each fit uses the calibration cell's learners and reports all nine parameters: three arm means,
+two differences, two risk ratios and two odds ratios. The band covers all nine, with the ratio
+bands exponentiated from the log scale. The batch draws 2,400 samples of size 2,000 from the
+calibration cell's law on its own seed stream.
 
 ## Measured values
 
@@ -80,8 +88,10 @@ reports every arm mean plus two ATEs, risk ratios, and odds ratios against the `
 | `independent_tests_passed` | 18 | truth tests passing |
 | `paired_tests_total` | 9 | paired comparison tests |
 | `paired_tests_passed` | 9 | paired tests passing |
-| `property_cells_total` | 12 | repeated-sampling property cells |
-| `property_cells_passed` | 12 | property cells passing |
+| `property_cells_total` | 14 | repeated-sampling property cells |
+| `property_cells_passed` | 14 | property cells passing |
+| `properties[simultaneous_coverage/arms__simultaneous_band]:coverage` | 0.9446 | joint coverage of the default band over nine parameters |
+| `properties[simultaneous_coverage/arms__pointwise_joint_control]:coverage` | 0.8150 | joint coverage of the pointwise intervals of the same fits |
 | `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |
 | `margin:alpha` | 0.0500 | nominal estimator size |
 | `margin:nominal_coverage` | 0.9500 | nominal estimator coverage |
@@ -111,7 +121,7 @@ reports every arm mean plus two ATEs, risk ratios, and odds ratios against the `
 ## Limitations
 
 The comparison covers one binary-outcome law, one reference arm, pointwise intervals, and
-ordinary GLM nuisance fitting. It does not validate simultaneous intervals, conditional effects,
+ordinary GLM nuisance fitting. It does not validate conditional effects,
 continuous outcomes, cross-fitting, flexible learners, or behavior under serious
 practical-positivity failure. It excludes missing outcomes, weights, clusters, fold repeats, and
 longitudinal treatment. Each of those is a separate row, not an implied one.

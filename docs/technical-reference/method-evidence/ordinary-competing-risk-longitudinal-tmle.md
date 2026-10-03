@@ -121,6 +121,10 @@ without making the comparison an oracle-law duplicate.
 | `root_n_rate` | `death_static_t2__reported_se` | positive | static death contrast at horizon two: the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.4954 to -0.4924 | pass |
 | `root_n_rate` | `relapse_dynamic_t2__empirical_sd` | positive | dynamic relapse contrast at horizon two: log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5614 to -0.5036 | pass |
 | `root_n_rate` | `relapse_dynamic_t2__reported_se` | positive | dynamic relapse contrast at horizon two: the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.4972 to -0.4942 | pass |
+| `simultaneous_coverage` | `all_reported__pointwise_joint_control` | control | every parameter the calibration fit reports: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.7416 to 0.7644 | pass |
+| `simultaneous_coverage` | `all_reported__simultaneous_band` | positive | every parameter the calibration fit reports: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9405 to 0.9524 | pass |
+| `simultaneous_coverage` | `curve_always__pointwise_joint_control` | control | the always plan alone, at every declared horizon: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8159 to 0.8552 | pass |
+| `simultaneous_coverage` | `curve_always__simultaneous_band` | positive | the always plan alone, at every declared horizon: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9365 to 0.9600 | pass |
 | `targeting_necessity` | `death_static_t2__targeted` | positive | static death contrast at horizon two: the estimator fluctuates a misspecified outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0043 to 0.000449, margin 0.0080 | pass |
 | `targeting_necessity` | `death_static_t2__untargeted` | control | static death contrast at horizon two: the identical fit with every fluctuation step removed | bias interval must fall entirely outside the margin | bias -0.0193 to -0.0147, margin 0.0078 | pass |
 | `targeting_necessity` | `relapse_dynamic_t2__targeted` | positive | dynamic relapse contrast at horizon two: the estimator fluctuates a misspecified outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0018 to 0.0027, margin 0.0075 | pass |
@@ -139,6 +143,12 @@ first horizon that same analysis returns exactly zero, because no time-varying n
 first event node. A crude comparison of arms is biased at both horizons, so the first-horizon
 cells still test baseline and censoring adjustment.
 
+The `simultaneous_coverage` family reads the default band, 2000 Rademacher draws seeded by
+`random_state=0`. The `all_reported` cells read the calibration fits at $n = 32{,}000$, whose
+band covers six incidences and four contrasts at horizon two. The `curve_always` cells fit the
+`always` plan alone at both horizons in a dedicated batch of 2,400 samples of the same size,
+so the band covers both causes at both horizons.
+
 ## Measured values
 
 Names beginning `margin:` are thresholds declared before the run. The other values come from the
@@ -152,8 +162,12 @@ committed results.
 | `independent_tests_passed` | 32 | truth tests passing |
 | `paired_tests_total` | 16 | paired estimand comparisons |
 | `paired_tests_passed` | 16 | paired comparisons passing |
-| `property_cells_total` | 36 | independent property cells |
-| `property_cells_passed` | 36 | property cells passing |
+| `property_cells_total` | 40 | independent property cells |
+| `property_cells_passed` | 40 | property cells passing |
+| `properties[simultaneous_coverage/curve_always__simultaneous_band]:coverage` | 0.9492 | joint coverage of the band over both causes at both horizons |
+| `properties[simultaneous_coverage/curve_always__pointwise_joint_control]:coverage` | 0.8363 | joint coverage of the pointwise intervals of the same fits |
+| `properties[simultaneous_coverage/all_reported__simultaneous_band]:coverage` | 0.9467 | joint coverage of the band over the ten horizon-two parameters |
+| `properties[simultaneous_coverage/all_reported__pointwise_joint_control]:coverage` | 0.7531 | joint coverage of the pointwise intervals of the same fits |
 | `max_standardized_bias` | 0.0432 | largest primary standardized bias |
 | `min_coverage` | 0.9325 | lowest primary coverage |
 | `min_coverage_ci_lower` | 0.9147 | lowest primary coverage lower endpoint |
@@ -198,7 +212,7 @@ committed results.
 | --- | --- |
 | The comparison covers two causes and two horizons | Longer event processes and more causes need separate evidence |
 | The first-horizon null is not a longitudinal null | No time-varying node precedes the first event node, so a baseline-only standardisation recovers that null exactly. The first-horizon type-I cells test baseline and censoring adjustment only |
-| The inference is pointwise | The row does not validate simultaneous bands across causes, plans, or horizons |
+| The bands are measured at one law | The `curve_always` band covers both causes at both horizons for one plan. The `all_reported` band covers the ten parameters of horizon two. A band over more plans and horizons together is not measured |
 | The mechanisms are supplied | The comparison does not test learned-mechanism parity or active truncation |
 | The fit is ordinary | Flexible learning and cross-fitting belong to the separate cross-fitted row |
 | Competing events remain natural | The row does not validate an estimand that eliminates a competing event |

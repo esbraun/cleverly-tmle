@@ -223,7 +223,7 @@ the committed results and checked at the precision printed.
 | The pinned comparator runs a different construction | `lmtp` 1.5.4 fits a fluctuation on each fold's training rows and carries it into that fold's next regression. `cleverly` runs one pooled fluctuation per node. Upstream commit `9996b04` classifies the 1.5.4 update as a bug. The paired margins stay as registered, so each paired verdict compares two constructions and validates neither fold-local update |
 | Flexible learning is an independent property instrument | The paired comparison uses one GLM learner on each side. The tree pair validates held-out prediction behavior, not parity for learner-library selection |
 | The row reports one terminal mean per plan | Survival curves, competing risks, and longitudinal MSM projections have different parameters |
-| Inference is pointwise | The row does not validate simultaneous bands, bootstrap intervals, weights, or clustering |
+| Inference is pointwise | The row does not validate simultaneous bands, bootstrap intervals, weights, or clustering. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit. |
 | The mechanism is supplied rather than estimated | Both implementations receive the generating probabilities, so the paired row says nothing about mechanism estimation or about a severe practical-positivity violation. The property study's double-robustness cells cover misspecified mechanisms separately |
 
 The causal interpretation requires consistency, sequential exchangeability, longitudinal

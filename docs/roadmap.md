@@ -30,9 +30,7 @@ main-roadmap priority 1.
 
 A new capability still needs its own contract and evidence, even in this queue.
 
-| priority | item | next action | problem | details |
-| ---: | --- | --- | --- | --- |
-| 0.2 | Shipped inference outputs without a registered study | add joint-coverage cells for the default simultaneous bands, and a registered study for `strata=` | `TMLE` and `LTMLE` build simultaneous bands by default, and one registered study measures their joint coverage. No registered study fits `strata=` | [RM36](#rm36-shipped-inference-outputs-without-a-registered-study) |
+The queue has no open row.
 
 Each row takes a tier by the harm that its defect does to a user today. The table gives the tiers,
 from the most harmful. Inside a tier, a row with a wider reach comes first. A row that another row
@@ -45,7 +43,7 @@ depends on comes before that row.
 | c | a correct refusal that arrives late or as the wrong type | no open row |
 | d | a diagnostic or a warning that misleads | no open row |
 | e | a display or a message that misstates a fact that the fit records. By extension, an argument check or a capability row that misstates what a call accepts or needs, when no number moves and nothing raises that is not a refusal | no open row |
-| f | an investigation, a declared design that moves no verdict, or a shipped output that no registered study measures | RM36 |
+| f | an investigation, a declared design that moves no verdict, or a shipped output that no registered study measures | no open row |
 | g | a published method needed to resolve a shipped refusal | no open row |
 
 A priority below 1 is a remediation priority, so it does not collide with a main-roadmap priority.
@@ -68,7 +66,6 @@ Priorities 2 to 5 follow the beta.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.1 | Contrast and test conveniences | no new theory; delta method and linear functionals | shipped joint influence curves | [X20](#x20-contrast-and-test-conveniences) |
 | 1.2 | Natural-extension reviews | source audit, with the presumption that a part qualifies | the [Eligibility](#eligibility) conditions | [X18](#x18-natural-extension-reviews) |
 | 1.3 | Modified treatment policies beyond the additive point shift | published support; pending source read | shipped additive shift and categorical longitudinal nodes | [X12](#x12-modified-treatment-policies-beyond-the-additive-point-shift) |
 | 1.4 | Point-treatment survival and time-to-event input | published support; pending source read | shipped survival and competing-risk recursion | [X13](#x13-point-treatment-survival-and-time-to-event-input) |
@@ -84,7 +81,7 @@ Priorities 2 to 5 follow the beta.
 | 3.1 | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
 | 3.2 | Continuous-time survival and competing risks | published support; pending source read | continuous-time intensity and targeting contracts; X14 | [X6](#x6-continuous-time-survival-and-competing-risks) |
 | 3.3 | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
-| 3.4 | Stratified incremental and MSM targeting | source audit | implemented pooled stratified fluctuation, and marginal incremental and MSM targeting; RM36 | [X8](#x8-stratified-incremental-and-msm-targeting) |
+| 3.4 | Stratified incremental and MSM targeting | source audit | implemented pooled stratified fluctuation, and marginal incremental and MSM targeting; the [baseline-strata study](technical-reference/method-evidence/stratified-point-treatment-tmle.md) | [X8](#x8-stratified-incremental-and-msm-targeting) |
 | 3.5 | Omitted-variable bounds on the other linear functionals | published support; pending source read | the shipped arm-axis bound | [X9](#x9-omitted-variable-bounds-on-the-other-linear-functionals) |
 | 3.6 | Continuous-dose MSM with a second mechanism | source audit | implemented continuous-dose MSM targeting, missing-outcome arm targeting, and controlled-direct-effect targeting | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) |
 | 3.7 | Learned-policy follow-ups | published support for parts (g) and (h); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c) and (d) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
@@ -220,6 +217,14 @@ declared diagnostic read each cell once. Each diagnostic directory and its
 `tests/unit/test_rm18_*` test rebuild the reading from the committed rows. No reading names a
 defect in `cleverly`.
 
+The `strata-boundary-mean` and `band-finite-sample` owners hold joint-coverage and calibration
+cells that a declared oracle-band diagnostic read as finite-sample.
+`tests/unit/test_band_shortfall_reading.py` rebuilds each reading from the committed rows. Like
+the `RM18-` owners, they are standing records of a reading. They do not gate the beta release.
+
+The `X20-bootstrap` owner holds the bootstrap kinds that stay diagnostic. It does not gate the
+beta release either.
+
 | id | work | acceptance |
 | --- | --- | --- |
 | `F18` | an inference result for the shipped selector path | an influence curve derived after the stopping-index selection, and a registered study whose `selector_necessity` and `type_i_error` cells pass their existing margins at their existing budgets. The multi-arm `interval_calibration/correctly_specified` cell must also pass its band, because its standard-error ratio interval, 0.8987 to 0.9862, measures the fixed-candidate covariance that F18 replaces |
@@ -230,74 +235,14 @@ defect in `cleverly`.
 | `RM18-one-sided-bias` | `double_robustness/outcome_correct` and `double_robustness/treatment_correct` of `canonical-drtmle`, and `double_robustness/treatment_correct` of `canonical-multi-arm-drtmle` | reading `shared` and `mixed` on the binary rows, and `finite-sample excess detected` on the multi-arm row ([`tests/diagnostics/rm18_one_sided_bias/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_one_sided_bias)). A declared localization design on 2,000 fresh draws read `no increment at the declared resolution` ([`tests/diagnostics/rm19_one_sided_increment/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm19_one_sided_increment)). No validated R comparator fits the multi-arm configuration, so the multi-arm excess has no attribution |
 | `RM18-ordinary-weighted` | `interval_calibration/static__correctly_specified`, `type_i_error/static__sharp_null` and the four `targeting_necessity` cells of `weighted-ltmle` | reading `finite-sample, contracting`, `resolved within gate`, `control underpowered by design` and `family resolved` ([`tests/diagnostics/rm18_ordinary_weighted/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_ordinary_weighted)). The static untargeted control discriminates with a probability near 0.72 at the registered 1,200 replicates. Re-declare that control's law before any regeneration of the study, as the control precedent at `69de6f8` allows |
 | `RM18-comparator-density` | the paired `ate_shift[+0.25 vs natural course]` row of `shift-policies` | reading `cleverly density representation` ([`tests/diagnostics/rm18_comparator_density/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_comparator_density)). The calibration leg fails with a 99% upper endpoint of 0.065856 against a margin of 0.05, so the conclusion is `inconclusive`. If X12 changes the density representation, it re-reads this row |
+| `strata-boundary-mean` | the two primary truth rows of `ey[1][V=2]` and the `interval_calibration/v2_ey1__correctly_specified`, `simultaneous_coverage/strata__simultaneous_band` and `simultaneous_coverage/crossfit_strata__simultaneous_band` cells of `canonical-stratified-tmle` | reading `finite-sample Wald interval`: the treated mean of stratum V = 2 is 0.9358, and at n = 2,000 the stratum holds about 157 treated rows and about 9 expected non-events. R `tmle3` shows the same coverage on the same draws, the bias is inside its margin, and the oracle band at the exact critical value also under-covers ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). The owner closes when a re-declared cell, with its law or size declared before its run, or a small-sample interval correction with its own registered study passes. Until then each cell stays published red under `reporting` |
+| `band-finite-sample` | the `simultaneous_coverage/all_reported__simultaneous_band` cell of `canonical-ltmle-survival`, and the `categorical_ltmle__simultaneous_band`, `categorical_ltmle_crossfit__simultaneous_band` and `cde_z0__simultaneous_band` cells of `default-simultaneous-bands` | reading `finite-sample, pointwise shortfall inherited`: the oracle band at the design critical value also covers below 0.95, and the source study's pointwise calibration of the same parameters sits near the lower edge of its band. The package critical value averages a little below the design one, so the multiplier explains a small part of each shortfall ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). The owner closes when a re-declared cell, with its law or size declared before its run, or a small-sample interval correction with its own registered study passes. Until then each cell stays published red under `reporting` |
+| `X20-bootstrap` | the `interval_calibration` cells `boot_ey_crossfit__correctly_specified`, `boot_ate_crossfit__correctly_specified` and `boot_ate_clustered__correctly_specified` of `full-refit-bootstrap-and-derived-contrasts` | the declared rule 3 keeps the `end_of_study/cross_fit` and `end_of_study/cluster` kinds out of `LICENSED_BOOTSTRAP_DESIGNS`, so their bootstrap prints as a diagnostic. A diagnostic reading, not a registered result: on this cell the cross-fitted estimator is heavy-tailed. Its 4,000 committed estimates have excess kurtosis 6.7, and about 5% of them lie at the probability boundary, because `g_bounds=(1e-8, 1)` with saturated cell means leaves sparse training cells unbounded. A bootstrap resample holds about 63% unique units, so more replicates reach the boundary and the replicate spread exceeds the sampling spread (SE ratios 1.23 and 1.27). A probe that kept each unit's copies in one fold raised the SE ratio to about 1.65, so the split of copies across folds is not the cause. The cluster contrast covers 0.924 with a calibrated SE ratio (0.977), a finite-sample shortfall of the percentile interval at 60 clusters. The owner closes when a re-declared cell for the kind, with its law, size, nuisance bounds or resampling scheme declared before its run, passes a registered cell |
 
 ## Detailed implementation contracts
 
 The sections below give one contract for each open item. Their physical order does not override
 the main grid.
-
-### RM36. Shipped inference outputs without a registered study
-
-Two shipped outputs publish intervals that no registered study measures.
-
-**Default simultaneous bands.** `TMLE` (`src/cleverly/estimators/tmle.py`), `LTMLE`
-(`src/cleverly/longitudinal/estimator.py`) and `Inference` (`src/cleverly/methods.py`) default to
-`simultaneous=True`. A fit that reports two or more inferential parameters therefore publishes a
-multiplier-bootstrap band. The argument for the band is a joint expansion and a conditional
-multiplier central limit theorem for a fixed number of estimands. The
-[references](references.md) record it as a standard consequence that the cited papers do not
-state. `tests/unit/test_inference.py` pins the critical value on fixed inputs.
-
-One registered study measures joint coverage: the `simultaneous_coverage` cells of the stacked
-arm-indexed missing-outcome CV-TMLE study (`tests/studies/canonical_mar_arm_indexed_cvtmle.py`).
-Fifty-six modules directly under `tests/studies/` pass `simultaneous=False`. The survival-curve and
-competing-risk evidence pages state that they validate no simultaneous band. Survival,
-competing-risk and multi-regimen fits still publish the band by default.
-
-**Baseline strata.** `strata=` reports stratum-specific arm means and contrasts, and stratified
-ATT, ATC and PAR. `tests/unit/test_stratified_targets.py` checks its joint scores on a sample.
-No registered study fits `strata=`.
-
-| family | what a registered cell must measure |
-| --- | --- |
-| point-treatment arm vector and its contrasts | joint coverage of the band over the means and contrasts of a multi-arm fit, and a pointwise-joint control |
-| longitudinal regimen means and contrasts | the same, over two or more regimens at one horizon |
-| survival curve | joint coverage over every declared horizon of one regimen |
-| competing-risk cumulative incidence | joint coverage over the causes and horizons of one fit |
-| baseline strata | bias, coverage and standard-error calibration of each stratum estimate, and joint coverage across strata. `tmle3` `tmle_stratified` at the pinned `ed72f8a` is the comparator |
-
-Work:
-
-1. Declare each cell before any run: the law, the size, the budget, the margins and the reading
-   rule. Reuse the joint-coverage cell of the arm-indexed study as the template.
-2. Add the cells to one existing study of each family. Each added cell changes its study's
-   results, so regenerate each changed study once, after every cell is in place.
-3. For a family whose cell fails, decide one of two routes before the release, and record it on
-   the method page: turn the default to `simultaneous=False` for that engine and shape, or keep
-   the default and publish the red cell under `reporting` with an owner in
-   [Red-cell owners](#red-cell-owners).
-
-Acceptance: every family in the table has a registered cell or a recorded default change. The
-evidence manifest and the validation grid name each cell.
-
-### X20. Contrast and test conveniences
-
-One pull request delivers the six parts. Each part reads shipped influence curves, so none needs
-new theory. Each part is an exact delta-method or linear-functional computation.
-
-| part | what to add | comparator that ships it |
-| --- | --- | --- |
-| (a) ratio contrasts on a longitudinal fit | risk ratio and odds ratio of two regimens, and of two survival or cumulative-incidence values at a horizon, on the log scale. Today `contrast(fn, names, scale="ratio")` is the only route | `lmtp_contrast(type = "rr")` and `"or"` in `lmtp` 1.5.4; `RR` in `concrete` |
-| (b) a test at any null value | a `pvalue` and a Wald test against a declared null value. Today `pvalue` tests 0, or 1 for a ratio | `wald_test(null = )` in `drtmle` 1.1.2 |
-| (c) an interval on a declared transform | an interval computed on the scale of a user transform `f` and mapped back with its inverse, beside the shipped `contrast(fn, gradient=)` | `ci(contrast = list(f, f_inv, h, fh_grad))` in `drtmle` 1.1.2 |
-| (d) restricted mean survival time | RMST up to a declared horizon, as the linear contrast of the survival curve over the horizon grid, with its contrast between regimens | none of the comparators. It is a linear functional of reported estimates |
-| (e) the fixed-propensity interval of R `ctmle` | document `plugin_interval` on the greedy, ordered and discrete paths as the interval that R `ctmle` reports, with no coverage claim. Add the `calc_varIC(ICg = TRUE)` logistic-estimation term as an opt-in diagnostic under a `plugin_` name. The `working_mechanism_plugin` status does not change | `ctmle` 0.1.2, `R/functions.R`, lines 39 to 60, at `18de559` |
-| (f) the full-refit bootstrap on `LTMLE` | the `n_bootstrap=` option, which `LTMLE` refuses today. Write its resampling and replay contract first: what each replicate refits, how a cluster and a censored row resample, and which status a replicate carries | none of the pinned comparators |
-
-Acceptance: an exact-law test for each part, and a mutation control for each transform and
-gradient. Part (e) adds no status change. A test pins that `ci`, `pvalue` and `std_error` still
-refuse on those paths. Part (f) needs a registered coverage study before its interval is
-inferential.
 
 ### X18. Natural-extension reviews
 
@@ -501,8 +446,9 @@ states this limit.
 | (b) one-step whole-curve targeting | one targeting step that solves the score equations of every horizon together, with a simultaneous band over the curve | Cai and van der Laan (2020), *Biometrics* 76(3), the one-step survival paper. It is a different paper from their HAL bootstrap paper | MOSS |
 
 Both parts need a pinned commit of their comparator, because `survtmle` and MOSS are archived on
-CRAN. Part (b) supplies the band that [RM36](#rm36-shipped-inference-outputs-without-a-registered-study)
-measures on the shipped curve.
+CRAN. Part (b) supplies a one-step band over the whole curve. The
+[survival-curve study](technical-reference/method-evidence/ordinary-survival-curve-longitudinal-tmle.md)
+measures the band of the shipped per-horizon curve.
 
 Acceptance:
 

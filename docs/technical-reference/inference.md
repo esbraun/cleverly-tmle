@@ -123,6 +123,9 @@ rename a number on a non-inferential status.
 
 The bootstrap spread is the sample standard deviation of the replicate estimates. A standard error
 is an inference claim, so a non-inferential status publishes that number as `bootstrap sd`.
+`BootstrapSummary.inferential` records whether a registered study licenses the percentile interval
+for the fit that produced it. When it is `False`, the bootstrap columns take the diagnostic names
+at every status. `bootstrap_column` in `inference/influence.py` applies both conditions.
 `BootstrapSummary` keeps the field names `std_error` and `ci` at every status. Its fields describe
 the replicate distribution, and the status decides only the published name.
 `TestTheBootstrapPublishesUnderTheStatusName` in
@@ -242,6 +245,33 @@ method. A ratio's curve is the delta-method transform of the levels' curves, and
 reference records that as an exact identity rather than as an approximation. Ratio intervals are
 built on the log scale and exponentiated.
 
+Let $h$ be a smooth function of the estimates $\hat\psi$, with gradient $\nabla h$ and joint curve
+$IC$. Let $f$ be a monotone transform with derivative $f'$. The table gives each construction.
+
+| construction | estimate | curve on the inference scale | interval |
+| --- | --- | --- | --- |
+| `contrast(h, names)` | $h(\hat\psi)$ | $\nabla h^\top IC$ | $h \pm z\,se$ |
+| `contrast(h, names, scale="ratio")` | $v = h(\hat\psi) > 0$ | $\nabla h^\top IC / v$, the chain rule for $\log$ | $\exp(\log v \pm z\,se)$ |
+| `contrast(h, names, transform=f)` | $h(\hat\psi)$ | $f'(h)\,\nabla h^\top IC$ | the sorted pair $f^{-1}(f(h) \pm z\,se)$ |
+| `ratio(a, b)` | $\psi_a / \psi_b$ | $IC_a/\psi_a - IC_b/\psi_b$ | $\exp(\log\psi \pm z\,se)$ |
+
+The transform row is `ci(contrast = list(f, f_inv, h, fh_grad))` of R `drtmle` 1.1.2
+(`R/confint.R`, lines 146 to 167). `drtmle` takes the gradient of $f \circ h$. This package takes
+$\nabla h$ and $f'$ and applies the chain rule. The limits are sorted after the inverse map, so a
+decreasing $f$ gives an ordered interval. `drtmle` does not sort them. `Transform.log()` and
+`scale="ratio"` give the same standard error, interval and p-value bit for bit. A `Transform` built
+from lambdas does not pickle. A fit never stores a transformed estimate.
+
+`estimate.wald_test(null=c)` reports $z = (\tilde\psi - \tilde c)/se$ and $p = 2\Phi(-|z|)$, with
+both values on the inference scale. For a ratio $\tilde c = \log c$, so $c$ must be positive. For a
+transformed estimate $\tilde c = f(c)$. This is `wald_test(null = )` of R `drtmle` 1.1.2
+(`R/test.R`, lines 85 to 183). `pvalue` is `wald_test().pvalue` at the default null: 0 for a level,
+difference or fraction, and 1 for a ratio. A non-inferential estimate refuses `wald_test` as it
+refuses `pvalue`.
+
+`tests/unit/test_contrast_conveniences.py` checks each row against a longhand statement. It also
+runs one mutation control for each transform and gradient.
+
 Implementation:
 [`inference/influence.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/influence.py),
 [`inference/delta.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/delta.py),
@@ -265,12 +295,28 @@ resampling gives each sampled occurrence a distinct cluster code. Repeated draws
 cluster therefore remain separate for fold construction and variance estimation.
 
 Bootstrap configuration is refused for engines that cannot implement it. An engine does not
-accept and then discard this configuration.
+accept and then discard this configuration. `TMLE` and `LTMLE` both take `n_bootstrap=`, and each
+replicate refits the whole estimator. The
+[longitudinal bootstrap contract](longitudinal-tmle.md#the-full-refit-bootstrap) states what a
+replicate resamples and refits. The
+[full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md)
+measures the percentile interval with correctly specified cell-mean nuisances on finite binary
+laws, at $n = 1000$, and at 1,500 rows in 60 clusters for the cluster bootstrap. No result covers
+a data-adaptive nuisance.
+
+An `LTMLE` bootstrap is licensed as inference only for a design kind
+in `LICENSED_BOOTSTRAP_DESIGNS`, which a kind enters after its registered cells are green. Every
+other `LTMLE` bootstrap prints as a diagnostic. `POINT_BOOTSTRAP_INFERENTIAL` in
+`estimators/tmle.py` holds the point-treatment rule.
 
 `simultaneous_bands` refuses an estimate that declares the `"second_moment"` covariance rule. The
 multiplier draws center each influence curve. Centering matches the raw second moment only on a
 mean-zero curve, and `simultaneous_bands` does not check the mean.
 [Covariance rules](#covariance-rules) lists this refusal with the others. A repeated fit also refuses bands, as the [CV-TMLE reference](cv-tmle.md#variations) states.
+
+Each fit seeds its multiplier draws with its own `random_state`. Every fit that uses one seed
+therefore draws the same multiplier sign matrix. A registered study that fixes `random_state`
+measures the band as it ships.
 
 Implementation:
 [`inference/multiplier.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/multiplier.py)
@@ -278,6 +324,33 @@ and
 [`inference/bootstrap.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/bootstrap.py).
 Benjamini and Hochberg (1995) is the reference for the FDR-adjusted reporting; see
 [multiple testing](../references.md#multiple-testing).
+
+### Evidence for the default band
+
+A joint-coverage cell reads the default band of a fit and the pointwise intervals of the same fit.
+The band cell passes when its 99% joint-coverage interval lies inside $[0.92, 0.98]$. The control
+cell reads the pointwise intervals jointly and passes when its 99% upper endpoint is below 0.95.
+The control shows that the band's wider critical value does work.
+`tests/unit/test_simultaneous_cell_design.py` checks before any run that each control can fail.
+Each study page gives the measured coverage.
+
+| registered study | shapes it measures |
+| --- | --- |
+| [stacked arm-indexed missing-outcome CV-TMLE](method-evidence/stacked-arm-indexed-missing-outcome-cvtmle.md) | the arm means and contrasts of four laws, through `CausalStudy` |
+| [ordinary multi-arm TMLE](method-evidence/ordinary-multi-arm-tmle.md) | three arm means, two differences, two risk ratios and two odds ratios |
+| [ordinary end-of-study longitudinal TMLE](method-evidence/ordinary-end-of-study-longitudinal-tmle.md) | three regimen means and two contrasts |
+| [ordinary survival-curve longitudinal TMLE](method-evidence/ordinary-survival-curve-longitudinal-tmle.md) | the risk curve of one plan over two horizons, and all ten parameters of three plans |
+| [ordinary competing-risk longitudinal TMLE](method-evidence/ordinary-competing-risk-longitudinal-tmle.md) | two causes at two horizons for one plan, and all ten parameters at horizon two |
+| [stratified point-treatment TMLE](method-evidence/stratified-point-treatment-tmle.md) | marginal and stratum parameters, in sample and cross-fitted |
+| [default simultaneous bands](method-evidence/default-simultaneous-bands.md) | 25 further shapes: the `TMLE()` default, weights, missing outcomes, DR-TMLE, the controlled direct effect, MSMs, clusters, shift and incremental grids, regimes, and the cross-fitted, weighted and categorical longitudinal fits |
+
+These fit shapes publish no default band.
+
+| shape | why it publishes no band |
+| --- | --- |
+| more than one repeat | refused with two or more estimands, as the [CV-TMLE reference](cv-tmle.md#variations) states |
+| fold-targeted CV-TMLE, the learned-rule value, and the missing-outcome natural-course mean | one estimate per fit |
+| the C-TMLE selector and outcome-adaptive paths | their status supplies no inference, so no band is built |
 
 ## Reporting a subset of a family
 

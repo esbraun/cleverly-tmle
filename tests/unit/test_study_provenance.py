@@ -132,16 +132,6 @@ KNOWN_GAPS: Mapping[str, frozenset[str]] = {
             "tests/studies/ltmle_properties.py",
         }
     ),
-    "canonical-ltmle-survival": frozenset(
-        {
-            "tests/discrete_law_longitudinal.py",
-        }
-    ),
-    "canonical-ltmle-competing": frozenset(
-        {
-            "tests/discrete_law_longitudinal.py",
-        }
-    ),
 }
 
 

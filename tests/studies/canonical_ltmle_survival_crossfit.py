@@ -212,7 +212,7 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
     return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
-def fit_cleverly(frame: pd.DataFrame) -> Any:
+def fit_cleverly(frame: pd.DataFrame, *, simultaneous: bool = False) -> Any:
     return LTMLE(
         REGIMENS,
         reference=REFERENCE,
@@ -227,7 +227,7 @@ def fit_cleverly(frame: pd.DataFrame) -> Any:
         n_folds=5,
         learner_folds=2,
         g_bounds=G_BOUNDS,
-        simultaneous=False,
+        simultaneous=simultaneous,
         max_iter=100,
         tol=1e-10,
         random_state=0,

@@ -126,7 +126,7 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
     return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
-def fit_cleverly(frame: pd.DataFrame) -> Any:
+def fit_cleverly(frame: pd.DataFrame, *, simultaneous: bool = False) -> Any:
     law = mar.DiscreteLaw(PROBS)
     return (
         DRTMLE(
@@ -138,7 +138,7 @@ def fit_cleverly(frame: pd.DataFrame) -> Any:
             reduced_outcome_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(C=1e6, max_iter=2_000),
             estimands=ESTIMANDS,
-            simultaneous=False,
+            simultaneous=simultaneous,
             g_bounds=G_BOUNDS,
             nuisance_bound=NUISANCE_BOUND,
             max_outer=MAX_OUTER,

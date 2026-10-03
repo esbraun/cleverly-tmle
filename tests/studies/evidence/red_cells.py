@@ -231,6 +231,47 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "paired",
         "continuous_modified_policy/ate_shift[+0.25 vs natural course]",
     ),
+    # The arm mean near 0.94 in the smallest stratum, and the two bands that include it.
+    "strata-boundary-mean": (
+        *_keys(
+            "canonical-stratified-tmle",
+            "truth",
+            "cleverly-stratified-tmle/stratified_binary/ey[1][V=2]",
+            "tmle3-stratified/stratified_binary/ey[1][V=2]",
+        ),
+        *_keys(
+            "canonical-stratified-tmle",
+            "property",
+            "interval_calibration/v2_ey1__correctly_specified",
+            "simultaneous_coverage/strata__simultaneous_band",
+            "simultaneous_coverage/crossfit_strata__simultaneous_band",
+        ),
+    ),
+    # Four default bands that cover just under the band, read as finite-sample by
+    # ``tests/unit/test_band_shortfall_reading.py``.
+    "band-finite-sample": (
+        *_keys(
+            "canonical-ltmle-survival",
+            "property",
+            "simultaneous_coverage/all_reported__simultaneous_band",
+        ),
+        *_keys(
+            "default-simultaneous-bands",
+            "property",
+            "simultaneous_coverage/categorical_ltmle__simultaneous_band",
+            "simultaneous_coverage/categorical_ltmle_crossfit__simultaneous_band",
+            "simultaneous_coverage/cde_z0__simultaneous_band",
+        ),
+    ),
+    # The two longitudinal bootstrap kinds the X20 study measured red.  Rule 3 of the
+    # study keeps each kind out of ``LICENSED_BOOTSTRAP_DESIGNS``.
+    "X20-bootstrap": _keys(
+        "full-refit-bootstrap-and-derived-contrasts",
+        "property",
+        "interval_calibration/boot_ey_crossfit__correctly_specified",
+        "interval_calibration/boot_ate_crossfit__correctly_specified",
+        "interval_calibration/boot_ate_clustered__correctly_specified",
+    ),
     # The two laws of the RM30 reporting study.  F27 states, row by row, that the
     # ``exceptional`` cell has no published result and that the ``weak_blip`` cell has one.
     "F27": _keys(

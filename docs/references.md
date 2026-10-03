@@ -324,6 +324,21 @@ previous reader had is not a citation; a page number is.
   `R/Lrnr_cv.R` builds `fold_fits` and, when requested, a `full_fit`; `predict_fold(...,
   "validation")` assembles held-out predictions while `predict_fold(..., "full")` uses the
   all-training fit. This is the design source for C-TMLE's nested selection predictions.
+- The same pinned `tmle3` supplies `tmle_stratified`, the comparator of the
+  [baseline-strata study](technical-reference/method-evidence/stratified-point-treatment-tmle.md).
+  [`R/tmle3_Spec_stratified.R`, lines 14–63](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/tmle3_Spec_stratified.R#L14-L63)
+  adds the stratum variable to `W` and wraps each base parameter in `Param_stratified`.
+  `base_estimate = FALSE` drops the marginal parameter.
+  [`R/Param_stratified.R`, lines 49–100](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/Param_stratified.R#L49-L100)
+  weights each base clever covariate by `n / n_s` inside stratum `s` and by zero outside it. It
+  evaluates the base parameter on the stratum's subset of the task and scales that curve by the
+  same weight. The study pairs the treatment-specific-mean and ATE bases only, and its page states
+  why it does not pair the ATT, ATC and PAR bases.
+  [`R/tmle3_Fit.R`, lines 35–41 and 71](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/tmle3_Fit.R#L35-L71)
+  store the initial estimates and the parameter names of a two-parameter stratified spec as
+  matrices. [`R/utils.R`, lines 37–104](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/utils.R#L37-L104)
+  then builds a 12-column summary and names it with 10 names, so `fit$summary` fails. The study's
+  runner computes the same summary from `fit$estimates`.
 - van der Laan & Gruber (2016), *One-step targeted minimum loss-based estimation*.
 
 ## Point treatment and stochastic interventions
@@ -413,7 +428,8 @@ previous reader had is not a citation; a page number is.
   default simultaneous band uses Rademacher multiplier draws on the centered curves of the same rows
   (`src/cleverly/methods.py:329`). Its validity follows from the joint expansion and a conditional
   multiplier central limit theorem for a fixed number of estimands. That step is also a standard
-  consequence that the papers do not state.
+  consequence that the papers do not state. The registered joint-coverage cells that measure the
+  band are listed under [simultaneous bands](technical-reference/inference.md#simultaneous-bands).
 
   Two package facts bound the joint fit. Each row of the arm-indexed clever covariate has one
   nonzero column (`src/cleverly/fluctuation/submodel.py:463-466`). In `_newton_logistic`
@@ -1194,6 +1210,11 @@ is the only empirical witness for it.
   [`ctmleDiscrete`, lines 173-185](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/ctmle_discrete.R#L173-L185)
   forms the interval from that variance at `best_k`. Neither block differentiates the
   cross-validated stopping rule.
+  [`evaluate_candidates`, lines 200-201](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/functions_discrete.R#L200-L201) calls
+  `calc_varIC(..., ICg = TRUE)` for every candidate, and
+  [`ctmleDiscrete`, lines 181-196](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/ctmle_discrete.R#L181-L196) reports `var.psi`
+  and `CI` from the second value at `best_k`. `logistic_plugin` reports that value, and
+  `plugin_interval` reports the first.
 
   [`stage1`, lines 84-110](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/functions.R#L84-L110)
   takes a continuous outcome's bounds from `range(Y)` when the caller supplies none, and
@@ -1452,6 +1473,24 @@ is the only empirical witness for it.
   *Statistics in Medicine* 39(8):1199-1236, DOI 10.1002/sim.8471. The paper defines the total
   and controlled direct effects on a cause-specific cumulative incidence, and their identifying
   conditions. Cited by the [time-to-event tutorial](examples/longitudinal-survival.ipynb).
+- The `lmtp` 1.5.4 snapshot above, [`R/contrasts.R`, lines 19-57](https://github.com/nt-williams/lmtp/blob/f04a2b47f46debc515ce4ae778e05ebfde922c44/R/contrasts.R#L19-L57),
+  forms `lmtp_contrast(type = "rr")` and `type = "or"` from the influence curves of two fits
+  through the operators of `ife` 0.2.3. The curves are $IC_a/\psi_a - IC_b/\psi_b$ and
+  $IC_a/(\psi_a(1-\psi_a)) - IC_b/(\psi_b(1-\psi_b))$, with the interval on the log scale.
+  `LongitudinalResult.ratio` uses the same curves. A numeric reference is not offered.
+- Royston & Parmar (2013), *Restricted mean survival time: an alternative to the hazard ratio for
+  the design and analysis of randomized trials with a time-to-event outcome*, *BMC Medical
+  Research Methodology* 13:152. The definition of the RMST as the area under the survival curve up
+  to a horizon. Pending source read for the section locator.
+- Andersen, Hansen & Klein (2004), *Regression analysis of restricted mean survival time based on
+  pseudo-observations*, *Lifetime Data Analysis* 10:335-350. The restricted mean time lost to one
+  cause. Pending source read for the section locator.
+- The full-refit bootstrap of `LTMLE` has no source for this estimator. The registered
+  [full-refit bootstrap study](technical-reference/method-evidence/full-refit-bootstrap-and-derived-contrasts.md)
+  measures its percentile interval with correctly specified cell-mean nuisances on finite
+  binary laws, at $n = 1000$, and at 1,500 rows in 60 clusters for the cluster bootstrap.
+  Cai & van der Laan (2020), in [collaborative TMLE](#collaborative-tmle), is the warning
+  for a data-adaptive nuisance.
 
 ## Incremental interventions
 
@@ -1845,6 +1884,13 @@ $P(\Delta_A=1\mid W)\,P(A=a\mid\Delta_A=1,W)\,P(\Delta_Y=1\mid\Delta_A=1,A=a,W)$
 coded `NA`, and `Aeqa[is.na(Aeqa)] <- FALSE` already drops those rows, so the effect is nil under
 that coding. The [natural-extension verdicts](technical-reference/natural-extension-verdicts.md)
 use these locators for parts (a) and (b).
+
+The same snapshot fixes two post-fit conveniences. [`R/confint.R`, lines
+146-167](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/confint.R#L146-L167) forms `ci(contrast = list(f, f_inv, h, fh_grad))` as
+$f^{-1}(f(h) \pm z\,se)$, with $se$ from the gradient of $f \circ h$.
+[`R/test.R`, lines 85-183](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/test.R#L85-L183) forms `wald_test(null = )` as
+$(f(h) - f(\text{null}))/se$. `contrast(transform=)` and `ParameterEstimate.wald_test` reproduce
+both, and sort the transformed limits.
 
 ## The TWINS example
 

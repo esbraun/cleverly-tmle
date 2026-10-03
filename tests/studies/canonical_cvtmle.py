@@ -168,6 +168,7 @@ def cv_fit(
     cv_evaluation: bool,
     random_state: int = 0,
     estimator_factory: Callable[..., TMLE] = TMLE,
+    simultaneous: bool = False,
 ) -> Any:
     """The cross-fitted point-treatment construction the three CV studies share.
 
@@ -203,7 +204,7 @@ def cv_fit(
             targeting_scheme=targeting_scheme,
             cv_evaluation=cv_evaluation,
             estimands=estimands,
-            simultaneous=False,
+            simultaneous=simultaneous,
             g_bounds=G_BOUNDS,
             q_bounds=None if binary else Q_BOUNDS,
             stratify_folds=STRATIFY_FOLDS,

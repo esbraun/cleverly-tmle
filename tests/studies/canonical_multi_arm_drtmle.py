@@ -234,7 +234,13 @@ def draw_scenario(scenario: str, n: int, replicate: int):  # type: ignore[no-unt
     return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
-def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
+def fit_cleverly(
+    frame: pd.DataFrame,
+    scenario: str,
+    *,
+    simultaneous: bool = False,
+    require_unbounded: bool = True,
+) -> Any:
     del scenario
     result = (
         FixedFoldDRTMLE(
@@ -248,7 +254,7 @@ def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
             stratify_folds=STRATIFY_FOLDS,
             estimands=("ey", "ate", "rr", "or"),
             reference=multi_arm_common.REFERENCE,
-            simultaneous=False,
+            simultaneous=simultaneous,
             g_bounds=multi_arm_common.G_BOUNDS,
             max_outer=MAX_OUTER,
             max_iter=100,
@@ -273,7 +279,9 @@ def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
     # under a column that says otherwise.
     nuisance = result.repeats[0].nuisance
     raw = np.asarray(nuisance.propensity.values, dtype=float)
-    if not np.array_equal(raw, nuisance.bounded_propensity(multi_arm_common.G_BOUNDS)):
+    if require_unbounded and not np.array_equal(
+        raw, nuisance.bounded_propensity(multi_arm_common.G_BOUNDS)
+    ):
         raise RuntimeError("the propensity bound activated in the multi-arm comparison")
     return result
 

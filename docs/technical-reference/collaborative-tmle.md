@@ -237,6 +237,23 @@ learning and selective inference for cross-validation are candidate frameworks, 
 oracle-model, Gaussian quadratic-selection, and joint-Gaussian-selection conditions have not been
 established for this selector.
 
+The pinned R `ctmle` computes a binary parametric term for each candidate and uses the selected
+candidate's variance, as the paragraph above states. The table separates the two intervals.
+
+| interval | what it is | R `ctmle` 0.1.2 at `18de559` |
+| --- | --- | --- |
+| `plugin_interval` | the Wald interval of the plug-in variance of $D^*$ at the bounded $g$ | the first value `calc_varIC` returns. `ctmleDiscrete` does not report it |
+| `logistic_plugin(result)["ate"].plugin_logistic_interval` | the Wald interval of $D^* + \text{term1}\,I^{-1}(A - g)\tilde W$, with $\tilde W$ the selected covariates and an intercept | the second value of `calc_varIC(..., ICg = TRUE)`, which `ctmleDiscrete` reports as `var.psi` and `CI` (`R/functions_discrete.R`, lines 200 and 201, and `R/ctmle_discrete.R`, lines 181 to 196) |
+
+`logistic_plugin` covers `ate`, `ey1` and `ey0` of a greedy, ordered or discrete fit of a binary
+treatment, fitted in sample without weights, missing outcomes or `intermediate=`. The term is a
+parametric-estimation correction only for an unpenalized main-terms logistic treatment learner.
+For any other learner it is R's formula at that learner's prediction. Neither interval carries a
+coverage claim, and the `working_mechanism_plugin` status does not change. At a correctly specified
+outcome regression the term is close to zero.
+`tests/unit/test_ctmle_logistic_plugin.py` compares the diagnostic with R's own `calc_varIC` on the
+inputs of one fit, and with a misspecified-outcome witness where the term is not zero.
+
 Leeb and Pötscher (2006) supply a nonuniformity warning in a finite-dimensional regression
 subset-selection model; their theorem has not been transferred here. A working-mechanism plug-in
 standard error makes no conditional-coverage claim and is not inferential output. The package now
