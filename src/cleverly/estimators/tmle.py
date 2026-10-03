@@ -195,6 +195,12 @@ from .base import (
     attach_bootstrap,
     resolve_estimands,
 )
+from .composite import (
+    composite_state,
+    missing_data_route,
+    missing_treatment_refusal,
+    unidentified_targets,
+)
 from .targeting import (
     DEFAULT_MAX_OUTER,
     ProjectionFluctuation,
@@ -1019,6 +1025,7 @@ class TMLE:
         intermediate: str | None = None,
         strata: Sequence[str] | None = None,
         treatment_kind: TreatmentKind | None = None,
+        treatment_delta: str | None = None,
     ) -> TMLEResultSet:
         """Fit the estimator.
 
@@ -1046,6 +1053,11 @@ class TMLE:
             causal parameter in the weight-tilted population -- see
             :mod:`cleverly.data.weighting` and
             :meth:`~cleverly.data.CausalData.from_frame`.
+        treatment_delta:
+            The 0/1 column that is 1 where the treatment is recorded, which declares a
+            treatment missing at random.  The fit then runs the composite-indicator
+            construction of :mod:`cleverly.estimators.composite` for the arm means and
+            their contrasts, in sample.  See :meth:`~cleverly.data.CausalData.from_frame`.
 
         Returns
         -------
@@ -1069,6 +1081,7 @@ class TMLE:
             intermediate=intermediate,
             strata=strata,
             treatment_kind=treatment_kind,
+            treatment_delta=treatment_delta,
         )
         if not prepared.has_intermediate:
             return TMLEResultSet({None: self._fit_single(prepared, intermediate_value=None)})
@@ -1240,6 +1253,7 @@ class TMLE:
         weights_type: str = "probability",
         weights_estimated: bool = False,
         treatment_kind: TreatmentKind | None = None,
+        treatment_delta: str | None = None,
     ) -> CausalData:
         """Coerce whatever the caller passed into a validated :class:`CausalData`."""
         if isinstance(data, CausalData):
@@ -1261,6 +1275,7 @@ class TMLE:
                     intermediate,
                     strata,
                     treatment_kind,
+                    treatment_delta,
                 )
             ):
                 raise ValueError(
@@ -1293,6 +1308,7 @@ class TMLE:
                 if treatment_kind is None
                 else treatment_kind
             ),
+            treatment_delta=treatment_delta,
         )
 
     def _preflight_fit_configuration(self, data: CausalData) -> tuple[str, ...]:
@@ -1307,12 +1323,31 @@ class TMLE:
         :func:`~cleverly.interventions.learned.refuse_learned_rule_composition` first, before
         :meth:`_check_shifts`.  That check would answer a continuous treatment by suggesting
         ``shifts=``, which a learned-rule fit refuses.
+
+        A declared missing treatment meets
+        :func:`~cleverly.estimators.composite.missing_treatment_refusal` before both, which
+        is the one gate for it.  The default and ``"all"`` target lists then drop the
+        targets that the composite construction cannot identify, as they drop
+        ``par`` and ``paf`` beside ``delta=``.
         """
+        if data.has_missing_treatment:
+            named = None if self.estimands is None or self.estimands == "all" else self.estimands
+            refusal = missing_treatment_refusal(
+                self,
+                data,
+                None
+                if named is None
+                else resolve_estimands(named, data.family, data.n_arms, axis=self._axis),
+            )
+            if refusal is not None:
+                raise refusal
         if self.learned_rule is not None:
             refuse_learned_rule_composition(data, self)
         self._check_shifts(data)
         self._check_incremental(data)
         estimands = self._resolve_estimands_for_data(data)
+        if data.has_missing_treatment:
+            estimands = tuple(name for name in estimands if name not in unidentified_targets())
         if data.has_strata and (self.cv_evaluation or self.targeting_scheme == "fold"):
             raise CapabilityError(
                 "baseline strata currently use one joint pooled fluctuation. "
@@ -1444,6 +1479,8 @@ class TMLE:
                 if index == 0:
                     extra = draw_extra
 
+        # The construction this fit ran, which every reader of the result branches on.
+        extra = {**extra, "missing_data": missing_data_route(self, data)}
         self._warn_on_positivity(data, nuisances[0], config, intermediate_value)
         self._warn_on_estimated_weights(data)
 
@@ -2748,7 +2785,7 @@ class TMLE:
                     fallback=self.treatment_learner,
                     seed=seed,
                 )
-                if data.has_missing_outcome
+                if data.has_missing_outcome or data.has_missing_treatment
                 else None
             ),
             intermediate_learner=(
@@ -2915,6 +2952,7 @@ class TMLE:
                 name
                 for name, present in (
                     ("P(Delta=1|A,W)", data.has_missing_outcome),
+                    ("P(Delta_A=1|W)", data.has_missing_treatment),
                     ("P(Z=z|A,W)", data.has_intermediate),
                 )
                 if present
@@ -3124,6 +3162,24 @@ class TMLE:
         conditional_bounds = g_bounds_conditional or resolve_g_bounds(
             self.g_bounds, self._bounds_n(data), for_att=True
         )
+        # The inference status reads the prepared data, which the composite route replaces.
+        prepared = data
+        if missing_data_route(self, data) == "composite":
+            # Targeting, the curve and the corrections read the composite indicator, and
+            # the composite mechanism is formed here from the fitted factors at this call's
+            # bounds.  So a retarget at new bounds recomputes it and cannot read a stale one.
+            # The gate admits the arm means and their contrasts only, so the conditional
+            # bounds are never read on this route.
+            state = composite_state(
+                data,
+                nuisance,
+                g_bounds=mean_bounds,
+                nuisance_bound=self.nuisance_bound if nuisance_bound is None else nuisance_bound,
+                missingness=missingness,
+            )
+            data, nuisance, mean_bounds = state.data, state.nuisance, state.bounds
+            conditional_bounds = mean_bounds
+            missingness = None
 
         estimates: dict[str, ParameterEstimate] = {}
         fluctuations: dict[str, Fluctuation] = {}
@@ -3281,7 +3337,7 @@ class TMLE:
         # truncation curve and the refutations building intervals the fit itself refuses.
         # The two fold-level reports are stamped here too, because ``CVTargeting``
         # publishes their standard errors and reads its status off them.
-        status = self._inference_status(data)
+        status = self._inference_status(prepared)
         ordered = stamp_inference(_in_report_order(estimates, requested), status)
         detail = (
             CVTargeting(
@@ -4190,7 +4246,9 @@ def reported_mechanism(
     """
     if fluctuation.mechanism is not None:
         return np.asarray(fluctuation.mechanism.propensity, dtype=float)
-    if len(arms) == 2:
+    # The carrier rule: one column exactly when the two-arm complement form applies.  A
+    # composite mechanism is off the simplex and is returned whole at every arm count.
+    if len(arms) == 2 and nuisance.propensity.simplex:
         return nuisance.propensity.arm(arms[1])
     return np.asarray(nuisance.propensity.values, dtype=float)
 
@@ -4372,6 +4430,7 @@ def tmle(
     W: Any,
     *,
     Delta: Any = None,
+    DeltaA: Any = None,
     Z: Any = None,
     obsWeights: Any = None,
     weights_type: str = "probability",
@@ -4384,7 +4443,8 @@ def tmle(
 
     A thin wrapper over :class:`TMLE`; the argument names follow R's ``tmle`` package
     so existing analysis scripts translate directly.  Every keyword accepted by
-    :class:`TMLE` may be passed through.
+    :class:`TMLE` may be passed through.  ``DeltaA`` is the treatment observation
+    indicator in R ``drtmle``'s spelling, beside ``Delta`` for the outcome.
 
     >>> import numpy as np
     >>> from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -4416,6 +4476,7 @@ def tmle(
         id=id,
         intermediate=Z,
         family=kwargs.get("family", "auto"),
+        treatment_delta=DeltaA,
     )
     estimator = TMLE(**kwargs)
     return estimator.fit(data)

@@ -14,6 +14,7 @@ role                 R name      meaning
 ``treatment``        ``A``       treatment: arms, or a dose on a continuum
 ``covariates``       ``W``       baseline confounders
 ``delta``            ``Delta``   1 when the outcome is observed
+``treatment_delta``  ``DeltaA``  1 when the treatment is recorded
 ``weights``          ``obsWeights``  observation weights
 ``cluster``          ``id``      independent unit for variance estimation
 ``intermediate``     ``Z``       binary intermediate, for controlled direct effects
@@ -54,6 +55,7 @@ from ..utils.frames import (
 )
 from .validate import (
     MIN_OBSERVATIONS,
+    MISSING_TREATMENT_DECLARATION,
     arm_indicators,
     check_covariates,
     check_delta,
@@ -64,6 +66,7 @@ from .validate import (
     encode_continuous_treatment,
     encode_treatment,
     infer_family,
+    missing_values,
     resolve_family,
 )
 from .weighting import (
@@ -181,6 +184,17 @@ class CausalData:
     strata: IntArray | None = None
     strata_names: tuple[str, ...] = ()
     strata_levels: tuple[tuple[Any, ...], ...] = ()
+    #: Which rows have a recorded treatment, or ``None`` when every row has one.  Set only
+    #: by a ``treatment_delta=`` declaration.  :attr:`treatment` holds ``NaN`` on every
+    #: other row, whatever value the column held there.
+    treatment_observed: BoolArray | None = None
+    #: Name of the declared treatment observation indicator, or ``None``.
+    treatment_delta_name: str | None = None
+    #: Set on the composite-indicator view only, which
+    #: :func:`~cleverly.estimators.composite.composite_view` builds for targeting and for
+    #: the readers of a fitted result.  A nuisance fit refuses a view, because its
+    #: treatment and observation arrays describe the composite and not the recorded data.
+    composite_view: bool = field(default=False, repr=False)
     #: Name of the dataframe backend the data arrived in, or ``None`` for numpy input.
     #: A *name* and not the frame it came from: this used to hold the whole input
     #: frame, which pinned it in memory for the life of every result derived from the
@@ -208,6 +222,7 @@ class CausalData:
         strata: Sequence[str] | None = None,
         family: str = "auto",
         treatment_kind: TreatmentKind = "discrete",
+        treatment_delta: str | None = None,
     ) -> CausalData:
         """Build from a pandas or polars dataframe by column name.
 
@@ -234,6 +249,13 @@ class CausalData:
             recorded at fifteen distinct values could reasonably be either, and guessing
             from the number of levels would silently change the estimand when a new batch
             of data happened to add a sixteenth.
+        treatment_delta:
+            The 0/1 column that is 1 where the treatment is recorded.  It declares a
+            treatment missing at random, as ``delta=`` declares an outcome missing at
+            random.  The treatment column may then be missing on the rows where this is 0,
+            and a value it holds there is ignored.  A missing treatment is never inferred
+            from a missing value, so an accidental gap cannot start a missing-data
+            analysis.
         """
         if not is_dataframe(data):
             raise DataError(
@@ -249,6 +271,7 @@ class CausalData:
             ("weights", weights),
             ("id", id),
             ("intermediate", intermediate),
+            ("treatment_delta", treatment_delta),
         ):
             if name is not None:
                 roles[role] = name
@@ -292,6 +315,10 @@ class CausalData:
         w_matrix, w_names, encodings = _encode_covariates(frame, covariate_names)
 
         for role, name in roles.items():
+            # A declared missing treatment reads the column's nulls as unrecorded rows, so
+            # the label check would refuse exactly the data the declaration admits.
+            if role == "treatment" and treatment_delta is not None:
+                continue
             _reject_null_labels(frame, name, role)
 
         return cls._build(
@@ -320,6 +347,10 @@ class CausalData:
             strata_levels=strata_levels,
             encodings=encodings,
             backend=backend_of(frame),
+            treatment_delta=(
+                column_array(frame, treatment_delta) if treatment_delta is not None else None
+            ),
+            treatment_delta_name=treatment_delta,
         )
 
     @classmethod
@@ -342,11 +373,13 @@ class CausalData:
         treatment_name: str = "A",
         strata: np.ndarray | None = None,
         strata_names: Sequence[str] | None = None,
+        treatment_delta: Any = None,
     ) -> CausalData:
         """Build from numpy arrays, mirroring ``tmle(Y, A, W, ...)`` in R.
 
-        See :meth:`from_frame` for ``weights_type``, ``weights_estimated`` and
-        ``treatment_kind``.
+        See :meth:`from_frame` for ``weights_type``, ``weights_estimated``,
+        ``treatment_kind`` and ``treatment_delta``.  Here ``treatment_delta`` is the 0/1
+        array itself, in the role of R ``drtmle``'s ``DeltaA``.
         """
         w = np.asarray(covariates, dtype=float)
         if w.ndim == 1:
@@ -379,6 +412,8 @@ class CausalData:
             strata_levels=(),
             encodings=(),
             backend=None,
+            treatment_delta=None if treatment_delta is None else np.asarray(treatment_delta),
+            treatment_delta_name="DeltaA" if treatment_delta is not None else None,
         )
 
     @classmethod
@@ -408,6 +443,8 @@ class CausalData:
         strata: np.ndarray | None = None,
         strata_names: Sequence[str] = (),
         strata_levels: Sequence[tuple[Any, ...]] = (),
+        treatment_delta: np.ndarray | None = None,
+        treatment_delta_name: str | None = None,
     ) -> CausalData:
         n = len(outcome)
         if n < MIN_OBSERVATIONS:
@@ -419,11 +456,18 @@ class CausalData:
             if len(arr) != n:
                 raise DataError(f"{label} has length {len(arr)}, expected {n}")
 
+        recorded = _treatment_recorded(
+            treatment,
+            treatment_name,
+            treatment_delta,
+            treatment_delta_name or "treatment_delta",
+            treatment_kind,
+        )
         if treatment_kind == "continuous":
             a = encode_continuous_treatment(treatment, treatment_name)
             levels: tuple[object, ...] = ()
         elif treatment_kind == "discrete":
-            a, levels = encode_treatment(treatment, treatment_name)
+            a, levels = encode_treatment(treatment, treatment_name, recorded=recorded)
         else:
             raise DataError(
                 f"treatment_kind must be 'discrete' or 'continuous'; got {treatment_kind!r}"
@@ -516,6 +560,8 @@ class CausalData:
             strata=strata_codes,
             strata_names=tuple(strata_names),
             strata_levels=resolved_strata_levels,
+            treatment_observed=recorded,
+            treatment_delta_name=treatment_delta_name if recorded is not None else None,
             backend=backend,
         )
 
@@ -554,6 +600,18 @@ class CausalData:
     @property
     def has_missing_outcome(self) -> bool:
         return bool(not np.all(self.observed))
+
+    @property
+    def has_missing_treatment(self) -> bool:
+        """Whether a declared treatment observation indicator marks any row unrecorded."""
+        return self.treatment_observed is not None and bool(not np.all(self.treatment_observed))
+
+    @property
+    def treatment_recorded(self) -> BoolArray:
+        """The rows whose treatment is recorded: every row unless one is declared missing."""
+        if self.treatment_observed is None:
+            return np.ones(self.n, dtype=bool)
+        return np.asarray(self.treatment_observed, dtype=bool)
 
     @property
     def has_intermediate(self) -> bool:
@@ -621,6 +679,11 @@ class CausalData:
                 "quantity: there is no treated arm to take the share of. The ATT and ATC "
                 "are undefined here for the same reason."
             )
+        if self.has_missing_treatment:
+            # The share among the rows whose treatment is recorded.  An unrecorded row has
+            # no arm to count, and its NaN code would make the average NaN.
+            recorded = self.treatment_recorded
+            return float(np.average(self.treatment[recorded], weights=self.weights[recorded]))
         return float(np.average(self.treatment, weights=self.weights))
 
     @property
@@ -641,7 +704,10 @@ class CausalData:
         share = self.treated_fraction  # raises on a continuous treatment, as it should
         if self.n_arms == 2:
             return np.array([1.0 - share, share])
-        return np.array([arm_share(self.treatment, self.weights, code) for code in self.arm_codes])
+        mask = self.treatment_recorded if self.has_missing_treatment else None
+        return np.array(
+            [arm_share(self.treatment, self.weights, code, mask=mask) for code in self.arm_codes]
+        )
 
     # ------------------------------------------------------------------- arms
 
@@ -738,7 +804,9 @@ class CausalData:
             return c.reshape(-1, 1)
         return arm_indicators(c, self.n_arms)
 
-    def treatment_design(self, *, include_intermediate: bool = False) -> FloatArray:
+    def treatment_design(
+        self, *, include_intermediate: bool = False, missing_as: float | None = None
+    ) -> FloatArray:
         """Design matrix for a model of the outcome: ``[A, W]``.
 
         ``A`` occupies :meth:`treatment_block` -- one column for a binary treatment,
@@ -746,8 +814,18 @@ class CausalData:
 
         With ``include_intermediate=True`` the intermediate variable is appended,
         which is what a controlled-direct-effect ``Q`` model conditions on.
+
+        ``missing_as`` is an arm code written into every row whose treatment is not
+        recorded, so that a model trained on the recorded rows can still predict at every
+        row.  Every consumer of such a prediction multiplies it by a residual that is zero
+        on an unrecorded row, so the value written there never reaches an estimate.
+        ``None`` leaves the code ``NaN`` there.
         """
-        blocks = [self.treatment_block(self.treatment), self.covariates]
+        codes = self.treatment
+        if missing_as is not None:
+            self.arm_label(float(missing_as))  # validates the code against the support
+            codes = np.where(np.isfinite(codes), codes, float(missing_as))
+        blocks = [self.treatment_block(codes), self.covariates]
         if include_intermediate:
             if self.intermediate is None:
                 raise DataError("no intermediate variable was supplied")
@@ -886,6 +964,9 @@ class CausalData:
             cluster=None if cluster is None else np.asarray(cluster, dtype=np.int64),
             intermediate=None if self.intermediate is None else self.intermediate[idx],
             strata=None if self.strata is None else self.strata[idx],
+            treatment_observed=(
+                None if self.treatment_observed is None else self.treatment_observed[idx]
+            ),
         )
 
     def with_treatment(self, treatment: FloatArray) -> CausalData:
@@ -897,10 +978,30 @@ class CausalData:
         arms it permutes: re-encoding would silently accept a replacement that dropped an
         arm, and the refuted fit would then estimate a different parameter from the one
         it is supposed to be a null for.
+
+        On data with a declared missing treatment the replacement is read on the recorded
+        rows only, and every other row keeps the code ``NaN``.  The placebo refuter
+        permutes the recorded codes among the recorded rows, so the observation pattern
+        is kept.
         """
         a = np.asarray(treatment, dtype=float).reshape(-1)
         if a.size != self.n:
             raise DataError(f"replacement treatment has length {a.size}, expected {self.n}")
+        if self.has_missing_treatment:
+            recorded = self.treatment_recorded
+            if not np.all(np.isfinite(a[recorded])):
+                raise DataError(
+                    "replacement treatment is missing on a row whose treatment is recorded"
+                )
+            a = np.where(recorded, a, np.nan)
+            found = np.unique(a[recorded])
+            if not np.array_equal(found, np.asarray(self.arm_codes, dtype=float)):
+                raise DataError(
+                    f"replacement {self.treatment_name} has arm codes {found.tolist()} on "
+                    f"the recorded rows, but the data declares {list(self.arm_codes)}. A "
+                    "replacement treatment must keep every arm."
+                )
+            return replace(self, treatment=a)
         if self.is_continuous_treatment:
             # No declared support to keep, so the arm check below has nothing to check.
             # A permutation of a continuous column keeps its marginal distribution, which
@@ -1150,6 +1251,8 @@ class CausalData:
             payload[name] = self.covariates[:, j]
         if self.delta_name is not None or self.has_missing_outcome:
             payload[self.delta_name or "Delta"] = self.observed.astype(float)
+        if self.treatment_observed is not None:
+            payload[self.treatment_delta_name or "DeltaA"] = self.treatment_observed.astype(float)
         if self.is_weighted or self.weights_name is not None:
             payload[self.weights_name or "weights"] = self.weights
         if self.cluster is not None:
@@ -1171,6 +1274,8 @@ class CausalData:
             parts.append(f"P(A=1)={self.treated_fraction:.3f}")
         if self.has_missing_outcome:
             parts.append(f"observed={float(self.observed.mean()):.3f}")
+        if self.has_missing_treatment:
+            parts.append(f"treatment recorded={float(self.treatment_recorded.mean()):.3f}")
         if self.cluster is not None:
             parts.append(f"clusters={self.n_clusters}")
         if self.has_intermediate:
@@ -1178,6 +1283,52 @@ class CausalData:
         if self.is_weighted:
             parts.append(f"weighted=yes (effective n={self.effective_n:.0f})")
         return f"CausalData({', '.join(parts)})"
+
+
+def _treatment_recorded(
+    treatment: np.ndarray,
+    treatment_name: str,
+    treatment_delta: np.ndarray | None,
+    delta_name: str,
+    treatment_kind: str,
+) -> BoolArray | None:
+    """Read the treatment observation indicator, and refuse an undeclared missing treatment.
+
+    Returns ``None`` when no indicator is declared, which leaves every existing container
+    unchanged.  The indicator takes :func:`~cleverly.data.validate.check_delta`'s rules,
+    so it is held to the outcome indicator's standard and no stricter one.  A treatment
+    missing on a row the indicator flags as recorded is refused, as
+    :func:`~cleverly.data.validate.check_outcome` refuses a missing outcome on a row
+    flagged as observed.  A value on a row flagged as unrecorded is accepted and ignored.
+    """
+    missing = missing_values(treatment)
+    if treatment_delta is None:
+        if missing.any() and treatment_kind == "discrete":
+            raise DataError(
+                f"{treatment_name} has {int(missing.sum())} missing value(s) but no "
+                "treatment observation indicator. Declare one (1 = treatment recorded) with "
+                f"{MISSING_TREATMENT_DECLARATION} to analyze a treatment missing at random. "
+                "That declaration is supported for arm means and contrasts on in-sample "
+                "TMLE and DRTMLE fits."
+            )
+        return None
+    if treatment_kind != "discrete":
+        raise DataError(
+            "a missing treatment is supported for an arm-coded treatment only; "
+            f"{treatment_name} is declared {treatment_kind}, and a conditional density "
+            "fitted on the recorded rows has no composite indicator to divide by. Drop "
+            f"{delta_name}= or the rows with an unrecorded treatment."
+        )
+    recorded = check_delta(treatment_delta, delta_name, role="treatment")
+    if recorded.shape[0] != missing.shape[0]:
+        raise DataError(f"{delta_name} has length {recorded.shape[0]}, expected {missing.shape[0]}")
+    unexpected = missing & recorded
+    if unexpected.any():
+        raise DataError(
+            f"{treatment_name} is missing for {int(unexpected.sum())} row(s) flagged as "
+            f"recorded by {delta_name}"
+        )
+    return recorded
 
 
 def _reject_null_labels(frame: nw.DataFrame[Any], name: str, role: str) -> None:

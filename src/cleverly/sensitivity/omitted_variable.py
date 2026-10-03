@@ -342,6 +342,22 @@ def _refuse_response_mechanism(result: Any) -> str | None:
     return _RESPONSE_BOUND_REFUSAL + pointer
 
 
+#: Why the bound refuses a fit with a declared missing treatment.
+_MISSING_TREATMENT_BOUND_REFUSAL = (
+    "the omitted-variable bound is not implemented for a fit with a declared missing "
+    "treatment. The Riesz representer of the bound is derived for a recorded treatment, "
+    "and this fit divides by the composite mechanism P(A = a, Delta_A = 1 | W), whose "
+    "representer and confounding strengths are not derived."
+)
+
+
+def _refuse_missing_treatment(result: Any) -> str | None:
+    """Refuse a fit with a declared missing treatment, whose representer is not derived."""
+    if not getattr(result.data, "has_missing_treatment", False):
+        return None
+    return _MISSING_TREATMENT_BOUND_REFUSAL
+
+
 def _refuse_intermediate(result: Any) -> str | None:
     """Refuse a fit that declares an intermediate variable.
 
@@ -439,6 +455,7 @@ _FIT_WIDE_BOUND_RULES: tuple[tuple[str, Callable[[Any], str | None]], ...] = (
     ("drtmle", _refuse_guarded_mechanism),
     ("collaborative_tmle", _refuse_selected_mechanism),
     ("response_mechanism", _refuse_response_mechanism),
+    ("missing_treatment", _refuse_missing_treatment),
     ("intermediate", _refuse_intermediate),
     ("parameter_axis", _refuse_non_arm_axis),
     ("bound_parameters", _refuse_unbounded_parameters),

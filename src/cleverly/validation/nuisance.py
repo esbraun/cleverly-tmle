@@ -811,6 +811,23 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
     # intercept per validation fold is what keeps between-fold level differences, which
     # cross-fitting sets against each fold's labels, out of the calibration slope.
     folds = np.asarray(nuisance.folds.assignment, dtype=np.int64)
+    # A declared missing treatment: the treatment and response models were fitted on the
+    # rows whose treatment is recorded, so each is checked there, against the factor it is.
+    recorded = data.treatment_recorded if data.has_missing_treatment else None
+
+    if nuisance.treatment_observation is not None:
+        models.append(
+            _binary_report(
+                "treatment_observation",
+                nuisance.treatment_observation,
+                data.treatment_recorded.astype(float),
+                data.weights,
+                nuisance.diagnostics.get("treatment_observation"),
+                inverse_weight_rows="label_one",
+                folds=folds,
+                cluster=data.cluster,
+            )
+        )
 
     if data.is_binary_treatment and nuisance.fits_treatment:
         models.append(
@@ -823,6 +840,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
                 inverse_weight_rows="every_row",
                 folds=folds,
                 cluster=data.cluster,
+                mask=recorded,
             )
         )
     elif not data.is_continuous_treatment and nuisance.fits_treatment:
@@ -843,6 +861,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
                     inverse_weight_rows="label_one",
                     folds=folds,
                     cluster=data.cluster,
+                    mask=recorded,
                 )
             )
 
@@ -857,6 +876,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
                 inverse_weight_rows="label_one",
                 folds=folds,
                 cluster=data.cluster,
+                mask=recorded,
             )
         )
 
@@ -875,6 +895,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
         )
 
     scaled = nuisance.scaler.scale(data.outcome)
+    outcome_rows = data.observed if recorded is None else data.observed & recorded
     if data.family == "binomial":
         models.append(
             _binary_report(
@@ -883,7 +904,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
                 data.outcome,
                 data.weights,
                 nuisance.diagnostics.get("outcome"),
-                mask=data.observed,
+                mask=outcome_rows,
                 folds=folds,
                 cluster=data.cluster,
             )
@@ -896,7 +917,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
                 scaled,
                 data.weights,
                 nuisance.diagnostics.get("outcome"),
-                mask=data.observed,
+                mask=outcome_rows,
             )
         )
     spread_rows, spread_omission = _spread_rows(result)

@@ -109,15 +109,29 @@ class GroupScoreLoadRow(ScoreLoadRow):
 JOINT_MECHANISM = "P(A=a,Delta=1|W)"
 JOINT_INTERMEDIATE = "P(A=a,Z=z|W)"
 JOINT_MISSING_INTERMEDIATE = "P(A=a,Delta=1,Z=z|W)"
+#: The composite mechanisms of a declared missing treatment, without and with ``delta=``:
+#: the probability of the composite indicator ``Delta_A * Delta * 1{A = a}``.
+COMPOSITE_TREATMENT = "P(A=a,Delta_A=1|W)"
+COMPOSITE_MECHANISM = "P(A=a,Delta_A=1,Delta=1|W)"
+#: The treatment observation factor of a declared missing treatment.
+TREATMENT_OBSERVATION = "P(Delta_A=1|W)"
 
 #: Which derived row a fit reports, keyed by ``(an observation mechanism was fitted, an
-#: intermediate density was)``.  The two derived facts below come from this one table, so a
-#: further composition is one entry rather than three edits that have to agree.
-_COMPOSED_ROWS: dict[tuple[bool, bool], str] = {
-    (True, False): JOINT_MECHANISM,
-    (False, True): JOINT_INTERMEDIATE,
-    (True, True): JOINT_MISSING_INTERMEDIATE,
+#: intermediate density was, a treatment observation mechanism was)``.  The two derived
+#: facts below come from this one table, so a further composition is one entry rather than
+#: three edits that have to agree.  A missing treatment with an intermediate is refused
+#: before any fit, so it has no entry.
+_COMPOSED_ROWS: dict[tuple[bool, bool, bool], str] = {
+    (True, False, False): JOINT_MECHANISM,
+    (False, True, False): JOINT_INTERMEDIATE,
+    (True, True, False): JOINT_MISSING_INTERMEDIATE,
+    (False, False, True): COMPOSITE_TREATMENT,
+    (True, False, True): COMPOSITE_MECHANISM,
 }
+
+#: The derived rows of a missing treatment, which also report the share of unit-arm cells
+#: below the propensity floor -- the scale R ``drtmle``'s ``tolg`` floors the product at.
+_COMPOSITE_ROWS = frozenset({COMPOSITE_TREATMENT, COMPOSITE_MECHANISM})
 
 #: How many ``[nuisance_bound, 1]`` factors stand beside ``g`` in each derived row.
 _COMPOSED_NUISANCE_FACTORS = {name: sum(key) for key, name in _COMPOSED_ROWS.items()}
@@ -521,6 +535,15 @@ class PositivityReport:
                 f"{name} truncated to {self._bound_label(name)}" for name in self.mechanisms
             )
             lines.append(f"({truncations}; each row counts both arms)")
+            for name in sorted(_COMPOSITE_ROWS & self.mechanisms.keys()):
+                stats = self.mechanisms[name]
+                lines.append(
+                    f"{name}: minimum {stats['min']:.4g}; "
+                    f"{stats['below_g_lower_fraction']:.2%} of unit-arm cells below the "
+                    f"propensity floor {self.bounds[0]:.4g}. The composite is tilted inside "
+                    f"[{stats['composite_lower']:.4g}, {self.bounds[1]:.4g}], the product of "
+                    "the factor floors."
+                )
         note = self._composed_note()
         if note is not None:
             lines.append("")
@@ -795,12 +818,15 @@ def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
     bounds = result.config.g_bounds
     propensity = result.nuisance.propensity
     raw = propensity.arm(1.0)
+    # Each arm is the rows that recorded it.  A row with a missing treatment is in neither,
+    # so the control arm is ``A == 0`` rather than the complement of the treated rows.
     treated = data.treatment == 1.0
+    control = data.treatment == 0.0
 
     quantiles: dict[str, dict[float, float]] = {
         "overall": {q: float(np.quantile(raw, q)) for q in _QUANTILES},
         "treated": {q: float(np.quantile(raw[treated], q)) for q in _QUANTILES},
-        "control": {q: float(np.quantile(raw[~treated], q)) for q in _QUANTILES},
+        "control": {q: float(np.quantile(raw[control], q)) for q in _QUANTILES},
     }
 
     tail_mass = {
@@ -820,7 +846,7 @@ def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
     share: dict[str, dict[str, float]] = {}
     for arm, mask, weights in (
         ("treated", treated, 1.0 / bounded[:, propensity.column_for(1.0)]),
-        ("control", ~treated, 1.0 / bounded[:, propensity.column_for(0.0)]),
+        ("control", control, 1.0 / bounded[:, propensity.column_for(0.0)]),
     ):
         arm_weights = weights[mask] * data.weights[mask]
         ess[arm] = {
@@ -834,13 +860,16 @@ def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
         }
 
     clipped = truncation.units
-    inside = raw[~clipped]
-    # This line still reads the two columns as complements, which the rest of the function
-    # no longer does: `raw` is g1 alone, so `1 - inside.max()` is the control denominator
-    # only on the simplex. `truncate` sends a two-arm `simplex=False` mechanism down its
-    # column-by-column branch instead. Nothing in `src/` builds such a mechanism today, so
-    # this is recorded rather than restructured.
-    most_extreme = float(min(inside.min(), 1.0 - inside.max())) if inside.size else float("nan")
+    if propensity.simplex:
+        # On the simplex the control denominator is the complement of ``g1``, so the most
+        # extreme value is the nearer of ``g1`` to zero and to one.
+        inside = raw[~clipped]
+        most_extreme = float(min(inside.min(), 1.0 - inside.max())) if inside.size else float("nan")
+    else:
+        # Off the simplex each column is its own denominator and is clipped on its own, so
+        # the most extreme value is the smallest untruncated cell of either column.
+        cells = np.asarray(propensity.values, dtype=float)[~truncation.clipped]
+        most_extreme = float(cells.min()) if cells.size else float("nan")
 
     group_score_load, group_omissions = _group_score_load(result)
     return PositivityReport(
@@ -965,8 +994,10 @@ def _composed_excluded(result: TMLEResult) -> tuple[str, ...]:
     excluded from it.  Everything left over is what the report has to account for.
     """
     nuisance = result.nuisance
-    has_factor = nuisance.missingness is not None or (
-        nuisance.intermediate is not None and result.intermediate_value is not None
+    has_factor = (
+        nuisance.missingness is not None
+        or nuisance.treatment_observation is not None
+        or (nuisance.intermediate is not None and result.intermediate_value is not None)
     )
     if not has_factor:
         return ()
@@ -1001,7 +1032,12 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
     data = result.data
     nuisance = result.nuisance
     missingness_bound = result.config.missingness_bound
-    contributing = targeted_rows(data, result.intermediate_value)
+    # A row with an unrecorded treatment contributes a genuine zero to the residual term,
+    # as a row with an unrecorded outcome does.
+    contributing = (
+        np.asarray(targeted_rows(data, result.intermediate_value), dtype=bool)
+        & data.treatment_recorded
+    )
     out: dict[str, dict[str, float]] = {}
 
     # Which column of an `(n, K)` mechanism each row realised.  Written as a gather rather
@@ -1027,7 +1063,8 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
         of its factors' masks instead, because its own product was never bounded.
         """
         flat = raw.reshape(-1)
-        at_arm = bounded[rows, realised]
+        # A factor that does not depend on the arm is one column, read at every row.
+        at_arm = bounded if bounded.ndim == 1 else bounded[rows, realised]
         weights = data.weights[contributing] / at_arm[contributing]
         changed = raw != bounded if clipped is None else clipped
         return {
@@ -1052,7 +1089,17 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
     level = result.intermediate_value
     has_observation = nuisance.missingness is not None
     has_intermediate = nuisance.intermediate is not None and level is not None
+    has_recording = nuisance.treatment_observation is not None
     factors: list[tuple[str, FloatArray, FloatArray]] = []
+    if has_recording:
+        recorded_raw = np.asarray(nuisance.treatment_observation, dtype=float)
+        factors.append(
+            (
+                TREATMENT_OBSERVATION,
+                recorded_raw,
+                np.clip(recorded_raw, missingness_bound, 1.0),
+            )
+        )
     if has_observation:
         factors.append(
             (
@@ -1098,15 +1145,27 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
         raws = [np.asarray(nuisance.propensity.values, dtype=float)]
         boundeds = [np.asarray(truncation.values, dtype=float)]
         masks = [np.asarray(truncation.clipped, dtype=bool)]
+        width = raws[0].shape[1]
         for _, raw, bounded_factor in factors:
+            # A factor that does not depend on the arm multiplies every arm's column.
+            if raw.ndim == 1:
+                raw = np.repeat(raw[:, None], width, axis=1)
+                bounded_factor = np.repeat(bounded_factor[:, None], width, axis=1)
             raws.append(raw)
             boundeds.append(bounded_factor)
             masks.append(raw != bounded_factor)
-        out[_COMPOSED_ROWS[has_observation, has_intermediate]] = summarize(
+        name = _COMPOSED_ROWS[has_observation, has_intermediate, has_recording]
+        product = np.prod(np.stack(boundeds), axis=0)
+        out[name] = summarize(
             np.prod(np.stack(raws), axis=0),
-            np.prod(np.stack(boundeds), axis=0),
+            product,
             np.logical_or.reduce(np.stack(masks)),
         )
+        if name in _COMPOSITE_ROWS:
+            lower = float(result.config.g_bounds[0])
+            factor_count = int(has_observation) + int(has_recording)
+            out[name]["below_g_lower_fraction"] = float(np.mean(product < lower))
+            out[name]["composite_lower"] = lower * float(missingness_bound) ** factor_count
     return out
 
 
@@ -1271,7 +1330,11 @@ def truncation_axis(result: TMLEResult, mechanism: bool | None) -> bool:
 
 def _refuse_observation_axis(result: TMLEResult, axis: bool) -> str | None:
     """Refuse the mechanism axis on a fit with no mechanism in its clever covariate."""
-    fitted = result.nuisance.missingness is not None or result.nuisance.intermediate is not None
+    fitted = (
+        result.nuisance.missingness is not None
+        or result.nuisance.intermediate is not None
+        or result.nuisance.treatment_observation is not None
+    )
     if not axis or fitted:
         return None
     return (
@@ -1548,6 +1611,7 @@ def truncation_curve(
         # One truncation load per bound pair: it reads the pair and the mechanism flag,
         # and nothing that varies between the parameters sharing that pair.
         truncated_fraction = _clipped_fraction(result, pair, mechanism)
+        moved = _moved_factor(result, mechanism)
         for name in reported:
             estimate = estimates[name]
             # The columns ``ParameterEstimate.to_dict`` publishes, for the same reason: a
@@ -1572,6 +1636,9 @@ def truncation_curve(
                     "fitted_upper_bound": fitted_upper,
                     "fitted_psi": reference,
                     "delta_from_fitted": float(estimate.psi - reference),
+                    # A composite fit divides by a product of factors, and a bound moves
+                    # some of them only, so the row names the factors it truncated.
+                    **({} if moved is None else {"truncated_factor": moved}),
                 }
             )
 
@@ -1642,6 +1709,28 @@ def _fitted_bound_pair(result: TMLEResult, target: str, *, mechanism: bool) -> t
     return g_bounds_for(group, result.config.g_bounds, result.config.g_bounds_conditional)
 
 
+def _moved_factor(result: TMLEResult, mechanism: bool) -> str | None:
+    """Which factors of a composite mechanism the swept bound truncates, or ``None``.
+
+    Only a composite-indicator fit divides by a product that a bound moves in part.  The
+    ``g_bounds`` axis truncates the treatment factor alone.  The mechanism axis truncates
+    each observation factor.  The composite itself is clipped inside the product of the
+    factor floors, which follows both.
+    """
+    if result.extra.get("missing_data") != "composite":
+        return None
+    name = result.data.treatment_name
+    if not mechanism:
+        conditioning = ", Delta_A=1" if result.data.has_missing_treatment else ""
+        return f"P({name}=a|W{conditioning})"
+    factors = []
+    if result.nuisance.missingness is not None:
+        factors.append(f"P(Delta=1|{name}=a,W)")
+    if result.nuisance.treatment_observation is not None:
+        factors.append("P(Delta_A=1|W)")
+    return " and ".join(factors)
+
+
 def _clipped_fraction(result: TMLEResult, pair: tuple[float, float], mechanism: bool) -> float:
     """Share of the nuisance the bound would clip, for whichever bound is swept.
 
@@ -1673,7 +1762,7 @@ def _clipped_fraction(result: TMLEResult, pair: tuple[float, float], mechanism: 
         if not result.nuisance.fits_treatment
         else result.nuisance.missingness
     )
-    candidates = [missingness]
+    candidates = [missingness, result.nuisance.treatment_observation]
     if result.nuisance.intermediate is not None and result.intermediate_value is not None:
         candidates.append(result.nuisance.intermediate_density(result.intermediate_value, 0.0))
     parts = [

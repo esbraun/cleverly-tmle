@@ -135,6 +135,11 @@ _MISSING_OUTCOME_REFUSAL = (
     "perturbation law with identified missing-outcome refit semantics; "
     "docs/roadmap.md F12 tracks this stop"
 )
+_MISSING_TREATMENT_REFUSAL = (
+    "simulated_confounding has no joint treatment-observation, treatment, and outcome "
+    "perturbation law with identified missing-treatment refit semantics; it refuses a "
+    "declared missing treatment for the reason it refuses a missing outcome"
+)
 _INTERMEDIATE_REFUSAL = (
     "simulated_confounding has no ordered treatment, intermediate, observation, "
     "and outcome law with a controlled-direct-effect contrast contract; "
@@ -193,6 +198,13 @@ def _refuse_missing_outcome(result: Any) -> str | None:
     """Refuse a fit whose outcome is unobserved on some rows."""
     if result.data.has_missing_outcome:
         return _MISSING_OUTCOME_REFUSAL
+    return None
+
+
+def _refuse_missing_treatment(result: Any) -> str | None:
+    """Refuse a fit with a declared missing treatment."""
+    if getattr(result.data, "has_missing_treatment", False):
+        return _MISSING_TREATMENT_REFUSAL
     return None
 
 
@@ -380,6 +392,7 @@ _FIT_WIDE_RULES: tuple[tuple[str, Callable[[Any], str | None]], ...] = (
     ("learned_rule", _refuse_learned_rule),
     ("multi_arm", _refuse_multi_arm),
     ("missing_outcome", _refuse_missing_outcome),
+    ("missing_treatment", _refuse_missing_treatment),
     ("intermediate", _refuse_intermediate),
     ("estimated_weights", _refuse_estimated_weights),
     ("clustered", _refuse_clustered),

@@ -61,6 +61,7 @@ from ..learners.crossfit import Folds
 from ..msm import solve_projection
 from ..utils.bounds import OutcomeScaler
 from ._nuisance import CompanionEstimates, NuisanceEstimates, Propensity
+from .composite import complement_form
 from .direct_effect import clever_covariate_inputs
 from .reduced import MissingOutcomeReducedSet, ReducedFamily, ReducedSet
 
@@ -1174,12 +1175,13 @@ def _solve_reduced_mechanism(
 ) -> MechanismFluctuation:
     """Solve equation (9), retaining the exact binary route and looping at K arms.
 
-    ``response`` is ``1(A = a_1)`` at two arms and the arm codes themselves at more --
-    the two solvers take different things, and ``solve_with_reduction`` builds it on the
-    same test this branches on.
+    ``response`` is ``1(A = a_1)`` for the two-arm complement form and the arm codes
+    themselves otherwise -- the two solvers take different things, and
+    ``solve_with_reduction`` builds it on the same test this branches on.  The test is the
+    carrier rule: the mechanism is one column exactly when the complement form applies.
     """
     covariate = reduced_mechanism_covariate(reduced, propensity, bounds=bounds)
-    if len(arms) == 2:
+    if np.asarray(propensity).ndim == 1:
         return solve_bounded_mechanism(
             response, propensity, covariate, weights, bounds=bounds, tol=tol, carry=carry
         )
@@ -1206,7 +1208,7 @@ def _reduced_mechanism_score(
 ) -> tuple[FloatArray, FloatArray]:
     """Re-evaluate equation (9) at the current mechanism, ``response`` as above."""
     covariate = reduced_mechanism_covariate(reduced, propensity, bounds=bounds)
-    if len(arms) == 2:
+    if np.asarray(propensity).ndim == 1:
         return mechanism_score(response, propensity, covariate, weights)
     return armwise_mechanism_score(response, propensity, covariate, weights, arms)
 
@@ -1406,6 +1408,11 @@ def solve_with_reduction(
         )
     arms = nuisance.arms
     upper = arms[1]
+    # The carrier rule: the two-arm complement form applies exactly to a two-arm mechanism
+    # on the simplex.  A composite mechanism is off the simplex at every arm count, so it
+    # takes the armwise route even at two arms: its columns do not sum to one, and arm 0
+    # is not the complement of arm 1.
+    complement = complement_form(nuisance.propensity)
     # Equation (9)'s **response**, and it is a different array on the two branches, which
     # is why it is not called an indicator: the two-arm tilt moves one margin and so
     # regresses `1(A = a_1)`, while the armwise route poses one binary equation per arm
@@ -1415,7 +1422,7 @@ def solve_with_reduction(
     # regressing the codes themselves.
     response = (
         (np.asarray(data.treatment, dtype=float) == float(upper)).astype(float)
-        if len(arms) == 2
+        if complement
         else np.asarray(data.treatment, dtype=float)
     )
     mask = np.asarray(observed, dtype=bool)
@@ -1423,9 +1430,7 @@ def solve_with_reduction(
     reduced = nuisance.reduced
     mechanism_fit = nuisance.propensity
     targeted_g = (
-        mechanism_fit.arm(upper)
-        if len(arms) == 2
-        else np.asarray(mechanism_fit.values, dtype=float)
+        mechanism_fit.arm(upper) if complement else np.asarray(mechanism_fit.values, dtype=float)
     )
     current = nuisance
     # The nested construction's fold-free primary arrays, moved by every fluctuation the
@@ -1440,7 +1445,7 @@ def solve_with_reduction(
         None
         if nuisance.inner is None
         else tuple(
-            each.arm(upper) if len(arms) == 2 else each.values for each in nuisance.inner.propensity
+            each.arm(upper) if complement else each.values for each in nuisance.inner.propensity
         )
     )
     inner_extra: tuple[InitialFit, ...] | None = None
@@ -2607,13 +2612,23 @@ def _close_at_frozen_reductions(
     )
 
 
-def _propensity_from(values: FloatArray, arms: tuple[float, ...]) -> Propensity:
-    """A targeted mechanism written as ``Propensity`` without disturbing binary arithmetic."""
+def _propensity_from(
+    values: FloatArray, arms: tuple[float, ...], *, simplex: bool = True
+) -> Propensity:
+    """A targeted mechanism written as ``Propensity`` without disturbing binary arithmetic.
+
+    The carrier rule decides the form: one column is the two-arm complement form, and arm 0
+    is built as its complement; ``(n, K)`` is kept whole with the ``simplex`` flag of the
+    mechanism it was tilted from, so a composite mechanism stays off the simplex at two
+    arms.
+    """
     array = np.asarray(values, dtype=float)
-    if len(arms) == 2:
-        upper = array.reshape(-1)
-        array = np.column_stack([1.0 - upper, upper])
-    return Propensity(array, arms)
+    if array.ndim == 1:
+        if len(arms) != 2:
+            raise ValueError(f"a one-column mechanism requires two arms; got {list(arms)}")
+        array = np.column_stack([1.0 - array, array])
+        return Propensity(array, arms)
+    return Propensity(array, arms, simplex=simplex)
 
 
 def _retargeted_mechanism(
@@ -2641,13 +2656,15 @@ def _retargeted_mechanism(
     :class:`ObservationMechanismFluctuation`, so there is no joint :math:`g_a(W)\pi_a(W)`
     for the complement rule above to be wrong about.
     """
-    updated = replace(nuisance, propensity=_propensity_from(targeted, arms))
+    simplex = nuisance.propensity.simplex
+    updated = replace(nuisance, propensity=_propensity_from(targeted, arms, simplex=simplex))
     if inner is None or nuisance.inner is None:
         return updated
     return replace(
         updated,
         inner=replace(
-            nuisance.inner, propensity=tuple(_propensity_from(each, arms) for each in inner)
+            nuisance.inner,
+            propensity=tuple(_propensity_from(each, arms, simplex=simplex) for each in inner),
         ),
     )
 

@@ -475,6 +475,12 @@ class NuisanceEstimates:
     targeting_outcome: InitialFit | None = None
     missingness: FloatArray | None = None
     intermediate: FloatArray | None = None
+    #: ``P(Delta_A = 1 | W)``, ``(n,)`` and untruncated, on a fit with a declared missing
+    #: treatment, or ``None``.  The first factor of the composite mechanism that
+    #: :func:`~cleverly.estimators.composite.composite_mechanism` forms.  When it is set,
+    #: :attr:`propensity` is ``P(A = a | Delta_A = 1, W)`` and :attr:`missingness` is
+    #: ``P(Delta = 1 | A = a, Delta_A = 1, W)``, each fitted on the rows it conditions on.
+    treatment_observation: FloatArray | None = None
     treatment_covariates: tuple[str, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
     outcome_task: Task = "regression"
@@ -1075,9 +1081,32 @@ def fit_nuisances(
     accepted only for the shape that estimator supports: an arm-coded treatment, a fully
     observed outcome and no intermediate, which are exactly the refusals ``DRTMLE`` already
     makes by name.
+
+    A **declared missing treatment** adds a factor and masks three fits.  The treatment
+    observation probability :math:`P(\\Delta_A = 1 \\mid W)` is fitted on every row with
+    ``missingness_learner`` and returned on
+    :attr:`NuisanceEstimates.treatment_observation`.  The treatment mechanism is fitted on
+    the rows whose treatment is recorded, so it is :math:`P(A = a \\mid \\Delta_A = 1, W)`.
+    The outcome observation mechanism is fitted on the same rows, and the outcome
+    regression on the rows where both are recorded.  Their designs at the observed
+    treatment write the first arm's code into an unrecorded row
+    (:meth:`~cleverly.data.CausalData.treatment_design`'s ``missing_as=``), and every
+    consumer multiplies such a prediction by a residual that is zero there.  Without a
+    missing treatment every mask selects every row, and the fit is unchanged.
+
+    A composite-indicator view (:func:`~cleverly.estimators.composite.composite_view`) is
+    refused.  Its treatment and observation arrays describe the composite indicator, and a
+    nuisance model fitted on them would estimate a different mechanism.
     """
+    if data.composite_view:
+        raise ValueError(
+            "fit_nuisances was given a composite-indicator view. The view is for targeting "
+            "and for the readers of a fitted result; fit the nuisances on the prepared data."
+        )
     diagnostics: dict[str, Any] = {}
     groups = data.cluster
+    recorded = data.treatment_recorded if data.has_missing_treatment else None
+    fill = data.arm_codes[0] if recorded is not None else None
     if companion is not None:
         _check_companion(data, companion)
     if not fit_treatment and (data.is_continuous_treatment or incremental or companion is not None):
@@ -1126,6 +1155,7 @@ def fit_nuisances(
             task="classification",
             predict_designs={"g": data.covariates},
             companion_designs={} if companion is None else {"g": companion.covariates},
+            fit_mask=recorded,
             groups=groups,
             clip=(0.0, 1.0),
             classes=arms,
@@ -1155,6 +1185,29 @@ def fit_nuisances(
     if screen_treatment:
         retained = _retained_covariates(data, screen_threshold, min_retain)
 
+    # --- treatment observation mechanism ------------------------------------
+    treatment_observation = None
+    if recorded is not None:
+        if missingness_learner is None:
+            raise ValueError(
+                "the data has a missing treatment but no missingness_learner was supplied"
+            )
+        recorded_out, recorded_diagnostics = cross_fit_predictions(
+            missingness_learner,
+            data.covariates,
+            recorded.astype(float),
+            data.weights,
+            folds,
+            task="classification",
+            predict_designs={"pi_a": data.covariates},
+            groups=groups,
+            clip=(0.0, 1.0),
+            n_jobs=n_jobs,
+        )
+        treatment_observation = recorded_out["pi_a"]
+        if recorded_diagnostics:
+            diagnostics["treatment_observation"] = recorded_diagnostics
+
     # --- missingness mechanism ----------------------------------------------
     missingness = None
     if data.has_missing_outcome:
@@ -1162,7 +1215,9 @@ def fit_nuisances(
             raise ValueError(
                 "the data has missing outcomes but no missingness_learner was supplied"
             )
-        missingness_design = data.missingness_design()
+        missingness_design = (
+            data.missingness_design() if fill is None else data.treatment_design(missing_as=fill)
+        )
         missing_out, missing_diagnostics = cross_fit_predictions(
             missingness_learner,
             missingness_design,
@@ -1171,6 +1226,7 @@ def fit_nuisances(
             folds,
             task="classification",
             predict_designs=_mechanism_designs(data, arms, shift_set, missingness_design),
+            fit_mask=recorded,
             groups=groups,
             clip=(0.0, 1.0),
             n_jobs=n_jobs,
@@ -1213,7 +1269,7 @@ def fit_nuisances(
     if data.has_intermediate and intermediate_value is None:
         raise ValueError("intermediate_value is required when the data carries an intermediate")
     include_z = data.has_intermediate
-    outcome_design = data.treatment_design(include_intermediate=include_z)
+    outcome_design = data.treatment_design(include_intermediate=include_z, missing_as=fill)
     scaled = scaler.scale(data.outcome)
     outcome_task: Task = "classification" if data.family == "binomial" else "regression"
 
@@ -1262,7 +1318,7 @@ def fit_nuisances(
         task=outcome_task,
         predict_designs=designs,
         companion_designs=companion_designs,
-        fit_mask=data.observed,
+        fit_mask=data.observed if recorded is None else data.observed & recorded,
         groups=groups,
         clip=(0.0, 1.0),
         n_jobs=n_jobs,
@@ -1308,6 +1364,7 @@ def fit_nuisances(
         folds=folds,
         missingness=missingness,
         intermediate=intermediate,
+        treatment_observation=treatment_observation,
         treatment_covariates=tuple(retained),
         diagnostics=diagnostics,
         outcome_task=outcome_task,
@@ -1455,11 +1512,13 @@ def _retained_covariates(
     """
     from ..learners.screeners import screen_by_correlation
 
+    # The recorded rows only, as the treatment model is fitted there.
+    rows = data.treatment_recorded if data.has_missing_treatment else slice(None)
     keep = screen_by_correlation(
-        data.covariates,
-        data.treatment,
+        data.covariates[rows],
+        data.treatment[rows],
         threshold=threshold,
         min_retain=min_retain,
-        sample_weight=data.weights,
+        sample_weight=data.weights[rows],
     )
     return tuple(name for name, flag in zip(data.covariate_names, keep, strict=True) if flag)

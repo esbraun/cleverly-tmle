@@ -12,6 +12,7 @@ from ._typing import Family
 from .data import CausalData
 from .data.validate import RANDOMIZED_INTERCEPT
 from .estimators import CTMLE, DRTMLE, TMLE, TMLEResult
+from .estimators.composite import missing_treatment_design_refusal
 from .estimators.tmle import refuse_stratified_targeting
 from .exceptions import CapabilityError, CleverlyError, DataError, MethodConfigurationError
 from .inference.multiplier import SimultaneousBands, simultaneous_bands
@@ -34,6 +35,7 @@ from .targets.base import (
     INTERMEDIATE_MECHANISM,
     MISSINGNESS_MECHANISM,
     OUTCOME_REGRESSION,
+    TREATMENT_OBSERVATION_MECHANISM,
     Identification,
     arm_alias,
     parameter_name,
@@ -392,6 +394,10 @@ class PointTreatment:
         Treatment support used to select supported estimands.
     outcome_family : {"auto", "gaussian", "binomial"}
         Outcome family. ``"auto"`` infers it from observed values.
+    treatment_missingness : str or None
+        Treatment-observation indicator. One means the treatment is recorded. It declares
+        a treatment missing at random, which the arm means and their contrasts identify
+        through the composite indicator on in-sample TMLE and DRTMLE fits.
 
     See Also
     --------
@@ -427,6 +433,7 @@ class PointTreatment:
     strata: Sequence[str] = field(default_factory=tuple)
     treatment_kind: Literal["discrete", "continuous"] = "discrete"
     outcome_family: Family = "auto"
+    treatment_missingness: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "adjustment", tuple(self.adjustment))
@@ -483,6 +490,7 @@ class PointTreatment:
             strata=self.strata,
             family=self.outcome_family,
             treatment_kind=self.treatment_kind,
+            treatment_delta=self.treatment_missingness,
         )
 
     def _check_prepared(self, data: CausalData) -> None:
@@ -498,6 +506,7 @@ class PointTreatment:
             ("outcome", self.outcome, data.outcome_name),
             ("treatment", self.treatment, data.treatment_name),
             ("missingness", self.missingness, data.delta_name),
+            ("treatment_missingness", self.treatment_missingness, data.treatment_delta_name),
             ("intermediate", self.intermediate, data.intermediate_name),
             ("cluster", self.cluster, data.cluster_name),
             ("weights", self.weights, data.weights_name),
@@ -1378,6 +1387,8 @@ class BackdoorMeanContrast:
         Whether the functional uses sequential identification.
     missingness : str or None
         Outcome-observation indicator used by the observed-data regression.
+    treatment_missingness : str or None
+        Treatment-observation indicator used by the observed-data regression.
     intermediate_name : str or None
         Intermediate column fixed by a controlled direct effect.
     treatment_levels : tuple
@@ -1404,6 +1415,7 @@ class BackdoorMeanContrast:
     missingness: str | None = None
     intermediate_name: str | None = None
     treatment_levels: tuple[Any, ...] = ()
+    treatment_missingness: str | None = None
     treatment_value: Any = None
     history: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
@@ -1456,6 +1468,8 @@ class BackdoorMeanContrast:
             if self.intermediate is not None:
                 name = self.intermediate_name or "Z"
                 conditions.append(f"{name}={self.intermediate:g}")
+            if self.treatment_missingness is not None:
+                conditions.append(f"{self.treatment_missingness}=1")
             if self.missingness is not None:
                 conditions.append(f"{self.missingness}=1")
             conditions.append("W")
@@ -1996,6 +2010,24 @@ def _point_identification(
                 f"response mechanism excludes {design.intermediate}"
             )
         nuisances.append(MISSINGNESS_MECHANISM)
+    treatment_missingness = functional.treatment_missingness
+    if treatment_missingness is not None:
+        # The composite indicator's conditions: Y(a) independent of the treatment's
+        # recording given (A, W), and the composite probability bounded away from zero.
+        recorded = f"{treatment_missingness} = 1"
+        response = f", {missingness} = 1" if missingness is not None else ""
+        assumptions.append(
+            f"treatment missing at random for {treatment_missingness}: "
+            f"{design.outcome}(a) is independent of {treatment_missingness} given "
+            f"({design.treatment}, W); the recording may depend on {design.treatment}, so "
+            f"P({design.treatment} = a | W) is not identified and only "
+            f"P({design.treatment} = a | {recorded}, W) is"
+        )
+        assumptions.append(
+            f"composite positivity: P({design.treatment} = a, {recorded}{response} | W) > 0 "
+            "almost surely for every arm a"
+        )
+        nuisances.append(TREATMENT_OBSERVATION_MECHANISM)
     # Definedness, stated for each estimand a boundary value leaves undefined.  The three
     # are one class of condition, and `cleverly.inference.delta` raises on each of them.
     if target == "paf":
@@ -2081,6 +2113,7 @@ def _point_functional(
             estimand.intermediate if isinstance(estimand, ControlledDirectEffect) else None
         ),
         missingness=design.missingness,
+        treatment_missingness=design.treatment_missingness,
         intermediate_name=design.intermediate,
         treatment_levels=(
             () if design.treatment_kind == "continuous" else tuple(data.treatment_levels)
@@ -2223,6 +2256,15 @@ class ExplicitAdjustmentProvider:
         # missing outcome, E[Y] is exactly the empirical mean, and refusing it here would
         # refuse a fit the estimator performs.  docs/roadmap.md F20 tracks the stop for
         # missing outcomes, which is this condition.
+        if data.has_missing_treatment:
+            refusal = missing_treatment_design_refusal(
+                data,
+                target=target,
+                axis=TARGETS[target].parameter_axis,
+                intermediate=design.intermediate is not None,
+            )
+            if refusal is not None:
+                raise refusal
         if data.has_missing_outcome and target in POPULATION_INTERVENTION_TARGETS:
             raise population_intervention_refusal(
                 (target,),

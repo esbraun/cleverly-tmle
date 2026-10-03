@@ -22,7 +22,7 @@ from .._inference_status import (
     supplies_inference,
 )
 from .._typing import FloatArray, ParameterAxis
-from ..data.causal_data import CausalData, arm_share
+from ..data.causal_data import CausalData
 from ..exceptions import (
     refuse_after_repeats,
     refuse_inference,
@@ -1317,6 +1317,11 @@ class TMLEResult:
                 if data.has_missing_outcome
                 else ""
             )
+            + (
+                f" ({int(data.treatment_recorded.sum())} with a recorded treatment)"
+                if data.has_missing_treatment
+                else ""
+            )
             + f"; covariates = {data.n_covariates}; {_arm_shares(data)}",
         ]
         if self.identified_effect is not None:
@@ -1684,9 +1689,10 @@ def _arm_shares(data: CausalData) -> str:
     if data.is_binary_treatment:
         return f"P(A=1) = {data.treated_fraction:.4g}"
 
+    # ``arm_fractions`` takes the share among the rows whose treatment is recorded.
     shares = [
-        f"{data.arm_label(arm)}={arm_share(data.treatment, data.weights, arm):.3g}"
-        for arm in data.arm_codes
+        f"{data.arm_label(arm)}={share:.3g}"
+        for arm, share in zip(data.arm_codes, data.arm_fractions, strict=True)
     ]
     return f"arm shares: {', '.join(shares)}"
 

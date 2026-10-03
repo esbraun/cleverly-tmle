@@ -66,6 +66,7 @@ __all__ = [
     "OUTCOME_REGRESSION",
     "POINT_NUISANCES",
     "TREATMENT_MECHANISM",
+    "TREATMENT_OBSERVATION_MECHANISM",
     "Identification",
     "Target",
     "TargetContext",
@@ -179,6 +180,9 @@ TREATMENT_MECHANISM = "treatment_mechanism"
 INTERMEDIATE_MECHANISM = "intermediate_mechanism"
 #: The nuisance estimate a response mechanism P(Delta = 1 | A, W) is recorded under.
 MISSINGNESS_MECHANISM = "missingness_mechanism"
+#: The nuisance estimate a treatment observation mechanism P(Delta_A = 1 | W) is recorded
+#: under, on a design with a declared missing treatment.
+TREATMENT_OBSERVATION_MECHANISM = "treatment_observation_mechanism"
 
 #: Every name a point-treatment :class:`Identification` may put in
 #: ``required_nuisances``, declared here beside the record that carries them.  Two of the
@@ -190,6 +194,7 @@ POINT_NUISANCES = (
     TREATMENT_MECHANISM,
     INTERMEDIATE_MECHANISM,
     MISSINGNESS_MECHANISM,
+    TREATMENT_OBSERVATION_MECHANISM,
 )
 
 

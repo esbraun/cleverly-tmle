@@ -21,6 +21,7 @@ __all__ = [
     "MIN_CONTINUOUS_LEVELS",
     "MIN_OBSERVATIONS",
     "MISSING_OUTCOME_DECLARATION",
+    "MISSING_TREATMENT_DECLARATION",
     "RANDOMIZED_INTERCEPT",
     "arm_indicators",
     "check_binary",
@@ -32,6 +33,7 @@ __all__ = [
     "encode_continuous_treatment",
     "encode_treatment",
     "infer_family",
+    "missing_values",
     "resolve_family",
 ]
 
@@ -51,6 +53,14 @@ RANDOMIZED_INTERCEPT = "__cleverly_randomized_intercept__"
 #: with no missing outcome send the caller to the same declaration.
 MISSING_OUTCOME_DECLARATION = (
     "missingness=<column> on PointTreatment, or delta=<column> on fit() or CausalData"
+)
+
+#: How a caller declares the treatment observation indicator, in both spellings.  The
+#: data-layer refusal of an undeclared missing treatment names it, and so does the
+#: estimator gate that refuses a declared one outside the supported compositions.
+MISSING_TREATMENT_DECLARATION = (
+    "treatment_missingness=<column> on PointTreatment, or treatment_delta=<column> on fit() "
+    "or CausalData"
 )
 
 #: Most treatment levels the estimator will accept.  Each level costs a counterfactual
@@ -121,7 +131,12 @@ def encode_binary(values: np.ndarray, name: str) -> tuple[FloatArray, tuple[obje
 
 
 def encode_treatment(
-    values: np.ndarray, name: str, *, min_per_arm: int = 1, remedy: str | None = None
+    values: np.ndarray,
+    name: str,
+    *,
+    min_per_arm: int = 1,
+    remedy: str | None = None,
+    recorded: BoolArray | None = None,
 ) -> tuple[FloatArray, tuple[object, ...]]:
     """Map a ``K``-level treatment onto codes ``0 .. K-1``, returning the level order.
 
@@ -149,8 +164,24 @@ def encode_treatment(
         for a :class:`~cleverly.data.CausalData`; a caller that does not offer that
         keyword must pass its own, since an error naming a keyword the entry point does
         not take is worse than no suggestion at all.
+    recorded:
+        The rows whose treatment was recorded, for a treatment declared missing at random.
+        Levels, the binary pass-through and the per-arm minimum then read those rows only,
+        and every other row gets the code ``NaN`` whatever value it holds.  A level that
+        occurs only on an unrecorded row is not a level.  ``None`` reads every row, and it
+        keeps every existing caller, the longitudinal container included, unchanged.
     """
     arr = np.asarray(values).reshape(-1)
+    if recorded is not None:
+        mask = np.asarray(recorded, dtype=bool).reshape(-1)
+        if mask.shape != arr.shape:
+            raise DataError(f"{name}'s recorded-row mask has {mask.size} rows, expected {arr.size}")
+        sub_codes, levels = encode_treatment(
+            arr[mask], name, min_per_arm=min_per_arm, remedy=remedy
+        )
+        codes = np.full(arr.shape[0], np.nan)
+        codes[mask] = sub_codes
+        return codes, levels
 
     if arr.dtype.kind in "fiu":
         numeric = np.asarray(arr, dtype=float)
@@ -261,7 +292,12 @@ def arm_indicators(codes: np.ndarray, n_levels: int) -> FloatArray:
         )
     if n_levels == 2:
         return c.reshape(-1, 1)
-    return np.column_stack([(c == float(level)).astype(float) for level in range(1, n_levels)])
+    block = np.column_stack([(c == float(level)).astype(float) for level in range(1, n_levels)])
+    # An unrecorded treatment has no arm.  Its row is ``NaN`` rather than all zeros, which
+    # a learner would read as the dropped first arm; two arms keep the code itself, so a
+    # ``NaN`` code is already a ``NaN`` row there.
+    block[~np.isfinite(c)] = np.nan
+    return block
 
 
 #: What to suggest when an arm-coded column has more levels than the estimator accepts and
@@ -371,8 +407,13 @@ def resolve_family(y: FloatArray, observed: BoolArray, family: str) -> str:
     return resolved
 
 
-def check_delta(delta: np.ndarray, name: str) -> BoolArray:
-    """Validate the observed-outcome indicator."""
+def check_delta(delta: np.ndarray, name: str, *, role: str = "outcome") -> BoolArray:
+    """Validate an observation indicator: the outcome's, or the treatment's.
+
+    ``role`` names what the indicator records in the one message that says what is
+    missing.  The two indicators take the same rules, so a treatment indicator is not held
+    to a stricter standard than the outcome indicator it mirrors.
+    """
     arr = np.asarray(delta, dtype=float).reshape(-1)
     if not np.all(np.isfinite(arr)):
         raise DataError(f"{name} contains missing values; it must be 1 (observed) or 0 (missing)")
@@ -380,8 +421,39 @@ def check_delta(delta: np.ndarray, name: str) -> BoolArray:
     if not np.all(np.isin(unique, (0.0, 1.0))):
         raise DataError(f"{name} must be coded 0/1; found values {unique[:6].tolist()}")
     if not np.any(arr == 1.0):
-        raise DataError(f"{name} is 0 everywhere: no outcomes are observed")
+        raise DataError(f"{name} is 0 everywhere: no {role}s are observed")
     return np.asarray(arr == 1.0, dtype=bool)
+
+
+def missing_values(values: np.ndarray) -> BoolArray:
+    """Which entries of a raw column are missing, for a numeric or a label column.
+
+    A numeric column marks a missing value as ``NaN`` (or any non-finite value).  A label
+    column read from a dataframe can carry ``None``, a float ``NaN`` or the pandas ``NA``
+    scalar, and this recognises each one without importing pandas.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The raw column, as a dataframe's ``to_numpy`` or a caller's array gives it.
+
+    Returns
+    -------
+    numpy.ndarray
+        A boolean mask, ``True`` where the entry is missing.
+    """
+    arr = np.asarray(values).reshape(-1)
+    if arr.dtype.kind in "fiu":
+        return np.asarray(~np.isfinite(np.asarray(arr, dtype=float)), dtype=bool)
+    if arr.dtype.kind == "b":
+        return np.zeros(arr.shape[0], dtype=bool)
+    return np.array([_is_missing_label(value) for value in arr], dtype=bool)
+
+
+def _is_missing_label(value: object) -> bool:
+    if value is None or type(value).__name__ == "NAType":
+        return True
+    return isinstance(value, float | np.floating) and not np.isfinite(value)
 
 
 def check_weights(weights: np.ndarray | None, n: int, name: str = "weights") -> FloatArray:
