@@ -8,7 +8,7 @@
     ==========================  ===========================================================
     pair                        draw and target
     ==========================  ===========================================================
-    ``cluster_robust``          ``equal40``, 100 clusters; ``ate_regimen[always vs never]``
+    ``cluster_robust_static``   ``equal40``, 100 clusters; ``ate_regimen[always vs never]``
     ``cluster_robust_dynamic``  the same fits; the dynamic rule against ``never``
     ``cluster_robust_unequal``  ``unequal40``, 100 clusters; the static contrast
     ``cluster_robust_survival`` the survival law, ``equal40``, 100 clusters; the risk
@@ -20,6 +20,10 @@
     :func:`~tests.studies.evidence.property_verdicts.clustered_inference_verdicts`. Each pair
     has 6,000 replications: at the probed coverage 0.935, the positive rule passes with
     probability 0.59 at 2,400 and 0.97 at 6,000 (``tests/unit/test_clustered_crossfit_ltmle_design.py``).
+    Every IID control reads well under its 0.80 ceiling in pre-run probes on streams off the
+    declared ones: the static contrast IID SE / SD 0.553 and the dynamic contrast 0.566 (300
+    draws, cluster SE / SD 1.021 and 1.019, no failure); unequal sizes 0.521 and survival 0.658
+    (400 and 600 draws).
     The unequal draws hold a random number of rows, mean 4,000; every row publishes the
     nominal ``n = 4,000``, as the schema requires.
 ``simultaneous_coverage`` (gated)
@@ -81,7 +85,7 @@ SURVIVAL_TARGET = "ate_regimen[always vs never @ t=2]"
 
 #: Each pair: (positive cell, control cell, draw kind, target).
 PAIRS = (
-    ("cluster_robust", "iid_control", "end_of_study", CONTRAST_NAMES[0]),
+    ("cluster_robust_static", "iid_control_static", "end_of_study", CONTRAST_NAMES[0]),
     ("cluster_robust_dynamic", "iid_control_dynamic", "end_of_study", CONTRAST_NAMES[1]),
     ("cluster_robust_unequal", "iid_control_unequal", "unequal", CONTRAST_NAMES[0]),
     ("cluster_robust_survival", "iid_control_survival", "survival", SURVIVAL_TARGET),

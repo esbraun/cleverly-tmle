@@ -816,6 +816,14 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the DR-TMLE curve treated as independent rows",
         "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
     ),
+    ("clustered_inference", "cluster_robust_static"): (
+        "cross-fitted clustered LTMLE, ate_regimen[always vs never], 100 clusters of 40 rows",
+        "SE-ratio and coverage intervals both stay inside their calibration bands",
+    ),
+    ("clustered_inference", "iid_control_static"): (
+        "the static LTMLE contrast's curve treated as independent rows",
+        "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
+    ),
     ("clustered_inference", "cluster_robust_dynamic"): (
         "cross-fitted clustered LTMLE, the dynamic rule against never, on the primary fits",
         "SE-ratio and coverage intervals both stay inside their calibration bands",

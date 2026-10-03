@@ -209,6 +209,28 @@ class TestTheFewClusterStudy:
         }
         assert kept == {cell for cell, failures in FAILURE_PROBE.items() if failures == 0}
 
+    def test_every_declared_stream_was_probed_without_failure(self) -> None:
+        kept = {
+            f"{sizes}/J{clusters}" for sizes in few.SIZE_LAWS for clusters in few.CLUSTER_COUNTS
+        }
+        assert set(few.FAILURE_PROBE_UPPER_STREAMS) == kept
+        assert set(few.FAILURE_PROBE_UPPER_STREAMS.values()) == {0}
+        assert few.FAILURE_PROBE_DRAWS + 2_000 == few.PROPERTY_REPLICATES
+        assert few.PRIMARY_FAILURE_PROBE == 0
+
+    def test_the_control_has_design_power(self) -> None:
+        """The IID control's 99% SE-ratio upper bound sits well under its 0.80 ceiling.
+
+        A normal approximation to the bootstrap interval of a ratio of a mean SE to an empirical
+        SD at R replications: half-width ``z_0.995 * ratio / sqrt(2 R)``.
+        """
+        z = norm.ppf(0.995)
+        for cell, (cluster_ratio, iid_ratio) in few.CONTROL_DESIGN.items():
+            upper = iid_ratio * (1.0 + z / np.sqrt(2 * few.PROPERTY_REPLICATES))
+            assert upper < few_properties.IID_CONTROL_CEILING - 0.05, cell
+            # The positive arm reads a calibrated ratio on the same stream.
+            assert 0.90 < cluster_ratio < 1.10, cell
+
     def test_every_cell_reads_t_with_j_minus_two(self) -> None:
         for clusters in few.CLUSTER_COUNTS:
             estimate, _ = few_properties.fit_cell("unequal40", clusters, 1)

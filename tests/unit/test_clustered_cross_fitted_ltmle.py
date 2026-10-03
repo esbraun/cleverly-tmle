@@ -516,6 +516,19 @@ def derived(result: Any) -> dict[str, Any]:
     return out
 
 
+def assert_incidence_total_clustered(result: Any) -> None:
+    """Each ``incidence_total()`` standard error is the cluster-sum SE of the summed curve."""
+    total = result.incidence_total()
+    assert len(total) > 0
+    for row in total.itertuples(index=False):
+        names = [
+            f"cif_regimen[{row.regimen}, {cause} @ t={row.time}]" for cause in result.config.causes
+        ]
+        summed = np.sum(np.column_stack([result[name].influence_curve for name in names]), axis=1)
+        expected = float(np.sqrt(cluster_variance(summed, result.data.cluster)))
+        assert row.std_err == pytest.approx(expected, rel=1e-12), (row.regimen, row.time)
+
+
 def positive_mass_clusters(result: Any) -> int:
     weights = np.asarray(result.data.weights) if result.data.is_weighted else None
     cluster = np.asarray(result.data.cluster)
@@ -544,8 +557,7 @@ class TestEveryTargetKind:
         if kind == "weighted":
             assert count == clusters - 1
         if result.data.is_competing:
-            total = result.incidence_total()
-            assert "std_err" in total.columns
+            assert_incidence_total_clustered(result)
 
     def test_the_band_at_forty_clusters_draws_cluster_multipliers(
         self, monkeypatch: pytest.MonkeyPatch
@@ -586,8 +598,7 @@ class TestEveryTargetKind:
             with pytest.raises(CapabilityError):
                 _ = estimate.ci
         reason = NON_INFERENTIAL["few_cluster_plugin"].reason
-        assert "cross-fitted clustered LTMLE fit needs 20" in reason
-        assert "no cross-fitted study measures 4 to 19 clusters" in reason
+        assert "10 for TMLE, DR-TMLE and in-sample LTMLE, and 20 for cross-fitted LTMLE" in reason
         assert "F28" in reason
         in_sample = fit_law(19, n_folds=1)
         assert in_sample.inference_status == "influence_curve"
@@ -611,6 +622,28 @@ class TestEveryTargetKind:
         assert fit_law(19).inference_status == "influence_curve"
         with pytest.raises(AssertionError):
             self.test_the_cross_fitted_floor_is_the_smallest_measured_count()
+
+    def test_a_zero_mass_cluster_does_not_count_toward_the_cross_fitted_floor(self) -> None:
+        """20 labels, one with zero weight mass: 19 count, so the fit withholds its interval."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = _weighted(MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS)
+        assert result.data.n_clusters == MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS
+        assert positive_mass_clusters(result) == MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS - 1
+        assert result.inference_status == "few_cluster_plugin"
+
+    def test_a_status_that_counts_labels_fails_the_zero_mass_witness(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation: the cross-fitted status counts every label, not positive mass."""
+        original = cluster_module.cluster_inference_status
+        monkeypatch.setattr(
+            longitudinal_estimator,
+            "cluster_inference_status",
+            lambda cluster, **kwargs: original(cluster, **{**kwargs, "weights": None}),
+        )
+        with pytest.raises(AssertionError):
+            self.test_a_zero_mass_cluster_does_not_count_toward_the_cross_fitted_floor()
 
     @pytest.mark.parametrize("mutation", ["J - 1", "label count"])
     def test_another_reference_fails(self, mutation: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -638,6 +671,23 @@ class TestEveryTargetKind:
             self.test_every_reported_estimate("weighted", 21)
 
 
+class TestTheIncidenceTotalIsClustered:
+    def test_the_total_reads_the_cluster_sums(self) -> None:
+        assert_incidence_total_clustered(_competing(FEW_CLUSTER_THRESHOLD))
+
+    def test_a_total_without_the_clusters_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Mutation: ``incidence_total`` drops ``cluster=`` from its covariance."""
+        original = longitudinal_estimator.influence_covariance
+
+        def unclustered(curves: Any, cluster: Any = None, **kwargs: Any) -> Any:
+            del cluster
+            return original(curves, **kwargs)
+
+        monkeypatch.setattr(longitudinal_estimator, "influence_covariance", unclustered)
+        with pytest.raises(AssertionError):
+            assert_incidence_total_clustered(_competing(FEW_CLUSTER_THRESHOLD))
+
+
 class TestTheWorkingModelStaysRefused:
     def test_msm_above_one_fold_is_refused_at_construction(self) -> None:
         with pytest.raises(ValueError) as raised:
@@ -653,9 +703,23 @@ class TestTheTruncationReplayKeepsTheClusters:
         fitted = curve[curve["is_fitted_bound"]]
         for row in fitted.itertuples():
             assert row.psi == unequal[row.estimand].psi
-        replay = longitudinal_estimator._refit_bound(
-            unequal, unequal.replay_recipe, (0.3, subject_study.G_BOUNDS[1])
-        )
+        seen: list[Any] = []
+        original = longitudinal_estimator._run_recursion
+
+        def spy(*args: Any, **kwargs: Any) -> Any:
+            seen.append(kwargs["folds"])
+            return original(*args, **kwargs)
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(longitudinal_estimator, "_run_recursion", spy)
+            replay = longitudinal_estimator._refit_bound(
+                unequal, unequal.replay_recipe, (0.3, subject_study.G_BOUNDS[1])
+            )
+        # The replay holds the fit's grouped folds rather than drawing a new split.
+        assert seen
+        for folds in seen:
+            assert np.array_equal(folds.assignment, unequal.folds.assignment)
+            assert folds.origin.scheme == "grouped"
         assert_cluster_summed(replay.estimates, unequal.data.cluster)
         moved = [name for name, e in replay.estimates.items() if e.psi != unequal[name].psi]
         assert moved, "a bound of 0.3 truncates no weight, so the replay tests nothing"

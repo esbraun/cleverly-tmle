@@ -79,7 +79,7 @@ NODES: dict[str, Any] = {
 
 #: The ``clustered_inference`` pairs, as (positive cell, control cell).
 CLUSTERED_PAIRS = (
-    ("cluster_robust", "iid_control"),
+    ("cluster_robust_static", "iid_control_static"),
     ("cluster_robust_dynamic", "iid_control_dynamic"),
     ("cluster_robust_unequal", "iid_control_unequal"),
     ("cluster_robust_survival", "iid_control_survival"),

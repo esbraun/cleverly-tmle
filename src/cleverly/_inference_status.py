@@ -252,28 +252,23 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
         "few_cluster_plugin": StatusRecord(
             reason=(
                 "A clustered fit reports no confidence interval, no p-value and no standard "
-                f"error when it reads fewer than {MINIMUM_INTERVAL_CLUSTERS} clusters with "
-                "positive weight mass, in the fit or in one reported baseline stratum. From "
-                f"{MINIMUM_INTERVAL_CLUSTERS} to {FEW_CLUSTER_THRESHOLD - 1} such clusters the "
+                "error when it reads fewer clusters with positive weight mass, in the fit or in "
+                "one reported baseline stratum, than the smallest count its registered study "
+                f"measures: {MINIMUM_INTERVAL_CLUSTERS} for TMLE, DR-TMLE and in-sample LTMLE, "
+                f"and {MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS} for cross-fitted LTMLE. "
+                f"From the floor to {FEW_CLUSTER_THRESHOLD - 1} such clusters the "
                 "package uses a Student t reference with J - 2 degrees of freedom, as Nugent "
-                "et al. (2024), Section 2.2, last paragraph, recommend. The registered "
-                f"few-cluster study starts at {MINIMUM_INTERVAL_CLUSTERS} clusters, and no "
-                "registered study measures an interval below that count. A cross-fitted "
-                "clustered LTMLE fit needs "
-                f"{MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS} such clusters, the smallest "
-                "count its registered study measures; no cross-fitted study measures 4 to "
-                f"{MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS - 1} clusters. The point estimate "
+                "et al. (2024), Section 2.2, last paragraph, recommend. No registered study "
+                "measures an interval below the floor of its fit. The point estimate "
                 "stands. The plug-in standard error of the reported curve remains as a "
                 "diagnostic under plugin_std_error and plugin_interval, which use the normal "
-                "reference. F28 in docs/roadmap.md owns fits with fewer clusters and the open "
+                "reference. F28 in docs/roadmap.md owns fits below their floor and the open "
                 "small-sample work."
             ),
             assessment_note=(
                 "the reported curve is a few-cluster diagnostic: no confidence interval or "
-                f"p-value is available for a fit with fewer than {MINIMUM_INTERVAL_CLUSTERS} "
-                "clusters, or a cross-fitted LTMLE fit with fewer than "
-                f"{MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS}, and F28 in the roadmap is the "
-                "condition that reopens it"
+                "p-value is available for a fit with fewer clusters than its registered study "
+                "measures, and F28 in the roadmap is the condition that reopens it"
             ),
             summary_label="normal-reference se",
             bootstrap_note=(

@@ -61,8 +61,11 @@ TARGET = CONTRAST_NAMES[0]
 #: ``unequal40``, 10 clusters, and none at 20 or 30, so both 10-cluster cells are dropped. No
 #: cross-fitted cell measures 4 to 19 clusters, and F28 records that.
 CLUSTER_COUNTS = (20, 30)
-#: The failure-only probe record: failed fits out of :data:`FAILURE_PROBE_DRAWS` per declared
-#: cell, on the cell's own first streams, recorded before the declaration.
+#: The failure-only probe record: failed fits per declared cell, recorded before any run. The
+#: first probe read the first :data:`FAILURE_PROBE_DRAWS` streams of each cell. A second probe
+#: read streams 2,000 to 3,999 of each kept cell, so every declared property stream is probed,
+#: and found no failure. If a failure still occurs in the run, that cell is dropped to F28 and
+#: the run repeats without it, with no other change.
 FAILURE_PROBE = {
     "equal40/J10": 3,
     "equal40/J20": 0,
@@ -70,6 +73,24 @@ FAILURE_PROBE = {
     "unequal40/J10": 8,
     "unequal40/J20": 0,
     "unequal40/J30": 0,
+}
+#: The second probe: failed fits on streams 2,000 to 3,999 of each kept cell.
+FAILURE_PROBE_UPPER_STREAMS = {
+    "equal40/J20": 0,
+    "equal40/J30": 0,
+    "unequal40/J20": 0,
+    "unequal40/J30": 0,
+}
+#: Failed fits on all 1,000 declared primary streams, recorded before any run.
+PRIMARY_FAILURE_PROBE = 0
+#: The control design record, RM36's rule: on a design-labelled stream
+#: (``stream_seed(STUDY, "design", "<sizes>/J<count>", i)``, 300 draws per cell), the mean
+#: reported SE over the empirical SD of the target, for the cluster-robust and the IID SE.
+CONTROL_DESIGN = {
+    "equal40/J20": (1.0252, 0.6769),
+    "equal40/J30": (1.0222, 0.6733),
+    "unequal40/J20": (0.9429, 0.5953),
+    "unequal40/J30": (0.9597, 0.5945),
 }
 SIZE_LAWS = ("equal40", "unequal40")
 #: Each arm and its role. ``normal_reference`` is reported only.

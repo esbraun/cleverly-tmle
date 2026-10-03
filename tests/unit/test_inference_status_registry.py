@@ -192,12 +192,15 @@ class TestTheFewClusterThreshold:
         threshold = _inference_status.FEW_CLUSTER_THRESHOLD
         floor = _inference_status.MINIMUM_INTERVAL_CLUSTERS
         reason = NON_INFERENTIAL["few_cluster_plugin"].reason
+        cross_fitted = _inference_status.MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS
         assert (
-            f"when it reads fewer than {floor} clusters with positive weight mass, "
-            "in the fit or in one reported baseline stratum"
+            "when it reads fewer clusters with positive weight mass, in the fit or in one "
+            "reported baseline stratum, than the smallest count its registered study measures: "
+            f"{floor} for TMLE, DR-TMLE and in-sample LTMLE, and {cross_fitted} for "
+            "cross-fitted LTMLE"
         ) in reason
-        assert f"From {floor} to {threshold - 1} such clusters" in reason
-        assert "no registered study measures an interval below that count" in reason
+        assert f"From the floor to {threshold - 1} such clusters" in reason
+        assert "No registered study measures an interval below the floor of its fit" in reason
         assert f"fewer than {threshold}" in _inference_status.T_REFERENCE_NOTE
         assert f"fewer than {threshold}" in _inference_status.NO_T_REFERENCE_BANDS
 
