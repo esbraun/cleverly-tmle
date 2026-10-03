@@ -2139,13 +2139,19 @@ def _missing_outcome_state(
 
     ``upper_propensity`` is ``g_1`` at two arms and the ``(n, K)`` armwise mechanism above.
     The armwise state is off the simplex by design, because each column is tilted alone and
-    no column is renormalised. That is harmless here: ``Propensity`` checks row sums at two
-    arms only, and its ``truncate`` clips column by column above two arms.
+    no column is renormalised, so it is labelled ``simplex=False``. ``Propensity.truncate``
+    then clips it column by column, which is what it does for any mechanism above two arms.
     """
+    arms = nuisance.arms
+    propensity = (
+        _propensity_from(upper_propensity, arms)
+        if len(arms) == 2
+        else Propensity(np.asarray(upper_propensity, dtype=float), arms, simplex=False)
+    )
     return replace(
         nuisance,
         outcome=outcome,
-        propensity=_propensity_from(upper_propensity, nuisance.arms),
+        propensity=propensity,
         missingness=np.asarray(missingness, dtype=float),
     )
 

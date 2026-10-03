@@ -461,6 +461,55 @@ class TestMutationControls:
         assert max(moved) > 1e-4
 
 
+#: A treatment bound that binds on the live trial's initial mechanism. The suite's other
+#: K = 3 fits keep every ``g`` inside its bounds, so without this fit the column clip of ``g``
+#: and the ``g_bounds`` clip of ``gamma_a`` in ``D_Y`` would have no nonzero witness.
+_BINDING = (0.30, 0.99)
+
+
+def _loose_bounds(original: Callable[..., Any]) -> Callable[..., Any]:
+    """The reported curve ignores ``g_bounds`` above two arms."""
+
+    def mutated(*args: Any, **kwargs: Any) -> Any:
+        if np.asarray(args[5]).ndim == 2:
+            kwargs = {**kwargs, "g_bounds": (1e-12, 1.0 - 1e-12)}
+        return original(*args, **kwargs)
+
+    return mutated
+
+
+class TestABindingTreatmentBound:
+    def test_the_bound_binds_and_every_check_passes(self) -> None:
+        result = _live_fit(g_bounds=_BINDING)
+        initial = np.asarray(result.nuisance.propensity.values)
+        assert float(np.mean(initial < _BINDING[0])) > 0.1
+        assert result.diagnostics.corrections().initial_clip_share > 0.0
+        assert result.diagnostics.corrections().passed
+        assert result.diagnostics.score_equations().passed
+
+    def test_a_curve_that_ignores_the_bound_is_caught(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            tmle_module,
+            "missing_outcome_correction_parts",
+            _loose_bounds(tmle_module.missing_outcome_correction_parts),
+        )
+        check = _live_fit(g_bounds=_BINDING).diagnostics.corrections()
+        assert check.identity_failures()
+
+    def test_and_at_a_bound_that_does_not_bind_it_is_invisible(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The control on the control: the suite's ordinary bounds cannot see this mutation."""
+        monkeypatch.setattr(
+            tmle_module,
+            "missing_outcome_correction_parts",
+            _loose_bounds(tmle_module.missing_outcome_correction_parts),
+        )
+        assert _live_fit().diagnostics.corrections().identity_failures() == ()
+
+
 def test_w8_the_three_blocks_match_an_independent_computation() -> None:
     """``d_a``, ``d_m`` and ``d_y`` per arm at K = 3, on synthetic arrays."""
     arms = (0.0, 1.0, 2.0)
@@ -651,10 +700,11 @@ def test_w6_a_sign_mutation_in_the_curve_is_caught_by_the_reference(
 ) -> None:
     """Negating arm code 0's ``D_A`` in the reported curve; W9's reference sees it.
 
-    The correction check cannot: a solved block has mean zero, so its negation does too. Nor
-    can a sign mutation of the solver's covariate at K >= 3. One logistic tilt of one column
-    solves the same equation with ``-h`` as with ``h``, by the opposite coefficient. So the
-    sign is a property of the reported curve alone, and an independent curve is its witness.
+    The correction check cannot: a solved block has mean zero, so its negation does too. A sign
+    flip of the solver's covariate at K >= 3 is a different matter: it is result-neutral,
+    because one logistic tilt of one column solves the same equation with ``-h`` as with ``h``,
+    by the opposite coefficient. The identity check sees that flip only through the stored
+    residual. So the sign that matters is the curve's, and an independent curve is its witness.
     """
     monkeypatch.setattr(
         tmle_module,

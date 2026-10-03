@@ -468,7 +468,8 @@ def test_cross_fitted_missing_outcomes_are_refused(arms: int) -> None:
     )
 
 
-def test_cross_fitted_missing_outcomes_refuse_before_a_fold_draw(monkeypatch) -> None:
+@ARMS
+def test_cross_fitted_missing_outcomes_refuse_before_a_fold_draw(monkeypatch, arms: int) -> None:
     """An unsupported fit does not reach a seed-dependent fold-support check."""
 
     def forbid_draw(*args: object, **kwargs: object) -> None:
@@ -482,18 +483,23 @@ def test_cross_fitted_missing_outcomes_refuse_before_a_fold_draw(monkeypatch) ->
             randomized=False,
             n_folds=3,
             stratify_folds="none",
-            estimands=("ate", "ey1", "ey0"),
+            estimands=("ate",) if arms == 3 else ("ate", "ey1", "ey0"),
             **learners,
         ).fit(
-            _binary_trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
+            _with_arms(_binary_trial(100), arms),
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            delta="Delta",
         )
     assert NeverFit.calls == 0
 
 
+@ARMS
 @pytest.mark.parametrize("stratify_folds", ["treatment", "none"])
 @pytest.mark.parametrize("randomized", [True, False])
 def test_an_unguarded_cross_fitted_missing_outcome_fit_is_refused(
-    randomized: bool, stratify_folds: str
+    randomized: bool, stratify_folds: str, arms: int
 ) -> None:
     """``guard=()`` is a plain TMLE, and it met none of the guarded refusals.
 
@@ -509,6 +515,7 @@ def test_an_unguarded_cross_fitted_missing_outcome_fit_is_refused(
     does not preempt it either.
     """
     learners = never_fit_learners()
+    estimands = ("ate",) if arms == 3 else ("ate", "ey1", "ey0")
     if stratify_folds == "treatment":
         with pytest.raises(ValueError, match="stratify_folds='none'"):
             DRTMLE(
@@ -516,7 +523,7 @@ def test_an_unguarded_cross_fitted_missing_outcome_fit_is_refused(
                 randomized=randomized,
                 n_folds=3,
                 stratify_folds=stratify_folds,
-                estimands=("ate", "ey1", "ey0"),
+                estimands=estimands,
                 **learners,
             )
         assert NeverFit.calls == 0
@@ -527,12 +534,16 @@ def test_an_unguarded_cross_fitted_missing_outcome_fit_is_refused(
         randomized=randomized,
         n_folds=3,
         stratify_folds=stratify_folds,
-        estimands=("ate", "ey1", "ey0"),
+        estimands=estimands,
         **learners,
     )
     with pytest.raises(CapabilityError, match="does not establish its cross-validated"):
         estimator.fit(
-            _binary_trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
+            _with_arms(_binary_trial(100), arms),
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            delta="Delta",
         )
     assert NeverFit.calls == 0
 
@@ -628,7 +639,8 @@ def test_bootstrapping_known_probabilities_is_refused(arms: int) -> None:
         )
 
 
-def test_bootstrapping_known_probabilities_is_refused_without_a_guard() -> None:
+@ARMS
+def test_bootstrapping_known_probabilities_is_refused_without_a_guard(arms: int) -> None:
     """The control for lifting the unguarded refusal, and the reason it is a pair.
 
     This refusal used to live *inside* the ``guard``-gated block, so accepting
@@ -637,13 +649,13 @@ def test_bootstrapping_known_probabilities_is_refused_without_a_guard() -> None:
     silent, so a fit that merely runs is not evidence that it is right.
     """
     with pytest.raises(CapabilityError, match="n_bootstrap"):
-        _estimator(guard=(), n_bootstrap=5).fit(
-            _trial(100),
+        _estimator(guard=(), n_bootstrap=5, estimands=("ate",)).fit(
+            _with_arms(_trial(100), arms),
             outcome="Y",
             treatment="A",
             covariates=["W1", "W2"],
             delta="Delta",
-            treatment_probabilities=np.full(100, 0.5),
+            treatment_probabilities=_uniform(100, arms),
         )
 
 
@@ -983,14 +995,14 @@ class TestTheJointRowCountsTheTruncationTheEstimatorApplies:
         assert f"[{report.nuisance_bound:.4g}, 1], factor by factor" in text
 
 
-def _missing_treatment_frame(column: str) -> pd.DataFrame:
-    """A complete 100-row frame with a binary treatment stored as ``column``."""
+def _missing_treatment_frame(column: str, arms: int = 2) -> pd.DataFrame:
+    """A complete 100-row frame with a ``arms``-level treatment stored as ``column``."""
     rng = np.random.default_rng(29)
     w1 = rng.normal(size=100)
-    a = rng.binomial(1, 0.5, size=100)
+    a = rng.integers(0, arms, size=100) if arms > 2 else rng.binomial(1, 0.5, size=100)
     y = rng.binomial(1, 1.0 / (1.0 + np.exp(-(0.2 + 0.8 * a + 0.4 * w1)))).astype(float)
     treatment: np.ndarray = (
-        a.astype(float) if column == "float" else np.where(a == 1, "t", "c").astype(object)
+        a.astype(float) if column == "float" else np.array(["c", "t", "u"], dtype=object)[a]
     )
     return pd.DataFrame({"W1": w1, "A": treatment, "Y": y})
 
@@ -1013,24 +1025,26 @@ def _missing_treatment_fit(frame: pd.DataFrame) -> None:
     ).fit(frame, outcome="Y", treatment="A", covariates=["W1"])
 
 
+@ARMS
 @pytest.mark.parametrize(("column", "missing", "match"), _MISSING_TREATMENT_CASES)
 def test_a_missing_treatment_value_is_refused_before_any_learner(
-    column: str, missing: object, match: str
+    column: str, missing: object, match: str, arms: int
 ) -> None:
     """No keyword declares a missing treatment, so the data container refuses it."""
-    frame = _missing_treatment_frame(column)
+    frame = _missing_treatment_frame(column, arms)
     frame.loc[3, "A"] = missing
     with pytest.raises(DataError, match=match):
         _missing_treatment_fit(frame)
     assert NeverFit.calls == 0
 
 
+@ARMS
 @pytest.mark.parametrize(("column", "missing", "match"), _MISSING_TREATMENT_CASES)
 def test_a_complete_treatment_reaches_the_learners(
-    column: str, missing: object, match: str
+    column: str, missing: object, match: str, arms: int
 ) -> None:
     """The control: the same frame without the missing value reaches a learner fit."""
-    frame = _missing_treatment_frame(column)
+    frame = _missing_treatment_frame(column, arms)
     with pytest.raises(AssertionError, match="before any learner is fitted"):
         _missing_treatment_fit(frame)
     assert NeverFit.calls > 0
