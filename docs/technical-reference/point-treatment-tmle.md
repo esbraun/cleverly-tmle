@@ -223,8 +223,30 @@ checks the cross-fitted estimator under its own contract.
 For arm-indexed counterfactual means, the outcome residual instead carries the inverse product of
 the treatment mechanism $g(A\mid W)$ and the observation mechanism $\pi(A,W)$. That
 missing-at-random composition needs positivity of both mechanisms wherever the intervention places
-mass. Missingness is a design role. Missing adjustment values and missing treatment values are not
-implicitly covered.
+mass. Missingness is a design role. Missing adjustment values are not covered. A missing treatment
+is covered only when it is declared, as the next paragraph says.
+
+**A missing treatment.** Declare the treatment observation indicator with `treatment_delta=<column>`
+on `fit()` or `CausalData`, `treatment_missingness=<column>` on `PointTreatment`, or `DeltaA=` on
+`tmle()`. The indicator is 1 where the treatment is recorded. The package does not infer a missing
+treatment from a missing value. The fit then runs the composite TMLE for the arm means and their
+contrasts. For arm $a$ its clever covariate is $C_a / g_{c,a}$, with the composite indicator
+$C_a = \Delta_A \Delta 1\{A = a\}$ and the composite mechanism
+$g_{c,a}(W) = P(\Delta_A = 1 \mid W)\,g(a \mid \Delta_A = 1, W)\,\pi(a, W)$. The table gives
+the conditions, and the [DR-TMLE contract](dr-tmle/theorem.md#observational-missing-data-the-composite-indicator)
+gives the argument.
+
+| condition | statement |
+| --- | --- |
+| treatment missing at random | $Y(a)$ is independent of $\Delta_A$ given $(A, W)$. The recording may depend on $A$ |
+| outcome missing at random | $Y$ is independent of $\Delta$ given $(A, \Delta_A = 1, W)$ |
+| composite positivity | $g_{c,a}(W) > 0$ for every arm |
+| fit | in sample, `cross_fit=False`; `W` complete on every row |
+
+The recording may depend on the treatment, so $P(A = a \mid W)$ is not identified. The ATT, the
+ATC, `ey_obs`, the PAR and the PAF each read the treatment law of every row, and the fit refuses
+each one by name. The default and `"all"` target lists drop them. Fixed weights, clusters, baseline
+strata and the bootstrap are admitted, with the rules of the next section.
 
 For a declared intermediate $Z$, `ControlledDirectEffect(intermediate=z)` targets the treatment
 contrast with $Z$ fixed at $z$. Its clever covariate composes the treatment, intermediate, and
@@ -238,7 +260,9 @@ when the response mechanism is wrong, and errors in the two mechanisms can cance
 
 Arm-indexed and controlled-direct-effect implementation:
 [`estimators/direct_effect.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/direct_effect.py).
-Diaz and van der Laan (2017) supplies the randomized-trial missing-outcome construction.
+Diaz and van der Laan (2017) supplies the randomized-trial missing-outcome construction. The
+composite construction is in
+[`estimators/composite.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/composite.py).
 [Stacked CV-TMLE for arm-indexed targets](#stacked-cv-tmle-for-arm-indexed-targets) states the
 cross-fitted contract and its evidence.
 
@@ -405,6 +429,11 @@ incremental targets, non-identity-link or continuous-dose MSMs, and `DRTMLE` at 
 
 `cluster=` changes the independent unit for covariance and fold construction, and it does not
 change the estimand.
+
+A fit with a declared missing treatment admits fixed weights, clusters and baseline strata, as the
+missing-outcome TMLE does. The weights tilt the law, and the composite mechanism is the tilted
+law's mechanism, because every factor is fitted with weighted loss. A cluster stays the unit of
+the covariance. Each stratum's score block uses the composite covariate.
 
 A grouped fold draw permutes the distinct cluster labels and cuts them into near-equal parts, so
 every row of a cluster lands in one fold. The cluster is then the independent unit the preflight

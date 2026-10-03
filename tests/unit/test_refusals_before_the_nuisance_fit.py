@@ -688,7 +688,7 @@ class TestTheWitnessesHaveTeeth:
         )
 
 
-# --------------------------------------------- X23: a declared missing treatment
+# ------------------------------------------------------ a declared missing treatment
 
 #: What every missing-treatment refusal of the shared gate opens with.
 SUPPORTED = "A missing treatment is supported for arm means and their contrasts"

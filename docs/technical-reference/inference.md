@@ -171,7 +171,10 @@ $$
 $$
 
 The independent unit is then the cluster and not the row. `cluster=` changes the unit for the
-covariance and for fold construction. It does not change the estimand.
+covariance and for fold construction. It does not change the estimand. A composite-indicator fit
+with a missing treatment follows the same rule: its point estimate does not move with `id=`, and
+its variance comes from the cluster sums of its curve
+(`tests/unit/test_composite_missing_data.py::test_e20_clusters_move_the_variance_and_not_the_estimate`).
 
 A cluster stays intact in every split. `random_partition` permutes the distinct cluster labels and
 cuts them into near-equal parts. Splitting a cluster across folds to buy more folds is
@@ -300,6 +303,7 @@ Each study page gives the measured coverage.
 | [ordinary survival-curve longitudinal TMLE](method-evidence/ordinary-survival-curve-longitudinal-tmle.md) | the risk curve of one plan over two horizons, and all ten parameters of three plans |
 | [ordinary competing-risk longitudinal TMLE](method-evidence/ordinary-competing-risk-longitudinal-tmle.md) | two causes at two horizons for one plan, and all ten parameters at horizon two |
 | [stratified point-treatment TMLE](method-evidence/stratified-point-treatment-tmle.md) | marginal and stratum parameters, in sample and cross-fitted |
+| [observational missing-data DR-TMLE](method-evidence/observational-missing-data-dr-tmle.md) | the arm means and contrasts of the composite indicator at two and three arms, with an observational missing outcome and with a missing treatment |
 | [default simultaneous bands](method-evidence/default-simultaneous-bands.md) | 25 further shapes: the `TMLE()` default, weights, missing outcomes, DR-TMLE, the controlled direct effect, MSMs, clusters, shift and incremental grids, regimes, and the cross-fitted, weighted and categorical longitudinal fits |
 
 These fit shapes publish no default band.

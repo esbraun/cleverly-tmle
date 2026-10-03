@@ -153,6 +153,7 @@ The source-to-equation map is in [the contract](theorem.md#the-objects).
 | `reduced_crossfit="pooled"` | out-of-fold reduced fits sharing the primary split. The default | no. A diagnostic keyword |
 | `reduced_crossfit="nested"` | measures the generated-regressor dependence rather than assuming it away | no. Refused below three folds, under `cross_fit=False`, and with `targeting="one_step"` at a non-empty `guard` |
 | `randomized=`, `treatment_probabilities=` | the Diaz and van der Laan (2017) randomized missing-outcome surface: five reductions, and three separate corrections for treatment, observation, and outcome. Above two arms, each arm indicator gets its own construction and the arm estimators are stacked | **yes**. It requires `cross_fit=False` and both guards. See [the contract](theorem.md#randomized-trials-with-missing-outcomes) and [the multi-arm contract](theorem.md#more-than-two-arms) |
+| `delta=` without `randomized=`, or `treatment_delta=` | the composite indicator $C_a = \Delta_A \Delta 1\{A = a\}$ with the mechanism $g_{c,a} = \pi_A(W)\,g(a \mid \Delta_A = 1, W)\,\pi(a, W)$, and the complete-data reductions on it. Each arm's column is tilted alone at every arm count | **yes**. It requires `cross_fit=False` and accepts every guard and reduction. See [the composite contract](theorem.md#observational-missing-data-the-composite-indicator) |
 | `evaluation=` | an independent-draw evaluation set carried through targeting | no. A remainder diagnostic |
 | multiple treatment levels | each reduction and correction is indexed by a free level, and equation (9) is solved by independent one-versus-rest fluctuations | this follows the published R workflow. The cited theorem is binary, so this is an implementation-backed armwise extension |
 
@@ -211,7 +212,10 @@ reports rather than gates: it publishes failed cells instead of hiding them. The
 [randomized missing-outcome DR-TMLE study](../method-evidence/randomized-missing-outcome-dr-tmle.md)
 tests the MAR drift directions and the five-reduction score reduction; its R comparison is limited
 to the shared both-correct limit because R `drtmle` collapses treatment and response into one
-joint mechanism.
+joint mechanism. The
+[observational missing-data study](../method-evidence/observational-missing-data-dr-tmle.md)
+tests the composite indicator. There R `drtmle` runs the same construction, so its pairing compares
+one estimator with another implementation of it.
 [What the validation programme established](validation-programme.md)
 is the full list of what is and is not settled.
 

@@ -124,8 +124,15 @@ Laan (2017)'s randomized-trial construction for MAR outcomes, without cross-fitt
 there five reductions and separate treatment, observation and outcome tilts replace the
 complete-data pair.  The paper states one arm indicator at a time; above two arms the fit
 applies it to each indicator ``1{A = a}`` and stacks the per-arm estimators, with no
-fluctuation parameter shared across arms.  Continuous treatment, observational missing
-outcomes, missing treatment, and other target groups remain refused by name.
+fluctuation parameter shared across arms.
+
+An **observational** missing outcome (``delta=`` without ``randomized=``) and a declared
+missing treatment (``treatment_delta=``) take the composite-indicator construction of
+:mod:`cleverly.estimators.composite`.  For arm ``a`` it targets
+:math:`C_a = \Delta_A \Delta 1\{A = a\}` with the complete-data reductions above, which is
+Theorem 1 applied to :math:`(W, C_a, C_a Y)`, armwise at every arm count.  It is in sample,
+for the arm means and their contrasts, at every guard and reduction, with fixed weights and
+clusters.  Continuous treatment and other target groups remain refused by name.
 """
 
 from __future__ import annotations
@@ -385,11 +392,14 @@ class DRTMLE(TMLE):
         object rather than a name, name a regression learner here.
     randomized:
         Declare that treatment was randomized for a fit with ``delta=``, at any number of
-        arms.  The treatment learner is still fitted, following Díaz & van der Laan's
-        finite-sample recommendation; above two arms it fits the categorical mechanism and
-        each arm's column is tilted alone.
+        arms, which selects Díaz & van der Laan (2017)'s construction.  The treatment learner
+        is still fitted, following their finite-sample recommendation; above two arms it fits
+        the categorical mechanism and each arm's column is tilted alone.
         To use known probabilities instead, pass row-aligned ``treatment_probabilities=``
-        to :meth:`fit`; doing so bypasses the treatment learner.
+        to :meth:`fit`; doing so bypasses the treatment learner.  Without either, a guarded
+        fit with ``delta=`` is observational and takes the composite-indicator construction.
+        A declared missing treatment refuses both, because that construction observes the
+        treatment on every row.
     max_outer:
         How many rounds the three-equation alternation may run.  **Not** ``max_iter``, which
         is the cap on the Newton steps *inside* one fluctuation and which every estimator
@@ -424,10 +434,11 @@ class DRTMLE(TMLE):
     * a continuous treatment, whose density-based equations are not derived here;
     * ``att``/``atc`` and the ``interventions=``, ``shifts=``, ``incremental=`` and ``msm=``
       axes -- each is a different score equation with no reduced-dimension derivation;
-    * observational treatment with ``delta=``, missing treatment, and ``intermediate=``.
-      Díaz & van der Laan (2017) covers randomized treatment with MAR outcomes, one arm
-      indicator at a time, which the fit applies armwise above two arms;
-      the other compositions need their own corrected curve and remainder;
+    * ``intermediate=``, whose mechanism factor would sit inside the reduced regressions;
+    * a missing treatment beside ``randomized=True`` or ``treatment_probabilities=``, and
+      ``evaluation=`` or ``reduced_crossfit="nested"`` on the composite construction.  The
+      shared gate in :func:`~cleverly.estimators.composite.missing_treatment_refusal` names
+      every composition a missing treatment refuses;
     * ``delta=`` with ``cross_fit=True``, at every ``guard`` including ``guard=()``. The
       published missing-outcome theorem does not establish a cross-validated extension;
     * ``targeting_scheme="fold"`` -- each fold would need its own reduced regressions and

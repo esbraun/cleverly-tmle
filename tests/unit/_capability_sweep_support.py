@@ -737,7 +737,7 @@ KINDS: dict[str, Kind] = {
     # Both refit the treatment mechanism on their own rows, because randomized=True.
     "drtmle+missing": _kind(fit_drtmle_missing, *_LIVE, *_TILT, "corrections"),
     "drtmle+missing+multi_arm": _kind(fit_drtmle_missing_multi_arm, *_LIVE, *_TILT, "corrections"),
-    # The composite construction (X23): an observational delta= and a declared missing
+    # The composite construction: an observational delta= and a declared missing
     # treatment. The omitted-variable rows refuse a missing treatment by name.
     "drtmle+composite": _kind(fit_drtmle_composite, *_LIVE, *_TILT, "corrections"),
     "missing_treatment": _kind(fit_missing_treatment, *_LIVE, "evalue"),
