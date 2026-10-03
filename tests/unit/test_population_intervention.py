@@ -101,6 +101,22 @@ def test_a_cross_fitted_joint_request_with_att_names_the_admitted_estimands() ->
     assert NeverFit.calls == 0
 
 
+def test_a_stacked_continuous_att_refusal_offers_no_natural_course_name() -> None:
+    """The stacked natural course needs a binary outcome, so its names are not offered."""
+    frame = _missing_frame()
+    frame["Y"] = frame["Y"] * 0.5 + 0.25
+    learners = never_fit_learners()
+    estimator = fast_tmle(
+        estimands=("ate", "att"), stratify_folds="none", q_bounds=(0.0, 1.0), **learners
+    )
+    with pytest.raises(CapabilityError) as caught:
+        estimator.fit(frame, outcome="Y", treatment="A", covariates=("W",), delta="Delta")
+    message = str(caught.value)
+    assert "Request estimands from ['ate', 'ey', 'ey1', 'ey0']" in message
+    assert "ey_obs" not in message
+    assert NeverFit.calls == 0
+
+
 @pytest.mark.parametrize("cross_fit", [False, True], ids=["in-sample", "stacked"])
 def test_a_named_par_request_with_missing_outcomes_fits(cross_fit: bool) -> None:
     result = (

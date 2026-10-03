@@ -282,6 +282,26 @@ def fit_rr_missing() -> Any:
     )
 
 
+def fit_attributable_missing() -> Any:
+    """PAR and PAF alone with missing binary outcomes: no arm mean for the tilt to re-mix."""
+    frame, _ = make_missing_outcome_binary(n=400, seed=4)
+    return (
+        TMLE(**linear_in_sample(estimands=("par", "paf")))
+        .fit(frame, outcome="Y", treatment="A", delta="Delta")
+        .single()
+    )
+
+
+def fit_joint_natural_course() -> Any:
+    """The natural-course mean, one arm mean, PAR and PAF on one stack, with missing outcomes."""
+    frame, _ = make_missing_outcome_binary(n=400, seed=4)
+    return (
+        TMLE(**linear_in_sample(estimands=("ey_obs", "ey0", "par", "paf")))
+        .fit(frame, outcome="Y", treatment="A", delta="Delta")
+        .single()
+    )
+
+
 def fit_natural_course() -> Any:
     """The missing-outcome natural-course mean, which fits no treatment mechanism.
 
@@ -755,6 +775,11 @@ KINDS: dict[str, Kind] = {
     "regime+missing": _kind(fit_regime_missing, *_LIVE),
     "msm+missing": _kind(fit_msm_missing, *_LIVE),
     "rr+missing": _kind(fit_rr_missing, *_LIVE, "evalue"),
+    # PAR and PAF alone report no arm mean, so neither tilt row answers.
+    "par+missing": _kind(fit_attributable_missing, *_LIVE),
+    # The default tilt sweep answers for ey0. A bare tipping_gamma() defers on the estimand,
+    # because the one arm mean is not what a fit that reads the natural course asked about.
+    "joint+missing": _kind(fit_joint_natural_course, *_LIVE, "missingness"),
     # No treatment mechanism is fitted, so no support row answers.
     "natural_course": _kind(fit_natural_course, "nuisance_models", "score_equations", *_POINT),
     # One covariate, which benchmark cannot drop.
@@ -1007,7 +1032,7 @@ class Mutation:
 
 #: The kinds whose tilt rows read ``available`` before RM23 while both tilt calls refused.
 DECLINED_TILT_KINDS = ("shift+missing", "incremental+missing", "regime+missing")
-DECLINED_TILT_KINDS += ("msm+missing", "rr+missing")
+DECLINED_TILT_KINDS += ("msm+missing", "rr+missing", "par+missing")
 
 #: What the sweep reports for a row that reads available while its call refuses.
 _RAISED = "{} reads available, and its call raised "
@@ -1038,6 +1063,9 @@ MUTATIONS: dict[str, Mutation] = {
             {
                 "split_plan",
                 "natural_course",
+                # The default refute request on a joint fit reads ey_obs, whose placebo has
+                # no fixed null, so the row defers and the identity gate would not.
+                "joint+missing",
                 "natural_course_study",
                 "shift",
                 "msm",

@@ -752,6 +752,22 @@ def test_missing_population_interventions_identify_the_mar_stack(estimand: Any) 
     assert available == {"tmle"}
 
 
+def test_the_attributable_dr_condition_names_the_design_columns() -> None:
+    frame = discrete_law_mar.frame().rename(columns={"A": "exposed", "Y": "event"})
+    effect = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="event", treatment="exposed", adjustment=("W",), missingness="Delta"
+        ),
+    ).identify(PopulationAttributableFraction())
+    condition = effect.identification.dr_condition
+    assert condition.startswith(
+        "consistent if m(exposed, W) = E(event | Delta = 1, exposed, W) is consistent"
+    )
+    assert "P(exposed = 0 | W) P(Delta = 1 | exposed = 0, W)" in condition
+    assert "m(A, W)" not in condition
+
+
 @pytest.mark.parametrize(
     "design",
     [{}, {"weights": "weight"}, {"cluster": "cluster"}],

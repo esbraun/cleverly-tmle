@@ -341,6 +341,10 @@ def _is_arm_indexed_missing_crossfit(
 #: and arm count narrow them.
 _ARM_INDEXED_ADMITTED = frozenset({"ey_obs", "par", "paf", "ey", "ey0", "ey1", "ate", "rr", "or"})
 
+#: The names that read the natural-course mean, which the stacked contract admits for a
+#: binary outcome only.
+_NATURAL_COURSE_NAMES = frozenset({NATURAL_COURSE_TARGET, *POPULATION_INTERVENTION_TARGETS})
+
 #: The first clause of every arm-indexed stacked contract refusal.
 _ARM_INDEXED_CONTRACT = (
     "Cross-fitted TMLE of arm-indexed means and contrasts with missing outcomes supports "
@@ -1920,10 +1924,13 @@ class TMLE:
             )
         conditional = [name for name in estimands if name in ("att", "atc")]
         if conditional:
+            # The stacked natural course needs a binary outcome, so its names are offered
+            # only where its contract can run.
             admitted = [
                 name
                 for name in resolve_estimands("all", data.family, data.n_arms)
                 if name in _ARM_INDEXED_ADMITTED
+                and (data.family == "binomial" or name not in _NATURAL_COURSE_NAMES)
             ]
             refuse(
                 f"no audited result covers {conditional}. The default estimand list and "

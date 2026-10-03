@@ -87,6 +87,30 @@ class TestEachCoordinateIsTheShippedEstimator:
         scalar = _fit(("ey_obs",), cross_fit=cross_fit)
         _same(joint["ey_obs"], scalar["ey_obs"])
 
+    @pytest.mark.parametrize("role", ["weights", "id"])
+    def test_the_joint_ey_obs_is_the_scalar_fit_with_weights_or_clusters(self, role: str) -> None:
+        """The scalar weighted and clustered ey_obs read their evidence through this identity."""
+        frame = _frame().assign(weight=np.linspace(0.5, 1.5, 400), cluster=np.arange(400) // 8)
+        roles = {"weights": "weight"} if role == "weights" else {"id": "cluster"}
+
+        def fit(estimands: tuple[str, ...]) -> Any:
+            return (
+                _estimator(estimands, cross_fit=False)
+                .fit(
+                    frame,
+                    outcome="Y",
+                    treatment="A",
+                    covariates=("W1", "W2"),
+                    delta="Delta",
+                    **roles,
+                )
+                .single()
+            )
+
+        joint, scalar = fit(("ey_obs", "ey0", "par")), fit(("ey_obs",))
+        _same(joint["ey_obs"], scalar["ey_obs"])
+        assert joint["ey_obs"].variance == scalar["ey_obs"].variance
+
     @pytest.mark.parametrize("cross_fit", ROUTES)
     def test_the_joint_reference_mean_is_the_arm_only_fit(self, cross_fit: bool) -> None:
         joint = _fit(("ey_obs", "ey0", "par"), cross_fit=cross_fit)
@@ -232,7 +256,7 @@ class TestTheDenominatorAndTheHook:
 
     def test_missing_outcomes_without_the_hook_raise_an_internal_error(self) -> None:
         context = self._context(None)
-        with pytest.raises(ValueError, match="observed_mean needs the natural-course"):
+        with pytest.raises(RuntimeError, match="observed_mean needs the natural-course"):
             _ = context.observed_mean
 
 

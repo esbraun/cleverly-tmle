@@ -1843,11 +1843,13 @@ def _bound_dr_condition(
             "treatment mechanism enters the remainder"
         )
     if target in POPULATION_INTERVENTION_TARGETS and missingness is not None:
+        treatment, reference = design.treatment, functional.reference_arm
         return (
-            f"consistent if m(A, W) = E(Y | {missingness} = 1, A, W) is consistent, or if "
-            f"both P({missingness} = 1 | {design.treatment}, W) and the product "
-            f"g(a0 | W) P({missingness} = 1 | a0, W) are consistent; a correct product with "
-            "a wrong response mechanism does not rescue the natural-course term"
+            f"consistent if m({treatment}, W) = E({design.outcome} | {missingness} = 1, "
+            f"{treatment}, W) is consistent, or if both P({missingness} = 1 | {treatment}, W) "
+            f"and the product P({treatment} = {reference!r} | W) P({missingness} = 1 | "
+            f"{treatment} = {reference!r}, W) are consistent; a correct product with a wrong "
+            "response mechanism does not rescue the natural-course term"
         )
     if direct:
         mechanism = "g * q_z" + (" * pi" if missingness is not None else "")

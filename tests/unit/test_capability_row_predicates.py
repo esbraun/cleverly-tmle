@@ -53,6 +53,7 @@ from cleverly.sensitivity.missingness import (
 from cleverly.sensitivity.omitted_variable import (
     _EVALUE_POINTER,
     _FIT_WIDE_BOUND_RULES,
+    _RESPONSE_ARM_TILT_POINTER,
     _RESPONSE_BOUND_REFUSAL,
     _RESPONSE_TILT_POINTER,
     OMITTED_VARIABLE_OPERATIONS,
@@ -121,6 +122,7 @@ TILT_RULE_OF: dict[str, str | None] = {
     "regime+missing": "tiltable_parameters",
     "msm+missing": "tiltable_parameters",
     "rr+missing": "tiltable_parameters",
+    "par+missing": "tiltable_parameters",
     "natural_course": "natural_course",
     "ordinary": "missing_outcome",
     # First among the fit-wide rules after the family: a learned-rule fit has no missing
@@ -172,7 +174,7 @@ def tilt_disagreements(result: Any) -> list[str]:
         raised = _raised(functools.partial(call, result))
         problems += _disagreement(operation, facade.capability(operation), raised)
     bound = fit_wide_bound_refusal(result) or ""
-    points = bound.endswith(_RESPONSE_TILT_POINTER)
+    points = bound.endswith((_RESPONSE_TILT_POINTER, _RESPONSE_ARM_TILT_POINTER))
     if points and not facade.capability("missingness").available:
         problems.append("the bound points at a tilt row that is not available")
     return problems

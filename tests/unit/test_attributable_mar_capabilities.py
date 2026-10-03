@@ -162,6 +162,14 @@ class TestTheTargetSpecificRefusals:
             "the natural course with one reference arm"
         )
 
+    def test_the_e_value_names_the_natural_course_mean(self, joint: Any) -> None:
+        with pytest.raises(CapabilityError) as caught:
+            joint.sensitivity.evalue("ey_obs")
+        assert str(caught.value) == (
+            "an E-value is defined for a two-arm risk ratio or contrast, and ey_obs is the "
+            "natural-course mean, not a two-arm contrast"
+        )
+
     def test_the_e_value_sentence_is_the_same_on_complete_data(self) -> None:
         frame = _frame().assign(Y=lambda f: f["Y"].fillna(0.0)).drop(columns="Delta")
         complete = (
@@ -206,16 +214,36 @@ class TestTheTargetSpecificRefusals:
         row = next(row for row in joint.sensitivity.capabilities if row.operation == "missingness")
         assert "the default sweep skips ['ey_obs', 'paf', 'par']" in row.interpretation
 
-    def test_a_fit_with_no_arm_mean_reports_the_tilt_unavailable(self) -> None:
+    @pytest.mark.parametrize("operation", ["missingness", "tipping_gamma"])
+    def test_a_fit_with_no_arm_mean_names_the_natural_course(self, operation: str) -> None:
+        """Rule 7, with the natural-course sentence, on the row and on the call."""
         result = _fit(("par", "paf"))
-        row = next(row for row in result.sensitivity.capabilities if row.operation == "missingness")
+        row = result.sensitivity.capability(operation)
         assert not row.available
         assert "re-mixes the arm-indexed means" in str(row.reason)
-
-    def test_a_bare_tipping_gamma_does_not_substitute_the_arm_mean(self, joint: Any) -> None:
+        assert str(row.reason).endswith(natural_course_tilt_refusal(["paf", "par"]))
+        call = getattr(result.sensitivity, operation)
         with pytest.raises(CapabilityError) as caught:
-            joint.sensitivity.tipping_gamma()
-        assert str(caught.value) == natural_course_tilt_refusal(["ey_obs", "paf", "par"])
+            call() if operation == "missingness" else call("par")
+        assert str(row.reason) in str(caught.value)
+
+    @pytest.mark.parametrize("estimands", [JOINT, ("ey0", "par")], ids=["joint", "par_and_ey0"])
+    def test_the_tipping_row_declares_what_the_bare_call_does(
+        self, estimands: tuple[str, ...]
+    ) -> None:
+        """The row defers on the estimand, and the bare call raises the row's own reason."""
+        result = _fit(estimands)
+        row = result.sensitivity.capability("tipping_gamma")
+        assert not row.available
+        assert row.status.value == "deferred"
+        assert "estimand" in row.requires_arguments
+        assert "read the natural-course mean" in str(row.reason)
+        assert str(row.reason).endswith("Choose an explicit estimand from ['ey0']")
+        with pytest.raises(CapabilityError) as caught:
+            result.sensitivity.tipping_gamma()
+        assert str(caught.value) == row.reason
+        # Naming the arm mean lifts the deferral, and the call runs.
+        result.sensitivity.tipping_gamma("ey0")
 
     def test_simulated_confounding_keeps_the_missing_outcome_refusal(self, joint: Any) -> None:
         with pytest.raises(CapabilityError, match=r"docs/roadmap.md F12 tracks this stop"):

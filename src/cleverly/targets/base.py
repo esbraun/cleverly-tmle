@@ -439,7 +439,9 @@ class TargetContext:
                 )
             if self.natural_course is not None:
                 return self.natural_course
-            raise ValueError(
+            # RuntimeError, not ValueError: ``drop_undefined`` swallows a ValueError for
+            # ``paf``, and a missing input is an invariant breach, not an undefined value.
+            raise RuntimeError(
                 "observed_mean needs the natural-course fluctuation's ArmMean when "
                 "outcomes are missing"
             )

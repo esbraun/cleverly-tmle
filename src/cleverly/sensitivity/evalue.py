@@ -55,7 +55,10 @@ from ..assessment import AssessmentStatus
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import CapabilityError
 from ..interventions.learned import LEARNED_RULE_SENSITIVITY_REFUSAL
-from ..targets.population_intervention import POPULATION_INTERVENTION_TARGETS
+from ..targets.population_intervention import (
+    NATURAL_COURSE_TARGET,
+    POPULATION_INTERVENTION_TARGETS,
+)
 from ._derived import _derived_risk_ratio, _risk_ratio_refusal
 from ._parameters import arm_parameter_keys
 
@@ -386,6 +389,12 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
             AssessmentStatus.NOT_APPLICABLE,
             "an E-value is defined for a two-arm risk ratio or contrast, and "
             f"{attributable} compares the natural course with one reference arm",
+        )
+    if attributable == NATURAL_COURSE_TARGET:
+        raise _EValueRefusal(
+            AssessmentStatus.NOT_APPLICABLE,
+            "an E-value is defined for a two-arm risk ratio or contrast, and ey_obs is the "
+            "natural-course mean, not a two-arm contrast",
         )
     if key is None:
         raise _EValueRefusal(
