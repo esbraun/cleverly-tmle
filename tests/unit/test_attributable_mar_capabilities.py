@@ -290,3 +290,17 @@ def test_a_missing_treatment_keeps_its_refusal_of_the_natural_course(
             delta="Delta",
             treatment_delta="DeltaA",
         )
+
+
+def test_the_ratio_of_the_two_means_is_one_minus_the_paf(joint: Any) -> None:
+    """The log-ratio interval of 1 - PAF, the tmle3 form, from the same-row curves."""
+    ratio = joint.ratio("ey0", "ey_obs")
+    assert ratio.scale == "ratio"
+    assert ratio.psi == pytest.approx(1.0 - joint.psi("paf"), abs=1e-14)
+    observed = np.asarray(joint["ey_obs"].influence_curve)
+    reference = np.asarray(joint["ey0"].influence_curve)
+    log_curve = reference / joint.psi("ey0") - observed / joint.psi("ey_obs")
+    n = observed.size
+    assert ratio.std_error == pytest.approx(np.sqrt(np.var(log_curve, ddof=1) / n), rel=1e-10)
+    low, high = ratio.ci
+    assert low < ratio.psi < high

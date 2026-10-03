@@ -68,7 +68,6 @@ Priorities 2 to 5 follow the beta.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.3 | Missing-outcome attributable effects | [published support; stack extension](technical-reference/natural-extension-verdicts.md) | the shipped missing-outcome natural-course and arm means | [F20](#f20-missing-outcome-attributable-effects) |
 | 1.4 | Stratified incremental and MSM targeting | [published support; finite-partition extension](technical-reference/natural-extension-verdicts.md) | implemented pooled stratified fluctuation, and marginal incremental and MSM targeting; the [baseline-strata study](technical-reference/method-evidence/stratified-point-treatment-tmle.md) | [X8](#x8-stratified-incremental-and-msm-targeting) |
 | 1.5 | Clustered intervals at unequal cluster sizes and at few clusters | [published support; cluster-as-unit extension](technical-reference/natural-extension-verdicts.md) | the shipped grouped point-treatment split | [X24](#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters) |
 | 1.6 | Cross-fitted clustered longitudinal TMLE | [published support; cluster-as-unit extension](technical-reference/natural-extension-verdicts.md) | X24 | [X25](#x25-cross-fitted-clustered-longitudinal-tmle) |
@@ -117,10 +116,10 @@ the current boundary, and the refusal that keeps it.
 | Targeted bootstrap inference | a construction that defines what is fixed, resampled, refitted, and retargeted, plus the sampling law of the interval | existing bootstrap inference is not this procedure | [F2](#f2-targeted-bootstrap-inference) |
 | Longitudinal sensitivity-bound estimation | sample estimation of the bound functionals, a specialized algorithm, and sampling inference | no sensitivity bound on a longitudinal fit | [F16](#f16-longitudinal-sensitivity-bound-estimation) |
 | Additional longitudinal estimands | target-specific identification, influence function, targeting construction, and inference conditions | existing end-of-study, survival, competing-risk, and MSM targets only | [F3](#f3-additional-longitudinal-estimands) |
-| Other refused C-TMLE and DR-TMLE compositions | composition-specific score, reduced regressions, correction, remainder, and rate conditions. An observational missing outcome and a missing treatment on `DRTMLE` ship through the [composite indicator](technical-reference/dr-tmle/theorem.md#observational-missing-data-the-composite-indicator). On the composite, `evaluation=` and `reduced_crossfit="nested"` stay refused | named pre-fit refusals. A `DRTMLE` fit with a non-empty `guard` and estimated weights reports its point estimate under the `estimated_weight_plugin` status, and no interval | [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
+| Other refused C-TMLE and DR-TMLE compositions | composition-specific score, reduced regressions, correction, remainder, and rate conditions. An observational missing outcome and a missing treatment on `DRTMLE` ship through the [composite indicator](technical-reference/dr-tmle/theorem.md#observational-missing-data-the-composite-indicator). On the composite, `evaluation=` and `reduced_crossfit="nested"` stay refused | named pre-fit refusals. `DRTMLE` refuses `NaturalCourseMean`, PAR and PAF with missing outcomes, because no DR-TMLE natural-course mean ships. A `DRTMLE` fit with a non-empty `guard` and estimated weights reports its point estimate under the `estimated_weight_plugin` status, and no interval | [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
 | Selector-path C-TMLE inference | an influence function and covariance after the shipped data-adaptive stopping-index selection | point estimates and path diagnostics only. The greedy, ordered, and discrete paths refuse `ci`, `pvalue`, and `std_error`, except a `discrete` fit whose one declared candidate is the full adjustment set, and report a named working-mechanism plug-in diagnostic | [F18](#f18-selector-path-c-tmle-inference) |
 | Outcome-adaptive C-TMLE generated-design inference | exact scalar expansions for the shipped joint binary fit and a multi-arm vector extension of the paper-backed fold-local construction | point estimates only. Every `strategy="oat"` fit refuses `ci`, `pvalue`, and `std_error` under the `generated_design_plugin` status, and reports a named generated-design plug-in diagnostic. X17 builds the per-arm scalar construction that Theorem 1 proves and its stack | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) |
-| Other missing-outcome CV-TMLE variants | a direct interval result for fold-specific targeting and for the fixed-repeat median and split-dispersion report after CV-TMLE targeting | the package supports the ordinary natural-course estimator, the stacked natural-course estimator for a binary outcome, and the stacked arm-indexed means and contrasts. Each stacked estimator uses one repeat and pooled targeting. Shift, incremental, regime, MSM, and controlled-direct-effect targets refuse a cross-fitted fit with missing outcomes before any learner | [F21](#f21-other-missing-outcome-cv-tmle-variants) |
+| Other missing-outcome CV-TMLE variants | a direct interval result for fold-specific targeting and for the fixed-repeat median and split-dispersion report after CV-TMLE targeting | the package supports the ordinary natural-course estimator, the stacked natural-course estimator for a binary outcome, the stacked arm-indexed means and contrasts, and their stacked PAR and PAF for a binary outcome. Each stacked estimator uses one repeat and pooled targeting. Shift, incremental, regime, MSM, and controlled-direct-effect targets refuse a cross-fitted fit with missing outcomes before any learner | [F21](#f21-other-missing-outcome-cv-tmle-variants) |
 | Grouped cross-fitting beyond point-treatment TMLE | a split law and a cluster-robust variance for the C-TMLE selection folds and the candidate the search stops at | whole-cluster outer folds for cross-fitted point-treatment TMLE and DR-TMLE only. A cross-fitted fit at unequal cluster sizes, in rows or in weight mass, overall or within a reported stratum, takes the `unequal_cluster_plugin` status. A fit with fewer than 40 positive-mass clusters, in total or in one reported stratum, takes `few_cluster_plugin`. Neither reports an interval. The point-treatment boundaries moved to [X24](#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters), and the longitudinal row to [X25](#x25-cross-fitted-clustered-longitudinal-tmle) | [F22](#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
 | MNAR and incremental-intermediate compositions | identification and influence-function results for the exact compositions | point-treatment sensitivity and implemented interventions remain separate | [F6](#f6-mnar-and-incremental-intermediate-compositions) |
 | Joint point-treatment parameter axes | a targeting and inference result for one fit that carries an MSM projection together with a regime, shift, or incremental intervention, including its joint score and covariance | single-axis point-treatment fits only | [F17](#f17-joint-point-treatment-parameter-axes) |
@@ -257,30 +256,6 @@ beta release.
 
 The sections below give one contract for each open item. Their physical order does not override
 the main grid.
-
-### F20. Missing-outcome attributable effects
-
-PAR and PAF refuse a missing outcome (`population_intervention_refusal` in
-`src/cleverly/targets/population_intervention.py`, raised from `tmle.py` and `study.py`). The
-[natural-extension verdicts](technical-reference/natural-extension-verdicts.md) record the review
-as part (e).
-
-| item | contract |
-| --- | --- |
-| base results | Díaz, Carone and van der Laan (2016), for the natural-course mean with an outcome missing at random. It ships as `ey_obs`, and Equation (3) gives its remainder. The shipped observational missing-outcome arm mean, with Díaz and van der Laan (2017), Section 2.1 and Equation (1), and Gruber and van der Laan (2012), Section 2.3 |
-| steps | a fixed-dimension stack of $\hat\psi_{\mathrm{obs}}$ and $\hat\psi_{a_0}$ on the same rows. Linearity gives $\mathrm{PAR} = \psi_{\mathrm{obs}} - \psi_{a_0}$. The delta method gives $\mathrm{PAF} = \mathrm{PAR}/\psi_{\mathrm{obs}}$, with the shipped complete-data denominator rule. Joint targeting is one pooled fluctuation with both clever covariates, $\Delta/\pi(A, W)$ and $\Delta 1\{A = a_0\}/(g\,\pi)$. Separate targeting of each parent is valid too, because the stack needs only that each parent is asymptotically linear |
-| objection search | the earlier text of this item said not to infer the construction from existing results. That was a policy sentence and not a recorded objection. No read source records a defect |
-| inherited conditions | the conditions of both parents on one observational law, with one outcome regression $E(Y \mid A, W, \Delta = 1)$; treatment and response positivity; a PAF denominator bounded away from zero |
-| scope | in sample first. The cross-fitted form is admitted only where both cross-fitted parents ship: the binary-outcome stacked natural course and the stacked arm-indexed contract. Otherwise [F21](#f21-other-missing-outcome-cv-tmle-variants) keeps the refusal |
-
-Acceptance:
-
-- an exact reduction to complete-data PAR and PAF when $\Delta \equiv 1$;
-- nonzero response-score witnesses on the natural-course and the reference paths;
-- covariance and denominator mutation controls;
-- a registered study on both attributable scales;
-- an audit of every post-fit capability, which keeps each unsupported assessment unavailable with
-  a target-specific reason.
 
 ### X8. Stratified incremental and MSM targeting
 
@@ -1332,8 +1307,8 @@ result there identifies a first-order term.
 
 ### F21. Other missing-outcome CV-TMLE variants
 
-Keep fold-targeted and repeated-split missing-outcome fits refused. The natural-course mean and the
-arm-indexed means and contrasts refuse both variants before any learner call. No read source gives
+Keep fold-targeted and repeated-split missing-outcome fits refused. The natural-course mean, PAR, PAF,
+and the arm-indexed means and contrasts refuse both variants before any learner call. No read source gives
 a direct interval result for either composition.
 
 A fold-targeted extension needs a theorem for one response-weighted fluctuation coefficient in
@@ -1433,6 +1408,20 @@ Each C-TMLE extension needs its target-specific collaborative score and selectio
 Each DR-TMLE extension needs reduced regressions, a correction, a remainder, and rate conditions.
 PAR and PAF also need the joint observed-mean curve and covariance. Complete simulated-confounding
 replay receives its own audit only after the estimator can fit the target.
+
+`DRTMLE` refuses `NaturalCourseMean`, PAR and PAF with missing outcomes. The stack that ordinary
+TMLE ships ([PAR and PAF with missing outcomes](technical-reference/point-treatment-tmle.md#par-and-paf-with-missing-outcomes))
+needs a DR-TMLE natural-course mean, and none exists. The composite construction is per arm: it
+evaluates the regression and the mechanism with the arm set on every row. The natural-course mean
+needs them at the realised arm. Benkeser et al. (2017), Theorem 1, applied with $\Delta$ as the
+treatment and $(A, W)$ as the covariates, supplies the parent. The work has four steps.
+
+| step | work |
+| --- | --- |
+| 1 | a realised-arm composite view in `estimators/composite.py`, with the indicator $\Delta$ and the covariates $(A, W)$, and reduced regressions over $\bar m(A, W)$ and $\pi(A, W)$ |
+| 2 | the DR-TMLE natural-course mean `ey_obs` at each guard and reduction, with Gateaux and remainder witnesses for the corrected curve $D^*-D^*_Q-D^*_g$, and its post-fit readers (correction check, truncation, retarget, nuisance diagnostics) |
+| 3 | PAR and PAF through the shipped `TargetContext.natural_course` hook, with no second spelling |
+| 4 | a registered study with one-wrong and both-wrong coverage cells, paired with `drtmle` 1.1.2 through the constant-treatment form (`A = rep(1, n)`, `W = cbind(A, W)`, `DeltaY = !is.na(Y)`), after a probe confirms that `drtmle` accepts a one-level `A` |
 
 Omitted-variable bounds on a DR-TMLE or C-TMLE fit are refused. A bound on either fit needs an
 estimate of $\nu^2$ that stays valid when the estimator does not assume a consistent treatment
