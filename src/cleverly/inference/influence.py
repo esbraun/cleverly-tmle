@@ -1232,13 +1232,30 @@ def missing_outcome_correction_parts(
     missingness_bound: float,
     guard: tuple[str, ...],
 ) -> CorrectionParts:
-    r"""The separate treatment, observation and outcome corrections in the paper."""
+    r"""The separate treatment, observation and outcome corrections in the paper.
+
+    ``propensity`` is the targeted treatment mechanism in the shape the fit tilted it. At two
+    arms it is ``g_1`` of the one shared tilt, and arm 0 takes the complement. Above two arms
+    it is the ``(n, K)`` armwise mechanism, and each column is bounded separately.
+    """
     y = np.asarray(outcome, dtype=float).reshape(-1)
     a = np.asarray(treatment, dtype=float).reshape(-1)
     delta = np.asarray(observed, dtype=float).reshape(-1)
-    raw_g = np.asarray(propensity, dtype=float).reshape(-1)
-    bounded_upper = bound(raw_g, float(g_bounds[0]), float(g_bounds[1]))
-    g_a = np.column_stack([1.0 - bounded_upper, bounded_upper])
+    if len(reduced.arms) == 2:
+        raw_g = np.asarray(propensity, dtype=float).reshape(-1)
+        bounded_upper = bound(raw_g, float(g_bounds[0]), float(g_bounds[1]))
+        g_a = np.column_stack([1.0 - bounded_upper, bounded_upper])
+        clipped_g = np.asarray(raw_g != bounded_upper, dtype=bool)
+    else:
+        raw_k = np.asarray(propensity, dtype=float)
+        if raw_k.shape != (y.size, len(reduced.arms)):
+            raise ValueError(
+                f"the targeted mechanism must be ({y.size}, {len(reduced.arms)}); got {raw_k.shape}"
+            )
+        g_a = bound(raw_k, float(g_bounds[0]), float(g_bounds[1]))
+        # Reduced over the arms, so that `clipped` stays one bit per row, as in
+        # `reduced_correction_parts`.
+        clipped_g = np.asarray((raw_k != g_a).any(axis=1), dtype=bool)
     raw_m = np.asarray(missingness, dtype=float)
     g_m = bound(raw_m, float(missingness_bound), 1.0)
     gamma_a = reduced.bounded_gamma_a(g_bounds)
@@ -1259,10 +1276,7 @@ def missing_outcome_correction_parts(
         d_y[arm] = indicator * delta * w2[:, j] * (y - np.asarray(targeted.observed, dtype=float))
         d_g[arm] = np.asarray(d_a[arm] + d_m[arm], dtype=float)
         zeros[arm] = np.zeros_like(d_g[arm])
-    clipped = np.asarray(
-        (raw_g != bounded_upper) | np.any(raw_m != g_m, axis=1),
-        dtype=bool,
-    )
+    clipped = np.asarray(clipped_g | np.any(raw_m != g_m, axis=1), dtype=bool)
     return CorrectionParts(
         d_g=d_g,
         d_q=d_y,

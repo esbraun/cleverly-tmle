@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
@@ -352,6 +353,53 @@ def fit_drtmle_companion() -> Any:
     return fit_drtmle(drtmle_companion_frame())
 
 
+def _missing_drtmle(frame: Any) -> Any:
+    """A randomized in-sample missing-outcome DR-TMLE fit, which refits its own mechanism."""
+    estimator = DRTMLE(
+        **linear_in_sample(
+            missingness_learner=LogisticRegression(max_iter=1000),
+            reduced_outcome_learner=LinearRegression(),
+            reduced_treatment_learner=LogisticRegression(max_iter=1000),
+        ),
+        randomized=True,
+        max_outer=10,
+        estimands=("ate", "ey"),
+    )
+    return estimator.fit(
+        frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"], delta="Delta"
+    ).single()
+
+
+def fit_drtmle_missing() -> Any:
+    """Missing-outcome DR-TMLE at two arms, on the law of :func:`fit_missing`."""
+    return _missing_drtmle(_missing_frame())
+
+
+def three_arm_missing_frame() -> Any:
+    """A randomized three-arm trial with MAR outcomes, 450 rows."""
+    rng = np.random.default_rng(23)
+    n = 450
+    w = rng.normal(size=(n, 3))
+    code = rng.integers(0, 3, size=n)
+    observed = rng.random(n) < 1.0 / (1.0 + np.exp(-(0.4 + 0.3 * code - 0.5 * w[:, 0])))
+    y = 0.5 * code + w[:, 0] - 0.4 * w[:, 1] + rng.normal(scale=0.7, size=n)
+    return pd.DataFrame(
+        {
+            "W1": w[:, 0],
+            "W2": w[:, 1],
+            "W3": w[:, 2],
+            "A": np.array(["low", "medium", "high"], dtype=object)[code],
+            "Delta": observed.astype(float),
+            "Y": np.where(observed, y, np.nan),
+        }
+    )
+
+
+def fit_drtmle_missing_multi_arm() -> Any:
+    """Missing-outcome DR-TMLE at three arms, with each arm's mechanism tilted alone."""
+    return _missing_drtmle(three_arm_missing_frame())
+
+
 def fit_policy_means() -> Any:
     """A study fit of two policy means of a continuous dose, one of them zero-delta.
 
@@ -574,6 +622,9 @@ KINDS: dict[str, Kind] = {
     "stratified": _kind(fit_stratified, *_ARM),
     "clustered": _kind(fit_clustered, *_ARM),
     "drtmle": _kind(fit_drtmle, *_LIVE, "corrections"),
+    # Both refit the treatment mechanism on their own rows, because randomized=True.
+    "drtmle+missing": _kind(fit_drtmle_missing, *_LIVE, *_TILT, "corrections"),
+    "drtmle+missing+multi_arm": _kind(fit_drtmle_missing_multi_arm, *_LIVE, *_TILT, "corrections"),
     "ctmle_ordered": _kind(fit_ctmle_ordered, *_LIVE),
     "shift+missing": _kind(fit_shift_missing, *_LIVE),
     "incremental": _kind(fit_incremental, *_READ, "refute"),
