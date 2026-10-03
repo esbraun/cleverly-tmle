@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly-stratified-tmle",
       "cleverly_version": "0.1.2",
-      "cleverly_commit": "4a3781dfc8556d1a85a86b899b66da2df35ef531",
+      "cleverly_commit": "efdd54b25032397e7b65e7a2061bd8fa01e0364a",
       "cleverly_worktree_clean": false,
       "python": "3.13.7",
       "numpy": "2.5.3",
@@ -105,7 +105,7 @@
   },
   "reference_sha256": {
     "tests/canonical/tmle3/Dockerfile": "9b9847818b6551450c0259bbeb6eb806ca5b2fc415d9805266f912f05abd1335",
-    "tests/canonical/tmle3_stratified/run_tmle3_stratified.R": "54f3bb2f3fd4e7205edd2edf72153a0c39524fe3ce16cdd9dfc7fd133ccabc24",
+    "tests/canonical/tmle3_stratified/run_tmle3_stratified.R": "820357d5202902b6b622161463081e6836f9b3fe20ca59b48fb82e61f40f650d",
     "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
   },
   "sha256": {
