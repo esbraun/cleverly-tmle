@@ -77,6 +77,14 @@ READINGS = {
         0.9325,
     ),
     "cde_z0": ("default_bands", lambda: _shape("cde_z0"), 2.331, 2.312, 0.9171, 0.9200),
+    "arms": (
+        "drtmle_mar_multi_arm",
+        lambda: _exact("multi-arm-mar-drtmle/arms", 2400),
+        2.508,
+        2.500,
+        0.9337,
+        0.9342,
+    ),
 }
 
 
@@ -117,3 +125,28 @@ def test_the_smallest_stratum_reading() -> None:
     assert round(float(treated_share), 4) == 0.3938
     assert int(2000 * float(probs[inside].sum()) * float(treated_share)) == 157
     assert round(2000 * float(probs[inside & (a == 1) & (y == 0)].sum())) == 9
+
+
+def test_the_multi_arm_missing_outcome_calibration_draws() -> None:
+    """The ``F4-calibration-draws`` reading: one draw set spreads wider than its siblings.
+
+    The calibration cell and the band read the same 2,400 fits. Their empirical spread is 1.037
+    times the mean standard error, while two independent cells of the same configuration and
+    size sit at 0.997 and 0.989, with the same mean standard error.
+    """
+    rows = pd.read_csv(
+        ROOT / "tests" / "canonical" / "drtmle_mar_multi_arm" / "property-replicates.csv.gz",
+        float_precision="round_trip",
+    )
+    ratios = {}
+    for cell in ("ate__correctly_specified", "n_2000", "l3_ate_low__both_correct"):
+        selected = rows.loc[rows["cell"] == cell]
+        ratios[cell] = round(
+            float(selected["estimate"].std(ddof=1) / selected["std_error"].mean()), 3
+        )
+        assert abs(float(selected["std_error"].mean()) - 0.0377) < 1e-4
+    assert ratios == {
+        "ate__correctly_specified": 1.037,
+        "n_2000": 0.997,
+        "l3_ate_low__both_correct": 0.989,
+    }

@@ -1,0 +1,117 @@
+{
+  "schema_version": 2,
+  "study": "randomized multi-arm missing-outcome DR-TMLE",
+  "slug": "multi-arm-mar-drtmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-multi-arm-mar-drtmle",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "5a2e400e3586fd7f2c564b71154e5e71caccfdfa",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": {
+      "implementation": "drtmle-r-multi-arm-mar",
+      "drtmle_commit": "538a3a264c1ca984b6d88978ca7f96165f43152c",
+      "drtmle_version": "1.1.2",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "comparator_boundary": "joint treatment-response mechanism (Diaz and van der Laan 2017, p. 25); both-correct limit only"
+    }
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 2000,
+    "seed": 20261010,
+    "resampling_seed": 20261011,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "three_arm_mar_randomized": [
+        "ey[high]",
+        "ey[low]",
+        "ey[mid]",
+        "ate[low vs high]",
+        "ate[mid vs high]",
+        "rr[low vs high]",
+        "rr[mid vs high]",
+        "or[low vs high]",
+        "or[mid vs high]"
+      ]
+    },
+    "construction": "Diaz and van der Laan randomized MAR DR-TMLE, armwise at three arms",
+    "cross_fit": false,
+    "simultaneous_intervals": true,
+    "n_multiplier": 1000,
+    "known_treatment_probabilities": "W-stratified multi.G, passed by level",
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "missingness_bound": 0.01,
+    "guard": [
+      "Q",
+      "g"
+    ],
+    "reduction": "univariate",
+    "fitted_reduction": "missing_outcome",
+    "max_outer": 100,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_multi_arm_mar_drtmle.py": "4aa3684fd4b16985a94a53a7655f13cb36523641f06c59c34e697bb6e8117456",
+    "tests/studies/multi_arm_mar_drtmle_properties.py": "e867c5692993f49dd9e0eee4b9d66687494c5cf2c0455e551ec7d64e83ff8862",
+    "tests/studies/mar_arm_indexed_laws.py": "665e3834a172c3269a3cac5ced8dbe07f55d7ed8e910226a6ae0e41f42915987",
+    "tests/discrete_law_multi.py": "af84143ddb6547e43f3dedfc5bbddae579ef20572f6d22ef5d13119c53cd463f",
+    "tests/discrete_law_mar.py": "039979331ea4ae60916ec451710a6372590ba7e8db22d01d92df881742afb715",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/studies/evidence/comparison.py": "653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "9c8e6a923bb16fd6637dbec77492c43aef29d9a5f825799a20ce5002ca5e9590",
+    "tests/studies/evidence/property_verdicts.py": "6bddb3468d8135bc663df0d92fc52aadea539efdee0cd1ed84ef0e3e12658076",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
+    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15"
+  },
+  "reference_sha256": {
+    "tests/canonical/drtmle/Dockerfile": "470471189bf2b407411d6a89a533e073fd4f2dffb971a9480702658d5da88fe2",
+    "tests/canonical/drtmle_mar_multi_arm/run_study.R": "89c81c4fec0fce92c0c54b3575d75fe455c394cc370d489b39bf78bf9fa05c74",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878",
+    "tests/canonical/multi_arm_helpers.R": "1dcda209b2cf34d969c1582d65a42f825915a276ba1b4557a09f17930422d1a3"
+  },
+  "sha256": {
+    "replicates.csv.gz": "dcc5b06ce428c6684b21695952abe08698beeb408e0431b83a5eec058ce5117b",
+    "summary.csv": "056f6a0432a2c8af5caf2dced599a2ed22ab53477322aa7d0729dbb6af088c9b",
+    "equivalence.csv": "acc8bf23d4eb5e71eb9af4b66bf8de7f7875345986d7b3607820027ae0045ef0",
+    "performance-tests.csv": "99ec1b25cb956c3d9037165351b3bedd846cf440a749fbfe3d360bf37a05893e",
+    "property-replicates.csv.gz": "c9f291dc32a158612b24edbc596545409c45c6555daac61fea20969cdf5a442e",
+    "properties.csv": "94699089d39d8b9a81f223cd62cf14d30ead76cd5d4e982dbc8e148311cdfe73"
+  }
+}
