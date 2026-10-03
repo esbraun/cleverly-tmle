@@ -366,3 +366,23 @@ def test_the_composite_study_publishes_exactly_its_declared_cells() -> None:
     published = set(zip(summary["property"], summary["cell"], strict=True))
     declared = {(family, cell) for family, cells in STUDY.property_cells.items() for cell in cells}
     assert published == declared, sorted(published ^ declared)
+
+
+def test_the_composite_primary_rows_feed_the_fit_exit_artifact() -> None:
+    """``draw_and_fit`` keeps the exit columns that ``extra_artifacts`` reads.
+
+    The declared run failed once at this seam: the rows were projected onto the shared
+    schema before the hook ran.
+    """
+    import warnings
+
+    from tests.studies import canonical_composite_drtmle as study
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        _, _, rows = study.draw_and_fit(replicates=1, n=300, n_jobs=1)
+    (exits,) = study.extra_artifacts(rows).values()
+    assert list(exits.columns) == list(study.FIT_EXIT_COLUMNS)
+    assert len(exits) == len(rows)
+    assert set(exits["exit_reason"]) <= {"tolerance", "stall", "cap", "none"}
+    assert "none" in set(exits["exit_reason"])
