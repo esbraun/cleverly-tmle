@@ -352,8 +352,10 @@ the audit used.
 | Nugent et al. (2024) | Sections 2.1.3, 2.2 and 3 | no cross-fitting. Section 2.2 gives a $t$ reference below 40 clusters |
 | Schnitzer, van der Laan, Moodie and Platt (2014) | Section 3.4.1, read in the arXiv reprint | a clustered longitudinal TMLE with a sandwich variance and no splitting. No theorem, and no cross-fitting |
 
-No source covers treatment-stratified grouped folds for an observational estimator. No source
-covers cross-fitted longitudinal TMLE with whole-cluster folds. The package refuses both.
+No source covers treatment-stratified grouped folds for an observational estimator, and the
+package refuses them. Cross-fitted longitudinal TMLE with whole-cluster folds qualifies as a
+natural extension, with the cluster as the unit. The package refuses it until
+[X25](../roadmap.md#x25-cross-fitted-clustered-longitudinal-tmle) ships it.
 
 **What supports the grouped split, and what does not.** One reviewed source covers the *partition*
 and nothing more. Wang, Park, Small and Li (2024) partition the clusters at random into parts of
@@ -385,6 +387,9 @@ baseline stratum. A cross-fitted fit outside that scope takes `"unequal_cluster_
 `ci`, `pvalue`, and `std_error` then raise `CapabilityError`. `plugin_std_error` and
 `plugin_interval` keep the diagnostic.
 
+[X24](../roadmap.md#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters) holds the ratio-of-cluster-sums curve that relaxes the
+equal-size condition.
+
 No source read here supports a normal reference interval with few clusters. The table gives what
 each source recommends. $J$ is the cluster count, which Nugent et al. write as $N$.
 
@@ -397,8 +402,7 @@ The package keeps its normal reference. A fit with fewer than 40 positive-mass c
 `"few_cluster_plugin"` status, in sample or cross-fitted. So does a fit with fewer than 40 such
 clusters in one baseline stratum that it reports. An in-sample `LTMLE` fit with `id=` takes the
 same status below 40 positive-mass clusters. [Clusters](inference.md#clusters) gives
-both statuses, and [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle)
-holds the routes that reopen them.
+both statuses, and [X24](../roadmap.md#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters) holds the routes that reopen them.
 
 ### The Super Learner inner split
 

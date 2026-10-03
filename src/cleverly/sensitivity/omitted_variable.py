@@ -95,6 +95,7 @@ from scipy import optimize, stats
 from .._inference_status import InferenceStatus, supplies_inference
 from .._typing import FloatArray
 from ..assessment import SENSITIVITY_ROUTES
+from ..estimators.ctmle import CTMLESelection, declares_full_adjustment_only
 from ..estimators.direct_effect import declares_intermediate
 from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, DataError, refuse_inference, repeats_refusal
@@ -199,6 +200,17 @@ _CTMLE_BOUND_REFUSAL = (
     "and the collaborative robustness value is optimistic by construction. " + _NO_NU2_DERIVATION
 )
 
+#: The same refusal for the one collaborative fit that selects nothing. Its mechanism is
+#: fitted on every covariate, so the argument above does not apply to it, and the
+#: sentence names the scope rule instead.
+_CTMLE_FULL_CANDIDATE_BOUND_REFUSAL = (
+    "the omitted-variable bound is not offered on a 'collaborative_tmle' fit. This "
+    "strategy='discrete' fit declares one candidate, equal to the full adjustment set, so "
+    "it selects nothing and equals the ordinary TMLE fit. The bound reads the fitted method "
+    "and has no collaborative route. Fit the ordinary TMLE (TMLE, or TMLEMethod) on the "
+    "same data for the bound."
+)
+
 #: The clause the two well-posed mechanism refusals share: each functional is linear in
 #: an outcome regression, which is the hypothesis of the general bound.
 _THEOREM_2_COVERS = (
@@ -217,7 +229,8 @@ _PLUGIN_LIMITS_REFUSAL = (
     "no term for that fit. Lemma 3 and Theorem 4 of Chernozhukov, Cinelli, Newey, Sharma and "
     "Syrgkanis (2026) give the limits for the doubly robust estimator only. The bias-adjusted "
     "bounds, rv, max_bias, benchmark() and contour() remain available. docs/roadmap.md F26 "
-    "tracks this stop"
+    "tracks this stop, and docs/roadmap.md X26 tracks the limits for a fit whose own "
+    "treatment learner is a declared unpenalized logistic or multinomial model"
 )
 
 #: The estimators of nu^2 whose bounds refuse their limits, and why.  The doubly robust
@@ -323,10 +336,18 @@ def _refuse_guarded_mechanism(result: Any) -> str | None:
 
 
 def _refuse_selected_mechanism(result: Any) -> str | None:
-    """Refuse a collaborative fit, whose representer comes from a selected working g."""
-    if result.fitted_method == "collaborative_tmle":
-        return _CTMLE_BOUND_REFUSAL
-    return None
+    """Refuse a collaborative fit, whose representer comes from a selected working g.
+
+    The fit that declares one full candidate selects nothing, and its sentence says so.
+    """
+    if result.fitted_method != "collaborative_tmle":
+        return None
+    selection = result.extra.get("ctmle")
+    if isinstance(selection, CTMLESelection) and declares_full_adjustment_only(
+        selection.strategy, selection.path, selection.covariates
+    ):
+        return _CTMLE_FULL_CANDIDATE_BOUND_REFUSAL
+    return _CTMLE_BOUND_REFUSAL
 
 
 def _refuse_response_mechanism(result: Any) -> str | None:

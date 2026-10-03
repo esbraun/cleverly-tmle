@@ -38,6 +38,9 @@ family `cleverly` ships, and names the correctness evidence for each.
 the method. The other is a pinned external implementation, where the source was audited. External
 parity is never the derivation or the acceptance gate.
 
+The [natural-extension verdicts](natural-extension-verdicts.md) record which refused compositions
+qualify for implementation as natural extensions, and the roadmap row that owns each one.
+
 ## How to read the evidence column
 
 The [evidence manifest](evidence.md) distinguishes independent scientific checks from bounded
@@ -60,5 +63,6 @@ dr-tmle/index
 longitudinal-tmle
 msm-projections
 scope-and-refusals
+natural-extension-verdicts
 ../references
 ```
