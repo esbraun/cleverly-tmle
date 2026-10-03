@@ -1,19 +1,31 @@
-"""Clustered laws at unequal cluster sizes, and their exact truths.
+r"""Clustered laws at unequal cluster sizes, and their exact truths.
 
 Two laws serve ``clustered-unequal-cvtmle``, ``clustered-few-cluster-tmle`` and the unit tests
 of the cluster-ratio variance.
 
-**The informative law.** It keeps the mean and the propensity of
-``cleverly.datasets.clustered_dgp(family="binomial")`` and adds the cluster size. The size
+**The informative law.** It keeps the propensity and the main terms of
+``cleverly.datasets.clustered_dgp(family="binomial")``, and it adds the cluster size. The size
 :math:`N_j` is uniform on ``{2, ..., 18}``, with mean 10. Its finite support is Assumption 1(b)
-of Wang, Park, Small and Li (2024). With :math:`s(N)=(N-10)/\\sqrt{24}`, the outcome logit adds
-:math:`\\delta\\,s(N)+\\gamma\\,a\\,s(N)`. The size does not enter the propensity, so it does not
+of Wang, Park, Small and Li (2024). With :math:`s(N)=(N-10)/\sqrt{24}`, the outcome logit adds
+:math:`\delta\,s(N)+\gamma\,a\,s(N)`. The size does not enter the propensity, so it does not
 confound. ``W1`` and ``W2`` are row-level standard normals. The third latent is a cluster-level
-standard normal, shared within the cluster and hidden from the fit, as in ``clustered_dgp``.
+standard normal, shared within the cluster and hidden from the fit, as in ``clustered_dgp``. The
+declared law sets its arm-by-latent coefficient to 0, where ``clustered_dgp`` has 8, and sets
+:math:`\delta=1` and :math:`\gamma=-3`.
 
-The row-weighted mean is :math:`\\mu_I(a)=E\\{N\\,m_a(N)\\}/E(N)`, and the cluster-average mean is
-:math:`\\mu_C(a)=E\\{m_a(N)\\}`, where :math:`m_a(N)` is the mean outcome under arm ``a`` in a
-cluster of size ``N``. The two coincide at :math:`\\delta=\\gamma=0`.
+**Why these values (declared before any registered run).** The plan's first pilot rule asked
+for :math:`|\mathrm{ATE}_I-\mathrm{ATE}_C|` of at least 8 pilot standard deviations of the
+stacked ATE at 200 clusters, from :math:`\gamma\in\{0.5,1,1.5,2\}` at :math:`\delta=0.5`.
+No value reached it (0.80, 0.52, 0.20 and 0.11 SD). The coefficient 8 blurs arm 1 and dominates
+the spread, and a size-driven gap and the between-cluster spread both scale with the size
+effect, so the ratio levels off near :math:`\sqrt{J}` times a constant. The orchestrator
+declared option (a): keep the binary outcome, drop the effect modifier, and require 4 pilot SDs.
+The ``*_truth`` controls of ``estimand_weighting`` need only about 2.5 SD for a 99% upper
+coverage bound below 0.50. :data:`GAMMA_PILOT` records the pilot.
+
+The row-weighted mean is :math:`\mu_I(a)=E\{N\,m_a(N)\}/E(N)`, and the cluster-average mean is
+:math:`\mu_C(a)=E\{m_a(N)\}`, where :math:`m_a(N)` is the mean outcome under arm ``a`` in a
+cluster of size ``N``. The two coincide at :math:`\delta=\gamma=0`.
 
 **The cluster-level covariate law.** ``W1`` is shared within a cluster, ``W2`` is row level,
 and every cluster holds the same number of rows. The plug-in part of the curve then carries the
@@ -23,7 +35,7 @@ defect.
 Truths are exact sums over ``N`` and one-dimensional integrals. The latents are independent
 standard normals that enter the logit linearly, so their sum given ``N`` and the arm is one
 normal, and each mean is a logistic-normal integral. Gauss-Hermite tensor quadrature in the
-three latents converges slowly here, because the arm-by-latent coefficient of 8 makes the
+three latents converges slowly when the arm-by-latent coefficient is 8, because it makes the
 integrand steep. ``tests/unit/test_cluster_ratio_variance.py`` checks that two integration
 tolerances agree, and that a tensor quadrature agrees to its own accuracy.
 """
@@ -45,15 +57,22 @@ SIZES: Final[np.ndarray] = np.arange(2, 19)
 SIZE_MEAN: Final[float] = 10.0
 SIZE_VARIANCE: Final[float] = 24.0
 #: The size coefficient of the outcome logit in both arms.
-DELTA: Final[float] = 0.5
-#: The arm-by-size coefficient. The pilot rule of ``clustered-unequal-cvtmle`` sets it; see
-#: :data:`GAMMA_PILOT`.
-GAMMA: Final[float] = 2.0
+DELTA: Final[float] = 1.0
+#: The arm-by-size coefficient. The declared pilot sets it; see :data:`GAMMA_PILOT`.
+GAMMA: Final[float] = -3.0
+#: The separation the pilot must establish, in pilot standard deviations of the stacked ATE.
+REQUIRED_SEPARATION: Final[float] = 4.0
 #: The record of the pilot that set :data:`GAMMA`, written before any registered run.
-GAMMA_PILOT: Final[str] = "pending"
-#: The arm-by-latent coefficient of ``clustered_dgp(family="binomial")``. The shared latent
-#: modifies the effect, which correlates the curve within a cluster.
-EFFECT_MODIFIER: Final[float] = 8.0
+GAMMA_PILOT: Final[str] = (
+    "200 draws, a stream seeded from 20261012, 200 clusters, stacked five-fold ATE with the "
+    "exact propensity: delta = 1, gamma = -3 gives ATE_I - ATE_C = -0.2480 and pilot SD 0.0386, "
+    "6.42 SD (required 4); reported SE / SD 1.012, IID SE / SD 0.593, bias / SD +0.059. "
+    "Measured beside it: gamma = -2 gives 5.69 SD and gamma = -4 gives 6.44 SD with bias / SD "
+    "-0.13"
+)
+#: The arm-by-latent coefficient of the declared law. ``clustered_dgp(family="binomial")`` has
+#: 8; the declared law has 0. The unit tests and probes pass other values explicitly.
+EFFECT_MODIFIER: Final[float] = 0.0
 #: The absolute and relative tolerances of the one-dimensional truth integrals.
 TRUTH_TOLERANCE: Final[float] = 1e-13
 #: Rows per cluster of the cluster-level covariate law.
