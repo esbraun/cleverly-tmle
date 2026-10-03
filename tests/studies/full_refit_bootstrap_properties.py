@@ -362,7 +362,9 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     ``bootstrap_conditional`` and fails, because its coverage is conditional on the
     replicates that ran.
     """
-    summary, rates = apply_shared_verdicts(rows, STUDY, extra_columns=SUMMARY_COLUMNS)
+    summary, rates = apply_shared_verdicts(
+        rows, STUDY, extra_columns=SUMMARY_COLUMNS, rate_labels=()
+    )
     calibration_verdicts(summary, margins=STUDY.margins)
     summary["bootstrap_conditional"] = summary["bootstrap_conditional"].astype(object)
     for index in summary.index:
