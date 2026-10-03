@@ -143,15 +143,15 @@ scale, because a coefficient vector has no single scale to map back with.
 
 ### Baseline strata
 
-With `strata=`, a stratum's coefficients $eta_s$ are the projection on the law given $S=s$.
-The projection loss separates by stratum, so $(eta_s)_s$ are the coefficients of one working
-model with the expanded design $(I(S=s)arphi)_s$. The table gives where each estimate comes
+With `strata=`, a stratum's coefficients $\beta_s$ are the projection on the law given $S=s$.
+The projection loss separates by stratum, so $(\beta_s)_s$ are the coefficients of one working
+model with the expanded design $(I(S=s)\varphi)_s$. The table gives where each estimate comes
 from.
 
 | link | stratum coefficients | marginal coefficients |
 | --- | --- | --- |
 | identity, finite arms or a dose grid | one block $I(S=s)H/P_n(S=s)$ per stratum, in one pooled fluctuation | the same fluctuation; its score is the weighted sum of the blocks |
-| log, logit | a nested fluctuation of the blocks $I(S=s)H(eta_s)/P_n(S=s)$, alternating with the projection on each stratum's rows, recorded on `Fluctuation.stratified` | the unstratified alternation, unchanged |
+| log, logit | a nested fluctuation of the blocks $I(S=s)H(\beta_s)/P_n(S=s)$, alternating with the projection on each stratum's rows, recorded on `Fluctuation.stratified` | the unstratified alternation, unchanged |
 
 The two links differ because a linked block reads its own stratum's coefficients. One
 fluctuation cannot be the stratum fluctuation for every stratum and the marginal fluctuation at
@@ -165,7 +165,7 @@ there, such as `a:S` in stratum `S = 1`, are both singular. A link does not chan
 because $dm/d\eta>0$.
 
 `tests/unit/test_stratified_msm_exact.py` checks the linked coefficients and curves against the
-expanded-design fit, and the curve against a complex-step Gateaux derivative of $eta_s$.
+expanded-design fit, and the curve against a complex-step Gateaux derivative of $\beta_s$.
 `tests/unit/test_stratified_continuous_msm_exact.py` checks the dose case against the expanded
 design under the identity and logit links.
 

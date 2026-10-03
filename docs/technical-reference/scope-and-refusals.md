@@ -130,7 +130,7 @@ compositions that each contract refuses.
 | repeats | `repeats=1`. A larger value fails when `CrossFitting` is constructed, because no split exists to repeat | `repeats=1`. A larger value is refused when the fit starts |
 | targeting | `Targeting(fluctuation="logistic", algorithm="iterative", target_weights=False)`. A linear fluctuation, one-step targeting, and weighted targeting are refused | the same, with `targeting_scheme="pooled"` and `fold_evaluation=False`. Fold targeting and fold evaluation are refused |
 | inference | influence-curve Wald interval. `n_bootstrap > 0` is refused ([F2](../roadmap.md#f2-targeted-bootstrap-inference)) | the same |
-| rows | fixed `weights=`, `id=` and baseline strata are admitted. `intermediate=` is refused | unweighted iid rows. Weights, clusters, baseline strata, and `intermediate=` are refused. Strata wait on [F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants) |
+| rows | fixed `weights=`, `id=` and baseline strata are admitted. `intermediate=` is refused | unweighted iid rows. Weights, clusters, and `intermediate=` are refused. The scalar `ey_obs` admits baseline strata. PAR, PAF, and a joint fit meet the arm-indexed contract, which refuses them ([F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants)) |
 | response support | no added check | at least two respondents and two nonrespondents in the sample, and one of each in every training complement |
 
 Three checks enforce the two contracts. Each check runs at a different time and raises a different

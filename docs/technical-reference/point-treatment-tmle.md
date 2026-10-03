@@ -342,7 +342,7 @@ fluctuation, so it is a named request. The refusals keep their reasons:
 | composition | reason |
 | --- | --- |
 | `DRTMLE`, `CTMLE` | no DR-TMLE or collaborative natural-course mean ships. `DRTMLE(guard=())` is the ordinary TMLE, and the message says to use `TMLE`. [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) tracks the refused DR-TMLE compositions |
-| stacked baseline strata | the second-moment variance term of the stacked estimator has no stratum form ([F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants)). The in-sample fit admits strata |
+| stacked PAR, PAF, or `ey_obs` beside arm targets, with baseline strata | the arm-indexed stacked contract refuses strata. The finite-partition step qualifies, and it needs a witness and a registered cell ([F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants)). The scalar stacked `ey_obs` and every in-sample fit admit strata |
 | `n_bootstrap > 0` | no audited bootstrap result covers this fit ([F2](../roadmap.md#f2-targeted-bootstrap-inference)) |
 | stacked `weights=` or `id=`, stacked continuous outcome, fold targeting, fold evaluation, repeats | the stacked contracts cover unweighted iid rows and a binary outcome ([F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants)) |
 
@@ -512,7 +512,7 @@ Each stratum curve is $I(S=s) D_s / P_n(S=s)$. The table gives the construction 
 
 | target group | stratum construction |
 | --- | --- |
-| arm means and contrasts, ATT, ATC, PAR, regimes, shifts, identity-link MSMs, the in-sample natural-course mean | the blocks in one pooled fluctuation |
+| arm means and contrasts, ATT, ATC, PAR, regimes, shifts, identity-link MSMs, the natural-course mean in sample and stacked | the blocks in one pooled fluctuation |
 | incremental interventions (`incremental=`) | outcome blocks and treatment-mechanism blocks, alternating until both settle |
 | MSMs with a log or logit link | the marginal coefficients from the unstratified solve, and the stratum coefficients from a nested fluctuation of the blocks at each stratum's coefficients, recorded on `Fluctuation.stratified` |
 | continuous-dose MSMs | as the identity or linked MSM above; a dose has no arm share |
@@ -526,10 +526,10 @@ projection loss separates by stratum. The marginal estimate of a stratified `DRT
 on $(g_n(W), S)$, so it differs from the unstratified fit. The
 [DR-TMLE estimands page](dr-tmle/supported-estimands.md) states why it stays valid.
 
-The extension is the finite-partition step of each base result: Kennedy (2019), Theorem 2, for
-the incremental curve; the package's least-squares projection for MSMs; Díaz, Carone and van der
-Laan (2016) for the natural course; Benkeser et al. (2017), Theorem 1, for DR-TMLE. Each stratum
-inherits the base result's conditions inside the stratum. The
+The extension is the finite-partition step of each base result: Kennedy (2019), Theorem 2 of
+arXiv v3, for the incremental curve; the package's least-squares projection for MSMs; Díaz,
+Carone and van der Laan (2016) for the natural course; Benkeser et al. (2017), Theorem 1, for
+DR-TMLE. Each stratum inherits the base result's conditions inside the stratum. The
 [baseline-strata study](method-evidence/stratified-point-treatment-tmle.md) measures the arm
 targets against an exact law and pairs them with R `tmle3` `tmle_stratified`. Exact-law tests pin
 each new construction: `tests/unit/test_stratified_incremental_exact.py`,
@@ -546,7 +546,7 @@ These requests with `strata=` refuse before any learner:
 | an incremental target with a stratum that lacks a treatment arm | the stratum's treatment-mechanism equation has no finite root |
 | an MSM whose design is singular inside a stratum | the stratum projection is not one coefficient vector; the shipped rank rule decides |
 | a `DRTMLE` stratum with no trainable rows of an arm in some training complement | its reduced regressions cannot be fitted inside the stratum |
-| the stacked natural-course mean | its second-moment variance term has no stratum form ([F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants)) |
+| a stacked PAR, PAF, or `ey_obs` beside arm targets | the arm-indexed stacked contract refuses strata. The step qualifies, and it needs a witness and a registered cell ([F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants)) |
 
 `cluster=` changes the independent unit for covariance and fold construction, and it does not
 change the estimand.
@@ -856,7 +856,7 @@ everything else.
 With `strata=`, the outcome and mechanism equations each take one block per stratum, so each
 stratum's mechanism is tilted along its own covariate. A stratum that holds no row of some arm
 refuses before any learner, because its mechanism equation then has no finite root. Kennedy (2019),
-Section 6, lists "how mean outcomes under different interventions vary with covariates" as future
+arXiv v3, Section 6, lists "how mean outcomes under different interventions vary with covariates" as future
 work. That is a conditional curve in the covariates. A fixed finite partition is the marginal
 result applied inside each stratum, so the passage records no objection to it.
 `tests/unit/test_stratified_incremental_exact.py` checks each stratum curve against Theorem 2.

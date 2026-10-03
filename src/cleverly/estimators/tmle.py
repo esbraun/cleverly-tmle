@@ -1989,12 +1989,6 @@ class TMLE:
                 "the stacked contract covers unweighted iid rows. Drop id= from fit, "
                 "or fit in sample"
             )
-        if self.cross_fit and data.has_strata:
-            refuse(
-                "baseline strata are not implemented for the cross-fitted natural-course "
-                "mean; its second-moment variance term has no stratum form. Fit in sample "
-                "(cross_fit=False). docs/roadmap.md F21 tracks it"
-            )
         if data.has_intermediate:
             refuse("intermediate= is not implemented")
         if data.family != "binomial":
@@ -4291,9 +4285,8 @@ class TMLE:
                 "the stratified targeting submodel does not contain one base block per stratum"
             )
         out: dict[str, ParameterEstimate] = {}
-        for code in range(data.n_strata):
+        for code, probability in enumerate(stratum_probabilities(data)):
             index = np.flatnonzero(data.strata == code).astype(np.int64)
-            probability = float(np.average(data.strata == code, weights=data.weights))
             block = slice(code * width, (code + 1) * width)
             # Undo I_s / p_s before the ordinary target builder renormalises weights in
             # the subset.  Its resulting curve is on the n_s-row empirical scale; the

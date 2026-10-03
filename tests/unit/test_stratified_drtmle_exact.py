@@ -184,6 +184,7 @@ def fit(
     reduction: str = "univariate",
     stratum: int | None = None,
     max_outer: int = 1,
+    weights: str | None = None,
 ) -> Any:
     """The stratified fit, or with ``stratum`` the unstratified fit of that stratum's rows.
 
@@ -220,6 +221,8 @@ def fit(
         extra["treatment_probabilities"] = known_probabilities(frame)
     if stratum is None:
         extra["strata"] = ["V"]
+    if weights is not None:
+        extra["weights"] = weights
     return estimator.fit(
         frame,
         **{"outcome": "Y", "treatment": "A", "covariates": ["W", "V"], **roles, **extra},
@@ -428,3 +431,105 @@ class TestTheStratifiedCompanionIsTheFit:
                     rtol=0.0,
                     atol=1e-12,
                 )
+
+
+class TestACompanionInAnotherStratumOrder:
+    """A companion whose rows meet the strata in another order, and hold only two of them.
+
+    Stratum codes follow first appearance, so the companion's own codes name different strata
+    from the fit's.  Each companion row must still take its own stratum's reduced regressions
+    and blocks: at the companion rows that fold ``k`` holds out, fold ``k``'s slab equals the
+    production array at the matching fitting rows.
+    """
+
+    @pytest.fixture(scope="class")
+    def frame(self) -> pd.DataFrame:
+        frame = rows(360, SEED + 2)[["V", "W", "A", "Y"]]
+        assert frame["V"].iloc[0] != 2
+        return frame
+
+    @staticmethod
+    def companion_order(frame: pd.DataFrame) -> np.ndarray:
+        """The fitting rows of strata 2 and 1, stratum 2 first."""
+        kept = np.flatnonzero(frame["V"].to_numpy() > 0)
+        return kept[np.argsort(-frame["V"].to_numpy()[kept], kind="stable")]
+
+    def paired(self, frame: pd.DataFrame) -> Any:
+        companion = frame.iloc[self.companion_order(frame)].reset_index(drop=True)
+        return TestTheStratifiedCompanionIsTheFit.build(frame, evaluation=companion)
+
+    def check(self, paired: Any, frame: pd.DataFrame) -> None:
+        order = self.companion_order(frame)
+        fluctuation = paired.fluctuations["mean"]
+        record = fluctuation.reduction
+        assignment = np.asarray(paired.nuisance.folds.assignment)
+        for fold in range(record.evaluation.n_folds):
+            at = np.flatnonzero(assignment[order] == fold)
+            rows_ = order[at]
+            for name in ("qr", "gr1", "gr2"):
+                np.testing.assert_allclose(
+                    getattr(record.evaluation.reduced[fold], name)[at],
+                    getattr(record.reduced, name)[rows_],
+                    rtol=0.0,
+                    atol=1e-12,
+                    err_msg=f"{name} fold {fold}",
+                )
+            np.testing.assert_allclose(
+                record.evaluation.outcome[fold].observed[at],
+                fluctuation.targeted.observed[rows_],
+                rtol=0.0,
+                atol=1e-12,
+            )
+
+    def test_each_companion_row_reads_its_own_stratum(self, frame: pd.DataFrame) -> None:
+        self.check(self.paired(frame), frame)
+
+    def test_the_companion_s_own_codes_fail(
+        self, frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation: the companion's first-appearance codes used as the fit's codes."""
+        import cleverly.estimators.reduced as reduced_module
+        import cleverly.estimators.targeting as targeting_module
+
+        def raw(data: Any, companion: Any) -> np.ndarray:
+            return np.asarray(companion.strata, dtype=np.int64)
+
+        monkeypatch.setattr(reduced_module, "companion_stratum_codes", raw)
+        monkeypatch.setattr(targeting_module, "companion_stratum_codes", raw)
+        mutated = self.paired(frame)
+        monkeypatch.undo()
+        assert_every_witness_fails([lambda: self.check(mutated, frame)])
+
+
+class TestAWeightedStratumIsTheWeightedSubsetFit:
+    """The complete-data route under fixed analysis weights.
+
+    The blocks of every equation read the weighted share ``P_n(S = s)`` in
+    ``targeting.stratum_probabilities``, and the un-scaling reads it in
+    ``tmle.stratum_probabilities``.  A weighted subset fit sees neither.
+    """
+
+    @pytest.fixture(scope="class")
+    def weighted(self, frame: pd.DataFrame) -> pd.DataFrame:
+        return frame.assign(wt=np.random.default_rng(3).uniform(0.3, 2.5, len(frame)))
+
+    def test_each_weighted_stratum_is_its_weighted_subset_fit(self, weighted: pd.DataFrame) -> None:
+        result = fit(weighted, "complete", weights="wt")
+        check_subsets(result, weighted, "complete", weights="wt")
+
+    @pytest.mark.parametrize("module", ["targeting", "tmle"])
+    def test_an_unweighted_share_fails(
+        self, weighted: pd.DataFrame, module: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import importlib
+
+        def unweighted(data: Any) -> list[float]:
+            return [float(np.mean(data.strata == code)) for code in range(data.n_strata)]
+
+        target = importlib.import_module(f"cleverly.estimators.{module}")
+        monkeypatch.setattr(target, "stratum_probabilities", unweighted)
+        mutated = fit(weighted, "complete", weights="wt")
+        monkeypatch.undo()
+        assert_every_witness_fails(
+            [lambda: check_subsets(mutated, weighted, "complete", weights="wt")]
+        )

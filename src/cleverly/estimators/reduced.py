@@ -918,20 +918,27 @@ def _stratified_column(
     slab: FloatArray | None = None
     for code in range(data.n_strata):
         inside = strata == code
-        values, at_companion = _pooled_column(
-            learner,
-            design=design,
-            target=target,
-            training=training,
-            companion=companion,
-            fit_mask=mask & inside,
-            data=data,
-            nuisance=nuisance,
-            task=task,
-            clip=clip,
-            n_jobs=n_jobs,
-            diagnostics=diagnostics,
-        )
+        try:
+            values, at_companion = _pooled_column(
+                learner,
+                design=design,
+                target=target,
+                training=training,
+                companion=companion,
+                fit_mask=mask & inside,
+                data=data,
+                nuisance=nuisance,
+                task=task,
+                clip=clip,
+                n_jobs=n_jobs,
+                diagnostics=diagnostics,
+            )
+        except ValueError as error:
+            # The preflight checks the outer training complements only.  A nested fold inside
+            # one of them can still hold no trainable row of the stratum, so name the stratum.
+            raise ValueError(
+                f"inside baseline stratum {data.stratum_label(code)}: {error}"
+            ) from error
         out[inside] = values[inside]
         if at_companion is not None:
             assert companion_strata is not None

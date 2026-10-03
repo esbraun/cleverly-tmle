@@ -57,16 +57,10 @@ def test_the_cross_fitted_arm_indexed_contract_refuses_strata() -> None:
     assert NeverFit.calls == 0
 
 
-def test_the_cross_fitted_natural_course_contract_refuses_strata() -> None:
-    with pytest.raises(CapabilityError) as caught:
+def test_the_cross_fitted_natural_course_fits_strata() -> None:
+    with pytest.raises(AssertionError, match="before any learner is fitted"):
         _fit(cross_fit=True, estimands=("ey_obs",))
-    assert str(caught.value) == (
-        "NaturalCourseMean, PAR and PAF with missing outcomes currently support ordinary TMLE "
-        "under their audited implementation contracts; baseline strata are not implemented "
-        "for the cross-fitted natural-course mean; its second-moment variance term has no "
-        "stratum form. Fit in sample (cross_fit=False). docs/roadmap.md F21 tracks it"
-    )
-    assert NeverFit.calls == 0
+    assert NeverFit.calls > 0
 
 
 def test_the_in_sample_natural_course_fits_strata() -> None:

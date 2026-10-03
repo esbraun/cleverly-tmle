@@ -88,6 +88,9 @@ REQUESTS = [
     pytest.param(("ey_obs", "ey0", "paf"), id="joint"),
 ]
 
+#: The roles of a fit with a baseline stratum.
+STRATA_ROLES = {"outcome": "Y", "treatment": "A", "covariates": ("W", "stratum"), "delta": "Delta"}
+
 #: The subject every natural-course contract refusal opens with.
 SUBJECT = (
     "NaturalCourseMean, PAR and PAF with missing outcomes currently support ordinary TMLE "
@@ -221,28 +224,36 @@ def test_unsupported_data_compositions_refuse_before_fitting(
 
 
 @pytest.mark.parametrize("estimands", REQUESTS)
-def test_strata_fit_in_sample_and_refuse_the_stacked_estimator(
-    estimands: tuple[str, ...],
-) -> None:
-    """The in-sample fit targets one block per stratum, so it reaches a learner.
-
-    The stacked estimator's second-moment variance term has no stratum form, so it refuses
-    before any learner.
-    """
-    roles = {"outcome": "Y", "treatment": "A", "covariates": ("W", "stratum"), "delta": "Delta"}
+def test_strata_fit_in_sample(estimands: tuple[str, ...]) -> None:
+    """The in-sample fit targets one block per stratum, so it reaches a learner."""
     with pytest.raises(AssertionError, match="before any learner is fitted"):
         in_sample_tmle(**never_fit_learners(), estimands=estimands).fit(
-            _frame(), strata=("stratum",), **roles
+            _frame(), strata=("stratum",), **STRATA_ROLES
         )
     assert NeverFit.calls > 0
+
+
+def test_the_stacked_natural_course_mean_fits_strata() -> None:
+    """The stacked scalar fit solves one block per stratum on the out-of-fold predictions."""
+    with pytest.raises(AssertionError, match="before any learner is fitted"):
+        stacked_tmle(**never_fit_learners(), estimands=("ey_obs",)).fit(
+            _frame(), strata=("stratum",), **STRATA_ROLES
+        )
+    assert NeverFit.calls > 0
+
+
+@pytest.mark.parametrize("estimands", [request for request in REQUESTS if request.id != "ey_obs"])
+def test_a_stacked_attributable_fit_meets_the_arm_indexed_strata_refusal(
+    estimands: tuple[str, ...],
+) -> None:
+    """PAR, PAF and a joint fit read the arm-indexed contract, which refuses strata."""
     with pytest.raises(CapabilityError) as caught:
         stacked_tmle(**never_fit_learners(), estimands=estimands).fit(
-            _frame(), strata=("stratum",), **roles
+            _frame(), strata=("stratum",), **STRATA_ROLES
         )
-    assert str(caught.value) == SUBJECT + (
-        "baseline strata are not implemented for the cross-fitted natural-course mean; its "
-        "second-moment variance term has no stratum form. Fit in sample (cross_fit=False). "
-        "docs/roadmap.md F21 tracks it"
+    assert str(caught.value).endswith(
+        "no audited result covers baseline strata. Drop strata= from fit "
+        "(PointTreatment(strata=()))"
     )
     assert NeverFit.calls == 0
 

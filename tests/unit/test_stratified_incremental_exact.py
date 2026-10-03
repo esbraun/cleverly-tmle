@@ -1,7 +1,7 @@
 """Incremental propensity-score interventions with baseline strata, against their exact form.
 
 A stratum parameter is the incremental mean of the law given ``V = s``.  Kennedy (2019),
-Theorem 2, gives its efficient influence function inside the stratum,
+Theorem 2 of arXiv v3, gives its efficient influence function inside the stratum,
 
     D_s = h_delta(A, W) {Y - Q(A, W)} + delta {Q(1, W) - Q(0, W)} (A - g) / D^2 + m(W) - psi_s,
 
@@ -336,3 +336,49 @@ class TestTheMutationsFail:
                 lambda: check_curves(fitted, frame, embed=False),
             ]
         )
+
+
+class TestAWeightedStratumIsTheWeightedSubsetFit:
+    """W-ID under fixed analysis weights: ``P_n(S = s)`` is the weighted share.
+
+    The un-scaling multiplies a block by the weighted share, and the embedding multiplies the
+    curve by the row count ``n / n_s``.  The blocks and the un-scaling read one
+    ``tmle.stratum_probabilities`` call, and a block's root is invariant to its scale, so a
+    wrong share there cancels.  ``tests/unit/test_stratified_drtmle_exact.py`` carries the
+    mutation control, where the blocks read the share in another module.
+    """
+
+    @staticmethod
+    def weighted(frame: pd.DataFrame) -> pd.DataFrame:
+        return frame.assign(wt=np.random.default_rng(5).uniform(0.3, 2.5, len(frame)))
+
+    @staticmethod
+    def fit_weighted(frame: pd.DataFrame, *, subset: int | None = None) -> Any:
+        roles: dict[str, Any] = {} if subset is not None else {"strata": ["V"]}
+        return (
+            estimator(stratum=subset)
+            .fit(frame, outcome="Y", treatment="A", covariates=["W", "V"], weights="wt", **roles)
+            .single()
+        )
+
+    def check(self, result: Any, frame: pd.DataFrame) -> None:
+        v = frame["V"].to_numpy()
+        for stratum in law.STRATA:
+            inside = v == stratum
+            alone = self.fit_weighted(frame[inside].reset_index(drop=True), subset=stratum)
+            for name in NAMES:
+                pooled = result[f"ey_ipsi[{name}][V={stratum}]"]
+                separate = alone[f"ey_ipsi[{name}]"]
+                assert pooled.psi == pytest.approx(separate.psi, abs=1e-9)
+                np.testing.assert_allclose(
+                    pooled.influence_curve[inside] * float(inside.mean()),
+                    separate.influence_curve,
+                    rtol=0.0,
+                    atol=1e-8,
+                )
+
+    def test_each_weighted_stratum_equals_its_weighted_subset_fit(
+        self, frame: pd.DataFrame
+    ) -> None:
+        weighted = self.weighted(frame)
+        self.check(self.fit_weighted(weighted), weighted)

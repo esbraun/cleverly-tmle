@@ -92,7 +92,7 @@ Priorities 2 to 5 follow the beta.
 | 3.4 | Omitted-variable bounds on the other linear functionals | published support; pending source read | the shipped arm-axis bound | [X9](#x9-omitted-variable-bounds-on-the-other-linear-functionals) |
 | 3.5 | Continuous-dose MSM with a second mechanism | source audit | implemented continuous-dose MSM targeting, missing-outcome arm targeting, and controlled-direct-effect targeting | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) |
 | 3.6 | Learned-policy follow-ups | published support for parts (g) and (h); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c) and (d) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
-| 3.7 | Fold-evaluated CV-TMLE with baseline strata | no new theory; the pooled update is unchanged | the shipped fold-evaluated estimate and the shipped stratified fluctuation | [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) |
+| 3.7 | Fold-evaluated CV-TMLE with baseline strata | [published support; finite-partition extension](technical-reference/natural-extension-verdicts.md) | the shipped fold-evaluated estimate and the shipped stratified fluctuation | [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) |
 | 4 | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
 | 5.1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | 5.2 | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -832,13 +832,16 @@ that update for arm targets.
 
 `cv_evaluation=True` refuses `strata=` before any learner (`src/cleverly/estimators/tmle.py`).
 The fold-evaluated estimate needs the stratum shares $P_n(S=s)$ and a stratum-indexed fold
-average inside each validation fold. The pooled stratified update is unchanged, so the item needs
-no new theory.
+average inside each validation fold. The pooled stratified update is unchanged. The item follows
+the beta because no pinned comparator reports a fold-averaged stratified estimate. The `tmle3`
+CV-TMLE evaluates a pooled mean over the validation predictions, and the shipped
+`cross_fit=True` pooled fit is that estimator.
 
 | item | contract |
 | --- | --- |
 | base results | the shipped fold-evaluated estimate ([CV-TMLE](technical-reference/cv-tmle.md)) and the shipped stratified fluctuation ([point-treatment TMLE](technical-reference/point-treatment-tmle.md#weights-strata-and-clusters)) |
 | step | a finite partition. Each stratum estimate is the fold average of the stratum plug-ins of the validation folds. Each stratum curve is $I(S=s) D_s / P_n(S=s)$ |
+| objection search | the [natural-extension verdicts](technical-reference/natural-extension-verdicts.md), part (i), found no objection to a finite partition in Kennedy (2019), Benkeser et al. (2017), or the MSM projection contract. The fold-evaluated base estimate is Zheng and van der Laan (2011), Sections 2 and 2.1, which [F21](#f21-other-missing-outcome-cv-tmle-variants) cites. No source read records the stratum restriction of that estimate as open |
 | inherited conditions | the conditions of the fold-evaluated estimate inside each stratum; positivity inside each stratum; a fixed number of strata |
 
 Acceptance:
@@ -1423,7 +1426,7 @@ of one extension for another.
 | fold-evaluated construction, for the natural-course mean and the arm-indexed means and contrasts | it has published support in Zheng and van der Laan (2011), Sections 2 and 2.1; it needs an implementation review of its fold plug-in and variance law, which define a separate estimator |
 | supplied split plans | an audit of their balance and weighting requirements. Every cross-fitted fit refuses a plan that carries no package generator record, which the [fold and outcome-scale rules](technical-reference/cv-tmle.md#fold-and-outcome-scale-rules) state |
 | bounded-continuous stacked natural-course mean | an exact contract for scaling the fluctuation, score, point, and influence curve |
-| stacked natural-course mean with baseline strata | a stratum form of the second-moment variance term. The in-sample fit admits `strata=` |
+| stacked arm-indexed targets, PAR, and PAF with baseline strata | the finite-partition step that the stacked natural-course mean ships, with a witness and a registered cell. The scalar stacked `ey_obs` admits `strata=` |
 
 No admitted fit reaches the multi-draw branch of `missingness_tilt`
 (`src/cleverly/sensitivity/missingness.py`), because no admitted composition fits repeated draws

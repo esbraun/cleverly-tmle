@@ -229,7 +229,9 @@ class ReducedFit:
         on the univariate reduction, ``"qr"`` and ``"gr1"`` on the bivariate one, and
         ``"gamma_a"``, ``"gamma_m"``, ``"r_a"``, ``"r_m"`` and ``"e"`` on the missing-outcome
         one -- the constructions do not fit the same regressions, so they cannot report under
-        the same names.
+        the same names.  With baseline strata each regression is fitted inside each stratum,
+        so every call records its entries stratum by stratum, in the stratum code order that
+        ``CausalData.stratum_label`` names.
     missing_data:
         The construction the fit ran, as
         :func:`~cleverly.estimators.composite.missing_data_route` names it.  On

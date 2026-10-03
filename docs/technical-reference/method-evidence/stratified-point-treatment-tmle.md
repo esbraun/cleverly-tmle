@@ -230,7 +230,7 @@ every number of it from the committed rows. [`strata-boundary-mean`](../../roadm
 | --- | --- |
 | `cv_evaluation=True` or `targeting_scheme="fold"` | `tests/unit/test_natural_course_crossfit.py::test_a_complete_outcome_fit_with_strata_meets_the_generic_strata_gate` |
 | an incremental stratum without a treatment arm, an MSM singular inside a stratum, or a `DRTMLE` stratum with no trainable rows | `tests/unit/test_stratified_incremental_exact.py`, `tests/unit/test_stratified_msm_exact.py`, `tests/unit/test_refusals_before_the_nuisance_fit.py` |
-| the cross-fitted arm-indexed missing-outcome contract, and the cross-fitted missing-outcome natural-course mean | `tests/unit/test_stratified_refusals.py` |
+| the cross-fitted arm-indexed missing-outcome contract | `tests/unit/test_stratified_refusals.py` |
 | a stratum parameter in an omitted-variable or missingness sensitivity analysis | `tests/unit/test_stratified_targets.py` |
 
 ## Measured values

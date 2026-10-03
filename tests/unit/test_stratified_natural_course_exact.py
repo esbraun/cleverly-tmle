@@ -13,8 +13,13 @@ block moves.
 The tests check the blocks, the curves at the targeted regression, the subset fits, the
 marginal mixture, and the joint route that stacks the natural course with arm means for PAR.
 Three mutations must fail: one marginal column, no ``P_n(V = s)`` in the un-scaling, and no
-``n / n_s`` in the embedding.  The cross-fitted natural-course mean refuses strata before any
-learner.
+``n / n_s`` in the embedding.
+
+The cross-fitted (stacked) fit solves the same blocks on the out-of-fold predictions.  Its
+variance is the raw second moment ``P_n D^2 / n`` of the reported curve, and for an embedded
+stratum curve ``I(S = s) D_s / P_n(S = s)`` that is the subset fit's raw second moment over
+``n_s``.  The fixed nuisances make every fold's prediction the same function, so the subset
+fit is the stratum's fit whatever folds it draws.
 """
 
 from __future__ import annotations
@@ -27,14 +32,8 @@ import pytest
 from scipy.special import expit
 
 from cleverly.estimators import TMLE
-from cleverly.exceptions import CapabilityError
 from tests.studies import stratified_law as law
-from tests.unit._declaration_support import (
-    assert_every_witness_fails,
-    assert_refused_before_any_call,
-    tmle_module,
-)
-from tests.unit._natural_course_support import never_fit_learners
+from tests.unit._declaration_support import assert_every_witness_fails, tmle_module
 from tests.unit._stratified_alternating_support import marginal_blocks
 from tests.unit.test_stratified_drtmle_exact import (
     ArmOutcome,
@@ -52,16 +51,21 @@ def fit(
     estimands: tuple[str, ...] = ("ey_obs",),
     *,
     stratum: int | None = None,
+    cross_fit: bool = False,
+    weights: str | None = None,
 ) -> Any:
     """The stratified fit, or with ``stratum`` the unstratified fit of that stratum's rows."""
     roles: dict[str, Any] = {} if stratum is not None else {"strata": ["V"]}
+    if weights is not None:
+        roles["weights"] = weights
     return (
         TMLE(
             estimands=estimands,
             outcome_learner=ArmOutcome(2, stratum),
             treatment_learner=WOnlyTreatment(2),
             missingness_learner=FixedResponse(stratum=stratum),
-            cross_fit=False,
+            cross_fit=cross_fit,
+            n_folds=5,
             simultaneous=False,
             max_iter=100,
             tol=1e-10,
@@ -215,19 +219,97 @@ class TestTheMutationsFail:
         )
 
 
-def test_the_cross_fitted_natural_course_refuses_strata(frame: pd.DataFrame) -> None:
-    assert_refused_before_any_call(
-        lambda: TMLE(estimands=("ey_obs",), **never_fit_learners(), simultaneous=False).fit(
-            frame,
-            outcome="Yobs",
-            treatment="A",
-            covariates=["W", "V"],
-            delta="Delta",
-            strata=["V"],
-        ),
-        None,
-        "learner",
-        "second-moment variance term has no stratum form",
-        "docs/roadmap.md F21",
-        error=CapabilityError,
-    )
+def check_raw_second_moment(result: Any) -> None:
+    """Every stacked estimate reports ``sqrt(P_n D^2 / n)`` under the second-moment rule."""
+    for name, estimate in result.estimates.items():
+        curve = np.asarray(estimate.influence_curve)
+        assert estimate.covariance_rule == "second_moment", name
+        assert estimate.std_error == pytest.approx(
+            float(np.sqrt(np.mean(curve**2) / curve.size)), rel=1e-12
+        ), name
+
+
+def check_subset_fits(result: Any, frame: pd.DataFrame) -> None:
+    """Each stacked stratum estimate and standard error is the stacked fit of its rows alone."""
+    for s in law.STRATA:
+        alone = fit(frame[frame["V"] == s].reset_index(drop=True), stratum=s, cross_fit=True)
+        pooled = result[f"ey_obs[V={s}]"]
+        assert pooled.psi == pytest.approx(alone["ey_obs"].psi, abs=1e-10), s
+        assert pooled.std_error == pytest.approx(alone["ey_obs"].std_error, rel=1e-8), s
+
+
+class TestTheStackedFit:
+    @pytest.fixture(scope="class")
+    def stacked(self, frame: pd.DataFrame) -> Any:
+        return fit(frame, cross_fit=True)
+
+    def test_every_block_moved(self, stacked: Any) -> None:
+        epsilon = np.asarray(stacked.fluctuations["natural_course"].epsilon)
+        assert epsilon.shape == (len(law.STRATA),)
+        assert np.min(np.abs(epsilon)) > 1e-3, epsilon
+
+    def test_each_block_is_zero(self, stacked: Any, frame: pd.DataFrame) -> None:
+        check_blocks(stacked, frame)
+
+    def test_each_curve_is_the_analytic_one(self, stacked: Any, frame: pd.DataFrame) -> None:
+        check_curves(stacked, frame)
+
+    def test_each_variance_is_the_raw_second_moment(self, stacked: Any) -> None:
+        check_raw_second_moment(stacked)
+
+    def test_each_stratum_is_its_subset_fit(self, stacked: Any, frame: pd.DataFrame) -> None:
+        check_subset_fits(stacked, frame)
+
+    def test_the_marginal_is_the_mixture(self, stacked: Any, frame: pd.DataFrame) -> None:
+        v = frame["V"].to_numpy()
+        mixture = sum(float(np.mean(v == s)) * stacked[f"ey_obs[V={s}]"].psi for s in law.STRATA)
+        assert stacked["ey_obs"].psi == pytest.approx(mixture, abs=1e-12)
+
+    def test_no_embedding_fails_the_subset_variance(
+        self, frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def unembedded(curve: Any, index: Any, n: int) -> np.ndarray:
+            out = np.zeros(n)
+            out[index] = curve
+            return out
+
+        monkeypatch.setattr(tmle_module, "embed_stratum_curve", unembedded)
+        mutated = fit(frame, cross_fit=True)
+        assert_every_witness_fails([lambda: check_subset_fits(mutated, frame)])
+
+    def test_a_marginal_column_fails_the_blocks(
+        self, frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(tmle_module, "stratify", marginal_blocks)
+        mutated = fit(frame, cross_fit=True)
+        assert_every_witness_fails([lambda: check_blocks(mutated, frame)])
+
+
+class TestAWeightedStratumIsTheWeightedSubsetFit:
+    """The in-sample natural course under fixed analysis weights.
+
+    The block and its un-scaling read one ``tmle.stratum_probabilities`` call, and the root of
+    a block is invariant to its scale, so a wrong share cancels here and has no mutation
+    control.  The incremental and DR-TMLE tests carry that control.
+    """
+
+    @pytest.fixture(scope="class")
+    def weighted(self, frame: pd.DataFrame) -> pd.DataFrame:
+        return frame.assign(wt=np.random.default_rng(4).uniform(0.3, 2.5, len(frame)))
+
+    def check(self, result: Any, frame: pd.DataFrame) -> None:
+        v = frame["V"].to_numpy()
+        for s in law.STRATA:
+            inside = v == s
+            alone = fit(frame[inside].reset_index(drop=True), stratum=s, weights="wt")
+            pooled = result[f"ey_obs[V={s}]"]
+            assert pooled.psi == pytest.approx(alone["ey_obs"].psi, abs=1e-10)
+            np.testing.assert_allclose(
+                pooled.influence_curve[inside] * float(inside.mean()),
+                alone["ey_obs"].influence_curve,
+                rtol=0.0,
+                atol=1e-9,
+            )
+
+    def test_each_weighted_stratum_is_its_weighted_subset_fit(self, weighted: pd.DataFrame) -> None:
+        self.check(fit(weighted, weights="wt"), weighted)
