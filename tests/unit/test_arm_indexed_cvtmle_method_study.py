@@ -22,6 +22,7 @@ from tests.studies import canonical_mar_arm_indexed_cvtmle as study
 from tests.studies import mar_arm_indexed_cvtmle_properties as properties
 from tests.studies import mar_arm_indexed_laws as laws
 from tests.studies.evidence.registry import ROOT
+from tests.studies.evidence.simultaneous import joint_coverage_rows
 from tests.studies.missing_outcome_study_helpers import efficiency_sd, probabilities
 
 LAWS = tuple(laws.LAWS.values())
@@ -276,8 +277,15 @@ def test_the_joint_rows_read_the_package_band() -> None:
     for replicate in range(4):
         frame, truth = study.draw_scenario(law.scenario, 400, replicate)
         result = study.fit_cleverly(frame, law, simultaneous=True)
-        band, pointwise = properties._joint_rows(
-            law, result, truth, replicate=replicate, n=400, requested=4
+        band, pointwise = joint_coverage_rows(
+            result,
+            truth,
+            laws.ESTIMANDS[law.key],
+            label=law.key,
+            replicate=replicate,
+            n=400,
+            requested=4,
+            pointwise_critical=properties.CRITICAL,
         )
         assert band["std_error"] == result.simultaneous.critical_value
         assert band["std_error"] > pointwise["std_error"]

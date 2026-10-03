@@ -226,7 +226,7 @@ committed results.
 | One fixed five-fold assignment is studied | The row does not validate repeated folds or time-respecting splits |
 | The comparison covers two causes and two horizons | Longer event processes and more causes need separate evidence |
 | The first-horizon null is not a longitudinal null | No time-varying node precedes the first event node, so a baseline-only standardisation recovers that null exactly. The first-horizon type-I cells test baseline and censoring adjustment only |
-| The inference is pointwise | The row does not validate simultaneous bands across causes, plans, or horizons |
+| The inference is pointwise | The row does not validate simultaneous bands across causes, plans, or horizons. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit. |
 | The mechanisms are supplied | The comparison does not test learned-mechanism parity or active truncation |
 | Competing events remain natural | The row does not validate an estimand that eliminates a competing event |
 | The data are independent and unweighted | The row does not validate observation weights or clustering |

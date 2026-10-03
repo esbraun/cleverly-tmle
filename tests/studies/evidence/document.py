@@ -407,6 +407,7 @@ _BIAS_GATED = frozenset(
         "ratio_necessity",
         "rule_necessity",
         "selector_necessity",
+        "stratum_targeting_necessity",
         "survival_recursion_necessity",
         "targeting_necessity",
         "weight_necessity",

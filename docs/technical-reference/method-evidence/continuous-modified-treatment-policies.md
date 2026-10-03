@@ -136,5 +136,5 @@ targeting, density-ratio direction, the active cap, and the exact natural-course
     subtracts two influence curves that nearly cancel, so a small relative deviation in each
     becomes a larger one in their difference. Design CD did not test this hypothesis. CD does not
     say which property of the binned density produces the excess.
-- It excludes missing outcomes, weights, clusters, simultaneous bands, and flexible learning.
+- It excludes missing outcomes, weights, clusters, simultaneous bands, and flexible learning. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit.
 - It does not validate categorical, longitudinal, or multiple-time modified treatment policies.

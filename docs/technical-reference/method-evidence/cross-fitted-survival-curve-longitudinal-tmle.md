@@ -233,7 +233,7 @@ the committed results and checked at the precision printed.
 | Agreement with `lmtp` is distributional, not numerical | The paired claim is similarity of means and non-inferiority. Per-replication estimates differ at statistical scale, because only the mechanism is shared. The sequential regressions are fitted differently, and `lmtp` 1.5.4 targets on each fold's training rows where `cleverly` runs one pooled fluctuation per node |
 | One fixed five-fold assignment is studied | The row does not validate repeated folds or time-respecting splits |
 | Horizon one uses the binary-mean path in R | `lmtp` requires two event nodes for its survival path. The one-node binary mean is the same first-horizon cumulative-risk parameter |
-| Inference is pointwise | The row does not validate a simultaneous curve band or enforce monotone reported estimates |
+| Inference is pointwise | The row does not validate a simultaneous curve band or enforce monotone reported estimates. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit. |
 | The event process has two horizons and one cause | Longer follow-up and competing-risk cumulative incidence need separate evidence |
 | Flexible learning is an independent property instrument | The paired comparison uses one GLM learner on each side. The tree pair does not establish parity for learner-library selection |
 | The primary mechanism bounds are nonbinding | No primary cell validates active bounds, weights, clustering, or severe practical-positivity violations |

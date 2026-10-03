@@ -206,7 +206,7 @@ def assert_the_declared_fixed_partition(result: Any, frame: pd.DataFrame) -> Non
         raise RuntimeError("this replication was fitted under a different grouped partition")
 
 
-def fit_cleverly(frame: pd.DataFrame) -> Any:
+def fit_cleverly(frame: pd.DataFrame, *, simultaneous: bool = False) -> Any:
     """Fit the grouped five-fold estimator with the exact treatment mechanism."""
     dgp = law()
     result = (
@@ -218,7 +218,7 @@ def fit_cleverly(frame: pd.DataFrame) -> Any:
             targeting_scheme="pooled",
             stratify_folds=STRATIFY_FOLDS,
             estimands=ESTIMANDS,
-            simultaneous=False,
+            simultaneous=simultaneous,
             g_bounds=G_BOUNDS,
             max_iter=100,
             tol=1e-10,

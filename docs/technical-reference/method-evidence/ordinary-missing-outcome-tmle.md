@@ -117,7 +117,7 @@ targeting, and the consequence of silently analyzing complete cases.
   observational MAR response mechanism.
 - The nuisance functions are supplied as finite-support oracles. This isolates targeting and
   inference; it does not validate flexible learner wrappers or cross-fitting.
-- The comparison uses pointwise Wald intervals and does not cover simultaneous bands.
+- The comparison uses pointwise Wald intervals and does not cover simultaneous bands. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit.
 - The study reports the two arm means and their difference. The `att`, `atc`, `rr` and `or`
   estimands keep only their exact-law Gateaux and remainder evidence under `delta=`.
 - The study excludes weights, clusters, missing treatment, multinomial treatment, MNAR outcomes,

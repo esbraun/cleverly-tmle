@@ -117,7 +117,7 @@ and the five-reduction cycle's empirical score reduction against the same scores
 - The property grid declares no type-I error, power, or targeting cell. The ordinary
   missing-outcome study carries those three instruments for the `delta=` path.
 - The study excludes observational treatment assignment, weights, clusters, simultaneous bands,
-  missing treatment, multinomial treatment, MNAR outcomes, and other DR-TMLE compositions.
+  missing treatment, multinomial treatment, MNAR outcomes, and other DR-TMLE compositions. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit.
 
 ## Reproduction
 

@@ -5,14 +5,14 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly",
-      "cleverly_version": "0.1.0",
-      "cleverly_commit": "c355a275dc6ef788d00e913a7c0fec5b5418e97b",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "a0a69a5c1279c6d899bac2ae2336649530a429f1",
       "cleverly_worktree_clean": false,
       "python": "3.13.7",
-      "numpy": "2.4.6",
-      "scipy": "1.18.0",
-      "pandas": "3.0.5",
-      "scikit_learn": "1.9.0"
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
     },
     "reference": {
       "implementation": "ltmle",
@@ -26,7 +26,7 @@
     "replicates": 1600,
     "n": 2000,
     "seed": 20260823,
-    "publication_policy": "gated",
+    "publication_policy": "reporting",
     "scenarios": {
       "censored_survival_curve": [
         "risk_regimen[never @ t=1]",
@@ -45,6 +45,7 @@
     "r_survival_outcome": true,
     "cross_fit": false,
     "simultaneous_intervals": false,
+    "band_cells": "all_reported reuses the interval_calibration fits, which declare simultaneous=True; curve_always is a dedicated batch of one-regimen fits of always. Both use the engine's default 2000 rademacher draws seeded by random_state=0",
     "variance_method": "ic",
     "stratify": true,
     "g_bounds": [
@@ -91,31 +92,34 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_ltmle_survival.py": "d2d91a4d147c2899ac62a8ca2eb4a13b296a01faac8435625571cd1b91555aee",
-    "tests/studies/ltmle_survival_properties.py": "9fa1af69c763e8a979e29d2d2225d4c11748fda4e8d4b9e46c38c4cb56e0c691",
-    "tests/studies/canonical_ltmle.py": "9058761787420541d5d5ea8a1baab66680160592520d90831cd525d6591aa5cc",
+    "tests/studies/canonical_ltmle_survival.py": "5f8e2c2faabd846c39b9ef07d6d80f28f4b88a193d9cacf449cebcbf400143c4",
+    "tests/studies/ltmle_survival_properties.py": "c994a46f8074b66783665116124902a5446a75aa0a77235a806b469cb42c6410",
+    "tests/studies/canonical_ltmle.py": "db44a0fabb57fc19f37e94b9229f1f425de28745d6b109d4d1600eb60d0678f1",
     "tests/discrete_law_survival.py": "58b8175fb1a2757cb38fdfa3a73e333adf63b4fb08365284e223da38a4e948c8",
-    "src/cleverly/datasets/longitudinal.py": "fcb25762893bbed0985abbee7361a3f57ca189942cbdf748649679c0ed500b02",
-    "tests/studies/evidence/comparison.py": "e7321ce009ae346926456a0ec8a7ba43fee968a29b816611258b7ec509b13abe",
+    "tests/discrete_law_longitudinal.py": "acc9eaaf056050dae69e7bdbe203797e0dc6fe2502423c15369f69dbcc41d59c",
+    "tests/studies/fractional_glm.py": "5570ff1756acad859e627be9d155e1b43f789ffb8626ac3c53a049bb0662488e",
+    "src/cleverly/datasets/longitudinal.py": "c3b2887b3c1f5611c74cb4c9d283a9233dd5646e4b61202df0f27e7d9b0268c6",
+    "tests/studies/evidence/comparison.py": "653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217",
     "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
-    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
-    "tests/studies/evidence/properties.py": "f1fb615eebfe49d7f067ba38564e93c80e6f96f2c69e9b195abbd46d1765b3bf",
-    "tests/studies/evidence/property_verdicts.py": "77952c137d7ba39dcdfb44269d47dcf0ecfb68fe1856c54009c247a72e1937d4",
-    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
-    "tests/studies/evidence/seeds.py": "354de920c569ea4faacc05e9e23481fc07e46250388e7f857752392bca6f8936"
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "9c8e6a923bb16fd6637dbec77492c43aef29d9a5f825799a20ce5002ca5e9590",
+    "tests/studies/evidence/property_verdicts.py": "6bddb3468d8135bc663df0d92fc52aadea539efdee0cd1ed84ef0e3e12658076",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
+    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15"
   },
   "reference_sha256": {
     "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
     "tests/canonical/ltmle_survival/run_study.R": "27f3bf2cb66de4beefa3e2d6646194f22b6e185c59ce77add44f508f00369811",
     "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878",
-    "tests/canonical/ltmle_regimen_adapter.R": "03f1b3d2ae35ae8f63096b42c1e00875845e916a9c74b5ffb947ac2a1f28baab"
+    "tests/canonical/ltmle_regimen_adapter.R": "d0edd452d315cb6b3c19e4c1ef4794a618031d6f2a9a3f13ec5a7b08b45362c6"
   },
   "sha256": {
-    "replicates.csv.gz": "b2673dd5f23c9fb554746710eee25712f336d40e38514c92eb09f3c3b6d4873e",
-    "summary.csv": "faf549eafda87089c33c6dcacffc1c92ad30dd588d1cddbdf65275152e67a5d7",
-    "equivalence.csv": "15474ba6b87b2687d08c86138f92b3d5d7cdb971793fd00bbcac6516a8c53ceb",
-    "performance-tests.csv": "51501a3cf095f70b7b1bfacb82e040b6c5929f4ca3dc86c8a72a90834141ef16",
-    "property-replicates.csv.gz": "2a02dc302da235b40892afb324afeb15ac618cf8dbacf0fca06991539a6f96d6",
-    "properties.csv": "8662e31982f7da59c90085cf21461491e46c549b911857334189a27d61749641"
+    "replicates.csv.gz": "eeb5d833e8692d192a0154a140c2d85824373b5814757c36ce17c943b2bebf35",
+    "summary.csv": "df3706378fecf4d2d01643b314dabde3e299c888defb4ff4b4ff9839574098d5",
+    "equivalence.csv": "603ae4a8183acc90b4c897fbc02d0b265c560127f92748217626178c58aba78d",
+    "performance-tests.csv": "08aac2f6f9a280522d20310675d54693f5cdba8f6a265b3916c59493607a0183",
+    "property-replicates.csv.gz": "1a6cb3e24943f0fb475a1300cf1231239e2c21ed81ff0e9ca2957aa430057cfc",
+    "properties.csv": "899d3be9456801cec1e378cc9b53bdbf693998523f3828e7537db177e7c726ee"
   }
 }

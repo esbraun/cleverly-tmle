@@ -101,7 +101,7 @@ def draw_scenario(
     return draw_replicate(record, draw_from_seed, scenario, n, replicate)
 
 
-def fit_cleverly(frame: pd.DataFrame, *, cross_fit: bool) -> Any:
+def fit_cleverly(frame: pd.DataFrame, *, cross_fit: bool, simultaneous: bool = False) -> Any:
     """Fit the shared weighted GLM construction with one or five outer folds."""
     return LTMLE(
         REGIMENS,
@@ -113,7 +113,7 @@ def fit_cleverly(frame: pd.DataFrame, *, cross_fit: bool) -> Any:
         n_folds=5 if cross_fit else 1,
         learner_folds=2 if cross_fit else 5,
         g_bounds=G_BOUNDS,
-        simultaneous=False,
+        simultaneous=simultaneous,
         max_iter=100,
         tol=1e-10,
         random_state=0,

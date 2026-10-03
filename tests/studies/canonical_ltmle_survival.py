@@ -4,6 +4,15 @@ The paired comparison gives cleverly and R ``ltmle`` the same realized censored
 panels, intervention assignments, known treatment and censoring mechanisms, and
 quasibinomial sequential regressions.  R fits one prefix per reported horizon.
 The independent property study lives in ``ltmle_survival_properties``.
+
+The study publishes under ``reporting``.  Its declared joint-coverage run refused on one red
+verdict, ``simultaneous_coverage/all_reported__simultaneous_band``: joint coverage 0.9214
+against the 0.92 lower edge of the band, 99% interval 0.9140 to 0.9283.  The declared diagnostic
+read the same rows at the design critical value, 2.622: that oracle band covers 0.9241, so it
+under-covers too and the multiplier is not the main cause.  The family's pointwise calibration sits
+at the lower edge (``static_t2`` 0.934, ``dynamic_t2`` 0.937), so the shortfall is finite-sample.
+The default band stays on, the one-plan curve band passes, and the red cell's owner is
+``band-finite-sample``.
 """
 
 from __future__ import annotations
@@ -92,6 +101,8 @@ STUDY = StudyRecord(
         # import from it.
         "tests/studies/canonical_ltmle.py",
         "tests/discrete_law_survival.py",
+        "tests/discrete_law_longitudinal.py",
+        "tests/studies/fractional_glm.py",
         "src/cleverly/datasets/longitudinal.py",
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/inference.py",
@@ -100,6 +111,7 @@ STUDY = StudyRecord(
         "tests/studies/evidence/property_verdicts.py",
         "tests/studies/evidence/schema.py",
         "tests/studies/evidence/seeds.py",
+        "tests/studies/evidence/simultaneous.py",
     ),
     runner_module="tests.studies.canonical_ltmle_survival",
     properties_module="tests.studies.ltmle_survival_properties",
@@ -136,7 +148,13 @@ STUDY = StudyRecord(
             "always_t2__survival",
             "always_t2__survivor_only",
         ),
+        "simultaneous_coverage": tuple(
+            f"{label}__{kind}"
+            for label in ("all_reported", "curve_always")
+            for kind in ("simultaneous_band", "pointwise_joint_control")
+        ),
     },
+    publication_policy="reporting",
 )
 
 REFERENCE_METADATA = {
@@ -153,6 +171,11 @@ CONFIGURATION = {
     "r_survival_outcome": True,
     "cross_fit": False,
     "simultaneous_intervals": False,
+    "band_cells": (
+        "all_reported reuses the interval_calibration fits, which declare simultaneous=True; "
+        "curve_always is a dedicated batch of one-regimen fits of always. Both use the "
+        "engine's default 2000 rademacher draws seeded by random_state=0"
+    ),
     "variance_method": "ic",
     "stratify": True,
     "g_bounds": list(G_BOUNDS),

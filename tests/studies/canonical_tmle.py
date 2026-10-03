@@ -227,7 +227,7 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
     return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
-def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
+def fit_cleverly(frame: pd.DataFrame, scenario: str, *, simultaneous: bool = False) -> Any:
     """The explicitly non-cross-fitted configuration matched to ordinary R ``tmle3``."""
     binary = scenario == "binary"
     outcome = (
@@ -242,7 +242,7 @@ def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
             treatment_learner=treatment,
             cross_fit=False,
             estimands=estimands,
-            simultaneous=False,
+            simultaneous=simultaneous,
             g_bounds=G_BOUNDS,
             max_iter=100,
             tol=1e-10,

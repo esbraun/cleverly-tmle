@@ -144,7 +144,7 @@ The two targeted passes therefore do not replace the untargeted learner-weight w
 - The weights are exact and moderately variable. Estimated, trimmed, calibrated, normalized, and
   replicate weights remain outside this row.
 - The study covers ordinary pointwise inference for two arm means and their difference. It excludes
-  ratios, ATT, ATC, missing outcomes, clusters, strata, and simultaneous bands.
+  ratios, ATT, ATC, missing outcomes, clusters, strata, and simultaneous bands. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit.
 - Cross-fitted weighted point-treatment nuisances remain outside this row. Weighted longitudinal
   targeting has separate ordinary and cross-fitted reporting studies.
 - The learner-weight witness resolves the outcome regression only. Treatment is randomized with

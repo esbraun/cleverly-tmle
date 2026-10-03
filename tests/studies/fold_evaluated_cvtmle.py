@@ -123,7 +123,7 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
     return canonical_tmle_draw_from_seed(scenario, n, seed)
 
 
-def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
+def fit_cleverly(frame: pd.DataFrame, scenario: str, *, simultaneous: bool = False) -> Any:
     """The fold-evaluated construction: the shared build, with ``cv_evaluation=True``."""
     return cv_fit(
         frame,
@@ -131,6 +131,7 @@ def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
         estimands=SUPPORTED,
         n_folds=N_FOLDS,
         cv_evaluation=True,
+        simultaneous=simultaneous,
     )
 
 
