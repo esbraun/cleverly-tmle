@@ -139,6 +139,29 @@ ARMS: dict[str, str] = {
         )
         for stratum in (0, 1, 2)
     },
+    # The composite-indicator missing-data study: the corrected-inference contrasts,
+    # the joint-coverage labels and the correction cycle.
+    "composite_observational_ate": "the ATE of the two-arm law with an observational MAR outcome",
+    "composite_binary_ate": "the ATE of the two-arm law with a MAR outcome and treatment",
+    "composite_three_arm_ate_low": (
+        "the difference low versus high of the three-arm law with a MAR outcome and treatment"
+    ),
+    "composite_three_arm_ate_mid": (
+        "the difference mid versus high of the three-arm law with a MAR outcome and treatment"
+    ),
+    "composite_observational": (
+        "the two arm means, the difference, the risk ratio and the odds ratio of the two-arm "
+        "law with an observational MAR outcome"
+    ),
+    "composite_binary": (
+        "the two arm means, the difference, the risk ratio and the odds ratio of the two-arm "
+        "law with a MAR outcome and treatment"
+    ),
+    "composite_three_arm": (
+        "the three arm means, two differences, two risk ratios and two odds ratios of the "
+        "three-arm law with a MAR outcome and treatment"
+    ),
+    "composite_cycle": "composite-indicator correction cycle",
     "l1": "L1, two arms and a binary outcome",
     "l2": "L2, two arms and a bounded continuous outcome",
     "l3": "L3, three arms and a binary outcome",
@@ -240,6 +263,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-default-bands": "`cleverly` shipped TMLE() default fit",
     "cleverly-stratified-tmle": "`cleverly` ordinary TMLE with baseline strata",
     "cleverly-mar-drtmle": "`cleverly` randomized missing-outcome DR-TMLE",
+    "cleverly-composite-drtmle": "`cleverly` composite-indicator missing-data DR-TMLE",
     "cleverly-mar-natural-course-tmle": "`cleverly` missing-outcome natural-course TMLE",
     "cleverly-stacked-mar-natural-course-cvtmle": (
         "`cleverly` stacked missing-outcome natural-course CV-TMLE"
@@ -263,6 +287,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-learned-rule-cvtmle": "`cleverly` fold-evaluated CV-TMLE of the learned-rule value",
     "drtmle-r": "R `drtmle`",
     "drtmle-r-mar": "R `drtmle` with a joint treatment-response mechanism",
+    "drtmle-r-composite": "R `drtmle` with an NA treatment and a missing outcome",
     "drtmle-r-multi-arm": "R `drtmle` multi-arm extension",
     "drtmle-r-multi-arm-mar": (
         "R `drtmle` at three arms with a joint treatment-response mechanism"
@@ -342,6 +367,15 @@ SCENARIOS: dict[str, str] = {
         "binary-outcome observational natural-course law with learned MAR nuisances"
     ),
     "binary_mar_randomized": "binary-outcome randomized law with MAR outcomes",
+    "binary_observational_mar": ("L1: two-arm binary-outcome observational law with MAR outcomes"),
+    "binary_mar_outcome_and_treatment": (
+        "L1: two-arm binary-outcome observational law with a MAR outcome and a MAR treatment "
+        "whose recording depends on the treatment"
+    ),
+    "three_arm_mar_outcome_and_treatment": (
+        "L3: three-arm binary-outcome observational law with a MAR outcome and a MAR "
+        "treatment whose recording depends on the treatment"
+    ),
     "three_arm_mar_randomized": (
         "L3: three-arm binary-outcome law with MAR outcomes and known W-stratified assignment"
     ),
@@ -385,6 +419,11 @@ ESTIMANDS: dict[str, str] = {
     "att_lower": "lower omitted-variable bound on the ATT, at cf_y 0.5, cf_d 0.3, rho 1",
     "att_upper": "upper omitted-variable bound on the ATT, at cf_y 0.5, cf_d 0.3, rho 1",
     "ey0": "counterfactual mean under no treatment",
+    "tmle_ate": "average treatment effect of the composite TMLE, paired with R `drtmle`'s out$tmle",
+    "tmle_ate_mid": (
+        "difference in counterfactual means, mid versus high, of the composite TMLE, paired "
+        "with R `drtmle`'s out$tmle"
+    ),
     "ey1": "counterfactual mean under treatment",
     "ey_obs": "observed outcome mean under the natural course",
     "or": "marginal odds ratio, reported on the log scale",
@@ -462,7 +501,15 @@ PROPERTIES: dict[str, str] = {
         "regression or observation mechanism is correct"
     ),
     "correction_necessity": (
-        "the five-reduction correction cycle materially reduces the empirical correction scores"
+        "the correction cycle materially reduces the empirical correction scores"
+    ),
+    "ordinary_targeting": (
+        "the composite TMLE, with no extra equation, is unbiased and its interval calibrated "
+        "when every nuisance is correct"
+    ),
+    "treatment_complete_case": (
+        "dropping the rows with an unrecorded treatment targets another parameter when the "
+        "recording depends on the treatment"
     ),
     "double_robust_contraction": (
         "a bias the equivalence margin rejects at one size contracts as the sample grows, "
@@ -644,6 +691,36 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("corrected_mar_inference", "both_wrong"): (
         "the outcome regression and observation mechanism are both misspecified",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("corrected_mar_inference", "mechanism_drift"): (
+        "the outcome regression is correct and the composite mechanism is misspecified",
+        "bias interval inside the margin, coverage clears the floor, SE ratio inside the band",
+    ),
+    ("ordinary_targeting", "binary"): (
+        "the composite TMLE on the two-arm law with a MAR outcome and treatment",
+        "bias interval inside the margin, coverage lower bound at least 0.90, SE ratio inside "
+        "(0.80, 1.20)",
+    ),
+    ("ordinary_targeting", "three_arm"): (
+        "the composite TMLE on the three-arm law, mid versus high",
+        "bias interval inside the margin, coverage lower bound at least 0.90, SE ratio inside "
+        "(0.80, 1.20)",
+    ),
+    ("ordinary_targeting", "binary_regime"): (
+        "the composite TMLE of a known W-dependent regime mean on the two-arm law with a MAR "
+        "outcome and treatment",
+        "bias interval inside the margin, coverage lower bound at least 0.90, SE ratio inside "
+        "(0.80, 1.20)",
+    ),
+    ("ordinary_targeting", "binary_msm"): (
+        "the composite TMLE of the linear arm MSM slope on the two-arm law with a MAR outcome "
+        "and treatment",
+        "bias interval inside the margin, coverage lower bound at least 0.90, SE ratio inside "
+        "(0.80, 1.20)",
+    ),
+    ("treatment_complete_case", "drop_unrecorded__control"): (
+        "the rows with an unrecorded treatment dropped, and the rest fitted with delta= alone",
         "bias interval must fall entirely outside the margin",
     ),
     ("correction_necessity", "closed_score"): (
@@ -895,6 +972,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("power", "randomized_alternative"): (
         "the same test applied to the randomized law's own nonzero contrast",
+        "rejection lower bound clears the minimum power",
+    ),
+    ("power", "ate"): (
+        "the same test applied to the binary missing-treatment law's ATE of 0.21, at n = 1,000",
         "rejection lower bound clears the minimum power",
     ),
     ("power", "alternative"): (
@@ -1161,6 +1242,59 @@ ARM_CELLS.update(
             "must clear the declared floor",
         )
         for arm in ("l3_ate_low", "l3_ate_mid")
+    }
+)
+ARM_CELLS.update(
+    {
+        ("corrected_mar_inference", arm, configuration): (
+            {
+                "both_correct": "the outcome regression and the composite mechanism are correct",
+                "outcome_drift": (
+                    "the outcome regression is misspecified and the composite mechanism is correct"
+                ),
+                "mechanism_drift": (
+                    "the outcome regression is correct and the treatment factor and treatment "
+                    "observation factor of the composite mechanism are misspecified"
+                ),
+                "both_wrong": (
+                    "the outcome regression and the composite mechanism are both misspecified"
+                ),
+            }[configuration],
+            (
+                "bias interval must fall entirely outside the margin, and its distance from "
+                "zero must clear the declared floor"
+                if configuration == "both_wrong"
+                else "bias interval inside the margin, coverage clears the floor, SE ratio "
+                "inside the band"
+            ),
+        )
+        for arm in (
+            "composite_observational_ate",
+            "composite_binary_ate",
+            "composite_three_arm_ate_low",
+            "composite_three_arm_ate_mid",
+        )
+        for configuration in ("both_correct", "outcome_drift", "mechanism_drift", "both_wrong")
+    }
+)
+ARM_CELLS[("corrected_mar_inference", "composite_three_arm_ate_low", "both_wrong")] = (
+    "the outcome table's arm columns rolled, a uniform treatment factor, and a wrong treatment "
+    "observation factor: a drift of this contrast's own",
+    "bias interval must fall entirely outside the margin, and its distance from zero must "
+    "clear the declared floor",
+)
+ARM_CELLS.update(
+    {
+        ("correction_necessity", "composite_cycle", "closed_score"): (
+            "the largest equation-(9) and equation-(10) scores over the arms after the cycle, "
+            "under the outcome drift",
+            "the upper confidence endpoint is below the declared fraction of the initial-score "
+            "lower endpoint",
+        ),
+        ("correction_necessity", "composite_cycle", "initial_score_control"): (
+            "the largest equation-(10) score over the arms before the cycle is run",
+            "the lower confidence endpoint clears the declared unresolved-score floor",
+        ),
     }
 )
 

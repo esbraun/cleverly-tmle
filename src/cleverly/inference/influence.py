@@ -1411,7 +1411,11 @@ def reduced_correction_parts(
     y = np.asarray(outcome, dtype=float).reshape(-1)
     a = np.asarray(treatment, dtype=float).reshape(-1)
     raw = np.asarray(propensity, dtype=float)
-    if len(reduced.arms) == 2:
+    # The carrier rule: one column is the two-arm complement form.  A composite mechanism
+    # arrives as ``(n, K)`` at every arm count, because its columns do not sum to one.
+    if raw.ndim == 1:
+        if len(reduced.arms) != 2:
+            raise ValueError(f"a one-column mechanism requires two arms; got {list(reduced.arms)}")
         raw1 = raw.reshape(-1)
         g1 = bound(raw1, float(bounds[0]), float(bounds[1]))
         mechanism = {reduced.arms[0]: 1.0 - g1, reduced.arms[1]: g1}

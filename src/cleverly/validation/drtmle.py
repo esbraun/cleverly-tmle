@@ -143,6 +143,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from ..estimators.composite import targeting_inputs
 from ..estimators.tmle import correction_parts, reported_mechanism
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
@@ -677,6 +678,10 @@ def correction_check(
     Free: array arithmetic on what the fit already carries, refitting nothing. Every draw,
     never draw zero alone -- a repeated fit combines marginal reports but a defect in any
     draw still matters, and the draw that clips is not usually the first.
+
+    The treatment, the observation indicator and the mechanism come through
+    :func:`~cleverly.estimators.composite.targeting_inputs`, so a composite-indicator fit is
+    checked at the composite indicator and the composite mechanism it was targeted with.
     """
     data = result.data
     weights = np.asarray(data.weights, dtype=float).reshape(-1)
@@ -684,7 +689,8 @@ def correction_check(
 
     rows: list[CorrectionRow] = []
     for draw, repeat in enumerate(result.repeats):
-        scaler = repeat.nuisance.scaler
+        data, nuisance = targeting_inputs(result, repeat.nuisance)
+        scaler = nuisance.scaler
         scaled = scaler.scale(data.outcome)
         # The report is on the outcome's own scale, which is the scale the estimate and its
         # standard error are on. Every quantity below is a linear functional of the scaled
@@ -696,20 +702,18 @@ def correction_check(
             reduction = fluctuation.reduction
             if reduction is None:
                 continue
-            parts = correction_parts(
-                data, repeat.nuisance, fluctuation, fluctuation.targeted, scaled
-            )
+            parts = correction_parts(data, nuisance, fluctuation, fluctuation.targeted, scaled)
             if parts is None:  # pragma: no cover - reduction implies parts
                 continue
             clipped = int(np.count_nonzero(parts.clipped))
             mechanism = fluctuation.mechanism
             margin = _margin(
-                reported_mechanism(repeat.nuisance, fluctuation, reduction.reduced.arms),
+                reported_mechanism(nuisance, fluctuation, reduction.reduced.arms),
                 reduction.bounds,
             )
             if parts.d_a is not None and parts.d_m is not None and parts.d_y is not None:
                 observation = reduction.observation
-                missingness = repeat.nuisance.missingness
+                missingness = nuisance.missingness
                 if (
                     mechanism is None
                     or observation is None
@@ -723,7 +727,7 @@ def correction_check(
                     )
                 missingness_bound = float(reduction.missingness_bound)
                 observation_bounds = (missingness_bound, 1.0)
-                initial = np.asarray(repeat.nuisance.propensity.values, dtype=float)
+                initial = np.asarray(nuisance.propensity.values, dtype=float)
                 lower, upper = reduction.bounds
                 initial_clipped = int(np.count_nonzero((initial < lower) | (initial > upper)))
                 # The second mechanism this fit divides by, at the second bound.  It is
@@ -777,7 +781,7 @@ def correction_check(
             # of what equation (8)'s covariate divides by and reading it here is exact. The
             # second mechanism, and the second bound, exist only on the branch that has
             # `observation_clipped` and `observation_margin` to report them.
-            initial_fit = repeat.nuisance.propensity
+            initial_fit = nuisance.propensity
             initial = np.column_stack([initial_fit.arm(arm) for arm in reduction.reduced.arms])
             lower, upper = reduction.bounds
             initial_clipped = int(np.count_nonzero((initial < lower) | (initial > upper)))

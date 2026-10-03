@@ -17,6 +17,7 @@ from typing import Any
 #: with a record no design could have written.
 DESIGN_BOUND_FIELDS: tuple[str, ...] = (
     "missingness",
+    "treatment_missingness",
     "intermediate_name",
     "treatment_levels",
     "treatment_value",
@@ -43,6 +44,7 @@ DESIGN_FREE_FIELDS: tuple[str, ...] = (
 #: reconstruction of the record produces.
 _FORGED_FUNCTIONAL_VALUES: Mapping[str, Any] = {
     "missingness": "forged_delta",
+    "treatment_missingness": "forged_delta_a",
     "intermediate_name": "forged_z",
     "treatment_levels": ("forged",),
     "treatment_value": 1,

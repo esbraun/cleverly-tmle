@@ -50,7 +50,7 @@ study = CausalStudy(
   A stratum variable must also appear in `adjustment`: it conditions the reported parameter, so a
   design that stratified on a variable it did not adjust for is refused rather than fitted.
 - `intermediate` and explicit missingness roles activate supported controlled-direct-effect and
-  missing-outcome compositions.
+  missing-outcome compositions. The next section gives the two missingness roles.
 
 For a randomized study with no adjustment variables, declare the design:
 
@@ -60,6 +60,64 @@ randomized = CausalStudy(
     design=PointTreatment(outcome="Y", treatment="A", randomized=True),
 )
 ```
+
+## Missing outcomes and missing treatments
+
+Declare each missingness role with a 0/1 indicator column. The column is 1 where the value is
+recorded. The package does not infer missingness from a missing value, so an accidental gap is
+refused rather than analyzed.
+
+| role | `PointTreatment` | `fit()` and `CausalData` | `tmle()` |
+| --- | --- | --- | --- |
+| outcome recorded | `missingness=` | `delta=` | `Delta=` |
+| treatment recorded | `treatment_missingness=` | `treatment_delta=` | `DeltaA=` |
+
+A declared missing treatment supports the arm means and their contrasts on in-sample `TMLE` and
+`DRTMLE` fits. In-sample `TMLE` fits also support regime means and arm-indexed `msm=` coefficients. Each arm uses the composite indicator: the treatment and the outcome are recorded,
+and the treatment is that arm. The recording of the treatment may depend on the treatment, so the
+ATT, the ATC and the population-intervention targets are not identified and are refused.
+
+```python
+import numpy as np
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+from cleverly import ATE, CausalStudy, DRTMLEMethod, PointTreatment
+from cleverly.datasets import make_missing_outcome
+
+observed, _ = make_missing_outcome(n=600, seed=1)
+rng = np.random.default_rng(1)
+observed["A_recorded"] = (rng.random(len(observed)) < 0.85).astype(float)
+observed.loc[observed["A_recorded"] == 0.0, "A"] = np.nan
+
+missing_study = CausalStudy(
+    observed,
+    design=PointTreatment(
+        outcome="Y",
+        treatment="A",
+        adjustment=("W1", "W2", "W3"),
+        missingness="Delta",
+        treatment_missingness="A_recorded",
+    ),
+)
+effect = missing_study.estimate(
+    ATE(),
+    method=DRTMLEMethod(
+        reduced_outcome_learner=LinearRegression(),
+        reduced_treatment_learner=LogisticRegression(max_iter=1000),
+    ),
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    missingness_learner=LogisticRegression(max_iter=1000),
+    cross_fit=False,
+    random_state=0,
+)
+print(effect.extra["missing_data"])
+```
+
+The fit records the construction it ran as `composite`. The
+[composite contract](../technical-reference/dr-tmle/theorem.md#observational-missing-data-the-composite-indicator)
+states the conditions, and [scope and refusals](../technical-reference/scope-and-refusals.md)
+lists the refused compositions.
 
 ## Continuous treatment
 

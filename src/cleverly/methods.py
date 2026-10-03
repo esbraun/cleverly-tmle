@@ -73,7 +73,8 @@ class ModelSpec:
     treatment_learner : estimator or None
         Treatment-mechanism learner.
     missingness_learner : estimator or None
-        Outcome-observation learner.
+        Observation learner.  It fits the outcome observation mechanism and, for a declared
+        missing treatment, the treatment observation mechanism ``P(Delta_A = 1 | W)``.
     intermediate_learner : estimator or None
         Intermediate-variable learner for controlled direct effects.
     pseudo_learner : estimator or None
@@ -891,7 +892,8 @@ class DRTMLEMethod(TMLEMethod):
     evaluation : dataframe or None, default=None
         Optional evaluation data for a companion fit.
     randomized : bool, default=False
-        Whether treatment probabilities are known by design.
+        Whether treatment was randomized, for a fit with missing outcomes.  ``False`` fits an
+        observational missing outcome with the composite indicator.
     treatment_probabilities : array-like or mapping, default=None
         Known treatment probabilities for randomized treatment.
 

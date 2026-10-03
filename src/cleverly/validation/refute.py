@@ -354,8 +354,12 @@ class GaussianAdjustmentOutcome:
             One generated outcome per analysis row.
         """
         noise = self.noise.draw(np.random.default_rng(seed), data.n)
+        # A row with an unrecorded treatment has no code to add an effect to.  Its
+        # generated outcome is never read, because the composite indicator is zero there,
+        # so the arm-0 value keeps the vector finite and leaves the known effect intact.
+        treatment = np.where(np.isfinite(data.treatment), data.treatment, 0.0)
         return np.asarray(
-            self.adjustment(data.covariates) + self.effect * data.treatment + noise,
+            self.adjustment(data.covariates) + self.effect * treatment + noise,
             dtype=float,
         )
 
@@ -884,6 +888,21 @@ _GENERATED_TESTS = ("dummy_outcome", "simulated_outcome")
 _ROW_SET_TESTS = ("subset", "bootstrap_measurement_error")
 _CHILD_SEED_TAGS = {"dummy_outcome": 1, "simulated_outcome": 2}
 _ADDITIVE_MEAN_CONTRASTS = {"ate", "att", "atc"}
+
+
+def _permuted_treatment(data: Any, rng: np.random.Generator) -> np.ndarray:
+    """The placebo treatment: the recorded codes permuted among the recorded rows.
+
+    A row with an unrecorded treatment keeps its ``NaN`` code, so the placebo keeps the
+    treatment observation pattern and permutes only what was recorded.  Without a missing
+    treatment this is a permutation of the whole column, drawn exactly as before.
+    """
+    if not data.has_missing_treatment:
+        return np.asarray(rng.permutation(data.treatment), dtype=float)
+    recorded = data.treatment_recorded
+    permuted = np.asarray(data.treatment, dtype=float).copy()
+    permuted[recorded] = rng.permutation(permuted[recorded])
+    return permuted
 
 
 def _validated_tests(
@@ -2064,7 +2083,7 @@ def refute(
         if name == "placebo":
             assert no_effect_null is not None
             values = tuple(
-                refit(data.with_treatment(rng.permutation(data.treatment)))
+                refit(data.with_treatment(_permuted_treatment(data, rng)))
                 for _ in range(replicate_count)
             )
             # Permuting treatment removes the effect, so each replicate is a draw from a

@@ -463,6 +463,7 @@ class TestTheRuleTableIsOrderedAndEveryRuleIsReachable:
             "drtmle",
             "collaborative_tmle",
             "response_mechanism",
+            "missing_treatment",
             "intermediate",
             "parameter_axis",
             "bound_parameters",

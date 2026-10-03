@@ -23,7 +23,7 @@ from .exceptions import DataError, refuse_inference
 from .inference.influence import ParameterEstimate
 from .inference.results import reported_status
 from .targets import parameter_stem
-from .utils.frames import as_frame, backend_of, emit_frame, is_dataframe
+from .utils.frames import as_frame, backend_of, emit_frame, has_nulls, is_dataframe
 
 __all__ = ["VariableImportanceEntry", "VariableImportanceResult", "variable_importance"]
 
@@ -237,6 +237,7 @@ def variable_importance(
     # ``_retarget_detailed`` stamps the estimates with, so the refusal and the estimates
     # the adjustment would read cannot disagree.
     prepared: dict[str, tuple[tuple[str, ...], CausalData]] = {}
+    frame_view = as_frame(data)
     for candidate in candidate_names:
         adjustment = [name for name in base_covariates if name != candidate]
         if adjust_for_other_candidates:
@@ -246,6 +247,13 @@ def variable_importance(
             raise DataError(
                 f"candidate {candidate!r} has an empty adjustment set; cleverly's "
                 "point-treatment estimator requires at least one baseline covariate"
+            )
+        if candidate in frame_view.columns and has_nulls(frame_view, candidate):
+            raise DataError(
+                f"candidate {candidate!r} has missing values. variable_importance takes no "
+                "missing treatment: each candidate's refit reads the treatment law of every "
+                "row, which a missing treatment leaves unidentified. Drop those rows or "
+                "impute the candidate first."
             )
         candidate_data = template._prepare(
             data,

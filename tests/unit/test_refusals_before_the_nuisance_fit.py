@@ -58,8 +58,8 @@ from cleverly.assessment import POINT_REPLAY_REFIT_CONFIGURATION, replayability
 from cleverly.datasets import make_cde, make_linear_ate
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.estimators.reduced import refuse_unsupported
-from cleverly.exceptions import CapabilityError
-from cleverly.interventions import Incremental, Shift, Static
+from cleverly.exceptions import CapabilityError, DataError
+from cleverly.interventions import Incremental, LearnedRule, Shift, Static
 from cleverly.msm import MSM
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from tests.conftest import linear_in_sample
@@ -518,15 +518,15 @@ MOVED: dict[str, tuple[Callable[[], Any], str]] = {
         ),
         "treatment_probabilities= is currently only used with delta=",
     ),
-    "DRTMLE missing outcomes, three arms, observational": (
-        lambda: DRTMLE(estimands=("ate",), **drtmle_spies()).fit(
+    "DRTMLE missing outcomes, three arms, observational, evaluation=": (
+        lambda: DRTMLE(estimands=("ate",), evaluation=_trial(40), **drtmle_spies()).fit(
             _three_arms(),
             outcome="Y",
             treatment="A",
             covariates=["W1", "W2"],
             delta="Delta",
         ),
-        "DRTMLE with delta= is supported only for a randomized trial",
+        "the composite-indicator DR-TMLE for an observational missing outcome or treatment",
     ),
     "DRTMLE missing outcomes, weighted": (
         lambda: _missing_drtmle(_trial(120).assign(wt=np.linspace(0.5, 1.5, 120)), weights="wt")(),
@@ -686,3 +686,179 @@ class TestTheWitnessesHaveTeeth:
                 lambda: refit_slot_witness(unguarded_result, monkeypatch),
             ]
         )
+
+
+# ------------------------------------------------------ a declared missing treatment
+
+#: What every missing-treatment refusal of the shared gate opens with.
+SUPPORTED = "A missing treatment is supported for arm means and their contrasts"
+UNIDENTIFIED = "P(A = a | W) is not identified"
+
+
+def missing_treatment_frame(n: int = 200) -> pd.DataFrame:
+    """:func:`strata_frame` with ``A`` missing where ``DeltaA = 0`` and a binary ``Z``."""
+    frame = strata_frame(n)
+    rng = np.random.default_rng(23)
+    recorded = rng.random(n) < 0.8
+    return frame.assign(
+        A=np.where(recorded, frame["A"].astype(float), np.nan),
+        DeltaA=recorded.astype(float),
+        Z=rng.integers(0, 2, n).astype(float),
+        Ybin=(frame["Y"] > frame["Y"].median()).astype(float),
+    )
+
+
+def _fit_missing_treatment(estimator: Any, **roles: Any) -> Any:
+    outcome = roles.pop("outcome", "Y")
+    return estimator.fit(
+        missing_treatment_frame(),
+        outcome=outcome,
+        treatment="A",
+        covariates=COVARIATES,
+        treatment_delta="DeltaA",
+        **roles,
+    )
+
+
+class _CustomEstimator(TMLE):
+    """A subclass that the gate does not name: it meets the generic reason."""
+
+    _assessment_method = "custom"
+
+
+def _never(**settings: Any) -> dict[str, Any]:
+    return {"cross_fit": False, "simultaneous": False, **never_fit_learners(), **settings}
+
+
+def _never_drtmle(**settings: Any) -> DRTMLE:
+    return DRTMLE(
+        reduced_outcome_learner=NeverFit(),
+        reduced_treatment_learner=NeverFit(),
+        **_never(**settings),
+    )
+
+
+#: Every composition the gate refuses, with a fragment of its reason.  Each is refused
+#: before any learner.
+MISSING_TREATMENT_ROWS: dict[str, tuple[Callable[[], Any], tuple[str, ...]]] = {
+    "att": (lambda: _fit_missing_treatment(TMLE(**_never(estimands=("att",)))), (UNIDENTIFIED,)),
+    "atc": (lambda: _fit_missing_treatment(TMLE(**_never(estimands=("atc",)))), (UNIDENTIFIED,)),
+    "ey_obs": (
+        lambda: _fit_missing_treatment(TMLE(**_never(estimands=("ey_obs",)))),
+        (UNIDENTIFIED, "ey_obs read the treatment law of every row"),
+    ),
+    "par": (lambda: _fit_missing_treatment(TMLE(**_never(estimands=("par",)))), (UNIDENTIFIED,)),
+    "paf": (
+        lambda: _fit_missing_treatment(TMLE(**_never(estimands=("paf",))), outcome="Ybin"),
+        (UNIDENTIFIED,),
+    ),
+    "incremental": (
+        lambda: _fit_missing_treatment(TMLE(**_never(incremental=[Incremental(2.0)]))),
+        ("incremental= reads P(A | W)",),
+    ),
+    "learned_rule": (
+        lambda: _fit_missing_treatment(TMLE(**_never(learned_rule=LearnedRule()))),
+        ("no composite derivation for a rule learned from the fit", "roadmap F27"),
+    ),
+    "intermediate": (
+        lambda: _fit_missing_treatment(TMLE(**_never()), intermediate="Z"),
+        ("No derivation of the composite indicator for a controlled direct effect",),
+    ),
+    "cross_fit": (
+        lambda: _fit_missing_treatment(TMLE(**_never(cross_fit=True))),
+        ("roadmap F21", "cross_fit=False"),
+    ),
+    "randomized": (
+        lambda: _fit_missing_treatment(_never_drtmle(randomized=True, estimands=("ate",))),
+        ("observes the treatment on every row",),
+    ),
+    "treatment_probabilities": (
+        lambda: _fit_missing_treatment(
+            _never_drtmle(estimands=("ate",)), treatment_probabilities=np.full(200, 0.5)
+        ),
+        ("observes the treatment on every row",),
+    ),
+    "ctmle": (
+        lambda: _fit_missing_treatment(CTMLE(**_never(estimands=("ate",)))),
+        ("roadmap F5", "Fit TMLE or DRTMLE"),
+    ),
+    "evaluation": (
+        lambda: _fit_missing_treatment(
+            _never_drtmle(estimands=("ate",), evaluation=strata_frame(50))
+        ),
+        ("evaluation companion",),
+    ),
+    "unnamed_estimator": (
+        lambda: _fit_missing_treatment(_CustomEstimator(**_never(estimands=("ate",)))),
+        ("This fit is not one of those compositions",),
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda: TMLE(**_never(msm=MSM.linear())), id="msm"),
+        pytest.param(
+            lambda: TMLE(**_never(interventions=[Static(1.0, name="on"), Static(0.0, name="off")])),
+            id="interventions",
+        ),
+    ],
+)
+def test_a_missing_treatment_admits_regimes_and_arm_msms(build: Callable[[], Any]) -> None:
+    """Identified under the composite conditions, and lifted: the request reaches a learner."""
+    with pytest.raises(AssertionError, match="before any learner is fitted"):
+        _fit_missing_treatment(build())
+    assert NeverFit.calls > 0
+
+
+@pytest.mark.parametrize("row", sorted(MISSING_TREATMENT_ROWS))
+def test_a_missing_treatment_composition_is_refused_before_any_learner(row: str) -> None:
+    build, fragments = MISSING_TREATMENT_ROWS[row]
+    assert_refused_before_any_call(build, None, "learner", SUPPORTED, *fragments)
+
+
+def test_a_missing_treatment_with_a_dose_is_refused_by_the_container() -> None:
+    """A conditional density has no composite indicator; the container refuses first."""
+    assert_refused_before_any_call(
+        lambda: _fit_missing_treatment(TMLE(**_never(shifts=[Shift(1.0, cap=None)]))),
+        None,
+        "learner",
+        "arm-coded treatment only",
+        error=DataError,
+    )
+
+
+def test_a_missing_treatment_beside_strata_at_a_guard_meets_x8() -> None:
+    assert_refused_before_any_call(
+        lambda: _fit_missing_treatment(_never_drtmle(estimands=("ate",)), strata=["S"]),
+        None,
+        "learner",
+        MEAN,
+        X8,
+    )
+
+
+def test_the_composite_dr_tmle_refuses_the_evaluation_companion() -> None:
+    """With an observational ``delta=`` alone the composite route refuses ``evaluation=``."""
+    frame = _trial(120)
+    assert_refused_before_any_call(
+        lambda: _never_drtmle(estimands=("ate",), evaluation=frame).fit(
+            frame, outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
+        ),
+        None,
+        "learner",
+        "composite-indicator DR-TMLE",
+        "evaluation companion",
+    )
+
+
+@pytest.mark.parametrize("row", ["att", "cross_fit", "ctmle"])
+def test_a_missing_treatment_refusal_needs_the_gate(
+    monkeypatch: pytest.MonkeyPatch, row: str
+) -> None:
+    """The mutation control: without the gate the request reaches a learner."""
+    monkeypatch.setattr(tmle_module, "missing_treatment_refusal", lambda *args: None)
+    build, fragments = MISSING_TREATMENT_ROWS[row]
+    with pytest.raises(AssertionError):
+        assert_refused_before_any_call(build, None, "learner", SUPPORTED, *fragments)

@@ -220,7 +220,25 @@ stacked. The instruments are in the table. The column at the right says what eac
 All of these are in `tests/unit/test_drtmle_missing_multi_arm.py` except the study. The R pairing
 covers the both-correct limit only.
 
-Cross-validated, observational, and missing-treatment DR-TMLE compositions are not
+**The composite indicator.** An observational missing outcome and a declared missing treatment take
+the [composite construction](dr-tmle/theorem.md#observational-missing-data-the-composite-indicator),
+for the DR-TMLE variants and for the ordinary TMLE. It is an estimator variant over the
+registered arm means and contrasts, and adds no target. The instruments are in the table.
+
+| instrument | what it checks | what it cannot see |
+| --- | --- | --- |
+| two exact laws, `tests/discrete_law_composite.py`, at two and three arms | at the oracle factors the estimate equals the truth and the curve equals the EIF to `1e-12`, at every guard, both reductions, and with a `W`-dependent weight. Each witness limit is computed and checked at import | the corrections, which vanish at the truth |
+| outcome and mechanism drifts on those laws | the estimate stays exact, `D*_g` is live under the outcome drift and `D*_Q` under the mechanism drift, and the stored scores equal the reported corrections; both drifts together miss | a defect that is exact on a saturated law |
+| nonzero witnesses and mutation controls (E5 to E12, E19) | an omitted treatment or outcome observation factor, a renormalized or rolled composite, the two-arm complement form, a treatment factor fitted on every row, a view that masks by `Delta` alone, and a reader of the raw treatment each move the estimate to its computed limit or fail an identity | a defect the mutation list does not name |
+| exact reductions (E13, E14) | on complete data at three arms the composite route is the shipped DR-TMLE bit for bit; with `delta=` alone its covariate and its whole TMLE are the shipped missing-outcome ones bit for bit | the two-arm composite, which is armwise where the complete-data route is not; the per-arm reference covers it |
+| independent per-arm reference (E18) | each arm's estimate and curve equal a test-local implementation of Benkeser et al.'s steps on `(W, C_a, C_a Y)` under live drift, and a sign mutation in the curve fails it | each arm under both guards together under the outcome drift, where equation (10) has a near-zero covariate and its fixed point is not numerically identified |
+| the [observational missing-data study](method-evidence/observational-missing-data-dr-tmle.md), `composite-missing-drtmle` | repeated-sampling coverage, drift robustness, the rate, calibration, size, power, the simultaneous band, the correction cycle, and a complete-case control, at two and three arms; a regime mean and an arm MSM slope on the composite TMLE; R `drtmle` 1.1.2 runs the same construction. The three-arm `low` contrast's both-wrong control uses a drift of its own | partial guards, the bivariate reduction, weights and clusters, which have no coverage cell; the exact laws and the parent studies cover them |
+
+No instrument can detect a violation of the treatment condition, `Y(a)` independent of `Delta_A`
+given `(A, W)`. No observed-data check can, because the data hold no outcome of a row whose
+treatment is unrecorded under the other arm.
+
+Cross-validated DR-TMLE missing-data compositions are not
 covered, and neither is `treatment_probabilities=` under `n_bootstrap=`, which is refused because
 the array cannot be reindexed to a replicate's resampled rows at any `guard=` because the array
 is row-aligned however few equations are being solved. An unguarded `delta=` fit with known

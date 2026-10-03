@@ -36,6 +36,7 @@ from tests import discrete_law_competing as competing
 from tests import discrete_law_longitudinal as longitudinal
 from tests import discrete_law_survival as survival
 from tests.studies import (
+    composite_drtmle_properties,
     default_band_properties,
     ltmle_competing_properties,
     ltmle_properties,
@@ -149,6 +150,22 @@ EXACT: dict[str, tuple[np.ndarray, int, tuple[float, float]]] = {
         multi_arm_mar_drtmle_properties.CALIBRATION_REPLICATES,
         (0.8223, 2.508),
     ),
+    # The composite study: each scenario's reported names on the inference scale, from
+    # the exact efficient influence covariance, whose arm terms divide by g_c = g pi_A pi.
+    **{
+        f"composite-missing-drtmle/{label}": (
+            _from_covariance(
+                arm_indexed_laws.influence_covariance(composite_drtmle_properties._keyed(scenario))
+            ),
+            composite_drtmle_properties.CALIBRATION_REPLICATES,
+            declared,
+        )
+        for label, scenario, declared in (
+            ("composite_observational", composite_drtmle_properties.OBSERVATIONAL, (0.8832, 2.326)),
+            ("composite_binary", composite_drtmle_properties.BINARY, (0.8835, 2.324)),
+            ("composite_three_arm", composite_drtmle_properties.THREE_ARM, (0.8220, 2.508)),
+        )
+    },
 }
 
 
@@ -281,3 +298,91 @@ def test_the_middle_stratum_control_could_not_fail() -> None:
 def test_the_both_wrong_control_is_displaced_in_every_stratum() -> None:
     for stratum, (truth, _, unadjusted, sd) in _strata_limits().items():
         assert abs(unadjusted - truth) / sd >= 0.4, stratum
+
+
+def test_the_composite_power_cell_has_its_planned_power() -> None:
+    """The power cell's n is declared from the planned power of the two-sided 5% test."""
+    from scipy.stats import norm
+
+    design = composite_drtmle_properties
+    effect = design.TRUTHS[design.BINARY][design.TARGET]
+    assert effect == pytest.approx(0.21, abs=1e-12)
+    assert pytest.approx(1.808, abs=5e-4) == design.EFFICIENCY_SD
+
+    def power(n: int) -> float:
+        shift = abs(effect) * np.sqrt(n) / design.EFFICIENCY_SD
+        critical = norm.ppf(0.975)
+        return float(norm.cdf(shift - critical) + norm.cdf(-shift - critical))
+
+    assert power(500) == pytest.approx(0.738, abs=5e-4)
+    assert power(design.POWER_N) == pytest.approx(0.957, abs=5e-4)
+    assert power(design.POWER_N) >= 0.95
+
+
+def test_the_composite_complete_case_control_resolves_from_zero() -> None:
+    """The complete-case bias is -0.0432, many Monte Carlo errors from zero at its budget."""
+    design = composite_drtmle_properties
+    assert pytest.approx(-0.0432, abs=5e-5) == design.COMPLETE_CASE_BIAS
+    monte_carlo = design.EFFICIENCY_SD / np.sqrt(
+        design.COMPLETE_CASE_N * design.COMPLETE_CASE_REPLICATES
+    )
+    assert abs(design.COMPLETE_CASE_BIAS) / monte_carlo >= 20
+
+
+def test_the_composite_study_publishes_exactly_its_declared_cells() -> None:
+    """Before the run: every spec, two replications each at n = 300, through the summary.
+
+    The summary carries the derived calibration controls, the ``root_n_rate`` rows and each
+    band's pointwise control, so its cell set is the one ``properties.csv`` will publish.  It
+    must equal ``STUDY.property_cells``, which the evidence tests read.  Two replications make
+    degenerate rates and fits, so their warnings are silenced: only the cell names are read.
+    """
+    import warnings
+
+    import pandas as pd
+
+    from tests.studies.canonical_composite_drtmle import STUDY
+
+    design = composite_drtmle_properties
+    rows: list[dict[str, object]] = []
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        for property_name, cell, _, _, configuration in design._specs():
+            for replicate in range(2):
+                rows += design._fit_replication(
+                    (property_name, cell, replicate, 300, 2, 1_000 + replicate, configuration)
+                )
+        frame = pd.DataFrame(rows)
+        controls = design.calibration_controls(
+            frame,
+            STUDY,
+            labels=("ate",),
+            efficiency_bounds={"ate": design.EFFICIENCY_SD},
+            calibration_n=300,
+            shrunken_se_factor=design.SHRUNKEN_SE_FACTOR,
+            critical=design.CRITICAL,
+        )
+        summary = design.summarize_properties(pd.concat([frame, controls], ignore_index=True))
+    published = set(zip(summary["property"], summary["cell"], strict=True))
+    declared = {(family, cell) for family, cells in STUDY.property_cells.items() for cell in cells}
+    assert published == declared, sorted(published ^ declared)
+
+
+def test_the_composite_primary_rows_feed_the_fit_exit_artifact() -> None:
+    """``draw_and_fit`` keeps the exit columns that ``extra_artifacts`` reads.
+
+    The declared run failed once at this seam: the rows were projected onto the shared
+    schema before the hook ran.
+    """
+    import warnings
+
+    from tests.studies import canonical_composite_drtmle as study
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        _, _, rows = study.draw_and_fit(replicates=1, n=300, n_jobs=1)
+    (exits,) = study.extra_artifacts(rows).values()
+    assert list(exits.columns) == list(study.FIT_EXIT_COLUMNS)
+    assert len(exits) == len(rows)
+    assert set(exits["exit_reason"]) <= {"tolerance", "stall", "cap", "none"}
+    assert "none" in set(exits["exit_reason"])

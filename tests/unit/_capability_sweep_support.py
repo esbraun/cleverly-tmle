@@ -400,6 +400,118 @@ def fit_drtmle_missing_multi_arm() -> Any:
     return _missing_drtmle(three_arm_missing_frame())
 
 
+def _with_missing_treatment(frame: Any, *, seed: int = 31) -> Any:
+    """``frame`` with the treatment missing at random on about a fifth of its rows."""
+    rng = np.random.default_rng(seed)
+    w = frame["W1"].to_numpy(dtype=float)
+    recorded = rng.random(len(frame)) < 1.0 / (1.0 + np.exp(-(1.5 + 0.4 * w)))
+    labels = frame["A"].to_numpy()
+    missing: Any = np.nan if labels.dtype.kind in "fiu" else None
+    return frame.assign(
+        A=np.where(recorded, labels, missing),
+        DeltaA=recorded.astype(float),
+        cluster=np.arange(len(frame)) // 4,
+        weight=mean_one_weights(len(frame)),
+    )
+
+
+def _composite_drtmle(**settings: Any) -> DRTMLE:
+    """An observational in-sample DR-TMLE, which the composite route fits."""
+    return DRTMLE(
+        **linear_in_sample(
+            missingness_learner=LogisticRegression(max_iter=1000),
+            reduced_outcome_learner=LinearRegression(),
+            reduced_treatment_learner=LogisticRegression(max_iter=1000),
+        ),
+        max_outer=10,
+        **settings,
+    )
+
+
+def fit_drtmle_composite() -> Any:
+    """An observational missing-outcome DR-TMLE at two arms: the composite route."""
+    return (
+        _composite_drtmle(estimands=("ate", "ey0", "ey1"))
+        .fit(
+            _missing_frame(),
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2", "W3"],
+            delta="Delta",
+        )
+        .single()
+    )
+
+
+def fit_missing_treatment() -> Any:
+    """A composite TMLE at two arms with a missing treatment and complete outcomes."""
+    frame = _with_missing_treatment(_linear_frame())
+    return (
+        TMLE(**linear_in_sample(missingness_learner=LogisticRegression(max_iter=1000)))
+        .fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2", "W3", "W4"],
+            treatment_delta="DeltaA",
+        )
+        .single()
+    )
+
+
+def fit_tmle_missing_treatment_weights() -> Any:
+    """A weighted composite TMLE with a missing outcome and a missing treatment."""
+    frame = _with_missing_treatment(_missing_frame())
+    return (
+        TMLE(**linear_in_sample(missingness_learner=LogisticRegression(max_iter=1000)))
+        .fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2", "W3"],
+            delta="Delta",
+            treatment_delta="DeltaA",
+            weights="weight",
+        )
+        .single()
+    )
+
+
+def fit_drtmle_missing_treatment_multi_arm() -> Any:
+    """A composite DR-TMLE at three arms with a missing outcome and a missing treatment."""
+    frame = _with_missing_treatment(three_arm_missing_frame())
+    return (
+        _composite_drtmle(estimands=("ate", "ey"))
+        .fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2", "W3"],
+            delta="Delta",
+            treatment_delta="DeltaA",
+        )
+        .single()
+    )
+
+
+def fit_drtmle_missing_treatment_clustered() -> Any:
+    """A clustered composite DR-TMLE at two arms with both indicators."""
+    frame = _with_missing_treatment(_missing_frame())
+    return (
+        _composite_drtmle(estimands=("ate", "ey0", "ey1"))
+        .fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2", "W3"],
+            delta="Delta",
+            treatment_delta="DeltaA",
+            id="cluster",
+        )
+        .single()
+    )
+
+
 def fit_policy_means() -> Any:
     """A study fit of two policy means of a continuous dose, one of them zero-delta.
 
@@ -625,6 +737,17 @@ KINDS: dict[str, Kind] = {
     # Both refit the treatment mechanism on their own rows, because randomized=True.
     "drtmle+missing": _kind(fit_drtmle_missing, *_LIVE, *_TILT, "corrections"),
     "drtmle+missing+multi_arm": _kind(fit_drtmle_missing_multi_arm, *_LIVE, *_TILT, "corrections"),
+    # The composite construction: an observational delta= and a declared missing
+    # treatment. The omitted-variable rows refuse a missing treatment by name.
+    "drtmle+composite": _kind(fit_drtmle_composite, *_LIVE, *_TILT, "corrections"),
+    "missing_treatment": _kind(fit_missing_treatment, *_LIVE, "evalue"),
+    "tmle+missing_treatment+weights": _kind(fit_tmle_missing_treatment_weights, *_LIVE, *_TILT),
+    "drtmle+missing_treatment+multi_arm": _kind(
+        fit_drtmle_missing_treatment_multi_arm, *_LIVE, *_TILT, "corrections"
+    ),
+    "drtmle+missing_treatment+id": _kind(
+        fit_drtmle_missing_treatment_clustered, *_LIVE, *_TILT, "corrections"
+    ),
     "ctmle_ordered": _kind(fit_ctmle_ordered, *_LIVE),
     "shift+missing": _kind(fit_shift_missing, *_LIVE),
     "incremental": _kind(fit_incremental, *_READ, "refute"),

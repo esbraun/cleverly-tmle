@@ -1835,6 +1835,11 @@ rather than a comparison target.
   Section 4 treats doubly robust inference by one-step estimation.
   Section 5 is the simulation study.
   Section 5.1 supplies the binary simulation law and its three nuisance scenarios.
+  Section 3.2 and Theorem 1 are also the base result of the
+  [composite indicator](technical-reference/dr-tmle/theorem.md#observational-missing-data-the-composite-indicator):
+  Theorem 1 applies as stated to $(W, C_a, C_a Y)$ with the binary treatment
+  $C_a = \Delta_A \Delta 1\{A = a\}$. The paper mentions no missing data and records no caveat
+  about coarsening.
 - Benkeser & Hejazi (2023), [*Doubly-Robust Inference in R using
   `drtmle`*](https://doi.org/10.1353/obs.2023.0017), *Observational Studies* 9(2):43–78, DOI
   10.1353/obs.2023.0017. Read first-hand. Multi-level treatments are §4.6, pp. 66–67;
@@ -1873,10 +1878,14 @@ rather than a comparison target.
   records its identification and rate locators.
 
   The paper establishes the missing-outcome construction for randomized treatment. It does not
-  establish the observational-treatment or missing-treatment compositions that the canonical
-  package exposes. Page 4 calls cross-validated results "straightforward extensions of the work of
-  Zheng and van der Laan (2011)". It adds "we do not pursue such results here". Page 26 states that
-  such a development "would follow from trivial extensions" of that work.
+  establish the observational-treatment or missing-treatment compositions, which is an absence and
+  not an objection. The page-25 rejection concerns design information that a randomized trial
+  knows. On an observational law nothing about the treatment mechanism is known, so the composite
+  discards nothing. The package fits those compositions with the composite indicator.
+
+  Page 4 calls cross-validated results "straightforward extensions of the work of Zheng and van der
+  Laan (2011)". It adds "we do not pursue such results here". Page 26 states that such a
+  development "would follow from trivial extensions" of that work.
 
 The `benkeser/drtmle` R package supplies implementation provenance and a bounded numerical
 comparison. Agreement with it does not establish the theorem or truth-based validity. The
@@ -1892,7 +1901,22 @@ the composite response `A == a & DeltaA == 1 & DeltaY == 1` ([`R/fluctuate.R`, l
 `DeltaY == 1` ([`R/estimate.R`, lines
 1117–1126](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/estimate.R#L1117-L1126)).
 This is the composite construction that Díaz and van der Laan reject on page 25. Both
-missing-outcome studies therefore pair with it at the both-correct limit only.
+randomized missing-outcome studies therefore pair with it at the both-correct limit only.
+
+The same composite construction is what the package fits for an observational missing outcome
+and a missing treatment, so the observational missing-data study pairs with it as one estimator.
+The source locators are these.
+
+| locator | content |
+| --- | --- |
+| [`R/drtmle.R`, lines 207-209](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/drtmle.R#L207-L209) | `DeltaA = as.numeric(!is.na(A))` and `a_0 = unique(A[!is.na(A)])`: an `NA` treatment is an unrecorded one |
+| [`R/drtmle.R`, line 364](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/drtmle.R#L364) | a supplied `gn` skips `estimateG` |
+| [`R/drtmle.R`, lines 861 and 884](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/drtmle.R#L861-L884) | `out$tmle` is the `fluctuateQ1` fit alone |
+| [`R/fluctuate.R`, lines 28, 98 and 169-172](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/fluctuate.R#L169-L172) | the indicator `A == a & DeltaA == 1 & DeltaY == 1`, including the bivariate `H2` |
+| [`R/estimate.R`, lines 116-200](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/estimate.R#L116-L200) | `estimateG`: the three-factor chain `P(DeltaA = 1 \| W) P(A = a \| DeltaA = 1, W) P(DeltaY = 1 \| A = a, DeltaA = 1, W)` |
+| [`R/estimate.R`, lines 1109-1110](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/estimate.R#L1109-L1110) | each reduced regression sets `Aeqa[is.na(Aeqa)] <- FALSE` |
+| [`R/estimate.R`, lines 1117-1150](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/estimate.R#L1117-L1150) | the `SL_Qr` branch of `estimateQrn` filters on `trainDeltaA == 1` |
+| [`R/estimate.R`, lines 1176-1178](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/estimate.R#L1176-L1178) | the `glm_Qr` branch filters on `trainDeltaY == 1 & trainDeltaY == 1`, so `DeltaA` is absent there. With `NA` coding the `Aeqa` line removes every unrecorded row, so the slip has no effect. The package masks by `Delta_A` directly, and `tests/unit/test_composite_missing_data.py` (E12) pins that a coded treatment on an unrecorded row changes nothing |
 
 The same commit codes a missing outcome and a missing treatment as one composite indicator.
 `R/drtmle.R` line 207 sets `DeltaA = as.numeric(!is.na(A))`. `R/fluctuate.R` line 28 builds the

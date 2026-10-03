@@ -155,10 +155,10 @@ targeting, or evaluation companion. `randomized=True` estimates `g_A`; `treatmen
 supplies known row-aligned probabilities and bypasses the treatment learner. Prefer the mapping form
 `{"placebo": p0, "active": p1}`: the positional forms bind to arm *codes*, which are indices into
 the sorted levels, so a `(n,)` vector is the probability of the second sorted level and not of "the
-treated arm". Observational treatment and missing treatment remain refused because this paper does
-not derive those compositions. Known probabilities are row-aligned fit data and are retained with
-the complete fitted result in the trusted joblib artifact, together with the estimator needed for
-supported later refits.
+treated arm". Known probabilities are row-aligned fit data and are retained with the complete fitted
+result in the trusted joblib artifact, together with the estimator needed for supported later
+refits. An observational missing outcome and a missing treatment take the construction of
+[the composite indicator](#observational-missing-data-the-composite-indicator) instead.
 
 ### More than two arms
 
@@ -190,6 +190,90 @@ The loop stops on the largest score over all arms, and so does the final check. 
 stricter than Theorem 2's per-arm requirement. At two arms the one shared tilt of `g_1` is a
 different path to the same two solved equations. The proof reads only the solved equations, so
 the result holds there too.
+
+## Observational missing data: the composite indicator
+
+An observational fit with `delta=` and a fit with a missing treatment use one construction. The
+fit declares a missing treatment with `treatment_delta=<column>`, the 0/1 column that is 1 where
+the treatment is recorded. The package never infers a missing treatment from a missing value, for
+the reason it never infers a missing outcome: an accidental gap must not start a missing-data
+analysis. The roadmap words for this item read "a missing treatment coded as a missing value", and
+the declaration is a deliberate deviation from them.
+
+For arm `a`, write `Delta_A` for the treatment indicator and define the composite indicator and its
+mechanism:
+
+```text
+C_a = Delta_A · Delta · 1(A=a)
+g_c,a(W) = P(C_a=1 | W) = pi_A(W) · g(a | Delta_A=1, W) · pi(a, W)
+pi_A(W) = P(Delta_A=1 | W),    pi(a, W) = P(Delta=1 | A=a, Delta_A=1, W)
+```
+
+The product is the law of total probability, so it holds for every law. No factor needs a causal
+reading. The fit estimates each factor on the rows it conditions on, and the outcome regression
+on the rows where `C_a` can be 1.
+
+**The route.** `cleverly.estimators.composite.missing_data_route` chooses the construction, and
+the fit records it under `result.extra["missing_data"]`.
+
+| `delta=` | missing treatment | `randomized=True` or `treatment_probabilities=` | guard | route |
+| --- | --- | --- | --- | --- |
+| no | no | any | any | `complete` |
+| yes | no | yes | non-empty | `randomized_missing_outcome` (Díaz and van der Laan above) |
+| yes | no | no | non-empty | `composite` |
+| yes | no | any | `()`, or `TMLE` | `missing_outcome` (the shipped missing-outcome TMLE) |
+| any | yes | no | any, or `TMLE` | `composite` |
+| any | yes | yes | any | refused: the declaration selects a construction that observes the treatment on every row |
+
+**The contract** has five parts.
+
+| part | content |
+| --- | --- |
+| base result | Benkeser, Carone, van der Laan and Gilbert (2017), Section 3.2, Theorem 1: on `O = (W, A, Y)` with a binary `A`, the estimator that solves the targeting equation and the equations of the reduced regressions is asymptotically linear with curve `D* − D*_Q − D*_g` when either `Qbar` or `g` is consistent |
+| steps | indicator reduction: Theorem 1 applies as stated to `O'_a = (W, C_a, C_a Y)`, with the binary treatment `C_a`, the mechanism `g_c,a` and the regression `E(Y | C_a=1, W)`. Identification: `E{Y(a)} = E[E{Y | A=a, Delta_A=1, Delta=1, W}]` under the conditions below. Fixed-dimension stack: the `K` arm estimators are asymptotically linear on the same rows, with joint covariance `P_0[D_a D_b]`. Linearity gives `ate`, and the delta method gives `rr` and `or` on the log scale. Fixed weights tilt the law and clusters are the unit, as in both parents |
+| objection search | Benkeser et al. (2017) mention no missing data and no caveat about coarsening. Díaz and van der Laan (2017, p. 25) reject a composite `T = AM` for a randomized trial, because it discards known design information. On an observational law nothing about the treatment mechanism is known, so the composite discards nothing. R `drtmle` 1.1.2 implements this construction (`R/drtmle.R` lines 207-209, `R/fluctuate.R` lines 28, 98 and 169-172, `R/estimate.R` lines 116-200) |
+| conditions | the four conditions below; Theorem 1's conditions for each arm on `O'_a`, which include the Donsker condition, hence `cross_fit=False`; the solved equations of every arm at `o_P(n^(−1/2))`. The loop stops on the largest score over the arms, which is stricter than the per-arm requirement |
+| evidence | the exact-law checks, nonzero witnesses, mutation controls and per-arm reference of `tests/unit/test_composite_missing_data.py`, and the registered composite study |
+
+**The conditions** are these.
+
+| condition | statement |
+| --- | --- |
+| consistency and no unmeasured confounding | `Y = Y(a)` when `A = a`, and `Y(a)` is independent of `A` given `W` |
+| treatment missing at random | `Y(a)` is independent of `Delta_A` given `(A, W)` |
+| outcome missing at random | `Y` is independent of `Delta` given `(A, Delta_A=1, W)` |
+| composite positivity | `g_c,a(W) > 0` for every arm, and `W` complete on every row |
+
+**What the data do not identify.** The conditions let `Delta_A` depend on `A`. Then
+`P(A = a | W)` is not identified, and only `P(A = a | Delta_A = 1, W)` is. A target or a clever
+covariate that reads the treatment law of every row is therefore not identified with a missing
+treatment. That covers `att`, `atc`, `ey_obs`, `par`, `paf`, `incremental=` and `shifts=`. The
+shared preflight refuses each one by name, and each refusal repeats this statement. A regime mean
+and an arm-indexed `msm=` coefficient read only the outcome regression and the law of `W`, so the
+composite identifies them.
+
+No observed-data check can detect a violation of the treatment condition.
+
+**The carrier.** `g_c,0 + g_c,1 < 1` whenever a row can be unrecorded, so the composite is not a
+distribution over the arms. It always travels as an `(n, K)` mechanism off the simplex. Every site
+that tilts or reads a two-arm mechanism uses one rule: the mechanism is one column exactly when
+the two-arm complement form applies. The composite therefore tilts each arm's column alone at
+every arm count, two included. No fluctuation parameter is shared across arms.
+
+**The bounds.** Each factor is bounded as the shipped missing-outcome TMLE bounds it: the
+treatment factor by `g_bounds`, and each observation factor below by `nuisance_bound`. The
+composite is then tilted and clipped inside `[g_lo · nb^k, g_hi]`, where `k` counts the
+observation factors. That floor is the smallest product of the bounded factors, so the initial
+clip moves no value. At `g_bounds=(0.01, 0.99)` and `nuisance_bound=0.01` with both indicators,
+the floor is `0.01 · 0.01² = 1e−6`, against `1e−4` on a missing outcome alone. The default
+`g_bounds="auto"` sets `g_lo = 5 / (sqrt(n) ln n)` instead. The positivity report adds the composite row with its minimum
+and the share of unit-arm cells below `g_lo`.
+
+The rejected alternative floors the composite at `g_lo` after the tilt, as R `drtmle`'s `tolg`
+floors its product. That floor clips legitimate products of three probabilities. It also breaks an
+exact reduction: without a missing treatment the composite's initial covariate is the shipped
+missing-outcome covariate `1(A=a) Delta/(g pi)` bit for bit, and that covariate is not floored at
+`g_lo`.
 
 ## The sign of the mechanism correction
 

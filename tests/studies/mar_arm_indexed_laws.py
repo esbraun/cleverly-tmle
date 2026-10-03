@@ -25,6 +25,21 @@ binary and continuous laws.
 
 The three-arm laws keep :mod:`tests.discrete_law_multi`'s labels.  ``CausalData`` sorts them,
 so arm code ``0`` is ``"high"``, and ``"high"`` is the reference arm of every contrast.
+
+**A missing treatment.**  A law with ``pi_treatment`` also records the treatment with
+probability :math:`\pi_A(a, w) = P(\Delta_A = 1 \mid A = a, W = w)`, drawn independently of
+``Delta`` given ``(A, W)``.  The arm means are unchanged.  The composite indicator
+:math:`C_a = \Delta_A \Delta 1\{A = a\}` then has
+
+.. math::
+
+    g_{c,a}(w) = g(a \mid w)\,\pi_A(a, w)\,\pi(a, w)
+               = P(\Delta_A = 1 \mid w)\,P(A = a \mid \Delta_A = 1, w)\,\pi(a, w),
+
+with :math:`P(\Delta_A = 1 \mid w) = \sum_b g(b \mid w) \pi_A(b, w)` and
+:math:`P(A = a \mid \Delta_A = 1, w) = g \pi_A / \sum_b g \pi_A`.  The second form is the
+three factors the fit estimates, so no separate table of the conditional treatment law is
+needed.  ``pi_treatment=None`` keeps every existing law, and every draw from it, unchanged.
 """
 
 from __future__ import annotations
@@ -88,6 +103,9 @@ class Law:
         The treatment value of each table column.
     continuous : bool
         Whether ``Y`` is the scaled Beta outcome rather than a binary one.
+    pi_treatment : ndarray or None
+        ``P(Delta_A = 1 | A = a, W = w)``, or ``None`` when the treatment is always
+        recorded.
     """
 
     key: str
@@ -98,6 +116,29 @@ class Law:
     mu: np.ndarray
     labels: tuple[Any, ...]
     continuous: bool
+    pi_treatment: np.ndarray | None = None
+
+    @property
+    def recorded(self) -> np.ndarray:
+        """``P(Delta_A = 1 | W = w)``: ones when the treatment is always recorded."""
+        if self.pi_treatment is None:
+            return np.ones(len(self.p_w))
+        return np.asarray((self.g * self.pi_treatment).sum(axis=1), dtype=float)
+
+    @property
+    def conditional_g(self) -> np.ndarray:
+        """``P(A = a | Delta_A = 1, W = w)``: ``g`` when the treatment is always recorded."""
+        if self.pi_treatment is None:
+            return self.g
+        joint = self.g * self.pi_treatment
+        return np.asarray(joint / joint.sum(axis=1, keepdims=True), dtype=float)
+
+    @property
+    def composite(self) -> np.ndarray:
+        """``g_c(a, w) = g pi_A pi``, the probability of the composite indicator."""
+        if self.pi_treatment is None:
+            return np.asarray(self.g * self.pi, dtype=float)
+        return np.asarray(self.g * self.pi_treatment * self.pi, dtype=float)
 
     @property
     def arms(self) -> int:
@@ -306,8 +347,10 @@ def arm_covariance(law: Law) -> np.ndarray:
     r"""The covariance of the arm means' efficient influence curves.
 
     Each arm's curve is
-    :math:`\mathbb 1\{A = a\}\Delta (Y - m_a(W)) / (g_a \pi_a) + m_a(W) - \psi_a`.  The
-    residual terms of two arms never share a row, so
+    :math:`\mathbb 1\{A = a\}\Delta (Y - m_a(W)) / (g_a \pi_a) + m_a(W) - \psi_a`, with
+    :math:`\Delta_A` beside :math:`\Delta` and :math:`g_{c,a}` in place of
+    :math:`g_a \pi_a` on a law with a missing treatment.  The residual terms of two arms never
+    share a row, so
 
     .. math::
 
@@ -317,7 +360,8 @@ def arm_covariance(law: Law) -> np.ndarray:
     means = law.mean()
     centred = means - arm_means(law)
     between = (centred * law.p_w[:, None]).T @ centred
-    within = np.diag(law.p_w @ (law.variance() / (law.g * law.pi)))
+    denominator = law.g * law.pi if law.pi_treatment is None else law.composite
+    within = np.diag(law.p_w @ (law.variance() / denominator))
     return np.asarray(between + within, dtype=float)
 
 
@@ -351,7 +395,10 @@ def pointwise_joint_coverage(law: Law, *, draws: int = 1_000_000, seed: int = 0)
 def sample(law: Law, n: int, seed: int) -> pd.DataFrame:
     """Draw ``n`` observed-data rows: ``W``, ``A``, ``Y`` and ``Delta``.
 
-    ``Y`` is ``NaN`` wherever ``Delta = 0``.  A three-arm law carries its labels in ``A``.
+    ``Y`` is ``NaN`` wherever ``Delta = 0``.  A three-arm law carries its labels in ``A``.  A
+    law with ``pi_treatment`` adds ``DeltaA``, drawn after every other column so the other
+    columns are the draws of the same law without it, and ``A`` is missing wherever
+    ``DeltaA = 0``.
     """
     rng = np.random.default_rng(seed)
     w = rng.choice(len(law.p_w), size=n, p=law.p_w)
@@ -368,14 +415,20 @@ def sample(law: Law, n: int, seed: int) -> pd.DataFrame:
     treatment: Any = np.asarray(law.labels, dtype=object)[column]
     if law.arms == 2:
         treatment = treatment.astype(float)
-    return pd.DataFrame(
-        {
-            "W": w.astype(float),
-            "A": treatment,
-            "Y": np.where(observed, outcome, np.nan),
-            "Delta": observed.astype(float),
-        }
-    )
+    columns: dict[str, Any] = {
+        "W": w.astype(float),
+        "A": treatment,
+        "Y": np.where(observed, outcome, np.nan),
+        "Delta": observed.astype(float),
+    }
+    if law.pi_treatment is not None:
+        recorded = rng.random(n) < law.pi_treatment[w, column]
+        missing: Any = np.nan if law.arms == 2 else None
+        columns["A"] = np.where(recorded, treatment, missing)
+        if law.arms == 2:
+            columns["A"] = columns["A"].astype(float)
+        columns["DeltaA"] = recorded.astype(float)
+    return pd.DataFrame(columns)
 
 
 # ------------------------------------------------------------------------ oracle learners
@@ -429,7 +482,9 @@ class LawOutcome(BaseEstimator):
 class LawTreatment(BaseEstimator):
     """``g(a | W)`` of a law, read from a design whose first column is ``W``.
 
-    The probability columns follow the arm codes, not the table columns.
+    The probability columns follow the arm codes, not the table columns.  On a law with a
+    missing treatment it is ``P(A = a | Delta_A = 1, W)``, which is the factor the fit
+    estimates on the recorded rows.  ``g`` replaces the table the learner returns.
     """
 
     def __init__(self, law: Law, g: np.ndarray | None = None) -> None:
@@ -442,17 +497,45 @@ class LawTreatment(BaseEstimator):
 
     def predict_proba(self, X: Any) -> np.ndarray:
         design = np.asarray(X, dtype=float)
-        table = self.law.g if self.g is None else self.g
+        table = self.law.conditional_g if self.g is None else self.g
         w = _levels(design, 0)
         return np.column_stack([table[w, self.law.column(code)] for code in range(self.law.arms)])
 
 
-class LawResponse(BaseEstimator):
-    """``P(Delta = 1 | A, W)`` of a law, read from ``[A-block, W]``."""
+class LawTreatmentObservation(BaseEstimator):
+    """``P(Delta_A = 1 | W)`` of a law, read from a design whose only column is ``W``.
 
-    def __init__(self, law: Law, pi: np.ndarray | None = None) -> None:
+    ``recorded`` replaces the law's own vector, indexed by ``w``.
+    """
+
+    def __init__(self, law: Law, recorded: np.ndarray | None = None) -> None:
+        self.law = law
+        self.recorded = recorded
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> LawTreatmentObservation:
+        self.classes_ = np.array([0.0, 1.0])
+        return self
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        table = self.law.recorded if self.recorded is None else self.recorded
+        p = np.asarray(table[_levels(np.asarray(X, dtype=float), 0)], dtype=float)
+        return np.column_stack([1.0 - p, p])
+
+
+class LawResponse(BaseEstimator):
+    """``P(Delta = 1 | A, W)`` of a law, read from ``[A-block, W]``.
+
+    The fit asks the one ``missingness_learner`` for both observation factors.  A design
+    with ``W`` alone is the treatment observation factor, which
+    :class:`LawTreatmentObservation` answers with ``recorded``.
+    """
+
+    def __init__(
+        self, law: Law, pi: np.ndarray | None = None, recorded: np.ndarray | None = None
+    ) -> None:
         self.law = law
         self.pi = pi
+        self.recorded = recorded
 
     def fit(self, X: Any, y: Any, sample_weight: Any = None) -> LawResponse:
         self.classes_ = np.array([0.0, 1.0])
@@ -460,6 +543,8 @@ class LawResponse(BaseEstimator):
 
     def predict_proba(self, X: Any) -> np.ndarray:
         design = np.asarray(X, dtype=float)
+        if design.shape[1] == 1:
+            return LawTreatmentObservation(self.law, self.recorded).predict_proba(design)
         table = self.law.pi if self.pi is None else self.pi
         w = _levels(design, self.law.arms - 1)
         p = np.asarray(table[w, _columns(self.law, _codes(self.law, design))], dtype=float)
@@ -482,6 +567,7 @@ def targeted_limit(
     mu: np.ndarray | None = None,
     g: np.ndarray | None = None,
     pi: np.ndarray | None = None,
+    composite: np.ndarray | None = None,
 ) -> dict[str, float]:
     r"""The large-sample limit of the stacked fit under fixed working nuisances.
 
@@ -496,13 +582,19 @@ def targeted_limit(
 
     and the arm mean is :math:`\sum_w P(W = w) \operatorname{expit}(\ldots)` on the
     ``[0, 1]`` scale.  With a correct outcome regression, or with correct treatment and
-    response mechanisms, the limit is the truth.
+    response mechanisms, the limit is the truth.  On a law with a missing treatment the
+    rows that fit are those with :math:`C_a = 1`, of mass :math:`g_{c,a}`.  ``composite``
+    replaces the whole working denominator :math:`\tilde g_{c,a}`, ``(w, a)``.
     """
     working_mu = law.mu if mu is None else mu
     working_g = law.g if g is None else g
     working_pi = law.pi if pi is None else pi
-    clever = 1.0 / (working_g * working_pi)
-    mass = law.p_w[:, None] * law.g * law.pi
+    clever = 1.0 / (working_g * working_pi if composite is None else composite)
+    mass = (
+        law.p_w[:, None] * law.g * law.pi
+        if law.pi_treatment is None
+        else law.p_w[:, None] * law.composite
+    )
     offset = logit(working_mu)
     psi = np.empty(law.arms)
     for arm in range(law.arms):

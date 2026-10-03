@@ -435,15 +435,32 @@ def test_known_probabilities_survive_whole_result_persistence(tmp_path) -> None:
 
 
 @ARMS
-def test_observational_missing_outcomes_are_refused(arms: int) -> None:
-    with pytest.raises(CapabilityError, match="randomized trial"):
-        DRTMLE(cross_fit=False, estimands=("ate",)).fit(
+def test_observational_missing_outcomes_route_to_the_composite(arms: int) -> None:
+    """Without ``randomized=`` a guarded fit with ``delta=`` runs the composite construction.
+
+    ``tests/unit/test_composite_missing_data.py`` holds its evidence; this pins the route.
+    """
+    result = (
+        DRTMLE(
+            cross_fit=False,
+            estimands=("ate",),
+            simultaneous=False,
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            missingness_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+        )
+        .fit(
             _with_arms(_trial(100), arms),
             outcome="Y",
             treatment="A",
             covariates=["W1", "W2"],
             delta="Delta",
         )
+        .single()
+    )
+    assert result.extra["missing_data"] == "composite"
+    assert result.extra["drtmle"].missing_data == "composite"
+    assert result.extra["drtmle"].reduction == "univariate"
 
 
 @ARMS
@@ -1008,12 +1025,12 @@ def _missing_treatment_frame(column: str, arms: int = 2) -> pd.DataFrame:
 
 
 _MISSING_TREATMENT_CASES = [
-    pytest.param("float", np.nan, "missing or non-finite", id="numeric"),
+    pytest.param("float", np.nan, "no treatment observation indicator", id="numeric"),
     pytest.param("object", None, "contains missing values and is not numeric", id="labels"),
 ]
 
 
-def _missing_treatment_fit(frame: pd.DataFrame) -> None:
+def _missing_treatment_fit(frame: pd.DataFrame, **roles: str) -> None:
     NeverFit.calls = 0
     DRTMLE(
         cross_fit=False,
@@ -1022,7 +1039,7 @@ def _missing_treatment_fit(frame: pd.DataFrame) -> None:
         **never_fit_learners(),
         reduced_outcome_learner=NeverFit(),
         reduced_treatment_learner=NeverFit(),
-    ).fit(frame, outcome="Y", treatment="A", covariates=["W1"])
+    ).fit(frame, outcome="Y", treatment="A", covariates=["W1"], **roles)
 
 
 @ARMS
@@ -1030,12 +1047,32 @@ def _missing_treatment_fit(frame: pd.DataFrame) -> None:
 def test_a_missing_treatment_value_is_refused_before_any_learner(
     column: str, missing: object, match: str, arms: int
 ) -> None:
-    """No keyword declares a missing treatment, so the data container refuses it."""
+    """Without ``treatment_delta=`` the data container refuses a missing treatment.
+
+    A numeric column meets the declaration's message; a label column meets the null-label
+    check first, which names the column and the remedy.
+    """
     frame = _missing_treatment_frame(column, arms)
     frame.loc[3, "A"] = missing
     with pytest.raises(DataError, match=match):
         _missing_treatment_fit(frame)
     assert NeverFit.calls == 0
+
+
+@ARMS
+@pytest.mark.parametrize(("column", "missing", "match"), _MISSING_TREATMENT_CASES)
+def test_a_declared_missing_treatment_is_admitted(
+    column: str, missing: object, match: str, arms: int
+) -> None:
+    """The twin: with ``treatment_delta=`` the same frame reaches a learner fit."""
+    del match
+    frame = _missing_treatment_frame(column, arms)
+    frame.loc[3, "A"] = missing
+    frame["DeltaA"] = 1.0
+    frame.loc[3, "DeltaA"] = 0.0
+    with pytest.raises(AssertionError, match="before any learner is fitted"):
+        _missing_treatment_fit(frame, treatment_delta="DeltaA")
+    assert NeverFit.calls > 0
 
 
 @ARMS

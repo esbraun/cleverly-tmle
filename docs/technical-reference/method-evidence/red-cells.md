@@ -85,8 +85,9 @@ The test fails on four states.
 | [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) | 5 | ordinary point-treatment TMLE with baseline strata |
 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) | 4 | ordinary survival-curve longitudinal TMLE, default simultaneous bands across shipped fit shapes |
 | [`F4-calibration-draws`](../../roadmap.md#red-cell-owners) | 2 | randomized multi-arm missing-outcome DR-TMLE |
+| [`composite-high-arm`](../../roadmap.md#red-cell-owners) | 2 | observational missing-data DR-TMLE with a composite indicator |
 | [`X20-bootstrap`](../../roadmap.md#red-cell-owners) | 3 | full-refit bootstrap and derived contrasts |
-| total | 47 | 14 studies |
+| total | 49 | 15 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -123,6 +124,8 @@ same text as the "measured" column of its study page.
 | [multi-arm point-treatment DR-TMLE](multi-arm-dr-tmle.md) | property | `root_n_and_efficiency/n_500` | positive | its own rule | bias -0.000902, coverage 0.8965 to 0.9627, SE ratio 0.9888 | [`RM18-boundary`](../../roadmap.md#red-cell-owners) |
 | [randomized multi-arm missing-outcome DR-TMLE](randomized-multi-arm-missing-outcome-dr-tmle.md) | property | `interval_calibration/ate__correctly_specified` | positive | its own rule | coverage 0.9287 to 0.9537, SE ratio 0.9294 to 1.0000, empirical efficiency ratio 0.9994 to 1.0751, reported efficiency ratio 0.9980 to 1.0008 | [`F4-calibration-draws`](../../roadmap.md#red-cell-owners) |
 | [randomized multi-arm missing-outcome DR-TMLE](randomized-multi-arm-missing-outcome-dr-tmle.md) | property | `simultaneous_coverage/arms__simultaneous_band` | positive | its own rule | joint coverage 0.9196 to 0.9462 | [`F4-calibration-draws`](../../roadmap.md#red-cell-owners) |
+| [observational missing-data DR-TMLE with a composite indicator](observational-missing-data-dr-tmle.md) | truth | `cleverly-composite-drtmle/three_arm_mar_outcome_and_treatment/ey[high]` | cleverly-composite-drtmle | its truth gate | bias -0.0054 to 0.0013, coverage 0.9225, SE ratio 0.9342 | [`composite-high-arm`](../../roadmap.md#red-cell-owners) |
+| [observational missing-data DR-TMLE with a composite indicator](observational-missing-data-dr-tmle.md) | truth | `drtmle-r-composite/three_arm_mar_outcome_and_treatment/ey[high]` | drtmle-r-composite | its truth gate | bias -0.0054 to 0.0013, coverage 0.9237, SE ratio 0.9349 | [`composite-high-arm`](../../roadmap.md#red-cell-owners) |
 | [CV-TMLE of the fold-local learned-rule value at exceptional and weak-blip laws](learned-rule-cvtmle-boundary.md) | truth | `cleverly-learned-rule-cvtmle/exceptional/ey_learned_rule[learned rule]` | cleverly-learned-rule-cvtmle | its truth gate | bias -0.000748 to 0.000535, coverage 0.8938, SE ratio 0.8211 | [`F27`](../../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
 | [CV-TMLE of the fold-local learned-rule value at exceptional and weak-blip laws](learned-rule-cvtmle-boundary.md) | truth | `cleverly-learned-rule-cvtmle/weak_blip/ey_learned_rule[learned rule]` | cleverly-learned-rule-cvtmle | its truth gate | bias -0.000514 to 0.000732, coverage 0.8948, SE ratio 0.8314 | [`F27`](../../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
 | [ordinary continuous modified treatment policies](continuous-modified-treatment-policies.md) | paired | `continuous_modified_policy/ate_shift[+0.25 vs natural course]` | paired | inconclusive: calibration leg | difference 0.000061 to 0.000361 within 0.000770, RMSE ratio bound 1.0583 vs 1.1000, coverage difference bound -0.0063 vs -0.0250, calibration excess bound 0.0659 vs 0.0500, resolution 0.0450 | [`RM18-comparator-density`](../../roadmap.md#red-cell-owners) |

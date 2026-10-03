@@ -111,7 +111,7 @@ is the authoritative inventory, and it names the evidence for each row.
 
 | family | what `cleverly` ships |
 | --- | --- |
-| point-treatment effects | counterfactual means, ATE, ATT, ATC, risk and odds ratios, natural-course means, population-attributable effects, multi-valued treatments, missing outcomes, and controlled direct effects |
+| point-treatment effects | counterfactual means, ATE, ATT, ATC, risk and odds ratios, natural-course means, population-attributable effects, multi-valued treatments, declared missing outcomes and treatments, and controlled direct effects |
 | interventions | static, dynamic, and stochastic regimes; continuous modified treatment policies; incremental propensity-score interventions; and point and longitudinal MSM projections |
 | longitudinal outcomes | regimen means and contrasts for end-of-study, survival, and competing-risk outcomes |
 | design and inference | observation weights, strata, cluster-robust inference, cross-fitting, repeated cross-fitting, CV-TMLE, simultaneous intervals, and bootstrap inference |

@@ -124,8 +124,15 @@ Laan (2017)'s randomized-trial construction for MAR outcomes, without cross-fitt
 there five reductions and separate treatment, observation and outcome tilts replace the
 complete-data pair.  The paper states one arm indicator at a time; above two arms the fit
 applies it to each indicator ``1{A = a}`` and stacks the per-arm estimators, with no
-fluctuation parameter shared across arms.  Continuous treatment, observational missing
-outcomes, missing treatment, and other target groups remain refused by name.
+fluctuation parameter shared across arms.
+
+An **observational** missing outcome (``delta=`` without ``randomized=``) and a declared
+missing treatment (``treatment_delta=``) take the composite-indicator construction of
+:mod:`cleverly.estimators.composite`.  For arm ``a`` it targets
+:math:`C_a = \Delta_A \Delta 1\{A = a\}` with the complete-data reductions above, which is
+Theorem 1 applied to :math:`(W, C_a, C_a Y)`, armwise at every arm count.  It is in sample,
+for the arm means and their contrasts, at every guard and reduction, with fixed weights and
+clusters.  Continuous treatment and other target groups remain refused by name.
 """
 
 from __future__ import annotations
@@ -147,6 +154,12 @@ from ..utils.bounds import OutcomeScaler
 from ..utils.frames import as_frame
 from ._nuisance import NuisanceEstimates, Propensity, fit_inner_designs
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
+from .composite import (
+    COMPOSITE_NESTED_REFUSAL,
+    composite_state,
+    missing_data_route,
+    unidentified_targets,
+)
 from .ctmle import CTMLE
 from .reduced import (
     REDUCED_CROSSFITS,
@@ -216,6 +229,11 @@ class ReducedFit:
         ``"gamma_a"``, ``"gamma_m"``, ``"r_a"``, ``"r_m"`` and ``"e"`` on the missing-outcome
         one -- the constructions do not fit the same regressions, so they cannot report under
         the same names.
+    missing_data:
+        The construction the fit ran, as
+        :func:`~cleverly.estimators.composite.missing_data_route` names it.  On
+        ``"composite"`` the reductions are the complete-data ones on the composite
+        indicator, and ``g_bounds`` is the composite mechanism's bounds.
     """
 
     guard: tuple[str, ...]
@@ -223,6 +241,7 @@ class ReducedFit:
     g_bounds: tuple[float, float]
     diagnostics: dict[str, list[SuperLearnerDiagnostics]] = field(default_factory=dict)
     missingness_bound: float | None = None
+    missing_data: str = "complete"
 
     def describe(self) -> str:
         """Return the line that :meth:`~cleverly.TMLEResult.summary` prints for this fit.
@@ -238,7 +257,10 @@ class ReducedFit:
                 "DR-TMLE: empty guard, so no reduced regression was fitted and the estimate "
                 "is the ordinary TMLE"
             )
-        return f"DR-TMLE: guard {', '.join(self.guard)}; {self.reduction} reduction"
+        line = f"DR-TMLE: guard {', '.join(self.guard)}; {self.reduction} reduction"
+        if self.missing_data == "composite":
+            line += "; composite indicator Delta_A * Delta * 1{A = a}"
+        return line
 
     @staticmethod
     def evaluation(result: Any) -> Any:
@@ -375,11 +397,14 @@ class DRTMLE(TMLE):
         object rather than a name, name a regression learner here.
     randomized:
         Declare that treatment was randomized for a fit with ``delta=``, at any number of
-        arms.  The treatment learner is still fitted, following Díaz & van der Laan's
-        finite-sample recommendation; above two arms it fits the categorical mechanism and
-        each arm's column is tilted alone.
+        arms, which selects Díaz & van der Laan (2017)'s construction.  The treatment learner
+        is still fitted, following their finite-sample recommendation; above two arms it fits
+        the categorical mechanism and each arm's column is tilted alone.
         To use known probabilities instead, pass row-aligned ``treatment_probabilities=``
-        to :meth:`fit`; doing so bypasses the treatment learner.
+        to :meth:`fit`; doing so bypasses the treatment learner.  Without either, a guarded
+        fit with ``delta=`` is observational and takes the composite-indicator construction.
+        A declared missing treatment refuses both, because that construction observes the
+        treatment on every row.
     max_outer:
         How many rounds the three-equation alternation may run.  **Not** ``max_iter``, which
         is the cap on the Newton steps *inside* one fluctuation and which every estimator
@@ -414,10 +439,11 @@ class DRTMLE(TMLE):
     * a continuous treatment, whose density-based equations are not derived here;
     * ``att``/``atc`` and the ``interventions=``, ``shifts=``, ``incremental=`` and ``msm=``
       axes -- each is a different score equation with no reduced-dimension derivation;
-    * observational treatment with ``delta=``, missing treatment, and ``intermediate=``.
-      Díaz & van der Laan (2017) covers randomized treatment with MAR outcomes, one arm
-      indicator at a time, which the fit applies armwise above two arms;
-      the other compositions need their own corrected curve and remainder;
+    * ``intermediate=``, whose mechanism factor would sit inside the reduced regressions;
+    * a missing treatment beside ``randomized=True`` or ``treatment_probabilities=``, and
+      ``evaluation=`` or ``reduced_crossfit="nested"`` on the composite construction.  The
+      shared gate in :func:`~cleverly.estimators.composite.missing_treatment_refusal` names
+      every composition a missing treatment refuses;
     * ``delta=`` with ``cross_fit=True``, at every ``guard`` including ``guard=()``. The
       published missing-outcome theorem does not establish a cross-validated extension;
     * ``targeting_scheme="fold"`` -- each fold would need its own reduced regressions and
@@ -771,6 +797,7 @@ class DRTMLE(TMLE):
         ``folds`` off it.
         """
         self._check_drtmle(data)
+        route = missing_data_route(self, data)
         known = self._known_treatment_probabilities(data)
         base = self._fit_nuisances(
             data,
@@ -814,10 +841,37 @@ class DRTMLE(TMLE):
                     self.reduction,
                     config.g_bounds,
                     missingness_bound=(
-                        config.missingness_bound if data.has_missing_outcome else None
+                        config.missingness_bound
+                        if data.has_missing_outcome or data.has_missing_treatment
+                        else None
                     ),
+                    missing_data=route,
                 )
             }
+
+        if route == "composite":
+            # The complete-data reductions on the composite indicator, formed at the
+            # composite mechanism and its bounds -- Theorem 1 on O'_a for every arm.
+            state = composite_state(
+                data,
+                base,
+                g_bounds=config.g_bounds,
+                nuisance_bound=config.missingness_bound,
+            )
+            reduced, diagnostics, _ = self._fit_reduced(state.data, state.nuisance, state.bounds)
+            return (
+                replace(base, reduced=reduced),
+                {
+                    "drtmle": ReducedFit(
+                        self.guard,
+                        str(reduced.reduction),
+                        state.bounds,
+                        diagnostics,
+                        missingness_bound=config.missingness_bound,
+                        missing_data=route,
+                    )
+                },
+            )
 
         reduced, diagnostics, at_companion = self._fit_reduced(data, base, config.g_bounds)
         if base.companion is not None:
@@ -840,6 +894,7 @@ class DRTMLE(TMLE):
                     config.g_bounds,
                     diagnostics,
                     missingness_bound=config.missingness_bound if missing_outcome else None,
+                    missing_data=route,
                 )
             },
         )
@@ -1070,6 +1125,10 @@ class DRTMLE(TMLE):
         moved between them would make a ``retarget`` of a fit disagree with the fit itself --
         which is the contract the sensitivity analyses rest on. What ``repeats=`` takes a median
         over is the primary nuisances' splits, which do redraw.
+
+        The construction follows the route.  A composite-indicator view is the composite
+        route and takes the complete-data reductions on the view, at any ``delta=``.  Only
+        the randomized missing-outcome route takes Díaz and van der Laan's five.
         """
         regression = self._resolve_learner(
             self.reduced_outcome_learner, task="regression", fallback=self.outcome_learner
@@ -1079,7 +1138,10 @@ class DRTMLE(TMLE):
             task="classification",
             fallback=self.treatment_learner,
         )
-        if data.has_missing_outcome:
+        if (
+            not data.composite_view
+            and missing_data_route(self, data) == "randomized_missing_outcome"
+        ):
             reduced, diagnostics = fit_missing_outcome_reduced(
                 data,
                 nuisance,
@@ -1147,7 +1209,8 @@ class DRTMLE(TMLE):
                 "covariate, and no theorem read here says what it is. "
                 "Fit a plain TMLE, which is derived there."
             )
-        if self.guard and self.reduction == "bivariate" and data.has_missing_outcome:
+        route = missing_data_route(self, data)
+        if self.guard and self.reduction == "bivariate" and route == "randomized_missing_outcome":
             raise CapabilityError(
                 "reduction='bivariate' is the complete-outcome construction. The "
                 "randomized missing-outcome theorem uses its own five reductions; use "
@@ -1177,21 +1240,12 @@ class DRTMLE(TMLE):
                     "silent. Pass randomized=True instead, so each replicate estimates the "
                     "mechanism from its own rows."
                 )
-        if data.has_missing_outcome and self.guard:
-            if not self.randomized and self._treatment_probabilities is None:
-                raise CapabilityError(
-                    "DRTMLE with delta= is supported only for a randomized trial. Pass "
-                    "randomized=True to estimate the treatment mechanism for chance-imbalance "
-                    "adjustment, or pass treatment_probabilities= to fit(). An observational "
-                    "treatment needs the composite-indicator construction, which is not "
-                    "written yet; docs/roadmap.md X23 tracks this work."
-                )
-            if set(self.guard) != {"Q", "g"}:
-                raise CapabilityError(
-                    "missing-outcome DRTMLE requires guard=('Q', 'g'): Díaz & van der "
-                    "Laan's algorithm jointly targets the treatment, observation and "
-                    "outcome correction blocks, and no partial-guard theorem is claimed"
-                )
+        if route == "randomized_missing_outcome" and self.guard and set(self.guard) != {"Q", "g"}:
+            raise CapabilityError(
+                "missing-outcome DRTMLE requires guard=('Q', 'g'): Díaz & van der "
+                "Laan's algorithm jointly targets the treatment, observation and "
+                "outcome correction blocks, and no partial-guard theorem is claimed"
+            )
         # At every guard, including ``guard=()``. That fit is a plain TMLE on the
         # cross-fitted missing-outcome surface, which only ordinary TMLE's audited
         # stacked contract admits, so it must not fit here outside that contract. The
@@ -1203,7 +1257,7 @@ class DRTMLE(TMLE):
                 "does not establish its cross-validated extension; pass cross_fit=False "
                 "(CrossFitting(enabled=False) on DRTMLEMethod)"
             )
-        if data.has_missing_outcome and self.guard:
+        if route == "randomized_missing_outcome" and self.guard:
             if data.is_weighted:
                 raise CapabilityError(
                     "missing-outcome DRTMLE is not certified for a weight-tilted target law; "
@@ -1214,7 +1268,21 @@ class DRTMLE(TMLE):
                     "missing-outcome DRTMLE supports the published pooled construction only; "
                     "evaluation= and nested reduced cross-fitting are not certified"
                 )
+        if (
+            route == "composite"
+            and self.guard
+            and (self.evaluation is not None or self.reduced_crossfit != "pooled")
+        ):
+            raise CapabilityError(
+                "the composite-indicator DR-TMLE for an observational missing outcome or "
+                f"treatment does not take these settings. {COMPOSITE_NESTED_REFUSAL}"
+            )
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms)
+        if data.has_missing_treatment and (self.estimands is None or self.estimands == "all"):
+            # The default and "all" lists drop the targets a missing treatment leaves
+            # unidentified, as the shared preflight does, so the remedy below never names a
+            # target that a plain TMLE refuses on these data.
+            estimands = tuple(name for name in estimands if name not in unidentified_targets())
         outside = [name for name in estimands if name not in MEAN_GROUP_ESTIMANDS]
         if outside:
             raise CapabilityError(
