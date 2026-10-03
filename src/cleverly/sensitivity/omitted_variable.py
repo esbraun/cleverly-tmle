@@ -346,8 +346,9 @@ def _refuse_response_mechanism(result: Any) -> str | None:
 _MISSING_TREATMENT_BOUND_REFUSAL = (
     "the omitted-variable bound is not implemented for a fit with a declared missing "
     "treatment. The Riesz representer of the bound is derived for a recorded treatment, "
-    "and this fit divides by the composite mechanism P(A = a, Delta_A = 1 | W), whose "
-    "representer and confounding strengths are not derived."
+    "and this fit divides by the composite mechanism P(A = a, Delta_A = 1[, Delta = 1] | W), "
+    "whose representer and confounding strengths are not derived. Roadmap X9 owns the "
+    "representers that carry a second mechanism."
 )
 
 

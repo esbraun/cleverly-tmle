@@ -1309,7 +1309,7 @@ def _treatment_recorded(
                 "treatment observation indicator. Declare one (1 = treatment recorded) with "
                 f"{MISSING_TREATMENT_DECLARATION} to analyze a treatment missing at random. "
                 "That declaration is supported for arm means and contrasts on in-sample "
-                "TMLE and DRTMLE fits."
+                "TMLE and DRTMLE fits, and for regime means and arm MSMs on in-sample TMLE fits."
             )
         return None
     if treatment_kind != "discrete":
@@ -1349,10 +1349,15 @@ def _reject_null_labels(frame: nw.DataFrame[Any], name: str, role: str) -> None:
     """
     if frame.schema[name].is_numeric() or not has_nulls(frame, name):
         return
+    declaration = (
+        f" A treatment missing at random is declared with {MISSING_TREATMENT_DECLARATION}."
+        if role == "treatment"
+        else ""
+    )
     raise DataError(
         f"{role} column {name!r} contains missing values and is not numeric. "
         "Impute them, drop those rows, or encode the column yourself before "
-        "handing it to CausalData."
+        f"handing it to CausalData.{declaration}"
     )
 
 

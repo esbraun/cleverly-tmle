@@ -59,7 +59,7 @@ from cleverly.datasets import make_cde, make_linear_ate
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.estimators.reduced import refuse_unsupported
 from cleverly.exceptions import CapabilityError, DataError
-from cleverly.interventions import Incremental, Shift, Static
+from cleverly.interventions import Incremental, LearnedRule, Shift, Static
 from cleverly.msm import MSM
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from tests.conftest import linear_in_sample
@@ -756,19 +756,13 @@ MISSING_TREATMENT_ROWS: dict[str, tuple[Callable[[], Any], tuple[str, ...]]] = {
         lambda: _fit_missing_treatment(TMLE(**_never(incremental=[Incremental(2.0)]))),
         ("incremental= reads P(A | W)",),
     ),
-    "msm": (
-        lambda: _fit_missing_treatment(TMLE(**_never(msm=MSM.linear()))),
-        ("msm= reads P(A | W)",),
-    ),
-    "interventions": (
-        lambda: _fit_missing_treatment(
-            TMLE(**_never(interventions=[Static(1.0, name="on"), Static(0.0, name="off")]))
-        ),
-        ("interventions= evaluates a rule",),
+    "learned_rule": (
+        lambda: _fit_missing_treatment(TMLE(**_never(learned_rule=LearnedRule()))),
+        ("no composite derivation for a rule learned from the fit", "roadmap F27"),
     ),
     "intermediate": (
         lambda: _fit_missing_treatment(TMLE(**_never()), intermediate="Z"),
-        ("controlled direct effect",),
+        ("No derivation of the composite indicator for a controlled direct effect",),
     ),
     "cross_fit": (
         lambda: _fit_missing_treatment(TMLE(**_never(cross_fit=True))),
@@ -799,6 +793,25 @@ MISSING_TREATMENT_ROWS: dict[str, tuple[Callable[[], Any], tuple[str, ...]]] = {
         ("This fit is not one of those compositions",),
     ),
 }
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda: TMLE(**_never(msm=MSM.linear())), id="msm"),
+        pytest.param(
+            lambda: TMLE(
+                **_never(interventions=[Static(1.0, name="on"), Static(0.0, name="off")])
+            ),
+            id="interventions",
+        ),
+    ],
+)
+def test_a_missing_treatment_admits_regimes_and_arm_msms(build: Callable[[], Any]) -> None:
+    """Identified under the composite conditions, and lifted: the request reaches a learner."""
+    with pytest.raises(AssertionError, match="before any learner is fitted"):
+        _fit_missing_treatment(build())
+    assert NeverFit.calls > 0
 
 
 @pytest.mark.parametrize("row", sorted(MISSING_TREATMENT_ROWS))

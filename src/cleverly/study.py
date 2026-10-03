@@ -396,8 +396,9 @@ class PointTreatment:
         Outcome family. ``"auto"`` infers it from observed values.
     treatment_missingness : str or None
         Treatment-observation indicator. One means the treatment is recorded. It declares
-        a treatment missing at random, which the arm means and their contrasts identify
-        through the composite indicator on in-sample TMLE and DRTMLE fits.
+        a treatment missing at random. The composite indicator identifies the arm means and
+        their contrasts on in-sample TMLE and DRTMLE fits, and regime means and arm MSMs on
+        in-sample TMLE fits.
 
     See Also
     --------

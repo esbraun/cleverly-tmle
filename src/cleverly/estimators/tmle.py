@@ -3038,7 +3038,10 @@ class TMLE:
             else nuisance.missingness
         )
         candidates: list[tuple[str, FloatArray | None]] = [
-            ("P(Delta = 1 | A, W)", missingness_values)
+            ("P(Delta = 1 | A, W)", missingness_values),
+            # The treatment observation factor of a declared missing treatment divides the
+            # composite covariate as the response mechanism does.
+            ("P(Delta_A = 1 | W)", nuisance.treatment_observation),
         ]
         if nuisance.intermediate is not None and intermediate_value is not None:
             candidates.append(
@@ -3168,8 +3171,8 @@ class TMLE:
             # Targeting, the curve and the corrections read the composite indicator, and
             # the composite mechanism is formed here from the fitted factors at this call's
             # bounds.  So a retarget at new bounds recomputes it and cannot read a stale one.
-            # The gate admits the arm means and their contrasts only, so the conditional
-            # bounds are never read on this route.
+            # The gate admits the arm means, their contrasts, regimes and arm MSMs, which
+            # read the arm covariates only, so the conditional bounds are never read here.
             state = composite_state(
                 data,
                 nuisance,

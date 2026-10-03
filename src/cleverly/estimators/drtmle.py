@@ -154,7 +154,12 @@ from ..utils.bounds import OutcomeScaler
 from ..utils.frames import as_frame
 from ._nuisance import NuisanceEstimates, Propensity, fit_inner_designs
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
-from .composite import COMPOSITE_NESTED_REFUSAL, composite_state, missing_data_route
+from .composite import (
+    COMPOSITE_NESTED_REFUSAL,
+    composite_state,
+    missing_data_route,
+    unidentified_targets,
+)
 from .ctmle import CTMLE
 from .reduced import (
     REDUCED_CROSSFITS,
@@ -1273,6 +1278,11 @@ class DRTMLE(TMLE):
                 f"treatment does not take these settings. {COMPOSITE_NESTED_REFUSAL}"
             )
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms)
+        if data.has_missing_treatment and (self.estimands is None or self.estimands == "all"):
+            # The default and "all" lists drop the targets a missing treatment leaves
+            # unidentified, as the shared preflight does, so the remedy below never names a
+            # target that a plain TMLE refuses on these data.
+            estimands = tuple(name for name in estimands if name not in unidentified_targets())
         outside = [name for name in estimands if name not in MEAN_GROUP_ESTIMANDS]
         if outside:
             raise CapabilityError(

@@ -372,7 +372,9 @@ def test_e5_to_e7_the_mutated_dr_tmle_misses(
     """The same mutations on the guarded fit, which is exact unmutated (E2).
 
     The outcome is wrong and so is the mechanism, so nothing holds the estimate at the
-    truth.  The smallest move measured over these six cells was 1.1e-3.
+    truth.  The smallest move measured over these six cells was 1.1e-3, so the 5e-4 bar keeps
+    a margin of about two.  This guarded witness is the weak one: no limit is computed for
+    it.  The unguarded cells above land on import-computed limits with a margin of 0.02.
     """
     law = dl.LAWS[key]
     _patched_mechanism(monkeypatch, WITNESSES[witness])
@@ -1001,6 +1003,10 @@ def test_e18_each_arm_is_the_one_indicator_estimator(key: str, drift: str) -> No
     Measured on this sample (seed 11, n = 1200) over the four cells: the largest estimate
     gap was 8.8e-7 and the largest curve gap 3.3e-4, on curve values of order ten.  The
     tolerances are 1e-5 and 3e-3, against witness moves of at least 0.02 (E5-E10).
+
+    The primary composition, both guards together, has no per-arm reference: under both
+    drifts the alternation has more than one stable fixed point (the three-arm ``low`` arm
+    settles 0.011 apart in the package and the reference), and some arms cycle.
     """
     law = dl.LAWS[key]
     frame = _live_frame(law, 1200, 11)
@@ -1372,3 +1378,206 @@ def test_the_positivity_report_reads_the_composite_covariate(key: str) -> None:
         result.data, result.nuisance, "mean", bounds=G_BOUNDS, nuisance_bound=NUISANCE_BOUND
     )
     assert raw.max_abs < expected - 1.0
+
+
+# ------------------------------------------------- regimes and MSMs over arms
+
+
+def _rule(law: dl.CompositeLaw) -> tuple[Any, np.ndarray]:
+    """A known ``W``-rule, and its table column at each ``W`` level."""
+    from cleverly.interventions import Rule
+
+    high, low = law.codes[1], law.codes[0]
+    rule = Rule(
+        lambda w: np.where(w["W"] >= 1, high, low), name="rule", rule_kind="known"
+    )
+    columns = np.array([law.labels.index(high if w >= 1 else low) for w in range(3)])
+    return rule, columns
+
+
+@pytest.mark.parametrize("key", LAWS)
+@pytest.mark.parametrize("drift", ("oracle", "outcome", "mechanism"))
+def test_a_regime_mean_is_the_composite_regime_functional(key: str, drift: str) -> None:
+    """A static and a ``W``-dependent regime with a missing treatment, on the exact law.
+
+    The regime mean ``E[Qbar(d(W), W)]`` reads only the regression and the law of ``W``, so it
+    is identified under the composite conditions.  Its covariate is ``C_d / g_c``, the arm
+    covariate at the arm the rule assigns.  The estimate is exact at the oracle and under
+    either drift, and the static regime's curve is the arm mean's EIF.
+    """
+    from cleverly.interventions import Static
+
+    law = dl.LAWS[key]
+    rule, columns = _rule(law)
+    reference = law.codes[0]
+    result = _oracle_fit(
+        key,
+        guard=None,
+        mu=1.0 - law.q if drift == "outcome" else None,
+        drift_mechanism=drift == "mechanism",
+        interventions=[Static(reference, name="ref"), rule],
+        estimands=("ey_regime", "ate_regime"),
+    )
+    assert result.extra["missing_data"] == "composite"
+    truth_rule = float(dl.P_W @ law.q[np.arange(3), columns])
+    truth_ref = float(dl.P_W @ law.q[:, law.labels.index(reference)])
+    assert result.estimates["ey_regime[rule]"].psi == pytest.approx(truth_rule, abs=1e-10)
+    assert result.estimates["ey_regime[ref]"].psi == pytest.approx(truth_ref, abs=1e-10)
+    if drift == "oracle":
+        name = "ey0" if law.k == 2 else f"ey[{reference}]"
+        cells = law.cell_of_row()
+        reported = np.asarray(result.estimates["ey_regime[ref]"].influence_curve)
+        per_cell = np.array(
+            [reported[np.flatnonzero(cells == point)[0]] for point in range(len(law.support))]
+        )
+        np.testing.assert_allclose(per_cell, law.eif(name), atol=1e-12, rtol=0)
+
+
+def test_a_regime_fit_without_the_composite_misses() -> None:
+    """The control: the same regime fit with the treatment observation factor omitted."""
+    import cleverly.estimators.composite as composite_module
+
+    law = dl.TWO
+    rule, columns = _rule(law)
+    truth = float(dl.P_W @ law.q[np.arange(3), columns])
+    with pytest.MonkeyPatch.context() as patch:
+        _patched_mechanism(patch, _omit("treatment_observation"))
+        assert composite_module.composite_mechanism is not composite_mechanism
+        result = _oracle_fit(
+            "two", guard=None, mu=1.0 - law.q, interventions=[rule], estimands=("ey_regime",)
+        )
+    assert abs(result.estimates["ey_regime[rule]"].psi - truth) > 0.01
+
+
+@pytest.mark.parametrize("drift", ("oracle", "outcome", "mechanism"))
+def test_an_arm_msm_is_the_projection_of_the_arm_means(drift: str) -> None:
+    """``MSM.linear()`` over two arms is ``(ey0, ey1 - ey0)``, exactly, with a missing treatment."""
+    from cleverly.msm import MSM
+
+    law = dl.TWO
+    result = _oracle_fit(
+        "two",
+        guard=None,
+        mu=1.0 - law.q if drift == "outcome" else None,
+        drift_mechanism=drift == "mechanism",
+        msm=MSM.linear(),
+        estimands=("msm",),
+    )
+    means = dl.P_W @ law.q
+    assert result.estimates["msm[(intercept)]"].psi == pytest.approx(means[0], abs=1e-10)
+    assert result.estimates["msm[a]"].psi == pytest.approx(means[1] - means[0], abs=1e-10)
+
+
+# ------------------------------------------ the admitted compositions, one test each
+
+
+@pytest.mark.parametrize("key", LAWS)
+def test_strata_on_the_composite_tmle_are_exact(key: str) -> None:
+    """``strata=`` on the composite TMLE: each stratum's arm mean is its stratum truth."""
+    law = dl.LAWS[key]
+    oracle = law.law()
+    result = (
+        TMLE(
+            **_settings(
+                outcome_learner=LawOutcome(oracle),
+                treatment_learner=LawTreatment(oracle),
+                missingness_learner=LawResponse(oracle),
+                estimands=("ey0", "ey1") if law.k == 2 else ("ey",),
+            )
+        )
+        .fit(
+            law.frame(),
+            outcome="Y",
+            treatment="A",
+            covariates=["W"],
+            delta="Delta",
+            treatment_delta="DeltaA",
+            strata=["W"],
+        )
+        .single()
+    )
+    stratum = {name: estimate.psi for name, estimate in result.estimates.items() if "W=" in name}
+    assert len(stratum) == 3 * law.k
+    expected = sorted(float(value) for value in law.q.reshape(-1))
+    np.testing.assert_allclose(sorted(stratum.values()), expected, atol=1e-12)
+
+
+def test_screening_reads_the_recorded_rows_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``screen_treatment=True`` screens the treatment on the rows whose treatment is recorded."""
+    import cleverly.learners.screeners as screeners
+
+    seen: list[int] = []
+    original = screeners.screen_by_correlation
+
+    def spy(design: Any, target: Any, **kwargs: Any) -> Any:
+        values = np.asarray(target, dtype=float)
+        assert np.all(np.isfinite(values))
+        seen.append(values.shape[0])
+        return original(design, target, **kwargs)
+
+    monkeypatch.setattr(screeners, "screen_by_correlation", spy)
+    law = dl.TWO
+    frame = _live_frame(law, 600, 9).assign(V=lambda f: f["W"] ** 2)
+    estimator = TMLE(screen_treatment=True, **_settings(**_fitted_learners(), estimands=("ate",)))
+    estimator.fit(
+        frame,
+        outcome="Y",
+        treatment="A",
+        covariates=["W", "V"],
+        delta="Delta",
+        treatment_delta="DeltaA",
+    )
+    assert seen
+    assert set(seen) == {int((frame["DeltaA"] == 1.0).sum())}
+
+
+def test_the_array_entry_point_takes_delta_a() -> None:
+    """``tmle(Y, A, W, Delta=, DeltaA=)`` is the frame fit with ``treatment_delta=``."""
+    from cleverly.estimators.tmle import tmle
+
+    law = dl.TWO
+    frame = _live_frame(law, 600, 4)
+    settings = _settings(**_fitted_learners(), estimands=("ate",))
+    by_arrays = tmle(
+        frame["Y"].to_numpy(),
+        frame["A"].to_numpy(),
+        frame[["W"]].to_numpy(),
+        Delta=frame["Delta"].to_numpy(),
+        DeltaA=frame["DeltaA"].to_numpy(),
+        **settings,
+    ).single()
+    by_frame = _live_fit(law, frame, None)
+    assert by_arrays.extra["missing_data"] == "composite"
+    assert by_arrays.estimates["ate"].psi == pytest.approx(by_frame.estimates["ate"].psi, abs=1e-12)
+
+
+def test_dr_tmle_default_targets_drop_the_unidentified_ones() -> None:
+    """The default list on a missing treatment drops ATT and ATC, as TMLE's does."""
+    result = _oracle_fit("two", estimands=None)
+    assert {"att", "atc"}.isdisjoint(result.estimates)
+    assert {"ey0", "ey1", "ate"} <= set(result.estimates)
+
+
+def test_a_small_treatment_observation_probability_warns() -> None:
+    """``P(Delta_A = 1 | W)`` below ``nuisance_bound`` warns, as the response mechanism does."""
+    from cleverly.exceptions import PositivityWarning
+
+    law = dl.TWO
+    oracle = law.law()
+    estimator = TMLE(
+        **_settings(
+            outcome_learner=LawOutcome(oracle),
+            treatment_learner=LawTreatment(oracle),
+            missingness_learner=LawResponse(oracle, recorded=np.array([0.005, 0.5, 0.5])),
+            estimands=("ate",),
+        )
+    )
+    with pytest.warns(PositivityWarning, match=r"P\(Delta_A = 1 \| W\)"):
+        estimator.fit(
+            law.frame(),
+            outcome="Y",
+            treatment="A",
+            covariates=["W"],
+            delta="Delta",
+            treatment_delta="DeltaA",
+        )

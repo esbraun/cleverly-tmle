@@ -696,8 +696,9 @@ class TestArrowBackedDtypes:
         frame = _frame()
         frame["A"] = np.where(frame["A"] > 0, "high", "low").astype(object)
         frame.loc[5, "A"] = None
-        with pytest.raises(DataError, match="contains missing values and is not numeric"):
+        with pytest.raises(DataError, match="contains missing values and is not numeric") as info:
             CausalData.from_frame(self._arrow(frame), outcome="Y", treatment="A")
+        assert "treatment_delta=" in str(info.value)
 
 
 def _continuous_frame(n: int = 200, seed: int = 0) -> pd.DataFrame:

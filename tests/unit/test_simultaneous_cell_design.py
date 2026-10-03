@@ -298,3 +298,32 @@ def test_the_middle_stratum_control_could_not_fail() -> None:
 def test_the_both_wrong_control_is_displaced_in_every_stratum() -> None:
     for stratum, (truth, _, unadjusted, sd) in _strata_limits().items():
         assert abs(unadjusted - truth) / sd >= 0.4, stratum
+
+
+def test_the_composite_power_cell_has_its_planned_power() -> None:
+    """The power cell's n is declared from the planned power of the two-sided 5% test."""
+    from scipy.stats import norm
+
+    design = composite_drtmle_properties
+    effect = design.TRUTHS[design.BINARY][design.TARGET]
+    assert effect == pytest.approx(0.21, abs=1e-12)
+    assert design.EFFICIENCY_SD == pytest.approx(1.808, abs=5e-4)
+
+    def power(n: int) -> float:
+        shift = abs(effect) * np.sqrt(n) / design.EFFICIENCY_SD
+        critical = norm.ppf(0.975)
+        return float(norm.cdf(shift - critical) + norm.cdf(-shift - critical))
+
+    assert power(500) == pytest.approx(0.738, abs=5e-4)
+    assert power(design.POWER_N) == pytest.approx(0.957, abs=5e-4)
+    assert power(design.POWER_N) >= 0.95
+
+
+def test_the_composite_complete_case_control_resolves_from_zero() -> None:
+    """The complete-case bias is -0.0432, many Monte Carlo errors from zero at its budget."""
+    design = composite_drtmle_properties
+    assert design.COMPLETE_CASE_BIAS == pytest.approx(-0.0432, abs=5e-5)
+    monte_carlo = design.EFFICIENCY_SD / np.sqrt(
+        design.COMPLETE_CASE_N * design.COMPLETE_CASE_REPLICATES
+    )
+    assert abs(design.COMPLETE_CASE_BIAS) / monte_carlo >= 20

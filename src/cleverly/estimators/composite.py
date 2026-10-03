@@ -183,9 +183,9 @@ def composite_bounds(
     """The bounds the composite mechanism is tilted and clipped inside.
 
     The floor is the smallest product of the separately bounded factors, so the initial
-    clip moves no value.  At the defaults, ``g_bounds`` floor 0.01 and
-    ``nuisance_bound=0.01`` with both observation factors, it is ``1e-6``.  The ceiling is
-    the treatment factor's.
+    clip moves no value.  At ``g_bounds=(0.01, 0.99)`` and ``nuisance_bound=0.01`` with both
+    observation factors, it is ``1e-6``.  The default ``g_bounds="auto"`` floors the treatment
+    factor at ``5 / (sqrt(n) ln n)`` instead.  The ceiling is the treatment factor's.
 
     Parameters
     ----------
@@ -368,6 +368,13 @@ _DROP_REMEDY = (
     "Fit arm means, or drop the rows with a missing treatment if they are missing "
     "completely at random."
 )
+#: Why a learned rule stays refused: its value is identified under the composite conditions,
+#: and no composite derivation is written for it.
+_LEARNED_RULE_REASON = (
+    "A learned-rule value is identified under the composite conditions, but no composite "
+    "derivation for a rule learned from the fit is written here, and the value is "
+    "cross-fitted (roadmap F27)."
+)
 #: Targets that read the treatment law of every row.
 _UNIDENTIFIED_TARGETS = ("att", "atc", "ey_obs", "par", "paf")
 
@@ -377,7 +384,8 @@ def _message(data: CausalData, reason: str, remedy: str) -> CapabilityError:
     return CapabilityError(
         f"{data.treatment_name} is missing on {unrecorded} row(s). A missing treatment is "
         "supported for arm means and their contrasts (ey, ate, rr, or) on in-sample TMLE "
-        "and DRTMLE fits, through the composite indicator Delta_A * Delta * 1{A = a}. "
+        "and DRTMLE fits, and for regime means and arm-indexed MSM coefficients on in-sample "
+        "TMLE fits, through the composite indicator Delta_A * Delta * 1{A = a}. "
         f"{reason} {remedy}".rstrip()
     )
 
@@ -441,21 +449,21 @@ def missing_treatment_refusal(
     if data.has_intermediate:
         return _message(
             data,
-            "A controlled direct effect needs P(Z | A, W) at each row's recorded treatment, "
-            "which an unrecorded row lacks.",
+            "No derivation of the composite indicator for a controlled direct effect is "
+            "written here, and the condition that ties Z to the treatment's recording is not "
+            "stated.",
             _DROP_REMEDY,
         )
-    for keyword in ("incremental", "shifts", "msm"):
+    for keyword in ("incremental", "shifts"):
         if getattr(estimator, keyword, None):
             return _message(data, f"{identification} {keyword}= reads P({name} | W).", _DROP_REMEDY)
-    for keyword in ("interventions", "learned_rule"):
-        if getattr(estimator, keyword, None):
-            return _message(
-                data,
-                f"{keyword}= evaluates a rule at each row's recorded treatment, which an "
-                "unrecorded row lacks, and no composite contract for a regime is written.",
-                _DROP_REMEDY,
-            )
+    if getattr(estimator, "learned_rule", None) is not None:
+        return _message(data, _LEARNED_RULE_REASON, _DROP_REMEDY)
+    if method == "drtmle" and (
+        getattr(estimator, "interventions", None) or getattr(estimator, "msm", None)
+    ):
+        # DRTMLE refuses both axes on complete data too; its own message names the reason.
+        return None
     named = [target for target in (estimands or ()) if target in _UNIDENTIFIED_TARGETS]
     if named:
         return _message(
@@ -506,18 +514,14 @@ def missing_treatment_design_refusal(
     if intermediate:
         return _message(
             data,
-            "A controlled direct effect needs P(Z | A, W) at each row's recorded treatment, "
-            "which an unrecorded row lacks.",
+            "No derivation of the composite indicator for a controlled direct effect is "
+            "written here, and the condition that ties Z to the treatment's recording is not "
+            "stated.",
             _DROP_REMEDY,
         )
-    if axis in ("regime", "learned_rule"):
-        return _message(
-            data,
-            f"A {axis} target evaluates a rule at each row's recorded treatment, which an "
-            "unrecorded row lacks, and no composite contract for a regime is written.",
-            _DROP_REMEDY,
-        )
-    if axis != "arm":
+    if axis == "learned_rule":
+        return _message(data, _LEARNED_RULE_REASON, _DROP_REMEDY)
+    if axis not in ("arm", "regime", "msm"):
         return _message(data, f"{identification} A {axis} target reads P(A | W).", _DROP_REMEDY)
     if target in _UNIDENTIFIED_TARGETS:
         return _message(

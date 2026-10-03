@@ -71,3 +71,25 @@ def test_the_summary_preserves_a_polars_callers_backend() -> None:
         ),
     )
     assert isinstance(result.to_frame(), pl.DataFrame)
+
+
+def test_a_candidate_with_missing_values_is_refused_with_its_own_limit() -> None:
+    """variable_importance takes no treatment_delta=, so the refusal must not name it."""
+    import pytest
+
+    from cleverly.exceptions import DataError
+
+    rng = np.random.default_rng(0)
+    n = 200
+    frame = pd.DataFrame(
+        {
+            "W": rng.normal(size=n),
+            "A": rng.integers(0, 2, n).astype(float),
+            "B": rng.integers(0, 2, n).astype(float),
+        }
+    )
+    frame["Y"] = frame["A"] + frame["W"] + rng.normal(size=n)
+    frame.loc[:5, "A"] = np.nan
+    with pytest.raises(DataError, match="variable_importance takes no missing treatment") as info:
+        variable_importance(frame, outcome="Y", candidates=["A", "B"], covariates=["W"])
+    assert "treatment_delta" not in str(info.value)

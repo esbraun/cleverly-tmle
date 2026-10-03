@@ -138,7 +138,8 @@ _MISSING_OUTCOME_REFUSAL = (
 _MISSING_TREATMENT_REFUSAL = (
     "simulated_confounding has no joint treatment-observation, treatment, and outcome "
     "perturbation law with identified missing-treatment refit semantics; it refuses a "
-    "declared missing treatment for the reason it refuses a missing outcome"
+    "declared missing treatment for the reason it refuses a missing outcome; "
+    "docs/roadmap.md F12 tracks this stop"
 )
 _INTERMEDIATE_REFUSAL = (
     "simulated_confounding has no ordered treatment, intermediate, observation, "
