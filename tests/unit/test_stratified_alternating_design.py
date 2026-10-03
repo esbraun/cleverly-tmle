@@ -7,7 +7,11 @@ Each condition below was declared with the study and is checked here from the la
 * the dose grid of L2 lies inside the 1st to 99th percentile of the dose in every cell;
 * each declared control is displaced from the truth by at least one standard deviation of the
   positive arm at n = 2,000, computed as the population limit of the control's own estimator
-  on the law's 36 support points;
+  on the law's 36 support points.  The both-wrong robustness control is the exception: it is
+  displaced at least 0.45 positive SD in every stratum, and a 300-replication smoke run before
+  the declaration measured 1.37, 0.83 and 0.53 of its own SD, so the 99% interval of its
+  standardized bias clears the 0.25 margin at R = 1,200 by design;
+* the single-correct robustness configurations have the truth as their population limit;
 * the published cells are the declared cells, with the declared law's truths, before any run.
 
 It also pins why three planned families are not declared: on L1 their controls stay near the
@@ -134,16 +138,17 @@ def mechanism_wrong_limit(stratum: int) -> float:
     return mean(2.0) - mean(1.0)
 
 
-def _projection(q1: np.ndarray, q0: np.ndarray, mass: np.ndarray) -> np.ndarray:
-    """The logit projection of ``(q1, q0)`` on ``(1, a, W)`` over the cells ``mass`` weights."""
+def _projection(
+    q1: np.ndarray, q0: np.ndarray, mass: np.ndarray, *, with_w: bool = True
+) -> np.ndarray:
+    """The logit projection of ``(q1, q0)`` on ``(1, a, W)``, or ``(1, a)``, over ``mass``."""
     w = W[FIRST]
     cells = mass[FIRST]
     target = np.concatenate([q0[FIRST], q1[FIRST]])
-    design = np.column_stack(
-        [np.ones(2 * w.size), np.r_[np.zeros(w.size), np.ones(w.size)], np.r_[w, w]]
-    )
+    columns = [np.ones(2 * w.size), np.r_[np.zeros(w.size), np.ones(w.size)]]
+    design = np.column_stack([*columns, np.r_[w, w]] if with_w else columns)
     weights = np.r_[cells, cells]
-    beta = np.zeros(3)
+    beta = np.zeros(design.shape[1])
     for _ in range(100):
         m = expit(design @ beta)
         first = m * (1 - m)
@@ -163,20 +168,28 @@ def _msm_covariate(
     beta: np.ndarray, arm: float, share: np.ndarray, inside: np.ndarray
 ) -> np.ndarray:
     """``I(S = s) m'(phi beta) phi(arm, W) / g(arm)`` at each support point."""
-    m = expit(beta[0] + beta[1] * arm + beta[2] * W)
-    phi = np.column_stack([np.ones_like(W), np.full_like(W, arm), W])
+    columns = [np.ones_like(W), np.full_like(W, arm), W][: beta.size]
+    m = expit(np.column_stack(columns) @ beta)
+    phi = np.column_stack(columns)
     return phi * (m * (1 - m) / share * inside)[:, None]
 
 
 def _linked_msm_limit(
-    p1: np.ndarray, p0: np.ndarray, g: np.ndarray, scope: int | None, report: int | None
+    p1: np.ndarray,
+    p0: np.ndarray,
+    g: np.ndarray,
+    scope: int | None,
+    report: int | None,
+    *,
+    with_w: bool = True,
 ) -> float:
     """The logit-MSM slope of an alternation over ``scope`` (``None`` is marginal).
 
-    The fluctuated regression is projected on the ``report`` stratum's cells.
+    The fluctuated regression is projected on the ``report`` stratum's cells.  ``with_w``
+    selects the working model ``(1, a, W)`` or ``(1, a)``.
     """
     inside = np.ones_like(W) if scope is None else (scope == V).astype(float)
-    beta = _projection(p1, p0, _cell_mass(scope))
+    beta = _projection(p1, p0, _cell_mass(scope), with_w=with_w)
     star1, star0 = p1, p0
     for _ in range(200):
         h1 = _msm_covariate(beta, 1.0, g, inside)
@@ -185,12 +198,12 @@ def _linked_msm_limit(
         epsilon = _fluctuate(np.where(A == 1.0, p1, p0), covariate, np.ones_like(Y))
         star1 = expit(logit(p1) + h1 @ epsilon)
         star0 = expit(logit(p0) + h0 @ epsilon)
-        updated = _projection(star1, star0, _cell_mass(scope))
+        updated = _projection(star1, star0, _cell_mass(scope), with_w=with_w)
         moved = float(np.max(np.abs(updated - beta)))
         beta = updated
         if moved < 1e-12:
             break
-    return float(_projection(star1, star0, _cell_mass(report))[1])
+    return float(_projection(star1, star0, _cell_mass(report), with_w=with_w)[1])
 
 
 def projection_necessity_limit(stratum: int) -> float:
@@ -199,11 +212,24 @@ def projection_necessity_limit(stratum: int) -> float:
     return _linked_msm_limit(p1, p0, G, None, stratum)
 
 
-def both_wrong_limit(stratum: int) -> float:
-    """The stratified logit-MSM slope with intercept-only ``Q`` and ``g``."""
-    constant = np.full_like(W, float(np.sum(PROBS * Y)))
-    share = np.full_like(W, float(np.sum(PROBS * A)))
-    return _linked_msm_limit(constant, constant, share, stratum, stratum)
+#: The intercept-only regressions of ``Y`` and ``A``: the wrong nuisances.
+CONSTANT_Q = np.full_like(W, float(np.sum(PROBS * Y)))
+CONSTANT_G = np.full_like(W, float(np.sum(PROBS * A)))
+
+
+def both_wrong_limit(stratum: int, *, with_w: bool = False) -> float:
+    """The stratified logit-MSM slope with intercept-only ``Q`` and ``g``.
+
+    The declared robustness family fits ``(1, a)``; ``with_w=True`` is ``(1, a, W)``.
+    """
+    return _linked_msm_limit(CONSTANT_Q, CONSTANT_Q, CONSTANT_G, stratum, stratum, with_w=with_w)
+
+
+def single_correct_limit(stratum: int, configuration: str) -> float:
+    """The ``(1, a)`` slope limit with one nuisance right and the other intercept-only."""
+    if configuration == "outcome_correct":
+        return _linked_msm_limit(Q1, Q0, CONSTANT_G, stratum, stratum, with_w=False)
+    return _linked_msm_limit(CONSTANT_Q, CONSTANT_Q, G, stratum, stratum, with_w=False)
 
 
 def untargeted_limit(stratum: int) -> float:
@@ -252,11 +278,23 @@ def test_the_untargeted_msm_control_is_displaced(stratum: int) -> None:
     assert abs(displacement) >= 1.0, displacement
 
 
+def _arm_sd(name: str) -> float:
+    return law.efficiency_sd(name, "logit", law.ARM_TERMS) / np.sqrt(N)
+
+
 @pytest.mark.parametrize("stratum", [int(label[1]) for label in study.BOTH_WRONG_LABELS])
 def test_the_both_wrong_msm_control_is_displaced(stratum: int) -> None:
     name = f"msm[a][V={stratum}]"
-    displacement = (both_wrong_limit(stratum) - law.TRUTH_MSM["logit"][name]) / _sd(name, "logit")
-    assert abs(displacement) >= 0.4, displacement
+    displacement = (both_wrong_limit(stratum) - law.TRUTH_ARM_MSM[name]) / _arm_sd(name)
+    assert abs(displacement) >= 0.45, displacement
+
+
+@pytest.mark.parametrize("configuration", ["outcome_correct", "treatment_correct"])
+@pytest.mark.parametrize("stratum", [int(label[1]) for label in study.DOUBLE_ROBUST_LABELS])
+def test_one_correct_nuisance_reaches_the_truth(stratum: int, configuration: str) -> None:
+    name = f"msm[a][V={stratum}]"
+    limit = single_correct_limit(stratum, configuration)
+    assert limit == pytest.approx(law.TRUTH_ARM_MSM[name], abs=1e-8)
 
 
 class TestTheUndeclaredControlsCouldNotFail:
@@ -274,13 +312,13 @@ class TestTheUndeclaredControlsCouldNotFail:
         displacement = (mechanism_wrong_limit(stratum) - law.TRUTH_IPSI[name]) / _sd(name)
         assert abs(displacement) < 0.1
 
-    @pytest.mark.parametrize("stratum", (0, 1))
-    def test_the_both_wrong_msm_fit_stays_near_the_truth(self, stratum: int) -> None:
-        """Why the both-wrong control reads stratum 2 alone."""
+    @pytest.mark.parametrize("stratum", law.STRATA)
+    def test_the_both_wrong_msm_fit_with_w_stays_near_the_truth(self, stratum: int) -> None:
+        """Why the robustness family fits ``(1, a)`` and not the calibration model."""
         name = f"msm[a][V={stratum}]"
         truth = law.TRUTH_MSM["logit"][name]
-        displacement = (both_wrong_limit(stratum) - truth) / _sd(name, "logit")
-        assert abs(displacement) < 0.4
+        displacement = (both_wrong_limit(stratum, with_w=True) - truth) / _sd(name, "logit")
+        assert abs(displacement) < 0.5
 
     @pytest.mark.parametrize("stratum", study.NECESSITY_STRATA)
     def test_the_marginal_msm_fluctuation_stays_near_the_truth(self, stratum: int) -> None:
@@ -332,6 +370,16 @@ def test_the_identity_msm_declared_cells_are_the_published_cells() -> None:
     for (family, name), cell in declared.items():
         truth = rows.loc[(rows["property"] == family) & (rows["cell"] == name), "truth"]
         np.testing.assert_allclose(truth, cell.dgp.truth()[cell.estimand], rtol=1e-12, atol=0)
+
+
+def test_the_natural_course_truths_are_l1_s_conditional_means() -> None:
+    """Missingness leaves ``E[Y | V = s]`` alone: it is the incremental natural-course mean."""
+    truths = law.natural_course_truths()
+    for stratum in (None, *law.STRATA):
+        suffix = "" if stratum is None else f"[V={stratum}]"
+        assert truths[f"ey_obs{suffix}"] == pytest.approx(
+            law.TRUTH_IPSI[f"ey_ipsi[natural course]{suffix}"], abs=1e-14
+        )
 
 
 def test_the_bounded_outcome_keeps_l1_s_mean() -> None:
@@ -400,6 +448,6 @@ def test_the_drtmle_both_wrong_control_is_displaced() -> None:
     frame, truth = drtmle.draw_from_seed(drtmle.SCENARIO, 10_000, 11)
     result = drtmle.fit_cleverly(frame, "both_wrong")
     for label, sd in drtmle.EFFICIENCY_SD.items():
-        name = f"ate[V={label[1]}]"
+        name = drtmle.ate_name(label)
         displacement = (result[name].psi - truth[name]) / (sd / np.sqrt(2_000))
         assert abs(displacement) >= 1.0, (name, displacement)

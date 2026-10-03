@@ -8,8 +8,10 @@ is the baseline-strata law of :mod:`tests.studies.stratified_law`, and every tru
 The primary scenario pairs the in-sample stratified incremental fit with pinned R ``npcausal``
 ``ipsi`` at ``56a5ac1``.  ``npcausal`` has no stratified form, so the runner calls ``ipsi`` once
 per stratum subset and multiplier, and once per multiplier on every row for the marginal means.
-Both sides fit saturated nuisances: ``cleverly`` over the ``(W, V)`` cells, and ``npcausal``
-``SL.glm.interaction`` over the ``W`` indicators inside a stratum.  The declared difference is
+``cleverly`` fits saturated nuisances over the ``(W, V)`` cells.  ``npcausal`` fits
+``SL.glm.interaction`` (``Y ~ .^2``): over the ``W`` indicators inside a stratum it is saturated,
+and over the ``W`` and ``V`` indicators on every row it has no ``A:W:V`` terms, so it is correct
+for L1's main-terms outcome but not saturated.  The declared difference is
 ``npcausal``'s two-split cross-fitting (``nsplits = 2``; the single-split path selects no
 training rows at this commit).
 
@@ -88,7 +90,11 @@ MSM_LABELS: tuple[str, ...] = tuple(
     for scope in ("marginal", *(f"v{stratum}" for stratum in law.STRATA))
     for key in TERM_KEYS.values()
 )
-#: ``continuous_<link>_<scope>_<term>``: each continuous-dose coefficient.
+#: ``continuous_<link>_<scope>_<term>``: each continuous-dose coefficient.  These are
+#: ``outcome_correct`` robustness cells, not calibration cells: the treatment mechanism is the
+#: package's binned density, which is not the law's density, so the reported standard error
+#: is not the estimator's.  A 400-replication smoke run before the declaration measured SE
+#: ratios of 0.63 to 1.52 and standardized biases of at most 0.13.
 CONTINUOUS_TERMS = {"(intercept)": "intercept", "a": "a"}
 CONTINUOUS_LABELS: tuple[str, ...] = tuple(
     f"continuous_{link}_{scope}_{key}"
@@ -105,14 +111,19 @@ NECESSITY_ARMS = ("stratified", "marginal_fluctuation")
 #: stratum 2 does not resolve the pair (``tests/unit/test_stratified_alternating_design.py``).
 TARGETING_LABELS: tuple[str, ...] = ("v0_a", "v1_a")
 TARGETING_ARMS = ("targeted", "untargeted")
-DOUBLE_ROBUST_LABELS: tuple[str, ...] = tuple(f"v{stratum}_a" for stratum in law.STRATA)
-#: The robustness family's both-wrong control reads stratum 2 alone.  Inside a stratum the only
-#: confounder is ``W``, which the working model ``(1, a, W)`` carries, so the stratum blocks
-#: repair intercept-only nuisances to 0.0 and 0.22 SD in strata 0 and 1; stratum 2 stays
-#: 0.47 SD off (the design test computes each limit).
+#: The robustness family fits the logit MSM ``(1, a)``, :data:`law.ARM_TERMS`.  Inside a
+#: stratum the model ``(1, a, W)`` contains ``Q``, so a fit with both nuisances wrong stays
+#: within 0.5 SD of the truth and its control could not fail.  Without ``W`` the both-wrong
+#: limit is the confounded stratum slope (the design test computes each limit).
+DOUBLE_ROBUST_LABELS: tuple[str, ...] = tuple(f"v{stratum}_a_arm" for stratum in law.STRATA)
 DOUBLE_ROBUST_CONFIGURATIONS = ("both_correct", "outcome_correct", "treatment_correct")
-BOTH_WRONG_LABELS: tuple[str, ...] = ("v2_a",)
-JOINT_LABELS = ("ipsi_strata", "continuous_strata")
+BOTH_WRONG_LABELS: tuple[str, ...] = DOUBLE_ROBUST_LABELS
+#: ``natural_<scope>``: the cross-fitted natural-course mean of L1 with a missing outcome,
+#: marginal and stratum.
+NATURAL_COURSE_LABELS: tuple[str, ...] = tuple(
+    f"natural_{scope}" for scope in ("marginal", *(f"v{stratum}" for stratum in law.STRATA))
+)
+JOINT_LABELS = ("ipsi_strata",)
 CALIBRATION_KINDS = ("correctly_specified", "shrunken_se_control", "noise_control")
 
 
@@ -121,6 +132,12 @@ def label_name(label: str) -> str:
     stratum, key = label.split("_", 1)
     stem = next(name for name, short in IPSI_KEYS.items() if short == key)
     return f"{stem}[V={int(stratum[1:])}]"
+
+
+def natural_label_name(label: str) -> str:
+    """The package's name of the natural-course mean a label reads."""
+    scope = label.split("_", 1)[1]
+    return "ey_obs" if scope == "marginal" else f"ey_obs[V={int(scope[1:])}]"
 
 
 def msm_label_name(label: str) -> str:
@@ -136,7 +153,7 @@ def msm_label_name(label: str) -> str:
 PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     "interval_calibration": tuple(
         f"{label}__{kind}"
-        for label in (*IPSI_LABELS, *MSM_LABELS, *CONTINUOUS_LABELS)
+        for label in (*IPSI_LABELS, *MSM_LABELS, *NATURAL_COURSE_LABELS)
         for kind in CALIBRATION_KINDS
     ),
     "simultaneous_coverage": tuple(
@@ -154,6 +171,7 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
             for configuration in DOUBLE_ROBUST_CONFIGURATIONS
         ),
         *(f"{label}__both_wrong" for label in BOTH_WRONG_LABELS),
+        *(f"{label}__outcome_correct" for label in CONTINUOUS_LABELS),
     ),
     "targeting_necessity": tuple(
         f"{label}__{arm}" for label in TARGETING_LABELS for arm in TARGETING_ARMS
@@ -205,8 +223,9 @@ REFERENCE_METADATA = {
     "reference_parameter": "point-treatment incremental odds curve, per stratum subset",
     "reference_scope": "point estimates and efficient-influence-curve inference",
     "reference_nuisances": (
-        "two-fold cross-fitted SL.glm.interaction over the W indicators inside a stratum, and "
-        "over the W and V indicators on every row for the marginal means"
+        "two-fold cross-fitted SL.glm.interaction (Y ~ .^2) over the W indicators inside a "
+        "stratum, which is saturated there, and over the W and V indicators on every row for "
+        "the marginal means, which has no A:W:V terms and is correct but not saturated"
     ),
 }
 

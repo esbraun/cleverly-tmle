@@ -6,11 +6,16 @@ any run:
 ==========================  ===========================================================  =====  =====
 family                      cells                                                        n      R
 ==========================  ===========================================================  =====  =====
-``interval_calibration``    ``v<s>_ate``: each stratum ATE of the both-correct fit,      2,000  2,000
-                            with shrunken-SE and noise controls
-``double_robustness``       ``v<s>_ate__{both_correct, outcome_correct,                  2,000  2,000
+``interval_calibration``    ``marginal_ate`` and ``v<s>_ate``: the marginal and each     2,000  2,000
+                            stratum ATE of the both-correct fit, with shrunken-SE and
+                            noise controls
+``double_robustness``       ``<label>__{both_correct, outcome_correct,                   2,000  2,000
                             treatment_correct, both_wrong}``; a wrong GLM omits ``W12``  2,000  800
 ==========================  ===========================================================  =====  =====
+
+The marginal cells read the same fits as the stratum cells, so they add no fit.  The marginal
+estimate of a stratified fit reduces on ``(g_n, V)``.  It is a different estimator from the
+unstratified fit, and the primary scenario does not pair it.
 
 The both-correct configuration runs 2,000 replications, and its fits serve the calibration
 cells and the ``both_correct`` robustness cells alike, seeded by
@@ -40,6 +45,7 @@ from tests.studies.canonical_stratified_drtmle import (
     EFFICIENCY_SD,
     SCENARIO,
     STUDY,
+    ate_name,
     draw_from_seed,
     fit_cleverly,
 )
@@ -90,7 +96,7 @@ def _fit_replication(payload: tuple[str, int, int, int, int]) -> list[dict[str, 
     result = fit_cleverly(frame, configuration)
     rows: list[dict[str, Any]] = []
     for label in ATE_LABELS:
-        name = f"ate[V={label[1]}]"
+        name = ate_name(label)
         families = ["double_robustness"]
         if configuration == "both_correct":
             families.append("interval_calibration")
@@ -173,7 +179,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     cells: list[PropertyCell] = []
     roles = dict(zip(CALIBRATION_KINDS, ("positive", "control", "control"), strict=True))
     for label in ATE_LABELS:
-        name = f"ate[V={label[1]}]"
+        name = ate_name(label)
         for kind, role in roles.items():
             cells.append(
                 PropertyCell(

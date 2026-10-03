@@ -168,8 +168,17 @@ ARMS: dict[str, str] = {
             ("ate_x2", "incremental contrast of multiplier 2 against 1"),
             ("ate_x05", "incremental contrast of multiplier 0.5 against 1"),
             ("a", "treatment coefficient of the logit MSM (1, a, W)"),
+            ("a_arm", "treatment coefficient of the logit MSM (1, a)"),
         )
     },
+    **{
+        f"natural_{scope}": f"cross-fitted natural-course mean with a missing outcome, {where}"
+        for scope, where in (
+            ("marginal", "marginal"),
+            *((f"v{stratum}", f"in stratum V = {stratum}") for stratum in (0, 1, 2)),
+        )
+    },
+    "marginal_ate": "average treatment effect over every stratum, from the stratified fit",
     **{
         f"logit_{scope}_{key}": f"{words} of the logit MSM (1, a, W), {where}"
         for scope, where in (
@@ -206,9 +215,6 @@ ARMS: dict[str, str] = {
         )
     },
     "ipsi_strata": "the five marginal and fifteen stratum incremental parameters of one fit",
-    "continuous_strata": (
-        "the two marginal and six stratum coefficients of the identity-link dose MSM"
-    ),
     # The composite-indicator missing-data study: the corrected-inference contrasts,
     # the joint-coverage labels and the correction cycle.
     "composite_observational_ate": "the ATE of the two-arm law with an observational MAR outcome",

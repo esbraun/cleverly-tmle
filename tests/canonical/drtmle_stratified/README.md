@@ -9,7 +9,9 @@ The primary scenario pairs the subject with pinned R `drtmle` 1.1.2 at `538a3a2`
 no stratified form, so the runner calls it once per stratum subset. Both
 sides read the same rows, the same ten-fold assignment and the subject's initial nuisance
 arrays. Inside a stratum, `drtmle` fits its reduced regressions on the stratum's rows, which is
-the construction the subject uses.
+the construction the subject uses. The property cells also measure the marginal ATE of the
+stratified fit against its exact truth, because that estimate reduces on `(g_n, V)` and has no
+paired reference.
 
 Run a disposable smoke study before the declared run:
 

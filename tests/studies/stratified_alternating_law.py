@@ -48,6 +48,10 @@ REFERENCE = "natural course"
 #: ``phi = (1, a, W)``, the L1 working model, and the links the studies fit it under.
 MSM_TERMS = ("(intercept)", "a", "W")
 MSM_LINKS = ("identity", "logit")
+#: ``phi = (1, a)``, the working model of the robustness family.  Inside a stratum the logit
+#: model ``(1, a, W)`` contains ``Q``, so a fit with both nuisances wrong stays near the truth.
+#: Without ``W`` it does not.
+ARM_TERMS = ("(intercept)", "a")
 
 
 def _cells(probs: Any) -> tuple[Any, Any, Any]:
@@ -71,8 +75,12 @@ def ipsi_mean(probs: Any, delta: float, stratum: int | None = None) -> Any:
     return (weights * mixture[stratum]).sum() / weights.sum()
 
 
-def msm_beta(probs: Any, link: str, stratum: int | None = None) -> Any:
-    """The projection coefficients of ``Q`` on ``(1, a, W)``, inside a stratum or marginal.
+def msm_beta(
+    probs: Any, link: str, stratum: int | None = None, terms: tuple[str, ...] = MSM_TERMS
+) -> Any:
+    """The projection coefficients of ``Q`` on ``terms``, inside a stratum or marginal.
+
+    ``terms`` is :data:`MSM_TERMS`, ``(1, a, W)``, or :data:`ARM_TERMS`, ``(1, a)``.
 
     Newton with the exact Jacobian runs a fixed number of steps, so the function stays
     analytic in the probabilities, as :func:`tests.discrete_law.functional` keeps it.
@@ -81,9 +89,10 @@ def msm_beta(probs: Any, link: str, stratum: int | None = None) -> Any:
     p_vw, _, q = _cells(probs)
     w = np.broadcast_to(np.arange(3, dtype=float)[None, :, None], (3, 3, 2))
     a = np.broadcast_to(np.array([0.0, 1.0])[None, None, :], (3, 3, 2))
-    phi = np.stack([np.ones((3, 3, 2)), a, w], axis=3)  # (v, w, a, term)
+    columns = {"(intercept)": np.ones((3, 3, 2)), "a": a, "W": w}
+    phi = np.stack([columns[term] for term in terms], axis=3)  # (v, w, a, term)
     mass = p_vw if stratum is None else np.where(np.arange(3)[:, None] == stratum, p_vw, 0.0)
-    beta = np.zeros(len(MSM_TERMS), dtype=np.asarray(probs).dtype)
+    beta = np.zeros(len(terms), dtype=np.asarray(probs).dtype)
     for _ in range(discrete_law.MSM_NEWTON_STEPS):
         m = inverse(np.einsum("vwap,p->vwa", phi, beta))
         residual = q - m
@@ -107,9 +116,9 @@ def ipsi_names(stratum: int | None = None) -> tuple[str, ...]:
     return means + contrasts
 
 
-def msm_names(stratum: int | None = None) -> tuple[str, ...]:
-    """The three MSM coefficient names, marginal or of one stratum."""
-    return tuple(f"msm[{term}]{_suffix(stratum)}" for term in MSM_TERMS)
+def msm_names(stratum: int | None = None, terms: tuple[str, ...] = MSM_TERMS) -> tuple[str, ...]:
+    """The MSM coefficient names, marginal or of one stratum."""
+    return tuple(f"msm[{term}]{_suffix(stratum)}" for term in terms)
 
 
 def _ipsi_functional(name: str) -> Callable[[Any], Any]:
@@ -122,40 +131,42 @@ def _ipsi_functional(name: str) -> Callable[[Any], Any]:
     return lambda p: ipsi_mean(p, DELTAS[left], stratum) - ipsi_mean(p, DELTAS[right], stratum)
 
 
-def _msm_functional(name: str, link: str) -> Callable[[Any], Any]:
+def _msm_functional(name: str, link: str, terms: tuple[str, ...]) -> Callable[[Any], Any]:
     term, _, tail = name[len("msm[") :].partition("]")
     stratum = int(tail[3:-1]) if tail.startswith("[V=") else None
-    index = MSM_TERMS.index(term)
-    return lambda p: msm_beta(p, link, stratum)[index]
+    index = terms.index(term)
+    return lambda p: msm_beta(p, link, stratum, terms)[index]
 
 
-def functional(name: str, link: str | None = None) -> Callable[[Any], Any]:
-    """The analytic functional of one parameter; ``link`` selects an MSM's link."""
+def functional(
+    name: str, link: str | None = None, terms: tuple[str, ...] = MSM_TERMS
+) -> Callable[[Any], Any]:
+    """The analytic functional of one parameter; ``link`` and ``terms`` select an MSM."""
     if name.startswith("msm["):
         if link is None:
             raise ValueError("an MSM name needs its link")
-        return _msm_functional(name, link)
+        return _msm_functional(name, link, terms)
     return _ipsi_functional(name)
 
 
-def truth(name: str, link: str | None = None) -> float:
+def truth(name: str, link: str | None = None, terms: tuple[str, ...] = MSM_TERMS) -> float:
     """The true value of one parameter."""
-    return float(np.real(functional(name, link)(PROBS)))
+    return float(np.real(functional(name, link, terms)(PROBS)))
 
 
-def eif(name: str, link: str | None = None) -> np.ndarray:
+def eif(name: str, link: str | None = None, terms: tuple[str, ...] = MSM_TERMS) -> np.ndarray:
     """The efficient influence function of one parameter at every support point."""
     return np.asarray(
         discrete_law.contamination_eif(
-            functional(name, link), PROBS, [(index,) for index in range(len(SUPPORT))]
+            functional(name, link, terms), PROBS, [(index,) for index in range(len(SUPPORT))]
         ),
         dtype=float,
     )
 
 
-def efficiency_sd(name: str, link: str | None = None) -> float:
+def efficiency_sd(name: str, link: str | None = None, terms: tuple[str, ...] = MSM_TERMS) -> float:
     """The efficiency-bound SD, ``sqrt(E[D^2])``."""
-    return float(np.sqrt(np.sum(PROBS * eif(name, link) ** 2)))
+    return float(np.sqrt(np.sum(PROBS * eif(name, link, terms) ** 2)))
 
 
 def covariance(names: tuple[str, ...], link: str | None = None) -> np.ndarray:
@@ -178,6 +189,12 @@ TRUTH_IPSI: dict[str, float] = {name: truth(name) for name in all_ipsi_names()}
 TRUTH_MSM: dict[str, dict[str, float]] = {
     link: {name: truth(name, link) for name in all_msm_names()} for link in MSM_LINKS
 }
+#: The logit truths of the ``(1, a)`` model, marginal and stratum by stratum.
+TRUTH_ARM_MSM: dict[str, float] = {
+    name: truth(name, "logit", ARM_TERMS)
+    for stratum in (None, *STRATA)
+    for name in msm_names(stratum, ARM_TERMS)
+}
 
 
 def sample(n: int, seed: int) -> Any:
@@ -188,6 +205,67 @@ def sample(n: int, seed: int) -> Any:
 def truths(link: str | None = None) -> Mapping[str, float]:
     """The incremental truths, or one link's MSM truths."""
     return dict(TRUTH_IPSI) if link is None else dict(TRUTH_MSM[link])
+
+
+# --------------------------------------------------------- L1 with a missing outcome
+
+r"""``L1`` with an outcome missing at random given ``(A, W, V)``.
+
+The observation mechanism is ``pi(A, W, V) = expit(1.1 - 0.3 A + 0.2 W - 0.25 V)``, the one
+the exact-law tests use (``tests/unit/test_stratified_drtmle_exact.py``).  The natural-course
+mean inside a stratum is ``E[Y | V = s]``, and its efficient influence function is
+
+    D_s = Delta / pi {Y - Q(A, W, V)} + Q(A, W, V) - psi_s,
+
+so ``E[D_s^2 | V = s] = E[Q (1 - Q) / pi + (Q - psi_s)^2 | V = s]``, an exact sum over the 36
+support points.  The full-law gradient of the stratum mean is ``I(V = s) D_s / P(V = s)``.
+"""
+
+
+def observation(a: Any, w: Any, v: Any) -> Any:
+    """``pi(A, W, V)``, the probability that the outcome is observed."""
+    eta = 1.1 - 0.3 * np.asarray(a, dtype=float) + 0.2 * np.asarray(w, dtype=float)
+    return 1.0 / (1.0 + np.exp(-(eta - 0.25 * np.asarray(v, dtype=float))))
+
+
+def missing_sample(n: int, seed: int) -> Any:
+    """Draw ``n`` rows of L1 with ``Delta`` and ``Yobs``, the outcome where it is observed."""
+    frame = base.sample(n, seed)
+    rng = np.random.default_rng([seed, 1])
+    a, w, v = (frame[name].to_numpy(dtype=float) for name in ("A", "W", "V"))
+    observed = rng.random(n) < observation(a, w, v)
+    return frame.assign(
+        Delta=observed.astype(float),
+        Yobs=np.where(observed, frame["Y"].to_numpy(dtype=float), np.nan),
+    )
+
+
+def _natural_course_scope(stratum: int | None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """``Q`` and ``pi`` at each ``(v, w, a)`` cell, with the cell mass inside the scope."""
+    support = np.asarray(SUPPORT, dtype=float).reshape(-1, 2, 4)[:, 0, :3]
+    mass = PROBS.reshape(-1, 2).sum(axis=1)
+    if stratum is not None:
+        mass = np.where(support[:, 0] == stratum, mass, 0.0)
+    v, w, a = support.T
+    return np.asarray(base.outcome(a, w, v), dtype=float), observation(a, w, v), mass
+
+
+def natural_course_truths() -> dict[str, float]:
+    """``E[Y]`` and each ``E[Y | V = s]``, by the names the package reports."""
+    out: dict[str, float] = {}
+    for stratum in (None, *STRATA):
+        q, _, mass = _natural_course_scope(stratum)
+        out[f"ey_obs{_suffix(stratum)}"] = float(np.sum(mass * q) / np.sum(mass))
+    return out
+
+
+def natural_course_sd(stratum: int | None = None) -> float:
+    """The efficiency-bound SD of the natural-course mean, ``sqrt(E[D_s^2 | s] / P(V = s))``."""
+    q, pi, mass = _natural_course_scope(stratum)
+    share = float(np.sum(mass))
+    psi = float(np.sum(mass * q) / share)
+    second = float(np.sum(mass * (q * (1.0 - q) / pi + (q - psi) ** 2)) / share)
+    return float(np.sqrt(second / share))
 
 
 # ------------------------------------------------------------------------- L2: a dose

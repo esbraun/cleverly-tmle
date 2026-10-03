@@ -10,7 +10,7 @@ source of the correlation                   cells
 ==========================================  =================================================
 exact, from a finite-support law's EIF      ``regimens``, the survival and competing-risk
                                             cells, both strata cells, and ``ipsi_strata``
-the reported curves of ten fits at the      ``arms``, ``continuous_strata`` and every cell of
+the reported curves of ten fits at the      ``arms`` and every cell of
 cell's own size (a design estimate)         ``default-simultaneous-bands``
 ==========================================  =================================================
 
@@ -285,33 +285,6 @@ def test_the_multi_arm_cell_has_a_discriminating_control() -> None:
     assert numbers.p0 < 0.93
     power = control_power(numbers.p0 + DESIGN_ALLOWANCE, multi_arm_tmle_properties.JOINT_REPLICATES)
     assert power >= MINIMUM_CONTROL_POWER, numbers
-
-
-def _continuous_strata_correlation() -> np.ndarray:
-    """The design estimate of the dose band: ten identity-link fits of L2 at n = 2,000."""
-    properties = stratified_incremental_msm_properties
-    total = None
-    for index in range(default_band_properties.DESIGN_FITS):
-        frame = stratified_alternating_law.l2_sample(
-            properties.CALIBRATION_N,
-            stream_seed(properties.STUDY, "design", "continuous_strata", index),
-        )
-        result = properties.fit_dose(frame, "identity")
-        curves = np.column_stack([result[name].influence_curve for name in result.estimates])
-        centred = curves - curves.mean(axis=0)
-        covariance = centred.T @ centred / len(centred)
-        total = covariance if total is None else total + covariance
-    assert total is not None
-    return _from_covariance(total)
-
-
-def test_the_continuous_strata_cell_has_a_discriminating_control() -> None:
-    """The dose band's correlation is a design estimate, so it is held at ``p0 + 0.005``."""
-    replicates = stratified_incremental_msm_properties.CALIBRATION_REPLICATES
-    numbers = design(_continuous_strata_correlation(), replicates)
-    assert numbers.p0 == pytest.approx(0.7228, abs=5e-4)
-    assert numbers.p0 < 0.93
-    assert control_power(numbers.p0 + DESIGN_ALLOWANCE, replicates) >= MINIMUM_CONTROL_POWER
 
 
 @pytest.mark.parametrize("label", [shape.label for shape in SHAPES])

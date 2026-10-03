@@ -61,7 +61,13 @@ ESTIMANDS: tuple[str, ...] = tuple(
     f"{stem}[V={s}]" for s in law.STRATA for stem in ("ey[0]", "ey[1]", "ate")
 )
 
-ATE_LABELS: tuple[str, ...] = tuple(f"v{stratum}_ate" for stratum in law.STRATA)
+#: ``marginal_ate``, then ``v<s>_ate``.  The marginal cells read the same fits as the stratum
+#: cells.  The marginal estimate of a stratified fit reduces on ``(g_n, V)``, so it is a
+#: different estimator from the unstratified fit, and these cells are its only evidence.
+ATE_LABELS: tuple[str, ...] = (
+    "marginal_ate",
+    *(f"v{stratum}_ate" for stratum in law.STRATA),
+)
 CALIBRATION_KINDS = ("correctly_specified", "shrunken_se_control", "noise_control")
 DOUBLE_ROBUST_CONFIGURATIONS = (
     "both_correct",
@@ -82,11 +88,14 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
 }
 
 
-def stratum_ate_sd(stratum: int) -> float:
-    """The efficiency-bound SD of a stratum ATE, ``sqrt(E[D_s^2] / P(V = s))``, by quadrature."""
-    from scipy.integrate import quad
+def ate_name(label: str) -> str:
+    """The package's name of the ATE a property label reads."""
+    return "ate" if label == "marginal_ate" else f"ate[V={int(label[1])}]"
 
-    truth = law.paper_truths()[f"ate[V={stratum}]"]
+
+def _stratum_second_moment(stratum: int, truth: float) -> float:
+    """``E[D^2 | V = s]`` for the ATE curve centred at ``truth``, by quadrature."""
+    from scipy.integrate import quad
 
     def integrand(w1: float) -> float:
         total = 0.0
@@ -98,10 +107,36 @@ def stratum_ate_sd(stratum: int) -> float:
         return total / 4.0
 
     value, _ = quad(integrand, -2.0, 2.0, epsabs=1e-12, epsrel=1e-12, limit=200)
-    return float(np.sqrt(value / law.PAPER_P_V[stratum]))
+    return float(value)
 
 
-EFFICIENCY_SD = {label: stratum_ate_sd(int(label[1])) for label in ATE_LABELS}
+def stratum_ate_sd(stratum: int) -> float:
+    """The efficiency-bound SD of a stratum ATE, ``sqrt(E[D_s^2 | V = s] / P(V = s))``."""
+    truth = law.paper_truths()[f"ate[V={stratum}]"]
+    return float(np.sqrt(_stratum_second_moment(stratum, truth) / law.PAPER_P_V[stratum]))
+
+
+def marginal_ate_sd() -> float:
+    """The efficiency-bound SD of the marginal ATE, ``sqrt(E[D^2])``.
+
+    ``V`` is a covariate, so the curve is the unstratified ATE curve, centred at the marginal
+    ATE inside every stratum.
+    """
+    truth = law.paper_truths()["ate"]
+    return float(
+        np.sqrt(
+            sum(
+                mass * _stratum_second_moment(stratum, truth)
+                for stratum, mass in zip(law.STRATA, law.PAPER_P_V, strict=True)
+            )
+        )
+    )
+
+
+EFFICIENCY_SD = {
+    label: marginal_ate_sd() if label == "marginal_ate" else stratum_ate_sd(int(label[1]))
+    for label in ATE_LABELS
+}
 
 STUDY = StudyRecord(
     name="DR-TMLE with baseline strata",
@@ -176,7 +211,12 @@ CONFIGURATION = {
     },
     "excluded_comparisons": (
         "the three marginal names: a marginal drtmle call reduces on g_n over every row, and "
-        "the stratified fit's marginal estimate reduces on (g_n, V)"
+        "the stratified fit's marginal estimate reduces on (g_n, V). The marginal ATE is "
+        "measured against its exact truth by the property cells instead"
+    ),
+    "declared_difference": (
+        "the subject's outer loop stops when every stratum's equations meet the stop rule, so "
+        "a stratum can take more rounds than R drtmle takes on that stratum's subset alone"
     ),
 }
 
