@@ -52,6 +52,7 @@ from cleverly.datasets import (
     make_shift_dose,
 )
 from cleverly.estimators import TMLE
+from cleverly.inference.results import reported_status
 from cleverly.interventions import Shift
 from cleverly.longitudinal import LTMLE, LongitudinalData
 from cleverly.longitudinal.estimator import DEFAULT_LTMLE_G_BOUNDS
@@ -84,10 +85,7 @@ from cleverly.targets.builtin import (
     MISSINGNESS_CAVEAT_PREFIX,
     TWO_ARM_POSITIVITY_PREFIX,
 )
-from cleverly.targets.population_intervention import (
-    POPULATION_INTERVENTION_TARGETS,
-    population_intervention_refusal,
-)
+from cleverly.targets.population_intervention import POPULATION_INTERVENTION_TARGETS
 from tests import discrete_law_cde, discrete_law_mar
 from tests.conftest import (
     FAST_KWARGS,
@@ -709,27 +707,90 @@ def test_cde_conditional_mechanism_positivity_names_both_arms_and_population(
         assert population in item
 
 
+def _mar_study(**design: Any) -> CausalStudy:
+    return CausalStudy(
+        discrete_law_mar.frame().assign(
+            weight=lambda frame: 0.5 + 0.25 * frame["W"],
+            cluster=lambda frame: np.arange(len(frame)) // 10,
+        ),
+        design=PointTreatment(
+            outcome="Y", treatment="A", adjustment=("W",), missingness="Delta", **design
+        ),
+    )
+
+
 @pytest.mark.parametrize(
-    ("estimand", "roadmap"),
-    [
-        (PopulationAttributableRisk(), "F20"),
-        (PopulationAttributableFraction(), "F20"),
-    ],
+    "estimand",
+    [PopulationAttributableRisk(), PopulationAttributableFraction()],
+    ids=["par", "paf"],
 )
-def test_missing_population_interventions_refuse_at_identification_boundary(
-    estimand: Any,
-    roadmap: str,
-) -> None:
-    with pytest.raises(CapabilityError, match=rf"score equation.*{roadmap}"):
-        CausalStudy(
-            discrete_law_mar.frame(),
-            design=PointTreatment(
-                outcome="Y",
-                treatment="A",
-                adjustment=("W",),
-                missingness="Delta",
-            ),
-        ).identify(estimand)
+def test_missing_population_interventions_identify_the_mar_stack(estimand: Any) -> None:
+    effect = _mar_study().identify(estimand)
+    observed = "E_{A,W}[E(Y | Delta=1, A, W)]"
+    reference = "E_W[E(Y | A=0, Delta=1, W)]"
+    expected = (
+        f"{observed} - {reference}"
+        if effect.functional.target == "par"
+        else f"1 - {reference} / {observed}"
+    )
+    assert effect.functional.expression == expected
+    identification = effect.identification
+    assert "missingness_mechanism" in identification.required_nuisances
+    assert "outcome_regression" in identification.required_nuisances
+    assert "treatment_mechanism" in identification.required_nuisances
+    assumptions = " ".join(identification.assumptions)
+    assert "missingness at random for Delta" in assumptions
+    assert "P(Delta = 1 | A, W) > 0 almost surely, for the natural-course term" in assumptions
+    assert "product positivity at the reference arm" in assumptions
+    assert identification.dr_condition.startswith(
+        "consistent if m(A, W) = E(Y | Delta = 1, A, W) is consistent, or if both"
+    )
+    assert "does not rescue the natural-course term" in identification.dr_condition
+    assert "Díaz, Carone & van der Laan (2016)" in identification.references
+    assert "Díaz & van der Laan (2017)" in identification.references
+    available = {item.name for item in effect.available_methods() if item.available}
+    assert available == {"tmle"}
+
+
+def test_the_attributable_dr_condition_names_the_design_columns() -> None:
+    frame = discrete_law_mar.frame().rename(columns={"A": "exposed", "Y": "event"})
+    effect = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="event", treatment="exposed", adjustment=("W",), missingness="Delta"
+        ),
+    ).identify(PopulationAttributableFraction())
+    condition = effect.identification.dr_condition
+    assert condition.startswith(
+        "consistent if m(exposed, W) = E(event | Delta = 1, exposed, W) is consistent"
+    )
+    assert "P(exposed = 0 | W) P(Delta = 1 | exposed = 0, W)" in condition
+    assert "m(A, W)" not in condition
+
+
+@pytest.mark.parametrize(
+    "design",
+    [{}, {"weights": "weight"}, {"cluster": "cluster"}],
+    ids=["plain", "weighted", "clustered"],
+)
+def test_missing_population_interventions_estimate_the_exact_law(design: dict[str, Any]) -> None:
+    """The study reaches the engine's joint route; the unweighted fit is the exact law."""
+    law = discrete_law_mar.DiscreteLaw()
+    study = _mar_study(**design)
+    effect = study.identify(PopulationAttributableRisk())
+    result = effect.estimate(
+        outcome_learner=OracleOutcome(law),
+        treatment_learner=OracleTreatment(law),
+        missingness_learner=OracleMissingness(law),
+        **IN_SAMPLE,
+    )
+    assert np.isfinite(result.psi())
+    assert reported_status(result.estimates) == "influence_curve"
+    if "weights" not in design:
+        # A cluster changes the variance only. The weighted law is a tilt, so its truth
+        # is another number, which tests/unit/test_influence_gateaux_attributable_mar.py
+        # checks against the tilted functional.
+        assert result.psi() == pytest.approx(discrete_law_mar.TRUTH["par"], abs=1e-10)
 
 
 def test_missing_natural_course_identification_names_only_its_two_nuisances() -> None:
@@ -1170,12 +1231,11 @@ def _complete_indicator_study() -> CausalStudy:
 def test_a_declared_but_complete_response_indicator_identifies_the_observed_law(
     estimand: Any,
 ) -> None:
-    """The refusal keys on the outcome being missing, not on the declaration.
+    """The construction keys on the outcome being missing, not on the declaration.
 
-    ``TargetContext.observed_mean`` -- the engine guard this refusal fronts -- keys on the
-    observation mask, and docs/roadmap.md F20 tracks the stop for missing outcomes.  A response indicator that is identically one leaves no missing outcome,
-    so E[Y] is exactly the empirical mean and the estimator fits it.  Keying the refusal
-    on ``missingness=`` refused a composition the engine performs.
+    ``TargetContext.observed_mean`` keys on the observation mask.  A response indicator
+    that is identically one leaves no missing outcome, so E[Y] is exactly the empirical
+    mean and the estimator fits the complete-data path, with no response mechanism.
     """
     study = _complete_indicator_study()
     assert not study.data.has_missing_outcome
@@ -1195,87 +1255,16 @@ def test_the_natural_course_mean_matches_the_empirical_mean_exactly() -> None:
     assert result.psi("ey_obs") == pytest.approx(float(np.mean(outcome)), rel=0.0, abs=1e-12)
 
 
-@pytest.mark.parametrize(
-    ("estimand", "roadmap"),
-    [
-        (PopulationAttributableRisk(), "F20"),
-        (PopulationAttributableFraction(), "F20"),
-    ],
-    ids=["par", "paf"],
-)
-def test_a_genuinely_missing_outcome_still_refuses_the_attributable_interventions(
-    estimand: Any, roadmap: str
-) -> None:
-    frame, _ = make_linear_ate(n=120, seed=19)
-    frame = frame.copy()
-    frame["Delta"] = 1
-    frame.loc[frame.index[:20], "Delta"] = 0
-    frame.loc[frame.index[:20], "Y"] = np.nan
-    study = CausalStudy(
-        frame,
-        design=PointTreatment(
-            outcome="Y",
-            treatment="A",
-            adjustment=("W1", "W2", "W3", "W4"),
-            missingness="Delta",
-        ),
-    )
-    assert study.data.has_missing_outcome
-    with pytest.raises(CapabilityError, match=rf"score equation.*{roadmap}"):
-        study.identify(estimand)
-
-
-def test_one_refusal_sentence_and_one_exception_type_serve_all_three_call_sites() -> None:
-    """The identification, engine and target-context refusals are one implementation.
-
-    Three near-identical sentences, three copies of the estimand set and three exception
-    types -- ``ValueError``, ``NotImplementedError`` and ``CapabilityError`` -- had drifted
-    apart, and docs/architecture-invariants.md requires a method-configuration failure to
-    derive from ``CleverlyError``.
-    """
+def test_the_attributable_set_is_par_and_paf() -> None:
     assert frozenset({"par", "paf"}) == POPULATION_INTERVENTION_TARGETS
-    frame, _ = make_linear_ate(n=120, seed=19)
-    frame = frame.copy()
-    frame["Delta"] = 1
-    frame.loc[frame.index[:20], "Delta"] = 0
-    frame.loc[frame.index[:20], "Y"] = np.nan
-    study = CausalStudy(
-        frame,
-        design=PointTreatment(
-            outcome="Y",
-            treatment="A",
-            adjustment=("W1", "W2", "W3", "W4"),
-            missingness="Delta",
-        ),
-    )
-    with pytest.raises(CapabilityError) as identified:
-        study.identify(PopulationAttributableRisk())
-    with pytest.raises(CapabilityError) as fitted:
-        TMLE(estimands=("par",), **FAST_KWARGS, **IN_SAMPLE).fit(
-            frame,
-            outcome="Y",
-            treatment="A",
-            covariates=("W1", "W2", "W3", "W4"),
-            delta="Delta",
-        )
-    for raised in (identified, fitted):
-        assert isinstance(raised.value, CleverlyError)
-        assert "outcome/missingness score equation" in str(raised.value)
-        assert "docs/roadmap.md F20" in str(raised.value)
-    # The message is built once, so the shared clause is byte-identical at both sites.
-    shared = "under missingness at random the natural-course mean E[Y] needs an additional"
-    assert shared in str(identified.value)
-    assert shared in str(fitted.value)
 
 
 def test_the_sibling_intermediate_refusal_is_a_cleverly_error_too() -> None:
-    """The fourth site, three lines below the third, and the one type it did not share.
+    """A complete-outcome ``par`` beside ``intermediate=`` raises a library error.
 
-    ``ey_obs``, ``par`` and ``paf`` refuse ``delta=`` and ``intermediate=`` for two
-    different reasons, so the two sentences stay separate.  The exception hierarchy is not
-    a reason: docs/architecture-invariants.md says a caller never has to catch an
-    implementation-language exception beside a library one, and this refusal raised
-    ``NotImplementedError`` while its neighbour raised ``CapabilityError``.
+    docs/architecture-invariants.md says a caller never has to catch an
+    implementation-language exception beside a library one, and this refusal once raised
+    ``NotImplementedError``.
     """
     frame, _ = make_linear_ate(n=120, seed=21)
     frame = frame.assign(Z=(frame["W1"] > 0).astype(int))
@@ -1289,24 +1278,6 @@ def test_the_sibling_intermediate_refusal_is_a_cleverly_error_too() -> None:
         )
     assert isinstance(raised.value, CleverlyError)
     assert "do not yet support intermediate=" in str(raised.value)
-
-
-def test_the_target_context_refusal_is_a_cleverly_error_and_still_a_value_error() -> None:
-    """A fold dropping ``paf`` catches ``ValueError``; the hierarchy has to keep that."""
-    error = population_intervention_refusal(POPULATION_INTERVENTION_TARGETS, declaration="delta=")
-    assert isinstance(error, CleverlyError)
-    assert isinstance(error, ValueError)
-    assert isinstance(error, CapabilityError)
-    assert "par and paf do not yet support delta=" in str(error)
-
-
-def test_the_target_context_refusal_names_an_evidence_gap_not_an_identification_one() -> None:
-    """F20 waits for a derivation and its validation; it is not a proof of non-identification."""
-    message = str(
-        population_intervention_refusal(POPULATION_INTERVENTION_TARGETS, declaration="delta=")
-    )
-    assert "docs/roadmap.md F20 tracks this unvalidated composition." in message
-    assert "identification boundary" not in message
 
 
 # ------------------------------------------------------------------ no silent fall-through

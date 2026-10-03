@@ -386,7 +386,8 @@ previous reader had is not a citation; a page number is.
   [ordinary-TMLE contract](technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects).
   Zheng and van der Laan (2011) and Levy (2018) separately support the implemented stacked
   cross-fitted contract. None of these results covers population attributable risk or population
-  attributable fraction.
+  attributable fraction by itself. The attributable-effect implementation record below composes
+  them with the arm-mean parent.
 - Source audit of stacked CV-TMLE for arm-indexed means with missing outcomes (2026-09-14): it covers
   cross-fitted TMLE means `ψ_a = E_W E(Y | A = a, Delta = 1, W)` and their contrasts.
   The implemented
@@ -511,9 +512,10 @@ previous reader had is not a citation; a page number is.
   Therefore, `tmle3` is a complete-data reduction comparator rather than RM8 derivation evidence.
 - Missing-outcome attributable-effect source audit (2026-09-12): no reviewed paper presents the
   exact MAR PAR and PAF construction. [RM8](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm8-missing-outcome-attributable-effects)
-  records this bounded conclusion. [F20](roadmap.md#f20-missing-outcome-attributable-effects)
-  holds the work. The [natural-extension verdicts](technical-reference/natural-extension-verdicts.md)
-  record part (e), a stack of the two shipped parents, as a natural extension.
+  records this bounded conclusion. The
+  [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) record part (e),
+  a stack of the two shipped parents, as a natural extension. The implementation record that
+  follows states the construction the package ships.
 
   Díaz, Carone and van der Laan give the MAR natural-course parent, its remainder, and its rates.
   Hubbard and van der Laan give the complete-data reference parent and attributable transforms.
@@ -524,6 +526,30 @@ previous reader had is not a citation; a page number is.
   response process. The audit therefore cannot fix its joint curve, targeting equations,
   remainder, rate conditions, or covariance by citation. Package and comparator code do not remove
   that stop.
+- Missing-outcome attributable-effect implementation record (2026-10-03): the package ships PAR and
+  PAF under missingness at random as a fixed-dimension stack of two shipped parents. No paper
+  states the pair as one estimator. Each step is a standard step, so the extension needs no new
+  limit theorem.
+
+  | parent or step | source |
+  | --- | --- |
+  | natural-course mean $E\{m(A,W)\}$ | Díaz, Carone and van der Laan (2016), Section 2 and Equations (1)–(5), with their `W` set to the package's `(A, W)` |
+  | reference-arm mean $E\{m(a_0,W)\}$ | Díaz and van der Laan (2017), Section 2.1 and Equation (1); Gruber and van der Laan (2012), Section 2.3 |
+  | stacked cross-fitted forms of both | Zheng and van der Laan (2011); Levy (2018); the arm-indexed audit chain above |
+  | PAR and PAF transforms | Hubbard and van der Laan (2008), Equation (2) |
+  | joint normality, linearity, the delta method | both parents are asymptotically linear on the same rows |
+  | fixed weights and clusters | a fixed weight defines a tilted law; the cluster is the unit of the same curves |
+
+  Each parent keeps its own fluctuation. The stack needs only that each parent is asymptotically
+  linear, so separate targeting is valid, and each coordinate is the shipped estimator. The
+  union model is the intersection of the parents': a correct product $g\pi$ at the reference arm
+  with a wrong $\pi$ rescues the reference arm and not the natural course.
+  [PAR and PAF with missing outcomes](technical-reference/point-treatment-tmle.md#par-and-paf-with-missing-outcomes)
+  gives the contract, and the
+  [missing-outcome attributable-effect study](technical-reference/method-evidence/missing-outcome-attributable-effects-tmle.md)
+  records the evidence. The `tmle3` rejection above stands. The R `tmle` 2.1.1 comparator reports
+  no PAR, so the study composes it from the population-mean path, once for the natural course and
+  once per arm with the indicator $1\{A=a\}\Delta$.
 - van der Laan (2010), [*Targeted Maximum Likelihood Based Causal Inference: Part I*](https://doi.org/10.2202/1557-4679.1211),
   DOI 10.2202/1557-4679.1211, and [*Part II*](https://doi.org/10.2202/1557-4679.1241),
   DOI 10.2202/1557-4679.1241. These provide the general causal-effect and practical TMLE

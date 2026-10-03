@@ -327,6 +327,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_mar_arm_indexed_cvtmle import (
         STUDY as CANONICAL_MAR_ARM_INDEXED_CVTMLE,
     )
+    from tests.studies.canonical_mar_attributable import STUDY as CANONICAL_MAR_ATTRIBUTABLE
     from tests.studies.canonical_mar_drtmle import STUDY as CANONICAL_MAR_DRTMLE
     from tests.studies.canonical_mar_natural_course import (
         STUDY as CANONICAL_MAR_NATURAL_COURSE,
@@ -385,6 +386,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_MAR_NATURAL_COURSE,
         CANONICAL_MAR_NATURAL_COURSE_CVTMLE,
         CANONICAL_MAR_ARM_INDEXED_CVTMLE,
+        CANONICAL_MAR_ATTRIBUTABLE,
         CANONICAL_CDE_TMLE,
         CANONICAL_MAR_DRTMLE,
         CANONICAL_MULTI_ARM_MAR_DRTMLE,

@@ -74,6 +74,9 @@ from ..interventions.learned import LEARNED_RULE_SENSITIVITY_REFUSAL
 from ..targets.population_intervention import (
     NATURAL_COURSE_TILT_REFUSAL,
     is_natural_course_fit,
+    natural_course_names,
+    natural_course_tilt_refusal,
+    reads_natural_course_mean,
 )
 from ..utils.bounds import expit, logit
 from ._parameters import ArmParameter, reported_arm_parameters, stratum_refusal
@@ -196,6 +199,13 @@ def _refuse_untiltable_parameters(result: Any) -> str | None:
     """
     if reported_arm_parameters(result):
         return None
+    natural = natural_course_names(result.estimates) if reads_natural_course_mean(result) else []
+    if natural:
+        return (
+            "missingness_tilt re-mixes the arm-indexed means and their linear contrasts, "
+            f"and this fit reports none of them: {sorted(result.estimates)}. "
+            + natural_course_tilt_refusal(natural)
+        )
     return (
         "missingness_tilt re-mixes the arm-indexed means and their linear contrasts, "
         f"and this fit reports none of them: {sorted(result.estimates)}. A ratio, a "
@@ -320,8 +330,11 @@ def missingness_tilt(
     requested = tuple(estimands if estimands is not None else result.estimates)
     if estimands is not None:
         # Only an explicit request is refused. The default sweep skips whatever it cannot
-        # tilt -- a ratio, a stratum -- exactly as it always has, so asking for the whole
-        # report still returns the tiltable part of it.
+        # tilt -- a ratio, a stratum, a natural-course target -- exactly as it always has,
+        # so asking for the whole report still returns the tiltable part of it.
+        natural = natural_course_names(requested)
+        if natural and reads_natural_course_mean(result):
+            raise CapabilityError(natural_course_tilt_refusal(natural))
         for name in requested:
             conditional = stratum_refusal(result, name, "the MNAR tilt")
             if conditional is not None:

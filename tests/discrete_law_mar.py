@@ -189,6 +189,13 @@ def functional(probs: Any, estimand: str) -> Any:
         return psi_one
     if estimand == "ey0":
         return psi_zero
+    # The attributable estimands contrast the natural course with the reference arm 0,
+    # the law's lowest arm and the estimator's default reference.  Arithmetic only, so
+    # the complex step still differentiates them.
+    if estimand == "par":
+        return (p_wa * q).sum() - psi_zero
+    if estimand == "paf":
+        return 1.0 - psi_zero / (p_wa * q).sum()
     if estimand == "ate":
         return psi_one - psi_zero
     if estimand == "rr":
@@ -266,6 +273,8 @@ TRUTH = {
         "att",
         "atc",
         "ey_obs",
+        "par",
+        "paf",
         *PER_ARM_NAMES["ey_ipsi"],
         *PER_ARM_NAMES["ate_ipsi"],
     )

@@ -45,6 +45,23 @@ ARMS: dict[str, str] = {
     "static": "static plan",
     "dynamic": "dynamic plan",
     "ey_obs": "observed outcome mean under the natural course",
+    "par": "population attributable risk",
+    "paf": "population attributable fraction",
+    "attributable_binary": (
+        "L1: ey_obs, ey0, par and paf with MAR outcomes, in sample with the law's nuisances"
+    ),
+    "attributable_three_arm": (
+        "L3: ey_obs, the three arm means, par[low] and paf[low] with MAR outcomes, in sample"
+    ),
+    "attributable_binary_cvtmle": (
+        "L1: ey_obs, ey0, par and paf with MAR outcomes, stacked CV-TMLE with depth-five trees"
+    ),
+    "attributable_weighted": (
+        "L1 with fixed weights 0.6, 1.0 and 1.8 by W: ey_obs, ey0, par and paf, in sample"
+    ),
+    "attributable_clustered": (
+        "L1 rows in 100 clusters of 20 that share W: ey_obs, ey0, par and paf, in sample with id="
+    ),
     "third_arm": "third-arm static plan",
     "static_t1": "static plan at horizon one",
     "static_t2": "static plan at horizon two",
@@ -265,6 +282,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-mar-drtmle": "`cleverly` randomized missing-outcome DR-TMLE",
     "cleverly-composite-drtmle": "`cleverly` composite-indicator missing-data DR-TMLE",
     "cleverly-mar-natural-course-tmle": "`cleverly` missing-outcome natural-course TMLE",
+    "cleverly-mar-attributable-tmle": "`cleverly` missing-outcome attributable-effect TMLE",
     "cleverly-stacked-mar-natural-course-cvtmle": (
         "`cleverly` stacked missing-outcome natural-course CV-TMLE"
     ),
@@ -307,6 +325,10 @@ IMPLEMENTATIONS: dict[str, str] = {
     "tmle3-stratified": "R `tmle3` stratified TMLE, `tmle_stratified`",
     "tmle-r": "R `tmle`",
     "tmle-r-population-mean": "R `tmle` population-mean path",
+    "tmle-r-composed-attributable": (
+        "R `tmle` population-mean fits for the natural course and each arm, composed by the "
+        "delta method from R's own influence curves"
+    ),
     "tmle-r-stitched-arm-indexed": (
         "R `tmle` two-arm path, or its population-mean path once per arm"
     ),
@@ -389,6 +411,26 @@ SCENARIOS: dict[str, str] = {
     ),
     "continuous_mar_natural_course": (
         "bounded continuous-outcome observational natural-course law with MAR outcomes"
+    ),
+    "binary_mar_attributable": "L1: two-arm binary-outcome law with MAR outcomes, in sample",
+    "continuous_mar_attributable": (
+        "L1 tables with a bounded continuous Beta outcome and MAR outcomes, in sample"
+    ),
+    "three_arm_mar_attributable": (
+        "L3: three-arm binary-outcome law with MAR outcomes, in sample, reference arm low"
+    ),
+    "binary_mar_attributable_cvtmle": (
+        "L1: two-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five trees"
+    ),
+    "three_arm_mar_attributable_cvtmle": (
+        "L3: three-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five "
+        "trees, reference arm low"
+    ),
+    "binary_mar_attributable_weighted": (
+        "L1 with fixed analysis weights 0.6, 1.0 and 1.8 by level of W, in sample"
+    ),
+    "binary_mar_attributable_clustered": (
+        "L1 rows in 100 clusters of 20 that share W, in sample with id="
     ),
     "continuous_modified_policy": "continuous-dose law with uncapped and capped shifts",
     "continuous_selected_weighted_nuisances": (
@@ -914,6 +956,11 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "only the observation mechanism is wrong",
         "bias interval inside the equivalence margin",
     ),
+    ("mar_robustness", "product_only"): (
+        "the outcome regression and observation mechanism are wrong, and the product of the "
+        "treatment and observation mechanisms is correct at the reference arm",
+        "bias interval must fall entirely outside the margin",
+    ),
     ("mar_robustness", "outcome_and_response_wrong"): (
         "the outcome regression and the observation mechanism are both wrong",
         "bias interval must fall entirely outside the margin",
@@ -1236,6 +1283,35 @@ ARM_CELLS: dict[tuple[str, str, str], tuple[str, str]] = {
 }
 ARM_CELLS.update(
     {
+        ("interval_calibration", arm, "inflated_se_control"): (
+            "the cross-covariance of the two parent curves is dropped, so the standard error "
+            "adds the natural-course and reference-arm variances as if independent",
+            "the SE-ratio interval must fall above the calibration band",
+        )
+        for arm in ("par", "paf")
+    }
+)
+ARM_CELLS[("interval_calibration", "par", "correctly_specified")] = (
+    "the outcome regression, treatment mechanism and observation mechanism are correct",
+    "SE ratio and coverage intervals both inside their calibration bands",
+)
+ARM_CELLS[("interval_calibration", "paf", "correctly_specified")] = ARM_CELLS[
+    ("interval_calibration", "par", "correctly_specified")
+]
+ARM_CELLS[("missingness_necessity", "par", "declared")] = (
+    "the observation indicator is declared and every nuisance is correct",
+    "bias interval inside the equivalence margin",
+)
+ARM_CELLS[("targeting_necessity", "par", "targeted")] = (
+    "both fluctuations are solved; the outcome regression is wrong and both mechanisms are correct",
+    "bias interval inside the equivalence margin",
+)
+ARM_CELLS[("targeting_necessity", "par", "untargeted")] = (
+    "the identical wrong outcome regression is read without either fluctuation",
+    "bias interval must fall entirely outside the margin",
+)
+ARM_CELLS.update(
+    {
         ("corrected_mar_inference", arm, "both_wrong"): (
             "the outcome regression and observation mechanism are both misspecified",
             "bias interval must fall entirely outside the margin, and its distance from zero "
@@ -1329,6 +1405,8 @@ def estimand(key: str) -> str:
     name, argument = match.group("name"), match.group("argument")
     if name == "ey":
         return f"counterfactual mean under treatment arm {argument!r}"
+    if name in {"par", "paf"}:
+        return f"{ESTIMANDS[name]}, natural course versus reference arm {argument!r}"
     if name in {"ate", "rr", "or"}:
         contrast = argument.replace(" vs ", " versus ")
         if name == "ate":

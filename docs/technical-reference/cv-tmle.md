@@ -150,6 +150,19 @@ The registered
 records the repeated-sampling evidence. It also compares the pooled target against the R `tmle`
 2.1.1 population-mean path with the same stitched out-of-fold nuisance predictions.
 
+A stacked fit can report `ey_obs`, PAR or PAF beside the arm means and contrasts. It solves the
+natural-course fluctuation and the arm-mean fluctuation of this section and the next, on the same
+folds and the same stacked rows. It meets both contracts, so the outcome is binary and the request
+names no ATT or ATC. Every estimate of that fit declares the centered covariance rule, so a
+covariance, a contrast and the default band read one rule.
+
+The same `ey_obs` therefore reports a second-moment variance alone and a centered variance in a
+joint fit. The point and the curve are the same to the last bit. The two variances satisfy
+$v_{\mathrm{centered}}=v_{\mathrm{second}}\,n/(n-1)-\bar D^2/(n-1)$, so their standard errors
+differ by the factor $\sqrt{n/(n-1)}$ to targeting tolerance.
+`tests/unit/test_attributable_mar_stack.py::TestTheStackedCovarianceRule` checks the relation to a
+relative tolerance of $10^{-12}$.
+
 ### Missing-outcome arm-indexed means and contrasts
 
 Arm-indexed means and contrasts with missing outcomes support one stacked CV-TMLE configuration.

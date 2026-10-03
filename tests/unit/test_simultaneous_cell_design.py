@@ -35,12 +35,14 @@ from sklearn.linear_model import LogisticRegression
 from tests import discrete_law_competing as competing
 from tests import discrete_law_longitudinal as longitudinal
 from tests import discrete_law_survival as survival
+from tests.studies import canonical_mar_attributable as mar_attributable
 from tests.studies import (
     composite_drtmle_properties,
     default_band_properties,
     ltmle_competing_properties,
     ltmle_properties,
     ltmle_survival_properties,
+    mar_attributable_properties,
     multi_arm_mar_drtmle_properties,
     multi_arm_tmle_properties,
     stratified_law,
@@ -166,7 +168,67 @@ EXACT: dict[str, tuple[np.ndarray, int, tuple[float, float]]] = {
             ("composite_three_arm", composite_drtmle_properties.THREE_ARM, (0.8220, 2.508)),
         )
     },
+    # The missing-outcome attributable stack: ey_obs, the arm means, PAR and PAF, from the
+    # exact efficient influence covariance of each law (PAF on its identity scale).  The L1
+    # matrix has rank two.  The stacked cell has the in-sample cell's limit, so it reads the
+    # same correlation.  MAPPED below records the stacked three-arm shape.
+    "mar-attributable-tmle/attributable_binary": (
+        _from_covariance(mar_attributable.stack_covariance(mar_attributable.L1)),
+        mar_attributable_properties.BAND_REPLICATES,
+        (0.8849, 2.321),
+    ),
+    "mar-attributable-tmle/attributable_binary_cvtmle": (
+        _from_covariance(mar_attributable.stack_covariance(mar_attributable.L1)),
+        mar_attributable_properties.BAND_REPLICATES,
+        (0.8849, 2.321),
+    ),
+    "mar-attributable-tmle/attributable_three_arm": (
+        _from_covariance(mar_attributable.stack_covariance(mar_attributable.L3)),
+        mar_attributable_properties.BAND_REPLICATES,
+        (0.8148, 2.515),
+    ),
+    # Fixed weights by W: the tilted functional's curves, second moments under the sampling law.
+    "mar-attributable-tmle/attributable_weighted": (
+        _from_covariance(mar_attributable.weighted_covariance()),
+        mar_attributable_properties.BAND_REPLICATES,
+        (0.8829, 2.328),
+    ),
+    # 100 clusters of 20 rows that share W: the covariance of the cluster sums.
+    "mar-attributable-tmle/attributable_clustered": (
+        _from_covariance(mar_attributable.clustered_covariance()),
+        mar_attributable_properties.BAND_REPLICATES,
+        (0.8855, 2.319),
+    ),
 }
+
+#: Default-band shapes a study creates without a cell of their own, each with the measured
+#: cell that covers it and the reason.  The gate below requires every target to be measured.
+MAPPED: dict[str, tuple[str, str]] = {
+    "mar-attributable-tmle/stacked_three_arm": (
+        "mar-attributable-tmle/attributable_three_arm",
+        "the stacked three-arm fit has the in-sample three-arm limit, so it reads the L3 "
+        "design; its stacked construction and centered rule are measured by "
+        "mar-attributable-tmle/attributable_binary_cvtmle",
+    ),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(MAPPED))
+def test_each_mapped_shape_names_a_measured_cell(shape: str) -> None:
+    target, reason = MAPPED[shape]
+    assert target in EXACT, shape
+    assert reason
+    assert "mar-attributable-tmle/attributable_binary_cvtmle" in EXACT
+
+
+def test_the_stacked_three_arm_shape_has_the_in_sample_limit() -> None:
+    """The mapping's premise: the stacked estimator's limit is the in-sample one."""
+    np.testing.assert_allclose(
+        EXACT[MAPPED["mar-attributable-tmle/stacked_three_arm"][0]][0],
+        _from_covariance(mar_attributable.stack_covariance(mar_attributable.L3)),
+        rtol=0,
+        atol=1e-15,
+    )
 
 
 @pytest.mark.parametrize("cell", sorted(EXACT))

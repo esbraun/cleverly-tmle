@@ -133,11 +133,13 @@ from ..fluctuation.submodel import Submodel, TargetGroup, restrict, stitch
 from ..inference.bootstrap import Resampling, run_bootstrap
 from ..inference.cluster import cluster_inference_status, cross_validated_variance
 from ..inference.influence import (
+    ArmMean,
     CorrectionParts,
     ParameterEstimate,
     make_estimate,
     median_estimates,
     missing_outcome_correction_parts,
+    natural_course_mean,
     reduced_correction_parts,
     stamp_inference,
 )
@@ -183,7 +185,6 @@ from ..targets.base import stratum_alias
 from ..targets.population_intervention import (
     NATURAL_COURSE_TARGET,
     POPULATION_INTERVENTION_TARGETS,
-    population_intervention_refusal,
 )
 from ..utils.bounds import OutcomeScaler, g_bounds_for, resolve_g_bounds
 from ..utils.frames import is_dataframe
@@ -260,6 +261,40 @@ def _is_natural_course(data: CausalData, estimands: tuple[str, ...]) -> bool:
     return data.has_missing_outcome and tuple(estimands) == (NATURAL_COURSE_TARGET,)
 
 
+def _is_joint_natural_course(data: CausalData, estimands: tuple[str, ...]) -> bool:
+    """Whether this fit stacks the natural-course mean with arm-indexed targets.
+
+    The one place the joint composition is spelled. With missing outcomes, ``par`` and
+    ``paf`` read the natural-course mean beside a reference arm mean, and ``ey_obs``
+    beside any arm target is the same stack. The fit solves the shipped natural-course
+    fluctuation and the shipped ``mean`` fluctuation separately, from the same initial
+    fit, and reports every estimate from the ``mean`` context.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data, read for its observation mask.
+    estimands : tuple of str
+        The resolved estimand names.
+
+    Returns
+    -------
+    bool
+        True when the outcome is missing for some rows, the request reads the
+        natural-course mean, and it is not the scalar natural-course mean alone.
+    """
+    return (
+        data.has_missing_outcome
+        and bool({NATURAL_COURSE_TARGET, *POPULATION_INTERVENTION_TARGETS} & set(estimands))
+        and tuple(estimands) != (NATURAL_COURSE_TARGET,)
+    )
+
+
+def _reads_natural_course(data: CausalData, estimands: tuple[str, ...]) -> bool:
+    """Whether a missing-outcome fit reads the natural-course mean, alone or jointly."""
+    return _is_natural_course(data, estimands) or _is_joint_natural_course(data, estimands)
+
+
 def _is_arm_indexed_missing_crossfit(
     data: CausalData,
     estimands: tuple[str, ...],
@@ -271,7 +306,8 @@ def _is_arm_indexed_missing_crossfit(
 
     The surface of the arm-indexed stacked contract in ``point-treatment-tmle.md``. The
     shift, incremental, regime, MSM, and controlled-direct-effect fits are outside it,
-    and so is the natural-course mean, which has its own contract.
+    and so is the scalar natural-course mean, which has its own contract. A joint fit
+    that stacks the natural-course mean with arm targets is on both surfaces.
 
     Parameters
     ----------
@@ -289,7 +325,7 @@ def _is_arm_indexed_missing_crossfit(
     bool
         True when the outcome is missing for some rows, the nuisances are cross-fitted,
         the parameters are indexed by a discrete treatment's arms, no intermediate is
-        declared, and the natural-course mean is not requested.
+        declared, and the request is not the scalar natural-course mean.
     """
     return (
         data.has_missing_outcome
@@ -297,13 +333,17 @@ def _is_arm_indexed_missing_crossfit(
         and axis == "arm"
         and not data.has_intermediate
         and not data.is_continuous_treatment
-        and NATURAL_COURSE_TARGET not in estimands
+        and not _is_natural_course(data, estimands)
     )
 
 
 #: The arm-indexed estimands the stacked MAR contract admits, before the outcome family
 #: and arm count narrow them.
-_ARM_INDEXED_ADMITTED = frozenset({"ey", "ey0", "ey1", "ate", "rr", "or"})
+_ARM_INDEXED_ADMITTED = frozenset({"ey_obs", "par", "paf", "ey", "ey0", "ey1", "ate", "rr", "or"})
+
+#: The names that read the natural-course mean, which the stacked contract admits for a
+#: binary outcome only.
+_NATURAL_COURSE_NAMES = frozenset({NATURAL_COURSE_TARGET, *POPULATION_INTERVENTION_TARGETS})
 
 #: The first clause of every arm-indexed stacked contract refusal.
 _ARM_INDEXED_CONTRACT = (
@@ -1373,13 +1413,11 @@ class TMLE:
                 self.repeats, operation="simultaneous=True", reason=_REPEATED_BANDS_REASON
             )
         population_intervention = POPULATION_INTERVENTION_TARGETS.intersection(estimands)
-        # ``ey_obs`` shares ``par`` and ``paf``'s fate beside either declaration, but no
-        # longer their set: its missing-outcome score equation is implemented and theirs
-        # are not.  It has to rejoin them *here*, because ``estimands="all"`` asks for
-        # whatever the data supports rather than for a named list, and dropping a target
-        # the composition cannot express is what that request means.  Refusing instead
-        # would make ``estimands="all"`` fail on a design that worked before ``ey_obs``
-        # left the set.  An explicit list still refuses, below.
+        # ``estimands="all"`` drops ``ey_obs``, ``par`` and ``paf`` beside either
+        # declaration. With missing outcomes a joint natural-course fit is a named
+        # request: it adds a second fluctuation, so an ``all`` fit keeps the arm-only
+        # fluctuation set and its estimates bit for bit. Beside ``intermediate=`` the
+        # composition has no identified parameter, and an explicit list refuses below.
         droppable = population_intervention | ({NATURAL_COURSE_TARGET} & set(estimands))
         if (
             droppable
@@ -1388,22 +1426,13 @@ class TMLE:
         ):
             estimands = tuple(name for name in estimands if name not in droppable)
             population_intervention = frozenset()
-        if population_intervention and data.has_missing_outcome:
-            raise population_intervention_refusal(population_intervention, declaration="delta=")
-        # ``ey_obs`` left ``POPULATION_INTERVENTION_TARGETS`` when its missing-outcome
-        # score equation landed, and that set was the only thing refusing it beside a
-        # controlled mediator intervention.  The natural-course boundary below cannot
-        # cover this: it returns early on a complete outcome, which is exactly the case
-        # that slipped.  Without this line the fit runs, publishes the plain empirical
-        # mean of Y once per level of Z, and labels each copy a controlled direct
-        # effect -- a different estimand reported under a name it did not earn.
+        # The natural-course contract refuses ``intermediate=`` with missing outcomes, but
+        # it returns early on a complete outcome. Without this check a complete-outcome
+        # fit runs, publishes the plain empirical mean of Y once per level of Z, and
+        # labels each copy a controlled direct effect -- a different estimand reported
+        # under a name it did not earn.
         beside_intermediate = population_intervention | ({NATURAL_COURSE_TARGET} & set(estimands))
         if beside_intermediate and data.has_intermediate:
-            # A ``CleverlyError`` like the ``delta=`` refusal three lines above, and for
-            # the reason docs/architecture-invariants.md gives: a caller must not have to
-            # catch an implementation-language exception beside a library one for two
-            # refusals of the same shape. The reason differs, so the sentence is written
-            # here rather than built by ``population_intervention_refusal``.
             raise CapabilityError(
                 f"{sorted(beside_intermediate)} do not yet support intermediate=: "
                 "combining the natural course with a controlled mediator intervention "
@@ -1573,7 +1602,9 @@ class TMLE:
         if self.n_bootstrap:
             bootstrap = run_bootstrap(
                 data,
-                lambda replicate: self._bootstrap_point_estimates(replicate, intermediate_value),
+                lambda replicate: self._bootstrap_point_estimates(
+                    replicate, intermediate_value, estimands
+                ),
                 n_replicates=self.n_bootstrap,
                 resampling=self.bootstrap_resampling,
                 random_state=self.random_state,
@@ -1768,15 +1799,13 @@ class TMLE:
         Ordinary TMLE alone reaches this surface. :class:`~cleverly.DRTMLE` refuses the
         four axes at construction and ``intermediate=`` before its nuisances, and
         :class:`~cleverly.CTMLE` refuses every axis-indexed estimand and ``intermediate=``
-        before this method runs. A requested population-intervention target keeps its
-        F20 refusal. The natural-course mean is arm-axis only, and its contract refuses
-        ``intermediate=``, so it cannot reach the check below.
+        before this method runs. The natural-course mean, alone or beside arm targets, is
+        arm-axis only, and its contract refuses ``intermediate=``, so it cannot reach the
+        check below.
         """
         if not (self._assessment_method == "tmle" and self.cross_fit and data.has_missing_outcome):
             return
         if self._axis == "arm" and not data.has_intermediate:
-            return
-        if POPULATION_INTERVENTION_TARGETS.intersection(estimands):
             return
         parts = []
         if self._axis != "arm":
@@ -1848,15 +1877,14 @@ class TMLE:
     def _on_arm_indexed_stacked_surface(self, data: CausalData, estimands: tuple[str, ...]) -> bool:
         """Whether the arm-indexed stacked MAR contract governs this ordinary TMLE fit.
 
-        A requested population-intervention target keeps its own F20 refusal, which the
-        fit raises later with its own sentence. :class:`~cleverly.DRTMLE` raises its own
-        cross-fitted missing-outcome refusal.
+        A joint natural-course fit is on this surface and on the natural-course contract,
+        so it meets both contracts' refusals and preflights. :class:`~cleverly.DRTMLE`
+        raises its own cross-fitted missing-outcome refusal.
         """
         return (
             _is_arm_indexed_missing_crossfit(
                 data, estimands, cross_fit=self.cross_fit, axis=self._axis
             )
-            and not POPULATION_INTERVENTION_TARGETS.intersection(estimands)
             and self._assessment_method != "drtmle"
         )
 
@@ -1904,10 +1932,13 @@ class TMLE:
             )
         conditional = [name for name in estimands if name in ("att", "atc")]
         if conditional:
+            # The stacked natural course needs a binary outcome, so its names are offered
+            # only where its contract can run.
             admitted = [
                 name
                 for name in resolve_estimands("all", data.family, data.n_arms)
                 if name in _ARM_INDEXED_ADMITTED
+                and (data.family == "binomial" or name not in _NATURAL_COURSE_NAMES)
             ]
             refuse(
                 f"no audited result covers {conditional}. The default estimand list and "
@@ -1957,36 +1988,40 @@ class TMLE:
             )
 
     def _resolve_natural_course_contract(self, data: CausalData) -> tuple[str, ...]:
-        """Resolve targets and enforce the supported natural-course compositions."""
+        """Resolve targets and enforce the supported natural-course compositions.
+
+        One resolver covers the scalar natural-course mean and the joint fit that stacks it
+        with arm targets (``par``, ``paf``, or ``ey_obs`` beside arm means and contrasts).
+        Both use the shipped natural-course fluctuation, so both meet the same refusals.
+        """
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
         if not data.has_missing_outcome:
             return estimands
         if self.estimands == "all":
-            # The default remains the set of jointly targetable parameters.  This is a
-            # deliberately scalar construction, while PAR/PAF remain tracked by F20.
+            # A joint natural-course fit is a named request, so an ``all`` fit keeps the
+            # shipped arm-only fluctuation set and its bit-identical estimates.
             return tuple(
                 name
                 for name in estimands
                 if name != NATURAL_COURSE_TARGET and name not in POPULATION_INTERVENTION_TARGETS
             )
-        if NATURAL_COURSE_TARGET not in estimands:
+        if not _reads_natural_course(data, estimands):
             return estimands
 
         def refuse(reason: str) -> None:
             raise CapabilityError(
-                "NaturalCourseMean with missing outcomes currently supports one scalar "
-                f"TMLE under its audited implementation contracts; {reason}"
+                "NaturalCourseMean, PAR and PAF with missing outcomes currently support "
+                f"ordinary TMLE under their audited implementation contracts; {reason}"
             )
 
-        if len(estimands) != 1:
-            refuse("request ey_obs by itself; joint targeting is not implemented")
         if self._assessment_method != "tmle":
-            refuse(
+            reason = (
                 "use ordinary TMLE; collaborative and doubly robust estimator variants "
                 "need separate targeting and inference results"
             )
-        if not data.is_binary_treatment:
-            refuse("the treatment must have exactly two arms")
+            if self._assessment_method == "drtmle" and not getattr(self, "guard", True):
+                reason += ". guard=() is the ordinary TMLE; use TMLE"
+            refuse(reason)
         if self.repeats != 1:
             refuse("set repeats=1")
         if self.cross_fit and self.targeting_scheme != "pooled":
@@ -2004,13 +2039,25 @@ class TMLE:
         if self.target_weights:
             refuse("set target_weights=False")
         if self.n_bootstrap:
-            refuse("set n_bootstrap=0; bootstrap inference is not implemented")
-        if data.is_weighted:
-            refuse("observation weights are not implemented")
-        if data.cluster is not None:
-            refuse("clustered inference is not implemented")
+            refuse(
+                "set n_bootstrap=0; no audited bootstrap result covers this fit "
+                "(F2 in docs/roadmap.md)"
+            )
+        if self.cross_fit and (data.weights_name is not None or data.is_weighted):
+            refuse(
+                "the stacked contract covers unweighted iid rows. Drop weights= from fit, "
+                "or fit in sample"
+            )
+        if self.cross_fit and data.cluster is not None:
+            refuse(
+                "the stacked contract covers unweighted iid rows. Drop id= from fit, "
+                "or fit in sample"
+            )
         if data.has_strata:
-            refuse("baseline strata are not implemented")
+            refuse(
+                "baseline strata need a stratum-indexed natural-course fluctuation "
+                "(X8 in docs/roadmap.md)"
+            )
         if data.has_intermediate:
             refuse("intermediate= is not implemented")
         if data.family != "binomial":
@@ -2466,8 +2513,15 @@ class TMLE:
         estimands: tuple[str, ...],
         folds: Sequence[Folds],
     ) -> None:
-        """Check natural-course response and outcome support before nuisance fitting."""
-        if not _is_natural_course(data, estimands) or any(draw.is_single for draw in folds):
+        """Check natural-course response and outcome support before nuisance fitting.
+
+        The scalar mean and the joint fit both run it. A joint fit also runs the
+        arm-indexed preflight, which asks the arm questions. A scalar fit with three or
+        more arms asks the per-arm respondent question here: the outcome regression reads
+        the realised arm, and a complement without respondents in one arm extrapolates
+        that arm's held-out predictions. A two-arm scalar fit keeps the shipped checks.
+        """
+        if not _reads_natural_course(data, estimands) or any(draw.is_single for draw in folds):
             return
         observed = np.asarray(data.observed, dtype=bool)
         n_response = int(np.count_nonzero(observed))
@@ -2475,7 +2529,8 @@ class TMLE:
             kind = "respondent" if n_response < 2 else "nonrespondent"
             count = n_response if n_response < 2 else observed.size - n_response
             raise DataError(
-                "cross-fitted NaturalCourseMean needs at least two of each response kind, "
+                "cross-fitted NaturalCourseMean, PAR or PAF needs at least two of each "
+                "response kind, "
                 f"and the sample has {count} {kind}(s). Every partition leaves some training "
                 "complement without one, so no fold count or random_state can fit the "
                 f"response and outcome nuisances; {_IN_SAMPLE_NATURAL_COURSE_REMEDY}"
@@ -2486,17 +2541,33 @@ class TMLE:
                 count = int(np.count_nonzero(observed & (outcome == value)))
                 if count < 2:
                     raise DataError(
-                        "cross-fitted NaturalCourseMean needs at least two respondents "
+                        "cross-fitted NaturalCourseMean, PAR or PAF needs at least two respondents "
                         f"with each outcome, and the sample has {count} respondent(s) "
                         f"with outcome {value:g}. Every partition leaves some training "
                         "complement without that outcome, so no fold count or random_state "
                         f"can fit the outcome regression; {_IN_SAMPLE_NATURAL_COURSE_REMEDY}"
                     )
+        per_arm = _is_natural_course(data, estimands) and data.n_arms >= 3
+        treatment = np.asarray(data.treatment, dtype=float)
+        arms = np.asarray(data.arm_codes, dtype=float)
+        if per_arm:
+            for arm in arms:
+                count = int(np.count_nonzero(observed & (treatment == arm)))
+                if count < 2:
+                    raise DataError(
+                        "cross-fitted NaturalCourseMean with three or more arms needs at "
+                        "least two respondents in each arm, and the sample has "
+                        f"{count} respondent(s) in arm {data.arm_label(arm)}. Every "
+                        "partition leaves some training complement without one, so no fold "
+                        "count or random_state can fit the outcome regression; "
+                        f"{_IN_SAMPLE_NATURAL_COURSE_REMEDY}"
+                    )
         sample_gap = self._super_learner_sample_shortfall(data, fits_treatment=False)
         if sample_gap is not None:
             role, described, count = sample_gap
             raise DataError(
-                f"cross-fitted NaturalCourseMean cannot fit the {role} learner: the sample "
+                "cross-fitted NaturalCourseMean, PAR or PAF cannot fit the "
+                f"{role} learner: the sample "
                 f"holds {count} {described}. "
                 f"{_SUPER_LEARNER_INNER_SPLIT_RULE.format(role=role)} Collect more "
                 "observations or use a learner without that inner split."
@@ -2506,16 +2577,21 @@ class TMLE:
         ]
         if data.family == "binomial":
             support.append(("outcome", np.where(observed, outcome, -1.0), np.array([0.0, 1.0])))
+        if per_arm:
+            support.append(("responding arm", np.where(observed, treatment, -1.0), arms))
         for repeat, draw in enumerate(folds):
             gap = missing_training_support(draw, support)
             if gap is not None:
                 fold, name, missing = gap
                 if name == "response":
                     described = "respondent" if bool(missing[0]) else "nonrespondent"
+                elif name == "responding arm":
+                    described = f"respondent in arm {data.arm_label(float(missing[0]))}"
                 else:
                     described = f"respondent with outcome {float(missing[0]):g}"
                 raise DataError(
-                    "cross-fitted NaturalCourseMean cannot fit its response and outcome "
+                    "cross-fitted NaturalCourseMean, PAR or PAF cannot fit its response "
+                    "and outcome "
                     f"nuisances because repeat {repeat}, fold {fold}'s training complement "
                     f"contains no {described}. "
                     + _POST_DRAW_REMEDY.format(remedy=_IN_SAMPLE_NATURAL_COURSE_REMEDY)
@@ -2524,7 +2600,7 @@ class TMLE:
         if complement_gap is not None:
             role, repeat, fold, described, count = complement_gap
             raise DataError(
-                "cross-fitted NaturalCourseMean cannot fit the "
+                "cross-fitted NaturalCourseMean, PAR or PAF cannot fit the "
                 f"{role} learner because repeat {repeat}, fold {fold}'s training "
                 f"complement holds {count} {described}. "
                 f"{_SUPER_LEARNER_INNER_SPLIT_RULE.format(role=role)} "
@@ -3204,9 +3280,17 @@ class TMLE:
             [] if nuisance.folds.is_single else [test for _, test in nuisance.folds]
         )
 
-        groups = (
-            ["natural_course"] if _is_natural_course(data, requested) else self._groups(requested)
+        joint = _is_joint_natural_course(data, requested)
+        groups: list[TargetGroup] = (
+            ["natural_course"]
+            if _is_natural_course(data, requested)
+            else ["natural_course", *self._groups(requested)]
+            if joint
+            else self._groups(requested)
         )
+        # The joint route solves the natural-course fluctuation first and holds its mean
+        # for the ``mean`` context, which reports every estimate of the fit.
+        natural_course: ArmMean | None = None
         for group in groups:
             bounds = g_bounds_for(group, mean_bounds, conditional_bounds)
             # A group whose parameter is defined *through* the mechanism has a second
@@ -3286,8 +3370,28 @@ class TMLE:
                 _, fluctuation = self._solve(data, nuisance, targeting_submodel)
             fluctuations[group] = fluctuation
 
+            if joint and group == "natural_course":
+                # No target is built from this context: ``_estimates_for`` maps the group
+                # to ``mean``, so building here would emit a second copy of every
+                # mean-group target, and dict order would decide which one survives.
+                natural_course = natural_course_mean(
+                    nuisance.scaler.scale(data.outcome),
+                    fluctuation.targeted,
+                    submodel,
+                    data.weights,
+                    data.observed,
+                )
+                continue
             pooled = self._estimates_for(
-                data, targeted, group, submodel, fluctuation, requested, level, reference
+                data,
+                targeted,
+                group,
+                submodel,
+                fluctuation,
+                requested,
+                level,
+                reference,
+                natural_course=natural_course if group == "mean" else None,
             )
             pooled_report.update(pooled)
             if data.has_strata:
@@ -4028,6 +4132,7 @@ class TMLE:
         reference: float,
         index: IntArray | None = None,
         drop_undefined: bool = False,
+        natural_course: ArmMean | None = None,
     ) -> dict[str, ParameterEstimate]:
         """Build every estimand that this fluctuation supports.
 
@@ -4037,7 +4142,13 @@ class TMLE:
         exactly what a standalone fit on those rows would produce -- the package's
         convention is mean-one weights, and a fold's slice of a globally normalised
         vector does not satisfy it.
+
+        ``natural_course`` is the joint route's natural-course mean, solved by its own
+        fluctuation. The joint route admits no strata and no fold evaluation, so it is
+        never sliced.
         """
+        if natural_course is not None and index is not None:
+            raise RuntimeError("a joint natural-course fit is never evaluated on a fold slice")
         scaler = nuisance.scaler
         scaled = scaler.scale(data.outcome)
         targeted = fluctuation.targeted
@@ -4113,6 +4224,7 @@ class TMLE:
             covariance_rule=(
                 "second_moment" if group == "natural_course" and self.cross_fit else "centered"
             ),
+            natural_course=natural_course,
         )
         # One context per fluctuation, shared by every target in the group: the
         # mean-group estimands are different functionals of the same targeted
@@ -4201,7 +4313,10 @@ class TMLE:
         return out
 
     def _bootstrap_point_estimates(
-        self, data: CausalData, intermediate_value: float | None
+        self,
+        data: CausalData,
+        intermediate_value: float | None,
+        estimands: tuple[str, ...],
     ) -> Mapping[str, float]:
         """One bootstrap replicate: a full refit, point estimates only.
 
@@ -4217,8 +4332,13 @@ class TMLE:
         draw instead would attribute variability to the report that it does not
         have.  It costs ``B * R`` fits, which is the honest price of the two settings
         together.
+
+        ``estimands`` is the point fit's resolved tuple.  Resolving ``self.estimands``
+        again on a replicate would undo what the point fit's preflight dropped: an
+        ``estimands="all"`` fit with ``delta=`` or ``intermediate=`` drops ``ey_obs``,
+        ``par`` and ``paf``, and a replicate that asked for them again failed, or
+        published draws for names the fit never reported.
         """
-        estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
         scaler = self._scaler(data)
         draws = self._repeat_draws(data, estimands)
         fold_draws = [folds for folds, _ in draws]

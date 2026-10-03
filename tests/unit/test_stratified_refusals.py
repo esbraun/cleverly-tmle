@@ -59,7 +59,8 @@ def test_the_natural_course_contract_refuses_strata(cross_fit: bool) -> None:
     with pytest.raises(CapabilityError) as caught:
         _fit(cross_fit=cross_fit, estimands=("ey_obs",))
     assert str(caught.value) == (
-        "NaturalCourseMean with missing outcomes currently supports one scalar TMLE under its "
-        "audited implementation contracts; baseline strata are not implemented"
+        "NaturalCourseMean, PAR and PAF with missing outcomes currently support ordinary TMLE "
+        "under their audited implementation contracts; baseline strata need a "
+        "stratum-indexed natural-course fluctuation (X8 in docs/roadmap.md)"
     )
     assert NeverFit.calls == 0

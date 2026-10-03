@@ -1,4 +1,4 @@
-"""Composition guards for complete-data population-intervention targets."""
+"""Estimand resolution for the natural-course mean, PAR and PAF with missing outcomes."""
 
 from __future__ import annotations
 
@@ -41,8 +41,13 @@ def test_an_explicit_observed_mean_target_uses_its_missing_outcome_score() -> No
 
 
 def test_all_means_all_targets_supported_by_the_data_composition() -> None:
-    # In sample: the cross-fitted MAR contract refuses the att and atc that "all"
-    # includes, which the next test pins.
+    """``"all"`` keeps the arm-only fluctuation set with missing outcomes.
+
+    A joint natural-course fit is a named request, because it adds a second fluctuation.
+    An ``all`` fit therefore drops ``ey_obs``, ``par`` and ``paf`` and keeps its estimates
+    bit for bit. In sample, because the cross-fitted MAR contract refuses the ``att`` and
+    ``atc`` that ``"all"`` includes, which the next test pins.
+    """
     result = (
         fast_tmle(estimands="all", cross_fit=False)
         .fit(
@@ -59,10 +64,11 @@ def test_all_means_all_targets_supported_by_the_data_composition() -> None:
 
 
 def test_a_cross_fitted_all_request_names_the_admitted_estimands() -> None:
-    """``"all"`` drops the population-intervention targets and keeps att and atc.
+    """``"all"`` drops ``ey_obs``, ``par`` and ``paf`` and keeps att and atc.
 
-    The cross-fitted MAR contract refuses those two by name before any learner fits,
-    and it lists what the request can have instead. It drops nothing silently.
+    The cross-fitted MAR contract refuses those two by name before any learner fits, and
+    it lists what a named request can have instead, including the joint natural-course
+    targets. It drops nothing silently.
     """
     learners = never_fit_learners()
     estimator = fast_tmle(estimands="all", stratify_folds="none", **learners)
@@ -73,5 +79,51 @@ def test_a_cross_fitted_all_request_names_the_admitted_estimands() -> None:
         )
     message = str(caught.value)
     assert "no audited result covers ['att', 'atc']" in message
-    assert "Request estimands from ['ate', 'ey', 'ey1', 'ey0', 'rr', 'or']" in message
+    assert (
+        "Request estimands from ['ate', 'ey', 'ey1', 'ey0', 'ey_obs', 'par', 'paf', 'rr', 'or']"
+        in message
+    )
     assert NeverFit.calls == 0
+
+
+def test_a_cross_fitted_joint_request_with_att_names_the_admitted_estimands() -> None:
+    """A named joint request meets the arm-indexed contract's att refusal too."""
+    learners = never_fit_learners()
+    estimator = fast_tmle(estimands=("par", "att"), stratify_folds="none", **learners)
+
+    with pytest.raises(CapabilityError) as caught:
+        estimator.fit(
+            _missing_frame(), outcome="Y", treatment="A", covariates=("W",), delta="Delta"
+        )
+    message = str(caught.value)
+    assert "no audited result covers ['att']" in message
+    assert "'ey_obs', 'par', 'paf'" in message
+    assert NeverFit.calls == 0
+
+
+def test_a_stacked_continuous_att_refusal_offers_no_natural_course_name() -> None:
+    """The stacked natural course needs a binary outcome, so its names are not offered."""
+    frame = _missing_frame()
+    frame["Y"] = frame["Y"] * 0.5 + 0.25
+    learners = never_fit_learners()
+    estimator = fast_tmle(
+        estimands=("ate", "att"), stratify_folds="none", q_bounds=(0.0, 1.0), **learners
+    )
+    with pytest.raises(CapabilityError) as caught:
+        estimator.fit(frame, outcome="Y", treatment="A", covariates=("W",), delta="Delta")
+    message = str(caught.value)
+    assert "Request estimands from ['ate', 'ey', 'ey1', 'ey0']" in message
+    assert "ey_obs" not in message
+    assert NeverFit.calls == 0
+
+
+@pytest.mark.parametrize("cross_fit", [False, True], ids=["in-sample", "stacked"])
+def test_a_named_par_request_with_missing_outcomes_fits(cross_fit: bool) -> None:
+    result = (
+        fast_tmle(estimands=("par", "paf"), cross_fit=cross_fit, stratify_folds="none")
+        .fit(_missing_frame(), outcome="Y", treatment="A", covariates=("W",), delta="Delta")
+        .single()
+    )
+    assert set(result.estimates) == {"par", "paf"}
+    assert tuple(result.fluctuations) == ("natural_course", "mean")
+    assert {estimate.covariance_rule for estimate in result.estimates.values()} == {"centered"}

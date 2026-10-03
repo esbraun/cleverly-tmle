@@ -10,7 +10,7 @@ results.
 
 Every refusal here must run before any learner, which :class:`NeverFit` enforces. The
 controls show what the refusal leaves alone: the in-sample fit of each target, the
-arm-indexed contract, and the F20 refusal of the population-intervention targets. A
+arm-indexed contract, and the natural-course contract's own refusals of PAR and PAF. A
 deliberate-mutation control removes the refusal and requires the witness to fail.
 """
 
@@ -243,25 +243,30 @@ class TestTheNeighbouringRefusalsKeepTheirOwnSentences:
         lower, upper = result.estimates["ate"].ci
         assert lower < result.psi("ate") < upper
 
-    def test_par_keeps_its_f20_refusal(self) -> None:
-        estimator = ARM_INDEXED.estimator(True, never_fit_learners(), estimands=["par"])
+    def test_a_cross_fitted_par_meets_the_arm_indexed_contract(self) -> None:
+        """A joint natural-course fit is on the arm-indexed surface, so its rules apply."""
+        estimator = ARM_INDEXED.estimator(
+            True, never_fit_learners(), estimands=["par"], cv_evaluation=True
+        )
         with pytest.raises(CapabilityError) as raised:
             ARM_INDEXED.fit(estimator)
         message = str(raised.value)
-        assert message.startswith("par does not yet support delta="), message
+        assert message.startswith("NaturalCourseMean, PAR and PAF"), message
+        assert "cv_evaluation=False" in message
         assert NeverFit.calls == 0
 
-    def test_par_beside_an_intermediate_keeps_its_f20_refusal(self) -> None:
-        """Beside an intermediate, only the F20 guard keeps this sentence.
+    def test_par_beside_an_intermediate_meets_the_natural_course_contract(self) -> None:
+        """Beside an intermediate, the natural-course contract refuses before this one.
 
-        Without that guard the fit would name F21 and offer the in-sample remedy, which
-        is false for ``par``: it is refused at every setting. The preflight now raises
-        F20 before the intermediate path fits its shared nuisances. This control supplies
-        real learners, but the refusal does not reach them.
+        Without that contract the fit would name F21 and offer the in-sample remedy, which
+        is false for ``par``: it is refused beside ``intermediate=`` at every setting. The
+        preflight raises before the intermediate path fits its shared nuisances. This
+        control supplies real learners, but the refusal does not reach them.
         """
         cde = COMPOSITIONS["cde"]
         with pytest.raises(CapabilityError) as raised:
             cde.fit(cde.estimator(True, learners(), estimands=["par"]))
         message = str(raised.value)
-        assert message.startswith("par does not yet support delta="), message
+        assert message.startswith("NaturalCourseMean, PAR and PAF"), message
+        assert message.endswith("intermediate= is not implemented"), message
         assert "F21" not in message

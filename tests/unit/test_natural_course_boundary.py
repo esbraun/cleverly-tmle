@@ -1,4 +1,9 @@
-"""The deliberately narrow first implementation boundary for missing ``ey_obs``."""
+"""The implementation boundary for ``ey_obs``, PAR and PAF with missing outcomes.
+
+The scalar natural-course mean and the joint fit that stacks it with arm targets share
+one resolver, so every refusal here runs for both.  ``REQUESTS`` holds the scalar request
+and two joint ones.
+"""
 
 from __future__ import annotations
 
@@ -75,21 +80,41 @@ def _fit(frame: pd.DataFrame, **estimator_overrides: Any) -> Any:
     )
 
 
+#: The scalar natural-course request and two joint requests. Every refusal below runs for
+#: each, because one resolver spells all three.
+REQUESTS = [
+    pytest.param(("ey_obs",), id="ey_obs"),
+    pytest.param(("par",), id="par"),
+    pytest.param(("ey_obs", "ey0", "paf"), id="joint"),
+]
+
+#: The subject every natural-course contract refusal opens with.
+SUBJECT = (
+    "NaturalCourseMean, PAR and PAF with missing outcomes currently support ordinary TMLE "
+    "under their audited implementation contracts; "
+)
+
+
+@pytest.mark.parametrize("estimands", REQUESTS)
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"fluctuation": "linear"}, "fluctuation='logistic'"),
-        ({"targeting": "one_step"}, "targeting='iterative'"),
-        ({"target_weights": True}, "target_weights=False"),
-        ({"n_bootstrap": 2}, "n_bootstrap=0"),
-        ({"estimands": ("ey_obs", "ate")}, "joint targeting"),
+        ({"fluctuation": "linear"}, "set fluctuation='logistic'"),
+        ({"targeting": "one_step"}, "set targeting='iterative'"),
+        ({"target_weights": True}, "set target_weights=False"),
+        (
+            {"n_bootstrap": 2},
+            "set n_bootstrap=0; no audited bootstrap result covers this fit "
+            "(F2 in docs/roadmap.md)",
+        ),
     ],
 )
 def test_unsupported_method_settings_refuse_before_fitting(
-    overrides: dict[str, Any], message: str
+    estimands: tuple[str, ...], overrides: dict[str, Any], message: str
 ) -> None:
-    with pytest.raises(CapabilityError, match=message):
-        _fit(_frame(), **never_fit_learners(), **overrides)
+    with pytest.raises(CapabilityError) as caught:
+        _fit(_frame(), **never_fit_learners(), **{"estimands": estimands, **overrides})
+    assert str(caught.value) == SUBJECT + message
     assert NeverFit.calls == 0
 
 
@@ -113,30 +138,43 @@ def test_repeated_splits_refuse_at_the_existing_method_boundary() -> None:
         _fit(_frame(), repeats=2)
 
 
+#: The estimator-variant refusal, after the subject.
+VARIANT_REASON = (
+    "use ordinary TMLE; collaborative and doubly robust estimator variants need separate "
+    "targeting and inference results"
+)
+
+
+@pytest.mark.parametrize("estimands", REQUESTS)
 @pytest.mark.parametrize(
-    "build",
+    ("build", "tail"),
     [
         pytest.param(
-            lambda: CTMLE(
-                strategy="oat", estimands=("ey_obs",), cross_fit=False, **never_fit_learners()
+            lambda estimands: CTMLE(
+                strategy="oat", estimands=estimands, cross_fit=False, **never_fit_learners()
             ),
+            "",
             id="ctmle",
         ),
         pytest.param(
-            lambda: DRTMLE(estimands=("ey_obs",), cross_fit=False, **never_fit_learners()),
+            lambda estimands: DRTMLE(estimands=estimands, cross_fit=False, **never_fit_learners()),
+            "",
             id="drtmle-guarded",
         ),
         pytest.param(
-            lambda: DRTMLE(
-                estimands=("ey_obs",), guard=(), cross_fit=False, **never_fit_learners()
+            lambda estimands: DRTMLE(
+                estimands=estimands, guard=(), cross_fit=False, **never_fit_learners()
             ),
+            ". guard=() is the ordinary TMLE; use TMLE",
             id="drtmle-unguarded",
         ),
     ],
 )
-def test_estimator_variants_refuse_before_nuisance_fitting(build: Any) -> None:
-    estimator = build()
-    with pytest.raises(CapabilityError, match="use ordinary TMLE"):
+def test_estimator_variants_refuse_before_nuisance_fitting(
+    estimands: tuple[str, ...], build: Any, tail: str
+) -> None:
+    estimator = build(estimands)
+    with pytest.raises(CapabilityError) as caught:
         estimator.fit(
             _frame(),
             outcome="Y",
@@ -144,6 +182,7 @@ def test_estimator_variants_refuse_before_nuisance_fitting(build: Any) -> None:
             covariates=("W",),
             delta="Delta",
         )
+    assert str(caught.value) == SUBJECT + VARIANT_REASON + tail
     assert NeverFit.calls == 0
 
 
@@ -156,23 +195,26 @@ ESTIMATORS = [
 ]
 
 
+@pytest.mark.parametrize("estimands", REQUESTS)
 @pytest.mark.parametrize("build", ESTIMATORS)
 @pytest.mark.parametrize(
     ("fit_roles", "message"),
     [
-        ({"weights": "weight"}, "observation weights"),
-        ({"id": "id"}, "clustered inference"),
-        ({"strata": ("stratum",)}, "baseline strata"),
-        ({"intermediate": "Z"}, "intermediate="),
+        (
+            {"strata": ("stratum",)},
+            "baseline strata need a stratum-indexed natural-course fluctuation "
+            "(X8 in docs/roadmap.md)",
+        ),
+        ({"intermediate": "Z"}, "intermediate= is not implemented"),
     ],
-    ids=("weighted", "clustered", "strata", "intermediate"),
+    ids=("strata", "intermediate"),
 )
 def test_unsupported_data_compositions_refuse_before_fitting(
-    build: Any, fit_roles: dict[str, Any], message: str
+    estimands: tuple[str, ...], build: Any, fit_roles: dict[str, Any], message: str
 ) -> None:
-    estimator = build(**never_fit_learners())
+    estimator = build(**never_fit_learners(), estimands=estimands)
     covariates = ("W", "stratum") if "strata" in fit_roles else ("W",)
-    with pytest.raises(CapabilityError, match=message):
+    with pytest.raises(CapabilityError) as caught:
         estimator.fit(
             _frame(),
             outcome="Y",
@@ -181,17 +223,83 @@ def test_unsupported_data_compositions_refuse_before_fitting(
             delta="Delta",
             **fit_roles,
         )
+    assert str(caught.value) == SUBJECT + message
     assert NeverFit.calls == 0
 
 
-@pytest.mark.parametrize("build", ESTIMATORS)
-def test_multi_arm_treatment_refuses_before_fitting(build: Any) -> None:
-    estimator = build(**never_fit_learners())
-    with pytest.raises(CapabilityError, match="exactly two arms"):
+@pytest.mark.parametrize("estimands", REQUESTS)
+@pytest.mark.parametrize(
+    ("fit_roles", "message"),
+    [
+        (
+            {"weights": "weight"},
+            "the stacked contract covers unweighted iid rows. Drop weights= from fit, "
+            "or fit in sample",
+        ),
+        (
+            {"id": "id"},
+            "the stacked contract covers unweighted iid rows. Drop id= from fit, or fit in sample",
+        ),
+    ],
+    ids=("weighted", "clustered"),
+)
+def test_stacked_weights_and_clusters_refuse_before_fitting(
+    estimands: tuple[str, ...], fit_roles: dict[str, Any], message: str
+) -> None:
+    estimator = stacked_tmle(**never_fit_learners(), estimands=estimands)
+    with pytest.raises(CapabilityError) as caught:
         estimator.fit(
-            _frame(multi_arm=True), outcome="Y", treatment="A", covariates=("W",), delta="Delta"
+            _frame(), outcome="Y", treatment="A", covariates=("W",), delta="Delta", **fit_roles
         )
+    assert str(caught.value) == SUBJECT + message
     assert NeverFit.calls == 0
+
+
+@pytest.mark.parametrize("estimands", REQUESTS)
+@pytest.mark.parametrize(
+    "fit_roles", [{"weights": "weight"}, {"id": "id"}], ids=("weighted", "clustered")
+)
+def test_in_sample_weights_and_clusters_are_admitted(
+    estimands: tuple[str, ...], fit_roles: dict[str, Any]
+) -> None:
+    """A fixed weight defines a tilted law, and a cluster is the unit of the same curve."""
+    frame = _frame()
+    result = (
+        in_sample_tmle(estimands=estimands)
+        .fit(frame, outcome="Y", treatment="A", covariates=("W",), delta="Delta", **fit_roles)
+        .single()
+    )
+    for name in estimands:
+        assert np.isfinite(result.psi(name))
+        assert np.isfinite(result[name].std_error)
+
+
+@pytest.mark.parametrize(
+    "estimands",
+    [
+        pytest.param(("ey_obs",), id="ey_obs"),
+        pytest.param(("par",), id="par"),
+        pytest.param(("ey_obs", "ey", "paf"), id="joint"),
+    ],
+)
+@pytest.mark.parametrize("cross_fit", [False, True], ids=("in-sample", "stacked"))
+def test_a_multi_arm_treatment_is_admitted(estimands: tuple[str, ...], cross_fit: bool) -> None:
+    """The natural-course covariate is (A, W), so A may have three arms (decision D3)."""
+    result = (
+        fast_tmle(
+            estimands=estimands,
+            cross_fit=cross_fit,
+            n_folds=2,
+            stratify_folds="none",
+            reference=0,
+        )
+        .fit(_frame(multi_arm=True), outcome="Y", treatment="A", covariates=("W",), delta="Delta")
+        .single()
+    )
+    for estimate in result.estimates.values():
+        assert np.isfinite(estimate.psi)
+    if "par" in estimands:
+        assert "par[0.0]" in result.estimates
 
 
 @pytest.mark.parametrize(

@@ -55,7 +55,6 @@ from .targets.builtin import (
 )
 from .targets.population_intervention import (
     POPULATION_INTERVENTION_TARGETS,
-    population_intervention_refusal,
 )
 from .utils.frames import as_frame
 
@@ -1530,9 +1529,15 @@ class BackdoorMeanContrast:
                 )
             if self.target in {"par", "paf"}:
                 counterfactual = marginal_mean(repr(reference))
+                observed = (
+                    f"E_{{{self.treatment},W}}[E({self.outcome} | "
+                    f"{self.missingness}=1, {self.treatment}, W)]"
+                    if self.missingness is not None
+                    else f"E({self.outcome})"
+                )
                 if self.target == "par":
-                    return f"E({self.outcome}) - {counterfactual}"
-                return f"1 - {counterfactual} / E({self.outcome})"
+                    return f"{observed} - {counterfactual}"
+                return f"1 - {counterfactual} / {observed}"
             if self.target in {"ey", "ey1", "ey0"}:
                 selected = self.selected_arm
                 if selected is not None:
@@ -1856,6 +1861,15 @@ def _bound_dr_condition(
             f"or P({missingness} = 1 | {design.treatment}, W) is consistent; no "
             "treatment mechanism enters the remainder"
         )
+    if target in POPULATION_INTERVENTION_TARGETS and missingness is not None:
+        treatment, reference = design.treatment, functional.reference_arm
+        return (
+            f"consistent if m({treatment}, W) = E({design.outcome} | {missingness} = 1, "
+            f"{treatment}, W) is consistent, or if both P({missingness} = 1 | {treatment}, W) "
+            f"and the product P({treatment} = {reference!r} | W) P({missingness} = 1 | "
+            f"{treatment} = {reference!r}, W) are consistent; a correct product with a wrong "
+            "response mechanism does not rescue the natural-course term"
+        )
     if direct:
         mechanism = "g * q_z" + (" * pi" if missingness is not None else "")
         bound = (
@@ -1990,7 +2004,7 @@ def _point_identification(
     )
     if direct:
         nuisances.append(INTERMEDIATE_MECHANISM)
-    if missingness is not None and target not in POPULATION_INTERVENTION_TARGETS:
+    if missingness is not None:
         conditioning = (
             f"({design.treatment}, {design.intermediate}, W)"
             if direct
@@ -2004,6 +2018,17 @@ def _point_identification(
             assumptions.append(
                 f"response positivity for {missingness}: P({missingness} = 1 | "
                 f"{design.treatment}, W) > 0 almost surely"
+            )
+        elif target in POPULATION_INTERVENTION_TARGETS:
+            reference = functional.reference_arm
+            assumptions.append(
+                f"response positivity for {missingness}: P({missingness} = 1 | "
+                f"{design.treatment}, W) > 0 almost surely, for the natural-course term"
+            )
+            assumptions.append(
+                f"product positivity at the reference arm: P({design.treatment} = "
+                f"{reference!r} | W) P({missingness} = 1 | {design.treatment} = "
+                f"{reference!r}, W) > 0 almost surely"
             )
         elif axis == "shift":
             assumptions.append(
@@ -2084,6 +2109,12 @@ def _point_identification(
     references = base.references
     if target == "ey_obs" and missingness is not None:
         references = (*references, "Díaz, Carone & van der Laan (2016)")
+    if target in POPULATION_INTERVENTION_TARGETS and missingness is not None:
+        references = (
+            *references,
+            "Díaz, Carone & van der Laan (2016)",
+            "Díaz & van der Laan (2017)",
+        )
     return Identification(
         assumptions=tuple(assumptions),
         required_nuisances=tuple(nuisances),
@@ -2270,12 +2301,6 @@ class ExplicitAdjustmentProvider:
             if problem is not None:
                 raise DataError(f"{holder} must be a sequence, such as a tuple. {problem}")
             refuse_mixed_interventions(items, kind=kind, holder=holder)
-        # Keyed on the outcome being missing, not on the declaration.  The engine guard
-        # this fronts -- ``TargetContext.observed_mean`` -- keys on the observation mask,
-        # so a design that declares a response indicator which is identically one has no
-        # missing outcome, E[Y] is exactly the empirical mean, and refusing it here would
-        # refuse a fit the estimator performs.  docs/roadmap.md F20 tracks the stop for
-        # missing outcomes, which is this condition.
         if data.has_missing_treatment:
             refusal = missing_treatment_design_refusal(
                 data,
@@ -2285,12 +2310,6 @@ class ExplicitAdjustmentProvider:
             )
             if refusal is not None:
                 raise refusal
-        if data.has_missing_outcome and target in POPULATION_INTERVENTION_TARGETS:
-            raise population_intervention_refusal(
-                (target,),
-                declaration="PointTreatment(missingness=...)",
-                subject=type(actual).__name__,
-            )
         axis = TARGETS[target].parameter_axis
         # The rule is about the parameter *axis*, not about a list of target names.  Naming
         # targets refused `msm` -- whose axis is `msm`, indexed by working-model term, and
