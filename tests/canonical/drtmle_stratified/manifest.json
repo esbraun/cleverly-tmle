@@ -1,0 +1,128 @@
+{
+  "schema_version": 2,
+  "study": "DR-TMLE with baseline strata",
+  "slug": "canonical-stratified-drtmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-stratified-drtmle",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "70005d5b3f1b3a9c2acba1fd4fa6f3a3c0063f25",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.7",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": {
+      "implementation": "drtmle-r-stratified",
+      "drtmle_commit": "538a3a264c1ca984b6d88978ca7f96165f43152c",
+      "drtmle_version": "1.1.2",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_parameter": "drtmle on each stratum subset, shared Qn, gn and folds"
+    }
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 2000,
+    "seed": 20268821,
+    "resampling_seed": 20268822,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "stratified_both_correct": [
+        "ey[0][V=0]",
+        "ey[1][V=0]",
+        "ate[V=0]",
+        "ey[0][V=1]",
+        "ey[1][V=1]",
+        "ate[V=1]",
+        "ey[0][V=2]",
+        "ey[1][V=2]",
+        "ate[V=2]"
+      ]
+    },
+    "source_law": "Benkeser et al. (2017), Section 5.1, with V in {0, 1, 2} (P = 0.5, 0.3, 0.2): g = expit(-W1 + 2 W1 W2 + 0.4 - 0.4 V), Q = expit((0.2 + 0.3 V) A - W1 + 2 W1 W2 - 0.3 + 0.4 V)",
+    "cross_fit": true,
+    "n_folds": 10,
+    "strata": [
+      "V"
+    ],
+    "guard": [
+      "Q",
+      "g"
+    ],
+    "reduction": "univariate",
+    "reduced_crossfit": "pooled",
+    "update_order": "drtmle",
+    "max_outer": 100,
+    "max_iter": 100,
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "folds": "identical unstratified ten-fold assignments supplied to both implementations, drawn by cleverly.random_partition from the sample's seed alone",
+    "nuisance_models": {
+      "correct_outcome": "unpenalized logistic GLM on (A, W1, W2, W12, V, A V)",
+      "correct_treatment": "unpenalized logistic GLM on (W1, W2, W12, V)",
+      "misspecified": "the same GLM without W12",
+      "reduced_Q": "Gaussian GLM",
+      "reduced_g": "binomial GLM"
+    },
+    "excluded_comparisons": "the three marginal names: a marginal drtmle call reduces on g_n over every row, and the stratified fit's marginal estimate reduces on (g_n, V). The marginal ATE is measured against its exact truth by the property cells instead",
+    "declared_difference": "the subject's outer loop stops when every stratum's equations meet the stop rule, so a stratum can take more rounds than R drtmle takes on that stratum's subset alone",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_stratified_drtmle.py": "3ddaffe2c128a51c2bb5c15990a2560252f306d5c5a08bfcd3363691c5cd8b60",
+    "tests/studies/stratified_drtmle_properties.py": "7d44fed5c3d5a36eb3297ec6e3be268047ec86cbd8897cb9a582bfc378a5d0d1",
+    "tests/studies/stratified_alternating_law.py": "19d62e110b376ee2fa83832101d57f32414e49d3eff8381b3889b0accd7150fe",
+    "tests/studies/stratified_law.py": "0a2d419c24c5011d1e42ebce01dd65da5e405faac088a8ad02bbd5c8c18db828",
+    "tests/discrete_law.py": "781827e6225aec7451e8b1bd2232873abfccd0e8ae56b85e1cc90f658f55eaeb",
+    "tests/studies/canonical_drtmle.py": "94be60bd719b23c86ab81b9ff71ed8889ad72f6a9816379c2e7e9be824f2869d",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/studies/evidence/comparison.py": "653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "9c8e6a923bb16fd6637dbec77492c43aef29d9a5f825799a20ce5002ca5e9590",
+    "tests/studies/evidence/property_verdicts.py": "6bddb3468d8135bc663df0d92fc52aadea539efdee0cd1ed84ef0e3e12658076",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9"
+  },
+  "reference_sha256": {
+    "tests/canonical/drtmle/Dockerfile": "470471189bf2b407411d6a89a533e073fd4f2dffb971a9480702658d5da88fe2",
+    "tests/canonical/drtmle_stratified/run_drtmle_stratified.R": "24c6f4477f59d405cd49039e3f71a7e453a6e9bf9ad873d09b96d2c38b8fd717",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "5ce746b05088b230ce076ddad4d397b964d9927e79b270f8c5301c40fab033ec",
+    "summary.csv": "fe5bac51da54ae2ef533ae3d1d2061ece25a66f2422baec5ee9f55dcfb153752",
+    "equivalence.csv": "b228e3532061b50614d97eed6f6e01b971e671b027f8df1b7abdfeb2cd454d7c",
+    "performance-tests.csv": "5877b48ea4ab2eafecd0837021af25d25e5f6534a51031e7de7583bc2624918c",
+    "property-replicates.csv.gz": "e7ef581ba3a08a7b8f5ed987770f4dc05ff9956b1b2171214fdc15edc6a434d4",
+    "properties.csv": "f4b95c649efdc93fc332ff578e30bb8c95cd6654135cb58ddb9163a18e031e49"
+  }
+}
