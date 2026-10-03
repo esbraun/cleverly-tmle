@@ -141,8 +141,10 @@ from ..inference.bootstrap import Resampling, run_bootstrap
 from ..inference.cluster import cluster_inference_status, cross_validated_variance
 from ..inference.influence import (
     ArmMean,
+    ClusterReference,
     CorrectionParts,
     ParameterEstimate,
+    has_t_reference,
     make_estimate,
     median_estimates,
     missing_outcome_correction_parts,
@@ -685,13 +687,13 @@ class TMLE:
         str
             One of :data:`~cleverly.inference.influence.InferenceStatus`.
             :func:`~cleverly.inference.cluster.cluster_inference_status` reads the cluster
-            labels. It gives ``"influence_curve"`` on an unclustered fit, and a clustered
-            status on a cross-fitted fit at unequal cluster sizes, in rows or in weight
-            mass, or on a fit with few clusters in total or in one baseline stratum.
+            labels. It gives ``"influence_curve"`` on an unclustered fit, and
+            ``"few_cluster_plugin"`` on a fit with fewer than four clusters with positive
+            weight mass in total or in one baseline stratum. The cluster sizes do not
+            enter, in sample or cross-fitted.
         """
         return cluster_inference_status(
             data.cluster,
-            cross_fit=self.cross_fit,
             strata=data.strata,
             weights=data.weights if data.is_weighted else None,
         )
@@ -1520,7 +1522,14 @@ class TMLE:
         # that the selector status refuses to report anyway.  The omission is not silent --
         # ``summary()`` prints the reason, and ``simultaneous_bands()`` called directly still
         # refuses, because that is an explicit request.
-        if self.simultaneous and len(estimates) > 1 and supplies_inference(result.inference_status):
+        # A band over an estimate with a Student t reference is skipped for the same
+        # reason: no source gives a t-calibrated joint band, and ``summary()`` says so.
+        if (
+            self.simultaneous
+            and len(estimates) > 1
+            and supplies_inference(result.inference_status)
+            and not has_t_reference(estimates)
+        ):
             refuse_after_repeats(
                 self.repeats, operation="simultaneous=True", reason=_REPEATED_BANDS_REASON
             )
@@ -3236,6 +3245,9 @@ class TMLE:
         fold_estimates: dict[str, tuple[float, ...]] = {}
         epsilon: dict[str, tuple[float, ...]] = {}
         fold_epsilon: dict[str, tuple[tuple[float, ...], ...]] = {}
+        # The stratum code of every stratum estimate, which the stamp reads for the
+        # Student t reference of a clustered fit. Every other estimate reads every row.
+        stratum_of: dict[str, int] = {}
         indices: list[IntArray] = []
         validation_indices = (
             [] if nuisance.folds.is_single else [test for _, test in nuisance.folds]
@@ -3353,7 +3365,7 @@ class TMLE:
             pooled_report.update(pooled)
             if data.has_strata:
                 assert targeting_submodel is not None
-                stratified = self._stratum_estimates(
+                stratified, codes = self._stratum_estimates(
                     data,
                     targeted,
                     group,
@@ -3365,6 +3377,7 @@ class TMLE:
                     reference,
                     natural_course=natural_course_strata if group == "mean" else None,
                 )
+                stratum_of.update(codes)
                 pooled.update(stratified)
                 pooled_report.update(stratified)
             group_indices = (
@@ -3409,9 +3422,21 @@ class TMLE:
         # input all report the same status.  Stamping in ``fit`` alone would leave the
         # truncation curve and the refutations building intervals the fit itself refuses.
         # The two fold-level reports are stamped here too, because ``CVTargeting``
-        # publishes their standard errors and reads its status off them.
+        # publishes their standard errors and reads its status off them. A clustered fit
+        # that supplies inference also takes its Student t reference here, from the rows
+        # each estimate reads, so no builder sets degrees of freedom of its own.
         status = self._inference_status(prepared)
-        ordered = stamp_inference(_in_report_order(estimates, requested), status)
+        cluster_reference = (
+            None
+            if prepared.cluster is None
+            else ClusterReference(
+                prepared.cluster,
+                weights=prepared.weights if prepared.is_weighted else None,
+                strata=prepared.strata,
+                stratum_of=stratum_of,
+            )
+        )
+        ordered = stamp_inference(_in_report_order(estimates, requested), status, cluster_reference)
         detail = (
             CVTargeting(
                 n_folds=len(indices),
@@ -3423,7 +3448,7 @@ class TMLE:
                 pooled=_in_report_order(pooled_report, requested),
                 fold_evaluated=_in_report_order(fold_evaluated_report, requested),
                 backend=data.backend,
-            ).stamped(status)
+            ).stamped(status, cluster_reference)
             if indices
             else None
         )
@@ -4297,11 +4322,15 @@ class TMLE:
         alpha_sig: float,
         reference: float,
         natural_course: Mapping[int, ArmMean] | None = None,
-    ) -> dict[str, ParameterEstimate]:
+    ) -> tuple[dict[str, ParameterEstimate], dict[str, int]]:
         """Conditional plug-ins and full-sample influence curves for every stratum.
 
         ``natural_course`` holds the joint route's natural-course mean of each stratum,
         keyed by stratum code (:meth:`_stratum_natural_course`).
+
+        The second mapping gives the stratum code of each estimate, which is the row set
+        it reads. :meth:`_retarget_detailed` passes it to the stamp, which sets the Student
+        t reference of a clustered stratum estimate from the stratum's own cluster count.
 
         A linked working model reads the stratum fluctuation nested on the marginal one
         (:attr:`~cleverly.fluctuation.Fluctuation.stratified`).  Every other group solved
@@ -4315,6 +4344,7 @@ class TMLE:
                 "the stratified targeting submodel does not contain one base block per stratum"
             )
         out: dict[str, ParameterEstimate] = {}
+        codes: dict[str, int] = {}
         for code, probability in enumerate(stratum_probabilities(data)):
             index = np.flatnonzero(data.strata == code).astype(np.int64)
             block = slice(code * width, (code + 1) * width)
@@ -4359,7 +4389,8 @@ class TMLE:
                     log_psi=estimate.log_psi,
                     covariance_rule=estimate.covariance_rule,
                 )
-        return out
+                codes[name] = code
+        return out, codes
 
     def _stratum_natural_course(
         self,

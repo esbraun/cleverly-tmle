@@ -769,9 +769,14 @@ article as the copy this project read.
   mean $\mu_I(a) = E\{\sum_{j=1}^{N_i} Y_{ij}(a)\}/E(N_i)$, which is a ratio of two cluster-level
   means. Assumption 3 lets the observed cluster size depend on the arm and on the cluster
   attributes. Section 4.2, Equation (2), estimates $\mu_I(a)$ by a ratio of cluster sums. The
-  Section 5 simulation multiplies the variance by $m/(m-5)$ and uses a $t$ reference with $m-5$
-  degrees of freedom. Remark 3 recommends machine learning only "when the number of clusters is
-  sufficiently large, e.g., m = 100". The
+  Section 5.1 simulation design, in the paragraph after the method list, multiplies the variance by
+  $m/(m-5)$ and uses a $t$ reference with $m-5$ degrees of freedom, "where 5 is the number of
+  adjusted baseline covariates" of its parametric working models. Remark 3, in Section 4.2 after
+  Theorem 4, recommends machine learning only "when the number of clusters is sufficiently large,
+  e.g., m = 100". It adds: "With a small number of clusters, e.g., m = 20, we caution against
+  using complex working nuisance models, and instead recommend parsimonious parametric nuisance
+  models". The Discussion points to "Remark 3" for the identifiability of the cluster-average
+  effect, and that content is in Remark 4. This project cites the remarks by their content. The
   [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) use these
   locators for part (g).
 - Chiang, Kato, Ma & Sasaki (2022), [*Multiway Cluster Robust Double/Debiased Machine
@@ -878,6 +883,21 @@ package's own estimating-equation argument for the rest. The
 that argument with its four conditions. The registered
 [clustered point-treatment CV-TMLE study](technical-reference/method-evidence/clustered-point-treatment-cv-tmle.md)
 is the only empirical witness for it.
+
+The pinned comparators aggregate a clustered curve in two ways at unequal cluster sizes. Each
+locator below is in the source tarball or commit that the repository's Dockerfiles pin.
+
+| comparator | locator | aggregation and reference |
+| --- | --- | --- |
+| R `ltmle` 1.3-0 | `R/ltmle.R`, lines 1025 to 1032 (`HouseholdIC`), 1063 and 1356; lines 1442 to 1448 (`GetPValue`) and 1608 to 1616 (`GetCI`) | the cluster sum of the curve times $J/n$, with variance over $J$. That equals this package's variance. A Student $t$ reference with $J-1$ degrees of freedom below 100 clusters, normal above |
+| R `tmle` 2.1.1 | `R/tmle.R`, lines 1555 to 1568 | `by(IC, id, mean)`, the cluster mean of the curve, with variance over $J$, and `qnorm` |
+| R `tmle3` at `ed72f8a` | `R/utils.R`, lines 44 to 48 and 59 | `by(IC, task$id, colMeans)`, the cluster mean, and a normal reference |
+| R `lmtp` 1.5.4 with `ife` 0.2.3 | the `ife` entry under longitudinal models | the cluster mean, and a normal reference |
+| R `drtmle` 1.1.2 at `538a3a2` | no cluster argument | not applicable |
+
+At equal cluster sizes the cluster mean and the cluster sum give the same variance. At unequal
+sizes only the cluster sum is the delta-method variance of the row mean
+([unequal cluster sizes](technical-reference/inference.md#unequal-cluster-sizes)).
 
 ## Collaborative TMLE
 

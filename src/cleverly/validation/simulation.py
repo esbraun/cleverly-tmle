@@ -161,7 +161,7 @@ class EstimandSummary:
     #: The statuses the replicates took, each with its replicate count, when they took
     #: more than one; empty when every replicate took :attr:`inference`. A fit whose
     #: status depends on the draw, such as a clustered fit whose cluster count straddles
-    #: the few-cluster threshold, gives a mix.
+    #: the few-cluster floor, gives a mix.
     status_counts: tuple[tuple[str, int], ...] = ()
 
     @property

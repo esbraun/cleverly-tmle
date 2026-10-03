@@ -25,6 +25,7 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
+from scipy import stats
 
 from cleverly._inference_status import NON_INFERENTIAL
 from cleverly.data import CausalData
@@ -54,11 +55,11 @@ from cleverly.inference import (
     make_estimate,
     multiplier,
     multiplier_critical_value,
-    normal_ci,
     ratio_estimates,
     run_bootstrap,
     simultaneous_bands,
     two_sided_pvalue,
+    wald_ci,
 )
 from cleverly.inference.cluster import stacked_second_moment_variance
 from cleverly.inference.influence import (
@@ -624,14 +625,20 @@ class TestDeltaMethod:
         with pytest.raises(ValueError, match="influence curve"):
             delta_method(lambda p: float(p[0]), [1.0, 2.0], [np.zeros(10)])
 
-    def test_normal_ci_and_pvalue_agree_at_the_boundary(self) -> None:
-        low, _ = normal_ci(1.96, 1.0, 0.05)
+    def test_wald_ci_and_pvalue_agree_at_the_boundary(self) -> None:
+        low, _ = wald_ci(1.96, 1.0, 0.05)
         assert low == pytest.approx(0.0, abs=1e-3)
         assert two_sided_pvalue(1.96, 1.0) == pytest.approx(0.05, abs=1e-3)
 
-    def test_normal_ci_rejects_a_bad_alpha(self) -> None:
+    def test_the_t_interval_and_pvalue_agree_at_the_boundary(self) -> None:
+        critical = float(stats.t.ppf(0.975, 10))
+        low, _ = wald_ci(critical, 1.0, 0.05, df=10)
+        assert low == pytest.approx(0.0, abs=1e-12)
+        assert two_sided_pvalue(critical, 1.0, df=10) == pytest.approx(0.05, abs=1e-12)
+
+    def test_wald_ci_rejects_a_bad_alpha(self) -> None:
         with pytest.raises(ValueError, match="alpha must lie"):
-            normal_ci(1.0, 1.0, 1.5)
+            wald_ci(1.0, 1.0, 1.5)
 
 
 class TestRatioEstimates:

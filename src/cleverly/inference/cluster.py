@@ -32,12 +32,17 @@ from typing import Final
 
 import numpy as np
 
-from .._inference_status import FEW_CLUSTER_THRESHOLD, InferenceStatus, precedent_status
-from .._typing import FloatArray, IntArray
+from .._inference_status import (
+    FEW_CLUSTER_THRESHOLD,
+    MINIMUM_INTERVAL_CLUSTERS,
+    InferenceStatus,
+)
+from .._typing import BoolArray, FloatArray, IntArray
 
 __all__ = [
     "WEIGHT_MASS_RTOL",
     "cluster_inference_status",
+    "cluster_reference_df",
     "cluster_sizes",
     "cluster_sums",
     "cluster_weight_mass",
@@ -562,40 +567,30 @@ def positive_mass_clause(cluster: IntArray, weights: FloatArray | None) -> str:
 def cluster_inference_status(
     cluster: IntArray | None,
     *,
-    cross_fit: bool,
     strata: IntArray | None = None,
     weights: FloatArray | None = None,
 ) -> InferenceStatus:
-    """The inference status the fit's cluster labels, strata, and weights determine.
+    r"""The inference status the fit's cluster labels, strata, and weights determine.
 
-    Two clustered settings report no interval, as the status table of
-    ``docs/technical-reference/inference.md`` states, and X24 holds the route that reopens each
-    one.
+    ``"few_cluster_plugin"`` when one reported estimate reads fewer distinct clusters with
+    positive weight mass than
+    :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS`. That is the whole fit,
+    or, with baseline strata, any one stratum: :func:`fewest_clusters` gives the count.
+    The fit takes one status, so a stratum with too few clusters withholds the interval of
+    every estimate. Otherwise ``"influence_curve"``, in sample or cross-fitted, at equal or
+    unequal cluster sizes. Below
+    :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters an estimate takes a
+    Student t reference, which :func:`cluster_reference_df` gives.
 
-    ``"unequal_cluster_plugin"``
-        A cross-fitted fit whose clusters hold different numbers of rows, or, when the
-        fit is weighted, different weight mass. This applies to the whole fit and to
-        every reported baseline stratum. The package's grouped cross-fitting argument
-        and registered study cover equal sizes only; unequal sizes need their own
-        expansion and variance check. :func:`unequal_cluster_sizes` reads both measures.
-        An in-sample fit takes no status here.
-    ``"few_cluster_plugin"``
-        A fit, in sample or cross-fitted, where one reported estimate reads fewer
-        distinct clusters with positive weight mass than
-        :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD`. That is the whole
-        fit, or, with baseline strata, any one stratum: :func:`fewest_clusters` gives
-        the count. The fit takes one status, so a stratum with few clusters withholds
-        the interval of every estimate.
-
-    When both apply, :func:`~cleverly._inference_status.precedent_status` gives the one
-    the fit takes.
+    The cluster sizes do not enter. The variance sums the curve within each cluster, and
+    the curve already holds the term :math:`-\hat\psi` on every row. The cluster total is
+    then :math:`A_j - N_j\hat\psi`, the delta-method curve of the ratio of the mean
+    cluster total to the mean cluster size, which is the row-weighted mean.
 
     Parameters
     ----------
     cluster : ndarray of int or None
         The cluster label of each row, or ``None`` for an unclustered fit.
-    cross_fit : bool
-        Whether the nuisances are cross-fitted.
     strata : ndarray of int or None, default None
         The baseline stratum code of each row, or ``None`` for a fit without strata.
     weights : ndarray of float or None, default None
@@ -605,43 +600,77 @@ def cluster_inference_status(
     -------
     str
         One of :data:`~cleverly.inference.influence.InferenceStatus`.
-        ``"influence_curve"`` when ``cluster`` is ``None`` or neither setting applies.
 
     Examples
     --------
     >>> import numpy as np
     >>> from cleverly.inference.cluster import cluster_inference_status
+    >>> cluster_inference_status(np.repeat(np.arange(4), 3))
+    'influence_curve'
+    >>> cluster_inference_status(np.repeat(np.arange(3), 3))
+    'few_cluster_plugin'
     >>> equal = np.repeat(np.arange(40), 10)
-    >>> cluster_inference_status(equal, cross_fit=True)
-    'influence_curve'
-    >>> cluster_inference_status(equal[:-1], cross_fit=True)
-    'unequal_cluster_plugin'
-    >>> cluster_inference_status(equal[:-1], cross_fit=False)
-    'influence_curve'
-    >>> cluster_inference_status(np.repeat(np.arange(39), 10), cross_fit=False)
+    >>> cluster_inference_status(equal, strata=(equal < 3).astype(int))
     'few_cluster_plugin'
-    >>> cluster_inference_status(equal, cross_fit=False, strata=(equal < 6).astype(int))
-    'few_cluster_plugin'
-    >>> mass = np.where(equal % 2 == 0, 0.5, 2.0)
-    >>> cluster_inference_status(equal, cross_fit=True, weights=mass)
-    'unequal_cluster_plugin'
     """
     if cluster is None:
         return "influence_curve"
-    unequal = cross_fit and unequal_cluster_sizes(cluster, weights)
-    if cross_fit and not unequal and strata is not None:
-        # A marginal fit can have equal cluster sizes while its reported stratum fits
-        # do not. Each conditional estimate reads only the rows inside its stratum.
-        labels = np.asarray(strata).reshape(-1)
-        for level in np.unique(labels):
-            inside = labels == level
-            if unequal_cluster_sizes(cluster[inside], None if weights is None else weights[inside]):
-                unequal = True
-                break
-    few = fewest_clusters(cluster, strata, weights) < FEW_CLUSTER_THRESHOLD
-    return precedent_status(
-        [
-            "unequal_cluster_plugin" if unequal else "influence_curve",
-            "few_cluster_plugin" if few else "influence_curve",
-        ]
-    )
+    if fewest_clusters(cluster, strata, weights) < MINIMUM_INTERVAL_CLUSTERS:
+        return "few_cluster_plugin"
+    return "influence_curve"
+
+
+def cluster_reference_df(
+    cluster: IntArray,
+    weights: FloatArray | None = None,
+    rows: BoolArray | None = None,
+) -> int | None:
+    """The degrees of freedom of the Student t reference of one clustered estimate.
+
+    ``J - 2``, where ``J`` counts the clusters with positive weight mass among ``rows``,
+    when ``J`` is below :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD`.
+    ``None``, the normal reference, at that count and above. Nugent et al. (2024),
+    Section 2.2, last paragraph, give the rule. Only an inferential fit reads it, and its
+    status guarantees ``J`` of at least
+    :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS`.
+
+    Parameters
+    ----------
+    cluster : ndarray of int
+        The cluster label of each row.
+    weights : ndarray of float or None, default None
+        The observation weight of each row. ``None`` counts every cluster.
+    rows : ndarray of bool or None, default None
+        The rows the estimate reads, such as one baseline stratum. ``None`` reads all.
+
+    Returns
+    -------
+    int or None
+        The degrees of freedom, or ``None`` for the normal reference.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from cleverly.inference.cluster import cluster_reference_df
+    >>> cluster = np.repeat(np.arange(12), 3)
+    >>> cluster_reference_df(cluster)
+    10
+    >>> cluster_reference_df(cluster, rows=cluster < 6)
+    4
+    >>> cluster_reference_df(np.repeat(np.arange(40), 3)) is None
+    True
+    """
+    labels = np.asarray(cluster).reshape(-1)
+    keep = np.ones(labels.size, dtype=bool) if rows is None else np.asarray(rows, dtype=bool)
+    if weights is not None:
+        keep = keep & (np.asarray(weights, dtype=float).reshape(-1) > 0.0)
+    count = int(np.unique(labels[keep]).size)
+    if count >= FEW_CLUSTER_THRESHOLD:
+        return None
+    if count < MINIMUM_INTERVAL_CLUSTERS:
+        raise ValueError(
+            f"a Student t reference needs at least {MINIMUM_INTERVAL_CLUSTERS} clusters with "
+            f"positive weight mass; these rows hold {count}. Only a fit whose status supplies "
+            "inference reads the reference"
+        )
+    return count - 2

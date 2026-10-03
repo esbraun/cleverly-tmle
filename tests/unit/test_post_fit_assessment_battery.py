@@ -1285,7 +1285,7 @@ def test_a_protective_truncated_interval_keeps_its_confidence_limit_evalue():
     assert report.risk_ratio_ci[0] == 0.0
     assert report.truncated_bound == pytest.approx(1 + difference.ci[0] / baseline.psi)
     assert report.truncated_bound < 0.0
-    # The upper bound is never truncated: ``normal_ci`` gives ``high >= psi`` and the
+    # The upper bound is never truncated: ``wald_ci`` gives ``high >= psi`` and the
     # refusal above forces ``baseline.psi + psi > 0`` with ``baseline.psi > 0``.
     assert report.risk_ratio_ci[1] == pytest.approx(1 + difference.ci[1] / baseline.psi)
     assert 0.0 < report.risk_ratio_ci[1] < 1.0

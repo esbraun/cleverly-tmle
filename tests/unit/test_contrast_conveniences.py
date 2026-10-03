@@ -281,7 +281,8 @@ class TestInheritance:
         assert ratio.n_clusters == result["ey1"].n_clusters
 
     def test_a_few_cluster_ratio_refuses_its_interval(self) -> None:
-        frame, _ = make_clustered(n=200, seed=6, cluster_size=10)
+        # Three clusters, below the floor of four.
+        frame, _ = make_clustered(n=120, seed=6, cluster_size=40)
         result = (
             TMLE(
                 outcome_learner=LinearRegression(),

@@ -17,6 +17,8 @@ import numpy as np
 
 from .._inference_status import (
     NO_SIMULTANEOUS_BANDS,
+    NO_T_REFERENCE_BANDS,
+    T_REFERENCE_NOTE,
     InferenceStatus,
     status_record,
     supplies_inference,
@@ -38,9 +40,12 @@ from ..inference.cluster import (
 )
 from ..inference.delta import Transform
 from ..inference.influence import (
+    ClusterReference,
     ParameterEstimate,
     Scale,
     bootstrap_line,
+    has_t_reference,
+    reference_label,
     spread_name,
     stamp_inference,
 )
@@ -397,7 +402,9 @@ class CVTargeting:
         """
         return {name: float(np.sqrt(value)) for name, value in self.variance.items()}
 
-    def stamped(self, status: InferenceStatus) -> CVTargeting:
+    def stamped(
+        self, status: InferenceStatus, reference: ClusterReference | None = None
+    ) -> CVTargeting:
         """This report with both fold-level reports declaring ``status``.
 
         The one stamp for the fold-level reports. ``TMLE._retarget_detailed`` applies it
@@ -407,6 +414,9 @@ class CVTargeting:
         ----------
         status : str
             One of :data:`~cleverly.inference.influence.InferenceStatus`.
+        reference : ClusterReference or None, default=None
+            The rows each estimate reads on a clustered fit, which set the Student t
+            reference of an inferential estimate.
 
         Returns
         -------
@@ -417,8 +427,8 @@ class CVTargeting:
         """
         return replace(
             self,
-            pooled=stamp_inference(self.pooled, status),
-            fold_evaluated=stamp_inference(self.fold_evaluated, status),
+            pooled=stamp_inference(self.pooled, status, reference),
+            fold_evaluated=stamp_inference(self.fold_evaluated, status, reference),
         )
 
     def to_frame(self, data: CausalData | None = None) -> Any:
@@ -1512,6 +1522,7 @@ class TMLEResult:
         # ``inference_status`` both refuse a mix, so the table is never half refused.
         status = self.inference_status
         diagnostic = not supplies_inference(status)
+        t_reference = has_t_reference(self.estimates)
         rows = []
         record = status_record(status) if diagnostic else None
         if record is not None:
@@ -1528,11 +1539,25 @@ class TMLEResult:
                         f"{estimate.std_error:.4g}",
                         f"[{low:.5g}, {high:.5g}]",
                         format_pvalue(estimate.pvalue),
+                        *([reference_label(estimate)] if t_reference else []),
                     ]
                 )
-            table = format_table(["estimand", "psi", "std_err", f"{level} CI", "p_value"], rows)
+            table = format_table(
+                [
+                    "estimand",
+                    "psi",
+                    "std_err",
+                    f"{level} CI",
+                    "p_value",
+                    *(["df"] if t_reference else []),
+                ],
+                rows,
+            )
 
         parts = [*header, *facts, "", table]
+        if t_reference:
+            parts.append("")
+            parts.append(T_REFERENCE_NOTE.format(clusters=positive_mass_clusters(data)))
         if record is not None:
             # The whole column is refused, so no ``95% CI`` heading is printed with a "-"
             # under it.  A dash under that heading still tells a reader an interval is the
@@ -1577,6 +1602,9 @@ class TMLEResult:
             # they are the default, would otherwise have to guess why none are here.
             parts.append("")
             parts.append(NO_SIMULTANEOUS_BANDS)
+        elif self.simultaneous is None and t_reference and len(self.estimates) > 1:
+            parts.append("")
+            parts.append(NO_T_REFERENCE_BANDS)
         if self.simultaneous is not None:
             parts.append("")
             parts.append(
@@ -1753,6 +1781,23 @@ def _level_order(value: float | None) -> tuple[int, float]:
 def _is_intercept(column: FloatArray) -> bool:
     """Whether a design column is the constant one at every arm and every row."""
     return bool(np.all(np.asarray(column, dtype=float) == 1.0))
+
+
+def positive_mass_clusters(data: CausalData) -> int:
+    """The number of clusters with positive weight mass in the whole fit.
+
+    Parameters
+    ----------
+    data : CausalData
+        Data with declared clusters.
+
+    Returns
+    -------
+    int
+        The count the few-cluster rules read for a marginal estimate.
+    """
+    assert data.cluster is not None
+    return fewest_clusters(data.cluster, weights=data.weights if data.is_weighted else None)
 
 
 def _cluster_fact(data: CausalData) -> str:

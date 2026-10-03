@@ -72,6 +72,8 @@ from sklearn.base import clone
 
 from .._inference_status import (
     NO_SIMULTANEOUS_BANDS,
+    NO_T_REFERENCE_BANDS,
+    T_REFERENCE_NOTE,
     InferenceStatus,
     status_record,
     supplies_inference,
@@ -81,6 +83,8 @@ from ..exceptions import CapabilityError, LongitudinalError, PositivityWarning
 from ..inference.bootstrap import BootstrapResult, Resampling, run_bootstrap
 from ..inference.cluster import (
     cluster_inference_status,
+    cluster_reference_df,
+    fewest_clusters,
     influence_covariance,
     positive_mass_clause,
 )
@@ -89,7 +93,9 @@ from ..inference.influence import (
     ParameterEstimate,
     Scale,
     bootstrap_line,
+    has_t_reference,
     make_estimate,
+    reference_label,
     spread_name,
 )
 from ..inference.multiplier import SimultaneousBands, simultaneous_bands
@@ -1816,6 +1822,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         # is never half refused.
         status = self.inference_status
         record = None if supplies_inference(status) else status_record(status)
+        t_reference = has_t_reference(self.estimates)
         rows = []
         if record is not None:
             # The whole interval column is refused, so it is not printed with a dash under
@@ -1833,10 +1840,19 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                         f"{estimate.std_error:.4f}",
                         f"[{low:.4f}, {high:.4f}]",
                         format_pvalue(estimate.pvalue),
+                        *([reference_label(estimate)] if t_reference else []),
                     ]
                 )
             table = format_table(
-                ["parameter", "estimate", "std. error", f"{level} CI", "p-value"], rows
+                [
+                    "parameter",
+                    "estimate",
+                    "std. error",
+                    f"{level} CI",
+                    "p-value",
+                    *(["df"] if t_reference else []),
+                ],
+                rows,
             )
         # ``"level"`` is the scale of every mean, the rule ``to_frame`` reads as well.
         contrast = any(estimate.scale != "level" for estimate in self.estimates.values())
@@ -1871,6 +1887,19 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             table,
             # The refusal's own reason, as ``TMLEResult.summary`` prints it.
             *(["", record.summary_note()] if record is not None else []),
+            *(
+                [
+                    "",
+                    T_REFERENCE_NOTE.format(
+                        clusters=fewest_clusters(
+                            self.data.cluster,
+                            weights=self.data.weights if self.data.is_weighted else None,
+                        )
+                    ),
+                ]
+                if t_reference and self.data.cluster is not None
+                else []
+            ),
             "",
             *(f"  {line}" for line in facts),
         ]
@@ -1893,6 +1922,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             # by default, so a reader would otherwise have to guess why none are here.
             lines.append("")
             lines.append(f"  {NO_SIMULTANEOUS_BANDS}")
+        elif self.simultaneous is None and t_reference and len(self.estimates) > 1:
+            lines.append("")
+            lines.append(f"  {NO_T_REFERENCE_BANDS}")
         if self.simultaneous is not None:
             lines.append("")
             lines.append(
@@ -2077,12 +2109,13 @@ def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
     The point-treatment cluster rule applies to the prepared cluster labels and, on a weighted fit,
     to the unit weights. It reads nothing fitted. ``LongitudinalData`` carries no baseline strata,
     so the count is the number of clusters with positive weight mass in the whole fit, and
-    :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` is the threshold.
+    :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS` is the threshold.
 
     ``LTMLE._refuse_cross_fitted_design`` refuses ``id=`` above one fold before this runs,
     so a fit can take ``"few_cluster_plugin"`` only. ``LTMLE.fit`` and the
     truncation-curve replay ``_refit_bound`` pass the status to :func:`_estimates` or
-    :func:`_msm_estimates`.
+    :func:`_msm_estimates`, which also set the Student t reference of an inferential fit
+    with fewer than :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters.
 
     Parameters
     ----------
@@ -2097,11 +2130,35 @@ def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
         One of :data:`~cleverly.inference.influence.InferenceStatus`.
         ``"influence_curve"`` on an unclustered fit.
     """
+    del folds  # The status reads no fold: the cluster sizes do not enter.
     return cluster_inference_status(
         data.cluster,
-        cross_fit=folds.n_folds > 1,
         weights=data.weights if data.is_weighted else None,
     )
+
+
+def _reference_df(data: LongitudinalData, inference: InferenceStatus) -> int | None:
+    """The Student t degrees of freedom of every estimate of a longitudinal fit.
+
+    ``LongitudinalData`` carries no baseline strata, so every estimate reads every unit.
+    ``None`` on an unclustered fit, on a fit whose status supplies no inference, and at
+    :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters or more.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared data of the fit.
+    inference : str
+        The status the fit stamps on its estimates.
+
+    Returns
+    -------
+    int or None
+        :func:`~cleverly.inference.cluster.cluster_reference_df` of the fit, or ``None``.
+    """
+    if data.cluster is None or not supplies_inference(inference):
+        return None
+    return cluster_reference_df(data.cluster, data.weights if data.is_weighted else None)
 
 
 def _estimates(
@@ -2147,6 +2204,7 @@ def _estimates(
     # dict keyed by name is where that would stop being a distinction without a
     # difference.
     head = _level_head(survival=survival, competing=data.is_competing, complement=False)
+    reference_df = _reference_df(data, inference)
     estimates: dict[str, ParameterEstimate] = {}
     # ``name -> (regimen, cause, horizon)``, composed forward here and never parsed
     # back out of the name.  ``curve()`` reads it: with a cause beside the horizon
@@ -2167,6 +2225,7 @@ def _estimates(
             scale="level",
             alpha=alpha_sig,
             inference=inference,
+            reference_df=reference_df,
         )
     for fit in fits.values():
         if fit.regimen.label == reference.label:
@@ -2188,6 +2247,7 @@ def _estimates(
             scale="difference",
             alpha=alpha_sig,
             inference=inference,
+            reference_df=reference_df,
         )
     return _Reported(estimates=estimates, index=index, contributors=contributors)
 
@@ -2232,6 +2292,7 @@ def _msm_estimates(
     """
     estimates: dict[str, ParameterEstimate] = {}
     contributors: dict[str, tuple[RegimenFit, ...]] = {}
+    reference_df = _reference_df(data, inference)
     for msm_fit in msm_fits:
         for column, term in enumerate(msm_fit.model.terms):
             # Composed forward, as every other name here is: a term may contain a
@@ -2250,6 +2311,7 @@ def _msm_estimates(
                 scale="level",
                 alpha=alpha_sig,
                 inference=inference,
+                reference_df=reference_df,
             )
     return _Reported(estimates=estimates, index=None, contributors=contributors)
 
@@ -2992,6 +3054,10 @@ class LTMLE:
         if not self.simultaneous or len(estimates) < 2:
             return None
         if not supplies_inference(status):
+            return None
+        # No source gives a t-calibrated joint band, so a fit whose estimates carry a
+        # Student t reference builds none either, and the summary says so.
+        if has_t_reference(estimates):
             return None
         return simultaneous_bands(
             estimates,

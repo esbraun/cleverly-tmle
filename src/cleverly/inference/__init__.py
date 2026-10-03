@@ -14,8 +14,9 @@ from .delta import (
     delta_method,
     log_odds_ratio_influence,
     log_ratio_influence,
-    normal_ci,
+    reference_quantile,
     two_sided_pvalue,
+    wald_ci,
     wald_statistic,
 )
 from .influence import (
@@ -59,12 +60,13 @@ __all__ = [
     "median_estimates",
     "msm_coefficients",
     "multiplier_critical_value",
-    "normal_ci",
     "ratio_estimates",
+    "reference_quantile",
     "regime_means",
     "run_bootstrap",
     "simultaneous_bands",
     "two_sided_pvalue",
     "unscale",
+    "wald_ci",
     "wald_statistic",
 ]

@@ -16,7 +16,7 @@ nuisance prediction used for an observation comes from a model that never saw th
 | flexible learners for either nuisance | cross-fitting can avoid a Donsker restriction under its remaining conditions | one nuisance fit per outer fold; a Super Learner also fits its candidates on inner folds |
 | you want the package default | cross-fitting is on by default, at ten outer folds | a Super Learner uses five additional inner folds unless configured otherwise. Ten by five is fifty model fits per library candidate |
 | the fold draw itself worries you | `repeats=` runs a complete estimator per draw and aggregates | linear cost in the repeat count |
-| clustered data | clusters stay intact in every split | a cluster-robust interval, because clusters, not rows, are the independent units. With fewer clusters than folds, the fold count drops to the cluster count, and a warning names both. Unequal cluster sizes and fewer than 40 clusters withhold the interval, as [clusters](inference.md#clusters) states |
+| clustered data | clusters stay intact in every split | a cluster-robust interval, because clusters, not rows, are the independent units. With fewer clusters than folds, the fold count drops to the cluster count, and a warning names both. Below 40 clusters the interval uses a $t$ reference, and below 4 the fit withholds it, as [clusters](inference.md#clusters) states |
 
 **Cross-fitting does not buy the rest of efficiency.** Four conditions stand behind a valid
 interval, and folds address one of them.
@@ -382,40 +382,39 @@ units, and it needs four conditions.
 | condition | what it asks |
 | --- | --- |
 | independent clusters | one cluster's rows carry no information about another cluster's rows |
-| equal cluster sizes and mass | every cluster holds the same number of rows and, on a weighted fit, the same weight mass. The rule applies within each reported baseline stratum too |
+| a bounded random cluster size | the cluster size is a random attribute of the cluster with bounded support, as Assumption 1(b) of Wang, Park, Small and Li (2024) states. Sizes and weight masses may differ |
 | no interference | one cluster's treatment does not change another cluster's outcome |
 | remainder rates | the product rate on the two nuisances holds at the cluster level, as it does at the row level for iid data |
 
-At equal cluster sizes the argument reduces to Zheng and van der Laan (2011), Theorem 2, with
-clusters in place of rows. The registered
-[clustered point-treatment CV-TMLE study](method-evidence/clustered-point-treatment-cv-tmle.md) is
-the empirical witness, and it is the only one. Its design satisfies all four conditions by
-construction. No source read here proves that the estimator is valid under clustering.
+With clusters in place of rows, the argument is Zheng and van der Laan (2011), Theorem 2. The
+point estimate is a row mean, a ratio of the mean cluster total to the mean cluster size. Its
+curve, summed within each cluster, is the delta-method curve of that ratio
+([unequal cluster sizes](inference.md#unequal-cluster-sizes)).
 
-The point estimator remains row weighted when cluster sizes differ. Benitez et al. (2023),
-Section 3.2.1, give a row-weighted TMLE and cluster-sum curve with varying cluster sizes.
-They do not establish this package's cross-fitted construction. Its current argument and
-registered study cover equal sizes and weight masses, overall and within each reported
-baseline stratum. A cross-fitted fit outside that scope takes `"unequal_cluster_plugin"`.
-`ci`, `pvalue`, and `std_error` then raise `CapabilityError`. `plugin_std_error` and
-`plugin_interval` keep the diagnostic.
+Wang et al. (2024), Section 4.2 and Theorem 4(b), prove a cross-fitted result under a random partition of the clusters, for an
+AIPW-type estimator. The registered
+[clustered point-treatment CV-TMLE study](method-evidence/clustered-point-treatment-cv-tmle.md)
+covers equal sizes. No source read here proves this package's TMLE under clustering.
 
-[X24](../roadmap.md#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters) holds the ratio-of-cluster-sums curve that relaxes the
-equal-size condition.
+A fold-evaluated fit, `cv_evaluation=True`, needs 2 clusters in every validation fold. Its
+variance takes the centered variance of the cluster totals inside each fold
+([the algorithm as implemented](#the-algorithm-as-implemented)).
 
-No source read here supports a normal reference interval with few clusters. The table gives what
-each source recommends. $J$ is the cluster count, which Nugent et al. write as $N$.
+Below 40 clusters with positive weight mass, intervals use a Student $t$ reference. The table gives
+what each source recommends. $J$ is the cluster count, which Nugent et al. write as $N$.
 
 | source | locator | recommendation |
 | --- | --- | --- |
 | Nugent et al. (2024) | Section 2.2, last paragraph, citing Hayes and Moulton (2009) | a $t$ reference with $J - 2$ degrees of freedom below 40 clusters |
 | Benitez et al. (2023) | Section 3.1.2, paragraph on inference, and Section 3.2.1, last paragraph | a $t$ reference with $J - 2$ degrees of freedom at every cluster count, as a finite-sample approximation |
+| Wang et al. (2024) | Remark 3, Section 4.2, after Theorem 4 | parsimonious parametric nuisance models at about 20 clusters, and machine learning at about 100 |
 
-The package keeps its normal reference. A fit with fewer than 40 positive-mass clusters takes the
-`"few_cluster_plugin"` status, in sample or cross-fitted. So does a fit with fewer than 40 such
-clusters in one baseline stratum that it reports. An in-sample `LTMLE` fit with `id=` takes the
-same status below 40 positive-mass clusters. [Clusters](inference.md#clusters) gives
-both statuses, and [X24](../roadmap.md#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters) holds the routes that reopen them.
+The package follows Nugent et al. From 4 to 39 positive-mass clusters, in the fit or in the stratum
+an estimate reads, each estimate uses $t$ with $J-2$ degrees of freedom. Below 4 such clusters the
+fit takes the `"few_cluster_plugin"` status, in sample or cross-fitted. An in-sample `LTMLE` fit
+with `id=` follows the same rules. The registered few-cluster evidence uses parametric nuisance
+learners only. [Clusters](inference.md#clusters) gives the rules, and
+[F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) records the floor.
 
 ### The Super Learner inner split
 

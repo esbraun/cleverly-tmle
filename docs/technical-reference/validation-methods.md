@@ -1549,7 +1549,7 @@ The selected path depends on the reported contrast and retained artifacts.
 | Gaussian ATE, ATT, or ATC on a fit with a response mechanism | report `unavailable`. The conversion divides by `sd(Y)` from the observed rows alone, and under missing at random the respondents' standard deviation estimates a different quantity from the population standard deviation. The refusal is on this path only, so a ratio E-value on the same fit stays available |
 | binomial ATT or ATC | refuse because the conditional baseline risk and conditional ratio target are absent |
 | level or non-arm parameter | report `not_applicable` because no supported two-arm contrast exists |
-| two-arm contrast on a fit whose status supplies no inference: a collaborative fit at any `strategy`, a `DRTMLE` fit with a `guard` and varying weights declared estimated, or a clustered fit under `"unequal_cluster_plugin"` or `"few_cluster_plugin"` | report `unavailable`. Each branch reads the estimate's interval or the reference arm's standard error, and this fit supplies neither. The reason of the status follows |
+| two-arm contrast on a fit whose status supplies no inference: a collaborative fit at any `strategy`, a `DRTMLE` fit with a `guard` and varying weights declared estimated, or a clustered fit under `"few_cluster_plugin"` | report `unavailable`. Each branch reads the estimate's interval or the reference arm's standard error, and this fit supplies neither. The reason of the status follows |
 | any request on a learned-rule fit | report `unavailable` before the estimand is resolved. No sensitivity derivation for the learned-rule value was reviewed. See [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
 | any request on a controlled-direct-effect fit with a discrete treatment, which is such a fit with `intermediate=` | report `unavailable` before the estimand is resolved. This package has no implemented E-value bound for the fitted controlled direct effect and its confounding model. [F25](../roadmap.md#f25-e-value-for-a-controlled-direct-effect) tracks the support gap |
 | binomial ATE without exact retarget support or a usable reported baseline | report `unavailable` and name the missing evidence, artifact, or target |
@@ -1580,7 +1580,7 @@ Such a difference implies a nonpositive risk in the contrast arm, and no risk ra
 Both refusals report `unavailable` and name the two reported numbers.
 
 The conversion is affine, so the lower interval bound can leave the parameter space while the point ratio stays inside it.
-Only the lower bound can leave it. `normal_ci` gives `high >= psi`, and the refusals above force `baseline.psi > 0` and `baseline.psi + psi > 0`.
+Only the lower bound can leave it. `wald_ci` gives `high >= psi`, and the refusals above force `baseline.psi > 0` and `baseline.psi + psi > 0`.
 The report truncates the lower bound at 0, records the untruncated value in `truncated_bound`, and repeats it in the note.
 The `to_dict` mapping and the battery row both carry that value, so no surface presents the 0 as a converted confidence limit.
 
@@ -2010,7 +2010,7 @@ follows.
 | `verdict()` with no finding | coverage and bias are consistent with a correctly working estimator | bias is consistent, and the coverage column certifies no confidence interval |
 
 A clustered status depends on the draw, so the replicates of one study can take different
-statuses. A cluster count that straddles 40 gives that mix. Every record measures the plug-in
+statuses. A cluster count that straddles 4 gives that mix. Every record measures the plug-in
 numbers, and on an inferential fit those numbers equal `ci` and `std_error`. So
 `summarize_replications` summarizes a mix under the status that `precedent_status` gives. The
 table gives what the summary adds.
@@ -2021,7 +2021,7 @@ table gives what the summary adds.
 | `to_dict()` and `to_frame()` | a `mixed_statuses` column, for example `few_cluster_plugin in 4, influence_curve in 4` |
 | `summary()` | the line above the table says that the estimator "supplies no interval on some replicates". One more line per mixed estimand names its statuses and counts |
 
-`tests/unit/test_simulation_summary.py` runs a study whose cluster count straddles 40. It holds
+`tests/unit/test_simulation_summary.py` runs a study whose cluster count straddles 4. It holds
 the mixed witness, a mutation that labels the mix `influence_curve`, and a uniform control.
 
 The generators live in
@@ -2045,7 +2045,7 @@ and it introduces no new influence function.
 An estimator whose status supplies no inference is refused with `CapabilityError` before the
 first fit. That includes a collaborative estimator at any `strategy`, and a `DRTMLE` with a
 `guard` and varying weights declared estimated. It also includes a clustered `TMLE` or `DRTMLE`
-under `"unequal_cluster_plugin"` or `"few_cluster_plugin"`. The procedure adjusts one p-value per candidate with
+under `"few_cluster_plugin"`. The procedure adjusts one p-value per candidate with
 Benjamini and Hochberg, and those fits report no p-value. The check prepares each candidate's data
 and asks the estimator's own `_inference_status()`, which is the status its estimates carry.
 

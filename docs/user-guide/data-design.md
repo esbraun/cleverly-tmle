@@ -41,10 +41,10 @@ study = CausalStudy(
   cross-fitted fit counts, so each treatment arm must appear in at least two clusters. C-TMLE
   refuses `cluster=` at every setting, and longitudinal TMLE refuses it above one fold.
 
-  A TMLE, DR-TMLE, or longitudinal TMLE fit reports no interval when it has fewer than 40
-  clusters with positive weight mass. For TMLE and DR-TMLE, this also applies to one reported
-  stratum. A cross-fitted fit reports none when its clusters differ in rows or, on a weighted
-  fit, weight mass, overall or within a reported stratum
+  Clusters may differ in size. A TMLE, DR-TMLE, or longitudinal TMLE fit with fewer than 40
+  clusters with positive weight mass reports a Student t interval with the cluster count minus 2
+  degrees of freedom. Below 4 such clusters it reports no interval. For TMLE and DR-TMLE, both
+  rules also apply to one reported stratum
   ([clusters](../technical-reference/inference.md#clusters)).
 - `strata` requests subgroup parameters and preserves the stratum in structured parameter keys.
   A stratum variable must also appear in `adjustment`: it conditions the reported parameter, so a

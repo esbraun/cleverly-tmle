@@ -549,7 +549,11 @@ These requests with `strata=` refuse before any learner:
 | a stacked PAR, PAF, or `ey_obs` beside arm targets | the arm-indexed stacked contract refuses strata. The step qualifies, and it needs a witness and a registered cell ([F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants)) |
 
 `cluster=` changes the independent unit for covariance and fold construction, and it does not
-change the estimand.
+change the estimand. The estimand is the row-weighted mean $\mu_I$ of Wang, Park, Small and Li
+(2024), Section 2, at equal or unequal cluster sizes. Pass `weights` equal to one over the
+cluster size to estimate the cluster-average mean $\mu_C$. Below 40 clusters with positive weight
+mass the interval uses a Student $t$ reference, and below 4 the fit withholds it
+([clusters](inference.md#clusters)).
 
 A fit with a declared missing treatment admits fixed weights, clusters and baseline strata, as the
 missing-outcome TMLE does. The weights tilt the law, and the composite mechanism is the tilted
