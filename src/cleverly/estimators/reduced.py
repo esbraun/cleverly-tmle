@@ -41,7 +41,9 @@ however badly the primary nuisances do.
 
 Randomized missing-outcome inference uses a different five-regression state, implemented by
 :func:`fit_missing_outcome_reduced`.  It deliberately keeps the treatment and observation
-mechanisms separate, as the Díaz & van der Laan (2017) targeting algorithm does.
+mechanisms separate, as the Díaz & van der Laan (2017) targeting algorithm does.  It loops
+over the arms at any number of them: arm ``a``'s five regressions read only that arm's
+columns, which is the paper's construction applied to the indicator ``1{A = a}``.
 
 **Why a residual regression is not degenerate here.**  :math:`Q_r` and :math:`g_{r,2}` are
 identically zero when the nuisance they are residuals of is right -- row by row, not merely
@@ -315,8 +317,6 @@ def fit_missing_outcome_reduced(
     """
     if nuisance.missingness is None:
         raise ValueError("missing-outcome reductions need a fitted observation mechanism")
-    if len(nuisance.arms) != 2:
-        raise ValueError("missing-outcome reductions require binary treatment")
 
     scaled = nuisance.scaler.scale(data.outcome)
     observed = np.asarray(data.observed, dtype=bool)

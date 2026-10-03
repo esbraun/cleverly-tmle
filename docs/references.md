@@ -1851,12 +1851,23 @@ rather than a comparison target.
 
   | locator | content |
   | --- | --- |
-  | Section 2.1, page 6 | observed data $(W, A, M, MY)$ in the nonparametric model, with `A` a binary arm indicator |
+  | Section 2.1, page 6 | observed data $(W, A, M, MY)$ in the nonparametric model, with `A` a binary arm indicator; "in our application we have four such indicators" |
+  | Assumptions 1–4, pages 6–7 | consistency, treatment independent of the potential outcome given `W`, MAR given `(A, W)`, and positivity |
   | Assumption 2, page 7 | treatment independent of the potential outcome given `W` |
   | Section 3, Equation (1), page 10 | the efficient influence function |
   | Section 3, Equation (3), page 11 | the logistic TMLE among rows with $(A, M) = (1, 1)$ |
+  | Condition 2, page 13, and Condition 3, page 15 | the Donsker condition and the strengthened doubly robust consistency condition |
   | Equation (6), page 15 | the reductions |
-  | Theorem 1, page 16, Equations (11)–(13), page 19, and Theorem 2, page 20 | the corrections and the targeting algorithm |
+  | Theorem 1, page 16 | the corrected influence curve `D_dr` |
+  | Steps 1–5, pages 18–20 | the algorithm. Step 3 fits `epsilon_A` by "a logistic regression model of A on Z_A with no intercept and an offset term equal to logit g_A(W) using all observations" |
+  | Equations (11)–(13), page 19 | the three correction equations |
+  | Theorem 2, page 20 | the asymptotic linearity result for one arm indicator |
+  | page 25 | a referee's composite `T = AM` reduction, rejected as "unsatisfactory because it ignores intrinsic properties of the variables A and M" |
+  | page 26 | removing Condition 2 by cross-validation "would follow from trivial extensions" of Zheng and van der Laan (2011) |
+
+  The package applies Theorem 2 to each arm indicator and stacks the arm estimators above two
+  arms. The [multi-arm contract](technical-reference/dr-tmle/theorem.md#more-than-two-arms) gives
+  the steps and the conditions.
 
   The [point-treatment entry](#point-treatment-and-stochastic-interventions) for the same paper
   records its identification and rate locators.
@@ -1873,6 +1884,15 @@ registered study asks those questions separately. The inspected source is pinned
 [`538a3a2`](https://github.com/benkeser/drtmle/tree/538a3a264c1ca984b6d88978ca7f96165f43152c):
 `R/estimate.R` loops the reductions over treatment levels and constructs a compatible initial
 mechanism; `R/fluctuate.R` applies independent one-vs-rest mechanism fluctuations.
+
+With missing outcomes, R `drtmle` takes one joint treatment-response mechanism. `fluctuateG` uses
+the composite response `A == a & DeltaA == 1 & DeltaY == 1` ([`R/fluctuate.R`, line
+98](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/fluctuate.R#L98)).
+`estimateQrn` regresses `Y - Qn` on that joint mechanism among rows with `A == a`, `DeltaA == 1` and
+`DeltaY == 1` ([`R/estimate.R`, lines
+1117–1126](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/estimate.R#L1117-L1126)).
+This is the composite construction that Díaz and van der Laan reject on page 25. Both
+missing-outcome studies therefore pair with it at the both-correct limit only.
 
 The same commit codes a missing outcome and a missing treatment as one composite indicator.
 `R/drtmle.R` line 207 sets `DeltaA = as.numeric(!is.na(A))`. `R/fluctuate.R` line 28 builds the

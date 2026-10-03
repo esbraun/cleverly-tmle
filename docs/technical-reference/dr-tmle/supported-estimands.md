@@ -82,7 +82,7 @@ guard is a plain `TMLE`, bit for bit.
 
 | keyword | status |
 | --- | --- |
-| `delta=` | **randomized binary trials only**, using Díaz & van der Laan (2017)'s missing-outcome construction. The conditions are below. |
+| `delta=` | **randomized trials only**, at any number of arms, using Díaz & van der Laan (2017)'s missing-outcome construction. Above two arms, the fit applies the construction to each arm indicator and stacks the arm estimators. The conditions are below. |
 | `weights=` | **fixed analysis weights only.** The estimand is the parameter of the tilted law `dP_w = w dP / E[w]`. The transport argument is below. |
 | `repeats=` | supported; varies exactly one thing, the **primary split**. Each draw fits its own reductions and runs its own alternation; the report uses the median point and split-adjusted median variance. `result.extra["drtmle"]` describes **draw 0 only**. |
 | `reduction="bivariate"` | supported for complete outcomes and discrete treatment. It fits one reduced probability on the two-column `(Qbar-hat(a,W), g-hat(a|W))` design and uses van der Laan's distinct `D_Y`, once per arm as the pinned R implementation does; univariate remains the default because its reduced regressions can converge faster. The cited theorem is binary, so the multi-arm case is an implementation-backed armwise extension rather than a claim about that theorem's literal scope. |
@@ -92,11 +92,18 @@ guard is a plain `TMLE`, bit for bit.
 | `stratify_folds=` | `"none"` only, which is the default. The other two policies are refused whenever the fit draws a split. |
 
 **What `delta=` accepts.** Set `randomized=True` to estimate the treatment probabilities. You can
-instead pass row-aligned known probabilities as `treatment_probabilities=` to `fit`. Three shapes
-are accepted: a mapping keyed by treatment level, such as `{"placebo": p0, "active": p1}`; an
-`(n, 2)` array in encoded arm order; or an `(n,)` array read as the probability of the arm whose
-code is `1`. This surface requires `cross_fit=False`, `repeats=1`, pooled reductions, and no
-analysis weights or evaluation companion.
+instead pass row-aligned known probabilities as `treatment_probabilities=` to `fit`. The
+probabilities can depend on `W`, as in a stratified randomization. The table gives the accepted
+shapes.
+
+| shape | arms | read as |
+| --- | --- | --- |
+| a mapping keyed by treatment level, such as `{"placebo": p0, "active": p1}` | any | one `(n,)` column per level; every level is named |
+| an `(n, K)` array | any | one column per arm, in encoded arm order (the sorted levels) |
+| an `(n,)` array | two only | the probability of the arm whose code is `1`; refused above two arms |
+
+This surface requires `cross_fit=False`, `repeats=1`, pooled reductions, and no analysis weights
+or evaluation companion.
 
 With `guard=()`, the same array configures a **plain TMLE** at the design mechanism. The result is
 the ordinary estimator bit for bit, which is what a pure randomization-probability analysis wants.
@@ -140,7 +147,6 @@ retained diagnostic.
 | `att` / `atc` | a different score equation with no reduced-dimension derivation |
 | `interventions=`, `shifts=`, `incremental=`, `msm=` | as above |
 | observational treatment with `delta=` | not written yet. Díaz & van der Laan (2017) derive their construction for randomized trials. Benkeser, Carone, van der Laan and Gilbert (2017), Theorem 1, applies to the composite indicator $\Delta \cdot 1\{A = a\}$, which `drtmle` 1.1.2 also uses. [X23](../../roadmap.md#x23-composite-indicator-missing-data-dr-tmle) holds the work |
-| `delta=` with three or more arms | not written yet. Díaz & van der Laan (2017), Theorem 2, applies to each arm through $1\{A = a\}$, and the arms stack on the same rows. [F4](../../roadmap.md#f4-multi-arm-missing-outcome-dr-tmle) holds the work |
 | a missing treatment value | no keyword declares a missing treatment. The data container raises `DataError` before any learner: `src/cleverly/data/validate.py` for a numeric column, and `src/cleverly/data/causal_data.py` for any other column. Not written yet. [X23](../../roadmap.md#x23-composite-indicator-missing-data-dr-tmle) holds the indicator reduction to $\Delta_A \cdot \Delta_Y \cdot 1\{A = a\}$ |
 | `treatment_probabilities=` with `n_bootstrap=`, **whatever `guard=` is** | the array is row-aligned to the data as passed, and a replicate refits on resampled rows it cannot be reindexed to. An n-out-of-n resample passes the length check, so the misalignment would be silent; `randomized=True` estimates the mechanism inside each replicate instead. Unconditional on the guard, because the array is row-aligned however few equations are being solved |
 | `treatment_probabilities=` without `delta=` | it replaces the treatment learner outright, and nothing read here states a complete-data construction that reads a known design mechanism differently from a fitted one |

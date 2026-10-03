@@ -1894,7 +1894,13 @@ def _solve_missing_outcome_reduction(
     max_outer: int,
     warn: bool,
 ) -> tuple[Submodel, Fluctuation]:
-    r"""Target the three Díaz--van der Laan drift blocks separately."""
+    r"""Target the three Díaz--van der Laan drift blocks separately.
+
+    Any number of arms. At two arms the treatment block is one shared tilt of ``g_1``, which
+    solves both arms' equations. Above two arms each arm's column is tilted alone, as are
+    the observation and outcome blocks at every arm, so no fluctuation parameter is shared
+    across arms.
+    """
     del warn  # failures are recorded on the returned targeting objects
     if tuple(reduction.guard) != ("Q", "g") and set(reduction.guard) != {"Q", "g"}:
         raise ValueError("missing-outcome targeting requires both guards")
@@ -1904,12 +1910,16 @@ def _solve_missing_outcome_reduction(
         raise ValueError("missing-outcome targeting needs an observation mechanism")
 
     arms = nuisance.arms
-    if len(arms) != 2:
-        raise ValueError("missing-outcome targeting requires binary treatment")
     mask = np.asarray(observed, dtype=bool)
+    # The arm codes. At two arms they are the response of the one shared tilt of `g_1`; at
+    # more, `_solve_missing_treatment_mechanism` forms `1(A = a)` per arm from them.
     treatment = np.asarray(data.treatment, dtype=float)
     targeted_q = nuisance.outcome
-    targeted_g = nuisance.propensity.arm(arms[1])
+    targeted_g = (
+        nuisance.propensity.arm(arms[1])
+        if len(arms) == 2
+        else np.asarray(nuisance.propensity.values, dtype=float)
+    )
     targeted_m = np.asarray(nuisance.missingness, dtype=float).copy()
     reduced = nuisance.reduced
     outcome_fit: Fluctuation | None = None
@@ -1958,11 +1968,12 @@ def _solve_missing_outcome_reduction(
 
         current = _missing_outcome_state(nuisance, targeted_q, targeted_g, targeted_m)
         z_a = _missing_treatment_covariate(reduced, current, bounds)
-        treatment_fit = solve_bounded_mechanism(
+        treatment_fit = _solve_missing_treatment_mechanism(
             treatment,
             targeted_g,
             z_a,
             weights,
+            arms,
             bounds=bounds,
             tol=spec.tol,
         )
@@ -1994,7 +2005,9 @@ def _solve_missing_outcome_reduction(
         extra_score = score_columns(scaled, targeted_q.observed, extra.observed, weights, mask)
         extra_scale = score_scale(extra.observed, weights, mask)
         z_a = _missing_treatment_covariate(reduced, current, bounds)
-        treatment_score, treatment_scale = mechanism_score(treatment, targeted_g, z_a, weights)
+        treatment_score, treatment_scale = _missing_treatment_score(
+            treatment, targeted_g, z_a, weights, arms
+        )
         observation_score, observation_scale = _missing_observation_score(
             data, current, reduced, weights, bounds, nuisance_bound
         )
@@ -2122,10 +2135,23 @@ def _missing_outcome_state(
     upper_propensity: FloatArray,
     missingness: FloatArray,
 ) -> NuisanceEstimates:
+    """The working state at the current targeted outcome and mechanisms.
+
+    ``upper_propensity`` is ``g_1`` at two arms and the ``(n, K)`` armwise mechanism above.
+    The armwise state is off the simplex by design, because each column is tilted alone and
+    no column is renormalised, so it is labelled ``simplex=False``. ``Propensity.truncate``
+    then clips it column by column, which is what it does for any mechanism above two arms.
+    """
+    arms = nuisance.arms
+    propensity = (
+        _propensity_from(upper_propensity, arms)
+        if len(arms) == 2
+        else Propensity(np.asarray(upper_propensity, dtype=float), arms, simplex=False)
+    )
     return replace(
         nuisance,
         outcome=outcome,
-        propensity=_propensity_from(upper_propensity, nuisance.arms),
+        propensity=propensity,
         missingness=np.asarray(missingness, dtype=float),
     )
 
@@ -2135,9 +2161,55 @@ def _missing_treatment_covariate(
     nuisance: NuisanceEstimates,
     bounds: tuple[float, float],
 ) -> FloatArray:
+    r"""The treatment-drift covariate, one column per arm.
+
+    The signs differ by route. At two arms one tilt of ``g_1`` carries both arms, so arm 0's
+    column is ``-e_0/g_0``: its score ``-(e_0/g_0)(A - g_1)`` equals
+    ``(e_0/g_0)(1{A=0} - g_0)``. Above two arms each column ``g_a`` is tilted alone with the
+    response ``1{A=a}``, so every column is ``+e_a/g_a``.
+    """
     g_a = nuisance.bounded_propensity(bounds)
     e = np.asarray(reduced.e, dtype=float)
-    return np.column_stack([-e[:, 0] / g_a[:, 0], e[:, 1] / g_a[:, 1]])
+    if len(reduced.arms) == 2:
+        return np.column_stack([-e[:, 0] / g_a[:, 0], e[:, 1] / g_a[:, 1]])
+    return np.asarray(e / g_a, dtype=float)
+
+
+def _solve_missing_treatment_mechanism(
+    treatment: FloatArray,
+    propensity: FloatArray,
+    covariate: FloatArray,
+    weights: FloatArray,
+    arms: tuple[float, ...],
+    *,
+    bounds: tuple[float, float],
+    tol: float,
+) -> MechanismFluctuation:
+    """Solve the treatment-drift equation: one shared tilt at two arms, armwise above.
+
+    ``treatment`` is the arm codes. At two arms they are the binary response of the tilt of
+    ``g_1``; above two arms the armwise solver forms ``1(A = a)`` per column.
+    """
+    if len(arms) == 2:
+        return solve_bounded_mechanism(
+            treatment, propensity, covariate, weights, bounds=bounds, tol=tol
+        )
+    return solve_armwise_bounded_mechanism(
+        treatment, propensity, covariate, weights, arms, bounds=bounds, tol=tol
+    )
+
+
+def _missing_treatment_score(
+    treatment: FloatArray,
+    propensity: FloatArray,
+    covariate: FloatArray,
+    weights: FloatArray,
+    arms: tuple[float, ...],
+) -> tuple[FloatArray, FloatArray]:
+    """Re-evaluate the treatment-drift equation on the route that solved it."""
+    if len(arms) == 2:
+        return mechanism_score(treatment, propensity, covariate, weights)
+    return armwise_mechanism_score(treatment, propensity, covariate, weights, arms)
 
 
 def _missing_observation_score(

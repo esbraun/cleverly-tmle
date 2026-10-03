@@ -518,9 +518,15 @@ MOVED: dict[str, tuple[Callable[[], Any], str]] = {
         ),
         "treatment_probabilities= is currently only used with delta=",
     ),
-    "DRTMLE missing outcomes, three arms": (
-        lambda: _missing_drtmle(_three_arms())(),
-        "missing-outcome DRTMLE supports two treatment arms",
+    "DRTMLE missing outcomes, three arms, observational": (
+        lambda: DRTMLE(estimands=("ate",), **drtmle_spies()).fit(
+            _three_arms(),
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            delta="Delta",
+        ),
+        "DRTMLE with delta= is supported only for a randomized trial",
     ),
     "DRTMLE missing outcomes, weighted": (
         lambda: _missing_drtmle(_trial(120).assign(wt=np.linspace(0.5, 1.5, 120)), weights="wt")(),
@@ -531,6 +537,30 @@ MOVED: dict[str, tuple[Callable[[], Any], str]] = {
             randomized=True, estimands=("ate",), evaluation=_trial(40), **drtmle_spies()
         ).fit(_trial(120), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"),
         "missing-outcome DRTMLE supports the published pooled construction only",
+    ),
+    "DRTMLE missing outcomes, three arms, weighted": (
+        lambda: _missing_drtmle(
+            _three_arms().assign(wt=np.linspace(0.5, 1.5, 120)), weights="wt"
+        )(),
+        "missing-outcome DRTMLE is not certified for a weight-tilted target law",
+    ),
+    "DRTMLE missing outcomes, three arms, evaluation=": (
+        lambda: DRTMLE(
+            randomized=True, estimands=("ate",), evaluation=_trial(40), **drtmle_spies()
+        ).fit(_three_arms(), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"),
+        "missing-outcome DRTMLE supports the published pooled construction only",
+    ),
+    "DRTMLE missing outcomes, three arms, partial guard": (
+        lambda: DRTMLE(randomized=True, guard=("Q",), estimands=("ate",), **drtmle_spies()).fit(
+            _three_arms(), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
+        ),
+        "missing-outcome DRTMLE requires guard=('Q', 'g')",
+    ),
+    "DRTMLE missing outcomes, three arms, bivariate": (
+        lambda: DRTMLE(
+            randomized=True, reduction="bivariate", estimands=("ate",), **drtmle_spies()
+        ).fit(_three_arms(), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"),
+        "reduction='bivariate' is the complete-outcome construction",
     ),
     "the continuous reduction": (
         lambda: refuse_unsupported("continuous"),

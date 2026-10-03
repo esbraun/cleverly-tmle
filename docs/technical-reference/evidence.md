@@ -206,6 +206,20 @@ repeated-sampling evidence beyond score identities, and directly contrasts the e
 correction scores before and after the five-reduction cycle. Its R `drtmle` comparison is limited
 to the shared both-correct limit because the package exposes one joint treatment-response
 mechanism; numeric agreement is not an acceptance gate for the separate reductions.
+Above two arms, the same construction runs once per arm indicator, and the arm estimators are
+stacked. The instruments are in the table. The column at the right says what each one cannot see.
+
+| instrument | what it checks | what it cannot see |
+| --- | --- | --- |
+| exact three-arm law, `tests/discrete_law_mar_multi.py` | the oracle estimate equals the truth and the curve equals the EIF, to `1e-12` | the three correction blocks, which vanish at the truth |
+| outcome and observation drifts on that law | each block is nonzero at every arm, the estimate stays exact, and the stored scores equal the reported corrections | a mutation on the treatment side, because the oracle `g` solves every `W`-measurable treatment equation |
+| mutation controls on a finite-sample fit | a rolled arm mechanism, a swapped response, and rolled observation and outcome-drift columns each fail the correction check | a sign error in the curve, because a solved block has mean zero either way |
+| independent one-indicator reference | each arm's estimate and curve equal a test-local implementation of Steps 1 to 5, under live drift | the two-arm route, which takes one shared tilt |
+| [multi-arm missing-outcome study](method-evidence/randomized-multi-arm-missing-outcome-dr-tmle.md) | repeated-sampling coverage, size, power and the simultaneous band at three arms | the five-reduction construction in the R pairing, which uses the composite mechanism of Díaz and van der Laan's page 25; and the estimated-mechanism route `randomized=True`, because every study fit passes known probabilities. The unit tests cover that route |
+
+All of these are in `tests/unit/test_drtmle_missing_multi_arm.py` except the study. The R pairing
+covers the both-correct limit only.
+
 Cross-validated, observational, and missing-treatment DR-TMLE compositions are not
 covered, and neither is `treatment_probabilities=` under `n_bootstrap=`, which is refused because
 the array cannot be reindexed to a replicate's resampled rows at any `guard=` because the array

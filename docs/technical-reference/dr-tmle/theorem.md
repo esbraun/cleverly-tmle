@@ -120,10 +120,20 @@ D_Y = 1(A=a,Delta=1) · {r_A/(gamma_A gamma_Delta)+r_Delta/gamma_Delta}
 ```
 
 The targeting cycle jointly updates the ordinary outcome and `D_Y` covariates, updates
-`g_Delta` within each arm, updates the shared binary `g_A` path, refits all five reductions,
-and repeats until all four score blocks settle. `correction_check` reports `D_A`, `D_Delta`
-and `D_Y` separately; checking only `D_A + D_Delta` would be blind to equal and opposite score
-errors. Missing-outcome fits therefore require `guard=("Q", "g")`.
+`g_Delta` within each arm, updates `g_A`, refits all five reductions, and repeats until all four
+score blocks settle. The `g_A` update takes one of two routes, and both solve the equation
+`P_n[e_a/g_a · {1(A=a) − g_a}] = 0` for every arm.
+
+| arms | `g_A` update | covariate |
+| --- | --- | --- |
+| two | one two-parameter logistic tilt of `g_1`, with `g_0 = 1 − g_1` | `(−e_0/g_0, +e_1/g_1)` |
+| three or more | one logistic tilt of each column `g_a`, with the response `1(A=a)`, on all rows | `+e_a/g_a` |
+
+At two arms the arm-0 column carries a minus sign, because its score `−(e_0/g_0)(A − g_1)` equals
+`(e_0/g_0){1(A=0) − g_0}`. Above two arms the tilted columns are not renormalized. They are nuisance
+denominators and not an intervention. `correction_check` reports `D_A`, `D_Delta` and `D_Y`
+separately; checking only `D_A + D_Delta` would be blind to equal and opposite score errors.
+Missing-outcome fits therefore require `guard=("Q", "g")`.
 
 Treatment probabilities and observation probabilities retain their own bounds: `g_bounds`
 applies to `g_A` and `gamma_A`, while `nuisance_bound` applies to `g_Delta` and
@@ -139,16 +149,47 @@ the equation forms. Counting against the product of the floors instead reports a
 since a small factor beside a large one leaves the product above it: measured at **1.1%** against
 a true **20.1%** on the pinched fixture in `tests/unit/test_drtmle_missing.py`.
 
-The shipped scope follows the paper rather than the broader canonical package: binary randomized
-treatment, MAR and positivity, no cross-fitting, and no weights, repeats, fold targeting, or
-evaluation companion. `randomized=True` estimates `g_A`; `treatment_probabilities=` supplies known
-row-aligned probabilities and bypasses the treatment learner. Prefer the mapping form
+The shipped scope follows the paper rather than the broader canonical package: randomized treatment
+at any number of arms, MAR and positivity, no cross-fitting, and no weights, repeats, fold
+targeting, or evaluation companion. `randomized=True` estimates `g_A`; `treatment_probabilities=`
+supplies known row-aligned probabilities and bypasses the treatment learner. Prefer the mapping form
 `{"placebo": p0, "active": p1}`: the positional forms bind to arm *codes*, which are indices into
-the sorted levels, so a `(n,)` vector is the probability of the second sorted level and not of
-"the treated arm". Observational treatment and missing treatment remain refused because this paper
-does not derive those compositions. Known probabilities are row-aligned fit data and are retained
-with the complete fitted result in the trusted joblib artifact, together with the estimator needed
-for supported later refits.
+the sorted levels, so a `(n,)` vector is the probability of the second sorted level and not of "the
+treated arm". Observational treatment and missing treatment remain refused because this paper does
+not derive those compositions. Known probabilities are row-aligned fit data and are retained with
+the complete fitted result in the trusted joblib artifact, together with the estimator needed for
+supported later refits.
+
+### More than two arms
+
+Díaz and van der Laan (2017) state their result for one arm indicator. Above two arms, the fit
+applies it to each indicator `1(A=a)` and stacks the arm estimators. The contract below gives the
+argument in five parts. Page numbers are those of the arXiv v1 author manuscript that
+[the references](../../references.md) cite.
+
+| part | content |
+| --- | --- |
+| base result | Theorem 2 (p. 20) under Condition 2 (Donsker, p. 13) and Condition 3 (p. 15). It gives `n^(1/2)(psi_dtmle − psi_0) → N(0, Var D_dr)` with `D_dr` of Theorem 1 (p. 16), for one indicator `A` and the target `E(Y_1)`. Section 2.1 (p. 6) applies it to "four such indicators" in its application |
+| steps | indicator reduction: arm `a` uses `(W, 1(A=a), Delta, Delta Y)` and its own `g_A(a|W)` and `g_Delta(a,W)`. Fixed-dimension stack: the `K` arm estimators are asymptotically linear on the same rows, so their joint covariance is `P_0[D_a D_b]`. Linearity gives each `ate`, and the delta method gives `rr` and `or` on the log scale. The simultaneous band is the multiplier band over the stacked curves |
+| objection search | p. 25 rejects a composite `T = AM` reduction. The armwise construction keeps `g_A` and `g_Delta` apart, so the objection does not apply. p. 26 discusses cross-fitting, not arms. No source records the indicator reduction or the stack as open |
+| conditions | Assumptions 1 to 4 (pp. 6-7) at every arm, with positivity `g_A(a|W) g_Delta(a,W) > 0`. Randomization by design: `randomized=True` or known `treatment_probabilities=`, which can depend on `W`. Conditions 2 and 3 for every arm, hence `cross_fit=False`. Every arm's four score equations solved to `o_P(n^(−1/2))` |
+| evidence | the exact-law checks, nonzero witnesses, mutation controls and independent reference of `tests/unit/test_drtmle_missing_multi_arm.py`, and the registered [multi-arm missing-outcome study](../method-evidence/randomized-multi-arm-missing-outcome-dr-tmle.md) |
+
+**No fluctuation parameter is shared across arms above two arms.** This condition is what lets
+each arm's expansion hold inside the joint loop. Theorem 2's proof uses only that arm's solved
+equations and Conditions 2 and 3. Four places carry the condition.
+
+| block | where it is per arm |
+| --- | --- |
+| outcome tilt | `missing_outcome_outcome_submodel` builds a zero block for every other arm |
+| observation tilt | `_solve_missing_observation_mechanism` tilts `g_Delta` within each arm |
+| reductions | `fit_missing_outcome_reduced` fits each arm's five regressions on that arm's columns |
+| treatment tilt | `solve_armwise_bounded_mechanism` tilts each column `g_a` alone |
+
+The loop stops on the largest score over all arms, and so does the final check. That rule is
+stricter than Theorem 2's per-arm requirement. At two arms the one shared tilt of `g_1` is a
+different path to the same two solved equations. The proof reads only the solved equations, so
+the result holds there too.
 
 ## The sign of the mechanism correction
 

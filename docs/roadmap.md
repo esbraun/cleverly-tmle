@@ -68,8 +68,7 @@ Priorities 2 to 5 follow the beta.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.1 | Multi-arm missing-outcome DR-TMLE | [published support; armwise extension](technical-reference/natural-extension-verdicts.md) | none | [F4](#f4-multi-arm-missing-outcome-dr-tmle) |
-| 1.2 | Composite-indicator missing-data DR-TMLE | [published support; indicator-reduction extension](technical-reference/natural-extension-verdicts.md) | F4 for the multi-arm missing-outcome path | [X23](#x23-composite-indicator-missing-data-dr-tmle) |
+| 1.2 | Composite-indicator missing-data DR-TMLE | [published support; indicator-reduction extension](technical-reference/natural-extension-verdicts.md) | none; reuse the shipped multi-arm missing-outcome path and its study helpers | [X23](#x23-composite-indicator-missing-data-dr-tmle) |
 | 1.3 | Missing-outcome attributable effects | [published support; stack extension](technical-reference/natural-extension-verdicts.md) | the shipped missing-outcome natural-course and arm means | [F20](#f20-missing-outcome-attributable-effects) |
 | 1.4 | Stratified incremental and MSM targeting | [published support; finite-partition extension](technical-reference/natural-extension-verdicts.md) | implemented pooled stratified fluctuation, and marginal incremental and MSM targeting; the [baseline-strata study](technical-reference/method-evidence/stratified-point-treatment-tmle.md) | [X8](#x8-stratified-incremental-and-msm-targeting) |
 | 1.5 | Clustered intervals at unequal cluster sizes and at few clusters | [published support; cluster-as-unit extension](technical-reference/natural-extension-verdicts.md) | the shipped grouped point-treatment split | [X24](#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters) |
@@ -231,6 +230,10 @@ the `RM18-` owners, they are standing records of a reading. They do not gate the
 The `X20-bootstrap` owner holds the bootstrap kinds that stay diagnostic. It does not gate the
 beta release either.
 
+The `F4-calibration-draws` owner holds two cells that read one draw set of the multi-arm
+missing-outcome DR-TMLE study. It is a standing record of a reading, and it does not gate the
+beta release.
+
 | id | work | acceptance |
 | --- | --- | --- |
 | `F18` | an inference result for the shipped selector path | an influence curve derived after the stopping-index selection, and a registered study whose `selector_necessity` and `type_i_error` cells pass their existing margins at their existing budgets. The multi-arm `interval_calibration/correctly_specified` cell must also pass its band, because its standard-error ratio interval, 0.8987 to 0.9862, measures the fixed-candidate covariance that F18 replaces |
@@ -243,35 +246,13 @@ beta release either.
 | `RM18-comparator-density` | the paired `ate_shift[+0.25 vs natural course]` row of `shift-policies` | reading `cleverly density representation` ([`tests/diagnostics/rm18_comparator_density/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_comparator_density)). The calibration leg fails with a 99% upper endpoint of 0.065856 against a margin of 0.05, so the conclusion is `inconclusive`. If X12 changes the density representation, it re-reads this row |
 | `strata-boundary-mean` | the two primary truth rows of `ey[1][V=2]` and the `interval_calibration/v2_ey1__correctly_specified`, `simultaneous_coverage/strata__simultaneous_band` and `simultaneous_coverage/crossfit_strata__simultaneous_band` cells of `canonical-stratified-tmle` | reading `finite-sample Wald interval`: the treated mean of stratum V = 2 is 0.9358, and at n = 2,000 the stratum holds about 157 treated rows and about 9 expected non-events. R `tmle3` shows the same coverage on the same draws, the bias is inside its margin, and the oracle band at the exact critical value also under-covers ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). The owner closes when a re-declared cell, with its law or size declared before its run, or a small-sample interval correction with its own registered study passes. Until then each cell stays published red under `reporting` |
 | `band-finite-sample` | the `simultaneous_coverage/all_reported__simultaneous_band` cell of `canonical-ltmle-survival`, and the `categorical_ltmle__simultaneous_band`, `categorical_ltmle_crossfit__simultaneous_band` and `cde_z0__simultaneous_band` cells of `default-simultaneous-bands` | reading `finite-sample, pointwise shortfall inherited`: the oracle band at the design critical value also covers below 0.95, and the source study's pointwise calibration of the same parameters sits near the lower edge of its band. The package critical value averages a little below the design one, so the multiplier explains a small part of each shortfall ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). The owner closes when a re-declared cell, with its law or size declared before its run, or a small-sample interval correction with its own registered study passes. Until then each cell stays published red under `reporting` |
+| `F4-calibration-draws` | the `interval_calibration/ate__correctly_specified` and `simultaneous_coverage/arms__simultaneous_band` cells of `multi-arm-mar-drtmle`, which read one set of 2,400 fits | reading `finite-sample, one draw set`. The SE-ratio interval ends at 0.9294 against a floor of 0.93, and the joint-coverage interval at 0.9196 against 0.92. The calibration fits have an empirical SD 1.037 times their mean standard error. The same configuration gives 0.997 at `n_2000` and 0.989 at `l3_ate_low__both_correct`, on independent draws. `simultaneous=True` changes no estimate and no standard error. The band critical value averages 2.500 against the oracle 2.508, and the oracle band covers 0.9342 against the package's 0.9337, so the band construction explains none of the shortfall ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). Pooled over the 4,400 independent both-correct fits of `ate[low vs high]` at n = 2,000, the spread is 1.020 times the mean standard error (bootstrap 99% interval 0.991 to 1.047), and a Bartlett test across the three cells gives p = 0.20, so the draw set differs from its siblings by no more than chance. No defect was found in the K-arm code. The owner closes when a re-declared cell, with its law or size declared before its run, or a small-sample interval correction with its own registered study passes. Until then both cells stay published red under `reporting` |
 | `X20-bootstrap` | the `interval_calibration` cells `boot_ey_crossfit__correctly_specified`, `boot_ate_crossfit__correctly_specified` and `boot_ate_clustered__correctly_specified` of `full-refit-bootstrap-and-derived-contrasts` | the declared rule 3 keeps the `end_of_study/cross_fit` and `end_of_study/cluster` kinds out of `LICENSED_BOOTSTRAP_DESIGNS`, so their bootstrap prints as a diagnostic. A diagnostic reading, not a registered result: on this cell the cross-fitted estimator is heavy-tailed. Its 4,000 committed estimates have excess kurtosis 6.7, and about 5% of them lie at the probability boundary, because `g_bounds=(1e-8, 1)` with saturated cell means leaves sparse training cells unbounded. A bootstrap resample holds about 63% unique units, so more replicates reach the boundary and the replicate spread exceeds the sampling spread (SE ratios 1.23 and 1.27). A probe that kept each unit's copies in one fold raised the SE ratio to about 1.65, so the split of copies across folds is not the cause. The cluster contrast covers 0.924 with a calibrated SE ratio (0.977), a finite-sample shortfall of the percentile interval at 60 clusters. The owner closes when a re-declared cell for the kind, with its law, size, nuisance bounds or resampling scheme declared before its run, passes a registered cell |
 
 ## Detailed implementation contracts
 
 The sections below give one contract for each open item. Their physical order does not override
 the main grid.
-
-### F4. Multi-arm missing-outcome DR-TMLE
-
-`delta=` under `guard=("Q", "g")` refuses more than two treatment arms
-(`src/cleverly/estimators/drtmle.py`, the multi-level check in `DRTMLE._check_drtmle`). This item
-implements the armwise form. The [natural-extension verdicts](technical-reference/natural-extension-verdicts.md)
-record the review as part (d).
-
-| item | contract |
-| --- | --- |
-| base result | Díaz and van der Laan (2017), Theorem 2, page 20 of the arXiv v1 manuscript. It is a scalar result for one arm indicator. Their application estimates each arm mean with its own indicator (Figure 1, pages 9–10) |
-| steps | an indicator reduction to $1\{A = a\}$ for each arm, with that arm's own $g_A(a \mid W)$, $g_\Delta(a, W)$ and five reductions. Theorem 2 then applies to each arm as stated. A fixed-dimension stack of the arm curves on the same rows gives the joint curve. Linearity gives each difference, and the delta method gives each ratio |
-| objection search | the paper gives no joint inference across arms, which is an absence and not an objection. A separate logistic tilt of $P(A = a \mid W)$ for each arm (Step 3, page 19) need not stay compatible with one multinomial mechanism, because each arm's Theorem 2 reads only its own column. The shipped complete-data multi-arm `DRTMLE` tilts each column on its own (`src/cleverly/fluctuation/mechanism.py`), as `drtmle` `R/fluctuate.R` does. Page 26 concerns cross-fitting, not arms |
-| inherited conditions | randomized treatment or `treatment_probabilities=`; an outcome missing at random given $(A, W)$; positivity of each arm and of observation; the Theorem 2 rate conditions for each arm |
-| scope | in sample, at `guard=("Q", "g")`. At two arms the shipped binary estimator stays unchanged, so the registered binary study still covers two arms. The armwise tilts apply at three or more arms only. An observational fit goes to [X23](#x23-composite-indicator-missing-data-dr-tmle). The cross-fitted fit stays refused under [F21](#f21-other-missing-outcome-cv-tmle-variants) |
-
-Acceptance:
-
-- an exact-law witness for each arm on a three-arm law with a missing outcome;
-- a mutation control that feeds another arm's column to an arm's tilt and fails;
-- a test that the two-arm fit is bit-identical to the shipped binary estimator;
-- a registered study on a three-arm randomized law with a missing outcome, with coverage,
-  standard-error calibration, joint-coverage and null-size cells.
 
 ### X23. Composite-indicator missing-data DR-TMLE
 

@@ -120,10 +120,12 @@ Scope follows the vetted R implementation for arbitrary discrete treatment level
 complete-outcome reduction, on the ``mean`` group.  The multi-arm bivariate construction is the
 pinned implementation's armwise extension of van der Laan's binary theorem, not a claim that the
 theorem itself was stated for multiple arms.  It also includes Díaz & van der
-Laan (2017)'s binary randomized-trial construction for MAR outcomes, without cross-fitting;
+Laan (2017)'s randomized-trial construction for MAR outcomes, without cross-fitting;
 there five reductions and separate treatment, observation and outcome tilts replace the
-complete-data pair. Continuous treatment, observational missing outcomes, missing treatment,
-and other target groups remain refused by name.
+complete-data pair.  The paper states one arm indicator at a time; above two arms the fit
+applies it to each indicator ``1{A = a}`` and stacks the per-arm estimators, with no
+fluctuation parameter shared across arms.  Continuous treatment, observational missing
+outcomes, missing treatment, and other target groups remain refused by name.
 """
 
 from __future__ import annotations
@@ -372,8 +374,10 @@ class DRTMLE(TMLE):
         :math:`Q_r`, whose target is an outcome residual -- if ``outcome_learner=`` is an
         object rather than a name, name a regression learner here.
     randomized:
-        Declare that treatment was randomized for a fit with ``delta=``.  The treatment
-        learner is still fitted, following Díaz & van der Laan's finite-sample recommendation.
+        Declare that treatment was randomized for a fit with ``delta=``, at any number of
+        arms.  The treatment learner is still fitted, following Díaz & van der Laan's
+        finite-sample recommendation; above two arms it fits the categorical mechanism and
+        each arm's column is tilted alone.
         To use known probabilities instead, pass row-aligned ``treatment_probabilities=``
         to :meth:`fit`; doing so bypasses the treatment learner.
     max_outer:
@@ -411,7 +415,8 @@ class DRTMLE(TMLE):
     * ``att``/``atc`` and the ``interventions=``, ``shifts=``, ``incremental=`` and ``msm=``
       axes -- each is a different score equation with no reduced-dimension derivation;
     * observational treatment with ``delta=``, missing treatment, and ``intermediate=``.
-      Díaz & van der Laan (2017) covers binary randomized treatment with MAR outcomes;
+      Díaz & van der Laan (2017) covers randomized treatment with MAR outcomes, one arm
+      indicator at a time, which the fit applies armwise above two arms;
       the other compositions need their own corrected curve and remainder;
     * ``delta=`` with ``cross_fit=True``, at every ``guard`` including ``guard=()``. The
       published missing-outcome theorem does not establish a cross-validated extension;
@@ -529,9 +534,11 @@ class DRTMLE(TMLE):
           one ``(n,)`` column per arm and every arm named.  Prefer this: it says which arm
           each column belongs to instead of relying on the caller and the encoder agreeing
           about which level sorts first.
-        - ``(n, 2)`` in encoded arm order, which is the levels sorted ascending.
-        - ``(n,)``, read as the probability of the arm whose code is ``1`` -- the *second*
-          sorted level, so ``"placebo"`` in a trial labelled ``active``/``placebo``.
+        - ``(n, K)`` in encoded arm order, which is the levels sorted ascending.
+        - ``(n,)``, at two arms only, read as the probability of the arm whose code is
+          ``1`` -- the *second* sorted level, so ``"placebo"`` in a trial labelled
+          ``active``/``placebo``.  Above two arms a vector is refused, because it cannot
+          name the other columns.
 
         Supplying any of them implies ``randomized=True`` for the missing-outcome theorem
         and bypasses the treatment learner.  A shallow per-fit copy keeps an unfitted
@@ -840,7 +847,8 @@ class DRTMLE(TMLE):
     def _known_treatment_probabilities(self, data: CausalData) -> Propensity | None:
         """The design probabilities as a mechanism, or ``None`` when none were supplied.
 
-        Three accepted forms, and the mapping is the one to reach for.  A trial's arms are
+        Three accepted forms, and the mapping is the one to reach for.  The array form is
+        ``(n, K)``, and the ``(n,)`` form describes two arms only.  A trial's arms are
         named, and the positional forms bind to the arm *codes* -- which are indices into
         the sorted levels, so ``1`` is ``"placebo"`` in a trial labelled
         ``active``/``placebo``.  A caller who reads ``(n,)`` as "the probability of
@@ -860,16 +868,29 @@ class DRTMLE(TMLE):
         else:
             values = np.array(supplied, dtype=float, copy=True)
             if values.ndim == 1:
+                if len(levels) != 2:
+                    raise ValueError(
+                        f"treatment_probabilities as an (n,) vector is "
+                        f"P({data.treatment_name} = {levels[1]!r} | W) and describes two arms "
+                        f"only; {data.treatment_name} has {len(levels)} levels {levels}. Pass "
+                        f"an (n, {len(levels)}) array in that level order, or a mapping keyed "
+                        "by every level."
+                    )
                 if values.shape[0] != data.n:
                     raise ValueError(
                         f"treatment_probabilities has {values.shape[0]} rows; expected {data.n}"
                     )
                 values = np.column_stack([1.0 - values, values])
-        if values.shape != (data.n, 2):
+        if values.shape != (data.n, len(levels)):
+            if len(levels) == 2:
+                raise ValueError(
+                    f"treatment_probabilities must be (n,) for P({data.treatment_name} = "
+                    f"{levels[1]!r} | W), (n, 2) in the level order {levels}, or a mapping "
+                    f"keyed by those levels; got {values.shape}"
+                )
             raise ValueError(
-                f"treatment_probabilities must be (n,) for P({data.treatment_name} = "
-                f"{levels[1]!r} | W), (n, 2) in the level order {levels}, or a mapping "
-                f"keyed by those levels; got {values.shape}"
+                f"treatment_probabilities must be (n, {len(levels)}) in the level order "
+                f"{levels}, or a mapping keyed by those levels; got {values.shape}"
             )
         if not np.all(np.isfinite(values)) or np.any(values <= 0.0) or np.any(values >= 1.0):
             raise ValueError("treatment_probabilities must be finite and strictly between 0 and 1")
@@ -1157,13 +1178,6 @@ class DRTMLE(TMLE):
                     "mechanism from its own rows."
                 )
         if data.has_missing_outcome and self.guard:
-            if data.n_arms != 2:
-                raise CapabilityError(
-                    "missing-outcome DRTMLE supports two treatment arms. The armwise assembly "
-                    "for three or more arms applies Theorem 2 of Diaz and van der Laan "
-                    "(2017) to each arm, and it is not written yet; docs/roadmap.md F4 "
-                    "tracks this work"
-                )
             if not self.randomized and self._treatment_probabilities is None:
                 raise CapabilityError(
                     "DRTMLE with delta= is supported only for a randomized trial. Pass "

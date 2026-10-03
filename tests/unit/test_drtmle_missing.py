@@ -60,6 +60,21 @@ def _binary_trial(n: int = 100, seed: int = 13) -> pd.DataFrame:
     return pd.DataFrame({"W1": w1, "W2": w2, "A": a, "Delta": observed, "Y": y})
 
 
+def _with_arms(frame: pd.DataFrame, arms: int) -> pd.DataFrame:
+    """``frame`` at two arms, or with every third row moved to a third arm ``2.0``."""
+    if arms == 2:
+        return frame
+    return frame.assign(A=np.where(np.arange(len(frame)) % 3 == 0, 2.0, frame["A"]))
+
+
+def _uniform(n: int, arms: int) -> np.ndarray:
+    """Known equal allocation, ``(n,)`` at two arms and ``(n, K)`` above."""
+    return np.full(n, 0.5) if arms == 2 else np.full((n, arms), 1.0 / arms)
+
+
+ARMS = pytest.mark.parametrize("arms", [2, 3])
+
+
 def _pinched_trial(n: int = 400, seed: int = 5) -> pd.DataFrame:
     """A trial whose *observation* mechanism is pinched and whose randomization is not.
 
@@ -99,10 +114,9 @@ def _estimator(**settings: object) -> DRTMLE:
         missingness_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
         reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
-        estimands=("ate", "ey1", "ey0"),
         simultaneous=False,
         random_state=0,
-        **settings,
+        **{"estimands": ("ate", "ey1", "ey0"), **settings},
     )
 
 
@@ -325,11 +339,16 @@ def test_treatment_correction_has_a_nonzero_independent_witness() -> None:
     assert np.max(np.abs(parts.d_a[1.0] - collapsed)) > 0.01
 
 
+@ARMS
 @pytest.mark.parametrize("guard", [("Q",), ("g",)])
-def test_partial_guards_are_refused_for_missing_outcomes(guard) -> None:
+def test_partial_guards_are_refused_for_missing_outcomes(guard, arms: int) -> None:
     with pytest.raises(CapabilityError, match="requires guard"):
-        _estimator(guard=guard).fit(
-            _trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
+        _estimator(guard=guard, estimands=("ate",)).fit(
+            _with_arms(_trial(100), arms),
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            delta="Delta",
         )
 
 
@@ -415,14 +434,20 @@ def test_known_probabilities_survive_whole_result_persistence(tmp_path) -> None:
     )
 
 
-def test_observational_missing_outcomes_are_refused() -> None:
+@ARMS
+def test_observational_missing_outcomes_are_refused(arms: int) -> None:
     with pytest.raises(CapabilityError, match="randomized trial"):
         DRTMLE(cross_fit=False, estimands=("ate",)).fit(
-            _trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
+            _with_arms(_trial(100), arms),
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            delta="Delta",
         )
 
 
-def test_cross_fitted_missing_outcomes_are_refused() -> None:
+@ARMS
+def test_cross_fitted_missing_outcomes_are_refused(arms: int) -> None:
     """The message names the remedy in the engine and the public spelling.
 
     ``Y`` is binary here rather than the module's Gaussian ``_trial``, so the package's
@@ -432,14 +457,19 @@ def test_cross_fitted_missing_outcomes_are_refused() -> None:
     """
     with pytest.raises(CapabilityError, match="cross-validated extension") as caught:
         DRTMLE(randomized=True, estimands=("ate",)).fit(
-            _binary_trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
+            _with_arms(_binary_trial(100), arms),
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            delta="Delta",
         )
     assert str(caught.value).endswith(
         "pass cross_fit=False (CrossFitting(enabled=False) on DRTMLEMethod)"
     )
 
 
-def test_cross_fitted_missing_outcomes_refuse_before_a_fold_draw(monkeypatch) -> None:
+@ARMS
+def test_cross_fitted_missing_outcomes_refuse_before_a_fold_draw(monkeypatch, arms: int) -> None:
     """An unsupported fit does not reach a seed-dependent fold-support check."""
 
     def forbid_draw(*args: object, **kwargs: object) -> None:
@@ -453,18 +483,23 @@ def test_cross_fitted_missing_outcomes_refuse_before_a_fold_draw(monkeypatch) ->
             randomized=False,
             n_folds=3,
             stratify_folds="none",
-            estimands=("ate", "ey1", "ey0"),
+            estimands=("ate",) if arms == 3 else ("ate", "ey1", "ey0"),
             **learners,
         ).fit(
-            _binary_trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
+            _with_arms(_binary_trial(100), arms),
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            delta="Delta",
         )
     assert NeverFit.calls == 0
 
 
+@ARMS
 @pytest.mark.parametrize("stratify_folds", ["treatment", "none"])
 @pytest.mark.parametrize("randomized", [True, False])
 def test_an_unguarded_cross_fitted_missing_outcome_fit_is_refused(
-    randomized: bool, stratify_folds: str
+    randomized: bool, stratify_folds: str, arms: int
 ) -> None:
     """``guard=()`` is a plain TMLE, and it met none of the guarded refusals.
 
@@ -480,6 +515,7 @@ def test_an_unguarded_cross_fitted_missing_outcome_fit_is_refused(
     does not preempt it either.
     """
     learners = never_fit_learners()
+    estimands = ("ate",) if arms == 3 else ("ate", "ey1", "ey0")
     if stratify_folds == "treatment":
         with pytest.raises(ValueError, match="stratify_folds='none'"):
             DRTMLE(
@@ -487,7 +523,7 @@ def test_an_unguarded_cross_fitted_missing_outcome_fit_is_refused(
                 randomized=randomized,
                 n_folds=3,
                 stratify_folds=stratify_folds,
-                estimands=("ate", "ey1", "ey0"),
+                estimands=estimands,
                 **learners,
             )
         assert NeverFit.calls == 0
@@ -498,24 +534,35 @@ def test_an_unguarded_cross_fitted_missing_outcome_fit_is_refused(
         randomized=randomized,
         n_folds=3,
         stratify_folds=stratify_folds,
-        estimands=("ate", "ey1", "ey0"),
+        estimands=estimands,
         **learners,
     )
     with pytest.raises(CapabilityError, match="does not establish its cross-validated"):
         estimator.fit(
-            _binary_trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
+            _with_arms(_binary_trial(100), arms),
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            delta="Delta",
         )
     assert NeverFit.calls == 0
 
 
-def test_bivariate_missing_outcomes_are_refused_as_a_different_construction() -> None:
+@ARMS
+def test_bivariate_missing_outcomes_are_refused_as_a_different_construction(arms: int) -> None:
     with pytest.raises(CapabilityError, match="complete-outcome construction"):
         DRTMLE(
             randomized=True,
             cross_fit=False,
             reduction="bivariate",
             estimands=("ate",),
-        ).fit(_trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta")
+        ).fit(
+            _with_arms(_trial(100), arms),
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            delta="Delta",
+        )
 
 
 @pytest.mark.parametrize(
@@ -542,7 +589,39 @@ def test_invalid_known_probability_shapes_are_refused(probabilities, message: st
         )
 
 
-def test_bootstrapping_known_probabilities_is_refused() -> None:
+@pytest.mark.parametrize(
+    "probabilities, message",
+    [
+        (
+            np.full(100, 0.5),
+            r"as an \(n,\) vector is P\(A = 1\.0 \| W\) and describes two arms only; A has 3 "
+            r"levels \[0\.0, 1\.0, 2\.0\]\. Pass an \(n, 3\) array",
+        ),
+        (np.full(99, 0.5), "describes two arms only"),
+        (
+            np.full((100, 2), 0.5),
+            r"must be \(n, 3\) in the level order \[0\.0, 1\.0, 2\.0\], or a mapping keyed "
+            r"by those levels; got \(100, 2\)",
+        ),
+        (np.full((100, 3), 0.4), "sum to one"),
+        ({0.0: np.full(100, 0.5), 1.0: np.full(100, 0.5)}, "must name every arm"),
+    ],
+)
+def test_invalid_three_arm_known_probabilities_are_refused(probabilities, message: str) -> None:
+    """A vector is refused before it is stacked: it names one arm of three."""
+    with pytest.raises(ValueError, match=message):
+        _estimator(estimands=("ate",)).fit(
+            _with_arms(_trial(100), 3),
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            delta="Delta",
+            treatment_probabilities=probabilities,
+        )
+
+
+@ARMS
+def test_bootstrapping_known_probabilities_is_refused(arms: int) -> None:
     """A replicate refits on resampled rows the supplied array cannot follow.
 
     An n-out-of-n resample even passes the length check, so nothing downstream would
@@ -550,17 +629,18 @@ def test_bootstrapping_known_probabilities_is_refused() -> None:
     would come back as "the fit is too unstable to bootstrap".
     """
     with pytest.raises(CapabilityError, match="n_bootstrap"):
-        _estimator(n_bootstrap=5).fit(
-            _trial(100),
+        _estimator(n_bootstrap=5, estimands=("ate",)).fit(
+            _with_arms(_trial(100), arms),
             outcome="Y",
             treatment="A",
             covariates=["W1", "W2"],
             delta="Delta",
-            treatment_probabilities=np.full(100, 0.5),
+            treatment_probabilities=_uniform(100, arms),
         )
 
 
-def test_bootstrapping_known_probabilities_is_refused_without_a_guard() -> None:
+@ARMS
+def test_bootstrapping_known_probabilities_is_refused_without_a_guard(arms: int) -> None:
     """The control for lifting the unguarded refusal, and the reason it is a pair.
 
     This refusal used to live *inside* the ``guard``-gated block, so accepting
@@ -569,13 +649,13 @@ def test_bootstrapping_known_probabilities_is_refused_without_a_guard() -> None:
     silent, so a fit that merely runs is not evidence that it is right.
     """
     with pytest.raises(CapabilityError, match="n_bootstrap"):
-        _estimator(guard=(), n_bootstrap=5).fit(
-            _trial(100),
+        _estimator(guard=(), n_bootstrap=5, estimands=("ate",)).fit(
+            _with_arms(_trial(100), arms),
             outcome="Y",
             treatment="A",
             covariates=["W1", "W2"],
             delta="Delta",
-            treatment_probabilities=np.full(100, 0.5),
+            treatment_probabilities=_uniform(100, arms),
         )
 
 
@@ -618,16 +698,18 @@ def test_known_probabilities_configure_an_unguarded_plain_tmle() -> None:
     assert result.diagnostics.score_equations().passed
 
 
-def test_known_probabilities_without_delta_are_still_refused() -> None:
+@ARMS
+def test_known_probabilities_without_delta_are_still_refused(arms: int) -> None:
     """The half of the old refusal that was true, which had no test of its own."""
     frame = _trial(n=120, seed=3).assign(Y=lambda f: f["Y"].fillna(0.0)).drop(columns=["Delta"])
+    frame = _with_arms(frame, arms)
     with pytest.raises(ValueError, match="only used with delta="):
-        _estimator(guard=()).fit(
+        _estimator(guard=(), estimands=("ate",)).fit(
             frame,
             outcome="Y",
             treatment="A",
             covariates=["W1", "W2"],
-            treatment_probabilities=np.full(len(frame), 0.5),
+            treatment_probabilities=_uniform(len(frame), arms),
         )
 
 
@@ -687,6 +769,39 @@ def test_an_unnamed_probability_vector_says_which_arm_it_bound_to() -> None:
             delta="Delta",
             treatment_probabilities=np.full((len(frame), 3), 1 / 3),
         )
+
+
+#: The fit of ``mar-drtmle`` replicate 0, recorded on the unmodified tree before the
+#: K-arm change (6a55f038), as ``float.hex``. The committed artifact
+#: ``tests/canonical/drtmle_mar/replicates.csv.gz`` holds these values exactly on the
+#: Windows machine that recorded them (gap 0). The tolerance allows the last-ulp
+#: differences of another platform's BLAS, libm or solver path.
+_PRE_F4_REPLICATE_0 = {
+    "ey0": ("0x1.88ecb051dbd27p-2", "0x1.8b54c269b0d42p-6"),
+    "ey1": ("0x1.367af956d4375p-1", "0x1.5c36bc5bf2ef8p-6"),
+    "ate": ("0x1.c81284b799386p-3", "0x1.07e4b60970f56p-5"),
+}
+
+
+def test_two_arm_missing_drtmle_matches_the_pre_f4_fit() -> None:
+    """At two arms the shipped binary route runs unchanged: one shared tilt of ``g_1``.
+
+    Two pins. The literal pin compares the registered study's replicate 0 with its pre-F4
+    values. The structural pin checks the route: the targeted treatment mechanism is the
+    ``(n,)`` upper-arm vector of one two-parameter tilt, where the armwise route would
+    return ``(n, 2)``.
+    """
+    from tests.studies import canonical_mar_drtmle as study
+
+    frame, _ = study.draw_scenario(study.SCENARIO, study.PRIMARY_N, 0)
+    result = study.fit_cleverly(frame)
+    for name, (psi, std_error) in _PRE_F4_REPLICATE_0.items():
+        estimate = result[name]
+        assert estimate.psi == pytest.approx(float.fromhex(psi), rel=1e-12, abs=0.0)
+        assert estimate.std_error == pytest.approx(float.fromhex(std_error), rel=1e-12, abs=0.0)
+    mechanism = result.repeats[0].fluctuations["mean"].mechanism
+    assert np.asarray(mechanism.propensity).shape == (result.data.n,)
+    assert np.asarray(mechanism.score).shape == (2,)
 
 
 class TestTheContractSeesTheObservationTruncations:
@@ -880,14 +995,14 @@ class TestTheJointRowCountsTheTruncationTheEstimatorApplies:
         assert f"[{report.nuisance_bound:.4g}, 1], factor by factor" in text
 
 
-def _missing_treatment_frame(column: str) -> pd.DataFrame:
-    """A complete 100-row frame with a binary treatment stored as ``column``."""
+def _missing_treatment_frame(column: str, arms: int = 2) -> pd.DataFrame:
+    """A complete 100-row frame with a ``arms``-level treatment stored as ``column``."""
     rng = np.random.default_rng(29)
     w1 = rng.normal(size=100)
-    a = rng.binomial(1, 0.5, size=100)
+    a = rng.integers(0, arms, size=100) if arms > 2 else rng.binomial(1, 0.5, size=100)
     y = rng.binomial(1, 1.0 / (1.0 + np.exp(-(0.2 + 0.8 * a + 0.4 * w1)))).astype(float)
     treatment: np.ndarray = (
-        a.astype(float) if column == "float" else np.where(a == 1, "t", "c").astype(object)
+        a.astype(float) if column == "float" else np.array(["c", "t", "u"], dtype=object)[a]
     )
     return pd.DataFrame({"W1": w1, "A": treatment, "Y": y})
 
@@ -910,24 +1025,26 @@ def _missing_treatment_fit(frame: pd.DataFrame) -> None:
     ).fit(frame, outcome="Y", treatment="A", covariates=["W1"])
 
 
+@ARMS
 @pytest.mark.parametrize(("column", "missing", "match"), _MISSING_TREATMENT_CASES)
 def test_a_missing_treatment_value_is_refused_before_any_learner(
-    column: str, missing: object, match: str
+    column: str, missing: object, match: str, arms: int
 ) -> None:
     """No keyword declares a missing treatment, so the data container refuses it."""
-    frame = _missing_treatment_frame(column)
+    frame = _missing_treatment_frame(column, arms)
     frame.loc[3, "A"] = missing
     with pytest.raises(DataError, match=match):
         _missing_treatment_fit(frame)
     assert NeverFit.calls == 0
 
 
+@ARMS
 @pytest.mark.parametrize(("column", "missing", "match"), _MISSING_TREATMENT_CASES)
 def test_a_complete_treatment_reaches_the_learners(
-    column: str, missing: object, match: str
+    column: str, missing: object, match: str, arms: int
 ) -> None:
     """The control: the same frame without the missing value reaches a learner fit."""
-    frame = _missing_treatment_frame(column)
+    frame = _missing_treatment_frame(column, arms)
     with pytest.raises(AssertionError, match="before any learner is fitted"):
         _missing_treatment_fit(frame)
     assert NeverFit.calls > 0
