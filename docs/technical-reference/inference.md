@@ -83,11 +83,11 @@ Every other status is a non-inferential status.
 | status | declared by | `std_error`, `ci`, and `pvalue` | `summary()` column | reopened by |
 | --- | --- | --- | --- | --- |
 | `"influence_curve"` | every estimate except the ones below. This is the constructor default | return the values on this page | `std_err` | not applicable |
-| `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, or `"discrete"`. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `working-mechanism se` | [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
+| `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, or `"discrete"`. A `discrete` fit with one declared candidate, equal to the full adjustment set, takes the TMLE status instead. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `working-mechanism se` | [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
 | `"generated_design_plugin"` | every `CTMLE` fit with `strategy="oat"`, including a fit with `delta=` and a fit that requests one arm mean. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `generated-design se` | [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | `"estimated_weight_plugin"` | a `DRTMLE` fit with a non-empty `guard` and varying weights declared estimated (`weights_estimated=True`). A fit with `guard=()` keeps `"influence_curve"`. Constant weights fit the unweighted estimator, so they keep it too. [DR-TMLE supported estimands](dr-tmle/supported-estimands.md#refused-by-name) gives the reason | raise `CapabilityError` with the reason of the status | `fixed-weight se` | [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
-| `"unequal_cluster_plugin"` | a cross-fitted `TMLE` or `DRTMLE` fit with `id=` whose clusters differ in row count or weight mass, overall or in one reported baseline stratum. This includes `cv_evaluation=True`. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `cluster-robust plug-in se` | [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
-| `"few_cluster_plugin"` | a `TMLE`, `DRTMLE`, or `LTMLE` fit with `id=` and fewer than 40 clusters with positive weight mass in the fit or one reported baseline stratum. `LTMLE` takes `id=` in sample only. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
+| `"unequal_cluster_plugin"` | a cross-fitted `TMLE` or `DRTMLE` fit with `id=` whose clusters differ in row count or weight mass, overall or in one reported baseline stratum. This includes `cv_evaluation=True`. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `cluster-robust plug-in se` | [X24](../roadmap.md#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters) |
+| `"few_cluster_plugin"` | a `TMLE`, `DRTMLE`, or `LTMLE` fit with `id=` and fewer than 40 clusters with positive weight mass in the fit or one reported baseline stratum. `LTMLE` takes `id=` in sample only. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [X24](../roadmap.md#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters) |
 
 At every status, `plugin_std_error` and `plugin_interval` return the plug-in spread of the
 reported curve. On `"influence_curve"` they return the numbers of `std_error` and `ci` under names
@@ -123,6 +123,9 @@ rename a number on a non-inferential status.
 
 The bootstrap spread is the sample standard deviation of the replicate estimates. A standard error
 is an inference claim, so a non-inferential status publishes that number as `bootstrap sd`.
+`BootstrapSummary.inferential` records whether a registered study licenses the percentile interval
+for the fit that produced it. When it is `False`, the bootstrap columns take the diagnostic names
+at every status. `bootstrap_column` in `inference/influence.py` applies both conditions.
 `BootstrapSummary` keeps the field names `std_error` and `ci` at every status. Its fields describe
 the replicate distribution, and the status decides only the published name.
 `TestTheBootstrapPublishesUnderTheStatusName` in
@@ -232,8 +235,8 @@ positive weight mass when some clusters have zero mass.
 
 `FEW_CLUSTER_THRESHOLD` in `cleverly._inference_status` holds the threshold of 40.
 [References](../references.md#grouped-folds-and-clustered-cross-fitting) gives both
-sources. [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle) holds the
-route that reopens each setting.
+sources. [X24](../roadmap.md#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters) holds the route that reopens each
+setting.
 
 ## Transformed parameters
 
@@ -241,6 +244,33 @@ Risk ratios, odds ratios, and user contrasts propagate the joint influence curve
 method. A ratio's curve is the delta-method transform of the levels' curves, and the technical
 reference records that as an exact identity rather than as an approximation. Ratio intervals are
 built on the log scale and exponentiated.
+
+Let $h$ be a smooth function of the estimates $\hat\psi$, with gradient $\nabla h$ and joint curve
+$IC$. Let $f$ be a monotone transform with derivative $f'$. The table gives each construction.
+
+| construction | estimate | curve on the inference scale | interval |
+| --- | --- | --- | --- |
+| `contrast(h, names)` | $h(\hat\psi)$ | $\nabla h^\top IC$ | $h \pm z\,se$ |
+| `contrast(h, names, scale="ratio")` | $v = h(\hat\psi) > 0$ | $\nabla h^\top IC / v$, the chain rule for $\log$ | $\exp(\log v \pm z\,se)$ |
+| `contrast(h, names, transform=f)` | $h(\hat\psi)$ | $f'(h)\,\nabla h^\top IC$ | the sorted pair $f^{-1}(f(h) \pm z\,se)$ |
+| `ratio(a, b)` | $\psi_a / \psi_b$ | $IC_a/\psi_a - IC_b/\psi_b$ | $\exp(\log\psi \pm z\,se)$ |
+
+The transform row is `ci(contrast = list(f, f_inv, h, fh_grad))` of R `drtmle` 1.1.2
+(`R/confint.R`, lines 146 to 167). `drtmle` takes the gradient of $f \circ h$. This package takes
+$\nabla h$ and $f'$ and applies the chain rule. The limits are sorted after the inverse map, so a
+decreasing $f$ gives an ordered interval. `drtmle` does not sort them. `Transform.log()` and
+`scale="ratio"` give the same standard error, interval and p-value bit for bit. A `Transform` built
+from lambdas does not pickle. A fit never stores a transformed estimate.
+
+`estimate.wald_test(null=c)` reports $z = (\tilde\psi - \tilde c)/se$ and $p = 2\Phi(-|z|)$, with
+both values on the inference scale. For a ratio $\tilde c = \log c$, so $c$ must be positive. For a
+transformed estimate $\tilde c = f(c)$. This is `wald_test(null = )` of R `drtmle` 1.1.2
+(`R/test.R`, lines 85 to 183). `pvalue` is `wald_test().pvalue` at the default null: 0 for a level,
+difference or fraction, and 1 for a ratio. A non-inferential estimate refuses `wald_test` as it
+refuses `pvalue`.
+
+`tests/unit/test_contrast_conveniences.py` checks each row against a longhand statement. It also
+runs one mutation control for each transform and gradient.
 
 Implementation:
 [`inference/influence.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/influence.py),
@@ -265,7 +295,19 @@ resampling gives each sampled occurrence a distinct cluster code. Repeated draws
 cluster therefore remain separate for fold construction and variance estimation.
 
 Bootstrap configuration is refused for engines that cannot implement it. An engine does not
-accept and then discard this configuration.
+accept and then discard this configuration. `TMLE` and `LTMLE` both take `n_bootstrap=`, and each
+replicate refits the whole estimator. The
+[longitudinal bootstrap contract](longitudinal-tmle.md#the-full-refit-bootstrap) states what a
+replicate resamples and refits. The
+[full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md)
+measures the percentile interval with correctly specified cell-mean nuisances on finite binary
+laws, at $n = 1000$, and at 1,500 rows in 60 clusters for the cluster bootstrap. No result covers
+a data-adaptive nuisance.
+
+An `LTMLE` bootstrap is licensed as inference only for a design kind
+in `LICENSED_BOOTSTRAP_DESIGNS`, which a kind enters after its registered cells are green. Every
+other `LTMLE` bootstrap prints as a diagnostic. `POINT_BOOTSTRAP_INFERENTIAL` in
+`estimators/tmle.py` holds the point-treatment rule.
 
 `simultaneous_bands` refuses an estimate that declares the `"second_moment"` covariance rule. The
 multiplier draws center each influence curve. Centering matches the raw second moment only on a

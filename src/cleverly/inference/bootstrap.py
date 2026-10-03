@@ -40,18 +40,36 @@ from __future__ import annotations
 import warnings
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
-from typing import Literal
+from typing import Any, Literal, Protocol, TypeVar
 
 import numpy as np
 
 from .._typing import FloatArray, IntArray
-from ..data.causal_data import CausalData
 from ..utils.parallel import map_parallel
 from .influence import BootstrapSummary
 
 __all__ = ["BootstrapResult", "bootstrap_indices", "cluster_members", "run_bootstrap"]
 
-RefitFn = Callable[[CausalData], Mapping[str, float]]
+
+class Resamplable(Protocol):
+    """A data container the bootstrap can resample: a row count, clusters and a subset.
+
+    :class:`~cleverly.data.CausalData` and
+    :class:`~cleverly.longitudinal.LongitudinalData` both satisfy it.
+    """
+
+    @property
+    def n(self) -> int: ...
+
+    @property
+    def cluster(self) -> IntArray | None: ...
+
+    def subset(self, index: Any) -> Any: ...
+
+
+_DataT = TypeVar("_DataT", bound=Resamplable)
+
+RefitFn = Callable[[Any], Mapping[str, float]]
 Resampling = Literal["auto", "iid", "cluster"]
 
 
@@ -73,7 +91,7 @@ class _BootstrapDesign:
     cluster: IntArray | None
     members: tuple[IntArray, ...] | None
 
-    def sample(self, data: CausalData, draw: _BootstrapDraw) -> CausalData:
+    def sample(self, data: _DataT, draw: _BootstrapDraw) -> _DataT:
         """Materialize one sample with distinct codes for cluster occurrences."""
         index, occurrence_codes = _bootstrap_draw(
             data.n,
@@ -215,7 +233,7 @@ def _bootstrap_draw(
 
 
 def _bootstrap_design(
-    data: CausalData,
+    data: Resamplable,
     *,
     n_replicates: int,
     resampling: Resampling,
@@ -226,13 +244,6 @@ def _bootstrap_design(
         raise ValueError(f"n_replicates must be positive; got {n_replicates}")
     if resampling not in ("auto", "iid", "cluster"):
         raise ValueError("resampling must be 'auto', 'iid', or 'cluster'")
-    if not hasattr(data, "subset"):
-        raise TypeError(
-            f"the bootstrap resamples rows and refits, which needs a subset() on the "
-            f"data container; {type(data).__name__} has none. A longitudinal fit is not "
-            "bootstrappable for that reason: subsetting has to carry every node and the "
-            "whole backward recursion has to run again per replicate"
-        )
     use_clusters = data.cluster is not None if resampling == "auto" else resampling == "cluster"
     if use_clusters and data.cluster is None:
         raise ValueError("resampling='cluster' requires the data to carry cluster ids")
@@ -258,7 +269,7 @@ def _bootstrap_design(
 
 
 def run_bootstrap(
-    data: CausalData,
+    data: Resamplable,
     refit: RefitFn,
     *,
     n_replicates: int,
@@ -270,11 +281,11 @@ def run_bootstrap(
 
     Parameters
     ----------
-    data : CausalData
+    data : CausalData or LongitudinalData
         Validated study data to resample.
     refit : callable
-        Maps a resampled :class:`~cleverly.data.CausalData` to a mapping of estimand
-        name to point estimate.  Replicates that raise are dropped and counted
+        Maps a resampled container of the same type to a mapping of estimand name to
+        point estimate.  Replicates that raise are dropped and counted
         rather than aborting the run: with weak overlap a resample can easily end
         up with an empty treatment arm in some stratum.
     n_replicates : int

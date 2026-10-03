@@ -1182,8 +1182,9 @@ class DRTMLE(TMLE):
                 raise CapabilityError(
                     "DRTMLE with delta= is supported only for a randomized trial. Pass "
                     "randomized=True to estimate the treatment mechanism for chance-imbalance "
-                    "adjustment, or pass treatment_probabilities= to fit(). Observational "
-                    "treatment remains unsupported by the published theorem."
+                    "adjustment, or pass treatment_probabilities= to fit(). An observational "
+                    "treatment needs the composite-indicator construction, which is not "
+                    "written yet; docs/roadmap.md X23 tracks this work."
                 )
             if set(self.guard) != {"Q", "g"}:
                 raise CapabilityError(

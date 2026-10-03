@@ -114,6 +114,51 @@ risks = study.estimate(
 Each node fit uses the relevant uncensored, event-free risk set. The result key preserves regimen
 and horizon.
 
+Read ratios and the restricted mean survival time (RMST) off the fitted curve. They refit nothing.
+
+```python
+risk_ratio = risks.ratio("risk_regimen[always @ t=2]", "risk_regimen[never @ t=2]")
+survival_ratio = risks.ratio(
+    "risk_regimen[always @ t=2]", "risk_regimen[never @ t=2]", view="survival"
+)
+rmst = risks.rmst("always", 3, versus="never")
+print(risk_ratio.ci, survival_ratio.psi, rmst.psi, rmst.ci)
+```
+
+| call | what it reports |
+| --- | --- |
+| `ratio(a, b)` | the risk ratio of two levels at one horizon, with its interval on the log scale |
+| `ratio(a, b, view="survival")` | the ratio of the two survival probabilities |
+| `ratio(a, b, kind="or")` | the odds ratio of the two levels |
+| `rmst(d, tau)` | the RMST up to node `tau`, $\tau - \sum_{t<\tau} F_d(t)$, in node units |
+| `rmst(d, tau, versus=b)` | the difference of two RMSTs |
+| `rmtl(d, tau, cause)` | the restricted mean time lost to one cause |
+
+`rmst` needs the risk at every horizon from 1 to `tau - 1`. For nodes spaced $\Delta$ apart,
+multiply by $\Delta$ to get calendar time.
+
+Pass `n_bootstrap=` to refit the whole estimator on resamples. Each estimate then carries a
+percentile interval beside its influence-curve interval.
+
+```python
+bootstrapped = study.estimate(
+    RegimeMean({"always": 1, "never": 0}, horizons=(1, 2)),
+    outcome_learner=LinearRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    n_bootstrap=200,
+    random_state=0,
+)
+print(bootstrapped.summary())
+```
+
+The [bootstrap contract](../technical-reference/longitudinal-tmle.md#the-full-refit-bootstrap)
+states what each replicate resamples and refits. The registered study measures the percentile
+interval with correctly specified cell-mean nuisances on finite binary laws, at $n = 1000$. A
+design is licensed as inference only after its cells are green. Until then the summary prints
+`bootstrap sd` and a percentile range, a diagnostic. `ratio` and `rmst` carry the bootstrap of
+their inputs.
+
 ## Competing risks
 
 A mapping from cause labels to absorbing outcome sequences declares competing risks. Cause,

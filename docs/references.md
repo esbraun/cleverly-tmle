@@ -512,7 +512,8 @@ previous reader had is not a citation; a page number is.
 - Missing-outcome attributable-effect source audit (2026-09-12): no reviewed paper presents the
   exact MAR PAR and PAF construction. [RM8](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm8-missing-outcome-attributable-effects)
   records this bounded conclusion. [F20](roadmap.md#f20-missing-outcome-attributable-effects)
-  holds the missing published result.
+  holds the work. The [natural-extension verdicts](technical-reference/natural-extension-verdicts.md)
+  record part (e), a stack of the two shipped parents, as a natural extension.
 
   Díaz, Carone and van der Laan give the MAR natural-course parent, its remainder, and its rates.
   Hubbard and van der Laan give the complete-data reference parent and attributable transforms.
@@ -651,6 +652,15 @@ previous reader had is not a citation; a page number is.
   Neither upstream version runs the pooled update, so agreement with 1.5.4 compares two
   constructions under the registered paired margins.
 
+  Section 2, journal page 849, allows a random regime $d(a_t, h_t, \varepsilon_t)$ with a
+  randomizer that is "(i) drawn independently across units and independently of U, and (ii) its
+  distribution does not depend on P". The section then places the randomizer in $L_t$ "without
+  loss of generality". Section 4, journal page 850, says "Efficiency theory in this paper focuses
+  on functions d that do not depend on P (recall that the function is deterministic but allowed
+  to take a randomizer as argument)". The
+  [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) use these
+  locators for part (c).
+
   The same article gives a second estimator in Section 5.3, journal page 854. The section is
   titled "Sequential Regression Estimator Using SDR Unbiased Transformations". The locators below
   come from it.
@@ -727,7 +737,17 @@ article as the copy this project read.
   cluster-level treatment under cluster randomization, and not a TMLE with a row-level treatment.
   Remark 5 says a stratified cluster randomization needs treatment balance within each stratum of
   each fold, and it defers that construction to Rafi (2023). This source supports the split law.
-  It does not prove the package's estimator.
+  It does not prove the package's estimator. Section 2, Assumption 1(b), reads "The source
+  population size $N_i$ follows an unknown distribution $\mathcal P_N$ over a finite support". So
+  the cluster size is a bounded random cluster attribute. Section 2 defines the individual-average
+  mean $\mu_I(a) = E\{\sum_{j=1}^{N_i} Y_{ij}(a)\}/E(N_i)$, which is a ratio of two cluster-level
+  means. Assumption 3 lets the observed cluster size depend on the arm and on the cluster
+  attributes. Section 4.2, Equation (2), estimates $\mu_I(a)$ by a ratio of cluster sums. The
+  Section 5 simulation multiplies the variance by $m/(m-5)$ and uses a $t$ reference with $m-5$
+  degrees of freedom. Remark 3 recommends machine learning only "when the number of clusters is
+  sufficiently large, e.g., m = 100". The
+  [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) use these
+  locators for part (g).
 - Chiang, Kato, Ma & Sasaki (2022), [*Multiway Cluster Robust Double/Debiased Machine
   Learning*](https://doi.org/10.1080/07350015.2021.1895815), *Journal of Business and Economic
   Statistics* 40(3):1046-1056, DOI 10.1080/07350015.2021.1895815. Read first-hand in the Taylor and
@@ -967,6 +987,14 @@ is the only empirical witness for it.
   inference. The published article and supplement are open, and this audit checked Theorem 1.
   The article points to Appendix G for the conditions while Supplement A labels that material
   Appendix F; this appears to be an internal cross-reference error.
+  The author preprint (arXiv:1901.05056), Appendix D, subsection "Cross-validated CTMLE", printed
+  page 26, was read first-hand. It fits $\bar Q^0_{n,v}$ and $\bar G^0_{n,v}(\cdot\mid\bar Q^0_{n,v})$
+  in each training sample. It finds one $\epsilon_n$ "by pooling over the validation samples". It
+  states that sample splitting can "avoid the Donsker class condition in regularity condition
+  (iv)". It calls the proof "completely analogous to" the CV-TMLE proof of Zheng and van der Laan
+  (2011), combined with its own appendix proof. The
+  [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) use this locator
+  for part (k).
 - van der Vaart, Dudoit & van der Laan (2006), [*Oracle inequalities for multi-fold cross
   validation*](https://doi.org/10.1524/stnd.2006.24.3.351), *Statistics & Decisions*
   24(3):351-371, DOI 10.1524/stnd.2006.24.3.351. The paper bounds the risk of a cross-validation
@@ -1182,6 +1210,11 @@ is the only empirical witness for it.
   [`ctmleDiscrete`, lines 173-185](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/ctmle_discrete.R#L173-L185)
   forms the interval from that variance at `best_k`. Neither block differentiates the
   cross-validated stopping rule.
+  [`evaluate_candidates`, lines 200-201](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/functions_discrete.R#L200-L201) calls
+  `calc_varIC(..., ICg = TRUE)` for every candidate, and
+  [`ctmleDiscrete`, lines 181-196](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/ctmle_discrete.R#L181-L196) reports `var.psi`
+  and `CI` from the second value at `best_k`. `logistic_plugin` reports that value, and
+  `plugin_interval` reports the first.
 
   [`stage1`, lines 84-110](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/functions.R#L84-L110)
   takes a continuous outcome's bounds from `range(Y)` when the caller supplies none, and
@@ -1440,6 +1473,24 @@ is the only empirical witness for it.
   *Statistics in Medicine* 39(8):1199-1236, DOI 10.1002/sim.8471. The paper defines the total
   and controlled direct effects on a cause-specific cumulative incidence, and their identifying
   conditions. Cited by the [time-to-event tutorial](examples/longitudinal-survival.ipynb).
+- The `lmtp` 1.5.4 snapshot above, [`R/contrasts.R`, lines 19-57](https://github.com/nt-williams/lmtp/blob/f04a2b47f46debc515ce4ae778e05ebfde922c44/R/contrasts.R#L19-L57),
+  forms `lmtp_contrast(type = "rr")` and `type = "or"` from the influence curves of two fits
+  through the operators of `ife` 0.2.3. The curves are $IC_a/\psi_a - IC_b/\psi_b$ and
+  $IC_a/(\psi_a(1-\psi_a)) - IC_b/(\psi_b(1-\psi_b))$, with the interval on the log scale.
+  `LongitudinalResult.ratio` uses the same curves. A numeric reference is not offered.
+- Royston & Parmar (2013), *Restricted mean survival time: an alternative to the hazard ratio for
+  the design and analysis of randomized trials with a time-to-event outcome*, *BMC Medical
+  Research Methodology* 13:152. The definition of the RMST as the area under the survival curve up
+  to a horizon. Pending source read for the section locator.
+- Andersen, Hansen & Klein (2004), *Regression analysis of restricted mean survival time based on
+  pseudo-observations*, *Lifetime Data Analysis* 10:335-350. The restricted mean time lost to one
+  cause. Pending source read for the section locator.
+- The full-refit bootstrap of `LTMLE` has no source for this estimator. The registered
+  [full-refit bootstrap study](technical-reference/method-evidence/full-refit-bootstrap-and-derived-contrasts.md)
+  measures its percentile interval with correctly specified cell-mean nuisances on finite
+  binary laws, at $n = 1000$, and at 1,500 rows in 60 clusters for the cluster bootstrap.
+  Cai & van der Laan (2020), in [collaborative TMLE](#collaborative-tmle), is the warning
+  for a data-adaptive nuisance.
 
 ## Incremental interventions
 
@@ -1842,6 +1893,24 @@ the composite response `A == a & DeltaA == 1 & DeltaY == 1` ([`R/fluctuate.R`, l
 1117–1126](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/estimate.R#L1117-L1126)).
 This is the composite construction that Díaz and van der Laan reject on page 25. Both
 missing-outcome studies therefore pair with it at the both-correct limit only.
+
+The same commit codes a missing outcome and a missing treatment as one composite indicator.
+`R/drtmle.R` line 207 sets `DeltaA = as.numeric(!is.na(A))`. `R/fluctuate.R` line 28 builds the
+clever covariate from `A == a & DeltaA == 1 & DeltaY == 1`, and lines 98 and 169-171 use the same
+indicator. `R/estimate.R` factorizes the composite mechanism as
+$P(\Delta_A=1\mid W)\,P(A=a\mid\Delta_A=1,W)\,P(\Delta_Y=1\mid\Delta_A=1,A=a,W)$. In the
+`glm_Qr` branch of `estimateQrn`, `R/estimate.R` lines 1177-1178 filter on
+`trainDeltaY == 1 & trainDeltaY == 1`, so `DeltaA` is absent from that subset. A missing `A` is
+coded `NA`, and `Aeqa[is.na(Aeqa)] <- FALSE` already drops those rows, so the effect is nil under
+that coding. The [natural-extension verdicts](technical-reference/natural-extension-verdicts.md)
+use these locators for parts (a) and (b).
+
+The same snapshot fixes two post-fit conveniences. [`R/confint.R`, lines
+146-167](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/confint.R#L146-L167) forms `ci(contrast = list(f, f_inv, h, fh_grad))` as
+$f^{-1}(f(h) \pm z\,se)$, with $se$ from the gradient of $f \circ h$.
+[`R/test.R`, lines 85-183](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/test.R#L85-L183) forms `wald_test(null = )` as
+$(f(h) - f(\text{null}))/se$. `contrast(transform=)` and `ParameterEstimate.wald_test` reproduce
+both, and sort the transformed limits.
 
 ## The TWINS example
 

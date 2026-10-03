@@ -69,7 +69,9 @@ reported curve is this estimator's influence curve when the selected working mec
 not consistent for the treatment law.  The point estimate, the selection path and the
 curve remain, and ``plugin_std_error`` and ``plugin_interval`` report the retained
 diagnostic under names that make no coverage claim.  F18 in ``docs/roadmap.md`` is the
-condition that reopens this.
+condition that reopens this.  One ``"discrete"`` fit is the exception.  When the declared
+list holds one candidate and that candidate is the full adjustment set, nothing is
+selected, the estimator is the ordinary TMLE, and the fit takes the ordinary TMLE status.
 
 ``strategy="oat"``
     The outcome-adaptive treatment mechanism from ``ctmle3::LF_oat``.  **The package
@@ -177,7 +179,9 @@ path makes the estimate, influence curve, score check and sensitivity analyses a
 The initial Qbar is retained separately for nuisance diagnostics.
 
 The reported curve is the ordinary cross-fitted EIF plug-in curve, and on every strategy the
-package reports its spread as a diagnostic and not as inference. The selector calculation
+package reports its spread as a diagnostic and not as inference. The one exception is the
+``"discrete"`` fit whose one declared candidate is the full adjustment set, which is the
+ordinary TMLE. The selector calculation
 treats the selected candidate as fixed but makes no conditional-on-selection coverage claim.
 The outcome-adaptive calculation uses the fold-local nuisance construction of Benkeser, Cai and
 van der Laan (2020). Their theorem proves the ordinary adaptive-propensity curve for one binary
@@ -274,7 +278,7 @@ import copy
 import inspect
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 from sklearn.linear_model import LogisticRegression
@@ -285,7 +289,8 @@ from ..data.causal_data import CausalData
 from ..exceptions import CapabilityError
 from ..fluctuation.iterative import InitialFit, apply_logistic, check_matching_arms
 from ..fluctuation.submodel import Submodel, restrict, weighted_form
-from ..inference.delta import log_odds_ratio_influence, log_ratio_influence
+from ..inference.cluster import influence_variance
+from ..inference.delta import log_odds_ratio_influence, log_ratio_influence, normal_ci
 from ..inference.influence import counterfactual_means
 from ..interventions.learned import learned_rule_configuration_refusal
 from ..learners._fitting import Task, predict_mean, predict_probabilities
@@ -300,6 +305,9 @@ from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .targeting import build_submodel, solve_submodel
 from .tmle import TMLE
 
+if TYPE_CHECKING:
+    from .base import TMLEResult
+
 __all__ = [
     "CTMLE",
     "CTMLE_SELECTOR_STRATEGIES",
@@ -308,7 +316,9 @@ __all__ = [
     "CTMLEPreorder",
     "CTMLESelection",
     "CTMLEStrategy",
+    "LogisticPlugin",
     "is_selector_strategy",
+    "logistic_plugin",
 ]
 
 CTMLEStrategy = Literal["greedy", "ordered", "discrete", "oat"]
@@ -339,6 +349,39 @@ def is_selector_strategy(strategy: str | None) -> bool:
         broadens the Literal does not silently acquire a refusal it never declared.
     """
     return strategy in CTMLE_SELECTOR_STRATEGIES
+
+
+def declares_full_adjustment_only(
+    strategy: str | None,
+    candidates: Sequence[Sequence[str]] | None,
+    covariate_names: Sequence[str],
+) -> bool:
+    """Whether a ``"discrete"`` fit declares one candidate, and that candidate is every covariate.
+
+    Such a fit has nothing to select. Its treatment mechanism is fitted on the full
+    adjustment set, so the estimator is the ordinary TMLE. The key reads the declared list
+    and the prepared covariate names only, and never the fitted path, so a caller can know
+    the answer before the fit.
+
+    Parameters
+    ----------
+    strategy : str or None
+        The collaborative strategy.
+    candidates : sequence of sequence of str or None
+        The declared ``candidates=`` list.
+    covariate_names : sequence of str
+        The prepared covariate names, :attr:`~cleverly.data.CausalData.covariate_names`.
+
+    Returns
+    -------
+    bool
+        ``True`` when the strategy is ``"discrete"``, the list has exactly one entry, and
+        that entry holds each covariate name exactly once, in any order. A repeated
+        candidate counts as two candidates, and a repeated name is not the full set.
+    """
+    if strategy != "discrete" or candidates is None or len(candidates) != 1:
+        return False
+    return len(covariate_names) > 0 and sorted(candidates[0]) == sorted(covariate_names)
 
 
 #: Floor applied to targeted predictions before taking a logarithm in the loss.
@@ -595,7 +638,9 @@ class CTMLE(TMLE):
     simultaneous band and every E-value branch refuse for the same reason.  The selector
     strategies and ``strategy="oat"`` give different reasons, and F18 and F19 in the
     roadmap hold them.  For an interval, fit :class:`~cleverly.TMLE`.  See the module
-    docstring.
+    docstring.  The exception is a ``"discrete"`` fit whose one declared candidate is the
+    full adjustment set: it selects nothing, equals the ordinary TMLE, and reports its
+    interval.
 
     Parameters
     ----------
@@ -651,12 +696,14 @@ class CTMLE(TMLE):
     _assessment_method = "collaborative_tmle"
 
     def _inference_status(self, data: CausalData) -> InferenceStatus:
-        """Refuse inference on every strategy, and name the reason each one has.
+        """Name the status of each strategy, and admit the one fit that selects nothing.
 
-        Keyed on the strategy. The selector paths take the status that F18 keys on. A ``"discrete"``
-        fit with a single full-adjustment candidate is refused too, even though it is bit-identical
-        to a plain TMLE fit whose interval the package does supply. That over-refusal is deliberate
-        and ``docs/technical-reference/collaborative-tmle.md`` records it.
+        Keyed on the strategy. The selector paths take the status that F18 keys on, with one
+        exception. A ``"discrete"`` fit that declares one candidate, equal to the full adjustment
+        set, selects nothing and is the ordinary TMLE, so it takes the status of
+        :class:`~cleverly.TMLE`. :func:`declares_full_adjustment_only` is the key. It reads the
+        declared list and the prepared covariate names, and never the fitted path.
+        ``docs/technical-reference/collaborative-tmle.md`` states the contract.
 
         ``"oat"`` takes its own status on every fit, as the status table of
         ``docs/technical-reference/inference.md`` states. Its
@@ -667,16 +714,19 @@ class CTMLE(TMLE):
         Parameters
         ----------
         data : CausalData
-            The prepared data. Not read: collaborative TMLE refuses ``id=`` at every
-            setting, so no data-dependent status applies to it.
+            The prepared data. Only its covariate names are read here. The admitted
+            ``"discrete"`` fit passes ``data`` to the :class:`~cleverly.TMLE` status.
 
         Returns
         -------
         str
-            One of :data:`~cleverly.inference.influence.InferenceStatus`:
-            ``"working_mechanism_plugin"`` for ``"greedy"``, ``"ordered"`` and
-            ``"discrete"``, and ``"generated_design_plugin"`` for ``"oat"``.
+            One of :data:`~cleverly.inference.influence.InferenceStatus`: the
+            :class:`~cleverly.TMLE` status for the admitted ``"discrete"`` fit,
+            ``"working_mechanism_plugin"`` for every other ``"greedy"``, ``"ordered"`` and
+            ``"discrete"`` fit, and ``"generated_design_plugin"`` for ``"oat"``.
         """
+        if declares_full_adjustment_only(self.strategy, self.candidates, data.covariate_names):
+            return super()._inference_status(data)
         if is_selector_strategy(self.strategy):
             return "working_mechanism_plugin"
         return "generated_design_plugin"
@@ -1168,6 +1218,14 @@ class CTMLE(TMLE):
         the same way.  A refit that drops a covariate keeps the refusal of an ordering
         that names an unknown covariate.
 
+        A ``"discrete"`` fit takes the same rule for each candidate. The copy appends each
+        covariate that ``data`` records as added
+        (:attr:`~cleverly.data.CausalData.added_covariates`) to each candidate that does
+        not already name it, in the order ``data`` holds them. A covariate the fit already
+        had keeps its place, named or not. So a refit of a fit whose one candidate is the
+        full adjustment set keeps one full candidate, and keeps the status of the fit it
+        refits.
+
         Parameters
         ----------
         data : CausalData
@@ -1176,9 +1234,24 @@ class CTMLE(TMLE):
         Returns
         -------
         CTMLE
-            This estimator when it has no explicit ordering or its ordering covers every
-            covariate of ``data``, and otherwise a copy with the extended ordering.
+            This estimator when it declares no ordering and no candidates, or when they
+            cover every covariate of ``data``. Otherwise a copy with the extended ordering
+            or the extended candidates.
         """
+        if self.strategy == "discrete" and self.candidates is not None:
+            recorded = set(data.added_covariates)
+            added = tuple(name for name in data.covariate_names if name in recorded)
+            extended = [
+                (*candidate, *(name for name in added if name not in candidate))
+                for candidate in self.candidates
+            ]
+            if all(
+                len(new) == len(old) for new, old in zip(extended, self.candidates, strict=True)
+            ):
+                return self
+            configured = copy.copy(self)
+            configured.candidates = extended
+            return configured
         if self.ordering is None:
             return self
         declared = tuple(self.ordering)
@@ -1907,3 +1980,178 @@ def _weighted_partial_correlation(
 def _restrict_fit(fit: InitialFit, index: IntArray) -> InitialFit:
     """Row-subset an initial fit, the counterpart of :func:`.submodel.restrict`."""
     return fit.map_arms(lambda values: values[index])
+
+
+#: The start of every ``logistic_plugin`` refusal: what R ``ctmle`` defines the term for.
+_LOGISTIC_PLUGIN_SCOPE = (
+    "the logistic-estimation term of R ctmle's calc_varIC is defined for a binary "
+    "treatment whose propensity is fitted once on all rows without weights, missing "
+    "outcomes or an intermediate variable. This fit "
+)
+
+
+@dataclass(frozen=True)
+class LogisticPlugin:
+    """The plug-in variance R ``ctmle`` reports for a selector C-TMLE fit.
+
+    A diagnostic.  The fit's status does not change: a selecting fit keeps
+    ``"working_mechanism_plugin"``, and a ``"discrete"`` fit with one full candidate keeps
+    the TMLE status.  No registered study measures the coverage of this interval.  The
+    ``plugin_logistic_`` prefix makes no coverage claim.
+
+    Parameters
+    ----------
+    name : str
+        The estimand: ``"ate"``, ``"ey1"`` or ``"ey0"``.
+    psi : float
+        The reported estimate.
+    influence_curve : ndarray
+        ``D* + term1 I^{-1} S`` on the outcome scale, with ``S = (A - g) W~`` the
+        logistic score of the selected candidate's covariates and an intercept.
+    plugin_logistic_std_error : float
+        The plug-in standard error of :attr:`influence_curve`, at the observation or
+        cluster unit.
+    plugin_logistic_interval : tuple of float
+        The Wald interval at the fit's level, from that standard error.
+    correction_applied : bool
+        ``False`` when the selected candidate has no covariates, or when the information
+        matrix is singular.  R ``ctmle`` then reports the ``D*`` variance, and so does this.
+    """
+
+    name: str
+    psi: float
+    influence_curve: FloatArray
+    plugin_logistic_std_error: float
+    plugin_logistic_interval: tuple[float, float]
+    correction_applied: bool
+
+
+def _logistic_plugin_refusal(result: TMLEResult) -> str | None:
+    """Why ``result`` is outside the term's definition, or ``None``."""
+    data = result.data
+    selection = result.extra.get("ctmle")
+    if not isinstance(selection, CTMLESelection):
+        if isinstance(selection, CTMLEOutcomeAdaptiveFit):
+            return "used strategy='oat', which fits no logistic propensity on covariates"
+        return "is not a selector C-TMLE fit (strategy 'greedy', 'ordered' or 'discrete')"
+    if not data.is_binary_treatment:
+        return f"has {data.n_arms} treatment arms"
+    if result.config.cross_fit:
+        return "cross-fits its propensity"
+    if data.is_weighted:
+        return "carries observation weights"
+    if data.has_missing_outcome:
+        return "has missing outcomes"
+    if result.intermediate_value is not None:
+        return "targets a level of an intermediate variable"
+    return None
+
+
+def logistic_plugin(result: TMLEResult) -> dict[str, LogisticPlugin]:
+    r"""The ``calc_varIC(ICg = TRUE)`` variance R ``ctmle`` reports, as a diagnostic.
+
+    R ``ctmle`` 0.1.2 at commit ``18de559`` reports ``var.psi`` and ``CI`` from
+    ``calc_varIC(..., ICg = TRUE)`` at the selected candidate
+    (``R/functions_discrete.R``, lines 200 and 201, and ``R/ctmle_discrete.R``, lines
+    181 to 196).  That variance adds to :math:`D^*` the term for the estimation of the
+    candidate's logistic propensity (``R/functions.R``, lines 39 to 60):
+
+    .. math::
+
+        IC_i = D^*_i + \text{term1}\, I^{-1} (A_i - g_i) \tilde W_i,
+
+    with :math:`\tilde W = [1, W_S]` the selected covariates and an intercept,
+    :math:`I = P_n[g(1-g)\tilde W \tilde W^\top]`, and :math:`\text{term1}` the
+    derivative of :math:`P_n D^*` in the logistic coefficients.  For ``ey1`` it is
+    :math:`P_n[-(Y - Q)\tilde W A(1-g)/g]`, for ``ey0``
+    :math:`P_n[(Y - Q)\tilde W (1-A)g/(1-g)]`, and ``ate`` is their difference.
+
+    :attr:`~cleverly.inference.ParameterEstimate.plugin_interval` is the ``D*`` interval,
+    the first value ``calc_varIC`` returns.  This function returns the second.  The term
+    is a parametric-estimation correction only when the treatment learner is an
+    unpenalised main-terms logistic regression.  For any other learner it is R's formula
+    evaluated at that learner's prediction.  Neither interval carries a coverage claim,
+    and the fit's status does not change.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A selector C-TMLE fit of a binary treatment, fitted in sample.
+
+    Returns
+    -------
+    dict of str to LogisticPlugin
+        One entry for each of ``ate``, ``ey1`` and ``ey0`` that the fit reports.
+
+    Raises
+    ------
+    CapabilityError
+        When the fit is not a selector C-TMLE fit, or has more than two arms, a
+        cross-fitted propensity, observation weights, missing outcomes or an
+        intermediate variable.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LogisticRegression
+    >>> from cleverly.datasets import make_binary_outcome
+    >>> from cleverly.estimators import CTMLE, logistic_plugin
+    >>> frame, _ = make_binary_outcome(n=200, seed=0)
+    >>> result = CTMLE(
+    ...     outcome_learner=LogisticRegression(max_iter=1000),
+    ...     treatment_learner=LogisticRegression(C=1e6, max_iter=1000),
+    ...     strategy="greedy",
+    ...     cross_fit=False,
+    ...     estimands=("ate",),
+    ... ).fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"]).single()
+    >>> diagnostic = logistic_plugin(result)["ate"]
+    >>> diagnostic.plugin_logistic_std_error > 0
+    True
+    """
+    reason = _logistic_plugin_refusal(result)
+    if reason is not None:
+        raise CapabilityError(_LOGISTIC_PLUGIN_SCOPE + reason)
+    data = result.data
+    selection = result.extra["ctmle"]
+    nuisance = result.nuisance
+    g1 = nuisance.propensity.bounded(result.config.g_bounds)[:, 1]
+    targeted = result.fluctuations["mean"].targeted
+    a = np.asarray(data.treatment, dtype=float)
+    scale = nuisance.scaler.range
+    # The residual on the outcome scale, where the reported curve lives.
+    residual = scale * (nuisance.scaler.scale(data.outcome) - targeted.observed)
+    chosen = [data.covariate_names.index(name) for name in selection.selected_covariates]
+    design = np.column_stack([np.ones(data.n), data.covariates[:, chosen]])
+    corrected = bool(chosen)
+    projection = None
+    if corrected:
+        information = (design * (g1 * (1.0 - g1))[:, None]).T @ design / data.n
+        score = design * (a - g1)[:, None]
+        try:
+            projection = np.linalg.solve(information, score.T).T
+        except np.linalg.LinAlgError:
+            corrected = False
+    pieces = {
+        "ey1": -(residual * a * (1.0 - g1) / g1),
+        "ey0": residual * (1.0 - a) * g1 / (1.0 - g1),
+    }
+    pieces["ate"] = pieces["ey1"] - pieces["ey0"]
+    out: dict[str, LogisticPlugin] = {}
+    for name in ("ate", "ey1", "ey0"):
+        if name not in result.estimates:
+            continue
+        estimate = result.estimates[name]
+        curve = np.asarray(estimate.influence_curve, dtype=float)
+        if corrected and projection is not None:
+            term1 = (design * pieces[name][:, None]).mean(axis=0)
+            curve = curve + projection @ term1
+        variance = influence_variance(curve, data.cluster)
+        std_error = float(np.sqrt(variance)) if np.isfinite(variance) else float("nan")
+        out[name] = LogisticPlugin(
+            name=name,
+            psi=estimate.psi,
+            influence_curve=curve,
+            plugin_logistic_std_error=std_error,
+            plugin_logistic_interval=normal_ci(estimate.psi, std_error, result.config.alpha_sig),
+            correction_applied=corrected and projection is not None,
+        )
+    return out

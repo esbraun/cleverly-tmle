@@ -486,7 +486,18 @@ def simultaneous_bands(
     bands: dict[str, tuple[float, float]] = {}
     for name, estimate in items:
         half_width = critical * estimate.std_error
-        if estimate.scale == "ratio":
+        if estimate.transform is not None:
+            # The band is built on the transform's scale and mapped back through the
+            # inverse, sorted so a decreasing transform still gives an ordered band.
+            center = estimate.inference_value
+            low, high = sorted(
+                (
+                    float(estimate.transform.inverse(center - half_width)),
+                    float(estimate.transform.inverse(center + half_width)),
+                )
+            )
+            bands[name] = (low, high)
+        elif estimate.scale == "ratio":
             center = estimate.inference_value
             bands[name] = (
                 float(np.exp(center - half_width)),
