@@ -160,12 +160,13 @@ __all__ = [
 _FILLER = 0.5
 
 #: What a refusal about one outer training fold may offer.  The split is drawn from the
-#: seed alone and reads no treatment, outcome or covariate, so a fold count or a seed
-#: found by trying them until one fits would choose the partition by the values it must
-#: not read.  ``n_folds=1`` is the in-sample fit, which draws no split at all.
+#: seed and, with ``id=``, the cluster labels, and reads no treatment, outcome or
+#: covariate, so a fold count or a seed found by trying them until one fits would choose
+#: the partition by the values it must not read.  ``n_folds=1`` is the in-sample fit,
+#: which draws no split at all.
 _CROSS_FIT_NODE_REMEDY = (
-    "The split reads none of the data, so trying fold counts or seeds until one fits "
-    "would choose the partition by the values it must not read. Fit in sample "
+    "The split reads no treatment, outcome or covariate, so trying fold counts or seeds "
+    "until one fits would choose the partition by the values it must not read. Fit in sample "
     "(CrossFitting(enabled=False), or n_folds=1 on the engine), or {alternative}."
 )
 
