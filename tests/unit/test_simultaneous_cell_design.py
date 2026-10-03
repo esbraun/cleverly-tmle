@@ -40,10 +40,12 @@ from tests.studies import (
     ltmle_competing_properties,
     ltmle_properties,
     ltmle_survival_properties,
+    multi_arm_mar_drtmle_properties,
     multi_arm_tmle_properties,
     stratified_law,
     stratified_tmle_properties,
 )
+from tests.studies import mar_arm_indexed_laws as arm_indexed_laws
 from tests.studies.canonical_stratified_tmle import NECESSITY_STRATA
 from tests.studies.default_band_properties import (
     MINIMUM_CONTROL_POWER,
@@ -61,6 +63,11 @@ DESIGN_ALLOWANCE = 0.005
 def _correlation(probs: np.ndarray, curves: list[np.ndarray]) -> np.ndarray:
     matrix = np.column_stack(curves)
     covariance = (matrix * probs[:, None]).T @ matrix
+    sd = np.sqrt(np.diag(covariance))
+    return np.asarray(covariance / np.outer(sd, sd), dtype=float)
+
+
+def _from_covariance(covariance: np.ndarray) -> np.ndarray:
     sd = np.sqrt(np.diag(covariance))
     return np.asarray(covariance / np.outer(sd, sd), dtype=float)
 
@@ -132,6 +139,15 @@ EXACT: dict[str, tuple[np.ndarray, int, tuple[float, float]]] = {
         ),
         stratified_tmle_properties.CROSSFIT_REPLICATES,
         (0.6609, 2.778),
+    ),
+    # The nine names of L3 on the inference scale (log for rr and or), from the exact
+    # efficient influence covariance of the law.
+    "multi-arm-mar-drtmle/arms": (
+        _from_covariance(
+            arm_indexed_laws.influence_covariance(multi_arm_mar_drtmle_properties.LAW)
+        ),
+        multi_arm_mar_drtmle_properties.CALIBRATION_REPLICATES,
+        (0.8223, 2.508),
     ),
 }
 
