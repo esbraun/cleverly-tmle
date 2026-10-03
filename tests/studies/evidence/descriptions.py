@@ -167,6 +167,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-multi-arm-ctmle-oat": "`cleverly` multi-arm outcome-adaptive C-TMLE",
     "cleverly-multi-arm-ctmle-selector": "`cleverly` multi-arm selector C-TMLE",
     "cleverly-multi-arm-drtmle": "`cleverly` multi-arm DR-TMLE",
+    "cleverly-multi-arm-mar-drtmle": "`cleverly` randomized multi-arm missing-outcome DR-TMLE",
     "cleverly-multi-arm-tmle": "`cleverly` ordinary multi-arm TMLE",
     "cleverly-stacked-cvtmle": "`cleverly` stacked CV-TMLE",
     "cleverly-stacked-mar-arm-indexed-cvtmle": (
@@ -182,6 +183,9 @@ IMPLEMENTATIONS: dict[str, str] = {
     "drtmle-r": "R `drtmle`",
     "drtmle-r-mar": "R `drtmle` with a joint treatment-response mechanism",
     "drtmle-r-multi-arm": "R `drtmle` multi-arm extension",
+    "drtmle-r-multi-arm-mar": (
+        "R `drtmle` at three arms with a joint treatment-response mechanism"
+    ),
     "ltmle": "R `ltmle`",
     "ltmle-weighted": "R `ltmle` with observation weights",
     "ltmle projected regimen fits": "projected R `ltmle` regimen fits",
@@ -255,6 +259,9 @@ SCENARIOS: dict[str, str] = {
         "binary-outcome observational natural-course law with learned MAR nuisances"
     ),
     "binary_mar_randomized": "binary-outcome randomized law with MAR outcomes",
+    "three_arm_mar_randomized": (
+        "L3: three-arm binary-outcome law with MAR outcomes and known W-stratified assignment"
+    ),
     "binary_mar_two_arm_stacked": "L1: two-arm binary-outcome law with MAR outcomes",
     "binary_mar_three_arm_stacked": "L3: three-arm binary-outcome law with MAR outcomes",
     "continuous_mar_two_arm_stacked": (
@@ -795,6 +802,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the calibration-slope rule, on a learner whose limit slope is not 1",
         "rejection lower bound clears the minimum power",
     ),
+    ("power", "randomized_alternative"): (
+        "the same test applied to the randomized law's own nonzero contrast",
+        "rejection lower bound clears the minimum power",
+    ),
     ("power", "alternative"): (
         "the same test applied to a law with a real effect",
         "rejection lower bound clears the minimum power",
@@ -1013,6 +1024,12 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "a confounded law whose true contrast is exactly zero",
         "one-sided rejection bound stays under the declared type-I ceiling",
     ),
+    ("type_i_error", "randomized_sharp_null"): (
+        "a randomized law whose two compared arms share one outcome regression, so the "
+        "contrast is exactly zero",
+        "one-sided rejection bound stays under the declared type-I ceiling, and coverage clears "
+        "the floor",
+    ),
     ("type_i_error", "target_null"): (
         "a selected law whose weighted target contrast is exactly zero",
         "one-sided rejection bound stays under the declared type-I ceiling",
@@ -1035,6 +1052,16 @@ ARM_CELLS: dict[tuple[str, str, str], tuple[str, str]] = {
     for family in ("interval_calibration",)
     for arm in ("att_lower", "att_upper")
 }
+ARM_CELLS.update(
+    {
+        ("corrected_mar_inference", arm, "both_wrong"): (
+            "the outcome regression and observation mechanism are both misspecified",
+            "bias interval must fall entirely outside the margin, and its distance from zero "
+            "must clear the declared floor",
+        )
+        for arm in ("l3_ate_low", "l3_ate_mid")
+    }
+)
 
 
 def implementation(key: str) -> str:
