@@ -5,10 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import pandas as pd
+import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
 from cleverly.datasets import make_longitudinal, make_longitudinal_survival
-from cleverly.longitudinal import LTMLE
+from cleverly.interventions import Stochastic
+from cleverly.longitudinal import LTMLE, DynamicRegimen
 from cleverly.msm import MSM
 
 from ..conftest import FAST_KWARGS
@@ -151,3 +155,109 @@ def test_competing_risks_accept_the_same_categorical_plans() -> None:
     assert sum(name.startswith("ate_regimen[") for name in result) == 8
     assert result.config.causes == ("relapse", "death")
     assert result.converged
+
+
+# ------------------------------------------------------------------ known policies
+
+
+def _policy_regimen() -> Any:
+    """Draw ``active`` at a quarter and ``none`` at a half at both nodes, ``medium`` the rest."""
+
+    def draw(history: Any) -> Any:
+        return pd.DataFrame(
+            np.tile([0.25, 0.25, 0.5], (len(history), 1)), columns=["active", "medium", "none"]
+        )
+
+    node = Stochastic(draw, "draw", density_kind="known")
+    return DynamicRegimen("mix", (node, node))
+
+
+def test_a_clustered_policy_fit_reports_at_the_cluster_in_sample_and_cross_fitted() -> None:
+    """T11: the cluster-summed curve and the cluster floors are target-agnostic."""
+    frame, _ = make_longitudinal(n=1200, seed=41, cluster_size=20)
+    frame = categorical_treatments(frame)
+    for folds in (1, 2):
+        result = LTMLE(
+            {"inactive": "none", "mix": _policy_regimen()},
+            **{**SETTINGS, "n_folds": folds, "simultaneous": False},
+        ).fit(frame, outcome="Y", id="id", **COLUMNS)
+        estimate = result["ate_regimen[mix vs inactive]"]
+        assert estimate.n_clusters == 60
+        clusters = result.data.cluster
+        summed = np.bincount(clusters, weights=estimate.influence_curve)
+        # The cluster-robust variance carries the J / (J - 1) small-sample factor.
+        expected = np.sqrt(np.sum(summed**2) * 60 / 59) / result.data.n
+        assert estimate.std_error == pytest.approx(float(expected), rel=1e-12)
+
+
+def test_a_policy_fit_below_the_cluster_floor_reports_no_interval() -> None:
+    frame, _ = make_longitudinal(n=320, seed=42, cluster_size=40)
+    frame = categorical_treatments(frame)
+    result = LTMLE(
+        {"inactive": "none", "mix": _policy_regimen()},
+        **{**SETTINGS, "n_folds": 1, "simultaneous": False},
+    ).fit(frame, outcome="Y", id="id", **COLUMNS)
+    estimate = result["ey_regimen[mix]"]
+    assert estimate.n_clusters == 8
+    assert estimate.inference == "few_cluster_plugin"
+
+
+def test_a_policy_closing_over_a_lambda_saves_as_a_rule_lambda_does(tmp_path: Any) -> None:
+    """Q12: the same refusal a rule written as a lambda meets."""
+
+    frame, _ = make_longitudinal(n=300, seed=43)
+    frame = categorical_treatments(frame)
+    plans = {
+        "rule": DynamicRegimen(
+            "rule", ("none", lambda h: np.where(h["L2"] > 0, "active", "none")), rule_kind="known"
+        ),
+        "policy": DynamicRegimen(
+            "policy",
+            (
+                "none",
+                Stochastic(lambda h: np.full((len(h), 3), 1.0 / 3.0), "u", density_kind="known"),
+            ),
+        ),
+    }
+    messages = []
+    for label, plan in plans.items():
+        result = LTMLE({label: plan}, **{**SETTINGS, "n_folds": 1, "simultaneous": False}).fit(
+            frame, outcome="Y", **COLUMNS
+        )
+        try:
+            result.save(tmp_path / f"{label}.joblib")
+        except TypeError as error:
+            messages.append(str(error))
+    assert len(messages) == 2 and messages[0] == messages[1]
+
+
+def test_a_causal_study_states_positivity_where_the_policy_puts_mass() -> None:
+    """T17: the study path passes a policy regimen through and words its identification."""
+    frame, _ = make_longitudinal(n=600, seed=44)
+    frame = categorical_treatments(frame)
+    study = CausalStudy(
+        frame,
+        design=LongitudinalTreatment(
+            outcome="Y",
+            treatment=("A1", "A2"),
+            baseline=("W1", "W2"),
+            time_varying=((), ("L2",)),
+            censoring=("C1", "C2"),
+        ),
+    )
+    effect = study.identify(
+        RegimeContrast({"inactive": "none", "mix": _policy_regimen()}, reference="inactive")
+    )
+    assert any(
+        "wherever a regimen or its known policy puts mass" in item
+        for item in effect.identification.assumptions
+    )
+    result = effect.estimate(
+        **{**SETTINGS, "n_folds": 1, "simultaneous": False, "cross_fit": False}
+    )
+    engine = LTMLE(
+        {"inactive": "none", "mix": _policy_regimen()},
+        reference="inactive",
+        **{**SETTINGS, "n_folds": 1, "simultaneous": False},
+    ).fit(frame, outcome="Y", **COLUMNS)
+    assert result.psi("ate_regimen[mix vs inactive]") == engine.psi("ate_regimen[mix vs inactive]")

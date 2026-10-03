@@ -466,6 +466,7 @@ def test_m3_a_fold_targeted_carry_moves_the_stitched_initial_fit(
                 node.initial[test],
                 node.pseudo_outcome[test],
                 node.learner_diagnostics,
+                None,
             )
             counterfactual, _ = sequential._clever_covariate(
                 node.at_risk, node.trained_on, cumulative, time

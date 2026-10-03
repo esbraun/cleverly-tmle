@@ -20,6 +20,7 @@ from .interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet
 from .interventions.base import InterventionKind, refuse_mixed_interventions
 from .interventions.learned import LearnedRule, refuse_learned_rule_composition
 from .longitudinal import LTMLE, LongitudinalData, LongitudinalResult
+from .longitudinal.regimen import declares_policy
 from .methods import (
     CollaborativeTMLEMethod,
     DRTMLEMethod,
@@ -2217,6 +2218,26 @@ _LONGITUDINAL_IDENTIFICATION = Identification(
     references=("van der Laan & Gruber (2012)",),
 )
 
+#: The identification of a regimen set with a known policy node.  Positivity is required
+#: wherever the plan puts mass, which at a policy node is every arm the policy can draw,
+#: and the policy history excludes the current arm, so Assumption 2 of Díaz, Williams,
+#: Hoffman and Schenck (2023) suffices.
+_LONGITUDINAL_POLICY_IDENTIFICATION = Identification(
+    assumptions=(
+        *_LONGITUDINAL_IDENTIFICATION.assumptions[:3],
+        "sequential positivity for treatment and remaining under observation, wherever a "
+        "regimen or its known policy puts mass",
+        "each policy density is known and fixed before the fit, and reads the history "
+        "before its node but not the treatment at that node",
+    ),
+    required_nuisances=_LONGITUDINAL_IDENTIFICATION.required_nuisances,
+    dr_condition=_LONGITUDINAL_IDENTIFICATION.dr_condition,
+    references=(
+        "van der Laan & Gruber (2012)",
+        "Díaz, Williams, Hoffman & Schenck (2023)",
+    ),
+)
+
 
 @dataclass(frozen=True)
 class ExplicitAdjustmentProvider:
@@ -2423,7 +2444,11 @@ class ExplicitAdjustmentProvider:
         return IdentifiedEffect(
             estimand=estimand,
             functional=functional,
-            identification=_LONGITUDINAL_IDENTIFICATION,
+            identification=(
+                _LONGITUDINAL_POLICY_IDENTIFICATION
+                if declares_policy(regimens)
+                else _LONGITUDINAL_IDENTIFICATION
+            ),
             provider=self,
             _study=study,
         )

@@ -91,6 +91,21 @@ Note what does **not** change.  ``1{event-free through t-1}`` is a function of
 over the :math:`2T` treatment and censoring factors, and the positivity assumption a
 survival fit makes is the one an end-of-study fit makes.
 
+**A known policy** at a node replaces the assigned arm by a draw from a density
+:math:`q_t(\cdot \mid H_t)` that is fixed before the fit (Díaz, Williams, Hoffman and
+Schenck 2023, Section 2 and Theorem 3, with the randomizer integrated out).  Write
+:math:`\pi_t(a \mid H_t)` for the node's intervention density: the indicator of the assigned
+arm at a label or rule node, and :math:`q_t` at a policy node.  Three things change.  The
+regression at a policy node is fitted once with the current arm as a column, and the node
+carries the policy-weighted mean of its per-arm predictions,
+:math:`\bar Q_t(H_t) = \sum_a q_t(a \mid H_t)\, Q_t(a, H_t)`.  The clever covariate becomes
+the ratio :math:`\prod_{s \le t} \pi_s(A_s \mid H_s) / \prod_{s \le t} g_s c_s` at the
+observed arms, whose denominator alone is bounded.  And a row stays in the plan while its
+observed arm has positive intervention density, which generalises "followed".  The
+fluctuation keeps its intercept, offset and loss-weight placement, and moves every arm's
+prediction by the same coefficient, as ``lmtp``'s update does.  A plan without a policy node
+runs none of this, and its arrays are the ones it had before policies existed.
+
 **Observation weights** are a tilt of the population and not a further node.  Every
 regression here -- each mechanism factor, the outcome, every pseudo-outcome -- is fitted by
 weighted loss, each node's fluctuation solves the weighted score
@@ -106,11 +121,12 @@ it is supposed to apply.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
+from ..data.validate import arm_indicators
 from ..data.weighting import effective_sample_size
 from ..estimators._nuisance import cross_fit_predictions
 from ..exceptions import LongitudinalError
@@ -143,6 +159,7 @@ __all__ = [
     "StitchedInitial",
     "fit_mechanism",
     "fit_regimen",
+    "outcome_design",
     "preflight_mechanism_support",
     "preflight_terminal_outcomes",
     "prepare_node",
@@ -179,6 +196,18 @@ _CROSS_FIT_NODE_REMEDY = (
 _REGIMEN_ARM = 0.0
 
 
+def _policy_arm(code: int) -> float:
+    """The fluctuation key of a policy node's per-arm prediction at level ``code``.
+
+    Offset by one from :data:`_REGIMEN_ARM`, which keeps the observed-arm prediction, so the
+    two kinds of key cannot collide.  Like that key it is an index and not a treatment
+    level.  :func:`~cleverly.fluctuation.iterative.apply_logistic` moves every key by the
+    same step along the same covariate, and the score reads the observed key alone, so a
+    per-arm key changes no coefficient.
+    """
+    return 1.0 + float(code)
+
+
 def _internal_prediction_key(labels: Sequence[str], role: str) -> str:
     """Return a private prediction key that cannot collide with a regimen label."""
     occupied = set(labels)
@@ -194,8 +223,10 @@ class Mechanism:
 
     ``treatment[t][label]`` is
     :math:`P(A_t = d_t(H_t) \\mid H_t, \\bar A_{t-1} = \\bar d_{t-1})`
-    with the earlier treatments set to what the regimen would have assigned, and
-    ``censoring[t][label]`` is :math:`P(C_t = 1 \\mid H_t, \\bar A_t = \\bar a_t)`.  One
+    with the earlier treatments set to the plan's ``values``, and
+    ``censoring[t][label]`` is :math:`P(C_t = 1 \\mid H_t, \\bar A_t = \\bar a_t)`.  At a
+    label or rule node ``values`` is what the regimen would have assigned.  At a policy node
+    it is the observed arm, so both are evaluated at the observed history there.  One
     model per node serves every regimen: the *fit* is shared, and only where it is
     evaluated differs.
 
@@ -294,6 +325,10 @@ class _NodeRegression:
     pseudo_outcome: FloatArray
     initial: FloatArray
     learner_diagnostics: tuple[SuperLearnerDiagnostics, ...] = ()
+    #: ``(n, K_t)`` per-arm predictions at a policy node, ``None`` elsewhere.
+    initial_by_arm: FloatArray | None = None
+    #: The policy-weighted mean of ``initial_by_arm``, ``None`` off a policy node.
+    initial_marginal: FloatArray | None = None
 
 
 @dataclass(frozen=True)
@@ -310,9 +345,12 @@ class NodeInputs:
     ``counterfactual`` is :math:`1/\\prod g` on the at-risk set and zero elsewhere -- the
     inverse-probability loss weight the *update* is fitted with.  ``clever`` is that
     masked down to the units that actually followed, which is the multiplier in the EIF
-    and score.  The logistic submodel itself is an intercept shift; putting ``clever`` in
-    that submodel instead would solve the same score along a different path and cease to
-    match the loss-weighted update in canonical R ``ltmle``.
+    and score.  On a plan with a policy node both carry the ratio numerator
+    :math:`\\prod \\pi`, and "followed" means that the observed arm has positive
+    intervention density at every node so far.  The logistic submodel itself is an
+    intercept shift; putting ``clever`` in that submodel instead would solve the same
+    score along a different path and cease to match the loss-weighted update in canonical
+    R ``ltmle``.
 
     Parameters
     ----------
@@ -335,6 +373,12 @@ class NodeInputs:
         Counterfactual weight restricted to rows that followed the regimen.
     learner_diagnostics : tuple of SuperLearnerDiagnostics
         Learner diagnostics from each fitted fold of the node regression.
+    initial_by_arm : FloatArray or None
+        ``(n, K_t)`` initial predictions at each level of a policy node, ``None`` elsewhere.
+    initial_marginal : FloatArray or None
+        The policy-weighted mean of ``initial_by_arm``, ``None`` off a policy node.
+    policy : FloatArray or None
+        The ``(n, K_t)`` policy density at a policy node, ``None`` elsewhere.
     """
 
     time: int
@@ -352,6 +396,9 @@ class NodeInputs:
     clever: FloatArray
     #: Super Learner diagnostics from this node's regression, one per fitted fold.
     learner_diagnostics: tuple[SuperLearnerDiagnostics, ...] = ()
+    initial_by_arm: FloatArray | None = None
+    initial_marginal: FloatArray | None = None
+    policy: FloatArray | None = None
 
 
 @dataclass(frozen=True)
@@ -371,15 +418,33 @@ class SequentialStep:
     initial : FloatArray
         Initial node prediction before targeting.
     targeted : FloatArray
-        Node prediction after targeting.
+        Node prediction after targeting, at the arm the row took under the plan.  At a
+        policy node that is the observed arm, and the influence curve's residual reads it.
     clever : FloatArray
-        Cumulative inverse-probability multiplier on regimen followers.
+        Cumulative inverse-probability multiplier on regimen followers.  On a plan with a
+        policy node it is the cumulative ratio, the policy numerator over the bounded
+        mechanism.
     fluctuation : Fluctuation
         Targeting solve retained for this node.
     learner_diagnostics : tuple of SuperLearnerDiagnostics
         Learner diagnostics from each fitted fold of the node regression.
     regression_target : FloatArray or None
         Target the node regression was fitted to, when it differs from ``pseudo_outcome``.
+    marginal : FloatArray or None
+        At a policy node, the policy-weighted mean of the targeted per-arm predictions,
+        which the node carries to the earlier node and which the plug-in reads at the first
+        node.  ``None`` elsewhere.
+    targeted_by_arm : FloatArray or None
+        ``(n, K_t)`` targeted predictions at each level of a policy node, ``None``
+        elsewhere.
+    initial_by_arm : FloatArray or None
+        ``(n, K_t)`` initial predictions at each level of a policy node, the arrays the
+        fluctuation moved into ``targeted_by_arm``.  ``None`` elsewhere.
+
+    Attributes
+    ----------
+    n_trained : int
+    value : FloatArray
     """
 
     time: int
@@ -417,10 +482,18 @@ class SequentialStep:
     #: against this array.  ``None`` on a single-fold fit, whose regression target is
     #: ``pseudo_outcome``.
     regression_target: FloatArray | None = None
+    marginal: FloatArray | None = None
+    targeted_by_arm: FloatArray | None = None
+    initial_by_arm: FloatArray | None = None
 
     @property
     def n_trained(self) -> int:
         return int(self.trained_on.sum())
+
+    @property
+    def value(self) -> FloatArray:
+        """What the node carries: ``marginal`` at a policy node, else ``targeted``."""
+        return self.targeted if self.marginal is None else self.marginal
 
 
 @dataclass(frozen=True)
@@ -450,7 +523,9 @@ class RegimenFit:
     #: mechanism the fit divides by: the pooled fluctuation at each node reads
     #: ``1 / cumulative[:, t - 1]`` on the followers and nothing else.  So
     #: ``step.clever`` is exactly that reciprocal on ``step.trained_on`` and zero elsewhere,
-    #: on a cross-fitted fit and a single-fold one alike.  A diagnostic that wants how much
+    #: on a cross-fitted fit and a single-fold one alike.  On a plan with a policy node it
+    #: is ``cumulative_numerator[:, t - 1] / cumulative[:, t - 1]`` there: the bound applies
+    #: to the denominator only.  A diagnostic that wants how much
     #: of the mechanism the bounds moved reads this against :attr:`cumulative_unbounded`.
     cumulative: FloatArray
     #: The ``(n, T)`` arms this regimen assigned *this* sample.  Constant down each
@@ -465,6 +540,13 @@ class RegimenFit:
     #: on both -- the reasoning :mod:`cleverly.sensitivity.positivity` already applies at
     #: one time point.
     obs_weights: FloatArray
+    #: The plan's evaluated policy densities, one entry per node and ``None`` off a policy
+    #: node.  Empty on a plan without one.  At a policy node :attr:`assignment` holds the
+    #: observed arm, and this holds what the policy would draw.
+    policy: tuple[FloatArray | None, ...] = ()
+    #: ``(n, T)`` running product of the intervention density at the observed arms, the
+    #: numerator of the cumulative ratio.  ``None`` on a plan without a policy node.
+    cumulative_numerator: FloatArray | None = None
 
     @property
     def leverage(self) -> FloatArray:
@@ -774,12 +856,13 @@ def preflight_terminal_outcomes(
     scaler : OutcomeScaler
         The outcome transformation used by the recursion.
     """
+    preflight_policy_support(data, plans, horizons, folds)
     if data.family != "binomial":
         return
     carried = seed_carried(data, scaler)
     causes: tuple[str | None, ...] = data.cause_labels or (None,)
     for plan in plans:
-        masks = data.regimen_masks(plan.values)
+        masks = plan.masks(data)
         for horizon in horizons:
             at_risk = masks.at_risk(horizon)
             followers = masks.following(horizon)
@@ -807,6 +890,102 @@ def preflight_terminal_outcomes(
                     )
 
 
+def _fit_rows(data: LongitudinalData, folds: Folds) -> list[tuple[int | None, BoolArray]]:
+    """Each outer training set as a row mask, with its fold index, or ``None`` in sample."""
+    if folds.is_single:
+        return [(None, np.ones(data.n, dtype=bool))]
+    rows: list[tuple[int | None, BoolArray]] = []
+    for fold, (train, _) in enumerate(folds):
+        train_rows = np.zeros(data.n, dtype=bool)
+        train_rows[train] = True
+        rows.append((fold, train_rows))
+    return rows
+
+
+def preflight_policy_support(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    horizons: Sequence[int],
+    folds: Folds,
+) -> None:
+    """Check every policy node's regression support before any learner is fitted.
+
+    A policy node's regression predicts every level the policy can draw.  A level with
+    positive policy probability on an at-risk row and no fitted row at that level has an
+    all-zero design column, so the regression would extrapolate to it.  Nothing here reads a
+    fit, so every policy node up to the last horizon, and every outer training set, is
+    checked now.  The checks are the ones :func:`_fit_node_regression` repeats.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    plans : sequence of Plan
+        Resolved regimen assignments.
+    horizons : sequence of int
+        Reported outcome or event times.
+    folds : Folds
+        The realized outer split.
+    """
+    last = max(horizons)
+    for plan in plans:
+        if not plan.has_policy:
+            continue
+        masks = plan.masks(data)
+        for time in range(last, 0, -1):
+            if not plan.is_policy_node(time):
+                continue
+            at_risk = masks.at_risk(time)
+            followers = masks.following(time)
+            for outer_fold, train_rows in _fit_rows(data, folds):
+                fitted_on = followers & train_rows
+                _require_regimen_followers(
+                    data, plan, time, at_risk, fitted_on, outer_fold=outer_fold
+                )
+                _check_policy_arm_support(
+                    data, plan, time, at_risk, fitted_on, outer_fold=outer_fold
+                )
+
+
+def _check_policy_arm_support(
+    data: LongitudinalData,
+    plan: Plan,
+    time: int,
+    at_risk: BoolArray,
+    fitted_on: BoolArray,
+    *,
+    outer_fold: int | None,
+) -> None:
+    """Refuse a policy level that has policy mass at risk and no row to fit it on.
+
+    The residuals of the influence curve read the observed arms only, so they cannot see
+    the bias of a prediction at a level no fitted row received.  This check is the only
+    guard against it.
+    """
+    if not plan.is_policy_node(time):
+        return
+    density = plan.policy_at(time)
+    observed = plan.arm(time)
+    for code, level in enumerate(data.treatment_levels[time - 1]):
+        if not np.any(density[at_risk, code] > 0.0):
+            continue
+        if np.any(fitted_on & (observed == float(code))):
+            continue
+        where = "" if outer_fold is None else f" in outer training fold {outer_fold + 1}"
+        raise LongitudinalError(
+            f"regimen {plan.label!r} puts probability on {level!r} at time {time}, but no "
+            f"unit{where} that remains on the policy through time {time} received "
+            f"{level!r} there. The regression at that node would predict {level!r} with no "
+            "row to fit it on, so the policy is not supported by this sample."
+            + (
+                ""
+                if outer_fold is None
+                else " "
+                + _CROSS_FIT_NODE_REMEDY.format(alternative="choose a policy this sample supports")
+            )
+        )
+
+
 def _require_regimen_followers(
     data: LongitudinalData,
     plan: Plan,
@@ -824,10 +1003,17 @@ def _require_regimen_followers(
         if outer_fold is None
         else f"in outer training fold {outer_fold + 1}"
     )
-    raise LongitudinalError(
-        f"no unit followed regimen {plan.label!r} through time {time} {where}, so "
+    opening = (
+        f"no unit's observed treatment history through time {time} has positive "
+        f"probability under regimen {plan.label!r} {where}, so the sequential regression "
+        "there has nothing to fit. The policy is not supported by this sample."
+        if plan.has_policy
+        else f"no unit followed regimen {plan.label!r} through time {time} {where}, so "
         "the sequential regression there has nothing to fit. The regimen is not "
         "supported by this sample."
+    )
+    raise LongitudinalError(
+        opening
         + (
             ""
             if outer_fold is None
@@ -836,6 +1022,62 @@ def _require_regimen_followers(
         + _risk_set_hint(data, plan, time)
         + _rule_hint(plan, data, at_risk, time)
     )
+
+
+def outcome_design(
+    data: LongitudinalData, plan: Plan, time: int, arm: int | None = None
+) -> FloatArray:
+    """The outcome regression's design at node ``time`` of ``plan``.
+
+    Without a policy node it is :meth:`~cleverly.longitudinal.LongitudinalData.covariate_history`
+    bit for bit, which ``tests/unit/test_sequential_design.py`` pins.  With one it adds a
+    drop-first indicator block for the observed arm of every earlier **policy** node and,
+    at a policy node, a block for the current arm.  A label or rule node adds no column: on
+    the rows that remain on the plan its arm is a function of columns this design already
+    holds, the argument of :meth:`~cleverly.longitudinal.LongitudinalData.history_design`.
+    A policy node's arm is not.  It is drawn, so the regression must see it, and the node
+    predicts each level by setting the current block.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    plan : Plan
+        The resolved plan.
+    time : int
+        The node, counted from one.
+    arm : int or None
+        The level code to set the current policy node's block to, for a prediction.
+        ``None`` uses the observed arm.
+
+    Returns
+    -------
+    FloatArray
+        The design matrix, one row per unit.
+    """
+    history = data.covariate_history(time)
+    if not plan.has_policy:
+        return history
+    blocks = [history]
+    for node in range(1, time + 1):
+        if not plan.is_policy_node(node):
+            continue
+        codes = (
+            np.full(data.n, float(arm))
+            if node == time and arm is not None
+            else plan.values[:, node - 1]
+        )
+        blocks.append(arm_indicators(codes, len(data.treatment_levels[node - 1])))
+    return np.hstack(blocks)
+
+
+def _carried(policy: FloatArray, by_arm: FloatArray) -> FloatArray:
+    r""":math:`\sum_j q_t(j \mid H_t)\, Q_t(j, H_t)`, the policy-weighted mean of a node.
+
+    The one place a policy node's carried value is formed, from the initial per-arm
+    predictions in an untargeted recursion and from the targeted ones after a fluctuation.
+    """
+    return np.asarray(np.sum(policy * by_arm, axis=1), dtype=float)
 
 
 def _fit_node_regression(
@@ -863,14 +1105,22 @@ def _fit_node_regression(
     """
     if masks is None:
         with phase("mask_construction"):
-            masks = data.regimen_masks(plan.values)
+            masks = plan.masks(data)
     at_risk = masks.at_risk(time)
     trained_on = masks.following(time)
     fitted_on = trained_on if fit_rows is None else trained_on & fit_rows
     _require_regimen_followers(data, plan, time, at_risk, fitted_on, outer_fold=outer_fold)
+    _check_policy_arm_support(data, plan, time, at_risk, fitted_on, outer_fold=outer_fold)
     with phase("pseudo_outcome"):
         next_outcome = _pseudo_outcome(data, carried, time, cause)
-    design = data.covariate_history(time)
+    design = outcome_design(data, plan, time)
+    policy_node = plan.is_policy_node(time)
+    levels = range(len(data.treatment_levels[time - 1]))
+    predict_designs = (
+        {f"arm_{code}": outcome_design(data, plan, time, arm=code) for code in levels}
+        if policy_node
+        else {"history": design}
+    )
     learner = outcome_learner if time == horizon else pseudo_learner
     task = "classification" if time == horizon and data.family == "binomial" else "regression"
     if task == "classification":
@@ -885,20 +1135,39 @@ def _fit_node_regression(
             data.weights,
             folds,
             task=task,  # type: ignore[arg-type]
-            predict_designs={"history": design},
+            predict_designs=predict_designs,
             fit_mask=fitted_on,
             groups=data.cluster,
             clip=(0.0, 1.0),
             n_jobs=n_jobs,
         )
+    if not policy_node:
+        return _NodeRegression(
+            time=time,
+            at_risk=at_risk,
+            trained_on=trained_on,
+            fitted_on=fitted_on,
+            pseudo_outcome=next_outcome,
+            initial=np.where(at_risk, predictions["history"], _FILLER),
+            learner_diagnostics=tuple(diagnostics),
+        )
+    # One pooled fit, predicted at every level.  The observed-arm prediction is *selected*
+    # from the per-arm predictions rather than predicted again, so the offset of the
+    # fluctuation and the arm it moves are the same array bit for bit.
+    by_arm = np.column_stack(
+        [np.where(at_risk, predictions[f"arm_{code}"], _FILLER) for code in levels]
+    )
+    observed = by_arm[np.arange(data.n), plan.arm(time).astype(np.int64)]
     return _NodeRegression(
         time=time,
         at_risk=at_risk,
         trained_on=trained_on,
         fitted_on=fitted_on,
         pseudo_outcome=next_outcome,
-        initial=np.where(at_risk, predictions["history"], _FILLER),
+        initial=observed,
         learner_diagnostics=tuple(diagnostics),
+        initial_by_arm=by_arm,
+        initial_marginal=np.where(at_risk, _carried(plan.policy_at(time), by_arm), _FILLER),
     )
 
 
@@ -915,6 +1184,7 @@ def prepare_node(
     folds: Folds,
     cause: str | None = None,
     masks: RegimenMasks | None = None,
+    numerator: FloatArray | None = None,
     n_jobs: int = 1,
 ) -> NodeInputs:
     """One node's masks, pseudo-outcome, regression and clever covariate.
@@ -934,7 +1204,13 @@ def prepare_node(
     This is the single-fold node.  A cross-fitted fit runs
     :func:`untargeted_fold_recursions` instead, whose fold regressions narrow the rows
     each regression is fitted on and build no clever covariate.
+
+    ``numerator`` is the plan's :meth:`~cleverly.longitudinal.regimen.Plan.cumulative_numerator`,
+    built once per regimen by the caller, as ``masks`` is.  On a plan with a policy node it
+    enters both the loss weight and the curve multiplier.  ``None`` builds it here.
     """
+    if numerator is None:
+        numerator = plan.cumulative_numerator(data)
     regression = _fit_node_regression(
         data,
         plan,
@@ -950,7 +1226,11 @@ def prepare_node(
     )
     with phase("clever_covariate"):
         counterfactual, clever = _clever_covariate(
-            regression.at_risk, regression.trained_on, cumulative, time
+            regression.at_risk,
+            regression.trained_on,
+            cumulative,
+            time,
+            numerator=None if numerator is None else numerator[:, time - 1],
         )
     return NodeInputs(
         time=regression.time,
@@ -962,11 +1242,18 @@ def prepare_node(
         counterfactual=counterfactual,
         clever=clever,
         learner_diagnostics=regression.learner_diagnostics,
+        initial_by_arm=regression.initial_by_arm,
+        initial_marginal=regression.initial_marginal,
+        policy=plan.policy_at(time) if plan.is_policy_node(time) else None,
     )
 
 
 def _clever_covariate(
-    at_risk: BoolArray, trained_on: BoolArray, cumulative: FloatArray, time: int
+    at_risk: BoolArray,
+    trained_on: BoolArray,
+    cumulative: FloatArray,
+    time: int,
+    numerator: FloatArray | None = None,
 ) -> tuple[FloatArray, FloatArray]:
     """Node ``time``'s inverse-probability loss weight and its follower-masked copy.
 
@@ -984,16 +1271,23 @@ def _clever_covariate(
         ``(n, T)`` bounded cumulative mechanism probabilities.
     time : int
         One-based node index.
+    numerator : FloatArray or None
+        The plan's cumulative intervention density at the observed arms through ``time``,
+        on a plan with a policy node.  ``None`` keeps the numerator one, which is the
+        expression a deterministic plan has always had.
 
     Returns
     -------
     tuple of FloatArray
-        ``counterfactual``, which is ``1 / cumulative[:, time - 1]`` on ``at_risk`` and
-        zero elsewhere, and ``clever``, which is that weight on ``trained_on`` and zero
-        elsewhere.
+        ``counterfactual``, which is ``numerator / cumulative[:, time - 1]`` on ``at_risk``
+        and zero elsewhere, and ``clever``, which is that weight on ``trained_on`` and zero
+        elsewhere.  Only the denominator is bounded.
     """
     denominator = np.where(at_risk, cumulative[:, time - 1], 1.0)
-    counterfactual = np.where(at_risk, 1.0 / denominator, 0.0)
+    if numerator is None:
+        counterfactual = np.where(at_risk, 1.0 / denominator, 0.0)
+    else:
+        counterfactual = np.where(at_risk, numerator / denominator, 0.0)
     clever = np.where(trained_on, counterfactual, 0.0)
     return counterfactual, clever
 
@@ -1009,6 +1303,7 @@ def _fluctuate_node(
     alpha: float,
     max_iter: int,
     tol: float,
+    arms: FloatArray | None = None,
 ) -> Fluctuation:
     """Solve one node's intercept fluctuation with the clever covariate in the loss weight.
 
@@ -1038,6 +1333,10 @@ def _fluctuate_node(
         Largest number of Newton iterations.
     tol : float
         Relative-score convergence tolerance.
+    arms : FloatArray or None
+        ``(n, K_t)`` per-arm initial predictions at a policy node.  Each column is moved by
+        the same coefficient as ``initial`` and is filed under :func:`_policy_arm`.  The
+        score reads ``initial`` alone, so the columns change no coefficient.
 
     Returns
     -------
@@ -1045,12 +1344,18 @@ def _fluctuate_node(
         The solved fluctuation.  Its targeted predictions are filed under the regimen key.
     """
     intercept = np.ones((len(pseudo_outcome), 1))
+    initial_arms = {_REGIMEN_ARM: initial}
+    submodel_arms = {_REGIMEN_ARM: intercept}
+    if arms is not None:
+        for code in range(arms.shape[1]):
+            initial_arms[_policy_arm(code)] = arms[:, code]
+            submodel_arms[_policy_arm(code)] = intercept
     return solve_fluctuation(
         pseudo_outcome,
-        InitialFit(initial, {_REGIMEN_ARM: initial}),
+        InitialFit(initial, initial_arms),
         Submodel(
             intercept,
-            {_REGIMEN_ARM: intercept},
+            submodel_arms,
             (f"epsilon[{label}, t={time}]",),
             "sequential",
         ),
@@ -1060,6 +1365,32 @@ def _fluctuate_node(
         max_iter=max_iter,
         tol=tol,
     )
+
+
+def _targeted_policy(
+    fluctuation: Fluctuation, policy: FloatArray, at_risk: BoolArray
+) -> tuple[FloatArray, FloatArray]:
+    """The targeted per-arm predictions of a policy node and their policy-weighted mean.
+
+    Parameters
+    ----------
+    fluctuation : Fluctuation
+        The node's solve, with one :func:`_policy_arm` key per level.
+    policy : FloatArray
+        ``(n, K_t)`` policy density at the node.
+    at_risk : BoolArray
+        The rows the node predicts for.
+
+    Returns
+    -------
+    tuple of FloatArray
+        ``(n, K_t)`` targeted per-arm predictions, and the marginal, filled with ``0.5``
+        off ``at_risk``.
+    """
+    by_arm = np.column_stack(
+        [fluctuation.targeted.arms[_policy_arm(code)] for code in range(policy.shape[1])]
+    )
+    return by_arm, np.where(at_risk, _carried(policy, by_arm), _FILLER)
 
 
 def _pseudo_outcome(
@@ -1151,14 +1482,18 @@ def _finish_regimen_fit(
     *,
     horizon: int,
     cause: str | None,
+    numerator: FloatArray | None = None,
 ) -> RegimenFit:
     """Assemble one regimen estimate and influence curve from its targeted steps."""
     retained = tuple(steps)
     # Every unit is at risk at the first node, so this averages predictions rather than
     # fillers. ``np.average`` against mean-one weights is bit-for-bit the old unweighted
     # mean when the weights are constant.
-    psi = float(np.average(retained[0].targeted, weights=data.weights))
-    influence = retained[0].targeted - psi
+    # ``value`` is the carried prediction: the targeted one, or at a policy node the
+    # policy-weighted mean of the targeted per-arm predictions.  The residual below reads
+    # ``targeted``, the prediction at the arm the row took.
+    psi = float(np.average(retained[0].value, weights=data.weights))
+    influence = retained[0].value - psi
     for step in retained:
         # The t-th term reads the target the t-th regression was fitted to: the later
         # targeted prediction, or that prediction composed with this node's event.
@@ -1177,6 +1512,8 @@ def _finish_regimen_fit(
         cumulative=cumulative,
         assignment=np.asarray(plan.values),
         obs_weights=np.asarray(data.weights, dtype=float),
+        policy=plan.policy,
+        cumulative_numerator=numerator,
     )
 
 
@@ -1249,7 +1586,8 @@ def fit_regimen(
     carried = seed_carried(data, scaler)
     # Once per regimen, not once per node: the masks are prefix scans of one conjunction,
     # and rebuilding them at every node is what made this pass quadratic in T.
-    masks = data.regimen_masks(plan.values)
+    masks = plan.masks(data)
+    numerator = plan.cumulative_numerator(data)
 
     steps: list[SequentialStep] = []
     for time in range(horizon, 0, -1):
@@ -1265,6 +1603,7 @@ def fit_regimen(
             folds=folds,
             cause=cause,
             masks=masks,
+            numerator=numerator,
             n_jobs=n_jobs,
         )
         with phase("fluctuation"):
@@ -1278,22 +1617,11 @@ def fit_regimen(
                 alpha=alpha,
                 max_iter=max_iter,
                 tol=tol,
+                arms=node.initial_by_arm,
             )
-        targeted = fluctuation.targeted.arms[_REGIMEN_ARM]
-        steps.append(
-            SequentialStep(
-                time=time,
-                trained_on=node.trained_on,
-                at_risk=node.at_risk,
-                pseudo_outcome=node.pseudo_outcome,
-                initial=node.initial,
-                targeted=targeted,
-                clever=node.clever,
-                fluctuation=fluctuation,
-                learner_diagnostics=node.learner_diagnostics,
-            )
-        )
-        carried = np.where(node.at_risk, targeted, _FILLER)
+        step = _targeted_step(node, fluctuation, regression_target=None)
+        steps.append(step)
+        carried = np.where(node.at_risk, step.value, _FILLER)
 
     steps.reverse()
     return _finish_regimen_fit(
@@ -1304,6 +1632,38 @@ def fit_regimen(
         cumulative,
         horizon=horizon,
         cause=cause,
+        numerator=numerator,
+    )
+
+
+def _targeted_step(
+    node: NodeInputs, fluctuation: Fluctuation, *, regression_target: FloatArray | None
+) -> SequentialStep:
+    """One retained step from a node's inputs and its solved fluctuation.
+
+    The one place a step is assembled for the per-regimen recursion, single-fold and
+    pooled alike.  At a policy node it also holds the targeted per-arm predictions and their
+    policy-weighted mean, which :attr:`SequentialStep.value` then returns.
+    """
+    targeted = fluctuation.targeted.arms[_REGIMEN_ARM]
+    by_arm: FloatArray | None = None
+    marginal: FloatArray | None = None
+    if node.policy is not None:
+        by_arm, marginal = _targeted_policy(fluctuation, node.policy, node.at_risk)
+    return SequentialStep(
+        time=node.time,
+        trained_on=node.trained_on,
+        at_risk=node.at_risk,
+        pseudo_outcome=node.pseudo_outcome,
+        initial=node.initial,
+        targeted=targeted,
+        clever=node.clever,
+        fluctuation=fluctuation,
+        learner_diagnostics=node.learner_diagnostics,
+        regression_target=regression_target,
+        marginal=marginal,
+        targeted_by_arm=by_arm,
+        initial_by_arm=node.initial_by_arm,
     )
 
 
@@ -1340,14 +1700,22 @@ class StitchedInitial:
         prediction at the later node.
     diagnostics : dict of int to tuple of SuperLearnerDiagnostics
         By node, the learner diagnostics of every fold's regression, in fold order.
+    initial_by_arm : dict of int to FloatArray
+        At each policy node, row ``i``'s ``(K_t,)`` per-arm predictions from the fold that
+        held row ``i`` out.  ``initial`` at that node is the observed-arm column of it.
+        Empty on a plan without a policy node.
     """
 
     initial: dict[int, FloatArray]
     regression_target: dict[int, FloatArray]
     diagnostics: dict[int, tuple[SuperLearnerDiagnostics, ...]]
+    initial_by_arm: dict[int, FloatArray] = field(default_factory=dict)
 
 
-_FoldOutputs = dict[int, tuple[FloatArray, FloatArray, tuple[SuperLearnerDiagnostics, ...]]]
+_FoldOutputs = dict[
+    int,
+    tuple[FloatArray, FloatArray, tuple[SuperLearnerDiagnostics, ...], FloatArray | None],
+]
 
 
 def _untargeted_recursion_in_fold(
@@ -1387,12 +1755,19 @@ def _untargeted_recursion_in_fold(
             fit_rows=outer_train,
             outer_fold=fold,
         )
-        outputs[time] = (node.initial[test], node.pseudo_outcome[test], node.learner_diagnostics)
+        outputs[time] = (
+            node.initial[test],
+            node.pseudo_outcome[test],
+            node.learner_diagnostics,
+            None if node.initial_by_arm is None else node.initial_by_arm[test],
+        )
         # The fold's *untargeted* prediction is what the earlier node regresses.  Steps 1-4
         # of the Section 5.2 construction carry the untargeted prediction and target only in
         # the pooled pass.  Targeting here would make the fold's earlier regressions read a
-        # fluctuation fitted on the fold's own training rows.
-        carried = np.where(node.at_risk, node.initial, _FILLER)
+        # fluctuation fitted on the fold's own training rows.  At a policy node the untargeted
+        # prediction carried is the fold's policy-weighted mean of its per-arm predictions.
+        untargeted = node.initial if node.initial_marginal is None else node.initial_marginal
+        carried = np.where(node.at_risk, untargeted, _FILLER)
     return outputs
 
 
@@ -1481,16 +1856,24 @@ def untargeted_fold_recursions(
         initial = {time: np.full(data.n, _FILLER, dtype=float) for time in nodes}
         regression_target = {time: np.full(data.n, _FILLER, dtype=float) for time in nodes}
         diagnostics: dict[int, list[SuperLearnerDiagnostics]] = {time: [] for time in nodes}
+        by_arm = {
+            time: np.full((data.n, len(data.treatment_levels[time - 1])), _FILLER, dtype=float)
+            for time in nodes
+            if cell.plan.is_policy_node(time)
+        }
         for test, outputs, _ in outcomes:
-            for time, (held_out, target, fold_diagnostics) in outputs[position].items():
+            for time, (held_out, target, fold_diagnostics, arms) in outputs[position].items():
                 initial[time][test] = held_out
                 regression_target[time][test] = target
                 diagnostics[time].extend(fold_diagnostics)
+                if arms is not None:
+                    by_arm[time][test] = arms
         stitched.append(
             StitchedInitial(
                 initial=initial,
                 regression_target=regression_target,
                 diagnostics={time: tuple(values) for time, values in diagnostics.items()},
+                initial_by_arm=by_arm,
             )
         )
     return stitched
@@ -1566,7 +1949,7 @@ def _fit_regimen_crossfit(
     # The out-of-fold pair is the only mechanism this fit divides by.
     cumulative_unbounded, cumulative = mechanism.cumulative_with_unbounded(data, plan, g_bounds)
     with phase("mask_construction"):
-        masks = data.regimen_masks(plan.values)
+        masks = plan.masks(data)
     (stitched,) = untargeted_fold_recursions(
         data,
         (FoldRecursionCell(plan, masks, horizon),),
@@ -1577,14 +1960,14 @@ def _fit_regimen_crossfit(
         pseudo_learner=pseudo_learner,
         n_jobs=n_jobs,
     )
+    numerator = plan.cumulative_numerator(data)
     steps = _pooled_targeting(
         data,
         plan,
         masks,
         cumulative,
-        stitched.initial,
-        stitched.regression_target,
-        stitched.diagnostics,
+        stitched,
+        numerator=numerator,
         scaler=scaler,
         horizon=horizon,
         cause=cause,
@@ -1600,6 +1983,7 @@ def _fit_regimen_crossfit(
         cumulative,
         horizon=horizon,
         cause=cause,
+        numerator=numerator,
     )
 
 
@@ -1608,10 +1992,9 @@ def _pooled_targeting(
     plan: Plan,
     masks: RegimenMasks,
     cumulative: FloatArray,
-    initial: dict[int, FloatArray],
-    regression_target: dict[int, FloatArray],
-    diagnostics: dict[int, tuple[SuperLearnerDiagnostics, ...]],
+    stitched: StitchedInitial,
     *,
+    numerator: FloatArray | None,
     scaler: OutcomeScaler,
     horizon: int,
     cause: str | None,
@@ -1631,6 +2014,10 @@ def _pooled_targeting(
     :math:`\sum_i w_i h_t(i) (Z_t(i) - \bar Q^*_t(i)) = 0` exactly, and the fit solves
     :math:`P_n D^* = 0` as a single-fold fit does.
 
+    At a policy node the fluctuation also moves the stitched per-arm predictions by the same
+    coefficient, and the node carries their policy-weighted mean.  The loss weight then
+    carries the policy numerator.
+
     Parameters
     ----------
     data : LongitudinalData
@@ -1641,12 +2028,10 @@ def _pooled_targeting(
         The regimen's prefix scans.
     cumulative : FloatArray
         ``(n, T)`` bounded out-of-fold cumulative mechanism probabilities.
-    initial : dict of int to FloatArray
-        Stitched out-of-fold initial predictions, by node.
-    regression_target : dict of int to FloatArray
-        Stitched targets the fold regressions were fitted to, by node.
-    diagnostics : dict of int to tuple of SuperLearnerDiagnostics
-        Learner diagnostics of every fold's regression, by node.
+    stitched : StitchedInitial
+        The stitched out-of-fold initial predictions, regression targets and diagnostics.
+    numerator : FloatArray or None
+        The plan's cumulative intervention density, ``None`` without a policy node.
     scaler : OutcomeScaler
         The outcome transformation.
     horizon : int
@@ -1668,43 +2053,101 @@ def _pooled_targeting(
     steps: list[SequentialStep] = []
     carried = seed_carried(data, scaler)
     for time in range(horizon, 0, -1):
-        at_risk = masks.at_risk(time)
-        following = masks.following(time)
-        with phase("pseudo_outcome"):
-            pseudo_outcome = _pseudo_outcome(data, carried, time, cause)
-        with phase("clever_covariate"):
-            counterfactual, clever = _clever_covariate(at_risk, following, cumulative, time)
+        node = pooled_node_inputs(
+            data, plan, stitched, masks, cumulative, numerator, carried, time, cause
+        )
         # One phase entry per node, as on a single-fold fit, and always in the parent.
         with phase("fluctuation"):
             fluctuation = _fluctuate_node(
-                pseudo_outcome,
-                initial[time],
-                data.weights * counterfactual,
-                following,
+                node.pseudo_outcome,
+                node.initial,
+                data.weights * node.counterfactual,
+                node.fitted_on,
                 label=plan.label,
                 time=time,
                 alpha=alpha,
                 max_iter=max_iter,
                 tol=tol,
+                arms=node.initial_by_arm,
             )
-        targeted = fluctuation.targeted.arms[_REGIMEN_ARM]
-        steps.append(
-            SequentialStep(
-                time=time,
-                trained_on=following,
-                at_risk=at_risk,
-                pseudo_outcome=pseudo_outcome,
-                initial=initial[time],
-                targeted=targeted,
-                clever=clever,
-                fluctuation=fluctuation,
-                learner_diagnostics=diagnostics[time],
-                regression_target=regression_target[time],
-            )
-        )
-        carried = np.where(at_risk, targeted, _FILLER)
+        step = _targeted_step(node, fluctuation, regression_target=stitched.regression_target[time])
+        steps.append(step)
+        carried = np.where(node.at_risk, step.value, _FILLER)
     steps.reverse()
     return tuple(steps)
+
+
+def pooled_node_inputs(
+    data: LongitudinalData,
+    plan: Plan,
+    stitched: StitchedInitial,
+    masks: RegimenMasks,
+    cumulative: FloatArray,
+    numerator: FloatArray | None,
+    carried: FloatArray,
+    time: int,
+    cause: str | None,
+) -> NodeInputs:
+    """One node's inputs for the pooled update, over the stitched initial estimate.
+
+    The pseudo-outcome composes the pooled targeted prediction of the later node, and the
+    clever covariate divides by the out-of-fold cumulative mechanism.  The per-regimen
+    pooled update and the cross-fitted working model both read this, so the two paths
+    cannot divide by different things.  The score set is every follower.  At a policy node
+    the inputs carry the stitched per-arm predictions and the policy.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    plan : Plan
+        The resolved plan.
+    stitched : StitchedInitial
+        The plan's stitched out-of-fold recursion.
+    masks : RegimenMasks
+        The plan's prefix scans.
+    cumulative : FloatArray
+        ``(n, T)`` bounded out-of-fold cumulative mechanism probabilities.
+    numerator : FloatArray or None
+        The plan's cumulative intervention density, ``None`` without a policy node.
+    carried : FloatArray
+        The pooled targeted value of the later node.
+    time : int
+        The node, counted from one.
+    cause : str or None
+        The absorbing cause, on a competing-risk fit.
+
+    Returns
+    -------
+    NodeInputs
+        The node's inputs, with ``fitted_on`` equal to ``trained_on``.
+    """
+    at_risk = masks.at_risk(time)
+    following = masks.following(time)
+    with phase("pseudo_outcome"):
+        pseudo_outcome = _pseudo_outcome(data, carried, time, cause)
+    with phase("clever_covariate"):
+        counterfactual, clever = _clever_covariate(
+            at_risk,
+            following,
+            cumulative,
+            time,
+            numerator=None if numerator is None else numerator[:, time - 1],
+        )
+    policy_node = plan.is_policy_node(time)
+    return NodeInputs(
+        time=time,
+        at_risk=at_risk,
+        trained_on=following,
+        fitted_on=following,
+        pseudo_outcome=pseudo_outcome,
+        initial=stitched.initial[time],
+        counterfactual=counterfactual,
+        clever=clever,
+        learner_diagnostics=stitched.diagnostics[time],
+        initial_by_arm=stitched.initial_by_arm[time] if policy_node else None,
+        policy=plan.policy_at(time) if policy_node else None,
+    )
 
 
 def _risk_set_hint(data: LongitudinalData, plan: Plan, time: int) -> str:
@@ -1717,7 +2160,8 @@ def _risk_set_hint(data: LongitudinalData, plan: Plan, time: int) -> str:
     """
     if not data.is_survival:
         return ""
-    reached = data.uncensored_through(time - 1) & data.followed_through(plan.values, time - 1)
+    masks = plan.masks(data)
+    reached = masks.uncensored[:, time - 1] & masks.followed[:, time - 1]
     if not reached.any():
         return ""
     failed = int(np.sum(reached & ~data.event_free_through(time - 1)))

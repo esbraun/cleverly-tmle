@@ -218,12 +218,15 @@ _REFUSED: dict[str, str] = {
         "across nodes -- so the longitudinal analogue of a rule d(W) is not a further "
         "parameter axis but a regimen whose nodes are rules. Declare it in regimens=, "
         "for example regimens=[DynamicRegimen('treat once L2 rises', (0, lambda h: "
-        "h['L2'] > 0), rule_kind='known')], with DynamicRegimen from cleverly.longitudinal"
+        "h['L2'] > 0), rule_kind='known')], with DynamicRegimen from cleverly.longitudinal. "
+        "A node that draws its arm from a known distribution is a Stochastic node in that "
+        "plan: DynamicRegimen('mix', (Stochastic(q1, 'q1', density_kind='known'), 'low'))"
     ),
     "shifts": (
         "a modified treatment policy on a continuous dose is not written yet for a "
         "longitudinal fit. LTMLE takes binary and categorical nodes, and a regimen "
-        "assigns one label per unit at each node. A shift needs a conditional density of "
+        "assigns a label, a rule or a known policy over the levels at each node. A shift "
+        "needs a conditional density of "
         "the dose at every node, and each node's intervention density ratio enters the "
         "cumulative product. Díaz, Williams, Hoffman and Schenck (2023), Theorem 3, "
         "covers that target. docs/roadmap.md X12 tracks it"
@@ -426,8 +429,31 @@ def _frozen_plans(plans: Sequence[Plan]) -> tuple[Plan, ...]:
     for plan in plans:
         values = np.array(plan.values, copy=True)
         values.setflags(write=False)
-        retained.append(Plan(plan.regimen, values))
+        policy = tuple(None if entry is None else _frozen(entry) for entry in plan.policy)
+        retained.append(replace(plan, values=values, policy=policy))
     return tuple(retained)
+
+
+def _frozen(array: FloatArray) -> FloatArray:
+    """A read-only copy of ``array``."""
+    copied = np.array(array, copy=True)
+    copied.setflags(write=False)
+    return copied
+
+
+def _plan_fingerprint(plan: Plan) -> str:
+    """Digest the arms a plan assigned this sample, and its policy densities when it has any.
+
+    A plan without a policy node digests ``values`` alone, exactly as before policies
+    existed, and so does a plan whose every policy node collapsed to a rule.  A policy
+    plan's ``values`` hold the observed codes, so two policies with the same support would
+    otherwise share a digest.  Each policy entry is digested in node order, and
+    :func:`~cleverly.provenance.fingerprint_array` hashes a ``None`` entry as a marker, so
+    moving a policy to another node changes the digest.
+    """
+    if not plan.has_policy:
+        return fingerprint_array(plan.values)
+    return fingerprint_array(plan.values, *plan.policy)
 
 
 def _truncated_cells(unbounded: FloatArray, bounded: FloatArray) -> BoolArray:
@@ -631,6 +657,10 @@ class LongitudinalConfig:
     #: stable fingerprint; the arrays are what the fit was handed, which is the same
     #: reasoning :attr:`plan_fingerprints` rests on.
     msm_fingerprint: str | None = None
+    #: ``(label, nodes)`` per regimen with a policy node whose density was one-hot on every
+    #: reachable row.  Such a node was resolved as the rule it equals, and the fit ran that
+    #: rule's code.  Empty when no policy node collapsed.
+    policy_point_mass_nodes: tuple[tuple[str, tuple[int, ...]], ...] = ()
 
     def describe(self, *, contrast: bool) -> list[str]:
         """Return the settings lines of :meth:`LongitudinalResult.summary`.
@@ -685,6 +715,22 @@ class LongitudinalConfig:
             for label, digest in self.plan_fingerprints:
                 if label in dynamic:
                     lines.append(f"  assigned arms, {label}: {digest}")
+        policies = [
+            regimen.label
+            for regimen in self.regimens
+            if isinstance(regimen, DynamicRegimen) and regimen.has_policy
+        ]
+        if policies:
+            lines.append(
+                "  a 'q' is a known policy q_t(a | H_t) read off [W, L_1, ..., L_t] and the "
+                "earlier treatments; each unit draws its arm there, and the plan's units are "
+                "those whose observed arm the policy can draw"
+            )
+        for label, nodes in self.policy_point_mass_nodes:
+            listed = ", ".join(str(node) for node in nodes)
+            lines.append(
+                f"  policy {label}: one-hot at node(s) {listed}, so resolved as the rule it equals"
+            )
         if self.msm_terms is not None:
             # A working model has no reference regimen -- what the intercept is against is
             # whatever the design makes it -- so the working model stands where that line
@@ -2809,7 +2855,10 @@ class LTMLE:
             # ``repr()``-ing one string per unit per node per regimen to say so.  That
             # also keeps the digest stable across numpy versions, which disagree on
             # ``repr(numpy.str_(...))``.
-            plan_fingerprints=tuple((plan.label, fingerprint_array(plan.values)) for plan in plans),
+            plan_fingerprints=tuple((plan.label, _plan_fingerprint(plan)) for plan in plans),
+            policy_point_mass_nodes=tuple(
+                (plan.label, plan.point_mass_nodes) for plan in plans if plan.point_mass_nodes
+            ),
             msm_terms=None if model is None else model.terms,
             msm_link=None if model is None else str(model.link),
             # The evaluated arrays rather than the design, for the reason the plans are
