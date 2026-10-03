@@ -639,8 +639,8 @@ PROPERTIES: dict[str, str] = {
         "size target the cluster-average mean"
     ),
     "few_cluster_reference": (
-        "below 40 clusters a t reference with J - 2 degrees of freedom keeps coverage, measured "
-        "with parametric nuisance learners and reported rather than gated"
+        "measures the coverage of the t reference that clustered fits take below 40 clusters, "
+        "with parametric nuisance learners, reported rather than gated"
     ),
     "corrected_mar_inference": (
         "randomized missing-outcome DR-TMLE retains valid inference when either the outcome "
@@ -1752,6 +1752,10 @@ def cell(
 
 #: The ``few_cluster_reference`` cells of ``clustered-few-cluster-tmle``: one entry per fit,
 #: size law, cluster count and arm, composed forward from the four parts.
+#: Mirrored from ``tests.studies.clustered_few_cluster_tmle.CLUSTER_COUNTS``, which this module
+#: cannot import (descriptions stay out of every study's hashed module list).
+#: ``tests/unit/test_clustered_unequal_study.py`` pins the two equal.
+_FEW_CLUSTER_COUNTS = (10, 20, 30)
 _FEW_CLUSTER_FITS = {
     "tmle_crossfit": "stacked CV-TMLE",
     "tmle_cv_evaluation": "fold-evaluated CV-TMLE",
@@ -1765,7 +1769,8 @@ _FEW_CLUSTER_SIZES = {
 }
 _FEW_CLUSTER_ARMS = {
     "t_reference": (
-        "the reported interval, t with J - 2 degrees of freedom",
+        "the reported interval, t with J - 2 degrees of freedom, or min(J - 2, J - V) for the "
+        "fold-evaluated fit",
         "exact coverage lower bound clears the floor, bias inside the margin",
     ),
     "iid_t_control": (
@@ -1774,6 +1779,10 @@ _FEW_CLUSTER_ARMS = {
     ),
     "normal_reference": (
         "the cluster-robust standard error with the normal quantile",
+        "reported only",
+    ),
+    "t_j_minus_2_reference": (
+        "the fold-evaluated standard error with t at J - 2 degrees of freedom",
         "reported only",
     ),
 }
@@ -1788,7 +1797,8 @@ CELLS.update(
         )
         for fit, fit_text in _FEW_CLUSTER_FITS.items()
         for sizes, size_text in _FEW_CLUSTER_SIZES.items()
-        for clusters in (10, 20, 30)
+        for clusters in _FEW_CLUSTER_COUNTS
         for arm, (arm_text, required) in _FEW_CLUSTER_ARMS.items()
+        if arm != "t_j_minus_2_reference" or fit == "tmle_cv_evaluation"
     }
 )

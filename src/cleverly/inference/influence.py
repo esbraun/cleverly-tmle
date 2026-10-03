@@ -51,7 +51,7 @@ statement of :math:`\Psi(P_w)`.
 from __future__ import annotations
 
 import warnings
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Any, Literal, NamedTuple
@@ -353,11 +353,18 @@ class WaldTest:
 
 @dataclass(frozen=True)
 class ClusterReference:
-    """The rows each estimate of a clustered report reads, for its Student t reference.
+    r"""The rows each estimate of a clustered report reads, for its Student t reference.
 
     A builder records which rows an estimate reads, and the stamp turns that record into
     degrees of freedom. An estimate named in :attr:`stratum_of` reads the rows of its
     baseline stratum. Every other estimate reads every row.
+
+    An estimate named in :attr:`fold_evaluated` carries the fold-evaluated variance of
+    :func:`~cleverly.inference.cross_validated_variance`. That variance centres the cluster
+    totals inside each of the :attr:`validation_folds` folds, so it estimates one mean per
+    fold and has :math:`J - V` degrees of freedom, the pooled within-group count. Below
+    :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters such an estimate takes
+    :math:`\min(J - 2, J - V)`.
 
     Parameters
     ----------
@@ -369,12 +376,37 @@ class ClusterReference:
         The baseline stratum code of each row, or ``None`` for a fit without strata.
     stratum_of : mapping of str to int, default={}
         The stratum code of each stratum estimate, keyed by estimate name.
+    fold_evaluated : frozenset of str, default=frozenset()
+        The names whose variance is the fold-evaluated one.
+    validation_folds : int, default=0
+        The number of validation folds that variance averages over.
     """
 
     cluster: IntArray
     weights: FloatArray | None = None
     strata: IntArray | None = None
     stratum_of: Mapping[str, int] = MappingProxyType({})
+    fold_evaluated: frozenset[str] = frozenset()
+    validation_folds: int = 0
+
+    def with_fold_evaluated(self, names: Iterable[str], validation_folds: int) -> ClusterReference:
+        r"""This record with ``names`` read as fold-evaluated estimates over that many folds.
+
+        Parameters
+        ----------
+        names : iterable of str
+            The names whose variance is the fold-evaluated one.
+        validation_folds : int
+            The number of validation folds.
+
+        Returns
+        -------
+        ClusterReference
+            A copy that applies :math:`\min(J - 2, J - V)` to ``names``.
+        """
+        return replace(
+            self, fold_evaluated=frozenset(names), validation_folds=int(validation_folds)
+        )
 
     def reference_df(self, name: str) -> int | None:
         """The degrees of freedom of the estimate called ``name``.
@@ -392,9 +424,15 @@ class ClusterReference:
         """
         code = self.stratum_of.get(name)
         if code is None:
-            return cluster_reference_df(self.cluster, self.weights)
-        assert self.strata is not None
-        return cluster_reference_df(self.cluster, self.weights, rows=self.strata == code)
+            df = cluster_reference_df(self.cluster, self.weights)
+        else:
+            assert self.strata is not None
+            df = cluster_reference_df(self.cluster, self.weights, rows=self.strata == code)
+        if df is None or name not in self.fold_evaluated:
+            return df
+        # ``df`` is J - 2, so J - V is ``df + 2 - V``. The one-cluster-fold refusal keeps
+        # V at most J / 2, so the value stays positive.
+        return min(df, df + 2 - self.validation_folds)
 
 
 def stamp_inference(

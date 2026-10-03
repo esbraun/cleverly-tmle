@@ -67,12 +67,15 @@ MINIMUM_INTERVAL_CLUSTERS: Final[int] = 10
 #: The paragraph a result summary prints under a table whose estimates use a t reference.
 #: ``{clusters}`` is the positive-mass cluster count of the fit.
 T_REFERENCE_NOTE: Final[str] = (
-    "Intervals and p-values use a Student t reference with J - 2 degrees of freedom, "
-    "because the fit reads {clusters} clusters with positive weight mass, fewer than "
-    f"{FEW_CLUSTER_THRESHOLD} (Nugent et al. (2024), Section 2.2). A stratum estimate uses "
-    "its own cluster count. The df column gives each estimate's degrees of freedom. The "
-    "registered few-cluster evidence uses parametric nuisance learners; Wang et al. (2024), "
-    "Remark 3, caution against complex learners at about 20 clusters."
+    "An estimate that reads fewer than "
+    f"{FEW_CLUSTER_THRESHOLD} clusters with positive weight mass reports its interval and "
+    "p-value on a Student t reference with J - 2 degrees of freedom, where J is the count it "
+    "reads (Nugent et al. (2024), Section 2.2); a fold-evaluated estimate over V folds takes "
+    "min(J - 2, J - V). The fit reads {clusters} such clusters, and the fewest in one "
+    "reported stratum is {fewest}. The df column gives each estimate's degrees of freedom, "
+    "and 'normal' marks the normal reference. The registered few-cluster evidence uses "
+    "parametric nuisance learners; Wang et al. (2024), Remark 3, caution against complex "
+    "learners at about 20 clusters."
 )
 
 #: The parenthesis a summary prints beside the bootstrap percentile range of an estimate
@@ -96,8 +99,9 @@ NO_SIMULTANEOUS_BANDS: Final[str] = (
 #: The line a result summary prints when a fit skips its default band because an estimate
 #: carries a Student t reference.
 NO_T_REFERENCE_BANDS: Final[str] = (
-    f"no simultaneous bands: the fit reads fewer than {FEW_CLUSTER_THRESHOLD} clusters with "
-    "positive weight mass, and it reports pointwise t intervals only."
+    "no simultaneous bands: an estimate of this fit reads fewer than "
+    f"{FEW_CLUSTER_THRESHOLD} clusters with positive weight mass and carries a t reference, "
+    "and no source gives a t-calibrated band, so the fit reports pointwise intervals only."
 )
 
 

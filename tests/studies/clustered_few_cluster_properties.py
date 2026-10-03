@@ -32,7 +32,13 @@ must lie within 0.25 empirical SD. ``iid_t_control`` (control) keeps the point e
 t quantile and uses the IID row standard error: its SE-ratio upper bound must fall below 0.80.
 ``normal_reference`` (reported) keeps the cluster-robust standard error with the normal
 quantile. Every cell also reports its SE-ratio interval and its coverage against the 0.99
-over-coverage ceiling, because at ``t_2`` excess width is as likely as under-coverage.
+over-coverage ceiling, because at ``t_8`` excess width is as likely as under-coverage.
+
+The fold-evaluated fit reports t with ``min(J - 2, J - V)`` degrees of freedom: its variance
+centres the cluster totals in each of the ``V = 5`` folds, so it has ``J - V``. Its
+``t_reference`` cells measure that rule, and a fourth, reported arm,
+``t_j_minus_2_reference``, keeps ``J - 2`` on the same fits, so the run shows what the rule buys
+at 2, 4 and 6 clusters per fold.
 
 A fit that raises, or that returns a non-finite estimate or standard error, is a failed
 replication. The study publishes the count in ``failed_replicates`` and never drops one
@@ -57,14 +63,16 @@ from tests.parallel import STUDY_JOBS
 from tests.studies import clustered_unequal_laws as laws
 from tests.studies.canonical_drtmle import ColumnLogistic
 from tests.studies.clustered_few_cluster_tmle import (
-    ARMS,
     CLUSTER_COUNTS,
     FAMILY,
     FITS,
+    N_FOLDS,
     PROPERTY_REPLICATES,
     SIZE_LAWS,
     STUDY,
+    arms,
     cell_name,
+    expected_reference_df,
     fit_cleverly,
 )
 from tests.studies.clustered_unequal_cvtmle import tmle_settings
@@ -94,9 +102,9 @@ TARGET = {
 }
 
 
-def t_critical(clusters: int) -> float:
-    """The two-sided t quantile with ``clusters - 2`` degrees of freedom."""
-    return float(t.ppf(1.0 - STUDY.margins.alpha / 2.0, clusters - 2))
+def t_critical(df: int) -> float:
+    """The two-sided t quantile with ``df`` degrees of freedom."""
+    return float(t.ppf(1.0 - STUDY.margins.alpha / 2.0, df))
 
 
 def size_law_parameters(sizes: str) -> dict[str, float]:
@@ -157,7 +165,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
         for fit in FITS
         for sizes in SIZE_LAWS
         for clusters in CLUSTER_COUNTS
-        for arm, role in ARMS
+        for arm, role in arms(fit)
     )
 
 
@@ -169,7 +177,7 @@ def published_cells() -> tuple[str, ...]:
 def fold_count(fit: str, clusters: int) -> int:
     """Five folds, which every grid count of at least 10 clusters supports."""
     del fit, clusters
-    return 5
+    return N_FOLDS
 
 
 def fit_estimate(fit: str, frame: pd.DataFrame, clusters: int) -> Any:
@@ -217,7 +225,7 @@ def _cell_rows(
         except Exception:
             failures.append((fit, sizes, clusters))
             continue
-        if estimate.reference_df != clusters - 2:
+        if estimate.reference_df != expected_reference_df(fit, clusters):
             raise AssertionError(
                 f"{fit} at J = {clusters} reports reference_df {estimate.reference_df}"
             )
@@ -240,7 +248,7 @@ def _cell_rows(
                 truth=truth,
                 estimate=float(estimate.psi),
                 standard_error=float(np.sqrt(influence_variance(estimate.influence_curve))),
-                critical=t_critical(clusters),
+                critical=t_critical(estimate.reference_df),
                 **common,
             )
         )
@@ -256,6 +264,19 @@ def _cell_rows(
                 **common,
             )
         )
+        if fit == "tmle_cv_evaluation":
+            rows.append(
+                control_row(
+                    cell=cell_name(fit, sizes, clusters, "t_j_minus_2_reference"),
+                    n=n,
+                    truth=truth,
+                    estimate=float(estimate.psi),
+                    standard_error=float(standard_error),
+                    critical=t_critical(clusters - 2),
+                    role=DIAGNOSTIC_ROLE,
+                    **common,
+                )
+            )
     return rows, failures
 
 
@@ -279,7 +300,7 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
         for key in failures:
             failed[key] = failed.get(key, 0) + 1
     for (fit, sizes, clusters), count in failed.items():
-        for arm, _ in ARMS:
+        for arm, _ in arms(fit):
             mask = rows["cell"] == cell_name(fit, sizes, clusters, arm)
             rows.loc[mask, "failed_replicates"] = count
     return rows

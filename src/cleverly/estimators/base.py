@@ -416,7 +416,8 @@ class CVTargeting:
             One of :data:`~cleverly.inference.influence.InferenceStatus`.
         reference : ClusterReference or None, default=None
             The rows each estimate reads on a clustered fit, which set the Student t
-            reference of an inferential estimate.
+            reference of an inferential estimate. The fold-evaluated report reads it with
+            :meth:`~cleverly.inference.influence.ClusterReference.with_fold_evaluated`.
 
         Returns
         -------
@@ -425,10 +426,15 @@ class CVTargeting:
             :func:`~cleverly.inference.influence.stamp_inference`, with every number
             unchanged.
         """
+        fold_reference = (
+            None
+            if reference is None
+            else reference.with_fold_evaluated(self.fold_evaluated, self.n_folds)
+        )
         return replace(
             self,
             pooled=stamp_inference(self.pooled, status, reference),
-            fold_evaluated=stamp_inference(self.fold_evaluated, status, reference),
+            fold_evaluated=stamp_inference(self.fold_evaluated, status, fold_reference),
         )
 
     def to_frame(self, data: CausalData | None = None) -> Any:
@@ -1557,7 +1563,17 @@ class TMLEResult:
         parts = [*header, *facts, "", table]
         if t_reference:
             parts.append("")
-            parts.append(T_REFERENCE_NOTE.format(clusters=positive_mass_clusters(data)))
+            assert data.cluster is not None
+            parts.append(
+                T_REFERENCE_NOTE.format(
+                    clusters=positive_mass_clusters(data),
+                    fewest=fewest_clusters(
+                        data.cluster,
+                        data.strata,
+                        data.weights if data.is_weighted else None,
+                    ),
+                )
+            )
         if record is not None:
             # The whole column is refused, so no ``95% CI`` heading is printed with a "-"
             # under it.  A dash under that heading still tells a reader an interval is the
@@ -1801,7 +1817,7 @@ def positive_mass_clusters(data: CausalData) -> int:
 
 
 def _cluster_fact(data: CausalData) -> str:
-    """The cluster count and the size or active-cluster facts behind its status.
+    """The cluster count, with the size and positive-mass facts a reader needs.
 
     A weighted fit whose clusters hold equal rows and unequal weight mass prints the mass
     range in place of the size range. The stratum count applies to a fit with baseline

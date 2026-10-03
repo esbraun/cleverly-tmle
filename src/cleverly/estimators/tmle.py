@@ -2759,17 +2759,27 @@ class TMLE:
         return tuple(zip(folds, seeds, strict=True))
 
     def _preflight_cluster_validation_folds(self, data: CausalData, folds: Sequence[Folds]) -> None:
-        """Refuse a fold-evaluated clustered split with a validation fold of one cluster.
+        """Refuse a fold-wise clustered split with a validation fold of one cluster.
 
-        :func:`~cleverly.inference.cluster.cross_validated_variance` takes the centred
-        variance of the cluster totals inside each validation fold, so each fold needs at
-        least two clusters. The check reads every realized or supplied draw before the
-        first learner. :func:`~cleverly.learners.crossfit.random_partition` deals the
-        clusters into near-equal counts, so a generated split passes when the fold count
-        is at most half the cluster count.
+        Two settings evaluate each validation fold on its own. ``cv_evaluation=True`` takes
+        the centred variance of the cluster totals inside each fold
+        (:func:`~cleverly.inference.cluster.cross_validated_variance`), and
+        ``targeting_scheme="fold"`` builds each fold's estimate with a cluster-robust
+        variance of its own rows. Both need at least two clusters in every validation fold.
+        The check reads every realized or supplied draw before the first learner.
+        :func:`~cleverly.learners.crossfit.random_partition` deals the clusters into
+        near-equal counts, so a generated split passes when the fold count is at most half
+        the cluster count.
         """
-        if not self.cv_evaluation or data.cluster is None:
+        fold_targeting = self.targeting_scheme == "fold"
+        if not (self.cv_evaluation or fold_targeting) or data.cluster is None:
             return
+        setting = "cv_evaluation=True" if self.cv_evaluation else 'targeting_scheme="fold"'
+        stacked = (
+            "the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))"
+            if self.cv_evaluation
+            else 'one pooled fluctuation (targeting_scheme="pooled")'
+        )
         for draw in folds:
             if draw.is_single:
                 continue
@@ -2778,13 +2788,12 @@ class TMLE:
                 if held < 2:
                     n_clusters = int(np.unique(data.cluster).size)
                     raise CapabilityError(
-                        "cv_evaluation=True needs at least 2 clusters in every validation "
-                        "fold, because the fold-evaluated variance compares cluster totals "
-                        f"inside each fold. This split puts {n_clusters} clusters into "
-                        f"{draw.n_folds} folds, and fold {fold} holds {held}. Request at "
-                        f"most {n_clusters // 2} folds (CrossFitting(n_folds=...)), or use "
-                        "the stacked report (cv_evaluation=False, "
-                        "CrossFitting(fold_evaluation=False))."
+                        f"{setting} needs at least 2 clusters in every validation fold, "
+                        "because each fold's variance compares cluster totals inside the "
+                        f"fold. This split puts {n_clusters} clusters into {draw.n_folds} "
+                        f"folds, and fold {fold} holds {held}. Request at most "
+                        f"{n_clusters // 2} folds (CrossFitting(n_folds=...)), or use "
+                        f"{stacked}."
                     )
 
     def _resolve_learner(
@@ -3436,7 +3445,16 @@ class TMLE:
                 stratum_of=stratum_of,
             )
         )
-        ordered = stamp_inference(_in_report_order(estimates, requested), status, cluster_reference)
+        headline_reference: ClusterReference | None = cluster_reference
+        if cluster_reference is not None and self.cv_evaluation and indices:
+            # The headline is the fold-evaluated report, whose variance has J - V degrees of
+            # freedom (ClusterReference). The stacked report keeps J - 2.
+            headline_reference = cluster_reference.with_fold_evaluated(
+                fold_evaluated_report, len(indices)
+            )
+        ordered = stamp_inference(
+            _in_report_order(estimates, requested), status, headline_reference
+        )
         detail = (
             CVTargeting(
                 n_folds=len(indices),

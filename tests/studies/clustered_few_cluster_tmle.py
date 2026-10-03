@@ -72,7 +72,8 @@ TRUTH_KEYS = {
 }
 
 
-#: The property grid: five fits, four cluster counts, two size laws, three arms per fit.
+#: The property grid: five fits, three cluster counts, two size laws, and the arms of
+#: :func:`arms`.
 FITS = (
     "tmle_crossfit",
     "tmle_cv_evaluation",
@@ -93,7 +94,24 @@ ARMS = (
     ("iid_t_control", "control"),
     ("normal_reference", "diagnostic"),
 )
+#: The reported arm of the fold-evaluated fit that keeps t with J - 2 degrees of freedom,
+#: beside the min(J - 2, J - V) the fit reports, so the run measures what the fold rule buys.
+FOLD_ARM = ("t_j_minus_2_reference", "diagnostic")
 FAMILY = "few_cluster_reference"
+#: The validation folds of every cross-fitted fit; each grid count holds 2 clusters per fold.
+N_FOLDS = 5
+
+
+def arms(fit: str) -> tuple[tuple[str, str], ...]:
+    """The arms one fit publishes, each with its role."""
+    return (*ARMS, FOLD_ARM) if fit == "tmle_cv_evaluation" else ARMS
+
+
+def expected_reference_df(fit: str, clusters: int) -> int:
+    """The df a fit must report: J - 2, or min(J - 2, J - V) for the fold-evaluated fit."""
+    if fit == "tmle_cv_evaluation":
+        return min(clusters - 2, clusters - N_FOLDS)
+    return clusters - 2
 
 
 def cell_name(fit: str, sizes: str, clusters: int, arm: str) -> str:
@@ -106,7 +124,7 @@ PUBLISHED_CELLS = tuple(
     for fit in FITS
     for sizes in SIZE_LAWS
     for clusters in CLUSTER_COUNTS
-    for arm, _ in ARMS
+    for arm, _ in arms(fit)
 )
 
 STUDY = StudyRecord(

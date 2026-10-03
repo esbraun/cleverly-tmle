@@ -270,7 +270,7 @@ class TestFewClustersWithholdTheLongitudinalInterval:
         assert NO_T_REFERENCE_BANDS in result.summary()
 
 
-class TestFourClustersKeepTheLongitudinalInterval:
+class TestTenClustersKeepTheLongitudinalInterval:
     """The second witness: the same rows in 10 clusters keep every interval, with t(8)."""
 
     def test_the_estimates_keep_their_interval(self, control_result: Any, kind: str) -> None:
